@@ -19,6 +19,8 @@
 import { clamp, clamp01, luma } from './color-math';
 import type { Adjustment, ClarityDehazeParams, GrainParams } from './model';
 import type { RGBA8 } from '../types';
+import { normalizeRelight } from '../relight/model';
+import { relight } from '../relight/surface';
 
 export const SPATIAL_WORK = 1024;
 const fin = (v: number) => (Number.isFinite(v) ? v : 0);
@@ -325,5 +327,6 @@ export function grain(src: RGBA8, p: GrainParams, ctx: SpatialContext = {}): RGB
 export function applySpatial(src: RGBA8, adj: Adjustment, ctx: SpatialContext = {}): RGBA8 | undefined {
   if (adj.kind === 'clarity-dehaze') return clarityDehaze(src, adj.params, ctx);
   if (adj.kind === 'grain') return grain(src, adj.params, ctx);
+  if (adj.kind === 'relight') return relight(src, normalizeRelight(adj.params), ctx);
   return undefined;
 }

@@ -9,6 +9,7 @@ import { documentProfile, floatTo16 } from './color';
 import { defaultSettings, encodeExport, exportBaseName, exportFileName, formatInfo, prepareExport, type ExportContext, type ExportSettings, type SourceImage } from './encode';
 import { exportSvg } from './svg-export';
 import { encodeGif, type GifEncodeFrame, type GifEncodeOptions } from '../../imaging/codecs/gif';
+import { printPng } from './print-encode';
 
 const KEY = 'photo-studio-export';
 export function loadSettings(): ExportSettings {
@@ -81,27 +82,26 @@ export async function encodeDocument(e: Editor, settings: ExportSettings, doc: P
 export function bytesBlob(bytes: Uint8Array, mime: string) {
   return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mime });
 }
-/** Quick export with the last Export As settings in the format and to the
- * place chosen in Preferences → Export. */
+/** Quick export in the format, with the settings and to the place chosen in
+ * Preferences → Export. */
 export async function quickExport(e: Editor, format: ExportSettings['format'] = e.preferences.quickExportFormat) {
-  const s = { ...loadSettings(), format };
+  const { quickExportFolder, quickExportSettings } = await import('./quick-export');
+  const s = quickExportSettings(e.preferences, format, loadSettings());
   const out = await encodeDocument(e, s);
   const name = preferredFileName(exportFileName(exportBaseName(e.doc), format));
   const { withProvenance } = await import('../provenance/export');
   out.bytes = await withProvenance(e.session, out.bytes, name, e.preferences.provenanceAttach, { prompts: e.preferences.provenancePrompts, width: out.width, height: out.height });
   const blob = bytesBlob(out.bytes, out.mime);
   const where = e.preferences.quickExportLocation;
-  const docPath = e.session.storage.path;
-  if (where === 'download' || (where === 'beside' && !docPath)) {
+  let dir = quickExportFolder(where, e.session.storage.path);
+  if (where !== 'ask' && !dir) {
     download(blob, name);
     e.message(`${formatInfo[format].label} exported (${formatBytes(out.bytes.length)})`);
     void emitAppEvent('export', e.session);
     return;
   }
   const { cloudWrite, joinPath, pickCloudFolder } = await import('./cloud');
-  let dir: string;
-  if (where === 'beside') dir = docPath!.replace(/\/[^/]*$/, '') || '/';
-  else {
+  if (!dir) {
     // The Puter picker never settles when dismissed: do not hold the editor busy.
     e.release();
     dir = (await pickCloudFolder()).path;
@@ -164,6 +164,23 @@ export async function encodeOffThread(
     w.postMessage({ id, src, settings: s, ctx, keepPrepared, owned }, moved);
   });
 }
+/** prepareExport (resample, convert) in the export worker. With `transfer`,
+ * the source's pixels move there (`src` is unusable after). */
+export async function prepareOffThread(src: SourceImage, s: ExportSettings, ctx: ExportContext, transfer = false): Promise<SourceImage> {
+  let w: Worker;
+  try {
+    w = exportWorker();
+  } catch {
+    return prepareExport(src, s, ctx);
+  }
+  const id = ++jobId;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve: (v) => resolve(v.prepared!), reject });
+    const { data } = src;
+    const owned = transfer && data.byteOffset === 0 && data.byteLength === data.buffer.byteLength;
+    w.postMessage({ id, src, settings: s, ctx, keepPrepared: true, owned, prepareOnly: true }, owned ? [data.buffer as ArrayBuffer] : []);
+  });
+}
 /** Animated GIF encoding in the export worker. */
 export async function encodeGifOffThread(frames: GifEncodeFrame[], options: GifEncodeOptions): Promise<Uint8Array> {
   let w: Worker;
@@ -176,5 +193,23 @@ export async function encodeGifOffThread(frames: GifEncodeFrame[], options: GifE
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve: (v) => resolve(v.bytes), reject });
     w.postMessage({ id, gif: { frames, options } });
+  });
+}
+/** File → Print's PNG (see print-encode.ts) in the export worker. The
+ * source's pixels move to the worker when it owns its buffer (`src` is then
+ * unusable). */
+export async function printPngOffThread(src: SourceImage, ctx: ExportContext): Promise<Uint8Array> {
+  let w: Worker;
+  try {
+    w = exportWorker();
+  } catch {
+    return printPng(src, ctx);
+  }
+  const id = ++jobId;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve: (v) => resolve(v.bytes), reject });
+    const { data } = src;
+    const owned = data.byteOffset === 0 && data.byteLength === data.buffer.byteLength;
+    w.postMessage({ id, print: { src, ctx, owned } }, owned ? [data.buffer as ArrayBuffer] : []);
   });
 }

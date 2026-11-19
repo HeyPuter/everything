@@ -99,7 +99,7 @@ export async function importFile(e: Editor, blob: Blob, name: string) {
 }
 /** Layers panel option: duplicates get " copy" after their name. */
 export const duplicateNaming = { addCopy: true };
-function cloneLayer(l: Layer): Layer {
+export function cloneLayer(l: Layer): Layer {
   const copy = structuredClone(l);
   for (const item of allLayers([copy])) {
     item.id = crypto.randomUUID();

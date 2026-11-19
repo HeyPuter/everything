@@ -8,6 +8,7 @@ import { svg } from '../../app/icons';
 import { linkStatus, linkStatusText } from './link-state';
 import { stackLabel } from './stack-mode';
 import { ownerOf } from './owners';
+import { section as pfSection } from '../panels/property-fields';
 
 /** Small badge over the thumbnail: embedded, linked, or linked and changed. */
 export function badge(e: Editor, l: Layer) {
@@ -53,8 +54,7 @@ export function section(e: Editor, l: Layer) {
   const stack = c?.project
     ? `<label class="embed-stack">Stack mode<select data-embed-stack aria-label="Stack mode">${stackModes.map(([m, label]) => `<option value="${m}" ${(c.stack ?? 'none') === m ? 'selected' : ''}>${escapeXML(label)}</option>`).join('')}</select></label>`
     : '';
-  return `<section class="embed-properties" aria-label="Embedded object">
-<h3>${svg(link ? 'link' : 'embedded-object', 14)} ${link ? 'Linked object' : 'Embedded object'}</h3>
+  return `<div class="embed-properties">${pfSection('embed-object', link ? 'Linked object' : 'Embedded object', `
 <div class="property-grid">${rows.map(([k, v]) => `<span>${escapeXML(k)}</span><strong class="${k === 'Status' && status && status !== 'current' ? 'embed-warn' : ''}">${escapeXML(v)}</strong>`).join('')}</div>
 ${stack}
 <div class="embed-actions">
@@ -64,7 +64,7 @@ ${button('layer.embed-replace', 'repeat', 'Replace…')}
 ${button('layer.embed-export', 'download', 'Export…')}
 ${l.embed?.frame || l.transform.rotation || Math.abs(l.transform.width - width) > 0.5 || Math.abs(l.transform.height - height) > 0.5 ? button('layer.embed-reset', 'rotate-ccw', 'Reset Transform') : ''}
 ${link ? `${button('layer.embed-update', 'refresh-cw', 'Update')}${button('layer.embed-relink', 'link', 'Relink…')}${button('layer.embed-embed-linked', 'embedded-object', 'Embed')}` : ''}
-</div></section>`;
+</div>`)}</div>`;
 }
 
 /** Stack mode picker in the Properties section. */

@@ -34,14 +34,15 @@ export function psdLosses(doc: PhotoDocument, extras: { comments?: boolean } = {
   flattened('frames', 'frames', any((l) => l.frame));
   flattened('vector-masks', 'vector masks', any((l) => l.vectorMask));
   flattened('warps', 'warps', any((l) => l.pinWarp));
-  flattened('shaped-text', 'text on a path and area text', any((l) => l.kind === 'text' && (l.textData?.path || l.textData?.block)));
+  flattened('shaped-text', 'text on a path, area text and dynamic text', any((l) => l.kind === 'text' && (l.textData?.path || l.textData?.block || l.textData?.fit)));
   flattened('resampled', 'scaled or rotated images', any(resampled));
   flattened('layer-filters', 'layer filter settings', any((l) => l.kind !== 'group' && filtered(l)));
   flattened('merged-groups', 'groups that have a style, filter or shape mask', any((l) => l.kind === 'group' && !l.frame && (activeLayerStyle(l) || filtered(l) || (hasMask(l) && !l.pixelMask))));
   flattened('video-layers', 'video layers', any((l) => l.video));
+  flattened('relight', 'relight layers', any((l) => l.kind === 'adjustment' && l.adjustment?.kind === 'relight'));
 
   // Adjustments without a PSD record are written as empty layers.
-  const adjustments = [...new Set(layers.filter((l) => l.kind === 'adjustment' && !exportPsdAdjustment(l.adjustment)).map((l) => ADJUSTMENT_LABELS[l.adjustment?.kind as AdjustmentKind] ?? 'unsupported'))];
+  const adjustments = [...new Set(layers.filter((l) => l.kind === 'adjustment' && l.adjustment?.kind !== 'relight' && !exportPsdAdjustment(l.adjustment)).map((l) => ADJUSTMENT_LABELS[l.adjustment?.kind as AdjustmentKind] ?? 'unsupported'))];
   omitted('adjustments', `${list(adjustments)} adjustments`, adjustments.length > 0);
   omitted('fill-opacity', 'fill opacity', any((l) => l.fillOpacity !== undefined && l.fillOpacity !== 1));
   omitted('deep-knockout', 'deep knockout (written as shallow)', any((l) => l.blending?.knockout === 'deep'));

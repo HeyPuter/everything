@@ -1,0 +1,45 @@
+/* AI Recompose, Remove Reflections and Rotate Object workspaces */
+dialog.ga-workspace .rw-side { width: 300px; }
+dialog.ga-workspace .rw-side .ai-notice { margin-top: 6px; font-size: 11px; line-height: 1.45; }
+.ga-view { position: relative; }
+.ga-view canvas { touch-action: none; }
+.ga-view canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ga-recompose .rw-canvas { cursor: move; }
+.ga-hint { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); margin: 0; padding: 4px 10px; border-radius: 4px; background: color-mix(in srgb, var(--chrome) 88%, transparent); color: var(--text); font-size: 12px; pointer-events: none; z-index: 1; }
+.ga-hint[hidden], .ga-hint:empty { display: none; }
+.ga-note { margin: 4px 0 6px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.ga-side button { border: 1px solid var(--input-line); border-radius: 4px; }
+#ga-reset { padding: 4px 10px; }
+.ga-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.ga-buttons button { flex: 1; min-width: 0; padding: 4px 6px; }
+.ga-buttons button[aria-pressed='true'], .ga-side button[aria-pressed='true'] { background: var(--selected); border-color: var(--accent); }
+.ga-gen-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.ga-gen-row #ga-generate { margin: 8px 0; min-width: 96px; padding: 5px 10px; }
+.ga-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 8px 0 4px; padding: 6px; min-height: 64px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--input); }
+.ga-results button { display: grid; justify-items: center; gap: 3px; padding: 4px; min-height: 0; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--surface); cursor: pointer; }
+.ga-results button canvas { display: block; max-width: 100%; height: auto; border-radius: 2px; background: repeating-conic-gradient(var(--checker-b) 0 25%, var(--checker-a) 0 50%) 0 0 / 10px 10px; }
+.ga-results button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); }
+.ga-results button[aria-checked='true'] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.ga-results button[aria-checked='true'] span { color: var(--text); }
+.ga-empty { grid-column: 1 / -1; align-self: center; margin: 0; padding: 14px 8px; color: var(--muted); text-align: center; font-size: 11px; }
+.ga-foot { color: var(--muted); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Before/after comparison */
+.ga-compare { max-width: calc(100% - 16px); max-height: calc(100% - 16px); box-shadow: 0 2px 12px #0006; cursor: ew-resize; }
+.ga-tag { position: absolute; top: 12px; padding: 2px 8px; border-radius: 3px; background: #000a; color: #fff; font-size: 11px; pointer-events: none; }
+.ga-tag.left { left: 14px; }
+.ga-tag.right { right: 14px; }
+/* Turntable */
+.ga-turn { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; align-items: center; }
+.ga-dial { width: 112px; height: 112px; display: block; cursor: grab; touch-action: none; border-radius: 50%; }
+.ga-dial:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ga-dial-plate { fill: var(--input); stroke: var(--input-line); stroke-width: 1.5; }
+.ga-dial-axis { stroke: var(--line-soft); stroke-width: 1; stroke-dasharray: 3 3; }
+.ga-dial-view { fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ga-dial-marker line { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+.ga-dial-marker circle { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.ga-turn-fields .rw-field { margin-top: 0; }
+.ga-turn-fields input { width: 72px; }
+@media (max-width: 900px) {
+  dialog.ga-workspace .rw-body { flex-direction: column; }
+  dialog.ga-workspace .rw-side { width: auto; max-height: 45%; border-left: 0; border-top: 1px solid var(--line); }
+}

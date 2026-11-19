@@ -84,6 +84,7 @@ export async function kitchenSink(page: Page) {
     const { defaultAdjustment } = await import('/src/imaging/adjust/model.ts');
     addAdjustmentLayer(e, 'clarity-dehaze', { ...defaultAdjustment('clarity-dehaze'), params: { ...defaultAdjustment('clarity-dehaze').params, clarity: 40 } } as never);
     addAdjustmentLayer(e, 'grain', { ...defaultAdjustment('grain'), params: { ...defaultAdjustment('grain').params, amount: 30 } } as never);
+    addAdjustmentLayer(e, 'relight');
     addAdjustmentLayer(e, 'levels');
   });
   await idle(page);

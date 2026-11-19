@@ -1,9 +1,10 @@
 import type { Editor } from '../../editor';
 import { registerCommand, registerPanel, tools, type Panel, type Tool } from '../../app/registry';
+import { showContextMenu } from '../../app/menubar';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { formDialog } from '../../ui/dialog';
-import { brushFor, type BrushSettings } from '../paint';
+import { brushFor, resetBrush, type BrushSettings } from '../paint';
 import { paintingTools } from '../brushes';
 import { effectsState } from '../effects/state';
 import { shapeOpts } from '../vector/shape-options';
@@ -72,7 +73,9 @@ export function optionKeys(e: Editor, tool: Tool) {
   return { settings, fields };
 }
 
-type StateProvider = { id: string; applies: (tool: Tool) => boolean; capture: (tool: Tool) => unknown; apply: (tool: Tool, value: unknown) => void };
+// `reset` returns the store to its default for the tool; without it the value
+// captured at startup is applied again.
+type StateProvider = { id: string; applies: (tool: Tool) => boolean; capture: (tool: Tool) => unknown; apply: (tool: Tool, value: unknown) => void; reset?: (tool: Tool) => void };
 const toB64 = (d: Uint8Array) => {
   let s = '';
   for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode(...d.subarray(i, i + 0x8000));
@@ -94,6 +97,7 @@ const providers: StateProvider[] = [
         sample: sample ? { width: sample.width, height: sample.height, data: fromB64(sample.data) } : undefined,
       });
     },
+    reset: (t) => resetBrush(t.id),
   },
   {
     id: 'gradient',
@@ -153,6 +157,55 @@ export function applyToolPreset(e: Editor, preset: ToolPreset) {
   e.options();
   e.dock?.update();
   e.message(`Tool preset “${preset.name}” applied.`);
+}
+
+// ----- Reset Tool -----
+// The option values every tool starts with, recorded once all features have
+// installed (before any option is changed).
+let defaults: { settings: Record<string, unknown>; fields: Record<string, unknown>; state: Record<string, unknown> } | undefined;
+export function recordToolDefaults(e: Editor) {
+  const settings: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(e.settings)) {
+    const p = transient.has(k) ? undefined : plain(v);
+    if (p !== undefined) settings[k] = p;
+  }
+  const fields: Record<string, unknown> = {};
+  for (const k of editorFields) fields[k] = (e as unknown as Record<string, unknown>)[k];
+  const state: Record<string, unknown> = {};
+  // Stores shared by all their tools (the brush keeps one per tool and resets itself).
+  const any = { id: '', group: '' } as Tool;
+  for (const p of providers) if (!p.reset) state[p.id] = structuredClone(p.capture(any));
+  defaults = { settings, fields, state };
+}
+/** Return a tool's options to their defaults. Options several tools share
+ * (feather, tolerance, sample all layers…) are reset for all of them. */
+export function resetTool(e: Editor, toolId: string, refresh = true) {
+  const tool = tools.get(toolId);
+  if (!tool) return;
+  if (!defaults) recordToolDefaults(e);
+  const d = defaults!;
+  const keys = optionKeys(e, tool);
+  for (const k of keys.settings) {
+    if (k in d.settings) e.settings[k] = structuredClone(d.settings[k]);
+    else delete e.settings[k];
+  }
+  for (const k of keys.fields) if (k in d.fields) (e as unknown as Record<string, unknown>)[k] = d.fields[k];
+  for (const p of providers) {
+    if (!p.applies(tool)) continue;
+    if (p.reset) p.reset(tool);
+    else if (d.state[p.id] !== undefined) p.apply(tool, structuredClone(d.state[p.id]));
+  }
+  if (!refresh) return;
+  e.options();
+  e.dock?.update();
+  e.message(`${tool.label} reset to its default options.`);
+}
+export async function resetAllTools(e: Editor, ask = true) {
+  if (ask && !(await formDialog('Reset All Tools', [], 'Reset', 'Return every tool to its default options? Saved tool presets are kept.'))) return;
+  for (const id of tools.keys()) resetTool(e, id, false);
+  e.options();
+  e.dock?.update();
+  e.message('All tools reset to their default options.');
 }
 
 export function validToolPreset(v: unknown): v is ToolPreset {
@@ -260,7 +313,7 @@ const panel: Panel = {
   update: (e, el) => {
     el.innerHTML = `<div class="tool-presets-panel"><div class="tool-preset-list" role="listbox" aria-label="Tool presets">${presetRows(e, visible(e, currentToolOnly))}</div><div class="layer-footer"><label class="tool-preset-filter"><input type="checkbox" data-current-tool-only ${currentToolOnly ? 'checked' : ''}>Current Tool Only</label><span class="panel-tabs-spacer"></span><button data-command="tool.preset-new" title="New tool preset" aria-label="New tool preset">${svg('plus', 16)}</button><button data-command="tool.preset-delete" title="Delete tool preset" aria-label="Delete tool preset" ${selectedPreset ? '' : 'disabled'}>${svg('trash-2', 16)}</button></div></div>`;
   },
-  menu: () => ['tool.preset-new', 'tool.preset-rename', 'tool.preset-delete', '-', 'edit.preset-manager'],
+  menu: () => ['tool.preset-new', 'tool.preset-rename', 'tool.preset-delete', '-', 'tool.reset', 'tool.reset-all', '-', 'edit.preset-manager'],
 };
 
 /** Popover beside the tool icon at the left of the options bar. */
@@ -277,7 +330,7 @@ function openPicker(e: Editor) {
   pop.setAttribute('role', 'dialog');
   pop.setAttribute('aria-label', 'Tool presets');
   const render = () => {
-    pop.innerHTML = `<div class="tool-preset-picker-head"><strong>${escapeXML(e.activeTool?.label ?? 'Tool')} Presets</strong><button class="icon-button" data-picker-new title="New tool preset" aria-label="New tool preset">${svg('plus', 15)}</button></div><div class="tool-preset-list" role="listbox" aria-label="Tool presets">${presetRows(e, visible(e, !all), !all)}</div><div class="tool-preset-picker-foot"><label><input type="checkbox" data-picker-all ${all ? 'checked' : ''}>Show all tools</label><button data-picker-manage>Manage…</button></div>`;
+    pop.innerHTML = `<div class="tool-preset-picker-head"><strong>${escapeXML(e.activeTool?.label ?? 'Tool')} Presets</strong><button class="icon-button" data-picker-new title="New tool preset" aria-label="New tool preset">${svg('plus', 15)}</button></div><div class="tool-preset-list" role="listbox" aria-label="Tool presets">${presetRows(e, visible(e, !all), !all)}</div><div class="tool-preset-picker-foot"><label><input type="checkbox" data-picker-all ${all ? 'checked' : ''}>Show all tools</label><button data-picker-reset title="Return the ${escapeXML(e.activeTool?.label ?? 'tool')} to its default options">Reset Tool</button><button data-picker-manage>Manage…</button></div>`;
   };
   render();
   document.body.append(pop);
@@ -305,6 +358,12 @@ function openPicker(e: Editor) {
     if (t.closest('[data-picker-new]')) {
       close();
       void newToolPreset(e);
+      return;
+    }
+    if (t.closest('[data-picker-reset]')) {
+      close();
+      anchor.focus();
+      resetTool(e, e.tool);
       return;
     }
     if (t.closest('[data-picker-manage]')) {
@@ -336,9 +395,21 @@ function openPicker(e: Editor) {
   pop.querySelector<HTMLElement>('[data-tool-preset]')?.focus();
 }
 
-export function installToolPresets() {
+export function installToolPresets(e: Editor) {
   registerPanel(panel);
+  // Features finish installing before the compositor starts.
+  e.whenReady(recordToolDefaults);
+  // Right-clicking the tool icon at the left of the options bar offers the resets.
+  e.root.addEventListener('contextmenu', (ev) => {
+    const icon = (ev.target as HTMLElement).closest('#tool-icon');
+    if (!icon) return;
+    ev.preventDefault();
+    const r = icon.getBoundingClientRect();
+    showContextMenu(e, r.left, r.bottom + 2, ['tool.reset', 'tool.reset-all', '-', 'tool.preset-new']);
+  });
   registerCommand(
+    { id: 'tool.reset', label: 'Reset Tool', recordable: false, description: 'Return the current tool to its default options', enabled: (e) => !!e.activeTool, run: (e) => resetTool(e, e.tool) },
+    { id: 'tool.reset-all', label: 'Reset All Tools…', recordable: false, description: 'Return every tool to its default options', run: (e) => resetAllTools(e) },
     { id: 'tool.preset-picker', label: 'Tool Preset Picker', hidden: true, recordable: false, run: (e) => openPicker(e) },
     { id: 'tool.preset-new', label: 'New Tool Preset…', recordable: false, enabled: (e) => !!e.activeTool, run: (e) => newToolPreset(e) },
     { id: 'tool.preset-rename', label: 'Rename Tool Preset…', recordable: false, enabled: () => presets.some((p) => p.id === selectedPreset), run: (e) => renamePreset(e, selectedPreset) },

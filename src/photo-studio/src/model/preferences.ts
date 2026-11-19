@@ -87,6 +87,9 @@ export type Preferences = {
   panelAnimations: boolean;
   // ----- Workspace -----
   autoCollapsePanels: boolean;
+  // Assisted: the Assistant, the quick actions bar and fewer tools; Pro: the full workspace.
+  editorMode: 'pro' | 'assisted';
+  showModeSwitch: boolean;
   openAsTabs: boolean;
   floatDocking: boolean;
   largeTabs: boolean;
@@ -112,8 +115,14 @@ export type Preferences = {
   recentCount: number;
   askLayeredTiff: boolean;
   // ----- Export -----
-  quickExportFormat: 'png' | 'jpeg' | 'webp' | 'gif' | 'tiff';
-  quickExportLocation: 'download' | 'ask' | 'beside';
+  quickExportFormat: 'png' | 'jpeg' | 'webp' | 'gif' | 'tiff' | 'svg';
+  quickExportLocation: 'download' | 'ask' | 'beside' | 'assets';
+  // 'last': the last Export As settings; 'own': the quick export settings below.
+  quickExportSettings: 'last' | 'own';
+  quickExportQuality: number;
+  quickExportTransparency: boolean;
+  quickExportMetadata: 'none' | 'copyright' | 'all';
+  quickExportConvertSrgb: boolean;
   // Provenance attached to exported PNG, JPEG, WebP and TIFF files.
   provenanceAttach: 'none' | 'record' | 'signed';
   provenancePrompts: boolean;
@@ -156,6 +165,7 @@ export type Preferences = {
   missingGlyphProtection: boolean;
   fontPreviewSize: 'none' | 'small' | 'medium' | 'large' | 'xlarge' | 'huge';
   textDirection: 'ltr' | 'rtl';
+  typeFeatures: 'default' | 'east-asian' | 'middle-eastern';
 };
 
 type Key = keyof Preferences & string;
@@ -246,6 +256,8 @@ export const SETTINGS: SettingDef[] = [
   { page: 'interface', section: 'Behavior', type: 'boolean', key: 'richTooltips', label: 'Rich tooltips', default: true, help: 'Tooltips for commands and tools also show a description and the shortcut.', keywords: 'hints hover' },
   { page: 'interface', section: 'Behavior', type: 'boolean', key: 'panelAnimations', label: 'Enable panel animations', default: true, keywords: 'motion transitions reduce' },
   // ----- Workspace -----
+  { page: 'workspace', section: 'Editor mode', type: 'choice', key: 'editorMode', label: 'Editor mode', default: 'pro', options: [['pro', 'Pro (the full workspace)'], ['assisted', 'Assisted (Assistant, quick actions, essential tools)']], help: 'Assisted opens the Assistant and the quick actions bar and shows the essential tools; Pro brings back the workspace as you left it.', keywords: 'simple beginner ai guided' },
+  { page: 'workspace', section: 'Editor mode', type: 'boolean', key: 'showModeSwitch', label: 'Show the Assisted/Pro switch in the top bar', default: true, keywords: 'simple beginner ai guided' },
   { page: 'workspace', section: 'Panels', type: 'boolean', key: 'autoCollapsePanels', label: 'Auto-collapse icon panels', default: false, help: 'A panel opened from the icon strip closes when you click elsewhere.' },
   { page: 'workspace', section: 'Documents', type: 'boolean', key: 'openAsTabs', label: 'Open documents as tabs', default: true, help: 'Otherwise new documents open in floating windows.' },
   { page: 'workspace', section: 'Documents', type: 'boolean', key: 'floatDocking', label: 'Enable floating document window docking', default: true, help: 'Dropping a floating window’s title bar on the tab bar docks it as a tab.' },
@@ -273,8 +285,13 @@ export const SETTINGS: SettingDef[] = [
   { page: 'files', section: 'Compatibility', type: 'boolean', key: 'askLayeredTiff', label: 'Ask before saving layered TIFF files', default: true, help: 'TIFF export flattens layers; ask first when the document has several.' },
   { page: 'files', section: 'Recent files', type: 'number', key: 'recentCount', label: 'Recent file list contains', default: 12, min: 0, max: 100, integer: true, unit: 'files' },
   // ----- Export -----
-  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportFormat', label: 'Quick export format', default: 'png', options: [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['gif', 'GIF'], ['tiff', 'TIFF']] },
-  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportLocation', label: 'Quick export location', default: 'download', options: [['download', 'Download to this device'], ['ask', 'Ask for a Puter folder each time'], ['beside', 'Beside the document in Puter']], help: 'Documents not yet saved to Puter download when “beside the document” is chosen.' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportFormat', label: 'Quick export format', default: 'png', options: [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['gif', 'GIF'], ['tiff', 'TIFF'], ['svg', 'SVG']], help: 'File → Export → Quick Export uses this format.' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportLocation', label: 'Quick export location', default: 'download', options: [['download', 'Download to this device'], ['ask', 'Ask for a Puter folder each time'], ['beside', 'Beside the document in Puter'], ['assets', 'In an assets folder beside the document']], help: 'The assets folder is named after the document (“Photo-assets” for Photo.psd). Documents not yet saved to Puter download instead.', keywords: 'folder destination where' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportSettings', label: 'Quick export settings', default: 'last', options: [['last', 'Same as my last Export As'], ['own', 'The settings below']], help: 'The last Export As settings include its size, quality and metadata choices.' },
+  { page: 'export', section: 'Quick export', type: 'number', key: 'quickExportQuality', label: 'JPEG and WebP quality', default: 90, min: 1, max: 100, integer: true, unit: '%', keywords: 'compression' },
+  { page: 'export', section: 'Quick export', type: 'boolean', key: 'quickExportTransparency', label: 'Keep transparency', default: true, help: 'PNG, WebP, GIF and TIFF keep transparent pixels; off fills them with white.', keywords: 'alpha matte background' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportMetadata', label: 'Metadata', default: 'none', options: [['none', 'None'], ['copyright', 'Copyright and contact info'], ['all', 'All file info']], help: 'From File → File Info, where the format can hold it.', keywords: 'xmp exif author copyright privacy' },
+  { page: 'export', section: 'Quick export', type: 'boolean', key: 'quickExportConvertSrgb', label: 'Convert to sRGB', default: true, help: 'Converts other color profiles to sRGB, the profile web browsers assume.', keywords: 'color space profile icc' },
   { page: 'export', section: 'Provenance', type: 'choice', key: 'provenanceAttach', label: 'Attach provenance to exports', default: 'none', options: [['none', 'Do not attach'], ['record', 'How the image was made (XMP record)'], ['signed', 'Record plus a self-signed C2PA manifest']], help: 'Adds the sources, edit steps, AI use and a hash of the pixels to PNG, JPEG, WebP and TIFF exports. The signature uses a key made in this browser and is not vouched for by anyone.', keywords: 'c2pa history origin xmp signature authenticity' },
   { page: 'export', section: 'Provenance', type: 'boolean', key: 'provenancePrompts', label: 'Record AI prompts', default: false, help: 'Keep the prompts of AI commands in the provenance record. Off: only that an AI command was used.', keywords: 'privacy generate' },
   // ----- Performance -----
@@ -317,6 +334,7 @@ export const SETTINGS: SettingDef[] = [
   { page: 'type', section: 'Typing', type: 'boolean', key: 'smartQuotes', label: 'Use smart quotes', default: true, help: 'Straight quotes become curly quotes as you type.', keywords: 'typographer apostrophe' },
   { page: 'type', section: 'Typing', type: 'boolean', key: 'missingGlyphProtection', label: 'Enable missing glyph protection', default: true, help: 'Characters the chosen font cannot draw use a bundled font that can.', keywords: 'fallback tofu' },
   { page: 'type', section: 'Typing', type: 'choice', key: 'textDirection', label: 'Default text direction', default: 'ltr', options: [['ltr', 'Left to right'], ['rtl', 'Right to left']], keywords: 'rtl language engine' },
+  { page: 'type', section: 'Typing', type: 'choice', key: 'typeFeatures', label: 'Type options shown', default: 'default', options: [['default', 'Default'], ['east-asian', 'East Asian'], ['middle-eastern', 'Middle Eastern']], help: 'Which language options the Character and Paragraph panels show (also in Type → Language Options).', keywords: 'composer language cjk arabic hebrew kashida leading' },
   { page: 'type', section: 'Font menu', type: 'boolean', key: 'fontNamesEnglish', label: 'Show font names in English', default: true, help: 'Off: local fonts show their names in your language when the font provides one.', keywords: 'localized' },
   { page: 'type', section: 'Font menu', type: 'choice', key: 'fontPreviewSize', label: 'Font preview size', default: 'medium', options: FONT_PREVIEW_SIZES },
 ];

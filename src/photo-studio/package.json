@@ -15,6 +15,7 @@
     "psd:audit": "node scripts/audit-psd.mjs",
     "perf:bundle": "node scripts/perf-bundle.mjs",
     "perf:startup": "node scripts/perf-startup.mjs",
+    "perf:large": "node scripts/perf-large-image.mjs",
     "test:rust": "cargo test --manifest-path wasm/Cargo.toml"
   },
   "dependencies": {

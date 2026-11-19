@@ -48,3 +48,15 @@
 .type-props .tp-row .tp-field { flex: 1; }
 .type-props .tp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .type-props .tp-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 12px; white-space: nowrap; overflow: hidden; }
+
+/* Language feature rows (Character and Paragraph panels) and option fields
+   that only apply to some choices. */
+.type-panel .type-row[hidden], dialog.type-path-options [hidden] { display: none; }
+.type-panel .type-row[data-features] { align-items: center; }
+.type-panel .type-row[data-features] .type-toggles { display: flex; gap: 3px; }
+
+/* Justification and Hyphenation dialogs */
+dialog.type-justification, dialog.type-hyphenation { width: 420px; max-width: calc(100vw - 32px); }
+.type-justify-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border: 1px solid var(--line-soft); border-radius: 6px; padding: 6px 10px 10px; margin: 0 0 10px; min-width: 0; }
+.type-justify-row legend { padding: 0 4px; color: var(--muted); font-size: 12px; }
+.type-justify-row .dialog-field input { width: 100%; min-width: 0; }

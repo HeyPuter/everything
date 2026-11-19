@@ -20,6 +20,8 @@ export type CanvasPointer = {
   coalesced?: CanvasPointer[];
 };
 
+// Tools without a Mod-click meaning of their own (brush-like tools also qualify).
+const TEMPORARY_MOVE = new Set(['gradient', 'bucket', 'eyedropper']);
 export function canvasPoint(e: Editor, event: PointerEvent | MouseEvent): CanvasPointer {
   const [x, y] = e.docPoint(event.clientX, event.clientY);
   const pe = event as PointerEvent;
@@ -157,6 +159,35 @@ export function bindCanvas(e: Editor) {
   });
   // Space released in another window never sends its keyup here.
   window.addEventListener('blur', releaseSpace);
+  // Holding Mod with a painting, fill or eyedropper tool drags layers as the
+  // Move tool does, for that one drag; the tool comes back when it ends.
+  let tempMove: string | undefined;
+  viewport.addEventListener(
+    'pointerdown',
+    (event) => {
+      const tool = e.activeTool;
+      if (event.button !== 0 || spaceHeld || tempMove || e.busy || !e.renderer || !e.hasDocument || event.altKey || !tool) return;
+      if (!(isMac ? event.metaKey : event.ctrlKey) || !(tool.brush || TEMPORARY_MOVE.has(tool.id))) return;
+      if ((event.target as HTMLElement).closest('button,input,.canvas-ui')) return;
+      tempMove = tool.id;
+      e.setTool('move');
+      const back = () => {
+        // Wait for the move (and the hit test it may still be reading) to finish.
+        if (e.transform.dragging) return void requestAnimationFrame(back);
+        const previous = tempMove;
+        tempMove = undefined;
+        if (previous && e.tool === 'move') e.setTool(previous);
+      };
+      const end = () => {
+        window.removeEventListener('pointerup', end, true);
+        window.removeEventListener('pointercancel', end, true);
+        requestAnimationFrame(back);
+      };
+      window.addEventListener('pointerup', end, true);
+      window.addEventListener('pointercancel', end, true);
+    },
+    true,
+  );
   viewport.addEventListener('pointerdown', (event) => {
     if (event.defaultPrevented || e.busy || !e.renderer) return;
     if ((event.target as HTMLElement).closest('button,input,.canvas-ui')) return;
@@ -181,6 +212,15 @@ export function bindCanvas(e: Editor) {
       if (gesture) return;
     }
     const tool = e.activeTool;
+    // Space with Mod (or Alt) zooms in (or out) where clicked, whatever the tool.
+    if (spaceHeld && event.button === 0 && e.hasDocument && (event.metaKey || event.ctrlKey || event.altKey)) {
+      event.preventDefault();
+      const r = viewport.getBoundingClientRect();
+      const z = event.altKey ? e.zoom / 1.5 : e.zoom * 1.5;
+      if (e.preferences.zoomClickedToCenter) e.zoomBy(z, undefined, undefined, e.docPoint(event.clientX, event.clientY));
+      else e.zoomBy(z, event.clientX - r.left, event.clientY - r.top);
+      return;
+    }
     const pan = event.button === 1 || spaceHeld || (tool?.id === 'hand' && event.button === 0);
     cancelAnimationFrame(flick);
     const adjust = tool?.brush && e.hasDocument && ((event.button === 2 && event.altKey) || (isMac && event.button === 0 && event.ctrlKey && event.altKey));
@@ -250,6 +290,13 @@ export function bindCanvas(e: Editor) {
       return;
     }
     if (gesture.kind === 'pan') {
+      // Hand tool: Scroll All Windows (or Shift-drag) scrolls every window together.
+      if (e.tool === 'hand' && (e.settings.scrollAllWindows || event.shiftKey) && e.views.length > 1) {
+        const dx = gesture.pan.x + event.clientX - gesture.start[0] - e.pan.x,
+          dy = gesture.pan.y + event.clientY - gesture.start[1] - e.pan.y;
+        for (const v of e.views) if (v !== e.activeView) v.pan = { x: v.pan.x + dx, y: v.pan.y + dy };
+        e.windows.queueDraw();
+      }
       e.pan.x = gesture.pan.x + event.clientX - gesture.start[0];
       e.pan.y = gesture.pan.y + event.clientY - gesture.start[1];
       gesture.samples = [...gesture.samples.slice(-5), [event.clientX, event.clientY, performance.now()]];

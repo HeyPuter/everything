@@ -10,6 +10,7 @@ import { setDocumentResolution } from '../../model/text-layer';
 import { homography, type Point } from '../../imaging/filters/warp';
 import { compose, inscribedSize, rectifiedSize, rotateM, straightenAngle, toPixels, translate, type LengthUnit, type Quad } from './math';
 import { refocusAfterChoice } from './focus';
+import { closeShieldPopover, openShieldPopover, shieldMarkup } from './crop-shield';
 
 type Box = { cx: number; cy: number; w: number; h: number; angle: number };
 type Drag =
@@ -317,6 +318,7 @@ export const cropTool: Tool = {
     box = undefined;
     drag = undefined;
     straighten = false;
+    closeShieldPopover();
   },
   options: (e) => {
     const s = settings(e);
@@ -327,8 +329,10 @@ export const cropTool: Tool = {
     else
       html += `<input id="crop-rw" type="number" min="0" step="any" value="${s.rw || ''}" placeholder="W" aria-label="Ratio width" ${s.preset === 'original' ? 'disabled' : ''}><button class="icon-button" data-crop-action="swap" title="Swap width and height" aria-label="Swap width and height">${svg('arrow-left-right', 14)}</button><input id="crop-rh" type="number" min="0" step="any" value="${s.rh || ''}" placeholder="H" aria-label="Ratio height" ${s.preset === 'original' ? 'disabled' : ''}>`;
     html += `<button data-crop-action="clear" title="Clear the ratio">Clear</button><span class="divider"></span>`;
-    html += `<button class="toggle" data-crop-action="straighten" aria-pressed="${straighten}" title="Draw a line along the horizon or a vertical edge to level the image">${svg('ruler', 14)} Straighten</button>`;
-    html += `<label>Overlay <select id="crop-overlay">${CROP_OVERLAYS.map(([id, l]) => `<option value="${id}" ${s.overlay === id ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+    // W x H x Resolution needs the room: Straighten shows its icon only there.
+    html += `<button class="toggle" data-crop-action="straighten" aria-pressed="${straighten}" aria-label="Straighten" title="Straighten: draw a line along the horizon or a vertical edge to level the image">${svg('ruler', 14)}${whr ? '' : ' Straighten'}</button>`;
+    html += `<label title="Overlay"><span class="sr-only">Overlay</span><select id="crop-overlay">${CROP_OVERLAYS.map(([id, l]) => `<option value="${id}" ${s.overlay === id ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+    html += `<button type="button" class="icon-button" id="crop-settings" aria-haspopup="dialog" title="Crop settings: how the cropped area is shown" aria-label="Crop settings">${svg('settings', 15)}</button>`;
     html += `<label class="transform-setting" title="When off, pixels outside the crop stay on their layers"><input id="crop-delete" type="checkbox" ${s.deleteCropped ? 'checked' : ''}>Delete Cropped Pixels</label>`;
     html += `<span class="hint" id="crop-size"></span><span class="divider"></span><button data-command="crop.reset" class="icon-button" title="Reset the crop box" aria-label="Reset crop">${svg('rotate-ccw', 16)}</button><button data-command="crop.cancel" class="icon-button" title="Cancel crop (Escape)" aria-label="Cancel crop">${svg('ban', 16)}</button><button data-command="crop.commit" class="icon-button transform-apply" title="Commit crop (Enter)" aria-label="Commit crop">${svg('check', 16)}</button>`;
     return html;
@@ -375,6 +379,7 @@ export const cropTool: Tool = {
       e.overlay();
     });
     el.querySelector<HTMLInputElement>('#crop-delete')?.addEventListener('change', (ev) => (s.deleteCropped = (ev.target as HTMLInputElement).checked));
+    el.querySelector<HTMLButtonElement>('#crop-settings')?.addEventListener('click', (ev) => openShieldPopover(e, ev.currentTarget as HTMLElement));
     el.querySelectorAll<HTMLButtonElement>('[data-crop-action]').forEach((b) =>
       b.addEventListener('click', () => {
         const a = b.dataset.cropAction;
@@ -483,7 +488,7 @@ export const cropTool: Tool = {
       H = e.doc.height,
       pad = Math.max(W, H) * 4;
     const corners = boxCorners(b);
-    let html = `<path class="crop-shade" fill-rule="evenodd" d="M${-pad} ${-pad}H${W + pad}V${H + pad}H${-pad}Z M${corners.map((c) => `${c.x} ${c.y}`).join('L')}Z"/>`;
+    let html = shieldMarkup(e, `M${-pad} ${-pad}H${W + pad}V${H + pad}H${-pad}Z M${corners.map((c) => `${c.x} ${c.y}`).join('L')}Z`, !!drag && drag.kind !== 'straighten');
     const overlayKind = settings(e).overlay;
     html += `<g transform="translate(${b.cx} ${b.cy}) rotate(${b.angle})">`;
     if (overlayKind !== 'none') html += `<path class="crop-grid-lines" d="${overlayLines(overlayKind, b.w, b.h, z)}" stroke-width="${0.8 / z}"/>`;
@@ -516,13 +521,20 @@ export const perspectiveCropTool: Tool = {
   options: (e) => {
     const s = (e.settings.perspectiveCrop as { w?: number; h?: number; grid?: boolean } | undefined) ?? {};
     const auto = quad.length === 4 ? rectifiedSize(orderQuad(quad)) : undefined;
-    return `<label>W <input id="pc-w" type="number" min="0" step="1" value="${s.w || ''}" placeholder="${auto?.width ?? 'auto'}"> px</label><label>H <input id="pc-h" type="number" min="0" step="1" value="${s.h || ''}" placeholder="${auto?.height ?? 'auto'}"> px</label><label class="transform-setting"><input id="pc-grid" type="checkbox" ${s.grid !== false ? 'checked' : ''}>Show Grid</label><span class="hint">${quad.length < 4 ? `Click ${4 - quad.length} more corner${quad.length === 3 ? '' : 's'}, or drag a rectangle.` : 'Drag corners to match the plane, then press Enter.'}</span><span class="divider"></span><button data-command="perspective-crop.cancel" class="icon-button" title="Cancel (Escape)" aria-label="Cancel perspective crop">${svg('ban', 16)}</button><button data-command="perspective-crop.commit" class="icon-button transform-apply" title="Commit (Enter)" aria-label="Commit perspective crop" ${quad.length === 4 && isConvex(orderQuad(quad)) ? '' : 'disabled'}>${svg('check', 16)}</button>`;
+    return `<label>W <input id="pc-w" type="number" min="0" step="1" value="${s.w || ''}" placeholder="${auto?.width ?? 'auto'}"> px</label><label>H <input id="pc-h" type="number" min="0" step="1" value="${s.h || ''}" placeholder="${auto?.height ?? 'auto'}"> px</label><button type="button" data-pc-action="front" title="Use the size of the current image" ${e.hasDocument ? '' : 'disabled'}>Front Image</button><button type="button" data-pc-action="clear" title="Clear the size: the crop keeps the shape of the plane" ${s.w || s.h ? '' : 'disabled'}>Clear</button><label class="transform-setting"><input id="pc-grid" type="checkbox" ${s.grid !== false ? 'checked' : ''}>Show Grid</label><span class="hint">${quad.length < 4 ? `Click ${4 - quad.length} more corner${quad.length === 3 ? '' : 's'}, or drag a rectangle.` : 'Drag corners to match the plane, then press Enter.'}</span><span class="divider"></span><button data-command="perspective-crop.cancel" class="icon-button" title="Cancel (Escape)" aria-label="Cancel perspective crop">${svg('ban', 16)}</button><button data-command="perspective-crop.commit" class="icon-button transform-apply" title="Commit (Enter)" aria-label="Commit perspective crop" ${quad.length === 4 && isConvex(orderQuad(quad)) ? '' : 'disabled'}>${svg('check', 16)}</button>`;
   },
   bindOptions: ({ e, el }) => {
     refocusAfterChoice(e, el);
     const s = ((e.settings.perspectiveCrop as Record<string, unknown> | undefined) ??= {}) as { w?: number; h?: number; grid?: boolean };
     e.settings.perspectiveCrop = s;
     el.querySelector<HTMLInputElement>('#pc-w')?.addEventListener('change', (ev) => (s.w = Math.max(0, Math.round(Number((ev.target as HTMLInputElement).value) || 0))));
+    el.querySelectorAll<HTMLButtonElement>('[data-pc-action]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (b.dataset.pcAction === 'front') [s.w, s.h] = [e.doc.width, e.doc.height];
+        else s.w = s.h = 0;
+        e.options();
+      }),
+    );
     el.querySelector<HTMLInputElement>('#pc-h')?.addEventListener('change', (ev) => (s.h = Math.max(0, Math.round(Number((ev.target as HTMLInputElement).value) || 0))));
     el.querySelector<HTMLInputElement>('#pc-grid')?.addEventListener('change', (ev) => {
       s.grid = (ev.target as HTMLInputElement).checked;

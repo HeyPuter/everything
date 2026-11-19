@@ -1,9 +1,9 @@
-import { UNIFORM_FLOATS, type Backend, type Texture } from './backend';
+import { UNIFORM_FLOATS, type Backend, type ReadRect, type Texture, type TextureCopy } from './backend';
 import { glVertex, glFragment, glFloatFragment, glResampleFragment, glFloatResampleFragment } from './shaders';
 import { needsRgbaResampling } from './sampling';
 import { glColorFragment } from './color-shaders';
 import { glLutFragment } from './lut-shaders';
-import { glFilterFragment } from './filter-shaders';
+import { FILTER_UNIFORM_FLOATS, glFilterFragment } from './filter-shaders';
 export class WebGLBackend implements Backend {
   readonly name = 'WebGL2';
   readonly maxSize: number;
@@ -183,6 +183,28 @@ export class WebGLBackend implements Backend {
       t.format === 'r32float' ? [g.RED, g.FLOAT] : t.format === 'rgba32float' ? [g.RGBA, g.FLOAT] : [g.RGBA, g.UNSIGNED_BYTE];
     g.texSubImage2D(g.TEXTURE_2D, 0, x, y, width, height, format, type, data);
   }
+  private copyFramebuffers?: [WebGLFramebuffer, WebGLFramebuffer];
+  copy(target: Texture, regions: TextureCopy[]) {
+    if (!regions.length) return true;
+    const g = this.gl;
+    // Blitting float textures needs them to be render targets.
+    if (target.format !== 'rgba8unorm' && !g.getExtension('EXT_color_buffer_float')) return false;
+    const [read, draw] = (this.copyFramebuffers ??= [g.createFramebuffer()!, g.createFramebuffer()!]);
+    g.bindFramebuffer(g.DRAW_FRAMEBUFFER, draw);
+    g.framebufferTexture2D(g.DRAW_FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, target.handle as WebGLTexture, 0);
+    g.bindFramebuffer(g.READ_FRAMEBUFFER, read);
+    let bound: Texture | undefined;
+    for (const r of regions) {
+      if (r.source !== bound) {
+        g.framebufferTexture2D(g.READ_FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, r.source.handle as WebGLTexture, 0);
+        bound = r.source;
+      }
+      g.blitFramebuffer(r.sx, r.sy, r.sx + r.width, r.sy + r.height, r.dx, r.dy, r.dx + r.width, r.dy + r.height, g.COLOR_BUFFER_BIT, g.NEAREST);
+    }
+    g.bindFramebuffer(g.READ_FRAMEBUFFER, null);
+    g.bindFramebuffer(g.DRAW_FRAMEBUFFER, null);
+    return true;
+  }
   lutPass(source: Texture, lut: Texture, uniforms: Float32Array, target: Texture) {
     const g = this.gl;
     this.target(target);
@@ -220,29 +242,29 @@ export class WebGLBackend implements Backend {
       g.activeTexture(g.TEXTURE0 + i);
       g.bindTexture(g.TEXTURE_2D, (sources[i] ?? sources[0]).handle as WebGLTexture);
     }
-    const data = new Float32Array(16);
-    data.set(uniforms.subarray(0, 16));
+    const data = new Float32Array(FILTER_UNIFORM_FLOATS);
+    data.set(uniforms.subarray(0, FILTER_UNIFORM_FLOATS));
     g.uniform4fv(g.getUniformLocation(program, 'u[0]'), data);
     g.drawArrays(g.TRIANGLES, 0, 3);
   }
-  read(t: Texture): Promise<Uint8Array> {
+  read(t: Texture, r?: ReadRect): Promise<Uint8Array> {
     if (t.format !== 'rgba8unorm')
       throw new Error('Use float readback for a floating-point texture.');
-    return this.readPixels(t, false) as Promise<Uint8Array>;
+    return this.readPixels(t, false, r) as Promise<Uint8Array>;
   }
-  readFloat(t: Texture): Promise<Float32Array> {
+  readFloat(t: Texture, r?: ReadRect): Promise<Float32Array> {
     if (t.format !== 'rgba32float')
       throw new Error('Float readback requires a floating-point texture.');
-    return this.readPixels(t, true) as Promise<Float32Array>;
+    return this.readPixels(t, true, r) as Promise<Float32Array>;
   }
-  private async readPixels(t: Texture, floating: boolean) {
+  private async readPixels(t: Texture, floating: boolean, r: ReadRect = { x: 0, y: 0, width: t.width, height: t.height }) {
     const g = this.gl;
     this.target(t);
     const buffer = g.createBuffer();
     if (!buffer) throw new Error('Could not allocate readback buffer.');
     g.bindBuffer(g.PIXEL_PACK_BUFFER, buffer);
-    g.bufferData(g.PIXEL_PACK_BUFFER, t.width * t.height * (floating ? 16 : 4), g.STREAM_READ);
-    g.readPixels(0, 0, t.width, t.height, g.RGBA, floating ? g.FLOAT : g.UNSIGNED_BYTE, 0);
+    g.bufferData(g.PIXEL_PACK_BUFFER, r.width * r.height * (floating ? 16 : 4), g.STREAM_READ);
+    g.readPixels(r.x, r.y, r.width, r.height, g.RGBA, floating ? g.FLOAT : g.UNSIGNED_BYTE, 0);
     const fence = g.fenceSync(g.SYNC_GPU_COMMANDS_COMPLETE, 0);
     g.flush();
     g.bindBuffer(g.PIXEL_PACK_BUFFER, null);
@@ -260,8 +282,8 @@ export class WebGLBackend implements Backend {
         poll();
       });
       const data = floating
-        ? new Float32Array(t.width * t.height * 4)
-        : new Uint8Array(t.width * t.height * 4);
+        ? new Float32Array(r.width * r.height * 4)
+        : new Uint8Array(r.width * r.height * 4);
       g.bindBuffer(g.PIXEL_PACK_BUFFER, buffer);
       g.getBufferSubData(g.PIXEL_PACK_BUFFER, 0, data);
       return data;
@@ -273,6 +295,7 @@ export class WebGLBackend implements Backend {
   }
   dispose() {
     this.gl.deleteFramebuffer(this.framebuffer);
+    for (const f of this.copyFramebuffers ?? []) this.gl.deleteFramebuffer(f);
     this.gl.deleteProgram(this.program);
     if (this.floatProgram) this.gl.deleteProgram(this.floatProgram);
     if (this.colorProgram) this.gl.deleteProgram(this.colorProgram);

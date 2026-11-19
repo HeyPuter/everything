@@ -22,6 +22,7 @@ import {
   insertContent,
   nextChar,
   nextWord,
+  applyTextAttributes,
   paragraphAt,
   paragraphStyleOfRange,
   plainText,
@@ -41,6 +42,7 @@ import { prepareFonts } from '../../imaging/text/fonts';
 import { curlQuotes } from '../../imaging/text/quotes';
 import { prefetchGlyphMaps, protectGlyphs } from './glyph-guard';
 import { StyleRequests } from './style-requests';
+import { rememberTextAttributes, textCopySource } from './text-attributes';
 import type { TextLayout } from '../../imaging/text/layout';
 import { commitSelectionMask } from '../selection';
 import { editable, forgetLayout, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
@@ -819,6 +821,27 @@ export async function applyParagraph(e: Editor, patch: Partial<ParagraphStyle>) 
   d.paragraph = { ...d.paragraph, ...patch };
   notify();
 }
+/** Character and paragraph attributes set together, replacing those of the
+ * selected range (or the caret's paragraph and style) while editing, else of
+ * all the text in the selected text layers: one undo step. The text is kept. */
+export async function applyAttributes(e: Editor, char: CharStyle, paragraph: ParagraphStyle, label: string) {
+  const restyle = (c: TextContent, a: number, b: number) => applyTextAttributes(c, a, b, char, paragraph);
+  const s = session;
+  if (s) {
+    const ready = fontsReady(e, { ...s.data, content: fromPlainText('x', char) });
+    const [a, b] = ordered(s);
+    install(e, { ...s.data, content: restyle(s.data.content, a, b) }, { kind: 'attributes' });
+    if (a === b) s.caretStyle = structuredClone(char);
+    notify();
+    void ready.then(() => {
+      if (session === s) render(e);
+    });
+    return;
+  }
+  const layers = selectedTextLayers(e);
+  if (layers.length) return editLayers(e, label, (d) => ({ ...d, content: restyle(d.content, 0, textLength(d.content)) }), layers.map((l) => l.id));
+}
+
 // Layer-wide properties (anti-aliasing, orientation, warp, point/paragraph).
 // These callbacks are pure: reapply them to the latest text after a font wait.
 export async function applyLayer(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData) {
@@ -1134,9 +1157,11 @@ function inputElement(e: Editor): HTMLTextAreaElement {
   return el;
 }
 
+textCopySource.selected = () => (session && !session.mask ? selectedContent() : undefined);
 function clip(ev: ClipboardEvent, _cut: boolean) {
   const piece = selectedContent();
   if (!piece || !ev.clipboardData) return;
+  rememberTextAttributes(piece);
   ev.preventDefault();
   ev.clipboardData.setData('text/plain', plainText(piece));
   ev.clipboardData.setData(CLIPBOARD_TYPE, JSON.stringify(piece));

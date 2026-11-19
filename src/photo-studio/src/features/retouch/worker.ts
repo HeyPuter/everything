@@ -7,6 +7,7 @@ import { contextFill, heal, spotHeal, type ContextFillOptions, type SpotHealMode
 import { QuickSelector, selectSky, selectSubject, type QuickStroke } from '../../imaging/segment';
 import type { Mask8, Progress, RGBA8 } from '../../imaging/types';
 import { focusAreaMask, type FocusAreaOptions } from '../../imaging/segment/focus-area';
+import { enhanceEdge } from '../../imaging/segment/enhance-edge';
 import { colorRangeMulti, prefillHole, refineComposite, type ColorRangeSettings, type RefineSettings } from './logic';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
@@ -20,6 +21,7 @@ const jobs: Record<string, (a: Args, p: Progress) => unknown> = {
   subject: (a, p) => selectSubject(a.img as RGBA8, { progress: p }),
   sky: (a, p) => selectSky(a.img as RGBA8, { progress: p }),
   refine: (a) => refineComposite(a.img as RGBA8, a.mask as Mask8, a.settings as RefineSettings, a.brushed as Mask8 | null, a.brushRadius as number),
+  'enhance-edge': (a, p) => enhanceEdge(a.img as RGBA8, a.mask as Mask8, { canvas: a.canvas as { width: number; height: number } }, p),
   'color-range': (a) => colorRangeMulti(a.img as RGBA8, a.settings as ColorRangeSettings),
   'focus-area': (a, p) => focusAreaMask(a.img as RGBA8, a.opts as FocusAreaOptions, p),
   'qs-init': (a) => {

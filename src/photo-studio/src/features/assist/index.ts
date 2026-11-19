@@ -10,7 +10,7 @@ import { deferRecording } from '../filters/record';
 import { canHarmonize } from './harmonize-math';
 import './assist.css';
 
-const KIND_LABEL = { generate: 'Generated from a prompt', edit: 'Edited with a prompt', upscale: 'AI upscale (generative)', fill: 'AI Fill', expand: 'AI Expand' } as const;
+const KIND_LABEL = { generate: 'Generated from a prompt', edit: 'Edited with a prompt', upscale: 'AI upscale (generative)', fill: 'AI Fill', expand: 'AI Expand', recompose: 'AI Recompose (generative)', reflection: 'Reflections removed (generative)', rotate: 'Turned with Rotate Object (generative)' } as const;
 
 export function installAssist(e: Editor) {
   void e;

@@ -1,4 +1,5 @@
 import type { Editor } from '../editor';
+import { SAMPLE_SIZES } from '../imaging/measure/geometry';
 import { registerTool, registerCommand, registerOverlay, type Tool } from '../app/registry';
 import type { CanvasPointer } from '../app/pointer';
 import {
@@ -103,7 +104,7 @@ export function commitSelectionMask(e: Editor, mask: Mask8 | TileGrid | null, op
   session.lastSelection = current;
   e.command(label, (d) => applySelection(d, next), { session });
 }
-export function optionsFor(e: Editor, extra = '', opts: { antiAlias?: boolean } = {}) {
+export function optionsFor(e: Editor, extra = '', opts: { antiAlias?: boolean; subject?: boolean } = {}) {
   const op = (e.settings.selectionOp as SelectionOp) ?? 'replace';
   const ops: [SelectionOp, string, string][] = [
     ['replace', 'New selection', 'square'],
@@ -111,8 +112,11 @@ export function optionsFor(e: Editor, extra = '', opts: { antiAlias?: boolean } 
     ['subtract', 'Subtract from selection (Alt)', 'minus'],
     ['intersect', 'Intersect with selection (Shift+Alt)', 'x'],
   ];
-  return `<div class="segmented" role="group" aria-label="Selection mode">${ops.map(([id, label, icon]) => `<button data-selection-op="${id}" aria-pressed="${op === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div><label>Feather <input id="sel-feather" type="number" min="0" max="1000" value="${Number(e.settings.selectionFeather ?? 0)}"> px</label><label class="transform-setting" ${opts.antiAlias === false ? 'title="Rectangular selections always have hard pixel edges"' : ''}><input id="sel-aa" type="checkbox" ${opts.antiAlias === false ? 'disabled' : e.settings.antiAlias !== false ? 'checked' : ''}>Anti-alias</label>${extra}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
+  return `<div class="segmented" role="group" aria-label="Selection mode">${ops.map(([id, label, icon]) => `<button data-selection-op="${id}" aria-pressed="${op === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div><label>Feather <input id="sel-feather" type="number" min="0" max="1000" value="${Number(e.settings.selectionFeather ?? 0)}"> px</label><label class="transform-setting" ${opts.antiAlias === false ? 'title="Rectangular selections always have hard pixel edges"' : ''}><input id="sel-aa" type="checkbox" ${opts.antiAlias === false ? 'disabled' : e.settings.antiAlias !== false ? 'checked' : ''}>Anti-alias</label>${extra}${opts.subject ? subjectButton(e) : ''}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
 }
+/** Select Subject from the options bar of the assisted selection tools. */
+export const subjectButton = (e: Editor) =>
+  `<button data-command="select.subject" title="Select the most prominent subject in the image" ${e.hasDocument ? '' : 'disabled'}>Select Subject</button>`;
 export function bindSelectionOptions(e: Editor, el: HTMLElement) {
   el.querySelectorAll<HTMLButtonElement>('[data-selection-op]').forEach((b) =>
     b.addEventListener('click', () => {
@@ -227,7 +231,7 @@ export function movableOutline(tool: Tool, busy: () => boolean = () => false): T
 let spaceHeld = false;
 
 // ----- Marquee and lasso tools -----
-type Drag = { start: [number, number]; current: [number, number]; op: SelectionOp; points: [number, number][]; moving?: boolean; startPointer?: CanvasPointer };
+type Drag = { start: [number, number]; current: [number, number]; op: SelectionOp; points: [number, number][]; moving?: boolean; startPointer?: CanvasPointer; altAtStart?: boolean };
 let drag: Drag | undefined;
 let polygon: { points: [number, number][]; op: SelectionOp } | undefined;
 let hoverPoint: [number, number] | undefined;
@@ -407,30 +411,78 @@ const lassoTool: Tool = {
   cursor: () => 'crosshair',
   options: (e) => optionsFor(e),
   bindOptions: ({ e, el }) => bindSelectionOptions(e, el),
+  // Releasing the button with Alt held keeps the outline open: clicks add
+  // straight segments and drags freehand ones until Alt is released.
   pointerDown: (e, p) => {
-    drag = { start: [p.x, p.y], current: [p.x, p.y], op: selectionOp(e, p), points: [[p.x, p.y]] };
+    if (lassoHeld) {
+      drag = { ...lassoHeld, current: [p.x, p.y], points: [...lassoHeld.points, [p.x, p.y]], altAtStart: false };
+      lassoHeld = undefined;
+      return;
+    }
+    drag = { start: [p.x, p.y], current: [p.x, p.y], op: selectionOp(e, p), points: [[p.x, p.y]], altAtStart: p.alt };
   },
   pointerMove: (e, p) => {
     if (!drag) return;
     for (const q of p.coalesced ?? [p]) drag.points.push([q.x, q.y]);
     e.overlay();
   },
-  pointerUp: (e) => {
+  pointerUp: (e, p) => {
     const d = drag;
     drag = undefined;
-    if (!d || d.points.length < 3) {
-      if (d?.op === 'replace') commitSelectionMask(e, null, 'replace', 'Deselect');
+    // Alt held from the start means Subtract; pressed during the drag, it holds the outline open.
+    if (d && p.alt && !d.altAtStart) {
+      lassoHeld = d;
+      hoverPoint = [p.x, p.y];
+      e.overlay();
       return;
     }
-    finishShape(e, d.op, rasterizePolygon(d.points, e.doc.width, e.doc.height, e.settings.antiAlias !== false), 'Lasso');
+    finishLasso(e, d);
+  },
+  hover: (e, p) => {
+    if (!lassoHeld) return;
+    if (!p.alt) {
+      finishHeldLasso(e);
+      return;
+    }
+    hoverPoint = [p.x, p.y];
+    e.overlay();
+  },
+  keyDown: (e, ev) => {
+    if (!lassoHeld || ev.key !== 'Escape') return false;
+    lassoHeld = undefined;
+    e.overlay();
+    return true;
+  },
+  deactivate: (e) => {
+    if (lassoHeld) finishHeldLasso(e);
   },
   overlay: (e) => {
-    if (!drag) return '';
+    const points = drag?.points ?? lassoHeld?.points;
+    if (!points) return '';
     const z = e.zoom;
-    const d = drag.points.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join('');
+    let d = points.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join('');
+    if (lassoHeld && hoverPoint) d += `L${hoverPoint[0]} ${hoverPoint[1]}`;
     return `<g class="marching" stroke-width="${1 / z}" fill="none"><path d="${d}" class="ants-white"/><path d="${d}" class="ants-black" stroke-dasharray="${4 / z} ${4 / z}"/></g>`;
   },
 };
+// An open Lasso outline waiting for straight segments while Alt is held.
+let lassoHeld: Drag | undefined;
+function finishLasso(e: Editor, d: Drag | undefined) {
+  if (!d || d.points.length < 3) {
+    if (d?.op === 'replace') commitSelectionMask(e, null, 'replace', 'Deselect');
+    return;
+  }
+  finishShape(e, d.op, rasterizePolygon(d.points, e.doc.width, e.doc.height, e.settings.antiAlias !== false), 'Lasso');
+}
+/** Alt came up: close the held outline. */
+export function finishHeldLasso(e: Editor) {
+  const d = lassoHeld;
+  if (!d) return;
+  lassoHeld = undefined;
+  hoverPoint = undefined;
+  e.overlay();
+  finishLasso(e, d);
+}
 const polygonTool: Tool = {
   id: 'polygonal-lasso',
   label: 'Polygonal Lasso Tool',
@@ -514,10 +566,11 @@ const wandTool: Tool = {
   group: 'select',
   cursor: () => 'crosshair',
   options: (e) =>
-    optionsFor(e, `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`),
+    optionsFor(e, `<label>Sample Size <select id="wand-sample-size">${SAMPLE_SIZES.map((n) => `<option value="${n}" ${wandSampleSize(e) === n ? 'selected' : ''}>${n === 1 ? 'Point Sample' : `${n} by ${n} Average`}</option>`).join('')}</select></label><label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`, { subject: true }),
   bindOptions: ({ e, el }) => {
     bindSelectionOptions(e, el);
     bindTolerance(e, el);
+    el.querySelector<HTMLSelectElement>('#wand-sample-size')?.addEventListener('change', (ev) => (e.settings.wandSampleSize = Number((ev.target as HTMLSelectElement).value)));
     el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
     el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
   },
@@ -552,8 +605,31 @@ async function wandImage(e: Editor): Promise<{ width: number; height: number; da
   const img = e.settings.sampleAllLayers || !l ? await compositeRGBA(e) : await layerRGBA(e, l);
   return { ...img, unit: 1 };
 }
+const wandSampleSize = (e: Editor) => {
+  const n = Number(e.settings.wandSampleSize ?? 1);
+  return (SAMPLE_SIZES as readonly number[]).includes(n) ? n : 1;
+};
+/** The color the Magic Wand compares with, premultiplied by alpha: the
+ * clicked pixel, or the average of a size × size square around it (clipped
+ * to the image). */
+export function wandReference(d: ArrayLike<number>, W: number, H: number, x: number, y: number, size: number, full = 255): [number, number, number, number] {
+  const r = Math.floor(size / 2);
+  const out: [number, number, number, number] = [0, 0, 0, 0];
+  let n = 0;
+  for (let yy = Math.max(0, y - r); yy <= Math.min(H - 1, y + r); yy++)
+    for (let xx = Math.max(0, x - r); xx <= Math.min(W - 1, x + r); xx++) {
+      const i = (yy * W + xx) * 4;
+      const k = d[i + 3] / full;
+      out[0] += d[i] * k;
+      out[1] += d[i + 1] * k;
+      out[2] += d[i + 2] * k;
+      out[3] += d[i + 3];
+      n++;
+    }
+  return n ? (out.map((v) => v / n) as [number, number, number, number]) : out;
+}
 /** Pixels within tolerance of the clicked color, contiguous or global. */
-export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> {
+export async function wandMask(e: Editor, x: number, y: number, opts: { antiAlias?: boolean; sampleSize?: number } = {}): Promise<Mask8> {
   const img = await wandImage(e);
   const W = img.width,
     H = img.height,
@@ -562,9 +638,7 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
   // Colors are compared premultiplied by alpha: transparent pixels are alike
   // whatever color was erased there.
   const full = 255 * img.unit;
-  const i0 = (y * W + x) * 4;
-  const k0 = d[i0 + 3] / full;
-  const ref = [d[i0] * k0, d[i0 + 1] * k0, d[i0 + 2] * k0, d[i0 + 3]];
+  let ref = wandReference(d, W, H, x, y, opts.sampleSize ?? wandSampleSize(e), full);
   const within = (i: number) => {
     const a = d[i + 3];
     if (Math.abs(a - ref[3]) > t) return false;
@@ -575,6 +649,9 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
       Math.abs(d[i + 2] * k - ref[2]) <= t
     );
   };
+  // An average the clicked pixel itself is too far from (a thin line in a
+  // large sample) would select nothing: use the clicked color then.
+  if (!within((y * W + x) * 4)) ref = wandReference(d, W, H, x, y, 1, full);
   const out = new Uint8Array(W * H);
   if (e.settings.contiguous === false) {
     for (let p = 0; p < W * H; p++) if (within(p * 4)) out[p] = 255;
@@ -602,7 +679,7 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
       }
     }
   }
-  if (e.settings.antiAlias !== false) {
+  if (opts.antiAlias ?? e.settings.antiAlias !== false) {
     // Soften the boundary by one pixel like an anti-aliased selection edge.
     const soft = new Uint8Array(out);
     for (let yy = 1; yy < H - 1; yy++)
@@ -626,13 +703,13 @@ async function modifyDialog(e: Editor, id: string, arg: unknown, title: string, 
   const m = readMask(e.assets.tiles, sel, canvasRect(e.doc));
   commitSelectionMask(e, fn(m, Number(v.value)), 'replace', title.replace('…', ''));
 }
-export function installSelection(_e: Editor) {
+export function installSelection(editor: Editor) {
   registerTool(
     movableOutline(marqueeTool('rect-marquee', 'Rectangular Marquee Tool', 'square-dashed', 'rect', 'M')),
     movableOutline(marqueeTool('ellipse-marquee', 'Elliptical Marquee Tool', 'marquee-ellipse', 'ellipse', 'M')),
     marqueeTool('row-marquee', 'Single Row Marquee Tool', 'marquee-row', 'row'),
     marqueeTool('column-marquee', 'Single Column Marquee Tool', 'marquee-column', 'column'),
-    movableOutline(lassoTool),
+    movableOutline(lassoTool, () => !!lassoHeld),
     movableOutline(polygonTool, () => !!polygon),
     movableOutline(wandTool),
   );
@@ -641,6 +718,7 @@ export function installSelection(_e: Editor) {
   });
   window.addEventListener('keyup', (ev) => {
     if (ev.code === 'Space') spaceHeld = false;
+    if (ev.key === 'Alt' && lassoHeld) finishHeldLasso(editor);
   });
   window.addEventListener('blur', () => (spaceHeld = false));
   const has = (e: Editor) => !!e.doc.selection;

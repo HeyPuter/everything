@@ -11,6 +11,7 @@ import type { CharStyle, Kerning, ParagraphStyle } from '../../imaging/text/mode
 import { applyChar, applyParagraph, onSessionChange, restoreInputFocus, styleContext } from './session';
 import { familyPatch, familyStyles, openFontPicker, styleName } from './options';
 import { typeUnit } from './units';
+import { typeFeatures } from './paragraph-options';
 
 const LANGUAGES: [string, string][] = [
   ['en-US', 'English: USA'], ['en-GB', 'English: UK'], ['de-DE', 'German'], ['fr-FR', 'French'], ['es-ES', 'Spanish'], ['it-IT', 'Italian'],
@@ -48,7 +49,9 @@ ${field('baselineShift', 'baseline-shift', 'Baseline shift', 'pt', 'type="number
 <datalist id="type-leading-list"><option value="Auto"></option>${[6, 8, 9, 10, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72].map((v) => `<option value="${v}"></option>`).join('')}</datalist>
 <div class="type-toggles" role="group" aria-label="Type styles">${TOGGLES.map(([k, icon, label]) => `<button type="button" class="icon-button toggle" data-toggle="${k}" aria-pressed="false" title="${label}" aria-label="${label}">${svg(icon, 15)}</button>`).join('')}</div>
 <div class="type-row"><label class="type-check"><input type="checkbox" data-check="ligatures"> Ligatures</label></div>
-<div class="type-row"><label class="type-field wide" title="Language">Language <select data-char="language" aria-label="Language">${LANGUAGES.map(([v, l]) => `<option value="${v}">${escapeXML(l)}</option>`).join('')}</select></label></div>`;
+<div class="type-row"><label class="type-field wide" title="Language">Language <select data-char="language" aria-label="Language">${LANGUAGES.map(([v, l]) => `<option value="${v}">${escapeXML(l)}</option>`).join('')}</select></label></div>
+<div class="type-row" data-features="middle-eastern"><label class="type-field wide" title="Digit shapes">Digits <select data-char="digits" aria-label="Digit shapes"><option value="">Western (123)</option><option value="arabic">Arabic-Indic (١٢٣)</option><option value="persian">Persian (۱۲۳)</option></select></label></div>
+<div class="type-row" data-features="east-asian"><label class="type-field wide" title="Latin letters and digits in vertical text">Vertical Latin <select data-char="vertical" aria-label="Latin letters and digits in vertical text"><option value="">Upright</option><option value="rotate">Rotated</option><option value="combine">Short runs across</option></select></label></div>`;
     const familyButton = el.querySelector<HTMLButtonElement>('[data-family]')!;
     familyButton.addEventListener('click', () => {
       const cur = styleContext(e).char;
@@ -66,6 +69,8 @@ ${field('baselineShift', 'baseline-shift', 'Baseline shift', 'pt', 'type="number
         const key = t.dataset.char as keyof CharStyle;
         const raw = t.value.trim();
         if (key === 'kerning') p = applyChar(e, { kerning: raw as Kerning });
+        else if (key === 'digits') p = applyChar(e, { digits: raw as CharStyle['digits'] });
+        else if (key === 'vertical') p = applyChar(e, { vertical: raw as CharStyle['vertical'] });
         else if (key === 'language') p = applyChar(e, { language: raw });
         else if (key === 'leading') {
           if (/^auto$/i.test(raw)) p = applyChar(e, { leading: 'auto' });
@@ -91,7 +96,18 @@ ${field('baselineShift', 'baseline-shift', 'Baseline shift', 'pt', 'type="number
     });
   },
   update: (e, el) => syncCharacter(e, el),
+  menu: () => [
+    'type.no-break', 'type.fractional-widths', '-',
+    { label: 'OpenType', items: ['type.ot-liga', 'type.ot-calt', 'type.ot-dlig', 'type.ot-swsh', 'type.ot-salt', 'type.ot-titl', 'type.ot-ordn', 'type.ot-frac', 'type.ot-onum', 'type.ot-smcp'] },
+    { label: 'Language Options', items: ['type.features-default', 'type.features-east-asian', 'type.features-middle-eastern'] },
+    '-', 'type.reset-character',
+  ],
 };
+// Rows for a language feature set show only while that set is chosen.
+function syncFeatureRows(e: Editor, el: HTMLElement) {
+  const set = typeFeatures(e);
+  for (const row of el.querySelectorAll<HTMLElement>('[data-features]')) row.hidden = row.dataset.features !== set;
+}
 
 // Field limits given in points, shown in the type unit (factor k), on the
 // fields' 0.5 step grid (the minimum is where the stepper counts from).
@@ -127,6 +143,9 @@ function syncCharacter(e: Editor, el: HTMLElement) {
   limits(el.querySelector<HTMLInputElement>('[data-char="size"]')!, 0.5, 1296, unit.k);
   setValue(el.querySelector('[data-char="kerning"]'), c.kerning ?? '');
   setValue(el.querySelector('[data-char="language"]'), c.language ?? '');
+  setValue(el.querySelector('[data-char="digits"]'), c.digits ?? '');
+  setValue(el.querySelector('[data-char="vertical"]'), c.vertical ?? '');
+  syncFeatureRows(e, el);
   const color = el.querySelector<HTMLInputElement>('[data-color]')!;
   setValue(color, c.color ? rgbHexString(c.color) : '#000000');
   color.classList.toggle('mixed', !c.color);
@@ -163,15 +182,21 @@ ${pfield('spaceBefore', 'space-before', 'Add space before paragraph')}
 ${pfield('spaceAfter', 'space-after', 'Add space after paragraph')}
 </div>
 <div class="type-row"><label class="type-check"><input type="checkbox" data-hyphenate> Hyphenate</label></div>
+<div class="type-row" data-features="middle-eastern"><div class="type-toggles" role="group" aria-label="Paragraph direction"><button type="button" class="icon-button toggle" data-dir="ltr" aria-pressed="false" title="Left-to-right paragraph" aria-label="Left-to-right paragraph">${svg('text-ltr', 15)}</button><button type="button" class="icon-button toggle" data-dir="rtl" aria-pressed="false" title="Right-to-left paragraph" aria-label="Right-to-left paragraph">${svg('text-rtl', 15)}</button></div><label class="type-check"><input type="checkbox" data-kashida> Kashidas</label></div>
+<div class="type-row" data-features="east-asian"><label class="type-field wide" title="How line spacing is measured">Leading <select data-leading-model aria-label="How line spacing is measured"><option value="">Baseline to baseline</option><option value="top">Top to top</option><option value="bottom">Bottom to bottom</option></select></label></div>
 <p class="hint">Justification and hyphenation apply to paragraph text (drag with a type tool to create a text frame).</p>`;
     el.addEventListener('click', (ev) => {
       const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-align]');
       if (b) void applyParagraph(e, { align: b.dataset.align as ParagraphStyle['align'] }).then(restoreInputFocus(e));
+      const d = (ev.target as HTMLElement).closest<HTMLElement>('[data-dir]');
+      if (d) void e.runCommand(`type.dir-${d.dataset.dir}`);
     });
     el.addEventListener('change', (ev) => {
       const t = ev.target as HTMLInputElement;
       let p: Promise<void> | undefined;
       if (t.matches('[data-hyphenate]')) p = applyParagraph(e, { hyphenate: t.checked });
+      else if (t.matches('[data-kashida]')) p = applyParagraph(e, { kashida: t.checked });
+      else if (t.matches('[data-leading-model]')) p = applyParagraph(e, { leadingModel: t.value as ParagraphStyle['leadingModel'] });
       else if (t.dataset.para && t.value.trim() !== '' && Number.isFinite(Number(t.value)))
         // Entered in the type unit, stored in points.
         p = applyParagraph(e, { [t.dataset.para]: Math.max(-5000, Math.min(5000, Number(t.value) / typeUnit(e).k)) });
@@ -194,7 +219,17 @@ ${pfield('spaceAfter', 'space-after', 'Add space after paragraph')}
     const h = el.querySelector<HTMLInputElement>('[data-hyphenate]')!;
     h.checked = p.hyphenate === true;
     h.indeterminate = p.hyphenate === undefined;
+    const k = el.querySelector<HTMLInputElement>('[data-kashida]')!;
+    k.checked = p.kashida === true;
+    for (const b of el.querySelectorAll<HTMLElement>('[data-dir]')) b.setAttribute('aria-pressed', String((p.direction ?? 'ltr') === b.dataset.dir && p.align !== undefined));
+    setValue(el.querySelector('[data-leading-model]'), p.leadingModel ?? '');
+    syncFeatureRows(e, el);
   },
+  menu: () => [
+    'type.hanging', '-', 'type.justification', 'type.hyphenation', '-', 'type.composer-single', 'type.composer-every', '-',
+    { label: 'Language Options', items: ['type.features-default', 'type.features-east-asian', 'type.features-middle-eastern', '-', 'type.leading-top', 'type.leading-bottom', 'type.kashida'] },
+    '-', 'type.reset-paragraph',
+  ],
 };
 
 export function installTypePanels(e: Editor) {

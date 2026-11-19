@@ -11,9 +11,9 @@ type Core = Pick<TextLayout, 'lines' | 'runs' | 'decorations' | 'bounds'>;
 
 // Proportions of the em used to stack lines: capital height above the
 // baseline, and descenders below it when the line has any.
-const CAP = 0.7;
-const DESCENDER = 0.22;
-const hasDescender = (text: string) => /[gjpqyQJ,;()[\]{}|@$§¶_]/.test(text);
+export const CAP = 0.7;
+export const DESCENDER = 0.22;
+export const hasDescender = (text: string) => /[gjpqyQJ,;()[\]{}|@$§¶_]/.test(text);
 
 /** Scale each line of `core` to `block.width` and stack the lines from the
  * first baseline (`originY`); `left` is where every line starts. */

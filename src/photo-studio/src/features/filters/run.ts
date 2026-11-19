@@ -5,7 +5,8 @@ import { defaults, type ParamValues } from '../../imaging/types';
 import { isBlendMode, type BlendMode } from '../../imaging/blend';
 import { GALLERY_ID, RESTORE_ID, filterOp, normalizeFor } from './catalog';
 import { applyDirect, filterState } from './apply';
-import { filterDialog, lastUsed } from './dialog';
+import { customDialogs, filterDialog, lastUsed } from './dialog';
+import { developWorkspace } from './develop/workspace';
 import { galleryDialog } from './gallery';
 import { fade } from './fade';
 import { convertForLiveFilters, toggleLiveMask } from './live';
@@ -16,8 +17,9 @@ export { liquify } from './liquify';
 export { perspectivePlanes } from './perspective-planes';
 export { convertForLiveFilters, toggleLiveMask };
 
-// Wide Angle Correction opens its own workspace instead of the generic dialog.
+// Wide Angle Correction and Develop open their own workspaces instead of the generic dialog.
 installWideAngle();
+customDialogs.set('develop', developWorkspace);
 
 export function paramsOf(arg: unknown): Record<string, unknown> | undefined {
   if (!arg || typeof arg !== 'object') return undefined;

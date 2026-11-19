@@ -205,7 +205,8 @@ export function installTypeCommands(e: Editor) {
       e.setTool(o === 'vertical' ? 'type-vertical' : 'type');
       return;
     }
-    await applyLayer(e, 'Change Text Orientation', (d) => (d.path ? d : { ...d, orientation: o, ...(o === 'vertical' ? { block: undefined } : {}) }));
+    // Path text and dynamic text stay horizontal.
+    await applyLayer(e, 'Change Text Orientation', (d) => (d.path || d.fit ? d : { ...d, orientation: o, ...(o === 'vertical' ? { block: undefined } : {}) }));
   };
   cmd('type.horizontal', 'Horizontal', orient('horizontal'), { checked: (e) => (currentData(e)?.orientation ?? (e.tool.includes('vertical') ? 'vertical' : 'horizontal')) === 'horizontal' });
   cmd('type.vertical', 'Vertical', orient('vertical'), { checked: (e) => (currentData(e)?.orientation ?? (e.tool.includes('vertical') ? 'vertical' : 'horizontal')) === 'vertical' });
@@ -226,12 +227,13 @@ export function installTypeCommands(e: Editor) {
     }
     if (findLayer(e.doc.layers, l.id)) await rasterizeLayer(e, l.id, 'Rasterize Type');
   }, { enabled: (e) => !!target(e) });
-  cmd('type.convert-paragraph', 'Convert to Paragraph Text', (e) => applyLayer(e, 'Convert Text Shape Type', (d) => (d.path ? dropTypePath(d, layoutOf(d, ppiOf(e))) : { ...convertParagraphMode(d, layoutOf(d, ppiOf(e))), block: undefined })), {
-    enabled: (e) => !!currentData(e),
+  cmd('type.convert-paragraph', 'Convert to Paragraph Text', (e) => applyLayer(e, 'Convert Text Shape Type', (d) => (d.fit ? d : d.path ? dropTypePath(d, layoutOf(d, ppiOf(e))) : { ...convertParagraphMode(d, layoutOf(d, ppiOf(e))), block: undefined })), {
+    // Dynamic text is released first (Type → Release Fit).
+    enabled: (e) => !!currentData(e) && !currentData(e)!.fit,
     description: 'Convert Text Shape Type: point text to paragraph text and back; path text to point text, area text to paragraph text.',
   });
   // Path text follows its path; warping does not apply to it.
-  cmd('type.warp', 'Warp Text…', (e) => warpDialog(e), { enabled: (e) => !!currentData(e) && !currentData(e)!.path });
+  cmd('type.warp', 'Warp Text…', (e) => warpDialog(e), { enabled: (e) => !!currentData(e) && !currentData(e)!.path && !currentData(e)!.fit });
   cmd('type.paste-lorem', 'Paste Lorem Ipsum', async (e) => {
     if (session) {
       insert(e, LOREM, 'paste');

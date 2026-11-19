@@ -178,6 +178,30 @@ export function readRect(store: TileStore, grid: TileGrid, rect: IRect): RGBA8 |
     }
   return { width, height, data: out } as RGBA8 | Mask8;
 }
+/** Whether any pixel of a color grid in a document-space rectangle has
+ * alpha, read in place (no copy) and stopping at the first one. */
+export function anyVisible(store: TileStore, grid: TileGrid, rect: IRect): boolean {
+  if (grid.channels !== 4) throw new Error('Expected a color tile grid.');
+  const lx = rect.x - grid.x,
+    ly = rect.y - grid.y;
+  const tx0 = Math.floor(lx / TILE),
+    ty0 = Math.floor(ly / TILE),
+    tx1 = Math.floor((lx + rect.width - 1) / TILE),
+    ty1 = Math.floor((ly + rect.height - 1) / TILE);
+  for (let ty = ty0; ty <= ty1; ty++)
+    for (let tx = tx0; tx <= tx1; tx++) {
+      const id = grid.tiles[tileKey(tx, ty)];
+      if (!id) continue;
+      const d = store.get(id);
+      const sx0 = Math.max(lx, tx * TILE) - tx * TILE,
+        sy0 = Math.max(ly, ty * TILE) - ty * TILE,
+        sx1 = Math.min(lx + rect.width, (tx + 1) * TILE) - tx * TILE,
+        sy1 = Math.min(ly + rect.height, (ty + 1) * TILE) - ty * TILE;
+      for (let y = sy0; y < sy1; y++)
+        for (let i = (y * TILE + sx0) * 4 + 3, end = (y * TILE + sx1) * 4; i < end; i += 4) if (d[i]) return true;
+    }
+  return false;
+}
 export function readRGBA(store: TileStore, grid: TileGrid, rect: IRect): RGBA8 {
   if (grid.channels !== 4) throw new Error('Expected a color tile grid.');
   return readRect(store, grid, rect) as RGBA8;

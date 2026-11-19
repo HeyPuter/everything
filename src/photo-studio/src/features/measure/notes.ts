@@ -16,6 +16,8 @@ let drag: Drag | undefined;
 const NOTE_COLORS = ['#ffd60a', '#ff9f0a', '#30d158', '#64d2ff', '#ff6482', '#bf5af2'];
 
 export const notesOf = (e: Editor) => annotationsOf(e.doc).notes ?? [];
+/** The color the Note tool gives new notes (its options bar sets it). */
+const newNoteColor = (e: Editor) => (NOTE_COLORS.includes(e.settings.noteColor as string) ? (e.settings.noteColor as string) : NOTE_COLORS[0]);
 export function currentNote(e: Editor): DocumentNote | undefined {
   const id = selectedNote.get(e.session);
   return notesOf(e).find((n) => n.id === id);
@@ -128,9 +130,26 @@ export function installNotes(_e: Editor) {
     group: 'eyedropper',
     cursor: () => 'copy',
     options: (e) =>
-      `<label>Author <input id="note-tool-author" value="${escapeXML(author())}" placeholder="Your name" maxlength="256" spellcheck="false" style="width:140px"></label><span class="divider"></span><button data-command="notes.clear" ${notesOf(e).length ? '' : 'disabled'}>Clear All</button><button data-command="window.panel.notes">Notes Panel</button>`,
-    bindOptions: ({ el }) => {
+      `<label>Author <input id="note-tool-author" value="${escapeXML(author())}" placeholder="Your name" maxlength="256" spellcheck="false" style="width:140px"></label><span class="notes-colors note-tool-colors" role="radiogroup" aria-label="Color of new notes">${NOTE_COLORS.map((c, i) => `<button type="button" role="radio" aria-checked="${c === newNoteColor(e)}" tabindex="${c === newNoteColor(e) ? 0 : -1}" data-new-note-color="${c}" style="--swatch:${c}" aria-label="Note color ${i + 1}" title="Color of new notes"></button>`).join('')}</span><span class="divider"></span><button data-command="notes.clear" ${notesOf(e).length ? '' : 'disabled'}>Clear All</button><button data-command="window.panel.notes">Notes Panel</button>`,
+    bindOptions: ({ e, el }) => {
       el.querySelector<HTMLInputElement>('#note-tool-author')?.addEventListener('change', (ev) => setAuthor((ev.target as HTMLInputElement).value.trim()));
+      const swatches = [...el.querySelectorAll<HTMLButtonElement>('[data-new-note-color]')];
+      const choose = (b: HTMLButtonElement) => {
+        e.settings.noteColor = b.dataset.newNoteColor;
+        e.options();
+        el.querySelector<HTMLElement>(`[data-new-note-color="${b.dataset.newNoteColor}"]`)?.focus();
+      };
+      for (const b of swatches) {
+        b.addEventListener('click', () => choose(b));
+        // Arrow keys move through the colors, as in a radio group.
+        b.addEventListener('keydown', (ev) => {
+          const step = ev.key === 'ArrowRight' || ev.key === 'ArrowDown' ? 1 : ev.key === 'ArrowLeft' || ev.key === 'ArrowUp' ? -1 : 0;
+          if (!step) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          choose(swatches[(swatches.indexOf(b) + step + swatches.length) % swatches.length]);
+        });
+      }
     },
     pointerDown: (e, p) => {
       const n = hit(e, p.x, p.y);
@@ -150,7 +169,7 @@ export function installNotes(_e: Editor) {
         e.message('A document holds up to 1000 notes.');
         return;
       }
-      const note = makeNote(Math.round(p.x), Math.round(p.y));
+      const note = makeNote(Math.round(p.x), Math.round(p.y), { color: newNoteColor(e) });
       editAnnotations(e, 'Add Note', (a) => (a.notes = [...(a.notes ?? []), note]));
       selectNote(e, note.id);
       e.settings.hideNotes = false;

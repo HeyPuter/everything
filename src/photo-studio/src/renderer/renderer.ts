@@ -9,7 +9,7 @@ import {
 } from '../model/document';
 import type { Assets } from '../model/assets';
 import type { ImageEngine } from '../engine/engine';
-import { UNIFORM_FLOATS, type Backend, type Texture } from './backend';
+import { UNIFORM_FLOATS, type Backend, type Texture, type TextureCopy } from './backend';
 import { blendingUniforms } from '../model/blending';
 import { WebGPUBackend } from './webgpu';
 import { WebGLBackend } from './webgl';
@@ -74,6 +74,20 @@ function layerTemplate(): Layer {
     transform: { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, filters: defaultFilters(), mask: null,
     color: '#ffffff', text: '', fontSize: 12, sourceWidth: 1, sourceHeight: 1, strokes: [], children: [],
   };
+}
+/** Every source ID (`Renderer.sources`) a document's layers can use. */
+function sourceIds(doc: PhotoDocument) {
+  return new Set(
+    allLayers(doc.layers).flatMap((l) => [
+      l.id,
+      ...(hasMask(l) ? [`mask:${l.id}`] : []),
+      ...(l.pixelMask ? [`pixel-mask:${l.id}`] : []),
+      ...(l.maskGrid ? [`mask-grid:${l.id}`] : []),
+      ...(l.adjustment ? [`lut:${l.id}`] : []),
+      ...(l.artboard ? [`artboard-bg:${l.id}`] : []),
+      ...(l.frame?.shape === 'ellipse' ? [`frame-clip:${l.id}`] : []),
+    ]),
+  );
 }
 function floatBytes(bytes: Uint8ClampedArray) {
   const out = new Float32Array(bytes.length);
@@ -189,6 +203,8 @@ type SourceEntry = {
   strokePath?: Path2D;
   paintPrefix?: { key: string; texture: Texture };
   tiles?: Map<string, string>;
+  // Texture position of tile (0, 0) of a tiled source (see `tiles`).
+  tileOrigin?: { x: number; y: number };
   lut?: Float32Array;
   // Local text-space rectangle covered by an editable text texture.
   textRect?: Rect;
@@ -900,16 +916,20 @@ export class Renderer {
       throw new Error(`This GPU supports layers up to ${max} pixels per side.`);
     const key = JSON.stringify([ext, this.floating]);
     let entry = this.sources.get(id);
+    const store = assets.tiles;
     if (!entry || entry.key !== key || entry.assets !== assets || !entry.tiles) {
-      if (entry) this.destroySource(entry);
+      const old = entry;
       const texture = this.floating
         ? this.backend.floatTexture(ext.width, ext.height)
         : this.backend.texture(ext.width, ext.height);
       this.backend.clear(texture);
-      entry = { key, texture, assets, tiles: new Map() };
+      entry = { key, texture, assets, tiles: new Map(), tileOrigin: { x: -ext.x, y: -ext.y } };
+      // Tiles already on the GPU (this layer before it grew, the layer it was
+      // copied from, an earlier state of it) are copied there, not uploaded.
+      this.copySharedTiles(entry, grid, ext, store, old);
+      if (old) this.destroySource(old);
       this.sources.set(id, entry);
     }
-    const store = assets.tiles;
     for (let ty = ext.y / TILE; ty < (ext.y + ext.height) / TILE; ty++)
       for (let tx = ext.x / TILE; tx < (ext.x + ext.width) / TILE; tx++) {
         const k = tileKey(tx, ty),
@@ -923,6 +943,51 @@ export class Renderer {
         else entry.tiles!.delete(k);
       }
     return { texture: entry.texture, extent: { ...ext, x: ext.x + grid.x, y: ext.y + grid.y } };
+  }
+  /** Fill a new tiled source from textures that already hold some of its
+   * tiles (same tile ID and version, so the same pixels). */
+  private copySharedTiles(entry: SourceEntry, grid: TileGrid, ext: Rect, store: Assets['tiles'], old?: SourceEntry) {
+    const wanted = new Map<string, string[]>();
+    for (let ty = ext.y / TILE; ty < (ext.y + ext.height) / TILE; ty++)
+      for (let tx = ext.x / TILE; tx < (ext.x + ext.width) / TILE; tx++) {
+        const k = tileKey(tx, ty),
+          tile = grid.tiles[k];
+        if (!tile) continue;
+        const state = `${tile}:${store.version(tile)}`;
+        const at = wanted.get(state);
+        if (at) at.push(k);
+        else wanted.set(state, [k]);
+      }
+    if (!wanted.size) return;
+    const regions: TextureCopy[] = [];
+    const states: [string, string][] = [];
+    const donors = old ? [old, ...this.sources.values()] : this.sources.values();
+    for (const donor of donors) {
+      if (!donor.tiles?.size || !donor.tileOrigin || donor === entry) continue;
+      if (donor.assets !== entry.assets || donor.texture.format !== entry.texture.format) continue;
+      for (const [dk, state] of donor.tiles) {
+        const keys = wanted.get(state);
+        if (!keys) continue;
+        wanted.delete(state);
+        const [sx, sy] = parseKey(dk);
+        for (const k of keys) {
+          const [tx, ty] = parseKey(k);
+          regions.push({
+            source: donor.texture,
+            sx: sx * TILE + donor.tileOrigin.x,
+            sy: sy * TILE + donor.tileOrigin.y,
+            dx: tx * TILE + entry.tileOrigin!.x,
+            dy: ty * TILE + entry.tileOrigin!.y,
+            width: TILE,
+            height: TILE,
+          });
+          states.push([k, state]);
+        }
+      }
+      if (!wanted.size) break;
+    }
+    if (regions.length && this.backend.copy(entry.texture, regions))
+      for (const [k, state] of states) entry.tiles!.set(k, state);
   }
   // Painted layer masks are document-space coverage tiles sampled through the
   // same scalar-mask path as imported pixel masks.
@@ -1393,6 +1458,34 @@ export class Renderer {
     );
     return run;
   }
+  // Source IDs the last canvas frame used (see `draw`).
+  private canvasSources?: Set<string>;
+  private pruneSources(keep: Set<string>) {
+    for (const [id, entry] of this.sources)
+      if (!keep.has(id)) {
+        this.destroySource(entry);
+        this.sources.delete(id);
+      }
+  }
+  // Source IDs readbacks used since the last canvas frame.
+  private readbackSources = new Set<string>();
+  private releaseTimer?: ReturnType<typeof setTimeout>;
+  /** Release sources only a readback used when no frame follows it soon. */
+  private releaseSoon() {
+    clearTimeout(this.releaseTimer);
+    this.releaseTimer = undefined;
+    const canvas = this.canvasSources;
+    if (!canvas || [...this.sources.keys()].every((id) => canvas.has(id))) return;
+    this.releaseTimer = setTimeout(() => {
+      this.releaseTimer = undefined;
+      // A draw in progress prunes (a frame) or calls this again (a readback).
+      if (this.active || this.canvasSources !== canvas) return;
+      const keep = new Set(canvas);
+      if (this.lastRender) for (const id of sourceIds(this.lastRender.doc)) keep.add(id);
+      this.pruneSources(keep);
+      this.readbackSources.clear();
+    }, 2000);
+  }
   private async runExclusive<T>(task: () => Promise<T>): Promise<T> {
     // Readbacks from a lost context would return blank pixels.
     while (this.recovering) await this.recovering;
@@ -1403,6 +1496,7 @@ export class Renderer {
       return await task();
     } finally {
       this.exclusiveDepth--;
+      if (!this.exclusiveDepth) this.releaseSoon();
       this.active = false;
       const queued = this.queued;
       this.queued = undefined;
@@ -1424,12 +1518,13 @@ export class Renderer {
       return this.final!.format === 'rgba32float' ? this.backend.readFloat(this.final!) : this.backend.read(this.final!);
     });
   }
-  /** Composite of a document (all visible layers) as stored samples. */
-  async documentPixels(doc: PhotoDocument, assets: Assets): Promise<Uint8Array | Float32Array> {
+  /** Composite of a document (all visible layers) as stored samples, or of a
+   * rectangle of it (inside the canvas) when only part is needed. */
+  async documentPixels(doc: PhotoDocument, assets: Assets, rect?: IRect): Promise<Uint8Array | Float32Array> {
     await this.beforeReadback?.();
     return this.exclusive(async () => {
       await this.draw(doc, assets);
-      return this.final!.format === 'rgba32float' ? this.backend.readFloat(this.final!) : this.backend.read(this.final!);
+      return this.final!.format === 'rgba32float' ? this.backend.readFloat(this.final!, rect) : this.backend.read(this.final!, rect);
     });
   }
   async settle() {
@@ -1651,22 +1746,17 @@ export class Renderer {
       this.canvas.width = doc.width;
       this.canvas.height = doc.height;
     }
-    const active = new Set(
-      allLayers(doc.layers).flatMap((l) => [
-        l.id,
-        ...(hasMask(l) ? [`mask:${l.id}`] : []),
-        ...(l.pixelMask ? [`pixel-mask:${l.id}`] : []),
-        ...(l.maskGrid ? [`mask-grid:${l.id}`] : []),
-        ...(l.adjustment ? [`lut:${l.id}`] : []),
-        ...(l.artboard ? [`artboard-bg:${l.id}`] : []),
-        ...(l.frame?.shape === 'ellipse' ? [`frame-clip:${l.id}`] : []),
-      ]),
-    );
-    for (const [id, entry] of this.sources)
-      if (!active.has(id)) {
-        this.destroySource(entry);
-        this.sources.delete(id);
-      }
+    const active = sourceIds(doc);
+    // Readbacks (single layers, other states of the document) keep the
+    // canvas's textures, so the next frame does not upload every layer again.
+    // What a readback used lasts one more frame (it may have drawn a document
+    // newer than a frame still queued), then goes (or with `releaseSoon`).
+    if (this.exclusiveDepth) for (const id of active) this.readbackSources.add(id);
+    else {
+      this.canvasSources = active;
+      this.pruneSources(new Set([...active, ...this.readbackSources]));
+      this.readbackSources.clear();
+    }
     // Single-layer readbacks must not discard the canvas's style results.
     if (!this.exclusiveDepth) this.styles.prune(active);
     this.cursor = 0;
@@ -1828,6 +1918,7 @@ export class Renderer {
   }
   dispose() {
     this.disposed = true;
+    clearTimeout(this.releaseTimer);
     this.styles.dispose();
     this.spatial?.dispose();
     for (const s of this.sources.values()) this.destroySource(s);

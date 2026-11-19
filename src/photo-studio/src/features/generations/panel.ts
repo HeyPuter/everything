@@ -62,7 +62,7 @@ const shortPrompt = (x: GenerationEntry) => {
 // opens the same dialogs).
 function layerKind(x: GenerationEntry): GeneratedInfo['kind'] {
   const d = dialogOf(x);
-  return d === 'generate' || d === 'edit' || d === 'fill' || d === 'expand' || d === 'upscale' ? d : x.kind === 'restore' ? 'edit' : 'generate';
+  return d === 'generate' || d === 'edit' || d === 'fill' || d === 'expand' || d === 'upscale' || d === 'recompose' || d === 'reflection' || d === 'rotate' ? d : x.kind === 'restore' ? 'edit' : 'generate';
 }
 
 /** Where a stored result goes in a document and how it fills that area: the

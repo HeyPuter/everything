@@ -4,11 +4,12 @@
 // result is added as a new layer (masked to the selection when there is one)
 // above the current layer, and the prompt is kept with the layer.
 import type { Editor } from '../../editor';
+import { tileHolders } from '../../app/session';
 import { escapeXML } from '../../model/assets';
 import { findLayer, insertLayerAt, type GeneratedInfo, type Layer } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { applySelection, canvasRect, selectionBounds, selectionGrid } from '../../model/selection';
-import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, writeRect } from '../../model/tiles';
+import { anyVisible, emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, writeRect } from '../../model/tiles';
 import { EDIT_MAX_SIDE, editImage, generateImages, requestSize, toAIError } from '../../imaging/ai/puter-ai';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { ensureSignedIn } from '../retouch/ai';
@@ -66,8 +67,9 @@ type Session = {
   target: Target;
   // Opened by the Assistant: results are recorded as the Assistant's.
   via?: 'assistant';
-  // Edit with Prompt: the pixels sent (the target area of the source).
-  source?: RGBA8;
+  // Edit with Prompt: the pixels sent (the target area of the source), read
+  // when first needed rather than as the dialog opens.
+  source?: () => RGBA8;
   sourceLabel?: string;
 };
 
@@ -196,7 +198,7 @@ async function studio(s: Session) {
         out = await generateImages(styledPrompt(text, remembered.style), { ...size, model: model || undefined, quality, count: n, signal: ac.signal });
         used = { prompt: text, model, style: remembered.style !== 'none' ? remembered.style : undefined };
       } else {
-        out = await editImage(s.source!, text, { model: model || undefined, quality, count: n, signal: ac.signal });
+        out = await editImage(s.source!(), text, { model: model || undefined, quality, count: n, signal: ac.signal });
         used = { prompt: text, model };
       }
       if (ac.signal.aborted) return;
@@ -284,15 +286,33 @@ export async function editWithPromptDialog(e: Editor, arg?: unknown) {
   if (!rect || rect.width < 8 || rect.height < 8) return e.message('Select a larger area (at least 8 × 8 pixels) to edit.');
   const mask = grid && selB ? readMask(e.assets.tiles, grid, rect) : null;
   const target: Target = { rect, mask: mask && !mask.data.every((v) => v === 255) ? mask : null, label: selB ? 'selection' : useLayer ? 'layer' : 'canvas' };
-  const full = useLayer ? readRGBA(e.assets.tiles, l!.pixels!, rect) : cropRect(await mergedImage(e), rect);
-  if (!full.data.some((v, i) => (i & 3) === 3 && v > 0)) return e.message('There is nothing visible to edit here.');
+  // A large layer is read only when it is sent: checking it for visible
+  // pixels in place keeps the dialog quick to open.
+  let full = useLayer ? undefined : cropRect(await mergedImage(e), rect);
+  const visible = full ? full.data.some((v, i) => (i & 3) === 3 && v > 0) : anyVisible(e.assets.tiles, l!.pixels!, rect);
+  if (!visible) return e.message('There is nothing visible to edit here.');
+  const grid0 = l?.pixels;
+  const source = () => (full ??= readRGBA(e.assets.tiles, grid0!, rect));
+  // Until then its tiles stay in the store whatever happens to the layer.
+  const held = () => (full || !grid0 ? [] : Object.values(grid0.tiles));
+  tileHolders.push(held);
+  try {
+    await editWithPrompt(e, l, arg, target, source, useLayer, selB);
+  } finally {
+    tileHolders.splice(tileHolders.indexOf(held), 1);
+  }
+}
+async function editWithPrompt(e: Editor, l: Layer | undefined, arg: unknown, target: Target, source: () => RGBA8, useLayer: boolean, selB: IRect | null) {
   const sourceLabel = useLayer ? `The ${selB ? 'selected part of the layer' : 'layer'} “${l!.name}”` : selB ? 'The selected part of the visible image' : 'The visible image';
   const prefill = prefillOf(arg);
   applyPrefill('edit', prefill);
-  const out = await studio({ e, mode: 'edit', target, source: full, sourceLabel, via: prefill?.via });
+  const out = await studio({ e, mode: 'edit', target, source, sourceLabel, via: prefill?.via });
   if (!out) return;
   // Keep the source layer's transparency so an edit does not fill empty areas.
-  if (useLayer) for (let i = 3; i < out.image.data.length; i += 4) out.image.data[i] = Math.min(out.image.data[i], full.data[i]);
+  if (useLayer) {
+    const src = source().data;
+    for (let i = 3; i < out.image.data.length; i += 4) out.image.data[i] = Math.min(out.image.data[i], src[i]);
+  }
   placeLayer(e, 'Edit with Prompt', shortName('Edited', out.info.prompt), out.image, target, out.info, findLayer(e.doc.layers, l?.id ?? '') ? l?.id : undefined);
   e.message('The edit was added as a new layer above the original.');
 }

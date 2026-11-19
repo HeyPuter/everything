@@ -76,6 +76,8 @@ export interface ImageOperation {
   params: ParamSpec[];
   // True when the operation needs no dialog (for example Invert or Despeckle).
   immediate?: boolean;
+  // Brings settings saved by an earlier version up to date (before normalizing).
+  migrate?(params: Record<string, unknown>): Record<string, unknown>;
   apply(src: RGBA8, params: ParamValues, ctx: OperationContext, progress?: Progress): RGBA8 | Promise<RGBA8>;
 }
 export function defaults(op: Pick<ImageOperation, 'params'>): ParamValues {

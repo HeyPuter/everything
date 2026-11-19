@@ -17,12 +17,16 @@ export class SmudgeFinger {
   private cy = 0;
   private last?: [number, number];
   private keep = 1;
+  private backdrop = new Uint8ClampedArray(4);
   constructor(
     maxSize: number,
     private strength: number,
     // Finger painting: the tip starts loaded with this color instead of
     // picking up the canvas on first touch.
     private fill?: readonly number[],
+    // Sample All Layers: what shows under the layer (straight RGBA into
+    // `out`, false where nothing does). The tip picks up the layer over it.
+    private under?: (x: number, y: number, out: Uint8ClampedArray) => boolean,
   ) {
     this.size = Math.max(1, Math.ceil(maxSize) + 4);
     this.paint = new Float32Array(this.size * this.size * 4);
@@ -56,6 +60,18 @@ export class SmudgeFinger {
     const cr = cur[0] * ca,
       cg = cur[1] * ca,
       cb = cur[2] * ca;
+    // The color picked up: the layer alone, or the layer over what is under it.
+    let pr = cr,
+      pg = cg,
+      pb = cb,
+      pa = ca;
+    if (this.under?.(x, y, this.backdrop)) {
+      const ba = (this.backdrop[3] / 255) * (1 - ca);
+      pr = cr + this.backdrop[0] * ba;
+      pg = cg + this.backdrop[1] * ba;
+      pb = cb + this.backdrop[2] * ba;
+      pa = ca + ba;
+    }
     if (!this.loaded[j] && this.fill) {
       f[i] = this.fill[0];
       f[i + 1] = this.fill[1];
@@ -64,19 +80,19 @@ export class SmudgeFinger {
       this.loaded[j] = 1;
     } else if (!this.loaded[j]) {
       // The first touch only picks up what is there.
-      f[i] = cr;
-      f[i + 1] = cg;
-      f[i + 2] = cb;
-      f[i + 3] = ca;
+      f[i] = pr;
+      f[i + 1] = pg;
+      f[i + 2] = pb;
+      f[i + 3] = pa;
       this.loaded[j] = 1;
       return;
     }
     // Pick up: the carried paint gives way to the canvas by (1 - keep).
     const k = this.keep;
-    f[i] = cr + (f[i] - cr) * k;
-    f[i + 1] = cg + (f[i + 1] - cg) * k;
-    f[i + 2] = cb + (f[i + 2] - cb) * k;
-    f[i + 3] = ca + (f[i + 3] - ca) * k;
+    f[i] = pr + (f[i] - pr) * k;
+    f[i + 1] = pg + (f[i + 1] - pg) * k;
+    f[i + 2] = pb + (f[i + 2] - pb) * k;
+    f[i + 3] = pa + (f[i + 3] - pa) * k;
     // Lay the carried paint down with the tip's coverage.
     const a = Math.min(1, alpha);
     const oa = ca + (f[i + 3] - ca) * a;

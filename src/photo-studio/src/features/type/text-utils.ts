@@ -93,7 +93,8 @@ export function warpedRect(data: TextLayerData, layout: TextLayout, r: Rect, ste
 // Local rectangle the transform box should follow: the paragraph frame, or
 // the line boxes of point text (warped when a warp is set).
 export function localBounds(data: TextLayerData, layout: TextLayout): Rect {
-  // Path text: the placed glyphs; area text: the shape.
+  // Dynamic text: its box; path text: the placed glyphs; area text: the shape.
+  if (data.fit && layout.fitBox) return layout.fitBox;
   if (data.path?.kind === 'path') return layout.bounds.width > 0 ? layout.bounds : { ...layout.bounds, width: 1, height: Math.max(1, layout.bounds.height) };
   if (data.path?.kind === 'area' && layout.box) return layout.box;
   if (data.mode === 'paragraph' && data.box) return { x: data.origin.x, y: data.origin.y, ...data.box };
@@ -143,6 +144,10 @@ function visibleChain(doc: PhotoDocument, id: string): boolean {
     }
   };
   return walk(doc.layers) ?? false;
+}
+
+export function selectedTextLayersOf(e: Editor): Layer[] {
+  return e.selectedLayers.filter((l) => l.kind === 'text');
 }
 
 // Top-most editable text layer under a document point.

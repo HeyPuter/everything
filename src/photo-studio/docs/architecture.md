@@ -22,9 +22,13 @@ This guide is for contributors adding features.
   appears there shows up automatically; unregistered IDs are omitted. Dynamic submenus
   (e.g. `filter.blur`, `window.panels`) collect commands whose `menu` field names them.
   Shortcuts use `Mod` for Command/Ctrl, e.g. `Mod+Shift+N`, `Alt+Backspace`, `F5`.
-- `registerTool({ id, label, key, icon, group, options, bindOptions, pointerDown/Move/Up, hover, keyDown, overlay, activate, deactivate, cursor })`.
+- `registerTool({ id, label, key, icon, group, options, bindOptions, pointerDown/Move/Up, hover, keyDown, contextMenu, overlay, activate, deactivate, cursor })`.
+  `contextMenu` takes a right-click on the canvas (painting tools open the brush picker there).
   `group` selects the toolbar slot (see `toolGroups` in `src/app/toolbar.ts`); tools in
-  one group share a slot with a flyout, and Shift+key cycles them.
+  one group share a slot with a flyout, and Shift+key cycles them. Holding a tool's
+  key uses it only while the key is down (`src/app/spring-tools.ts`). Reset Tool
+  returns the option keys a tool's `options` reads (found by the tool preset
+  recorder) to the values recorded once all features installed.
   Pointer events give `CanvasPointer` (`x`, `y` in document pixels, `pressure`, modifier flags, `coalesced` samples).
 - `registerPanel({ id, title, icon, location: 'dock-top'|'dock-middle'|'dock-bottom'|'strip', mount, update, menu })`.
   `mount` runs once; `update` runs after every edit while the panel is visible.
@@ -82,6 +86,16 @@ panel in the browser; add fixture state there when a new command needs it.
 Options-bar controls get tooltips from `src/app/option-tips.ts` when they have no
 `title`; add an entry for a new control whose label alone does not explain it.
 
+The Quick Actions Bar (`src/features/retouch/taskbar.ts`) picks its buttons from
+`taskbar-actions.ts`, a DOM-free table from the editor state (selection, Quick
+Mask, mask target, layer kind, several layers, empty) to commands, tools and
+command menus; add an entry there rather than special-casing the bar. Tools with
+their own on-canvas controls (crop, transform and warp sessions) hide it.
+
+Brush, Pencil and Eraser strokes take `StrokeOptions.symmetry`, a list of affine
+transforms from `src/imaging/symmetry.ts`; the engine stamps each dab through
+every transform, so a symmetric stroke is still one session and one undo step.
+
 ## Documents, history and tiles
 
 - `e.doc` is the current immutable `PhotoDocument`. Change it only through
@@ -117,6 +131,22 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   draw a copy of their document's last frame, taken through
   `renderer.frameListeners` (also used by Pattern Preview).
 
+## Quick Compare (`src/features/compare/`)
+
+- View → Quick Compare (`\`: tap to toggle, hold to peek) shows a stored state of
+  the active document beside the current one: the opened state (`history.opened`),
+  the last save (`session.saved`), a History snapshot or a history state
+  (`History.entries`; a chosen state is kept through `session.retained`).
+- The stored state is composited once with `renderer.drawFrame` into a canvas of its
+  own (capped by `cacheSize`) and placed inside `#stage`, so zoom, scrolling,
+  rotation and mirroring apply without recompositing. A split clips that canvas with
+  a screen-space half plane mapped into document space (`splitClip`); side by side
+  narrows `#viewport` (CSS margins, so `viewportSize` and input stay correct) and
+  mirrors the stage transform in a pane; press and hold shows it while pressed.
+- Comparison state is per session and outside the document (`compare/state.ts`); it
+  never adds history. Elements in `#viewport` that take presses carry `canvas-ui`
+  so tools ignore them.
+
 ## Helpers for pixel features (`src/features/pixels.ts`)
 
 - `pixelTarget(e)` resolves what painting/filters should edit: the selected pixel
@@ -125,6 +155,25 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 - `applyToLayer(e, label, (src, rect) => out)` runs an RGBA8 operation on the target
   layer, restricted and blended by the active selection, as one undo step.
 - `compositeRGBA(e)` and `layerRGBA(e, layer)` read pixels back from the GPU.
+
+## Liquify (`src/features/filters/liquify.ts`, `src/imaging/filters/liquify*.ts`)
+
+- Brush strokes edit a `LiquifyField` (inverse displacement at nodes every
+  4–6 px). Face edits are parametric: a face guide (13 landmarks, placed by
+  dragging eye to eye, by the browser's `FaceDetector` where it exists, or by
+  Find with AI through `locateFaces` + `parseFaceAnswer`) plus slider values.
+  `faceOps` turns the sliders into elementary move/scale/rotate warps with
+  raised-cosine falloff, each kept inside the amount that stays one-to-one,
+  so no setting folds the image (`tests/liquify-face.test.ts` checks the
+  Jacobian at every extreme).
+- `bakeFaces` composes them into the rendered field:
+  `d(q) = b(q) + (1 − freeze(q)) · f(q + b(q))`, re-baking only the changed
+  rectangle; Pin Edges zeroes motion across the border. OK sends that field
+  to the filter worker, so the result is one history step. Liquify is not a
+  Live Filter; Save/Load Mesh (`.lqmesh`: JSON faces + field) and Load Last
+  Mesh keep face settings re-editable.
+- Partial repaints sample displacement on a grid fixed to the canvas, so they
+  match full repaints exactly (the browser specs compare canvas checksums).
 
 ## Embedded objects (`src/model/embedded.ts`, `src/features/embedded/`)
 
@@ -169,9 +218,38 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   blend as a group). `rangeWeight`/`blendIfWeight` are the CPU reference of the shader math.
 - Knockout backdrops: `Renderer.knockStack` holds a copy of each enclosing group's
   start (shallow); the Background layer alone is rendered once per draw (deep).
-- Spatial adjustment kinds (Clarity & Dehaze, Grain) render through
+- Spatial adjustment kinds (Clarity & Dehaze, Grain, Relight) render through
   `Backend.filterPass` (`filter-shaders.ts`, `spatial-pass.ts`); the CPU reference
   in `src/imaging/adjust/spatial.ts` serves destructive commands and tests.
+
+## Relight layers (`src/imaging/relight/`, `src/features/relight/`)
+
+- A relight layer is an adjustment layer of kind `relight` (a spatial kind),
+  so masks, clipping, opacity, duplication, history and projects work as for
+  other adjustment layers. Its settings (`RelightParams`, `model.ts`) hold up
+  to eight lights (position as fractions of the canvas, depth from behind to
+  in front, temperature or custom color, brightness, spread, softness) and
+  scene amounts (existing light kept, surface relief and detail, shadows).
+  `normalizeRelight` checks stored records; `specAdjustment` uses it.
+- The surface is guessed from luminance on a copy at most `RELIGHT_WORK`
+  pixels long: three blur scales mixed into a height map, cross-bilateral
+  smoothing guided by the fine luminance, normals from the gradient, and
+  soft shadows marched toward each light (two lights per channel, 8-bit).
+  Shading adds wrapped diffuse light with falloff in linear light to the
+  existing light scaled by the ambient amount. `surface.ts` is the CPU
+  reference (adjustment worker, tests; estimates cached by content);
+  `SpatialPasses.relight` runs the same passes as filter shader modes 6–10
+  every frame, so edits below the layer show at once. Keep the GLSL, WGSL
+  and CPU versions in step (a browser test compares GPU and CPU results).
+- The light handles are an overlay drawn while one relight layer is
+  selected; `relightUi` (`state.ts`) keeps the selected light, the N toggle
+  and the settings previewed during a drag, per person and outside the
+  document. A drag previews with `e.preview` and commits one step.
+- Rasterize, Edit › Copy and PSD export render the relit image beneath the
+  layer (`raster.ts`: later layers hidden, the layer drawn plainly, enclosing
+  isolated groups respected) and keep the layer's name, mask and blending.
+  Documents whose mode cannot hold color (grayscale, indexed, bitmap,
+  duotone, multichannel) refuse new relight layers.
 
 ## Artboards, frames, comps and slices (`src/features/layout/`)
 
@@ -275,6 +353,37 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 - `commitResampled` (`features/transform/image-size.ts`) stores resampled
   layer, mask, live-filter, channel and selection grids as one history step.
 
+## Generative layout edits (`src/features/genai/`)
+
+- Edit → AI Recompose…, Remove Reflections… and Rotate Object… share
+  `shared.ts`: the support check (8- and 16-bit RGB; 32-bit and other modes
+  are refused with the conversion to make), the notice of what is sent, the
+  Generate/Stop button (`Generator`, sign-in through `ensureSignedIn`), the
+  variation picker (a keyboard radio group), choosing the object (the
+  selection, a cut-out layer's alpha, Select Subject's `subject` job, or a
+  click matched against `detectObjects`) and `addLayers`, which inserts all
+  results and hides a replaced layer as one undo step. Pure math (prompts,
+  object transforms, seam masks, blending, placement) is in `math.ts`, which
+  the assist worker also imports (`transform-object`, `detail-transfer`).
+- AI Recompose fills the object's old place with the offline Context Fill
+  (`context-fill` job on the retouch worker) as soon as the object is
+  chosen, so moving, scaling, rotating and flipping only redraw the preview.
+  Its optional generative pass sends the arranged picture and a seam mask
+  (the filled hole plus a ring around the object's new outline, minus the
+  object) through `aiFill`; each blend is kept with the arrangement it was
+  made for. The result is a patch layer over the old place and the object
+  on its own layer, so the original stays untouched.
+- Remove Reflections is generative because single-image classical
+  separation cannot tell a reflection from the scene behind the glass
+  reliably. `instructedEdits` (in `puter-ai.ts`) encodes the area once and
+  sends one request per variation; results reduced for the request can get
+  the original's fine detail back (`detailTransfer`). Amount becomes the new
+  layer's opacity.
+- Rotate Object sends the object on a plain backdrop with the angles in the
+  instruction, removes the returned backdrop with the `subject` job and
+  places the trimmed result with `alignToOriginal` (same height, on the
+  original's bottom edge, centered).
+
 ## Assistant and Generation History (`src/features/assistant/`, `src/features/generations/`)
 
 - The Assistant turns a request into a plan of registry commands and its own
@@ -339,11 +448,57 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   as the first filter cleans the full-resolution source even for previews,
   because block edges exist only on the original pixel grid.
 
+## Develop (`src/imaging/filters/develop/`, `src/features/filters/develop/`)
+
+- One catalog operation (`develop`) whose settings (`params.ts`) cover every
+  panel: Light, Color, Effects, Curve (parametric regions and point curves as
+  one-polyline `paths`), Color Mixer and gray mix (eight hue bands), Color
+  Grading, Detail, Optics, Geometry, Calibration, profiles, four local
+  adjustment mask slots and one on/off switch per panel. `PANELS` groups the
+  keys for the workspace and for switching a panel off.
+- Settings carry a `version`; `migrate` on the operation (called by
+  `normalizeFor`) upgrades older settings before normalizing, so Live Filters,
+  recorded actions and presets from the first Develop filter keep their look.
+- `resolveDevelop` (`profiles.ts`) resets switched-off panels and adds the
+  profile's look as offsets to the same settings, so profiles cost nothing per
+  pixel. The pipeline (`index.ts`) runs pixel passes (noise reduction, lens
+  corrections, geometry), then one fused per-pixel loop in linear light (white
+  balance, calibration, dehaze, clarity/texture, the Light curve on perceptual
+  luminance, vibrance/saturation, mixer or gray mix, masks, grading, gamut
+  compression, vignette, Curve tables, grain), then sharpening. Stages at
+  their defaults are skipped; all defaults are the identity.
+- Spatial and geometric settings are relative to the image (radii scale with
+  `ctx.scale`, mask and geometry coordinates are normalized), so the reduced
+  preview matches the full render.
+- The workspace (`workspace.ts`) is a layout of the filter session: a
+  `FilterPreview` with `proxyLimit`, `adaptive` (half-size renders while a
+  slider keeps moving on slow images) and view modes (result, original, split,
+  side by side), plus a reduced source copy from the worker for Auto, the
+  white balance eyedropper and the targeted adjustment. Panel open state is a
+  per-browser convenience; presets and Last Used are stored per browser
+  (`presets.ts`).
+
 ## Type on paths and variables
 
 - Block text (`textData.block`) is laid out as point text and then each line is
   scaled about its left end to one width and stacked by capital height
   (`imaging/text/block-text.ts`), so shaping and carets are unchanged.
+- Dynamic text (`textData.fit`: block, circle, arch, bow or wave in a box at
+  `origin`) keeps relative sizes in its content; `layoutText` first resolves it
+  (`imaging/text/fit.ts`) into ordinary data that draws the same: block text
+  whose width and gap fit the box (automatic lines turn chosen spaces into
+  paragraph breaks, so indices are unchanged), or arc path text whose curve and
+  type size are scaled into the box. The layer frame is the box, so transform
+  scaling resizes the box (`bakeFitScale`) instead of stretching glyphs. Release
+  Fit keeps the resolved data (block lines baked into per-line sizes and
+  leading). Older `block` data is migrated on load to a fit of automatic height.
+- Paragraph options beyond alignment and indents are optional keys on
+  `ParagraphStyle` (missing means default, so older text lays out unchanged):
+  justification limits and kashidas (`justifyLine`), auto leading and the
+  top-to-top / bottom-to-bottom leading models (`baselineStep`), hyphenation
+  rules, the every-line composer (`breakEveryLine`, least squared slack) and
+  hanging punctuation. Which of them the panels show follows the
+  `typeFeatures` preference (Type → Language Options).
 - In vertical text `CharStyle.vertical` sets Latin and digits upright, rotated
   sideways (runs with `angle`, advancing by their width) or, for 'combine', runs
   of up to three characters set horizontally in one cell (`verticalForms` in
@@ -427,6 +582,13 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   classes) live in `features/preferences/apply.ts`. Call
   `e.preferencesChanged()` after changing a value; features that cache a
   setting subscribe with `e.preferenceHooks`.
+- Assisted and Pro editor modes (`features/workspace/editor-mode.ts`):
+  Assisted shows the Assistant, turns on the quick actions bar and limits
+  the toolbar to `ASSISTED_SLOTS` (`setSimplifiedSlots` in
+  `app/toolbar-layout.ts`; tools of hidden slots are listed under Extra
+  Tools). Before switching it stores Pro's dock layout and toggles, which Pro
+  restores. The mode and the switch's visibility are preferences
+  (`editorMode`, `showModeSwitch`).
 - `src/persistence/local-store.ts` wraps IndexedDB (`MemoryStore` for tests);
   `persistence/versions.ts` stores versions and recovery records on it.
   `e.saveHooks` run after a document is saved (versions, recovery cleanup),
@@ -440,6 +602,29 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   flatten or leave out; keep it in step with `savePsd` so Save can ask before
   writing a file that loses something.
 - Warnings that can be turned off use `warnOnce` (`features/preferences/warnings.ts`).
+
+## Properties and Layers panels (`src/features/panels/`)
+
+- `properties.ts` picks the view: the document (no layer, or the Background layer,
+  selected; `document-properties.ts`), several layers or one layer
+  (`layer-properties.ts`), or a kind's own editor from `propertiesEditors` (type,
+  shape, artboard, frame, adjustment and fill layers). Editors mount into a fresh
+  host element, so listeners they add die with it. Adjustment and fill layers get
+  the shared Mask section under their editor; features add mask commands with
+  `maskActions` and sections above Adjustments with `propertySections`.
+- Number fields come from `property-fields.ts`: text inputs with the spinbutton role
+  that accept units and arithmetic (`property-values.ts`, unit tested), commit once
+  on Enter or blur through `fieldHandlers` (keyed by the field key's first segment,
+  such as `doc`, `layer`, `frame` or `pref`), restore on Escape, step with the arrow
+  keys and scrub when the label is dragged (previewed, then one undo step).
+  Sections collapse and remember it per browser.
+- Canvas size edits run `image.canvas-size` with parameters (anchor from the panel),
+  so they record in actions like the dialog. Resolution goes through
+  `setDocumentResolution`. Grid, guide and ruler settings are preferences, not
+  document edits, and never add history steps.
+- Layer thumbnails follow the document's aspect ratio (`--thumb-w`); Layers → Panel
+  Options sets their size (none, small, medium, large) and whether they frame the
+  document or the layer's bounds, kept in this browser.
 
 ## Canvas edits and document-wide state
 

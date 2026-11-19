@@ -46,7 +46,8 @@ const tips: Record<string, string> = {
   'object-mode': 'Draw a rectangle or a lasso around the object',
   'sample-size': 'Average of the pixels around the click',
   'sampler-size': 'Average of the pixels around each sampler',
-  'sample-layers': 'Sample the current layer or all layers',
+  'sample-layers': 'Sample the current layer, the current layer and those below it, or all layers, optionally without adjustment layers',
+  'wand-sample-size': 'Compare with the clicked pixel or the average of the pixels around it',
   // Healing and removal.
   'spot-type': 'How the spot is replaced',
   'spot-all': 'Sample the merged visible layers instead of the current layer',
@@ -184,9 +185,9 @@ export const toolTips: Record<string, string> = {
   'polygon-shape': 'Draw polygons and stars',
   'line-shape': 'Draw lines and arrows',
   'custom-shape': 'Draw shapes from the shape library',
-  hand: 'Pan the view (or hold Space with any tool)',
+  hand: 'Pan the view (or hold Space with any tool); double-click to fit the image on screen',
   'rotate-view': 'Rotate the view without changing the image',
-  zoom: 'Zoom in by clicking or dragging (Alt zooms out)',
+  zoom: 'Zoom in by clicking or dragging (Alt zooms out); double-click for 100%',
 };
 /** The toolbar tooltip of a tool: name, key and what it does. */
 export function toolTitle(t: { id: string; label: string; key?: string }) {

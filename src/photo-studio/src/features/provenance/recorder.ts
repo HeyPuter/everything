@@ -72,6 +72,10 @@ export const AI_COMMANDS: Record<string, ProvenanceAI['kind']> = {
   'edit.ai-fill': 'fill',
   'edit.ai-expand': 'expand',
   'image.upscale': 'upscale',
+  // AI Recompose can finish with only its offline fill, so its generated
+  // layers (not the command) mark AI use.
+  'edit.remove-reflections': 'reflection',
+  'edit.rotate-object': 'rotate',
 };
 
 function track(s: DocumentSession, origin: ProvenanceRecord['origin'] = 'unknown'): Tracking {
@@ -236,7 +240,7 @@ function rebuildSteps(t: Tracking) {
   t.record.steps = steps;
 }
 
-const AI_KINDS: Record<string, ProvenanceAI['kind']> = { generate: 'generate', edit: 'edit', upscale: 'upscale', fill: 'fill', expand: 'expand' };
+const AI_KINDS: Record<string, ProvenanceAI['kind']> = { generate: 'generate', edit: 'edit', upscale: 'upscale', fill: 'fill', expand: 'expand', recompose: 'recompose', reflection: 'reflection', rotate: 'rotate' };
 /** AI layers in `after` that `before` did not have, or the AI command itself. */
 function noteAI(t: Tracking, before: Layer[], after: Layer[], command: string | undefined, when: string) {
   const had = new Set(before.filter((l) => l.generated).map((l) => l.id));

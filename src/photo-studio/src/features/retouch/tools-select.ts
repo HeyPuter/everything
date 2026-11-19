@@ -6,12 +6,13 @@ import type { Tool } from '../../app/registry';
 import { svg } from '../../app/icons';
 import { brushFor, cursor } from '../paint';
 import { ants, bindCheck, bindSize, checkbox, sizeField, sizeKeys } from './ui';
-import { bindSelectionOptions, commitSelectionMask, finishShape, movableOutline, optionsFor, selectionOp } from '../selection';
+import { bindSelectionOptions, commitSelectionMask, finishShape, movableOutline, optionsFor, selectionOp, subjectButton } from '../selection';
 import { LiveWire, rasterizePolygon, expand } from '../../imaging/segment';
 import { mask8, type Mask8, type RGBA8 } from '../../imaging/types';
 import { channel, heavy, buffersOf } from './client';
 import { anchorSpacing, edgeStrength, expandRect, outlinePath, pasteMask, pathLength, type Pt } from './logic';
 import { mergedImage, selectionMask, sourceImage, sourceKey, cropSafe } from './source';
+import { finderClear, finderHover, finderObject, finderOn, finderOverlay, findObjects } from './object-finder';
 
 // ----- Quick Selection -----
 type QuickMode = 'new' | 'add' | 'subtract';
@@ -82,7 +83,7 @@ const quickSelectionTool: Tool = {
       ['add', 'Add to selection (Shift)', 'plus'],
       ['subtract', 'Subtract from selection (Alt)', 'minus'],
     ];
-    return `<div class="segmented" role="group" aria-label="Quick Selection mode">${modes.map(([id, label, icon]) => `<button data-quick-mode="${id}" aria-pressed="${mode === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div>${sizeField(QS)}${checkbox('qs-all', 'Sample All Layers', !!e.settings.quickSampleAll)}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
+    return `<div class="segmented" role="group" aria-label="Quick Selection mode">${modes.map(([id, label, icon]) => `<button data-quick-mode="${id}" aria-pressed="${mode === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div>${sizeField(QS)}${checkbox('qs-all', 'Sample All Layers', !!e.settings.quickSampleAll)}${subjectButton(e)}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
   },
   bindOptions: ({ e, el }) => {
     el.querySelectorAll<HTMLButtonElement>('[data-quick-mode]').forEach((b) =>
@@ -170,14 +171,35 @@ const objectSelectionTool: Tool = {
   options: (e) =>
     optionsFor(
       e,
-      `<label>Mode <select id="object-mode"><option value="rect">Rectangle</option><option value="lasso" ${e.settings.objectMode === 'lasso' ? 'selected' : ''}>Lasso</option></select></label>${checkbox('object-all', 'Sample All Layers', e.settings.objectSampleAll !== false)}`,
+      `<label class="transform-setting" title="Highlight the object under the pointer; click to select it"><input type="checkbox" id="object-finder" ${finderOn(e) ? 'checked' : ''}>Highlight Objects</label><button type="button" class="icon-button" id="object-refresh" title="Find the objects again" aria-label="Find the objects again" ${finderOn(e) ? '' : 'disabled'}>${svg('refresh-cw', 15)}</button><button type="button" class="icon-button toggle" id="object-show-all" aria-pressed="${!!e.settings.objectShowAll}" title="Show all objects found" aria-label="Show all objects" ${finderOn(e) ? '' : 'disabled'}>${svg('eye', 15)}</button><label>Mode <select id="object-mode"><option value="rect">Rectangle</option><option value="lasso" ${e.settings.objectMode === 'lasso' ? 'selected' : ''}>Lasso</option></select></label>${checkbox('object-all', 'Sample All Layers', e.settings.objectSampleAll !== false)}`,
+      { subject: true },
     ),
   bindOptions: ({ e, el }) => {
     bindSelectionOptions(e, el);
     el.querySelector<HTMLSelectElement>('#object-mode')?.addEventListener('change', (ev) => (e.settings.objectMode = (ev.target as HTMLSelectElement).value));
     bindCheck(e, el, 'object-all', 'objectSampleAll');
+    el.querySelector<HTMLInputElement>('#object-all')?.addEventListener('change', () => findObjects(e));
+    el.querySelector<HTMLInputElement>('#object-finder')?.addEventListener('change', (ev) => {
+      e.settings.objectFinder = (ev.target as HTMLInputElement).checked;
+      if (finderOn(e)) findObjects(e);
+      else finderClear();
+      e.options();
+      e.overlay();
+    });
+    el.querySelector<HTMLButtonElement>('#object-refresh')?.addEventListener('click', () => findObjects(e, true));
+    el.querySelector<HTMLButtonElement>('#object-show-all')?.addEventListener('click', () => {
+      e.settings.objectShowAll = !e.settings.objectShowAll;
+      findObjects(e);
+      e.options();
+      e.overlay();
+    });
   },
-  pointerDown: (_e, p) => {
+  // Objects are found in the background as soon as the tool is chosen.
+  activate: (e) => findObjects(e),
+  deactivate: (e) => finderClear(e),
+  hover: (e, p) => finderHover(e, p.x, p.y),
+  pointerDown: (e, p) => {
+    finderClear(e);
     objectDrag = { start: [p.x, p.y], points: [[p.x, p.y]], last: [p.x, p.y] };
   },
   pointerMove: (e, p) => {
@@ -206,7 +228,13 @@ const objectSelectionTool: Tool = {
     }
     const box = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
     if (box.width < 4 || box.height < 4) {
-      e.message(lasso ? 'Draw a loop around an object.' : 'Drag a rectangle around an object.');
+      // A click selects the object highlighted under the pointer.
+      const o = finderObject(e, p.x, p.y);
+      if (o) {
+        finishShape(e, selectionOp(e, p), pasteMask(mask8(e.doc.width, e.doc.height), o.mask, o.rect.x, o.rect.y), 'Object Selection');
+        return;
+      }
+      e.message(lasso ? 'Draw a loop around an object.' : finderOn(e) ? 'Point at a highlighted object and click, or drag a rectangle around an object.' : 'Drag a rectangle around an object.');
       return;
     }
     await e.run(async () => {
@@ -235,7 +263,7 @@ const objectSelectionTool: Tool = {
   },
   overlay: (e) => {
     const d = objectDrag;
-    if (!d) return '';
+    if (!d) return finderOverlay(e);
     if (e.settings.objectMode === 'lasso') return ants(d.points.map((q, i) => `${i ? 'L' : 'M'}${q[0]} ${q[1]}`).join(''), e.zoom);
     const [x0, y0] = d.start,
       [x1, y1] = d.last;

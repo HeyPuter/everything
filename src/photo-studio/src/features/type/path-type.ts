@@ -5,11 +5,14 @@
 
 import type { Editor } from '../../editor';
 import type { CanvasPointer } from '../../app/pointer';
-import { registerCommand, registerOverlay } from '../../app/registry';
+import { registerCommand, registerOverlay, renamedCommands } from '../../app/registry';
 import { findLayer, type Layer, type PhotoDocument } from '../../model/document';
 import { layerLock } from '../../model/locks';
 import { fitTextFrame, syncLegacyFields } from '../../model/text-layer';
-import { applyParagraphStyle, textLength, type ArcPreset, type TextLayerData, type TypePath } from '../../imaging/text/model';
+import { applyParagraphStyle, textLength, type ArcPreset, type FitShape, type TextLayerData, type TypePath } from '../../imaging/text/model';
+import { fitFrom, fixedFitBox, releaseFit } from '../../imaging/text/fit';
+import { layoutText } from '../../imaging/text/layout';
+import { canvasMeasure } from '../../imaging/text/render';
 import type { TextLayout } from '../../imaging/text/layout';
 import { arcPresetPath, nearestOnPath, pathGeometry, pointAt, type PathGeometry } from '../../imaging/text/path-text';
 import { blockFor } from '../../imaging/text/block-text';
@@ -18,7 +21,7 @@ import { targetPath, textPathHooks } from '../vector/state';
 import { selectHooks } from '../vector/select-hooks';
 import { modal, fieldChecked, fieldValue } from '../files/ui';
 import { editLayers, editMark, revertToMark, session, updateData } from './session';
-import { editable, layerMatrix, layoutOf, localBounds, localScale, ppiOf, replaceLayer, toDoc, toLocal } from './text-utils';
+import { editable, layerMatrix, layoutOf, localBounds, localScale, ppiOf, replaceLayer, selectedTextLayersOf, toDoc, toLocal } from './text-utils';
 
 // ------------------------------------------------------------ cursors
 
@@ -266,10 +269,110 @@ export function dropTypePath(d: TextLayerData, layout: TextLayout): TextLayerDat
   return { ...d, content, path: undefined, mode: 'point', box: undefined, origin: { x, y } };
 }
 
+// ------------------------------------------------------------ dynamic text
+
+export const FIT_LABELS: [FitShape, string][] = [['block', 'Block'], ['circle', 'Circle'], ['arch', 'Arch'], ['bow', 'Bow'], ['wave', 'Wave']];
+const FIT_HELP: Record<FitShape, string> = {
+  block: 'Scale each line to the width of its box and stack the lines; resizing the box or editing the text refits it.',
+  circle: 'Size the text to run around a circle that fits its box.',
+  arch: 'Size the text to run along an upward curve that fits its box.',
+  bow: 'Size the text to run along a sagging curve that fits its box.',
+  wave: 'Size the text to run along an S-shaped wave that fits its box.',
+};
+const fitOpts = (ppi: number) => ({ measure: canvasMeasure(), resolution: ppi });
+function selectedFitLayers(e: Editor) {
+  return selectedTextLayersOf(e).filter((l) => !!l.textData?.fit);
+}
+/** The text as dynamic text in `shape` (one undo step for every selected layer). */
+export async function convertToFit(e: Editor, shape: FitShape) {
+  const ppi = ppiOf(e);
+  const make = (d: TextLayerData) => (d.orientation !== 'horizontal' ? d : fitFrom(d, shape, localBounds(d, layoutOf(d, ppi)), fitOpts(ppi), layoutText));
+  if (session && !session.mask) {
+    await prepareFonts(session.data);
+    return updateData(e, make, 'fit');
+  }
+  const ids = selectedTextLayersOf(e).map((l) => l.id);
+  if (!ids.length) return;
+  for (const l of selectedTextLayersOf(e)) await prepareFonts(editable(l, ppi).textData);
+  await editLayers(e, 'Convert to Dynamic Text', make, ids);
+}
+export async function releaseFitText(e: Editor) {
+  const ppi = ppiOf(e);
+  const make = (d: TextLayerData) => releaseFit(d, fitOpts(ppi), layoutText);
+  if (session && !session.mask) return updateData(e, make, 'release-fit');
+  const ids = selectedFitLayers(e).map((l) => l.id);
+  if (ids.length) await editLayers(e, 'Release Fit', make, ids);
+}
+
+// Shape, bend, box and block line settings of dynamic text, previewed live.
+async function fitOptions(e: Editor) {
+  const cur = currentPathData(e, 'fit');
+  if (!cur) return;
+  const { data, id } = cur;
+  if (!session && layerLock(e.doc.layers, id, 'all')) return e.message('Unlock this layer to change its dynamic text.');
+  const ppi = ppiOf(e);
+  const f = data.fit!;
+  const box = fixedFitBox(data) ?? layoutOf(data, ppi).fitBox!;
+  const body = `<label class="dialog-field">Shape<select name="shape">${FIT_LABELS.map(([v, l]) => `<option value="${v}" ${v === f.shape ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+       <div class="type-path-range"><label class="dialog-field">Box width (px)<input name="width" type="number" min="8" max="100000" step="1" value="${Math.round(box.width)}"></label>
+       <label class="dialog-field">Box height (px)<input name="height" type="number" min="8" max="100000" step="1" value="${Math.round(box.height)}"></label></div>
+       <label class="dialog-field" data-for="curve">Bend<span class="export-range"><input name="bend" type="range" min="-100" max="100" step="1" value="${f.bend}"><output>${f.bend}%</output></span></label>
+       <label class="dialog-field" data-for="block">Space between lines (px)<input name="gap" type="number" min="-1000" max="10000" step="1" value="${Math.round(f.gap)}"></label>
+       <label class="dialog-field checkbox-field" data-for="block">Break lines to fill the box<input name="autoLines" type="checkbox" ${f.autoLines ? 'checked' : ''}></label>
+       <p class="muted">Type sizes in dynamic text are relative: the text grows or shrinks to fill its shape.</p>`;
+  const read = (form: HTMLFormElement): TextLayerData => {
+    const num = (k: string, lo: number, hi: number, dflt: number) => {
+      const v = Number(fieldValue(form, k));
+      return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : dflt;
+    };
+    const shape = fieldValue(form, 'shape') as FitShape;
+    const width = num('width', 8, 100000, box.width), height = num('height', 8, 100000, box.height);
+    // The box stays centered where it was.
+    const x = box.x + (box.width - width) / 2, y = box.y + (box.height - height) / 2;
+    return { ...data, origin: { x, y }, fit: { shape, width, height, bend: num('bend', -100, 100, f.bend), gap: num('gap', -1000, 10000, f.gap), autoLines: fieldChecked(form, 'autoLines') } };
+  };
+  const apply = (d: TextLayerData) => {
+    if (session) updateData(e, () => d, 'fit-options');
+    else e.preview(previewData(e, id, d));
+  };
+  const mark = session ? editMark() : undefined;
+  const sync = (form: HTMLFormElement) => {
+    const block = fieldValue(form, 'shape') === 'block';
+    for (const el of form.querySelectorAll<HTMLElement>('[data-for]')) el.hidden = (el.dataset.for === 'block') !== block;
+    const o = form.querySelector<HTMLOutputElement>('output');
+    const b = form.querySelector<HTMLInputElement>('[name=bend]');
+    if (o && b) o.value = `${b.value}%`;
+  };
+  const result = await modal({
+    title: 'Dynamic Text Options',
+    submit: 'OK',
+    className: 'type-path-options',
+    body,
+    bind: (dialog) => {
+      const form = dialog.querySelector('form')!;
+      sync(form);
+      form.addEventListener('input', () => {
+        sync(form);
+        apply(read(form));
+      });
+    },
+  });
+  if (!result) {
+    if (mark) revertToMark(e, mark);
+    if (!session) e.preview(e.doc);
+    return;
+  }
+  const next = read(result.form);
+  result.close();
+  if (session) return;
+  e.preview(e.doc);
+  await editLayers(e, 'Dynamic Text Options', () => next, [id]);
+}
+
 // ------------------------------------------------------------ options dialog
 
-function currentPathData(e: Editor, which: 'path' | 'block' = 'path'): { data: TextLayerData; id: string } | undefined {
-  const has = (d: TextLayerData) => (which === 'path' ? !!d.path : !!d.block && !d.path);
+function currentPathData(e: Editor, which: 'path' | 'block' | 'fit' = 'path'): { data: TextLayerData; id: string } | undefined {
+  const has = (d: TextLayerData) => (which === 'path' ? !!d.path : which === 'fit' ? !!d.fit : !!d.block && !d.path);
   if (session && !session.mask) return has(session.data) ? { data: session.data, id: session.layerId } : undefined;
   const l = e.layer;
   if (l?.kind !== 'text' || e.selectedIds.size !== 1) return;
@@ -424,51 +527,40 @@ export function installPathType(e: Editor) {
     if (session && !session.mask) return session.data;
     return l?.kind === 'text' && e.selectedIds.size === 1 ? editable(l, ppiOf(e)).textData : undefined;
   };
-  for (const [preset, label] of ARC_PRESETS)
+  // Dynamic text: Type → Convert to Dynamic Text (earlier Convert to Arc Text).
+  const fitTarget = () => {
+    const d = textTarget();
+    return d && d.orientation === 'horizontal' ? d : undefined;
+  };
+  for (const [shape, label] of FIT_LABELS) {
+    renamedCommands.set(`type.arc-${shape}`, `type.fit-${shape}`);
     registerCommand({
-      id: `type.arc-${preset}`,
+      id: `type.fit-${shape}`,
       label,
-      menu: 'type.arc',
-      description: `Set the text along a${preset === 'arch' ? 'n' : ''} ${label.toLowerCase()} path; adjust it later in Path Type Options.`,
-      enabled: () => !!textTarget() && textTarget()!.orientation === 'horizontal' && (!textTarget()!.path || !!textTarget()!.path!.arc),
-      run: async (e) => {
-        const d = textTarget();
-        if (!d) return;
-        if (d.path?.arc) {
-          if (session) return updateData(e, (x) => reshapeArc(x, preset, x.path!.arc!.bend), 'arc');
-          return editLayers(e, 'Convert to Arc Text', (x) => reshapeArc(x, preset, x.path?.arc?.bend ?? 50), [e.layer!.id]);
-        }
-        await prepareFonts(d);
-        if (session) return updateData(e, (x) => arcTextData(x, layoutOf(x, ppiOf(e)), preset), 'arc');
-        await editLayers(e, 'Convert to Arc Text', (x) => arcTextData(x, layoutOf(x, ppiOf(e)), preset), [e.layer!.id]);
-      },
+      menu: 'type.fit',
+      order: FIT_LABELS.findIndex(([s]) => s === shape),
+      description: FIT_HELP[shape],
+      enabled: () => !!fitTarget() || (!session && selectedTextLayersOf(e).some((l) => editable(l, ppiOf(e)).textData.orientation === 'horizontal')),
+      checked: () => fitTarget()?.fit?.shape === shape,
+      run: (e) => convertToFit(e, shape),
     });
+  }
   registerCommand({
-    id: 'type.arc-block',
-    label: 'Block',
-    menu: 'type.arc',
-    order: ARC_PRESETS.length,
-    description: 'Stack the lines and scale each one to the same width; adjust the width and spacing later in Path Type Options.',
-    enabled: () => !!textTarget() && textTarget()!.orientation === 'horizontal' && (!textTarget()!.path || !!textTarget()!.path!.arc),
-    run: async (e) => {
-      const d = textTarget();
-      if (!d) return;
-      await prepareFonts(d);
-      // Arc text goes back to point text first.
-      const make = (x: TextLayerData) => {
-        const flat = x.path ? dropTypePath(x, layoutOf(x, ppiOf(e))) : x;
-        return blockTextData({ ...flat, block: undefined }, layoutOf({ ...flat, block: undefined }, ppiOf(e)));
-      };
-      if (session) return updateData(e, make, 'block');
-      await editLayers(e, 'Convert to Block Text', make, [e.layer!.id]);
-    },
+    id: 'type.release-fit',
+    label: 'Release Fit',
+    description: 'Turn dynamic text back into ordinary text that looks the same: block lines keep their sizes, curved text stays on its curve.',
+    enabled: () => !!textTarget()?.fit || (!session && selectedFitLayers(e).length > 0),
+    run: (e) => releaseFitText(e),
   });
   registerCommand({
     id: 'type.path-options',
-    label: 'Path Type Options…',
-    description: 'Start and end, flip, arc shape and bend of text on a path, the inset of area text, or the width and line spacing of block text.',
-    enabled: (e) => !!currentPathData(e) || !!currentPathData(e, 'block'),
-    run: (e) => pathOptions(e),
+    get label() {
+      const d = textTarget();
+      return d?.fit ? 'Dynamic Text Options…' : d?.path?.kind === 'area' ? 'Area Type Options…' : d?.block ? 'Block Text Options…' : 'Path Type Options…';
+    },
+    description: 'Start and end, flip, arc shape and bend of text on a path, the inset of area text, or the shape, box and line spacing of dynamic text.',
+    enabled: (e) => !!currentPathData(e) || !!currentPathData(e, 'block') || !!currentPathData(e, 'fit'),
+    run: (e) => (currentPathData(e, 'fit') ? fitOptions(e) : pathOptions(e)),
   });
   registerOverlay('type-path-markers', markersOverlay);
 }

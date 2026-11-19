@@ -320,6 +320,11 @@ export const edgePreservingBlur = defineOp({
     if (mode === 'normal') return smooth;
     const { width: w, height: h } = src;
     const L = lumaPlane(smooth), o = smooth.data, d = src.data;
+    // Edges are luminance steps above the threshold to a neighbor of the
+    // smoothed image. Medium and High quality also compare the diagonal
+    // neighbors (per pixel of distance), so a soft diagonal edge is found at
+    // the same contrast as a level or upright one.
+    const diagonal = str(p, 'quality') !== 'low', k = Math.SQRT1_2;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const i = y * w + x, v = L[i];
@@ -328,6 +333,12 @@ export const edgePreservingBlur = defineOp({
         if (y + 1 < h) m = Math.max(m, Math.abs(L[i + w] - v));
         if (x > 0) m = Math.max(m, Math.abs(L[i - 1] - v));
         if (y > 0) m = Math.max(m, Math.abs(L[i - w] - v));
+        if (diagonal) {
+          if (y + 1 < h && x + 1 < w) m = Math.max(m, Math.abs(L[i + w + 1] - v) * k);
+          if (y + 1 < h && x > 0) m = Math.max(m, Math.abs(L[i + w - 1] - v) * k);
+          if (y > 0 && x + 1 < w) m = Math.max(m, Math.abs(L[i - w + 1] - v) * k);
+          if (y > 0 && x > 0) m = Math.max(m, Math.abs(L[i - w - 1] - v) * k);
+        }
         const edge = m > t, j = i * 4;
         if (mode === 'edge') {
           const e = edge ? 255 : 0;

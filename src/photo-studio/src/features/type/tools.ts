@@ -37,7 +37,8 @@ import {
   undoEdit,
   updateData,
 } from './session';
-import { layerMatrix, localScale, textLayerAt, toLocal, warpLocal, warpedRect } from './text-utils';
+import { layerMatrix, layoutOf, localScale, ppiOf, textLayerAt, toLocal, warpLocal, warpedRect } from './text-utils';
+import { fixedFitBox } from '../../imaging/text/fit';
 import { typeOptions, bindTypeOptions, syncTypeOptions } from './options';
 import { wordAt, paragraphAt, plainText } from '../../imaging/text/model';
 import { AREA_TYPE_CURSOR, newTypePath, PATH_TYPE_CURSOR, pathTextMarkup, typePathAt } from './path-type';
@@ -56,14 +57,16 @@ export const isTypeTool = (id: string) => typeToolIds.includes(id);
 
 const HANDLES: Record<string, [number, number]> = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
 
-function boxRect(d: TextLayerData) {
+// Paragraph frame or dynamic text box (local space) that the handles resize.
+function boxRect(d: TextLayerData, e?: Editor) {
+  if (d.fit) return fixedFitBox(d) ?? (e ? layoutOf(d, ppiOf(e)).fitBox : undefined);
   return d.mode === 'paragraph' && d.box && !d.path ? { x: d.origin.x, y: d.origin.y, width: d.box.width, height: d.box.height } : undefined;
 }
 function handleAt(e: Editor, p: CanvasPointer): string | undefined {
   const s = session;
   const l = sessionLayer();
   if (!s || !l) return;
-  const box = boxRect(s.data);
+  const box = boxRect(s.data, e);
   if (!box) return;
   const [lx, ly] = toLocal(l, p.x, p.y);
   const k = e.zoom * localScale(l);
@@ -181,7 +184,7 @@ function pointerMove(e: Editor, p: CanvasPointer) {
     const [lx, ly] = toLocal(l, p.x, p.y);
     const dx = lx - g.start[0],
       dy = ly - g.start[1];
-    const b0 = boxRect(g.data)!;
+    const b0 = boxRect(g.data, e)!;
     let { x, y, width, height } = b0;
     if (g.handle.includes('e')) width = b0.width + dx;
     if (g.handle.includes('w')) {
@@ -202,8 +205,9 @@ function pointerMove(e: Editor, p: CanvasPointer) {
       if (g.handle.startsWith('n')) y -= min - height;
       height = min;
     }
-    // Each drag is one undo step.
-    updateData(e, (d) => ({ ...d, origin: { x, y }, box: { width, height } }), `box:${g.id}`);
+    // Each drag is one undo step. Dynamic text refits its new box (a block of
+    // automatic height gets a fixed one).
+    updateData(e, (d) => (d.fit ? { ...d, origin: { x, y }, fit: { ...d.fit, width, height } } : { ...d, origin: { x, y }, box: { width, height } }), `box:${g.id}`);
   }
 }
 
@@ -339,9 +343,16 @@ function overlay(e: Editor): string {
   const k = 1 / (e.zoom * localScale(l));
   const poly = (pts: [number, number][]) => pts.map((p) => `${p[0]},${p[1]}`).join(' ');
   out += `<g class="type-overlay" transform="matrix(${m.join(' ')})">`;
-  const box = boxRect(s.data);
+  const box = boxRect(s.data, e);
   if (s.data.path) out += pathTextMarkup(s.data, layout, k, true);
   else if (box) {
+    // Dynamic text on a curve: the curve the text follows, as a guide.
+    if (s.data.fit && layout.path) {
+      const g = layout.path.geometry;
+      let d = '';
+      for (let i = 0; i < g.xs.length; i++) d += `${i ? 'L' : 'M'}${Math.round(g.xs[i] * 100) / 100} ${Math.round(g.ys[i] * 100) / 100}`;
+      out += `<path class="type-path" d="${d}${g.closed ? 'Z' : ''}" stroke-width="${k}"/>`;
+    }
     out += `<rect class="type-frame" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" stroke-width="${k}"/>`;
     for (const [u, v] of Object.values(HANDLES)) {
       const hs = 7 * k;

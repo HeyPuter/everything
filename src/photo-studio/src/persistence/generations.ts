@@ -1,18 +1,22 @@
 // Generation History: every AI result (Generate Image, Edit with Prompt, AI
-// Fill, AI Expand, the AI layer of Upscale and images the Assistant asked for)
+// Fill, AI Expand, the AI layer of Upscale, AI Recompose, Remove Reflections,
+// Rotate Object and images the Assistant asked for)
 // kept in this browser with its prompt and settings, bounded by count and
 // size (oldest removed first). Pure storage; the panel lives in
 // features/generations.
 import { IndexedDbStore, MemoryStore, type LocalStore } from './local-store';
 
-export type GenerationKind = 'generate' | 'edit' | 'fill' | 'expand' | 'upscale' | 'restore' | 'assistant';
-export const GENERATION_KINDS: GenerationKind[] = ['generate', 'edit', 'fill', 'expand', 'upscale', 'restore', 'assistant'];
+export type GenerationKind = 'generate' | 'edit' | 'fill' | 'expand' | 'upscale' | 'restore' | 'assistant' | 'recompose' | 'reflection' | 'rotate';
+export const GENERATION_KINDS: GenerationKind[] = ['generate', 'edit', 'fill', 'expand', 'upscale', 'recompose', 'reflection', 'rotate', 'restore', 'assistant'];
 export const GENERATION_LABELS: Record<GenerationKind, string> = {
   generate: 'Generate Image',
   edit: 'Edit with Prompt',
   fill: 'AI Fill',
   expand: 'AI Expand',
   upscale: 'AI Upscale',
+  recompose: 'AI Recompose',
+  reflection: 'Remove Reflections',
+  rotate: 'Rotate Object',
   restore: 'Portrait & Restore',
   assistant: 'Assistant',
 };

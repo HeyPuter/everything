@@ -1,7 +1,8 @@
 import type { Editor } from '../editor';
 import { registerCommand, registerOverlay, registerPanel, type Panel } from '../app/registry';
 import { formDialog } from '../ui/dialog';
-import { readMask, readRGBA, emptyGrid, gridTileIds, writeRect, TILE, tileKey, type TileGrid } from '../model/tiles';
+import { channelFromSelection, filmAlpha, filmColor, quickMaskHint, quickMaskOptions, sanitizeQuickMaskOptions, setQuickMaskOptions } from './quick-mask-options';
+import { allMask, readMask, readRGBA, emptyGrid, gridTileIds, writeRect, TILE, tileKey, type TileGrid } from '../model/tiles';
 import { tileHolders } from '../app/session';
 import { applySelection, canvasRect, maskGrid, selectionGrid } from '../model/selection';
 import { commitSelectionMask, selectionOp } from './selection';
@@ -14,7 +15,7 @@ import { installGuides, setGuidesShown } from './guides';
 import { syncMultichannel, toggleSpotVisibility } from './color/spot-channels';
 
 // Grid, pixel grid, Quick Mask and the Channels panel (guides: features/guides.ts).
-let lastQuickMaskUrl: { grid: TileGrid; width: number; height: number; url: string; time: number } | undefined;
+let lastQuickMaskUrl: { grid: TileGrid; width: number; height: number; url: string; time: number; film: string } | undefined;
 
 /** Same tiles, fill and origin (history copies grids on every edit). */
 function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
@@ -23,18 +24,52 @@ function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
   const ka = Object.keys(a.tiles);
   return ka.length === Object.keys(b.tiles).length && ka.every((k) => a.tiles[k] === b.tiles[k]);
 }
+/** A channel with every value inverted (the quick mask when "Selected Areas" is shown). */
+function invertedGrid(e: Editor, grid: TileGrid) {
+  const m = readMask(e.assets.tiles, grid, canvasRect(e.doc));
+  return maskGrid(e.assets.tiles, { ...m, data: channelFromSelection(m.data, 'selected') }) ?? emptyGrid(1);
+}
+async function quickMaskOptionsDialog(e: Editor) {
+  const o = quickMaskOptions();
+  const v = await formDialog(
+    'Quick Mask Options',
+    [
+      { name: 'indicates', label: 'Color Indicates', type: 'select', value: o.indicates, options: [['masked', 'Masked Areas'], ['selected', 'Selected Areas']] },
+      { name: 'color', label: 'Color', type: 'color', value: o.color },
+      { name: 'opacity', label: 'Opacity (%)', type: 'number', value: Math.round(o.opacity * 100), min: 0, max: 100 },
+    ],
+    'OK',
+    'The color film shows over the image while you edit the selection in Quick Mask mode.',
+  );
+  if (!v) return;
+  const next = sanitizeQuickMaskOptions({ indicates: v.indicates, color: v.color, opacity: Number(v.opacity) / 100 });
+  // Switching what the color means while in Quick Mask keeps the selection: the channel flips.
+  if (next.indicates !== o.indicates && e.hasDocument && e.doc.quickMask) {
+    const flipped = invertedGrid(e, e.doc.quickMask);
+    e.command('Quick Mask Options', (d) => {
+      d.quickMask = flipped;
+    });
+  }
+  setQuickMaskOptions(next);
+  if (e.hasDocument && e.doc.quickMask) e.message(quickMaskHint(next));
+  e.overlay();
+}
 function quickMaskOverlay(e: Editor) {
   const grid = (e.settings.quickMaskPreview as TileGrid | undefined) ?? (e.settings.quickMask as TileGrid | undefined);
   if (!grid) return '';
   const doc = e.doc;
   const now = performance.now();
   const resized = lastQuickMaskUrl?.width !== doc.width || lastQuickMaskUrl?.height !== doc.height;
-  if (!lastQuickMaskUrl || lastQuickMaskUrl.grid !== grid || resized) {
-    if (lastQuickMaskUrl && !resized && now - lastQuickMaskUrl.time < 80) {
+  const options = quickMaskOptions();
+  const film = `${options.color}:${options.opacity}`;
+  if (!lastQuickMaskUrl || lastQuickMaskUrl.grid !== grid || resized || lastQuickMaskUrl.film !== film) {
+    if (lastQuickMaskUrl && !resized && lastQuickMaskUrl.film === film && now - lastQuickMaskUrl.time < 80) {
       // Throttle redraws while painting; schedule a catch-up frame.
       requestAnimationFrame(() => e.overlay());
     } else {
-      // Unselected areas are tinted, like a translucent red film.
+      // Dark channel values are tinted, like a translucent colored film
+      // (Quick Mask Options choose its color and opacity).
+      const [fr, fg, fb] = filmColor(options);
       const scale = Math.min(1, 2048 / Math.max(doc.width, doc.height));
       const w = Math.max(1, Math.round(doc.width * scale)),
         h = Math.max(1, Math.round(doc.height * scale));
@@ -51,11 +86,13 @@ function quickMaskOverlay(e: Editor) {
           const id = grid.tiles[tileKey(Math.floor(lx / TILE), Math.floor(ly / TILE))];
           const v = id ? e.assets.tiles.get(id)[(((ly % TILE) + TILE) % TILE) * TILE + ((lx % TILE) + TILE) % TILE] : (grid.fill ?? 0);
           const o = (y * w + x) * 4;
-          img.data[o] = 255;
-          img.data[o + 3] = Math.round((255 - v) * 0.5);
+          img.data[o] = fr;
+          img.data[o + 1] = fg;
+          img.data[o + 2] = fb;
+          img.data[o + 3] = filmAlpha(v, options);
         }
       c.putImageData(img, 0, 0);
-      lastQuickMaskUrl = { grid, width: doc.width, height: doc.height, url: canvas.toDataURL(), time: now };
+      lastQuickMaskUrl = { grid, width: doc.width, height: doc.height, url: canvas.toDataURL(), time: now, film };
     }
   }
   return lastQuickMaskUrl ? `<image href="${lastQuickMaskUrl.url}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" style="image-rendering:auto"/>` : '';
@@ -300,10 +337,12 @@ export function installView(e: Editor) {
         const store = e.assets.tiles;
         delete e.settings.quickMaskPreview;
         const doc = e.doc;
+        const { indicates } = quickMaskOptions();
         if (doc.quickMask) {
           // Leaving turns the mask into the selection, as one step.
           const current = selectionGrid(doc, store);
-          const next = maskGrid(store, readMask(store, doc.quickMask, canvasRect(doc)));
+          const m = readMask(store, doc.quickMask, canvasRect(doc));
+          const next = maskGrid(store, { ...m, data: channelFromSelection(m.data, indicates) });
           e.session.lastSelection = current;
           e.command('Quick Mask', (d) => {
             delete d.quickMask;
@@ -311,13 +350,21 @@ export function installView(e: Editor) {
           });
           return;
         }
-        const grid = selectionGrid(doc, store) ?? emptyGrid(1);
+        const sel = selectionGrid(doc, store);
+        const grid = indicates === 'masked' ? (sel ?? emptyGrid(1)) : sel ? invertedGrid(e, sel) : allMask(255);
         e.command('Edit in Quick Mask Mode', (d) => {
           d.quickMask = grid;
         });
         if (!['brush', 'pencil', 'eraser', 'bucket', 'gradient'].includes(e.tool)) e.setTool('brush');
-        e.message('Quick Mask: paint with black to remove from the selection, white to add. Press Q to exit.');
+        e.message(quickMaskHint(quickMaskOptions()));
       },
+    },
+    {
+      id: 'select.quick-mask-options',
+      label: 'Quick Mask Options…',
+      recordable: false,
+      description: 'Choose whether the quick mask color marks masked or selected areas, and its color and opacity',
+      run: (e) => quickMaskOptionsDialog(e),
     },
     {
       id: 'select.save',

@@ -12,6 +12,7 @@ import { installTypePanels } from './panels';
 import { installTypeCommands } from './commands';
 import { installTextStyles } from './styles-panel';
 import { installLanguageCommands } from './language';
+import { installParagraphOptions } from './paragraph-options';
 import { installPathType } from './path-type';
 import { installTypeProperties } from './properties';
 import './type-panels.css';
@@ -34,6 +35,7 @@ export function installType(e: Editor) {
   onSessionChange(() => glyphs.loaded?.followSession(e));
   installTextStyles(e);
   installLanguageCommands(e);
+  installParagraphOptions(e);
   const hasText = (e: Editor) => e.hasDocument && allLayers(e.doc.layers).some((l) => l.kind === 'text');
   registerCommand(
     {
@@ -79,6 +81,8 @@ export function installType(e: Editor) {
     const enabled = c?.enabled;
     if (c) c.enabled = (e) => textStep(id) || (enabled ? enabled(e) : true);
   }
+  // Edit commands that work inside the text being edited.
+  const TEXT_AWARE = new Set(['edit.find-replace-text', 'edit.paste-plain', 'edit.paste-text-attributes']);
   const run = e.runCommand.bind(e);
   e.runCommand = async (id: string, arg?: unknown) => {
     if (textStep(id)) {
@@ -86,7 +90,7 @@ export function installType(e: Editor) {
       focusInput(e);
       return;
     }
-    if (session && commands.has(id) && id !== 'edit.find-replace-text' && !/^(type|window|view|help)\./.test(id)) await commit(e);
+    if (session && commands.has(id) && !TEXT_AWARE.has(id) && !/^(type|window|view|help)\./.test(id)) await commit(e);
     return run(id, arg);
   };
   e.onUpdate(() => {

@@ -192,11 +192,15 @@ test('area type flows inside a closed path; arc text converts point text', async
   await page.keyboard.type('ARCHED');
   await page.keyboard.press('Escape');
   await idle(page);
+  // The former Convert to Arc Text command now makes dynamic text.
   await run(page, 'type.arc-arch');
+  expect(await page.evaluate(() => window.photoStudio.layer!.textData!.fit?.shape)).toBe('arch');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Convert to Dynamic Text');
+  // Released, it is text along an arch path.
+  await run(page, 'type.release-fit');
   const arc = await page.evaluate(() => window.photoStudio.layer!.textData!.path!);
   expect(arc.kind).toBe('path');
   expect(arc.arc?.preset).toBe('arch');
-  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Convert to Arc Text');
   const px = await compositePixel(page, 5, 5);
   expect(px[0]).toBe(255);
   await page.screenshot({ path: test.info().outputPath('type-area-arc.png') });

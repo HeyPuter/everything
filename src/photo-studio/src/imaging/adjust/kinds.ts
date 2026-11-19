@@ -621,6 +621,7 @@ export function planFor(adj: Adjustment): Plan {
     // Spatial kinds have no color plan (see spatial.ts).
     case 'clarity-dehaze':
     case 'grain':
+    case 'relight':
       return EMPTY;
   }
 }

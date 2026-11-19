@@ -1,9 +1,9 @@
-import { UNIFORM_FLOATS, type Backend, type Texture } from './backend';
+import { UNIFORM_FLOATS, type Backend, type ReadRect, type Texture, type TextureCopy } from './backend';
 import { wgsl, wgslFloat, wgslResample, wgslFloatResample } from './shaders';
 import { needsRgbaResampling } from './sampling';
 import { wgslColor } from './color-shaders';
 import { wgslLut } from './lut-shaders';
-import { wgslFilter } from './filter-shaders';
+import { FILTER_UNIFORM_FLOATS, wgslFilter } from './filter-shaders';
 export class WebGPUBackend implements Backend {
   readonly name = 'WebGPU';
   readonly maxSize: number;
@@ -291,6 +291,18 @@ export class WebGPUBackend implements Backend {
     const bytes = t.format === 'r32float' ? 4 : t.format === 'rgba32float' ? 16 : 4;
     this.upload(t.handle as GPUTexture, x, y, width, height, data, bytes);
   }
+  copy(target: Texture, regions: TextureCopy[]) {
+    if (!regions.length) return true;
+    const e = this.device.createCommandEncoder();
+    for (const r of regions)
+      e.copyTextureToTexture(
+        { texture: r.source.handle as GPUTexture, origin: [r.sx, r.sy] },
+        { texture: target.handle as GPUTexture, origin: [r.dx, r.dy] },
+        [r.width, r.height],
+      );
+    this.device.queue.submit([e.finish()]);
+    return true;
+  }
   /** Bands of rows within the device's buffer limit (`row` bytes each). */
   private bands(row: number, height: number) {
     return Math.max(1, Math.min(height, Math.floor(this.device.limits.maxBufferSize / row)));
@@ -386,9 +398,9 @@ export class WebGPUBackend implements Backend {
         });
       this.filterPipelines = { layout, byte: create('rgba8unorm'), float: create('rgba32float') };
     }
-    const data = new Float32Array(16);
-    data.set(uniforms.subarray(0, 16));
-    const buffer = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const data = new Float32Array(FILTER_UNIFORM_FLOATS);
+    data.set(uniforms.subarray(0, FILTER_UNIFORM_FLOATS));
+    const buffer = this.device.createBuffer({ size: FILTER_UNIFORM_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(buffer, 0, data);
     const group = this.device.createBindGroup({
       layout: this.filterPipelines.layout,
@@ -408,37 +420,37 @@ export class WebGPUBackend implements Backend {
     this.device.queue.submit([e.finish()]);
     buffer.destroy();
   }
-  read(t: Texture): Promise<Uint8Array> {
+  read(t: Texture, r?: ReadRect): Promise<Uint8Array> {
     if (t.format !== 'rgba8unorm')
       throw new Error('Use float readback for a floating-point texture.');
-    return this.readPixels(t, false) as Promise<Uint8Array>;
+    return this.readPixels(t, false, r) as Promise<Uint8Array>;
   }
-  readFloat(t: Texture): Promise<Float32Array> {
+  readFloat(t: Texture, r?: ReadRect): Promise<Float32Array> {
     if (t.format !== 'rgba32float')
       throw new Error('Float readback requires a floating-point texture.');
-    return this.readPixels(t, true) as Promise<Float32Array>;
+    return this.readPixels(t, true, r) as Promise<Float32Array>;
   }
-  private async readPixels(t: Texture, floating: boolean) {
+  private async readPixels(t: Texture, floating: boolean, r: ReadRect = { x: 0, y: 0, width: t.width, height: t.height }) {
     const pixelBytes = floating ? 16 : 4;
-    const row = Math.ceil((t.width * pixelBytes) / 256) * 256;
+    const row = Math.ceil((r.width * pixelBytes) / 256) * 256;
     const data = floating
-      ? new Float32Array(t.width * t.height * 4)
-      : new Uint8Array(t.width * t.height * 4);
+      ? new Float32Array(r.width * r.height * 4)
+      : new Uint8Array(r.width * r.height * 4);
     const bytes = new Uint8Array(data.buffer);
     // Large textures (a 16.7-megapixel float image needs 256 MB) are read in
     // bands of rows: a buffer above the device's limit loses the device.
-    const band = this.bands(row, t.height);
-    for (let y0 = 0; y0 < t.height; y0 += band) {
-      const rows = Math.min(band, t.height - y0);
+    const band = this.bands(row, r.height);
+    for (let y0 = 0; y0 < r.height; y0 += band) {
+      const rows = Math.min(band, r.height - y0);
       const buffer = this.device.createBuffer({
         size: row * rows,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
       const e = this.device.createCommandEncoder();
       e.copyTextureToBuffer(
-        { texture: t.handle as GPUTexture, origin: { x: 0, y: y0 } },
+        { texture: t.handle as GPUTexture, origin: { x: r.x, y: r.y + y0 } },
         { buffer, bytesPerRow: row },
-        [t.width, rows],
+        [r.width, rows],
       );
       this.device.queue.submit([e.finish()]);
       try {
@@ -446,8 +458,8 @@ export class WebGPUBackend implements Backend {
         const mapped = new Uint8Array(buffer.getMappedRange());
         for (let y = 0; y < rows; y++)
           bytes.set(
-            mapped.subarray(y * row, y * row + t.width * pixelBytes),
-            (y0 + y) * t.width * pixelBytes,
+            mapped.subarray(y * row, y * row + r.width * pixelBytes),
+            (y0 + y) * r.width * pixelBytes,
           );
         buffer.unmap();
       } finally {

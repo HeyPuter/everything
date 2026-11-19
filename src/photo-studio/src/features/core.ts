@@ -1,4 +1,5 @@
 import type { Editor } from '../editor';
+import { isRelightLayer } from './relight/state';
 import { registerCommand, commands, type Command } from '../app/registry';
 import { performAction } from '../ui/actions';
 import { formDialog, information } from '../ui/dialog';
@@ -17,6 +18,7 @@ import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
 import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
+import { rememberCopiedLayerText } from './type/text-attributes';
 import { layerLock, setFullLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
 import { recordsSettings, settingsDialog } from './action-settings';
@@ -221,8 +223,13 @@ export function installCore(e: Editor) {
   }, { enabled: hasDoc });
   cmd('layer.rasterize', 'Layer', async () => {
     const l = e.layer;
-    if (l) await rasterizeLayer(e, l.id);
-  }, { enabled: (e) => !!e.layer && !['pixel', 'group', 'adjustment'].includes(e.layer.kind) });
+    if (isRelightLayer(l)) {
+      // A relight layer becomes the relit pixels it shows.
+      const { prepareRelightRaster } = await import('./relight/raster');
+      const apply = await prepareRelightRaster(e, l.id);
+      if (apply) e.command('Rasterize Layer', apply);
+    } else if (l) await rasterizeLayer(e, l.id);
+  }, { enabled: (e) => !!e.layer && (!['pixel', 'group', 'adjustment'].includes(e.layer.kind) || isRelightLayer(e.layer)) });
   cmd('layer.rasterize-type', 'Type', async () => {
     if (e.layer?.kind === 'text') await rasterizeLayer(e, e.layer.id, 'Rasterize Type');
   }, { enabled: (e) => e.layer?.kind === 'text' });
@@ -433,9 +440,18 @@ async function shortcutsDialog(e: Editor) {
     row('Flow of the painting tool', 'Shift+0–9'),
     row('Brush size and hardness by dragging', isMac ? '⌃⌥ drag' : 'Alt+right-drag'),
     row('Next tool in a toolbar slot', 'Shift+tool key'),
+    row('Use a tool only while its key is held, then return to the previous tool', 'Hold tool key'),
+    row('Lasso: straight segments while drawing (release the button, click, release Alt to close)', isMac ? 'hold ⌥' : 'hold Alt'),
     row('Pan the view', 'Space drag'),
+    row('Zoom in / out where clicked, with any tool', `Space+${mod} click / Space+${alt} click`),
     row('Zoom the view', `${alt} scroll, ${mod} scroll`),
     row('Nudge with the Move tool (Shift: 10 px)', '← ↑ → ↓'),
+    row('Move a copy of the layers with the Move tool', `${alt} drag`),
+    row('Move layers while a painting, fill or eyedropper tool is active', `${mod} drag`),
+    row('Eraser: restore the history source for one stroke', `${alt} drag`),
+    row('Keep a move horizontal or vertical (press during the drag)', 'Shift'),
+    row('Nudge the selected light of a relight layer (Shift: 10 px)', '← ↑ → ↓'),
+    row('Show or hide the lights of the selected relight layer', 'N'),
     row('Commit / cancel a transform or edit', 'Enter / Esc'),
   ];
   const d = document.querySelector<HTMLDialogElement>('#dialog')!;
@@ -547,17 +563,22 @@ async function layerVia(e: Editor, cut: boolean) {
   const nl = newPixelLayer(cut ? `${l.name} cut` : `${l.name} copy`, e.doc, gridFromImage(e.assets.tiles, { width: b.width, height: b.height, data: piece }, b.x, b.y));
   const remaining = cut ? writeRect(e.assets.tiles, target.grid, b.x, b.y, { width: b.width, height: b.height, data: rest }) : undefined;
   const id = target.layer.id;
+  // The selection has done its job: it goes away in the same step, and Reselect brings it back.
+  e.session.lastSelection = sel;
   e.command(cut ? 'Layer via Cut' : 'Layer via Copy', (d) => {
     if (remaining) setLayerPixels(findLayer(d.layers, id)!, remaining, d);
     const list = containerOf(d.layers, id)!;
     // Above the base of a clipping group the new layer joins the group.
     insertLayerAt(list, list.findIndex((x) => x.id === id) + 1, nl);
+    applySelection(d, null);
   });
   e.selected = nl.id;
   e.update();
 }
 async function copySelection(e: Editor, cut: boolean, merged: boolean) {
   const doc = e.doc;
+  // Paste Text Attributes takes them from copied text.
+  if (!merged) rememberCopiedLayerText(e.layer);
   const sel = selectionGrid(doc, e.assets.tiles);
   const b = sel ? selectionBounds(doc, sel) : canvasRect(doc);
   if (!b) return;
@@ -571,7 +592,9 @@ async function copySelection(e: Editor, cut: boolean, merged: boolean) {
       e.message('Select a layer to copy from.');
       return;
     }
-    src = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, b) : cropImage(await layerRGBA(e, l), b);
+    // A relight layer copies the relit image it shows.
+    const relit = isRelightLayer(l) ? (await import('./relight/raster')).relightSnapshot(doc, l.id) : undefined;
+    src = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, b) : cropImage(relit ? await compositeRGBA(e, relit) : await layerRGBA(e, l), b);
   }
   if (sel) {
     const cover = readMask(e.assets.tiles, sel, b).data;

@@ -180,6 +180,7 @@ export function lazyTool(meta: Pick<Tool, 'id' | 'label' | 'key' | 'icon' | 'gro
     doubleClick: later('doubleClick'),
     hover: (e, p) => impl()?.hover?.(e, p),
     keyDown: (e, ev) => impl()?.keyDown?.(e, ev) ?? false,
+    contextMenu: (e, ev) => impl()?.contextMenu?.(e, ev) ?? false,
     overlay: (e) => impl()?.overlay?.(e) ?? '',
     prefetch: load.prefetch,
   } as Tool;

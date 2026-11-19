@@ -29,6 +29,7 @@ const MAX_ERROR: Record<AdjustmentKind, number> = {
   'color-vibrance': 4,
   'clarity-dehaze': 0,
   grain: 0,
+  relight: 0,
 };
 const EXACT_ONLY = new Set<AdjustmentKind>(['threshold']);
 

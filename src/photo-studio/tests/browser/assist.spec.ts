@@ -199,3 +199,83 @@ test('Mask All Objects and Harmonize create editable layers', async ({ page }) =
   });
   expect(adj).toEqual({ kind: 'adjustment', clipped: true, look: 'cube' });
 });
+
+test('Edit with Prompt sends the layer and keeps its transparency', async ({ page }) => {
+  // txt2img with an input image returns it opaque and tinted; the input is kept.
+  const puter = `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{calls:[],txt2img:async(prompt,opts)=>{window.puter.ai.calls.push({prompt,opts});const c=document.createElement('canvas');c.width=opts.width||240;c.height=opts.height||160;const g=c.getContext('2d');g.fillStyle='#204080';g.fillRect(0,0,c.width,c.height);return {src:c.toDataURL()};}}};`;
+  await boot(page, 'default', puter);
+  await scene(page, 0);
+  // Erase the left half of the photo layer.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { writeRect } = await import('/src/model/tiles.ts');
+    const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+    e.command('Erase', (d) => {
+      const l = d.layers[0];
+      setLayerPixels(l, writeRect(e.assets.tiles, l.pixels!, 0, 0, { width: 120, height: 160, data: new Uint8ClampedArray(120 * 160 * 4) }), d);
+    });
+    e.selectLayers([e.doc.layers[0].id]);
+    e.update();
+  });
+  await idle(page);
+  await menu(page, 'Edit', 'Edit with Prompt…');
+  const dialog = page.locator('dialog.assist-studio');
+  await expect(dialog.getByText('Before you generate')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { puter: { ai: { calls: unknown[] } } }).puter.ai.calls.length)).toBe(0);
+  await dialog.locator('#as-prompt').fill('make it blue');
+  await dialog.locator('#as-count').selectOption('1');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await expect(dialog.getByRole('radio')).toHaveCount(1);
+  await dialog.getByRole('radio', { name: 'Variation 1' }).click();
+  await dialog.getByRole('button', { name: 'Add Layer' }).click();
+  await idle(page);
+  const out = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA, gridDocBounds } = await import('/src/model/tiles.ts');
+    const calls = (window as unknown as { puter: { ai: { calls: { opts: { input_image: string } }[] } } }).puter.ai.calls;
+    // The image sent is the layer's own pixels (the visible right half).
+    const bmp = await createImageBitmap(await (await fetch(calls[0].opts.input_image)).blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext('2d')!;
+    g.drawImage(bmp, 0, 0);
+    const sent = g.getImageData(0, 0, bmp.width, bmp.height).data;
+    const source = readRGBA(e.assets.tiles, e.doc.layers[0].pixels!, gridDocBounds(e.doc.layers[0].pixels!)!);
+    let sentDiff = 0;
+    for (let i = 0; i < source.data.length; i++) if (source.data[i + 3 - (i & 3)] === 255) sentDiff = Math.max(sentDiff, Math.abs(sent[i] - source.data[i]));
+    const top = e.doc.layers.at(-1)!;
+    const b = gridDocBounds(top.pixels!)!;
+    const img = readRGBA(e.assets.tiles, top.pixels!, b);
+    let transparent = true;
+    for (let i = 3; i < img.data.length; i += 4) if (img.data[i] !== 255) transparent = false;
+    return { size: [bmp.width, bmp.height, source.width, source.height], sentDiff, name: top.name, bounds: b, opaque: transparent, pixel: Array.from(img.data.subarray(0, 4)) };
+  });
+  expect(out.size).toEqual([120, 160, 120, 160]);
+  expect(out.sentDiff).toBe(0);
+  expect(out.name).toBe('Edited: make it blue');
+  // The result covers only where the layer had pixels.
+  expect(out.bounds).toEqual({ x: 120, y: 0, width: 120, height: 160 });
+  expect(out.opaque).toBe(true);
+  expect(out.pixel).toEqual([0x20, 0x40, 0x80, 255]);
+
+  // An empty layer has nothing to edit: a message, no dialog.
+  const messages = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { emptyGrid } = await import('/src/model/tiles.ts');
+    const empty = newPixelLayer('Empty', e.doc, emptyGrid(4));
+    e.command('New Layer', (d) => void d.layers.push(empty));
+    e.selectLayers([empty.id]);
+    const seen: string[] = [];
+    const message = e.message.bind(e);
+    e.message = (text: string, ...rest: unknown[]) => {
+      seen.push(text);
+      return (message as (...a: unknown[]) => void)(text, ...rest);
+    };
+    (window as unknown as { __seen: string[] }).__seen = seen;
+    return e.doc.layers.length;
+  });
+  expect(messages).toBe(3);
+  await run(page, 'edit.edit-with-prompt');
+  expect(await page.evaluate(() => (window as unknown as { __seen: string[] }).__seen)).toContain('There is nothing visible to edit here.');
+  await expect(dialog).toBeHidden();
+});

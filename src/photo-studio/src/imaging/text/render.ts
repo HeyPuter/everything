@@ -168,7 +168,8 @@ function drawRun(ctx: Ctx2D, run: GlyphRun, hasSpacing: boolean, hasKerning: boo
     if (hasSpacing) (ctx as { letterSpacing: string }).letterSpacing = `${run.letterSpacing}px`;
     paint(run.clusters.join(sep), 0);
   } else if (run.vertical) paint(run.text, 0);
-  else if (hasSpacing || run.letterSpacing === 0) {
+  // Fractional Widths off: each glyph at its whole-pixel advance.
+  else if (!st.wholeWidths && (hasSpacing || run.letterSpacing === 0)) {
     if (hasSpacing) (ctx as { letterSpacing: string }).letterSpacing = `${run.letterSpacing}px`;
     paint(run.clusters.join(sep), 0);
   } else {

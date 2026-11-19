@@ -65,6 +65,9 @@ export interface Tool {
   hover?: (e: Editor, p: CanvasPointer) => void;
   doubleClick?: (e: Editor, p: CanvasPointer) => void;
   keyDown?: (e: Editor, event: KeyboardEvent) => boolean;
+  // A right-click on the canvas: true when the tool showed its own menu or
+  // picker instead of the canvas context menu.
+  contextMenu?: (e: Editor, event: MouseEvent) => boolean;
   // SVG markup in document coordinates drawn above the canvas.
   overlay?: (e: Editor) => string;
   // Tools that do not change the document can run without one.

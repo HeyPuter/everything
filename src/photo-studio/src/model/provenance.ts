@@ -42,7 +42,7 @@ export type ProvenanceStep = {
 export type ProvenanceAI = {
   // Command that produced the content ("edit.generate-image").
   command: string;
-  kind: 'generate' | 'edit' | 'upscale' | 'fill' | 'expand' | 'other';
+  kind: 'generate' | 'edit' | 'upscale' | 'fill' | 'expand' | 'recompose' | 'reflection' | 'rotate' | 'other';
   when: string;
   // Only recorded when Preferences → Export → Record AI prompts is on.
   prompt?: string;
@@ -153,7 +153,7 @@ export function validateProvenance(v: unknown): ProvenanceRecord {
       throw bad('step');
   if (!Array.isArray(r.ai) || r.ai.length > MAX_AI) throw bad('ai');
   for (const a of r.ai)
-    if (!a || !str(a.command, 128) || !['generate', 'edit', 'upscale', 'fill', 'expand', 'other'].includes(a.kind) || !time(a.when) || !opt(a.prompt, 10_000) || !opt(a.model, 256) || !opt(a.layer, 256))
+    if (!a || !str(a.command, 128) || !['generate', 'edit', 'upscale', 'fill', 'expand', 'recompose', 'reflection', 'rotate', 'other'].includes(a.kind) || !time(a.when) || !opt(a.prompt, 10_000) || !opt(a.model, 256) || !opt(a.layer, 256))
       throw bad('ai entry');
   if (!Array.isArray(r.exports) || r.exports.length > MAX_EXPORTS) throw bad('exports');
   for (const x of r.exports)

@@ -1,5 +1,6 @@
 // AI Fill, AI Expand, Generate Image, Edit with Prompt, the AI detail pass of
-// Upscale and image descriptions through Puter.js (loaded globally as
+// Upscale, AI Recompose, Remove Reflections, Rotate Object, image descriptions
+// and face landmarks (face-aware Liquify) through Puter.js (loaded globally as
 // `puter`). This is the only module that sends pixels anywhere, and only when one
 // of its functions is called; the UI must call them solely from an explicit user
 // command (menu item or button), never automatically or for previews.
@@ -322,6 +323,39 @@ export async function describeImage(img: RGBA8, opts: { model?: string; testMode
   return text.trim();
 }
 
+// Face landmarks for face-aware Liquify: asks a vision model where each face's
+// eyes, brows, nose, mouth, chin, jaw and hairline are. Sends only a reduced
+// copy (at most MAX_SIDE pixels on the longer side); returns the answer text,
+// which `parseFaceAnswer` (imaging/filters/liquify-face) reads.
+export async function locateFaces(img: RGBA8, opts: { model?: string; testMode?: boolean; signal?: AbortSignal } = {}): Promise<string> {
+  const p = api();
+  checkAbort(opts.signal);
+  const s = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+  const small = resample(img, Math.max(1, Math.round(img.width * s)), Math.max(1, Math.round(img.height * s)));
+  const file = new File([await toPngBlob(small)], 'faces.png', { type: 'image/png' });
+  let res: unknown;
+  try {
+    res = await p.ai.chat(
+      'Find every human face in this image. For each face give these points as [x, y] with x and y from 0 to 1000 ' +
+        '(0,0 is the top-left corner of the image, 1000,1000 the bottom-right): eyeL and eyeR (pupil centers; eyeL is the ' +
+        'eye on the left side of the image), browL, browR (middle of each eyebrow), nose (tip), mouthL, mouthR (mouth ' +
+        'corners), lipTop (top edge of the upper lip), lipBottom (bottom edge of the lower lip), chin (bottom of the chin), ' +
+        'jawL, jawR (jaw outline at mouth level), forehead (hairline above the nose). Answer with JSON only, like ' +
+        '{"faces":[{"eyeL":[412,300],"eyeR":[520,302],...}]}, or {"faces":[]} when there is no face.',
+      file,
+      !!opts.testMode,
+      opts.model ? { model: opts.model } : {},
+    );
+  } catch (e) {
+    throw toAIError(e);
+  }
+  checkAbort(opts.signal);
+  const content = (res as { message?: { content?: unknown } })?.message?.content ?? res;
+  return Array.isArray(content)
+    ? content.map((c) => (typeof c === 'string' ? c : (c as { text?: string })?.text ?? '')).join('')
+    : String(content ?? '');
+}
+
 // Match Font: ask which of the listed font families is closest to the text in
 // a crop. Sends only the crop (at most MAX_SIDE pixels on the longer side) and
 // the names; returns the listed names the answer mentions, best first.
@@ -552,6 +586,33 @@ export async function chatWithTools(messages: ChatMessage[], opts: ChatOptions =
   const err = (res as { error?: unknown; success?: boolean })?.error;
   if (err && (res as { success?: boolean }).success === false) throw toAIError(err);
   return parseChatReply(res);
+}
+
+/** Several image-to-image results for one complete instruction (the caller
+ * writes the whole prompt): the image is encoded once and each variation is
+ * its own request. Results come back at the input's size, or at the
+ * provider's size with `native` (Rotate Object trims and places them). Used
+ * by Remove Reflections and Rotate Object. */
+export async function instructedEdits(img: RGBA8, instruction: string, opts: EditOptions & { native?: boolean } = {}): Promise<RGBA8[]> {
+  if (!instruction.trim()) throw new AIError('bad-request', 'Describe the change first.');
+  const p = api();
+  checkAbort(opts.signal);
+  const s = Math.min(1, EDIT_MAX_SIDE / Math.max(img.width, img.height));
+  const sw = Math.max(1, Math.round(img.width * s)), sh = Math.max(1, Math.round(img.height * s));
+  const uri = await toDataUri(resample(img, sw, sh));
+  checkAbort(opts.signal);
+  const options = baseOptions(opts, sw, sh);
+  options.input_image = uri;
+  return variations(opts.count ?? 1, opts.signal, async () => {
+    let res: PuterImage;
+    try {
+      res = await p.ai.txt2img(instruction.trim(), options);
+    } catch (e) {
+      throw toAIError(e);
+    }
+    checkAbort(opts.signal);
+    return opts.native ? fromResult(res) : fromResult(res, img.width, img.height);
+  });
 }
 
 export type TransformOptions = { model?: string; quality?: string; reference?: RGBA8; testMode?: boolean; signal?: AbortSignal };

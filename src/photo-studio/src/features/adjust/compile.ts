@@ -36,9 +36,10 @@ export function compileSpec(spec: AdjustmentSpec): CompiledLut | null {
 export function compileSpatial(spec: AdjustmentSpec): SpatialFilter | null {
   // Called every frame for every adjustment layer: skip the normalization
   // (which copies payloads such as LUT files) for the color kinds.
-  if (spec?.kind !== 'clarity-dehaze' && spec?.kind !== 'grain') return null;
+  if (spec?.kind !== 'clarity-dehaze' && spec?.kind !== 'grain' && spec?.kind !== 'relight') return null;
   const adj = specAdjustment(spec);
   if (!adj || isIdentityAdjustment(adj)) return null;
+  if (adj.kind === 'relight') return { type: 'relight', params: adj.params };
   if (adj.kind === 'clarity-dehaze') return { type: 'clarity-dehaze', ...clarityDehazeAmounts(adj.params) };
   if (adj.kind === 'grain') {
     const g = grainAmounts(adj.params);

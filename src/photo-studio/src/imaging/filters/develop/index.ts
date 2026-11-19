@@ -1,83 +1,31 @@
-// Develop: a raw-converter-style tone and color filter for rendered images.
+// Develop: a raw-converter-style workspace filter for rendered images.
 //
-// Pipeline per pixel, in linear light where the physics is linear:
-//   decode sRGB -> white balance gains -> exposure (2^stops) -> dehaze (haze
-//   model I = J t + A (1 - t)) -> local contrast (clarity, texture) and the
-//   tone curve on a perceptual luminance (Y^(1/2.2)), applied to RGB as a
-//   luminance ratio so hues hold -> vibrance/saturation -> gamut compression
-//   toward luminance instead of per-channel clipping -> vignette -> encode ->
-//   grain.
-// The tone curve only compresses highlights or shadows when an adjustment
-// actually pushes values out of range, so neutral settings are the identity.
-import type { ImageOperation, OperationContext, ParamValues, Progress, RGBA8 } from '../types';
-import { checkCancelled, cloneRGBA8 } from '../types';
-import { resize } from './resample';
-import { SRGB_TO_LINEAR, blendSelection, boxBlurPlane, encodeSRGB, hash3, num } from './sampling';
-
-const PERCEPTUAL = 1 / 2.2;
-const KR = 0.2126,
-  KG = 0.7152,
-  KB = 0.0722;
-
-const params = [
-  ['temperature', 'Temperature', -100, 100],
-  ['tint', 'Tint', -100, 100],
-  ['exposure', 'Exposure', -5, 5],
-  ['contrast', 'Contrast', -100, 100],
-  ['highlights', 'Highlights', -100, 100],
-  ['shadows', 'Shadows', -100, 100],
-  ['whites', 'Whites', -100, 100],
-  ['blacks', 'Blacks', -100, 100],
-  ['texture', 'Texture', -100, 100],
-  ['clarity', 'Clarity', -100, 100],
-  ['dehaze', 'Dehaze', -100, 100],
-  ['vibrance', 'Vibrance', -100, 100],
-  ['saturation', 'Saturation', -100, 100],
-  ['vignette', 'Vignette', -100, 100],
-  ['grain', 'Grain', 0, 100],
-] as const;
-
-// Tone curve in the perceptual domain, tabulated over [0, xmax]; `xreach` is
-// the largest input expected in practice and sizes the highlight shoulder.
-function toneLUT(p: ParamValues, xmax: number, xreach: number, n: number): Float32Array {
-  const c = num(p, 'contrast', 0) / 100,
-    hl = num(p, 'highlights', 0) / 100,
-    sh = num(p, 'shadows', 0) / 100,
-    wh = num(p, 'whites', 0) / 100,
-    bl = num(p, 'blacks', 0) / 100;
-  const g = Math.pow(2, 0.8 * c),
-    m = Math.pow(0.18, PERCEPTUAL);
-  const lut = new Float32Array(n + 1);
-  let hi = -Infinity,
-    lo = Infinity;
-  for (let i = 0; i <= n; i++) {
-    const x = (i / n) * xmax,
-      t = Math.min(1, x);
-    // Contrast pivots on middle gray with matching slopes on both sides.
-    let y = x <= m ? m * Math.pow(x / m, g) : x <= 1 ? 1 - (1 - m) * Math.pow((1 - x) / (1 - m), g) : x;
-    // Band-limited bumps: zero at both ends, so black and white stay put.
-    y += (sh > 0 ? 1.6 : 0.95) * sh * t * (1 - t) ** 3;
-    y += (hl > 0 ? 1.6 : 0.95) * hl * t ** 3 * (1 - t);
-    y += 0.25 * wh * t ** 4 + 0.25 * bl * (1 - t) ** 4;
-    lut[i] = y;
-    if (x <= xreach) {
-      if (y > hi) hi = y;
-      if (y < lo) lo = y;
-    }
-  }
-  // Soft shoulder/toe sized by how far the curve overshoots [0, 1].
-  const kh = hi > 1 ? 1 - Math.min(0.3, (hi - 1) * 0.5) : 1,
-    kl = lo < 0 ? Math.min(0.3, -lo * 0.5) : 0;
-  let prev = 0;
-  for (let i = 0; i <= n; i++) {
-    let y = lut[i];
-    if (y > kh) y = kh + (1 - kh) * Math.tanh((y - kh) / (1 - kh));
-    else if (y < kl) y = kl - kl * Math.tanh((kl - y) / kl);
-    y = Math.max(prev, Math.min(1, Math.max(0, y)));
-    lut[i] = prev = y;
-  }
-  return lut;
-}
+// Stages, in this order:
+//   pre-passes on the pixels: geometry, lens corrections, noise reduction;
+//   per pixel, in linear light where the physics is linear: decode sRGB ->
+//   white balance gains and exposure (2^stops) -> calibration (primaries,
+//   shadow tint) -> dehaze (haze model I = J t + A (1 - t)) -> local contrast
+//   (clarity, texture) and the Light curve on a perceptual luminance
+//   (Y^(1/2.2)), applied to RGB as a luminance ratio so hues hold ->
+//   vibrance/saturation -> Color Mixer, or the gray mix in black and white ->
+//   local adjustment masks (masks.ts) -> Color Grading -> gamut compression toward luminance instead of
+//   per-channel clipping -> vignette -> encode -> Curve tables -> grain;
+//   post-pass: sharpening (grain then follows it, so it is not sharpened).
+// Profiles and the panel switches are resolved into the settings first
+// (profiles.ts). Every stage is the identity at its defaults, and stages at
+// their defaults are skipped.
+import type { ImageOperation, OperationContext, ParamValues, Progress, RGBA8 } from '../../types';
+import { checkCancelled, cloneRGBA8 } from '../../types';
+import { resize } from '../resample';
+import { SRGB_TO_LINEAR, blendSelection, boxBlurPlane, encodeSRGB, hash3, num, str } from '../sampling';
+import { KB, KG, KR, calibrationMatrix, gradeTable, grayOf, grayTable, mixPixel, mixerTable } from './color';
+import { detailActive, reduceNoise, sharpen } from './detail';
+import { geometryActive, transformGeometry } from './geometry';
+import { correctLens, opticsActive } from './optics';
+import { activeMasks, applyLocal, maskRows, prepareMasks } from './masks';
+import { developParams, migrateDevelop } from './params';
+import { resolveDevelop } from './profiles';
+import { PERCEPTUAL, curveTables, toneLUT } from './tone';
 
 // Fast guided filter (He et al. 2010, 2015): coefficients a, b computed at low
 // resolution and later applied as q = a * I + b with the full-resolution guide.
@@ -154,6 +102,8 @@ function linearRow(
   rowB: Float32Array,
   pl: PLut,
   out: Float32Array,
+  cal: Float64Array | null,
+  shTint: number,
 ) {
   const amt = haze ? haze.amount : 0,
     Ar = haze ? haze.A[0] : 0,
@@ -167,6 +117,25 @@ function linearRow(
     let r = SRGB_TO_LINEAR[sd[k]] * gr,
       g = SRGB_TO_LINEAR[sd[k + 1]] * gg,
       b = SRGB_TO_LINEAR[sd[k + 2]] * gb;
+    if (cal) {
+      const R = cal[0] * r + cal[1] * g + cal[2] * b,
+        G = cal[3] * r + cal[4] * g + cal[5] * b,
+        B = cal[6] * r + cal[7] * g + cal[8] * b;
+      r = R > 0 ? R : 0;
+      g = G > 0 ? G : 0;
+      b = B > 0 ? B : 0;
+    }
+    if (shTint !== 0) {
+      // Green-magenta balance of the shadows only.
+      const l = KR * r + KG * g + KB * b,
+        wt = l < 0.25 ? (1 - 4 * l) * (1 - 4 * l) : 0;
+      if (wt > 0) {
+        const m = Math.pow(2, shTint * 0.12 * wt);
+        r *= m;
+        b *= m;
+        g *= Math.pow(2, -shTint * 0.35 * wt);
+      }
+    }
     if (amt !== 0) {
       const l = KR * r + KG * g + KB * b,
         t0 = rowA[x] * perceptual(pl, l > 1 ? 1 : l) + rowB[x],
@@ -253,11 +222,50 @@ function estimateHaze(src: RGBA8, gains: [number, number, number], amount: numbe
 }
 
 export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progress?: Progress): RGBA8 {
-  const v = (k: string) => num(p, k, 0);
-  if (params.every(([k]) => v(k) === 0)) return cloneRGBA8(src);
-  const w = src.width,
-    h = src.height,
-    sd = src.data,
+  const { params: q, mono } = resolveDevelop(p);
+  const v = (k: string) => num(q, k, 0);
+  const curves = curveTables(q),
+    mix = mono ? null : mixerTable(q),
+    gray = mono ? grayTable(q) : null,
+    grade = gradeTable(q),
+    cal = calibrationMatrix(q),
+    shTint = v('calShadowTint') / 100;
+  const basic = BASIC.some((k) => v(k) !== 0);
+  const hasMasks = activeMasks(q).length > 0;
+  const mainOn = basic || curves.active || mono || !!mix?.active || grade.active || !!cal || shTint !== 0 || hasMasks;
+  const det = detailActive(q),
+    lens = opticsActive(q),
+    geo = geometryActive(q);
+  if (!mainOn && !det.noise && !det.sharpen && !lens && !geo) return cloneRGBA8(src);
+  const scale = ctx.scale ?? 1;
+  // Pixel passes before the tone work, each with a share of the progress.
+  const phases = [det.noise, lens, geo, mainOn, det.sharpen].filter(Boolean).length;
+  let phase = 0;
+  const part = (): Progress | undefined =>
+    progress && {
+      cancelled: progress.cancelled,
+      report: ((k) => (f: number) => progress.report?.((k + Math.max(0, Math.min(1, f))) / phases))(phase++),
+    };
+  let img = src;
+  if (det.noise) img = reduceNoise(img, q, scale, part());
+  if (lens) img = correctLens(img, q, scale, part());
+  if (geo) img = transformGeometry(img, q, scale, part());
+  checkCancelled(progress);
+  const grain = v('grain') / 100;
+  const finish = (out: RGBA8) => {
+    if (det.sharpen) {
+      out = sharpen(out, q, scale, part());
+      // Grain goes on after sharpening so it is not sharpened.
+      if (grain) applyGrain(out, grainTexture(grainCell(q, ctx), (ctx.seed ?? 0) | 0, num(q, 'grainRoughness', 50) / 100), grain);
+    }
+    progress?.report?.(1);
+    return blendSelection(src, out, ctx.selection);
+  };
+  if (!mainOn) return finish(img === src ? cloneRGBA8(src) : img);
+  const mainProgress = part();
+  const w = img.width,
+    h = img.height,
+    sd = img.data,
     N = w * h;
   // White balance as channel gains normalized to keep luminance constant.
   const temp = v('temperature') / 100,
@@ -271,14 +279,14 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
   gg *= ev / gl;
   gb *= ev / gl;
   const dehaze = Math.max(-1, Math.min(1, v('dehaze') / 100));
-  const haze = dehaze ? estimateHaze(src, [gr, gg, gb], dehaze) : null;
+  const haze = dehaze ? estimateHaze(img, [gr, gg, gb], dehaze) : null;
   const hzA = haze ? upsampler(haze.ca, haze.lw, haze.lh, w, h) : null,
     hzB = haze ? upsampler(haze.cb, haze.lw, haze.lh, w, h) : null,
     rowA = new Float32Array(w),
     rowB = new Float32Array(w);
   const linRow = new Float32Array(w * 3);
   // Linear RGB after white balance, exposure and dehaze for row y.
-  const linear = (y: number) => linearRow(sd, y, w, gr, gg, gb, haze, hzA, hzB, rowA, rowB, plut, linRow);
+  const linear = (y: number) => linearRow(sd, y, w, gr, gg, gb, haze, hzA, hzB, rowA, rowB, plut, linRow, cal, shTint);
   // Upper bound of linear luminance reaching the tone curve.
   const ymax = Math.max(1, Math.max(gr, gg, gb) * (haze && haze.amount > 0 ? 10 : 1)) * 1.05;
   const xmax = Math.pow(ymax, PERCEPTUAL) + 0.5;
@@ -291,7 +299,7 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
     Math.pow(yreach, PERCEPTUAL) * (1 + 0.3 * Math.abs(v('clarity') / 100) + 0.3 * Math.abs(v('texture') / 100)),
   );
   const NT = 4096,
-    tone = toneLUT(p, xmax, xreach, NT);
+    tone = toneLUT(q, xmax, xreach, NT);
   // Y -> perceptual x, indexed by sqrt(Y) for shadow precision.
   const NP = 8192,
     sqrtYmax = Math.sqrt(ymax),
@@ -352,21 +360,52 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
 
   const vib = v('vibrance') / 100,
     sat = v('saturation') / 100,
-    vig = v('vignette') / 100,
-    grain = v('grain') / 100;
+    vig = v('vignette') / 100;
+  // Vignette shape: an ellipse following the frame (roundness 0) that turns
+  // into a circle (+100) or a rounded rectangle (-100); midpoint and feather
+  // place and widen the falloff in units of the corner distance.
   const cx = w / 2,
     cy = h / 2,
-    rn = 1 / Math.hypot(cx, cy);
-  const grainTile = grain
-    ? grainTexture(Math.max(0.5, (1 + (num(p, 'grainSize', 25) / 100) * 3) * (ctx.scale ?? 1)), (ctx.seed ?? 0) | 0)
-    : null;
+    rho = v('vignetteRoundness') / 100,
+    hyp = Math.hypot(cx, cy),
+    axE = cx * Math.SQRT2,
+    ayE = cy * Math.SQRT2,
+    vax = rho >= 0 ? axE + (hyp - axE) * rho : axE,
+    vay = rho >= 0 ? ayE + (hyp - ayE) * rho : ayE,
+    vpow = rho < 0 ? 2 - rho * 6 : 2,
+    vwid = Math.max(0.02, (0.7 * num(q, 'vignetteFeather', 50)) / 50),
+    vin = 0.2 + num(q, 'vignetteMidpoint', 50) / 100 - vwid / 2,
+    vstyle = str(q, 'vignetteStyle', 'highlights'),
+    vigGain = vig !== 0 && vstyle !== 'paint',
+    vigPaint = vig !== 0 && vstyle === 'paint',
+    vigProtect = vstyle === 'highlights';
+  const vigShape = (x: number, y: number) => {
+    const u = Math.abs(x + 0.5 - cx) / vax,
+      s = Math.abs(y + 0.5 - cy) / vay,
+      d = vpow === 2 ? Math.sqrt(u * u + s * s) : Math.pow(Math.pow(u, vpow) + Math.pow(s, vpow), 1 / vpow),
+      t = Math.min(1, Math.max(0, (d - vin) / vwid));
+    return t * t * (3 - 2 * t);
+  };
+  const grainTile = grain && !det.sharpen ? grainTexture(grainCell(q, ctx), (ctx.seed ?? 0) | 0, num(q, 'grainRoughness', 50) / 100) : null;
+  const mixOn = !!mix?.active,
+    gradeOn = grade.active,
+    gGains = grade.gains,
+    gN = grade.n,
+    cOn = curves.active,
+    cR = curves.r,
+    cG = curves.g,
+    cB = curves.b,
+    cN = curves.n,
+    px3 = new Float64Array(3),
+    locals = hasMasks ? prepareMasks(q, w, h) : [];
   const clarUp = blurC ? upsampler(blurC, cw, ch, w, h) : null,
     rowC = new Float32Array(w);
-  const out = cloneRGBA8(src),
+  const out = cloneRGBA8(img),
     od = out.data;
   // One function per row keeps V8 from bouncing in and out of OSR code.
   const row = (y: number) => {
     linear(y);
+    if (locals.length) maskRows(locals, y, w, h);
     if (clarUp) upsampleRow(clarUp, y, rowC);
     const gRow = (y & (GRAIN_T - 1)) * GRAIN_T;
     for (let x = 0; x < w; x++) {
@@ -397,7 +436,7 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
         b *= s;
       } else r = g = b = Yn;
       // Vibrance favors muted colors; saturation scales chroma uniformly.
-      if (vib || sat) {
+      if (!gray && (vib || sat)) {
         const mx = Math.max(r, g, b),
           mn = Math.min(r, g, b),
           s0 = mx > 1e-6 ? (mx - mn) / mx : 0,
@@ -406,25 +445,60 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
         g = Yn + (g - Yn) * f;
         b = Yn + (b - Yn) * f;
       }
+      if (mixOn) {
+        px3[0] = r;
+        px3[1] = g;
+        px3[2] = b;
+        mixPixel(mix!, px3);
+        r = px3[0];
+        g = px3[1];
+        b = px3[2];
+      } else if (gray) r = g = b = grayOf(gray, r, g, b);
+      for (let m = 0; m < locals.length; m++) {
+        const wt = locals[m].row[x];
+        if (wt < 0.002) continue;
+        px3[0] = r;
+        px3[1] = g;
+        px3[2] = b;
+        applyLocal(locals[m], wt, px3);
+        r = px3[0];
+        g = px3[1];
+        b = px3[2];
+      }
+      if (gradeOn) {
+        const gx = (xo < 0 ? 0 : xo > 1 ? 1 : xo) * gN,
+          gi = Math.min(gN - 1, gx | 0),
+          gf = gx - gi,
+          o = gi * 3;
+        r *= gGains[o] + (gGains[o + 3] - gGains[o]) * gf;
+        g *= gGains[o + 1] + (gGains[o + 4] - gGains[o + 1]) * gf;
+        b *= gGains[o + 2] + (gGains[o + 5] - gGains[o + 2]) * gf;
+      }
       // Compress out-of-range colors toward their luminance (keeps hue).
+      const Yc = mixOn || gray || gradeOn || locals.length ? KR * r + KG * g + KB * b : Yn;
       const mx = Math.max(r, g, b),
         mn = Math.min(r, g, b);
-      if (mx > 1 && Yn < 1) {
-        const q = (1 - Yn) / (mx - Yn);
-        r = Yn + (r - Yn) * q;
-        g = Yn + (g - Yn) * q;
-        b = Yn + (b - Yn) * q;
+      if (mx > 1 && Yc < 1) {
+        const q = (1 - Yc) / (mx - Yc);
+        r = Yc + (r - Yc) * q;
+        g = Yc + (g - Yc) * q;
+        b = Yc + (b - Yc) * q;
       }
-      if (mn < 0 && Yn > 0) {
-        const q = Yn / (Yn - mn);
-        r = Yn + (r - Yn) * q;
-        g = Yn + (g - Yn) * q;
-        b = Yn + (b - Yn) * q;
+      if (mn < 0 && Yc > 0) {
+        const q = Yc / (Yc - mn);
+        r = Yc + (r - Yc) * q;
+        g = Yc + (g - Yc) * q;
+        b = Yc + (b - Yc) * q;
       }
-      if (vig) {
-        const d = Math.sqrt((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) * rn,
-          t = Math.min(1, Math.max(0, (d - 0.35) / 0.7)),
-          gain = Math.pow(2, 1.5 * vig * t * t * (3 - 2 * t));
+      let vs = 0;
+      if (vigGain || vigPaint) vs = vigShape(x, y);
+      if (vigGain && vs > 0) {
+        let gain = Math.pow(2, 1.5 * vig * vs);
+        // Highlight priority keeps bright areas from turning gray or clipping.
+        if (vigProtect && xo > 0.55) {
+          const t = Math.min(1, (xo - 0.55) / 0.45);
+          gain = 1 + (gain - 1) * (1 - 0.9 * t * t * (3 - 2 * t));
+        }
         r *= gain;
         g *= gain;
         b *= gain;
@@ -432,11 +506,26 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
       let R = encodeSRGB(r),
         G = encodeSRGB(g),
         B = encodeSRGB(b);
+      if (cOn) {
+        const ir = (R / 255) * cN,
+          ig = (G / 255) * cN,
+          ib = (B / 255) * cN,
+          jr = Math.min(cN - 1, ir | 0),
+          jg = Math.min(cN - 1, ig | 0),
+          jb = Math.min(cN - 1, ib | 0);
+        R = 255 * (cR[jr] + (cR[jr + 1] - cR[jr]) * (ir - jr));
+        G = 255 * (cG[jg] + (cG[jg + 1] - cG[jg]) * (ig - jg));
+        B = 255 * (cB[jb] + (cB[jb + 1] - cB[jb]) * (ib - jb));
+      }
+      if (vigPaint && vs > 0) {
+        const a = Math.abs(vig) * vs * 0.85,
+          t = vig < 0 ? 0 : 255;
+        R += (t - R) * a;
+        G += (t - G) * a;
+        B += (t - B) * a;
+      }
       if (grainTile) {
-        // Strongest in the midtones.
-        const n = grainTile[gRow + (x & (GRAIN_T - 1))],
-          l = (0.299 * R + 0.587 * G + 0.114 * B) / 255,
-          a = n * grain * 70 * (0.3 + 2.8 * l * (1 - l));
+        const a = grainAt(grainTile[gRow + (x & (GRAIN_T - 1))], grain, R, G, B);
         R += a;
         G += a;
         B += a;
@@ -449,28 +538,49 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
   for (let y = 0; y < h; y++) {
     if ((y & 31) === 0) {
       checkCancelled(progress);
-      progress?.report?.(y / h);
+      mainProgress?.report?.(y / h);
     }
     row(y);
   }
-  progress?.report?.(1);
-  return blendSelection(src, out, ctx.selection);
+  return finish(out);
+}
+
+const grainCell = (q: ParamValues, ctx: OperationContext) => Math.max(0.5, (1 + (num(q, 'grainSize', 25) / 100) * 3) * (ctx.scale ?? 1));
+// Grain offset for one pixel (encoded values), strongest in the midtones.
+function grainAt(n: number, amount: number, R: number, G: number, B: number) {
+  const l = (0.299 * R + 0.587 * G + 0.114 * B) / 255;
+  return n * amount * 70 * (0.3 + 2.8 * l * (1 - l));
+}
+function applyGrain(img: RGBA8, tile: Float32Array, amount: number) {
+  const d = img.data,
+    w = img.width;
+  for (let y = 0; y < img.height; y++) {
+    const gRow = (y & (GRAIN_T - 1)) * GRAIN_T;
+    for (let x = 0, k = y * w * 4; x < w; x++, k += 4) {
+      const a = grainAt(tile[gRow + (x & (GRAIN_T - 1))], amount, d[k], d[k + 1], d[k + 2]);
+      d[k] += a;
+      d[k + 1] += a;
+      d[k + 2] += a;
+    }
+  }
 }
 
 // Grain is looked up in a tileable 512 x 512 texture of two-octave value noise
 // (centered on zero) instead of hashing every pixel; the repeat is invisible in
 // random grain.
 const GRAIN_T = 512;
-function grainTexture(cell: number, seed: number): Float32Array {
-  const t = new Float32Array(GRAIN_T * GRAIN_T);
+function grainTexture(cell: number, seed: number, rough = 0.5): Float32Array {
+  const t = new Float32Array(GRAIN_T * GRAIN_T),
+    // Roughness weights the fine octave (0.3 at the default).
+    w2 = 0.6 * rough;
   // Lattice periods that divide the tile keep it seamless.
   const p1 = Math.max(1, Math.round(GRAIN_T / cell)),
     p2 = Math.max(1, Math.round((2 * GRAIN_T) / cell));
   for (let y = 0; y < GRAIN_T; y++)
     for (let x = 0; x < GRAIN_T; x++)
       t[y * GRAIN_T + x] =
-        valueNoise((x * p1) / GRAIN_T, (y * p1) / GRAIN_T, p1, seed) * 0.7 +
-        valueNoise((x * p2) / GRAIN_T, (y * p2) / GRAIN_T, p2, seed + 1) * 0.3 -
+        valueNoise((x * p1) / GRAIN_T, (y * p1) / GRAIN_T, p1, seed) * (1 - w2) +
+        valueNoise((x * p2) / GRAIN_T, (y * p2) / GRAIN_T, p2, seed + 1) * w2 -
         0.5;
   return t;
 }
@@ -493,22 +603,14 @@ function valueNoise(x: number, y: number, period: number, seed: number) {
   return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
 }
 
+// Settings whose non-zero value turns on the basic tone and color path.
+const BASIC = ['temperature', 'tint', 'exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks', 'texture', 'clarity', 'dehaze', 'vibrance', 'saturation', 'vignette', 'grain'];
+
 export const developOp: ImageOperation = {
   id: 'develop',
   label: 'Develop',
   category: 'Adjustments',
-  params: [
-    ...params.map(([key, label, min, max]) => ({
-      key,
-      label,
-      type: 'number' as const,
-      min,
-      max,
-      step: key === 'exposure' ? 0.05 : 1,
-      default: 0,
-      unit: key === 'exposure' ? 'EV' : undefined,
-    })),
-    { key: 'grainSize', label: 'Grain size', type: 'number', min: 0, max: 100, default: 25 },
-  ],
+  params: developParams,
+  migrate: migrateDevelop,
   apply: develop,
 };

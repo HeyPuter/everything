@@ -45,10 +45,13 @@ import { installCollab } from './collab';
 import { installHelp } from './help';
 import { installAssistant } from './assistant';
 import { installGenerations } from './generations';
+import { installGenAI } from './genai';
 import { installImageAssets } from './image-assets';
 import { installLibraries } from './libraries';
 import { installProvenance } from './provenance';
 import { installCapture } from './capture';
+import { installRelight } from './relight';
+import { installQuickCompare } from './compare';
 
 // Each feature registers its commands, tools, panels and overlays. Keep one
 // line per feature so parallel work merges cleanly.
@@ -73,6 +76,7 @@ export function installFeatures(e: Editor) {
   installType(e);
   installColor(e);
   installAdjust(e);
+  installRelight(e);
   installVector(e);
   installRetouch(e);
   installMeasure(e);
@@ -99,10 +103,12 @@ export function installFeatures(e: Editor) {
   installHelp(e);
   installAssistant(e);
   installGenerations(e);
+  installGenAI(e);
   installImageAssets(e);
   installLibraries(e);
   installProvenance(e);
   installCapture(e);
+  installQuickCompare(e);
   // User shortcut overrides apply last, after every feature registered.
   applyCustomShortcuts();
 }

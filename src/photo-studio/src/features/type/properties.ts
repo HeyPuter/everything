@@ -5,12 +5,14 @@
 
 import type { Editor } from '../../editor';
 import { findLayer, type Layer } from '../../model/document';
-import { properties } from '../../ui/panels';
+import { layerProperties } from '../panels/layer-properties';
+import { section } from '../panels/property-fields';
 import { layerLocked } from '../../model/transform';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { hexRgb, rgbHexString } from '../../model/text-layer';
-import type { AntiAlias, CharStyle, Kerning, ParagraphStyle } from '../../imaging/text/model';
+import type { AntiAlias, CharStyle, FitShape, Kerning, ParagraphStyle } from '../../imaging/text/model';
+import { convertToFit, FIT_LABELS, releaseFitText } from './path-type';
 import { propertiesEditors } from '../panels/properties';
 import {
   applyChar,
@@ -80,6 +82,7 @@ function sections(e: Editor, l: Layer): string {
     styles.unshift([styleValue, styleName(ch.weight!, !!ch.italic)]);
   const aa = c.data?.antiAlias;
   const vertical = (session ? session.data.orientation : l.textData?.orientation) === 'vertical';
+  const fit = (session ? session.data.fit : l.textData?.fit)?.shape;
   const dir = p.direction ?? (Object.keys(p).length ? 'ltr' : undefined);
   const kerning: [Kerning, string][] = [
     ['metrics', 'Metrics'],
@@ -87,8 +90,10 @@ function sections(e: Editor, l: Layer): string {
     ['none', 'None'],
   ];
   const scope = c.editing ? 'Applies to the selected text' : 'Applies to the whole layer';
-  return `<section class="type-props" aria-label="Character">
-<h3>Character <button type="button" class="icon-button" data-command="window.panel.character" title="Open the Character panel" aria-label="Open the Character panel">${svg('ellipsis', 14)}</button></h3>
+  return `${section(
+    'type-character',
+    'Character',
+    `
 <p class="muted vec-hint">${scope}</p>
 <button type="button" class="type-font-button wide" data-tfamily aria-label="Font family" aria-haspopup="dialog" style="font-family:${ch.family ? escapeXML(`"${ch.family}", sans-serif`) : 'inherit'}"><span>${escapeXML(ch.family ?? '')}</span>${svg('chevron-down', 12)}</button>
 <select data-tstyle aria-label="Font style">${styleValue ? '' : '<option value="" selected></option>'}${styles.map(([k, n]) => `<option value="${k}" ${k === styleValue ? 'selected' : ''}>${n}</option>`).join('')}</select>
@@ -100,40 +105,46 @@ ${num('tracking', 'tracking', 'Tracking', fmt(ch.tracking), '', 'type="number" s
 <label class="tp-field" title="Text color">Color <input type="color" data-tcolor aria-label="Text color" class="${ch.color ? '' : 'mixed'}" value="${ch.color ? rgbHexString(ch.color) : '#000000'}"></label>
 </div>
 <div class="type-toggles" role="group" aria-label="Type styles">${TOGGLES.map(([k, icon, label]) => toggle('data-ttoggle', k, icon, label, ch[k] === true, ch[k] === undefined)).join('')}</div>
-</section>
-<section class="type-props" aria-label="Paragraph">
-<h3>Paragraph <button type="button" class="icon-button" data-command="window.panel.paragraph" title="Open the Paragraph panel" aria-label="Open the Paragraph panel">${svg('ellipsis', 14)}</button></h3>
+`,
+    `<button type="button" class="icon-button pf-head-button" data-command="window.panel.character" title="Open the Character panel" aria-label="Open the Character panel">${svg('ellipsis', 14)}</button>`,
+  )}
+${section(
+  'type-paragraph',
+  'Paragraph',
+  `
 <div class="type-toggles" role="group" aria-label="Alignment">${ALIGNS.map(([a, icon, label]) => toggle('data-talign', a, icon, label, p.align === a)).join('')}</div>
 <div class="type-toggles" role="group" aria-label="Text direction">${toggle('data-tdir', 'ltr', 'text-ltr', 'Left-to-right text', dir === 'ltr')}${toggle('data-tdir', 'rtl', 'text-rtl', 'Right-to-left text', dir === 'rtl')}</div>
-</section>
-<section class="type-props" aria-label="Type options">
-<h3>Type Options</h3>
+`,
+  `<button type="button" class="icon-button pf-head-button" data-command="window.panel.paragraph" title="Open the Paragraph panel" aria-label="Open the Paragraph panel">${svg('ellipsis', 14)}</button>`,
+)}
+${section(
+  'type-options',
+  'Type Options',
+  `
 <div class="tp-row"><div class="type-toggles" role="group" aria-label="Orientation">${toggle('data-command', 'type.horizontal', 'type', 'Horizontal text', !vertical)}${toggle('data-command', 'type.vertical', 'type-vertical', 'Vertical text', vertical)}</div>
 <label class="tp-field" title="Anti-aliasing method">aa <select data-taa aria-label="Anti-aliasing method">${aa ? '' : '<option value="" selected></option>'}${AA.map(([v, n]) => `<option value="${v}" ${aa === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
-</section>
-<section class="type-props type-quick" aria-label="Quick actions">
-<h3>Quick Actions</h3>
-<div class="tp-actions">
+<label class="tp-field" title="Dynamic text: the text refits this shape when it or its box changes">Fit <select data-tfit aria-label="Dynamic text shape" ${vertical ? 'disabled' : ''}><option value="" ${fit ? '' : 'selected'}>None</option>${FIT_LABELS.map(([v, n]) => `<option value="${v}" ${fit === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+`,
+)}
+${section(
+  'type-actions',
+  'Quick Actions',
+  `<div class="tp-actions">
 <button data-command="type.edit">${svg('type', 14)} Edit text</button>
 <button data-command="type.warp">${svg('waves', 14)} Warp text</button>
 <button data-command="type.convert-to-shape">${svg('shapes', 14)} Convert to shape</button>
 <button data-command="type.create-work-path">${svg('spline', 14)} Work path</button>
 <button data-command="type.rasterize">${svg('image', 14)} Rasterize</button>
-</div>
-</section>`;
+<button data-command="layer.convert-to-frame">${svg('frame-tool', 14)} Convert to frame</button>
+</div>`,
+)}`;
 }
 
 function render(e: Editor, el: HTMLElement, l: Layer) {
   const locked = layerLocked(e.doc.layers, l.id);
-  const generic = properties(e.displayDoc, l, 1, locked)
-    // The text buttons are replaced by the sections and quick actions below.
-    .replace(
-      /<button data-command="type\.edit"[\s\S]*?<button data-command="type\.warp"[^>]*>[\s\S]*?<\/button>/,
-      '',
-    );
-  const at = generic.indexOf('<h3>Adjustments');
+  // The text buttons are replaced by the sections and quick actions below.
   const ours = `<fieldset class="type-props-fields" ${locked ? 'disabled' : ''}>${sections(e, l)}</fieldset>`;
-  el.innerHTML = at >= 0 ? generic.slice(0, at) + ours + generic.slice(at) : generic + ours;
+  el.innerHTML = layerProperties(e, e.displayDoc, l, locked, { textButtons: false, insert: ours });
   bind(e, el);
 }
 
@@ -155,6 +166,7 @@ function bind(e: Editor, el: HTMLElement) {
       const [w, i] = raw.split('|');
       if (w) done(applyChar(e, { weight: Number(w), italic: i === '1' }));
     } else if (t.matches('[data-tcolor]')) done(applyChar(e, { color: hexRgb(raw) }));
+    else if (t.matches('[data-tfit]')) done(raw ? convertToFit(e, raw as FitShape) : releaseFitText(e));
     else if (t.matches('[data-taa]')) {
       if (raw) done(setAntiAlias(e, raw as AntiAlias));
     } else if (t.dataset.tchar) {

@@ -247,6 +247,7 @@ const custom: Record<string, Node[]> = {
   'context-move': [p('M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3'), ['rect', { x: 8, y: 8, width: 8, height: 8, rx: 1, 'stroke-dasharray': '2 2' }]],
   // Before/after compare modes: a frame split by a movable divider, and two frames side by side.
   'compare-split': [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }], p('M12 2v20'), p('m8 10-2 2 2 2'), p('m16 10 2 2-2 2')],
+  'compare-split-h': [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }], p('M1.5 12h21'), p('m10 8 2-2 2 2'), p('m10 16 2 2 2-2')],
   'compare-side': [['rect', { x: 2, y: 5, width: 9, height: 14, rx: 1.5 }], ['rect', { x: 13, y: 5, width: 9, height: 14, rx: 1.5 }], p('M5 15l2-3 2 3M16 15l2-3 2 3')],
   'color-replace': [p('m14.6 5.6 3.8 3.8'), p('M18 2.5a2.1 2.1 0 0 1 3 3L9.5 17l-4-4Z'), p('M5.5 13 3 21l8-2.5'), ['circle', { cx: 18.5, cy: 18.5, r: 3 }]],
   'mixer-brush': [p('M9 11 3 21'), p('M13.5 6.5a3 3 0 1 1 4 4l-6 6-4-4Z'), p('M18 2c2 1 3 3 3 5'), p('M15 2c1 .5 1.5 1.5 1.5 2.5')],
@@ -335,6 +336,7 @@ const custom: Record<string, Node[]> = {
   // Brush option toggles: stylus pressure driving opacity or size, airbrush build-up.
   'pressure-opacity': [p('M19 3.5a1.8 1.8 0 0 1 2.5 2.5L12 15.5l-3 .5.5-3Z'), ['circle', { cx: 6, cy: 18, r: 3.5 }], ['path', { d: 'M6 14.5a3.5 3.5 0 0 0 0 7Z', fill: 'currentColor' }]],
   'pressure-size': [p('M19 3.5a1.8 1.8 0 0 1 2.5 2.5L12 15.5l-3 .5.5-3Z'), ['circle', { cx: 6, cy: 18, r: 1.3, fill: 'currentColor' }], ['circle', { cx: 6, cy: 18, r: 3.8 }]],
+  'paint-symmetry': [p('M12 3v2.5M12 8.5v2.5M12 13v2.5M12 18.5V21'), p('M9 5.5C4.5 6.5 3 11 5 15c1 2 2.5 3 4 3.5'), p('M15 5.5c4.5 1 6 5.5 4 9.5-1 2-2.5 3-4 3.5')],
   'airbrush': [p('M13 8h6a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-6Z'), p('M13 10.5H9.5M17 13v7'), ...([[6.5, 7], [4, 10.5], [6.5, 14], [2.5, 6.5], [2.5, 14.5]] as const).map(([cx, cy]) => ['circle', { cx, cy, r: 0.9, fill: 'currentColor', stroke: 'none' }] as Node)],
   // ----- adjust: one original glyph per adjustment kind -----
   'adj-brightness-contrast': [['circle', { cx: 12, cy: 12, r: 4.5 }], ['path', { d: 'M12 7.5a4.5 4.5 0 0 1 0 9Z', fill: 'currentColor' }], p('M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8')],
@@ -357,6 +359,11 @@ const custom: Record<string, Node[]> = {
   'adj-color-vibrance': [p('M7 4.5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0Z'), ['circle', { cx: 9, cy: 17, r: 1.6, fill: 'currentColor' }], p('M17.5 6c1.5 2 2.8 3.6 2.8 5.2a2.8 2.8 0 0 1-5.6 0c0-1.6 1.3-3.2 2.8-5.2Z')],
   'adj-clarity-dehaze': [p('M3 19l6-9 4 6 3-4 5 7Z'), p('M3 5h7M14 5h7M6 8h4M15 8h3')],
   'adj-grain': [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ...([[7, 7], [12, 6], [17, 8], [8, 12], [14, 11], [6, 17], [11, 16], [16, 15], [18, 18]] as const).map(([cx, cy]) => ['circle', { cx, cy, r: 0.9, fill: 'currentColor', stroke: 'none' }] as Node)],
+  // Relight layers: a lit sphere with its shadow side and a small light; a
+  // light handle with a plus; a light handle alone.
+  'adj-relight': [['circle', { cx: 14, cy: 14, r: 7 }], ['path', { d: 'M19 9.1a7 7 0 0 1-9.9 9.9A5.6 5.6 0 0 0 19 9.1Z', fill: 'currentColor', 'fill-opacity': 0.45 }], ['circle', { cx: 5, cy: 5, r: 1.8, fill: 'currentColor' }], p('M5 1v1.1M1 5h1.1M2.2 2.2l.8.8M7.8 2.2 7 3M2.2 7.8 3 7')],
+  'relight-add-light': [['circle', { cx: 10, cy: 13, r: 6 }], ['circle', { cx: 10, cy: 13, r: 2.2, fill: 'currentColor' }], p('M19 2.5v6M16 5.5h6')],
+  'relight-light': [['circle', { cx: 12, cy: 12, r: 7.5 }], ['circle', { cx: 12, cy: 12, r: 3, fill: 'currentColor' }]],
   'adj-clip': [p('M8 4v9a4 4 0 0 0 4 4h8'), p('m16 13 4 4-4 4'), ['circle', { cx: 8, cy: 4, r: 1.5, fill: 'currentColor' }]],
   // Vector tools (original glyphs).
   'path-fill': [['path', { d: 'M4 19c4 0 4-14 8-14s4 14 8 14Z', fill: 'currentColor', 'fill-opacity': 0.35 }]],
@@ -383,6 +390,9 @@ const custom: Record<string, Node[]> = {
   'audio-wave': [p('M3 11.5v1M6.5 9v6M10 5v14M13.5 8v8M17 10.5v3M20.5 11.5v1')],
   'audio-add': [p('M3 11v2M6.5 8.5v7M10 5.5v13M13.5 9v6'), p('M19 13.5v7M15.5 17h7')],
   'unlink': [p('M9.5 14.5 7 17a3.2 3.2 0 0 1-4.5-4.5L5 10'), p('M14.5 9.5 17 7a3.2 3.2 0 0 1 4.5 4.5L19 14'), p('M8 3v2.5M3 8h2.5M16 21v-2.5M21 16h-2.5')],
+  // Canvas orientation (original glyphs): an upright or a lying page with a horizon line.
+  'orientation-portrait': [['rect', { x: 6, y: 3, width: 12, height: 18, rx: 1.5 }], p('M9 15l2.5-3 2 2 1.5-1.5'), ['circle', { cx: 14.5, cy: 8, r: 1.2 }]],
+  'orientation-landscape': [['rect', { x: 3, y: 6, width: 18, height: 12, rx: 1.5 }], p('M7 15l3-3.5 2.5 2.5 2-2 2.5 3'), ['circle', { cx: 16.5, cy: 9.5, r: 1.2 }]],
   // Embedded object (original glyph): a frame holding a nested page.
   'embedded-object': [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 3 }], ['rect', { x: 9.5, y: 9.5, width: 8, height: 8, rx: 1.5, fill: 'currentColor', 'fill-opacity': 0.35 }]],
   'path-op-exclude': [['path', { d: 'M3 3h12v6H9v6H3Z', fill: 'currentColor', 'fill-opacity': 0.4 }], ['path', { d: 'M15 9h6v12H9v-6h6Z', fill: 'currentColor', 'fill-opacity': 0.4 }], ['rect', { x: 9, y: 9, width: 6, height: 6 }]],

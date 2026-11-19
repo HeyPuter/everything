@@ -125,6 +125,10 @@ export class SharedHistory extends History {
   override get redoLabels() {
     return this.binding.redoLabels();
   }
+  // The shared states live in the room; none is listed for comparison.
+  override get entries() {
+    return [];
+  }
 }
 
 export type BindingOptions = {
