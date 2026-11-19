@@ -844,6 +844,12 @@
   opacity: 1;
 }
 
+/* On the selected (lighter) strip, empty slots keep a visible outline and a darker well. */
+.mx-strip.selected .mx-fx-slot.empty {
+  border-color: color-mix(in srgb, var(--text) 35%, transparent);
+  background: color-mix(in srgb, var(--bg-input) 60%, transparent);
+}
+
 .mx-fx-slot.empty {
   border-style: dashed;
   border-color: var(--divider);
