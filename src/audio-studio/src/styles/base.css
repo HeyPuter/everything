@@ -241,12 +241,99 @@ textarea.input {
   resize: vertical;
 }
 
+/* Check boxes and radio buttons drawn in the theme: an input-colored box with an
+   outline, filled with the accent when on. */
 input[type='checkbox'],
 input[type='radio'] {
-  accent-color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
   margin: 0;
   width: 14px;
   height: 14px;
+  border: 1px solid var(--btn-border);
+  border-radius: 3px;
+  background: var(--bg-input);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--btn-border-hover);
+}
+
+input[type='checkbox']:checked,
+input[type='checkbox']:indeterminate,
+input[type='radio']:checked {
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+}
+
+input[type='checkbox']::before,
+input[type='radio']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  transform: scale(0);
+  background: var(--accent-text);
+  transition: transform 80ms var(--ease);
+}
+
+input[type='checkbox']::before {
+  clip-path: polygon(14% 52%, 0% 66%, 38% 100%, 100% 26%, 86% 12%, 38% 72%);
+}
+
+input[type='checkbox']:indeterminate::before {
+  height: 2px;
+  clip-path: none;
+}
+
+input[type='radio']::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+input[type='checkbox']:checked::before,
+input[type='checkbox']:indeterminate::before,
+input[type='radio']:checked::before {
+  transform: scale(1);
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 18px;
+    height: 18px;
+  }
+
+  input[type='checkbox']::before {
+    width: 12px;
+    height: 12px;
+  }
+
+  input[type='radio']::before {
+    width: 8px;
+    height: 8px;
+  }
 }
 
 .check {
@@ -702,6 +789,25 @@ input[type='range'].slider::-moz-range-thumb {
 
   .tooltip {
     border-color: CanvasText;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'] {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate,
+  input[type='radio']:checked {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  input[type='checkbox']::before,
+  input[type='radio']::before {
+    background: HighlightText;
   }
 
   .workspace-tab[aria-selected='true'],
