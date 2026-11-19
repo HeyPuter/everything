@@ -65,6 +65,20 @@ describe('center channel extractor', () => {
   });
 });
 
+describe('center channel extractor custom range', () => {
+  it('starts from the band in use when switched to Custom', async () => {
+    const { app, doc } = setup();
+    const p = openEffectDialog(app, getEffect('centerChannelExtractor'), { doc, values: { range: 2 } });
+    const dlg = document.querySelector('.fx-dialog');
+    const range = [...dlg.querySelectorAll('select')].find((s) => s.getAttribute('aria-label') === 'Frequency Range');
+    range.value = '4';
+    range.dispatchEvent(new Event('change'));
+    dlg.querySelector('.btn.primary').click();
+    const v = await p;
+    expect([v.range, v.lowFreq, v.highFreq]).toEqual([4, 150, 10000]);
+  });
+});
+
 describe('graphic phase shifter', () => {
   it('clamps the curve to the chosen range', () => {
     const pts = [{ f: 20, g: 300 }, { f: 20000, g: -300 }];
