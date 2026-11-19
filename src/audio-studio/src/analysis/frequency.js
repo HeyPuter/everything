@@ -406,7 +406,7 @@ export function frequencyPanel(app) {
       const [, db] = traces(data, channel)[0] || [];
       const k = Math.round(f / (rate / data.fft));
       const v = db && Number.isFinite(db[k]) ? db[k] : null;
-      const text = `${formatHz(f)}${v === null ? '' : `  ${v.toFixed(1)} dB`}`;
+      const text = `${formatHzLong(f)}${v === null ? '' : `  ${v.toFixed(1)} dB`}`;
       if (v !== null) {
         const y = Math.min(g.bottom, Math.max(g.top, yOf(v)));
         ctx.fillStyle = cssVar('--text-strong');

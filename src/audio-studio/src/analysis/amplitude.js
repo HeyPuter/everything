@@ -208,10 +208,13 @@ export function amplitudePanel(app) {
     const changed = last.doc.state !== last.state;
     caption.textContent = `Statistics for ${title}${changed ? ' (the file has changed since this scan: scan again to update)' : ''}`;
     head.replaceChildren(h('tr', h('th', { scope: 'col' }, ''), ...names.map((n) => h('th.num', { scope: 'col' }, n))));
+    // Loudness is measured over all channels together: those rows sit under their own heading.
+    const firstShared = rows.findIndex(([, v]) => !Array.isArray(v));
     body.replaceChildren(
-      ...rows.map(([label, v]) =>
+      ...rows.flatMap(([label, v], i) => [
+        ...(i === firstShared ? [h('tr.amp-group', h('th', { scope: 'colgroup', colspan: String(names.length + 1) }, 'Loudness (all channels)'))] : []),
         h('tr', h('th', { scope: 'row' }, label), ...(Array.isArray(v) ? v.map((x) => h('td.num', x)) : [h('td.num', { colspan: String(names.length) }, v)])),
-      ),
+      ]),
     );
   };
 
