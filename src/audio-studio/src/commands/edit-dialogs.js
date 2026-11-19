@@ -214,6 +214,22 @@ export async function mixPasteDialog(app, { doc, conformRate }) {
       return null;
     }
   } else clip = app.clipboards[Number(board.value)];
+  return applyMixPaste(app, doc, clip, settings, conformRate);
+}
+
+/**
+ * Mix Paste again with the last settings, from the current clipboard (Repeat Previous
+ * Command Without Dialog). Returns the settings, or null with nothing to paste.
+ */
+export async function mixPasteAgain(app, { doc, conformRate }) {
+  const settings = { ...MIX_PASTE_DEFAULTS, ...(app.prefs.get('mixPasteSettings') || {}) };
+  const clip = app.clipboard;
+  if (clip?.type === 'clips' || !clip?.channels?.length) return null;
+  return applyMixPaste(app, doc, clip, settings, conformRate);
+}
+
+async function applyMixPaste(app, doc, clip, settings, conformRate) {
+  const { type } = settings;
   clip = await conformRate(clip, doc);
   if (!clip?.channels?.length) return null;
   const at = doc.hasSelection ? doc.selection.start : doc.cursor;

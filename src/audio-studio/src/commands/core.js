@@ -18,7 +18,7 @@ import { shortcutsDialog } from '../ui/shortcuts-dialog.js';
 import { preferencesDialog } from '../ui/preferences.js';
 import { deleteSmoothFrames, zoomInFactor, MIN_VIEW_FRAMES } from '../editor/view-prefs.js';
 import { shuttleCommands } from './shuttle.js';
-import { mixPasteDialog, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
+import { mixPasteDialog, mixPasteAgain, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
 import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 import { saveSmallFile } from '../export/save-file.js';
 
@@ -368,6 +368,7 @@ export function installCoreCommands(app) {
       label: 'Cut',
       shortcut: 'Mod+X',
       enabled: hasSel,
+      repeatable: true,
       run: () => {
         const doc = audio(app);
         app.clipboard = clipFromSelection(app, doc);
@@ -382,6 +383,7 @@ export function installCoreCommands(app) {
       label: 'Paste',
       shortcut: 'Mod+V',
       enabled: (a) => hasAudio(a) && a.clipboard?.type === 'audio',
+      repeatable: true,
       run: async () => {
         const doc = audio(app);
         // The clipboard as it was when Paste ran (another can be chosen while a clip is resampled).
@@ -395,13 +397,22 @@ export function installCoreCommands(app) {
       },
     },
     { id: 'edit.pasteToNew', label: 'Paste to New', shortcut: 'Mod+Alt+V', enabled: (a) => a.clipboard?.type === 'audio', run: () => newDocFromClip(app, app.clipboard, 'Untitled') },
-    { id: 'edit.mixPaste', label: 'Mix Paste...', shortcut: 'Mod+Shift+V', enabled: hasAudio, run: () => mixPasteDialog(app, { doc: audio(app), conformRate }) },
+    {
+      id: 'edit.mixPaste',
+      label: 'Mix Paste...',
+      shortcut: 'Mod+Shift+V',
+      enabled: hasAudio,
+      repeatable: true,
+      // Repeat Without Dialog mixes the current clipboard in again with the last settings.
+      run: (a, args) => (args?.repeat ? mixPasteAgain(app, { doc: audio(app), conformRate }) : mixPasteDialog(app, { doc: audio(app), conformRate })),
+    },
     {
       id: 'edit.delete',
       label: 'Delete',
       shortcut: 'Delete',
       altShortcuts: ['Backspace'],
       enabled: hasSel,
+      repeatable: true,
       run: () => {
         const doc = audio(app);
         const { start, end } = doc.selection;
@@ -424,12 +435,15 @@ export function installCoreCommands(app) {
       id: 'edit.insertSilence',
       label: 'Silence...',
       enabled: hasAudio,
+      repeatable: true,
       run: async (a, args) => {
         const doc = audio(app);
-        // args.seconds (a recorded favorite) inserts without asking.
-        const seconds = Math.min(MAX_INSERT_SECONDS, args?.seconds);
+        // args.seconds (a recorded favorite) inserts without asking, as does Repeat Without
+        // Dialog with the last duration.
+        const seconds = Math.min(MAX_INSERT_SECONDS, args?.seconds ?? (args?.repeat ? app.lastSilenceSeconds : undefined));
         const frames = seconds > 0 ? Math.round(seconds * doc.sampleRate) : await durationDialog(app, 'Insert Silence', 'Duration');
         if (!frames) return;
+        app.lastSilenceSeconds = frames / doc.sampleRate;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         doc.apply('Insert Silence', E.insertSilence(doc.state, at, frames), { selection: { start: at, end: at + frames } });
       },

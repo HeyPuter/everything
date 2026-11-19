@@ -528,3 +528,37 @@ describe('Mix Paste dialog details', () => {
     expect(xf.value).toBe(app.formatTime(5760, 48000));
   });
 });
+
+describe('Repeat Previous Command for edits', () => {
+  it('repeats Delete, Paste, Insert Silence and Mix Paste', async () => {
+    const { app, doc } = await makeView();
+    doc.setSelection(0, 4800);
+    await app.commands.run('edit.delete');
+    doc.setSelection(0, 4800);
+    await app.commands.run('edit.repeat');
+    expect(doc.length).toBe(48000 - 9600);
+    expect(doc.history.undoLabel).toBe('Delete');
+
+    // Insert Silence: the repeat without a dialog reuses the last duration.
+    await app.commands.run('edit.insertSilence', { seconds: 0.5 });
+    expect(app.lastCommand.id).toBe('edit.insertSilence');
+    expect(app.lastSilenceSeconds).toBe(0.5);
+    // As if the last one came from the dialog (no arguments) with a quarter second.
+    app.lastCommand = { id: 'edit.insertSilence', args: undefined };
+    app.lastSilenceSeconds = 0.25;
+    const len = doc.length;
+    await app.commands.run('edit.repeatNoDialog');
+    expect(doc.length).toBe(len + 12000);
+
+    // Mix Paste again from the clipboard with the saved settings.
+    doc.setSelection(0, 2400);
+    await app.commands.run('edit.copy');
+    app.prefs.set('mixPasteSettings', { type: 'insert' });
+    app.lastCommand = { id: 'edit.mixPaste', args: undefined };
+    const before = doc.length;
+    doc.setSelection(100, 100);
+    await app.commands.run('edit.repeatNoDialog');
+    expect(doc.length).toBe(before + 2400);
+    expect(doc.history.undoLabel).toBe('Mix Paste');
+  });
+});
