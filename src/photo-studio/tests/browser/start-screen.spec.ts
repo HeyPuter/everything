@@ -125,3 +125,15 @@ test('the start screen fits a narrow window', async ({ page }) => {
       .getByRole('button', { name: 'New document', exact: true }),
   ).toBeVisible();
 });
+
+test('Properties shows an empty state on the start screen instead of fields that ignore input', async ({
+  page,
+}) => {
+  await boot(page);
+  const properties = page.locator('.panel-body[aria-label="Properties"]');
+  await expect(properties).toContainText('Properties of the open image appear here');
+  await expect(properties.locator('input, select')).toHaveCount(0);
+  await openFiles(page, await png(page, 'shown.png', 64, 48));
+  await expect(properties.locator('input').first()).toBeVisible();
+  await expect(properties).not.toContainText('appear here');
+});
