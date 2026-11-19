@@ -7,11 +7,12 @@ import { bindBrushOptions, brushFor, brushOptions, strokeTool } from '../paint';
 import { openPatternPicker } from './controls';
 import { currentPattern, effectsState, patternThumb } from './state';
 import type { PixelTarget } from '../pixels';
+import type { CanvasPointer } from '../../app/pointer';
 
 // Pattern Stamp: paints the current pattern with the brush. Aligned keeps
 // the pattern anchored to the document across strokes; otherwise each
 // stroke starts the pattern at its first point.
-function patternTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
+function patternTarget(e: Editor, target: PixelTarget, start: CanvasPointer): PaintTarget | undefined {
   if (target.kind !== 'pixels') {
     e.message('The Pattern Stamp paints on pixel layers. Select a layer instead of its mask.');
     return undefined;
@@ -19,9 +20,9 @@ function patternTarget(e: Editor, target: PixelTarget): PaintTarget | undefined 
   const p = currentPattern(e);
   if (!p) return undefined;
   const tile = p.tile, tw = tile.width, th = tile.height, d = tile.data;
-  const start = e.pointerInfo;
-  const ox = effectsState.patternAligned || !start ? 0 : Math.floor(start.x);
-  const oy = effectsState.patternAligned || !start ? 0 : Math.floor(start.y);
+  // Where the stroke was pressed: the last hover may be elsewhere, or missing on touch.
+  const ox = effectsState.patternAligned ? 0 : Math.floor(start.x);
+  const oy = effectsState.patternAligned ? 0 : Math.floor(start.y);
   const scale = Math.max(0.01, effectsState.patternScale);
   const px = [0, 0, 0, 0];
   const s = brushFor('pattern-stamp');
