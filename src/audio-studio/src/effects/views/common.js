@@ -228,3 +228,41 @@ export function spectrumMonitor(ctx, { label = 'Spectrum at the playhead', size 
   });
   return view.el;
 }
+
+/**
+ * The note an effect shows while the file lacks what it learns from (a noise
+ * print, a sound model): what to select, and with a selection, a button that
+ * takes it from there in one click. Hidden once has() is true.
+ * Returns the element; `run` performs the capture (and may throw).
+ */
+export function needBanner(ctx, { has, missing, howTo, action, run, change }) {
+  const { doc } = ctx;
+  const text = h('span.fx-need-text');
+  const btn = h('button.btn.fx-need-btn', {
+    type: 'button',
+    onclick: async () => {
+      btn.disabled = true;
+      try {
+        await run();
+      } catch (err) {
+        ctx.app?.notify?.(err?.message || String(err), { error: true });
+      } finally {
+        show();
+      }
+    },
+  }, action);
+  const el = h('div.fx-need', { role: 'status' }, h('span.fx-need-icon', { 'aria-hidden': 'true' }, '!'), text, btn);
+  function show() {
+    const ready = Boolean(has());
+    el.hidden = ready || !doc;
+    if (ready || !doc) return;
+    const sel = doc.hasSelection ? (doc.selection.end - doc.selection.start) / doc.sampleRate : 0;
+    text.textContent = sel > 0 ? `${missing} Use the selection (${sel.toFixed(sel < 10 ? 2 : 1)} s) to apply this effect.` : `${missing} ${howTo}`;
+    btn.hidden = !(sel > 0);
+    btn.disabled = false;
+  }
+  const off = doc?.on?.('change', (e) => (e?.kind === 'selection' || e?.kind === change) && show());
+  if (off) ctx.onClose?.(off);
+  show();
+  return el;
+}

@@ -528,6 +528,24 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     positionKey: 'fx-window',
     handle,
   });
+  // Noise Reduction and Sound Remover cannot apply or preview until the file has
+  // their noise print or sound model (the views offer to capture one).
+  const need = mode === 'apply' && doc ? (def.needsNoisePrint ? 'noisePrint' : def.needsSoundModel ? 'soundModel' : null) : null;
+  if (need) {
+    const playable = !playBtn.disabled;
+    const syncNeed = () => {
+      const missing = !doc[need];
+      const btn = handle.el?.querySelector('.dialog-foot .btn.primary');
+      if (btn) {
+        btn.disabled = missing;
+        btn.title = missing ? (need === 'noisePrint' ? 'Capture a noise print first' : 'Learn a sound model first') : '';
+      }
+      playBtn.disabled = !playable || missing;
+    };
+    syncNeed();
+    const off = doc.on?.('change', (e) => e?.kind === need && syncNeed());
+    if (off) cleanups.push(off);
+  }
   const entry = floating ? { key: windowKey, handle, focus: () => (handle.el?.querySelector('.fx-controls input, .fx-controls .hot, .fx-controls select, .fx-editor button, button') || handle.el)?.focus() } : null;
   if (entry) floatingWindow = entry;
   return opened.then((r) => {

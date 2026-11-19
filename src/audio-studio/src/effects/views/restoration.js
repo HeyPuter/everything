@@ -9,7 +9,7 @@ import { select } from '../../ui/controls.js';
 import { icon } from '../../ui/icons.js';
 import { labelText, envelopeControl } from '../editors.js';
 import { controlsFor, disclosure, radioChoice, vSlider, groupBox, glyph, enableWhen, checkbox, readout } from '../layout.js';
-import { responseEditor, spectrumMonitor, hzLabel } from './common.js';
+import { responseEditor, spectrumMonitor, hzLabel, needBanner } from './common.js';
 import { learnSoundModel, MAX_SOUND_SECONDS, captureNoisePrint, floorPoints, floorAt, FLOOR_DB } from '../defs/restoration.js';
 import { dsp } from '../../audio/dsp.js';
 import { downloadBlob, pickLocalFiles } from '../../storage/files.js';
@@ -281,9 +281,18 @@ function soundRemoverView(ctx) {
   const off = doc?.on?.('change', (e) => e?.kind === 'soundModel' && show());
   if (off) ctx.onClose?.(off);
   show();
+  const need = needBanner(ctx, {
+    has: () => doc?.soundModel,
+    missing: 'No sound model yet.',
+    howTo: 'Select an example of the sound only in the editor (this window stays open), then learn it.',
+    action: 'Learn from Selection',
+    change: 'soundModel',
+    run: () => app.commands.run('fx.learnSoundModel'),
+  });
   return h(
     'div.fx-stack',
     h('div.nr-bar', learn, save, load, status),
+    need,
     groupBox('Sound Model', controlsFor(ctx, ['complexity', 'passes', 'enhanced', 'suppression'])),
     groupBox('Content', controlsFor(ctx, ['contentComplexity', 'contentPasses'])),
     groupBox('Removal', controlsFor(ctx, ['strength', 'reduceBy', 'sensitivity'])),

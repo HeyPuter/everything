@@ -182,7 +182,8 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
         close(null);
       } else if (e.key === 'Enter' && !e.isComposing && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && dialog.contains(e.target) && !e.target.closest('[data-own-enter]')) {
         const primary = buttons.find((b) => b.primary);
-        if (primary) {
+        // A primary button the dialog has disabled (nothing to apply yet) ignores Enter too.
+        if (primary && !foot.querySelector('.btn.primary')?.disabled) {
           e.preventDefault();
           close(primary.value);
         }

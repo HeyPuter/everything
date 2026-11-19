@@ -84,6 +84,30 @@ describe('noise reduction dialog', () => {
     const values = await p;
     expect(values.curve[0].g).toBe(5);
   });
+  it('cannot apply or preview without a print, and captures one from the selection in one click', async () => {
+    const { app, doc } = setup();
+    const p = openEffectDialog(app, getEffect('noiseReduction'), { doc, modeless: true });
+    const dlg = document.querySelector('.fx-dialog');
+    const apply = dlg.querySelector('.dialog-foot .btn.primary');
+    const need = dlg.querySelector('.fx-need');
+    expect(apply.disabled).toBe(true);
+    expect(dlg.querySelector('.fx-play').disabled).toBe(true);
+    // Enter does not press the disabled Apply.
+    dlg.querySelector('.fx-controls input, .fx-controls .hot').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(dlg.isConnected).toBe(true);
+    expect(need.hidden).toBe(false);
+    expect(need.querySelector('.fx-need-btn').hidden).toBe(true);
+    expect(need.textContent).toMatch(/Select a stretch of noise only/);
+    doc.setSelection(0, 24000);
+    expect(need.textContent).toMatch(/selection \(0\.50 s\)/);
+    need.querySelector('.fx-need-btn').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(need.hidden).toBe(true);
+    expect(apply.disabled).toBe(false);
+    expect(dlg.querySelector('.fx-play').disabled).toBe(false);
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    await p;
+  });
   it('selects the entire file', async () => {
     const { app, doc } = setup();
     doc.setSelection(100, 200);

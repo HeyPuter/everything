@@ -806,3 +806,40 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   display: flex;
   justify-content: center;
 }
+
+/* Noise Reduction, Sound Remover: what they need before they can apply, and a button to get it. */
+.fx-need {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: var(--fs-sm);
+}
+
+.fx-need[hidden] {
+  display: none;
+}
+
+.fx-need-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.fx-need-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.fx-need-btn {
+  flex: none;
+}

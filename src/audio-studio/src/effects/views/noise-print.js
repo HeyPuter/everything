@@ -9,7 +9,7 @@ import { plot, gridLines, labelText, draggable, registerEditor, freqGridLines } 
 import { controlsFor, disclosure, glyph } from '../layout.js';
 import { curveGainAt, FLAT_CURVE, serializeNoisePrint, parseNoisePrint } from '../defs/restoration.js';
 import { downloadBlob, pickLocalFiles } from '../../storage/files.js';
-import { hzLabel } from './common.js';
+import { hzLabel, needBanner } from './common.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const G_MIN = -30;
@@ -258,9 +258,18 @@ function noiseReductionView(ctx) {
   const selectAll = h('button.btn', { type: 'button', disabled: !doc, title: 'Select the whole file to process it all', onclick: () => doc.setSelection(0, doc.length) }, 'Select Entire File');
   const reset = h('button.icon-btn', { type: 'button', 'aria-label': 'Reset the threshold curve', title: 'Reset the threshold curve', onclick: () => ctx.set('curve', FLAT_CURVE) }, iconReset());
   showStatus();
+  const need = needBanner(ctx, {
+    has: () => doc?.noisePrint,
+    missing: 'No noise print yet.',
+    howTo: 'Select a stretch of noise only in the editor (this window stays open), then capture it.',
+    action: 'Capture from Selection',
+    change: 'noisePrint',
+    run: () => app.commands.run('fx.captureNoisePrint'),
+  });
   return h(
     'div.fx-stack',
     h('div.nr-bar', capture, saveBtn, loadBtn, status),
+    need,
     graph,
     h('div.nr-legend.faint', h('span.nr-swatch.nr-print'), 'Noise print', h('span.nr-swatch.nr-threshold'), 'Threshold (drag to adjust)'),
     h('div.nr-bar', h('label.fx-label', 'Scale:'), scaleSel, h('label.fx-label', 'Channel:'), chanSel, selectAll, h('div.spacer'), reset),
