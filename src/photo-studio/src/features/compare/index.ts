@@ -5,7 +5,8 @@
 // the spring-loaded \ key (tap to toggle, hold to peek).
 import type { Editor } from '../../editor';
 import { registerCommand } from '../../app/registry';
-import { lazy, lazyRun } from '../../app/lazy';
+import { lazy } from '../../app/lazy';
+import type { DocumentSession } from '../../app/session';
 import { compareActive } from './state';
 
 const view = lazy(() => import('./compare'));
@@ -13,6 +14,10 @@ const view = lazy(() => import('./compare'));
 const PEEK_MS = 400;
 
 export function installQuickCompare(e: Editor) {
+  // A peek whose key came up before the view had loaded (first use): the
+  // comparison it turns on ends as soon as it starts.
+  let endedPeek: DocumentSession | undefined;
+  let loading = false;
   registerCommand({
     id: 'view.quick-compare',
     label: 'Quick Compare',
@@ -22,7 +27,15 @@ export function installQuickCompare(e: Editor) {
     checked: (e) => compareActive(e),
     description:
       'Compare the image with the state it was opened in, its last save, a snapshot or a history state (hold \\ to peek)',
-    ...lazyRun(view, (m, e, arg) => m.quickCompare(e, arg)),
+    prefetch: view.prefetch,
+    run: async (e, arg) => {
+      loading = !view.loaded;
+      const m = await view().finally(() => (loading = false));
+      const shown = m.quickCompare(e, arg);
+      if (endedPeek && endedPeek === e.session && compareActive(e)) m.exitCompare(e);
+      endedPeek = undefined;
+      await shown;
+    },
   });
   let pressed: { at: number; wasOn: boolean } | undefined;
   const plainBackslash = (ev: KeyboardEvent) =>
@@ -46,6 +59,7 @@ export function installQuickCompare(e: Editor) {
         return;
       }
       pressed = { at: performance.now(), wasOn: compareActive(e) };
+      endedPeek = undefined;
     },
     true,
   );
@@ -53,6 +67,8 @@ export function installQuickCompare(e: Editor) {
     if ((ev.code !== 'Backslash' && ev.key !== '\\') || !pressed) return;
     const { at, wasOn } = pressed;
     pressed = undefined;
-    if (!wasOn && compareActive(e) && performance.now() - at > PEEK_MS) view.loaded?.exitCompare(e);
+    if (wasOn || performance.now() - at <= PEEK_MS) return;
+    if (loading) endedPeek = e.session;
+    else if (compareActive(e)) view.loaded?.exitCompare(e);
   });
 }

@@ -169,3 +169,38 @@ test('side by side, press and hold, snapshots and the \\ key', async ({ page }) 
   const labels = await historyLabels(page);
   expect(labels).toEqual([...before.labels, 'Invert']);
 });
+
+test('holding \\ to peek before the comparison view has loaded leaves comparing off when released', async ({
+  page,
+}) => {
+  // The view loads only after the key is released, as on a slow first use.
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  await page.route('**/src/features/compare/compare.ts*', async (route) => {
+    await released;
+    await route.continue();
+  });
+  await boot(page);
+  await openImage(page, 300, 200, '#3060c0', 'slow.png');
+  await run(page, 'adjust.invert');
+  await page.locator('#viewport').focus();
+  await page.keyboard.down('Backslash');
+  // Held past the peek threshold (400 ms).
+  await page.waitForTimeout(800);
+  await page.keyboard.up('Backslash');
+  release();
+  await page.waitForFunction(() => !window.photoStudio.busy);
+  await page.evaluate(() => import('/src/features/compare/compare.ts'));
+  await idle(page);
+  const active = () =>
+    page.evaluate(async () => {
+      const { compareActive } = await import('/src/features/compare/state.ts');
+      return compareActive(window.photoStudio);
+    });
+  expect(await active()).toBe(false);
+  await expect(page.getByRole('toolbar', { name: 'Quick Compare' })).toHaveCount(0);
+  // A tap still turns it on.
+  await page.keyboard.press('Backslash');
+  await idle(page);
+  expect(await active()).toBe(true);
+});
