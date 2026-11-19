@@ -259,6 +259,13 @@ export function bindCanvas(e: Editor) {
       return;
     }
     if (gesture.kind === 'pan') {
+      // Hand tool: Scroll All Windows (or Shift-drag) scrolls every window together.
+      if (e.tool === 'hand' && (e.settings.scrollAllWindows || event.shiftKey) && e.views.length > 1) {
+        const dx = gesture.pan.x + event.clientX - gesture.start[0] - e.pan.x,
+          dy = gesture.pan.y + event.clientY - gesture.start[1] - e.pan.y;
+        for (const v of e.views) if (v !== e.activeView) v.pan = { x: v.pan.x + dx, y: v.pan.y + dy };
+        e.windows.queueDraw();
+      }
       e.pan.x = gesture.pan.x + event.clientX - gesture.start[0];
       e.pan.y = gesture.pan.y + event.clientY - gesture.start[1];
       gesture.samples = [...gesture.samples.slice(-5), [event.clientX, event.clientY, performance.now()]];

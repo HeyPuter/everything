@@ -1,6 +1,6 @@
 import type { Editor } from '../editor';
 import { registerTool } from '../app/registry';
-import { dragRotation } from '../app/view-transform';
+import { dragRotation, zoomAround } from '../app/view-transform';
 import { setViewRotation } from './view-modes';
 
 export function installNavigation(_e: Editor) {
@@ -13,8 +13,11 @@ export function installNavigation(_e: Editor) {
       group: 'hand',
       needsDocument: false,
       cursor: () => 'grab',
-      options: () =>
-        `<button data-command="view.actual-pixels">100%</button><button data-command="view.fit">Fit Screen</button><button data-command="view.fill">Fill Screen</button><span class="hint">Drag to scroll · Space+drag works with any tool</span>`,
+      options: (e) =>
+        `<label class="transform-setting" title="Scroll every open window together (Shift-drag does it once)"><input type="checkbox" id="scroll-all" ${e.settings.scrollAllWindows ? 'checked' : ''}>Scroll All Windows</label><button data-command="view.actual-pixels">100%</button><button data-command="view.fit">Fit Screen</button><button data-command="view.fill">Fill Screen</button><span class="hint">Drag to scroll · Space+drag works with any tool</span>`,
+      bindOptions: ({ e, el }) => {
+        el.querySelector<HTMLInputElement>('#scroll-all')?.addEventListener('change', (ev) => (e.settings.scrollAllWindows = (ev.target as HTMLInputElement).checked));
+      },
     },
     {
       id: 'rotate-view',
@@ -79,7 +82,7 @@ export function installNavigation(_e: Editor) {
       needsDocument: false,
       cursor: (e) => ((e.settings.zoomOut as boolean) ? 'zoom-out' : 'zoom-in'),
       options: (e) =>
-        `<div class="segmented" role="group" aria-label="Zoom direction"><button data-zoom-dir="in" aria-pressed="${!e.settings.zoomOut}" title="Zoom in">+</button><button data-zoom-dir="out" aria-pressed="${!!e.settings.zoomOut}" title="Zoom out (Alt)">−</button></div><label class="transform-setting"><input type="checkbox" id="scrubby-zoom" ${e.settings.scrubbyZoom !== false ? 'checked' : ''}>Scrubby Zoom</label><button data-command="view.actual-pixels">100%</button><button data-command="view.fit">Fit Screen</button><button data-command="view.fill">Fill Screen</button>`,
+        `<div class="segmented" role="group" aria-label="Zoom direction"><button data-zoom-dir="in" aria-pressed="${!e.settings.zoomOut}" title="Zoom in">+</button><button data-zoom-dir="out" aria-pressed="${!!e.settings.zoomOut}" title="Zoom out (Alt)">−</button></div><label class="transform-setting" title="Resize floating windows to fit the image after zooming"><input type="checkbox" id="zoom-resize" ${e.preferences.zoomResizesWindows ? 'checked' : ''}>Resize Windows to Fit</label><label class="transform-setting" title="Zoom every open window by the same amount"><input type="checkbox" id="zoom-all" ${e.settings.zoomAllWindows ? 'checked' : ''}>Zoom All Windows</label><label class="transform-setting"><input type="checkbox" id="scrubby-zoom" ${e.settings.scrubbyZoom !== false ? 'checked' : ''}>Scrubby Zoom</label><button data-command="view.actual-pixels">100%</button><button data-command="view.fit">Fit Screen</button><button data-command="view.fill">Fill Screen</button>`,
       bindOptions: ({ e, el }) => {
         el.querySelectorAll<HTMLButtonElement>('[data-zoom-dir]').forEach((b) =>
           b.addEventListener('click', () => {
@@ -88,6 +91,11 @@ export function installNavigation(_e: Editor) {
           }),
         );
         el.querySelector<HTMLInputElement>('#scrubby-zoom')?.addEventListener('change', (ev) => (e.settings.scrubbyZoom = (ev.target as HTMLInputElement).checked));
+        el.querySelector<HTMLInputElement>('#zoom-all')?.addEventListener('change', (ev) => (e.settings.zoomAllWindows = (ev.target as HTMLInputElement).checked));
+        el.querySelector<HTMLInputElement>('#zoom-resize')?.addEventListener('change', (ev) => {
+          e.preferences.zoomResizesWindows = (ev.target as HTMLInputElement).checked;
+          e.savePreferences();
+        });
       },
       pointerDown: (e, p) => {
         zoomDrag = { x: p.clientX, y: p.clientY, zoom: e.zoom, moved: false, ox: p.clientX, oy: p.clientY };
@@ -98,7 +106,9 @@ export function installNavigation(_e: Editor) {
         if (Math.abs(dx) > 3) zoomDrag.moved = true;
         if (!zoomDrag.moved) return;
         const rect = e.el('#viewport').getBoundingClientRect();
+        const before = e.zoom;
         e.zoomAt(zoomDrag.zoom * Math.exp(dx / 150), zoomDrag.ox - rect.left, zoomDrag.oy - rect.top);
+        zoomOthers(e, e.zoom / before);
       },
       pointerUp: (e, p) => {
         const d = zoomDrag;
@@ -107,6 +117,7 @@ export function installNavigation(_e: Editor) {
         const rect = e.el('#viewport').getBoundingClientRect();
         const out = p.alt !== !!e.settings.zoomOut;
         const z = out ? e.zoom / 1.5 : e.zoom * 1.5;
+        zoomOthers(e, z / e.zoom);
         if (e.preferences.zoomClickedToCenter) e.zoomBy(z, undefined, undefined, [p.x, p.y]);
         else e.zoomBy(z, p.clientX - rect.left, p.clientY - rect.top);
       },
@@ -114,6 +125,18 @@ export function installNavigation(_e: Editor) {
   );
 }
 let zoomDrag: { x: number; y: number; zoom: number; moved: boolean; ox: number; oy: number } | undefined;
+/** Zoom All Windows: the other windows zoom by the same factor about their centers. */
+function zoomOthers(e: Editor, ratio: number) {
+  if (!e.settings.zoomAllWindows || !Number.isFinite(ratio) || ratio === 1) return;
+  for (const v of e.views) {
+    if (v === e.activeView) continue;
+    const next = zoomAround(v.state(), v.zoom * ratio, e.windows.viewportSize(v));
+    v.zoom = next.zoom;
+    v.pan = next.pan;
+  }
+  e.windows.renderTabs();
+  e.windows.queueDraw();
+}
 let rotateDrag: { from: [number, number]; center: [number, number]; start: number } | undefined;
 /** A compass at the window center while rotating: the accent needle points to the image's top. */
 function compass(e: Editor) {
