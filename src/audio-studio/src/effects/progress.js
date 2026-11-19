@@ -5,6 +5,7 @@
 import { h, announce } from '../lib/dom.js';
 import { openDialog } from '../ui/dialog.js';
 import { abortError } from './apply.js';
+import { beginBusy } from '../ui/busy.js';
 
 export async function withProgress(app, title, task, { delay = 250, indeterminate = false } = {}) {
   const controller = new AbortController();
@@ -42,6 +43,7 @@ export async function withProgress(app, title, task, { delay = 250, indeterminat
     fraction = Math.min(1, Math.max(0, Number(f) || 0));
     paint();
   };
+  const endBusy = beginBusy();
   try {
     const result = await task(controller.signal, onProgress);
     if (controller.signal.aborted) throw abortError();
@@ -50,6 +52,7 @@ export async function withProgress(app, title, task, { delay = 250, indeterminat
     if (controller.signal.aborted) throw abortError();
     throw err;
   } finally {
+    endBusy();
     clearTimeout(timer);
     const close = closeDialog;
     closeDialog = null;

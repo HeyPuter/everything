@@ -798,6 +798,144 @@ input[type='number']:not(:focus):not(:disabled):not([readonly]) {
   flex-shrink: 0;
 }
 
+/* ------------------------------------------------------------------ motion */
+/* Short, quiet entrances (90 to 160 ms) for things that appear; nothing moves on the way out.
+   Reduced motion turns them all off (below). */
+
+.menu {
+  animation: pop-in 90ms var(--ease);
+  transform-origin: top left;
+}
+
+.dialog-backdrop {
+  animation: fade-in 120ms var(--ease);
+}
+
+.dialog {
+  animation: dialog-in 160ms var(--ease);
+}
+
+.toast {
+  animation: rise-in 160ms var(--ease);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (max-width: 600px) {
+  /* Bottom sheets slide up. */
+  .dialog {
+    animation-name: sheet-in;
+    animation-duration: 200ms;
+  }
+
+  @keyframes sheet-in {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+  }
+}
+
+/* --------------------------------------------------------------- progress */
+/* Every progress bar (effects, exports, analysis, batch) shares one look: a rounded well with an
+   accent fill that moves smoothly, with a slow sheen while work runs. */
+
+.fx-progress,
+.io-progress-bar,
+.analysis-progress,
+.batch-progress {
+  border-radius: 999px;
+  background: var(--bg-well);
+  box-shadow: inset 0 0 0 1px var(--border-well);
+  overflow: hidden;
+}
+
+.fx-progress-fill,
+.io-progress-fill,
+.analysis-progress-bar,
+.batch-progress-bar {
+  border-radius: inherit;
+  background-color: var(--accent);
+  background-image: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, 0.28) 50%, transparent 100%);
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  transition: width 160ms linear;
+  animation: progress-sheen 1.6s linear infinite;
+}
+
+@keyframes progress-sheen {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/* App busy (src/ui/busy.js): a thin moving line under the toolbar and a progress cursor. */
+:root[data-busy] .workspace {
+  position: relative;
+}
+
+:root[data-busy] .workspace::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat;
+  background-size: 30% 100%;
+  animation: busy-line 1.2s var(--ease) infinite;
+  pointer-events: none;
+}
+
+:root[data-busy] body {
+  cursor: progress;
+}
+
+@keyframes busy-line {
+  from {
+    background-position: -30% 0;
+  }
+  to {
+    background-position: 130% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-busy] .workspace::before {
+    background: var(--accent);
+    opacity: 0.6;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

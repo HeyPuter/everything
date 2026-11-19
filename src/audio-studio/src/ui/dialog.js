@@ -193,7 +193,8 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
     movable.restore();
     // The first candidate that takes focus (a layout may hide some, e.g. tabs on phones).
     const preferred = [].concat(initialFocus || []).flatMap((sel) => [...dialog.querySelectorAll(sel)]);
-    const candidates = [...preferred, dialog.querySelector('input, select, textarea'), dialog.querySelector('.btn.primary'), dialog.querySelector('button')];
+    // Without a field or default button, a footer button (Cancel) before the title bar's close button.
+    const candidates = [...preferred, dialog.querySelector('input, select, textarea'), dialog.querySelector('.btn.primary'), dialog.querySelector('.dialog-foot button'), dialog.querySelector('button')];
     const target = candidates.find((el) => {
       el?.focus();
       return el && document.activeElement === el;
