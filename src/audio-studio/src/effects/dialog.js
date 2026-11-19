@@ -162,6 +162,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   const live = floating && mode === 'apply' && realtime;
   const groups = linkGroups(def);
   const subscribers = new Set();
+  const levelSubs = new Set();
   const range = doc ? doc.editRange() : null;
   // What Preview plays: the file being processed, or for a chain being edited (a rack
   // slot, a session track's or clip's effects, track EQ) the document it plays in.
@@ -182,6 +183,8 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     slotId,
     /** Runs fn when the dialog closes. */
     onClose: (fn) => cleanups.push(fn),
+    /** fn(input, output) with per-channel linear peaks while previewing; (null, null) when it stops. */
+    onLevels: (fn) => levelSubs.add(fn),
     /** fn(Float32Array) with this effect's live readouts while audio plays through it. */
     onReadout: (fn) => {
       const mine = (key) => (slotId ? key.endsWith(`:${slotId}`) : key === `preview:${def.id}`);
@@ -467,6 +470,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
       setPreviewing(false);
       pushPreview();
       meters.set([0, 0], [0, 0]);
+      levelSubs.forEach((fn) => fn(null, null));
     } else if (floating && s === 'playing' && !previewing && app.active === playDoc) {
       // Playback started from the editor (Space, the transport): the window follows it.
       setPreviewing(true);
@@ -487,7 +491,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     meterRaf = 0;
     if (!previewing || !playDoc) return;
     // A session has no single input to read: its meters show the output.
-    meters.set(doc ? inputPeak(doc, app.engine.position) : [0, 0], out);
+    const input = doc ? inputPeak(doc, app.engine.position) : [0, 0];
+    meters.set(input, out);
+    levelSubs.forEach((fn) => fn(input, out));
     out = out.map((v) => v * 0.8);
     meterRaf = requestAnimationFrame(meterLoop);
   };

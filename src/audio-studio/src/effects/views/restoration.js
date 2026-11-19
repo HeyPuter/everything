@@ -48,7 +48,7 @@ const focusView = (extra, check) => {
     h(
       'div.fx-split.rs-focus',
       h('div.fx-stack', spectrumMonitor(ctx), radioChoice(ctx, 'focus', { icons: focusIcons(), className: 'fx-segmented' }), controlsFor(ctx, ['amount', ...extra])),
-      groupBox('', checkbox(ctx, check), check === 'autoGain' ? enableWhen(ctx, vSlider(ctx, 'gain'), (v) => !v.autoGain) : vSlider(ctx, 'gain')),
+      groupBox('', checkbox(ctx, check), check === 'autoGain' ? enableWhen(ctx, vSlider(ctx, 'gain', { meter: 'out' }), (v) => !v.autoGain) : vSlider(ctx, 'gain', { meter: 'out' })),
     );
   view.hides = true;
   return view;

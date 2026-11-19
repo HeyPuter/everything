@@ -107,6 +107,28 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   margin-right: -30px;
 }
 
+.fx-vmeter {
+  position: relative;
+  width: 5px;
+  margin: 6px 3px 6px 0;
+  background: var(--meter-bg);
+}
+
+.fx-vmeter-fill {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(100% 0 0 0);
+  background: linear-gradient(0deg, var(--meter-green) 0 75%, var(--meter-yellow) 75% 90%, var(--meter-red) 90%);
+}
+
+.fx-vmeter.clip {
+  box-shadow: inset 0 3px 0 var(--meter-red);
+}
+
+.fx-vscale:has(.fx-vmeter) {
+  margin-left: -8px;
+}
+
 .fx-vruler {
   position: relative;
   width: 30px;
