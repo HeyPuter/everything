@@ -8,7 +8,7 @@ An open-source alternative to Adobe Audition. No framework: vanilla JavaScript m
 
 ## What it does
 
-- **Waveform editor**: sample-accurate editing with five clipboards, zero-crossing adjustment, markers (cue, range, subclip, cart, CD) edited in place, spectral frequency and pitch displays with marquee, lasso, brush and healing tools, and a Preview Editor that shows an effect's result before it is applied.
+- **Waveform editor**: sample-accurate editing with five clipboards, zero-crossing adjustment, markers (cue, range, subclip, cart, CD) edited in place, sample points you can drag when zoomed all the way in, dB, percent, normalized or sample-value amplitude rulers, spectral frequency and pitch displays with marquee, lasso, brush and healing tools, and a Preview Editor that shows an effect's result before it is applied.
 - **Multitrack editor**: clips with fades, crossfades, envelopes, groups, stretching, remixing to a new length and speech alignment; buses, eight sends per track, track EQ and effect chains; automation; punch-in and loop recording into takes; mixdowns and bounces; session templates.
 - **Effects**: amplitude, delay, filter and EQ, modulation, restoration (noise prints, sound models, click/pop elimination, hum, reverb and hiss removal), reverb, special and time/pitch processors, all in WebAssembly, usable live in the Effects Rack and track chains or applied to a selection, with presets and Favorites.
 - **Analysis**: frequency analysis, amplitude statistics, phase meter, loudness measurement and matching, diagnostics.
