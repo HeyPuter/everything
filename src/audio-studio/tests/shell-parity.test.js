@@ -540,3 +540,18 @@ describe('status bar', () => {
     expect(app.commands.isChecked('status.duration')).toBe(!before);
   });
 });
+
+describe('welcome screen', () => {
+  it('offers open, record and create with their keys, and lists recent files', async () => {
+    const app = await makeApp({ recent: [{ name: 'Take 1.wav', path: '/a/Take 1.wav' }] });
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const cards = [...root.querySelectorAll('.welcome-card')].map((c) => c.dataset.cmd);
+    expect(cards).toEqual(['file.open', 'transport.record', 'file.newAudio', 'file.newSession']);
+    const open = root.querySelector('.welcome-card[data-cmd="file.open"] .welcome-key');
+    expect(open.textContent).toBe(app.commands.shortcutLabel('file.open'));
+    expect([...root.querySelectorAll('.welcome-recent-item')].map((b) => b.textContent)).toEqual(['Take 1.wav']);
+  });
+});

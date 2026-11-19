@@ -20,6 +20,7 @@
 
 .editor-empty {
   flex: 1;
+  container-type: inline-size;
   display: grid;
   place-items: center;
   padding: 16px;
@@ -30,31 +31,188 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  max-width: 460px;
+  gap: 10px;
+  width: min(560px, 100%);
   text-align: center;
 }
 
 .editor-empty-inner h2 {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   font-size: var(--fs-xl);
   font-weight: 600;
   color: var(--text-strong);
 }
 
 .editor-empty-inner p {
-  margin: 0 0 8px;
+  margin: 0;
 }
 
 .editor-empty-icon {
   display: flex;
 }
 
-.editor-empty-actions {
+/* The four ways to start, as large buttons. */
+.welcome-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.welcome-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.welcome-card:hover {
+  border-color: var(--btn-border-hover);
+  background: var(--bg-hover);
+}
+
+.welcome-card.primary {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-soft));
+}
+
+.welcome-card-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.welcome-card[data-cmd='transport.record'] .welcome-card-icon {
+  background: color-mix(in srgb, var(--record) 18%, transparent);
+  color: var(--record);
+}
+
+.welcome-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.welcome-card-label {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.welcome-card-note {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-key {
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--divider);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.welcome-key[hidden],
+.welcome-recent[hidden] {
+  display: none;
+}
+
+.welcome-links {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: 4px 16px;
+}
+
+.welcome-link,
+.welcome-recent-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--hot);
+  cursor: pointer;
+}
+
+.welcome-link:hover,
+.welcome-recent-item:hover {
+  background: var(--bg-hover);
+}
+
+.welcome-link .welcome-key {
+  margin-left: 2px;
+}
+
+.welcome-recent {
+  width: 100%;
+  text-align: left;
+}
+
+.welcome-recent h3 {
+  margin: 4px 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.welcome-recent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-recent-item {
+  width: 100%;
+  color: var(--text);
+}
+
+.welcome-recent-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-drop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px dashed var(--divider);
+  border-radius: var(--radius-lg);
+  color: var(--text-faint);
+}
+
+@media (pointer: coarse) {
+  .welcome-key {
+    display: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .welcome-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Waveform view grid */

@@ -40,6 +40,7 @@ export function editorPanel(app) {
     const next = doc ? viewFor(doc) : null;
     if (next !== current || !stage.firstChild) {
       current = next;
+      if (!current) empty.refresh();
       stage.replaceChildren(current ? current.el : empty);
       if (current) requestAnimationFrame(() => current?.layout?.());
     }
@@ -84,22 +85,63 @@ export function editorPanel(app) {
   };
 }
 
+/**
+ * The editor with nothing open: big actions to open, record or create, recent
+ * files, smaller links for the rest, and a drop area for audio files.
+ * `refresh()` updates the keys (they can be remapped) and the recent list.
+ */
 function buildEmpty(app) {
-  const action = (label, cmd, ic) => h('button.btn', { type: 'button', onclick: () => app.commands.run(cmd) }, icon(ic, 16), label);
-  return h(
+  const key = (cmd) => app.commands.shortcutLabel?.(cmd) || '';
+  const card = (cmd, ic, label, note, cls = '') =>
+    h(
+      `button.welcome-card${cls}`,
+      { type: 'button', dataset: { cmd }, onclick: () => app.commands.run(cmd) },
+      h('span.welcome-card-icon', icon(ic, 22)),
+      h('span.welcome-card-text', h('span.welcome-card-label', label), h('span.welcome-card-note', note)),
+      h('kbd.welcome-key'),
+    );
+  const link = (cmd, ic, label) => h('button.welcome-link', { type: 'button', dataset: { cmd }, onclick: () => app.commands.run(cmd) }, icon(ic, 14), label, h('kbd.welcome-key'));
+  const cards = h(
+    'div.welcome-cards',
+    card('file.open', 'folder-open', 'Open', 'Audio from your Puter files', '.primary'),
+    card('transport.record', 'mic', 'Record', 'Into a new audio file'),
+    card('file.newAudio', 'file-plus', 'New Audio File', 'A blank file to record into'),
+    card('file.newSession', 'mode-multitrack', 'New Multitrack Session', 'Arrange and mix several tracks'),
+  );
+  const links = h('div.welcome-links', link('file.openLocal', 'hard-drive', 'Open from this device'), link('gen.tones', 'audio-waveform', 'Generate a test tone'));
+  const recentList = h('ul.welcome-recent-list');
+  const recent = h('section.welcome-recent', { 'aria-label': 'Recent files' }, h('h3', 'Recent'), recentList);
+  const el = h(
     'div.editor-empty',
-    h('div.editor-empty-inner',
-      h('div.editor-empty-icon', appIcon(72)),
-      h('h2', 'No file open'),
-      h('p.muted', 'Open audio from your Puter files or this device, record something new, or start a multitrack session. You can also drop audio files anywhere in the window.'),
-      h('div.editor-empty-actions',
-        action('Open', 'file.open', 'folder-open'),
-        action('New Audio File', 'file.newAudio', 'file-plus'),
-        action('New Multitrack Session', 'file.newSession', 'mode-multitrack'),
-        action('Record', 'transport.record', 'mic'),
-      ),
+    h(
+      'div.editor-empty-inner',
+      h('div.editor-empty-icon', appIcon(56)),
+      h('h2', 'Open, record or create'),
+      h('p.muted', 'Nothing is open yet. Pick a way to start:'),
+      cards,
+      links,
+      recent,
+      h('p.welcome-drop', icon('download', 14), 'Or drop audio files anywhere in the window'),
     ),
   );
+  el.refresh = () => {
+    for (const b of el.querySelectorAll('[data-cmd]')) {
+      const k = key(b.dataset.cmd);
+      const cap = b.querySelector('.welcome-key');
+      cap.textContent = k;
+      cap.hidden = !k;
+      // A command a build leaves out (generators) takes its link with it.
+      b.hidden = !app.commands.get?.(b.dataset.cmd);
+    }
+    const all = app.recentMenuItems?.() || [];
+    // The files, not the commands after the separator.
+    const sep = all.findIndex((it) => it.type === 'sep');
+    const items = (sep < 0 ? all : all.slice(0, sep)).filter((it) => it.type === 'cmd').slice(0, 5);
+    recentList.replaceChildren(...items.map((it) => h('li', h('button.welcome-recent-item', { type: 'button', onclick: () => it.run() }, icon('file-audio', 14), h('span', it.label)))));
+    recent.hidden = !items.length;
+  };
+  el.refresh();
+  return el;
 }
 
 function buildTransport(app) {
