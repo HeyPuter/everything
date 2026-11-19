@@ -516,3 +516,14 @@ describe('post-fader effects', () => {
     expect(run(true)).toBeLessThan(0.3);
   });
 });
+
+describe('thinning recorded automation', () => {
+  it('drops points on a straight line and keeps corners, ends and holds', () => {
+    const ramp = Array.from({ length: 11 }, (_, i) => ({ t: i * 10, v: i }));
+    expect(S.thinEnvelope(ramp, 0.1)).toEqual([ramp[0], ramp[10]]);
+    const corner = [{ t: 0, v: 0 }, { t: 10, v: 0 }, { t: 20, v: 0 }, { t: 30, v: 10 }, { t: 40, v: 10 }];
+    expect(S.thinEnvelope(corner, 0.1).map((p) => p.t)).toEqual([0, 20, 30, 40]);
+    const held = [{ t: 0, v: 0 }, { t: 5, v: 0, hold: true }, { t: 10, v: 0 }];
+    expect(S.thinEnvelope(held, 1)).toEqual(held);
+  });
+});

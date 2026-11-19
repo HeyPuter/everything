@@ -7,8 +7,16 @@
 //    lane, heard live through graph overrides, committed as one undo step
 //    when playback stops.
 
-import { findTrack, updateTrack, setAutomation, setSend, writeEnvelopeRange, envelopeValue, muteSteps, trackLanes, staticValue, sendIndexOf, fxParamRef } from '../model/session-edits.js';
+import { findTrack, updateTrack, setAutomation, setSend, writeEnvelopeRange, thinEnvelope, envelopeValue, muteSteps, trackLanes, staticValue, sendIndexOf, fxParamRef } from '../model/session-edits.js';
 import { laneInfo } from './fx-automation.js';
+
+/** How far (in the parameter's units) thinning may move a recorded value: about 1% of the lane height. */
+function thinTolerance(track, param) {
+  if (param === 'pan') return 1;
+  if (param === 'volume' || /^send\d$/.test(param)) return 0.2;
+  const info = laneInfo(track, param);
+  return Math.abs(info.fromPos(0.01) - info.fromPos(0));
+}
 
 const RECORDING = new Set(['write', 'latch', 'touch']);
 const AUTO_LABELS = { volume: 'Volume Automation', pan: 'Pan Automation', mute: 'Mute Automation' };
@@ -195,8 +203,10 @@ export class TrackControls {
       pass.segments.forEach((seg, i) => {
         const last = i === pass.segments.length - 1;
         const end = last && !pass.done ? Math.max(pass.lastT, Math.round(stopFrame ?? pass.lastT)) : seg.points[seg.points.length - 1].t;
-        const pts = seg.points.slice();
+        let pts = seg.points.slice();
         if (last && !pass.done && end > pts[pts.length - 1].t) pts.push({ t: end, v: pass.value });
+        // Recorded moves keep only the keyframes that shape them (the automationThin setting set to false keeps all).
+        if (pass.param !== 'mute' && this.app.prefs?.get?.('automationThin') !== false) pts = thinEnvelope(pts, thinTolerance(track, pass.param));
         // Outside the pass the lane keeps what it played (or the track's own value), rather than
         // ramping from the old points to the new ones.
         const before = seg.t0 > 0 ? [{ t: seg.t0 - 1, v: envelopeValue(lane, seg.t0 - 1, fallback) }] : [];

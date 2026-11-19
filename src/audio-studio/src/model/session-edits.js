@@ -957,6 +957,41 @@ export function insertEnvelopePoint(points, t, v, length, fallback) {
   return { points: list, index: list.findIndex((p) => p.t === Math.round(t) && p.v === v) };
 }
 
+/**
+ * Fewer keyframes for the same shape: drops points that lie within `tol` (in value units) of the
+ * straight line between the points kept around them (Douglas-Peucker on the value). The first
+ * and last points and hold points always stay.
+ */
+export function thinEnvelope(points, tol) {
+  if (!points || points.length < 3 || !(tol > 0)) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  points.forEach((p, i) => p.hold && (keep[i] = 1));
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const pa = points[a];
+    const pb = points[b];
+    let worst = -1;
+    let far = tol;
+    for (let i = a + 1; i < b; i++) {
+      const p = points[i];
+      const line = pb.t === pa.t ? pa.v : pa.v + ((pb.v - pa.v) * (p.t - pa.t)) / (pb.t - pa.t);
+      const d = Math.abs(p.v - line);
+      if (d > far) {
+        far = d;
+        worst = i;
+      }
+    }
+    if (worst >= 0) {
+      keep[worst] = 1;
+      stack.push([a, worst], [worst, b]);
+    }
+  }
+  return points.filter((_, i) => keep[i]);
+}
+
 /** Writes recorded automation: replaces points in [t0, t1] with `recorded`. */
 export function writeEnvelopeRange(points, t0, t1, recorded) {
   const keep = points.filter((p) => p.t < t0 || p.t > t1);
