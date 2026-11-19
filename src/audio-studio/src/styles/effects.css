@@ -937,7 +937,7 @@ input[type='range'].fx-slider:disabled {
   padding: 0;
   border: 1.5px solid var(--bg-editor);
   border-radius: 50%;
-  background: var(--hot);
+  background: var(--accent-fill);
   color: var(--accent-text);
   font-size: 8px;
   line-height: 1;

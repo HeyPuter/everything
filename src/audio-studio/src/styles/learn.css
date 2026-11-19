@@ -58,7 +58,7 @@
 }
 
 .learn-done {
-  color: var(--accent-strong);
+  color: var(--hot);
   font-weight: 700;
 }
 
@@ -142,10 +142,12 @@
   max-width: 260px;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  background: var(--accent-strong);
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-pop);
   font-size: var(--fs-sm);
   font-weight: 600;
+  line-height: 1.35;
   pointer-events: none;
 }
 

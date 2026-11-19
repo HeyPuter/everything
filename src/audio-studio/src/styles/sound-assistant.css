@@ -616,6 +616,24 @@
     display: none;
   }
 
+  /* Icons only: drawn like the toolbar's other icon buttons, not as empty pills. */
+  .batch-toolbar .btn {
+    justify-content: center;
+    width: var(--control);
+    height: var(--control);
+    min-width: 0;
+    padding: 0;
+    border-color: transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-dim);
+  }
+
+  .batch-toolbar .btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-strong);
+  }
+
   .batch-export {
     flex-wrap: wrap;
   }

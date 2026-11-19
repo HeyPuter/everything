@@ -835,8 +835,8 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--accent-fill);
+  color: var(--accent-text);
   font-weight: 700;
 }
 
