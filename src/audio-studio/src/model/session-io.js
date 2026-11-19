@@ -49,7 +49,7 @@ export function mediaFolderName(sessionName) {
  * stores the video in the media folder even when it is referenced on Puter.
  * `mediaPath` and `videoPath` (id, source, defaultPath) can retain immutable cloud media paths.
  */
-export function serializeSession(session, { name = session.name, embedVideo = false, mediaPath, videoPath } = {}) {
+export function serializeSession(session, { name = session.name, embedVideo = false, mediaPath, videoPath, mediaExt = 'wav', mediaRate = null } = {}) {
   const state = session.state;
   // A clip stretched by Sound Assistant Duration keeps its original audio for undoing the stretch.
   // A time-stretched clip keeps its original audio for restretching, a remixed clip for remixing again.
@@ -67,14 +67,15 @@ export function serializeSession(session, { name = session.name, embedVideo = fa
   for (const [id, src] of session.pool) {
     if (!used.has(id)) continue;
     let base = safeFileName(src.name);
-    let file = `${base}.wav`;
-    for (let i = 2; taken.has(file.toLowerCase()); i++) file = `${base} ${i}.wav`;
+    // Exports may convert the media copies (another format or rate): the names follow the format.
+    let file = `${base}.${mediaExt}`;
+    for (let i = 2; taken.has(file.toLowerCase()); i++) file = `${base} ${i}.${mediaExt}`;
     taken.add(file.toLowerCase());
     const defaultPath = src.offline && src.file ? src.file : `${folder}/${file}`;
     const path = mediaPath?.(id, src, defaultPath) ?? defaultPath;
     taken.add(path.split('/').pop().toLowerCase());
     const frames = src.channels?.[0]?.length ?? src.frames ?? 0;
-    sources.push({ id, name: src.name, file: path, sampleRate: session.sampleRate, channels: src.channels?.length || src.channelCount || 2, frames });
+    sources.push({ id, name: src.name, file: path, sampleRate: mediaRate || session.sampleRate, channels: src.channels?.length || src.channelCount || 2, frames });
     media.push({ id, file: path, channels: src.channels, sampleRate: session.sampleRate });
   }
   const video = serializeVideo(session, { folder, embed: embedVideo, taken, mediaPath: videoPath });

@@ -786,3 +786,36 @@ describe('automation that follows clips', () => {
     expect(S.carryAutomation(st, across, [c.id]).tracks[0].automation.volume).toEqual(lane.length ? S.findTrack(st, id).automation.volume : []);
   });
 });
+
+describe('exporting a session as FLAC or at another rate', () => {
+  it('converts the media copies and names them for their format', async () => {
+    const { prepareSessionZip } = await import('../src/multitrack/storage.js');
+    const { unzipStore } = await import('../src/lib/zip.js');
+    const { parseSession } = await import('../src/model/session-io.js');
+    const { setDspBytes } = await import('../src/audio/dsp.js');
+    const fs = await import('node:fs');
+    setDspBytes(fs.readFileSync('src/audio/dsp.wasm'));
+    const doc = new Session({ name: 'Fl.asesx', sampleRate: RATE, tracks: 1 });
+    const tone = new Float32Array(4800).map((_, i) => Math.sin(i / 10) * 0.5);
+    const src = doc.addSource({ name: 'a.wav', channels: [Channel.fromSamples(tone), Channel.fromSamples(tone)] });
+    doc.apply('Insert', S.addClips(doc.state, [S.createClip({ trackId: doc.state.tracks[0].id, sourceId: src, length: 4800 })]));
+    const pick = async (media) => {
+      const files = unzipStore(await (await prepareSessionZip(doc, { media })).blob.arrayBuffer());
+      const manifest = parseSession(new TextDecoder().decode(files.get([...files.keys()].find((k) => k.endsWith('.asesx')))));
+      const [name, bytes] = [...files.entries()].find(([k]) => !k.endsWith('.asesx'));
+      return { name, bytes, manifest };
+    };
+    const wav = await pick({ format: 'wav', bitDepth: 24, rate: 44100 });
+    expect(wav.name.endsWith('.wav')).toBe(true);
+    const dv = new DataView(wav.bytes.buffer, wav.bytes.byteOffset);
+    expect(dv.getUint32(24, true)).toBe(44100);
+    expect(dv.getUint16(34, true)).toBe(24);
+    expect(wav.manifest.sources[0].sampleRate).toBe(44100);
+    // The session keeps its own rate.
+    expect(wav.manifest.state.sampleRate).toBe(RATE);
+    const flac = await pick({ format: 'flac', bitDepth: 16, rate: RATE });
+    expect(flac.name.endsWith('.flac')).toBe(true);
+    expect(new TextDecoder().decode(flac.bytes.subarray(0, 4))).toBe('fLaC');
+    expect(flac.manifest.sources[0].file.endsWith('.flac')).toBe(true);
+  });
+});
