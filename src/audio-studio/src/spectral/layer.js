@@ -1,7 +1,8 @@
 // Spectral Frequency Display: a WaveformView layer below the waveform with a
 // spectrogram per channel, a frequency ruler beside it, a draggable divider,
 // spectral selection tools (marquee, lasso, paintbrush, spot healing brush)
-// and an optional pitch (f0) overlay.
+// and the Spectral Pitch Display mode (a note-scaled axis fitted to the pitch
+// contour, with the contour drawn over the spectrum).
 //
 // Analysis runs in the analysis workers (Rust STFT); results come back as
 // byte tiles cached as GPU textures (see tiles.js, renderer.js). Only tiles
@@ -14,7 +15,7 @@ import { icon } from '../ui/icons.js';
 import { cssVar, CANVAS_FONT, resolvedTheme } from '../ui/theme.js';
 import { SpectrogramRenderer } from './renderer.js';
 import { TileCache, planTiles, chooseHop, readTileSamples, FLOOR_DB } from './tiles.js';
-import { makeScale, frequencyTicks, formatHzLong, noteName } from './freq-scale.js';
+import { makeScale, frequencyTicks, noteTicks, pitchBand, formatHzLong, noteName } from './freq-scale.js';
 import { buildLut } from './colormaps.js';
 import { settings, setSettings, displayOn, pitchOn, logScale, docState, visibleBand, setSpectralSelection, SPECTRAL_TOOLS, pitchSettings } from './state.js';
 import { addBrushDot, dotOutline, shapeIntervals } from './mask.js';
@@ -145,6 +146,11 @@ export class SpectralLayer {
   }
 
   scale() {
+    // The pitch display: a logarithmic axis fitted to the pitch contour in view.
+    if (pitchOn(this.app)) {
+      const band = this.pitch?.band || pitchSettings(this.app.prefs, this.doc.sampleRate);
+      return makeScale({ log: true, lo: band.lo ?? band.fmin, hi: band.hi ?? band.fmax });
+    }
     const band = visibleBand(this.doc);
     return makeScale({ log: logScale(this.app), lo: band.lo, hi: band.hi });
   }
@@ -329,7 +335,7 @@ export class SpectralLayer {
       ctx.fillStyle = cssVar('--text-strong');
       for (const lane of lanes) {
         const top = lane.top - y0;
-        for (const t of frequencyTicks(scale, lane.bottom - lane.top, 16)) ctx.fillRect(0, Math.round(top + t.y), W, 1);
+        for (const t of pitchOn(this.app) ? noteTicks(scale, lane.bottom - lane.top, 13) : frequencyTicks(scale, lane.bottom - lane.top, 16)) ctx.fillRect(0, Math.round(top + t.y), W, 1);
       }
       ctx.restore();
     }
@@ -448,10 +454,11 @@ export class SpectralLayer {
     ctx.font = CANVAS_FONT;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = cssVar('--text-dim');
+    const pitch = pitchOn(this.app);
     for (const lane of lanes) {
       const top = lane.top - y0;
       const lh = lane.bottom - lane.top;
-      for (const t of frequencyTicks(scale, lh, 16)) {
+      for (const t of pitch ? noteTicks(scale, lh, 13) : frequencyTicks(scale, lh, 16)) {
         const y = top + t.y;
         if (y < top + (lane.channel === 0 ? 26 : 8)) continue;
         ctx.fillRect(0, Math.round(y), 4, 1);
@@ -459,7 +466,7 @@ export class SpectralLayer {
       }
     }
     // The unit sits beside the settings button at the top of the ruler.
-    ctx.fillText('Hz', 4, 12);
+    ctx.fillText(pitch ? 'Note' : 'Hz', 4, 12);
   }
 
   // ------------------------------------------------------------- pitch
@@ -496,7 +503,8 @@ export class SpectralLayer {
           return analysisPool().call({ op: 'pitch', samples, rate: doc.sampleRate, n, hop: n, frames, fmin, fmax, threshold: 0.15 }, [samples.buffer]);
         }),
       );
-      this.pitch = { key, f0s, start, hop, n };
+      const band = pitchBand(f0s, { fmin, fmax: Math.min(fmax, doc.sampleRate / 2), prev: this.pitch?.band });
+      this.pitch = { key, f0s, start, hop, n, band };
       this.invalidate();
     } catch (err) {
       console.warn('[spectral] pitch', err);

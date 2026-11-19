@@ -180,9 +180,11 @@ export function installSpectral(app) {
       shortcut: 'Shift+D',
       // The spectral display belongs to the Waveform editor.
       enabled: () => app.active?.kind !== 'session',
-      checked: () => displayOn(app),
+      checked: () => displayOn(app) && !pitchOn(app),
       run: () => {
-        const on = !displayOn(app);
+        // From the pitch display this switches to the frequency display.
+        const on = !displayOn(app) || pitchOn(app);
+        if (pitchOn(app)) app.prefs.set('spectralPitch', false);
         app.prefs.set('spectralDisplay', on);
         announce(on ? 'Spectral frequency display shown' : 'Spectral frequency display hidden');
       },
@@ -195,8 +197,8 @@ export function installSpectral(app) {
       run: () => {
         const on = !(pitchOn(app) && displayOn(app));
         app.prefs.set('spectralPitch', on);
-        if (on && !displayOn(app)) app.prefs.set('spectralDisplay', true);
-        announce(on ? 'Pitch contour shown' : 'Pitch contour hidden');
+        app.prefs.set('spectralDisplay', on);
+        announce(on ? 'Spectral pitch display shown' : 'Spectral pitch display hidden');
       },
     },
     { id: 'view.specLog', label: 'Logarithmic', checked: () => logScale(app), run: () => app.prefs.set('spectralLog', true) },
