@@ -43,6 +43,21 @@ describe('Filter and EQ dialogs', () => {
     await close();
   });
 
+  it('Parametric Equalizer shelves step through their shapes from the Q cell', async () => {
+    const { dlg, close } = open('parametricEq', { lsOn: true });
+    const [low, high] = dlg.querySelectorAll('.peq-shape');
+    expect(low.getAttribute('aria-label')).toBe('Low Shelf shape: Standard');
+    expect(high.disabled).toBe(true);
+    low.click();
+    expect(low.getAttribute('aria-label')).toBe('Low Shelf shape: Steep');
+    const q = () => dlg.querySelector('.fx-table-cell[data-section="Low Shelf"].peq-shelf-q .hot').textContent;
+    expect(q()).toContain('1.4');
+    low.click();
+    expect(low.getAttribute('aria-label')).toBe('Low Shelf shape: Gentle');
+    expect(q()).toContain('0.5');
+    await close();
+  });
+
   it('Parametric Equalizer Range rescales the graph and Ultra-Quiet reaches the processor', async () => {
     const app = fakeApp();
     const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(filled(4800, 0.1))] });

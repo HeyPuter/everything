@@ -716,6 +716,31 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   height: 200px;
 }
 
+/* A shelf's Q cell: the typed Q and the shape button that steps it. */
+.fx-table-cell.peq-shelf-q {
+  align-items: center;
+  gap: 6px;
+}
+
+.peq-shape {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.peq-shape:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .peq-bottom {
   display: flex;
   align-items: center;
