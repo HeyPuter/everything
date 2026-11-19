@@ -882,6 +882,12 @@ export function installMultitrackCommands(app) {
   const mixdown = async (scope) => {
     const { doc, state, o, markers } = mixdownJob(scope);
     const { data } = await rendered('Mixing down', { ...o, state });
+    // Over full scale is kept (32-bit float), but would clip in a fixed-point file: say so.
+    const peak = data.reduce((m, ch) => {
+      for (let i = 0; i < ch.length; i++) if (ch[i] > m || -ch[i] > m) m = Math.abs(ch[i]);
+      return m;
+    }, 0);
+    if (peak > 1) app.notify(`The mixdown peaks at +${(20 * Math.log10(peak)).toFixed(1)} dBFS. It is kept as 32-bit float; lower the master or normalize it before saving at 16 or 24 bits.`);
     // A mono master mixes down to a mono file.
     return renderedDoc(app, doc, state.master.channels === 1 ? data.slice(0, 1) : data, `${sessionBaseName(doc.name)}_mixdown`, markers, state.sampleRate);
   };
