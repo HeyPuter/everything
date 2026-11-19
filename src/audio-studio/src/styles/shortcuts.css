@@ -514,3 +514,11 @@
     opacity: 1;
   }
 }
+.sc-layout-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sc-layout-row[hidden] {
+  display: none;
+}
