@@ -413,3 +413,30 @@ test('the Sponge keeps its own Flow apart from the Dodge and Burn Exposure', asy
   await setTool(page, 'burn');
   await expect(page.locator('#tone-exposure')).toHaveValue('10');
 });
+
+test('a quick Mixer Brush click with Sample All Layers is stored as soon as it ends', async ({
+  page,
+}) => {
+  // Reading the layers below a large image outlasts a quick click.
+  await openImage(page, 3000, 2000, '#ffffff', 'large.png');
+  await page.evaluate(() => window.photoStudio.setTool('mixer-brush'));
+  await page.evaluate(() => window.photoStudio.setForeground('#000000'));
+  await page.locator('#mixer-all').check();
+  await idle(page);
+  // Any edit means the layers below must be read again when the stroke starts.
+  await page.evaluate(() =>
+    window.photoStudio.command('Rename', (d) => {
+      d.layers[0].name = 'Photo';
+    }),
+  );
+  await idle(page);
+  const [x, y] = await page.evaluate(() => window.photoStudio.clientPoint(100, 100));
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect
+    .poll(() => page.evaluate(() => window.photoStudio.history.labels.at(-1)))
+    .toBe('Mixer Brush');
+  await idle(page);
+  expect((await layerPixel(page, 100, 100))[0]).toBeLessThan(200);
+});
