@@ -1190,3 +1190,8 @@ kbd {
   white-space: pre-wrap;
 }
 
+
+/* Files panel: the active file reads in the accent color (selection can hold several files). */
+.files-panel .data-table tbody tr.is-active td {
+  color: var(--accent-text);
+}

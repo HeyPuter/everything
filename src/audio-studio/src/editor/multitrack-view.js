@@ -1963,11 +1963,12 @@ export class MultitrackView {
       const p = place(e);
       this.dropHint = null;
       this.invalidate('overlay');
-      const id = e.dataTransfer.getData('application/x-audio-studio-file');
+      // File ids from the Files panel, one per line (several files can be dragged at once).
+      const ids = e.dataTransfer.getData('application/x-audio-studio-file').split('\n').filter(Boolean);
       const mt = this.app.multitrack;
-      if (id) {
-        const doc = this.app.documents.find((d) => d.id === id);
-        if (doc && doc.kind === 'audio') await mt.insertDocs(this.doc, [doc], p);
+      if (ids.length) {
+        const docs = ids.map((id) => this.app.documents.find((d) => d.id === id)).filter((d) => d && d.kind === 'audio');
+        if (docs.length) await mt.insertDocs(this.doc, docs, p);
         return;
       }
       const files = [...(e.dataTransfer.files || [])];

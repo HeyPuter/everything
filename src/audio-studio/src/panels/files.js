@@ -1,7 +1,11 @@
 // Files panel: every open audio file and session with its format details.
-// Double-click or Enter opens one in the editor; Delete closes it; rows can be
-// dragged into a multitrack session (dataTransfer type application/x-audio-studio-file).
-// The app event 'reveal-files' (file ids) highlights the files behind clips.
+// Click picks a file (it becomes the active one); Shift-click and
+// Ctrl/Cmd-click select several, for closing, inserting into a session, batch
+// processing or dragging together. Double-click or Enter opens one in the
+// editor; Delete closes the selected files; rows can be dragged into a
+// multitrack session (dataTransfer type application/x-audio-studio-file: file
+// ids, one per line). Right-click a row (or press Shift+F10) for the file
+// commands. The app event 'reveal-files' (file ids) highlights the files behind clips.
 // The disclosure arrow lists a file's markers (click one to go there); the
 // footer plays the selected file from its start, loops, and can auto-play
 // files as they are picked. Column headers sort; the panel menu shows or hides
@@ -14,6 +18,24 @@ import { resolveItems } from '../ui/menubar.js';
 const bitsOf = (doc) => (doc.kind === 'audio' ? doc.info.bitDepth ?? 0 : 32);
 const channelsOf = (doc) => (doc.kind === 'audio' ? doc.channelCount : 2);
 
+/** What kind of media a document is, for the Media Type column. */
+export function mediaTypeOf(doc) {
+  if (doc.kind === 'session') return 'Multitrack Session';
+  if (doc.kind !== 'audio') return '';
+  return doc.video || doc.state?.video ? 'Audio with Video' : 'Audio';
+}
+
+/** Where a document lives: its Puter folder, this device, or not saved yet. */
+export function locationOf(doc) {
+  const src = doc.source || {};
+  if (src.type === 'puter' && src.path) {
+    const i = src.path.lastIndexOf('/');
+    return i > 0 ? src.path.slice(0, i) : '/';
+  }
+  if (src.type === 'local') return 'This device';
+  return 'Not saved';
+}
+
 export const FILE_COLUMNS = [
   { id: 'name', label: 'Name', key: (d) => d.name.toLowerCase() },
   { id: 'status', label: 'Status', key: (d) => (d.dirty ? 1 : 0) },
@@ -22,6 +44,10 @@ export const FILE_COLUMNS = [
   { id: 'channels', label: 'Channels', key: channelsOf },
   { id: 'bits', label: 'Bit Depth', key: bitsOf },
   { id: 'format', label: 'Format', key: (d) => (d.kind === 'audio' ? (d.info.format || '').toLowerCase() : '~session') },
+  // Optional columns: off until turned on in the panel menu.
+  { id: 'media', label: 'Media Type', key: mediaTypeOf, optional: true },
+  { id: 'markers', label: 'Markers', key: (d) => d.state?.markers?.length || 0, optional: true },
+  { id: 'location', label: 'Location', key: (d) => locationOf(d).toLowerCase(), optional: true },
 ];
 
 /** Documents matching a search text, sorted by a column (stable; open order breaks ties). */
@@ -39,23 +65,53 @@ export function visibleFiles(docs, { query = '', sort = { col: 'name', dir: 1 } 
   return list.map((x) => x.d);
 }
 
+/**
+ * The ids a click selects: a plain click picks one, Ctrl/Cmd toggles one,
+ * Shift takes the run from the anchor in the listed order. Pure.
+ */
+export function clickSelection(selected, ids, id, anchor, { shift = false, toggle = false } = {}) {
+  if (shift && anchor && ids.includes(anchor) && ids.includes(id)) {
+    const a = ids.indexOf(anchor);
+    const b = ids.indexOf(id);
+    return new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1));
+  }
+  if (toggle) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  }
+  return new Set([id]);
+}
+
 export function filesPanel(app) {
   const search = h('input.input.panel-search', { type: 'search', placeholder: 'Search files', 'aria-label': 'Search files' });
-  const tbtn = (cmd, ic, label) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, onclick: () => app.commands.run(cmd), dataset: { cmd } }, icon(ic, 15));
+  const tbtn = (cmd, ic, label, run) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, onclick: run || (() => app.commands.run(cmd)), dataset: { cmd } }, icon(ic, 15));
   const toolbar = h(
     'div.panel-toolbar',
     tbtn('file.open', 'folder-open', 'Open'),
     tbtn('file.import', 'download', 'Import'),
     tbtn('file.newAudio', 'file-plus', 'New Audio File'),
-    tbtn('mt.insertFiles', 'mode-multitrack', 'Insert into Multitrack'),
-    tbtn('file.close', 'trash-2', 'Close'),
+    tbtn('mt.insertFiles', 'mode-multitrack', 'Insert into Multitrack', () => insertSelected()),
+    tbtn('file.close', 'trash-2', 'Close Selected Files', () => closeSelected()),
     search,
   );
   const head = h('tr');
   // Open order until a header is clicked.
   let sort = app.prefs.get('filesSort') || null;
   const hiddenCols = () => new Set(app.prefs.get('filesHiddenColumns') || []);
-  const columns = () => FILE_COLUMNS.filter((c) => c.id === 'name' || !hiddenCols().has(c.id));
+  const extraCols = () => new Set(app.prefs.get('filesExtraColumns') || []);
+  const columnShown = (c) => c.id === 'name' || (c.optional ? extraCols().has(c.id) : !hiddenCols().has(c.id));
+  const columns = () => FILE_COLUMNS.filter(columnShown);
+  // Selected file ids; a plain click (or opening a file) selects just the active one.
+  let selected = new Set(app.active ? [app.active.id] : []);
+  let anchor = app.active?.id || null;
+  /** The listed documents, in order, as last rendered. */
+  let listed = [];
+  const selectedDocs = () => {
+    const docs = listed.filter((d) => selected.has(d.id));
+    return docs.length ? docs : app.active ? [app.active] : [];
+  };
   const renderHead = () => {
     head.replaceChildren(
       ...columns().map((c) => {
@@ -73,7 +129,7 @@ export function filesPanel(app) {
     );
   };
   const body = h('tbody');
-  const table = h('table.data-table', { role: 'grid', 'aria-label': 'Open files' }, h('thead', head), body);
+  const table = h('table.data-table', { role: 'grid', 'aria-label': 'Open files', 'aria-multiselectable': 'true' }, h('thead', head), body);
   const playBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Play from Start', title: 'Play from Start' }, icon('play', 15));
   const loopBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Loop Playback', title: 'Loop Playback', dataset: { cmd: 'transport.loop' }, onclick: () => app.commands.run('transport.loop') }, icon('repeat', 15));
   const autoPlay = h('input', { type: 'checkbox', checked: Boolean(app.prefs.get('filesAutoPlay')), onchange: (e) => app.prefs.set('filesAutoPlay', e.target.checked) });
@@ -83,13 +139,103 @@ export function filesPanel(app) {
     else app.play({ from: 0 });
   });
   const footer = h('div.panel-footer.files-footer', { hidden: app.prefs.get('filesPreviewBar') === false }, playBtn, loopBtn, h('label.check', { title: 'Play files as you select them' }, autoPlay, 'Auto-play'));
-  const el = h('div.files-panel', toolbar, h('div.table-scroll', table), footer);
+  const scroller = h('div.table-scroll', table);
+  const el = h('div.files-panel', toolbar, scroller, footer);
   const expanded = new Set();
   const pick = (doc) => {
     const changed = app.active !== doc;
     app.activate(doc);
     if (changed && autoPlay.checked) app.play({ from: 0 });
   };
+  const open = (doc) => {
+    app.activate(doc);
+    app.dock?.openPanel('editor');
+  };
+
+  // ------------------------------------------------------------ actions
+
+  /** Closes the selected files one at a time; a cancelled save prompt stops there. */
+  async function closeSelected(docs = selectedDocs()) {
+    for (const doc of docs) {
+      if (!app.documents.includes(doc)) continue;
+      if (!(await app.closeDocument(doc))) break;
+    }
+  }
+
+  async function insertSelected(docs = selectedDocs()) {
+    const audio = docs.filter((d) => d.kind === 'audio' && d.length > 0);
+    if (audio.length) return app.commands.run('mt.insertFiles', { docs: audio });
+    // A session (or nothing) selected: the command's own behaviour (pick files to insert).
+    return app.commands.run('mt.insertFiles');
+  }
+
+  function sendToBatch(docs = selectedDocs()) {
+    const audio = docs.filter((d) => d.kind === 'audio');
+    if (!audio.length || !app.panels.has('batch')) return;
+    app.dock?.openPanel('batch');
+    app.dock?.instances.get('batch')?.api?.add(audio.map((doc) => ({ type: 'doc', doc })));
+  }
+
+  /** Runs a command that works on the active file after making `doc` the active one. */
+  const onDoc = (doc, cmd) => {
+    app.activate(doc);
+    return app.commands.run(cmd);
+  };
+
+  function rowMenu(x, y) {
+    const docs = selectedDocs();
+    const one = docs.length === 1 ? docs[0] : null;
+    const audio = docs.filter((d) => d.kind === 'audio');
+    const insertable = audio.filter((d) => d.length > 0);
+    const n = docs.length;
+    const items = [
+      { type: 'cmd', label: 'Open in Editor', enabled: Boolean(one), run: () => open(one) },
+      { type: 'cmd', label: insertable.length > 1 ? `Insert ${insertable.length} Files into Multitrack Session` : 'Insert into Multitrack Session', enabled: insertable.length > 0, run: () => insertSelected(docs) },
+    ];
+    if (app.panels.has('batch')) items.push({ type: 'cmd', label: 'Send to Batch Process', enabled: audio.length > 0, run: () => sendToBatch(docs) });
+    items.push(
+      { type: 'sep' },
+      { type: 'cmd', label: 'Save', enabled: Boolean(one), run: () => onDoc(one, 'file.save') },
+      { type: 'cmd', label: 'Save As...', enabled: Boolean(one), run: () => onDoc(one, 'file.saveAs') },
+    );
+    if (app.commands.commands.has('file.revealInMedia')) {
+      items.push({ type: 'cmd', label: 'Reveal in Media Browser', enabled: Boolean(one && one.source?.type === 'puter' && one.source.path && app.panels.has('media')), run: () => onDoc(one, 'file.revealInMedia') });
+    }
+    if (one?.state?.markers?.length) {
+      items.push({ type: 'cmd', label: expanded.has(one.id) ? 'Hide Markers' : 'Show Markers', enabled: true, run: () => toggle(one) });
+    }
+    items.push(
+      { type: 'sep' },
+      { type: 'cmd', label: n > 1 ? `Close ${n} Files` : 'Close', enabled: n > 0, run: () => closeSelected(docs) },
+      { type: 'cmd', label: 'Close Others', enabled: app.documents.length > n && n > 0, run: () => closeSelected(app.documents.filter((d) => !docs.includes(d))) },
+      { type: 'cmd', label: 'Close All', enabled: app.documents.length > 0, run: () => closeSelected([...app.documents]) },
+      { type: 'sep' },
+      { type: 'cmd', label: 'Select All', enabled: listed.length > 1, run: () => selectAll() },
+    );
+    app.openMenu(items, { x, y, label: 'File' });
+  }
+
+  function selectAll() {
+    selected = new Set(listed.map((d) => d.id));
+    markRows();
+  }
+
+  /** Marks selected and active rows in place (a click must not rebuild the row it lands on). */
+  function markRows() {
+    for (const row of body.querySelectorAll('tr[data-id]')) {
+      row.setAttribute('aria-selected', String(selected.has(row.dataset.id)));
+      row.classList.toggle('is-active', row.dataset.id === app.active?.id);
+    }
+  }
+
+  /** Click and keyboard selection on a row; `opts` are the modifier keys. */
+  function selectRow(doc, { shift = false, toggle: tog = false } = {}) {
+    const ids = listed.map((d) => d.id);
+    selected = clickSelection(selected, ids, doc.id, anchor, { shift, toggle: tog });
+    if (!shift) anchor = doc.id;
+    if (!shift && !tog) pick(doc);
+    markRows();
+  }
 
   // Files picked out by Clip > Reveal Clips in Files Panel, until another file is opened.
   let revealed = new Set();
@@ -105,7 +251,11 @@ export function filesPanel(app) {
     renderHead();
     const cols = columns();
     body.replaceChildren();
+    const openIds = new Set(app.documents.map((d) => d.id));
+    for (const id of [...selected]) if (!openIds.has(id)) selected.delete(id);
+    if (!selected.size && app.active) selected.add(app.active.id);
     const docs = visibleFiles(app.documents, { query: search.value, sort: sort || { col: null } });
+    listed = docs;
     if (!docs.length) {
       body.append(h('tr', h('td.empty-row', { colspan: String(cols.length) }, h('span.empty-text', app.documents.length ? 'No matching files' : 'No open files. Drop audio here or use File > Open.'))));
     }
@@ -122,33 +272,49 @@ export function filesPanel(app) {
             format: (doc.info.format || '').toUpperCase(),
           }
         : { duration: app.formatTime(doc.length, doc.sampleRate), rate: `${doc.sampleRate} Hz`, channels: 'Stereo', bits: '32 (float)', format: 'Session' };
+      info.media = mediaTypeOf(doc);
+      info.markers = String(doc.state?.markers?.length || 0);
+      info.location = locationOf(doc);
       const row = h(
-        `tr${revealed.has(doc.id) ? '.is-revealed' : ''}`,
+        `tr${revealed.has(doc.id) ? '.is-revealed' : ''}${active ? '.is-active' : ''}`,
         {
           tabindex: active ? '0' : '-1',
-          'aria-selected': String(active),
+          'aria-selected': String(selected.has(doc.id)),
           draggable: 'true',
           dataset: { id: doc.id },
-          ondblclick: () => {
-            app.activate(doc);
-            app.dock.openPanel('editor');
+          ondblclick: () => open(doc),
+          onclick: (e) => {
+            if (e.target.closest('.files-twisty')) return toggle(doc);
+            selectRow(doc, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey });
           },
-          onclick: (e) => (e.target.closest('.files-twisty') ? toggle(doc) : pick(doc)),
+          oncontextmenu: (e) => {
+            e.preventDefault();
+            if (!selected.has(doc.id)) selectRow(doc);
+            rowMenu(e.clientX, e.clientY);
+          },
           onkeydown: (e) => {
-            if (e.key === 'ArrowDown') step(row, 1);
-            else if (e.key === 'ArrowUp') step(row, -1);
-            else if (e.key === 'ArrowRight' && !expanded.has(doc.id) && doc.state?.markers?.length) toggle(doc);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              const next = step(row, e.key === 'ArrowDown' ? 1 : -1);
+              const nextDoc = next?.dataset.id && app.documents.find((d) => d.id === next.dataset.id);
+              if (e.shiftKey && nextDoc) selectRow(nextDoc, { shift: true });
+            } else if (e.key === 'ArrowRight' && !expanded.has(doc.id) && doc.state?.markers?.length) toggle(doc);
             else if (e.key === 'ArrowLeft' && expanded.has(doc.id)) toggle(doc);
-            else if (e.key === 'Enter') {
-              app.activate(doc);
-              app.dock.openPanel('editor');
-            } else if (e.key === 'Delete' || e.key === 'Backspace') app.closeDocument(doc);
+            else if (e.key === 'Enter') open(doc);
+            else if (e.key === ' ') selectRow(doc, { toggle: e.metaKey || e.ctrlKey });
+            else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) selectAll();
+            else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+              if (!selected.has(doc.id)) selectRow(doc);
+              const r = row.getBoundingClientRect();
+              rowMenu(r.left + 24, r.bottom);
+            } else if (e.key === 'Delete' || e.key === 'Backspace') closeSelected(selected.has(doc.id) ? selectedDocs() : [doc]);
             else return;
             e.preventDefault();
             e.stopPropagation();
           },
           ondragstart: (e) => {
-            e.dataTransfer.setData('application/x-audio-studio-file', doc.id);
+            // Dragging a selected row takes the whole selection, in the listed order.
+            const docs = selected.has(doc.id) ? selectedDocs() : [doc];
+            e.dataTransfer.setData('application/x-audio-studio-file', docs.map((d) => d.id).join('\n'));
             e.dataTransfer.effectAllowed = 'copy';
           },
         },
@@ -161,8 +327,9 @@ export function filesPanel(app) {
               h('span', doc.name),
             );
           }
-          if (c.id === 'status') return h('td', doc.dirty ? h('span.status-dot', { title: 'Unsaved changes' }, 'Modified') : '');
-          return h(c.id === 'duration' || c.id === 'rate' ? 'td.tabular' : 'td', info[c.id]);
+          if (c.id === 'status') return h('td', statusCell(doc));
+          if (c.id === 'location') return h('td.muted', { title: doc.source?.path || info.location }, info.location);
+          return h(c.id === 'duration' || c.id === 'rate' || c.id === 'markers' ? 'td.tabular' : 'td', info[c.id]);
         }),
       );
       if (doc.state?.markers?.length) row.setAttribute('aria-expanded', String(expanded.has(doc.id)));
@@ -179,10 +346,20 @@ export function filesPanel(app) {
     loopBtn.setAttribute('aria-pressed', String(app.loop));
     for (const b of toolbar.querySelectorAll('[data-cmd]')) b.disabled = !app.commands.isEnabled(b.dataset.cmd);
   };
+
+  /** Status column: unsaved changes, and files that have not been saved anywhere yet. */
+  function statusCell(doc) {
+    if (doc.dirty) return h('span.status-dot', { title: 'Unsaved changes' }, 'Modified');
+    if (doc.kind === 'audio' && (!doc.source || doc.source.type === 'new')) return h('span.muted', { title: 'This file has not been saved yet' }, 'New');
+    return '';
+  }
+
   /** Moves keyboard focus to the next or previous row, file or marker under an expanded file. */
   function step(row, dir) {
     const rows = [...body.querySelectorAll('tr[data-id], tr.files-marker')];
-    rows[rows.indexOf(row) + dir]?.focus();
+    const next = rows[rows.indexOf(row) + dir];
+    next?.focus();
+    return next;
   }
 
   function toggle(doc) {
@@ -220,18 +397,33 @@ export function filesPanel(app) {
     );
   }
 
+  const toggleColumn = (c) => {
+    if (c.optional) {
+      const next = extraCols();
+      if (next.has(c.id)) next.delete(c.id);
+      else next.add(c.id);
+      app.prefs.set('filesExtraColumns', [...next]);
+    } else {
+      const next = hiddenCols();
+      if (next.has(c.id)) next.delete(c.id);
+      else next.add(c.id);
+      app.prefs.set('filesHiddenColumns', [...next]);
+    }
+    render();
+  };
+
   /** Panel menu: file commands, column visibility and the preview footer. */
   const menu = () => {
-    const hidden = hiddenCols();
+    const n = selectedDocs().length;
     return [
       ...resolveItems(app, [
         'file.open',
         { id: 'file.import', label: 'Import File...' },
         { id: 'file.newAudio', label: 'New Audio File...' },
-        { id: 'mt.insertFiles', label: 'Insert into Multitrack Session' },
-        'file.close',
-        'file.closeAll',
       ]),
+      { type: 'cmd', label: 'Insert into Multitrack Session', enabled: app.commands.isEnabled('mt.insertFiles'), run: () => insertSelected() },
+      { type: 'cmd', label: n > 1 ? `Close ${n} Selected Files` : 'Close Selected File', enabled: n > 0, run: () => closeSelected() },
+      ...resolveItems(app, ['file.closeAll']),
       { type: 'sep' },
       {
         type: 'sub',
@@ -240,14 +432,8 @@ export function filesPanel(app) {
           type: 'cmd',
           label: c.label,
           enabled: true,
-          checked: !hidden.has(c.id),
-          run: () => {
-            const next = hiddenCols();
-            if (next.has(c.id)) next.delete(c.id);
-            else next.add(c.id);
-            app.prefs.set('filesHiddenColumns', [...next]);
-            render();
-          },
+          checked: columnShown(c),
+          run: () => toggleColumn(c),
         })),
       },
       { type: 'cmd', label: 'Sort by Open Order', enabled: Boolean(sort), run: () => {
@@ -255,6 +441,7 @@ export function filesPanel(app) {
         app.prefs.set('filesSort', null);
         render();
       } },
+      { type: 'cmd', label: 'Select All', enabled: listed.length > 1, run: selectAll },
       { type: 'sep' },
       { type: 'cmd', label: 'Show Preview Transport', enabled: true, checked: app.prefs.get('filesPreviewBar') !== false, run: () => {
         app.prefs.set('filesPreviewBar', app.prefs.get('filesPreviewBar') === false);
@@ -268,11 +455,23 @@ export function filesPanel(app) {
     ];
   };
 
+  // Right-click below the rows: the panel menu.
+  scroller.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('tbody tr[data-id]') || e.defaultPrevented) return;
+    e.preventDefault();
+    app.openMenu(menu(), { x: e.clientX, y: e.clientY, label: 'Files' });
+  });
+
   app.on('transport', render);
   search.addEventListener('input', render);
   app.on('documents', render);
-  app.on('active', () => {
+  app.on('active', (doc) => {
     revealed = new Set();
+    // Opening or switching files elsewhere selects just that file.
+    if (doc && !selected.has(doc.id)) {
+      selected = new Set([doc.id]);
+      anchor = doc.id;
+    }
     render();
   });
   app.on('reveal-files', (ids) => {
@@ -286,5 +485,5 @@ export function filesPanel(app) {
     if (e.kind === 'edit' || e.kind === 'history' || e.kind === 'saved' || e.kind === 'rename') render();
   });
   render();
-  return { el, show: render, menu };
+  return { el, show: render, menu, api: { selectedDocs, closeSelected, insertSelected } };
 }
