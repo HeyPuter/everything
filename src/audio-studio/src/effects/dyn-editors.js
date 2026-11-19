@@ -9,7 +9,7 @@ import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { hotNumber } from '../ui/controls.js';
 import { cssVar } from '../ui/theme.js';
-import { plot, labelText, freqGridLines, transferCurveEditor } from './editors.js';
+import { plot, labelText, freqGridLines, transferCurveEditor, draggable } from './editors.js';
 import { formatValue, formatParts, parseValue, editValueText } from './params.js';
 import { splineOutput } from './defs/transfer-curve.js';
 import { levelMeter } from './meters-ui.js';
@@ -289,6 +289,23 @@ export function multibandEditor() {
       const hi = k < 3 ? v[`xover${k + 1}`] / 1.1 : FREQ_MAX;
       ctx.set(`xover${k}`, clamp(f, lo, Math.max(lo, hi)));
     };
+    // Band thresholds: a handle on each band's threshold line (drag up or down; arrows nudge).
+    const T_MIN = -60;
+    const T_MAX = 0;
+    const setThreshold = (b, db) => bandCtx.set(`${BAND_KEYS[b]}Threshold`, clamp(Math.round(db * 10) / 10, T_MIN, T_MAX));
+    const threshHandles = BAND_KEYS.map((key, b) => {
+      const btn = h('button.fx-handle.fx-mb-thresh', { type: 'button', role: 'slider', style: { '--band': BAND_COLOURS[b] }, 'aria-label': `${BAND_NAMES[b]} threshold`, 'aria-valuemin': String(T_MIN), 'aria-valuemax': String(T_MAX) });
+      draggable(btn, view.el, (fx, fy) => setThreshold(b, -fy * 80));
+      btn.addEventListener('keydown', (e) => {
+        const d = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setThreshold(b, ctx.values[`${key}Threshold`] + d * (e.shiftKey ? 3 : 1));
+      });
+      view.layer.append(btn);
+      return btn;
+    });
     const handles = [1, 2, 3].map((k) => {
       const btn = h('button.fx-handle.fx-xover', { type: 'button', role: 'slider', 'aria-label': ['Low crossover', 'Mid crossover', 'High crossover'][k - 1] });
       freqDrag(btn, view.el, (f, steps) => setXover(k, f ?? ctx.values[`xover${k}`] * Math.pow(2, steps / 12)));
@@ -329,15 +346,41 @@ export function multibandEditor() {
       };
       const solo = toggle('Solo', 'S', 'Solo');
       const bypass = toggle('Bypass', 'B', 'Bypass');
-      const inMeter = levelMeter({ label: 'In', kind: 'level', min: -60, vertical: true });
-      const grMeter = levelMeter({ label: 'GR', kind: 'gr', min: -24, vertical: true });
+      const inMeter = levelMeter({ label: 'In', kind: 'level', min: -60, vertical: true, scale: [0, -12, -24, -36, -48, -60] });
+      const grMeter = levelMeter({ label: 'GR', kind: 'gr', min: -24, vertical: true, scale: [0, -6, -12, -18, -24] });
+      // The threshold rides on the input meter; pressing or dragging the meter moves it.
+      const mark = h('div.fx-mb-thresh-mark');
+      inMeter.bar.append(mark);
+      inMeter.bar.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        inMeter.bar.setPointerCapture?.(e.pointerId);
+        const at = (ev) => {
+          const r = inMeter.bar.getBoundingClientRect();
+          setThreshold(b, T_MAX - clamp((ev.clientY - r.top) / (r.height || 1), 0, 1) * (T_MAX - T_MIN));
+        };
+        at(e);
+        const up = () => {
+          inMeter.bar.removeEventListener('pointermove', at);
+          inMeter.bar.removeEventListener('pointerup', up);
+          inMeter.bar.removeEventListener('pointercancel', up);
+        };
+        inMeter.bar.addEventListener('pointermove', at);
+        inMeter.bar.addEventListener('pointerup', up);
+        inMeter.bar.addEventListener('pointercancel', up);
+      });
       const rows = ['Threshold', 'Gain', 'Ratio', 'Attack', 'Release'].map((role) => {
         const hot = paramHot(bandCtx, `${key}${role}`, { label: `${BAND_NAMES[b]} ${role.toLowerCase()}` });
         ctx.subscribe(hot.show);
         return h('div.fx-mb-row', h('span.fx-label', `${role === 'Threshold' ? 'Thresh' : role}:`), hot.el);
       });
       const el = h('div.fx-mb-strip', { style: { '--band': BAND_COLOURS[b] }, role: 'group', 'aria-label': `${BAND_NAMES[b]} band` }, h('div.fx-mb-head', h('span', BAND_NAMES[b]), solo.btn, bypass.btn), h('div.fx-mb-meters', inMeter.el, grMeter.el), rows);
-      return { el, show: (v) => (solo.show(v), bypass.show(v)), inMeter, grMeter };
+      const show = (v) => {
+        solo.show(v);
+        bypass.show(v);
+        mark.style.top = `${((T_MAX - v[`${key}Threshold`]) / (T_MAX - T_MIN)) * 100}%`;
+      };
+      return { el, show, inMeter, grMeter };
     });
     const update = (v) => {
       [1, 2, 3].forEach((k, i) => {
@@ -347,6 +390,14 @@ export function multibandEditor() {
         handles[i].setAttribute('aria-valuetext', `${Math.round(v[`xover${k}`])} Hz`);
       });
       strips.forEach((s) => s.show(v));
+      const e = edges(v);
+      threshHandles.forEach((btn, b) => {
+        const t = v[`${BAND_KEYS[b]}Threshold`];
+        btn.style.left = `${(((xOfF(e[b], 1) + xOfF(e[b + 1], 1)) / 2) * 100).toFixed(3)}%`;
+        btn.style.top = `${((-t / 80) * 100).toFixed(3)}%`;
+        btn.setAttribute('aria-valuenow', String(t));
+        btn.setAttribute('aria-valuetext', `${t.toFixed(1)} dB`);
+      });
       view.redraw();
     };
     ctx.subscribe(update);

@@ -132,6 +132,21 @@ describe('Amplitude and Compression dialogs', () => {
     await close();
   });
 
+  it('Multiband Compressor thresholds have graph handles and ride on the input meters', async () => {
+    const { dlg, close } = open('multibandCompressor');
+    const handles = dlg.querySelectorAll('.fx-mb-thresh');
+    expect(handles).toHaveLength(4);
+    expect(handles[2].getAttribute('aria-valuenow')).toBe('-18');
+    handles[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true }));
+    expect(handles[2].getAttribute('aria-valuenow')).toBe('-15');
+    const strip = dlg.querySelectorAll('.fx-mb-strip')[2];
+    expect(strip.querySelector('.hot').textContent).toMatch(/-15/);
+    // The input meter marks the threshold (0 dB at the top, -60 at the bottom) and has a dB scale.
+    expect(strip.querySelector('.fx-mb-thresh-mark').style.top).toBe('25%');
+    expect(strip.querySelector('.fx-lm-scale').textContent).toContain('-48');
+    await close();
+  });
+
   it('Multiband Compressor links band controls and sets the limiter attack', async () => {
     const { dlg, close } = open('multibandCompressor');
     const hot = (b, role) => dlg.querySelectorAll('.fx-mb-strip')[b].querySelectorAll('.hot')[role];

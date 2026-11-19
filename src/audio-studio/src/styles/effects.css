@@ -543,6 +543,55 @@ input[type='range'].fx-slider:disabled {
   height: 120px;
 }
 
+.fx-lm-barwrap {
+  display: flex;
+  gap: 2px;
+}
+
+.fx-lm-scale {
+  position: relative;
+  width: 18px;
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.fx-lm-scale span {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.fx-lm-scale span:first-child {
+  transform: none;
+}
+
+/* Multiband: the band threshold on its input meter (drag the meter to set it). */
+.fx-mb-meters .fx-lm-bar.level {
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.fx-mb-thresh-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--band, var(--hot));
+  box-shadow: 0 0 0 1px var(--bg-editor);
+  pointer-events: none;
+}
+
+.fx-handle.fx-mb-thresh {
+  width: 22px;
+  height: 10px;
+  margin: -5px 0 0 -11px;
+  border-radius: 3px;
+  background: var(--band, var(--hot));
+  cursor: ns-resize;
+}
+
 .fx-lm-fill {
   position: absolute;
   inset: 0;

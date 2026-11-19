@@ -13,12 +13,19 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 /** Readouts arrive about 15 times a second while audio plays; this long without one is rest. */
 const IDLE_MS = 600;
 
-/** One meter: { el, set(value), clear() }. */
-export function levelMeter({ label = '', kind = 'level', min = kind === 'gr' ? -24 : -60, max = 0, vertical = false } = {}) {
+/**
+ * One meter: { el, bar, set(value), clear() }. `scale` (vertical meters): dB
+ * values labelled beside the bar.
+ */
+export function levelMeter({ label = '', kind = 'level', min = kind === 'gr' ? -24 : -60, max = 0, vertical = false, scale = null } = {}) {
   const fill = h('div.fx-lm-fill');
   const bar = h(`div.fx-lm-bar.${kind}${vertical ? '.v' : ''}`, fill);
   const text = h('span.fx-lm-value');
-  const el = h(`div.fx-lm${vertical ? '.v' : ''}`, { role: 'meter', 'aria-label': label, 'aria-valuemin': String(min), 'aria-valuemax': String(max) }, label ? h('span.fx-lm-label', label) : null, bar, kind === 'gate' ? null : text);
+  const ticks = vertical && scale?.length
+    ? h('div.fx-lm-scale', { 'aria-hidden': 'true' }, scale.map((d) => h('span', { style: { top: `${((max - d) / (max - min)) * 100}%` } }, String(d))))
+    : null;
+  const body = ticks ? h('div.fx-lm-barwrap', bar, ticks) : bar;
+  const el = h(`div.fx-lm${vertical ? '.v' : ''}`, { role: 'meter', 'aria-label': label, 'aria-valuemin': String(min), 'aria-valuemax': String(max) }, label ? h('span.fx-lm-label', label) : null, body, kind === 'gate' ? null : text);
   // At rest: no reduction, silence, the gate lamp off.
   const rest = kind === 'gr' ? 0 : min;
   let shown = rest;
@@ -43,6 +50,7 @@ export function levelMeter({ label = '', kind = 'level', min = kind === 'gr' ? -
   };
   return {
     el,
+    bar,
     set(v) {
       if (!Number.isFinite(v)) return;
       clearTimeout(idle);
