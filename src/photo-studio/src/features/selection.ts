@@ -231,7 +231,7 @@ export function movableOutline(tool: Tool, busy: () => boolean = () => false): T
 let spaceHeld = false;
 
 // ----- Marquee and lasso tools -----
-type Drag = { start: [number, number]; current: [number, number]; op: SelectionOp; points: [number, number][]; moving?: boolean; startPointer?: CanvasPointer };
+type Drag = { start: [number, number]; current: [number, number]; op: SelectionOp; points: [number, number][]; moving?: boolean; startPointer?: CanvasPointer; altAtStart?: boolean };
 let drag: Drag | undefined;
 let polygon: { points: [number, number][]; op: SelectionOp } | undefined;
 let hoverPoint: [number, number] | undefined;
@@ -411,30 +411,78 @@ const lassoTool: Tool = {
   cursor: () => 'crosshair',
   options: (e) => optionsFor(e),
   bindOptions: ({ e, el }) => bindSelectionOptions(e, el),
+  // Releasing the button with Alt held keeps the outline open: clicks add
+  // straight segments and drags freehand ones until Alt is released.
   pointerDown: (e, p) => {
-    drag = { start: [p.x, p.y], current: [p.x, p.y], op: selectionOp(e, p), points: [[p.x, p.y]] };
+    if (lassoHeld) {
+      drag = { ...lassoHeld, current: [p.x, p.y], points: [...lassoHeld.points, [p.x, p.y]], altAtStart: false };
+      lassoHeld = undefined;
+      return;
+    }
+    drag = { start: [p.x, p.y], current: [p.x, p.y], op: selectionOp(e, p), points: [[p.x, p.y]], altAtStart: p.alt };
   },
   pointerMove: (e, p) => {
     if (!drag) return;
     for (const q of p.coalesced ?? [p]) drag.points.push([q.x, q.y]);
     e.overlay();
   },
-  pointerUp: (e) => {
+  pointerUp: (e, p) => {
     const d = drag;
     drag = undefined;
-    if (!d || d.points.length < 3) {
-      if (d?.op === 'replace') commitSelectionMask(e, null, 'replace', 'Deselect');
+    // Alt held from the start means Subtract; pressed during the drag, it holds the outline open.
+    if (d && p.alt && !d.altAtStart) {
+      lassoHeld = d;
+      hoverPoint = [p.x, p.y];
+      e.overlay();
       return;
     }
-    finishShape(e, d.op, rasterizePolygon(d.points, e.doc.width, e.doc.height, e.settings.antiAlias !== false), 'Lasso');
+    finishLasso(e, d);
+  },
+  hover: (e, p) => {
+    if (!lassoHeld) return;
+    if (!p.alt) {
+      finishHeldLasso(e);
+      return;
+    }
+    hoverPoint = [p.x, p.y];
+    e.overlay();
+  },
+  keyDown: (e, ev) => {
+    if (!lassoHeld || ev.key !== 'Escape') return false;
+    lassoHeld = undefined;
+    e.overlay();
+    return true;
+  },
+  deactivate: (e) => {
+    if (lassoHeld) finishHeldLasso(e);
   },
   overlay: (e) => {
-    if (!drag) return '';
+    const points = drag?.points ?? lassoHeld?.points;
+    if (!points) return '';
     const z = e.zoom;
-    const d = drag.points.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join('');
+    let d = points.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join('');
+    if (lassoHeld && hoverPoint) d += `L${hoverPoint[0]} ${hoverPoint[1]}`;
     return `<g class="marching" stroke-width="${1 / z}" fill="none"><path d="${d}" class="ants-white"/><path d="${d}" class="ants-black" stroke-dasharray="${4 / z} ${4 / z}"/></g>`;
   },
 };
+// An open Lasso outline waiting for straight segments while Alt is held.
+let lassoHeld: Drag | undefined;
+function finishLasso(e: Editor, d: Drag | undefined) {
+  if (!d || d.points.length < 3) {
+    if (d?.op === 'replace') commitSelectionMask(e, null, 'replace', 'Deselect');
+    return;
+  }
+  finishShape(e, d.op, rasterizePolygon(d.points, e.doc.width, e.doc.height, e.settings.antiAlias !== false), 'Lasso');
+}
+/** Alt came up: close the held outline. */
+export function finishHeldLasso(e: Editor) {
+  const d = lassoHeld;
+  if (!d) return;
+  lassoHeld = undefined;
+  hoverPoint = undefined;
+  e.overlay();
+  finishLasso(e, d);
+}
 const polygonTool: Tool = {
   id: 'polygonal-lasso',
   label: 'Polygonal Lasso Tool',
@@ -655,13 +703,13 @@ async function modifyDialog(e: Editor, id: string, arg: unknown, title: string, 
   const m = readMask(e.assets.tiles, sel, canvasRect(e.doc));
   commitSelectionMask(e, fn(m, Number(v.value)), 'replace', title.replace('…', ''));
 }
-export function installSelection(_e: Editor) {
+export function installSelection(editor: Editor) {
   registerTool(
     movableOutline(marqueeTool('rect-marquee', 'Rectangular Marquee Tool', 'square-dashed', 'rect', 'M')),
     movableOutline(marqueeTool('ellipse-marquee', 'Elliptical Marquee Tool', 'marquee-ellipse', 'ellipse', 'M')),
     marqueeTool('row-marquee', 'Single Row Marquee Tool', 'marquee-row', 'row'),
     marqueeTool('column-marquee', 'Single Column Marquee Tool', 'marquee-column', 'column'),
-    movableOutline(lassoTool),
+    movableOutline(lassoTool, () => !!lassoHeld),
     movableOutline(polygonTool, () => !!polygon),
     movableOutline(wandTool),
   );
@@ -670,6 +718,7 @@ export function installSelection(_e: Editor) {
   });
   window.addEventListener('keyup', (ev) => {
     if (ev.code === 'Space') spaceHeld = false;
+    if (ev.key === 'Alt' && lassoHeld) finishHeldLasso(editor);
   });
   window.addEventListener('blur', () => (spaceHeld = false));
   const has = (e: Editor) => !!e.doc.selection;

@@ -441,6 +441,7 @@ async function shortcutsDialog(e: Editor) {
     row('Brush size and hardness by dragging', isMac ? '⌃⌥ drag' : 'Alt+right-drag'),
     row('Next tool in a toolbar slot', 'Shift+tool key'),
     row('Use a tool only while its key is held, then return to the previous tool', 'Hold tool key'),
+    row('Lasso: straight segments while drawing (release the button, click, release Alt to close)', isMac ? 'hold ⌥' : 'hold Alt'),
     row('Pan the view', 'Space drag'),
     row('Zoom in / out where clicked, with any tool', `Space+${mod} click / Space+${alt} click`),
     row('Zoom the view', `${alt} scroll, ${mod} scroll`),
