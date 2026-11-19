@@ -74,7 +74,8 @@ const lanePoints = (param, pts) => (param === 'mute' ? S.muteSteps(pts) : pts);
 
 /**
  * Draws a small state glyph in a clip header at (x, cy) with the current stroke and fill
- * styles; returns its width. 'lock' padlock, 'loop' circling arrow, 'fx' text tag, 'mute' crossed speaker.
+ * styles; returns its width. 'lock' padlock, 'loop' circling arrow, 'fx' text tag, 'mute' crossed
+ * speaker, 'group' two linked squares.
  */
 function clipGlyph(ctx, kind, x, cy) {
   ctx.save();
@@ -95,6 +96,11 @@ function clipGlyph(ctx, kind, x, cy) {
     ctx.lineTo(x + 8.6, cy - 3.6);
     ctx.lineTo(x + 5.3, cy - 1.8);
     ctx.fill();
+  } else if (kind === 'group') {
+    ctx.rect(x + 0.5, cy - 4.5, 6, 6);
+    ctx.rect(x + 3.5, cy - 1.5, 6, 6);
+    ctx.stroke();
+    w = 10;
   } else if (kind === 'mute') {
     ctx.moveTo(x + 0.5, cy - 1.5);
     ctx.lineTo(x + 2.5, cy - 1.5);
@@ -933,8 +939,13 @@ export class MultitrackView {
         const remixText = c.remixPreview ? `  (remix to ${this.app.formatTime(c.length, doc.sampleRate)})` : '';
         // State glyphs lead the name: locked in time, looped, clip effects, muted.
         ctx.strokeStyle = textColor;
-        const glyphs = [c.locked && 'lock', c.loop && 'loop', c.fx?.some((x) => x && x.enabled !== false) && 'fx', c.mute && 'mute'].filter(Boolean);
-        for (const g of glyphs) tx += clipGlyph(ctx, g, tx, r.y + r.hb / 2) + 4;
+        const glyphs = [c.groupId && 'group', c.locked && 'lock', c.loop && 'loop', c.fx?.some((x) => x && x.enabled !== false) && 'fx', c.mute && 'mute'].filter(Boolean);
+        for (const g of glyphs) {
+          // A grouped clip's glyph fades while groups are suspended.
+          ctx.globalAlpha = g === 'group' && doc.groupsSuspended ? 0.4 : 1;
+          tx += clipGlyph(ctx, g, tx, r.y + r.hb / 2) + 4;
+        }
+        ctx.globalAlpha = 1;
         const label = c.name + stretchText + remixText;
         ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
         const type = c.soundAssistant && ASSISTANT_TYPES[c.soundAssistant.type];
