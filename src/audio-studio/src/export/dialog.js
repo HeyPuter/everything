@@ -30,12 +30,19 @@ export function describeMixdown(mix) {
 }
 
 let supportCache = null;
+let supportKnown = null;
 /** Which WebCodecs formats this browser can encode (checked once). */
 export function webCodecsSupport() {
   if (!supportCache) {
-    supportCache = Promise.all([codecSupported('opus', { sampleRate: 48000 }), codecSupported('m4a', { sampleRate: 48000 })]).then(([opus, m4a]) => ({ opus, m4a }));
+    supportCache = Promise.all([codecSupported('opus', { sampleRate: 48000 }), codecSupported('m4a', { sampleRate: 48000 })]).then(([opus, m4a]) => (supportKnown = { opus, m4a }));
   }
   return supportCache;
+}
+
+/** availableFormats() without waiting: until the check has finished, the WebCodecs formats are left out. */
+export function formatsNow() {
+  webCodecsSupport();
+  return FORMATS.filter((f) => !f.webcodecs || supportKnown?.[f.id]);
 }
 
 /** Formats this browser can write: the WebCodecs ones only where its encoder takes them. */

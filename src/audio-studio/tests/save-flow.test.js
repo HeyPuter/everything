@@ -165,9 +165,11 @@ describe('saving to Puter', () => {
     expect(doc.dirty).toBe(false);
   });
 
+  // M4A where the browser can encode AAC; this test environment has no encoder, so the
+  // dialog offers WAV instead of a format it could not write.
   for (const [file, proposed] of [
-    ['Clip.mp4', 'Clip.m4a'],
-    ['Stream.aac', 'Stream.m4a'],
+    ['Clip.mp4', 'Clip.wav'],
+    ['Stream.aac', 'Stream.wav'],
   ]) {
     it(`never rewrites ${file} as an M4A in place: Save asks where to save`, async () => {
       const write = vi.fn(async () => ({ uid: 'u1' }));
