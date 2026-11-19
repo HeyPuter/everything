@@ -77,6 +77,10 @@ svg.icon {
   background-clip: content-box;
 }
 
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-hover);
+}
+
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
   background: transparent;
@@ -95,10 +99,11 @@ svg.icon {
   justify-content: center;
   gap: 6px;
   height: var(--control);
-  padding: 0 10px;
-  border: 1px solid var(--divider);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
+  padding: 0 12px;
+  /* Rounded, outlined push buttons; the default action is filled with the accent. */
+  border: 1px solid var(--btn-border);
+  border-radius: calc(var(--control) / 2);
+  background: transparent;
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
@@ -106,7 +111,9 @@ svg.icon {
 }
 
 .btn:hover:not(:disabled) {
+  border-color: var(--btn-border-hover);
   background: var(--bg-hover);
+  color: var(--text-strong);
 }
 
 .btn:active:not(:disabled) {
@@ -127,6 +134,11 @@ svg.icon {
 .btn.primary:hover:not(:disabled) {
   background: var(--accent-fill-hover);
   border-color: var(--accent-fill-hover);
+  color: var(--accent-text);
+}
+
+.btn:focus-visible {
+  outline-offset: 1px;
 }
 
 .btn.danger {
@@ -360,6 +372,7 @@ input[type='range'].slider::-moz-range-thumb {
   border-radius: var(--radius);
   background: var(--bg-raised);
   color: var(--text);
+  box-shadow: var(--shadow-pop);
 }
 
 .menu-item {
@@ -446,6 +459,7 @@ input[type='range'].slider::-moz-range-thumb {
   border-radius: var(--radius-lg);
   background: var(--bg-panel);
   color: var(--text);
+  box-shadow: var(--shadow-dialog);
 }
 
 .dialog.wide {
@@ -531,6 +545,7 @@ input[type='range'].slider::-moz-range-thumb {
   border-radius: var(--radius);
   background: var(--bg-raised);
   color: var(--text-strong);
+  box-shadow: var(--shadow-pop);
   pointer-events: auto;
 }
 

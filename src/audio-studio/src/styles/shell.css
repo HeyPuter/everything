@@ -132,6 +132,7 @@ puter-user-menu::part(sign-in):hover {
 
 puter-user-menu::part(menu),
 puter-user-menu::part(apps-panel) {
+  box-shadow: var(--shadow-pop);
   background: var(--bg-raised);
   border-color: var(--border);
   --caret-border: var(--border);
@@ -472,8 +473,9 @@ puter-user-menu::part(apps-panel) {
   z-index: 1200;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
+  box-shadow: var(--shadow-pop);
   pointer-events: none;
 }
 
