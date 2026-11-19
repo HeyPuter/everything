@@ -7,6 +7,7 @@
 import { isWav, parseWav } from './wav.js';
 import { isAiff, parseAiff } from './aiff.js';
 import { readTags, id3v2Size } from './meta.js';
+import { readChapters } from './chapters.js';
 
 export const AUDIO_EXTENSIONS = ['wav', 'wave', 'bwf', 'rf64', 'mp3', 'flac', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'mp4', 'm4v', 'webm', 'weba', 'mkv', 'aif', 'aiff', 'aifc', 'caf', 'mov'];
 export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'webm', 'mkv', 'mov'];
@@ -137,6 +138,8 @@ export async function decodeAudio(buffer, name = '') {
   if (UNSUPPORTED[ext]) throw new Error(`"${label}" is ${UNSUPPORTED[ext]}, which browsers cannot decode. Convert it to WAV, FLAC or MP3 first.`);
   const rate = sniffSampleRate(buffer) || 48000;
   const meta = readTags(buffer);
+  // Read before decoding: decodeAudioData detaches the buffer.
+  const chapters = readChapters(buffer);
   const isFlac = sniffFlac(buffer);
   const bitDepth = isFlac ? flacBits(buffer) : 16;
   const Ctx = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
@@ -159,7 +162,9 @@ export async function decodeAudio(buffer, name = '') {
   const channels = Array.from({ length: audio.numberOfChannels }, (_, c) => audio.getChannelData(c));
   if (isFlac && bitDepth <= 16 && audio.sampleRate === rate) fixPositiveScale(channels);
   const format = isFlac ? 'flac' : ext === 'aif' || ext === 'aifc' ? 'aiff' : ext || 'audio';
-  return { sampleRate: audio.sampleRate, channels, bitDepth, format, markers: [], meta };
+  // FLAC, Ogg and MP4 chapters come back as cue markers.
+  const markers = chapters.map((c) => ({ name: c.name, start: Math.round(c.seconds * audio.sampleRate), duration: 0, type: 'cue' })).filter((m) => m.start <= (channels[0]?.length ?? 0));
+  return { sampleRate: audio.sampleRate, channels, bitDepth, format, markers, meta };
 }
 
 /**

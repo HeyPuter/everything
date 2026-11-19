@@ -4,6 +4,7 @@
 
 import { ascii, concatBytes } from './sink.js';
 import { cleanMeta } from '../audio/meta.js';
+import { chplBox } from '../audio/chapters.js';
 
 function u32(v) {
   const b = new Uint8Array(4);
@@ -70,6 +71,12 @@ function itunSmpb({ priming, padding, frames }, enc) {
   return box('----', fullBox('mean', 0, 0, ascii('com.apple.iTunes')), fullBox('name', 0, 0, ascii('iTunSMPB')), box('data', u32(1), u32(0), enc.encode(text)));
 }
 
+/** The moov's user data: chapters (chpl) and the iTunes-style tags; null when there are neither. */
+function udta(meta, gapless, chapters) {
+  const tags = ilst(meta, gapless);
+  return tags || chapters ? box('udta', ...(chapters ? [chapters] : []), ...(tags ? [tags] : [])) : null;
+}
+
 function ilst(meta, gapless) {
   const m = cleanMeta(meta);
   const enc = new TextEncoder();
@@ -93,14 +100,15 @@ function ilst(meta, gapless) {
   if (gapless && (gapless.priming || gapless.padding)) items.push(itunSmpb(gapless, enc));
   if (!items.length) return null;
   const hdlr = fullBox('hdlr', 0, 0, u32(0), ascii('mdir'), ascii('appl'), u32(0), u32(0), Uint8Array.of(0));
-  return box('udta', fullBox('meta', 0, 0, hdlr, box('ilst', ...items)));
+  return fullBox('meta', 0, 0, hdlr, box('ilst', ...items));
 }
 
 /**
  * @param {{ sampleRate, channels, asc?: Uint8Array, packets: Uint8Array[], frameSamples?: number, totalFrames, bitrate, meta }} o
  * @returns {Uint8Array[]} file parts
  */
-export function muxM4a({ sampleRate, channels, asc, packets, frameSamples = 1024, totalFrames, priming = 0, bitrate = 192000, meta = {} }) {
+export function muxM4a({ sampleRate, channels, asc, packets, frameSamples = 1024, totalFrames, priming = 0, bitrate = 192000, meta = {}, markers = [] }) {
+  const chapters = chplBox(markers, sampleRate);
   const config = asc && asc.length ? asc : aacAudioSpecificConfig(sampleRate, channels);
   // Media time covers every packet; the edit list presents only the real
   // audio, skipping the encoder's priming samples at the start.
@@ -127,8 +135,8 @@ export function muxM4a({ sampleRate, channels, asc, packets, frameSamples = 1024
     const minf = box('minf', smhd, dinf, stbl);
     const mdia = box('mdia', mdhd, hdlr, minf);
     const trak = box('trak', tkhd, edts, mdia);
-    const udta = ilst(meta, { priming, padding: mediaDuration - priming - duration, frames: duration });
-    return box('moov', mvhd, trak, ...(udta ? [udta] : []));
+    const user = udta(meta, { priming, padding: mediaDuration - priming - duration, frames: duration }, chapters);
+    return box('moov', mvhd, trak, ...(user ? [user] : []));
   };
   const moovSize = build(0).length;
   const moov = build(ftyp.length + moovSize + 8);

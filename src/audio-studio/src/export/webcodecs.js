@@ -3,6 +3,7 @@
 
 import { muxOggOpus } from './ogg.js';
 import { muxM4a } from './mp4.js';
+import { vorbisChapterEntries } from '../audio/chapters.js';
 
 /** Encoder delay of AAC-LC as produced by the platform encoders (measured in Chrome). */
 export const AAC_PRIMING = 2112;
@@ -24,7 +25,8 @@ export async function codecSupported(format, { sampleRate = 48000, channels = 2,
 }
 
 class WebCodecsWriter {
-  constructor(format, { sampleRate, sourceRate, channels, frames, meta = {}, settings = {} }) {
+  constructor(format, { sampleRate, sourceRate, channels, frames, meta = {}, markers = [], settings = {} }) {
+    this.markers = markers;
     this.inputRate = sourceRate || sampleRate;
     this.format = format;
     this.rate = sampleRate;
@@ -84,11 +86,12 @@ class WebCodecsWriter {
         packets: this.packets.map((p) => ({ data: p.data, samples: Math.round(((p.duration || 20000) * 48000) / 1e6) })),
         totalSamples: this.frames,
         meta: this.meta,
+        chapters: vorbisChapterEntries(this.markers, this.rate),
       });
       return new Blob(pages, { type: 'audio/ogg' });
     }
     // AAC encoders prime the stream with 2112 samples (1024 + 1088 of filter delay).
-    const parts = muxM4a({ sampleRate: this.rate, channels: this.nch, asc: this.description, packets: this.packets.map((p) => p.data), totalFrames: this.frames, priming: AAC_PRIMING, bitrate: this.bitrate, meta: this.meta });
+    const parts = muxM4a({ sampleRate: this.rate, channels: this.nch, asc: this.description, packets: this.packets.map((p) => p.data), totalFrames: this.frames, priming: AAC_PRIMING, bitrate: this.bitrate, meta: this.meta, markers: this.markers });
     return new Blob(parts, { type: 'audio/mp4' });
   }
 

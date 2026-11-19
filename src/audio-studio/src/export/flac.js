@@ -4,6 +4,7 @@
 import { ByteSink, ascii, concatBytes } from './sink.js';
 import { Quantizer } from '../audio/quantize.js';
 import { vorbisComment } from '../audio/meta.js';
+import { vorbisChapterEntries } from '../audio/chapters.js';
 
 function metadataBlock(type, body, last) {
   const head = Uint8Array.of((last ? 0x80 : 0) | type, (body.length >> 16) & 255, (body.length >> 8) & 255, body.length & 255);
@@ -12,7 +13,9 @@ function metadataBlock(type, body, last) {
 
 export class FlacWriter {
   /** @param {object} o writer options plus `dsp` (a Dsp instance) */
-  constructor({ sampleRate, channels, bitDepth = 16, dither = 'triangular', meta = {}, settings = {}, dsp }) {
+  constructor({ sampleRate, channels, bitDepth = 16, dither = 'triangular', meta = {}, markers = [], settings = {}, dsp }) {
+    // Markers travel as chapter comments (CHAPTERnnn), the convention players read.
+    this.chapters = vorbisChapterEntries(markers, sampleRate);
     if (!dsp) throw new Error('FLAC encoding needs the DSP module.');
     this.x = dsp.x;
     this.nch = channels;
@@ -60,7 +63,7 @@ export class FlacWriter {
     const head = concatBytes([
       ascii('fLaC'),
       metadataBlock(0, info, false),
-      metadataBlock(4, vorbisComment(this.meta, 'Audio Studio FLAC encoder'), false),
+      metadataBlock(4, vorbisComment(this.meta, 'Audio Studio FLAC encoder', this.chapters), false),
       metadataBlock(1, new Uint8Array(4096), true),
     ]);
     return new Blob([head, ...this.sink.take()], { type: 'audio/flac' });

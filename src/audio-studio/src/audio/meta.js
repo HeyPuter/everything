@@ -537,13 +537,17 @@ export function parseId3v2(bytes) {
 
 const VORBIS_KEYS = { title: 'TITLE', artist: 'ARTIST', album: 'ALBUM', year: 'DATE', genre: 'GENRE', comment: 'COMMENT', track: 'TRACKNUMBER', albumArtist: 'ALBUMARTIST', composer: 'COMPOSER', copyright: 'COPYRIGHT', bpm: 'BPM', key: 'KEY' };
 
-/** Vorbis comment structure (vendor string plus KEY=value list), little-endian lengths. */
-export function vorbisComment(meta, vendor = 'Audio Studio') {
+/**
+ * Vorbis comment structure (vendor string plus KEY=value list), little-endian lengths.
+ * `extra` adds ready-made "KEY=value" entries (chapters, see chapters.js).
+ */
+export function vorbisComment(meta, vendor = 'Audio Studio', extra = []) {
   const m = cleanMeta(meta);
   const v = enc.encode(vendor);
   const items = Object.entries(VORBIS_KEYS)
     .filter(([id]) => m[id])
-    .map(([id, key]) => enc.encode(`${key}=${m[id]}`));
+    .map(([id, key]) => enc.encode(`${key}=${m[id]}`))
+    .concat(extra.map((e) => enc.encode(e)));
   return concat([u32le(v.length), v, u32le(items.length), ...items.flatMap((b) => [u32le(b.length), b])]);
 }
 

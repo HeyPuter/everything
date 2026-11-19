@@ -47,7 +47,7 @@ export const FORMATS = [
     bitDepths: [8, 16, 24],
     maxChannels: 8,
     maxRate: 655350,
-    markers: false,
+    markers: true,
     settings: [{ id: 'level', label: 'Compression Level', options: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((v) => ({ value: v, label: v === 0 ? '0 (Fastest)' : v === 8 ? '8 (Smallest)' : v === 5 ? '5 (Default)' : String(v) })), default: 5 }],
   },
   {
@@ -72,7 +72,7 @@ export const FORMATS = [
     lossy: true,
     rates: [48000],
     maxChannels: 2,
-    markers: false,
+    markers: true,
     webcodecs: true,
     settings: [{ id: 'bitrate', label: 'Bitrate', options: [32, 48, 64, 96, 128, 160, 192, 256].map((b) => ({ value: b, label: `${b} kbps` })), default: 128, unit: 'kbps' }],
   },
@@ -85,7 +85,7 @@ export const FORMATS = [
     lossy: true,
     rates: [44100, 48000],
     maxChannels: 2,
-    markers: false,
+    markers: true,
     webcodecs: true,
     // 96 to 192 kbps is what every platform AAC encoder accepts (Windows Media
     // Foundation allows only these; macOS rejects 64 kbps stereo).
