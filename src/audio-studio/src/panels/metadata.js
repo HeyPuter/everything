@@ -211,5 +211,28 @@ export function metadataPanel(app) {
   app.on('active', render);
   app.on('doc-change', (doc, e) => doc === app.active && (e.kind === 'edit' || e.kind === 'history') && render());
   render();
-  return { el, show: render, focus: () => tabs.bar.querySelector('[aria-selected=true]')?.focus() };
+  /** Clears every field on one tab (null: every tab) as one undoable edit. */
+  const clearFields = (tab) => {
+    const doc = app.active;
+    if (!doc || doc.kind !== 'audio') return;
+    const ids = (tab ? [tab] : META_TABS).flatMap((t) => t.fields.map((f) => (Array.isArray(f) ? f[0] : f)));
+    const meta = { ...(doc.state.meta || {}) };
+    for (const id of ids) delete meta[id];
+    const next = cleanMeta(meta);
+    if (JSON.stringify(next) !== JSON.stringify(cleanMeta(doc.state.meta || {}))) doc.apply('Clear Metadata', { ...doc.state, meta: next });
+  };
+  const menu = () => {
+    const ok = app.active?.kind === 'audio';
+    const meta = ok ? app.active.state.meta || {} : {};
+    const tab = META_TABS.find((t) => t.id === (app.prefs.get('metadataTab') || 'bwf')) || META_TABS[0];
+    const tabHas = tab.fields.some((f) => meta[Array.isArray(f) ? f[0] : f]);
+    return [
+      { type: 'cmd', label: 'Stamp Date and Time', enabled: ok, run: stampNow },
+      { type: 'cmd', label: 'New UMID', enabled: ok, run: generateUmid },
+      { type: 'sep' },
+      { type: 'cmd', label: `Clear ${tab.label} Fields`, enabled: ok && tabHas, run: () => clearFields(tab) },
+      { type: 'cmd', label: 'Clear All Metadata', enabled: ok && Object.keys(cleanMeta(meta)).length > 0, run: () => clearFields(null) },
+    ];
+  };
+  return { el, show: render, menu, focus: () => tabs.bar.querySelector('[aria-selected=true]')?.focus() };
 }

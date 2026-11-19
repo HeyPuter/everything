@@ -578,8 +578,40 @@ export function soundAssistantPanel(app) {
   app.prefs.on('change', (key) => key === PRESETS_KEY && built?.refresh?.());
   refresh();
 
+  /** Panel menu: type, presets, preview and apply, and the sections. */
+  const menu = () => {
+    const t = target(app);
+    const typed = Boolean(t.type && t.settings);
+    const userPreset = typed && presetsFor(t.type, userPresets()).find((x) => x.name === t.settings.preset)?.user;
+    const keys = typed ? TYPES[t.type].tasks.map((task) => `${t.type}.${task}`) : [];
+    const setAllCollapsed = (on) => {
+      app.prefs.set(COLLAPSED_KEY, { ...collapsed(), ...Object.fromEntries(keys.map((k) => [k, on])) });
+      refresh(true);
+    };
+    const items = [
+      { type: 'cmd', label: 'Clear Audio Type', enabled: Boolean(t.type) || Boolean(t.mixed), run: clearType },
+      { type: 'sep' },
+      { type: 'cmd', label: 'Save Settings as Preset...', enabled: typed, run: savePreset },
+      { type: 'cmd', label: 'Delete Preset', enabled: Boolean(userPreset), run: deletePreset },
+    ];
+    if (t.mode === 'file') {
+      items.push(
+        { type: 'sep' },
+        { type: 'cmd', label: 'Preview', enabled: typed && !busy, checked: Boolean(preview), run: () => setPreview(!preview) },
+        { type: 'cmd', label: 'Apply', enabled: typed && !busy && !el.querySelector('.sa-apply')?.disabled, run: () => keepFocus('.sa-apply', applyFile) },
+      );
+    }
+    items.push(
+      { type: 'sep' },
+      { type: 'cmd', label: 'Expand All Sections', enabled: keys.some((k) => collapsed()[k]), run: () => setAllCollapsed(false) },
+      { type: 'cmd', label: 'Collapse All Sections', enabled: keys.some((k) => !collapsed()[k]), run: () => setAllCollapsed(true) },
+    );
+    return items;
+  };
+
   return {
     el,
+    menu,
     show: () => refresh(),
     focus: () => el.querySelector('button, input, select')?.focus(),
   };

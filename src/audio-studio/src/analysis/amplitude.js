@@ -395,6 +395,14 @@ export function amplitudePanel(app) {
     },
     focus: () => (scanAll.disabled ? scanSel : scanAll).focus(),
     scan: (selectionOnly) => scan(Boolean(selectionOnly)),
+    /** Panel menu: the footer's actions. */
+    menu: () => [
+      { type: 'cmd', label: 'Scan Selection', enabled: !scanSel.disabled && !scanSel.hidden, run: () => scan(true) },
+      { type: 'cmd', label: 'Scan File', enabled: !scanAll.disabled && !scanAll.hidden, run: () => scan(false) },
+      { type: 'cmd', label: 'Cancel Scan', enabled: !cancelBtn.hidden, run: () => abort?.abort() },
+      { type: 'sep' },
+      { type: 'cmd', label: 'Copy All', enabled: !copyBtn.disabled, run: () => copy() },
+    ],
     /** For tests: the latest scan. */
     get result() {
       return last;

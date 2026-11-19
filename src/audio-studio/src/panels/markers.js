@@ -444,6 +444,36 @@ export function markersPanel(app) {
     );
   };
 
+  /** Panel menu: adding, organizing, exporting and filtering markers. */
+  const panelMenu = () => {
+    const item = (cmd, label) => ({ type: 'cmd', label: label || app.commands.label(cmd), enabled: app.commands.commands.has(cmd) && app.commands.isEnabled(cmd, ids()), run: () => app.commands.run(cmd, ids()) });
+    const has = (cmd) => app.commands.commands.has(cmd);
+    return [
+      item('marker.add', 'Add Cue Marker'),
+      ...(has('marker.addRange') ? [item('marker.addRange', 'Add Range Marker')] : []),
+      { type: 'sep' },
+      item('marker.merge', 'Merge Selected Markers'),
+      ...(has('marker.convertRange') ? [item('marker.convertRange')] : []),
+      item('marker.deleteSelected', 'Delete Selected Markers'),
+      ...(has('marker.deleteAll') ? [item('marker.deleteAll', 'Delete All Markers')] : []),
+      { type: 'sep' },
+      { type: 'cmd', label: 'Insert Ranges into Multitrack Session', enabled: !sessionBtn.disabled, run: insertRanges },
+      { type: 'cmd', label: 'Add Selected to Playlist', enabled: !playlistBtn.disabled, run: addToPlaylist },
+      { type: 'cmd', label: 'Send Ranges to Batch Process', enabled: !batchBtn.disabled, run: sendToBatch },
+      item('file.exportRanges', 'Export Audio within Range Markers...'),
+      { type: 'sep' },
+      ...(has('file.importMarkers') ? [item('file.importMarkers', 'Import Markers...')] : []),
+      item('file.exportMarkers', 'Export Markers...'),
+      { type: 'sep' },
+      { type: 'cmd', label: 'Select All', enabled: visible.length > 0, run: () => {
+        for (const x of visible) selected.add(x.id);
+        showOnRuler();
+        markRows();
+      } },
+      { type: 'cmd', label: 'Show All Types', enabled: Boolean(types), run: () => ((types = null), render()) },
+    ];
+  };
+
   // Delegated: the first click of a double-click re-renders the rows.
   body.addEventListener('dblclick', (e) => {
     const td = (document.elementFromPoint(e.clientX, e.clientY) || e.target).closest?.('td[data-field]');
@@ -471,5 +501,5 @@ export function markersPanel(app) {
   });
   app.on('prefs', (key) => TIME_DISPLAY_KEYS.has(key) && render());
   render();
-  return { el, show: render };
+  return { el, show: render, menu: panelMenu };
 }

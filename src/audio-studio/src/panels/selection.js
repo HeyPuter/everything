@@ -173,5 +173,13 @@ export function selectionPanel(app) {
   app.on('doc-change', (doc) => doc === app.active && schedule());
   app.on('prefs', (key) => TIME_DISPLAY_KEYS.has(key) && render());
   render();
-  return { el, show: render };
+  // Panel menu: the time display format (as the Time panel), and selection shortcuts.
+  const menu = () => [
+    ...(app.timeFormatMenuItems?.() || []),
+    { type: 'sep' },
+    ...['edit.selectAll', 'edit.deselect', 'view.zoomSelection']
+      .filter((id) => app.commands?.commands?.has(id))
+      .map((id) => ({ type: 'cmd', label: app.commands.label(id), enabled: app.commands.isEnabled(id), run: () => app.commands.run(id) })),
+  ];
+  return { el, show: render, menu };
 }

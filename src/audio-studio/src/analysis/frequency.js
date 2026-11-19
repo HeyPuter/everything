@@ -490,5 +490,20 @@ export function frequencyPanel(app) {
       plot.focus();
     },
     scan: () => scanNow(),
+    /** Panel menu: scale, display, scan and the held traces. */
+    menu: () => {
+      const p = prefs();
+      const radio = (label, on, patch) => ({ type: 'cmd', label, enabled: true, checked: on, run: () => setPref(patch) });
+      return [
+        radio('Logarithmic Scale', p.log, { log: true }),
+        radio('Linear Scale', !p.log, { log: false }),
+        { type: 'sep' },
+        ...DISPLAYS.map((d) => radio(d.label, p.display === d.value, { display: d.value })),
+        { type: 'sep' },
+        { type: 'cmd', label: 'Scan', enabled: !scanBtn.disabled, run: () => scanNow() },
+        { type: 'cmd', label: 'Clear Held Traces', enabled: holds.some(Boolean), run: () => clearHolds() },
+        { type: 'cmd', label: 'Show Advanced Settings', enabled: true, checked: Boolean(p.advanced), run: () => setPref({ advanced: !p.advanced }) },
+      ];
+    },
   };
 }

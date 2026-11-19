@@ -272,6 +272,22 @@ export function phaseAnalysisPanel(app) {
       visible = false;
       tap.stop();
     },
+    /** Panel menu: display mode and normalizing. */
+    menu: () => {
+      const mode = app.prefs.get('phaseMode') || 'gonio';
+      const setMode = (v) => {
+        app.prefs.set('phaseMode', v);
+        modeSel.value = v;
+      };
+      return [
+        ...[['gonio', 'Goniometer'], ['lines', 'Goniometer (Lines)'], ['density', 'Density'], ['xy', 'Lissajous (X/Y)']].map(([v, label]) => ({ type: 'cmd', label, enabled: true, checked: mode === v, run: () => setMode(v) })),
+        { type: 'sep' },
+        { type: 'cmd', label: 'Normalize', enabled: true, checked: Boolean(app.prefs.get('phaseNormalize')), run: () => {
+          app.prefs.set('phaseNormalize', !app.prefs.get('phaseNormalize'));
+          normBox.checked = Boolean(app.prefs.get('phaseNormalize'));
+        } },
+      ];
+    },
   };
 }
 

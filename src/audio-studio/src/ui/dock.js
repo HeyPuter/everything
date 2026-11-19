@@ -492,7 +492,8 @@ export class Dock extends Emitter {
     const def = this.registry.get(id);
     // The editor stays docked; panels can opt out with floatable: false.
     const floatable = (t) => t !== 'editor' && this.registry.get(t)?.floatable !== false;
-    const extra = def.menu ? def.menu(this.app) : [];
+    // The registration's menu, else the panel instance's own (panels that build theirs from their controls).
+    const extra = def.menu ? def.menu(this.app) : this.instances.get(id)?.menu?.() || [];
     const items = [
       ...extra,
       ...(extra.length ? [{ type: 'sep' }] : []),

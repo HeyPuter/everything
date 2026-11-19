@@ -410,6 +410,23 @@ export function batchPanel(app) {
     el,
     show: refresh,
     focus: () => (items.length ? body.children[focusIndex] : addOpenBtn)?.focus(),
+    /** Panel menu: the toolbar and footer actions. */
+    menu: () => {
+      const btn = (b, label, run = () => b.click()) => ({ type: 'cmd', label, enabled: !b.disabled && !b.hidden, run });
+      return [
+        btn(addOpenBtn, 'Add Open Files'),
+        btn(addLocalBtn, 'Add Files...'),
+        ...(addPuterBtn.hidden ? [] : [btn(addPuterBtn, 'Add Files from Puter...')]),
+        btn(removeBtn, 'Remove Selected Files'),
+        btn(clearBtn, 'Clear List'),
+        { type: 'sep' },
+        { type: 'cmd', label: 'Export', enabled: !exportBox.disabled, checked: exportBox.checked, run: () => exportBox.click() },
+        btn(exportBtn, 'Export Settings...'),
+        { type: 'sep' },
+        running ? btn(cancelBtn, 'Cancel') : btn(runBtn, 'Run'),
+        { type: 'cmd', label: 'Undo Last Run', enabled: !undoBtn.hidden && !undoBtn.disabled, run: () => undoRun() },
+      ];
+    },
     /** For scripting and tests. */
     api: { add, run, get items() { return items; }, cancel: () => running?.abort() },
   };
