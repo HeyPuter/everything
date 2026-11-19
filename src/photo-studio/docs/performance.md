@@ -91,6 +91,53 @@ Hooks that run on every update (frame animation sync, embedded object
 refresh, Info panel previews, the Navigator) were checked: they return early
 when their feature is not in use or their panel is hidden.
 
+## Large images
+
+A 24-megapixel layer is 96 MB of pixels (384 MB as floats in a 16- or 32-bit
+composite), so anything that copies, converts or uploads a whole layer
+stalls the editor. The rules that keep large documents responsive:
+
+- **GPU textures are reused.** Layer textures are kept per layer and updated
+  tile by tile. A new texture whose tiles already sit on the GPU (Layer via
+  Copy, Duplicate, redo, a layer growing past its tiles) copies them between
+  textures (`Backend.copy`) instead of uploading them again. Readbacks of
+  other layer lists (single layers, previews) keep the canvas's textures; what
+  only a readback used is released with the next frame or two seconds later.
+- **Read back only what is shown.** `documentPixels(doc, assets, rect)` and
+  `compositeRGBA(e, doc, rect)` read a rectangle of the composite; the Image
+  Size preview reads only the part it shows.
+- **Do not copy a layer to open a dialog.** Check pixels in place
+  (`anyVisible`) and read the layer when it is used (Edit with Prompt reads
+  its source when Generate is pressed).
+- **Whole-image work runs in workers.** Histograms of the adjustment dialogs
+  and adjustment layers (`histogramsInWorker`, counted the first time an
+  editor shows them), the printed PNG (`printPngOffThread`) and the Export
+  for Web color conversion (`prepareOffThread`) run in the adjustment and
+  export workers.
+
+Measured on a 6000 × 4000 JPEG (one pixel layer) in Chrome with the GPU
+(Apple M5 Max, WebGPU through Metal). "Task" is the longest main-thread task
+(0 means none over 50 ms); a typical laptop CPU is 3 to 5 times slower.
+
+| Action (24 MP) | Before | After |
+| --- | --- | --- |
+| File → Print | 2,294 ms task | 0 ms task (24–53 ms of script) |
+| Export for Web opens | 225 ms task | 60 ms task |
+| Levels, Curves, Color Balance, Exposure… open | 77–135 ms of script (85 ms task for Levels) | 11–42 ms |
+| Image Size opens, 8-bit | 96 MB allocated | nothing allocated |
+| Image Size opens, 16-bit | 121 ms task | 0 ms task |
+| Edit with Prompt opens | 26 ms of script, 100 MB allocated | 6 ms, nothing allocated |
+| Layer via Copy, wall | 66 ms | 31 ms |
+| Layer via Copy with a software GPU | 899 ms task | 0 ms task |
+
+With a software GPU (SwiftShader, as in headless test runs) any frame of a
+24 MP document takes close to a second of GPU-process time; that shows up as
+wall time, not as main-thread work.
+
+Known remaining stalls on 24 MP: Focus Area opens with a 174 ms task (and
+redraws its preview on the main thread), Sky Replacement 158 ms, Liquify
+90 ms, Color Range 80 ms (downscaling the composite), Calculations 76 ms.
+
 ## Measuring
 
 ```sh
@@ -98,6 +145,7 @@ npm run perf:bundle                       # chunk sizes, startup chunk modules
 npm run build && npx vite preview --port 5424 &
 npm run perf:startup -- 5424 7            # add "10,40" for a throttled network
 PHOTO_PERF=1 PHOTO_EDITOR_TEST_PORT=5424 npx playwright test tests/browser/performance.spec.ts
+npm run perf:large -- 5424 gpu dialog,imagesize,viacopy,undo   # 24 MP stalls
 ```
 
 The editor marks `photo-studio:shell`, `photo-studio:ready` and
