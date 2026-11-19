@@ -23,6 +23,7 @@ import { combinedResponse, logFrequencies, qForBandwidth, filterTypeFromLabel } 
 import { addPoint, movePoint, removePoint, normalizeEnvelope, renderEnvelope } from './envelope.js';
 import { formatValue } from './params.js';
 import { loudnessMeterEditor } from './meter-view.js';
+import { levelMeter } from './meters-ui.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -380,7 +381,28 @@ export function eqEditor(opts = {}) {
     };
     ctx.subscribe(update);
     update();
-    return view.el;
+    // Effects that report their levels (readout [input dB, reduction dB, output dB])
+    // get input, gain reduction and output meters beside the graph.
+    if (!ctx.def.readout || !ctx.onReadout) return view.el;
+    const scale = [0, -12, -24, -36, -48];
+    const meters = [
+      levelMeter({ label: 'In', min: lo, vertical: true, scale }),
+      levelMeter({ label: 'GR', kind: 'gr', min: -24, vertical: true, scale: [0, -6, -12, -18, -24] }),
+      levelMeter({ label: 'Out', min: lo, vertical: true, scale }),
+    ];
+    ctx.onReadout((r) => {
+      if (r.length < 3) return;
+      meters.forEach((m, i) => m.set(r[i]));
+      live = r[0];
+      clearTimeout(liveIdle);
+      liveIdle = setTimeout(() => {
+        live = null;
+        view.redraw();
+      }, 500);
+      view.redraw();
+    });
+    ctx.onClose?.(() => clearTimeout(liveIdle));
+    return h('div.fx-band-wrap.fx-transfer-meters', view.el, h('div.fx-tr-meters', meters.map((m) => m.el)));
   };
 }
 
@@ -459,7 +481,17 @@ export function transferEditor(opts = {}) {
         else g.moveTo(px, py);
       }
       g.stroke();
+      // While audio plays through it: the input level on the curve.
+      if (live != null && live > lo) {
+        const y = clamp(transferCurve(live, o), lo, 0);
+        g.fillStyle = cssVar('--accent');
+        g.beginPath();
+        g.arc(pos(Math.min(0, live), W), H - pos(y, H), 4, 0, Math.PI * 2);
+        g.fill();
+      }
     });
+    let live = null;
+    let liveIdle = 0;
     const handleId = ids.threshold || ids.ceiling;
     const handle = h('button.fx-handle', { type: 'button', role: 'slider', 'aria-label': ids.threshold ? 'Threshold' : 'Ceiling' });
     view.layer.append(handle);
@@ -484,7 +516,28 @@ export function transferEditor(opts = {}) {
     };
     ctx.subscribe(update);
     update();
-    return view.el;
+    // Effects that report their levels (readout [input dB, reduction dB, output dB])
+    // get input, gain reduction and output meters beside the graph.
+    if (!ctx.def.readout || !ctx.onReadout) return view.el;
+    const scale = [0, -12, -24, -36, -48];
+    const meters = [
+      levelMeter({ label: 'In', min: lo, vertical: true, scale }),
+      levelMeter({ label: 'GR', kind: 'gr', min: -24, vertical: true, scale: [0, -6, -12, -18, -24] }),
+      levelMeter({ label: 'Out', min: lo, vertical: true, scale }),
+    ];
+    ctx.onReadout((r) => {
+      if (r.length < 3) return;
+      meters.forEach((m, i) => m.set(r[i]));
+      live = r[0];
+      clearTimeout(liveIdle);
+      liveIdle = setTimeout(() => {
+        live = null;
+        view.redraw();
+      }, 500);
+      view.redraw();
+    });
+    ctx.onClose?.(() => clearTimeout(liveIdle));
+    return h('div.fx-band-wrap.fx-transfer-meters', view.el, h('div.fx-tr-meters', meters.map((m) => m.el)));
   };
 }
 

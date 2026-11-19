@@ -65,6 +65,7 @@ registerEffect({
   name: 'Hard Limiter',
   group: AMP,
   kind: 30,
+  readout: true,
   about: 'Keeps peaks under a ceiling without audible clipping, looking ahead so it can turn the level down just before each peak. True Peak also catches peaks that fall between samples.',
   params: [
     db('ceiling', 'Maximum Amplitude', -100, 0, -0.1),
@@ -142,6 +143,7 @@ registerEffect({
   name: 'Single-band Compressor',
   group: AMP,
   kind: 31,
+  readout: true,
   about: 'Turns down levels above the threshold by the ratio, smoothing the change with the attack and release times. Output gain makes up the lost level.',
   params: [
     db('threshold', 'Threshold', -60, 0, -20),

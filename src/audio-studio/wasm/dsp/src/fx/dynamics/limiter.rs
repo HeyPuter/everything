@@ -4,11 +4,12 @@
 //! Hard Limiter params: 0 ceiling dB, 1 input boost dB, 2 lookahead ms,
 //! 3 release ms, 4 link channels (0/1), 5 true peak (0/1: detect peaks 4x
 //! oversampled so peaks between samples stay under the ceiling too; adds
-//! TP_DELAY frames of latency).
+//! TP_DELAY frames of latency). Readout: [input peak dB, deepest gain
+//! reduction dB, output peak dB] since the last read.
 //! Loudness Maximizer params: 0 boost dB, 1 ceiling dB, 2 release ms,
 //! 3 lookahead ms, 4 low level boost % (slow upward compression of quiet passages).
 
-use super::common::{db_lin, frame_peak, Detector, GainSmoother};
+use super::common::{db_lin, frame_peak, lin_db, Detector, GainSmoother, Meters};
 use crate::fx::util::{db_to_gain, Limiter};
 use crate::loudness::TruePeak;
 use crate::fx::Effect;
@@ -32,6 +33,7 @@ pub struct HardLimiter {
     /// Audio delayed by TP_DELAY so it lines up with the true-peak detector.
     tp_delay: [[f32; TP_DELAY]; 2],
     tp_pos: usize,
+    meters: Meters,
 }
 
 impl HardLimiter {
@@ -48,6 +50,7 @@ impl HardLimiter {
             tp: TruePeak::new(2),
             tp_delay: [[0.0; TP_DELAY]; 2],
             tp_pos: 0,
+            meters: Meters::default(),
         };
         h.update();
         h
@@ -103,6 +106,37 @@ impl Effect for HardLimiter {
         self.update();
     }
     fn process(&mut self, buf: &mut [f32], channels: usize, frames: usize) {
+        // Input level before the boost; reduction is the limiter's own gain.
+        for i in 0..frames {
+            self.meters.inp = self.meters.inp.max(frame_peak(buf, channels, frames, i));
+        }
+        let least = self.limit(buf, channels, frames);
+        self.meters.gr = self.meters.gr.min(lin_db(least.max(1e-6)));
+        for i in 0..frames {
+            self.meters.out = self.meters.out.max(frame_peak(buf, channels, frames, i));
+        }
+    }
+    fn readout(&mut self, out: &mut [f32]) -> usize {
+        self.meters.read(out)
+    }
+    fn reset(&mut self) {
+        self.boost.settle();
+        for l in &mut self.lim {
+            l.reset();
+        }
+        self.tp = TruePeak::new(2);
+        self.tp_delay = [[0.0; TP_DELAY]; 2];
+        self.tp_pos = 0;
+    }
+    fn latency(&self) -> u32 {
+        (self.lim[0].latency() + if self.true_peak { TP_DELAY } else { 0 }) as u32
+    }
+}
+
+impl HardLimiter {
+    /// Limits one block; returns the least gain the limiters applied in it.
+    fn limit(&mut self, buf: &mut [f32], channels: usize, frames: usize) -> f32 {
+        let mut least = 1.0f32;
         if self.true_peak {
             for i in 0..frames {
                 let g = self.boost.next();
@@ -113,8 +147,9 @@ impl Effect for HardLimiter {
                 } else {
                     buf[i] = self.true_peak_frame(buf[i] * g, 0.0, false).0;
                 }
+                least = least.min(self.lim[0].gain).min(self.lim[1].gain);
             }
-            return;
+            return least;
         }
         for i in 0..frames {
             let g = self.boost.next();
@@ -131,19 +166,9 @@ impl Effect for HardLimiter {
                 let x = buf[i] * g;
                 buf[i] = self.lim[0].process(x, x).0;
             }
+            least = least.min(self.lim[0].gain).min(self.lim[1].gain);
         }
-    }
-    fn reset(&mut self) {
-        self.boost.settle();
-        for l in &mut self.lim {
-            l.reset();
-        }
-        self.tp = TruePeak::new(2);
-        self.tp_delay = [[0.0; TP_DELAY]; 2];
-        self.tp_pos = 0;
-    }
-    fn latency(&self) -> u32 {
-        (self.lim[0].latency() + if self.true_peak { TP_DELAY } else { 0 }) as u32
+        least
     }
 }
 
@@ -377,5 +402,25 @@ mod tests {
         assert!((run(100.0, 0.5) - 1.0).abs() < 0.02); // loud passes
         assert!((run(0.0, 0.01) - 1.0).abs() < 0.01);
         assert!((run(100.0, 0.00005) - 1.0).abs() < 0.05); // near-silence is not raised
+    }
+
+    #[test]
+    fn hard_limiter_reports_its_gain_reduction() {
+        let mut fx = make(30, 48000.0, 2);
+        fx.set_param(0, -6.0);
+        fx.reset();
+        let x = sine(1000.0, 48000.0, 9600, 1.0);
+        let mut buf: Vec<f32> = x.iter().chain(x.iter()).copied().collect();
+        fx.process(&mut buf, 2, 9600);
+        let mut out = [0.0f32; 3];
+        assert_eq!(fx.readout(&mut out), 3);
+        assert!(out[0] > -0.1, "input {}", out[0]);
+        assert!((out[1] + 6.0).abs() < 0.5, "reduction {}", out[1]);
+        assert!(out[2] < -5.8, "output {}", out[2]);
+        // Read again: reset, so quiet input shows no reduction.
+        let mut quiet: Vec<f32> = vec![0.01; 2 * 9600];
+        fx.process(&mut quiet, 2, 9600);
+        fx.readout(&mut out);
+        assert!(out[0] < -39.0 && out[1] > -6.5, "{:?}", out);
     }
 }

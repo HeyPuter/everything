@@ -111,6 +111,27 @@ describe('Amplitude and Compression dialogs', () => {
     await close();
   });
 
+  for (const id of ['singleBandCompressor', 'hardLimiter']) {
+    it(`${id} shows input, gain reduction and output meters beside its transfer graph`, async () => {
+      const { app, dlg, close } = open(id);
+      const meters = [...dlg.querySelectorAll('.fx-tr-meters [role=meter]')];
+      expect(meters.map((m) => m.getAttribute('aria-label'))).toEqual(['In', 'GR', 'Out']);
+      expect(dlg.querySelector('.fx-transfer-meters .fx-transfer')).not.toBeNull();
+      app.engine.emit('fx-readout', new Map([[`preview:${id}`, Float32Array.of(-4, -8.5, -12)]]));
+      expect(meters.map((m) => m.getAttribute('aria-valuenow'))).toEqual(['-4', '-8.5', '-12']);
+      await close();
+    });
+  }
+
+  it('Single-band Compressor and Hard Limiter report their gain reduction', () => {
+    const comp = readout('singleBandCompressor', { threshold: -30, ratio: 4, knee: 0 }, sine(48000, 1000, 0.316));
+    expect(comp[0]).toBeCloseTo(-10, 0);
+    expect(comp[1]).toBeLessThan(-12);
+    const lim = readout('hardLimiter', { ceiling: -6 }, sine(24000, 1000, 1));
+    expect(lim[1]).toBeCloseTo(-6, 0);
+    expect(lim[2]).toBeLessThan(-5.8);
+  });
+
   it('DeEsser reports its gain reduction', () => {
     const r = readout('deesser', { threshold: -40 }, sine(24000, 7000, 0.5));
     expect(r).toHaveLength(1);

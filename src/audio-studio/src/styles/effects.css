@@ -1980,6 +1980,26 @@ input[type='range'].fx-slider:disabled {
   align-items: flex-end;
 }
 
+/* Input, gain reduction and output meters beside a compressor or limiter graph. */
+.fx-tr-meters {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.fx-tr-meters .fx-lm.v {
+  justify-content: flex-start;
+}
+
+.fx-tr-meters .fx-lm-barwrap {
+  flex: 1;
+}
+
+.fx-tr-meters .fx-lm-bar.v {
+  height: auto;
+  min-height: 120px;
+}
+
 .fx-mb-editor {
   display: flex;
   flex-direction: column;
