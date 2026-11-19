@@ -1,9 +1,9 @@
 import type { Editor } from '../editor';
 import { commands, findCommand, registerCommand, tools, panels, type Command } from '../app/registry';
 import { allLayers, findLayer, type Layer } from '../model/document';
-import { linkedPartners } from '../model/links';
+import { expandLinked, linkedPartners } from '../model/links';
 import { moveGroupMasks, transformBounds } from '../model/transform';
-import { assertEditable } from '../model/layers';
+import { assertEditable, selectedRoots } from '../model/layers';
 import { escapeXML } from '../model/assets';
 import { eventShortcut, formatShortcut, normalizeShortcut, platformShortcut } from '../app/shortcuts';
 import { svg } from '../app/icons';
@@ -32,7 +32,8 @@ type Edge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
 function align(e: Editor, edge: Edge) {
   const roots = e.selectedLayers;
   if (!roots.length) return;
-  assertEditable(e.doc, roots, 'position');
+  // Linked layers move along, so they must be free to move too (as for the Move tool).
+  assertEditable(e.doc, selectedRoots(e.doc.layers, expandLinked(e.doc.layers, e.selectedIds)), 'position');
   const boxes = roots.map((l) => layerBox(l, e));
   // A selection is the reference when there is one; otherwise one layer (or
   // Align To > Canvas) aligns to the canvas and several to their bounds.

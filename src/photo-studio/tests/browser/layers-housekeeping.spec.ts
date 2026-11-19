@@ -60,6 +60,29 @@ test('linked layers move together and unlink again', async ({ page }) => {
   expect(await position(page, 'Blue')).toEqual([230, 140]);
 });
 
+test('Align leaves a linked layer whose position is locked where it is', async ({ page }) => {
+  await addBox(page, 'Red', '#ff0000', { x: 20, y: 20, width: 40, height: 30 });
+  await addBox(page, 'Blue', '#0000ff', { x: 200, y: 120, width: 40, height: 30 });
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.command('Link and lock', (d) => {
+      for (const l of d.layers.slice(1)) l.linkGroup = 'pair';
+      d.layers.find((l) => l.name === 'Blue')!.protection = {
+        transparency: false,
+        composite: false,
+        position: true,
+      };
+    });
+    e.selectLayers([e.doc.layers.find((l) => l.name === 'Red')!.id]);
+  });
+  const steps = (await historyLabels(page)).length;
+  await run(page, 'layer.align-left');
+  await expect(page.locator('#status')).toContainText('Unlock');
+  expect(await position(page, 'Red')).toEqual([20, 20]);
+  expect(await position(page, 'Blue')).toEqual([200, 120]);
+  expect((await historyLabels(page)).length).toBe(steps);
+});
+
 test('deleting one of two linked layers unlinks the other; undo links both again', async ({ page }) => {
   await addBox(page, 'Red', '#ff0000', { x: 20, y: 20, width: 40, height: 30 });
   await addBox(page, 'Blue', '#0000ff', { x: 200, y: 120, width: 40, height: 30 });
