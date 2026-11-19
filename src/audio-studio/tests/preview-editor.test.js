@@ -198,3 +198,55 @@ describe('effect dialogs and the Preview Editor', () => {
     await p;
   });
 });
+
+describe('preview editor A/B', () => {
+  it('shows the original or the result and keeps the dialog power button in step', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    HTMLCanvasElement.prototype.getContext = () => null;
+    const draw = vi.spyOn(WaveformRenderer.prototype, 'draw');
+    const store = { previewEditor: true, previewZoom: 'sync' };
+    const prefs = new Emitter();
+    prefs.get = (k) => store[k];
+    prefs.set = (k, v) => ((store[k] = v), prefs.emit('change', k));
+    const app = new Emitter();
+    Object.assign(app, { prefs, commands: { register() {} }, formatTime: String });
+    const host = document.createElement('div');
+    document.body.replaceChildren(host);
+    // A stand-in effect dialog with its power button.
+    const power = document.createElement('button');
+    power.className = 'fx-power';
+    power.setAttribute('aria-pressed', 'true');
+    power.addEventListener('click', () => power.setAttribute('aria-pressed', String(power.getAttribute('aria-pressed') !== 'true')));
+    const dlg = document.createElement('div');
+    dlg.className = 'dialog fx-dialog';
+    dlg.append(power);
+    document.body.append(dlg);
+    installPreviewEditor(app, host);
+    const ab = host.querySelector('.preview-ab');
+    expect(ab.disabled).toBe(true);
+    const channels = [Channel.fromSamples(new Float32Array(4800))];
+    const doc = { kind: 'audio', length: 4800, sampleRate: 48000, view: { start: 0, end: 4800, amp: 1 }, hasSelection: false, selection: { start: 0, end: 0 }, channelMask: null, state: { sampleRate: 48000, channels, markers: [] } };
+    vi.useFakeTimers();
+    try {
+      app.emit('effect-values', { def: { name: 'Amplify' }, values: {}, doc });
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(ab.disabled).toBe(false);
+    expect(draw.mock.calls.at(-1)[0].channels).not.toBe(channels);
+    ab.click();
+    expect(ab.getAttribute('aria-pressed')).toBe('true');
+    expect(power.getAttribute('aria-pressed')).toBe('false');
+    expect(draw.mock.calls.at(-1)[0].channels).toBe(channels);
+    // Turning the effect back on in the dialog shows the result again.
+    power.click();
+    expect(ab.getAttribute('aria-pressed')).toBe('false');
+    app.emit('effect-values', null);
+    expect(ab.disabled).toBe(true);
+    draw.mockRestore();
+  });
+});

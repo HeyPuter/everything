@@ -67,7 +67,17 @@ export function installPreviewEditor(app, host) {
     h('option', { value: 'sync' }, 'Synchronized'),
     h('option', { value: 'independent' }, 'Independent'),
   );
-  const head = h('div.preview-head', h('span.preview-title', 'Preview Editor:'), label, h('div.spacer'), status, h('label.preview-zoom-label', 'Zoom:', zoomSelect), close);
+  // A/B: the original audio or the effect's result, in this view and (through the effect
+  // dialog's power button) in what plays.
+  let showOriginal = false;
+  const abBtn = h(
+    'button.btn.sm.preview-ab',
+    { type: 'button', 'aria-pressed': 'false', title: 'Compare: show and play the original (A) or the processed audio (B)', disabled: true, onclick: () => setOriginal(!showOriginal) },
+    h('span.ab-a', 'A'),
+    h('span.ab-sep', '/'),
+    h('span.ab-b', 'B'),
+  );
+  const head = h('div.preview-head', h('span.preview-title', 'Preview Editor:'), label, abBtn, h('div.spacer'), status, h('label.preview-zoom-label', 'Zoom:', zoomSelect), close);
   const ampCanvas = h('canvas.preview-amp', { 'aria-hidden': 'true' });
   const surface = h('div.preview-surface', canvas, ampCanvas);
   const rulerRow = h('div.preview-ruler');
@@ -99,7 +109,7 @@ export function installPreviewEditor(app, host) {
       const doc = current?.doc || idleDoc();
       if (!doc) return { rate: 48000, length: 0, view: { start: 0, end: 1 }, cursor: 0, selection: null, markers: [] };
       const v = viewOf(doc);
-      const span = result && !result.idle ? result.span : v.end - v.start;
+      const span = result && !result.idle && !showOriginal ? result.span : v.end - v.start;
       return { rate: doc.sampleRate, length: doc.length, view: { start: v.start, end: v.start + Math.max(1, span) }, cursor: app.active === doc ? app.playhead : doc.cursor, selection: null, markers: [] };
     },
     seek: (f) => {
@@ -161,12 +171,42 @@ export function installPreviewEditor(app, host) {
   };
 
   // The effect's dialog opens in the middle of the window, over the preview: move it aside.
+  const powerButton = () => document.querySelector('.fx-dialog .fx-power');
+  function syncAB() {
+    // Effect dialogs are modal: the preview rises above their backdrop so A/B, zoom and
+    // scrolling stay in reach while the dialog is open.
+    el.classList.toggle('over-dialog', Boolean(current));
+    abBtn.disabled = !current;
+    abBtn.setAttribute('aria-pressed', String(Boolean(current) && showOriginal));
+    abBtn.classList.toggle('showing-a', Boolean(current) && showOriginal);
+    abBtn.setAttribute('aria-label', showOriginal ? 'Showing the original (A). Switch to the processed audio (B)' : 'Showing the processed audio (B). Switch to the original (A)');
+  }
+  function setOriginal(on) {
+    if (!current) return;
+    showOriginal = on;
+    // The dialog's power button decides what plays: off while comparing with the original.
+    const power = powerButton();
+    if (power && (power.getAttribute('aria-pressed') === 'true') === on) power.click();
+    syncAB();
+    draw();
+  }
+  // Turning the effect off in its dialog shows the original here too.
+  document.addEventListener('click', (e) => {
+    if (!current || !(e.target instanceof Element) || !e.target.closest('.fx-dialog .fx-power')) return;
+    const off = powerButton()?.getAttribute('aria-pressed') === 'false';
+    if (off !== showOriginal) {
+      showOriginal = off;
+      syncAB();
+      draw();
+    }
+  });
+
   // The settings arrive just before the dialog is on screen, so wait a few frames for it.
   const moveDialogAside = (tries = 10) => {
     requestAnimationFrame(() => {
       if (el.hidden || !current) return;
       const dlg = [...document.querySelectorAll('.dialog')].pop();
-      if (dlg?.avoid) dlg.avoid(surface.getBoundingClientRect());
+      if (dlg?.avoid) dlg.avoid(el.getBoundingClientRect());
       else if (tries > 0) moveDialogAside(tries - 1);
     });
   };
@@ -247,13 +287,16 @@ export function installPreviewEditor(app, host) {
       renderer.draw({ channels: [], start: 0, fpp: 1, amp: 1, lanes: [], colors: [] });
       return;
     }
-    const n = result.channels.length;
+    // A: the original audio of the same view.
+    const ov = current && showOriginal ? viewOf(current.doc) : null;
+    const shown = ov ? { channels: current.doc.state.channels, start: ov.start, span: ov.end - ov.start } : result;
+    const n = shown.channels.length;
     const gap = n > 1 ? dpr : 0;
     const lh = (H * dpr - gap * (n - 1)) / n;
-    const lanes = result.channels.map((_, i) => ({ top: i * (lh + gap), bottom: i * (lh + gap) + lh }));
-    const color = cssVar('--wave');
+    const lanes = shown.channels.map((_, i) => ({ top: i * (lh + gap), bottom: i * (lh + gap) + lh }));
+    const color = cssVar(ov ? '--wave-dim' : '--wave');
     const view = (current?.doc || idle).view;
-    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: view.amp || 1, offset: view.ampOffset || 0, lanes, colors: result.channels.map(() => color) });
+    renderer.draw({ channels: shown.channels, start: shown.start, fpp: Math.max(1e-3, shown.span / (W * dpr)), amp: view.amp || 1, offset: view.ampOffset || 0, lanes, colors: shown.channels.map(() => color) });
     drawAmpRuler(lanes.map((l) => ({ top: l.top / dpr, bottom: l.bottom / dpr })), left + W, Math.min(54, rect.width - left - W), H, view, (current?.doc || idle).info?.bitDepth);
   }
 
@@ -298,11 +341,17 @@ export function installPreviewEditor(app, host) {
       clearTimeout(timer);
       result = null;
       changesLength = false;
+      showOriginal = false;
+      syncAB();
       el.hidden = true;
       sync();
       return;
     }
-    if (docChanged) changesLength = false;
+    if (docChanged) {
+      changesLength = false;
+      showOriginal = false;
+    }
+    syncAB();
     sync();
     if (docChanged && !el.hidden) moveDialogAside();
     if (!el.hidden || detecting()) schedule(docChanged ? 0 : 250);

@@ -734,6 +734,10 @@
 .preview-editor[hidden] {
   display: none;
 }
+.preview-editor.over-dialog {
+  position: relative;
+  z-index: 901;
+}
 .preview-head {
   display: flex;
   align-items: center;
@@ -756,6 +760,31 @@
 .preview-zoom {
   height: 18px;
   font-size: var(--fs-sm);
+}
+.preview-ab {
+  height: 18px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.preview-ab .ab-sep {
+  margin: 0 2px;
+  color: var(--text-faint);
+}
+/* The side in view is bright; the other dims. */
+.preview-ab .ab-a,
+.preview-ab.showing-a .ab-b {
+  color: var(--text-faint);
+}
+.preview-ab .ab-b,
+.preview-ab.showing-a .ab-a {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.preview-ab:disabled .ab-a,
+.preview-ab:disabled .ab-b {
+  color: var(--text-faint);
+  font-weight: 400;
 }
 .preview-ruler {
   flex: none;
