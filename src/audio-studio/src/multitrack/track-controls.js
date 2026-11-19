@@ -41,8 +41,9 @@ export class TrackControls {
     const o = this.doc.overrides[track.id];
     if (o && o[param] !== undefined) return o[param];
     const lane = track.automation?.[param];
-    const own = fxParamRef(param) ? laneInfo(track, param).value : staticValue(track, param);
-    if (param === 'mute') return track.mode !== 'off' && lane?.length ? envelopeValue(muteSteps(lane), frame, own) : own;
+    const info = fxParamRef(param) ? laneInfo(track, param) : null;
+    const own = info ? info.value : staticValue(track, param);
+    if (param === 'mute' || info?.stepped) return track.mode !== 'off' && lane?.length ? envelopeValue(muteSteps(lane), frame, own) : own;
     if (track.mode !== 'off' && lane && lane.length) return envelopeValue(lane, frame, own);
     return own;
   }
@@ -71,12 +72,15 @@ export class TrackControls {
       const t = Math.round(this.app.playhead);
       const near = Math.round(doc.sampleRate * 0.005);
       const prev = lane.filter((p) => p.t <= t).pop();
-      const key = { t, v: value, ...(param === 'mute' || (prev?.hold && Math.abs(prev.t - t) <= near) ? { hold: true } : {}) };
+      const stepped = param === 'mute' || (fxParamRef(param) && laneInfo(track, param).stepped);
+      const key = { t, v: value, ...(stepped || (prev?.hold && Math.abs(prev.t - t) <= near) ? { hold: true } : {}) };
       const points = [...lane.filter((p) => Math.abs(p.t - t) > near), key];
       doc.apply(AUTO_LABELS[param] || 'Send Automation', setAutomation(doc.state, trackId, param, points), { coalesce: `auto:${trackId}:${param}` });
     } else if (fxParamRef(param)) {
       // An unautomated effect setting: change the slot's value.
       const ref = fxParamRef(param);
+      // A switch keeps a true/false value.
+      if (laneInfo(track, param).kind === 'bool') value = value >= 0.5;
       const patch = ref.slotId === 'eq'
         ? { eq: { ...track.eq, values: { ...track.eq.values, [ref.paramId]: value } } }
         : { fx: track.fx.map((x) => (x?.id === ref.slotId ? { ...x, values: { ...x.values, [ref.paramId]: value } } : x)) };
@@ -198,7 +202,8 @@ export class TrackControls {
       const track = findTrack(state, pass.trackId);
       if (!track) continue;
       let lane = track.automation[pass.param] || [];
-      if (pass.param === 'mute') lane = muteSteps(lane);
+      const stepped = pass.param === 'mute' || (fxParamRef(pass.param) && laneInfo(track, pass.param).stepped);
+      if (stepped) lane = muteSteps(lane);
       const fallback = fxParamRef(pass.param) ? laneInfo(track, pass.param).value : staticValue(track, pass.param);
       pass.segments.forEach((seg, i) => {
         const last = i === pass.segments.length - 1;
@@ -206,14 +211,14 @@ export class TrackControls {
         let pts = seg.points.slice();
         if (last && !pass.done && end > pts[pts.length - 1].t) pts.push({ t: end, v: pass.value });
         // Recorded moves keep only the keyframes that shape them (the automationThin setting set to false keeps all).
-        if (pass.param !== 'mute' && this.app.prefs?.get?.('automationThin') !== false) pts = thinEnvelope(pts, thinTolerance(track, pass.param));
+        if (!stepped && this.app.prefs?.get?.('automationThin') !== false) pts = thinEnvelope(pts, thinTolerance(track, pass.param));
         // Outside the pass the lane keeps what it played (or the track's own value), rather than
         // ramping from the old points to the new ones.
         const before = seg.t0 > 0 ? [{ t: seg.t0 - 1, v: envelopeValue(lane, seg.t0 - 1, fallback) }] : [];
         const after = { t: end + 1, v: envelopeValue(lane, end + 1, fallback) };
         lane = writeEnvelopeRange(lane, seg.t0 - before.length, end + 1, [...before, ...pts, after]);
       });
-      state = setAutomation(state, pass.trackId, pass.param, pass.param === 'mute' ? muteSteps(lane) : lane);
+      state = setAutomation(state, pass.trackId, pass.param, stepped ? muteSteps(lane) : lane);
     }
     this.passes.clear();
     this.finished = [];

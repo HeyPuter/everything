@@ -434,7 +434,7 @@ describe('effect setting automation', () => {
     st = S.updateTrack(st, id, { fx: [{ id: 'sA', effect: 'amplify', values: { left: 0, right: 0, linked: true }, enabled: true }] });
     const t = S.findTrack(st, id);
     const params = fxAutomationParams(t);
-    expect(params.map((p) => p.id)).toEqual(['fx.sA.left', 'fx.sA.right']);
+    expect(params.map((p) => p.id)).toEqual(['fx.sA.left', 'fx.sA.right', 'fx.sA.linked']);
     expect(laneParams(t)).toContain('fx.sA.left');
     const info = laneInfo(t, 'fx.sA.left');
     expect(info.label).toBe('Amplify: Left');
@@ -540,5 +540,34 @@ describe('effect dialog edits on automated settings', () => {
     const sent = automatedChanges(doc, id, 'sA', { left: 0, right: 0, linked: true }, { left: 3, right: 2, linked: true });
     expect([...sent]).toEqual(['left']);
     expect(S.findTrack(doc.state, id).automation['fx.sA.left']).toEqual([{ t: 0, v: -6 }, { t: RATE, v: 3 }]);
+  });
+});
+
+describe('switch and choice lanes', () => {
+  it('offers switches and choices as stepped lanes and plays them as steps', async () => {
+    const { fxAutomationParams, laneInfo } = await import('../src/multitrack/fx-automation.js');
+    await import('../src/effects/defs/filter.js');
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    const id = st.tracks[0].id;
+    st = S.updateTrack(st, id, { eq: { on: true, values: {} } });
+    const t = S.findTrack(st, id);
+    const params = fxAutomationParams(t);
+    const hpOn = params.find((p) => p.id === 'fx.eq.hpOn');
+    const slope = params.find((p) => p.id === 'fx.eq.hpSlope');
+    expect(hpOn.kind).toBe('bool');
+    expect(slope.kind).toBe('choice');
+    const on = laneInfo(t, 'fx.eq.hpOn');
+    expect(on.stepped).toBe(true);
+    expect(on.fromPos(0.8)).toBe(1);
+    expect(on.format(1)).toBe('High Pass On');
+    expect(on.format(0)).toBe('High Pass Off');
+    const ch = laneInfo(t, 'fx.eq.hpSlope');
+    expect(ch.fromPos(1)).toBe(slope.options[slope.options.length - 1].value);
+    st = S.setAutomation(st, id, 'fx.eq.hpOn', [{ t: 0, v: 0 }, { t: 1000, v: 1 }]);
+    const eq = buildSessionGraph(st, new Map()).graph.tracks[0].fx.find((sp) => sp.key === `eq:${id}:eq`);
+    const env = eq.paramEnv[0].points;
+    // Off until frame 1000, then on: a step, not a ramp.
+    expect(S.envelopeValue(env, 500)).toBe(0);
+    expect(S.envelopeValue(env, 1000)).toBe(1);
   });
 });

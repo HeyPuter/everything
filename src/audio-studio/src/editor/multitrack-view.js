@@ -85,8 +85,9 @@ function segmentKeys(pts, t) {
   return { indices, lead: Math.max(0, hi - 1) };
 }
 
-/** Points to draw and evaluate for a lane: mute always steps. */
-const lanePoints = (param, pts) => (param === 'mute' ? S.muteSteps(pts) : pts);
+/** True when a clip envelope is drawn (keyframes can be picked in clips). */
+const r0EnvelopesShown = (app) => app.prefs.get('clipVolumeEnvelopes') !== false || Boolean(app.prefs.get('clipPanEnvelopes'));
+
 
 /**
  * Draws a small state glyph in a clip header at (x, cy) with the current stroke and fill
@@ -233,7 +234,7 @@ export class MultitrackView {
     this.glCanvas = h('canvas.mt-gl', { 'aria-hidden': 'true' });
     this.overlay = h('canvas.mt-overlay', { 'aria-hidden': 'true' });
     this.playheadEl = h('div.playhead', { 'aria-hidden': 'true' });
-    this.status = h('div.sr-only', { id: `mt-help-${doc.id}` }, 'Multitrack editor. Arrow keys move the playhead, Up and Down select tracks, Tab selects the next clip, Alt+comma and Alt+period nudge clips, Delete removes them.');
+    this.status = h('div.sr-only', { id: `mt-help-${doc.id}` }, 'Multitrack editor. Arrow keys move the playhead, Up and Down select tracks, Tab selects the next clip, Alt+comma and Alt+period nudge clips, Delete removes them. Shift+Alt-drag in a clip selects its envelope keyframes.');
     this.surface = h(
       'div.mt-lanes.editor-surface',
       { tabindex: '0', role: 'application', 'aria-roledescription': 'multitrack editor', 'aria-label': `Multitrack session ${doc.name}`, 'aria-describedby': this.status.id },
@@ -805,6 +806,12 @@ export class MultitrackView {
     return info;
   }
 
+  /** A lane's keyframes as they play (a stepped lane's all hold). */
+  #laneKeys(t, param) {
+    const pts = t.automation?.[param] || [];
+    return this.#info(t, param).stepped ? S.muteSteps(pts) : pts;
+  }
+
   #autoY(row, param, v) {
     const lane = this.#lane(row, param);
     const top = lane.top - this.scrollY + 4;
@@ -1067,7 +1074,7 @@ export class MultitrackView {
         const top = lane.top - this.scrollY;
         if (top > H || top + lane.height < 0) continue;
         const param = lane.param;
-        const pts = lanePoints(param, t.automation[param] || []);
+        const pts = this.#laneKeys(t, param);
         const color = param === 'pan' ? panColor : param === 'mute' ? cssVar('--text-dim') : volColor;
         ctx.fillStyle = cssVar('--text-dim');
         ctx.fillText(`${this.#info(t, param).label}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
@@ -1088,14 +1095,14 @@ export class MultitrackView {
           pts.forEach((p, i) => {
             const x = this.xOf(p.t);
             if (x < -4 || x > W + 4) return;
-            this.#drawKey(ctx, x, this.#autoY(row, param, p.v), Boolean(sk && sk.owner === t.id && sk.param === param && sk.indices.has(i)), p.hold && param !== 'mute');
+            this.#drawKey(ctx, x, this.#autoY(row, param, p.v), Boolean(sk && sk.owner === t.id && sk.param === param && sk.indices.has(i)), p.hold && !this.#info(t, param).stepped);
           });
         }
         ctx.globalAlpha = 1;
       }
     }
     // Rubber band over keyframes in an automation lane.
-    if (this.drag?.kind === 'keyBand' && this.drag.rect) {
+    if ((this.drag?.kind === 'keyBand' || this.drag?.kind === 'clipKeyBand') && this.drag.rect) {
       const q = this.drag.rect;
       ctx.strokeStyle = selEdge;
       ctx.setLineDash([3, 3]);
@@ -1383,7 +1390,7 @@ export class MultitrackView {
       const t = row.track;
       const lane = row.lanes.find((l) => cy >= l.top && cy < l.top + l.height) || row.lanes[row.lanes.length - 1];
       const param = lane.param;
-      const pts = lanePoints(param, t.automation[param] || []);
+      const pts = this.#laneKeys(t, param);
       for (let i = pts.length - 1; i >= 0; i--) {
         if (Math.abs(this.xOf(pts[i].t) - x) <= near && Math.abs(this.#autoY(row, param, pts[i].v) - y) <= near) return { part: 'autoKey', row, param, index: i, auto: true };
       }
@@ -1752,7 +1759,7 @@ export class MultitrackView {
     if (hit.part === 'autoLine' && (e.metaKey || e.ctrlKey)) {
       // Cmd/Ctrl-drag on a line: move the segment (its two keyframes) up or down.
       const t = hit.row.track;
-      const pts = lanePoints(hit.param, t.automation[hit.param] || []).slice();
+      const pts = this.#laneKeys(t, hit.param).slice();
       const seg = segmentKeys(pts, f);
       if (seg) {
         doc.selectedKeys = { owner: t.id, param: hit.param, indices: seg.indices };
@@ -1764,12 +1771,12 @@ export class MultitrackView {
     if (hit.part === 'autoKey' || hit.part === 'autoLine') {
       const t = hit.row.track;
       const param = hit.param;
-      let pts = lanePoints(param, t.automation[param] || []).slice();
+      let pts = this.#laneKeys(t, param).slice();
       let index = hit.index;
       if (hit.part === 'autoLine') {
         const at = Math.round(this.snap(f, { off: fine }));
         const prev = pts.filter((p) => p.t <= at).pop();
-        const key = { t: at, v: this.#autoValue(hit.row, param, y), ...(param === 'mute' || prev?.hold ? { hold: true } : {}) };
+        const key = { t: at, v: this.#autoValue(hit.row, param, y), ...(this.#info(t, param).stepped || prev?.hold ? { hold: true } : {}) };
         pts.push(key);
         pts.sort((p, q) => p.t - q.t);
         index = pts.indexOf(key);
@@ -1794,6 +1801,11 @@ export class MultitrackView {
       if (!(e.shiftKey || e.metaKey || e.ctrlKey)) doc.selectClips([]);
       if (tool === 'move' || tool === 'slip') this.drag = { ...base, kind: 'marquee', additive: e.shiftKey || e.metaKey || e.ctrlKey, initial: new Set(doc.selectedClips) };
       else this.drag = { ...base, kind: 'select', anchor: e.shiftKey && doc.hasSelection ? (Math.abs(f - doc.selection.start) < Math.abs(f - doc.selection.end) ? doc.selection.end : doc.selection.start) : this.snap(f), startRow: hit.row };
+      return;
+    }
+    // Shift+Alt-drag in a clip: rubber band over its envelope keyframes.
+    if (e.altKey && e.shiftKey && hit.part === 'body' && tool !== 'razor' && r0EnvelopesShown(this.app)) {
+      this.drag = { ...base, kind: 'clipKeyBand', id: c.id };
       return;
     }
     // Clip selection on press (Shift/Cmd toggles).
@@ -2053,6 +2065,31 @@ export class MultitrackView {
         this.keyReadout = { x: this.xOf(pts[d.index].t), y: this.#autoY(row, d.param, pts[d.index].v), text };
         break;
       }
+      case 'clipKeyBand': {
+        const r = this.clipRects().find((q) => q.clip.id === d.id);
+        if (!r) break;
+        const c = r.clip;
+        const rx = Math.min(d.x0, x);
+        const ry = Math.min(d.y0, y);
+        d.rect = { x: rx, y: ry, w: Math.abs(x - d.x0), h: Math.abs(y - d.y0) };
+        // The envelope with more keyframes inside the band wins (selection holds one envelope).
+        const inside = (param, pts) => {
+          const set = new Set();
+          pts.forEach((p, i) => {
+            const px = r.x0 + p.t / this.fpp;
+            const py = this.#envY(r, param, p.v);
+            if (px >= rx - 3 && px <= rx + d.rect.w + 3 && py >= ry - 3 && py <= ry + d.rect.h + 3) set.add(i);
+          });
+          return set;
+        };
+        const prefs = this.app.prefs;
+        const vol = prefs.get('clipVolumeEnvelopes') !== false ? inside('volume', c.volumeEnv) : new Set();
+        const pan = prefs.get('clipPanEnvelopes') ? inside('pan', c.panEnv) : new Set();
+        const [param, indices] = pan.size > vol.size ? ['pan', pan] : ['volume', vol];
+        doc.selectedKeys = indices.size ? { owner: c.id, param, indices } : null;
+        this.invalidate('overlay');
+        break;
+      }
       case 'keyBand': {
         const row = this.rowOf(d.trackId);
         if (!row) break;
@@ -2060,7 +2097,7 @@ export class MultitrackView {
         const ry = Math.min(d.y0, y);
         d.rect = { x: rx, y: ry, w: Math.abs(x - d.x0), h: Math.abs(y - d.y0) };
         const indices = new Set(d.initial);
-        lanePoints(d.param, row.track.automation[d.param] || []).forEach((p, i) => {
+        this.#laneKeys(row.track, d.param).forEach((p, i) => {
           const px = this.xOf(p.t);
           const py = this.#autoY(row, d.param, p.v);
           if (px >= rx - 3 && px <= rx + d.rect.w + 3 && py >= ry - 3 && py <= ry + d.rect.h + 3) indices.add(i);
@@ -2191,6 +2228,10 @@ export class MultitrackView {
       }
       return;
     }
+    if (d.kind === 'clipKeyBand') {
+      doc.selectedKeys = null;
+      return;
+    }
     if (d.kind === 'keyBand') {
       // A click in an empty part of a lane clears its keyframe selection.
       if (!d.initial.size) doc.selectedKeys = null;
@@ -2242,7 +2283,7 @@ export class MultitrackView {
     if (clip) return { points: param === 'pan' ? clip.panEnv : clip.volumeEnv, commit: (pts, label) => doc.apply(label, S.setClipEnvelope(doc.state, clip.id, param, pts)) };
     const t = S.findTrack(doc.state, owner);
     if (!t) return null;
-    return { points: lanePoints(param, t.automation[param] || []), commit: (pts, label) => doc.apply(label, S.setAutomation(doc.state, t.id, param, pts)) };
+    return { points: this.#laneKeys(t, param), commit: (pts, label) => doc.apply(label, S.setAutomation(doc.state, t.id, param, pts)) };
   }
 
   /** Items of the keyframe (or, with `lane`, automation lane) context menu. */
@@ -2254,15 +2295,17 @@ export class MultitrackView {
     const pts = env?.points || [];
     const allHold = sel.size > 0 && [...sel].every((i) => pts[i]?.hold);
     const run = (cmd, args) => this.app.commands.run(cmd, { id: owner, param, ...args });
+    const ownerTrack = auto ? S.findTrack(doc.state, owner) : null;
+    const stepped = Boolean(ownerTrack && this.#info(ownerTrack, param).stepped);
     const items = [];
     if (!lane) {
       items.push(
         {
           type: 'cmd',
           label: 'Hold Keyframe',
-          // Mute keyframes always hold.
-          enabled: param !== 'mute',
-          checked: param === 'mute' || allHold,
+          // Mute, switch and choice keyframes always hold.
+          enabled: !stepped,
+          checked: stepped || allHold,
           run: () => {
             const keep = doc.selectedKeys;
             env.commit(pts.map((p, i) => (!sel.has(i) ? p : allHold ? { t: p.t, v: p.v } : { ...p, hold: true })), allHold ? 'Linear Keyframes' : 'Hold Keyframes');

@@ -72,9 +72,12 @@ export function automatedChanges(doc, trackId, slotId, before, values) {
   if (!c || !t) return sent;
   const writing = c.playing && WRITING.has(t.mode);
   const ok = new Set(fxAutomationParams(t).map((p) => p.id));
-  for (const [k, v] of Object.entries(values)) {
+  for (const [k, raw] of Object.entries(values)) {
     const param = fxParam(slotId, k);
-    if (v === before?.[k] || typeof v !== 'number' || !ok.has(param)) continue;
+    // Switches automate as 0 (off) and 1 (on).
+    const v = typeof raw === 'boolean' ? Number(raw) : raw;
+    const was = typeof before?.[k] === 'boolean' ? Number(before[k]) : before?.[k];
+    if (v === was || typeof v !== 'number' || !ok.has(param)) continue;
     if (!writing && !c.automated(t, param)) continue;
     c.set(trackId, param, v, 'input');
     sent.add(k);

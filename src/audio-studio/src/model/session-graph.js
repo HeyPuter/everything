@@ -14,7 +14,7 @@
 
 import { mergeScene } from './merge-layout.js';
 import { sourceKey } from '../engine/engine.js';
-import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope, sendParam, fxParamRef } from './session-edits.js';
+import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope, sendParam, fxParamRef, muteSteps } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
 import { compensateLatency } from '../engine/mixcore.js';
 import { getEffect } from '../effects/registry.js';
@@ -61,7 +61,10 @@ function automateSlots(t, specs, prefix, slots = t.fx) {
     const def = getEffect(slots.find((x) => x?.id === ref.slotId)?.effect);
     const index = def ? def.params.findIndex((p) => p.id === ref.paramId) : -1;
     if (!spec || index < 0) continue;
-    (spec.paramEnv ||= []).push({ index, points: expandHolds(pts).map((p) => ({ t: p.t, v: p.v })) });
+    // Switches and choices step between keyframes.
+    const type = def.params[index].type;
+    const keys = type === 'bool' || type === 'choice' ? muteSteps(pts) : pts;
+    (spec.paramEnv ||= []).push({ index, points: expandHolds(keys).map((p) => ({ t: p.t, v: p.v })) });
   }
 }
 
