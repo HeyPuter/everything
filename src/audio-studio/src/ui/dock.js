@@ -243,6 +243,11 @@ export class Dock extends Emitter {
         this.#title(id),
       );
       tab.addEventListener('pointerdown', (e) => this.#startTabDrag(e, g, id, tab));
+      // Right-clicking a tab opens that panel's menu (its ≡ button shows only on the current tab).
+      tab.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.#panelMenu(tab, g, id);
+      });
       tabs.append(tab);
       if (active) {
         tabs.append(

@@ -192,4 +192,16 @@ describe('tab drag', () => {
     root.querySelector('#tab-files').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(root.querySelectorAll('.panel-group')).toHaveLength(2);
   });
+
+  it('opens a panel menu when its tab is right-clicked', () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    let label = null;
+    const dock = new Dock({ openMenu: (items, o) => (label = o.label) }, root, registry(['editor', 'files', 'history']));
+    dock.setLayout({ t: 'row', c: [{ t: 'group', tabs: ['files', 'history'] }, { t: 'group', tabs: ['editor'] }], s: [1, 3] });
+    const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    root.querySelector('#tab-history').dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    expect(label).toBe('HISTORY panel menu');
+  });
 });
