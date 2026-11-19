@@ -364,6 +364,44 @@ test('white text on the accent color (buttons, menu highlights) keeps 4.5:1 cont
   }
 });
 
+test('link-colored text (links, search tags) keeps 4.5:1 contrast on every surface in every theme and highlight color', async ({ page }) => {
+  const worst = () =>
+    page.evaluate(() => {
+      const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+      const lum = (c: string) => {
+        x.clearRect(0, 0, 1, 1);
+        x.fillStyle = c;
+        x.fillRect(0, 0, 1, 1);
+        const [r, g, b] = [...x.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const link = document.createElement('button');
+      link.className = 'link-button';
+      link.textContent = 'All tutorials';
+      document.body.append(link);
+      const fg = lum(getComputedStyle(link).color);
+      link.remove();
+      const root = getComputedStyle(document.documentElement);
+      let min = Infinity;
+      for (const token of ['--bg', '--chrome', '--surface', '--surface2', '--panel-tab', '--canvas', '--menu', '--input']) {
+        const bg = lum(root.getPropertyValue(token).trim());
+        min = Math.min(min, (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05));
+      }
+      return min;
+    });
+  for (const theme of ['dark', 'medium', 'light']) {
+    await page.locator('#theme').selectOption(theme);
+    for (const highlight of ['blue', 'gray', 'teal', 'violet', 'orange']) {
+      await page.evaluate((h) => {
+        const e = window.photoStudio;
+        e.preferences.highlightColor = h as typeof e.preferences.highlightColor;
+        e.preferencesChanged();
+      }, highlight);
+      expect(await worst(), `${theme} ${highlight}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
 test('the History list stays where it was scrolled when an update adds no step', async ({ page }) => {
   for (let i = 0; i < 20; i++) await page.evaluate(() => window.photoStudio.runCommand('layer.duplicate'));
   await idle(page);
