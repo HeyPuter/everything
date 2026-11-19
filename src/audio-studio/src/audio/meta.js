@@ -72,10 +72,12 @@ export const ALL_META_FIELDS = [
   { id: 'xmpDate', label: 'Date', kind: 'date' },
   { id: 'identifier', label: 'Identifier' },
   { id: 'relation', label: 'Relation' },
+  // Not shown in the Metadata panel: the Puter path of the session a mixdown came from.
+  { id: 'editOriginal', label: 'Original Session', hidden: true },
 ];
 
 const IDS = ALL_META_FIELDS.map((f) => f.id);
-const XMP_FIELDS = ['description', 'publisher', 'contributor', 'language', 'xmpDate', 'identifier', 'relation'];
+const XMP_FIELDS = ['description', 'publisher', 'contributor', 'language', 'xmpDate', 'identifier', 'relation', 'editOriginal'];
 
 /** Only known, non-empty, trimmed fields. */
 export function cleanMeta(meta = {}) {

@@ -84,11 +84,15 @@ export function bounceGraph(graph, trackId) {
 
 /** Wraps rendered data in an AudioFile, optionally using its captured render rate. */
 export function renderedDoc(app, session, data, name, markers = [], sampleRate = session.sampleRate) {
+  const path = session.source?.type === 'puter' ? session.source.path : null;
+  // Preferences > Markers & Metadata: saved copies keep the link back to their session.
+  const link = path && app.prefs?.get('embedEditOriginal') !== false ? { editOriginal: path } : {};
   return new AudioFile({
     name: app.uniqueName(name, '.wav'),
     sampleRate,
     channels: data.map((d) => Channel.fromSamples(d)),
     markers,
+    meta: link,
     info: { bitDepth: 32, format: 'wav' },
     // Edit > Edit Original goes back to the session this audio came from.
     origin: { sessionId: session.id, name: session.name, path: session.source?.type === 'puter' ? session.source.path : null },

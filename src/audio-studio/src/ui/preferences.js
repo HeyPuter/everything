@@ -231,6 +231,7 @@ export const CATEGORIES = [
           check('markersWithClipboard', 'Include markers when cutting, copying and pasting audio'),
           check('showMarkerLines', 'Show marker lines across the waveform'),
           check('markersInMixdowns', 'Copy session markers into multitrack mixdowns and recorded takes'),
+          check('embedEditOriginal', 'Save the link to the session in multitrack mixdowns', { keywords: 'edit original session link mixdown metadata xmp', help: 'Edit > Edit Original can then open the session from a saved mixdown, even after it is closed and opened again.' }),
           { type: 'custom', label: 'Show metadata in', keys: [], keywords: 'metadata files panel', render: metadataButtons },
           { type: 'text', key: 'markerName', label: 'Name for new markers', maxLength: 40, help: 'New markers are numbered after it, for example "Marker 01".' },
         ],

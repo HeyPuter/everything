@@ -35,6 +35,7 @@ export const DEFAULTS = {
   embeddedTimecode: false,
   channelZones: true,
   meterOnArm: true,
+  embedEditOriginal: true,
   defaultChannels: 2,
   returnToStart: true,
   skipSelection: false,
