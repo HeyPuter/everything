@@ -1206,7 +1206,9 @@ class LiquifyWorkspace {
     try {
       await fn();
     } catch (error) {
-      this.e.message(error instanceof Error ? error.message : String(error));
+      // A search still running when Liquify closed reports nothing.
+      if (this.dialog.isConnected)
+        this.e.message(error instanceof Error ? error.message : String(error));
     } finally {
       this.busy = false;
       this.dialog.classList.remove('lq-busy');
@@ -1216,6 +1218,9 @@ class LiquifyWorkspace {
   }
   /** Add found faces that are not already guided. */
   private addFound(list: FaceLandmarks[], source: Face['source']) {
+    // Faces that arrive after Liquify closed (Cancel during Find with AI)
+    // belong to no workspace any more.
+    if (!this.dialog.isConnected) return;
     let added = 0;
     for (const lm of list) {
       const c = { x: (lm.eyeL.x + lm.eyeR.x) / 2, y: (lm.eyeL.y + lm.eyeR.y) / 2 };

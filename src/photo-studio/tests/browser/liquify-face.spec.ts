@@ -387,3 +387,29 @@ test('Shift-click warps along a straight line, and options are remembered next t
   await expect(d.getByLabel('Mask Color')).toHaveValue('#00ff00');
   await d.locator('.lq-cancel').click();
 });
+
+test('Find with AI answering after Cancel says nothing about faces', async ({ page }) => {
+  const answer = JSON.stringify({
+    faces: [{ eyeL: [412, 417], eyeR: [587, 417], mouthL: [430, 663], mouthR: [570, 663] }],
+  });
+  // The stubbed service answers only when the test releases it.
+  await boot(
+    page,
+    'default',
+    `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{txt2img:async()=>({src:""}),chat:()=>new Promise((r)=>{window.__answer=()=>r({message:{content:${JSON.stringify(answer)}}})})}};`,
+  );
+  await openFace(page);
+  await openLiquify(page);
+  const d = dialog(page);
+  await d.locator('[data-act="face-ai"]').click();
+  await page.waitForFunction(() => !!(window as unknown as { __answer?: () => void }).__answer);
+  await d.locator('.lq-cancel').click();
+  await expect(dialog(page)).toHaveCount(0);
+  await idle(page);
+  await page.evaluate(() => (window as unknown as { __answer: () => void }).__answer());
+  // Let the late answer settle.
+  await nextFrame(page);
+  await nextFrame(page);
+  await expect(page.locator('#status')).not.toContainText('Found');
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+});
