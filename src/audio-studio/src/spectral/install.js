@@ -164,6 +164,8 @@ export function installSpectral(app) {
 
   const C = app.commands;
   const specOn = () => displayOn(app) && Boolean(audio());
+  // The pitch display fits its axis to the pitch contour: no frequency zoom there.
+  const freqZoomOn = () => specOn() && !pitchOn(app);
   const brushTool = () => specOn() && (app.tool === 'brush' || app.tool === 'heal');
   const brushStep = (dSize, dOpacity) => {
     const s = settings(app);
@@ -204,9 +206,9 @@ export function installSpectral(app) {
     },
     { id: 'view.specLog', label: 'Logarithmic', checked: () => logScale(app), run: () => app.prefs.set('spectralLog', true) },
     { id: 'view.specLinear', label: 'Linear', checked: () => !logScale(app), run: () => app.prefs.set('spectralLog', false) },
-    { id: 'view.zoomInFreq', label: 'Zoom In (Frequency)', shortcut: 'Alt+Shift+=', enabled: specOn, run: () => services.zoomFrequency(audio(), 0.6) },
-    { id: 'view.zoomOutFreq', label: 'Zoom Out (Frequency)', shortcut: 'Alt+Shift+-', enabled: specOn, run: () => services.zoomFrequency(audio(), 1 / 0.6) },
-    { id: 'view.zoomFullFreq', label: 'Zoom Out Full (Frequency)', enabled: specOn, run: () => services.resetFrequency(audio()) },
+    { id: 'view.zoomInFreq', label: 'Zoom In (Frequency)', shortcut: 'Alt+Shift+=', enabled: freqZoomOn, run: () => services.zoomFrequency(audio(), 0.6) },
+    { id: 'view.zoomOutFreq', label: 'Zoom Out (Frequency)', shortcut: 'Alt+Shift+-', enabled: freqZoomOn, run: () => services.zoomFrequency(audio(), 1 / 0.6) },
+    { id: 'view.zoomFullFreq', label: 'Zoom Out Full (Frequency)', enabled: freqZoomOn, run: () => services.resetFrequency(audio()) },
     {
       id: 'spectral.settings',
       label: 'Spectral Display Settings...',

@@ -78,3 +78,23 @@ describe('display switching', () => {
     expect(app.prefs.get('spectralDisplay')).toBe(false);
   });
 });
+
+describe('frequency zoom in the pitch display', () => {
+  it('is off while the pitch display fits the axis to the contour', async () => {
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { installSpectralAnalysis } = await import('../src/features/spectral-analysis.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    const app = new App();
+    installCore(app);
+    installSpectralAnalysis(app);
+    app.addDocument(new AudioFile({ name: 't.wav', sampleRate: 48000, channels: [Channel.fromSamples(new Float32Array(4800))] }));
+    app.commands.run('view.spectral');
+    expect(app.commands.isEnabled('view.zoomInFreq')).toBe(true);
+    app.commands.run('view.spectralPitch');
+    expect(app.commands.isEnabled('view.zoomInFreq')).toBe(false);
+    expect(app.commands.isEnabled('view.zoomFullFreq')).toBe(false);
+  });
+});
