@@ -257,8 +257,18 @@ function placeFloating(dialog, key) {
     if (store.get(`float:${key}`)) return;
     const d = dialog.getBoundingClientRect();
     if (d.right <= rect.left || d.left >= rect.right || d.bottom <= rect.top || d.top >= rect.bottom) return;
-    const left = rect.right + d.width <= window.innerWidth ? rect.right : rect.left - d.width >= 0 ? rect.left - d.width : window.innerWidth - 8 - d.width;
-    keep(left, d.top);
+    // Beside it, else above or below it, else wherever overlaps it least.
+    const spots = [
+      { left: rect.right, top: d.top },
+      { left: rect.left - d.width, top: d.top },
+      { left: d.left, top: rect.top - d.height },
+      { left: d.left, top: rect.bottom },
+    ];
+    const fits = (o) => o.left >= 0 && o.top >= 0 && o.left + d.width <= window.innerWidth && o.top + d.height <= window.innerHeight;
+    const overlap = (o) => Math.max(0, Math.min(o.left + d.width, rect.right) - Math.max(o.left, rect.left)) * Math.max(0, Math.min(o.top + d.height, rect.bottom) - Math.max(o.top, rect.top));
+    const clamp = (o) => ({ left: Math.min(Math.max(0, o.left), Math.max(0, window.innerWidth - d.width)), top: Math.min(Math.max(0, o.top), Math.max(0, window.innerHeight - d.height)) });
+    const best = spots.find(fits) || spots.map(clamp).sort((a, b) => overlap(a) - overlap(b))[0];
+    keep(best.left, best.top);
   };
   const head = dialog.querySelector('.dialog-head');
   head?.addEventListener('pointerdown', (e) => {

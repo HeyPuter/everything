@@ -751,6 +751,10 @@
   position: relative;
   z-index: 901;
 }
+/* A floating effect window leaves the editor usable, so the preview stays in the page's layer. */
+body:has(.dialog-backdrop.modeless) .preview-editor.over-dialog {
+  z-index: auto;
+}
 .preview-head {
   display: flex;
   align-items: center;
