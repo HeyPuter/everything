@@ -446,6 +446,18 @@ export function applyParagraphStyle(c: TextContent, start: number, end: number, 
   return out;
 }
 
+/** Paste Text Attributes: every character in [start, end) takes `char` and
+ * every paragraph the range touches takes `paragraph` (optional attributes
+ * the source lacks are cleared); the text is unchanged. A collapsed range
+ * restyles its paragraph (and an empty paragraph's caret style). */
+export function applyTextAttributes(c: TextContent, start: number, end: number, char: CharStyle, paragraph: ParagraphStyle): TextContent {
+  const patch: Partial<CharStyle> = { ...char, color: [...char.color] as RGB };
+  for (const k of optionalCharKeys) if (patch[k] === undefined) (patch as Record<string, unknown>)[k] = k === 'noBreak' || k === 'wholeWidths' ? false : '';
+  const out = applyCharStyle(c, start, end, patch);
+  const ps = new Set(paragraphsInRange(out, start, end));
+  return { paragraphs: out.paragraphs.map((p, i) => (ps.has(i) ? { runs: p.runs, style: { ...paragraph } } : p)) };
+}
+
 // Plain text and styles of a range, for copy and paste with formatting.
 export function sliceContent(c: TextContent, start: number, end: number): TextContent {
   const [a, b] = start <= end ? [start, end] : [end, start];

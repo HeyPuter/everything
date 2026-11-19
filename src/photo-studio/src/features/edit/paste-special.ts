@@ -10,6 +10,7 @@ import type { RGBA8 } from '../../imaging/types';
 import { insertAboveSelection } from '../layers/insert';
 import { nextLayerName } from '../pixels';
 import { clipboardContent, internalClipboard, purgeClipboard } from '../core';
+import { copiedTextAttributes } from '../type/text-attributes';
 
 /** The clipboard image: the editor's own copy, or the system clipboard's
  * image when something else was copied since. */
@@ -77,12 +78,38 @@ async function pastePlain(e: Editor) {
   type.focusInput(e);
 }
 
+/** Character and paragraph attributes of the text copied last, applied to
+ * the selected text range or type layers; the text itself is kept. */
+async function pasteTextAttributes(e: Editor) {
+  const attrs = copiedTextAttributes();
+  if (!attrs) {
+    e.message('Copy a type layer or some text first.');
+    return;
+  }
+  const type = await import('../type/session');
+  // Links to styles this document does not define are dropped.
+  const styles = e.doc.textStyles;
+  const char = { ...attrs.char }, paragraph = { ...attrs.paragraph };
+  if (char.charStyle && !styles?.character.some((s) => s.id === char.charStyle)) delete char.charStyle;
+  if (paragraph.paragraphStyle && !styles?.paragraph.some((s) => s.id === paragraph.paragraphStyle)) delete paragraph.paragraphStyle;
+  await type.applyAttributes(e, char, paragraph, 'Paste Text Attributes');
+  if (type.sessionLayer()) type.focusInput(e);
+}
+const textTarget = (e: Editor) => e.hasDocument && (e.selectedLayers.some((l) => l.kind === 'text') || (e.layer?.kind === 'text' && e.tool.startsWith('type')));
+
 export function installPasteSpecial(_e: Editor) {
   const hasSelection = (e: Editor) => e.hasDocument && !!e.doc.selection;
   registerCommand(
     { id: 'edit.paste-into', label: 'Paste Into', shortcut: 'Mod+Alt+Shift+V', description: 'Paste into a new layer masked by the selection', enabled: hasSelection, run: (e) => pasteMasked(e, false) },
     { id: 'edit.paste-outside', label: 'Paste Outside', description: 'Paste into a new layer masked outside the selection', enabled: hasSelection, run: (e) => pasteMasked(e, true) },
     { id: 'edit.paste-plain', label: 'Paste without Formatting', description: 'Paste clipboard text as plain text', run: (e) => pastePlain(e), recordable: false },
+    {
+      id: 'edit.paste-text-attributes',
+      label: 'Paste Text Attributes',
+      description: 'Give the selected text or type layers the character and paragraph attributes of the text copied last, keeping their words',
+      enabled: (e) => !!copiedTextAttributes() && textTarget(e),
+      run: (e) => pasteTextAttributes(e),
+    },
     {
       id: 'edit.purge-clipboard',
       label: 'Clipboard',

@@ -79,6 +79,8 @@ export function installType(e: Editor) {
     const enabled = c?.enabled;
     if (c) c.enabled = (e) => textStep(id) || (enabled ? enabled(e) : true);
   }
+  // Edit commands that work inside the text being edited.
+  const TEXT_AWARE = new Set(['edit.find-replace-text', 'edit.paste-plain', 'edit.paste-text-attributes']);
   const run = e.runCommand.bind(e);
   e.runCommand = async (id: string, arg?: unknown) => {
     if (textStep(id)) {
@@ -86,7 +88,7 @@ export function installType(e: Editor) {
       focusInput(e);
       return;
     }
-    if (session && commands.has(id) && id !== 'edit.find-replace-text' && !/^(type|window|view|help)\./.test(id)) await commit(e);
+    if (session && commands.has(id) && !TEXT_AWARE.has(id) && !/^(type|window|view|help)\./.test(id)) await commit(e);
     return run(id, arg);
   };
   e.onUpdate(() => {

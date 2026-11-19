@@ -32,7 +32,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
     label: 'Edit',
     items: [
       'edit.undo', 'edit.redo', 'edit.toggle-last-state', 'edit.fade', '-',
-      'edit.cut', 'edit.copy', 'edit.copy-merged', 'edit.paste', { label: 'Paste Special', id: 'edit.paste-special', items: ['edit.paste-plain', 'edit.paste-in-place', 'edit.paste-into', 'edit.paste-outside'] }, 'edit.clear', '-',
+      'edit.cut', 'edit.copy', 'edit.copy-merged', 'edit.paste', { label: 'Paste Special', id: 'edit.paste-special', items: ['edit.paste-plain', 'edit.paste-text-attributes', 'edit.paste-in-place', 'edit.paste-into', 'edit.paste-outside'] }, 'edit.clear', '-',
       'edit.search', '-',
       'edit.fill', 'edit.stroke', 'edit.context-fill', 'edit.ai-fill', 'edit.generate-image', 'edit.edit-with-prompt', '-',
       'edit.context-scale', 'edit.pin-warp', 'edit.perspective-warp', 'edit.free-transform',

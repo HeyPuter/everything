@@ -18,6 +18,7 @@ import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
 import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
+import { rememberCopiedLayerText } from './type/text-attributes';
 import { layerLock, setFullLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
 import { recordsSettings, settingsDialog } from './action-settings';
@@ -566,6 +567,8 @@ async function layerVia(e: Editor, cut: boolean) {
 }
 async function copySelection(e: Editor, cut: boolean, merged: boolean) {
   const doc = e.doc;
+  // Paste Text Attributes takes them from copied text.
+  if (!merged) rememberCopiedLayerText(e.layer);
   const sel = selectionGrid(doc, e.assets.tiles);
   const b = sel ? selectionBounds(doc, sel) : canvasRect(doc);
   if (!b) return;
