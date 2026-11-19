@@ -6,7 +6,9 @@ import {
   historyLabels,
   idle,
   openImage,
+  panel,
   run,
+  start,
   tool,
   undo,
 } from './helpers';
@@ -240,4 +242,39 @@ test('dynamic text round-trips in projects and old block text opens as dynamic t
   expect(old.fit!.height).toBeUndefined();
   expect(old.same).toBe(true);
   for (const w of old.widths) expect(w).toBeCloseTo(240, 1);
+});
+
+test('the Properties panel and Dynamic Text Options change the fit', async ({ page }) => {
+  await typeText(page, 150, 200, 'PROPERTIES');
+  await page.keyboard.press('Escape');
+  await idle(page);
+  const props = await panel(page, 'Properties');
+  const fit = props.getByLabel('Dynamic text shape');
+  await fit.selectOption('bow');
+  await idle(page);
+  expect((await state(page)).fit!.shape).toBe('bow');
+  await expect(props.getByLabel('Dynamic text shape')).toHaveValue('bow');
+  expect(await page.evaluate(async () => (await import('/src/app/registry.ts')).commands.get('type.path-options')!.label)).toBe('Dynamic Text Options…');
+
+  // The options dialog: shape, bend and box size, previewed and applied in one step.
+  const before = (await historyLabels(page)).length;
+  await start(page, 'type.path-options');
+  const dialog = page.getByRole('dialog', { name: 'Dynamic Text Options' });
+  await expect(dialog.getByLabel('Space between lines (px)')).toBeHidden();
+  await dialog.getByLabel('Shape').selectOption('block');
+  await expect(dialog.getByLabel('Space between lines (px)')).toBeVisible();
+  await expect(dialog.getByLabel('Bend')).toBeHidden();
+  await dialog.getByLabel('Box width (px)').fill('300');
+  await dialog.getByLabel('Box width (px)').dispatchEvent('input');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await idle(page);
+  const s = await state(page);
+  expect(s.fit).toMatchObject({ shape: 'block', width: 300 });
+  expect(await historyLabels(page)).toHaveLength(before + 1);
+
+  // None releases the fit.
+  await (await panel(page, 'Properties')).getByLabel('Dynamic text shape').selectOption('');
+  await idle(page);
+  expect((await state(page)).fit).toBeUndefined();
+  expect((await historyLabels(page)).at(-1)).toBe('Release Fit');
 });

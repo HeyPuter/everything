@@ -11,7 +11,8 @@ import { layerLocked } from '../../model/transform';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { hexRgb, rgbHexString } from '../../model/text-layer';
-import type { AntiAlias, CharStyle, Kerning, ParagraphStyle } from '../../imaging/text/model';
+import type { AntiAlias, CharStyle, FitShape, Kerning, ParagraphStyle } from '../../imaging/text/model';
+import { convertToFit, FIT_LABELS, releaseFitText } from './path-type';
 import { propertiesEditors } from '../panels/properties';
 import {
   applyChar,
@@ -81,6 +82,7 @@ function sections(e: Editor, l: Layer): string {
     styles.unshift([styleValue, styleName(ch.weight!, !!ch.italic)]);
   const aa = c.data?.antiAlias;
   const vertical = (session ? session.data.orientation : l.textData?.orientation) === 'vertical';
+  const fit = (session ? session.data.fit : l.textData?.fit)?.shape;
   const dir = p.direction ?? (Object.keys(p).length ? 'ltr' : undefined);
   const kerning: [Kerning, string][] = [
     ['metrics', 'Metrics'],
@@ -121,6 +123,7 @@ ${section(
   `
 <div class="tp-row"><div class="type-toggles" role="group" aria-label="Orientation">${toggle('data-command', 'type.horizontal', 'type', 'Horizontal text', !vertical)}${toggle('data-command', 'type.vertical', 'type-vertical', 'Vertical text', vertical)}</div>
 <label class="tp-field" title="Anti-aliasing method">aa <select data-taa aria-label="Anti-aliasing method">${aa ? '' : '<option value="" selected></option>'}${AA.map(([v, n]) => `<option value="${v}" ${aa === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
+<label class="tp-field" title="Dynamic text: the text refits this shape when it or its box changes">Fit <select data-tfit aria-label="Dynamic text shape" ${vertical ? 'disabled' : ''}><option value="" ${fit ? '' : 'selected'}>None</option>${FIT_LABELS.map(([v, n]) => `<option value="${v}" ${fit === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
 `,
 )}
 ${section(
@@ -163,6 +166,7 @@ function bind(e: Editor, el: HTMLElement) {
       const [w, i] = raw.split('|');
       if (w) done(applyChar(e, { weight: Number(w), italic: i === '1' }));
     } else if (t.matches('[data-tcolor]')) done(applyChar(e, { color: hexRgb(raw) }));
+    else if (t.matches('[data-tfit]')) done(raw ? convertToFit(e, raw as FitShape) : releaseFitText(e));
     else if (t.matches('[data-taa]')) {
       if (raw) done(setAntiAlias(e, raw as AntiAlias));
     } else if (t.dataset.tchar) {

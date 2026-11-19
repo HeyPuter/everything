@@ -18,6 +18,27 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     action: { commands: ['layer.new-relight'], needs: 'document' },
   },
   {
+    id: 'dynamic-text',
+    title: 'Dynamic text',
+    text: 'Text that refits its shape: block lines scaled to the width of their box and broken to fill it, or type sized to run along a circle, arch, bow or wave. Resize the box or edit the words and it fits again; Release Fit keeps the look as ordinary text.',
+    release: 'November 2026',
+    action: { commands: ['type.fit-block'], needs: 'document', hint: 'Select a text layer, then choose Type → Convert to Dynamic Text.' },
+  },
+  {
+    id: 'paste-text-attributes',
+    title: 'Paste Text Attributes',
+    text: 'Copy a type layer or some text, then give other type layers or a selected range its font, size, color and paragraph settings without changing their words, in one undo step.',
+    release: 'November 2026',
+    action: { commands: ['edit.paste-text-attributes'], needs: 'document', hint: 'Copy a type layer, select others, then choose Edit → Paste Special → Paste Text Attributes.' },
+  },
+  {
+    id: 'type-language-options',
+    title: 'More typesetting options',
+    text: 'Kashida justification for Arabic, top-to-top and bottom-to-bottom leading, justification and hyphenation settings, an every-line composer, hanging punctuation, No Break and Fractional Widths. Type → Language Options chooses which options the panels show.',
+    release: 'November 2026',
+    action: { commands: ['type.justification'], needs: 'document', hint: 'Select a text layer, then open the Paragraph panel menu.' },
+  },
+  {
     id: 'assistant',
     title: 'Describe an Edit',
     text: 'Describe a change in words and the Assistant plans it with Photo Studio’s own commands. Review or change the steps, then run them as one undo step (Puter AI).',

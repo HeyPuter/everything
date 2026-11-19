@@ -433,6 +433,22 @@ every transform, so a symmetric stroke is still one session and one undo step.
 - Block text (`textData.block`) is laid out as point text and then each line is
   scaled about its left end to one width and stacked by capital height
   (`imaging/text/block-text.ts`), so shaping and carets are unchanged.
+- Dynamic text (`textData.fit`: block, circle, arch, bow or wave in a box at
+  `origin`) keeps relative sizes in its content; `layoutText` first resolves it
+  (`imaging/text/fit.ts`) into ordinary data that draws the same: block text
+  whose width and gap fit the box (automatic lines turn chosen spaces into
+  paragraph breaks, so indices are unchanged), or arc path text whose curve and
+  type size are scaled into the box. The layer frame is the box, so transform
+  scaling resizes the box (`bakeFitScale`) instead of stretching glyphs. Release
+  Fit keeps the resolved data (block lines baked into per-line sizes and
+  leading). Older `block` data is migrated on load to a fit of automatic height.
+- Paragraph options beyond alignment and indents are optional keys on
+  `ParagraphStyle` (missing means default, so older text lays out unchanged):
+  justification limits and kashidas (`justifyLine`), auto leading and the
+  top-to-top / bottom-to-bottom leading models (`baselineStep`), hyphenation
+  rules, the every-line composer (`breakEveryLine`, least squared slack) and
+  hanging punctuation. Which of them the panels show follows the
+  `typeFeatures` preference (Type → Language Options).
 - In vertical text `CharStyle.vertical` sets Latin and digits upright, rotated
   sideways (runs with `angle`, advancing by their width) or, for 'combine', runs
   of up to three characters set horizontally in one cell (`verticalForms` in
