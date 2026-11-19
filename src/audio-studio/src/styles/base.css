@@ -53,6 +53,12 @@ svg.icon {
   outline-offset: -2px;
 }
 
+/* Sliders: a rounded ring just outside the track, not a box over it. */
+input[type='range']:focus-visible {
+  border-radius: var(--radius);
+  outline-offset: 1px;
+}
+
 .sr-only {
   position: absolute !important;
   width: 1px;
@@ -615,10 +621,25 @@ input[type='number']:not(:focus):not(:disabled):not([readonly]) {
   pointer-events: none;
 }
 
+/* Floating windows share a stack with floating panel frames (src/ui/window-stack.js):
+   under modal dialogs, menus and tooltips, the one last clicked in front. */
+.dialog-backdrop.modeless {
+  z-index: 850;
+}
+
 .dialog.floating {
   position: fixed;
   pointer-events: auto;
-  box-shadow: 0 12px 36px rgb(0 0 0 / 45%);
+  box-shadow: var(--shadow-dialog);
+}
+
+/* The window you are working in has the accent edge, like the focused panel frame. */
+.dialog.floating:focus-within {
+  border-color: var(--accent);
+}
+
+.dialog.floating:focus {
+  outline: none;
 }
 
 .dialog.floating .dialog-head {

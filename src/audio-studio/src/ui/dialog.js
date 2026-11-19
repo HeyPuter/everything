@@ -3,6 +3,7 @@
 
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
+import { raiseWindow, stackWindow } from './window-stack.js';
 
 let openCount = 0;
 /** Where each dialog (by title) was last moved to: { x, y } offsets from the centered place. */
@@ -171,9 +172,12 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
     const keys = (e) => {
       if (!backdrop.isConnected) return;
       if (floating && !dialog.contains(e.target)) return;
-      // Only the topmost dialog handles keys (a dialog may open another).
-      const all = document.querySelectorAll('.dialog-backdrop');
-      if (all[all.length - 1] !== backdrop) return;
+      // Only the topmost modal dialog handles keys (a dialog may open another); a floating
+      // window handles the keys pressed inside it, wherever it sits in the window stack.
+      if (!floating) {
+        const all = document.querySelectorAll('.dialog-backdrop:not(.modeless)');
+        if (all[all.length - 1] !== backdrop) return;
+      }
       // Inline value editors (hot text) take their own Enter and Escape.
       if ((e.key === 'Enter' || e.key === 'Escape') && e.target.classList?.contains('hot-edit')) return;
       if (e.key === 'Escape') {
@@ -219,6 +223,8 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       });
     }
     document.body.append(backdrop);
+    // A floating window opens in front of the other floating windows and comes forward when clicked.
+    if (floating) raiseWindow(stackWindow(backdrop));
     if (floating) placeFloating(dialog, positionKey || (typeof title === 'string' ? title : 'dialog'));
     else movable?.restore();
     // The first candidate that takes focus (a layout may hide some, e.g. tabs on phones).

@@ -11,6 +11,7 @@
 
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
+import { raiseWindow, stackWindow } from './window-stack.js';
 import { Emitter } from '../lib/emitter.js';
 
 const MIN = 80;
@@ -358,8 +359,12 @@ export class Dock extends Emitter {
   /** A floating window: a frame (or a split of frames) in a movable, resizable window over the workspace. */
   #float(f, build) {
     this.#fit(f);
-    const wrap = h('div.dock-float', { style: { left: `${f.x}px`, top: `${f.y}px`, width: `${f.w}px`, height: `${f.h}px` } });
+    // A rebuild keeps the window's place in the floating-window stack; a click brings it forward.
+    const zIndex = this.floatEls.get(f)?.style.zIndex || '';
+    const wrap = stackWindow(h('div.dock-float', { style: { left: `${f.x}px`, top: `${f.y}px`, width: `${f.w}px`, height: `${f.h}px`, zIndex } }));
     this.floatEls.set(f, wrap);
+    // A window new to the stack (just undocked, or restored with the layout) opens in front.
+    if (!zIndex) raiseWindow(wrap);
     const content = build(f.node);
     content.style.flex = '1 1 0px';
     const groups = this.groups(f.node);
