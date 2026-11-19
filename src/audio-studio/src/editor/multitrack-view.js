@@ -1007,7 +1007,16 @@ export class MultitrackView {
         }
         ctx.globalAlpha = 1;
         const label = c.name + stretchText + remixText;
-        ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
+        // The name stops short of the gain readout on narrow clips instead of running under it.
+        const gainLeft = w > 90 && prefs.get('clipGainControls') !== false ? textEnd - ctx.measureText(formatGain(c.gain)).width - 6 : Infinity;
+        if (tx + ctx.measureText(label).width > gainLeft) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(tx, r.y, Math.max(0, gainLeft - tx), r.hb);
+          ctx.clip();
+          ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
+          ctx.restore();
+        } else ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
         const type = c.soundAssistant && ASSISTANT_TYPES[c.soundAssistant.type];
         // Keep the badges clear of the gain readout (shown on wider clips).
         const gainShown = w > 90 && prefs.get('clipGainControls') !== false;

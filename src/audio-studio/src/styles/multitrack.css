@@ -1030,8 +1030,9 @@
     min-height: 30px;
   }
 
+  /* Wide enough for four finger-sized switches in a row (M, S, R, monitor). */
   .mx-strip {
-    width: 108px;
+    width: 136px;
   }
 
   .mt-th-resize {
@@ -1040,6 +1041,92 @@
 
   .mt-splitter {
     width: 8px;
+  }
+
+  /* Track headers: a wider color strip to tap, a full-height name field, and the input and
+     output side by side so the rows fit the default track height. */
+  .mt-th {
+    grid-template-columns: 12px minmax(0, 1fr) 9px;
+  }
+
+  .mt-th-color {
+    width: 12px;
+  }
+
+  .mt-th-name {
+    height: 30px;
+  }
+
+  .mt-th .hot {
+    min-height: 28px;
+    min-width: 32px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .mt-th-io {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .mt-th-io-row {
+    flex: 1 1 0;
+  }
+
+  .mt-th-io .mt-th-glyph {
+    display: none;
+  }
+
+  .mt-th-mode {
+    flex: 0 0 auto;
+    min-width: 84px;
+  }
+
+  .mt-th-autotoggle,
+  .mt-th-addlane,
+  .mt-lane-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .mt-lane-param {
+    min-width: 96px;
+    height: 32px;
+  }
+
+  .mt-lane-head {
+    align-items: center;
+    padding-top: 0;
+  }
+
+  /* With lanes open on a medium track the routing row makes room for the automation row. */
+  .mt-th.with-auto[data-size='md'] .mt-th-r3 {
+    display: none;
+  }
+
+  /* Mixer: finger-sized empty effect slots, slot menus and send menus (the desktop look stays). */
+  .mx-fx {
+    max-height: 132px;
+  }
+
+  .mx-fx-slot {
+    height: 32px;
+  }
+
+  .mx-fx-power,
+  .mx-fx-menu {
+    width: 30px;
+  }
+
+  /* (More specific than the strip's compact send menu rules further down.) */
+  .mx-strip .mx-select.mx-send-sel,
+  .mx-strip .mx-select.mx-send-target {
+    height: 32px;
+  }
+
+  .mx-strip .mx-select.mx-send-sel {
+    flex: none;
+    width: 52px;
   }
 }
 

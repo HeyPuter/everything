@@ -368,7 +368,12 @@ export class TrackHeader {
     this.el.style.gridTemplateRows = autoPx ? `minmax(0, 1fr) ${autoPx}px` : '';
     this.el.style.setProperty('--lane-h', `${this.track?.laneHeight || 46}px`);
     this.resize.style.bottom = autoPx ? `${autoPx}px` : '';
-    const size = px < 46 ? 'xs' : px < 76 ? 'sm' : px < 118 ? 'md' : 'lg';
+    // Finger-sized rows (touch) are taller, and phone headers wrap the name onto its own line:
+    // fewer rows fit in the same track height.
+    const coarse = coarsePointer();
+    const lift = coarse ? (document.documentElement.dataset.layout === 'phone' ? 34 : 0) : 0;
+    const [a, b, c] = coarse ? [72 + lift, 104 + lift, 137 + lift] : [46, 76, 118];
+    const size = px < a ? 'xs' : px < b ? 'sm' : px < c ? 'md' : 'lg';
     if (this.el.dataset.size !== size) this.el.dataset.size = size;
     this.el.classList.toggle('with-auto', autoPx > 0);
   }
@@ -380,6 +385,13 @@ export class TrackHeader {
   setSelected(on) {
     this.el.classList.toggle('selected', on);
   }
+}
+
+let coarseQuery = null;
+/** True on touch screens (finger-sized controls). */
+function coarsePointer() {
+  coarseQuery ||= globalThis.matchMedia?.('(pointer: coarse)') || { matches: false };
+  return coarseQuery.matches;
 }
 
 function syncOptions(sel, options, value) {
