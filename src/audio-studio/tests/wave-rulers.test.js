@@ -603,3 +603,21 @@ describe('snap distances', () => {
     expect(view.snap(30000 + 6 * 48)).toBe(30000);
   });
 });
+
+describe('Export Audio within Range Markers', () => {
+  it('starts on Download while signed out to Puter', async () => {
+    const { app, doc } = await makeView();
+    const { createMarker } = await import('../src/model/markers.js');
+    window.puter = { auth: { isSignedIn: () => false } };
+    try {
+      doc.apply('Range', { ...doc.state, markers: [createMarker({ start: 0, duration: 4800, name: 'A' })] });
+      app.prefs.set('batchExport', { location: 'puter' });
+      app.commands.run('file.exportRanges');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(document.querySelector('.dialog select[aria-label=Location]').value).toBe('download');
+      [...document.querySelectorAll('.dialog-foot .btn')].find((b) => b.textContent === 'Cancel').click();
+    } finally {
+      delete window.puter;
+    }
+  });
+});

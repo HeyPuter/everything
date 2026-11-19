@@ -218,7 +218,7 @@ async function exportRangesDialog(app) {
   for (const el of [naming, prefix, startAt, fmt, ...checks]) el.addEventListener(el === prefix || el === startAt ? 'input' : 'change', syncNaming);
   syncNaming();
   const sdk = Boolean(puter.sdk());
-  const loc = h('select.select', { 'aria-label': 'Location' }, h('option', { value: 'puter', disabled: !sdk }, sdk ? `Puter folder (~/${puter.APP_DIR})` : 'Puter folder (not available)'), h('option', { value: 'download', selected: !sdk || saved.location !== 'puter' }, 'Download (ZIP for several files)'));
+  const loc = h('select.select', { 'aria-label': 'Location' }, h('option', { value: 'puter', disabled: !sdk }, sdk ? `Puter folder (~/${puter.APP_DIR})` : 'Puter folder (not available)'), h('option', { value: 'download', selected: !sdk || saved.location !== 'puter' || !puter.isSignedIn() }, 'Download (ZIP for several files)'));
   const r = await openDialog({
     title: 'Export Audio within Range Markers',
     body: h(
