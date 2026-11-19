@@ -58,3 +58,15 @@ it('puts a stretched clip back on its own audio', () => {
   expect(c.soundAssistant.duration.orig).toBe(null);
   expect(revertDurationClips(next, [a.id])).toBe(next);
 });
+
+it('takes a remix back off when Duration is turned off and applied', async () => {
+  const { applyDurationClips } = await import('../src/sound-assistant/ops.js');
+  const { s, a } = setup();
+  const settings = setPath(defaultSettings('music'), ['duration', 'on'], false);
+  const remixed = s.addSource({ name: 'remix', channels: [Channel.fromSamples(new Float32Array(RATE * 6))] });
+  s.apply('Remix', updateClips(s.state, [a.id], { ...clipPatch(findClip(s.state, a.id), settings), sourceId: remixed, offset: 0, length: RATE * 6, remix: { sourceId: a.sourceId, offset: 0, length: RATE * 10, target: RATE * 6 } }));
+  const next = await applyDurationClips(s, [a.id]);
+  const c = findClip(next, a.id);
+  expect(c.remix).toBeFalsy();
+  expect(c.sourceId).toBe(a.sourceId);
+});
