@@ -487,6 +487,44 @@ test('AI Recompose picks a clicked object, and Rotate Object replaces a cut-out 
   ]);
 });
 
+test('AI Recompose says a locked cut-out layer stays visible', async ({ page }) => {
+  await boot(page, 'default', PUTER_FLAT);
+  await scene(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const data = new Uint8ClampedArray(30 * 50 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([240, 200, 20, 255], i);
+    const l = newPixelLayer(
+      'Bottle',
+      e.doc,
+      gridFromImage(e.assets.tiles, { width: 30, height: 50, data }, 100, 60),
+    );
+    l.locked = true;
+    e.command('Add', (d) => d.layers.push(l));
+    e.selectLayers([l.id]);
+    e.update();
+  });
+  await idle(page);
+  await start(page, 'edit.ai-recompose');
+  const dialog = page.locator('dialog.ga-recompose');
+  await expect(dialog.locator('#ga-mode')).toHaveValue('layer');
+  await expect(dialog.locator('#ai-status')).toContainText('Move, scale, rotate', {
+    timeout: 60_000,
+  });
+  await expect(dialog.locator('#ga-object-note')).toContainText('locked');
+  const preview = dialog.locator('canvas.rw-canvas');
+  await preview.focus();
+  for (let i = 0; i < 4; i++) await preview.press('Shift+ArrowRight');
+  await dialog.getByRole('button', { name: 'Add Layers' }).click();
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  await expect(page.locator('#status')).toContainText('locked, so it was not hidden');
+  const layers = await layerInfo(page);
+  expect(layers.find((l) => l.name === 'Bottle')?.visible).toBe(true);
+});
+
 test('Generative dialogs explain sign-in and unsupported documents', async ({ page }) => {
   await boot(page, 'default', PUTER_SIGNED_OUT);
   await scene(page);

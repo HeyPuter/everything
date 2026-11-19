@@ -477,6 +477,6 @@ async function addTurned(
   }
   addLayers(e, 'Rotate Object', layers, r.src.layer?.id ?? e.selected, hide);
   e.message(
-    `The turned object was added as a new layer${layers.length > 1 ? ' over a fill of its old place' : hide ? ' and the original layer was hidden' : ''}.`,
+    `The turned object was added as a new layer${layers.length > 1 ? ' over a fill of its old place' : hide ? ' and the original layer was hidden' : ''}.${r.replace && r.mode === 'layer' && !hide ? ' The original layer is locked, so it was not hidden.' : ''}`,
   );
 }

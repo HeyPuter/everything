@@ -333,7 +333,13 @@ export async function recomposeDialog(e: Editor) {
       if (ac.signal.aborted) return;
       obj = cut;
       objCanvas = canvasOf(cut.img);
-      objNote.textContent = `${cut.rect.width} × ${cut.rect.height} px object${mode === 'layer' ? '; the layer itself is hidden when you add the result.' : '.'}`;
+      objNote.textContent = `${cut.rect.width} × ${cut.rect.height} px object${
+        mode !== 'layer'
+          ? '.'
+          : replaceable(e, src.layer)
+            ? '; the layer itself is hidden when you add the result.'
+            : '; the layer is locked, so it stays visible under the result.'
+      }`;
       // A cut-out layer leaves nothing to fill; otherwise fill its old place.
       vacated = mode === 'layer' ? mask8(W, H) : vacatedMask(m, vacatedGrow(cut.rect));
       const box = boundingBox(vacated);
@@ -643,7 +649,7 @@ async function addResult(
   const hide = r.mode === 'layer' && replaceable(e, r.src.layer) ? r.src.layer!.id : undefined;
   addLayers(e, 'AI Recompose', layers, r.src.layer?.id ?? e.selected, hide);
   e.message(
-    `AI Recompose added ${layers.length === 1 ? 'a new layer' : `${layers.length} new layers`}${hide ? ' and hid the original layer' : ''}.`,
+    `AI Recompose added ${layers.length === 1 ? 'a new layer' : `${layers.length} new layers`}${hide ? ' and hid the original layer' : ''}.${r.mode === 'layer' && !hide ? ' The original layer is locked, so it was not hidden.' : ''}`,
   );
 }
 
