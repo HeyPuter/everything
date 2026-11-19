@@ -103,9 +103,17 @@ export function installScripting(e: Editor) {
         if (e.busy) await go();
         else await e.run(async () => void (await go()));
       },
-      action: async (id) => {
+      action: async (id, s) => {
         const found = allActions().find((a) => a.action.id === id);
-        if (found && e.hasDocument) await playAction(e, found.action);
+        if (!found) return;
+        // Plays on the event's document while it is open, holding the editor
+        // as a script run does: a tab chosen meanwhile is shown afterwards.
+        const play = async () => {
+          if (s && s !== e.session && e.sessions.includes(s)) await e.switchSession(s);
+          if (e.hasDocument) await playAction(e, found.action);
+        };
+        if (e.busy) await play();
+        else await e.run(play);
       },
     });
   });
