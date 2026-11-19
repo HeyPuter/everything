@@ -213,6 +213,23 @@ describe('Amplitude and Compression dialogs', () => {
     await close();
   });
 
+  it('Channel Mixer inverts each input on its own', async () => {
+    const { dlg, close } = open('channelMixer');
+    const [lInv, rInv] = dlg.querySelectorAll('[role=tabpanel]')[0].querySelectorAll('.cm-invert input');
+    expect(lInv.checked).toBe(false);
+    // R into L is 0 %: nothing to invert yet.
+    expect(rInv.disabled).toBe(true);
+    lInv.checked = true;
+    lInv.dispatchEvent(new Event('change'));
+    const values = () => [...dlg.querySelectorAll('[role=tabpanel]')[0].querySelectorAll('.hot')].map((x) => x.textContent);
+    expect(values()[0]).toMatch(/^-100/);
+    expect(dlg.querySelector('.fx-preset-select').value).not.toBe('Default');
+    lInv.checked = false;
+    lInv.dispatchEvent(new Event('change'));
+    expect(values()[0]).toMatch(/^100/);
+    await close();
+  });
+
   it('Normalize greys out the target it does not use', async () => {
     const { dlg, close } = open('normalize');
     const hots = () => [...dlg.querySelectorAll('.hot')].filter((x) => !x.closest('[hidden]'));

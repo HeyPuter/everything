@@ -361,7 +361,8 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   const hides = editor?.hides;
   const gridDef = hides ? { ...def, params: def.params.map((p) => (hides === true || hides.includes(p.id) ? { ...p, hidden: true } : p)) } : def;
   const ctlOpts = { doc, range, smooth: (v) => smoothParam && v[smoothParam.id], onReadout: def.readout ? ctx.onReadout : null };
-  const tabs = def.layout?.tabs || null;
+  // A view that lays out every param itself (`hides` true) also draws its own pages.
+  const tabs = hides === true ? null : def.layout?.tabs || null;
   let main;
   if (tabs) {
     // Tabbed pages: each holds its sections (and the graphical editor when `editor` is set).

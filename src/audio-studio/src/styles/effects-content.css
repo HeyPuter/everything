@@ -784,3 +784,25 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   justify-content: space-between;
   gap: 8px;
 }
+
+/* Channel Mixer: each input's amount with its Invert box at the end of the row. */
+.cm-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 12px;
+}
+
+.cm-head {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.cm-head-invert {
+  text-align: center;
+}
+
+.cm-invert {
+  display: flex;
+  justify-content: center;
+}
