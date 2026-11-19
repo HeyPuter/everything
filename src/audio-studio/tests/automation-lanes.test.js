@@ -396,3 +396,31 @@ describe('beat note', () => {
     expect(e.length).toBe(RATE);
   });
 });
+
+describe('saving the new session settings', () => {
+  it('keeps lanes, mute and send automation, holds, splines, routing and the accent pattern', async () => {
+    const { serializeSession, parseSession } = await import('../src/model/session-io.js');
+    const doc = new Session({ name: 'Keep.asesx', sampleRate: RATE, tracks: 1 });
+    const src = doc.addSource({ name: 'a.wav', channels: [Channel.fromSamples(new Float32Array(100)), Channel.fromSamples(new Float32Array(100))] });
+    let st = S.addTrack(doc.state, S.createTrack({ type: 'bus', name: 'Bus' }));
+    const id = st.tracks[0].id;
+    st = S.setSend(st, id, 0, { target: st.tracks[1].id });
+    st = S.updateTrack(st, id, { showAutomation: true, lanes: ['mute', 'send1'], laneHeight: 60 });
+    st = S.setAutomation(st, id, 'mute', [{ t: 0, v: 1, hold: true }]);
+    st = S.setAutomation(st, id, 'send1', [{ t: 5, v: -3 }]);
+    st = S.addClips(st, [S.createClip({ trackId: id, sourceId: src, length: 100, volumeEnv: [{ t: 0, v: -6, hold: true }, { t: 50, v: 0 }], volumeSpline: true, channelMap: [1, 1] })]);
+    st = { ...st, metronomePattern: ['down', 'none', 'sub', 'up'] };
+    doc.apply('Set', st);
+    const { state } = parseSession(serializeSession(doc).text);
+    const t = state.tracks[0];
+    expect(t.lanes).toEqual(['mute', 'send1']);
+    expect(t.laneHeight).toBe(60);
+    expect(t.automation.mute).toEqual([{ t: 0, v: 1, hold: true }]);
+    expect(t.automation.send1).toEqual([{ t: 5, v: -3 }]);
+    const c = state.clips[0];
+    expect(c.volumeEnv[0].hold).toBe(true);
+    expect(c.volumeSpline).toBe(true);
+    expect(c.channelMap).toEqual([1, 1]);
+    expect(state.metronomePattern).toEqual(['down', 'none', 'sub', 'up']);
+  });
+});
