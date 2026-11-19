@@ -37,6 +37,32 @@
   overflow: auto;
 }
 
+/* The file or clip the panel edits. */
+.sa-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.sa-target-name {
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-editor > .sa-target {
+  padding: 6px 8px 0;
+}
+
+.sa-preset.sa-assign-preset {
+  padding: 0;
+  border-bottom: none;
+}
+
 .sa-assign-text {
   margin: 0;
   color: var(--text);

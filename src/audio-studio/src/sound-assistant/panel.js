@@ -267,11 +267,47 @@ export function soundAssistantPanel(app) {
     return h('div.sa-empty', h('p', text), extra || null);
   }
 
+  /** Assigns the preset's audio type and its settings in one step (Clip Volume stays). */
+  const assignPreset = (p) => {
+    const t = target(app);
+    const settings = (cur) => ({ ...applyPreset(cur, p), volume: cur?.volume || { level: 0, mute: false } });
+    if (t.mode === 'session') {
+      const typed = ops.assignType(t.doc.state, t.ids, p.type);
+      t.doc.apply(`Sound Assistant Preset: ${p.name}`, ops.setClipSettings(typed, t.ids, (cur) => settings(cur)));
+    } else if (t.mode === 'file') {
+      ops.setFileSettings(t.doc, settings(null));
+      refresh(true);
+    }
+    announce(`${TYPES[p.type].label}, preset ${p.name}`);
+    requestAnimationFrame(() => el.querySelector('.sa-preset select')?.focus());
+  };
+
+  /** File name, or the clip name (or count) the panel edits. */
+  function targetName(t) {
+    if (t.mode === 'file') return t.doc.name;
+    if (t.mode === 'session') return t.clips.length > 1 ? `${t.clips.length} clips` : t.clips[0].name || 'Clip';
+    return '';
+  }
+
   function assignView(t) {
     const what = t.mode === 'file' ? 'this audio file' : t.clips.length > 1 ? `the ${t.clips.length} selected clips` : 'the selected clip';
     const heading = t.mixed ? `The selected clips have different audio types. Choose one type for all of them:` : `Choose an audio type for ${what}:`;
+    // A preset of any type assigns that type with the preset's settings.
+    const presetSel = h(
+      'select.select',
+      { 'aria-label': 'Start from a preset' },
+      h('option', { value: '', disabled: true, selected: true }, 'Start from a preset...'),
+      TYPE_IDS.map((type) => h('optgroup', { label: TYPES[type].label }, presetsFor(type, userPresets()).map((p) => h('option', { value: `${type}\n${p.name}` }, p.user ? `${p.name} (mine)` : p.name)))),
+    );
+    presetSel.addEventListener('change', () => {
+      const [type, name] = presetSel.value.split('\n');
+      const p = presetsFor(type, userPresets()).find((x) => x.name === name);
+      if (p) assignPreset(p);
+    });
     return h(
       'div.sa-assign',
+      h('div.sa-target', icon(t.mode === 'file' ? 'file-audio' : 'mode-multitrack', 14), h('span.sa-target-name', { title: targetName(t) }, targetName(t))),
+      h('div.sa-preset.sa-assign-preset', h('label.sa-label', 'Preset'), presetSel),
       h('p.sa-assign-text', heading),
       h(
         'div.sa-types',
@@ -289,7 +325,8 @@ export function soundAssistantPanel(app) {
     const s0 = () => target(app).settings;
     const sessionMode = t.mode === 'session';
 
-    // Header: type and Clear.
+    // Header: what is edited, its type and Clear.
+    const name = h('div.sa-target', icon(sessionMode ? 'mode-multitrack' : 'file-audio', 14), h('span.sa-target-name', { title: targetName(t) }, targetName(t)));
     const head = h(
       'div.sa-head',
       h('span.sa-type-icon', icon(TYPES[type].icon, 16)),
@@ -492,7 +529,7 @@ export function soundAssistantPanel(app) {
       foot = h('div.sa-foot', previewBtn, h('div.spacer'), note, applyBtn);
     }
 
-    const root = h('div.sa-editor', head, presetRow, h('div.sa-scroll', sections), foot);
+    const root = h('div.sa-editor', name, head, presetRow, h('div.sa-scroll', sections), foot);
     const refreshAll = () => {
       const s = s0();
       if (!s) return;
