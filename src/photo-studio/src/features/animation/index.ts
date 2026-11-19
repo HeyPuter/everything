@@ -6,7 +6,7 @@ import { commands, contributeMenu, registerCommand, registerOverlay, registerPan
 import { recordsSettings, settingsDialog } from '../action-settings';
 import { allLayers } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
-import { gridFromImage } from '../../model/tiles';
+import { gridFromImage, type TileGrid } from '../../model/tiles';
 import {
   adoptFrameLayers,
   createAnimation,
@@ -124,12 +124,22 @@ async function onionSettings(e: Editor, arg?: unknown) {
 async function flattenFrames(e: Editor) {
   const doc = e.doc;
   const anim = doc.animation!;
-  const images: ImageData[] = [];
-  for (let i = 0; i < anim.frames.length; i++) {
-    e.message(`Rendering frame ${i + 1} of ${anim.frames.length}…`);
-    images.push(await compositeFrame(e, frameDocument(doc, i)));
+  const assets = e.assets;
+  // Each frame becomes tiles as soon as it is rendered, so only one frame's
+  // image is held at a time; the tiles are kept until the layers join the
+  // document.
+  const grids: TileGrid[] = [];
+  const release = assets.tiles.hold(() => grids.flatMap((g) => Object.values(g.tiles)));
+  try {
+    for (let i = 0; i < anim.frames.length; i++) {
+      e.message(`Rendering frame ${i + 1} of ${anim.frames.length}…`);
+      const img = await compositeFrame(e, frameDocument(doc, i), assets);
+      grids.push(gridFromImage(assets.tiles, { width: img.width, height: img.height, data: img.data }));
+    }
+  } finally {
+    release();
   }
-  const layers = images.map((img, i) => newPixelLayer(`Frame ${i + 1}`, doc, gridFromImage(e.assets.tiles, { width: img.width, height: img.height, data: img.data })));
+  const layers = grids.map((grid, i) => newPixelLayer(`Frame ${i + 1}`, doc, grid));
   e.command('Flatten Frames Into Layers', (d) => {
     d.layers.push(...layers);
     adoptFrameLayers(d, d.layers.slice(-layers.length));
