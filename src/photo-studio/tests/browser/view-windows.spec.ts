@@ -162,3 +162,23 @@ test('a document tab keeps the keyboard focus while the tabs redraw after a zoom
   await idle(page);
   expect(await focused()).toBe('second');
 });
+
+test('in a flipped view the horizontal ruler counts from the image’s left edge, now on the right', async ({ page }) => {
+  const zeroAndHundred = () =>
+    page.evaluate(() => {
+      const ruler = document.querySelector('#ruler-x')!;
+      const left = ruler.getBoundingClientRect().left;
+      const at = (label: string) => [...ruler.querySelectorAll('span')].find((s) => s.textContent === label)!.getBoundingClientRect().left - left;
+      const e = window.photoStudio;
+      return { zero: at('0') - (e.clientPoint(0, 0)[0] - left), hundred: at('100') - (e.clientPoint(100, 0)[0] - left) };
+    });
+  await run(page, 'view.zoom-200');
+  await run(page, 'view.fit');
+  let d = await zeroAndHundred();
+  expect(Math.abs(d.zero)).toBeLessThan(1.5);
+  expect(Math.abs(d.hundred)).toBeLessThan(1.5);
+  await run(page, 'view.flip-horizontal');
+  d = await zeroAndHundred();
+  expect(Math.abs(d.zero)).toBeLessThan(1.5);
+  expect(Math.abs(d.hundred)).toBeLessThan(1.5);
+});

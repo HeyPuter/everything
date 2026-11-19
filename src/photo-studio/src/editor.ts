@@ -820,7 +820,9 @@ export class Editor {
     this.root.classList.toggle('rulers-hidden', !this.preferences.showRulers);
     if (this.preferences.showRulers) {
       const unit = rulerUnitScale(this.doc, this.preferences.rulerUnits);
-      setMarkup(this.el('#ruler-x'), rulerTicks(viewport.clientWidth, viewport.clientWidth / 2 + this.pan.x - (this.doc.width * this.zoom * aspect) / 2, this.zoom * aspect, false, unit.x));
+      // A flipped view has the image's left edge, the ruler's zero, on the right.
+      const sx = this.zoom * aspect * (this.activeView.flip ? -1 : 1);
+      setMarkup(this.el('#ruler-x'), rulerTicks(viewport.clientWidth, viewport.clientWidth / 2 + this.pan.x - (this.doc.width * sx) / 2, sx, false, unit.x));
       setMarkup(this.el('#ruler-y'), rulerTicks(viewport.clientHeight, viewport.clientHeight / 2 + this.pan.y - (this.doc.height * this.zoom) / 2, this.zoom, true, unit.y));
     }
     this.screenOverlay();
