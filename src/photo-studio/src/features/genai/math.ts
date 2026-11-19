@@ -1,7 +1,7 @@
 // Generative layout edits (AI Recompose, Remove Reflections, Rotate Object):
 // prompts, object transforms, seam masks, blending and placement. No DOM, so
 // it runs in the assist worker and in unit tests.
-import { contract, expand } from '../../imaging/segment/mask-ops';
+import { boundingBox, contract, expand } from '../../imaging/segment/mask-ops';
 import { mask8, type IRect, type Mask8, type RGBA8 } from '../../imaging/types';
 
 // ---------------------------------------------------------------------------
@@ -284,9 +284,32 @@ export function footprint(obj: CutObject | null, W: number, H: number): Mask8 {
 /** The area to fill once the object leaves: its coverage, slightly grown so
  * no fringe of it stays behind. */
 export function vacatedMask(mask: Mask8, grow: number): Mask8 {
-  const bin = mask8(mask.width, mask.height);
-  for (let i = 0; i < bin.data.length; i++) bin.data[i] = mask.data[i] >= 16 ? 255 : 0;
-  return grow > 0 ? expand(bin, grow) : bin;
+  const W = mask.width,
+    H = mask.height;
+  const out = mask8(W, H);
+  const b = boundingBox(mask, 16);
+  if (!b) return out;
+  // Morphology only around the object, so large canvases stay quick.
+  const R = padRect(b, grow + 2, W, H);
+  const bin = mask8(R.width, R.height);
+  for (let y = 0; y < R.height; y++)
+    for (let x = 0; x < R.width; x++)
+      bin.data[y * R.width + x] = mask.data[(y + R.y) * W + x + R.x] >= 16 ? 255 : 0;
+  const grown = grow > 0 ? expand(bin, grow) : bin;
+  for (let y = 0; y < R.height; y++)
+    out.data.set(grown.data.subarray(y * R.width, (y + 1) * R.width), (y + R.y) * W + R.x);
+  return out;
+}
+/** `r` grown by `m` on every side, clipped to W x H. */
+export function padRect(r: IRect, m: number, W: number, H: number): IRect {
+  const x = Math.max(0, r.x - m),
+    y = Math.max(0, r.y - m);
+  return {
+    x,
+    y,
+    width: Math.min(W, r.x + r.width + m) - x,
+    height: Math.min(H, r.y + r.height + m) - y,
+  };
 }
 /** Grow amount for the vacated area: about 1% of the object, 2..12 px. */
 export function vacatedGrow(rect: IRect): number {
@@ -299,18 +322,29 @@ export function vacatedGrow(rect: IRect): number {
 export function seamMask(vacated: Mask8, placed: Mask8, ring: number): Mask8 {
   const W = vacated.width,
     H = vacated.height;
-  const bin = mask8(W, H);
-  let any = false;
-  for (let i = 0; i < bin.data.length; i++)
-    if (placed.data[i] >= 128) {
-      bin.data[i] = 255;
-      any = true;
-    }
   const out = mask8(W, H);
-  const around = any ? expand(bin, ring) : bin,
-    inside = any ? contract(bin, Math.max(1, Math.round(ring / 4))) : bin;
-  for (let i = 0; i < out.data.length; i++)
-    out.data[i] = (vacated.data[i] || around.data[i]) && !inside.data[i] ? 255 : 0;
+  const vb = boundingBox(vacated),
+    pb = boundingBox(placed, 128);
+  if (vb)
+    for (let y = vb.y; y < vb.y + vb.height; y++)
+      for (let x = vb.x; x < vb.x + vb.width; x++)
+        if (vacated.data[y * W + x]) out.data[y * W + x] = 255;
+  if (!pb) return out;
+  // The ring and the object's inside, worked out around the object only.
+  const R = padRect(pb, ring + 2, W, H);
+  const bin = mask8(R.width, R.height);
+  for (let y = 0; y < R.height; y++)
+    for (let x = 0; x < R.width; x++)
+      bin.data[y * R.width + x] = placed.data[(y + R.y) * W + x + R.x] >= 128 ? 255 : 0;
+  const around = expand(bin, ring),
+    inside = contract(bin, Math.max(1, Math.round(ring / 4)));
+  for (let y = 0; y < R.height; y++)
+    for (let x = 0; x < R.width; x++) {
+      const i = y * R.width + x,
+        o = (y + R.y) * W + x + R.x;
+      if (inside.data[i]) out.data[o] = 0;
+      else if (around.data[i]) out.data[o] = 255;
+    }
   return out;
 }
 

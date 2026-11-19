@@ -7,7 +7,7 @@ import { escapeXML } from '../../model/assets';
 import { findLayer, insertLayerAt, type Layer, type PhotoDocument } from '../../model/document';
 import { layerLock } from '../../model/locks';
 import { canvasRect, selectionGrid } from '../../model/selection';
-import { readMask, readRGBA } from '../../model/tiles';
+import { gridDocBounds, readMask, readRGBA } from '../../model/tiles';
 import { toAIError, type AIError } from '../../imaging/ai/puter-ai';
 import { CancelledError, type IRect, type Mask8, type RGBA8 } from '../../imaging/types';
 import { compositeRGBA } from '../pixels';
@@ -209,11 +209,30 @@ export function pixelLayer(e: Editor): Layer | undefined {
 /** Whether a layer has see-through parts within the canvas (a cut-out). */
 export function hasTransparency(e: Editor, l: Layer | undefined): boolean {
   if (!l?.pixels) return false;
-  const img = readRGBA(e.assets.tiles, l.pixels, canvasRect(e.doc));
-  let opaque = 0,
-    clear = 0;
-  for (let i = 3; i < img.data.length; i += 4) img.data[i] > 250 ? opaque++ : clear++;
-  return opaque > 0 && clear > 0;
+  const b = gridDocBounds(l.pixels);
+  if (!b) return false;
+  const { width: W, height: H } = e.doc;
+  // Content that does not cover the canvas leaves see-through parts.
+  if (b.x > 0 || b.y > 0 || b.x + b.width < W || b.y + b.height < H) return true;
+  // Otherwise look along rows spread over the canvas (enough to tell a
+  // cut-out from a photo without reading every pixel of a large layer).
+  const step = Math.max(1, Math.floor(H / 256));
+  let opaque = false,
+    clear = false;
+  for (let y = 0; y < H; y += step) {
+    const row = readRGBA(e.assets.tiles, l.pixels, {
+      x: 0,
+      y: Math.min(H - 1, y),
+      width: W,
+      height: 1,
+    }).data;
+    for (let i = 3; i < row.length; i += 4) {
+      if (row[i] > 250) opaque = true;
+      else clear = true;
+      if (opaque && clear) return true;
+    }
+  }
+  return false;
 }
 /** Which ways of choosing the object apply now, best first. */
 export function objectModes(e: Editor): ObjectMode[] {

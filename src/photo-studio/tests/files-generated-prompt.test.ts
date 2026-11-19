@@ -26,3 +26,19 @@ it('opens a project whose generated layers have prompts over 4000 characters', a
     (await deserialize(await serialize(doc, assets))).document.layers[0].generated?.prompt,
   ).toBe('a kite');
 });
+
+it('keeps how AI Recompose, Remove Reflections and Rotate Object layers were made', async () => {
+  const assets = new Assets();
+  const doc = newDocument(8, 8, 'Layout');
+  for (const kind of ['recompose', 'reflection', 'rotate'] as const) {
+    const l = newPixelLayer(kind, doc);
+    l.generated = { kind, prompt: `${kind} note` };
+    doc.layers.push(l);
+  }
+  const loaded = await deserialize(await serialize(doc, assets));
+  expect(loaded.document.layers.map((l) => l.generated)).toEqual([
+    { kind: 'recompose', prompt: 'recompose note' },
+    { kind: 'reflection', prompt: 'reflection note' },
+    { kind: 'rotate', prompt: 'rotate note' },
+  ]);
+});

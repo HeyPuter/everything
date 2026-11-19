@@ -150,12 +150,10 @@ test('AI Recompose blends seams through the generative pass and keeps the result
   await expect(dialog.locator('#ai-status')).toContainText('first');
   await dialog.getByLabel('Scale (%) value').fill('80');
   await dialog.getByLabel('Scale (%) value').press('Enter');
-  await dialog
-    .locator('canvas.rw-canvas')
-    .dragTo(dialog.locator('canvas.rw-canvas'), {
-      sourcePosition: { x: 60, y: 60 },
-      targetPosition: { x: 200, y: 60 },
-    });
+  await dialog.locator('canvas.rw-canvas').dragTo(dialog.locator('canvas.rw-canvas'), {
+    sourcePosition: { x: 60, y: 60 },
+    targetPosition: { x: 200, y: 60 },
+  });
   await dialog.locator('#ga-count').selectOption('2');
   await dialog.getByLabel('Note (optional)').fill('soft evening light');
   await dialog.getByRole('button', { name: 'Generate' }).click();
@@ -304,6 +302,77 @@ test('Rotate Object turns the selected object and places it where it stood', asy
   expect(r).toBeLessThan(80);
   expect(a).toBe(255);
   expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Rotate Object');
+});
+
+test('AI Recompose picks a clicked object, and Rotate Object replaces a cut-out layer', async ({
+  page,
+}) => {
+  await boot(page, 'default', PUTER_OBJECT);
+  await scene(page);
+  await start(page, 'edit.ai-recompose');
+  const dialog = page.locator('dialog.ga-recompose');
+  await dialog.locator('#ga-mode').selectOption('click');
+  await expect(dialog.locator('#ga-hint')).toHaveText('Click the object to move.');
+  // Click the green square (document 180, 70) in the preview.
+  const canvas = dialog.locator('canvas.rw-canvas');
+  const box = (await canvas.boundingBox())!;
+  await canvas.click({ position: { x: (180 / 240) * box.width, y: (70 / 160) * box.height } });
+  await expect(dialog.locator('#ai-status')).toContainText('Move, scale, rotate', {
+    timeout: 60_000,
+  });
+  await expect(dialog.locator('#ga-object-note')).toContainText(/^\d+ × \d+ px object/);
+  const size = await dialog.locator('#ga-object-note').textContent();
+  const [w, h] = size!
+    .match(/(\d+) × (\d+)/)!
+    .slice(1)
+    .map(Number);
+  expect(Math.abs(w - 40)).toBeLessThanOrEqual(4);
+  expect(Math.abs(h - 40)).toBeLessThanOrEqual(4);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  // A cut-out layer: its content is the object, and replacing hides it.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const data = new Uint8ClampedArray(30 * 50 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([240, 200, 20, 255], i);
+    const l = newPixelLayer(
+      'Bottle',
+      e.doc,
+      gridFromImage(e.assets.tiles, { width: 30, height: 50, data }, 100, 60),
+    );
+    e.command('Add', (d) => d.layers.push(l));
+    e.selectLayers([l.id]);
+    e.update();
+  });
+  await idle(page);
+  await start(page, 'edit.rotate-object');
+  const rot = page.locator('dialog.ga-rotate');
+  await expect(rot.locator('#ga-mode')).toHaveValue('layer');
+  await expect(rot.locator('#ai-status')).toContainText('Set the turn', { timeout: 60_000 });
+  await rot.locator('#ga-count').selectOption('1');
+  await rot.getByRole('button', { name: 'Generate' }).click();
+  await expect(rot.getByRole('radio').first()).toBeVisible({ timeout: 60_000 });
+  await rot.getByRole('button', { name: 'Add Layer' }).click();
+  await expect(rot).toHaveCount(0);
+  await idle(page);
+  const layers = await layerInfo(page);
+  expect(layers.map((l) => [l.name, l.visible])).toEqual([
+    ['Background', true],
+    ['Bottle', false],
+    [expect.stringMatching(/^Rotated .*: Bottle$/), true],
+  ]);
+  // Stands on the bottle's bottom edge (y 110), 50 px tall.
+  const b = layers[2].bounds!;
+  expect(Math.abs(b.y + b.height - 110)).toBeLessThanOrEqual(2);
+  expect(Math.abs(b.height - 50)).toBeLessThanOrEqual(2);
+  // One undo step brings the bottle back.
+  await run(page, 'edit.undo');
+  expect((await layerInfo(page)).map((l) => [l.name, l.visible])).toEqual([
+    ['Background', true],
+    ['Bottle', true],
+  ]);
 });
 
 test('Generative dialogs explain sign-in and unsupported documents', async ({ page }) => {

@@ -290,6 +290,7 @@ export async function recomposeDialog(e: Editor) {
         src = await sourceFor(e, mode, useLayer);
         found.list = undefined;
         basePreview = scaled(src.base);
+        await breathe();
       }
       if (ac.signal.aborted) return;
       draw();
@@ -328,12 +329,16 @@ export async function recomposeDialog(e: Editor) {
         gen.say('The object is empty. Choose another.', 'error');
         return;
       }
+      await breathe();
+      if (ac.signal.aborted) return;
       obj = cut;
       objCanvas = canvasOf(cut.img);
       objNote.textContent = `${cut.rect.width} × ${cut.rect.height} px object${mode === 'layer' ? '; the layer itself is hidden when you add the result.' : '.'}`;
       // A cut-out layer leaves nothing to fill; otherwise fill its old place.
       vacated = mode === 'layer' ? mask8(W, H) : vacatedMask(m, vacatedGrow(cut.rect));
       const box = boundingBox(vacated);
+      await breathe();
+      if (ac.signal.aborted) return;
       draw();
       if (box) {
         gen.say('Filling the object’s place…', 'busy');
@@ -645,3 +650,6 @@ function clampRect(r: IRect, W: number, H: number): IRect {
     y = Math.max(0, r.y);
   return { x, y, width: Math.min(W, r.x + r.width) - x, height: Math.min(H, r.y + r.height) - y };
 }
+/** Let the page paint and take input between steps on large images (awaits
+ * that resolve at once would otherwise run them as one long task). */
+const breathe = () => new Promise<void>((r) => setTimeout(r, 0));
