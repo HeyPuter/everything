@@ -153,7 +153,7 @@ class Strip {
     this.el.setAttribute('aria-label', `${track.type === 'master' ? 'Master' : track.name} channel strip`);
     this.name.textContent = track.name;
     this.name.title = track.name;
-    for (const [b, k] of [[this.mute, 'mute'], [this.solo, 'solo'], [this.arm, 'arm'], [this.monitor, 'monitor'], [this.invert, 'invert']]) b?.setAttribute('aria-pressed', String(Boolean(track[k])));
+    for (const [b, k] of [[this.solo, 'solo'], [this.arm, 'arm'], [this.monitor, 'monitor'], [this.invert, 'invert']]) b?.setAttribute('aria-pressed', String(Boolean(track[k])));
     this.mode.value = track.mode;
     this.fxPower.setAttribute('aria-pressed', String(track.fxPower));
     if (this.input) {
@@ -192,6 +192,10 @@ class Strip {
     if (this.fader.getValue() !== v) this.fader.setValue(v);
     if (this.dbNum.getValue() !== v) this.dbNum.setValue(v);
     this.fader.classList.toggle('automated', c.automated(t, 'volume'));
+    // Mute follows its automation lane during playback.
+    const muted = String(c.muted(t));
+    if (this.mute.getAttribute('aria-pressed') !== muted) this.mute.setAttribute('aria-pressed', muted);
+    this.mute.classList.toggle('automated', c.automated(t, 'mute'));
     if (this.pan) {
       const p = c.value(t, 'pan');
       if (this.pan.getValue() !== p) this.pan.setValue(p);

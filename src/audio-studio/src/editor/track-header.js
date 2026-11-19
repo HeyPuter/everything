@@ -3,11 +3,13 @@
 // readouts, input/output routing, the effects list, a send or the track EQ
 // (the header mode buttons pick which), the automation mode,
 // a level meter and a resize handle. Rows hide as the track gets shorter.
+// Below them sit the automation lane headers: per lane its parameter, keyframe
+// navigation at the playhead, clear and close, and a handle that sizes the lanes.
 
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { knob, hotNumber } from '../ui/controls.js';
-import { AUTOMATION_MODES, TRACK_COLORS, SILENT_DB, MAX_DB, wouldCycle } from '../model/session-edits.js';
+import { AUTOMATION_MODES, AUTOMATION_PARAMS, TRACK_COLORS, SILENT_DB, MAX_DB, wouldCycle, trackLanes, automationParams, updateTrack } from '../model/session-edits.js';
 import { formatGainShort, formatPan, parseGain, parsePan, formatGain } from '../multitrack/levels.js';
 import { getEffect } from '../effects/registry.js';
 import { MeterBar } from '../multitrack/meter.js';
@@ -80,8 +82,10 @@ export class TrackHeader {
     this.autoToggle = h('button.icon-btn.sm.mt-th-autotoggle', { type: 'button', 'aria-expanded': 'false', 'aria-label': 'Show automation lane', title: 'Show Automation Lane', onclick: () => app.commands.run('mt.toggleAutomationLane', { id: this.id }) }, icon('chevron-right', 13));
     this.modeSel = h('select.select.mt-th-select.mt-th-mode', { 'aria-label': 'Automation mode', title: 'Automation Mode' }, AUTOMATION_MODES.map((m) => h('option', { value: m.id }, m.label)));
     this.modeSel.addEventListener('change', () => app.commands.run('mt.setAutomationMode', { id: this.id, mode: this.modeSel.value }));
-    this.paramSel = isMaster ? null : h('select.select.mt-th-select.mt-th-param', { 'aria-label': 'Automation parameter', title: 'Automation Parameter' }, h('option', { value: 'volume' }, 'Volume'), h('option', { value: 'pan' }, 'Pan'));
-    this.paramSel?.addEventListener('change', () => app.commands.run('mt.setAutomationParam', { id: this.id, param: this.paramSel.value }));
+    this.addLaneBtn = h('button.icon-btn.sm.mt-th-addlane', { type: 'button', 'aria-label': 'Add automation lane', title: 'Add Automation Lane', onclick: () => app.commands.run('mt.addAutomationLane', { id: this.id }) }, icon('plus', 13));
+    this.lanesEl = h('div.mt-th-lanes', { role: 'group', 'aria-label': 'Automation lanes' });
+    this.laneResize = h('div.mt-lane-resize', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize automation lanes', tabindex: '-1' });
+    this.#bindLaneResize();
 
     this.meter = new MeterBar({ vertical: true, label: `${track.name} level` });
     this.resize = h('div.mt-th-resize', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize track', tabindex: '-1' });
@@ -111,7 +115,7 @@ export class TrackHeader {
     this.eqCtl = new EqControls(app, doc, track.id, { compact: true });
     this.rowSends = h('div.mt-th-row.mt-th-r3.mt-th-sendrow', this.sendCtl ? this.sendCtl.el : h('span.faint', 'No sends on the master'));
     this.rowEq = h('div.mt-th-row.mt-th-r3.mt-th-eqrow', this.eqCtl.el);
-    this.rowAuto = h('div.mt-th-row.mt-th-r4', this.autoToggle, this.modeSel, this.paramSel);
+    this.rowAuto = h('div.mt-th-row.mt-th-r4', this.autoToggle, this.modeSel, this.addLaneBtn);
     this.body = h('div.mt-th-body', this.rowName, this.rowLevel, this.rowIo, this.rowFx, this.rowSends, this.rowEq, this.rowAuto);
     this.el = h(
       `div.mt-th${isMaster ? '.master' : ''}${isBus ? '.bus' : ''}`,
@@ -120,6 +124,7 @@ export class TrackHeader {
       this.colorBtn,
       this.body,
       this.meter.el,
+      this.lanesEl,
       this.resize,
     );
     this.el.addEventListener('contextmenu', (e) => {
@@ -160,6 +165,57 @@ export class TrackHeader {
     this.resize.addEventListener('dblclick', () => this.view.setTrackHeight(this.id, this.track.minimized ? 124 : 28, { minimize: !this.track.minimized }));
   }
 
+  #bindLaneResize() {
+    let drag = null;
+    const el = this.laneResize;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      drag = { y: e.clientY, h: this.track.laneHeight, n: Math.max(1, trackLanes(this.track).length) };
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      // The handle sits under the last lane: every lane grows by its share of the move.
+      const laneHeight = Math.max(28, Math.min(200, Math.round(drag.h + (e.clientY - drag.y) / drag.n)));
+      if (laneHeight !== this.track.laneHeight) this.doc.amendView((st) => updateTrack(st, this.id, { laneHeight }));
+    });
+    const end = () => (drag = null);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+
+  /** Lane headers: rebuilt when the lanes, or whether each has keyframes, change. */
+  #syncLanes(track) {
+    const lanes = trackLanes(track);
+    const key = JSON.stringify([lanes, lanes.map((p) => Boolean(track.automation[p]?.length)), track.mode]);
+    if (this.lanesKey === key) return;
+    this.lanesKey = key;
+    const run = (cmd, args) => this.app.commands.run(cmd, { id: this.id, ...args });
+    const params = automationParams(track.type);
+    const label = (p) => AUTOMATION_PARAMS.find((x) => x.id === p)?.label || p;
+    const rows = lanes.map((param, lane) => {
+      const name = label(param);
+      const sel = h('select.select.mt-th-select.mt-lane-param', { 'aria-label': `Automation lane ${lane + 1} parameter`, title: 'Lane Parameter' }, params.map((p) => h('option', { value: p, selected: p === param }, label(p))));
+      sel.addEventListener('change', () => run('mt.setAutomationParam', { param: sel.value, lane }));
+      sel.addEventListener('keydown', (e) => e.stopPropagation());
+      const btn = (ic, text, cmd, extra = {}) => h('button.icon-btn.sm.mt-lane-btn', { type: 'button', 'aria-label': `${text} (${name})`, title: text, onclick: () => run(cmd, { param, lane }), ...extra }, icon(ic, 13));
+      const has = Boolean(track.automation[param]?.length);
+      return h(
+        'div.mt-lane-head',
+        { dataset: { param } },
+        sel,
+        btn('key-prev', 'Previous Keyframe', 'mt.previousKeyframe', { disabled: !has }),
+        btn('key-toggle', 'Add or Remove Keyframe at Playhead', 'mt.toggleKeyframe'),
+        btn('key-next', 'Next Keyframe', 'mt.nextKeyframe', { disabled: !has }),
+        btn('lane-clear', 'Clear Lane', 'mt.clearAutomation', { disabled: !has }),
+        btn('x', 'Close Lane', 'mt.removeAutomationLane'),
+      );
+    });
+    this.lanesEl.replaceChildren(...rows, ...(rows.length ? [this.laneResize] : []));
+    this.addLaneBtn.disabled = !params.some((p) => !lanes.includes(p));
+  }
+
   #bindGrip() {
     if (this.track?.type === 'master') return;
     let drag = null;
@@ -193,7 +249,7 @@ export class TrackHeader {
     if (!prev || prev.color !== track.color) this.el.style.setProperty('--track-color', track.color);
     if (document.activeElement !== this.nameInput && this.nameInput.value !== track.name) this.nameInput.value = track.name;
     this.el.setAttribute('aria-label', `${track.type === 'master' ? 'Master track' : track.type === 'bus' ? 'Bus track' : 'Track'} ${track.name}`);
-    for (const [btn, key] of [[this.mute, 'mute'], [this.solo, 'solo'], [this.arm, 'arm'], [this.monitor, 'monitor'], [this.invert, 'invert']]) {
+    for (const [btn, key] of [[this.solo, 'solo'], [this.arm, 'arm'], [this.monitor, 'monitor'], [this.invert, 'invert']]) {
       if (btn) btn.setAttribute('aria-pressed', String(Boolean(track[key])));
     }
     this.fxPower.setAttribute('aria-pressed', String(track.fxPower));
@@ -213,7 +269,7 @@ export class TrackHeader {
     }
     syncOptions(this.outputSel, outs, track.output || 'master');
     this.modeSel.value = track.mode;
-    if (this.paramSel) this.paramSel.value = track.autoParam;
+    this.#syncLanes(track);
     this.autoToggle.setAttribute('aria-expanded', String(track.showAutomation));
     this.autoToggle.classList.toggle('open', track.showAutomation);
     // Each effect with its own power switch (the first six; the editor lists them all).
@@ -245,6 +301,10 @@ export class TrackHeader {
     if (this.volKnob.getValue() !== Math.max(-60, vol)) this.volKnob.setValue(Math.max(-60, vol));
     if (this.volNum.getValue() !== vol) this.volNum.setValue(vol);
     this.volKnob.classList.toggle('automated', c.automated(t, 'volume'));
+    // Mute follows its automation lane during playback.
+    const muted = String(c.muted(t));
+    if (this.mute.getAttribute('aria-pressed') !== muted) this.mute.setAttribute('aria-pressed', muted);
+    this.mute.classList.toggle('automated', c.automated(t, 'mute'));
     if (this.panKnob) {
       const pan = c.value(t, 'pan');
       if (this.panKnob.getValue() !== pan) this.panKnob.setValue(pan);
@@ -256,6 +316,10 @@ export class TrackHeader {
   /** Lays the header out for its row height. */
   setHeight(px, autoPx) {
     this.el.style.height = `${px + autoPx}px`;
+    // The track's own controls fill the first row; the lane headers take the rest.
+    this.el.style.gridTemplateRows = autoPx ? `minmax(0, 1fr) ${autoPx}px` : '';
+    this.el.style.setProperty('--lane-h', `${this.track?.laneHeight || 46}px`);
+    this.resize.style.bottom = autoPx ? `${autoPx}px` : '';
     const size = px < 46 ? 'xs' : px < 76 ? 'sm' : px < 118 ? 'md' : 'lg';
     if (this.el.dataset.size !== size) this.el.dataset.size = size;
     this.el.classList.toggle('with-auto', autoPx > 0);

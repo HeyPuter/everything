@@ -46,6 +46,29 @@ const STRETCH_HANDLE = 10;
 /** Longest remix the right edge of a remixed clip can ask for (seconds). */
 const MAX_REMIX_SECONDS = 3600;
 
+/** Height of a value in an envelope or lane, 0 (bottom) to 1 (top). Mute: muted sits at the bottom. */
+function envPos(param, v) {
+  if (param === 'mute') return v >= 0.5 ? 0 : 1;
+  return param === 'pan' ? panToEnvPos(v) : volumeToEnvPos(v);
+}
+
+/** The value at height `pos` (0..1) of an envelope or lane. */
+function envValueAt(param, pos) {
+  if (param === 'mute') return pos < 0.5 ? 1 : 0;
+  return param === 'pan' ? Math.round(envPosToPan(pos)) : Math.round(envPosToVolume(pos) * 10) / 10;
+}
+
+const LANE_NAMES = { volume: 'Volume', pan: 'Pan', mute: 'Mute' };
+
+/** Status text for a keyframe value. */
+function keyText(param, v) {
+  if (param === 'mute') return v >= 0.5 ? 'Muted' : 'Not muted';
+  return param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`;
+}
+
+/** Points to draw and evaluate for a lane: mute always steps. */
+const lanePoints = (param, pts) => (param === 'mute' ? S.muteSteps(pts) : pts);
+
 export class MultitrackView {
   constructor(app, doc) {
     this.app = app;
@@ -234,8 +257,10 @@ export class MultitrackView {
     for (const t of S.allTracks(state)) {
       if (t.hidden) continue;
       const height = t.minimized ? MIN_ROW : Math.max(MIN_ROW, Math.round(t.height * amp));
-      const auto = t.showAutomation ? AUTO_H : 0;
-      rows.push({ id: t.id, track: t, top: y, height, autoTop: y + height, autoHeight: auto, total: height + auto });
+      const laneH = t.laneHeight || AUTO_H;
+      const lanes = S.trackLanes(t).map((param, i) => ({ param, top: y + height + i * laneH, height: laneH }));
+      const auto = lanes.length * laneH;
+      rows.push({ id: t.id, track: t, top: y, height, autoTop: y + height, autoHeight: auto, total: height + auto, lanes });
       y += height + auto;
     }
     this.rows = rows;
@@ -571,6 +596,9 @@ export class MultitrackView {
       if (r.autoHeight) {
         ctx.fillStyle = cssVar('--bg-panel-alt');
         ctx.fillRect(0, y + r.height, W, r.autoHeight);
+        // A hairline between lanes.
+        ctx.fillStyle = cssVar('--border-soft');
+        for (const lane of r.lanes.slice(1)) ctx.fillRect(0, lane.top - this.scrollY, W, 1);
       }
       ctx.fillStyle = cssVar('--border');
       ctx.fillRect(0, y + r.total - 1, W, 1);
@@ -688,17 +716,24 @@ export class MultitrackView {
     return param === 'pan' ? Math.round(envPosToPan(pos)) : Math.round(envPosToVolume(pos) * 10) / 10;
   }
 
+  /** Geometry of the lane showing `param` under a track row (the first lane if none does). */
+  #lane(row, param) {
+    return row.lanes?.find((l) => l.param === param) || row.lanes?.[0] || { top: row.autoTop, height: row.autoHeight };
+  }
+
   #autoY(row, param, v) {
-    const top = row.autoTop - this.scrollY + 4;
-    const hh = row.autoHeight - 8;
-    const pos = param === 'pan' ? panToEnvPos(v) : volumeToEnvPos(v);
-    return top + (1 - pos) * hh;
+    const lane = this.#lane(row, param);
+    const top = lane.top - this.scrollY + 4;
+    return top + (1 - envPos(param, v)) * (lane.height - 8);
+  }
+
+  #autoPos(row, param, y) {
+    const lane = this.#lane(row, param);
+    return Math.max(0, Math.min(1, 1 - (y - (lane.top - this.scrollY + 4)) / Math.max(1, lane.height - 8)));
   }
 
   #autoValue(row, param, y) {
-    const top = row.autoTop - this.scrollY + 4;
-    const pos = 1 - (y - top) / (row.autoHeight - 8);
-    return param === 'pan' ? Math.round(envPosToPan(pos)) : Math.round(envPosToVolume(pos) * 10) / 10;
+    return envValueAt(param, this.#autoPos(row, param, y));
   }
 
   /**
@@ -915,26 +950,13 @@ export class MultitrackView {
             const y = this.#envY(r, param, fallback);
             ctx.moveTo(Math.max(0, x0), y);
             ctx.lineTo(Math.min(W, x1), y);
-          } else {
-            points.forEach((p, i) => {
-              const x = x0 + p.t / this.fpp;
-              const y = this.#envY(r, param, p.v);
-              if (i === 0) {
-                ctx.moveTo(x0, y);
-                ctx.lineTo(x, y);
-              } else ctx.lineTo(x, y);
-            });
-            ctx.lineTo(x1, this.#envY(r, param, points[points.length - 1].v));
-          }
+          } else this.#traceEnvelope(ctx, points, (p) => x0 + p.t / this.fpp, (v) => this.#envY(r, param, v), x0, x1);
           ctx.stroke();
           const sk = doc.selectedKeys;
           for (const [i, p] of points.entries()) {
             const x = x0 + p.t / this.fpp;
             if (x < -4 || x > W + 4) continue;
-            const y = this.#envY(r, param, p.v);
-            const on = sk && sk.owner === c.id && sk.param === param && sk.indices.has(i);
-            if (on) ctx.fillRect(x - 3.5, y - 3.5, 7, 7);
-            else ctx.strokeRect(x - 3, y - 3, 6, 6);
+            this.#drawKey(ctx, x, this.#envY(r, param, p.v), Boolean(sk && sk.owner === c.id && sk.param === param && sk.indices.has(i)), p.hold);
           }
         };
         if (showVol) env('volume', volColor, c.volumeEnv, 0);
@@ -944,40 +966,46 @@ export class MultitrackView {
     // Automation lanes.
     for (const row of this.rows) {
       if (!row.autoHeight) continue;
-      const top = row.autoTop - this.scrollY;
-      if (top > H || top + row.autoHeight < 0) continue;
       const t = row.track;
-      const param = t.type === 'master' ? 'volume' : t.autoParam;
-      const pts = t.automation[param];
-      const color = param === 'pan' ? panColor : volColor;
-      ctx.fillStyle = cssVar('--text-dim');
-      ctx.fillText(`${param === 'pan' ? 'Pan' : 'Volume'}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = t.mode === 'off' ? 0.45 : 1;
-      ctx.beginPath();
-      if (!pts.length) {
-        const y = this.#autoY(row, param, t[param]);
-        ctx.setLineDash([4, 3]);
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      } else {
-        ctx.moveTo(0, this.#autoY(row, param, pts[0].v));
-        for (const p of pts) ctx.lineTo(this.xOf(p.t), this.#autoY(row, param, p.v));
-        ctx.lineTo(W, this.#autoY(row, param, pts[pts.length - 1].v));
-        ctx.stroke();
-        const sk = doc.selectedKeys;
-        pts.forEach((p, i) => {
-          const x = this.xOf(p.t);
-          if (x < -4 || x > W + 4) return;
-          const y = this.#autoY(row, param, p.v);
-          if (sk && sk.owner === t.id && sk.param === param && sk.indices.has(i)) ctx.fillRect(x - 3.5, y - 3.5, 7, 7);
-          else ctx.strokeRect(x - 3, y - 3, 6, 6);
-        });
+      const sk = doc.selectedKeys;
+      for (const lane of row.lanes) {
+        const top = lane.top - this.scrollY;
+        if (top > H || top + lane.height < 0) continue;
+        const param = lane.param;
+        const pts = lanePoints(param, t.automation[param] || []);
+        const color = param === 'pan' ? panColor : param === 'mute' ? cssVar('--text-dim') : volColor;
+        ctx.fillStyle = cssVar('--text-dim');
+        ctx.fillText(`${LANE_NAMES[param] || param}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = t.mode === 'off' ? 0.45 : 1;
+        ctx.beginPath();
+        if (!pts.length) {
+          const y = this.#autoY(row, param, param === 'mute' ? Number(t.mute) : t[param]);
+          ctx.setLineDash([4, 3]);
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          this.#traceEnvelope(ctx, pts, (p) => this.xOf(p.t), (v) => this.#autoY(row, param, v), 0, W);
+          ctx.stroke();
+          pts.forEach((p, i) => {
+            const x = this.xOf(p.t);
+            if (x < -4 || x > W + 4) return;
+            this.#drawKey(ctx, x, this.#autoY(row, param, p.v), Boolean(sk && sk.owner === t.id && sk.param === param && sk.indices.has(i)), p.hold && param !== 'mute');
+          });
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
+    }
+    // Rubber band over keyframes in an automation lane.
+    if (this.drag?.kind === 'keyBand' && this.drag.rect) {
+      const q = this.drag.rect;
+      ctx.strokeStyle = selEdge;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(q.x + 0.5, q.y + 0.5, q.w, q.h);
+      ctx.setLineDash([]);
     }
     // Markers (lines across the tracks can be hidden in Preferences > Markers & Metadata).
     for (const m of this.app.prefs.get('showMarkerLines') !== false ? this.markers() : []) {
@@ -1062,6 +1090,33 @@ export class MultitrackView {
     }
   }
 
+  /**
+   * Adds an envelope's path from x `from` to `to` to the context: flat before the first and after
+   * the last point, straight between points, and a step after a hold point.
+   */
+  #traceEnvelope(ctx, pts, xOf, yOf, from, to) {
+    let y = yOf(pts[0].v);
+    ctx.moveTo(from, y);
+    for (let i = 0; i < pts.length; i++) {
+      const x = xOf(pts[i]);
+      const ny = yOf(pts[i].v);
+      if (i > 0 && pts[i - 1].hold) ctx.lineTo(x, y);
+      ctx.lineTo(x, ny);
+      y = ny;
+    }
+    ctx.lineTo(to, y);
+  }
+
+  /** A keyframe: an outlined square, filled when selected; a hold keyframe has a step notch. */
+  #drawKey(ctx, x, y, selected, hold) {
+    if (selected) ctx.fillRect(x - 3.5, y - 3.5, 7, 7);
+    else ctx.strokeRect(x - 3, y - 3, 6, 6);
+    if (hold) {
+      // A short tick to the right marks the value held until the next keyframe.
+      ctx.fillRect(x + 4, y - 0.5, 4, 1.5);
+    }
+  }
+
   #overviewPeaks(cols, total) {
     const state = this.doc.state;
     if (!state.clips.length) return null;
@@ -1111,12 +1166,14 @@ export class MultitrackView {
     const doc = this.doc;
     if (cy >= row.autoTop && row.autoHeight) {
       const t = row.track;
-      const param = t.type === 'master' ? 'volume' : t.autoParam;
-      const pts = t.automation[param];
+      const lane = row.lanes.find((l) => cy >= l.top && cy < l.top + l.height) || row.lanes[row.lanes.length - 1];
+      const param = lane.param;
+      const pts = lanePoints(param, t.automation[param] || []);
       for (let i = pts.length - 1; i >= 0; i--) {
         if (Math.abs(this.xOf(pts[i].t) - x) <= near && Math.abs(this.#autoY(row, param, pts[i].v) - y) <= near) return { part: 'autoKey', row, param, index: i, auto: true };
       }
-      const v = pts.length ? S.envelopeValue(pts, this.frameAt(x), t[param]) : t[param];
+      const fallback = param === 'mute' ? Number(t.mute) : t[param];
+      const v = pts.length ? S.envelopeValue(pts, this.frameAt(x), fallback) : fallback;
       if (Math.abs(this.#autoY(row, param, v) - y) <= (touch ? 10 : 4)) return { part: 'autoLine', row, param, auto: true };
       return { part: 'auto', row, param, auto: true };
     }
@@ -1441,9 +1498,16 @@ export class MultitrackView {
     const doc = this.doc;
     if (hit.part === 'key' || hit.part === 'autoKey') {
       const owner = hit.auto ? hit.row.id : hit.clip.id;
-      doc.selectedKeys = { owner, param: hit.param, indices: new Set([hit.index]) };
+      const sk = doc.selectedKeys;
+      // A right-click on a selected keyframe acts on the whole selection.
+      if (!(sk && sk.owner === owner && sk.param === hit.param && sk.indices.has(hit.index))) doc.selectedKeys = { owner, param: hit.param, indices: new Set([hit.index]) };
       this.invalidate('overlay');
-      this.app.openMenu([{ type: 'cmd', label: 'Delete Keyframe', enabled: true, run: () => this.deleteSelectedKeys() }], { x: cx, y: cy, label: 'Keyframe' });
+      this.app.openMenu(this.#keyMenu(owner, hit.param, Boolean(hit.auto)), { x: cx, y: cy, label: 'Keyframe' });
+      return;
+    }
+    if (hit.auto) {
+      doc.selectTrack(hit.row.id);
+      this.app.openMenu(this.#keyMenu(hit.row.id, hit.param, true, { lane: true }), { x: cx, y: cy, label: 'Automation lane' });
       return;
     }
     if (hit.clip) {
@@ -1470,22 +1534,29 @@ export class MultitrackView {
     const fine = e.metaKey || e.ctrlKey;
     if (hit.part === 'autoKey' || hit.part === 'autoLine') {
       const t = hit.row.track;
-      let pts = t.automation[hit.param].slice();
+      const param = hit.param;
+      let pts = lanePoints(param, t.automation[param] || []).slice();
       let index = hit.index;
       if (hit.part === 'autoLine') {
-        const v = this.#autoValue(hit.row, hit.param, y);
-        pts.push({ t: Math.round(this.snap(f, { off: fine })), v });
-        pts.sort((a, b) => a.t - b.t);
-        index = pts.findIndex((p) => p.v === v && p.t === Math.round(this.snap(f, { off: fine })));
-        doc.preview(S.setAutomation(doc.state, t.id, hit.param, pts));
+        const at = Math.round(this.snap(f, { off: fine }));
+        const prev = pts.filter((p) => p.t <= at).pop();
+        const key = { t: at, v: this.#autoValue(hit.row, param, y), ...(param === 'mute' || prev?.hold ? { hold: true } : {}) };
+        pts.push(key);
+        pts.sort((p, q) => p.t - q.t);
+        index = pts.indexOf(key);
+        doc.preview(S.setAutomation(doc.state, t.id, param, pts));
       }
-      doc.selectedKeys = { owner: t.id, param: hit.param, indices: new Set([index]) };
-      this.drag = { ...base, kind: 'autoKey', trackId: t.id, param: hit.param, index, pts, added: hit.part === 'autoLine' };
+      const pick = this.#pickKeys(e, t.id, param, index, hit.part === 'autoLine');
+      this.drag = { ...base, kind: 'autoKey', trackId: t.id, param, index, pts, added: hit.part === 'autoLine', ...pick };
       this.invalidate('overlay');
       return;
     }
     if (hit.part === 'auto') {
-      this.drag = { ...base, kind: 'none' };
+      // Drag in an empty part of a lane: rubber band over its keyframes.
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      const sk = doc.selectedKeys;
+      const initial = additive && sk?.owner === hit.row.id && sk.param === hit.param ? new Set(sk.indices) : new Set();
+      this.drag = { ...base, kind: 'keyBand', trackId: hit.row.id, param: hit.param, initial };
       return;
     }
     const c = hit.clip;
@@ -1536,10 +1607,12 @@ export class MultitrackView {
           const ins = S.insertEnvelopePoint(pts, Math.max(0, Math.min(c.length, t)), v, c.length, 0);
           pts = ins.points;
           index = ins.index;
+          // Inside a held step the new keyframe holds too.
+          if (pts[index - 1]?.hold) pts[index] = { ...pts[index], hold: true };
           doc.preview(S.setClipEnvelope(doc.state, c.id, hit.param, pts));
         }
-        doc.selectedKeys = { owner: c.id, param: hit.param, indices: new Set([index]) };
-        this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index, pts, added: hit.part === 'line' };
+        const pick = this.#pickKeys(e, c.id, hit.param, index, hit.part === 'line');
+        this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index, pts, added: hit.part === 'line', ...pick };
         this.invalidate('overlay');
         return;
       }
@@ -1557,6 +1630,63 @@ export class MultitrackView {
     }
     const ids = [...doc.selectedClips];
     this.drag = { ...base, kind: 'move', ids, lead: c, rowIndex: this.#audioIndex(hit.row.id), copy: false };
+  }
+
+  /**
+   * Keyframe selection on press: a new keyframe is selected alone; Shift or Cmd adds a keyframe
+   * (a selected one comes off on release, if not dragged); a press on a selected keyframe keeps
+   * the selection so they all move together (a plain click then selects it alone).
+   */
+  #pickKeys(e, owner, param, index, added) {
+    const doc = this.doc;
+    const sk = doc.selectedKeys;
+    const same = !added && sk && sk.owner === owner && sk.param === param;
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    let indices;
+    let onClick = null;
+    if (same && sk.indices.has(index)) {
+      indices = new Set(sk.indices);
+      if (additive) onClick = 'remove';
+      else if (indices.size > 1) onClick = 'only';
+    } else if (same && additive) indices = new Set([...sk.indices, index]);
+    else indices = new Set([index]);
+    doc.selectedKeys = { owner, param, indices };
+    return { indices, onClick };
+  }
+
+  /**
+   * Envelope points with the dragged keyframes moved: the one under the pointer goes to frame `t`
+   * and height `pos` (0..1), the other selected ones by the same amounts. They stay between the
+   * unselected neighbours and within [0, `end`]. Shift locks the move to its main direction.
+   */
+  #movedKeys(d, e, x, y, t, pos, end) {
+    const pts = d.pts;
+    const lead = pts[d.index];
+    const pos0 = envPos(d.param, lead.v);
+    if (e.shiftKey) {
+      if (Math.abs(x - d.x0) >= Math.abs(y - d.y0)) pos = pos0;
+      else t = lead.t;
+    }
+    pos = Math.max(0, Math.min(1, pos));
+    let lo = -Infinity;
+    let hi = Infinity;
+    for (const i of d.indices) {
+      let j = i - 1;
+      while (j >= 0 && d.indices.has(j)) j--;
+      let k = i + 1;
+      while (k < pts.length && d.indices.has(k)) k++;
+      lo = Math.max(lo, (j >= 0 ? pts[j].t : 0) - pts[i].t);
+      hi = Math.min(hi, (k < pts.length ? pts[k].t : end) - pts[i].t);
+    }
+    const dt = Math.max(lo, Math.min(hi, Math.round(t - lead.t)));
+    const dpos = pos - pos0;
+    return pts.map((p, i) => {
+      if (!d.indices.has(i)) return p;
+      let v = p.v;
+      if (i === d.index) v = envValueAt(d.param, pos);
+      else if (dpos) v = envValueAt(d.param, Math.max(0, Math.min(1, envPos(d.param, p.v) + dpos)));
+      return { ...p, t: p.t + dt, v };
+    });
   }
 
   /** Position among the shown audio tracks (clip moves skip hidden tracks). */
@@ -1653,29 +1783,38 @@ export class MultitrackView {
         break;
       }
       case 'key': {
-        const c = S.findClip(doc.viewState, d.id) || S.findClip(d.state0, d.id);
+        const c = S.findClip(d.state0, d.id);
         const r = this.clipRects().find((q) => q.clip.id === d.id);
-        if (!r) break;
-        const pts = d.pts.slice();
-        const lo = d.index > 0 ? pts[d.index - 1].t : 0;
-        const hi = d.index < pts.length - 1 ? pts[d.index + 1].t : c.length;
-        const t = Math.max(lo, Math.min(hi, Math.round(this.snap(c.start + (x - r.x0) * this.fpp, { exclude: new Set([c.id]), off: fine }) - c.start)));
-        const v = this.#envValue(r, d.param, y);
-        pts[d.index] = { t, v };
+        if (!c || !r) break;
+        const t = this.snap(c.start + (x - r.x0) * this.fpp, { exclude: new Set([c.id]), off: fine }) - c.start;
+        const pos = 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4);
+        const pts = this.#movedKeys(d, e, x, y, t, pos, c.length);
         doc.preview(S.setClipEnvelope(d.state0, d.id, d.param, pts));
-        this.#status(d.param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`);
+        this.#status(keyText(d.param, pts[d.index].v));
         break;
       }
       case 'autoKey': {
         const row = this.rowOf(d.trackId);
-        const pts = d.pts.slice();
-        const lo = d.index > 0 ? pts[d.index - 1].t : 0;
-        const hi = d.index < pts.length - 1 ? pts[d.index + 1].t : Infinity;
-        const t = Math.max(lo, Math.min(hi, this.snap(this.frameAt(x), { off: fine })));
-        const v = this.#autoValue(row, d.param, y);
-        pts[d.index] = { t, v };
+        if (!row) break;
+        const pts = this.#movedKeys(d, e, x, y, this.snap(this.frameAt(x), { off: fine }), this.#autoPos(row, d.param, y), Infinity);
         doc.preview(S.setAutomation(d.state0, d.trackId, d.param, pts));
-        this.#status(d.param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`);
+        this.#status(keyText(d.param, pts[d.index].v));
+        break;
+      }
+      case 'keyBand': {
+        const row = this.rowOf(d.trackId);
+        if (!row) break;
+        const rx = Math.min(d.x0, x);
+        const ry = Math.min(d.y0, y);
+        d.rect = { x: rx, y: ry, w: Math.abs(x - d.x0), h: Math.abs(y - d.y0) };
+        const indices = new Set(d.initial);
+        lanePoints(d.param, row.track.automation[d.param] || []).forEach((p, i) => {
+          const px = this.xOf(p.t);
+          const py = this.#autoY(row, d.param, p.v);
+          if (px >= rx - 3 && px <= rx + d.rect.w + 3 && py >= ry - 3 && py <= ry + d.rect.h + 3) indices.add(i);
+        });
+        doc.selectedKeys = indices.size ? { owner: d.trackId, param: d.param, indices } : null;
+        this.invalidate('overlay');
         break;
       }
       case 'select': {
@@ -1754,7 +1893,7 @@ export class MultitrackView {
       this.invalidate();
       return;
     }
-    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: d.param === 'pan' ? 'Pan Automation' : 'Volume Automation' };
+    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${LANE_NAMES[d.param] || 'Volume'} Automation` };
     const label = labels[d.kind];
     if (label && doc.previewState) {
       const state = doc.previewState;
@@ -1792,7 +1931,16 @@ export class MultitrackView {
         const keys = doc.selectedKeys;
         doc.apply(d.kind === 'key' ? 'Add Keyframe' : 'Add Automation Keyframe', state);
         doc.selectedKeys = keys;
+      } else if (d.onClick && doc.selectedKeys) {
+        const sk = doc.selectedKeys;
+        const indices = d.onClick === 'only' ? new Set([d.index]) : new Set([...sk.indices].filter((i) => i !== d.index));
+        doc.selectedKeys = indices.size ? { ...sk, indices } : null;
       }
+      return;
+    }
+    if (d.kind === 'keyBand') {
+      // A click in an empty part of a lane clears its keyframe selection.
+      if (!d.initial.size) doc.selectedKeys = null;
       return;
     }
     if (d.kind === 'marquee' || (d.kind === 'select' && !hit.clip)) {
@@ -1833,6 +1981,69 @@ export class MultitrackView {
     if (text) this.app.setStatus(text);
   }
 
+  /** The points of a clip envelope or automation lane, and a function that commits new ones. */
+  #envelopeOf(owner, param) {
+    const doc = this.doc;
+    const clip = S.findClip(doc.state, owner);
+    if (clip) return { points: param === 'pan' ? clip.panEnv : clip.volumeEnv, commit: (pts, label) => doc.apply(label, S.setClipEnvelope(doc.state, clip.id, param, pts)) };
+    const t = S.findTrack(doc.state, owner);
+    if (!t) return null;
+    return { points: lanePoints(param, t.automation[param] || []), commit: (pts, label) => doc.apply(label, S.setAutomation(doc.state, t.id, param, pts)) };
+  }
+
+  /** Items of the keyframe (or, with `lane`, automation lane) context menu. */
+  #keyMenu(owner, param, auto, { lane = false } = {}) {
+    const doc = this.doc;
+    const env = this.#envelopeOf(owner, param);
+    const sk = doc.selectedKeys;
+    const sel = !lane && sk && sk.owner === owner && sk.param === param ? sk.indices : new Set();
+    const pts = env?.points || [];
+    const allHold = sel.size > 0 && [...sel].every((i) => pts[i]?.hold);
+    const run = (cmd, args) => this.app.commands.run(cmd, { id: owner, param, ...args });
+    const items = [];
+    if (!lane) {
+      items.push(
+        {
+          type: 'cmd',
+          label: 'Hold Keyframe',
+          // Mute keyframes always hold.
+          enabled: param !== 'mute',
+          checked: param === 'mute' || allHold,
+          run: () => {
+            const keep = doc.selectedKeys;
+            env.commit(pts.map((p, i) => (!sel.has(i) ? p : allHold ? { t: p.t, v: p.v } : { ...p, hold: true })), allHold ? 'Linear Keyframes' : 'Hold Keyframes');
+            doc.selectedKeys = keep;
+          },
+        },
+        { type: 'cmd', label: sel.size > 1 ? `Delete ${sel.size} Keyframes` : 'Delete Keyframe', enabled: true, run: () => this.deleteSelectedKeys() },
+        { type: 'sep' },
+      );
+    }
+    items.push({
+      type: 'cmd',
+      label: 'Select All Keyframes',
+      enabled: pts.length > 0,
+      run: () => {
+        doc.selectedKeys = { owner, param, indices: new Set(pts.map((_, i) => i)) };
+        this.invalidate('overlay');
+      },
+    });
+    if (auto) {
+      const t = S.findTrack(doc.state, owner);
+      items.push(
+        { type: 'cmd', label: 'Clear Lane', enabled: pts.length > 0, run: () => run('mt.clearAutomation') },
+        { type: 'sep' },
+        { type: 'cmd', label: 'Add Automation Lane', enabled: Boolean(t && S.automationParams(t.type).some((p) => !S.trackLanes(t).includes(p))), run: () => run('mt.addAutomationLane') },
+        { type: 'cmd', label: 'Close Lane', enabled: true, run: () => run('mt.removeAutomationLane', { lane: S.trackLanes(t).indexOf(param) }) },
+      );
+    } else {
+      const c = S.findClip(doc.state, owner);
+      items.push({ type: 'cmd', label: 'Clear Envelope', enabled: pts.length > 0, run: () => env.commit([], param === 'pan' ? 'Clear Pan Envelope' : 'Clear Volume Envelope') });
+      if (!c) items.pop();
+    }
+    return items;
+  }
+
   deleteSelectedKeys() {
     const doc = this.doc;
     const sk = doc.selectedKeys;
@@ -1845,7 +2056,7 @@ export class MultitrackView {
     } else {
       const t = S.findTrack(doc.state, sk.owner);
       if (!t) return false;
-      state = S.setAutomation(doc.state, t.id, sk.param, t.automation[sk.param].filter((_, i) => !sk.indices.has(i)));
+      state = S.setAutomation(doc.state, t.id, sk.param, (t.automation[sk.param] || []).filter((_, i) => !sk.indices.has(i)));
     }
     doc.selectedKeys = null;
     doc.apply('Delete Keyframe', state);

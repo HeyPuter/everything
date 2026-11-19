@@ -984,7 +984,106 @@ export function installMultitrackCommands(app) {
       doc.amendView((st) => S.updateTrack(st, t.id, { showAutomation: show }));
     } },
     { id: 'mt.setAutomationMode', label: 'Automation Mode', enabled: hasArgs('id', 'mode'), run: (a, args) => session(app).apply(`Automation ${args.mode[0].toUpperCase()}${args.mode.slice(1)}`, S.updateTrack(session(app).state, args.id, { mode: args.mode })) },
-    { id: 'mt.setAutomationParam', label: 'Automation Parameter', enabled: hasArgs('id', 'param'), run: (a, args) => session(app).amendView((st) => S.updateTrack(st, args.id, { autoParam: args.param, showAutomation: true })) },
+    {
+      id: 'mt.setAutomationParam',
+      label: 'Automation Parameter',
+      enabled: hasArgs('id', 'param'),
+      // Picks the parameter of lane `lane` (the first by default); a parameter shown in another lane swaps places.
+      run: (a, args) => session(app).amendView((st) => {
+        const t = S.findTrack(st, args.id);
+        if (!t) return st;
+        const lanes = (t.showAutomation ? S.trackLanes(t) : t.lanes).slice();
+        const i = Math.max(0, Math.min(lanes.length - 1, args.lane ?? 0));
+        const j = lanes.indexOf(args.param);
+        if (j >= 0) lanes[j] = lanes[i];
+        lanes[i] = args.param;
+        return S.updateTrack(S.setTrackLanes(st, t.id, lanes), t.id, { showAutomation: true });
+      }),
+    },
+    {
+      id: 'mt.addAutomationLane',
+      label: 'Add Automation Lane',
+      enabled: (a, args) => {
+        const t = selTrack(a, args);
+        return Boolean(t) && S.automationParams(t.type).some((p) => !S.trackLanes(t).includes(p));
+      },
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const lanes = S.trackLanes(t);
+        const next = S.automationParams(t.type).find((p) => !lanes.includes(p));
+        session(app).amendView((st) => S.updateTrack(S.setTrackLanes(st, t.id, [...lanes, next]), t.id, { showAutomation: true }));
+      },
+    },
+    {
+      id: 'mt.removeAutomationLane',
+      label: 'Remove Automation Lane',
+      enabled: (a, args) => Boolean(selTrack(a, args)?.showAutomation),
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const lanes = S.trackLanes(t);
+        const i = args?.lane ?? lanes.length - 1;
+        const rest = lanes.filter((_, k) => k !== i);
+        // Closing the last lane closes the lanes (and remembers its parameter for next time).
+        session(app).amendView((st) => (rest.length ? S.setTrackLanes(st, t.id, rest) : S.updateTrack(S.setTrackLanes(st, t.id, lanes), t.id, { showAutomation: false })));
+      },
+    },
+    {
+      id: 'mt.previousKeyframe',
+      label: 'Previous Keyframe',
+      enabled: hasArgs('id', 'param'),
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const at = app.playhead - 1;
+        const prev = (t.automation[args.param] || []).map((p) => p.t).filter((f) => f < at).pop();
+        if (prev !== undefined) view(app)?.seek(prev);
+      },
+    },
+    {
+      id: 'mt.nextKeyframe',
+      label: 'Next Keyframe',
+      enabled: hasArgs('id', 'param'),
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const at = app.playhead + 1;
+        const next = (t.automation[args.param] || []).map((p) => p.t).find((f) => f > at);
+        if (next !== undefined) view(app)?.seek(next);
+      },
+    },
+    {
+      id: 'mt.toggleKeyframe',
+      label: 'Add or Remove Keyframe',
+      enabled: hasArgs('id', 'param'),
+      // A keyframe at the playhead (within a few pixels) is removed; otherwise one is added with the value heard there.
+      run: (a, args) => {
+        const doc = session(app);
+        const t = selTrack(app, args);
+        const lane = t.automation[args.param] || [];
+        const at = Math.round(app.playhead);
+        const fpp = view(app)?.fpp || doc.sampleRate / 100;
+        const near = Math.max(1, Math.round(fpp * 3));
+        const hit = lane.findIndex((p) => Math.abs(p.t - at) <= near);
+        let points;
+        if (hit >= 0) points = lane.filter((_, i) => i !== hit);
+        else {
+          const v = doc.controls ? doc.controls.value(t, args.param, at) : t[args.param];
+          const prev = lane.filter((p) => p.t <= at).pop();
+          points = [...lane, { t: at, v: args.param === 'mute' ? (v >= 0.5 ? 1 : 0) : v, ...(args.param === 'mute' || prev?.hold ? { hold: true } : {}) }];
+        }
+        doc.selectedKeys = null;
+        doc.apply(hit >= 0 ? 'Delete Keyframe' : 'Add Automation Keyframe', S.setAutomation(doc.state, t.id, args.param, points));
+      },
+    },
+    {
+      id: 'mt.clearAutomation',
+      label: 'Clear Automation Lane',
+      enabled: (a, args) => Boolean(args?.param && selTrack(a, args)?.automation[args.param]?.length),
+      run: (a, args) => {
+        const doc = session(app);
+        const t = selTrack(app, args);
+        doc.selectedKeys = null;
+        doc.apply('Clear Automation', S.setAutomation(doc.state, t.id, args.param, []));
+      },
+    },
     {
       id: 'mt.insertFiles',
       label: 'Insert Files...',

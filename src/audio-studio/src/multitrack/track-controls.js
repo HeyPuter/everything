@@ -7,9 +7,10 @@
 //    lane, heard live through graph overrides, committed as one undo step
 //    when playback stops.
 
-import { findTrack, updateTrack, setAutomation, writeEnvelopeRange, envelopeValue } from '../model/session-edits.js';
+import { findTrack, updateTrack, setAutomation, writeEnvelopeRange, envelopeValue, muteSteps, trackLanes } from '../model/session-edits.js';
 
 const RECORDING = new Set(['write', 'latch', 'touch']);
+const AUTO_LABELS = { volume: 'Volume Automation', pan: 'Pan Automation', mute: 'Mute Automation' };
 
 export class TrackControls {
   constructor(app, doc) {
@@ -31,8 +32,14 @@ export class TrackControls {
     const o = this.doc.overrides[track.id];
     if (o && o[param] !== undefined) return o[param];
     const lane = track.automation?.[param];
+    if (param === 'mute') return track.mode !== 'off' && lane?.length ? envelopeValue(muteSteps(lane), frame, Number(track.mute)) : Number(track.mute);
     if (track.mode !== 'off' && lane && lane.length) return envelopeValue(lane, frame, track[param]);
     return track[param];
+  }
+
+  /** True when the track is muted at `frame` (its mute switch or its mute automation). */
+  muted(track, frame) {
+    return this.value(track, 'mute', frame) >= 0.5;
   }
 
   /** True when the parameter follows automation (controls show it as automated). */
@@ -53,8 +60,10 @@ export class TrackControls {
     if (track.mode !== 'off' && lane.length) {
       const t = Math.round(this.app.playhead);
       const near = Math.round(doc.sampleRate * 0.005);
-      const points = [...lane.filter((p) => Math.abs(p.t - t) > near), { t, v: value }];
-      doc.apply(param === 'pan' ? 'Pan Automation' : 'Volume Automation', setAutomation(doc.state, trackId, param, points), { coalesce: `auto:${trackId}:${param}` });
+      const prev = lane.filter((p) => p.t <= t).pop();
+      const key = { t, v: value, ...(param === 'mute' || (prev?.hold && Math.abs(prev.t - t) <= near) ? { hold: true } : {}) };
+      const points = [...lane.filter((p) => Math.abs(p.t - t) > near), key];
+      doc.apply(AUTO_LABELS[param], setAutomation(doc.state, trackId, param, points), { coalesce: `auto:${trackId}:${param}` });
     } else {
       const label = param === 'pan' ? 'Track Pan' : 'Track Volume';
       doc.apply(label, updateTrack(doc.state, trackId, { [param]: value }), { coalesce: `${param}:${trackId}` });
@@ -66,6 +75,12 @@ export class TrackControls {
   toggle(trackId, key, value) {
     const track = findTrack(this.doc.state, trackId);
     if (!track) return;
+    // Mute follows its automation lane like the knobs do (a keyframe, or a recorded pass).
+    if (key === 'mute' && (this.automated(track, 'mute') || (this.playing && RECORDING.has(track.mode)))) {
+      const on = value ?? !this.muted(track);
+      this.set(trackId, 'mute', on ? 1 : 0, this.playing ? 'input' : 'change');
+      return;
+    }
     const v = value ?? !track[key];
     const labels = { mute: 'Mute', solo: 'Solo', arm: 'Record Arm', monitor: 'Monitor Input', fxPower: 'Effects Power', invert: 'Invert Polarity' };
     let state = updateTrack(this.doc.state, trackId, { [key]: v });
@@ -142,7 +157,10 @@ export class TrackControls {
     if (!this.playing) return;
     for (const t of [...this.doc.state.tracks, this.doc.state.master]) {
       if (t.mode !== 'write') continue;
-      for (const param of t.type === 'master' ? ['volume'] : ['volume', 'pan']) this.#record(t, param, this.value(t, param), 'input');
+      const params = t.type === 'master' ? ['volume'] : ['volume', 'pan'];
+      // Mute is written only where it is automated (or its lane is open): the switch stays a switch.
+      if (t.automation.mute?.length || trackLanes(t).includes('mute')) params.push('mute');
+      for (const param of params) this.#record(t, param, this.value(t, param), 'input');
     }
   }
 
@@ -154,8 +172,9 @@ export class TrackControls {
     for (const pass of [...this.finished, ...this.passes.values()]) {
       const track = findTrack(state, pass.trackId);
       if (!track) continue;
-      let lane = track.automation[pass.param];
-      const fallback = track[pass.param];
+      let lane = track.automation[pass.param] || [];
+      if (pass.param === 'mute') lane = muteSteps(lane);
+      const fallback = pass.param === 'mute' ? Number(track.mute) : track[pass.param];
       pass.segments.forEach((seg, i) => {
         const last = i === pass.segments.length - 1;
         const end = last && !pass.done ? Math.max(pass.lastT, Math.round(stopFrame ?? pass.lastT)) : seg.points[seg.points.length - 1].t;
@@ -167,7 +186,7 @@ export class TrackControls {
         const after = { t: end + 1, v: envelopeValue(lane, end + 1, fallback) };
         lane = writeEnvelopeRange(lane, seg.t0 - before.length, end + 1, [...before, ...pts, after]);
       });
-      state = setAutomation(state, pass.trackId, pass.param, lane);
+      state = setAutomation(state, pass.trackId, pass.param, pass.param === 'mute' ? muteSteps(lane) : lane);
     }
     this.passes.clear();
     this.finished = [];

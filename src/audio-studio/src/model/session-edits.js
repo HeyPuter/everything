@@ -12,8 +12,10 @@
 //   id), fx: Effects Rack slots { id, effect, values, enabled } (nulls allowed), fxPower,
 //   fxIn/fxOut (rack input/output gain, dB), fxMix (rack dry/wet, 0..1), invert
 //   (polarity), mode ('off'|'read'|'write'|'latch'|'touch'),
-//   automation: { volume: [{t, v dB}], pan: [{t, v}] }, showAutomation,
-//   autoParam, height, minimized, hidden }
+//   automation: { volume: [{t, v dB}], pan: [{t, v}], mute: [{t, v 0|1}] } (a point with
+//   `hold` keeps its value until the next point), showAutomation, lanes (parameters shown
+//   as automation lanes, in order), laneHeight, autoParam (the first lane), height,
+//   minimized, hidden }
 // Clip: { id, trackId, sourceId, name, color, start, offset, length, gain (dB),
 //   fadeIn/out: { length, curve, xf?, duration?, offset? } (see clip-fades.js), crossfade
 //   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}],
@@ -55,6 +57,61 @@ export const MAX_DB = 15;
 
 export const FADE_CURVES = { linear: 0, log: 0.5, cosine: 2 };
 
+/** Track parameters that can be automated, in menu order. */
+export const AUTOMATION_PARAMS = [
+  { id: 'volume', label: 'Volume' },
+  { id: 'mute', label: 'Mute' },
+  { id: 'pan', label: 'Pan' },
+];
+
+/** Default height of one automation lane (CSS px). */
+export const LANE_HEIGHT = 46;
+
+/** Parameters a track of `type` can automate (the master has no pan). */
+export function automationParams(type) {
+  return AUTOMATION_PARAMS.filter((p) => type !== 'master' || p.id !== 'pan').map((p) => p.id);
+}
+
+function cleanLanes(type, lanes, first) {
+  const ok = automationParams(type);
+  const list = (Array.isArray(lanes) && lanes.length ? lanes : [first || 'volume']).filter((p, i, a) => ok.includes(p) && a.indexOf(p) === i);
+  return list.length ? list : ['volume'];
+}
+
+/** Automation lanes shown under a track (none while its lanes are closed). */
+export function trackLanes(t) {
+  return t.showAutomation ? t.lanes || [t.type === 'master' ? 'volume' : t.autoParam || 'volume'] : [];
+}
+
+/** Sets the parameters shown as lanes (first one also becomes autoParam). */
+export function setTrackLanes(state, trackId, lanes) {
+  return updateTrack(state, trackId, (t) => {
+    const list = cleanLanes(t.type, lanes, t.autoParam);
+    return { lanes: list, autoParam: list[0] };
+  });
+}
+
+/** Mute automation always steps: every point holds until the next. */
+export function muteSteps(points) {
+  return points?.length && !points.every((p) => p.hold) ? points.map((p) => (p.hold ? p : { ...p, hold: true })) : points;
+}
+
+/**
+ * Envelope points with every hold point turned into a step (an extra point just
+ * before the next one), for consumers that only interpolate linearly.
+ */
+export function expandHolds(points) {
+  if (!points?.some((p) => p.hold)) return points;
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const next = points[i + 1];
+    out.push(p.hold ? { t: p.t, v: p.v } : p);
+    if (p.hold && next && next.t - 1 > p.t) out.push({ t: next.t - 1, v: p.v });
+  }
+  return out;
+}
+
 export function createTrack(o = {}) {
   const type = o.type || 'audio';
   return {
@@ -78,9 +135,11 @@ export function createTrack(o = {}) {
     fxMix: o.fxMix ?? 1,
     invert: Boolean(o.invert),
     mode: o.mode || 'read',
-    automation: { volume: (o.automation?.volume || []).slice(), pan: (o.automation?.pan || []).slice() },
+    automation: { volume: (o.automation?.volume || []).slice(), pan: (o.automation?.pan || []).slice(), mute: (o.automation?.mute || []).slice() },
     showAutomation: Boolean(o.showAutomation),
     autoParam: o.autoParam || 'volume',
+    lanes: cleanLanes(type, o.lanes, o.autoParam),
+    laneHeight: o.laneHeight || LANE_HEIGHT,
     height: o.height || 124,
     minimized: Boolean(o.minimized),
     hidden: Boolean(o.hidden),
@@ -420,10 +479,12 @@ export function splitEnvelope(points, at, fallback) {
   const v = envelopeValue(points, at, fallback);
   const left = points.filter((p) => p.t < at);
   const right = points.filter((p) => p.t > at).map((p) => ({ ...p, t: p.t - at }));
-  return [[...left, { t: at, v }], [{ t: 0, v }, ...right]];
+  // Inside a held step the right part starts held too.
+  const held = left.length && left[left.length - 1].hold ? { hold: true } : {};
+  return [[...left, { t: at, v }], [{ t: 0, v, ...held }, ...right]];
 }
 
-/** Evaluates a breakpoint envelope (linear between points) at t. */
+/** Evaluates a breakpoint envelope (linear between points, flat after a hold point) at t. */
 export function envelopeValue(points, t, fallback = 0) {
   if (!points || !points.length) return fallback;
   if (t <= points[0].t) return points[0].v;
@@ -438,6 +499,7 @@ export function envelopeValue(points, t, fallback = 0) {
   }
   const a = points[lo];
   const b = points[hi];
+  if (a.hold) return a.v;
   return a.v + ((b.v - a.v) * (t - a.t)) / (b.t - a.t || 1);
 }
 
@@ -486,7 +548,9 @@ function shiftEnvelope(points, d, length, fallback) {
   const v0 = envelopeValue(points, d, fallback);
   const v1 = envelopeValue(points, d + length, fallback);
   const inner = points.filter((p) => p.t > d && p.t < d + length).map((p) => ({ ...p, t: p.t - d }));
-  return [{ t: 0, v: v0 }, ...inner, { t: length, v: v1 }];
+  const before = points.filter((p) => p.t <= d);
+  const held = before.length && before[before.length - 1].hold ? { hold: true } : {};
+  return [{ t: 0, v: v0, ...held }, ...inner, { t: length, v: v1 }];
 }
 
 /**
@@ -641,9 +705,12 @@ export function removeTimeFromLane(points, a, b) {
 function rippleAutomation(state, a, b, hit) {
   const shift = (t) => {
     if (!hit(t)) return t;
-    const volume = removeTimeFromLane(t.automation.volume, a, b);
-    const pan = removeTimeFromLane(t.automation.pan, a, b);
-    return volume === t.automation.volume && pan === t.automation.pan ? t : { ...t, automation: { ...t.automation, volume, pan } };
+    let automation = t.automation;
+    for (const [param, points] of Object.entries(t.automation)) {
+      const next = removeTimeFromLane(points, a, b);
+      if (next !== points) automation = { ...automation, [param]: next };
+    }
+    return automation === t.automation ? t : { ...t, automation };
   };
   return { ...state, tracks: state.tracks.map(shift), master: shift(state.master) };
 }
@@ -744,7 +811,7 @@ export function defaultFadeLength(clip, rate) {
 /** Sorted, de-duplicated copy of envelope points clamped to [0, length]. */
 export function normalizeEnvelope(points, length) {
   const out = points
-    .map((p) => ({ t: Math.max(0, Math.min(length, Math.round(p.t))), v: p.v }))
+    .map((p) => ({ t: Math.max(0, Math.min(length, Math.round(p.t))), v: p.v, ...(p.hold ? { hold: true } : {}) }))
     .sort((a, b) => a.t - b.t);
   return out.filter((p, i) => i === 0 || p.t !== out[i - 1].t || i === out.length - 1);
 }

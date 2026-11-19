@@ -422,10 +422,6 @@
   flex: 0 1 76px;
 }
 
-.mt-th-param {
-  flex: 0 1 76px;
-}
-
 /* The header mode buttons show one of: inputs/outputs, effects, a send, EQ. */
 .mt-th:not([data-mode='fx']) .mt-th-fx,
 .mt-th[data-mode]:not([data-mode='io']) .mt-th-io,
@@ -468,6 +464,71 @@
 /* With the automation lane open the mode controls always show. */
 .mt-th.with-auto .mt-th-r4 {
   display: flex;
+}
+
+/* Automation lane headers, one per lane, under the track's own controls. */
+.mt-th-lanes {
+  position: relative;
+  grid-column: 1 / -1;
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 5px solid color-mix(in srgb, var(--track-color) 45%, transparent);
+  background: var(--bg-panel-alt);
+}
+
+.mt-th.with-auto .mt-th-lanes {
+  display: flex;
+}
+
+.mt-lane-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 1px;
+  box-sizing: border-box;
+  height: var(--lane-h, 46px);
+  min-width: 0;
+  padding: 3px 4px 0 6px;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.mt-lane-param {
+  flex: 1 1 auto;
+  min-width: 52px;
+  margin-right: 3px;
+}
+
+.mt-lane-btn {
+  flex: none;
+}
+
+.mt-lane-btn:disabled {
+  opacity: 0.35;
+}
+
+.mt-lane-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 5px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.mt-lane-resize:hover {
+  background: var(--accent-soft);
+}
+
+.mt-th-addlane:disabled {
+  opacity: 0.35;
+}
+
+/* A mute switch that follows its automation lane. */
+.mt-tb-mute.automated,
+.mx-btns .automated {
+  box-shadow: inset 0 -2px 0 var(--envelope-vol);
 }
 
 .mt-th .mt-meter {
@@ -957,18 +1018,8 @@
   display: none;
 }
 
-/* Narrow headers: the automation parameter wraps under the mode so both stay readable. */
-[data-layout='phone'] .mt-th-r4 {
-  flex-wrap: wrap;
-}
-
 [data-layout='phone'] .mt-th-mode {
   flex: 1 1 0;
-  min-width: 0;
-}
-
-[data-layout='phone'] .mt-th-param {
-  flex: 1 1 100%;
   min-width: 0;
 }
 

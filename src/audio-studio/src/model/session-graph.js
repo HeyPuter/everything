@@ -13,7 +13,7 @@
 
 import { mergeScene } from './merge-layout.js';
 import { sourceKey } from '../engine/engine.js';
-import { activeCrossfades, clipEnd, SILENT_DB } from './session-edits.js';
+import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
 import { compensateLatency } from '../engine/mixcore.js';
 import { getEffect } from '../effects/registry.js';
@@ -77,6 +77,41 @@ export function dbEnvelopeToGain(points, offset = 0) {
 }
 
 const panEnvelope = (points, offset = 0) => points.map((p) => ({ t: p.t + offset, v: p.v / 100 }));
+
+/** Ramp at each step of mute automation (frames at 48 kHz scale with the rate): avoids clicks. */
+const MUTE_RAMP_SECONDS = 0.003;
+
+/**
+ * Linear gain breakpoints for mute automation (points { t, v: 1 muted | 0 audible }, each
+ * holding until the next): 0 or 1 with a short ramp at every change.
+ */
+export function muteEnvelope(points, rate) {
+  const ramp = Math.max(1, Math.round(rate * MUTE_RAMP_SECONDS));
+  const gainOf = (p) => (p.v >= 0.5 ? 0 : 1);
+  const out = [{ t: points[0].t, v: gainOf(points[0]) }];
+  for (let i = 1; i < points.length; i++) {
+    const g = gainOf(points[i]);
+    const prev = out[out.length - 1].v;
+    if (g === prev) continue;
+    const at = points[i].t;
+    out.push({ t: Math.max(out[out.length - 1].t, at - ramp), v: prev }, { t: at, v: g });
+  }
+  return out;
+}
+
+/** Product of two linear breakpoint envelopes (breakpoints at the union of their times). */
+export function multiplyEnvelopes(a, b) {
+  const times = [...new Set([...a.map((p) => p.t), ...b.map((p) => p.t)])].sort((x, y) => x - y);
+  return times.map((t) => ({ t, v: envelopeValue(a, t, 1) * envelopeValue(b, t, 1) }));
+}
+
+/** A track's gain envelope with its mute automation applied (or null when it has none). */
+function withMuteAutomation(gainEnv, gain, mutePts, rate) {
+  if (!mutePts.length) return gainEnv;
+  const mute = muteEnvelope(mutePts, rate);
+  if (gainEnv) return multiplyEnvelopes(gainEnv, mute);
+  return mute.map((p) => ({ t: p.t, v: p.v * gain }));
+}
 
 /** Subtracts intervals `cut` (sorted or not) from [a, b). */
 function subtract(a, b, cuts) {
@@ -239,13 +274,15 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   for (const t of state.tracks) {
     const o = overrides[t.id] || {};
     const auto = t.mode !== 'off';
-    const volPts = auto && o.volume === undefined ? t.automation.volume : [];
-    const panPts = auto && o.pan === undefined ? t.automation.pan : [];
+    const volPts = auto && o.volume === undefined ? expandHolds(t.automation.volume) : [];
+    const panPts = auto && o.pan === undefined ? expandHolds(t.automation.pan) : [];
+    const mutePts = auto && o.mute === undefined ? t.automation.mute || [] : [];
     const gt = {
       id: t.id,
       gain: volPts.length ? 1 : dbToGain(o.volume ?? t.volume),
       pan: panPts.length ? 0 : (o.pan ?? t.pan) / 100,
-      mute: t.mute,
+      // Mute automation (or a live override while it is written) replaces the mute switch.
+      mute: o.mute !== undefined ? o.mute >= 0.5 : mutePts.length ? false : t.mute,
       solo: t.solo,
       ...trackRackSpecs(t, rateDoc, surround && t.channels === 6 ? 6 : 2),
       clips: [],
@@ -260,7 +297,11 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
         if (t.channels === 1) gt.monoIn = true;
       }
     }
-    if (volPts.length) gt.volumeEnv = dbEnvelopeToGain(volPts);
+    const volumeEnv = withMuteAutomation(volPts.length ? dbEnvelopeToGain(volPts) : null, gt.gain, mutePts, state.sampleRate);
+    if (volumeEnv) {
+      gt.volumeEnv = volumeEnv;
+      gt.gain = 1;
+    }
     if (panPts.length) gt.panEnv = panEnvelope(panPts);
     if (t.type === 'bus') {
       gt.bus = true;
@@ -309,8 +350,8 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
             if (p.fadeIn.offset) gc.fadeInOffset = p.fadeIn.offset;
             if (p.fadeOut.offset) gc.fadeOutOffset = p.fadeOut.offset;
             if (t.channels === 1 && src.channels.length > 1) gc.mono = true;
-            if (c.volumeEnv.length) gc.gainEnv = dbEnvelopeToGain(c.volumeEnv);
-            if (c.panEnv.length) gc.panEnv = panEnvelope(c.panEnv);
+            if (c.volumeEnv.length) gc.gainEnv = dbEnvelopeToGain(expandHolds(c.volumeEnv));
+            if (c.panEnv.length) gc.panEnv = panEnvelope(expandHolds(c.panEnv));
             if (clipFx?.length) {
               gc.fx = clipFx;
               gc.fxTail = timing.tail + lat;
@@ -339,12 +380,15 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   if (masterLat) master.latency = masterLat;
   if (m.invert) master.invert = true;
   if (m.eq?.on) master.fx = [...master.fx, ...slotSpecs([{ id: 'eq', effect: 'parametricEq', values: m.eq.values, enabled: true }], `eq:${m.id}`, rateDoc)];
-  if (m.mode !== 'off' && mo.volume === undefined && m.automation.volume.length) {
+  const masterVol = m.mode !== 'off' && mo.volume === undefined && m.automation.volume.length ? dbEnvelopeToGain(expandHolds(m.automation.volume)) : null;
+  const masterMute = m.mode !== 'off' && mo.mute === undefined ? m.automation.mute || [] : [];
+  const masterEnv = withMuteAutomation(masterVol, master.gain, masterMute, state.sampleRate);
+  if (masterEnv) {
     master.gain = 1;
-    master.volumeEnv = dbEnvelopeToGain(m.automation.volume);
+    master.volumeEnv = masterEnv;
   }
   // Muting the master silences the mix (after its effects, so they keep their state).
-  if (m.mute) {
+  if (mo.mute !== undefined ? mo.mute >= 0.5 : !masterMute.length && m.mute) {
     master.gain = 0;
     delete master.volumeEnv;
   }
