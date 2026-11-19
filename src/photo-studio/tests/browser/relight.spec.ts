@@ -152,7 +152,7 @@ test('relight layer: add and drag lights, N hides them, undo, and save and reope
   expect(await page.evaluate(() => window.photoStudio.doc.layers[1].adjustment)).toEqual(saved);
 });
 
-test('relight layer: rasterize keeps the look, duplicate keeps the lights, grayscale refuses', async ({
+test('relight layer: PSD export and rasterize keep the look, duplicate keeps the lights, grayscale refuses', async ({
   page,
 }) => {
   await boot(page);
@@ -162,6 +162,43 @@ test('relight layer: rasterize keeps the look, duplicate keeps the lights, grays
     const { compositeRGBA } = await import('/src/features/pixels.ts');
     return Array.from((await compositeRGBA(window.photoStudio)).data);
   });
+  // PSD has no relight record: the layer is written as its relit pixels.
+  const psd = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    (e.preferences as { psdCompatibility: string }).psdCompatibility = 'always';
+    const { buildPsd } = await import('/src/features/files/psd-export.ts');
+    const out = await buildPsd(e);
+    return Array.from(new Uint8Array(await out!.blob.arrayBuffer()));
+  });
+  await openFiles(page, {
+    name: 'relit.psd',
+    mimeType: 'image/vnd.adobe.photoshop',
+    buffer: Buffer.from(psd),
+  });
+  const reopened = await page.evaluate(async () => {
+    const { compositeRGBA } = await import('/src/features/pixels.ts');
+    const e = window.photoStudio;
+    return {
+      layers: e.doc.layers.map((l) => [l.name, l.kind]),
+      pixels: Array.from((await compositeRGBA(e)).data),
+    };
+  });
+  // PSD rasters open as image layers.
+  expect(reopened.layers).toEqual([
+    ['Background', 'image'],
+    ['Relight 1', 'image'],
+  ]);
+  let psdMax = 0;
+  for (let i = 0; i < shown.length; i++)
+    psdMax = Math.max(psdMax, Math.abs(shown[i] - reopened.pixels[i]));
+  expect(psdMax).toBeLessThanOrEqual(2);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await e.closeSession(e.session, true);
+  });
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.session.fileName)).toBe('scene.png');
+
   await run(page, 'layer.duplicate');
   expect(
     await page.evaluate(() =>
