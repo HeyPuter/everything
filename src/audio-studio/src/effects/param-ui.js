@@ -307,6 +307,20 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
     }
     if ((layout.vertical || []).includes(name)) {
       const strip = h('div.fx-vsliders');
+      // Sliders that share one range get a labelled scale at the left of the row.
+      const nums = rest.filter((p) => paramType(p) === 'number');
+      if (nums.length > 1 && nums.every((p) => p.min === nums[0].min && p.max === nums[0].max && p.scale === nums[0].scale)) {
+        const { major } = scaleTicks(nums[0], { maxLabels: 7 });
+        strip.append(
+          h(
+            'div.fx-vaxis',
+            { 'aria-hidden': 'true' },
+            h('div.fx-vlabel', nums[0].unit || ''),
+            h('div.fx-scale.v', h('div.fx-vaxis-labels', major.map((t) => h('span.fx-vaxis-label', { style: { bottom: `${(t.x * 100).toFixed(3)}%` } }, t.label)))),
+            h('div.fx-value'),
+          ),
+        );
+      }
       for (const p of rest) {
         if (paramType(p) !== 'number') continue;
         const c = verticalControl(p, getValues, onSet);

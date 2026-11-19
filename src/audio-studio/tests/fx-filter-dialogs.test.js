@@ -70,6 +70,14 @@ describe('Filter and EQ dialogs', () => {
     await close();
   });
 
+  it('a row of band sliders shares one labelled dB scale', async () => {
+    const { dlg, close } = open('graphicEq10');
+    const axis = dlg.querySelector('.fx-vsliders .fx-vaxis');
+    expect(axis.querySelector('.fx-vlabel').textContent).toBe('dB');
+    expect([...axis.querySelectorAll('.fx-vaxis-label')].map((e) => e.textContent)).toContain('0');
+    await close();
+  });
+
   it('Parametric Equalizer Range rescales the graph and Ultra-Quiet reaches the processor', async () => {
     const app = fakeApp();
     const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(filled(4800, 0.1))] });

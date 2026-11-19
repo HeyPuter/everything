@@ -428,6 +428,42 @@ input[type='range'].fx-slider:disabled {
   font-size: var(--fs-sm);
 }
 
+/* The shared value scale at the left of a row of vertical sliders. */
+.fx-vaxis {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 28px;
+}
+
+.fx-vaxis .fx-value {
+  min-height: 1.4em;
+}
+
+.fx-vaxis .fx-vlabel {
+  color: var(--text-dim);
+}
+
+.fx-vaxis-labels {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 0;
+  right: 0;
+}
+
+.fx-vaxis-label {
+  position: absolute;
+  right: 2px;
+  transform: translateY(50%);
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
 .fx-vlabel {
   color: var(--text);
   font-size: var(--fs-xs);
