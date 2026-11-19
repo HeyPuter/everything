@@ -72,7 +72,8 @@ export function installPreviewEditor(app, host) {
   let showOriginal = false;
   const abBtn = h(
     'button.btn.sm.preview-ab',
-    { type: 'button', 'aria-pressed': 'false', title: 'Compare: show and play the original (A) or the processed audio (B)', disabled: true, onclick: () => setOriginal(!showOriginal) },
+    // A dialog companion: Tab reaches it from the effect dialog that it compares.
+    { type: 'button', 'aria-pressed': 'false', title: 'Compare: show and play the original (A) or the processed audio (B)', disabled: true, dataset: { dialogCompanion: '' }, onclick: () => setOriginal(!showOriginal) },
     h('span.ab-a', 'A'),
     h('span.ab-sep', '/'),
     h('span.ab-b', 'B'),

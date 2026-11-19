@@ -173,6 +173,16 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       } else if (e.key === 'Tab') {
         const items = [...dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled && el.offsetParent !== null);
         if (!items.length) return;
+        // Controls outside the dialog that work with it (data-dialog-companion, e.g. the
+        // Preview Editor's A/B) join the Tab cycle after the dialog's own.
+        const companions = [...document.querySelectorAll('[data-dialog-companion]')].filter((el) => !el.disabled && el.offsetParent !== null && !dialog.contains(el));
+        const cycle = [...items, ...companions];
+        const at = cycle.indexOf(document.activeElement);
+        if (companions.length && at !== -1) {
+          e.preventDefault();
+          cycle[(at + (e.shiftKey ? -1 : 1) + cycle.length) % cycle.length].focus();
+          return;
+        }
         const first = items[0];
         const last = items[items.length - 1];
         if (e.shiftKey && document.activeElement === first) {

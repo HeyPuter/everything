@@ -254,3 +254,169 @@ describe('practice audio', () => {
     expect(voiceSamples(8000, 2)).toEqual(voiceSamples(8000, 2));
   });
 });
+
+describe('checking results', () => {
+  it('keeps a step open with advice until the result is right', async () => {
+    const app = fakeApp();
+    let good = false;
+    const entered = [];
+    const t = {
+      id: 'v',
+      title: 'V',
+      steps: [
+        { id: 'a', title: 'A', text: '', enter: (a, ctx) => entered.push((ctx.before = 5)), done: { edit: 'Normalize' }, verify: async (a, ctx) => (good && ctx.before === 5 ? null : 'Turn it up more.') },
+        { id: 'b', title: 'B', text: '', done: { manual: true } },
+      ],
+    };
+    const r = new TutorialRunner(app, [t]);
+    await r.start('v');
+    expect(entered).toEqual([5]);
+    app.active.state = { n: 1 };
+    app.edit('Normalize');
+    await flush();
+    expect(r.current.index).toBe(0);
+    expect(r.current.ctx.problem).toBe('Turn it up more.');
+    // Other events with the same audio do not measure again.
+    app.emit('tool', 'time');
+    await flush();
+    expect(r.current.ctx.problem).toBe('Turn it up more.');
+    good = true;
+    app.active.state = { n: 2 };
+    app.edit('Normalize');
+    await flush();
+    expect(r.current.index).toBe(1);
+    expect(r.current.ctx.problem).toBe(null);
+  });
+
+  it('measures level, roughness and peak of a file', async () => {
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    const { rmsDb, roughness, peakDb, integratedLoudness } = await import('../src/learn/measure.js');
+    const x = new Float32Array(8000).fill(0.1);
+    x[4000] = 0.9;
+    const doc = new AudioFile({ name: 'm.wav', sampleRate: 8000, channels: [Channel.fromSamples(x)] });
+    expect(rmsDb(doc, 0, 0.4)).toBeCloseTo(-20, 1);
+    expect(roughness(doc, 0, 0.4)).toBeCloseTo(0);
+    expect(roughness(doc, 0.45, 0.55)).toBeCloseTo(1.6, 5);
+    expect(peakDb(doc)).toBeCloseTo(20 * Math.log10(0.9), 5);
+    expect(await integratedLoudness(doc, async () => ({ integrated: -18.2 }))).toBe(-18.2);
+  });
+
+  it('the tutorials check noise, level, the click and loudness', async () => {
+    const byId = (t, s) => TUTORIALS.find((x) => x.id === t).steps.find((x) => x.id === s);
+    for (const [t, s] of [['voice-cleanup', 'reduce'], ['voice-cleanup', 'normalize'], ['heal-click', 'heal'], ['master', 'match']]) {
+      expect(typeof byId(t, s).verify, `${t}/${s}`).toBe('function');
+    }
+    // The loudness check: within 1 LU passes, further off explains what to change.
+    const app = fakeApp();
+    app.documents = [];
+    app.active = { kind: 'audio', state: {}, sampleRate: 48000, length: 1 };
+    app.prefs.set('matchLoudness', { target: -14 });
+    const step = byId('master', 'match');
+    expect(await step.verify(app, { measureLoudness: async () => ({ integrated: -14.6 }) })).toBe(null);
+    expect(await step.verify(app, { measureLoudness: async () => ({ integrated: -18 }) })).toMatch(/-18\.0 LUFS.*-14 LUFS/);
+  });
+});
+
+describe('drag hints', () => {
+  it('maps a step drag onto the target box', async () => {
+    const { dragPath } = await import('../src/learn/highlight.js');
+    const r = { left: 100, top: 50, width: 200, height: 100 };
+    expect(dragPath(r, { from: [0, 0.5], to: [0.5, 0.5] })).toEqual({ x0: 100, y0: 100, x1: 200, y1: 100 });
+    expect(dragPath(r, { from: [0.5, 0.5], by: [90, 0] })).toEqual({ x0: 200, y0: 100, x1: 290, y1: 100 });
+    expect(dragPath(r, null)).toBe(null);
+    const drags = TUTORIALS.flatMap((t) => t.steps).filter((s) => s.drag);
+    expect(drags.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('practice files', () => {
+  it('close without asking, stay out of autosave, show as Practice, and become real files once saved', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { practiceFile } = await import('../src/learn/media.js');
+    const { planAutosave } = await import('../src/storage/autosave.js');
+    const { fileStatus } = await import('../src/panels/files.js');
+    const app = new App();
+    installCore(app);
+    const doc = practiceFile(app, 'Practice Test.wav', () => ({ rate: 8000, channels: [new Float32Array(800)] }));
+    expect(doc.practice).toBe(true);
+    // Reused while open.
+    expect(practiceFile(app, 'Practice Test.wav', () => { throw new Error('made twice'); })).toBe(doc);
+    doc.apply('Edit', { ...doc.state, meta: { x: 1 } });
+    expect(doc.dirty).toBe(true);
+    expect(fileStatus(doc).label).toBe('Practice');
+    expect(planAutosave([doc], new Map(), 1e9)).toEqual([]);
+    doc.markSaved();
+    expect(doc.practice).toBe(false);
+    const other = practiceFile(app, 'Practice Other.wav', () => ({ rate: 8000, channels: [new Float32Array(800)] }));
+    other.apply('Edit', { ...other.state, meta: { x: 2 } });
+    // No save prompt: closes straight away.
+    expect(await app.closeDocument(other)).toBe(true);
+    expect(app.documents.includes(other)).toBe(false);
+  });
+
+  it('offers Keep a Copy when a tutorial finishes', async () => {
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { installLearn } = await import('../src/learn/install.js');
+    const { learnPanel } = await import('../src/learn/panel.js');
+    HTMLCanvasElement.prototype.getContext = () => null;
+    const app = new App();
+    installCore(app);
+    installLearn(app);
+    const { el } = learnPanel(app);
+    document.body.replaceChildren(el);
+    await app.learn.start('punch-in');
+    while (app.learn.current) app.learn.next();
+    const card = el.querySelector('.learn-run');
+    expect(card.hidden).toBe(false);
+    expect(card.textContent).toContain('Finished: Record with punch-in');
+    const ran = [];
+    app.commands.watch({ before: (id) => ran.push(id) });
+    const keep = [...card.querySelectorAll('button')].find((b) => b.textContent.startsWith('Keep a Copy'));
+    expect(keep).toBeTruthy();
+    keep.click();
+    expect(ran).toContain('file.saveAs');
+    document.querySelector('.dialog .dialog-head .icon-btn')?.click();
+    [...card.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    expect(el.querySelector('.learn-run').hidden).toBe(true);
+  });
+});
+
+describe('dialog companions', () => {
+  it('Tab moves from the dialog to a companion control and back', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    document.body.replaceChildren();
+    const ab = document.createElement('button');
+    ab.dataset.dialogCompanion = '';
+    ab.textContent = 'A/B';
+    document.body.append(ab);
+    const p = openDialog({ title: 'Effect', body: document.createElement('div'), buttons: [{ label: 'Close', value: null }, { label: 'Apply', value: 1, primary: true }] });
+    // jsdom has no layout: report every element as shown.
+    const shown = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get: () => document.body });
+    try {
+      const buttons = [...document.querySelectorAll('.dialog button')];
+      const last = buttons[buttons.length - 1];
+      last.focus();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      expect(document.activeElement).toBe(ab);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      expect(document.activeElement).toBe(buttons[0]);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+      expect(document.activeElement).toBe(ab);
+    } finally {
+      if (shown) Object.defineProperty(HTMLElement.prototype, 'offsetParent', shown);
+      else delete HTMLElement.prototype.offsetParent;
+    }
+    document.querySelector('.dialog .dialog-head .icon-btn').click();
+    await p;
+  });
+});
