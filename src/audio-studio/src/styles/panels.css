@@ -313,6 +313,14 @@
   color: var(--text-faint);
 }
 
+/* Hot text: drag sideways to scrub, click to type. */
+.selection-panel .time-field:not(:focus):not(:disabled) {
+  cursor: ew-resize;
+}
+.selection-panel .time-field.scrubbing {
+  border-color: var(--hot);
+}
+
 /* Narrow frames (the Default workspace on a 1280 px screen): tighter spacing and
    type so Start, End and Duration all stay in view. */
 @container (max-width: 320px) {

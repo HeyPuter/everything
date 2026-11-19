@@ -1,5 +1,7 @@
 // Selection/View panel: start, end and duration of the time selection and of
-// the visible range. Every value can be typed in the current time format.
+// the visible range. Every value can be typed in the current time format, or
+// dragged left and right to scrub it (Shift: finer steps); Up and Down nudge
+// the value of a focused field.
 
 import { h } from '../lib/dom.js';
 import { parseTime, TIME_DISPLAY_KEYS } from '../lib/time.js';
@@ -22,6 +24,7 @@ export function selectionPanel(app) {
       e.stopPropagation();
     });
     cells[`${row}.${col}`] = input;
+    scrubbable(input, row, col);
     return h('td', input);
   };
   const table = h(
@@ -43,6 +46,79 @@ export function selectionPanel(app) {
       render(input);
       return;
     }
+    setValue(row, col, v);
+    // The field just typed in too: it shows the value that was applied (limited to the file).
+    render(input);
+  }
+
+  /** The frame value a field shows now. */
+  function valueOf(row, col) {
+    const doc = app.active;
+    if (row === 'sel') {
+      const { start, end } = doc.selection;
+      const has = end > start;
+      if (col === 'start') return has ? start : doc.cursor;
+      if (col === 'end') return has ? end : doc.cursor;
+      return has ? end - start : 0;
+    }
+    const { start, end } = doc.view;
+    return col === 'start' ? start : col === 'end' ? end : end - start;
+  }
+
+  /**
+   * Hot text: drag a field sideways to change its value (one step per pixel, a
+   * tenth with Shift); a click without a drag edits the text as usual.
+   */
+  function scrubbable(input, row, col) {
+    let drag = null;
+    input.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || document.activeElement === input || !app.active) return;
+      e.preventDefault();
+      drag = { x: e.clientX, from: valueOf(row, col), moved: false, id: e.pointerId };
+      input.setPointerCapture?.(e.pointerId);
+    });
+    input.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) < 3) return;
+      drag.moved = true;
+      input.classList.add('scrubbing');
+      const v = Math.max(0, Math.round(drag.from + dx * scrubStep(e.shiftKey)));
+      setValue(row, col, v);
+      render();
+    });
+    const end = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const moved = drag.moved;
+      drag = null;
+      input.classList.remove('scrubbing');
+      input.releasePointerCapture?.(e.pointerId);
+      if (!moved && e.type === 'pointerup') {
+        input.focus();
+        input.select();
+      }
+    };
+    input.addEventListener('pointerup', end);
+    input.addEventListener('pointercancel', end);
+    input.addEventListener('keydown', (e) => {
+      if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || !app.active) return;
+      e.preventDefault();
+      const v = Math.max(0, Math.round(valueOf(row, col) + (e.key === 'ArrowUp' ? 1 : -1) * scrubStep(e.shiftKey) * 10));
+      setValue(row, col, v);
+      render();
+      input.select();
+    });
+  }
+
+  /** Frames per pixel of scrubbing: a 300th of the visible range (a tenth of that when fine). */
+  function scrubStep(fine) {
+    const doc = app.active;
+    const span = Math.max(1, doc.view.end - doc.view.start);
+    return Math.max(1, span / 300) / (fine ? 10 : 1);
+  }
+
+  function setValue(row, col, v) {
+    const doc = app.active;
     if (row === 'sel') {
       let { start, end } = doc.selection;
       // Without a selection the fields show the cursor, so edits start from it.
@@ -62,8 +138,6 @@ export function selectionPanel(app) {
       else end = start + v;
       doc.setView(start, end);
     }
-    // The field just typed in too: it shows the value that was applied (limited to the file).
-    render(input);
   }
 
   function render(typed = null) {

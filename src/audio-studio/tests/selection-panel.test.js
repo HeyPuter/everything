@@ -76,3 +76,49 @@ describe('selection panel field being typed in', () => {
     expect(document.activeElement).toBe(end);
   });
 });
+
+describe('selection panel hot text', () => {
+  const pointer = (type, x, extra = {}) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, button: 0, ...extra });
+    Object.defineProperty(e, 'pointerId', { value: 1 });
+    return e;
+  };
+
+  it('scrubs a value by dragging sideways (finer with Shift)', () => {
+    const doc = fakeDoc();
+    doc.setSelection(10000, 20000);
+    const panel = selectionPanel(fakeApp(doc));
+    document.body.append(panel.el);
+    const [start, end] = panel.el.querySelectorAll('input');
+    // The view is 60 s wide: one pixel is 200 frames (0.2 s).
+    end.dispatchEvent(pointer('pointerdown', 100));
+    end.dispatchEvent(pointer('pointermove', 110));
+    expect(doc.selection).toEqual({ start: 10000, end: 22000 });
+    expect(end.value).toBe('0:22.000');
+    end.dispatchEvent(pointer('pointermove', 90, { shiftKey: true }));
+    expect(doc.selection.end).toBe(19800);
+    end.dispatchEvent(pointer('pointerup', 90));
+    expect(document.activeElement).not.toBe(end);
+    // A click without a drag edits the text instead.
+    start.dispatchEvent(pointer('pointerdown', 50));
+    start.dispatchEvent(pointer('pointerup', 50));
+    expect(document.activeElement).toBe(start);
+    expect(doc.selection.start).toBe(10000);
+    panel.el.remove();
+  });
+
+  it('nudges a focused value with the Up and Down keys', () => {
+    const doc = fakeDoc();
+    const panel = selectionPanel(fakeApp(doc));
+    document.body.append(panel.el);
+    const inputs = panel.el.querySelectorAll('input');
+    const viewEnd = inputs[4];
+    viewEnd.focus();
+    viewEnd.dispatchEvent(new KeyboardEvent('keydown', { key: 'Down', bubbles: true }));
+    viewEnd.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(doc.view.end).toBe(58000);
+    viewEnd.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true }));
+    expect(doc.view.end).toBe(58193);
+    panel.el.remove();
+  });
+});
