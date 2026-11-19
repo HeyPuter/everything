@@ -32,6 +32,10 @@ const dependsOn: Partial<Record<string, (p: Preferences) => boolean>> = {
   checkerColors: (p) => p.checkerSize !== 'none',
   paintCrosshair: (p) => p.paintCursor === 'normal' || p.paintCursor === 'full',
   versionsPerDocument: (p) => p.versionsOnSave,
+  quickExportQuality: (p) => p.quickExportSettings === 'own',
+  quickExportTransparency: (p) => p.quickExportSettings === 'own',
+  quickExportMetadata: (p) => p.quickExportSettings === 'own',
+  quickExportConvertSrgb: (p) => p.quickExportSettings === 'own',
 };
 
 export function openPreferences(e: Editor, page?: PageId) {

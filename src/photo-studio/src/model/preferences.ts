@@ -115,8 +115,14 @@ export type Preferences = {
   recentCount: number;
   askLayeredTiff: boolean;
   // ----- Export -----
-  quickExportFormat: 'png' | 'jpeg' | 'webp' | 'gif' | 'tiff';
-  quickExportLocation: 'download' | 'ask' | 'beside';
+  quickExportFormat: 'png' | 'jpeg' | 'webp' | 'gif' | 'tiff' | 'svg';
+  quickExportLocation: 'download' | 'ask' | 'beside' | 'assets';
+  // 'last': the last Export As settings; 'own': the quick export settings below.
+  quickExportSettings: 'last' | 'own';
+  quickExportQuality: number;
+  quickExportTransparency: boolean;
+  quickExportMetadata: 'none' | 'copyright' | 'all';
+  quickExportConvertSrgb: boolean;
   // Provenance attached to exported PNG, JPEG, WebP and TIFF files.
   provenanceAttach: 'none' | 'record' | 'signed';
   provenancePrompts: boolean;
@@ -279,8 +285,13 @@ export const SETTINGS: SettingDef[] = [
   { page: 'files', section: 'Compatibility', type: 'boolean', key: 'askLayeredTiff', label: 'Ask before saving layered TIFF files', default: true, help: 'TIFF export flattens layers; ask first when the document has several.' },
   { page: 'files', section: 'Recent files', type: 'number', key: 'recentCount', label: 'Recent file list contains', default: 12, min: 0, max: 100, integer: true, unit: 'files' },
   // ----- Export -----
-  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportFormat', label: 'Quick export format', default: 'png', options: [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['gif', 'GIF'], ['tiff', 'TIFF']] },
-  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportLocation', label: 'Quick export location', default: 'download', options: [['download', 'Download to this device'], ['ask', 'Ask for a Puter folder each time'], ['beside', 'Beside the document in Puter']], help: 'Documents not yet saved to Puter download when “beside the document” is chosen.' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportFormat', label: 'Quick export format', default: 'png', options: [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['gif', 'GIF'], ['tiff', 'TIFF'], ['svg', 'SVG']], help: 'File → Export → Quick Export uses this format.' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportLocation', label: 'Quick export location', default: 'download', options: [['download', 'Download to this device'], ['ask', 'Ask for a Puter folder each time'], ['beside', 'Beside the document in Puter'], ['assets', 'In an assets folder beside the document']], help: 'The assets folder is named after the document (“Photo-assets” for Photo.psd). Documents not yet saved to Puter download instead.', keywords: 'folder destination where' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportSettings', label: 'Quick export settings', default: 'last', options: [['last', 'Same as my last Export As'], ['own', 'The settings below']], help: 'The last Export As settings include its size, quality and metadata choices.' },
+  { page: 'export', section: 'Quick export', type: 'number', key: 'quickExportQuality', label: 'JPEG and WebP quality', default: 90, min: 1, max: 100, integer: true, unit: '%', keywords: 'compression' },
+  { page: 'export', section: 'Quick export', type: 'boolean', key: 'quickExportTransparency', label: 'Keep transparency', default: true, help: 'PNG, WebP, GIF and TIFF keep transparent pixels; off fills them with white.', keywords: 'alpha matte background' },
+  { page: 'export', section: 'Quick export', type: 'choice', key: 'quickExportMetadata', label: 'Metadata', default: 'none', options: [['none', 'None'], ['copyright', 'Copyright and contact info'], ['all', 'All file info']], help: 'From File → File Info, where the format can hold it.', keywords: 'xmp exif author copyright privacy' },
+  { page: 'export', section: 'Quick export', type: 'boolean', key: 'quickExportConvertSrgb', label: 'Convert to sRGB', default: true, help: 'Converts other color profiles to sRGB, the profile web browsers assume.', keywords: 'color space profile icc' },
   { page: 'export', section: 'Provenance', type: 'choice', key: 'provenanceAttach', label: 'Attach provenance to exports', default: 'none', options: [['none', 'Do not attach'], ['record', 'How the image was made (XMP record)'], ['signed', 'Record plus a self-signed C2PA manifest']], help: 'Adds the sources, edit steps, AI use and a hash of the pixels to PNG, JPEG, WebP and TIFF exports. The signature uses a key made in this browser and is not vouched for by anyone.', keywords: 'c2pa history origin xmp signature authenticity' },
   { page: 'export', section: 'Provenance', type: 'boolean', key: 'provenancePrompts', label: 'Record AI prompts', default: false, help: 'Keep the prompts of AI commands in the provenance record. Off: only that an AI command was used.', keywords: 'privacy generate' },
   // ----- Performance -----

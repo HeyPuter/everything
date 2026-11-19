@@ -11,7 +11,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       'file.close', 'file.close-all', 'file.close-others', '-',
       'file.save', 'file.save-as', 'file.save-copy', 'file.download-project', 'file.revert', 'file.save-version', 'file.version-history', '-',
       { label: 'Export', id: 'file.export', items: [
-        'file.quick-export-png', 'file.export-as', '-',
+        'file.quick-export-png', 'file.export-as', '-', 'file.export-preferences', '-',
         'file.export-psd', 'file.export-original-psd', 'file.export-tiff', 'file.export-cmyk-tiff', 'file.export-mode-tiff', 'file.export-mode-png', 'file.export-svg', 'file.export-gif', '-',
         'file.export-layers', 'file.export-animation', 'file.render-video', '-',
         'file.export-paths', 'file.export-color-lookup', 'file.export-data-sets',

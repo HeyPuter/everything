@@ -81,27 +81,26 @@ export async function encodeDocument(e: Editor, settings: ExportSettings, doc: P
 export function bytesBlob(bytes: Uint8Array, mime: string) {
   return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mime });
 }
-/** Quick export with the last Export As settings in the format and to the
- * place chosen in Preferences → Export. */
+/** Quick export in the format, with the settings and to the place chosen in
+ * Preferences → Export. */
 export async function quickExport(e: Editor, format: ExportSettings['format'] = e.preferences.quickExportFormat) {
-  const s = { ...loadSettings(), format };
+  const { quickExportFolder, quickExportSettings } = await import('./quick-export');
+  const s = quickExportSettings(e.preferences, format, loadSettings());
   const out = await encodeDocument(e, s);
   const name = preferredFileName(exportFileName(exportBaseName(e.doc), format));
   const { withProvenance } = await import('../provenance/export');
   out.bytes = await withProvenance(e.session, out.bytes, name, e.preferences.provenanceAttach, { prompts: e.preferences.provenancePrompts, width: out.width, height: out.height });
   const blob = bytesBlob(out.bytes, out.mime);
   const where = e.preferences.quickExportLocation;
-  const docPath = e.session.storage.path;
-  if (where === 'download' || (where === 'beside' && !docPath)) {
+  let dir = quickExportFolder(where, e.session.storage.path);
+  if (where !== 'ask' && !dir) {
     download(blob, name);
     e.message(`${formatInfo[format].label} exported (${formatBytes(out.bytes.length)})`);
     void emitAppEvent('export', e.session);
     return;
   }
   const { cloudWrite, joinPath, pickCloudFolder } = await import('./cloud');
-  let dir: string;
-  if (where === 'beside') dir = docPath!.replace(/\/[^/]*$/, '') || '/';
-  else {
+  if (!dir) {
     // The Puter picker never settles when dismissed: do not hold the editor busy.
     e.release();
     dir = (await pickCloudFolder()).path;

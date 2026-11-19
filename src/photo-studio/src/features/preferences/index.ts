@@ -23,6 +23,14 @@ export function installPreferences(e: Editor) {
     run: async () => void (await preferencesWindow()).openPreferences(e),
     prefetch: preferencesWindow.prefetch,
   });
+  registerCommand({
+    id: 'file.export-preferences',
+    label: 'Export Preferences…',
+    recordable: false,
+    description: 'Quick export format, location, quality, metadata and color conversion',
+    run: async () => void (await preferencesWindow()).openPreferences(e, 'export'),
+    prefetch: preferencesWindow.prefetch,
+  });
   e.cursorFor = (tool) => toolCursor(e, tool);
   e.preferenceHooks.push(applyPreferences);
   e.viewHooks.push(syncCheckerSize);
