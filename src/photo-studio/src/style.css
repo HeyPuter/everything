@@ -215,7 +215,9 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .mode-switch button[aria-checked='true'] { background: var(--surface); border-color: var(--input-line); color: var(--text); box-shadow: 0 1px 2px #0003; }
 .mode-switch button[aria-checked='true'][data-mode='assisted'] svg { color: var(--accent); }
 .mode-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-@media (max-width: 900px) { .mode-switch button span { display: none; } }
+/* Narrow windows keep the top bar for the menus; Window › Editor Mode still switches. */
+@media (max-width: 1100px) { .mode-switch button span { display: none; } }
+@media (max-width: 900px) { .mode-switch { display: none; } }
 #tool-options { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; flex: 1; }
 /* More controls or tabs past an edge (narrow windows): that edge fades (app/scroll-row.ts). */
 .scroll-row.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
@@ -2498,6 +2500,7 @@ html.feature-loading .statusbar::after { content: ''; position: absolute; left: 
   #color-hue { width: 24px; }
   #color-hue::-webkit-slider-thumb { width: 30px; }
   .property-body h3 button { min-width: 28px; min-height: 28px; }
+  .pf-head .pf-head-button { min-width: 28px; min-height: 28px; }
   .menu-item { height: 32px; }
 }
 @media (pointer: coarse) and (max-width: 760px) {

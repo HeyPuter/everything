@@ -55,8 +55,8 @@ export function installEditorMode(e: Editor) {
   sw.setAttribute('role', 'radiogroup');
   sw.setAttribute('aria-label', 'Editor mode');
   sw.innerHTML =
-    `<button type="button" role="radio" data-mode="assisted" title="Assisted: the Assistant, quick actions and the essential tools">${svg('sparkles', 14)}<span>Assisted</span></button>` +
-    `<button type="button" role="radio" data-mode="pro" title="Pro: the full workspace">${svg('sliders-horizontal', 14)}<span>Pro</span></button>`;
+    `<button type="button" role="radio" data-mode="assisted" aria-label="Assisted" title="Assisted: the Assistant, quick actions and the essential tools">${svg('sparkles', 14)}<span>Assisted</span></button>` +
+    `<button type="button" role="radio" data-mode="pro" aria-label="Pro" title="Pro: the full workspace">${svg('sliders-horizontal', 14)}<span>Pro</span></button>`;
   const buttons = [...sw.querySelectorAll<HTMLButtonElement>('button')];
   const paint = () => {
     for (const b of buttons) {
