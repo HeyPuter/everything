@@ -100,10 +100,10 @@ export function installCore(e: Editor) {
   }, { shortcut: 'Mod+O', recordable: false });
   cmd('file.place-embedded', 'Place Embedded…', () => pickFiles(e, true), { enabled: hasDoc, recordable: false });
   // Like a tab's close button: a document open in other windows stays open.
-  cmd('file.close', 'Close', () => void e.closeView(e.activeView), { shortcut: 'Mod+W', recordable: false });
+  cmd('file.close', 'Close', () => void e.closeView(e.activeView), { shortcut: 'Mod+W', enabled: hasDoc, recordable: false });
   cmd('file.close-all', 'Close All', async () => {
     for (const s of [...e.sessions]) if (!(await e.closeSession(s))) break;
-  }, { shortcut: 'Mod+Alt+W', recordable: false });
+  }, { shortcut: 'Mod+Alt+W', enabled: hasDoc, recordable: false });
   cmd('file.close-others', 'Close Others', async () => {
     for (const s of e.sessions.filter((x) => x !== e.session)) await e.closeSession(s);
   }, { shortcut: 'Mod+Alt+P', enabled: (e) => e.sessions.length > 1, recordable: false });
@@ -139,7 +139,7 @@ export function installCore(e: Editor) {
       await performAction(e, 'undo');
       toggledTo = e.doc;
     }
-  }, { shortcut: 'Mod+Alt+Z', recordable: false });
+  }, { shortcut: 'Mod+Alt+Z', enabled: (e) => e.history.canUndo || e.history.canRedo || e.transform.active || e.session.hasPendingEdits, recordable: false });
   cmd('edit.free-transform', 'Free Transform', () => {
     e.setTool('move');
     e.transform.begin();
@@ -322,19 +322,19 @@ export function installCore(e: Editor) {
 
   // ----- View -----
   const zoomSteps = [1, 2, 3, 4, 5, 6.25, 8.33, 12.5, 16.67, 25, 33.33, 50, 66.67, 100, 150, 200, 300, 400, 500, 600, 700, 800, 1200, 1600, 2400, 3200, 6400].map((v) => v / 100);
-  cmd('view.zoom-in', 'Zoom In', () => e.zoomBy(zoomSteps.find((z) => z > e.zoom * 1.001) ?? 64), { shortcut: ['Mod+=', 'Mod+Shift+=', 'Mod++'], recordable: false });
-  cmd('view.zoom-out', 'Zoom Out', () => e.zoomBy([...zoomSteps].reverse().find((z) => z < e.zoom * 0.999) ?? 0.01), { shortcut: 'Mod+-', recordable: false });
-  cmd('view.fit', 'Fit on Screen', () => e.fit(), { shortcut: 'Mod+0', recordable: false });
+  cmd('view.zoom-in', 'Zoom In', () => e.zoomBy(zoomSteps.find((z) => z > e.zoom * 1.001) ?? 64), { shortcut: ['Mod+=', 'Mod+Shift+=', 'Mod++'], enabled: hasDoc, recordable: false });
+  cmd('view.zoom-out', 'Zoom Out', () => e.zoomBy([...zoomSteps].reverse().find((z) => z < e.zoom * 0.999) ?? 0.01), { shortcut: 'Mod+-', enabled: hasDoc, recordable: false });
+  cmd('view.fit', 'Fit on Screen', () => e.fit(), { shortcut: 'Mod+0', enabled: hasDoc, recordable: false });
   cmd('view.fill', 'Fill Screen', () => {
     const v = e.el('#viewport');
     e.zoom = Math.max(v.clientWidth / e.doc.width, v.clientHeight / e.doc.height);
     e.pan = { x: 0, y: 0 };
     e.view();
     e.overlay();
-  }, { recordable: false });
+  }, { enabled: hasDoc, recordable: false });
   cmd('view.actual-pixels', '100%', () => {
     e.zoomBy(1);
-  }, { shortcut: ['Mod+1', 'Mod+Alt+0'], recordable: false });
+  }, { shortcut: ['Mod+1', 'Mod+Alt+0'], enabled: hasDoc, recordable: false });
   cmd('view.rulers', 'Rulers', () => {
     e.preferences.showRulers = !e.preferences.showRulers;
     e.savePreferences();

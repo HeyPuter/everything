@@ -137,3 +137,43 @@ test('Properties shows an empty state on the start screen instead of fields that
   await expect(properties.locator('input').first()).toBeVisible();
   await expect(properties).not.toContainText('appear here');
 });
+
+test('with no document open, zoom and close commands are disabled and Window › Documents lists nothing', async ({
+  page,
+}) => {
+  await boot(page);
+  const ids = [
+    'view.zoom-in',
+    'view.zoom-out',
+    'view.fit',
+    'view.fill',
+    'view.actual-pixels',
+    'view.zoom-200',
+    'file.close',
+    'file.close-all',
+    'edit.toggle-last-state',
+  ];
+  const states = () =>
+    page.evaluate(async (ids) => {
+      const { resolveMenu, withContributions } = await import('/src/app/menubar.ts');
+      const { menuSkeleton } = await import('/src/app/menus.ts');
+      const found: Record<string, boolean> = {};
+      const walk = (items: ReturnType<typeof resolveMenu>) => {
+        for (const i of items) {
+          if (i.kind === 'command') found[i.id] = i.enabled;
+          else if (i.kind === 'submenu') walk(i.items);
+        }
+      };
+      for (const m of menuSkeleton)
+        walk(resolveMenu(window.photoStudio, withContributions(m.id, m.items), m.id));
+      return {
+        enabled: ids.filter((id) => found[id]),
+        documents: Object.keys(found).filter((id) => id.startsWith('window.document-')),
+      };
+    }, ids);
+  expect(await states()).toEqual({ enabled: [], documents: [] });
+  await openFiles(page, await png(page, 'open.png', 64, 48));
+  const open = await states();
+  expect(open.enabled).toEqual(ids.filter((id) => id !== 'edit.toggle-last-state'));
+  expect(open.documents).toEqual(['window.document-0']);
+});
