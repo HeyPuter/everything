@@ -300,7 +300,8 @@ export function filesPanel(app) {
             } else if (e.key === 'ArrowRight' && !expanded.has(doc.id) && doc.state?.markers?.length) toggle(doc);
             else if (e.key === 'ArrowLeft' && expanded.has(doc.id)) toggle(doc);
             else if (e.key === 'Enter') open(doc);
-            else if (e.key === ' ') selectRow(doc, { toggle: e.metaKey || e.ctrlKey });
+            // Ctrl/Cmd+Space toggles a row (plain Space stays Play, as everywhere).
+            else if (e.key === ' ' && (e.metaKey || e.ctrlKey)) selectRow(doc, { toggle: true });
             else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) selectAll();
             else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
               if (!selected.has(doc.id)) selectRow(doc);
