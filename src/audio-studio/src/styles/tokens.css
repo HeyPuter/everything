@@ -30,7 +30,7 @@
   --bg-input: #191919;
   --bg-hover: #303030;
   --bg-active: #3a3a3a;
-  --bg-editor: #050505;
+  --bg-editor: #000000;
   --bg-track: #1c1c1c;
   --bg-track-alt: #202020;
   --bg-ruler: #1a1a1a;
@@ -76,7 +76,7 @@
   --meter-green: #2fbf57;
   --meter-yellow: #d6c33a;
   --meter-red: #e5484d;
-  --meter-bg: #0d0d0d;
+  --meter-bg: #1a1a1a;
   --envelope-vol: #e5d14a;
   --envelope-pan: #4aa3f5;
   --clip-header: rgba(255, 255, 255, 0.09);

@@ -181,7 +181,7 @@ export function appearanceVars(prefs, theme = resolvedTheme(), base = () => '') 
   if (bg) vars['--bg-editor'] = bg;
   if (wave) {
     vars['--wave'] = wave;
-    vars['--wave-dim'] = mixColors(wave, bg || (theme === 'light' ? '#fbfbfb' : '#050505'), 0.55);
+    vars['--wave-dim'] = mixColors(wave, bg || (theme === 'light' ? '#fbfbfb' : '#000000'), 0.55);
   }
   if (sel) {
     vars['--wave-sel'] = sel;
