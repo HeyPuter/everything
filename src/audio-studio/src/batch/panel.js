@@ -420,7 +420,10 @@ export function batchPanel(app) {
         btn(removeBtn, 'Remove Selected Files'),
         btn(clearBtn, 'Clear List'),
         { type: 'sep' },
-        { type: 'cmd', label: 'Export', enabled: !exportBox.disabled, checked: exportBox.checked, run: () => exportBox.click() },
+        { type: 'cmd', label: 'Export', enabled: !exportBox.disabled, checked: exportBox.checked, run: () => {
+          exportBox.checked = !exportBox.checked;
+          exportBox.dispatchEvent(new Event('change'));
+        } },
         btn(exportBtn, 'Export Settings...'),
         { type: 'sep' },
         running ? btn(cancelBtn, 'Cancel') : btn(runBtn, 'Run'),

@@ -80,3 +80,15 @@ describe('panel menus', () => {
     root.remove();
   });
 });
+
+describe('Media Browser menu', () => {
+  it('lists the browsing and preview options', () => {
+    const { app } = setup();
+    const panel = app.panels.get('media').create(app);
+    const items = panel.menu();
+    expect(labels(items)).toEqual(expect.arrayContaining(['Open', 'Insert into Multitrack', 'Refresh', 'Show Only Audio Files', 'Auto-Play', 'Loop Preview']));
+    expect(items.find((i) => i.label === 'Open').enabled).toBe(false);
+    items.find((i) => i.label === 'Auto-Play').run();
+    expect(app.prefs.get('mediaAutoPlay')).toBe(true);
+  });
+});

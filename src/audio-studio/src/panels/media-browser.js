@@ -677,6 +677,26 @@ export function mediaBrowserPanel(app) {
       (body.querySelector('tr[tabindex="0"]') || search).focus();
     },
     navigate,
+    /** Panel menu: the toolbar and preview options, and the selected file's actions. */
+    menu() {
+      const btn = (b, label) => ({ type: 'cmd', label, enabled: !b.disabled && !b.hidden, run: () => b.click() });
+      const file = selected && !isDir(selected) ? selected : null;
+      return [
+        { type: 'cmd', label: 'Open', enabled: Boolean(file), run: () => open([file]) },
+        { type: 'cmd', label: 'Insert into Multitrack', enabled: Boolean(file) && app.commands.isEnabled('mt.insertFiles', { docs: [true] }), run: () => insert([file]) },
+        { type: 'sep' },
+        btn(upBtn, 'Up One Level'),
+        btn(refreshBtn, 'Refresh'),
+        ...(addFolderBtn.hidden ? [] : [btn(addFolderBtn, 'Add a Folder from This Device...')]),
+        { type: 'sep' },
+        { type: 'cmd', label: 'Show Only Audio Files', enabled: true, checked: audioOnly.getAttribute('aria-pressed') === 'true', run: () => audioOnly.click() },
+        { type: 'cmd', label: 'Auto-Play', enabled: true, checked: autoPlay.checked, run: () => {
+          autoPlay.checked = !autoPlay.checked;
+          autoPlay.dispatchEvent(new Event('change'));
+        } },
+        { type: 'cmd', label: 'Loop Preview', enabled: true, checked: loopBtn.getAttribute('aria-pressed') === 'true', run: () => loopBtn.click() },
+      ];
+    },
     /** Shows a file's folder and selects the file. */
     async reveal(path) {
       if (!started) await start();
