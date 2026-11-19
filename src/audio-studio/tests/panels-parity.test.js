@@ -620,6 +620,40 @@ describe('Levels panel', () => {
     expect(meter.getAttribute('aria-valuemin')).toBe('-96');
     expect(meter.getAttribute('aria-valuenow')).toBe('-96');
   });
+
+  it('places the clip indicators at the loud end of each bar and resets on a click of the meter', () => {
+    const app = makeApp();
+    const panel = create(app, 'levels');
+    const meter = panel.el.querySelector('[role=meter]');
+    const noop = () => ({ addColorStop() {} });
+    const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : noop) });
+    meter.getContext = () => ctx;
+    const frames = [];
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((f) => frames.push(f));
+    const size = (w, hgt) => {
+      Object.defineProperty(panel.el, 'clientWidth', { value: w, configurable: true });
+      Object.defineProperty(panel.el, 'clientHeight', { value: hgt, configurable: true });
+    };
+    size(400, 60);
+    panel.show();
+    app.engine.emit('meters', { master: [0.2, 1] });
+    frames.splice(0).forEach((f) => f(16));
+    const [l, r] = panel.el.querySelectorAll('.clip-led');
+    expect(panel.el.dataset.orientation).toBe('horizontal');
+    expect(r.classList.contains('on')).toBe(true);
+    expect(parseInt(l.style.left)).toBe(378);
+    expect(parseInt(r.style.top)).toBeGreaterThan(parseInt(l.style.top));
+    size(80, 400);
+    app.prefs.set('meterRange', 72);
+    frames.splice(0).forEach((f) => f(16));
+    expect(panel.el.dataset.orientation).toBe('vertical');
+    expect(l.style.top).toBe('4px');
+    expect(parseInt(r.style.left)).toBeGreaterThan(parseInt(l.style.left));
+    meter.click();
+    expect(r.classList.contains('on')).toBe(false);
+    raf.mockRestore();
+    panel.hide();
+  });
 });
 
 describe('transport shuttle buttons', () => {

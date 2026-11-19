@@ -7,7 +7,7 @@ const css = (f) => fs.readFileSync(`${import.meta.dirname}/../src/styles/${f}`, 
 describe('touch targets', () => {
   it('gives the 10 px clip indicators a 24 px transparent hit area on coarse pointers', () => {
     const panels = css('panels.css');
-    const block = panels.slice(panels.indexOf('@media (pointer: coarse) {\n  .clip-led {'));
+    const block = panels.slice(panels.indexOf('@media (pointer: coarse) {\n  .clip-led::before'));
     expect(block).toMatch(
       /\.clip-led::before \{\s*content: '';\s*position: absolute;\s*inset: -7px;/,
     );

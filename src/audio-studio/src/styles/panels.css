@@ -248,20 +248,16 @@
   inset: 0;
 }
 
+/* The clip indicators are placed by the meter (levels.js) at the loud end of each bar. */
 .clip-leds {
   position: absolute;
-  right: 4px;
-  top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-[data-orientation='vertical'] .clip-leds {
-  flex-direction: row;
+  inset: 0;
+  pointer-events: none;
 }
 
 .clip-led {
+  position: absolute;
+  pointer-events: auto;
   width: 10px;
   height: 10px;
   padding: 0;
@@ -278,10 +274,6 @@
 
 /* Touch: each LED takes taps over a finger-sized area around it, growing away from its neighbour. */
 @media (pointer: coarse) {
-  .clip-led {
-    position: relative;
-  }
-
   .clip-led::before {
     content: '';
     position: absolute;
