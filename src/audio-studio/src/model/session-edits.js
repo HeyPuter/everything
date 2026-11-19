@@ -322,6 +322,32 @@ export function createClip(o = {}) {
   };
 }
 
+/**
+ * A clip's frame positions and lengths at another sample rate (`r` = new rate / old rate): start,
+ * offset and length, fades, envelopes (volume, pan, effects) and remix segments. Baked overlap
+ * geometry is dropped (the destination works it out again).
+ */
+export function conformClip(c, r) {
+  if (r === 1) return c;
+  const f = (n) => Math.round(n * r);
+  const fade = (x) => ({ ...x, length: f(x.length), ...(x.duration != null ? { duration: f(x.duration) } : {}), ...(x.offset != null ? { offset: f(x.offset) } : {}) });
+  const env = (pts) => (pts || []).map((p) => ({ ...p, t: f(p.t) }));
+  const { mergeLayout, ...rest } = c;
+  return {
+    ...rest,
+    start: f(c.start),
+    offset: f(c.offset),
+    length: Math.max(1, f(c.length)),
+    fadeIn: fade(c.fadeIn),
+    fadeOut: fade(c.fadeOut),
+    volumeEnv: env(c.volumeEnv),
+    panEnv: env(c.panEnv),
+    fxEnv: Object.fromEntries(Object.entries(c.fxEnv || {}).map(([k, v]) => [k, env(v)])),
+    remix: c.remix ? { ...c.remix, target: c.remix.target != null ? f(c.remix.target) : c.remix.target, ...(c.remix.offset != null ? { offset: f(c.remix.offset) } : {}), ...(c.remix.length != null ? { length: f(c.remix.length) } : {}), segments: c.remix.segments.map(([a, b]) => [f(a), f(b)]) } : c.remix,
+    soundAssistant: c.soundAssistant?.duration?.orig ? { ...c.soundAssistant, duration: { ...c.soundAssistant.duration, orig: { ...c.soundAssistant.duration.orig, offset: f(c.soundAssistant.duration.orig.offset || 0), length: f(c.soundAssistant.duration.orig.length || 0) } } } : c.soundAssistant,
+  };
+}
+
 /** Remaps every audio reference when a clip moves between independent source pools. */
 export function remapClipSources(c, ids) {
   const sourceId = (id) => id ? ids.get(id) : id;

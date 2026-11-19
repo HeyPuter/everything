@@ -628,6 +628,28 @@ function importClipboardSources(doc, clip) {
   return ids;
 }
 
+/**
+ * A clips clipboard at `rate`: each media source resampled (offline ones keep their place, with
+ * their frame count scaled) and the clips' frames conformed. Cached per clipboard and rate.
+ */
+const conformed = new WeakMap();
+async function conformClipboard(clip, rate) {
+  let byRate = conformed.get(clip);
+  if (!byRate) conformed.set(clip, (byRate = new Map()));
+  if (byRate.has(rate)) return byRate.get(rate);
+  const r = rate / clip.sampleRate;
+  const pool = new Map();
+  for (const [id, src] of clip.pool) {
+    if (!src) continue;
+    const from = src.channelRate || clip.sampleRate;
+    const channels = src.channels?.length ? await channelsAtRate(src.channels, from, rate) : src.channels;
+    pool.set(id, { ...src, channels, channelRate: rate, stateRef: null, ...(src.frames ? { frames: Math.round(src.frames * r) } : {}) });
+  }
+  const out = { ...clip, sessionId: null, sampleRate: rate, clips: clip.clips.map((c) => S.conformClip(c, r)), pool };
+  byRate.set(rate, out);
+  return out;
+}
+
 async function pasteClips(app, doc, clip) {
   const at = doc.cursor;
   const rate = doc.sampleRate;
@@ -650,6 +672,16 @@ async function pasteClips(app, doc, clip) {
     const sourceId = await linkSource(doc, file);
     if (!canPaste()) return;
     prepared = { channels, file, sourceId };
+  }
+  if (clip.type !== 'audio' && clip.sampleRate !== rate) {
+    // Clips from a session at another rate: their media are resampled and their frames conformed.
+    const converted = await conformClipboard(clip, rate);
+    if (!isOpen(app, doc)) return;
+    if (doc.sampleRate !== rate) {
+      app.notify('Paste stopped because the session sample rate changed. Review the session and paste again.', { error: true });
+      return;
+    }
+    clip = converted;
   }
   // Resolve tracks and overlap against the current timeline after preparation.
   // A moved target stays the target; a removed/hidden target gets a new track.
@@ -676,10 +708,6 @@ async function pasteClips(app, doc, clip) {
     state = S.addClipsOnTop(state, [c]);
     ids.push(c.id);
   } else {
-    if (clip.sampleRate !== doc.sampleRate) {
-      app.notify('Clips copied from a session at another sample rate cannot be pasted here.', { error: true });
-      return;
-    }
     const sourceIds = importClipboardSources(doc, clip);
     const pasted = [];
     for (const c of clip.clips) {
