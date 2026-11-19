@@ -251,3 +251,36 @@ describe('metronome pattern and add tracks', () => {
     expect(doc.history.undoLabel).toBe('Add Tracks');
   });
 });
+
+describe('spline clip envelopes', () => {
+  it('passes through the keyframes without overshooting them', () => {
+    const pts = [{ t: 0, v: 0 }, { t: 1000, v: -12 }, { t: 2000, v: -12 }, { t: 3000, v: 6 }];
+    const curve = S.splineEnvelope(pts);
+    for (const p of pts) expect(curve.find((q) => q.t === p.t).v).toBe(p.v);
+    expect(Math.min(...curve.map((p) => p.v))).toBeGreaterThanOrEqual(-12);
+    expect(Math.max(...curve.map((p) => p.v))).toBeLessThanOrEqual(6);
+    // Flat between equal keyframes, curved elsewhere.
+    expect(curve.filter((p) => p.t > 1000 && p.t < 2000).every((p) => p.v === -12)).toBe(true);
+    expect(curve.length).toBeGreaterThan(pts.length);
+  });
+
+  it('keeps a held segment flat and leaves short envelopes alone', () => {
+    const pts = [{ t: 0, v: 0, hold: true }, { t: 1000, v: -6 }, { t: 2000, v: 0 }];
+    expect(S.splineEnvelope(pts).filter((p) => p.t < 1000)).toEqual([pts[0]]);
+    const two = [{ t: 0, v: 0 }, { t: 10, v: 1 }];
+    expect(S.splineEnvelope(two)).toBe(two);
+  });
+
+  it('plays the curve when the clip asks for it', async () => {
+    const { app, doc } = await appWithSession();
+    const src = doc.addSource({ name: 'a.wav', channels: [Channel.fromSamples(new Float32Array(RATE * 4))] });
+    const clip = S.createClip({ trackId: doc.state.tracks[0].id, sourceId: src, start: 0, length: RATE * 3, volumeEnv: [{ t: 0, v: 0 }, { t: RATE, v: -20 }, { t: RATE * 2, v: 0 }] });
+    doc.apply('Insert File', S.addClips(doc.state, [clip]));
+    doc.selectClips([clip.id]);
+    await app.commands.run('clip.splineVolume');
+    expect(S.findClip(doc.state, clip.id).volumeSpline).toBe(true);
+    const gc = buildSessionGraph(doc.state, doc.pool).graph.tracks[0].clips[0];
+    const linear = buildSessionGraph(S.updateClips(doc.state, [clip.id], { volumeSpline: false }), doc.pool).graph.tracks[0].clips[0];
+    expect(gc.gainEnv.length).toBeGreaterThan(linear.gainEnv.length);
+  });
+});

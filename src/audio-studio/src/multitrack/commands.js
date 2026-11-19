@@ -1547,6 +1547,8 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'clip.mute', label: 'Mute', enabled: hasClips, checked: allSelected('mute'), run: toggleSelected('mute', 'Mute Clip', 'Unmute Clip') },
+    { id: 'clip.splineVolume', label: 'Spline Volume Envelope', enabled: hasClips, checked: allSelected('volumeSpline'), run: toggleSelected('volumeSpline', 'Spline Envelope', 'Linear Envelope') },
+    { id: 'clip.splinePan', label: 'Spline Pan Envelope', enabled: hasClips, checked: allSelected('panSpline'), run: toggleSelected('panSpline', 'Spline Envelope', 'Linear Envelope') },
     { id: 'clip.gain', label: 'Clip Gain...', enabled: hasClips, run: () => clipGainDialog(app, session(app), selected(app)) },
     { id: 'clip.matchLoudness', label: 'Match Clip Loudness...', enabled: hasClips, run: () => matchLoudnessDialog(app, session(app), selected(app)) },
     ...['none', 'fade', 'crossfade'].flatMap((m) => [fadeModeCmd('in', m), fadeModeCmd('out', m)]),

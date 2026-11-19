@@ -19,7 +19,8 @@
 //   minimized, hidden }
 // Clip: { id, trackId, sourceId, name, color, start, offset, length, gain (dB),
 //   fadeIn/out: { length, curve, xf?, duration?, offset? } (see clip-fades.js), crossfade
-//   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}],
+//   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}], volumeSpline,
+//   panSpline (smooth curves through the envelope keyframes),
 //   mute, locked, loop, groupId, z, fx: clip effect slots { id, effect, values,
 //   enabled } (Sound Assistant chains), soundAssistant: Sound Assistant settings or null,
 //   stretch: time stretch and pitch settings or null (see clip-stretch.js),
@@ -90,6 +91,58 @@ export function setTrackLanes(state, trackId, lanes) {
     const list = cleanLanes(t.type, lanes, t.autoParam);
     return { lanes: list, autoParam: list[0] };
   });
+}
+
+/**
+ * A smooth curve through envelope keyframes as dense breakpoints (monotone cubic, so it never
+ * overshoots the keyframe values); segments after a hold point stay flat.
+ */
+export function splineEnvelope(points, steps = 16) {
+  if (!points || points.length < 3) return points;
+  const n = points.length;
+  const d = [];
+  for (let i = 0; i < n - 1; i++) d.push((points[i + 1].v - points[i].v) / (points[i + 1].t - points[i].t || 1));
+  const m = new Array(n);
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    const sq = a * a + b * b;
+    if (sq > 9) {
+      const tau = 3 / Math.sqrt(sq);
+      m[i] = tau * a * d[i];
+      m[i + 1] = tau * b * d[i];
+    }
+  }
+  const out = [];
+  for (let i = 0; i < n - 1; i++) {
+    const p = points[i];
+    const q = points[i + 1];
+    out.push(p);
+    const h = q.t - p.t;
+    if (p.hold || h < steps) continue;
+    for (let k = 1; k < steps; k++) {
+      const s = k / steps;
+      const s2 = s * s;
+      const s3 = s2 * s;
+      const v = (2 * s3 - 3 * s2 + 1) * p.v + (s3 - 2 * s2 + s) * h * m[i] + (-2 * s3 + 3 * s2) * q.v + (s3 - s2) * h * m[i + 1];
+      out.push({ t: Math.round(p.t + s * h), v });
+    }
+  }
+  out.push(points[n - 1]);
+  return out;
+}
+
+/** The shape a clip envelope plays: its keyframes, or the smooth curve through them. */
+export function clipEnvelope(c, param) {
+  return param === 'pan' ? (c.panSpline ? splineEnvelope(c.panEnv) : c.panEnv) : c.volumeSpline ? splineEnvelope(c.volumeEnv) : c.volumeEnv;
 }
 
 /** Mute automation always steps: every point holds until the next. */
@@ -179,6 +232,9 @@ export function createClip(o = {}) {
     crossfade: o.crossfade || 'symmetric',
     volumeEnv: (o.volumeEnv || []).slice(),
     panEnv: (o.panEnv || []).slice(),
+    // Envelopes drawn as smooth curves through their keyframes (see splineEnvelope).
+    volumeSpline: Boolean(o.volumeSpline),
+    panSpline: Boolean(o.panSpline),
     mute: Boolean(o.mute),
     locked: Boolean(o.locked),
     loop: Boolean(o.loop),

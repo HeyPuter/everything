@@ -1003,7 +1003,7 @@ export class MultitrackView {
             const y = this.#envY(r, param, fallback);
             ctx.moveTo(Math.max(0, x0), y);
             ctx.lineTo(Math.min(W, x1), y);
-          } else this.#traceEnvelope(ctx, points, (p) => x0 + p.t / this.fpp, (v) => this.#envY(r, param, v), x0, x1);
+          } else this.#traceEnvelope(ctx, S.clipEnvelope(c, param), (p) => x0 + p.t / this.fpp, (v) => this.#envY(r, param, v), x0, x1);
           ctx.stroke();
           const sk = doc.selectedKeys;
           for (const [i, p] of points.entries()) {
@@ -1318,8 +1318,8 @@ export class MultitrackView {
       if (r.wh > 14) {
         const t = this.frameAt(x) - c.start;
         const lineTol = touch ? 8 : 3;
-        if (showVol && Math.abs(this.#envY(r, 'volume', S.envelopeValue(c.volumeEnv, t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'volume' };
-        if (showPan && Math.abs(this.#envY(r, 'pan', S.envelopeValue(c.panEnv, t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'pan' };
+        if (showVol && Math.abs(this.#envY(r, 'volume', S.envelopeValue(S.clipEnvelope(c, 'volume'), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'volume' };
+        if (showPan && Math.abs(this.#envY(r, 'pan', S.envelopeValue(S.clipEnvelope(c, 'pan'), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'pan' };
       }
       return { ...hit, part: 'body' };
     }
@@ -1696,7 +1696,7 @@ export class MultitrackView {
         let index = hit.index;
         if (hit.part === 'line') {
           const t = Math.round(this.snap(f, { off: fine }) - c.start);
-          const v = S.envelopeValue(pts, t, 0);
+          const v = S.envelopeValue(S.clipEnvelope(c, hit.param), t, 0);
           const ins = S.insertEnvelopePoint(pts, Math.max(0, Math.min(c.length, t)), v, c.length, 0);
           pts = ins.points;
           index = ins.index;
@@ -2131,6 +2131,8 @@ export class MultitrackView {
       );
     } else {
       const c = S.findClip(doc.state, owner);
+      const key = param === 'pan' ? 'panSpline' : 'volumeSpline';
+      if (c) items.push({ type: 'cmd', label: 'Spline Curves', enabled: true, checked: Boolean(c[key]), run: () => doc.apply(c[key] ? 'Linear Envelope' : 'Spline Envelope', S.updateClips(doc.state, [c.id], { [key]: !c[key] })) });
       items.push({ type: 'cmd', label: 'Clear Envelope', enabled: pts.length > 0, run: () => env.commit([], param === 'pan' ? 'Clear Pan Envelope' : 'Clear Volume Envelope') });
       if (!c) items.pop();
     }

@@ -13,7 +13,7 @@
 
 import { mergeScene } from './merge-layout.js';
 import { sourceKey } from '../engine/engine.js';
-import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue } from './session-edits.js';
+import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
 import { compensateLatency } from '../engine/mixcore.js';
 import { getEffect } from '../effects/registry.js';
@@ -350,8 +350,8 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
             if (p.fadeIn.offset) gc.fadeInOffset = p.fadeIn.offset;
             if (p.fadeOut.offset) gc.fadeOutOffset = p.fadeOut.offset;
             if (t.channels === 1 && src.channels.length > 1) gc.mono = true;
-            if (c.volumeEnv.length) gc.gainEnv = dbEnvelopeToGain(expandHolds(c.volumeEnv));
-            if (c.panEnv.length) gc.panEnv = panEnvelope(expandHolds(c.panEnv));
+            if (c.volumeEnv.length) gc.gainEnv = dbEnvelopeToGain(expandHolds(clipEnvelope(c, 'volume')));
+            if (c.panEnv.length) gc.panEnv = panEnvelope(expandHolds(clipEnvelope(c, 'pan')));
             if (clipFx?.length) {
               gc.fx = clipFx;
               gc.fxTail = timing.tail + lat;

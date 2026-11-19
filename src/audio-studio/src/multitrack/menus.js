@@ -20,6 +20,7 @@ export const CLIP_CONTEXT = [
   { label: 'Fade Out', submenu: ['clip.fadeOutNone', 'clip.fadeOutOn', 'clip.fadeOutCrossfade', '-', 'clip.fadeOutLinear', 'clip.fadeOutLog', 'clip.fadeOutCosine'] },
   { label: 'Crossfade', submenu: ['clip.crossfadeSymmetric', 'clip.crossfadeAsymmetric'] },
   'clip.gain',
+  { label: 'Envelopes', submenu: ['clip.splineVolume', 'clip.splinePan'] },
   '-',
   'clip.lock',
   'clip.loop',
