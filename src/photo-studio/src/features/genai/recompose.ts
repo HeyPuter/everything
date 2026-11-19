@@ -131,7 +131,9 @@ export async function recomposeDialog(e: Editor) {
   const host = q('.ga-view');
   const view = new DocView(host, W, H);
   view.canvas.tabIndex = 0;
-  view.canvas.setAttribute('role', 'img');
+  // Arrow keys move the object, so screen readers pass keys through.
+  view.canvas.setAttribute('role', 'application');
+  view.canvas.setAttribute('aria-roledescription', 'arrangement preview');
   view.canvas.setAttribute('aria-label', 'Preview. Drag or use the arrow keys to move the object.');
   const hint = q('#ga-hint'),
     objNote = q('#ga-object-note'),

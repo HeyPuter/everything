@@ -3,6 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mask8, rgba8, type RGBA8 } from '../src/imaging/types';
 import { aiCodec, instructedEdits } from '../src/imaging/ai/puter-ai';
+import { setSimplifiedSlots, shownSlots, simplifiedSlots } from '../src/app/toolbar-layout';
+import { ASSISTED_SLOTS } from '../src/features/workspace/editor-mode';
 import {
   IDENTITY,
   alignToOriginal,
@@ -318,5 +320,18 @@ describe('instructed edits through Puter', () => {
     });
     await expect(instructedEdits(rgba8(8, 8), '  ')).rejects.toMatchObject({ code: 'bad-request' });
     expect(txt2img).not.toHaveBeenCalled();
+  });
+});
+
+describe('Assisted mode toolbar', () => {
+  afterEach(() => setSimplifiedSlots(null));
+  it('shows only the essential slots, in the user’s order, and all of them again in Pro', () => {
+    const order = ['zoom', 'move', 'pen', 'marquee', 'brush', 'gradient', 'hand'];
+    expect(shownSlots(order)).toEqual(order);
+    setSimplifiedSlots(ASSISTED_SLOTS);
+    expect(shownSlots(order)).toEqual(['zoom', 'move', 'marquee', 'brush', 'hand']);
+    expect(simplifiedSlots()?.has('pen')).toBe(false);
+    setSimplifiedSlots(null);
+    expect(shownSlots(order)).toEqual(order);
   });
 });

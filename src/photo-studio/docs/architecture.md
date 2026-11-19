@@ -320,6 +320,37 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 - `commitResampled` (`features/transform/image-size.ts`) stores resampled
   layer, mask, live-filter, channel and selection grids as one history step.
 
+## Generative layout edits (`src/features/genai/`)
+
+- Edit → AI Recompose…, Remove Reflections… and Rotate Object… share
+  `shared.ts`: the support check (8- and 16-bit RGB; 32-bit and other modes
+  are refused with the conversion to make), the notice of what is sent, the
+  Generate/Stop button (`Generator`, sign-in through `ensureSignedIn`), the
+  variation picker (a keyboard radio group), choosing the object (the
+  selection, a cut-out layer's alpha, Select Subject's `subject` job, or a
+  click matched against `detectObjects`) and `addLayers`, which inserts all
+  results and hides a replaced layer as one undo step. Pure math (prompts,
+  object transforms, seam masks, blending, placement) is in `math.ts`, which
+  the assist worker also imports (`transform-object`, `detail-transfer`).
+- AI Recompose fills the object's old place with the offline Context Fill
+  (`context-fill` job on the retouch worker) as soon as the object is
+  chosen, so moving, scaling, rotating and flipping only redraw the preview.
+  Its optional generative pass sends the arranged picture and a seam mask
+  (the filled hole plus a ring around the object's new outline, minus the
+  object) through `aiFill`; each blend is kept with the arrangement it was
+  made for. The result is a patch layer over the old place and the object
+  on its own layer, so the original stays untouched.
+- Remove Reflections is generative because single-image classical
+  separation cannot tell a reflection from the scene behind the glass
+  reliably. `instructedEdits` (in `puter-ai.ts`) encodes the area once and
+  sends one request per variation; results reduced for the request can get
+  the original's fine detail back (`detailTransfer`). Amount becomes the new
+  layer's opacity.
+- Rotate Object sends the object on a plain backdrop with the angles in the
+  instruction, removes the returned backdrop with the `subject` job and
+  places the trimmed result with `alignToOriginal` (same height, on the
+  original's bottom edge, centered).
+
 ## Assistant and Generation History (`src/features/assistant/`, `src/features/generations/`)
 
 - The Assistant turns a request into a plan of registry commands and its own
@@ -472,6 +503,13 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   classes) live in `features/preferences/apply.ts`. Call
   `e.preferencesChanged()` after changing a value; features that cache a
   setting subscribe with `e.preferenceHooks`.
+- Assisted and Pro editor modes (`features/workspace/editor-mode.ts`):
+  Assisted shows the Assistant, turns on the quick actions bar and limits
+  the toolbar to `ASSISTED_SLOTS` (`setSimplifiedSlots` in
+  `app/toolbar-layout.ts`; tools of hidden slots are listed under Extra
+  Tools). Before switching it stores Pro's dock layout and toggles, which Pro
+  restores. The mode and the switch's visibility are preferences
+  (`editorMode`, `showModeSwitch`).
 - `src/persistence/local-store.ts` wraps IndexedDB (`MemoryStore` for tests);
   `persistence/versions.ts` stores versions and recovery records on it.
   `e.saveHooks` run after a document is saved (versions, recovery cleanup),
