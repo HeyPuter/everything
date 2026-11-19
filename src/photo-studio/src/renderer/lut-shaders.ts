@@ -2,13 +2,15 @@
 // a 3D color table packed as an atlas (rows 1..n, x = r + b * n, y = g) and,
 // optionally, per-channel curves applied after the table (row n + 1). The
 // post curves let kinds that factor into a linear table plus a hard-edged
-// tone map (Threshold, Gradient Map) render exactly.
-// Uniform u[0]: x = curves on, y = 1 table / 2 table + post curves, z = n, w = clamp.
+// tone map (Threshold, Gradient Map) render exactly; a hard step (Threshold)
+// is compared instead, since a table blurs it across one entry.
+// Uniform u[0]: x = curves on, y = 1 table / 2 table + post curves, z = n, w = clamp;
+// u[1]: x = step on, y = step edge (each channel becomes 1 at or above it, else 0).
 // Source and target have identical size, so texel and fragment coordinates match.
 export const curveEntries = 1024;
 export const glLutFragment = `#version 300 es
 precision highp float;
-uniform sampler2D imageTex;uniform sampler2D lutTex;uniform vec4 u[1];
+uniform sampler2D imageTex;uniform sampler2D lutTex;uniform vec4 u[2];
 out vec4 outColor;
 float curveAt(float v,int c,int row){float x=clamp(v,0.,1.)*${curveEntries - 1}.;int i=int(floor(x));
  return mix(texelFetch(lutTex,ivec2(i,row),0)[c],texelFetch(lutTex,ivec2(min(i+1,${curveEntries - 1}),row),0)[c],x-float(i));}
@@ -21,9 +23,10 @@ void main(){vec4 s=texelFetch(imageTex,ivec2(gl_FragCoord.xy),0);vec3 c=s.rgb;
  if(u[0].x>.5)c=vec3(curveAt(c.r,0,0),curveAt(c.g,1,0),curveAt(c.b,2,0));
  if(u[0].y>.5)c=lut(c);
  if(u[0].y>1.5){int p=int(u[0].z)+1;c=vec3(curveAt(c.r,0,p),curveAt(c.g,1,p),curveAt(c.b,2,p));}
+ if(u[1].x>.5)c=vec3(greaterThanEqual(c,vec3(u[1].y)));
  if(u[0].w>.5)c=clamp(c,0.,1.);outColor=vec4(c,s.a);}`;
 export const wgslLut = `
-struct U{v:vec4f};@group(0) @binding(0)var imageTex:texture_2d<f32>;@group(0) @binding(1)var lutTex:texture_2d<f32>;@group(0) @binding(2)var<uniform> u:U;
+struct U{v:vec4f,t:vec4f};@group(0) @binding(0)var imageTex:texture_2d<f32>;@group(0) @binding(1)var lutTex:texture_2d<f32>;@group(0) @binding(2)var<uniform> u:U;
 struct V{@builtin(position) position:vec4f};
 @vertex fn vs(@builtin(vertex_index)i:u32)->V{let p=vec2f(f32((i<<1u)&2u),f32(i&2u));var o:V;o.position=vec4f(p*2.-1.,0,1);return o;}
 fn curveAt(v:f32,c:i32,row:i32)->f32{let x=clamp(v,0.,1.)*${curveEntries - 1}.;let i=i32(floor(x));
@@ -37,6 +40,7 @@ fn lut(c:vec3f)->vec3f{let n=i32(u.v.z);let x=clamp(c,vec3f(0),vec3f(1))*f32(n-1
  if(u.v.x>.5){c=vec3f(curveAt(c.r,0,0),curveAt(c.g,1,0),curveAt(c.b,2,0));}
  if(u.v.y>.5){c=lut(c);}
  if(u.v.y>1.5){let p=i32(u.v.z)+1;c=vec3f(curveAt(c.r,0,p),curveAt(c.g,1,p),curveAt(c.b,2,p));}
+ if(u.t.x>.5){c=select(vec3f(0),vec3f(1),c>=vec3f(u.t.y));}
  if(u.v.w>.5){c=clamp(c,vec3f(0),vec3f(1));}return vec4f(c,s.a);}`;
 
 export type CompiledLut = {
@@ -45,6 +49,8 @@ export type CompiledLut = {
   lut3d?: { size: number; data: Float32Array };
   // Per-channel tables applied after the 3D table (any length >= 2).
   postCurves?: { r: Float32Array; g: Float32Array; b: Float32Array };
+  // Hard step after everything else: channels at or above it become 1, others 0.
+  postStep?: number;
 };
 const sampleTable = (t: Float32Array, x: number) => {
   const p = Math.min(1, Math.max(0, x)) * (t.length - 1),
@@ -94,5 +100,8 @@ export function packLut(c: CompiledLut) {
         }
   }
   if (post) row(1 + n, post);
-  return { width, height, data, uniforms: new Float32Array([curves ? 1 : 0, n ? (post ? 2 : 1) : 0, n, 0]) };
+  const step = c.postStep;
+  const uniforms = new Float32Array([curves ? 1 : 0, n ? (post ? 2 : 1) : 0, n, 0]
+    .concat([step === undefined ? 0 : 1, step ?? 0, 0, 0]));
+  return { width, height, data, uniforms };
 }

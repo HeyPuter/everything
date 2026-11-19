@@ -41,6 +41,7 @@ import {
   cropMask,
   cropRGBA,
   fillHole,
+  followResize,
   notice,
   objectMask,
   objectModes,
@@ -274,7 +275,8 @@ export async function recomposeDialog(e: Editor) {
   /** Choose the picture and the object for the current mode. */
   const prepare = async (at?: [number, number]) => {
     prep?.abort();
-    gen.stop(false);
+    // A new picture or object: earlier results are cleared below.
+    gen.reset();
     const ac = (prep = new AbortController());
     obj = vacated = filled = undefined;
     objCanvas = undefined;
@@ -333,7 +335,13 @@ export async function recomposeDialog(e: Editor) {
       if (ac.signal.aborted) return;
       obj = cut;
       objCanvas = canvasOf(cut.img);
-      objNote.textContent = `${cut.rect.width} × ${cut.rect.height} px object${mode === 'layer' ? '; the layer itself is hidden when you add the result.' : '.'}`;
+      objNote.textContent = `${cut.rect.width} × ${cut.rect.height} px object${
+        mode !== 'layer'
+          ? '.'
+          : replaceable(e, src.layer)
+            ? '; the layer itself is hidden when you add the result.'
+            : '; the layer is locked, so it stays visible under the result.'
+      }`;
       // A cut-out layer leaves nothing to fill; otherwise fill its old place.
       vacated = mode === 'layer' ? mask8(W, H) : vacatedMask(m, vacatedGrow(cut.rect));
       const box = boundingBox(vacated);
@@ -452,12 +460,16 @@ export async function recomposeDialog(e: Editor) {
     ev.preventDefault();
     arranged();
   });
-  const onResize = () => {
-    view.fit();
-    if (filled ?? src?.base) basePreview = scaled(filled ?? src!.base);
-    draw();
-  };
-  window.addEventListener('resize', onResize);
+  const stopResize = followResize(
+    () => {
+      view.fit();
+      draw();
+    },
+    () => {
+      if (filled ?? src?.base) basePreview = scaled(filled ?? src!.base);
+      draw();
+    },
+  );
 
   // ----- Generate a blend -----
   q('#ga-generate').addEventListener('click', () => {
@@ -540,12 +552,18 @@ export async function recomposeDialog(e: Editor) {
             canvas: canvasOf(patch),
           })),
         ].slice(-8);
-        shown = blends.length;
+        // Showing a blend puts back the arrangement it was made for, so a
+        // newer arrangement made while it was generating stays shown until
+        // the user picks a blend.
+        const moved = r.gone !== removed || JSON.stringify(r.arr) !== JSON.stringify(t);
+        if (!moved) shown = blends.length;
         refreshPicker();
+        const n = r.patches.length;
         gen.say(
-          r.patches.length < r.count
-            ? `${r.patches.length} of ${r.count} blends arrived; the others failed.`
-            : 'Pick a blend, or keep arranging (the instant fill follows your changes).',
+          (n < r.count ? `${n} of ${r.count} blends arrived; the others failed. ` : '') +
+            (moved
+              ? `${n === 1 ? 'The blend was' : 'The blends were'} made for the arrangement you generated from; picking one goes back to it.`
+              : 'Pick a blend, or keep arranging (the instant fill follows your changes).'),
         );
         updateApply();
       },
@@ -567,7 +585,7 @@ export async function recomposeDialog(e: Editor) {
   });
   void prepare();
   await ws.closed;
-  window.removeEventListener('resize', onResize);
+  stopResize();
   prep?.abort();
   gen.stop(false);
   if (!result || !obj || !src || !filled || !vacated) return;
@@ -637,7 +655,7 @@ async function addResult(
   const hide = r.mode === 'layer' && replaceable(e, r.src.layer) ? r.src.layer!.id : undefined;
   addLayers(e, 'AI Recompose', layers, r.src.layer?.id ?? e.selected, hide);
   e.message(
-    `AI Recompose added ${layers.length === 1 ? 'a new layer' : `${layers.length} new layers`}${hide ? ' and hid the original layer' : ''}.`,
+    `AI Recompose added ${layers.length === 1 ? 'a new layer' : `${layers.length} new layers`}${hide ? ' and hid the original layer' : ''}.${r.mode === 'layer' && !hide ? ' The original layer is locked, so it was not hidden.' : ''}`,
   );
 }
 

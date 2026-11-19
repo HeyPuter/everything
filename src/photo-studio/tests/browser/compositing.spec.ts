@@ -136,3 +136,53 @@ test('Apply Image multiplies a layer into the target with a live preview', async
   expect(px[1][0]).toBeLessThanOrEqual(129);
   expect(px[1][1]).toBe(0);
 });
+
+test('Apply Image preserves the transparency of a layer whose transparency is locked', async ({
+  page,
+}) => {
+  // Target: a layer with a red square on transparency and locked transparency;
+  // source: an opaque blue layer.
+  await page.evaluate(async () => {
+    const c = new OffscreenCanvas(120, 80);
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#0000ff';
+    g.fillRect(0, 0, 120, 80);
+    const { openFile } = await import('/src/features/files/open.ts');
+    const e = window.photoStudio;
+    await openFile(e, await c.convertToBlob(), 'blue.png');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const data = new Uint8ClampedArray(40 * 40 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([255, 0, 0, 255], i);
+    const square = gridFromImage(e.assets.tiles, { width: 40, height: 40, data });
+    const red = newPixelLayer('Red', e.doc, square);
+    red.protection = { transparency: true, composite: false, position: false };
+    red.transparencyProtected = true;
+    e.command('Add', (d) => d.layers.push(red));
+    e.selectLayers([red.id]);
+    e.update();
+  });
+  await idle(page);
+  await start(page, 'image.apply-image');
+  const dialog = page.locator('dialog.adj-dialog[open]');
+  await expect(dialog).toBeVisible();
+  const preserve = dialog.getByRole('checkbox', { name: 'Preserve transparency' });
+  await expect(preserve).toBeChecked();
+  await expect(preserve).toBeDisabled();
+  await dialog.locator('fieldset.comp-source select').nth(1).selectOption({ label: 'Background' });
+  await expect(dialog.locator('.adj-status')).toHaveText('', { timeout: 30_000 });
+  await dialog.locator('button.primary').click();
+  await expect(page.locator('dialog.adj-dialog[open]')).toHaveCount(0);
+  await idle(page);
+  const px = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const l = e.doc.layers.at(-1)!;
+    const at = (x: number) =>
+      Array.from(readRGBA(e.assets.tiles, l.pixels!, { x, y: 20, width: 1, height: 1 }).data);
+    return [at(20), at(100)];
+  });
+  // Inside the square the color changes; outside it stays transparent.
+  expect(px[0][3]).toBe(255);
+  expect(px[1][3]).toBe(0);
+});

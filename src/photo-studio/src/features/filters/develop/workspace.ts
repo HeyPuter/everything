@@ -10,6 +10,7 @@
 // Filters and applies like any other filter.
 import type { Editor } from '../../../editor';
 import { svg } from '../../../app/icons';
+import { formatShortcut } from '../../../app/shortcuts';
 import { escapeXML } from '../../../model/assets';
 import { findLayer, type Blend } from '../../../model/document';
 import type { NormPath, ParamValues, RGBA8 } from '../../../imaging/types';
@@ -32,6 +33,9 @@ import {
   whiteBalanceFor,
 } from '../../../imaging/filters/develop/auto';
 import { sharpenMask } from '../../../imaging/filters/develop/detail';
+import { correctLens, opticsActive } from '../../../imaging/filters/develop/optics';
+import { geometryActive, transformGeometry } from '../../../imaging/filters/develop/geometry';
+import { resolveDevelop } from '../../../imaging/filters/develop/profiles';
 import { openWorkspace } from '../../retouch/workspace';
 import {
   closeSession,
@@ -232,11 +236,11 @@ class DevelopWorkspace {
   <section class="dv-stage" aria-label="Preview">
     <div class="dv-view"><canvas class="dv-pane" width="300" height="200" tabindex="0" aria-label="Preview; drag to pan, double-click to switch between fit and 100%"></canvas><div class="dv-progress" hidden><progress max="1" value="0" aria-label="Rendering"></progress><button type="button" class="dv-stop">Stop</button></div></div>
     <div class="dv-stagebar" role="toolbar" aria-label="View">
-      <button type="button" class="dv-fit" title="Fit in view (Mod+0)">Fit</button>
-      <button type="button" class="dv-actual" title="Actual pixels (Mod+1)">100%</button>
-      <button type="button" class="icon-button" data-zoom="-1" title="Zoom out (Mod+−)" aria-label="Zoom out">${svg('zoom-out', 16)}</button>
+      <button type="button" class="dv-fit" title="Fit in view (${formatShortcut('Mod+0')})">Fit</button>
+      <button type="button" class="dv-actual" title="Actual pixels (${formatShortcut('Mod+1')})">100%</button>
+      <button type="button" class="icon-button" data-zoom="-1" title="Zoom out (${formatShortcut('Mod+-')})" aria-label="Zoom out">${svg('zoom-out', 16)}</button>
       <span class="dv-zoom-label" aria-live="polite">100%</span>
-      <button type="button" class="icon-button" data-zoom="1" title="Zoom in (Mod+=)" aria-label="Zoom in">${svg('zoom-in', 16)}</button>
+      <button type="button" class="icon-button" data-zoom="1" title="Zoom in (${formatShortcut('Mod+=')})" aria-label="Zoom in">${svg('zoom-in', 16)}</button>
       <span class="dv-spacer"></span>
       <span class="dv-pixel" aria-live="off"></span>
       <div class="dv-views" role="radiogroup" aria-label="Before and after (Y cycles, \\ shows the original)">${view('after', 'image', 'Result')}${view('before', 'eye-off', 'Original')}${view('split', 'compare-split', 'Before and after, split')}${view('side', 'compare-side', 'Before and after, side by side')}</div>
@@ -269,7 +273,7 @@ class DevelopWorkspace {
     ${tool('zoom', 'zoom-in', 'Zoom: click to zoom in, Alt-click to zoom out', 'Z')}${tool('hand', 'hand', 'Hand: drag to pan (hold Space with any tool)', 'H')}
   </nav>
 </div>
-<p id="dv-help" class="sr-only">Panels hold the settings; each panel's eye button turns its effect off. Mod+Z undoes an edit in this window.</p>
+<p id="dv-help" class="sr-only">Panels hold the settings; each panel's eye button turns its effect off. ${formatShortcut('Mod+Z')} undoes an edit in this window.</p>
 <footer class="rw-footer">
   <label class="dv-canvas-toggle" title="Show the result on the canvas behind this window"><input type="checkbox" class="dv-canvas" checked> Preview on canvas</label>
   <button type="button" class="dv-reset-all" title="Reset every setting to its default">Reset All</button>
@@ -488,6 +492,30 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     if (!this.source) await this.loadSource();
     return this.source;
   }
+  private placed?: { key: string; src: RGBA8; img: RGBA8 };
+  /** The source copy where a pick lands: over the result, lens corrections
+   * and geometry have moved its pixels before the color work, so the copy
+   * is moved the same way (over the original it is used as it is). */
+  private async pickSource(after: boolean): Promise<RGBA8 | undefined> {
+    const src = await this.needSource();
+    if (!src || !after) return src;
+    const { params: q } = resolveDevelop(this.params);
+    const lens = opticsActive(q),
+      geo = geometryActive(q);
+    if (!lens && !geo) return src;
+    const key = JSON.stringify(
+      PANELS.filter((p) => p.id === 'optics' || p.id === 'geometry').flatMap((p) =>
+        p.keys.map((k) => q[k]),
+      ),
+    );
+    if (this.placed?.key !== key || this.placed.src !== src) {
+      let img = src;
+      if (lens) img = correctLens(img, q, 2 ** -this.sourceLevel);
+      if (geo) img = transformGeometry(img, q, 2 ** -this.sourceLevel);
+      this.placed = { key, src, img };
+    }
+    return this.placed.img;
+  }
 
   // ---------- Pane ----------
   private onImage(img: RGBA8) {
@@ -599,9 +627,9 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     this.preview.focus = { x: pt.x, y: pt.y };
     this.preview.stepZoom(dir);
   }
-  private async pickWhite(pt: { x: number; y: number; inside: boolean }) {
+  private async pickWhite(pt: { x: number; y: number; inside: boolean; after: boolean }) {
     if (!pt.inside) return;
-    const src = await this.needSource();
+    const src = await this.pickSource(pt.after);
     if (!src) return;
     const f = 2 ** -this.sourceLevel;
     const c = sampleLinear(src, pt.x * f, pt.y * f, 2);
@@ -618,9 +646,12 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     );
   }
   private target?: { y: number; start: ParamValues; weights: Float64Array; keys: string[] };
-  private async startTarget(pt: { x: number; y: number; inside: boolean }, clientY: number) {
+  private async startTarget(
+    pt: { x: number; y: number; inside: boolean; after: boolean },
+    clientY: number,
+  ) {
     if (!pt.inside) return;
-    const src = await this.needSource();
+    const src = await this.pickSource(pt.after);
     if (!src) return;
     const f = 2 ** -this.sourceLevel;
     const c = sampleLinear(src, pt.x * f, pt.y * f, 1);
@@ -911,6 +942,9 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
       this.set({ upright: up.dataset.upright! });
       return;
     }
+    // Built-in entries are told apart from saved presets of any name.
+    const builtin = t.closest<HTMLElement>('[data-preset-builtin]')?.dataset.presetBuiltin;
+    if (builtin === 'defaults' || builtin === 'last') return this.applyBuiltinPreset(builtin);
     const preset = t.closest<HTMLElement>('[data-preset]');
     if (preset) return this.applyPreset(preset.dataset.preset!);
     const del = t.closest<HTMLElement>('[data-preset-delete]');
@@ -1032,26 +1066,25 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     const host = this.q('.dv-presets');
     const user = developPresets();
     const last = developLast();
-    host.innerHTML = `<h3>Presets</h3><ul class="dv-preset-list"><li><button type="button" data-preset="__defaults">Defaults</button></li><li><button type="button" data-preset="__last" ${last ? '' : 'disabled'} title="The settings last applied with OK">Last Used</button></li></ul><h4>Saved</h4>${user.length ? `<ul class="dv-preset-list">${user.map((p) => `<li><button type="button" data-preset="${escapeXML(p.name)}">${escapeXML(p.name)}</button><button type="button" class="icon-button" data-preset-delete="${escapeXML(p.name)}" title="Delete ${escapeXML(p.name)}" aria-label="Delete preset ${escapeXML(p.name)}">${svg('trash-2', 14)}</button></li>`).join('')}</ul>` : '<p class="dv-note">No saved presets yet.</p>'}<div class="dv-preset-new"><label for="dv-preset-name">Save current settings as</label><div class="dv-preset-row"><input type="text" id="dv-preset-name" maxlength="80" placeholder="Preset name" autocomplete="off"><button type="button" class="dv-preset-save">Save</button></div></div>`;
+    host.innerHTML = `<h3>Presets</h3><ul class="dv-preset-list"><li><button type="button" data-preset-builtin="defaults">Defaults</button></li><li><button type="button" data-preset-builtin="last" ${last ? '' : 'disabled'} title="The settings last applied with OK">Last Used</button></li></ul><h4>Saved</h4>${user.length ? `<ul class="dv-preset-list">${user.map((p) => `<li><button type="button" data-preset="${escapeXML(p.name)}">${escapeXML(p.name)}</button><button type="button" class="icon-button" data-preset-delete="${escapeXML(p.name)}" title="Delete ${escapeXML(p.name)}" aria-label="Delete preset ${escapeXML(p.name)}">${svg('trash-2', 14)}</button></li>`).join('')}</ul>` : '<p class="dv-note">No saved presets yet.</p>'}<div class="dv-preset-new"><label for="dv-preset-name">Save current settings as</label><div class="dv-preset-row"><input type="text" id="dv-preset-name" maxlength="80" placeholder="Preset name" autocomplete="off"><button type="button" class="dv-preset-save">Save</button></div></div>`;
     host.querySelector<HTMLInputElement>('#dv-preset-name')!.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter') return;
       ev.preventDefault();
       this.savePreset();
     });
   }
-  private applyPreset(id: string) {
-    let p: ParamValues | undefined;
-    if (id === '__defaults') p = developDefaults();
-    else if (id === '__last') {
-      const last = developLast();
-      p = last && presetSettings(last);
-    } else {
-      const found = developPresets().find((x) => x.name === id);
-      p = found && presetSettings(found.params);
-    }
+  private applyBuiltinPreset(which: 'defaults' | 'last') {
+    const last = which === 'last' ? developLast() : undefined;
+    const p = which === 'defaults' ? developDefaults() : last && presetSettings(last);
     if (!p) return;
     this.set(p);
-    this.status(`Applied ${id === '__defaults' ? 'Defaults' : id === '__last' ? 'Last Used' : id}`);
+    this.status(`Applied ${which === 'defaults' ? 'Defaults' : 'Last Used'}`);
+  }
+  private applyPreset(name: string) {
+    const found = developPresets().find((x) => x.name === name);
+    if (!found) return;
+    this.set(presetSettings(found.params));
+    this.status(`Applied ${name}`);
   }
   private savePreset() {
     const input = this.ws.dialog.querySelector<HTMLInputElement>('#dv-preset-name');

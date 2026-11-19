@@ -11,15 +11,23 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type Orientation = 'vertical' | 'horizontal';
 
 /** Where a stored state of size `before` is drawn on a canvas of size
- * `current`, in current document pixels. Equal sizes coincide; the same
- * proportions (an image resize) are stretched over the canvas; otherwise (a
- * crop or a canvas size change) it keeps its pixel size, centered. */
+ * `current`, in current document pixels. Equal sizes coincide; both sides
+ * scaled by one factor (an image resize) are stretched over the canvas;
+ * otherwise (a crop or a canvas size change) it keeps its pixel size,
+ * centered. */
 export function beforePlacement(before: Size, current: Size): Rect {
   if (before.width === current.width && before.height === current.height)
     return { x: 0, y: 0, width: current.width, height: current.height };
-  const ra = before.width / before.height,
-    rb = current.width / current.height;
-  if (Math.abs(ra / rb - 1) < 0.01)
+  // A resize scales both sides by one factor, up to rounding to whole
+  // pixels: either side's factor predicts the other side within a pixel. A
+  // small crop keeps nearly the same proportions but not that relation, and
+  // stretching it would misalign the two images by up to the cropped amount.
+  const kx = current.width / before.width,
+    ky = current.height / before.height;
+  if (
+    Math.abs(before.height * kx - current.height) <= 1 ||
+    Math.abs(before.width * ky - current.width) <= 1
+  )
     return { x: 0, y: 0, width: current.width, height: current.height };
   return {
     x: (current.width - before.width) / 2,

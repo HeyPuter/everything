@@ -11,6 +11,7 @@ import { setVectorColor, vectorHexColor } from '../../color/vector';
 import { setPixelMaskLinked } from '../../model/pixel-mask';
 import { performAction } from '../../ui/actions';
 import { escapeXML } from '../../model/assets';
+import { svg } from '../../app/icons';
 import { bindFields, rememberFocus, restoreFocus, setAllSections } from './property-fields';
 import { documentChange, documentClick, documentKey, documentProperties } from './document-properties';
 import { ADJUSTMENTS_MARK, layerClick, layerProperties, maskSection, multipleProperties } from './layer-properties';
@@ -23,6 +24,7 @@ export const propertiesEditors = new Map<string, PropertiesEditor>();
 export const propertySections: ((e: Editor, l: Layer) => string)[] = [];
 
 let lastHtml = '';
+const EMPTY = `<div class="empty-layers">${svg('sliders-horizontal', 22)}<p>Properties of the open image appear here</p></div>`;
 const sectionsCommand = (open: boolean) => ({
   id: open ? 'properties.expand-sections' : 'properties.collapse-sections',
   label: open ? 'Expand All Sections' : 'Collapse All Sections',
@@ -76,6 +78,13 @@ export const propertiesPanel: Panel = {
     const l = findLayer(display.layers, e.selected);
     // Keep focus and in-progress edits stable while dragging sliders.
     if (el.contains(document.activeElement) && (document.activeElement as HTMLElement).matches('input[type=range]')) return;
+    // The start screen has no document: fields for its placeholder would
+    // take input and ignore it.
+    if (!e.hasDocument) {
+      delete el.dataset.key;
+      if (lastHtml !== EMPTY || !el.firstElementChild) el.innerHTML = lastHtml = EMPTY;
+      return;
+    }
     const single = l && e.selectedIds.size === 1;
     const custom = single ? propertiesEditors.get(l.artboard ? 'artboard' : l.frame ? 'frame' : l.kind === 'adjustment' ? `adjustment:${l.adjustment?.kind}` : l.fill ? 'fill' : l.kind) : undefined;
     if (custom && l) {

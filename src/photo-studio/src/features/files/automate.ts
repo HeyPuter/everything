@@ -9,7 +9,8 @@ import { canEncodeAvif, fitSize, formatInfo, type ExportContext, type ExportForm
 import { decodeFile, openFile } from './open';
 import { encodeOffThread, bytesBlob, documentSource, exportContext, formatBytes, loadSettings, mustConvert, samplesToSource } from './pipeline';
 import { pickCloudFiles } from './cloud';
-import { uniqueName, zipStore } from './zip';
+import { uniqueName, zipBlob, type ZipBlobEntry } from './zip';
+import { crc32 } from '../../imaging/codecs/bytes';
 import { saveToCloudFolder } from './layers-export';
 import { rgba16To8 } from './png';
 import { escapeXML } from '../../model/assets';
@@ -136,11 +137,11 @@ export async function imageProcessor(e: Editor, batch: boolean) {
           if (cancelled) return;
           close();
           if (!files.length) return;
-          if (opts.dest === 'puter') saveToCloudFolder(e, files);
+          if (opts.dest === 'puter') saveToCloudFolder(e, files, failedNote(files.failed));
           else {
-            const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
-            download(bytesBlob(zip, 'application/zip'), 'processed-images.zip');
-            e.message(`Processed ${files.length} images (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
+            const zip = zipBlob(files);
+            download(zip, 'processed-images.zip');
+            e.message(`Processed ${files.length} images (${formatBytes(zip.size)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
           }
         })
         .catch((error) => {
@@ -175,7 +176,7 @@ async function loadInput(e: Editor, input: Input, documentSteps: BatchStep[]): P
   // Layered files and document steps go through a temporary editor tab.
   const previous = e.session;
   const before = new Set(e.sessions);
-  if (!(await openFile(e, blob, input.name, false, { pages: 'first' }))) throw new Error(`${input.name} could not be opened.`);
+  if (!(await openFile(e, blob, input.name, false, { pages: 'first', recent: false }))) throw new Error(`${input.name} could not be opened.`);
   const s = e.sessions.find((x) => !before.has(x)) ?? e.session;
   try {
     for (const step of documentSteps) await step.document!(e);
@@ -193,7 +194,9 @@ export async function runProcessor(e: Editor, inputs: Input[], o: RunOptions, re
 async function processAll(e: Editor, inputs: Input[], o: RunOptions, report: (s: string) => void, cancelled: () => boolean) {
   const base = loadSettings();
   const used = new Set<string>();
-  const files: { name: string; bytes: Uint8Array; blob: Blob }[] = [];
+  // Each result is kept once, as a Blob (with its checksum for the ZIP); its
+  // bytes are dropped as soon as the Blob holds them.
+  const files: ZipBlobEntry[] = [];
   const failures: string[] = [];
   const documentSteps = o.steps.filter((s) => s.document);
   const t0 = performance.now();
@@ -214,7 +217,7 @@ async function processAll(e: Editor, inputs: Input[], o: RunOptions, report: (s:
       const settings: ExportSettings = { ...base, format: o.format, quality: o.quality, convertSrgb: o.srgb || !!loaded.linear, sizeMode: 'exact', width: w, height: h, canvasWidth: 0, canvasHeight: 0, depth: 16 };
       const { bytes } = await encodeOffThread(src, settings, ctx);
       const name = uniqueName(`${input.name.replace(/\.[^.]+$/, '')}.${formatInfo[o.format].ext}`, used);
-      files.push({ name, bytes, blob: bytesBlob(bytes, formatInfo[o.format].mime) });
+      files.push({ name, blob: bytesBlob(bytes, formatInfo[o.format].mime), crc: crc32(bytes) });
     } catch (error) {
       failures.push(`${input.name}: ${error instanceof Error ? error.message : String(error)}`);
     }

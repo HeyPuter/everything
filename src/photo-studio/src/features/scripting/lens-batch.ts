@@ -9,8 +9,8 @@ import type { ParamSpec, RGBA8 } from '../../imaging/types';
 import { download } from '../../persistence/puter';
 import { failedNote, runProcessor, type Input } from '../files/automate';
 import { formatInfo, type ExportFormat } from '../files/encode';
-import { bytesBlob, formatBytes } from '../files/pipeline';
-import { zipStore } from '../files/zip';
+import { formatBytes } from '../files/pipeline';
+import { zipBlob, type ZipBlobEntry } from '../files/zip';
 import { saveToCloudFolder } from '../files/layers-export';
 import { hexRgb } from '../pixels';
 import type { LensJob } from './lens-batch.worker';
@@ -48,6 +48,19 @@ function paramField(p: ParamSpec) {
   if (p.type === 'select') return `<label class="dialog-field">${escapeXML(p.label)}<select name="p:${p.key}" title="${escapeXML(p.label)} for every photo">${p.options.map((o) => `<option value="${escapeXML(o.value)}" ${o.value === p.default ? 'selected' : ''}>${escapeXML(o.label)}</option>`).join('')}</select></label>`;
   if (p.type === 'number') return `<label class="dialog-field">${escapeXML(p.label)}${p.unit ? ` (${escapeXML(p.unit)})` : ''}<input type="number" name="p:${p.key}" min="${p.min}" max="${p.max}" step="${p.step ?? 1}" value="${p.default}" title="${escapeXML(p.label)} for every photo (${p.min} to ${p.max})"></label>`;
   return '';
+}
+
+type LensResults = ZipBlobEntry[] & { failed: string[] };
+/** Save the corrected images to a Puter folder or download them as a ZIP;
+ * either way the closing message names the images that failed. */
+export function deliverLensResults(e: Editor, files: LensResults, dest: string) {
+  if (!files.length) return;
+  if (dest === 'puter') saveToCloudFolder(e, files, failedNote(files.failed));
+  else {
+    const zip = zipBlob(files);
+    download(zip, 'lens-corrected.zip');
+    e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.size)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
+  }
 }
 
 export function lensCorrectionBatch(e: Editor): Promise<void> {
@@ -174,13 +187,7 @@ export function lensCorrectionBatch(e: Editor): Promise<void> {
           lens.dispose();
           if (cancelled) return;
           close();
-          if (!files.length) return;
-          if (dest === 'puter') saveToCloudFolder(e, files);
-          else {
-            const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
-            download(bytesBlob(zip, 'application/zip'), 'lens-corrected.zip');
-            e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
-          }
+          deliverLensResults(e, files, dest);
         })
         .catch((error) => {
           lens.dispose();

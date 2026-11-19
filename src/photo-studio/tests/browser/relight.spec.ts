@@ -3,7 +3,20 @@
 // with arrow keys, undone, rasterized, and kept through a .photo round trip.
 // The compositor's result is compared with the CPU reference.
 import { expect, test, type Page } from '@playwright/test';
-import { boot, historyLabels, idle, menu, openFiles, panel, run, undo } from './helpers';
+import {
+  boot,
+  canvasClick,
+  canvasDrag,
+  historyLabels,
+  idle,
+  menu,
+  openFiles,
+  openImage,
+  panel,
+  run,
+  tool,
+  undo,
+} from './helpers';
 
 async function openScene(page: Page) {
   await page.evaluate(async () => {
@@ -275,4 +288,104 @@ test('relight layer: the WebGL2 compositor matches the CPU reference, shadows an
   });
   await idle(page);
   await matchesCpu(page);
+});
+
+// The path selection tools own the arrow keys: with a relight layer
+// selected they nudge the selected path, not the selected light.
+test('relight layer: arrow keys nudge a selected path with the path tools', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 1200, 900, '#3080ff');
+  await run(page, 'layer.new-relight');
+  await tool(page, 'Rectangle Tool');
+  await page.selectOption('#vec-mode', 'path');
+  await canvasDrag(page, [
+    [200, 200],
+    [600, 500],
+  ]);
+  const left = () =>
+    page.evaluate(() => window.photoStudio.doc.workPath?.paths[0]?.knots[0].points[2]);
+  expect(await left()).toBe(200);
+  const before = await lights(page);
+  await tool(page, 'Path Selection Tool');
+  await canvasClick(page, 200, 280);
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  await expect.poll(left).toBe(203);
+  await idle(page);
+  expect(await lights(page)).toEqual(before);
+});
+
+test('relight layer: a hidden relight layer, or one in a hidden group, shows no light handles and its lights stay put', async ({
+  page,
+}) => {
+  await boot(page);
+  await openScene(page);
+  await run(page, 'layer.new-relight');
+  await expect(handles(page)).toHaveCount(1);
+  const box = (await handles(page).first().boundingBox())!;
+  const before = await lights(page);
+  await run(page, 'layer.hide');
+  await expect(handles(page)).toHaveCount(0);
+  // Arrow keys and a drag where the handle was leave the lights alone (the
+  // Hand tool neither selects nor moves layers).
+  await page.evaluate(() => window.photoStudio.setTool('hand'));
+  await page.locator('#viewport').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 20, { steps: 4 });
+  await page.mouse.up();
+  await idle(page);
+  expect(await lights(page)).toEqual(before);
+  await run(page, 'layer.hide');
+  await expect(handles(page)).toHaveCount(1);
+  // Inside a hidden group.
+  await run(page, 'layer.group');
+  await expect(handles(page)).toHaveCount(0);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const group = e.doc.layers.find((l) => l.kind === 'group')!;
+    e.selectLayer(group.children[0].id);
+    e.update();
+  });
+  await idle(page);
+  await expect(handles(page)).toHaveCount(1);
+  await page.evaluate(() =>
+    window.photoStudio.command('Hide Group', (d) => {
+      d.layers.find((l) => l.kind === 'group')!.visible = false;
+    }),
+  );
+  await idle(page);
+  await expect(handles(page)).toHaveCount(0);
+});
+
+// A slider moved and put back without a release (no change event) leaves no
+// preview behind: handles follow later edits of the stored settings.
+test('relight layer: handles follow nudges and undo after a slider returns to its value', async ({
+  page,
+}) => {
+  await boot(page);
+  await openScene(page);
+  await run(page, 'layer.new-relight');
+  await panel(page, 'Properties');
+  const props = page.locator('#properties');
+  const range = props.getByRole('slider', { name: 'Horizontal' });
+  await expect(range).toBeVisible();
+  await range.evaluate((el: HTMLInputElement) => {
+    const was = el.value;
+    el.value = '90';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.value = was;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const handleX = () =>
+    page.evaluate(() =>
+      Number(document.querySelector('#overlay .relight-dot')?.getAttribute('cx')),
+    );
+  await page.locator('#viewport').focus();
+  await page.keyboard.press('Shift+ArrowRight');
+  await idle(page);
+  expect((await historyLabels(page)).at(-1)).toBe('Nudge Light');
+  expect(await handleX()).toBeCloseTo((await lights(page))[0].x * 240, 3);
+  await undo(page);
+  expect(await handleX()).toBeCloseTo((await lights(page))[0].x * 240, 3);
 });

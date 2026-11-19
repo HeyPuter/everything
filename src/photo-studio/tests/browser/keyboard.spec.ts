@@ -33,6 +33,38 @@ test('tool keys select tools and Shift cycles through a slot', async ({ page }) 
   expect(await tool(page)).toBe('rect-marquee');
 });
 
+test('tool keys and shortcuts still work after clicking an options-bar checkbox, which keeps Space for itself', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('move'));
+  const box = page.locator('#auto-select');
+  const checked = await box.isChecked();
+  await box.click();
+  await expect(box).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
+  await idle(page);
+  expect(await page.evaluate(() => !!window.photoStudio.doc.selection)).toBe(true);
+  await page.keyboard.press('Space');
+  await expect(box).toBeChecked({ checked });
+  await page.keyboard.press('b');
+  expect(await tool(page)).toBe('brush');
+});
+
+test('the color chip and panel button tooltips name the keys set in the Keyboard Shortcuts editor', async ({ page }) => {
+  const swap = page.locator('.chip-swap');
+  await swap.hover();
+  await expect(swap).toHaveAttribute('title', /^Switch foreground and background colors \(X\)/);
+  await page.evaluate(async () => {
+    const { setCustomShortcuts } = await import('/src/features/arrange.ts');
+    setCustomShortcuts({ 'color.swap': 'Shift+X', 'window.toggle-panels': '' });
+  });
+  await page.mouse.move(600, 400);
+  await swap.hover();
+  await expect(swap).toHaveAttribute('title', /^Switch foreground and background colors \(⇧X\)/);
+  const panels = page.locator('[data-command="window.toggle-panels"]');
+  await panels.hover();
+  await expect(panels).toHaveAttribute('title', /^Show or hide panels(\n|$)/);
+  await page.evaluate(async () => (await import('/src/features/arrange.ts')).setCustomShortcuts({}));
+});
+
 test('brush keys: [ ] size, Shift+[ ] hardness, number keys opacity and flow', async ({ page }) => {
   await page.keyboard.press('b');
   const size = Number(await value(page, '#brush-size'));
@@ -65,6 +97,25 @@ test('brush keys: [ ] size, Shift+[ ] hardness, number keys opacity and flow', a
     await page.keyboard.press(']');
     expect(Number(await input.inputValue()), id).toBeGreaterThan(before);
   }
+});
+
+test('number keys on another layer make an undo step of its own', async ({ page }) => {
+  await run(page, 'layer.new-quick');
+  await run(page, 'layer.new-quick');
+  const opacities = () => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.opacity));
+  await page.keyboard.press('v');
+  await page.keyboard.press('5');
+  await idle(page);
+  // Layer 1 is selected with the keyboard; its opacity is a separate step.
+  await page.keyboard.press('Alt+BracketLeft');
+  await page.waitForTimeout(800);
+  await page.keyboard.press('3');
+  await idle(page);
+  expect(await opacities()).toEqual([1, 0.3, 0.5]);
+  const labels = await page.evaluate(() => window.photoStudio.history.labels);
+  expect(labels.filter((l) => l === 'Layer Opacity')).toHaveLength(2);
+  await run(page, 'edit.undo');
+  expect(await opacities()).toEqual([1, 1, 0.5]);
 });
 
 test('layer keys: opacity, stepping through layers, blend modes and fills', async ({ page }) => {
@@ -159,6 +210,7 @@ test('tooltips name the modifier key of the platform, not a placeholder or the M
       return { auto: document.querySelector('#auto-select')?.closest('label')?.title ?? document.querySelector('#auto-select')?.getAttribute('title') ?? '', swatch: document.querySelector('[data-swatch]')?.getAttribute('title') ?? '' };
     });
   const mac = await tips();
+  expect(await page.locator('.top-search').getAttribute('title')).toBe('Search commands (⌘F)');
   expect(mac.auto).toContain('⌘');
   expect(mac.auto).not.toMatch(/\bMod\b/);
   expect(mac.swatch).toContain('⌘-click');
@@ -166,6 +218,7 @@ test('tooltips name the modifier key of the platform, not a placeholder or the M
   await page.reload();
   await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
   const win = await tips();
+  expect(await page.locator('.top-search').getAttribute('title')).toBe('Search commands (Ctrl+F)');
   expect(win.auto).toContain('hold Ctrl');
   expect(win.swatch).toContain('Ctrl-click');
   expect(win.swatch).not.toContain('⌘');

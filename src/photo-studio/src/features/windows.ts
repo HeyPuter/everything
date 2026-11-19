@@ -51,13 +51,14 @@ function registerDocumentItems(e: Editor) {
         const siblings = e.views.filter((o) => o.session === v.session);
         return siblings.length > 1 ? `${v.session.doc.name} : ${siblings.indexOf(v) + 1}` : v.session.doc.name;
       },
+      // The start screen's placeholder is not an open document.
       get hidden() {
-        return !e.views[i];
+        return !e.views[i]?.session.hasDocument;
       },
       menu: 'window.documents',
       order: i,
       recordable: false,
-      enabled: (e) => !!e.views[i],
+      enabled: (e) => !!e.views[i]?.session.hasDocument,
       checked: (e) => !!e.views[i] && e.views[i] === e.activeView,
       run: async (e) => {
         const v = e.views[i];

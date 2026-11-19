@@ -55,10 +55,29 @@ export function commitRelight(e: Editor, id: string, params: RelightParams, labe
   return true;
 }
 
-function drawHandles(e: Editor) {
+/** True when the layer and every group containing it are shown. */
+function shown(layers: Layer[], id: string): boolean | undefined {
+  for (const l of layers) {
+    if (l.id === id) return l.visible;
+    const inside = shown(l.children, id);
+    if (inside !== undefined) return inside && l.visible;
+  }
+}
+
+/** The relight layer whose lights the canvas shows and edits: the selected
+ * one, while it is visible (a hidden layer's lights light nothing). */
+function canvasRelightLayer(e: Editor) {
   const l = activeRelightLayer(e);
+  return l && shown(e.doc.layers, l.id) ? l : undefined;
+}
+
+function drawHandles(e: Editor) {
+  const l = canvasRelightLayer(e);
   if (!l || relightUi.hidden) return '';
-  const p = relightUi.draft?.layerId === l.id ? relightUi.draft.params : relightParams(l);
+  // A preview that never ended in a commit (a slider moved and put back)
+  // stops counting once the document changes.
+  const draft = relightUi.draft;
+  const p = draft?.layerId === l.id && draft.doc === e.doc ? draft.params : relightParams(l);
   const W = e.doc.width,
     H = e.doc.height,
     z = Math.max(1e-6, e.zoom);
@@ -118,7 +137,7 @@ function startDrag(e: Editor, l: Layer, lightId: string, ev: PointerEvent) {
     if (!moved && Math.hypot(m.clientX - ev.clientX, m.clientY - ev.clientY) < 2) return;
     moved = true;
     const params = at(m);
-    relightUi.draft = { layerId: l.id, params };
+    relightUi.draft = { layerId: l.id, params, doc: before };
     e.preview(withRelight(before, l.id, params));
     e.overlay();
     draftListeners.forEach((f) => f(l.id, params));
@@ -163,7 +182,7 @@ function bindCanvas(e: Editor) {
       if (ev.button !== 0 || e.busy) return;
       const handle = (ev.target as Element).closest?.('[data-relight-light]');
       if (!handle) return;
-      const l = activeRelightLayer(e);
+      const l = canvasRelightLayer(e);
       if (!l) return;
       ev.preventDefault();
       ev.stopImmediatePropagation();
@@ -195,7 +214,7 @@ export function toggleHandles(e: Editor) {
 
 /** Nudge the selected light by (dx, dy) document pixels. */
 export function nudgeLight(e: Editor, dx: number, dy: number) {
-  const l = activeRelightLayer(e);
+  const l = canvasRelightLayer(e);
   if (!l) return false;
   const p = relightParams(l);
   const light = selectedLight(l.id, p);
@@ -211,6 +230,8 @@ export function nudgeLight(e: Editor, dx: number, dy: number) {
   commitRelight(e, l.id, next, 'Nudge Light');
   return true;
 }
+
+const PATH_TOOLS = new Set(['path-select', 'direct-select']);
 
 function bindKeys(e: Editor) {
   // Capture phase: these keys mean something else elsewhere (N has no
@@ -241,6 +262,8 @@ function bindKeys(e: Editor) {
       if (!ev.key.startsWith('Arrow') || relightUi.hidden) return;
       // With a selection and a tool other than Move, arrows keep nudging the selection outline.
       if (e.doc.selection && e.tool !== 'move') return;
+      // The path selection tools nudge the selected path or anchor points.
+      if (PATH_TOOLS.has(e.tool)) return;
       const step = ev.shiftKey ? 10 : 1;
       const dx = ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0,
         dy = ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0;

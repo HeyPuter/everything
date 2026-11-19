@@ -60,9 +60,18 @@ export class TileStore {
     this.data.delete(id);
     this.versions.delete(id);
   }
+  // Tiles in use outside any document (a stroke being painted): cleanup keeps them.
+  private holders = new Set<() => Iterable<string>>();
+  /** Keep the tiles `ids` lists through `retain` until the returned function is called. */
+  hold(ids: () => Iterable<string>) {
+    this.holders.add(ids);
+    return () => void this.holders.delete(ids);
+  }
   // Drop tiles no snapshot refers to any more.
   retain(keep: Set<string>) {
-    for (const id of [...this.data.keys()]) if (!keep.has(id)) this.delete(id);
+    const held = new Set<string>();
+    for (const ids of this.holders) for (const id of ids()) held.add(id);
+    for (const id of [...this.data.keys()]) if (!keep.has(id) && !held.has(id)) this.delete(id);
   }
   get size() {
     return this.data.size;

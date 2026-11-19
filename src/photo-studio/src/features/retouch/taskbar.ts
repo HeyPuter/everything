@@ -144,9 +144,18 @@ export function installTaskbar(e: Editor) {
   let items: QuickItem[] = [];
   let state: QuickState = 'none';
   const viewport = () => e.el('#viewport');
+  // The bar's width with its labels, measured again when its buttons change.
+  let fullWidth = 0;
   const place = () => {
     if (bar.hidden) return;
     const vr = viewport().getBoundingClientRect();
+    // In a narrow window the buttons show only their icons rather than run
+    // off the canvas (their names stay for tooltips and screen readers).
+    if (!fullWidth) {
+      bar.classList.remove('compact');
+      fullWidth = bar.offsetWidth;
+    }
+    bar.classList.toggle('compact', fullWidth > vr.width - 16);
     const s = e.doc.selection;
     let sel;
     if (s && !pinned) {
@@ -214,6 +223,7 @@ export function installTaskbar(e: Editor) {
       buttons.forEach((b, i) => (b.tabIndex = i === Math.max(0, keep) ? 0 : -1));
       if (focused >= 0) buttons[Math.min(focused, buttons.length - 1)]?.focus({ preventScroll: true });
       placed = false;
+      fullWidth = 0;
     }
     if (!bar.hidden) place();
     else placed = false;

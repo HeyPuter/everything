@@ -223,7 +223,7 @@ export class WindowManager {
     const e = this.e;
     if (!this.multi) {
       const strip = e.el('.document-tabs');
-      strip.innerHTML = e.views.map((v) => this.tabHTML(v)).join('');
+      setTabs(strip, e.views.map((v) => this.tabHTML(v)).join(''));
       // A document shown from elsewhere (opened, chosen in Window › Documents)
       // brings its tab into the strip's view; otherwise the strip stays where
       // it was scrolled.
@@ -239,14 +239,14 @@ export class WindowManager {
       }
       return;
     }
-    e.el('.document-tabs').innerHTML = '';
+    setTabs(e.el('.document-tabs'), '');
     this.frames.forEach((frame, i) => {
       const bar = this.host.querySelector<HTMLElement>(`[data-frame="${i}"] .frame-tabs`);
-      if (bar) bar.innerHTML = frame.map((v) => this.tabHTML(v)).join('');
+      if (bar) setTabs(bar, frame.map((v) => this.tabHTML(v)).join(''));
     });
     for (const v of e.views) {
       const bar = v.floating && this.host.querySelector<HTMLElement>(`[data-float="${v.id}"] .frame-tabs`);
-      if (bar) bar.innerHTML = this.tabHTML(v);
+      if (bar) setTabs(bar, this.tabHTML(v));
     }
   }
   // ----- Previews of inactive views -----
@@ -456,4 +456,18 @@ function checker(c: CanvasRenderingContext2D) {
   const pattern = c.createPattern(tile, 'repeat')!;
   checkerPattern = { ctx: c, key: a + b, pattern };
   return pattern;
+}
+
+/** Redraw a tab bar (after every edit, zoom and title change) only when its
+ * markup changed, keeping the keyboard focus on the tab or close button it
+ * was on: rebuilding the bar would drop it to the page. (The focus on a
+ * closed window's tab is moved by the close button's handler.) */
+const tabMarkup = new WeakMap<HTMLElement, string>();
+function setTabs(bar: HTMLElement, html: string) {
+  if (tabMarkup.get(bar) === html) return;
+  tabMarkup.set(bar, html);
+  const f = document.activeElement instanceof HTMLElement && bar.contains(document.activeElement) ? document.activeElement : null;
+  const same = f?.dataset.closeView ? `[data-close-view="${CSS.escape(f.dataset.closeView)}"]` : f?.dataset.view ? `[data-view="${CSS.escape(f.dataset.view)}"]` : '';
+  bar.innerHTML = html;
+  if (same && !f!.isConnected) bar.querySelector<HTMLElement>(same)?.focus({ preventScroll: true });
 }

@@ -9,6 +9,7 @@ import type { PhotoDocument } from '../../model/document';
 import { audioPlan, envelopeAt, envelopePoints, type AudioSource, type PlanItem } from '../../model/audio-timeline';
 import { audioPcm, loadAll } from './audio-media';
 import { downmix, type Pcm } from '../../imaging/audio/mix';
+import { mediaCleanups } from './video-state';
 
 let ctx: AudioContext | undefined;
 const buffers = new WeakMap<Pcm, AudioBuffer>();
@@ -162,6 +163,9 @@ export function stopAudio() {
 let snippet: { master: GainNode } | undefined;
 // The sound scrubbing last loaded (kept should the cache drop it).
 let scrubbed = new Map<string, Pcm>();
+mediaCleanups.push((_closed, open) => {
+  for (const asset of [...scrubbed.keys()]) if (!open.some((s) => s.assets.has(asset))) scrubbed.delete(asset);
+});
 /** Play a short snippet of the mix at timeline second `t` (scrubbing). */
 export function scrubAudio(session: DocumentSession, doc: PhotoDocument, t: number, seconds = 0.09) {
   if (playing) return;

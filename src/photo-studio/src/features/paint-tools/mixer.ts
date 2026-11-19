@@ -22,6 +22,8 @@ let brush: MixerBrush | undefined;
 let manualLoad = false;
 // An Alt-click load is in progress (its release ends no stroke).
 let loading = false;
+// The stroke being started (its target may still be reading pixels).
+let starting: Promise<unknown> | undefined;
 const pct = (e: Editor, key: string, d: number) => Number(e.settings[key] ?? d);
 export function mixerSettings(e: Editor): MixerSettings {
   return { wet: pct(e, 'mixerWet', 50) / 100, load: pct(e, 'mixerLoad', 50) / 100, mix: pct(e, 'mixerMix', 50) / 100, flow: brushFor(ID).flow };
@@ -60,11 +62,14 @@ async function warmBelow(e: Editor) {
   below = { key, img };
 }
 
-function mixerTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
+async function mixerTarget(e: Editor, target: PixelTarget): Promise<PaintTarget | undefined> {
   if (target.kind !== 'pixels') {
     e.message('The Mixer Brush paints on pixel layers.');
     return;
   }
+  // Reading the layers below can take a while: the stroke's samples (and its
+  // release) wait in the stroke meanwhile.
+  if (sampleAll(e)) await warmBelow(e);
   const b = mixer(e);
   b.lift();
   if (loadAfter(e) && !manualLoad) b.loadColor(hexRgb(e.color));
@@ -197,8 +202,13 @@ export function mixerBrushTool(): Tool {
         return;
       }
       loading = false;
-      if (sampleAll(e)) await warmBelow(e);
-      return base.pointerDown!(e, p);
+      const started = Promise.resolve(base.pointerDown!(e, p));
+      starting = started;
+      try {
+        await started;
+      } finally {
+        if (starting === started) starting = undefined;
+      }
     },
     pointerUp: async (e, p) => {
       // The release of an Alt-click that loaded the brush: no stroke ended,
@@ -208,6 +218,9 @@ export function mixerBrushTool(): Tool {
         return;
       }
       await base.pointerUp!(e, p);
+      // A stroke still starting ends once it has painted what it received;
+      // the brush is cleaned and reloaded only after that.
+      await starting;
       const b = mixer(e);
       manualLoad = false;
       if (cleanAfter(e)) b.clean(false);

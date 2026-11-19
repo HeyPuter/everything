@@ -54,10 +54,10 @@
 .ast-step-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .ast-step-status { display: inline-flex; color: var(--muted); }
 .status-done .ast-step-status { color: #3fa66b; }
-.status-running .ast-step-status { color: var(--accent); }
+.status-running .ast-step-status { color: var(--link); }
 .ast-step-index { color: var(--muted); font-variant-numeric: tabular-nums; }
 button.ast-step-name { padding: 0; min-height: 0; border: 0; background: none; color: var(--text); font-weight: 600; text-decoration: underline dotted var(--muted); text-underline-offset: 2px; cursor: pointer; }
-button.ast-step-name:hover { color: var(--accent); }
+button.ast-step-name:hover:not(:disabled) { background: none; color: var(--link); }
 .ast-tag { font-size: 10px; padding: 0 5px; border-radius: 7px; border: 1px solid var(--line-soft); color: var(--muted); }
 .ast-tag.ai { border-color: var(--accent); color: var(--text); }
 .ast-step-detail, .ast-step-note { margin-top: 2px; line-height: 1.4; overflow-wrap: anywhere; }

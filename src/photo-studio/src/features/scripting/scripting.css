@@ -134,7 +134,7 @@ button.script-text:hover:not(:disabled), button.script-text:active:not(:disabled
 .batch-link textarea { font: 11px ui-monospace, monospace; word-break: break-all; }
 .batch-link-steps { min-height: 1.4em; font-size: 12px; overflow-wrap: anywhere; }
 .batch-link .dialog-actions { align-items: center; }
-.batch-link-open { margin-right: auto; color: var(--accent); font-size: 12px; }
+.batch-link-open { margin-right: auto; color: var(--link); font-size: 12px; }
 .batch-link-list { margin: 6px 0 10px; padding-left: 22px; font-size: 12px; }
 .batch-drop { display: grid; place-items: center; min-height: 90px; margin: 8px 0; border: 2px dashed var(--input-line); border-radius: 6px; color: var(--muted); font-size: 13px; cursor: pointer; text-align: center; }
 .batch-drop:hover, .batch-drop:focus-visible, .batch-drop.dragover { border-color: var(--accent); color: var(--text); }

@@ -144,7 +144,7 @@ export function installViewModes(e: Editor) {
     refreshViews(e);
   }, { checked: (e) => e.activeView.flip, enabled: (e) => e.hasDocument, description: 'Mirror the view only; the image is not changed' });
   cmd('view.reset-rotation', 'Reset Rotation', (e) => setViewRotation(e, 0), { enabled: (e) => !!e.rotation, description: 'Show the image upright again' });
-  cmd('view.zoom-200', '200%', (e) => e.zoomAt(2));
+  cmd('view.zoom-200', '200%', (e) => e.zoomAt(2), { enabled: (e) => e.hasDocument });
   cmd('view.print-size', 'Print Size', (e) => {
     e.zoomAt(printSizeZoom(pixelsPerInch(e.doc.resolution), e.preferences.screenPpi ?? 96));
   }, { enabled: (e) => e.hasDocument, description: 'Show the image at its printed size, using the screen resolution set in Preferences' });

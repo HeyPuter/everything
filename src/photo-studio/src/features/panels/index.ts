@@ -58,7 +58,8 @@ const historyPanel: Panel = {
       undone = e.history.redoLabels;
     // Screen readers hear which state the document is in and which steps are undone.
     const current = (on: boolean) => (on ? 'aria-current="step"' : '');
-    const rows = [
+    // The start screen has no document: no steps, and nothing to snapshot.
+    const rows = !e.hasDocument ? [] : [
       // Once older steps are dropped, the first row is the result of the
       // latest dropped step rather than the opened document.
       e.history.baseLabel
@@ -70,7 +71,7 @@ const historyPanel: Panel = {
     const snaps = sessionSnapshots(e);
     const source = historySourceId(e) ?? '';
     const snapRows = snaps.map((sn) => `<div class="history-snapshot"><button class="history-source" data-history-source="${sn.id}" aria-pressed="${source === sn.id}" title="Set the source for the History Brush" aria-label="Use ${escapeXML(sn.name)} as History Brush source">${svg('history', 13)}</button><button class="history-row" data-snapshot="${sn.id}">${svg('camera', 14)}<span>${escapeXML(sn.name)}</span></button></div>`).join('');
-    const html = `${snapRows ? `<div class="history-snapshots">${snapRows}</div>` : ''}<div class="history-entries">${rows.join('')}</div><div class="history-controls"><button data-command="history.snapshot" aria-label="Create new snapshot" title="Create new snapshot">${svg('camera', 15)}</button><button data-command="edit.undo" aria-label="Undo" title="Undo" ${e.history.canUndo || e.session.hasPendingEdits ? '' : 'disabled'}>${svg('undo-2', 15)}</button><button data-command="edit.redo" aria-label="Redo" title="Redo" ${e.history.canRedo ? '' : 'disabled'}>${svg('redo-2', 15)}</button></div>`;
+    const html = `${snapRows ? `<div class="history-snapshots">${snapRows}</div>` : ''}<div class="history-entries">${rows.join('')}</div><div class="history-controls"><button data-command="history.snapshot" aria-label="Create new snapshot" title="Create new snapshot" ${e.hasDocument ? '' : 'disabled'}>${svg('camera', 15)}</button><button data-command="edit.undo" aria-label="Undo" title="Undo" ${e.history.canUndo || e.session.hasPendingEdits ? '' : 'disabled'}>${svg('undo-2', 15)}</button><button data-command="edit.redo" aria-label="Redo" title="Redo" ${e.history.canRedo ? '' : 'disabled'}>${svg('redo-2', 15)}</button></div>`;
     // Unchanged (an update that is not a history step): keep the list as it
     // is, scrolled where the user left it.
     if (historyMarkup.get(el) === html) return;
@@ -251,6 +252,17 @@ const navigatorPanel: Panel = {
   },
   update: (e, el) => {
     const canvas = el.querySelector('canvas')!;
+    // No document (the start screen): nothing to show or zoom, and the last
+    // closed image's thumbnail must not stay behind.
+    const none = !e.hasDocument;
+    el.querySelectorAll<HTMLInputElement | HTMLButtonElement>('.navigator-zoom :is(input, button)').forEach((c) => (c.disabled = none));
+    el.querySelector<HTMLElement>('.navigator-box')!.hidden = none;
+    if (none) {
+      clearTimeout(snapshotTimer);
+      canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height);
+      el.querySelector('output')!.textContent = '';
+      return;
+    }
     const s = Math.min(canvas.width / e.doc.width, canvas.height / e.doc.height);
     const ox = (canvas.width - e.doc.width * s) / 2,
       oy = (canvas.height - e.doc.height * s) / 2;
@@ -266,9 +278,9 @@ const navigatorPanel: Panel = {
     const range = el.querySelector<HTMLInputElement>('input[type=range]')!;
     range.value = String(((Math.log(e.zoom) - Math.log(0.01)) / (Math.log(64) - Math.log(0.01))) * 100);
     el.querySelector('output')!.textContent = `${Math.round(e.zoom * 100)}%`;
-    if (!e.hasDocument) return;
     later(e, async () => {
       const img = await compositeSnapshot(e);
+      if (!e.hasDocument) return;
       const tmp = new OffscreenCanvas(img.width, img.height);
       tmp.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
       const c = canvas.getContext('2d')!;

@@ -31,6 +31,7 @@ import {
   addLayers,
   canRun,
   canvasOf,
+  followResize,
   cropRGBA,
   notice,
   pixelLayer,
@@ -151,16 +152,17 @@ export async function reflectionDialog(e: Editor) {
   let split = 50;
   // Full-size results, made in the worker when a variation is added.
   const finals = new Map<string, Promise<RGBA8>>();
-  const fit = () => {
+  const size = () => {
     const r = host.getBoundingClientRect();
     const s = Math.min(1, (r.width - 16) / rect.width, (r.height - 16) / rect.height);
     cv.width = Math.max(1, Math.round(rect.width * s));
     cv.height = Math.max(1, Math.round(rect.height * s));
+  };
+  const rebuild = () =>
     void previewBitmap(full, cv.width, cv.height).then((b) => {
       orig = b;
       draw();
     });
-  };
   const draw = () => {
     const g = cv.getContext('2d')!,
       w = cv.width,
@@ -183,13 +185,13 @@ export async function reflectionDialog(e: Editor) {
       g.fillRect(x + 1, 0, 1, h);
     }
   };
-  fit();
+  size();
+  rebuild();
   draw();
-  const onResize = () => {
-    fit();
+  const stopResize = followResize(() => {
+    size();
     draw();
-  };
-  window.addEventListener('resize', onResize);
+  }, rebuild);
   /** The chosen result at full size: enlarged, with the original's fine
    * detail when asked, and the layer's transparency kept (worker). */
   const finalImage = (k: number): Promise<RGBA8> => {
@@ -325,7 +327,21 @@ export async function reflectionDialog(e: Editor) {
     read();
     apply.disabled = true;
     gen.say('Preparing the full-size result…', 'busy');
-    const image = await finalImage(picker.chosen);
+    const k = picker.chosen;
+    let image: RGBA8;
+    try {
+      image = await finalImage(k);
+    } catch (error) {
+      // Not kept: Add Layer makes it again.
+      for (const key of [...finals.keys()]) if (key.startsWith(`${k}:`)) finals.delete(key);
+      if (!ws.dialog.isConnected) return;
+      apply.disabled = false;
+      gen.say(
+        `The full-size result could not be prepared: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
+      return;
+    }
     chosen = {
       image,
       amount: remembered.amount,
@@ -337,7 +353,7 @@ export async function reflectionDialog(e: Editor) {
   ws.dialog.addEventListener('close', () => gen.stop(false));
   noteBox.focus();
   await ws.closed;
-  window.removeEventListener('resize', onResize);
+  stopResize();
   gen.stop(false);
   read();
   if (!chosen) return;

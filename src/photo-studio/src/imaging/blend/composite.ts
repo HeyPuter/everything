@@ -81,6 +81,58 @@ export function compositeRGBA8(
   return back;
 }
 
+// Paints `src` onto `back` (same size) with locked transparency: each pixel's
+// color moves toward the blended color by the source coverage, and alpha
+// stays as it is, as brushes and fills do on a layer whose transparency is
+// locked. Where the backdrop is partly transparent the blend result is mixed
+// with the plain source color by the backdrop alpha (W3C Cs').
+export function compositeRGBA8KeepAlpha(
+  back: RGBA8,
+  src: RGBA8,
+  mode: BlendMode | number = 'normal',
+  opacity = 1,
+  mask?: Mask8,
+  seed = 0,
+): RGBA8 {
+  const m = blendModeIndex(mode);
+  if (opacity <= 0) return back;
+  const w = Math.min(back.width, src.width), h = Math.min(back.height, src.height);
+  const bd = back.data, sd = src.data, md = mask?.data;
+  const normal = m === M.normal || m === M.dissolve;
+  const lut = !normal && isSeparable(m) ? separableLut(m) : undefined;
+  const bc = [0, 0, 0], sc = [0, 0, 0], out = [0, 0, 0];
+  const k = opacity / 255;
+  for (let y = 0; y < h; y++) {
+    let bi = y * back.width * 4, si = y * src.width * 4, mi = y * src.width;
+    for (let x = 0; x < w; x++, bi += 4, si += 4, mi++) {
+      let a = sd[si + 3] * k;
+      if (md) a *= md[mi] / 255;
+      if (a <= 0) continue;
+      if (m === M.dissolve) {
+        if (hash01(x, y, seed) >= a) continue;
+        a = 1;
+      }
+      if (a > 1) a = 1;
+      const ab = bd[bi + 3] / 255;
+      if (normal || ab === 0) {
+        for (let c = 0; c < 3; c++) bd[bi + c] += (sd[si + c] - bd[bi + c]) * a;
+      } else if (lut) {
+        for (let c = 0; c < 3; c++) {
+          const cb = bd[bi + c], cs = sd[si + c];
+          bd[bi + c] = cb + (cs + (lut[(cb << 8) | cs] - cs) * ab - cb) * a;
+        }
+      } else {
+        bc[0] = bd[bi] / 255; bc[1] = bd[bi + 1] / 255; bc[2] = bd[bi + 2] / 255;
+        sc[0] = sd[si] / 255; sc[1] = sd[si + 1] / 255; sc[2] = sd[si + 2] / 255;
+        blendColor(m, bc, sc, out);
+        for (let c = 0; c < 3; c++)
+          bd[bi + c] = (bc[c] + (sc[c] + (out[c] - sc[c]) * ab - bc[c]) * a) * 255;
+      }
+    }
+  }
+  return back;
+}
+
 // Layer opacity versus fill opacity: fill opacity scales only the layer's own
 // pixels (and interior effects composite onto that faded fill), while layer
 // opacity scales the whole group of layer plus effects. A shape with fill 0

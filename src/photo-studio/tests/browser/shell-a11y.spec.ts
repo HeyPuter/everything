@@ -194,6 +194,43 @@ test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on i
   await expect(page.locator('[data-slot="marquee"]')).toBeFocused();
 });
 
+test('the screen mode button cycles on Enter and opens its list with the arrow key, like a toolbar slot', async ({ page }) => {
+  const button = page.locator('[data-command="view.cycle-screen-mode"]');
+  // Activating it changes the mode, so it does not claim to open a menu.
+  await expect(button).not.toHaveAttribute('aria-haspopup', /.*/);
+  await button.focus();
+  await page.keyboard.press('ArrowRight');
+  const menu = page.locator('.context-menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('.menu-item')).toHaveCount(3);
+  await expect(menu.locator('.menu-item').first()).toBeFocused();
+  await expect(menu.locator('.menu-item').first()).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(button).toBeFocused();
+  expect(await page.evaluate(() => window.photoStudio.root.dataset.screenMode ?? '0')).toBe('0');
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => window.photoStudio.root.dataset.screenMode)).toBe('1');
+  await page.evaluate(() => window.photoStudio.runCommand('view.screen-standard'));
+});
+
+test('arrow keys used in the toolbar do not nudge the layer with the Move tool', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.runCommand('layer.duplicate'));
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.setTool('move'));
+  const steps = () => page.evaluate(() => window.photoStudio.history.labels.length);
+  const before = await steps();
+  await page.locator('[data-slot="marquee"]').focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.tool-flyout')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await idle(page);
+  expect(await steps()).toBe(before);
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe('move');
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 375, height: 812 } });
   test('the Preferences window keeps Cancel and Done on screen', async ({ page }) => {
@@ -361,6 +398,136 @@ test('white text on the accent color (buttons, menu highlights) keeps 4.5:1 cont
     expect(await contrast(), `${theme} button`).toBeGreaterThanOrEqual(4.5);
     await page.locator('.contrast-probe').hover();
     expect(await contrast(), `${theme} button hover`).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+test('link-colored text (links, search tags) keeps 4.5:1 contrast on every surface in every theme and highlight color', async ({ page }) => {
+  const worst = () =>
+    page.evaluate(() => {
+      const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+      const lum = (c: string) => {
+        x.clearRect(0, 0, 1, 1);
+        x.fillStyle = c;
+        x.fillRect(0, 0, 1, 1);
+        const [r, g, b] = [...x.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const link = document.createElement('button');
+      link.className = 'link-button';
+      link.textContent = 'All tutorials';
+      document.body.append(link);
+      const fg = lum(getComputedStyle(link).color);
+      link.remove();
+      const root = getComputedStyle(document.documentElement);
+      let min = Infinity;
+      for (const token of ['--bg', '--chrome', '--surface', '--surface2', '--panel-tab', '--canvas', '--menu', '--input']) {
+        const bg = lum(root.getPropertyValue(token).trim());
+        min = Math.min(min, (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05));
+      }
+      return min;
+    });
+  for (const theme of ['dark', 'medium', 'light']) {
+    await page.locator('#theme').selectOption(theme);
+    for (const highlight of ['blue', 'gray', 'teal', 'violet', 'orange']) {
+      await page.evaluate((h) => {
+        const e = window.photoStudio;
+        e.preferences.highlightColor = h as typeof e.preferences.highlightColor;
+        e.preferencesChanged();
+      }, highlight);
+      expect(await worst(), `${theme} ${highlight}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
+test('assistant step links, the running-step status and the batch link keep 4.5:1 contrast in every theme and highlight color, also on hover', async ({ page }) => {
+  await page.evaluate(async () => {
+    await import(/* @vite-ignore */ '/src/features/scripting/scripting.css');
+    const box = document.createElement('div');
+    box.className = 'contrast-probe';
+    box.style.cssText = 'position:fixed;left:400px;top:300px;z-index:9999;padding:8px;background:var(--surface)';
+    box.innerHTML = '<div class="ast-step status-running"><span class="ast-step-status">●</span><button type="button" class="ast-step-name">Blur</button></div><a class="button batch-link-open" href="#">Open Link</a>';
+    document.body.append(box);
+  });
+  await page.locator('.contrast-probe .ast-step-name').hover();
+  const worst = () =>
+    page.evaluate(() => {
+      const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+      const rgb = (c: string) => {
+        x.clearRect(0, 0, 1, 1);
+        x.fillStyle = c;
+        x.fillRect(0, 0, 1, 1);
+        return [...x.getImageData(0, 0, 1, 1).data];
+      };
+      const lum = (c: number[]) => {
+        const [r, g, b] = c.slice(0, 3).map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      // The first opaque background from the element up.
+      const background = (el: Element | null): number[] => {
+        for (; el; el = el.parentElement) {
+          const c = rgb(getComputedStyle(el).backgroundColor);
+          if (c[3] === 255) return c;
+        }
+        return rgb(getComputedStyle(document.body).backgroundColor);
+      };
+      let min = Infinity;
+      for (const el of document.querySelectorAll('.contrast-probe .ast-step-status, .contrast-probe .ast-step-name, .contrast-probe .batch-link-open')) {
+        const fg = lum(rgb(getComputedStyle(el).color)),
+          bg = lum(background(el));
+        min = Math.min(min, (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05));
+      }
+      return min;
+    });
+  // The hovered step name takes the link color.
+  expect(await page.locator('.contrast-probe .ast-step-name').evaluate((el) => getComputedStyle(el).color)).toBe(await page.locator('.contrast-probe .batch-link-open').evaluate((el) => getComputedStyle(el).color));
+  for (const theme of ['dark', 'medium', 'light']) {
+    await page.locator('#theme').selectOption(theme);
+    for (const highlight of ['blue', 'gray', 'teal', 'violet', 'orange']) {
+      await page.evaluate((h) => {
+        const e = window.photoStudio;
+        e.preferences.highlightColor = h as typeof e.preferences.highlightColor;
+        e.preferencesChanged();
+      }, highlight);
+      expect(await worst(), `${theme} ${highlight}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
+test('the keyboard focus ring of an accent-filled button stands out from its surroundings in every theme', async ({ page }) => {
+  await page.evaluate(() => {
+    const b = document.createElement('button');
+    b.className = 'primary focus-probe';
+    b.textContent = 'Done';
+    b.style.cssText = 'position:fixed;left:600px;top:400px;z-index:999';
+    document.querySelector('.dock')!.append(b);
+  });
+  const ring = () =>
+    page.evaluate(() => {
+      const lum = (c: string) => {
+        const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+        x.fillStyle = c;
+        x.fillRect(0, 0, 1, 1);
+        const [r, g, b] = [...x.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const b = document.querySelector('.focus-probe')!;
+      const cs = getComputedStyle(b);
+      const ratio = (a: string, c: string) => {
+        const [x, y] = [lum(a), lum(c)];
+        return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+      };
+      // Drawn outside the button, the ring sits on the dock's background.
+      return { offset: parseFloat(cs.outlineOffset), outside: ratio(cs.outlineColor, getComputedStyle(document.querySelector('.dock')!).backgroundColor) };
+    });
+  for (const theme of ['dark', 'medium', 'light']) {
+    await page.locator('#theme').selectOption(theme);
+    await page.locator('.focus-probe').focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(page.locator('.focus-probe')).toBeFocused();
+    const r = await ring();
+    expect(r.offset, theme).toBeGreaterThanOrEqual(1);
+    expect(r.outside, theme).toBeGreaterThanOrEqual(3);
   }
 });
 

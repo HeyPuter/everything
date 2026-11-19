@@ -88,7 +88,28 @@ function tileState(grid: TileGrid | undefined, assets: Assets) {
   for (const [k, id] of Object.entries(grid.tiles)) s += `${k}=${id}:${store.version(id)};`;
   return s;
 }
+// 53-bit string digest (cyrb53) for cache keys of very large layers.
+function digest(s: string) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
 const presentation = new Set(['style', 'opacity', 'blend', 'visible', 'name', 'fillOpacity', 'locked', 'protection', 'colorLabel', 'psdId', 'clipped', 'transparencyProtected']);
+
+// GPU memory kept for styled layers that are not being drawn, so turning a
+// style off and on again (or hiding a layer) does not render it again.
+const IDLE_STYLE_BUDGET = 256 * 1024 * 1024;
+const resultBytes = (r: Result) =>
+  [...r.below.map((p) => p.texture), r.layer, ...r.above.map((p) => p.texture)].reduce(
+    (n, t) => n + (t ? t.width * t.height * 4 : 0),
+    0,
+  );
 
 export class StyleCache {
   private entries = new Map<string, Entry>();
@@ -112,19 +133,41 @@ export class StyleCache {
       if (presentation.has(k) && k !== 'clipped') return undefined;
       return k === 'transform' ? { ...v, x: 0, y: 0 } : v;
     });
-    return JSON.stringify(['gen', fonts, stripped.length > 200000 ? stripped.length : stripped, versions, pin || hasMask(l) || !!l.maskGrid || l.kind === 'group' ? [t.x, t.y] : 0]);
+    // Huge layers (groups of full-size photos) are keyed by a digest; their
+    // length alone missed same-length edits such as a child's blend or move.
+    const content = stripped.length > 200000 ? `${stripped.length}:${digest(stripped)}` : stripped;
+    return JSON.stringify(['gen', fonts, content, versions, pin || hasMask(l) || !!l.maskGrid || l.kind === 'group' ? [t.x, t.y] : 0]);
   }
   /** Plain pixel layers are read straight from their tiles. */
   private fastPath(l: Layer) {
     return l.kind === 'pixel' && !!l.pixels?.bounds && !l.pixelMask && !l.mask && !l.maskAsset && !l.maskStrokes?.length &&
       !Object.values(l.filters).some(Boolean) && pixelTransformKind(l) !== 'resample';
   }
+  // `frame` when the last canvas frame began: entries drawn since were in it.
+  private pruned = 0;
+  /** Called as each canvas frame begins: drops entries of deleted layers, and
+   * of layers the last frame did not draw (style turned off, layer hidden)
+   * beyond a memory budget, least recently drawn first. */
   prune(ids: Set<string>) {
     for (const [id, e] of this.entries)
       if (!ids.has(id) && !e.inflight) {
         this.release(e.result);
         this.entries.delete(id);
       }
+    const idle = [...this.entries].filter(
+      ([, e]) => e.result && !e.inflight && e.seen <= this.pruned,
+    );
+    this.pruned = this.frame;
+    let total = 0;
+    for (const [, e] of idle) total += resultBytes(e.result!);
+    if (total <= IDLE_STYLE_BUDGET) return;
+    idle.sort(([, a], [, b]) => a.seen - b.seen);
+    for (const [id, e] of idle) {
+      if (total <= IDLE_STYLE_BUDGET) break;
+      total -= resultBytes(e.result!);
+      this.release(e.result);
+      this.entries.delete(id);
+    }
   }
   private release(r?: Result) {
     if (!r) return;

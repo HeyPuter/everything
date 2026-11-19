@@ -72,9 +72,10 @@ describe('compiled GPU path vs exact CPU path', () => {
       const c = compileAdjustment(adj, { postCurves: true });
       expect(c.postCurves).toBeDefined();
       const s = diffStats(applyCompiled(img, c), applyAdjustment(img, adj));
-      // Threshold may flip pixels whose luma is within float error of the edge.
       expect(s.mean).toBeLessThan(0.1);
-      if (kind === 'gradient-map') expect(s.max).toBeLessThanOrEqual(1);
+      // Threshold carries its exact edge (postStep), so no pixel flips.
+      if (kind === 'threshold') expect(c.postStep).toBeDefined();
+      expect(s.max).toBeLessThanOrEqual(kind === 'threshold' ? 0 : 1);
     }
   });
 

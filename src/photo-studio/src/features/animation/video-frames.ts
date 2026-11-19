@@ -20,7 +20,7 @@ import { type FrameLookup, type Placer } from '../../model/video-timeline';
 import { applyTime, neededFrames, resamplePlacer, timeDocument } from '../../model/video-timeline-ops';
 import { docImage } from './render';
 import { demuxWebm, webCodecsCodec, webmFrameRate, type WebmFile } from '../../imaging/codecs/webm-demux';
-import { timelineOf } from './video-state';
+import { mediaCleanups, timelineOf } from './video-state';
 
 // ----- Cache -----
 
@@ -33,7 +33,7 @@ const gridBytes = (g: TileGrid) => Object.keys(g.tiles).length * TILE * TILE * 4
 export function setCacheLimit(mb: number) {
   cache.setLimit(Math.max(64, mb) * 1024 * 1024);
 }
-export const cacheStats = () => ({ frames: cache.size, bytes: cache.bytes, limit: cache.limit });
+export const cacheStats = () => ({ frames: cache.size, bytes: cache.bytes, limit: cache.limit, decoders: decoders.size });
 /** Drop every cached frame and close the decoders. */
 export function purgeVideoCache() {
   cache.clear();
@@ -46,6 +46,20 @@ export function forgetFrames(s: DocumentSession, asset: string, frame?: number) 
   const prefix = `${s.id}:${asset}:`;
   cache.deleteWhere((k) => k.startsWith(prefix) && (frame === undefined || k.endsWith(`:${frame}`)));
 }
+
+// Closing a document drops its frames and decoders; decodes still running
+// for it are not cached.
+const closed = new WeakSet<DocumentSession>();
+mediaCleanups.push((s) => {
+  closed.add(s);
+  cache.deleteWhere((k) => k.startsWith(`${s.id}:`));
+  placedCache.deleteWhere((k) => k.startsWith(`${s.id}|`));
+  for (const [k, d] of [...decoders])
+    if (k.startsWith(`${s.id}:`)) {
+      decoders.delete(k);
+      void d.then((x) => x.close()).catch(() => {});
+    }
+});
 
 // A cached grid is usable while its tiles are still in the session's store
 // (a closed document's store is emptied).
@@ -355,10 +369,11 @@ export async function footageGrid(s: DocumentSession, v: VideoLayerData, source:
   let p = pending.get(key);
   if (!p) {
     p = (async () => {
+      if (closed.has(s)) throw new Error('The document was closed.');
       const img = await (await decoderFor(s, f)).frame(source);
       interpretAlpha(img.data as Uint8ClampedArray, v.alpha);
       const grid = gridFromImage(s.assets.tiles, img);
-      cache.set(key, grid, gridBytes(grid));
+      if (!closed.has(s)) cache.set(key, grid, gridBytes(grid));
       return grid;
     })();
     pending.set(key, p);
@@ -384,7 +399,7 @@ export function placer(s: DocumentSession): Placer {
     const hit = cached(s, key, placedCache);
     if (hit) return hit;
     const out = resample(grid, m);
-    if (out) placedCache.set(key, out, gridBytes(out));
+    if (out && !closed.has(s)) placedCache.set(key, out, gridBytes(out));
     return out;
   };
 }

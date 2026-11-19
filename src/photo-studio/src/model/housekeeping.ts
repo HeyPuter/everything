@@ -1,6 +1,7 @@
 import { allLayers, type Layer } from './document';
 import { gridDocBounds } from './tiles';
 import { cleanLinks } from './links';
+import { layerLock } from './locks';
 import type { Mask8, RGBA8 } from '../imaging/types';
 
 // Whole-document layer housekeeping: removing empty or hidden layers and
@@ -35,11 +36,15 @@ function removeMatching(layers: Layer[], match: (l: Layer) => boolean): number {
   return removed;
 }
 /** Remove empty layers repeatedly, so groups emptied by the pass go too.
- * The Background layer is kept even when it is blank. */
+ * The Background layer is kept even when it is blank, and so are locked
+ * layers and the layers of locked groups. */
 export function removeEmptyLayers(layers: Layer[]): number {
   let total = 0;
   for (;;) {
-    const n = removeLayers(layers, (l) => !l.background && isEmptyLayer(l));
+    const n = removeLayers(
+      layers,
+      (l) => !l.background && isEmptyLayer(l) && !layerLock(layers, l.id),
+    );
     total += n;
     if (!n) return total;
   }

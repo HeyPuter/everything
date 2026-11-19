@@ -36,6 +36,14 @@ export function richTooltipText(el: HTMLElement, title: string): string {
 }
 
 function sync(e: Editor, el: HTMLElement) {
+  // Buttons whose tooltip names their command's key follow the Keyboard
+  // Shortcuts editor (and drop the key when it was removed).
+  const template = el.dataset.keyTitle;
+  if (template !== undefined) {
+    const key = formatShortcut(findCommand(el.dataset.command ?? '')?.shortcut);
+    el.setAttribute('title', template.replace('{key}', key ? ` (${key})` : ''));
+    el.removeAttribute(ORIGINAL);
+  }
   // A title set again by its owner since the last change replaces the original.
   const title = el.getAttribute('title');
   let original = el.getAttribute(ORIGINAL);

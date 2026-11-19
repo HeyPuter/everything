@@ -165,6 +165,20 @@ export function arrangeLayers(doc: PhotoDocument, roots: Layer[], where: 'front'
     }
   }
 }
+/** Layer → Arrange → Reverse: the selected layers of each stack trade
+ * places, top for bottom. The Background stays at the bottom. */
+export function reverseLayers(doc: PhotoDocument, ids: ReadonlySet<string>) {
+  const picked = allLayers(doc.layers).filter((l) => ids.has(l.id) && !l.background);
+  assertEditable(doc, picked, 'position');
+  const set = new Set(picked);
+  const walk = (list: Layer[]) => {
+    const idx = list.map((l, i) => (set.has(l) ? i : -1)).filter((i) => i >= 0);
+    const reversed = idx.map((i) => list[i]).reverse();
+    idx.forEach((i, k) => (list[i] = reversed[k]));
+    list.forEach((l) => walk(l.children));
+  };
+  walk(doc.layers);
+}
 /** The layer stack after Merge Visible: `merged` replaces the visible layers.
  * Hidden layers survive, also those inside visible groups (which are merged
  * away), and stay below or above the merged layer as they were stacked

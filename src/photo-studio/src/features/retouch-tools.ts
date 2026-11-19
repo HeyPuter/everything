@@ -273,7 +273,11 @@ async function sampledFocusTarget(e: Editor, kind: 'blur' | 'sharpen'): Promise<
   const b = brushFor(`${kind}-tool`);
   const share = 1 - Math.pow(1 - Math.min(1, strength), Math.min(1, Math.max(0.01, b.spacing)));
   const protect = kind === 'sharpen' && e.settings.sharpenProtectDetail !== false;
-  const value = new Uint8ClampedArray(4);
+  // The Mode compares the result with the image as shown, not with the
+  // (often empty) layer it is painted onto.
+  const blend = modeBlender(b.mode);
+  const value = new Uint8ClampedArray(4),
+    shown = new Uint8ClampedArray(4);
   return {
     kind: 'custom',
     dab: () => undefined,
@@ -283,6 +287,13 @@ async function sampledFocusTarget(e: Editor, kind: 'blur' | 'sharpen'): Promise<
       out[2] = cur[2];
       out[3] = cur[3];
       if (!focusSample(img, x, y, kind, protect, value)) return;
+      if (blend) {
+        const i = (y * img.width + x) * 4;
+        shown[0] = img.data[i];
+        shown[1] = img.data[i + 1];
+        shown[2] = img.data[i + 2];
+        blend(shown, value);
+      }
       paintOver(cur, value, Math.min(1, alpha * share), out);
     },
   };

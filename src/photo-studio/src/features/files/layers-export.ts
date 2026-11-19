@@ -8,7 +8,7 @@ import { encodeGifOffThread, encodeOffThread, bytesBlob, documentSource, effecti
 import { exportSvg } from './svg-export';
 import { uniqueName, zipStore, type ZipEntry } from './zip';
 import { modal, fieldChecked, fieldValue } from './ui';
-import { cloudWrite, joinPath, pickCloudFolder } from './cloud';
+import { cloudWrite, joinPath, pickCloudFolder, runAfterPicker } from './cloud';
 import { rgba16To8 } from './png';
 
 const layerFormats: ExportFormat[] = ['png', 'jpeg', 'webp', 'tiff', 'bmp', 'tga', 'gif'];
@@ -133,18 +133,27 @@ export async function exportSvgFile(e: Editor) {
 }
 
 /** Ask for a Puter folder and write the files there (names deduplicated).
- * The picker never settles when dismissed, so the editor is not held busy. */
-export function saveToCloudFolder(e: Editor, files: { name: string; blob: Blob }[]) {
+ * The picker never settles when dismissed, so the editor is not held busy.
+ * `note` (files that could not be made, say) ends the closing message. */
+export function saveToCloudFolder(e: Editor, files: { name: string; blob: Blob }[], note = '') {
   e.release();
   void pickCloudFolder()
     .then((folder) =>
-      e.run(async () => {
+      runAfterPicker(e, async () => {
         let n = 0;
         for (const f of files) {
-          e.message(`Saving ${++n} of ${files.length} to ${folder.path}…`);
-          await cloudWrite(joinPath(folder.path, preferredFileName(f.name)), f.blob, { dedupeName: true });
+          e.message(`Saving ${n + 1} of ${files.length} to ${folder.path}…`);
+          const path = joinPath(folder.path, preferredFileName(f.name));
+          try {
+            await cloudWrite(path, f.blob, { dedupeName: true });
+          } catch (error) {
+            const why = error instanceof Error ? error.message : String(error);
+            const saved = n ? ` ${n} of ${files.length} files were saved to ${folder.path}.` : '';
+            throw new Error(`${f.name} could not be saved: ${why}${saved}${note ? ` ${note}` : ''}`);
+          }
+          n++;
         }
-        e.message(`Saved ${files.length} files to ${folder.path}`);
+        e.message(`Saved ${files.length} files to ${folder.path}${note ? `. ${note}` : ''}`);
       }),
     )
     .catch((error) => e.message(error instanceof Error ? error.message : String(error)));

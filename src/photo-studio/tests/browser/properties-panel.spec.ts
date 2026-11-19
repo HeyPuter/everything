@@ -145,6 +145,31 @@ test.describe('document properties', () => {
     await expect(fill).toHaveValue('black');
   });
 
+  test('background fill leaves a locked Background as it is', async ({ page }) => {
+    const fill = props(page).getByLabel('Background fill', { exact: true });
+    await fill.selectOption('white');
+    await idle(page);
+    await page.evaluate(() => {
+      const e = window.photoStudio;
+      e.selectLayers([e.doc.layers[0].id]);
+      return e.runCommand('layer.lock-all');
+    });
+    await idle(page);
+    expect(await page.evaluate(() => window.photoStudio.doc.layers[0].locked)).toBe(true);
+    await expect(fill).toBeDisabled();
+    await expect(props(page).getByLabel('Background fill color')).toBeDisabled();
+    const steps = (await historyLabels(page)).length;
+    await page.evaluate(async () => {
+      const { setBackgroundFill } = await import('/src/features/panels/document-properties.ts');
+      setBackgroundFill(window.photoStudio, '#000000');
+      setBackgroundFill(window.photoStudio, null);
+    });
+    await idle(page);
+    await expect(page.locator('#status')).toContainText('Unlock the Background');
+    expect((await historyLabels(page)).length).toBe(steps);
+    expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(1);
+  });
+
   test('rulers, grid and guides settings and sections that collapse', async ({ page }) => {
     const grid = props(page).getByRole('checkbox', { name: 'Grid', exact: true });
     await grid.check();

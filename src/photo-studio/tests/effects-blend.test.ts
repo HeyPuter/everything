@@ -8,6 +8,7 @@ import {
   blendPixel,
   blendWgsl,
   compositeRGBA8,
+  compositeRGBA8KeepAlpha,
   effectiveOpacities,
   isSeparable,
   knockoutAlpha,
@@ -243,6 +244,47 @@ describe('compositeRGBA8', () => {
     const back = rgba8(1, 1, [10, 20, 30, 40]);
     compositeRGBA8(back, rgba8(1, 1), 'multiply', 1);
     expect([...back.data]).toEqual([10, 20, 30, 40]);
+  });
+});
+
+describe('compositeRGBA8KeepAlpha (locked transparency)', () => {
+  it('moves each color toward the blend by coverage and keeps alpha, for every mode', () => {
+    const w = 16, h = 16;
+    const back = rgba8(w, h), src = rgba8(w, h);
+    let seed = 5;
+    const rnd = () => ((seed = (seed * 48271) % 2147483647) % 256);
+    for (let i = 0; i < back.data.length; i++) {
+      back.data[i] = rnd();
+      src.data[i] = rnd();
+    }
+    for (let m = 0; m < blendModes.length; m++) {
+      if (m === 1) continue;
+      const out = rgba8(w, h);
+      out.data.set(back.data);
+      compositeRGBA8KeepAlpha(out, src, m, 0.7);
+      for (let i = 0; i < w * h * 4; i += 4) {
+        const cb = [...back.data.slice(i, i + 3)].map((v) => v / 255);
+        const cs = [...src.data.slice(i, i + 3)].map((v) => v / 255);
+        const ab = back.data[i + 3] / 255, a = (src.data[i + 3] / 255) * 0.7;
+        const b = blendColor(m, cb, cs);
+        expect(out.data[i + 3]).toBe(back.data[i + 3]);
+        for (let c = 0; c < 3; c++) {
+          const mixed = m === 0 || ab === 0 ? cs[c] : cs[c] + (b[c] - cs[c]) * ab;
+          const ref = (cb[c] + (mixed - cb[c]) * a) * 255;
+          const label = `${blendModes[m].id} ch${c}`;
+          expect(Math.abs(out.data[i + c] - ref), label).toBeLessThanOrEqual(1.01);
+        }
+      }
+    }
+  });
+  it('does not weight the change by the backdrop alpha', () => {
+    const back = rgba8(1, 1, [200, 200, 200, 128]);
+    const m = mask8(1, 1, 255);
+    compositeRGBA8KeepAlpha(back, rgba8(1, 1, [0, 0, 0, 255]), 'normal', 0.5, m);
+    expect([...back.data]).toEqual([100, 100, 100, 128]);
+    m.data[0] = 0;
+    compositeRGBA8KeepAlpha(back, rgba8(1, 1, [0, 0, 0, 255]), 'normal', 1, m);
+    expect([...back.data]).toEqual([100, 100, 100, 128]);
   });
 });
 

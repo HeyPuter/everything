@@ -9,15 +9,18 @@ export function rulerUnitScale(doc: PhotoDocument, unit: string | undefined) {
   return { x: pixelsPerUnit(u, ppi, doc.width), y: pixelsPerUnit(u, ppi, doc.height) };
 }
 
+/** Ticks for a ruler whose zero is at screen `origin`; a negative `zoom`
+ * (a flipped view) counts from right to left. */
 export function rulerTicks(length: number, origin: number, zoom: number, vertical = false, pxPerUnit = 1) {
   // Label every 1, 2, or 5 × power of ten units, about 70 screen pixels apart.
   const unitZoom = zoom * pxPerUnit;
-  const ideal = 70 / unitZoom;
+  const ideal = 70 / Math.abs(unitZoom);
   const power = 10 ** Math.floor(Math.log10(ideal));
   const step = ([1, 2, 5, 10].find((n) => n * power >= ideal) ?? 10) * power;
   const minor = step / 5;
-  const first = Math.floor(-origin / (minor * unitZoom));
-  const last = Math.ceil((length - origin) / (minor * unitZoom));
+  const ends = [-origin / (minor * unitZoom), (length - origin) / (minor * unitZoom)];
+  const first = Math.floor(Math.min(...ends));
+  const last = Math.ceil(Math.max(...ends));
   let html = '';
   for (let i = first; i <= last; i++) {
     const value = i * minor,

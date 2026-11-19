@@ -139,3 +139,86 @@ test('ungrouping keeps the picture: a clipped group clips its layers, a masked g
   expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(steps);
   expect(await pixels()).toEqual(masked);
 });
+
+test('ungrouping a hidden group keeps its layers hidden', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer } = await import('/src/model/document.ts');
+    const red = layer('solid', 'Red', 300, 200);
+    red.color = '#ff0000';
+    const g = layer('group', 'Group', 300, 200);
+    g.blend = 'pass through';
+    g.visible = false;
+    g.children = [red];
+    e.command('Add layers', (d) => d.layers.push(g));
+    e.selectLayers([g.id]);
+  });
+  await idle(page);
+  expect(await compositePixel(page, 10, 10)).toEqual([128, 128, 128, 255]);
+  await run(page, 'layer.ungroup');
+  expect(
+    await page.evaluate(() => window.photoStudio.doc.layers.map((l) => [l.name, l.visible])),
+  ).toEqual([
+    ['Background', true],
+    ['Red', false],
+  ]);
+  expect(await compositePixel(page, 10, 10)).toEqual([128, 128, 128, 255]);
+});
+
+test('a group that is the base of a clipping mask ungroups only when that keeps the picture', async ({
+  page,
+}) => {
+  const ids = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer } = await import('/src/model/document.ts');
+    const red = layer('solid', 'Red', 40, 40);
+    red.color = '#ff0000';
+    const green = layer('solid', 'Green', 40, 40);
+    green.color = '#00ff00';
+    green.transform = { x: 100, y: 0, width: 40, height: 40, rotation: 0 };
+    const g = layer('group', 'Group', 300, 200);
+    g.blend = 'pass through';
+    g.children = [red, green];
+    const blue = layer('solid', 'Blue', 300, 200);
+    blue.color = '#0000ff';
+    blue.clipped = true;
+    e.command('Add layers', (d) => d.layers.push(g, blue));
+    e.selectLayers([g.id]);
+    return { group: g.id, green: green.id };
+  });
+  await idle(page);
+  const pixels = async () => [
+    await compositePixel(page, 10, 10),
+    await compositePixel(page, 110, 10),
+  ];
+  const before = await pixels();
+  expect(before).toEqual([
+    [0, 0, 255, 255],
+    [0, 0, 255, 255],
+  ]);
+  // Blue would clip to Green alone.
+  const steps = await page.evaluate(() => window.photoStudio.history.labels.length);
+  await run(page, 'layer.ungroup');
+  await expect(page.locator('#status')).toContainText('before ungrouping');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(steps);
+  expect(await pixels()).toEqual(before);
+  // With one layer left in the group, Blue clips to it as before.
+  await page.evaluate((id) => {
+    const e = window.photoStudio;
+    e.command('Delete Green', (d) => {
+      const g = d.layers.find((l) => l.kind === 'group')!;
+      g.children = g.children.filter((l) => l.id !== id);
+    });
+  }, ids.green);
+  await idle(page);
+  const one = await pixels();
+  await run(page, 'layer.ungroup');
+  expect(
+    await page.evaluate(() => window.photoStudio.doc.layers.map((l) => [l.name, !!l.clipped])),
+  ).toEqual([
+    ['Background', false],
+    ['Red', false],
+    ['Blue', true],
+  ]);
+  expect(await pixels()).toEqual(one);
+});

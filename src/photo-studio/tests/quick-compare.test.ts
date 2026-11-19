@@ -39,6 +39,27 @@ describe('Quick Compare geometry', () => {
       width: 300,
       height: 300,
     });
+    // Resizes with rounding to whole pixels still stretch.
+    expect(beforePlacement({ width: 1000, height: 667 }, { width: 333, height: 222 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 333,
+      height: 222,
+    });
+    expect(beforePlacement({ width: 7, height: 5 }, { width: 3, height: 2 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 3,
+      height: 2,
+    });
+    // A small crop (under 1% of one side) keeps its pixel size, centered,
+    // instead of being stretched by the cropped amount.
+    expect(beforePlacement({ width: 4000, height: 3000 }, { width: 3970, height: 3000 })).toEqual({
+      x: -15,
+      y: 0,
+      width: 4000,
+      height: 3000,
+    });
   });
 
   it('clips the stored state to the screen half before an upright divider, also on a rotated view', () => {

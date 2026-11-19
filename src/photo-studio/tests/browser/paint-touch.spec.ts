@@ -47,3 +47,45 @@ for (const [id, label] of [
     else expect(px[2]).toBeGreaterThan(px[0]);
   });
 }
+
+// With Aligned off, each Pattern Stamp stroke starts the pattern where it was
+// pressed, also for a touch that never hovered there.
+test('Pattern Stamp with Aligned off starts the pattern at a touch tap', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newDocument } = await import('/src/model/document.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { emptyGrid } = await import('/src/model/tiles.ts');
+    const { effectsState } = await import('/src/features/effects/state.ts');
+    const { brushFor } = await import('/src/features/paint.ts');
+    const doc = newDocument(200, 150, 'Touch');
+    const layer = newPixelLayer('Paint', doc, emptyGrid(4));
+    doc.layers = [layer];
+    e.history.reset(doc);
+    e.hasDocument = true;
+    e.selected = layer.id;
+    e.zoom = 2;
+    e.pan = { x: 0, y: 0 };
+    e.update();
+    // The 32 pixel checker: light at its origin, dark 16 pixels across.
+    Object.assign(effectsState, { patternId: 'checker', patternAligned: false, patternScale: 1 });
+    e.setTool('pattern-stamp');
+    Object.assign(brushFor('pattern-stamp'), { size: 6, hardness: 1, opacity: 1, flow: 1, smoothing: 0 });
+  });
+  await idle(page);
+  // The mouse hovered somewhere else last; a touch has no hover of its own.
+  await page.mouse.move(...(await client(page, 10, 10)));
+  expect(await page.evaluate(() => window.photoStudio.pointerInfo?.x)).toBe(10);
+  await page.touchscreen.tap(...(await client(page, 112.5, 64.5)));
+  await idle(page);
+  await expect.poll(() => page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Pattern Stamp');
+  const px = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    return [...readRGBA(e.assets.tiles, e.doc.layers[0].pixels!, { x: 113, y: 65, width: 1, height: 1 }).data];
+  });
+  // Anchored at the tap: the checker's light origin square, not the dark one
+  // that falls there when it is anchored at the document origin (or at 10, 10).
+  expect(px).toEqual([232, 230, 222, 255]);
+});

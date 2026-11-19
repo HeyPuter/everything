@@ -75,6 +75,31 @@ test('inside a locked group, the lock buttons of a layer are disabled', async ({
   await expect(page.locator('.layers-panel [data-lock-button="all"]')).toBeEnabled();
 });
 
+test('a new layer made with a layer of a locked group selected goes above the group', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  await run(page, 'layer.new-quick');
+  await run(page, 'layer.group');
+  await page.locator('.layers-panel [data-lock-button="all"]').click();
+  await idle(page);
+  const child = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.children[0].id);
+  await page.evaluate((id) => window.photoStudio.selectLayer(id), child);
+  await run(page, 'layer.new-quick');
+  const tree = await page.evaluate(() =>
+    window.photoStudio.doc.layers.map((l) => [l.name, l.children.map((c) => c.name)]),
+  );
+  expect(tree).toEqual([
+    ['Background', []],
+    ['Group', ['Layer 1']],
+    ['Layer 2', []],
+  ]);
+  // The new layer is selected and free to paint on.
+  expect(await page.evaluate(() => window.photoStudio.layer?.name)).toBe('Layer 2');
+  await expect(page.locator('.layers-panel [data-lock-button="all"]')).toBeEnabled();
+});
+
 test('Lock Layers (Mod+/) unlocks a layer fully, also its individual locks', async ({ page }) => {
   await boot(page);
   await openImage(page, 300, 200);

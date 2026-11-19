@@ -8,6 +8,7 @@ import { escapeXML } from '../../model/assets';
 import type { Layer } from '../../model/document';
 import { coerceSetting, settingFor } from '../../model/preferences';
 import { makeBackground } from '../../model/housekeeping';
+import { layerLock } from '../../model/locks';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { setDocumentResolution } from '../../model/text-layer';
 import { emptyGrid, TILE, writeRect, type TileGrid, type TileStore } from '../../model/tiles';
@@ -170,6 +171,8 @@ function fillMarkup(e: Editor) {
   const current = !bg.layer
     ? 'transparent'
     : (choices.find(([, , hex]) => hex.toLowerCase() === bg.color)?.[0] ?? 'custom');
+  const locked = !!bg.layer && backgroundLocked(e, bg.layer);
+  const title = locked ? 'Unlock the Background layer to change its fill.' : undefined;
   return `<div class="pf-fill">${select(
     'fill',
     'Background fill',
@@ -179,12 +182,19 @@ function fillMarkup(e: Editor) {
       ['custom', 'Custom Color'],
     ],
     current,
-  )}<input type="color" class="pf-swatch" data-pf="fill-color" aria-label="Background fill color" title="Background fill color" value="${bg.color ?? '#ffffff'}"></div>`;
+    { disabled: locked, title },
+  )}<input type="color" class="pf-swatch" data-pf="fill-color" aria-label="Background fill color" title="${title ?? 'Background fill color'}" value="${bg.color ?? '#ffffff'}"${locked ? ' disabled' : ''}></div>`;
 }
 /** Paint the Background layer one color, add one, or remove a plain one. */
+// Lock All and Lock Image Pixels keep the Background's fill (and the layer).
+const backgroundLocked = (e: Editor, l: Layer) => layerLock(e.doc.layers, l.id, 'pixels');
 export function setBackgroundFill(e: Editor, hex: string | null) {
   const bg = background(e);
   if (bg.layer && !bg.color) return;
+  if (bg.layer && backgroundLocked(e, bg.layer)) {
+    e.message('Unlock the Background layer to change its fill.');
+    return;
+  }
   if (!hex) {
     if (bg.layer) e.command('Transparent Background', (d) => void d.layers.splice(0, 1));
     return;

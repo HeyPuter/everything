@@ -88,19 +88,22 @@ export type PixelTarget =
  * `resultGrid` results): a preview replaced by the next one, and the last one
  * when the dialog closes, are freed once no render still reads them, instead
  * of staying in memory until a later edit's cleanup. */
+/** Free tiles a live preview showed once no render still reads them (a
+ * preview frame can be queued behind a slow render of a large document). */
+export function retireTiles(e: Editor, ids: string[]) {
+  if (!ids.length) return;
+  const store = e.assets.tiles;
+  const done = () => {
+    for (const id of ids) store.delete(id);
+  };
+  const r = e.renderer;
+  if (r) void r.settle().then(() => requestAnimationFrame(() => void r.settle().then(done)));
+  else done();
+}
 export function previewTiles(e: Editor, base?: TileGrid) {
   const kept = new Set(base ? Object.values(base.tiles) : []);
   let shown: string[] = [];
-  const retire = (ids: string[]) => {
-    if (!ids.length) return;
-    const store = e.assets.tiles;
-    const done = () => {
-      for (const id of ids) store.delete(id);
-    };
-    const r = e.renderer;
-    if (r) void r.settle().then(() => requestAnimationFrame(() => void r.settle().then(done)));
-    else done();
-  };
+  const retire = (ids: string[]) => retireTiles(e, ids);
   return {
     /** Note the grids of the preview now shown; returns the first. */
     show(...grids: TileGrid[]) {

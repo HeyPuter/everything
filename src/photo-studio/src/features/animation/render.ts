@@ -6,6 +6,7 @@ import { measurementGeneration } from '../../imaging/text/layout';
 import type { Editor } from '../../editor';
 import { allLayers, type PhotoDocument } from '../../model/document';
 import { frameContent, frameDocument, maxFrames, sharedContent } from '../../model/animation';
+import { mediaCleanups } from './video-state';
 
 export type FrameImage = { url: string; width: number; height: number };
 // A visible strip requests every frame, so its small thumbnails must fit even
@@ -21,6 +22,21 @@ const onionMax = 1280;
 let queue: { key: string; doc: () => PhotoDocument | Promise<PhotoDocument>; e: Editor; assets: Editor['assets']; onion: boolean }[] = [];
 let running = false;
 const listeners = new Set<() => void>();
+
+// A closed document's frame images (keyed by its session) are freed.
+mediaCleanups.push((s) => {
+  const prefix = `${s.id}:`;
+  for (const cache of [thumbnails, onions])
+    for (const [key, img] of [...cache])
+      if (key.startsWith(prefix)) {
+        URL.revokeObjectURL(img.url);
+        cache.delete(key);
+      }
+  queue = queue.filter((q) => !q.key.startsWith(prefix));
+});
+
+/** Frame images held (thumbnails and onion skins). */
+export const frameImageCount = () => thumbnails.size + onions.size;
 
 /** Called whenever a requested frame finished rendering. */
 export function onFrameRendered(fn: () => void) {

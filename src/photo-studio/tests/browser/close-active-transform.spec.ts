@@ -13,7 +13,9 @@ for (const scenario of [
     window.activeCloseBlob=blob;return {path:'/active.photo',name:'active.photo'};
   }}};`);
   await openImage(page, 32, 24, '#ffffff', 'original.png');
-  const original = await page.evaluate(async ({ existingPath, failed, sourcePending }) => {
+  // The layered document saves as a project (an opened PNG would save back as a flattened PNG).
+  await page.evaluate(() => (window.photoStudio.session.fileName = 'original.photo'));
+  const original =await page.evaluate(async ({ existingPath, failed, sourcePending }) => {
     const e = window.photoStudio;
     const { openFile } = await import('/src/features/files/open.ts');
     const c = new OffscreenCanvas(16, 12), g = c.getContext('2d')!;

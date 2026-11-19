@@ -39,6 +39,7 @@ import {
   cropMask,
   cropRGBA,
   fillHole,
+  followResize,
   notice,
   objectMask,
   objectModes,
@@ -234,7 +235,8 @@ export async function rotateObjectDialog(e: Editor) {
   };
   const prepare = async (at?: [number, number]) => {
     prep?.abort();
-    gen.stop(false);
+    // A new picture or object: earlier results are cleared below.
+    gen.reset();
     const ac = (prep = new AbortController());
     obj = objMask = undefined;
     turned = [];
@@ -313,11 +315,13 @@ export async function rotateObjectDialog(e: Editor) {
     (ev) => (remembered.count = Number((ev.target as HTMLSelectElement).value) || 1),
   );
   noteBox.addEventListener('input', () => (remembered.note = noteBox.value));
-  const onResize = () => {
-    view.fit();
-    void rescale();
-  };
-  window.addEventListener('resize', onResize);
+  const stopResize = followResize(
+    () => {
+      view.fit();
+      draw();
+    },
+    () => void rescale(),
+  );
 
   q('#ga-generate').addEventListener('click', () => {
     if (!gen.running && !obj) return gen.say('Pick an object first.', 'error');
@@ -369,21 +373,27 @@ export async function rotateObjectDialog(e: Editor) {
         return { list, count, arrived: out.length };
       },
       (r) => {
-        void recordGeneration(
-          e,
-          {
-            kind: 'rotate',
-            prompt: r.list[0].note,
-            settings: {
-              dialog: 'rotate',
-              yaw: r.list[0].yaw,
-              tilt: r.list[0].tilt,
-              count: r.count,
-            },
-            placement: { ...r.list[0].rect },
-          },
-          r.list.map((t) => t.img),
-        );
+        // Each variation stands in its own box (its width follows the turn),
+        // so each is recorded with its own placement.
+        void (async () => {
+          for (const [i, t] of r.list.entries())
+            await recordGeneration(
+              e,
+              {
+                kind: 'rotate',
+                prompt: t.note,
+                settings: {
+                  dialog: 'rotate',
+                  yaw: t.yaw,
+                  tilt: t.tilt,
+                  count: r.count,
+                  ...(r.list.length > 1 ? { variation: i + 1 } : {}),
+                },
+                placement: { ...t.rect },
+              },
+              t.img,
+            );
+        })();
         turned = [...turned, ...r.list].slice(-8);
         picker.show(
           turned.map((t, i) => ({
@@ -416,7 +426,7 @@ export async function rotateObjectDialog(e: Editor) {
   });
   void prepare();
   await ws.closed;
-  window.removeEventListener('resize', onResize);
+  stopResize();
   prep?.abort();
   gen.stop(false);
   if (!chosen || !obj || !objMask || !src) return;
@@ -471,6 +481,6 @@ async function addTurned(
   }
   addLayers(e, 'Rotate Object', layers, r.src.layer?.id ?? e.selected, hide);
   e.message(
-    `The turned object was added as a new layer${layers.length > 1 ? ' over a fill of its old place' : hide ? ' and the original layer was hidden' : ''}.`,
+    `The turned object was added as a new layer${layers.length > 1 ? ' over a fill of its old place' : hide ? ' and the original layer was hidden' : ''}.${r.replace && r.mode === 'layer' && !hide ? ' The original layer is locked, so it was not hidden.' : ''}`,
   );
 }

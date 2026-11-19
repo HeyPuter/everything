@@ -7,6 +7,7 @@ import type { DocumentSession } from '../src/app/session';
 import { newDocument } from '../src/model/document';
 import { runProcessor } from '../src/features/files/automate';
 import { decodePng16 } from '../src/features/files/png';
+import { crc32 } from '../src/imaging/codecs/bytes';
 
 it('converts an open 32-bit document to sRGB with Convert to sRGB off', async () => {
   const doc = { ...newDocument(2, 1, 'HDR'), bitsPerChannel: 32 as const };
@@ -33,7 +34,10 @@ it('converts an open 32-bit document to sRGB with Convert to sRGB off', async ()
     () => false,
   );
   expect(files.failed).toEqual([]);
-  const png = decodePng16(files[0].bytes)!;
+  // Results are Blobs with the checksum their ZIP entry needs.
+  const bytes = new Uint8Array(await files[0].blob.arrayBuffer());
+  expect(files[0].crc).toBe(crc32(bytes));
+  const png = decodePng16(bytes)!;
   // Linear 0.214 is sRGB 50%.
   expect(Math.round((png.data16[0] / 65535) * 1000) / 1000).toBeCloseTo(0.5, 2);
   expect([...png.data16.slice(4, 8)]).toEqual([65535, 0, 0, 65535]);

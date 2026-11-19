@@ -49,6 +49,8 @@ export async function settle<T>(count: number, one: () => Promise<T>): Promise<T
  * cannot be recalled; Stop frees the dialog and ignores late results. */
 export class Generator {
   private ctrl?: AbortController;
+  // Whether a run has delivered results (the button then offers to run again).
+  private produced = false;
   constructor(
     private button: HTMLButtonElement,
     private status: HTMLElement,
@@ -66,11 +68,17 @@ export class Generator {
     if (!this.ctrl) return;
     this.ctrl.abort();
     this.ctrl = undefined;
-    this.busy(false, true);
+    this.busy(false);
     if (note) this.say('Stopped. Results that arrive later are ignored.');
   }
-  private busy(on: boolean, done = false) {
-    this.button.textContent = on ? 'Stop' : done ? this.labels.again : this.labels.idle;
+  /** Stop, and forget earlier results (the dialog cleared them). */
+  reset() {
+    this.stop(false);
+    this.produced = false;
+    this.button.textContent = this.labels.idle;
+  }
+  private busy(on: boolean) {
+    this.button.textContent = on ? 'Stop' : this.produced ? this.labels.again : this.labels.idle;
     this.onBusy(on);
   }
   /** Start (or, while running, stop). `work` gets a signal; its result is
@@ -88,6 +96,7 @@ export class Generator {
       if (ac.signal.aborted) return;
       const r = await work(ac.signal, (t) => this.say(t, 'busy'));
       if (ac.signal.aborted) return;
+      this.produced = true;
       done(r);
     } catch (error) {
       if (ac.signal.aborted) return;
@@ -97,7 +106,7 @@ export class Generator {
     } finally {
       if (this.ctrl === ac) {
         this.ctrl = undefined;
-        this.busy(false, true);
+        this.busy(false);
       }
     }
   }
@@ -186,6 +195,23 @@ export async function previewBitmap(img: RGBA8, w: number, h: number): Promise<O
   g.imageSmoothingQuality = 'high';
   g.drawImage(canvasOf(img), 0, 0, out.width, out.height);
   return out;
+}
+/** Follow window resizes in a dialog preview: `quick` redraws at once from
+ * the preview-sized copies, and `full` rebuilds those from the full-size
+ * image only once resizing pauses (a rebuild copies the whole image, far too
+ * slow for every frame of a window drag). Returns a function that stops. */
+export function followResize(quick: () => void, full: () => void, delay = 150): () => void {
+  let timer = 0;
+  const resized = () => {
+    quick();
+    clearTimeout(timer);
+    timer = window.setTimeout(full, delay);
+  };
+  window.addEventListener('resize', resized);
+  return () => {
+    window.removeEventListener('resize', resized);
+    clearTimeout(timer);
+  };
 }
 /** An RGBA buffer as a canvas (drawn with `drawImage` into previews). */
 export function canvasOf(img: RGBA8): OffscreenCanvas {

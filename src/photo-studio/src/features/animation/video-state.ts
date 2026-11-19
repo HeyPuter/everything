@@ -9,6 +9,9 @@ import type { VideoLayerData } from '../../model/video-layer';
 import type { KeyProperty } from '../../model/video-timeline';
 
 export type VideoLayer = Layer & { video: VideoLayerData };
+/** Run when a document closes, with the documents still open: the modules
+ * that hold decoded media (loaded on first use) drop what was only its own. */
+export const mediaCleanups: ((closed: DocumentSession, open: readonly DocumentSession[]) => void)[] = [];
 export const timelineOf = (e: Editor) => (e.hasDocument ? e.doc.timeline : undefined);
 export const hasTimeline = (e: Editor) => !!timelineOf(e);
 export const isVideoLayer = (l: Layer | undefined): l is VideoLayer => !!l?.video && l.kind === 'pixel';

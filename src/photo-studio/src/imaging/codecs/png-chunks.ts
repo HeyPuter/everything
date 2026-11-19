@@ -30,8 +30,17 @@ export function readPngChunks(png: Uint8Array): PngChunk[] {
     const len = dv.getUint32(p);
     const type = asciiAt(png, p + 4, 4);
     if (p + 12 + len > png.length) throw new CodecError(`PNG chunk ${type} is truncated.`);
-    const crc = dv.getUint32(p + 8 + len);
-    chunks.push({ type, data: png.subarray(p + 8, p + 8 + len), offset: p, crcValid: crc32(png, p + 4, p + 8 + len) === crc });
+    const at = p;
+    // Checked when asked: readers of one chunk would otherwise checksum the
+    // whole file (tens of milliseconds per 10 MB) every time.
+    chunks.push({
+      type,
+      data: png.subarray(p + 8, p + 8 + len),
+      offset: p,
+      get crcValid() {
+        return crc32(png, at + 4, at + 8 + len) === dv.getUint32(at + 8 + len);
+      },
+    });
     p += 12 + len;
     if (type === 'IEND') break;
   }

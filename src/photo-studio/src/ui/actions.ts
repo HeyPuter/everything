@@ -491,6 +491,14 @@ export async function performAction(e: Editor, action: string): Promise<void> {
       // shows them as before unless some of them clip to each other inside it.
       if (groups.some((l) => l.clipped && l.children.some((c) => c.clipped)))
         throw new Error('Release the clipping masks inside the clipped group before ungrouping it.');
+      // Layers clipped to the group would clip to its top layer alone.
+      const clipBase = (g: Layer) => {
+        const list = containerOf(e.doc.layers, g.id)!;
+        const only = g.children.length === 1 && !g.children[0].clipped;
+        return !only && !!list[list.indexOf(g) + 1]?.clipped;
+      };
+      if (groups.some(clipBase))
+        throw new Error('Release the clipping mask above the group before ungrouping it.');
       const ids = groups.flatMap((l) => l.children.map((c) => c.id));
       e.command('Ungroup layers', (d) => {
         for (const group of groups) {
@@ -498,6 +506,8 @@ export async function performAction(e: Editor, action: string): Promise<void> {
           const index = list.findIndex((l) => l.id === group.id);
           const g = list[index];
           if (g.clipped) for (const c of g.children) c.clipped = true;
+          // A hidden group's layers stay hidden.
+          if (!g.visible) for (const c of g.children) c.visible = false;
           list.splice(index, 1, ...g.children);
         }
       });

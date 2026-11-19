@@ -6,10 +6,9 @@ import type { Editor } from '../../editor';
 import { allLayers, assertSize, findLayer, insertLayerAt, type Layer, type PhotoDocument } from '../../model/document';
 import { hasArtboards } from '../../model/artboard';
 import { newPixelLayer } from '../../model/pixel-layer';
-import { formDialog } from '../../ui/dialog';
+import { settingsDialog, settingsModal } from '../action-settings';
 import { escapeXML } from '../../model/assets';
 import type { TileGrid } from '../../model/tiles';
-import { modal, fieldChecked, fieldValue } from '../files/ui';
 import {
   blankVideo,
   deleteFrame,
@@ -124,10 +123,13 @@ export async function convertToVideo(e: Editor) {
 }
 
 /** Convert the timeline to frames sampled at a chosen rate over the work area or the whole timeline. */
-export async function convertToFrames(e: Editor) {
+export async function convertToFrames(e: Editor, arg?: unknown) {
   const tl = tlOf(e);
   const [ws, we] = workArea(tl);
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'timeline.convert-to-frames',
+    arg,
     'Convert to Frame Animation',
     [
       { name: 'fps', label: 'Frames per second', type: 'number', value: Math.min(10, Math.round(tl.fps)), min: 1, max: Math.round(tl.fps), step: 1 },
@@ -181,10 +183,13 @@ export function deleteTimeline(e: Editor) {
   });
 }
 
-export async function timelineSettings(e: Editor) {
+export async function timelineSettings(e: Editor, arg?: unknown) {
   const tl = tlOf(e);
   const rates = frameRates.includes(tl.fps) ? frameRates : [...frameRates, tl.fps].sort((a, b) => a - b);
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'timeline.settings',
+    arg,
     'Timeline Settings',
     [
       { name: 'seconds', label: 'Duration (seconds)', type: 'number', value: Math.round((tl.duration / tl.fps) * 1000) / 1000, min: 1 / tl.fps, max: maxTimelineFrames / tl.fps, step: 'any' as unknown as number },
@@ -410,12 +415,12 @@ export async function replaceFootage(e: Editor, arg?: unknown) {
   });
 }
 
-export async function interpretFootage(e: Editor) {
+export async function interpretFootage(e: Editor, arg?: unknown) {
   const l = videoLayerOf(e)!;
   const v = l.video;
   const fileRate = v.footage?.fps;
   const rates = [...new Set([...frameRates, v.fps, ...(fileRate ? [fileRate] : [])])].sort((a, b) => a - b);
-  const result = await modal({
+  const result = await settingsModal(e, 'layer.video-interpret', arg, {
     title: 'Interpret Footage',
     submit: 'OK',
     className: 'animation-export-dialog',
@@ -426,10 +431,9 @@ export async function interpretFootage(e: Editor) {
       <label class="dialog-field checkbox-field">Loop until the clip ends<input name="forever" type="checkbox" ${v.loops === 0 ? 'checked' : ''}></label>`,
   });
   if (!result) return;
-  const fps = Number(fieldValue(result.form, 'fps'));
-  const alpha = fieldValue(result.form, 'alpha') as VideoAlpha;
-  const loops = fieldChecked(result.form, 'forever') ? 0 : Math.max(1, Math.min(10000, Math.round(Number(fieldValue(result.form, 'loops')) || 1)));
-  result.close();
+  const fps = Number(result.fps);
+  const alpha = result.alpha as VideoAlpha;
+  const loops = result.forever === 'yes' ? 0 : Math.max(1, Math.min(10000, Math.round(Number(result.loops) || 1)));
   if (!Number.isFinite(fps) || fps <= 0 || fps > 240 || !videoAlphaModes.some(([m]) => m === alpha)) return;
   await editTimeline(e, 'Interpret Footage', (d) => {
     const x = findLayer(d.layers, l.id) as VideoLayer;
@@ -592,7 +596,7 @@ export function changeClips(e: Editor, ids: string[], label: string, next: (c: C
 
 // ----- Transitions -----
 
-export async function transitionsDialog(e: Editor) {
+export async function transitionsDialog(e: Editor, arg?: unknown) {
   const tl = tlOf(e);
   const id = e.selected;
   const l = e.layer;
@@ -604,7 +608,7 @@ export async function transitionsDialog(e: Editor) {
   const select = (name: string, edge: 'in' | 'out', tr?: Transition) =>
     `<select name="${name}">${kinds(edge).map(([k, label]) => `<option value="${k}" ${(tr?.kind ?? 'none') === k ? 'selected' : ''}>${escapeXML(label)}</option>`).join('')}</select>`;
   const color = c.fadeIn?.color ?? c.fadeOut?.color ?? '#000000';
-  const result = await modal({
+  const v = await settingsModal(e, 'timeline.transitions', arg, {
     title: 'Transitions',
     submit: 'OK',
     className: 'animation-export-dialog',
@@ -615,18 +619,16 @@ export async function transitionsDialog(e: Editor) {
       <label class="dialog-field">Duration (s)<input name="outSeconds" type="number" min="${(1 / tl.fps).toFixed(3)}" max="60" step="any" value="${seconds(c.fadeOut)}"></label></div>
       <label class="dialog-field">Fade color<input name="color" type="color" value="${color}"></label>`,
   });
-  if (!result) return;
-  const f = result.form;
+  if (!v) return;
   const make = (edge: 'in' | 'out'): Transition | undefined => {
-    const kind = fieldValue(f, edge);
+    const kind = v[edge];
     if (!transitionKinds.some(([k]) => k === kind)) return undefined;
-    const duration = Math.max(1, Math.min(maxTimelineFrames, Math.round(Number(fieldValue(f, `${edge}Seconds`)) * tl.fps) || defaultTransitionFrames(tl.fps)));
-    const colorValue = /^#[0-9a-f]{6}$/i.test(fieldValue(f, 'color')) ? fieldValue(f, 'color') : '#000000';
+    const duration = Math.max(1, Math.min(maxTimelineFrames, Math.round(Number(v[`${edge}Seconds`]) * tl.fps) || defaultTransitionFrames(tl.fps)));
+    const colorValue = /^#[0-9a-f]{6}$/i.test(v.color) ? v.color : '#000000';
     return { kind: kind as Transition['kind'], duration, ...(kind === 'fade-color' ? { color: colorValue } : {}) };
   };
   const fadeIn = make('in'),
     fadeOut = make('out');
-  result.close();
   await changeClip(e, id, 'Transitions', (clip) => {
     const out = { ...clip };
     if (fadeIn) out.fadeIn = fadeIn;
@@ -639,10 +641,13 @@ export async function transitionsDialog(e: Editor) {
 
 // ----- Onion skins -----
 
-export async function videoOnionSettings(e: Editor) {
+export async function videoOnionSettings(e: Editor, arg?: unknown) {
   const { defaultOnion, onionBlends } = await import('../../model/animation');
   const o = tlOf(e).onion ?? defaultOnion;
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'animation.onion-settings',
+    arg,
     'Onion Skins',
     [
       // Shows the current state; checked before onion skins were ever set up.

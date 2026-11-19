@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { allFilters, GALLERY_ID } from '../src/features/filters/catalog';
-import { cropRGBA, fadeMix, halveMask, halveRGBA, lerpRGBA, maskToRGBA, mixByMask, rgbaToMask, runOperation, runStack } from '../src/features/filters/stack';
+import {
+  cropRGBA, fadeMix, halveMask, halveRGBA, keepAlpha, lerpRGBA, maskToRGBA, mixByMask, rgbaToMask,
+  runOperation, runStack,
+} from '../src/features/filters/stack';
 import { CancelledError, defaults, type Mask8, type RGBA8 } from '../src/imaging/types';
 import { compositeRGBA8 } from '../src/imaging/blend';
 
@@ -132,5 +135,33 @@ describe('fade and mixing', () => {
     expect(px(c, 1, 2)).toEqual([0, 0, 0, 0]);
     const m: Mask8 = { width: 3, height: 1, data: new Uint8Array([0, 77, 255]) };
     expect(Array.from(rgbaToMask(maskToRGBA(m)).data)).toEqual([0, 77, 255]);
+  });
+});
+
+describe('keepAlpha (locked transparency)', () => {
+  it('restores the source alpha and keeps colors the result cannot give', () => {
+    const img = (v: number[]): RGBA8 => ({ width: 3, height: 1, data: new Uint8ClampedArray(v) });
+    const before = img([10, 20, 30, 255, 40, 50, 60, 128, 70, 80, 90, 0]);
+    const after = img([100, 110, 120, 90, 1, 2, 3, 0, 4, 5, 6, 200]);
+    expect(Array.from(keepAlpha(before, after).data)).toEqual([
+      // Visible and filtered: the new color at the old alpha.
+      100, 110, 120, 255,
+      // The filter cleared it: no color to show, so the old one stays.
+      40, 50, 60, 128,
+      // Transparent before: unchanged.
+      70, 80, 90, 0,
+    ]);
+  });
+  it('keeps a blurred shape inside its own outline', async () => {
+    const W = 16, H = 16;
+    const src: RGBA8 = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
+    for (let y = 4; y < 12; y++)
+      for (let x = 4; x < 12; x++)
+        src.data.set(x < 8 ? [255, 0, 0, 255] : [0, 0, 255, 255], (y * W + x) * 4);
+    const blurred = await runStack(src, [{ id: 'gaussian-blur', params: { radius: 2 } }], ctx);
+    const out = keepAlpha(src, blurred);
+    for (let i = 3; i < out.data.length; i += 4) expect(out.data[i]).toBe(src.data[i]);
+    // Red and blue mixed across the boundary inside the shape.
+    expect(out.data[(8 * W + 7) * 4 + 2]).toBeGreaterThan(40);
   });
 });

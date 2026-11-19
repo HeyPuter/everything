@@ -6,8 +6,9 @@ import type { PhotoDocument } from '../../model/document';
 import { projectExtras, serialize } from '../../model/serialization';
 import { describePsdLosses, flatLosses, psdLosses, type PsdLoss } from '../../model/psd-losses';
 import { download } from '../../persistence/puter';
-import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, puterError, puterMissing, type CloudItem } from './cloud';
+import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, puterError, puterMissing, runAfterPicker, type CloudItem } from './cloud';
 import { openFile } from './open';
+import { leftOutOfFile } from './left-out';
 import { noteRecent, removeRecent, setRecentOpener, storedBlob, type RecentSource } from './recent';
 import { emitAppEvent } from '../../app/app-events';
 import { flatSaveFormat, formatInfo, type FlatSaveFormat } from './formats';
@@ -37,31 +38,51 @@ export const saveFormat = (s: DocumentSession): SaveFormat => nameFormat(s.fileN
 
 // What a format would not keep, and the losses already agreed to for a
 // document (Save asks about each kind once per format, not on every save).
-function lossesOf(s: DocumentSession, format: SaveFormat): PsdLoss[] {
+// `inPlace`: Save, which writes over the file the document came from when it can.
+function lossesOf(s: DocumentSession, format: SaveFormat, inPlace = false): PsdLoss[] {
   const comments = !!projectExtras.get(s.assets)?.(s.doc).comments;
   if (format === 'psd') return psdLosses(s.doc, { comments });
   if (!isFlat(format)) return [];
-  return flatLosses(s.doc, { comments, text: formatInfo[format].text, deep: formatInfo[format].deep });
+  const losses = flatLosses(s.doc, { comments, text: formatInfo[format].text, deep: formatInfo[format].deep });
+  // What of the Puter file it came from was not opened (other pages or
+  // frames, metadata): an image file written over it would hold only what was.
+  const source = leftOutOfFile.get(s);
+  if (inPlace && source?.path && source.path === s.storage.path)
+    for (const [i, what] of source.what.entries())
+      losses.push({ id: `source-${i}`, label: `${what} of ${source.name}`, kind: 'omitted' });
+  return losses;
 }
 const acceptedLosses = new WeakMap<DocumentSession, Set<string>>();
 const lossKey = (format: SaveFormat, loss: PsdLoss) => `${format}:${loss.id}`;
 const acceptLosses = (s: DocumentSession, format: SaveFormat, losses: PsdLoss[]) =>
   acceptedLosses.set(s, new Set([...(acceptedLosses.get(s) ?? []), ...losses.map((l) => lossKey(format, l))]));
 const KEEPS_ALL = 'A .photo project keeps everything.';
+// What of the source file was never opened, a project cannot keep either; it leaves the file alone.
+const keepsAll = (s: DocumentSession, losses: PsdLoss[]) =>
+  losses.some((l) => l.id.startsWith('source-'))
+    ? `A .photo project keeps everything else and leaves ${s.fileName} as it is.`
+    : KEEPS_ALL;
 
 /** Ask before writing a format that would lose something not agreed to yet;
- * the answer may be a project instead. Undefined when cancelled. */
-async function confirmLosses(e: Editor, s: DocumentSession, format: SaveFormat): Promise<SaveFormat | undefined> {
-  const losses = lossesOf(s, format);
+ * the answer may be a project instead. Undefined when cancelled. `copy`: the
+ * answer is for this copy only, not for later saves of the document. */
+async function confirmLosses(
+  e: Editor,
+  s: DocumentSession,
+  format: SaveFormat,
+  { inPlace = false, copy = false } = {},
+): Promise<SaveFormat | undefined> {
+  const losses = lossesOf(s, format, inPlace);
   const seen = acceptedLosses.get(s);
   if (!losses.some((l) => !seen?.has(lossKey(format, l)))) return format;
   const name = formatLabel(format);
-  const choice = await askChoice<SaveFormat>(`Save as ${name}`, `${describePsdLosses(losses, name)} ${KEEPS_ALL}`, [
+  const about = `${describePsdLosses(losses, name)} ${keepsAll(s, losses)}`;
+  const choice = await askChoice<SaveFormat>(`Save as ${name}`, about, [
     ['photo', 'Save as .photo'],
     [format, `Save as ${name}`],
   ]);
   if (!choice) return cancelSave(e, s);
-  if (choice === format) acceptLosses(s, format, losses);
+  if (choice === format && !copy) acceptLosses(s, format, losses);
   return choice;
 }
 
@@ -158,7 +179,7 @@ export async function save(e: Editor) {
   if (e.session.saveHandler) return e.session.saveHandler();
   await emitAppEvent('before-save', e.session);
   const s = e.session;
-  const format = await confirmLosses(e, s, saveFormat(s));
+  const format = await confirmLosses(e, s, saveFormat(s), { inPlace: true });
   if (!format) return;
   const w = await encode(e, s, format);
   if (w) await store(e, s, w);
@@ -182,7 +203,7 @@ export async function saveAs(e: Editor, copy = false, format?: unknown) {
   if (!chosen) return;
   // The question named a PSD's losses: later saves of this PSD do not ask again.
   if (chosen === 'psd' && !copy) acceptLosses(s, 'psd', losses);
-  if (isFlat(chosen)) chosen = await confirmLosses(e, s, chosen);
+  if (isFlat(chosen)) chosen = await confirmLosses(e, s, chosen, { copy });
   if (!chosen) return;
   const w = await encode(e, s, chosen);
   if (w) await store(e, s, w, { pick: true, copy });
@@ -226,7 +247,7 @@ export async function openCloudItems(e: Editor, items: CloudItem[]) {
 export function openFromCloud(e: Editor) {
   e.release();
   void pickCloudFiles(true)
-    .then((items) => e.run(() => openCloudItems(e, items)))
+    .then((items) => runAfterPicker(e, () => openCloudItems(e, items)))
     .catch((error) => e.message(errorText(error)));
 }
 

@@ -2,7 +2,7 @@
 // reader, resampling, sRGB conversion and the export pipeline.
 import { describe, expect, it } from 'vitest';
 import { inflateSync } from 'node:zlib';
-import { zipStore, uniqueName } from '../src/features/files/zip';
+import { zipBlob, zipStore, uniqueName } from '../src/features/files/zip';
 import { decodePng16, encodePng, rgba16To8 } from '../src/features/files/png';
 import { resampleRGBA } from '../src/features/files/resample';
 import { convertToSrgb, documentProfile, floatTo16 } from '../src/features/files/color';
@@ -91,6 +91,23 @@ describe('zipStore', () => {
     expect(files[1].crc).toBe(crc32(b));
     expect(files[2].data.length).toBe(0);
     expect(zip.length).toBe(22 + (30 + 46) * 3 + 2 * (5 + new TextEncoder().encode('ébauche/b.txt').length + 5) + 3 + b.length);
+  });
+  it('builds the same archive from Blobs without copying them into one buffer', async () => {
+    const date = new Date(2024, 4, 6, 7, 8, 10);
+    const a = new Uint8Array([1, 2, 3]),
+      b = new TextEncoder().encode('héllo wörld');
+    const entries = [
+      { name: 'a.png', data: a, date },
+      { name: 'ébauche/b.txt', data: b, date },
+      { name: 'empty', data: new Uint8Array(), date },
+    ];
+    const blob = zipBlob(
+      entries.map((e) => ({ name: e.name, blob: new Blob([e.data]), crc: crc32(e.data), date })),
+    );
+    expect(blob.type).toBe('application/zip');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    expect(bytes).toEqual(zipStore(entries));
+    expect(readZip(bytes).map((f) => f.name)).toEqual(['a.png', 'ébauche/b.txt', 'empty']);
   });
   it('makes names unique case-insensitively and strips path separators', () => {
     const used = new Set<string>();

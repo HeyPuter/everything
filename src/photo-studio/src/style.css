@@ -19,6 +19,10 @@
    * darkened enough for 4.5:1 contrast with every highlight color. */
   --accent-fill: color-mix(in srgb, var(--accent) 74%, #000);
   --accent-text: #fff;
+  /* Text in the accent color (links, tags): mixed toward the text color for
+   * 4.5:1 contrast on every panel and dialog surface, also with the
+   * Preferences highlight colors (html.highlight-custom). */
+  --link: color-mix(in srgb, var(--accent) 60%, var(--text));
   --accent-bg: #3f3f3f;
   --selected: #464646;
   --row-selected: #3f5875;
@@ -51,6 +55,7 @@
   --accent: #7db4ff;
   /* The lighter accent needs more darkening to keep 4.5:1 with white text. */
   --accent-fill: color-mix(in srgb, var(--accent) 60%, #000);
+  --link: color-mix(in srgb, var(--accent) 40%, var(--text));
   --accent-bg: #666;
   --selected: #6a6a6a;
   --row-selected: #4d6c8e;
@@ -73,6 +78,7 @@
   --muted: #4f4f4f;
   --muted-selected: #3c3c3c;
   --accent: #1473e6;
+  --link: color-mix(in srgb, var(--accent) 55%, var(--text));
   --accent-bg: #d0d0d0;
   --selected: #d5d5d5;
   --row-selected: #c7dcf5;
@@ -96,6 +102,7 @@
     --muted: #4f4f4f;
   --muted-selected: #3c3c3c;
     --accent: #1473e6;
+    --link: color-mix(in srgb, var(--accent) 55%, var(--text));
     --accent-bg: #d0d0d0;
     --selected: #d5d5d5;
     --row-selected: #c7dcf5;
@@ -104,6 +111,11 @@
     --hover: #dcdcdc;
     --menu: #f6f6f6;
   }
+}
+:root.highlight-custom[data-theme='medium'] { --link: color-mix(in srgb, var(--accent) 20%, var(--text)); }
+:root.highlight-custom[data-theme='light'] { --link: color-mix(in srgb, var(--accent) 35%, var(--text)); }
+@media (prefers-color-scheme: light) {
+  :root.highlight-custom[data-theme='system'] { --link: color-mix(in srgb, var(--accent) 35%, var(--text)); }
 }
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; background: var(--bg); }
@@ -121,6 +133,8 @@ button:active:not(:disabled):not(.primary) { background: var(--selected); }
 :root { scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
 .panel-body, .dock-drawer, dialog, .menu-pop, .search-results, .bottom-panel-body { scrollbar-width: thin; }
 button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* On an accent-filled button an inset ring would vanish into the fill: draw it outside. */
+.primary:focus-visible { outline-offset: 2px; }
 input, select, textarea { background: var(--input); border: 1px solid var(--input-line); border-radius: 3px; min-height: 22px; padding: 1px 5px; }
 input[type='number'] { width: 52px; }
 input[type='checkbox'] { min-height: 0; accent-color: var(--accent); }
@@ -565,7 +579,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 /* The top-level drop target keeps its place but only shows while a layer is dragged. */
 .layer-root-drop { padding: 5px; text-align: center; color: transparent; font-size: 11px; border-top: 1px dashed transparent; }
 .layers-dragging .layer-root-drop { color: var(--muted); border-top-color: var(--line-soft); }
-.layer-root-drop[data-drop] { color: var(--accent); }
+.layer-root-drop[data-drop] { color: var(--link); }
 .layer-footer { display: flex; justify-content: flex-end; gap: 2px; padding: 3px 6px; border-top: 1px solid var(--line); background: var(--panel-tab); flex: none; }
 .layer-footer button { width: 28px; padding: 0; }
 .empty-layers { display: grid; justify-items: center; gap: 8px; padding: 24px 12px; color: var(--muted); }
@@ -1319,7 +1333,8 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .bs-row { display: grid; grid-template-columns: 100px 1fr 48px; gap: 6px; align-items: center; font-size: 11px; }
 .bs-row output { text-align: right; font-variant-numeric: tabular-nums; }
 .bs-check { font-size: 11px; display: flex; gap: 6px; align-items: center; }
-.link-button { color: var(--accent); min-height: 0; padding: 0; font-size: 11px; }
+.link-button { color: var(--link); min-height: 0; padding: 0; font-size: 11px; }
+.link-button:hover:not(:disabled) { background: transparent; text-decoration: underline; }
 
 /* ----- search and shortcut editor ----- */
 .command-search { top: 60px; left: 50%; transform: translateX(-50%); width: min(560px, 90vw); }
@@ -2072,7 +2087,7 @@ dialog.ai-workspace { width: min(480px, calc(100vw - 32px)); height: fit-content
 .ai-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .ai-status { min-height: 18px; margin: 8px 0 !important; }
 .ai-status.error { color: #ff8a8a !important; }
-.ai-status.busy { color: var(--accent) !important; }
+.ai-status.busy { color: var(--link) !important; }
 /* Quick Actions Bar */
 .contextual-taskbar { position: absolute; z-index: 12; display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--menu); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 4px 16px #0007; font-size: 12px; }
 .contextual-taskbar[hidden] { display: none; }
@@ -2082,6 +2097,8 @@ dialog.ai-workspace { width: min(480px, calc(100vw - 32px)); height: fit-content
 .contextual-taskbar.dragging .taskbar-grip { cursor: grabbing; }
 .contextual-taskbar.dragging { box-shadow: 0 8px 26px #0009; }
 .contextual-taskbar .taskbar-more { padding: 0 7px; color: var(--muted); }
+.contextual-taskbar.compact button { padding: 0 7px; }
+.contextual-taskbar.compact button > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .contextual-taskbar button[aria-haspopup="menu"] svg:last-child:not(:first-child) { opacity: 0.7; margin-left: -2px; }
 .contextual-taskbar button:disabled { opacity: 0.45; }
 .contextual-taskbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

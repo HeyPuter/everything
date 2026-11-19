@@ -151,3 +151,30 @@ test('drives a selection edit end to end from the bar', async ({ page }) => {
   await run(page, 'select.reselect');
   await expect(bar(page)).toHaveAttribute('data-state', 'selection');
 });
+
+test('in a narrow window the bar shows icons only and stays inside the canvas area', async ({
+  page,
+}) => {
+  const fits = () =>
+    page.evaluate(() => {
+      const b = document.querySelector('.contextual-taskbar')!.getBoundingClientRect();
+      const v = document.querySelector('#viewport')!.getBoundingClientRect();
+      return b.left >= v.left && b.right <= v.right;
+    });
+  const remove = bar(page).getByRole('button', { name: 'Remove Background' });
+  await expect(remove).toBeVisible();
+  expect(
+    await remove.evaluate((b) => b.querySelector('span')!.getBoundingClientRect().width),
+  ).toBeGreaterThan(20);
+  await page.setViewportSize({ width: 800, height: 600 });
+  await expect.poll(fits).toBe(true);
+  await expect(bar(page)).toHaveClass(/compact/);
+  // The names stay for screen readers and the buttons still work.
+  await expect(remove).toBeVisible();
+  expect(
+    await remove.evaluate((b) => b.querySelector('span')!.getBoundingClientRect().width),
+  ).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(bar(page)).not.toHaveClass(/compact/);
+  expect(await fits()).toBe(true);
+});

@@ -45,7 +45,8 @@ export class History {
     if (sameJson(before, after)) return;
     const last = this.states.length - 1;
     const top = this.states[this.index];
-    if (coalesce && this.index > 0 && this.index === last && top.label === label && top.doc === before) {
+    const joins = coalesce && this.index > 0 && this.index === last && top.label === label;
+    if (joins && top.doc === before && !this.marked(top)) {
       if (sameJson(this.states[this.index - 1].doc, after)) {
         this.states.pop();
         this.index--;
@@ -64,6 +65,13 @@ export class History {
   }
   // Open marks keep every state until their edits are combined.
   private holds = 0;
+  private open = new Set<HistoryMark>();
+  // A state from before an open mark keeps its edit: a later edit joining
+  // it would escape the step the mark combines.
+  private marked(state: State) {
+    for (const m of this.open) if (m.open && m.existing.has(state)) return true;
+    return false;
+  }
   /** Drop the oldest states beyond the limit. */
   trim() {
     if (this.holds) return;
@@ -88,12 +96,16 @@ export class History {
     this.opened = doc;
     this.states = [{ label: '', doc }];
     this.index = 0;
+    // Marks taken before refer to states that are gone.
+    this.open.clear();
   }
   /** Remember the current state; `squash` later combines the edits recorded
    * since then into one step (a script run is undone at once). */
   mark(): HistoryMark {
     this.holds++;
-    return { state: this.states[this.index], existing: new Set(this.states), open: true };
+    const mark = { state: this.states[this.index], existing: new Set(this.states), open: true };
+    this.open.add(mark);
+    return mark;
   }
   /** Like `mark`, but when the latest step is labelled `label` (and nothing
    * after it was undone), later edits join that step when squashed: a run
@@ -102,10 +114,14 @@ export class History {
     const top = this.states[this.index];
     if (this.index === 0 || this.index !== this.states.length - 1 || top.label !== label) return this.mark();
     this.holds++;
-    return { state: this.states[this.index - 1], existing: new Set(this.states.filter((s) => s !== top)), open: true };
+    const existing = new Set(this.states.filter((s) => s !== top));
+    const mark = { state: this.states[this.index - 1], existing, open: true };
+    this.open.add(mark);
+    return mark;
   }
   /** Close a mark without combining anything (its states stay as they are). */
   release(mark: HistoryMark) {
+    this.open.delete(mark);
     if (!mark.open) return;
     mark.open = false;
     this.holds--;
@@ -114,6 +130,7 @@ export class History {
   /** Replace the states recorded since `mark` with one step showing the
    * current document. Returns whether the edits left a step behind. */
   squash(mark: HistoryMark, label: string) {
+    this.open.delete(mark);
     if (!mark.open) return false;
     mark.open = false;
     this.holds--;

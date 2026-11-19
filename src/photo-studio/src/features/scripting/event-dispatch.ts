@@ -6,7 +6,8 @@ import { findScript, type EventRule, type EventSettings, type ScriptRecord } fro
 
 export type EventRunners = {
   script(record: ScriptRecord, event: { name: string; documentId: string | null; documentName: string | null }): Promise<unknown>;
-  action(actionId: string): Promise<unknown>;
+  // The event's document, when it has one (an action plays on it).
+  action(actionId: string, session?: DocumentSession): Promise<unknown>;
   // A script or action of a rule is running (events do not nest).
   busy(): boolean;
 };
@@ -25,7 +26,7 @@ export async function dispatchEvent(settings: EventSettings, event: AppEvent, se
   running = true;
   try {
     for (const rule of rules) {
-      if (rule.kind === 'action') await run.action(rule.target);
+      if (rule.kind === 'action') await run.action(rule.target, session);
       else {
         const record = findScript(rule.target);
         if (!record || !record.enabled) continue;

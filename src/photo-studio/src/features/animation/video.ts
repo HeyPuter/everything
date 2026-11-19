@@ -10,7 +10,7 @@ import { allLayers } from '../../model/document';
 import { clipStates, keyProperties, presentTimeline, syncTimeline, videoFrameAt, canAnimate, type KeyProperty } from '../../model/video-timeline';
 import { registerPresentation } from '../../renderer/renderer';
 import { hasAnimation } from './state';
-import { hasTimeline, isVideoLayer, timelineOf, videoLayerOf, videoView, type VideoLayer } from './video-state';
+import { hasTimeline, isVideoLayer, mediaCleanups, timelineOf, videoLayerOf, videoView, type VideoLayer } from './video-state';
 import { audioCommands, audioMenu, audioSelected, installAudio } from './audio';
 
 export const videoCommands = lazy(() => import('./video-commands'));
@@ -68,6 +68,8 @@ export function installVideo(e: Editor) {
   registerPresentation(presentTimeline);
   e.documentHooks.push((doc, before) => syncTimeline(doc, before));
   e.onUpdate((e) => videoPlaybackModule.loaded?.videoPlaybackUpdate(e));
+  // A closed document's decoded frames, decoders and sound are freed.
+  e.closeHooks.push((s) => mediaCleanups.forEach((fn) => fn(s, e.sessions)));
   cacheMb = e.preferences.videoCacheSize;
   e.preferenceHooks.push((e) => {
     cacheMb = e.preferences.videoCacheSize;
@@ -92,9 +94,9 @@ export function installVideo(e: Editor) {
     // Timelines
     { id: 'timeline.create', label: 'Create Video Timeline', enabled: (e) => docOpen(e) && !hasTimeline(e) && !hasAnimation(e), description: 'Animate layers over time with clips, keyframes and video layers', ...lazyRun(cmd, (m, e) => m.createVideoTimeline(e)) },
     { id: 'timeline.convert-to-video', label: 'Convert to Video Timeline', enabled: hasAnimation, description: 'Frames become clip ranges and hold keyframes', ...lazyRun(cmd, (m, e) => m.convertToVideo(e)) },
-    { id: 'timeline.convert-to-frames', label: 'Convert to Frame Animation…', enabled: hasTimeline, description: 'Sample the timeline into frames', ...lazyRun(cmd, (m, e) => m.convertToFrames(e)) },
+    { id: 'timeline.convert-to-frames', label: 'Convert to Frame Animation…', enabled: hasTimeline, description: 'Sample the timeline into frames', ...lazyRun(cmd, (m, e, arg) => m.convertToFrames(e, arg)) },
     { id: 'timeline.delete', label: 'Delete Video Timeline', enabled: hasTimeline, description: 'Remove clips and keyframes; layers keep the current time', ...lazyRun(cmd, (m, e) => m.deleteTimeline(e)) },
-    { id: 'timeline.settings', label: 'Timeline Settings…', enabled: hasTimeline, description: 'Duration and frame rate', ...lazyRun(cmd, (m, e) => m.timelineSettings(e)) },
+    { id: 'timeline.settings', label: 'Timeline Settings…', enabled: hasTimeline, description: 'Duration and frame rate', ...lazyRun(cmd, (m, e, arg) => m.timelineSettings(e, arg)) },
     { id: 'timeline.frame-rate', label: 'Timeline Frame Rate', hidden: true, enabled: hasTimeline, ...lazyRun(cmd, (m, e, arg) => m.setFrameRate(e, Number(arg))) },
     { id: 'timeline.go-to', label: 'Go to Time', hidden: true, recordable: false, enabled: hasTimeline, ...lazyRun(cmd, (m, e, arg) => m.goTo(e, Number(arg))) },
     {
@@ -112,7 +114,7 @@ export function installVideo(e: Editor) {
     { id: 'timeline.split', label: 'Split at Playhead', enabled: clipTargets, description: 'Cut the selected clips in two at the current time', ...clipRun((m, e) => m.splitAtPlayhead(e), (m, e) => m.splitAudio(e)) },
     { id: 'timeline.trim-start', label: 'Trim Start to Playhead', enabled: clipTargets, ...clipRun((m, e) => m.trimToPlayhead(e, 'start'), (m, e) => m.trimAudio(e, 'start')) },
     { id: 'timeline.trim-end', label: 'Trim End to Playhead', enabled: clipTargets, ...clipRun((m, e) => m.trimToPlayhead(e, 'end'), (m, e) => m.trimAudio(e, 'end')) },
-    { id: 'timeline.transitions', label: 'Transitions…', enabled: single, description: 'Fades, fades with color and cross fades at the clip ends', ...lazyRun(cmd, (m, e) => m.transitionsDialog(e)) },
+    { id: 'timeline.transitions', label: 'Transitions…', enabled: single, description: 'Fades, fades with color and cross fades at the clip ends', ...lazyRun(cmd, (m, e, arg) => m.transitionsDialog(e, arg)) },
     { id: 'timeline.work-start', label: 'Set Start of Work Area', enabled: hasTimeline, ...lazyRun(cmd, (m, e) => m.setWorkArea(e, 'start')) },
     { id: 'timeline.work-end', label: 'Set End of Work Area', enabled: hasTimeline, ...lazyRun(cmd, (m, e) => m.setWorkArea(e, 'end')) },
     { id: 'timeline.work-clear', label: 'Clear Work Area', enabled: (e) => !!timelineOf(e)?.work, ...lazyRun(cmd, (m, e) => m.setWorkArea(e, 'clear')) },
@@ -131,7 +133,7 @@ export function installVideo(e: Editor) {
     { id: 'layer.video-duplicate-frame', label: 'Duplicate Frame', enabled: (e) => !!videoLayerOf(e), ...lazyRun(cmd, (m, e) => m.duplicateVideoFrame(e)) },
     { id: 'layer.video-delete-frame', label: 'Delete Frame', enabled: (e) => (videoLayerOf(e)?.video.frames ?? 0) > 1, ...lazyRun(cmd, (m, e) => m.deleteVideoFrame(e)) },
     { id: 'layer.video-replace', label: 'Replace Footage…', recordable: false, enabled: (e) => !!videoLayerOf(e), ...lazyRun(cmd, (m, e, arg) => m.replaceFootage(e, arg)) },
-    { id: 'layer.video-interpret', label: 'Interpret Footage…', enabled: (e) => !!videoLayerOf(e), description: 'Frame rate, alpha channel and looping of a video layer', ...lazyRun(cmd, (m, e) => m.interpretFootage(e)) },
+    { id: 'layer.video-interpret', label: 'Interpret Footage…', enabled: (e) => !!videoLayerOf(e), description: 'Frame rate, alpha channel and looping of a video layer', ...lazyRun(cmd, (m, e, arg) => m.interpretFootage(e, arg)) },
     { id: 'layer.video-show-altered', label: 'Show Altered Video', enabled: hasTimeline, checked: (e) => hasTimeline(e) && !timelineOf(e)!.hideAltered, description: 'Show painted frames (off shows the original footage)', ...lazyRun(cmd, (m, e) => m.toggleShowAltered(e)) },
     { id: 'layer.video-restore-frame', label: 'Restore Frame', enabled: altered, description: 'Discard the changes to the current frame', ...lazyRun(cmd, (m, e) => m.restoreFrame(e)) },
     { id: 'layer.video-restore-all', label: 'Restore All Frames', enabled: (e) => !!videoLayerOf(e)?.video.altered, ...lazyRun(cmd, (m, e) => m.restoreAllFrames(e)) },

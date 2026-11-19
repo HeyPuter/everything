@@ -624,6 +624,9 @@ export class Editor {
     this.el('.canvas-color-mode').textContent = `${this.colorModeLabel} / ${depth}`;
     this.el('#empty').hidden = this.hasDocument;
     this.root.classList.toggle('no-document', !this.hasDocument);
+    // The start screen covers the document area, and the options it dims
+    // ignore the pointer: the keyboard and screen readers skip them too.
+    for (const sel of ['.document-tabs', '.canvas-area', '#tool-options']) this.el(sel).inert = !this.hasDocument;
     this.windows.renderTabs();
     this.options();
     this.toolbar?.render();
@@ -817,7 +820,9 @@ export class Editor {
     this.root.classList.toggle('rulers-hidden', !this.preferences.showRulers);
     if (this.preferences.showRulers) {
       const unit = rulerUnitScale(this.doc, this.preferences.rulerUnits);
-      setMarkup(this.el('#ruler-x'), rulerTicks(viewport.clientWidth, viewport.clientWidth / 2 + this.pan.x - (this.doc.width * this.zoom * aspect) / 2, this.zoom * aspect, false, unit.x));
+      // A flipped view has the image's left edge, the ruler's zero, on the right.
+      const sx = this.zoom * aspect * (this.activeView.flip ? -1 : 1);
+      setMarkup(this.el('#ruler-x'), rulerTicks(viewport.clientWidth, viewport.clientWidth / 2 + this.pan.x - (this.doc.width * sx) / 2, sx, false, unit.x));
       setMarkup(this.el('#ruler-y'), rulerTicks(viewport.clientHeight, viewport.clientHeight / 2 + this.pan.y - (this.doc.height * this.zoom) / 2, this.zoom, true, unit.y));
     }
     this.screenOverlay();
@@ -1037,7 +1042,10 @@ export class Editor {
       this.el('#viewport').focus({ preventScroll: true });
       return;
     }
-    const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
+    // A checkbox or radio button (focused by the click that set it) keeps only
+    // the keys it uses itself; tool keys and shortcuts such as Select All work.
+    const toggle = target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio');
+    const typing = toggle ? [' ', 'Enter', 'Tab'].includes(e.key) || e.key.startsWith('Arrow') : !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
     // A modal dialog makes the workspace behind it inert: keys that reach the
     // page (the focus fell off a control the dialog rebuilt, or Tab left its

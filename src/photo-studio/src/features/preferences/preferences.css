@@ -93,7 +93,7 @@ dialog.prefs-window { resize: both; min-width: min(560px, calc(100vw - 16px)); m
 .prefs-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .prefs-label > span { font-size: 12px; }
 .prefs-label small { color: var(--muted); font-size: 11px; line-height: 1.45; }
-.prefs-label .prefs-page-tag { font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+.prefs-label .prefs-page-tag { font-size: 10px; color: var(--link); text-transform: uppercase; letter-spacing: 0.05em; }
 .prefs-control { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .prefs-control select { min-width: 180px; min-height: 26px; }
 .prefs-control input[type='number'] { width: 80px; min-height: 26px; }

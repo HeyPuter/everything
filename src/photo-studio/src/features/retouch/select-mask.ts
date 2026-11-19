@@ -5,6 +5,7 @@
 // worker on a proxy for the preview and at full size for the output.
 import type { Editor } from '../../editor';
 import { svg } from '../../app/icons';
+import { formatShortcut } from '../../app/shortcuts';
 import { commitSelectionMask } from '../selection';
 import { compositeRGBA, layerRGBA } from '../pixels';
 import { containerOf, findLayer, type Layer } from '../../model/document';
@@ -108,7 +109,7 @@ export async function openSelectAndMask(e: Editor, fromMask = false) {
     <button id="sm-brush" class="rw-tool" aria-pressed="true" title="Brush: paint to add, Alt-paint to remove (B)">${svg('paintbrush', 16)}</button>
     <button id="sm-refine" class="rw-tool" aria-pressed="false" title="Refine Edge Brush: paint over hair and soft edges (R)">${svg('feather', 16)}</button>
     <label class="rw-tool-size" title="Brush size (px), [ and ]">${svg('circle', 12)}<input id="sm-size" type="number" min="1" max="2000" value="${size}" aria-label="Brush size"></label>
-    <button id="sm-undo" class="rw-tool" title="Undo the last brush stroke (Mod+Z)" disabled>${svg('undo-2', 16)}</button>
+    <button id="sm-undo" class="rw-tool" title="Undo the last brush stroke (${formatShortcut('Mod+Z')})" disabled>${svg('undo-2', 16)}</button>
   </div>
   <div class="rw-stage single"><div class="rw-view" id="sm-view"><div class="sm-cursor" hidden></div></div><small class="sm-status" id="sm-status" role="status"></small></div>
   <aside class="rw-side">

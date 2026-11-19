@@ -193,6 +193,11 @@ export async function exportForWeb(e: Editor) {
       c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(ready.data as Uint8ClampedArray), ready.width, ready.height), 0, 0);
       if (originalUrl) URL.revokeObjectURL(originalUrl);
       originalUrl = URL.createObjectURL(await c.convertToBlob({ type: 'image/png' }));
+      // Closed while it was prepared: nothing shows it any more.
+      if (closed) {
+        URL.revokeObjectURL(originalUrl);
+        originalUrl = '';
+      }
       for (const p of panes) clearPane(p);
       return ready;
     })();
@@ -328,16 +333,20 @@ export async function exportForWeb(e: Editor) {
 
   let timer = 0;
   let closed = false;
+  // While Export encodes, previews wait: encoding a pane again would cancel
+  // the export's own encoding of it.
+  let exporting = false;
   const refresh = () => {
     clearTimeout(timer);
     timer = window.setTimeout(async () => {
+      if (exporting) return;
       try {
         render();
         // The current pane first, so its numbers settle soonest.
         const order = [active, ...visiblePanes().filter((i) => i >= 0 && i !== active)];
         if (view === 'original') await prepare();
         for (const i of order) {
-          if (closed) return;
+          if (closed || exporting) return;
           if (await encodePane(panes[i])) render();
         }
         render();
@@ -437,13 +446,20 @@ export async function exportForWeb(e: Editor) {
     dialog.querySelector('[data-act="cancel"]')!.addEventListener('click', close);
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
+      if (exporting) return;
+      exporting = true;
+      clearTimeout(timer);
       const buttons = dialog.querySelectorAll<HTMLButtonElement>('.export-actions button');
       buttons.forEach((b) => (b.disabled = true));
       const total = dialog.querySelector('.web-total')!;
       total.textContent = 'Encoding…';
       try {
         const p = panes[active];
-        await encodePane(p);
+        // A preview that was encoding this pane when Export was pressed
+        // gives way to the export (its own result is dropped).
+        if (!(await encodePane(p)) || !paneComplete(p)) await encodePane(p);
+        if (closed) return;
+        if (!paneComplete(p)) throw new Error('The images could not be encoded; try Export again.');
         const base = field<HTMLInputElement>('base').value.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'image';
         const html = field<HTMLInputElement>('html').checked;
         const names = pieceNames(pieces, base);
@@ -476,6 +492,7 @@ export async function exportForWeb(e: Editor) {
         download(bytesBlob(zip, 'application/zip'), `${base}-web.zip`);
         e.message(`Exported ${pieces.length} image${pieces.length > 1 ? 's' : ''}${html ? ' and an HTML page' : ''} (${formatBytes(zip.length)})`);
       } catch (error) {
+        exporting = false;
         buttons.forEach((b) => (b.disabled = false));
         total.textContent = error instanceof Error ? error.message : String(error);
       }

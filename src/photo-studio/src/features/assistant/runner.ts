@@ -68,6 +68,13 @@ export class PlanRun {
     s.status = 'running';
     try {
       if (s.problems.length) throw new Error(s.problems[0]);
+      // Steps edit the document the run started in, even when another tab
+      // was chosen while an earlier step ran.
+      const own = this.session;
+      if (own && own !== this.e.session) {
+        if (!this.e.sessions.includes(own)) throw new Error('The document of this plan was closed.');
+        await this.e.switchSession(own);
+      }
       if (s.kind === 'op') {
         const op = opById.get(s.action)!;
         await op.run({ e: this.e, host }, s.args);

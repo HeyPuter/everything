@@ -100,6 +100,8 @@ export type RecoveryRecord = {
   // An unchanged ancestor is kept so an unsaved contents tab can reconnect.
   clean?: boolean;
   parent?: { sessionId: string; contents?: string; layerId: string; name: string; parentName: string };
+  // What of the image file it came from was not opened (features/files/left-out.ts).
+  leftOut?: { name: string; path?: string; what: string[] };
 };
 
 export class RecoveryStore {

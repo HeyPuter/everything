@@ -205,6 +205,42 @@ test('AI Recompose blends seams through the generative pass and keeps the result
     .toBe(2);
 });
 
+test('AI Recompose keeps an arrangement changed while a blend was generating', async ({ page }) => {
+  // The stubbed service answers only when the test releases it.
+  const held = `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{calls:[],txt2img:(prompt,opts)=>new Promise((r)=>{window.puter.ai.calls.push({prompt,opts});window.__answer=()=>{const c=document.createElement('canvas');c.width=256;c.height=192;const g=c.getContext('2d');g.fillStyle='#3a6';g.fillRect(0,0,256,192);r({src:c.toDataURL()});};})}};`;
+  await boot(page, 'default', held);
+  await scene(page);
+  await selectDisc(page);
+  await start(page, 'edit.ai-recompose');
+  const dialog = page.locator('dialog.ga-recompose');
+  await expect(dialog.locator('#ai-status')).toContainText('Move, scale, rotate', {
+    timeout: 60_000,
+  });
+  const scale = dialog.getByLabel('Scale (%) value');
+  await scale.fill('80');
+  await scale.press('Enter');
+  await dialog.locator('#ga-count').selectOption('1');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { __answer?: () => void }).__answer);
+  // Keep arranging while the request runs.
+  await scale.fill('60');
+  await scale.press('Enter');
+  await page.evaluate(() => (window as unknown as { __answer: () => void }).__answer());
+  await expect(dialog.getByRole('radio', { name: 'Blend 1' })).toBeVisible({ timeout: 30_000 });
+  // The newer arrangement stays; the blend waits to be picked.
+  await expect(dialog.getByRole('radio', { name: 'Instant fill (offline)' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(scale).toHaveValue('60');
+  await expect(dialog.locator('#ai-status')).toContainText('picking one goes back to it');
+  // Picking the blend restores the arrangement it was made for.
+  await dialog.getByRole('radio', { name: 'Blend 1' }).click();
+  await expect(scale).toHaveValue('80');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test('Remove Reflections compares variations and adds a layer at the chosen amount', async ({
   page,
 }) => {
@@ -256,6 +292,51 @@ test('Remove Reflections compares variations and adds a layer at the chosen amou
   );
 });
 
+test('Remove Reflections reports a failed full-size result and lets Add Layer try again', async ({
+  page,
+}) => {
+  await boot(page, 'default', PUTER_FLAT);
+  await scene(page);
+  // The image worker fails while this flag is set (as it does when a very
+  // large result runs out of memory).
+  await page.evaluate(() => {
+    const Real = window.Worker;
+    const w = window as unknown as { failAssist?: boolean };
+    window.Worker = function (url: string | URL, opts?: WorkerOptions) {
+      if (opts?.name !== 'assist' || !w.failAssist) return new Real(url, opts);
+      const fake = {
+        onmessage: null,
+        onerror: null as ((ev: unknown) => void) | null,
+        postMessage() {
+          setTimeout(() => fake.onerror?.({ message: 'Out of memory', preventDefault() {} }), 0);
+        },
+        terminate() {},
+      };
+      return fake;
+    } as unknown as typeof Worker;
+    w.failAssist = true;
+  });
+  await start(page, 'edit.remove-reflections');
+  const dialog = page.locator('dialog.ga-reflection');
+  await dialog.locator('#ga-count').selectOption('1');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await expect(dialog.getByRole('radio', { name: 'Variation 1' })).toBeVisible({
+    timeout: 30_000,
+  });
+  const add = dialog.getByRole('button', { name: 'Add Layer' });
+  await add.click();
+  await expect(dialog.locator('#ai-status')).toContainText('Out of memory');
+  await expect(add).toBeEnabled();
+  await page.evaluate(() => ((window as unknown as { failAssist?: boolean }).failAssist = false));
+  await add.click();
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  expect((await layerInfo(page)).map((l) => l.name)).toEqual([
+    'Background',
+    'Background without reflections',
+  ]);
+});
+
 test('Rotate Object turns the selected object and places it where it stood', async ({ page }) => {
   await boot(page, 'default', PUTER_OBJECT);
   await scene(page);
@@ -302,6 +383,37 @@ test('Rotate Object turns the selected object and places it where it stood', asy
   expect(r).toBeLessThan(80);
   expect(a).toBe(255);
   expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Rotate Object');
+});
+
+test('Rotate Object keeps each variation in Generation History with its own placement', async ({
+  page,
+}) => {
+  // Each call returns the object at another width (as turned results do).
+  const widths = `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{calls:[],txt2img:async(prompt,opts)=>{const n=window.puter.ai.calls.push({prompt,opts});const c=document.createElement('canvas');c.width=256;c.height=256;const g=c.getContext('2d');g.fillStyle='#e6e6e6';g.fillRect(0,0,256,256);g.fillStyle='#1f6fd1';const w=n===1?140:50;g.fillRect(128-w/2,48,w,160);return {src:c.toDataURL()};}}};`;
+  await boot(page, 'default', widths);
+  await scene(page);
+  await selectDisc(page);
+  await start(page, 'edit.rotate-object');
+  const dialog = page.locator('dialog.ga-rotate');
+  await expect(dialog.locator('#ai-status')).toContainText('Set the turn', { timeout: 60_000 });
+  await dialog.locator('#ga-count').selectOption('2');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await expect(dialog.getByRole('radio')).toHaveCount(2, { timeout: 60_000 });
+  const rotated = () =>
+    page.evaluate(async () =>
+      (await (await import('/src/features/generations/record.ts')).generationStore().list())
+        .filter((x) => x.kind === 'rotate')
+        .map((x) => ({ w: x.width, h: x.height, p: x.placement! })),
+    );
+  await expect.poll(async () => (await rotated()).length).toBe(2);
+  const entries = await rotated();
+  // Each placement has the size of its own image.
+  for (const x of entries) {
+    expect(x.p.width).toBe(x.w);
+    expect(x.p.height).toBe(x.h);
+  }
+  expect(entries[0].w).not.toBe(entries[1].w);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
 });
 
 test('AI Recompose picks a clicked object, and Rotate Object replaces a cut-out layer', async ({
@@ -373,6 +485,44 @@ test('AI Recompose picks a clicked object, and Rotate Object replaces a cut-out 
     ['Background', true],
     ['Bottle', true],
   ]);
+});
+
+test('AI Recompose says a locked cut-out layer stays visible', async ({ page }) => {
+  await boot(page, 'default', PUTER_FLAT);
+  await scene(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const data = new Uint8ClampedArray(30 * 50 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([240, 200, 20, 255], i);
+    const l = newPixelLayer(
+      'Bottle',
+      e.doc,
+      gridFromImage(e.assets.tiles, { width: 30, height: 50, data }, 100, 60),
+    );
+    l.locked = true;
+    e.command('Add', (d) => d.layers.push(l));
+    e.selectLayers([l.id]);
+    e.update();
+  });
+  await idle(page);
+  await start(page, 'edit.ai-recompose');
+  const dialog = page.locator('dialog.ga-recompose');
+  await expect(dialog.locator('#ga-mode')).toHaveValue('layer');
+  await expect(dialog.locator('#ai-status')).toContainText('Move, scale, rotate', {
+    timeout: 60_000,
+  });
+  await expect(dialog.locator('#ga-object-note')).toContainText('locked');
+  const preview = dialog.locator('canvas.rw-canvas');
+  await preview.focus();
+  for (let i = 0; i < 4; i++) await preview.press('Shift+ArrowRight');
+  await dialog.getByRole('button', { name: 'Add Layers' }).click();
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  await expect(page.locator('#status')).toContainText('locked, so it was not hidden');
+  const layers = await layerInfo(page);
+  expect(layers.find((l) => l.name === 'Bottle')?.visible).toBe(true);
 });
 
 test('Generative dialogs explain sign-in and unsupported documents', async ({ page }) => {

@@ -6,6 +6,7 @@ import { sourceMimeType } from '../../model/embedded';
 import { audioFileLimit, maxAudioSeconds, type AudioSource } from '../../model/audio-timeline';
 import { computePeaks, type Peaks } from '../../imaging/audio/peaks';
 import type { Pcm } from '../../imaging/audio/mix';
+import { mediaCleanups } from './video-state';
 
 /** Every source is decoded (and resampled) to this rate. */
 export const mixRate = 48000;
@@ -21,6 +22,18 @@ export function onAudioDecoded(fn: () => void) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
+
+// Decoded sound is kept by asset; a closed document's sound is dropped
+// unless another open document has the same asset.
+mediaCleanups.push((_closed, open) => {
+  const inUse = (asset: string) => open.some((s) => s.assets.has(asset));
+  for (const [asset, entry] of [...decoded])
+    if (!inUse(asset)) {
+      decoded.delete(asset);
+      used -= entry.bytes;
+    }
+  for (const asset of [...failed]) if (!inUse(asset)) failed.delete(asset);
+});
 
 function remember(asset: string, pcm: Pcm) {
   const bytes = pcm.channels.reduce((n, c) => n + c.byteLength, 0);
@@ -61,7 +74,8 @@ export function loadAudio(s: DocumentSession, source: AudioSource): Promise<Pcm>
     p = (async () => {
       try {
         const pcm = await decodeAudioBytes(await s.assets.blob(source.asset).arrayBuffer());
-        remember(source.asset, pcm);
+        // Not kept when its document closed while it decoded.
+        if (s.assets.has(source.asset)) remember(source.asset, pcm);
         failed.delete(source.asset);
         return pcm;
       } catch (error) {
@@ -141,6 +155,7 @@ const guessType = (name: string) => {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   return ({ wav: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', flac: 'audio/flac', webm: 'audio/webm' } as Record<string, string>)[ext] ?? 'application/octet-stream';
 };
+export const audioCacheStats = () => ({ sources: decoded.size, audioBytes: used });
 /** Drop every decoded source (Purge Video Cache). */
 export function purgeAudioCache() {
   decoded.clear();

@@ -17,11 +17,20 @@ export type RunMessage = {
   ctx: StackContext;
   useSelection: boolean;
   useMask: boolean;
+  // The layer's transparency is locked: results keep the source alpha.
+  keepAlpha?: boolean;
   view?: View;
   output: 'image' | 'tiles';
 };
 export type ThumbsMessage = { type: 'thumbs'; job: number; key: string; view: View; filters: StackEntry[][]; ctx: StackContext };
-export type LiquifyMessage = { type: 'liquify'; job: number; key: string; field: Uint8Array; useSelection: boolean };
+export type LiquifyMessage = {
+  type: 'liquify';
+  job: number;
+  key: string;
+  field: Uint8Array;
+  useSelection: boolean;
+  keepAlpha?: boolean;
+};
 export type FadeMessage = { type: 'fade'; job: number; beforeKey: string; afterKey: string; mode: BlendMode; opacity: number; view?: View; output: 'image' | 'tiles' };
 export type DropMessage = { type: 'drop'; key: string };
 export type ToWorker = LoadMessage | RunMessage | ThumbsMessage | LiquifyMessage | FadeMessage | DropMessage;

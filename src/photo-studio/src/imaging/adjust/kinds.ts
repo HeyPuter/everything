@@ -31,7 +31,9 @@ export type Plan = {
   // Alternative factoring for compilers that support curves after the 3D LUT:
   // `pixel` here is linear in RGB (exact under trilinear sampling) and `post`
   // carries the discontinuous part (Threshold, Gradient Map).
-  split?: { pixel: PixelFn; post: { r: Fn1; g: Fn1; b: Fn1 } };
+  // `step`, when set, is what `post` computes for every channel: 1 at or above
+  // it, else 0, which a compiler can evaluate exactly instead of tabulating.
+  split?: { pixel: PixelFn; post: { r: Fn1; g: Fn1; b: Fn1 }; step?: number };
   // Ordered dithering before quantization (exact path only; position-dependent).
   dither?: boolean;
   // The 3D LUT is a known approximation (hard edges inside one grid cell).
@@ -430,7 +432,7 @@ function threshold(p: AdjustmentParamsMap['threshold']): Plan {
         out[j] = out[j + 1] = out[j + 2] = luma(r, g, b) >= edge ? 1 : 0;
       }
     },
-    split: { pixel: grayPixel, post: { r: step, g: step, b: step } },
+    split: { pixel: grayPixel, post: { r: step, g: step, b: step }, step: edge },
     approximate: true,
   };
 }

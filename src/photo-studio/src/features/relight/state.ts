@@ -3,7 +3,7 @@
 // and the settings shown while a light is dragged. This is per-person view
 // state, never part of the document, so collaborators each keep their own.
 import type { Editor } from '../../editor';
-import { findLayer, type ColorMode, type Layer } from '../../model/document';
+import { findLayer, type ColorMode, type Layer, type PhotoDocument } from '../../model/document';
 import {
   normalizeRelight,
   type RelightLight,
@@ -14,8 +14,9 @@ export const relightUi = {
   hidden: false,
   // Layer ID -> selected light ID.
   selected: new Map<string, string>(),
-  // Settings previewed during a drag (handles draw them instead of the stored ones).
-  draft: undefined as { layerId: string; params: RelightParams } | undefined,
+  // Settings previewed during a drag (handles draw them instead of the stored
+  // ones while the document is still `doc`, the state the preview started from).
+  draft: undefined as { layerId: string; params: RelightParams; doc: PhotoDocument } | undefined,
 };
 
 export const isRelightLayer = (l: Layer | undefined): l is Layer & { kind: 'adjustment' } =>

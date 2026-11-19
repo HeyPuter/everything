@@ -10,7 +10,7 @@ import { canvasRect, selectionGrid } from '../../model/selection';
 import { layerLock } from '../../model/locks';
 import { TILE, tileKey, type TileGrid } from '../../model/tiles';
 import { bindBrushOptions, brushFor, cursor } from '../paint';
-import { commitTarget, pixelTarget, previewTarget, type PixelTarget } from '../pixels';
+import { commitTarget, pixelTarget, previewTarget, retireTiles, type PixelTarget } from '../pixels';
 import { historySourceDoc } from '../history-tools';
 import { blendModes } from '../../imaging/blend/modes';
 import type { PaintMode } from '../../engine/paint';
@@ -164,6 +164,7 @@ export function artHistoryTool(): Tool {
         selection: selectionGrid(e.doc, e.assets.tiles),
         clip: canvasRect(e.doc),
         seed: d.seed,
+        release: (ids) => retireTiles(e, ids),
       });
       feed(e, d);
       if (d.done) finish(e, d);

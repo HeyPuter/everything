@@ -8,8 +8,8 @@ import { escapeXML } from '../../model/assets';
 import { allActions, lastStopReason, playAction, type Action } from '../actions';
 import { failedNote, runProcessor, type Input } from '../files/automate';
 import { formatInfo } from '../files/encode';
-import { bytesBlob, formatBytes } from '../files/pipeline';
-import { zipStore } from '../files/zip';
+import { formatBytes } from '../files/pipeline';
+import { zipBlob } from '../files/zip';
 import { download } from '../../persistence/puter';
 import { decodeBatchLink, encodeBatchLink, linkableCommand, type BatchLink } from './batch-link-core';
 
@@ -128,10 +128,12 @@ export function openBatchLink(e: Editor, hash: string): Promise<void> {
   const status = dialog.querySelector<HTMLElement>('.processor-status')!;
   const run = dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const drop = dialog.querySelector<HTMLElement>('.batch-drop')!;
+  let running = false;
   const render = () => {
     list.innerHTML = inputs.map((x) => `<li>${escapeXML(x.name)}</li>`).join('');
-    run.disabled = !inputs.length;
-    status.textContent = inputs.length ? `${inputs.length} photo${inputs.length > 1 ? 's' : ''}` : '';
+    run.disabled = running || !inputs.length;
+    // While a run goes on, the status shows its progress.
+    if (!running) status.textContent = inputs.length ? `${inputs.length} photo${inputs.length > 1 ? 's' : ''}` : '';
   };
   const add = (files: File[]) => {
     inputs.push(...files.filter((f) => f.size).map((f) => ({ name: f.name, blob: f })));
@@ -165,7 +167,6 @@ export function openBatchLink(e: Editor, hash: string): Promise<void> {
   });
   return new Promise((resolve) => {
     let cancelled = false;
-    let running = false;
     const close = () => {
       cancelled = true;
       dialog.close();
@@ -191,20 +192,36 @@ export function openBatchLink(e: Editor, hash: string): Promise<void> {
         },
       };
       const opts = { resize: !!link.fit, w: link.fit?.width ?? 0, h: link.fit?.height ?? 0, enlarge: false, format: link.format, quality: link.quality, srgb: true, steps: [step] };
-      void e
-        .run(async () => {
-          const files = await runProcessor(e, inputs, opts, (text) => (status.textContent = text), () => cancelled);
+      // The photos in the list are the ones this run takes; photos added
+      // meanwhile stay for the next run.
+      const batch = inputs.slice();
+      let ran = false;
+      void (async () => {
+        // Another task (opening a file, a command) holds the editor: wait for
+        // it rather than skip the run.
+        while (e.busy && !cancelled) {
+          status.textContent = 'Waiting for the current task to finish…';
+          await e.idle;
+        }
+        if (cancelled) return;
+        await e.run(async () => {
+          ran = true;
+          const files = await runProcessor(e, batch, opts, (text) => (status.textContent = text), () => cancelled);
           if (cancelled || !files.length) return;
-          const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
-          download(bytesBlob(zip, 'application/zip'), `${link.name.replace(/[\\/:*?"<>|]+/g, '_')}.zip`);
-          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''} Drop more photos to run again.`;
-        })
-        .finally(() => {
-          running = false;
-          inputs.length = 0;
-          list.innerHTML = '';
-          run.disabled = true;
+          const zip = zipBlob(files);
+          download(zip, `${link.name.replace(/[\\/:*?"<>|]+/g, '_')}.zip`);
+          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.size)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''} Drop more photos to run again.`;
         });
+      })().finally(() => {
+        running = false;
+        if (cancelled) return;
+        // Photos that were run leave the list; if the run could not start,
+        // they stay so Run can be pressed again.
+        if (ran) inputs.splice(0, inputs.length, ...inputs.filter((x) => !batch.includes(x)));
+        const note = ran ? status.textContent : 'Photo Studio is busy with another task. Press Run again when it finishes.';
+        render();
+        status.textContent = note;
+      });
     });
     dialog.showModal();
   });

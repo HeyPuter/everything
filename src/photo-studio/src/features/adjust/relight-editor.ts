@@ -211,7 +211,9 @@ function lightControls(light: RelightLight, host: AdjustHost<'relight'>) {
   box.append(h('div', { class: 'adj-field-label relight-section' }, escapeXML(light.name)));
   // Live previews draw the handles from the working copy.
   const change = (c: boolean, label: string) => {
-    relightUi.draft = c ? undefined : { layerId: host.layerId ?? '', params: host.params };
+    relightUi.draft = c
+      ? undefined
+      : { layerId: host.layerId ?? '', params: host.params, doc: host.e.doc };
     host.change(c, label);
     host.e.overlay();
   };

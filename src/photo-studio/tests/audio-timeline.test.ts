@@ -215,7 +215,7 @@ describe('decoded sound', () => {
         }
       },
     );
-    const session = { assets: { blob: (asset: string) => new Blob([new Uint8Array([asset === 'a' ? 1 : 2])]) } };
+    const session = { assets: { blob: (asset: string) => new Blob([new Uint8Array([asset === 'a' ? 1 : 2])]), has: () => true } };
     const e = { session, message() {} } as unknown as Editor;
     const doc = docWith([{ clips: [clip('a', 0, 1)] }, { clips: [clip('b', 0, 1)] }]);
     const [l] = await mixDocument(e, doc, 0, 1);

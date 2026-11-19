@@ -5,8 +5,8 @@ import { contributeMenu, registerCommand, registerOverlay } from '../../app/regi
 import { snapProviders } from '../../model/transform';
 import { MAX_SLICE_NAME, MAX_SLICES, sliceRect, type Slice, type SliceFormat } from '../../model/slices';
 import { formDialog } from '../../ui/dialog';
+import { recordsSettings, settingsDialog, settingsModal } from '../action-settings';
 import { escapeXML } from '../../model/assets';
-import { modal, fieldValue } from '../files/ui';
 import { addSlice, installSliceTools, newSliceId, selectedSlices, showSlices, sliceState, slicesLocked, slicesOverlay } from './slice-tools';
 import { lazy, lazyRun } from '../../app/lazy';
 
@@ -14,11 +14,11 @@ const webExport = lazy(() => import('./export-web'));
 
 const formatLabels: [SliceFormat | '', string][] = [['', 'Export default'], ['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['gif', 'GIF']];
 
-async function sliceOptions(e: Editor) {
+async function sliceOptions(e: Editor, arg?: unknown) {
   const s = selectedSlices(e)[0];
   if (!s) return;
   const quality = s.quality ?? (s.format === 'gif' ? 256 : 80);
-  const result = await modal({
+  const v = await settingsModal(e, 'slices.options', arg, {
     title: 'Slice Options',
     submit: 'OK',
     className: 'slice-options-dialog',
@@ -37,11 +37,10 @@ async function sliceOptions(e: Editor) {
       sync();
     },
   });
-  if (!result) return;
-  const name = fieldValue(result.form, 'name').trim();
-  const format = fieldValue(result.form, 'format') as SliceFormat | '';
-  const q = format === 'gif' ? Number(fieldValue(result.form, 'colors')) : Number(fieldValue(result.form, 'quality'));
-  result.close();
+  if (!v) return;
+  const name = v.name.trim().slice(0, MAX_SLICE_NAME);
+  const format = v.format as SliceFormat | '';
+  const q = format === 'gif' ? Number(v.colors) : Number(v.quality);
   e.command('Slice Options', (d) => {
     d.slices = (d.slices ?? []).map((x) => {
       if (x.id !== s.id) return x;
@@ -93,7 +92,7 @@ function deleteSelected(e: Editor) {
   e.options();
 }
 
-async function divide(e: Editor) {
+async function divide(e: Editor, arg?: unknown) {
   if (slicesLocked(e)) return;
   const s = selectedSlices(e)[0];
   const r = s && !s.layerId ? sliceRect(e.doc, s) : undefined;
@@ -104,7 +103,7 @@ async function divide(e: Editor) {
     e.message(`This document already has ${MAX_SLICES} slices, the most it can hold.`);
     return;
   }
-  const v = await formDialog('Divide Slice', [
+  const v = await settingsDialog(e, 'slices.divide', arg, 'Divide Slice', [
     { name: 'cols', label: 'Columns', value: 2, type: 'number', min: 1, max: Math.min(64, r.width, room), step: 1 },
     { name: 'rows', label: 'Rows', value: 1, type: 'number', min: 1, max: Math.min(64, r.height, room), step: 1 },
   ], 'Divide', `Split the ${r.width} × ${r.height} px slice into equal parts.\n\nColumns × rows can be at most ${room} (a document holds up to ${MAX_SLICES} slices).`);
@@ -174,6 +173,9 @@ async function fromGuides(e: Editor) {
 }
 
 export function installSlices(e: Editor) {
+  // Records the settings their dialogs were confirmed with.
+  recordsSettings('slices.divide');
+  recordsSettings('slices.options');
   installSliceTools(e);
   registerOverlay('slices', slicesOverlay);
   snapProviders.push((doc) => {
@@ -248,10 +250,10 @@ export function installSlices(e: Editor) {
       },
       description: 'A slice that follows the bounds of the selected layer',
     },
-    { id: 'slices.options', label: 'Slice Options…', enabled: (ed) => selectedSlices(ed).length === 1, run: sliceOptions },
+    { id: 'slices.options', label: 'Slice Options…', enabled: (ed) => selectedSlices(ed).length === 1, run: (ed, arg) => sliceOptions(ed, arg) },
     { id: 'slices.promote', label: 'Promote Slice', enabled: (ed) => !!sliceState.auto || selectedSlices(ed).some((s) => s.layerId), run: promote },
     { id: 'slices.delete', label: 'Delete Slice', enabled: (ed) => selectedSlices(ed).length > 0, run: deleteSelected },
-    { id: 'slices.divide', label: 'Divide Slice…', enabled: (ed) => selectedSlices(ed).length === 1 && !selectedSlices(ed)[0].layerId, run: divide },
+    { id: 'slices.divide', label: 'Divide Slice…', enabled: (ed) => selectedSlices(ed).length === 1 && !selectedSlices(ed)[0].layerId, run: (ed, arg) => divide(ed, arg) },
     { id: 'slices.from-guides', label: 'Slices From Guides', enabled: (ed) => ed.hasDocument && !!ed.doc.guides?.length, run: fromGuides, description: 'Create a user slice for each cell between the guides' },
     { id: 'file.export-web', label: 'Export for Web…', shortcut: 'Mod+Alt+Shift+S', enabled: (ed) => ed.hasDocument, ...lazyRun(webExport, (m, e) => m.exportForWeb(e)), recordable: false, description: 'Optimized images per slice with side-by-side previews, as a ZIP with an optional HTML table' },
   );

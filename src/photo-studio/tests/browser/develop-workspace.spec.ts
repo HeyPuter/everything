@@ -111,10 +111,20 @@ test('black and white, profiles and a saved preset', async ({ page }) => {
   await d.locator('#dv-preset-name').fill('Red filter');
   await d.locator('.dv-preset-save').click();
   await expect(d.locator('[data-preset="Red filter"]')).toBeVisible();
-  await d.locator('[data-preset="__defaults"]').click();
+  // A preset may have any name, also one that looks like a built-in entry's ID.
+  await d.locator('#dv-preset-name').fill('__defaults');
+  await d.locator('.dv-preset-save').click();
+  await expect(d.locator('[data-preset="__defaults"]')).toBeVisible();
+  await d.locator('[data-preset-builtin="defaults"]').click();
   await d.locator('[data-tool="edit"]').click();
   await expect(d.locator('select[data-key="profile"]')).toHaveValue('natural');
   await d.locator('[data-tool="presets"]').click();
+  await d.locator('[data-preset="__defaults"]').click();
+  await expect(d.locator('.dv-presets')).toBeVisible();
+  await d.locator('[data-tool="edit"]').click();
+  await expect(d.locator('select[data-key="profile"]')).toHaveValue('mono');
+  await d.locator('[data-tool="presets"]').click();
+  await d.locator('[data-preset-builtin="defaults"]').click();
   await d.locator('[data-preset="Red filter"]').click();
   await d.locator('[data-tool="edit"]').click();
   await expect(d.locator('select[data-key="profile"]')).toHaveValue('mono');
@@ -204,4 +214,36 @@ test('a linear gradient mask placed on the preview darkens only its side', async
     lower = (await layerPixel(page, 150, 190))[0];
   expect(upper).toBeLessThan(110);
   expect(Math.abs(lower - 128)).toBeLessThanOrEqual(1);
+});
+
+test('the white balance eyedropper samples what the result shows after a geometry change', async ({
+  page,
+}) => {
+  // Neutral gray on the left third, warm orange elsewhere.
+  await page.evaluate(async () => {
+    const c = new OffscreenCanvas(300, 200);
+    const g = c.getContext('2d')!;
+    g.fillStyle = 'rgb(200, 140, 90)';
+    g.fillRect(0, 0, 300, 200);
+    g.fillStyle = 'rgb(128, 128, 128)';
+    g.fillRect(0, 0, 100, 200);
+    const { openFile } = await import('/src/features/files/open.ts');
+    await openFile(window.photoStudio, await c.convertToBlob(), 'halves.png');
+  });
+  await idle(page);
+  await openDevelop(page);
+  const d = workspace(page);
+  await d.locator('[data-panel="geometry"] .dv-disclose').click();
+  // Offset X moves the gray third under the middle of the result.
+  await setField(page, 'geoOffsetX', '100');
+  await d.locator('.dv-wb-pick').click();
+  const pane = (await d.locator('.dv-pane').boundingBox())!;
+  await page.mouse.click(pane.x + pane.width / 2, pane.y + pane.height / 2);
+  // A neutral pick leaves the white balance about where it was.
+  await expect(d.locator('.dv-status')).toContainText('White balance');
+  const temperature = Number(await d.locator('input.dv-num[data-key="temperature"]').inputValue());
+  const tint = Number(await d.locator('input.dv-num[data-key="tint"]').inputValue());
+  expect(Math.abs(temperature)).toBeLessThan(5);
+  expect(Math.abs(tint)).toBeLessThan(5);
+  await d.locator('.dv-cancel').click();
 });

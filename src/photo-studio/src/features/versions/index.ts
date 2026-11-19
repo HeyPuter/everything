@@ -49,7 +49,8 @@ export async function autosaveVersions(e: Editor) {
   for (const s of e.sessions) {
     const previous = lastVersioned.get(s);
     if (!s.hasDocument || !s.dirty || (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision) || s.saveHandler) continue;
-    await addVersion(e, s, 'Autosave', 'auto');
+    // One document that cannot be stored does not stop the others.
+    await addVersion(e, s, 'Autosave', 'auto').catch((error) => console.error(error));
   }
 }
 

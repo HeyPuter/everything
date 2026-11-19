@@ -534,6 +534,38 @@ test('Shift-click draws a line only from a stroke in the same document', async (
   expect(await pixel(100, 60)).toEqual([64, 64, 64, 255]);
 });
 
+for (const id of ['brush', 'pencil']) {
+  test(`Shift-click after a smoothed ${id} stroke continues from where the stroke caught up`, async ({ page }) => {
+    await page.evaluate((id) => {
+      const e = window.photoStudio;
+      e.setTool(id);
+      e.activeTool!.brush?.set(e, { size: 4, hardness: 1, smoothing: 0.5, pulledString: false, catchUpEnd: true });
+      e.setForeground('#ffffff');
+    }, id);
+    await idle(page);
+    // Smoothing trails the pointer; releasing catches the stroke up to (120, 30).
+    await canvasDrag(page, [[20, 30], [120, 30]], 4);
+    const [cx, cy] = await client(page, 120, 100);
+    await page.keyboard.down('Shift');
+    await page.mouse.click(cx, cy);
+    await page.keyboard.up('Shift');
+    await idle(page);
+    const pixel = (x: number, y: number) =>
+      page.evaluate(
+        async ([x, y]) => {
+          const e = window.photoStudio;
+          const { readRGBA } = await import('/src/model/tiles.ts');
+          return Array.from(readRGBA(e.assets.tiles, e.doc.layers[0].pixels!, { x, y, width: 1, height: 1 }).data);
+        },
+        [x, y] as const,
+      );
+    expect(await pixel(120, 30)).toEqual([255, 255, 255, 255]);
+    // The line runs straight down from the stroke's end, not from inside it.
+    expect(await pixel(120, 65)).toEqual([255, 255, 255, 255]);
+    expect(await pixel(110, 65)).toEqual([128, 128, 128, 255]);
+  });
+}
+
 test('a stroke whose pointer capture is lost is stored and ends the gesture', async ({ page }) => {
   await page.evaluate(() => {
     const e = window.photoStudio;
@@ -742,4 +774,72 @@ test('a filter in Quick Mask edits the whole mask, not only the selection it sta
     return readMask(e.assets.tiles, e.doc.quickMask!, at).data[0];
   });
   expect(right).toBeGreaterThan(20);
+});
+
+test('Escape drops a Spot Healing or Remove stroke being painted', async ({ page }) => {
+  for (const id of ['spot-healing', 'remove-tool']) {
+    await page.evaluate((id) => window.photoStudio.setTool(id), id);
+    const steps = await page.evaluate(() => window.photoStudio.history.labels.length);
+    await page.mouse.move(...(await client(page, 40, 60)));
+    await page.mouse.down();
+    await page.mouse.move(...(await client(page, 100, 60)), { steps: 5 });
+    await expect(page.locator('.retouch-stroke')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.retouch-stroke')).toHaveCount(0);
+    await page.mouse.move(...(await client(page, 120, 60)), { steps: 2 });
+    await page.mouse.up();
+    await idle(page);
+    expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(steps);
+    await expect(page.locator('.retouch-stroke')).toHaveCount(0);
+  }
+});
+
+test('a stroke preview still waiting behind a slow render is not left without its pixels', async ({
+  page,
+}) => {
+  // A large document draws slowly; a stroke's preview can wait in the
+  // renderer's queue while the stroke is cancelled or replaced.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const messages: string[] = [];
+    (window as unknown as { __messages: string[] }).__messages = messages;
+    const message = e.message.bind(e);
+    e.message = (m: string) => {
+      messages.push(String(m));
+      return message(m);
+    };
+    const r = e.renderer as unknown as { draw: (...args: unknown[]) => Promise<void> };
+    const draw = r.draw.bind(r);
+    r.draw = async (...args: unknown[]) => {
+      await new Promise((done) => setTimeout(done, 150));
+      return draw(...args);
+    };
+  });
+  await page.evaluate(() => window.photoStudio.setTool('healing-brush'));
+  await page.keyboard.down('Alt');
+  await page.mouse.click(...(await client(page, 20, 20)));
+  await page.keyboard.up('Alt');
+  await idle(page);
+  for (let i = 0; i < 3; i++) {
+    await page.mouse.move(...(await client(page, 60 + i * 30, 60)));
+    await page.mouse.down();
+    await page.mouse.up();
+    await idle(page);
+  }
+  // Brush strokes cancelled with Escape.
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  for (let i = 0; i < 3; i++) {
+    await page.mouse.move(...(await client(page, 40, 90 + i * 5)));
+    await page.mouse.down();
+    await page.mouse.move(...(await client(page, 120, 90 + i * 5)), { steps: 5 });
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+  }
+  await idle(page);
+  await page.waitForTimeout(800);
+  await idle(page);
+  const messages = await page.evaluate(
+    () => (window as unknown as { __messages: string[] }).__messages,
+  );
+  expect(messages.filter((m) => /Missing pixel tile/.test(m))).toEqual([]);
 });

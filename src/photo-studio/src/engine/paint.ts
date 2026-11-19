@@ -103,6 +103,10 @@ export type StrokeOptions = {
   // first is normally the identity); see imaging/symmetry.
   symmetry?: Affine[];
   seed?: number;
+  // Frees working tiles the stroke no longer needs (cancelled, or unchanged
+  // at commit). The preview may still be drawing them, so callers with a
+  // renderer free them once it is done; by default they are deleted at once.
+  release?: (ids: string[]) => void;
 };
 type Working = {
   id: string;
@@ -128,6 +132,7 @@ export class StrokeSession {
   private seed: number;
   // Pressure or jitter gives dabs of one stroke different opacities.
   private varyingOpacity: boolean;
+  private unhold: () => void;
   dabs = 0;
   constructor(
     private store: TileStore,
@@ -138,6 +143,11 @@ export class StrokeSession {
     if ((options.target.kind === 'mask') !== (this.channels === 1))
       throw new Error('The paint target does not match the tile format.');
     this.preview = { ...original, tiles: { ...original.tiles } };
+    // The working tiles belong to no document until the stroke is committed:
+    // tile cleanup run by another edit meanwhile must keep them. A stroke
+    // abandoned without commit or cancel is not kept alive by the hold.
+    const self = new WeakRef(this.working);
+    this.unhold = store.hold(() => Array.from(self.deref()?.values() ?? [], (w) => w.id));
     this.seed = options.seed ?? 1;
     this.varyingOpacity = !!(options.dynamics?.pressureOpacity || options.dynamics?.opacityJitter);
     let state = (options.seed ?? 1) >>> 0 || 1;
@@ -536,9 +546,10 @@ export class StrokeSession {
   commit(): TileGrid {
     const grid: TileGrid = { ...this.original, tiles: { ...this.original.tiles } };
     const fill = this.channels === 1 ? (this.original.fill ?? 0) : 0;
+    const dropped: string[] = [];
     for (const [key, w] of this.working) {
       if (!this.touched.has(key)) {
-        this.store.delete(w.id);
+        dropped.push(w.id);
         continue;
       }
       let empty = true;
@@ -548,17 +559,26 @@ export class StrokeSession {
           break;
         }
       if (empty) {
-        this.store.delete(w.id);
+        dropped.push(w.id);
         delete grid.tiles[key];
       } else grid.tiles[key] = w.id;
     }
     grid.bounds = computeBounds(this.store, grid);
     this.working.clear();
+    this.unhold();
+    this.free(dropped);
     return grid;
   }
   cancel() {
-    for (const w of this.working.values()) this.store.delete(w.id);
+    const ids = Array.from(this.working.values(), (w) => w.id);
     this.working.clear();
+    this.unhold();
+    this.free(ids);
+  }
+  private free(ids: string[]) {
+    if (!ids.length) return;
+    if (this.options.release) this.options.release(ids);
+    else for (const id of ids) this.store.delete(id);
   }
 }
 

@@ -139,3 +139,46 @@ test('Close (Mod+W) closes only the active window of a document open in two', as
   await page.keyboard.press('ControlOrMeta+w');
   await expect(page.getByRole('dialog', { name: /^Save changes to/ })).toBeVisible();
 });
+
+test('a document tab keeps the keyboard focus while the tabs redraw after a zoom or an edit, also in a 2-up layout', async ({ page }) => {
+  await openImage(page, 200, 100, '#404040', 'second.png');
+  const focused = () => page.evaluate(() => (document.activeElement as HTMLElement).closest('[role="tab"]')?.querySelector('.tab-name')?.textContent ?? document.activeElement!.tagName);
+  await page.locator('.document-tab.focused').focus();
+  await page.keyboard.press('ControlOrMeta+=');
+  await idle(page);
+  expect(await focused()).toBe('second');
+  await page.keyboard.press('ControlOrMeta+j');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(2);
+  expect(await focused()).toBe('second');
+  // The close button inside a tab keeps it too.
+  await page.locator('.document-tab.focused .tab-close').focus();
+  await page.keyboard.press('ControlOrMeta+-');
+  await idle(page);
+  expect(await page.evaluate(() => document.activeElement!.className)).toBe('tab-close');
+  await menu(page, 'Window', 'Arrange', '2-up Vertical');
+  await page.locator('.frame-tabs .document-tab.focused').focus();
+  await page.keyboard.press('ControlOrMeta+=');
+  await idle(page);
+  expect(await focused()).toBe('second');
+});
+
+test('in a flipped view the horizontal ruler counts from the image’s left edge, now on the right', async ({ page }) => {
+  const zeroAndHundred = () =>
+    page.evaluate(() => {
+      const ruler = document.querySelector('#ruler-x')!;
+      const left = ruler.getBoundingClientRect().left;
+      const at = (label: string) => [...ruler.querySelectorAll('span')].find((s) => s.textContent === label)!.getBoundingClientRect().left - left;
+      const e = window.photoStudio;
+      return { zero: at('0') - (e.clientPoint(0, 0)[0] - left), hundred: at('100') - (e.clientPoint(100, 0)[0] - left) };
+    });
+  await run(page, 'view.zoom-200');
+  await run(page, 'view.fit');
+  let d = await zeroAndHundred();
+  expect(Math.abs(d.zero)).toBeLessThan(1.5);
+  expect(Math.abs(d.hundred)).toBeLessThan(1.5);
+  await run(page, 'view.flip-horizontal');
+  d = await zeroAndHundred();
+  expect(Math.abs(d.zero)).toBeLessThan(1.5);
+  expect(Math.abs(d.hundred)).toBeLessThan(1.5);
+});

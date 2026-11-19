@@ -48,6 +48,7 @@ import { allLayers, type Layer } from '../../model/document';
 import { toRGBA8 } from '../pixels';
 import { readMask, readRect } from '../../model/tiles';
 import { svg } from '../../app/icons';
+import { formatShortcut } from '../../app/shortcuts';
 import { escapeXML } from '../../model/assets';
 import { download } from '../../persistence/puter';
 import {
@@ -298,6 +299,7 @@ class LiquifyWorkspace {
               key: this.s.key,
               field: this.out.serialize(),
               useSelection: !!this.s.selection,
+              keepAlpha: !!this.s.keepAlpha,
             },
             [this.s.key],
             (f) => bar.querySelector('progress')!.setAttribute('value', String(f)),
@@ -367,7 +369,7 @@ class LiquifyWorkspace {
       <label class="lq-check" title="Show the document’s other layers with the layer being liquified"><input type="checkbox" data-opt="backdrop" ${this.canBackdrop() ? '' : 'disabled'}> Show Backdrop</label>
       <div class="fp-row"><label for="lq-backdrop-mode">Backdrop</label><select id="lq-backdrop-mode" data-opt="backdrop-mode" disabled><option value="behind">Behind</option><option value="front" ${this.backdropFront ? 'selected' : ''}>In Front</option></select></div>
       <div class="fp-row fp-number"><label for="lq-backdrop-opacity">Backdrop Opacity</label><input id="lq-backdrop-opacity" type="number" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" disabled><input type="range" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" aria-label="Backdrop opacity" disabled></div>
-      <div class="lq-row lq-zoom"><button type="button" class="icon-button" data-act="zoom-out" aria-label="Zoom out">${svg('minus', 14)}</button><span class="lq-zoom-label"></span><button type="button" class="icon-button" data-act="zoom-in" aria-label="Zoom in">${svg('plus', 14)}</button><button type="button" data-act="fit">Fit</button><button type="button" data-act="undo" title="Undo (Mod+Z)">Undo</button></div>
+      <div class="lq-row lq-zoom"><button type="button" class="icon-button" data-act="zoom-out" aria-label="Zoom out">${svg('minus', 14)}</button><span class="lq-zoom-label"></span><button type="button" class="icon-button" data-act="zoom-in" aria-label="Zoom in">${svg('plus', 14)}</button><button type="button" data-act="fit">Fit</button><button type="button" data-act="undo" title="Undo (${formatShortcut('Mod+Z')})">Undo</button></div>
     </section>
     <section><h3>Brush Reconstruct Options</h3><div class="lq-row"><button type="button" data-act="reconstruct">Reconstruct…</button><button type="button" data-act="restore" title="Undo every stroke and face edit">Restore All</button></div><div class="lq-reconstruct" hidden><div class="fp-row fp-number"><label for="lq-amount">Amount</label><input id="lq-amount" type="number" min="0" max="100" value="100"><input type="range" id="lq-amount-range" min="0" max="100" value="100" aria-label="Reconstruct amount"></div><div class="lq-row"><button type="button" data-act="reconstruct-cancel">Cancel</button><button type="button" class="primary" data-act="reconstruct-ok">OK</button></div></div></section>
   </aside>
@@ -568,6 +570,7 @@ class LiquifyWorkspace {
     const freeze = this.showMask ? this.freeze : undefined;
     const [mr, mg, mb] = hexRGB(this.maskColor);
     const showImage = this.showImage;
+    const keep = !!this.s.keepAlpha;
     const bdl = this.showBackdrop && this.backdrop ? this.backdropLevel(k) : undefined;
     const bd = bdl?.data,
       bw = bdl?.width ?? 0,
@@ -642,6 +645,16 @@ class LiquifyWorkspace {
               b = ld[i + 2];
               al = ld[i + 3];
             }
+          }
+          if (keep && showImage) {
+            // Locked transparency: the warp moves colors, not coverage.
+            const j = (Math.min(lh - 1, (qy * f) | 0) * lw + Math.min(lw - 1, (qx * f) | 0)) * 4;
+            if (al === 0 || ld[j + 3] === 0) {
+              r = ld[j];
+              g = ld[j + 1];
+              b = ld[j + 2];
+            }
+            al = ld[j + 3];
           }
           if (bd) {
             // The other layers, unwarped, behind or in front at an opacity.
@@ -1194,7 +1207,9 @@ class LiquifyWorkspace {
     try {
       await fn();
     } catch (error) {
-      this.e.message(error instanceof Error ? error.message : String(error));
+      // A search still running when Liquify closed reports nothing.
+      if (this.dialog.isConnected)
+        this.e.message(error instanceof Error ? error.message : String(error));
     } finally {
       this.busy = false;
       this.dialog.classList.remove('lq-busy');
@@ -1204,6 +1219,9 @@ class LiquifyWorkspace {
   }
   /** Add found faces that are not already guided. */
   private addFound(list: FaceLandmarks[], source: Face['source']) {
+    // Faces that arrive after Liquify closed (Cancel during Find with AI)
+    // belong to no workspace any more.
+    if (!this.dialog.isConnected) return;
     let added = 0;
     for (const lm of list) {
       const c = { x: (lm.eyeL.x + lm.eyeR.x) / 2, y: (lm.eyeL.y + lm.eyeR.y) / 2 };

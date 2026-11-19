@@ -12,8 +12,15 @@ import { decodeImage } from '../../imaging/codecs/decode';
 import { decodeIco, pickIcoEntry } from '../../imaging/codecs/ico';
 import { sniffImageFormat, type ImageFormat } from '../../imaging/codecs/sniff';
 import { applyOrientation } from '../../imaging/codecs/orientation';
-import { readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
-import { readJpegDensity, readJpegIcc, readJpegInfo } from '../../imaging/codecs/jpeg-markers';
+import { readPngChunks, readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
+import {
+  readJpegDensity,
+  readJpegIcc,
+  readJpegInfo,
+  readJpegSegments,
+  readExifOrientation,
+} from '../../imaging/codecs/jpeg-markers';
+import { listTiffTags } from '../../imaging/codecs/tiff';
 import { checkSize } from '../../imaging/codecs/bytes';
 import { heifImageSize } from '../../imaging/codecs/heif';
 import { decodePng16, rgba16To8 } from './png';
@@ -21,6 +28,7 @@ import { decodeApng, isApng } from '../../imaging/codecs/apng';
 import { framesFromLayers, maxFrames } from '../../model/animation';
 import { noteRecent, type RecentSource } from './recent';
 import { flatSaveFormat } from './formats';
+import { leftOutOfFile } from './left-out';
 import { emitAppEvent, openedFiles } from '../../app/app-events';
 
 const browserTypes: Record<string, string> = {
@@ -50,6 +58,9 @@ export type DecodedFile = {
   // Animated sources opened as a frame animation: one delay per frame
   // (including the first) and the number of plays (0 = forever).
   animation?: { delays: number[]; plays: number };
+  // What of the file was not opened (other pages or frames, another editor's
+  // layers): writing the document back over the file would lose it.
+  leftOut?: string[];
 };
 export type PageChoice = 'first' | 'layers' | 'animation' | 'ask';
 export type DecodeOptions = { pages?: PageChoice };
@@ -71,12 +82,17 @@ async function choosePages(kind: string, count: number, choice: PageChoice | und
   const v = await formDialog(`Open ${kind}s`, [{ name: 'pages', label: `This file has ${count} ${kind}s`, type: 'select', value: animated ? 'animation' : 'first', options }], 'Open');
   return v ? (v.pages as 'first' | 'layers' | 'animation') : null;
 }
+// The frames of an animation besides the first (`truncated`: more than were read).
+const otherFrames = (n: number, truncated?: boolean) =>
+  truncated ? 'the other frames' : `the other ${n - 1} frame${n > 2 ? 's' : ''}`;
 const framesLeftOut = (n: number) => `Only the first ${n} frames were opened: the rest need more memory than one file may use.`;
+const leaveOut = (out: DecodedFile, what: string) => (out.leftOut ??= []).push(what);
 /** Frames of an animated file as layers (and optionally an animation). */
-function animatedFrames(out: DecodedFile, all: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number): string | undefined {
+function animatedFrames(out: DecodedFile, all: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number, truncated?: boolean): string | undefined {
   // A project holds up to this many frames (or layers); more could be saved but not reopened.
   const most = pick === 'animation' ? maxFrames : MAX_LAYERS;
   const frames = all.slice(0, most);
+  if (all.length > most || truncated) leaveOut(out, `the frames after the first ${frames.length}`);
   out.layers = frames.slice(1).map((f, i) => ({ name: `Frame ${i + 2}`, image: f.rgba }));
   if (pick === 'animation') out.animation = { delays: frames.map((f) => f.delayMs), plays };
   else out.layers.forEach((l, i) => (l.name += ` (${frames[i + 1].delayMs} ms)`));
@@ -125,13 +141,22 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   const out: DecodedFile = { image: applyOrientation(d.rgba8, d.orientation), icc, dpi: d.dpi?.x };
   if (d.data16) out.deep = { data: orient(d.data16, d.width, d.height, d.orientation), depth: 16 };
   else if (d.dataF32) out.deep = { data: orient(d.dataF32, d.width, d.height, d.orientation), depth: 32 };
+  if (d.notes.some((n) => /^Layer data stored by another editor/.test(n)))
+    leaveOut(out, 'the layers another editor stored in it');
+  if (d.notes.some((n) => /^CMYK image converted/.test(n))) leaveOut(out, 'the CMYK colors');
   if (d.tiffPages && d.tiffPages.length > 1) {
     const pick = await choosePages('page', d.tiffPages.length, opts.pages);
     if (!pick) throw new CancelOpen();
     if (pick === 'layers') {
       out.layers = d.tiffPages.slice(1, MAX_LAYERS).map((p, i) => ({ name: `Page ${i + 2}`, image: applyOrientation(p.rgba8, p.orientation) }));
-      if (d.tiffPages.length > MAX_LAYERS) notes.push(`Only the first ${MAX_LAYERS} of ${d.tiffPages.length} pages were opened: a document holds up to ${MAX_LAYERS} layers.`);
-    } else notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
+      if (d.tiffPages.length > MAX_LAYERS) {
+        notes.push(`Only the first ${MAX_LAYERS} of ${d.tiffPages.length} pages were opened: a document holds up to ${MAX_LAYERS} layers.`);
+        leaveOut(out, `the pages after the first ${MAX_LAYERS}`);
+      }
+    } else {
+      notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
+      leaveOut(out, `the other ${d.tiffPages.length - 1} page${d.tiffPages.length > 2 ? 's' : ''}`);
+    }
   }
   if (d.gifFrames && d.gifFrames.length > 1) {
     const pick = await choosePages('frame', d.gifFrames.length, opts.pages, true);
@@ -139,10 +164,13 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
     // GIF stores extra repeats; no looping extension means one play.
     const plays = d.gifLoopCount === undefined ? 1 : d.gifLoopCount === 0 ? 0 : Math.min(65535, d.gifLoopCount + 1);
     if (pick !== 'first') {
-      const capped = animatedFrames(out, d.gifFrames, pick, plays);
+      const capped = animatedFrames(out, d.gifFrames, pick, plays, d.gifTruncated);
       if (capped) notes.push(capped);
       else if (d.gifTruncated) notes.push(framesLeftOut(d.gifFrames.length));
-    } else notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
+    } else {
+      notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
+      leaveOut(out, otherFrames(d.gifFrames.length, d.gifTruncated));
+    }
   }
   if (notes.length) out.notice = notes.join(' ');
   return out;
@@ -191,8 +219,11 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
       if (!pick) throw new CancelOpen();
       const out: DecodedFile = { image: anim.frames[0].rgba };
       if (pick !== 'first') {
-        out.notice = animatedFrames(out, anim.frames, pick, anim.plays) ?? (anim.truncated ? framesLeftOut(anim.frames.length) : undefined);
-      } else out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
+        out.notice = animatedFrames(out, anim.frames, pick, anim.plays, anim.truncated) ?? (anim.truncated ? framesLeftOut(anim.frames.length) : undefined);
+      } else {
+        out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
+        leaveOut(out, otherFrames(anim.frames.length, anim.truncated));
+      }
       return out;
     }
   }
@@ -215,17 +246,48 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
     } catch {
       deep = null; // Let the browser report or recover from damage.
     }
-    if (deep)
+    if (deep) {
+      // The browser turns 8-bit PNGs upright by their eXIf orientation; these
+      // samples are read here, so they are turned the same way.
+      const o = pngOrientation(bytes);
+      const image = applyOrientation({ width: deep.width, height: deep.height, data: rgba16To8(deep.data16) }, o);
+      const data = orient(deep.data16, deep.width, deep.height, o);
       // Unconverted samples: tag the document only when the profile is usable.
-      return { image: { width: deep.width, height: deep.height, data: rgba16To8(deep.data16) }, deep: { data: deep.data16, depth: 16 }, icc: keep ? icc : undefined, dpi, notice: icc && !keep ? 'The embedded color profile is not an RGB matrix profile and was not applied.' : undefined };
+      return { image, deep: { data, depth: 16 }, icc: keep ? icc : undefined, dpi, notice: icc && !keep ? 'The embedded color profile is not an RGB matrix profile and was not applied.' : undefined };
+    }
   }
   checkBrowserImage(bytes);
   const blob = new Blob([bytes.slice()], { type: png ? 'image/png' : 'image/jpeg' });
   void name;
   // createImageBitmap applies EXIF orientation itself ('from-image'), so the
   // pixels are already upright; rotating again would double the rotation.
-  return { image: await decodeBrowserImage(blob, keep), icc: keep ? icc : undefined, dpi, notice };
+  const image = await decodeBrowserImage(blob, keep);
+  const out: DecodedFile = { image, icc: keep ? icc : undefined, dpi, notice };
+  // The browser turns CMYK JPEGs into RGB.
+  if (!png && jpegComponents(bytes) === 4) leaveOut(out, 'the CMYK colors');
+  return out;
 }
+
+/** The orientation (1-8) of a PNG's eXIf chunk, which precedes the image data. */
+function pngOrientation(bytes: Uint8Array): number | undefined {
+  try {
+    for (const c of readPngChunks(bytes)) {
+      if (c.type === 'IDAT') return undefined;
+      if (c.type === 'eXIf') return readExifOrientation(c.data);
+    }
+  } catch {
+    /* Damaged metadata does not prevent opening the pixels. */
+  }
+  return undefined;
+}
+
+const jpegComponents = (bytes: Uint8Array) => {
+  try {
+    return readJpegInfo(bytes).components;
+  } catch {
+    return undefined;
+  }
+};
 
 class CancelOpen extends Error {}
 
@@ -289,7 +351,14 @@ export async function decodeBrowserImage(blob: Blob, raw = false): Promise<RGBA8
 export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions = {}): Promise<DecodedFile> {
   const lower = name.toLowerCase();
   const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
-  for (const d of extraDecoders) if (d.test(lower, head)) return d.decode(new Uint8Array(await blob.arrayBuffer()), name, opts);
+  for (const d of extraDecoders)
+    if (d.test(lower, head)) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const out = await d.decode(bytes, name, opts);
+      const metadata = fileMetadata(bytes);
+      if (metadata) leaveOut(out, metadata);
+      return out;
+    }
   const sniffed = formatMime[sniffImageFormat(head)];
   const ext = lower.split('.').pop() ?? '';
   if (sniffed && sniffed !== blob.type) blob = new Blob([blob], { type: sniffed });
@@ -302,13 +371,66 @@ export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions =
   if (blob.type === 'image/svg+xml') return { image: await rasterizeSvg(blob) };
   await checkBrowserFile(blob);
   try {
-    return { image: await decodeBrowserImage(blob) };
+    const image = await decodeBrowserImage(blob);
+    const out: DecodedFile = { image };
+    // The browser decodes the first frame of an animated WebP.
+    if (blob.type === 'image/webp' && isAnimatedWebp(head)) {
+      out.notice = 'Animated WebP; the first frame was opened.';
+      leaveOut(out, 'the other frames');
+    }
+    const metadata = fileMetadata(head);
+    if (metadata) leaveOut(out, metadata);
+    return out;
   } catch (error) {
     // Chromium and Firefox have no HEIC decoder.
     if (blob.type === 'image/heic' && error instanceof DOMException) throw new Error('This browser cannot decode HEIC images. Convert the file to JPEG or PNG and open that.');
     throw error;
   }
 }
+
+/** Which of EXIF (camera data, capture time, location) and XMP metadata an
+ * image file holds, as "the EXIF and XMP metadata"; Photo Studio does not
+ * read or write them. WebP is judged from its VP8X header alone. */
+export function fileMetadata(bytes: Uint8Array): string | undefined {
+  const kinds = new Set<string>();
+  const text = (b: Uint8Array, n: number) => String.fromCharCode(...b.subarray(0, n));
+  try {
+    const format = sniffImageFormat(bytes);
+    if (format === 'jpeg')
+      for (const seg of readJpegSegments(bytes).segments) {
+        if (seg.marker !== 0xe1) continue;
+        if (text(seg.data, 6) === 'Exif\0\0') kinds.add('EXIF');
+        else if (text(seg.data, 28) === 'http://ns.adobe.com/xap/1.0/') kinds.add('XMP');
+      }
+    else if (format === 'png') {
+      // Chunk headers only (no checksums: the file may be large).
+      const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let p = 8; p + 12 <= bytes.length; p += 12 + dv.getUint32(p)) {
+        const type = text(bytes.subarray(p + 4), 4);
+        if (type === 'eXIf') kinds.add('EXIF');
+        else if (type === 'iTXt' && text(bytes.subarray(p + 8), 18) === 'XML:com.adobe.xmp\0')
+          kinds.add('XMP');
+        else if (type === 'IEND') break;
+      }
+    }
+    else if (format === 'tiff' || format === 'bigtiff') {
+      const first = listTiffTags(bytes)[0] ?? {};
+      if (34665 in first || 34853 in first) kinds.add('EXIF');
+      if (700 in first) kinds.add('XMP');
+    } else if (format === 'webp' && bytes.length > 20 && text(bytes.subarray(12), 4) === 'VP8X') {
+      if (bytes[20] & 0x08) kinds.add('EXIF');
+      if (bytes[20] & 0x04) kinds.add('XMP');
+    }
+  } catch {
+    /* Damaged metadata is not worth keeping. */
+  }
+  return kinds.size ? `the ${[...kinds].join(' and ')} metadata` : undefined;
+}
+
+/** The animation flag of a WebP's VP8X header (WebP container specification). */
+const isAnimatedWebp = (head: Uint8Array) =>
+  head.length > 20 && String.fromCharCode(...head.subarray(12, 16)) === 'VP8X' && (head[20] & 0x02) !== 0;
+
 
 const resolution = (dpi: number): PhotoDocument['resolution'] => ({
   horizontalResolution: dpi,
@@ -319,7 +441,8 @@ const resolution = (dpi: number): PhotoDocument['resolution'] => ({
   heightUnit: 'Inches',
 });
 
-export type OpenOptions = DecodeOptions & { source?: RecentSource };
+// `recent: false`: a temporary tab (the Image Processor's), not one for Open Recent.
+export type OpenOptions = DecodeOptions & { source?: RecentSource; recent?: boolean };
 
 // Copies made by inMemoryFile, which need no second copy.
 const copies = new WeakSet<Blob>();
@@ -376,11 +499,12 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     if (source.kind === 'puter' && ((isProject && lower.endsWith('.photo')) || (isPsd && /\.ps[db]$/.test(lower)))) s.storage.path = source.path;
     s.saved = s.doc;
     s.fileName = name;
+    leftOutOfFile.delete(s);
     e.selected = s.doc.layers.at(-1)?.id ?? '';
     if (s.doc.animation) e.dock?.show('timeline');
     e.fit();
     e.update();
-    noteRecent(e, name, source);
+    if (opts.recent !== false) noteRecent(e, name, source);
     e.message(isPsd ? 'PSD opened' : 'Project opened');
     if ('notice' in loaded && loaded.notice) information('PSD import', `<p>${escapeXML(String(loaded.notice))}</p>`);
     openedFiles.set(s, { blob, name, path: source.kind === 'puter' ? source.path : undefined });
@@ -435,12 +559,15 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   if (savesBack && source.kind === 'puter') s.storage.path = source.path;
   s.saved = s.doc;
   s.fileName = name;
+  const path = source.kind === 'puter' ? source.path : undefined;
+  if (decoded.leftOut?.length) leftOutOfFile.set(s, { name, path, what: decoded.leftOut });
+  else leftOutOfFile.delete(s);
   e.selected = doc.layers.at(decoded.animation ? 0 : -1)!.id;
   // Animations open with the Timeline showing.
   if (doc.animation) e.dock?.show('timeline');
   e.fit();
   e.update();
-  noteRecent(e, name, source);
+  if (opts.recent !== false) noteRecent(e, name, source);
   e.message(decoded.notice ?? (doc.animation ? `Opened ${name} as a ${doc.animation.frames.length}-frame animation` : `Opened ${name}`));
   openedFiles.set(s, { blob, name, path: source.kind === 'puter' ? source.path : undefined });
   void emitAppEvent('open-document', s);

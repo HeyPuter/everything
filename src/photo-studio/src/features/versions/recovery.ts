@@ -11,6 +11,7 @@ import { deserialize, serialize } from '../../model/serialization';
 import { liveInstances, RecoveryStore, relativeTime, type RecoveryRecord } from '../../persistence/versions';
 import { documentThumbnail } from './thumbs';
 import { ownerOf } from '../embedded/owners';
+import { leftOutOfFile } from '../files/left-out';
 
 const store = new RecoveryStore();
 const instance = crypto.randomUUID();
@@ -68,39 +69,59 @@ export async function recoveryTick(e: Editor) {
   }
 }
 
+// The last failure reported for a document, so each is said once, not on every pass.
+const reported = new WeakMap<DocumentSession, string>();
+
+/** Write each document's record; one that cannot be written (too large for
+ * a project, browser storage full) is reported and does not stop the others. */
 async function writeRecovery(e: Editor) {
   const needed = recoverySessions(e);
   for (const s of [...e.sessions]) {
     if (!s.hasDocument || !e.sessions.includes(s)) continue;
-    if (!needed.has(s)) {
-      if (recovered.has(s)) {
-        recovered.delete(s);
-        await store.remove(s.id);
-      }
-      continue;
+    try {
+      await writeRecord(e, s, needed);
+      reported.delete(s);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (reported.get(s) === text) continue;
+      reported.set(s, text);
+      console.error(error);
+      e.message(`“${s.doc.name}” could not be kept for recovery: ${text} Save it to keep its changes.`);
     }
-    const owner = ownerOf(s);
-    const parent = owner && e.sessions.includes(owner.parent)
-      ? { sessionId: owner.parent.id, contents: owner.contents, layerId: owner.layerId, name: owner.name, parentName: owner.parent.doc.name }
-      : undefined;
-    const fileName = s.fileName;
-    const path = s.storage.path;
-    const metadataKey = JSON.stringify([parent, fileName, path]);
-    const clean = !s.dirty;
-    const previous = recovered.get(s);
-    if (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision && previous.clean === clean && previous.metadataKey === metadataKey) continue;
-    const doc = s.doc;
-    const extrasRevision = s.extrasRevision;
-    const project = await serialize(doc, s.assets);
-    const thumb = await documentThumbnail(e, s, 160, doc).catch(() => undefined);
-    // Saved or closed while the record was being written: nothing to recover.
-    if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) continue;
-    await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName, path, time: Date.now(), project, thumb, clean, parent });
-    recovered.set(s, { doc, extrasRevision, clean, metadataKey });
-    if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) {
+  }
+}
+
+async function writeRecord(e: Editor, s: DocumentSession, needed: Set<DocumentSession>) {
+  if (!needed.has(s)) {
+    if (recovered.has(s)) {
       recovered.delete(s);
       await store.remove(s.id);
     }
+    return;
+  }
+  const owner = ownerOf(s);
+  const parent = owner && e.sessions.includes(owner.parent)
+    ? { sessionId: owner.parent.id, contents: owner.contents, layerId: owner.layerId, name: owner.name, parentName: owner.parent.doc.name }
+    : undefined;
+  const fileName = s.fileName;
+  const path = s.storage.path;
+  // What of its source file was not opened goes along, so Save still asks after a restore.
+  const leftOut = leftOutOfFile.get(s);
+  const metadataKey = JSON.stringify([parent, fileName, path, leftOut]);
+  const clean = !s.dirty;
+  const previous = recovered.get(s);
+  if (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision && previous.clean === clean && previous.metadataKey === metadataKey) return;
+  const doc = s.doc;
+  const extrasRevision = s.extrasRevision;
+  const project = await serialize(doc, s.assets);
+  const thumb = await documentThumbnail(e, s, 160, doc).catch(() => undefined);
+  // Saved or closed while the record was being written: nothing to recover.
+  if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) return;
+  await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName, path, time: Date.now(), project, thumb, clean, parent, ...(leftOut ? { leftOut } : {}) });
+  recovered.set(s, { doc, extrasRevision, clean, metadataKey });
+  if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) {
+    recovered.delete(s);
+    await store.remove(s.id);
   }
 }
 
@@ -219,6 +240,7 @@ async function restoreRecord(e: Editor, r: RecoveryRecord) {
   s.hasDocument = true;
   s.fileName = r.fileName;
   if (r.path) s.storage.path = r.path;
+  if (r.leftOut && Array.isArray(r.leftOut.what)) leftOutOfFile.set(s, r.leftOut);
   // Unchanged ancestors retain their saved state; edited contents stay dirty.
   s.saved = r.clean ? s.doc : undefined;
   e.session = s;

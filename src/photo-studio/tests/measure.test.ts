@@ -104,6 +104,17 @@ describe('measurement scale and units', () => {
     expect(rulerUnitScale(doc, 'percent')).toEqual({ x: 6, y: 3 });
     expect(rulerUnitScale(doc, 'bogus')).toEqual({ x: 1, y: 1 });
   });
+  it('counts a flipped view’s ruler from right to left', () => {
+    // A 400 px wide image at 100%, mirrored: its left edge (0) is at 500 on screen.
+    const labels = (html: string) => [...html.matchAll(/left:([-\d.]+)px"><b>([-\d.]+)<\/b>/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    const flipped = labels(rulerTicks(600, 500, -1));
+    expect(flipped).toContainEqual([500, 0]);
+    expect(flipped).toContainEqual([400, 100]);
+    expect(flipped).toContainEqual([100, 400]);
+    expect(flipped.every(([x]) => x >= 0 && x <= 600)).toBe(true);
+    // The same steps as the unflipped ruler.
+    expect(labels(rulerTicks(600, 100, 1)).length).toBe(flipped.length);
+  });
 });
 
 describe('sampling averages', () => {

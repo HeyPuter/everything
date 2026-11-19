@@ -125,3 +125,111 @@ test('the start screen fits a narrow window', async ({ page }) => {
       .getByRole('button', { name: 'New document', exact: true }),
   ).toBeVisible();
 });
+
+test('Properties shows an empty state on the start screen instead of fields that ignore input', async ({
+  page,
+}) => {
+  await boot(page);
+  const properties = page.locator('.panel-body[aria-label="Properties"]');
+  await expect(properties).toContainText('Properties of the open image appear here');
+  await expect(properties.locator('input, select')).toHaveCount(0);
+  await openFiles(page, await png(page, 'shown.png', 64, 48));
+  await expect(properties.locator('input').first()).toBeVisible();
+  await expect(properties).not.toContainText('appear here');
+});
+
+test('with no document open, zoom and close commands are disabled and Window › Documents lists nothing', async ({
+  page,
+}) => {
+  await boot(page);
+  const ids = [
+    'view.zoom-in',
+    'view.zoom-out',
+    'view.fit',
+    'view.fill',
+    'view.actual-pixels',
+    'view.zoom-200',
+    'file.close',
+    'file.close-all',
+    'edit.toggle-last-state',
+  ];
+  const states = () =>
+    page.evaluate(async (ids) => {
+      const { resolveMenu, withContributions } = await import('/src/app/menubar.ts');
+      const { menuSkeleton } = await import('/src/app/menus.ts');
+      const found: Record<string, boolean> = {};
+      const walk = (items: ReturnType<typeof resolveMenu>) => {
+        for (const i of items) {
+          if (i.kind === 'command') found[i.id] = i.enabled;
+          else if (i.kind === 'submenu') walk(i.items);
+        }
+      };
+      for (const m of menuSkeleton)
+        walk(resolveMenu(window.photoStudio, withContributions(m.id, m.items), m.id));
+      return {
+        enabled: ids.filter((id) => found[id]),
+        documents: Object.keys(found).filter((id) => id.startsWith('window.document-')),
+      };
+    }, ids);
+  expect(await states()).toEqual({ enabled: [], documents: [] });
+  await openFiles(page, await png(page, 'open.png', 64, 48));
+  const open = await states();
+  expect(open.enabled).toEqual(ids.filter((id) => id !== 'edit.toggle-last-state'));
+  expect(open.documents).toEqual(['window.document-0']);
+});
+
+test('Tab on the start screen skips the covered canvas, its tab and the dimmed tool options', async ({
+  page,
+}) => {
+  await boot(page);
+  const stops: string[] = [];
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab');
+    stops.push(
+      await page.evaluate(() => {
+        const a = document.activeElement as HTMLElement;
+        return a.closest('#empty') ? 'start' : a.id || a.className;
+      }),
+    );
+    if (stops.at(-1) === 'start') break;
+  }
+  expect(stops.at(-1)).toBe('start');
+  expect(stops).not.toContain('viewport');
+  expect(stops.filter((s) => /document-tab|tab-close|auto-select|transform/.test(s))).toEqual([]);
+  await openFiles(page, await png(page, 'open.png', 64, 48));
+  await page.locator('#viewport').focus();
+  await expect(page.locator('#viewport')).toBeFocused();
+  await expect(page.locator('#auto-select')).toBeEnabled();
+  await page.locator('#auto-select').focus();
+  await expect(page.locator('#auto-select')).toBeFocused();
+});
+
+test('closing the last document clears the Navigator and History and disables their controls', async ({
+  page,
+}) => {
+  await boot(page);
+  await openFiles(page, await png(page, 'shown.png', 120, 90));
+  await page.evaluate(() => window.photoStudio.dock.show('navigator'));
+  const painted = () =>
+    page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>('.navigator-view canvas')!;
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      return d.some((v, i) => i % 4 === 3 && v > 0);
+    });
+  await expect.poll(painted).toBe(true);
+  const zoom = page.locator('.navigator-zoom input');
+  await expect(zoom).toBeEnabled();
+  await page.evaluate(async () => {
+    while (window.photoStudio.hasDocument) await window.photoStudio.runCommand('file.close');
+  });
+  await expect(page.locator('#empty')).toBeVisible();
+  await page.evaluate(() => window.photoStudio.dock.show('navigator'));
+  await expect(zoom).toBeDisabled();
+  await expect(page.locator('.navigator-box')).toBeHidden();
+  expect(await painted()).toBe(false);
+  // History lists no steps of the closed image and offers no snapshot.
+  await page.evaluate(() => window.photoStudio.dock.show('history'));
+  const history = page.locator('.panel-body[aria-label="History"]');
+  await expect(history.locator('.history-row')).toHaveCount(0);
+  await expect(history.getByRole('button', { name: 'Create new snapshot' })).toBeDisabled();
+});

@@ -24,6 +24,10 @@ for (const failFirst of [false, true]) {
         }
         return save.call(this, record);
       };
+      // A failed write is reported, not thrown: the pass goes on to the other documents.
+      const messages: string[] = [];
+      const message = e.message.bind(e);
+      e.message = (text: string) => { messages.push(text); message(text); };
       e.command('First edit', (d) => { d.name = 'First'; });
       const first = recoveryTick(e).then(() => '', (error: Error) => error.message);
       await writing;
@@ -36,10 +40,11 @@ for (const failFirst of [false, true]) {
       const [error] = await Promise.all([first, later]);
       const record = (await new RecoveryStore().list()).find((r) => r.sessionId === e.session.id)!;
       const loaded = await deserialize(record.project);
-      const result = { name: record.name, savedName: loaded.document.name, opacity: loaded.document.layers[0].opacity, writes, error };
+      const reported = messages.some((m) => m.includes('could not be kept for recovery: Temporary storage failure'));
+      const result = { name: record.name, savedName: loaded.document.name, opacity: loaded.document.layers[0].opacity, writes, error, reported };
       loaded.assets.clear();
       return result;
     }, failFirst);
-    expect(result).toEqual({ name: 'Latest', savedName: 'Latest', opacity: 0.5, writes: 2, error: failFirst ? 'Temporary storage failure' : '' });
+    expect(result).toEqual({ name: 'Latest', savedName: 'Latest', opacity: 0.5, writes: 2, error: '', reported: failFirst });
   });
 }

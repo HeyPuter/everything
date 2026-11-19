@@ -53,8 +53,9 @@ test('keys inside the element are not editor shortcuts', async ({ page }) => {
   await expect(page.locator('#viewport')).not.toHaveClass(/space-pan/);
   await page.keyboard.up('Space');
   expect(await page.evaluate(() => (window as unknown as { __signInClicks?: number }).__signInClicks)).toBe(1);
-  // The same key from the page is still the Brush shortcut.
-  await page.locator('#viewport').focus();
+  // The same key from the page is still the Brush shortcut (the start screen
+  // covers the canvas, which takes no focus until a document is open).
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
   await page.keyboard.press('b');
   expect(await page.evaluate(() => window.photoStudio.tool)).not.toBe(before);
 });
