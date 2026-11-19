@@ -12,12 +12,13 @@ import { decodeImage } from '../../imaging/codecs/decode';
 import { decodeIco, pickIcoEntry } from '../../imaging/codecs/ico';
 import { sniffImageFormat, type ImageFormat } from '../../imaging/codecs/sniff';
 import { applyOrientation } from '../../imaging/codecs/orientation';
-import { readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
+import { readPngChunks, readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
 import {
   readJpegDensity,
   readJpegIcc,
   readJpegInfo,
   readJpegSegments,
+  readExifOrientation,
 } from '../../imaging/codecs/jpeg-markers';
 import { listTiffTags } from '../../imaging/codecs/tiff';
 import { checkSize } from '../../imaging/codecs/bytes';
@@ -245,9 +246,15 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
     } catch {
       deep = null; // Let the browser report or recover from damage.
     }
-    if (deep)
+    if (deep) {
+      // The browser turns 8-bit PNGs upright by their eXIf orientation; these
+      // samples are read here, so they are turned the same way.
+      const o = pngOrientation(bytes);
+      const image = applyOrientation({ width: deep.width, height: deep.height, data: rgba16To8(deep.data16) }, o);
+      const data = orient(deep.data16, deep.width, deep.height, o);
       // Unconverted samples: tag the document only when the profile is usable.
-      return { image: { width: deep.width, height: deep.height, data: rgba16To8(deep.data16) }, deep: { data: deep.data16, depth: 16 }, icc: keep ? icc : undefined, dpi, notice: icc && !keep ? 'The embedded color profile is not an RGB matrix profile and was not applied.' : undefined };
+      return { image, deep: { data, depth: 16 }, icc: keep ? icc : undefined, dpi, notice: icc && !keep ? 'The embedded color profile is not an RGB matrix profile and was not applied.' : undefined };
+    }
   }
   checkBrowserImage(bytes);
   const blob = new Blob([bytes.slice()], { type: png ? 'image/png' : 'image/jpeg' });
@@ -259,6 +266,19 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
   // The browser turns CMYK JPEGs into RGB.
   if (!png && jpegComponents(bytes) === 4) leaveOut(out, 'the CMYK colors');
   return out;
+}
+
+/** The orientation (1-8) of a PNG's eXIf chunk, which precedes the image data. */
+function pngOrientation(bytes: Uint8Array): number | undefined {
+  try {
+    for (const c of readPngChunks(bytes)) {
+      if (c.type === 'IDAT') return undefined;
+      if (c.type === 'eXIf') return readExifOrientation(c.data);
+    }
+  } catch {
+    /* Damaged metadata does not prevent opening the pixels. */
+  }
+  return undefined;
 }
 
 const jpegComponents = (bytes: Uint8Array) => {
