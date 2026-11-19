@@ -2095,6 +2095,8 @@ dialog.ai-workspace { width: min(480px, calc(100vw - 32px)); height: fit-content
 .contextual-taskbar.dragging .taskbar-grip { cursor: grabbing; }
 .contextual-taskbar.dragging { box-shadow: 0 8px 26px #0009; }
 .contextual-taskbar .taskbar-more { padding: 0 7px; color: var(--muted); }
+.contextual-taskbar.compact button { padding: 0 7px; }
+.contextual-taskbar.compact button > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .contextual-taskbar button[aria-haspopup="menu"] svg:last-child:not(:first-child) { opacity: 0.7; margin-left: -2px; }
 .contextual-taskbar button:disabled { opacity: 0.45; }
 .contextual-taskbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
