@@ -202,6 +202,16 @@ registerEffect({
   readout: true,
 });
 
+/**
+ * The stretch (%) Stretch and Pitch applies to `frames` of audio: its Stretch
+ * setting, or with Lock Stretch Settings to New Duration whatever makes the
+ * result last `targetDuration` seconds (within the 10..1000 % range).
+ */
+export function effectiveStretch(v, frames, rate) {
+  if (!v.lockDuration || !(v.targetDuration > 0) || !(frames > 0)) return v.stretch;
+  return Math.min(1000, Math.max(10, ((v.targetDuration * rate) / frames) * 100));
+}
+
 registerEffect({
   id: 'stretchPitch',
   name: 'Stretch and Pitch',
@@ -216,6 +226,9 @@ registerEffect({
     choice('precision', 'Precision', PRECISION, 1),
     bool('lockChannels', 'Lock Stereo Channels', true),
     bool('formants', 'Preserve Formants', false),
+    // Keeps the new duration instead of the stretch, for any selection (favorites, batch runs).
+    bool('lockDuration', 'Lock Stretch Settings to New Duration', false),
+    num('targetDuration', 'New Duration', 0, 86400, 0, 's', { step: 0.001, hidden: true }),
   ],
   presets: [
     preset('No Change', { algorithm: 0, stretch: 100, semitones: 0, cents: 0 }),
@@ -230,11 +243,11 @@ registerEffect({
     preset('Tape Half Speed', { algorithm: 2, stretch: 200, semitones: 0, cents: 0 }),
   ],
   /** Output length in frames for an input of `frames` (for the dialog's duration readout). */
-  outputLength: (v, frames) => Math.round((frames * v.stretch) / 100),
+  outputLength: (v, frames, rate = 48000) => Math.round((frames * effectiveStretch(v, frames, rate)) / 100),
   /** Varispeed ties pitch to stretch: the dialog should disable pitch for it. */
   pitchLocked: (v) => v.algorithm === 2,
   run: async ({ channels, rate, values: v, dsp, onProgress, signal }) => {
-    const stretch = v.stretch / 100;
+    const stretch = effectiveStretch(v, channels[0]?.length || 0, rate) / 100;
     const pitch = pitchRatio(v.semitones, v.cents);
     const flags = (v.lockChannels ? 1 : 0) | (v.formants ? 2 : 0);
     if (v.algorithm === 2) return runTimePitch(dsp, channels, rate, { mode: 2, pitch: 1 / stretch }, { onProgress, signal });
