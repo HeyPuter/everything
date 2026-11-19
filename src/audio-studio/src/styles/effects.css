@@ -1708,7 +1708,7 @@ input[type='range'].fx-slider:disabled {
   container-type: inline-size;
 }
 
-/* The list, and the selected favorite's actions and settings beside it in wide frames. */
+/* The list, and the selected favorite's actions and settings beside it (under it in narrow frames). */
 .fav-split {
   display: grid;
   flex: 1;
@@ -1744,13 +1744,17 @@ input[type='range'].fx-slider:disabled {
   width: auto;
 }
 
+/* Narrow frames stack the selected favorite's steps under the list. */
 @container (max-width: 420px) {
   .fav-split {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(60px, 1fr) minmax(0, auto);
   }
 
   .fav-details {
-    display: none;
+    max-height: 45cqh;
+    border-left: 0;
+    border-top: 1px solid var(--border-soft);
   }
 }
 
