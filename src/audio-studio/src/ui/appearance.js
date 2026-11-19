@@ -51,6 +51,7 @@ export const TEXT_TOKENS = [
   '--text-faint',
   '--accent-strong',
   '--hot',
+  '--tab-mark',
 ];
 const TEXT_SURFACES = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input'];
 
@@ -209,7 +210,7 @@ export function markerColor(type) {
   return (type && type !== 'cue' && cssVar(`--marker-${type}`)) || cssVar('--marker');
 }
 
-const APPLIED = ['--text-strong', '--text', '--text-dim', '--text-faint', '--accent', '--accent-strong', '--accent-soft', '--accent-fill', '--accent-fill-hover', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
+const APPLIED = ['--text-strong', '--text', '--text-dim', '--text-faint', '--tab-mark', '--accent', '--accent-strong', '--accent-soft', '--accent-fill', '--accent-fill-hover', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
 let lastKey = '';
 
 /** Writes the appearance properties onto <html>; repaints (via 'themechange') when they changed. */

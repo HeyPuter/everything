@@ -393,7 +393,6 @@ puter-user-menu::part(apps-panel) {
   flex: none;
   overflow-x: auto;
   scrollbar-width: none;
-  border-bottom: 1px solid var(--border-soft);
 }
 
 .panel-tabs::-webkit-scrollbar {
@@ -428,7 +427,8 @@ puter-user-menu::part(apps-panel) {
   bottom: 3px;
   height: 2px;
   border-radius: 1px;
-  background: var(--accent);
+  /* Neutral: the accent marks the focused frame (its border), not every group's current tab. */
+  background: var(--tab-mark);
 }
 
 .panel-menu-btn {
