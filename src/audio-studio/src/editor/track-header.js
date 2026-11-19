@@ -14,6 +14,7 @@ import { formatGainShort, formatPan, parseGain, parsePan, formatGain } from '../
 import { getEffect } from '../effects/registry.js';
 import { MeterBar } from '../multitrack/meter.js';
 import { SendControls, EqControls, toggleTrackEffect } from '../multitrack/send-eq.js';
+import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
 
 export class TrackHeader {
   /**
@@ -283,7 +284,16 @@ export class TrackHeader {
         return h(
           `span.mt-th-fxname${on ? '' : '.off'}`,
           h('button.mt-th-fxpower', { type: 'button', 'aria-pressed': String(on), 'aria-label': `${name} power`, title: on ? 'Bypass this effect' : 'Turn this effect on', onclick: () => toggleTrackEffect(this.doc, this.id, i) }, icon('power', 10)),
-          h('span.mt-th-fxlabel', name),
+          h('button.mt-th-fxlabel', {
+            type: 'button',
+            title: `${name}: edit settings (right-click for more)`,
+            onclick: () => editTrackEffect(this.app, this.doc, this.id, i),
+            oncontextmenu: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openTrackSlotMenu(this.app, this.doc, this.id, i, e.currentTarget);
+            },
+          }, name),
         );
       });
     this.fxList.replaceChildren(...(chips.length ? chips : [h('span.mt-th-fxname.empty', 'No effects')]));

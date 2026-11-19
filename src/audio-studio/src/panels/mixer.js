@@ -13,6 +13,7 @@ import { knob, hotNumber } from '../ui/controls.js';
 import { getEffect } from '../effects/registry.js';
 import { allTracks, wouldCycle, SILENT_DB, MAX_DB, AUTOMATION_MODES } from '../model/session-edits.js';
 import { SendControls, EqControls, toggleTrackEffect } from '../multitrack/send-eq.js';
+import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
 import { dbToFader, faderToDb, formatGain, formatGainShort, formatPan, parseGain } from '../multitrack/levels.js';
 import { MeterBar, METER_RANGE } from '../multitrack/meter.js';
 
@@ -164,19 +165,28 @@ class Strip {
     if (track.type !== 'master') for (const b of state.tracks) if (b.type === 'bus' && b.id !== track.id && !wouldCycle(state, track.id, b.id)) outs.push(h('option', { value: b.id }, b.name));
     this.output.replaceChildren(...outs);
     this.output.value = track.output || 'master';
-    // Every effect (the list scrolls past four), each with its own power, then empty slots up to four.
-    const edit = () => this.app.commands.run('mt.trackEffects', { id: this.id });
-    const filled = track.fx.map((s, i) => [s, i]).filter(([s]) => s);
-    const rows = filled.map(([s, i]) => {
+    // Slots in rack order (the list scrolls past four): each effect with its power and a menu to
+    // replace, edit or remove it; empty slots up to four (and gaps) take an effect from their menu.
+    const last = track.fx.reduce((n, s, i) => (s ? i : n), -1);
+    const rows = [];
+    for (let i = 0; i < Math.max(4, last + 1); i++) {
+      const s = track.fx[i];
+      const menu = (e) => openTrackSlotMenu(this.app, this.doc, this.id, i, e.currentTarget.closest('.mx-fx-slot'));
+      if (!s) {
+        rows.push(h('button.mx-fx-slot.empty', { type: 'button', 'aria-label': `Empty effect slot ${i + 1}, add an effect`, 'aria-haspopup': 'menu', onclick: menu }));
+        continue;
+      }
       const name = getEffect(s.effect)?.name || 'Effect';
       const on = s.enabled !== false;
-      return h(
-        `div.mx-fx-slot${on ? '' : '.off'}`,
-        h('button.mx-fx-power', { type: 'button', 'aria-pressed': String(on), 'aria-label': `${name} power`, title: on ? 'Bypass this effect' : 'Turn this effect on', onclick: () => toggleTrackEffect(this.doc, this.id, i) }, icon('power', 10)),
-        h('button.mx-fx-name', { type: 'button', 'aria-label': `${name}${on ? '' : ' (off)'}, edit effects`, onclick: edit }, name),
+      rows.push(
+        h(
+          `div.mx-fx-slot${on ? '' : '.off'}`,
+          h('button.mx-fx-power', { type: 'button', 'aria-pressed': String(on), 'aria-label': `${name} power`, title: on ? 'Bypass this effect' : 'Turn this effect on', onclick: () => toggleTrackEffect(this.doc, this.id, i) }, icon('power', 10)),
+          h('button.mx-fx-name', { type: 'button', 'aria-label': `${name}${on ? '' : ' (off)'}, edit settings`, title: `${name}: edit settings`, onclick: () => editTrackEffect(this.app, this.doc, this.id, i) }, name),
+          h('button.mx-fx-menu', { type: 'button', 'aria-label': `Slot ${i + 1} menu`, 'aria-haspopup': 'menu', title: 'Replace, bypass or remove', onclick: menu }, icon('chevron-right', 10)),
+        ),
       );
-    });
-    for (let i = rows.length; i < 4; i++) rows.push(h('button.mx-fx-slot.empty', { type: 'button', 'aria-label': `Empty effect slot ${i + 1}, add an effect`, onclick: edit }));
+    }
     this.fxRows.replaceChildren(...rows);
     this.fader.setAttribute('aria-label', `${track.name} volume`);
     this.sends?.update(track);

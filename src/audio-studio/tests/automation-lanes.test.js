@@ -202,3 +202,22 @@ describe('properties panel edits', () => {
     expect(doc.state.beatsPerBar).toBe(3);
   });
 });
+
+describe('track effect slots in place', () => {
+  it('inserts, bypasses and removes an effect from a slot menu', async () => {
+    const { trackSlotMenu } = await import('../src/multitrack/fx-slots.js');
+    const { app, doc } = await appWithSession();
+    const id = doc.state.tracks[0].id;
+    const menu = trackSlotMenu(app, doc, id, 2);
+    const first = menu.find((m) => m.type === 'sub').items[0];
+    first.run();
+    const fx = S.findTrack(doc.state, id).fx;
+    expect(fx[2]?.effect).toBeTruthy();
+    expect(doc.history.undoLabel).toBe('Add Effect');
+    const again = trackSlotMenu(app, doc, id, 2);
+    again.find((m) => m.label === 'Turn Off').run();
+    expect(S.findTrack(doc.state, id).fx[2].enabled).toBe(false);
+    trackSlotMenu(app, doc, id, 2).find((m) => m.label === 'Remove Effect').run();
+    expect(S.findTrack(doc.state, id).fx.filter(Boolean)).toEqual([]);
+  });
+});

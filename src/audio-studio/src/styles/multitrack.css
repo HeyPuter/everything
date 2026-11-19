@@ -380,8 +380,20 @@
 
 .mt-th-fxlabel {
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mt-th-fxlabel:hover {
+  color: var(--text-strong);
+  text-decoration: underline;
 }
 
 .mt-th-fxpower {
@@ -797,6 +809,39 @@
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+.mx-fx-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 14px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--divider);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.mx-fx-menu:hover,
+.mx-fx-slot.empty:hover {
+  color: var(--text-strong);
+  background: var(--bg-hover);
+}
+
+.mx-fx-slot.empty::after {
+  content: '+';
+  margin: 0 auto;
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.mx-fx-slot.empty:hover::after,
+.mx-fx-slot.empty:focus-visible::after {
+  opacity: 1;
 }
 
 .mx-fx-slot.empty {
