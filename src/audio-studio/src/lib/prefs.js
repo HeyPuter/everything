@@ -138,6 +138,9 @@ export const DEFAULTS = {
   // Video
   videoZoom: 'fit',
   videoFullscreen: true, // double-click the Video panel for full screen
+  videoResolution: 'full', // 'full' | '2' | '4' | '8': the picture drawn at that fraction of its size
+  videoFullOnStop: true,
+  videoSpot: true, // dragging an audio clip shows the frame at its start
   videoTimecode: false,
   videoTcSize: 30, // percent
   videoTcOpacity: 65, // percent

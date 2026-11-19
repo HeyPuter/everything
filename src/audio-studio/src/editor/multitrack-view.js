@@ -1961,6 +1961,8 @@ export class MultitrackView {
         doc.preview(S.moveClips(d.state0, d.ids, dt, target - d.rowIndex, { copy: d.copy }));
         this.snapLine = sn.at;
         d.dt = dt;
+        // The Video panel shows the picture where the clip now starts (Preferences > Video).
+        this.app.emit('clip-spot', doc, Math.max(0, d.lead.start + dt));
         this.#status(`Move ${dt >= 0 ? '+' : '-'}${this.app.formatTime(Math.abs(dt), doc.sampleRate)}`);
         break;
       }
@@ -1979,6 +1981,8 @@ export class MultitrackView {
           break;
         }
         doc.preview(S.trimClip(d.state0, d.id, d.edge, to, doc.sourceLength(c.sourceId)));
+        const trimmed = S.findClip(doc.viewState, d.id);
+        if (trimmed) this.app.emit('clip-spot', doc, d.edge === 'in' ? trimmed.start : S.clipEnd(trimmed));
         break;
       }
       case 'stretch': {
@@ -2100,6 +2104,7 @@ export class MultitrackView {
   #dragEnd(e) {
     const d = this.drag;
     this.drag = null;
+    if (d.kind === 'move' || d.kind === 'trim') this.app.emit('clip-spot', this.doc, null);
     this.snapLine = null;
     const doc = this.doc;
     const { x } = this.#local(e);
@@ -2210,6 +2215,7 @@ export class MultitrackView {
 
   #cancelDrag() {
     if (!this.drag) return;
+    if (this.drag.kind === 'move' || this.drag.kind === 'trim') this.app.emit('clip-spot', this.doc, null);
     this.drag = null;
     this.snapLine = null;
     this.doc.preview(null);

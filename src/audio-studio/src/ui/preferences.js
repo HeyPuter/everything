@@ -23,7 +23,7 @@ import { icon } from './icons.js';
 import { TIME_FORMATS } from '../lib/time.js';
 import { WINDOWS, FFT_SIZES, FLOORS, settings as spectralSettings, setSettings as setSpectralSettings } from '../spectral/state.js';
 import { ACCENTS, WAVE_PRESETS, EDITOR_COLORS, COLOR_FIELDS, cleanColor, toHex } from './appearance.js';
-import { VIDEO_ZOOMS } from '../video/video-panel.js';
+import { VIDEO_ZOOMS, VIDEO_RESOLUTIONS } from '../video/video-panel.js';
 import { cssVar } from './theme.js';
 import { LOOKS, lookPicker } from './looks.js';
 import { formatBytesShort } from '../export/formats.js';
@@ -376,6 +376,9 @@ export const CATEGORIES = [
         title: 'Video Display',
         items: [
           select('videoZoom', 'Scaling', VIDEO_ZOOMS.map((z) => ({ value: z.id, label: z.label }))),
+          select('videoResolution', 'Resolution', VIDEO_RESOLUTIONS.map((r) => ({ value: r.id, label: r.label })), { keywords: 'preview quality performance playback', help: 'A smaller picture is lighter to draw during playback on a slow computer.' }),
+          check('videoFullOnStop', 'Full resolution when stopped', { enabledIf: (p) => String(p.get('videoResolution') || 'full') !== 'full' }),
+          check('videoSpot', 'Show the frame where a clip starts while dragging or trimming audio clips', { keywords: 'spot sync picture clip drag', help: 'The Video panel shows the picture at the dragged clip\'s start (or the trimmed edge) until the mouse is released.' }),
           check('videoFullscreen', 'Double-click the video to show it full screen'),
         ],
       },
