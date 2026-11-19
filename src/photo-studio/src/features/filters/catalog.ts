@@ -159,5 +159,5 @@ export function normalizeFor(id: string, params: Record<string, unknown>): Param
   if (id === GALLERY_ID) return { effects: galleryEffects(params as ParamValues) } as unknown as ParamValues;
   if (id === RESTORE_ID) return normalizeRestore(params) as unknown as ParamValues;
   const op = filterOp(id);
-  return op ? normalizeParams(op.params, params) : {};
+  return op ? normalizeParams(op.params, op.migrate ? op.migrate(params) : params) : {};
 }
