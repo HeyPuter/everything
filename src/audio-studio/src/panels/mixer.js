@@ -17,7 +17,10 @@ import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
 import { dbToFader, faderToDb, formatGain, formatGainShort, formatPan, parseGain } from '../multitrack/levels.js';
 import { MeterBar, METER_RANGE } from '../multitrack/meter.js';
 
-const SCALE = [15, 10, 5, 0, -5, -10, -20, -30, -40, -60];
+/** Fader scale marks; layout keeps as many as fit the fader's height (0 dB always). */
+const SCALE = [15, 12, 9, 6, 3, 0, -3, -6, -9, -12, -15, -18, -21, -24, -30, -36, -40, -45, -50, -60];
+/** Least vertical room (px) between two scale labels. */
+const SCALE_GAP = 11;
 
 /** Vertical dB fader (role=slider). */
 export function fader({ value, label, onInput, onChange }) {
@@ -124,7 +127,8 @@ class Strip {
     this.name = h('div.mx-name');
     this.sends = isMaster ? null : new SendControls(app, doc, track.id);
     this.eq = new EqControls(app, doc, track.id);
-    const scale = h('div.mx-scale', { 'aria-hidden': 'true' }, SCALE.map((db) => h('span', { style: { bottom: `calc(${(dbToFader(db) * 100).toFixed(2)}% - ${(dbToFader(db) * 18 - 9).toFixed(1)}px)` } }, db > 0 ? `+${db}` : String(db))));
+    const scale = h('div.mx-scale', { 'aria-hidden': 'true' }, SCALE.map((db) => h('span', { dataset: { db: String(db) }, style: { bottom: `calc(${(dbToFader(db) * 100).toFixed(2)}% - ${(dbToFader(db) * 18 - 9).toFixed(1)}px)` } }, db > 0 ? `+${db}` : String(db))));
+    this.scaleEl = scale;
     // Meter scale: dBFS every 12 dB beside the meter.
     const mscale = h('div.mx-mscale', { 'aria-hidden': 'true' }, [0, -12, -24, -36, -48, -60].map((db) => h('span', { style: { bottom: `${((METER_RANGE + db) / METER_RANGE) * 100}%` } }, String(db))));
     this.el = h(
@@ -194,6 +198,18 @@ class Strip {
     this.sends?.update(track);
     this.eq.update(track);
     this.values();
+  }
+
+  /** Shows the scale labels that fit the fader's current height without crowding. */
+  fitScale() {
+    const hgt = this.scaleEl.clientHeight;
+    if (!hgt || hgt === this.scaleHeight) return;
+    this.scaleHeight = hgt;
+    // The thumb's 18 px are taken out of the travel, as in the label positions.
+    const y = (db) => (1 - dbToFader(db)) * (hgt - 18);
+    const kept = [0];
+    for (const db of SCALE) if (db !== 0 && kept.every((k) => Math.abs(y(k) - y(db)) >= SCALE_GAP)) kept.push(db);
+    for (const span of this.scaleEl.children) span.hidden = !kept.includes(Number(span.dataset.db));
   }
 
   values() {
@@ -314,6 +330,7 @@ export function mixerPanel(app) {
       el.classList.toggle(`mx-hide-${b.dataset.sec}`, on);
     }
     if (!doc || !visible) return;
+    for (const st of strips.values()) st.fitScale();
     const first = scroller.firstElementChild;
     const master = masterBox.firstElementChild;
     const masterSends = master?.querySelector(".mx-sec[data-sec='sends']");
@@ -346,6 +363,8 @@ export function mixerPanel(app) {
     for (const [id, s] of strips) s.meter.feed(s.track.type === 'master' ? m.master : m.tracks.get(id) || [0, 0]);
     schedule();
   });
+  // A taller or shorter panel fits more or fewer fader scale labels.
+  if (globalThis.ResizeObserver) new ResizeObserver(() => visible && doc && strips.forEach((st) => st.fitScale())).observe(el);
   app.on('active', render);
   app.on('doc-change', (d, e) => {
     if (d !== app.active || d.kind !== 'session') return;
