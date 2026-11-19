@@ -181,6 +181,15 @@ export function bindCanvas(e: Editor) {
       if (gesture) return;
     }
     const tool = e.activeTool;
+    // Space with Mod (or Alt) zooms in (or out) where clicked, whatever the tool.
+    if (spaceHeld && event.button === 0 && e.hasDocument && (event.metaKey || event.ctrlKey || event.altKey)) {
+      event.preventDefault();
+      const r = viewport.getBoundingClientRect();
+      const z = event.altKey ? e.zoom / 1.5 : e.zoom * 1.5;
+      if (e.preferences.zoomClickedToCenter) e.zoomBy(z, undefined, undefined, e.docPoint(event.clientX, event.clientY));
+      else e.zoomBy(z, event.clientX - r.left, event.clientY - r.top);
+      return;
+    }
     const pan = event.button === 1 || spaceHeld || (tool?.id === 'hand' && event.button === 0);
     cancelAnimationFrame(flick);
     const adjust = tool?.brush && e.hasDocument && ((event.button === 2 && event.altKey) || (isMac && event.button === 0 && event.ctrlKey && event.altKey));

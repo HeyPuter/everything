@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canvasDrag, idle, openImage, tool } from './helpers';
+import { boot, canvasDrag, client, idle, openImage, tool } from './helpers';
 
 // Spring-loaded tool keys and Reset Tool / Reset All Tools.
 
@@ -80,4 +80,25 @@ test('Reset All Tools asks first, then resets every tool', async ({ page }) => {
   await expect(page.locator('#tolerance')).toHaveValue('32');
   await tool(page, 'Brush Tool');
   await expect(page.locator('#brush-size')).toHaveValue('30');
+});
+
+test('Space with Mod or Alt zooms in or out where clicked, with any tool', async ({ page }) => {
+  await tool(page, 'Brush Tool');
+  const zoom = () => page.evaluate(() => window.photoStudio.zoom);
+  const start = await zoom();
+  const steps = await page.evaluate(() => window.photoStudio.history.labels.length);
+  const [x, y] = await client(page, 100, 60);
+  await page.locator('#viewport').focus();
+  await page.keyboard.down('Space');
+  await page.keyboard.down('Meta');
+  await page.mouse.click(x, y);
+  await page.keyboard.up('Meta');
+  await expect.poll(zoom).toBeCloseTo(start * 1.5, 3);
+  await page.keyboard.down('Alt');
+  await page.mouse.click(x, y);
+  await page.keyboard.up('Alt');
+  await page.keyboard.up('Space');
+  await expect.poll(zoom).toBeCloseTo(start, 3);
+  // Nothing was painted.
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(steps);
 });
