@@ -781,9 +781,16 @@ describe('automation that follows clips', () => {
     const lane = S.findTrack(out, id).automation.volume;
     expect(lane.find((p) => p.v === -12).t).toBe(3500);
     expect(lane.some((p) => p.t === 1500)).toBe(false);
-    // Moving to another track leaves the lanes alone.
+    // Moving to another track takes the keyframes to its matching lane.
     const across = S.moveClips(st, [c.id], 2000, 1);
-    expect(S.carryAutomation(st, across, [c.id]).tracks[0].automation.volume).toEqual(lane.length ? S.findTrack(st, id).automation.volume : []);
+    const over = S.carryAutomation(st, across, [c.id]);
+    expect(over.tracks[1].automation.volume.find((p) => p.v === -12).t).toBe(3500);
+    expect(over.tracks[0].automation.volume.some((p) => p.v === -12)).toBe(false);
+    // A send lane the destination does not have stays put.
+    let sends = S.setSend(st, id, 0, { target: 'bus1' });
+    sends = S.setAutomation(sends, id, 'send1', [{ t: 1200, v: -3 }]);
+    const kept = S.carryAutomation(sends, S.moveClips(sends, [c.id], 0, 1), [c.id]);
+    expect(kept.tracks[0].automation.send1).toEqual([{ t: 1200, v: -3 }]);
   });
 });
 

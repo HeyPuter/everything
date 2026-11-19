@@ -1064,36 +1064,50 @@ export function thinEnvelope(points, tol) {
 }
 
 /**
- * Track automation under clips that moved along their track (from `before` to `after`) moves
- * with them: the keyframes over each clip's old span (with its edge values) are shifted by the
- * clip's move, replacing what was at the destination. Clips that changed track leave the lanes alone.
+ * Track automation under moved clips (from `before` to `after`) moves with them: the keyframes over
+ * each clip's old span (with its edge values) are shifted by the clip's move, replacing what was at
+ * the destination. A clip moved to another track takes them to that track's matching lanes (the
+ * same parameter: volume, pan, mute, a routed send of the same number, the same effect slot);
+ * lanes the destination does not have stay where they were.
  */
 export function carryAutomation(before, after, ids) {
   let state = after;
-  const moves = [];
   for (const id of ids) {
     const a = findClip(before, id);
     const b = findClip(after, id);
-    if (a && b && a.trackId === b.trackId && b.start !== a.start) moves.push({ trackId: a.trackId, a: a.start, b: clipEnd(a), dt: b.start - a.start });
-  }
-  for (const m of moves) {
-    state = updateTrack(state, m.trackId, (t) => {
-      const automation = { ...t.automation };
-      for (const [param, pts] of Object.entries(t.automation)) {
-        if (!pts?.length) continue;
-        const own = staticValue(t, param);
-        const edge = (at) => ({ t: at, v: envelopeValue(pts, at, own), ...(pts.filter((p) => p.t <= at).pop()?.hold ? { hold: true } : {}) });
-        const moved = [edge(m.a), ...pts.filter((p) => p.t > m.a && p.t < m.b), edge(m.b)].map((p) => ({ ...p, t: p.t + m.dt }));
-        const to0 = m.a + m.dt;
-        const to1 = m.b + m.dt;
-        // The vacated span keeps the values around it; the destination takes the moved shape.
-        const rest = pts.filter((p) => (p.t < m.a || p.t > m.b) && (p.t < to0 || p.t > to1));
-        automation[param] = [...rest, ...moved].sort((x, y) => x.t - y.t);
-      }
-      return { automation };
-    });
+    if (!a || !b || (b.start === a.start && b.trackId === a.trackId)) continue;
+    const from = findTrack(state, a.trackId);
+    const to = findTrack(state, b.trackId);
+    if (!from || !to) continue;
+    const span = { a: a.start, b: clipEnd(a), dt: b.start - a.start };
+    const fromLanes = { ...from.automation };
+    const toLanes = from.id === to.id ? fromLanes : { ...to.automation };
+    for (const [param, pts] of Object.entries(from.automation)) {
+      if (!pts?.length || !hasLane(to, param)) continue;
+      const own = staticValue(from, param);
+      const edge = (at) => ({ t: at, v: envelopeValue(pts, at, own), ...(pts.filter((p) => p.t <= at).pop()?.hold ? { hold: true } : {}) });
+      const moved = [edge(span.a), ...pts.filter((p) => p.t > span.a && p.t < span.b), edge(span.b)].map((p) => ({ ...p, t: p.t + span.dt }));
+      const to0 = span.a + span.dt;
+      const to1 = span.b + span.dt;
+      // The vacated span keeps the values around it; the destination takes the moved shape.
+      fromLanes[param] = pts.filter((p) => p.t < span.a || p.t > span.b);
+      const dest = toLanes[param] || [];
+      toLanes[param] = [...dest.filter((p) => p.t < to0 || p.t > to1), ...moved].sort((x, y) => x.t - y.t);
+      if (from.id === to.id) fromLanes[param] = toLanes[param];
+    }
+    state = updateTrack(state, from.id, { automation: fromLanes });
+    if (from.id !== to.id) state = updateTrack(state, to.id, { automation: toLanes });
   }
   return state;
+}
+
+/** Whether a track has a lane for `param` (a routed send of that number, or that effect slot). */
+function hasLane(t, param) {
+  const ref = fxParamRef(param);
+  if (ref) return ref.slotId === 'eq' ? Boolean(t.eq) : Boolean(t.fx?.some((x) => x?.id === ref.slotId));
+  const i = sendIndexOf(param);
+  if (i >= 0) return Boolean(t.sends?.[i]?.target);
+  return ['volume', 'pan', 'mute'].includes(param) && (t.type !== 'master' || param !== 'pan');
 }
 
 /** Writes recorded automation: replaces points in [t0, t1] with `recorded`. */
