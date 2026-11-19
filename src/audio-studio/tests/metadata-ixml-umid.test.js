@@ -79,3 +79,50 @@ describe('iXML', () => {
     expect(new TextDecoder().decode(ix[0].bytes)).toContain('<X>keep</X>');
   });
 });
+
+describe('iXML Circled control', () => {
+  it('is a Yes/No choice that writes TRUE or FALSE', async () => {
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { installIo } = await import('../src/features/io.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    installIo(app);
+    app.syncGraph = () => {};
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: 1000, channels: [Channel.fromSamples(new Float32Array(10))] });
+    doc.apply('M', { ...doc.state, meta: { ixmlCircled: 'TRUE' } });
+    app.addDocument(doc);
+    const panel = app.panels.get('metadata').create(app);
+    const sel = panel.el.querySelector('select.meta-bool');
+    expect(sel.value).toBe('TRUE');
+    sel.value = 'FALSE';
+    sel.dispatchEvent(new Event('change'));
+    expect(doc.state.meta.ixmlCircled).toBe('FALSE');
+  });
+});
+
+describe('clearing every iXML field', () => {
+  it('removes the values from the file\'s own iXML chunk as well (undoably)', async () => {
+    const { withIxmlCleared } = await import('../src/panels/metadata.js');
+    const own = '<BWFXML><SCENE>4</SCENE><SPEED>x</SPEED></BWFXML>';
+    const info = { wavChunks: { sampleRate: 1000, channels: 1, frames: 10, list: [{ id: 'iXML', bytes: new TextEncoder().encode(own) }] } };
+    const doc = { info, state: { meta: { ixmlScene: '4' } } };
+    const kept = { meta: { ixmlScene: '5' } };
+    expect(withIxmlCleared(doc, kept)).toBe(kept);
+    const cleared = withIxmlCleared(doc, { meta: {} });
+    const text = new TextDecoder().decode(cleared.wavChunks.list[0].bytes);
+    expect(text).not.toContain('<SCENE>');
+    expect(text).toContain('<SPEED>x</SPEED>');
+    // No iXML values in the chunk: nothing to change.
+    const plain = { info: { wavChunks: { list: [{ id: 'iXML', bytes: new TextEncoder().encode('<BWFXML><SPEED>x</SPEED></BWFXML>') }] } } };
+    const st = { meta: {} };
+    expect(withIxmlCleared(plain, st)).toBe(st);
+  });
+});

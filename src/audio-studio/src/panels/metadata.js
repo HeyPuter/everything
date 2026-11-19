@@ -17,7 +17,8 @@
 import { h } from '../lib/dom.js';
 import { Fingerprint } from 'lucide';
 import { icon, registerIcons } from '../ui/icons.js';
-import { ALL_META_FIELDS, cleanMeta, newUmid } from '../audio/meta.js';
+import { ALL_META_FIELDS, cleanMeta, newUmid, hasIxml, parseIxml, writeIxml } from '../audio/meta.js';
+import { wavChunksOf } from '../audio/wav.js';
 import { subTabs } from './subtabs.js';
 
 /** New document state with one field changed (null when nothing changes). Pure. */
@@ -65,6 +66,24 @@ export const META_TABS = [
 ];
 
 const FIELD = new Map(ALL_META_FIELDS.map((f) => [f.id, f]));
+
+/**
+ * With every iXML field cleared, the file's own iXML chunk (kept for export)
+ * loses those elements too, so the cleared values do not come back on save.
+ * `doc` gives the kept chunks; returns the state to apply.
+ */
+export function withIxmlCleared(doc, state) {
+  if (hasIxml(state.meta)) return state;
+  const kept = wavChunksOf({ ...doc, state });
+  const i = kept?.list?.findIndex((c) => c.id === 'iXML') ?? -1;
+  if (i < 0) return state;
+  const text = new TextDecoder().decode(kept.list[i].bytes).replace(/\0+$/, '');
+  if (!Object.keys(parseIxml(text)).length) return state;
+  const stripped = writeIxml({}, text);
+  if (stripped == null) return state;
+  const list = kept.list.map((c, k) => (k === i ? { id: 'iXML', bytes: new TextEncoder().encode(stripped) } : c));
+  return { ...state, wavChunks: { ...kept, list } };
+}
 
 /** Normalizes typed text for a field: trims, checks dates, times and whole numbers. Returns { value } or { error }. */
 export function normalizeMetaValue(field, text) {
@@ -117,7 +136,7 @@ export function metadataPanel(app) {
     error.hidden = true;
     input.value = r.value;
     const state = withMetaField(doc.state, fieldId, r.value);
-    if (state) doc.apply('Edit Metadata', state);
+    if (state) doc.apply('Edit Metadata', withIxmlCleared(doc, state));
   };
 
   const fieldRow = (spec) => {
@@ -125,8 +144,10 @@ export function metadataPanel(app) {
     const f = FIELD.get(fieldId);
     const id = `meta-${fieldId}-${++n}`;
     const errId = `${id}-err`;
-    const placeholder = f.kind === 'date' ? 'YYYY-MM-DD' : f.kind === 'time' ? 'HH:MM:SS' : f.kind === 'bool' ? 'Yes or No' : null;
-    const input = f.multiline
+    const placeholder = f.kind === 'date' ? 'YYYY-MM-DD' : f.kind === 'time' ? 'HH:MM:SS' : null;
+    const input = f.kind === 'bool'
+      ? h('select.select.meta-bool', { id, 'aria-describedby': errId }, h('option', { value: '' }, '(not set)'), h('option', { value: 'TRUE' }, 'Yes'), h('option', { value: 'FALSE' }, 'No'))
+      : f.multiline
       ? h('textarea.input.meta-comment', { id, rows: fieldId === 'bextDescription' ? 2 : 3, spellcheck: 'true', 'aria-describedby': errId })
       : h(`input.input${f.kind === 'hex' ? '.meta-hex' : ''}`, { id, type: 'text', autocomplete: 'off', spellcheck: f.kind === 'hex' ? 'false' : null, placeholder, inputMode: f.kind === 'int' || fieldId === 'year' ? 'numeric' : null, maxLength: f.kind === 'hex' ? 200 : f.max || (fieldId === 'year' ? 10 : 500), 'aria-describedby': errId });
     const error = h('div.meta-error', { id: errId, hidden: true, role: 'alert' });
@@ -219,7 +240,7 @@ export function metadataPanel(app) {
     const meta = { ...(doc.state.meta || {}) };
     for (const id of ids) delete meta[id];
     const next = cleanMeta(meta);
-    if (JSON.stringify(next) !== JSON.stringify(cleanMeta(doc.state.meta || {}))) doc.apply('Clear Metadata', { ...doc.state, meta: next });
+    if (JSON.stringify(next) !== JSON.stringify(cleanMeta(doc.state.meta || {}))) doc.apply('Clear Metadata', withIxmlCleared(doc, { ...doc.state, meta: next }));
   };
   const menu = () => {
     const ok = app.active?.kind === 'audio';
