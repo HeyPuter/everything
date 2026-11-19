@@ -108,6 +108,20 @@ export function transportButtons(app, { size = 16 } = {}) {
     byCmd[cmd] = b;
     return b;
   });
+  // Right-click Record: how a Waveform recording without a selection goes in.
+  byCmd['transport.record'].addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const overwrite = Boolean(app.prefs.get('recordOverwrite'));
+    app.openMenu(
+      [
+        { type: 'cmd', label: 'Insert at Playhead', enabled: true, checked: !overwrite, run: () => app.prefs.set('recordOverwrite', false) },
+        { type: 'cmd', label: 'Overwrite from Playhead', enabled: true, checked: overwrite, run: () => app.prefs.set('recordOverwrite', true) },
+        { type: 'sep' },
+        { type: 'cmd', label: app.commands.label('transport.punchRoll'), shortcut: app.commands.shortcutLabel('transport.punchRoll'), enabled: app.commands.isEnabled('transport.punchRoll'), run: () => app.commands.run('transport.punchRoll') },
+      ],
+      { x: e.clientX, y: e.clientY, label: 'Record options' },
+    );
+  });
   shuttle(app, byCmd['transport.rewind'], 'transport.rewind');
   shuttle(app, byCmd['transport.forward'], 'transport.forward');
   const update = () => {

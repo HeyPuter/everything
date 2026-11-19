@@ -107,10 +107,20 @@ export function mapInput(input, count, from = 0, n = input[0].length - from) {
  *   insert (replace null): the take is inserted and later audio moves right
  *   punch (replace = [start, end]): the take overwrites audio from `start`,
  *   never past `end` (the punch-out point); length and markers are kept
+ *   overwrite: the take replaces audio from `at`, and the file grows when it
+ *   runs past the end
  */
-export function placeTake(base, recorded, { at = 0, replace = null } = {}) {
+export function placeTake(base, recorded, { at = 0, replace = null, overwrite = false } = {}) {
   const n = recorded[0]?.length ?? 0;
   if (!n) return base;
+  if (overwrite && !replace) {
+    const len = base.channels[0]?.length ?? 0;
+    const start = Math.min(at, len);
+    return {
+      ...base,
+      channels: base.channels.map((c, i) => c.splice(start, Math.min(len, start + n), recorded[Math.min(i, recorded.length - 1)])),
+    };
+  }
   if (replace) {
     const start = replace[0];
     const len = Math.min(n, replace[1] - start);

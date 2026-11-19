@@ -74,6 +74,13 @@ export function installIo(app) {
       run: () => toggleRecord(app),
     },
     {
+      id: 'transport.recordOverwrite',
+      label: 'Overwrite When Recording',
+      // Waveform editor, no selection: record over the audio after the playhead instead of inserting.
+      checked: (a) => Boolean(a.prefs.get('recordOverwrite')),
+      run: () => app.prefs.toggle('recordOverwrite'),
+    },
+    {
       id: 'transport.punchRoll',
       label: 'Punch and Roll',
       // Waveform editor: rolls in from before the playhead (or selection) and records over what follows.
@@ -234,7 +241,9 @@ async function toggleRecord(app) {
   if (replace && secs > 0 && replace[0] > 0) {
     if (!(await preroll(app, doc, replace[0], secs))) return;
   }
-  return app.recorder.start({ doc, replace, at: doc.cursor });
+  // Without a selection the take goes in at the playhead, pushing later audio along, or
+  // (Overwrite When Recording) records over it.
+  return app.recorder.start({ doc, replace, at: doc.cursor, overwrite: Boolean(app.prefs.get('recordOverwrite')) });
 }
 
 /**
