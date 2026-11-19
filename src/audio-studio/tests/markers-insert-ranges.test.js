@@ -40,3 +40,25 @@ it('inserts the selected range markers (or all of them) as clips', async () => {
   expect(clips[1].start).toBe(clips[0].start + 1000);
   expect(session.history.entries.at(-1).label).toBe('Insert Files');
 });
+
+it('plays a range marker\'s range from its row', async () => {
+  HTMLCanvasElement.prototype.getContext = () => null;
+  localStorage.clear();
+  const { App } = await import('../src/app.js');
+  const { installCore } = await import('../src/features/core.js');
+  const app = new App();
+  installCore(app);
+  app.syncGraph = () => {};
+  const doc = new AudioFile({ name: 't.wav', sampleRate: RATE, channels: [Channel.fromSamples(new Float32Array(RATE * 4))] });
+  doc.apply('Markers', { ...doc.state, markers: [{ id: 'r', name: 'Verse', start: 1000, duration: 500, type: 'cue', description: '' }] });
+  app.addDocument(doc);
+  const calls = [];
+  app.play = (o) => calls.push(o);
+  const panel = app.panels.get('markers').create(app);
+  document.body.replaceChildren(panel.el);
+  panel.el.querySelector('.marker-play').click();
+  expect(calls).toEqual([{ from: 1000, to: 1500, loop: false }]);
+  const row = panel.el.querySelector('tr[data-id="r"]');
+  row.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', bubbles: true }));
+  expect(calls).toHaveLength(2);
+});

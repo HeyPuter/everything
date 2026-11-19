@@ -1215,3 +1215,22 @@ kbd {
   outline: 1px dashed var(--accent);
   outline-offset: -2px;
 }
+
+/* Markers: a play button at the start of each row, shown on hover and for selected rows. */
+.markers-table .marker-play {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  padding: 0;
+  margin-left: -4px;
+  opacity: 0;
+  color: var(--text-dim);
+}
+.markers-table tr:hover .marker-play,
+.markers-table tr[aria-selected='true'] .marker-play,
+.markers-table .marker-play:focus-visible {
+  opacity: 1;
+}
+.markers-table .marker-play:hover {
+  color: var(--accent);
+}

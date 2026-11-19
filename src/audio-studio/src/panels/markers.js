@@ -251,6 +251,7 @@ export function markersPanel(app) {
           if (e.key === 'ArrowDown') go(i + 1);
           else if (e.key === 'ArrowUp') go(i - 1);
           else if (e.key === 'Enter' || e.key === 'F2') editCell(row.firstChild, m, 'name');
+          else if ((e.key === 'p' || e.key === 'P') && !e.metaKey && !e.ctrlKey && !e.altKey) playMarker(m);
           else if (e.key === 'Delete' || e.key === 'Backspace') app.commands.run('marker.deleteSelected', ids());
           else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) {
             for (const x of visible) selected.add(x.id);
@@ -261,7 +262,14 @@ export function markersPanel(app) {
           e.stopPropagation();
         },
       },
-      cell('name', [icon(m.duration ? 'bookmark' : 'flag', 13), h('span.marker-name', m.name || 'Untitled')], '.name-cell'),
+      cell('name', [
+        h('button.icon-btn.marker-play', { type: 'button', tabindex: '-1', 'aria-label': `Play ${m.name || 'marker'}`, title: m.duration ? 'Play this range' : 'Play from this marker', onclick: (e) => {
+          e.stopPropagation();
+          playMarker(m);
+        } }, icon('play', 11)),
+        icon(m.duration ? 'bookmark' : 'flag', 13),
+        h('span.marker-name', m.name || 'Untitled'),
+      ], '.name-cell'),
       cell('start', app.formatTime(m.start, d.sampleRate), '.tabular.hot-cell'),
       cell('end', m.duration ? app.formatTime(m.start + m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
       cell('duration', m.duration ? app.formatTime(m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
@@ -405,10 +413,22 @@ export function markersPanel(app) {
     );
   };
 
+  /** Plays a range marker's range, or from a cue marker on; stops when it is already playing. */
+  const playMarker = (m) => {
+    if (app.engine.playing) {
+      app.stop();
+      return;
+    }
+    app.play({ from: m.start, to: m.duration ? m.start + m.duration : undefined, loop: false });
+  };
+
   const rowMenu = (x, y) => {
     const item = (cmd, label) => ({ type: 'cmd', label: label || app.commands.label(cmd), enabled: app.commands.isEnabled(cmd, ids()), run: () => app.commands.run(cmd, ids()) });
+    const one = selected.size === 1 ? doc()?.state.markers.find((m) => selected.has(m.id)) : null;
     app.openMenu(
       [
+        { type: 'cmd', label: one?.duration ? 'Play Range' : 'Play from Marker', enabled: Boolean(one), run: () => playMarker(one) },
+        { type: 'sep' },
         item('marker.rename', 'Edit Marker...'),
         item('marker.merge'),
         item('marker.convertRange'),
