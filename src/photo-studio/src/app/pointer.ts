@@ -20,6 +20,8 @@ export type CanvasPointer = {
   coalesced?: CanvasPointer[];
 };
 
+// Tools without a Mod-click meaning of their own (brush-like tools also qualify).
+const TEMPORARY_MOVE = new Set(['gradient', 'bucket', 'eyedropper']);
 export function canvasPoint(e: Editor, event: PointerEvent | MouseEvent): CanvasPointer {
   const [x, y] = e.docPoint(event.clientX, event.clientY);
   const pe = event as PointerEvent;
@@ -157,6 +159,35 @@ export function bindCanvas(e: Editor) {
   });
   // Space released in another window never sends its keyup here.
   window.addEventListener('blur', releaseSpace);
+  // Holding Mod with a painting, fill or eyedropper tool drags layers as the
+  // Move tool does, for that one drag; the tool comes back when it ends.
+  let tempMove: string | undefined;
+  viewport.addEventListener(
+    'pointerdown',
+    (event) => {
+      const tool = e.activeTool;
+      if (event.button !== 0 || spaceHeld || tempMove || e.busy || !e.renderer || !e.hasDocument || event.altKey || !tool) return;
+      if (!(isMac ? event.metaKey : event.ctrlKey) || !(tool.brush || TEMPORARY_MOVE.has(tool.id))) return;
+      if ((event.target as HTMLElement).closest('button,input,.canvas-ui')) return;
+      tempMove = tool.id;
+      e.setTool('move');
+      const back = () => {
+        // Wait for the move (and the hit test it may still be reading) to finish.
+        if (e.transform.dragging) return void requestAnimationFrame(back);
+        const previous = tempMove;
+        tempMove = undefined;
+        if (previous && e.tool === 'move') e.setTool(previous);
+      };
+      const end = () => {
+        window.removeEventListener('pointerup', end, true);
+        window.removeEventListener('pointercancel', end, true);
+        requestAnimationFrame(back);
+      };
+      window.addEventListener('pointerup', end, true);
+      window.addEventListener('pointercancel', end, true);
+    },
+    true,
+  );
   viewport.addEventListener('pointerdown', (event) => {
     if (event.defaultPrevented || e.busy || !e.renderer) return;
     if ((event.target as HTMLElement).closest('button,input,.canvas-ui')) return;

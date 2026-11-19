@@ -88,3 +88,24 @@ test('Shift pressed during a drag keeps the move horizontal or vertical', async 
   expect(Math.round(after.x - before.x)).toBe(120);
   expect(after.y).toBe(before.y);
 });
+
+test('Mod-drag with the Brush moves the layer, then the Brush comes back', async ({ page }) => {
+  await tool(page, 'Brush Tool');
+  const [before] = await layers(page);
+  await canvasDrag(
+    page,
+    [
+      [50, 50],
+      [100, 80],
+      [150, 110],
+    ],
+    6,
+    ['ControlOrMeta'],
+  );
+  await idle(page);
+  await expect.poll(() => page.evaluate(() => window.photoStudio.tool)).toBe('brush');
+  const [after] = await layers(page);
+  expect(Math.round(after.x - before.x)).toBe(100);
+  expect(Math.round(after.y - before.y)).toBe(60);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Move layers');
+});
