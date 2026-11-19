@@ -177,4 +177,19 @@ describe('tab drag', () => {
     window.dispatchEvent(at('pointerup', 60, 12));
     expect(JSON.stringify(dock.layout())).toBe(before);
   });
+
+  it('maximizes a frame when its tab is double-clicked, and restores it', () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    const dock = new Dock({ openMenu() {} }, root, registry(['editor', 'files', 'history']));
+    dock.setLayout({ t: 'row', c: [{ t: 'group', tabs: ['files', 'history'] }, { t: 'group', tabs: ['editor'] }], s: [1, 3] });
+    root.querySelector('#tab-files').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(root.querySelectorAll('.panel-group')).toHaveLength(1);
+    expect(dock.maximized).toBe(dock.groupOf('files'));
+    // The panel menu button is not a tab: double-clicking it leaves the frame alone.
+    root.querySelector('.panel-menu-btn').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(dock.maximized).toBe(dock.groupOf('files'));
+    root.querySelector('#tab-files').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(root.querySelectorAll('.panel-group')).toHaveLength(2);
+  });
 });

@@ -208,6 +208,13 @@ export class Dock extends Emitter {
     if (g === this.focusedGroup) el.classList.add('focused');
     if (g === this.maximized) el.classList.add('maximized');
     const tabs = h('div.panel-tabs', { role: 'tablist', 'aria-label': 'Panels' });
+    // Double-clicking a tab or the strip's free space maximizes the frame (or restores it).
+    tabs.addEventListener('dblclick', (e) => {
+      const btn = e.target instanceof Element ? e.target.closest('button') : null;
+      if (btn && !btn.classList.contains('panel-tab')) return;
+      e.preventDefault();
+      this.toggleMaximize(g);
+    });
     const body = h('div.panel-body', { role: 'tabpanel' });
     g.tabs.forEach((id) => {
       const active = id === g.a;
