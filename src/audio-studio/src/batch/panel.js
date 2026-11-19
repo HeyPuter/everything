@@ -18,6 +18,7 @@ import { STATUS_LABELS, addSources, removeItems, resetItems, batchSettings, plan
 import { probeSource } from '../storage/probe.js';
 import { processItem, processInPlace, loadItem, batchFavoriteProblem } from './process.js';
 import { toolbarKeys } from '../panels/toolbar-keys.js';
+import { beginBusy } from '../ui/busy.js';
 import { exportSettingsDialog as openExportSettings, outputWriter, locationText } from './export-settings.js';
 
 const PREFS = 'batchExport';
@@ -189,6 +190,8 @@ export function batchPanel(app) {
     // Run or an early Cancel cannot escape the batch's controller.
     running = new AbortController();
     const signal = running.signal;
+    // The app's busy line and cursor show while a batch runs, even with this panel out of view.
+    const endBusy = beginBusy();
     refresh();
     try {
       const out = await outputWriter(app, s);
@@ -208,6 +211,7 @@ export function batchPanel(app) {
         signal,
         onUpdate: (list) => {
           items = list;
+          summary.textContent = progressText();
           renderRows();
         },
         concurrency: app.prefs.get('batchConcurrency'),
@@ -220,6 +224,7 @@ export function batchPanel(app) {
       announce(msg);
       if (result.done && dir) app.setStatus(`Batch output saved to ${dir}`);
     } finally {
+      endBusy();
       running = null;
       refresh();
     }
@@ -231,6 +236,7 @@ export function batchPanel(app) {
     running = new AbortController();
     const signal = running.signal;
     const changed = [];
+    const endBusy = beginBusy();
     refresh();
     try {
       const open = new Set(app.documents);
@@ -248,6 +254,7 @@ export function batchPanel(app) {
         signal,
         onUpdate: (list) => {
           items = list;
+          summary.textContent = progressText();
           renderRows();
         },
         process: async (item, o) => {
@@ -268,6 +275,7 @@ export function batchPanel(app) {
     } finally {
       // Undo covers the files this run changed (a run that changed nothing keeps the previous one).
       if (changed.length) lastRun = changed;
+      endBusy();
       running = null;
       refresh();
     }
@@ -372,6 +380,11 @@ export function batchPanel(app) {
     if (hadFocus) body.children[focusIndex]?.focus();
   }
 
+  function progressText() {
+    const finished = items.filter((i) => !['ready', 'waiting', 'running'].includes(i.status)).length;
+    return items.length ? `Processing ${Math.min(items.length, finished + 1)} of ${items.length}...` : 'Processing...';
+  }
+
   function refresh() {
     const busy = Boolean(running);
     renderFavorites();
@@ -395,6 +408,10 @@ export function batchPanel(app) {
     runBtn.disabled = busy || !items.length || (inPlace && !favSel.value);
     runBtn.hidden = busy;
     cancelBtn.hidden = !busy;
+    // While it runs: a spinner and the count done, beside Cancel.
+    el.toggleAttribute('aria-busy', busy);
+    summary.classList.toggle('busy', busy);
+    if (busy) summary.textContent = progressText();
     if (!busy && !items.some((i) => i.status !== 'ready')) summary.textContent = items.length ? `${items.length} file${items.length === 1 ? '' : 's'} ready` : '';
     renderRows();
   }

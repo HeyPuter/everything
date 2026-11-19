@@ -535,6 +535,26 @@
   white-space: nowrap;
 }
 
+/* A batch run in progress: a small spinning ring before the count. */
+.batch-summary.busy::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 1.5px solid var(--text-faint);
+  border-top-color: var(--hot);
+  border-radius: 50%;
+  animation: file-status-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .batch-summary.busy::before {
+    animation: none;
+  }
+}
+
 .batch-settings {
   display: flex;
   flex-direction: column;

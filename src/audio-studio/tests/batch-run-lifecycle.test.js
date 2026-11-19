@@ -178,3 +178,24 @@ it.each(['saved', 'failed'])('reports a %s upload accurately when cancelled duri
   expect(run.disabled).toBe(false);
   expect(cancel.hidden).toBe(true);
 });
+
+it('marks the app and the panel busy while a batch runs', async () => {
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const getUser = vi.fn(async () => { await wait; return { username: 'u' }; });
+  window.puter = { auth: { isSignedIn: () => true, getUser }, fs: { write: async () => ({}) } };
+  const { panel } = setup('puter');
+  const summary = panel.el.querySelector('.batch-summary');
+  const done = panel.api.run();
+  await vi.waitFor(() => expect(getUser).toHaveBeenCalledOnce(), { interval: 1 });
+  expect(document.documentElement.hasAttribute('data-busy')).toBe(true);
+  expect(panel.el.hasAttribute('aria-busy')).toBe(true);
+  expect(summary.classList.contains('busy')).toBe(true);
+  expect(summary.textContent).toMatch(/^Processing/);
+  release();
+  await done;
+  expect(document.documentElement.hasAttribute('data-busy')).toBe(false);
+  expect(panel.el.hasAttribute('aria-busy')).toBe(false);
+  expect(summary.classList.contains('busy')).toBe(false);
+  expect(summary.textContent).toBe('1 of 1 file processed.');
+});
