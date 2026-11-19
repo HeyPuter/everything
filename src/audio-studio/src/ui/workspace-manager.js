@@ -236,6 +236,8 @@ function editDialog(app) {
   return openDialog({
     title: 'Edit Workspaces',
     className: 'ws-dialog',
+    // The list takes the keys (arrows move the selection, Alt+arrows reorder).
+    initialFocus: '.ws-list',
     body: h('div.ws-edit', h('div.ws-main', list, h('div.ws-side', up, down)), note),
     footerStart: h('div.row', rename, del),
     buttons: [

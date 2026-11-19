@@ -355,18 +355,25 @@ describe('Insert Silence', () => {
     const { app, doc, view } = await makeView();
     const notes = [];
     app.notify = (msg) => notes.push(msg);
-    const insert = async (text) => {
-      const done = app.commands.run('edit.insertSilence');
-      const input = document.querySelector('[aria-label="Duration"]');
-      input.value = text;
-      document.querySelector('.dialog-foot .btn.primary').click();
-      await done;
-    };
-    await insert('99999999');
-    expect(notes.pop()).toBe('Enter a duration of 24 hours or less.');
+    const done = app.commands.run('edit.insertSilence');
+    const input = document.querySelector('[aria-label="Duration"]');
+    const ok = () => document.querySelector('.dialog-foot .btn.primary').click();
+    input.value = '99999999';
+    ok();
+    await new Promise((r) => setTimeout(r, 0));
+    // The dialog stays open and says why.
+    expect(document.querySelector('.dialog .dlg-error').textContent).toBe('Enter a duration of 24 hours or less.');
     expect(doc.length).toBe(48000);
-    await insert('2');
+    input.value = '2';
+    ok();
+    await done;
+    expect(notes).toEqual([]);
     expect(doc.length).toBe(48000 * 3);
+    // The next time it starts from the last duration.
+    const again = app.commands.run('edit.insertSilence');
+    expect(document.querySelector('[aria-label="Duration"]').value).toBe(app.formatTime(48000 * 2, 48000));
+    document.querySelector('.dialog-foot .btn:not(.primary)').click();
+    await again;
     await app.commands.run('edit.insertSilence', { seconds: 1e9 });
     expect(doc.length).toBe(48000 * 3 + 48000 * 24 * 3600);
     view.destroy();

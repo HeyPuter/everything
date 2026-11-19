@@ -114,27 +114,41 @@ async function newAudioDialog(app, { title = 'New Audio File', name } = {}) {
 /** Longest silence Insert Silence adds (s): far beyond real use, short of what stalls the tab. */
 export const MAX_INSERT_SECONDS = 24 * 3600;
 
-async function durationDialog(app, title, label) {
+/**
+ * Asks for a duration in the current time format; starts from the last one used (`pref`, in
+ * seconds) and checks it before closing. Resolves frames or null.
+ */
+async function durationDialog(app, title, label, { pref = 'insertSilenceSeconds' } = {}) {
   const doc = audio(app);
-  const input = h('input.input', { type: 'text', value: app.formatTime(doc.sampleRate, doc.sampleRate), 'aria-label': label, style: { width: '160px' } });
+  const last = Number(app.prefs.get(pref));
+  const initial = Math.round((last > 0 && last <= MAX_INSERT_SECONDS ? last : 1) * doc.sampleRate);
+  const input = h('input.input', { type: 'text', value: app.formatTime(initial, doc.sampleRate), 'aria-label': label, 'aria-describedby': 'duration-error', style: { width: '160px' }, spellcheck: 'false' });
+  const error = h('div.dlg-error', { id: 'duration-error', role: 'alert' });
+  const hint = h('div.faint', `In the time display format (${app.formatTime(doc.sampleRate * 90, doc.sampleRate)} is 90 seconds).`);
+  let frames = null;
   const r = await openDialog({
     title,
-    body: h('div.form-grid', h('label', `${label}:`), input),
+    body: h('div.dlg-stack', h('div.form-grid', h('label', { for: 'duration-input' }, `${label}:`), Object.assign(input, { id: 'duration-input' })), hint, error),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      const f = parseTime(input.value, doc.sampleRate, app.prefs.get('timeFormat'), app.timeOptions());
+      const problem = !Number.isFinite(f) || f <= 0 ? 'Enter a duration greater than zero.' : f > MAX_INSERT_SECONDS * doc.sampleRate ? 'Enter a duration of 24 hours or less.' : '';
+      error.textContent = problem;
+      input.setAttribute('aria-invalid', String(Boolean(problem)));
+      if (problem) {
+        input.focus();
+        input.select();
+        return false;
+      }
+      frames = f;
+      return true;
+    },
   });
-  if (r !== 'ok') return null;
-  const frames = parseTime(input.value, doc.sampleRate, app.prefs.get('timeFormat'), app.timeOptions());
-  if (!Number.isFinite(frames) || frames <= 0) {
-    app.notify('Enter a duration greater than zero.', { error: true });
-    return null;
-  }
-  if (frames > MAX_INSERT_SECONDS * doc.sampleRate) {
-    app.notify('Enter a duration of 24 hours or less.', { error: true });
-    return null;
-  }
+  if (r !== 'ok' || !frames) return null;
+  app.prefs.set(pref, frames / doc.sampleRate);
   return frames;
 }
 

@@ -160,12 +160,17 @@ async function addTracksDialog(app, { videoAllowed = true } = {}) {
   const group = (title, ...rows) => h('fieldset.dlg-group', h('legend', title), ...rows);
   const counter = (label) => h('input.input.num', { type: 'number', min: 0, max: 64, value: 0, 'aria-label': label });
   const channels = (label) => h('select.select', { 'aria-label': label }, CHANNEL_CHOICES.map((c) => h('option', { value: c.value, selected: c.value === '2' }, c.label)));
+  // Starts from the last choice.
+  const last = app.prefs.get('addTracks');
+  const prev = last && typeof last === 'object' ? last : {};
   const video = h('input', { type: 'checkbox', disabled: !videoAllowed });
   const audio = counter('Number of audio tracks');
-  audio.value = '1';
+  audio.value = String(Number.isInteger(prev.audio) ? prev.audio : 1);
   const audioCh = channels('Audio track channels');
   const bus = counter('Number of bus tracks');
+  bus.value = String(Number.isInteger(prev.bus) ? prev.bus : 0);
   const busCh = channels('Bus track channels');
+  for (const [el, v] of [[audioCh, prev.audioChannels], [busCh, prev.busChannels]]) if (CHANNEL_CHOICES.some((c) => c.value === String(v))) el.value = String(v);
   const count = (el) => Math.max(0, Math.min(64, Math.round(Number(el.value) || 0)));
   const body = h(
     'div.add-tracks',
@@ -192,6 +197,7 @@ async function addTracksDialog(app, { videoAllowed = true } = {}) {
     ],
   });
   if (r !== 'ok') return null;
+  app.prefs.set('addTracks', { audio: count(audio), audioChannels: Number(audioCh.value), bus: count(bus), busChannels: Number(busCh.value) });
   return { video: video.checked && videoAllowed, audio: { count: count(audio), channels: Number(audioCh.value) }, bus: { count: count(bus), channels: Number(busCh.value) } };
 }
 
@@ -200,8 +206,17 @@ async function sessionPropertiesDialog(app, doc) {
   const tempo = h('input.input.num', { type: 'number', min: 20, max: 400, step: 0.1, value: s.tempo, 'aria-label': 'Tempo' });
   const beats = h('input.input.num', { type: 'number', min: 1, max: 16, value: s.beatsPerBar, 'aria-label': 'Beats per bar' });
   const xf = h('input', { type: 'checkbox', checked: s.autoCrossfade });
+  const error = h('div.dlg-error', { role: 'alert' });
   const r = await openDialog({
     title: 'Session Properties',
+    onSubmit: () => {
+      const t = Number(tempo.value);
+      const b = Number(beats.value);
+      const problem = !(tempo.value.trim() && t >= 20 && t <= 400) ? 'Enter a tempo from 20 to 400 beats per minute.' : !(Number.isInteger(b) && b >= 1 && b <= 16) ? 'Enter from 1 to 16 beats per bar.' : '';
+      error.textContent = problem;
+      if (problem) (problem.includes('tempo') ? tempo : beats).focus();
+      return !problem;
+    },
     body: h(
       'div.form-grid',
       h('label', 'Sample Rate:'),
@@ -216,6 +231,8 @@ async function sessionPropertiesDialog(app, doc) {
       h('div.row', beats, h('span.muted', 'beats per bar')),
       h('label', 'Crossfades:'),
       h('label.check', xf, 'Create crossfades when clips overlap'),
+      h('span'),
+      error,
     ),
     buttons: [
       { label: 'Cancel', value: null },
