@@ -768,3 +768,21 @@ describe('freezing post-fader tracks and clicking in lanes', () => {
     expect(canFreeze(st, { ...t, sends: [S.createSend({ target: 'b', pre: true })] })).toBe(false);
   });
 });
+
+describe('automation that follows clips', () => {
+  it('moves the keyframes under a clip with it', () => {
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 2 });
+    const id = st.tracks[0].id;
+    const c = S.createClip({ trackId: id, sourceId: 's', start: 1000, length: 1000 });
+    st = S.addClips(st, [c]);
+    st = S.setAutomation(st, id, 'volume', [{ t: 0, v: 0 }, { t: 1500, v: -12 }, { t: 5000, v: 0 }]);
+    const moved = S.moveClips(st, [c.id], 2000, 0);
+    const out = S.carryAutomation(st, moved, [c.id]);
+    const lane = S.findTrack(out, id).automation.volume;
+    expect(lane.find((p) => p.v === -12).t).toBe(3500);
+    expect(lane.some((p) => p.t === 1500)).toBe(false);
+    // Moving to another track leaves the lanes alone.
+    const across = S.moveClips(st, [c.id], 2000, 1);
+    expect(S.carryAutomation(st, across, [c.id]).tracks[0].automation.volume).toEqual(lane.length ? S.findTrack(st, id).automation.volume : []);
+  });
+});

@@ -260,6 +260,7 @@ export const CATEGORIES = [
           check('loopToLastClip', 'When looping without a selection, loop at the end of the last clip', { help: 'When off, the loop runs to the end of the bar the last clip ends in.' }),
           check('meterOnArm', 'Meter the input while a track is armed for recording', { keywords: 'arm record input metering level meters microphone', help: 'The level meters show the input signal from when the first track is armed until the last one is disarmed.' }),
           check('avoidOverlap', 'Avoid overlapping clips when inserting or pasting (use the next free track)'),
+          check('automationFollowsClips', 'Track automation moves with clips that are dragged or nudged along their track', { keywords: 'keyframes envelopes move with clips automation follow' }),
           check('randomTrackColor', 'Give new tracks a random color'),
         ],
       },

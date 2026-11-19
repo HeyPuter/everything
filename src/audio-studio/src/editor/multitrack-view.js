@@ -2250,6 +2250,14 @@ export class MultitrackView {
       const state = doc.previewState;
       let clips;
       if (d.kind === 'move' && d.copy) clips = state.clips.slice(d.state0.clips.length).map((c) => c.id);
+      // Preferences > Multitrack: track automation can travel with moved clips.
+      if (d.kind === 'move' && !d.copy && this.app.prefs.get('automationFollowsClips')) {
+        doc.apply(label, S.carryAutomation(d.state0, state, d.ids));
+        announce(`${label} ${d.dt >= 0 ? 'right' : 'left'} by ${this.app.formatTime(Math.abs(d.dt || 0), doc.sampleRate)}`);
+        this.#status('');
+        this.invalidate();
+        return;
+      }
       // A dragged keyframe keeps its place among the others, so it stays selected.
       const keys = d.kind === 'key' || d.kind === 'autoKey' ? doc.selectedKeys : null;
       doc.apply(label, state, clips ? { clips } : {});

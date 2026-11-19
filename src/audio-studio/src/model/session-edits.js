@@ -1037,6 +1037,39 @@ export function thinEnvelope(points, tol) {
   return points.filter((_, i) => keep[i]);
 }
 
+/**
+ * Track automation under clips that moved along their track (from `before` to `after`) moves
+ * with them: the keyframes over each clip's old span (with its edge values) are shifted by the
+ * clip's move, replacing what was at the destination. Clips that changed track leave the lanes alone.
+ */
+export function carryAutomation(before, after, ids) {
+  let state = after;
+  const moves = [];
+  for (const id of ids) {
+    const a = findClip(before, id);
+    const b = findClip(after, id);
+    if (a && b && a.trackId === b.trackId && b.start !== a.start) moves.push({ trackId: a.trackId, a: a.start, b: clipEnd(a), dt: b.start - a.start });
+  }
+  for (const m of moves) {
+    state = updateTrack(state, m.trackId, (t) => {
+      const automation = { ...t.automation };
+      for (const [param, pts] of Object.entries(t.automation)) {
+        if (!pts?.length) continue;
+        const own = staticValue(t, param);
+        const edge = (at) => ({ t: at, v: envelopeValue(pts, at, own), ...(pts.filter((p) => p.t <= at).pop()?.hold ? { hold: true } : {}) });
+        const moved = [edge(m.a), ...pts.filter((p) => p.t > m.a && p.t < m.b), edge(m.b)].map((p) => ({ ...p, t: p.t + m.dt }));
+        const to0 = m.a + m.dt;
+        const to1 = m.b + m.dt;
+        // The vacated span keeps the values around it; the destination takes the moved shape.
+        const rest = pts.filter((p) => (p.t < m.a || p.t > m.b) && (p.t < to0 || p.t > to1));
+        automation[param] = [...rest, ...moved].sort((x, y) => x.t - y.t);
+      }
+      return { automation };
+    });
+  }
+  return state;
+}
+
 /** Writes recorded automation: replaces points in [t0, t1] with `recorded`. */
 export function writeEnvelopeRange(points, t0, t1, recorded) {
   const keep = points.filter((p) => p.t < t0 || p.t > t1);

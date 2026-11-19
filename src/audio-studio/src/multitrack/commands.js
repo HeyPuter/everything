@@ -852,7 +852,9 @@ export function installMultitrackCommands(app) {
     const doc = session(app);
     const v = view(app);
     const step = Math.max(1, Math.round((v?.fpp || doc.sampleRate / 1000) * 5));
-    doc.apply('Nudge', S.moveClips(doc.state, [...doc.selectedClips], dt * step, dTrack));
+    const ids = [...doc.selectedClips];
+    const moved = S.moveClips(doc.state, ids, dt * step, dTrack);
+    doc.apply('Nudge', app.prefs.get('automationFollowsClips') ? S.carryAutomation(doc.state, moved, ids) : moved);
   };
   const rendered = async (label, o) => {
     const doc = session(app);
