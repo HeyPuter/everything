@@ -274,7 +274,7 @@ function soundRemoverView(ctx) {
     onclick: async () => {
       learn.disabled = true;
       try {
-        await app.commands.run('fx.learnSoundModel');
+        await app.commands.run('fx.learnSoundModel', { values: ctx.values });
       } finally {
         learn.disabled = !doc;
       }
@@ -317,7 +317,7 @@ function soundRemoverView(ctx) {
     howTo: 'Select an example of the sound only in the editor (this window stays open), then learn it.',
     action: 'Learn from Selection',
     change: 'soundModel',
-    run: () => app.commands.run('fx.learnSoundModel'),
+    run: () => app.commands.run('fx.learnSoundModel', { values: ctx.values }),
   });
   return h(
     'div.fx-stack',

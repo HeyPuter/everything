@@ -168,6 +168,26 @@ describe('Learn Sound Model command', () => {
     expect(err).toBeLessThan(energy(sound, 4800, n - 4800) * 0.05);
   });
 
+  it('learns for the open window\'s complexity, not the settings last applied', async () => {
+    const app = fakeApp();
+    installEffectCommands(app);
+    installEffectsDsp(app);
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(beeps(RATE))] });
+    app.active = doc;
+    doc.setSelection(0, RATE);
+    // Passed by the window (its Learn buttons).
+    await app.commands.run('fx.learnSoundModel', { values: { ...defaults(def), complexity: 3 } });
+    expect(doc.soundModel.bases.k).toBe(3);
+    // From the menu while the window is open: the window's settings.
+    app.emit('effect-values', { def, values: { ...defaults(def), complexity: 5 }, doc });
+    await app.commands.run('fx.learnSoundModel');
+    expect(doc.soundModel.bases.k).toBe(5);
+    // Window closed: the settings last applied (here the defaults).
+    app.emit('effect-values', null);
+    await app.commands.run('fx.learnSoundModel');
+    expect(doc.soundModel.bases.k).toBe(8);
+  });
+
   it('learns from at most MAX_SOUND_SECONDS in the effect worker path', async () => {
     const m = await learnSoundModel([beeps(RATE / 4)], RATE, { ...defaults(def), complexity: 2 });
     expect(m.bases.k).toBe(2);
