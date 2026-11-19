@@ -193,6 +193,11 @@ export async function exportForWeb(e: Editor) {
       c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(ready.data as Uint8ClampedArray), ready.width, ready.height), 0, 0);
       if (originalUrl) URL.revokeObjectURL(originalUrl);
       originalUrl = URL.createObjectURL(await c.convertToBlob({ type: 'image/png' }));
+      // Closed while it was prepared: nothing shows it any more.
+      if (closed) {
+        URL.revokeObjectURL(originalUrl);
+        originalUrl = '';
+      }
       for (const p of panes) clearPane(p);
       return ready;
     })();
