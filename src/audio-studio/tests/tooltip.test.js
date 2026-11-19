@@ -88,4 +88,29 @@ describe('installTooltips', () => {
     expect(api.target).toBe(null);
     expect(document.getElementById('b').getAttribute('title')).toBe('Stop');
   });
+
+  it('shows on keyboard focus only after Tab or an arrow key, not when a dialog focuses a control', () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<button id="a" title="Zoom In (=)">a</button><button id="b" title="Zoom Out (-)">b</button>';
+    api = installTooltips();
+    const a = document.getElementById('a');
+    const b = document.getElementById('b');
+    // jsdom has no :focus-visible; treat every focus as visible.
+    const matches = Element.prototype.matches;
+    Element.prototype.matches = function (sel) {
+      return sel === ':focus-visible' ? true : matches.call(this, sel);
+    };
+    try {
+      a.focus();
+      vi.advanceTimersByTime(600);
+      expect(api.target).toBe(null);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      b.focus();
+      vi.advanceTimersByTime(600);
+      expect(api.target).toBe(b);
+      expect(api.el.hidden).toBe(false);
+    } finally {
+      Element.prototype.matches = matches;
+    }
+  });
 });

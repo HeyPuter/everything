@@ -41,6 +41,7 @@ export function installTooltips(root = document) {
   let timer = 0;
   let lastHidden = 0;
   let suppressed = null; // an element pressed: no tip until the pointer leaves it
+  let navAt = -1e9; // when Tab or an arrow key last moved focus
   const observer = typeof MutationObserver !== 'undefined'
     ? new MutationObserver(() => {
       // The page changed the title while its tip shows (a key or state changed): take the new text.
@@ -121,9 +122,15 @@ export function installTooltips(root = document) {
     suppressed = target;
     hide();
   };
+  const onKey = (e) => {
+    if (/^(Tab|Arrow(Up|Down|Left|Right)|Home|End)$/.test(e.key)) navAt = Date.now();
+    hide();
+  };
   const onFocus = (e) => {
     const el = e.target instanceof Element ? e.target : null;
     if (!el || !el.hasAttribute('title')) return;
+    // Only focus the user moved with the keyboard: not a dialog focusing its first control.
+    if (Date.now() - navAt > 400) return;
     let visible = false;
     try {
       visible = el.matches(':focus-visible');
@@ -139,7 +146,7 @@ export function installTooltips(root = document) {
   root.addEventListener('pointerover', onOver, true);
   root.addEventListener('pointerout', onOut, true);
   root.addEventListener('pointerdown', onDown, true);
-  root.addEventListener('keydown', hide, true);
+  root.addEventListener('keydown', onKey, true);
   root.addEventListener('wheel', hide, { capture: true, passive: true });
   root.addEventListener('focusin', onFocus, true);
   root.addEventListener('focusout', onBlur, true);
@@ -158,7 +165,7 @@ export function installTooltips(root = document) {
       root.removeEventListener('pointerover', onOver, true);
       root.removeEventListener('pointerout', onOut, true);
       root.removeEventListener('pointerdown', onDown, true);
-      root.removeEventListener('keydown', hide, true);
+      root.removeEventListener('keydown', onKey, true);
       root.removeEventListener('wheel', hide, { capture: true });
       root.removeEventListener('focusin', onFocus, true);
       root.removeEventListener('focusout', onBlur, true);
