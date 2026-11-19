@@ -15,6 +15,9 @@ import { formatTime } from '../lib/time.js';
 import { TYPES, TYPE_IDS, TASKS, LOUDNESS_TARGETS, taskItems, defaultSettings, normalizeSettings, setPath, getPath, presetsFor, applyPreset, saveUserPreset, deleteUserPreset, loudnessGain, assistantChain } from './model.js';
 import * as ops from './ops.js';
 import { classifyAudio } from './classify.js';
+// Static: the main bundle has these already (Multitrack), so a dynamic import would not split them off.
+import { runRemix } from '../multitrack/remix-commands.js';
+import { remixBlocker } from '../multitrack/remix.js';
 
 /** Suggested types, keyed by the file state or the clip they were worked out for. */
 const suggestions = new WeakMap();
@@ -230,7 +233,6 @@ export function soundAssistantPanel(app) {
   /** Duration by remixing: the music is rearranged at its beats to the target length. */
   async function remixDuration(t, d) {
     if (busy) return;
-    const [{ runRemix }, { remixBlocker }] = await Promise.all([import('../multitrack/remix-commands.js'), import('../multitrack/remix.js')]);
     // A clip stretched by Duration goes back to its own audio first: remix works on the original.
     const reverted = ops.revertDurationClips(t.doc.state, t.ids);
     if (reverted !== t.doc.state) t.doc.apply('Sound Assistant: Undo Stretch', reverted);
