@@ -8,6 +8,7 @@ import {
   placeDuplicates,
   toggleClipping,
   reorderLayers,
+  reverseLayers,
   selectedRoots,
   visibleRows,
 } from '../src/model/layers';
@@ -313,6 +314,32 @@ describe('arranging layers', () => {
     expect(names(doc)).toEqual(['Background', 'C', 'A', 'B', 'D']);
     arrangeLayers(doc, pick(doc, 'A', 'B'), 'front');
     expect(names(doc)).toEqual(['Background', 'C', 'D', 'A', 'B']);
+  });
+});
+
+describe('reversing layers', () => {
+  function fixture() {
+    const doc = newDocument(40, 30);
+    doc.layers = ['Background', 'A', 'B', 'C'].map((n) => layer('solid', n, 40, 30));
+    makeBackground(doc.layers[0]);
+    return doc;
+  }
+  const names = (doc: ReturnType<typeof newDocument>) => doc.layers.map((l) => l.name);
+  const ids = (doc: ReturnType<typeof newDocument>, ...n: string[]) =>
+    new Set(doc.layers.filter((l) => n.includes(l.name)).map((l) => l.id));
+  it('keeps the Background at the bottom', () => {
+    const doc = fixture();
+    reverseLayers(doc, ids(doc, 'Background', 'A', 'B', 'C'));
+    expect(names(doc)).toEqual(['Background', 'C', 'B', 'A']);
+  });
+  it('refuses to move a layer whose position is locked, through history unchanged', () => {
+    const doc = fixture();
+    doc.layers[2].locked = true;
+    const h = new History(doc);
+    const reverse = () => h.execute('Reverse', (d) => reverseLayers(d, ids(d, 'A', 'B', 'C')));
+    expect(reverse).toThrow('Unlock');
+    expect(names(h.document)).toEqual(['Background', 'A', 'B', 'C']);
+    expect(h.canUndo).toBe(false);
   });
 });
 
