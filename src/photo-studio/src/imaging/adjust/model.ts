@@ -6,6 +6,8 @@ import type { Gradient, RGB8 } from './gradient-stops';
 import { twoColorGradient } from './gradient-stops';
 import type { CubeLut } from './cube';
 import type { BuiltinLookId } from './looks';
+import { defaultRelightParams, type RelightParams } from '../relight/model';
+export type { RelightParams } from '../relight/model';
 
 export type ChannelKey = 'rgb' | 'r' | 'g' | 'b';
 export type PerChannel<T> = Record<ChannelKey, T>;
@@ -130,6 +132,7 @@ export type AdjustmentParamsMap = {
   'color-vibrance': ColorVibranceParams;
   'clarity-dehaze': ClarityDehazeParams;
   grain: GrainParams;
+  relight: RelightParams;
 };
 export type AdjustmentKind = keyof AdjustmentParamsMap;
 export type Adjustment = { [K in AdjustmentKind]: { kind: K; params: AdjustmentParamsMap[K] } }[AdjustmentKind];
@@ -156,10 +159,13 @@ export const ADJUSTMENT_KINDS: AdjustmentKind[] = [
   'color-vibrance',
   'clarity-dehaze',
   'grain',
+  'relight',
 ];
 // Kinds that look at neighboring pixels or the pixel position: they have no
 // color table, so the compositor and the CPU path run them as image filters.
-export const SPATIAL_KINDS: readonly AdjustmentKind[] = ['clarity-dehaze', 'grain'];
+export const SPATIAL_KINDS: readonly AdjustmentKind[] = ['clarity-dehaze', 'grain', 'relight'];
+// Kinds that are made only as layers (no destructive Image > Adjustments command).
+export const LAYER_ONLY_KINDS: readonly AdjustmentKind[] = ['relight'];
 export const isSpatialKind = (k: string) => (SPATIAL_KINDS as readonly string[]).includes(k);
 export const ADJUSTMENT_LABELS: Record<AdjustmentKind, string> = {
   'brightness-contrast': 'Brightness/Contrast',
@@ -182,6 +188,7 @@ export const ADJUSTMENT_LABELS: Record<AdjustmentKind, string> = {
   'color-vibrance': 'Color & Vibrance',
   'clarity-dehaze': 'Clarity & Dehaze',
   grain: 'Grain',
+  relight: 'Relight',
 };
 
 // Six 60-degree sectors whose falloffs cross at 50 percent, so the weights of
@@ -265,6 +272,7 @@ export function defaultParams<K extends AdjustmentKind>(kind: K): AdjustmentPara
     'color-vibrance': () => ({ temperature: 0, tint: 0, vibrance: 0, saturation: 0 }),
     'clarity-dehaze': () => ({ clarity: 0, dehaze: 0 }),
     grain: () => ({ amount: 25, size: 25, roughness: 50, color: 0 }),
+    relight: () => defaultRelightParams(),
   };
   return make[kind]() as AdjustmentParamsMap[K];
 }

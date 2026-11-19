@@ -56,7 +56,8 @@ export function mountLayerEditor(e: Editor, el: HTMLElement, l: Layer) {
     params: adj.params,
     ui: {},
     dialog: false,
-    change(commit) {
+    layerId: id,
+    change(commit, label) {
       const spec = adjustmentSpec({ kind, params: host.params } as Adjustment);
       if (!commit) {
         state.dirty = true;
@@ -77,7 +78,7 @@ export function mountLayerEditor(e: Editor, el: HTMLElement, l: Layer) {
       }
       state.json = JSON.stringify(spec);
       state.dirty = false;
-      e.command(`Modify ${ADJUSTMENT_LABELS[kind]} Layer`, (d) => {
+      e.command(label ?? `Modify ${ADJUSTMENT_LABELS[kind]} Layer`, (d) => {
         const t = findLayer(d.layers, id);
         if (t) t.adjustment = spec;
       });

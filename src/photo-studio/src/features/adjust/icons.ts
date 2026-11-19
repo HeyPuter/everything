@@ -22,4 +22,5 @@ export const kindIcon: Record<keyof KindEditors, string> = {
   'color-vibrance': 'adj-color-vibrance',
   'clarity-dehaze': 'adj-clarity-dehaze',
   grain: 'adj-grain',
+  relight: 'adj-relight',
 };

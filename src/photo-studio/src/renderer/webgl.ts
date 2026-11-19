@@ -3,7 +3,7 @@ import { glVertex, glFragment, glFloatFragment, glResampleFragment, glFloatResam
 import { needsRgbaResampling } from './sampling';
 import { glColorFragment } from './color-shaders';
 import { glLutFragment } from './lut-shaders';
-import { glFilterFragment } from './filter-shaders';
+import { FILTER_UNIFORM_FLOATS, glFilterFragment } from './filter-shaders';
 export class WebGLBackend implements Backend {
   readonly name = 'WebGL2';
   readonly maxSize: number;
@@ -220,8 +220,8 @@ export class WebGLBackend implements Backend {
       g.activeTexture(g.TEXTURE0 + i);
       g.bindTexture(g.TEXTURE_2D, (sources[i] ?? sources[0]).handle as WebGLTexture);
     }
-    const data = new Float32Array(16);
-    data.set(uniforms.subarray(0, 16));
+    const data = new Float32Array(FILTER_UNIFORM_FLOATS);
+    data.set(uniforms.subarray(0, FILTER_UNIFORM_FLOATS));
     g.uniform4fv(g.getUniformLocation(program, 'u[0]'), data);
     g.drawArrays(g.TRIANGLES, 0, 3);
   }

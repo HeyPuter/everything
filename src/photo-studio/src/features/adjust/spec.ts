@@ -3,6 +3,7 @@
 // back). Pure: used by the renderer hook, the editors and the PSD codec.
 import { ADJUSTMENT_KINDS, curveFunction, defaultParams, type Adjustment, type AdjustmentKind } from '../../imaging/adjust';
 import type { AdjustmentSpec } from '../../model/document';
+import { normalizeRelight } from '../../imaging/relight/model';
 
 export const isAdjustmentKind = (k: unknown): k is AdjustmentKind => typeof k === 'string' && (ADJUSTMENT_KINDS as string[]).includes(k);
 
@@ -26,6 +27,8 @@ function merge(def: unknown, value: unknown): unknown {
 /** Typed adjustment for a stored spec, or undefined for unknown kinds. */
 export function specAdjustment(spec: AdjustmentSpec | undefined): Adjustment | undefined {
   if (!spec || !isAdjustmentKind(spec.kind)) return undefined;
+  // Lights are a list of records: each is checked and clamped.
+  if (spec.kind === 'relight') return { kind: 'relight', params: normalizeRelight(spec.params) };
   const def = defaultParams(spec.kind) as unknown as Record<string, unknown>;
   const params = merge(def, spec.params) as Record<string, unknown>;
   // Optional fields that have no default.

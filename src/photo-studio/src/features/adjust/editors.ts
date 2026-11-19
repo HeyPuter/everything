@@ -23,6 +23,7 @@ import { levelsEditor } from './levels';
 import { curvesEditor } from './curves';
 import { hueSaturationEditor } from './hue-sat';
 import { gradientMapEditor } from './gradient-map';
+import { relightEditor } from './relight-editor';
 
 export const kindEditors: KindEditors = {
   'brightness-contrast': brightnessContrastEditor,
@@ -45,6 +46,7 @@ export const kindEditors: KindEditors = {
   'color-vibrance': colorVibranceEditor,
   'clarity-dehaze': clarityDehazeEditor,
   grain: grainEditor,
+  relight: relightEditor,
 };
 
 export { kindIcon } from './icons';

@@ -49,6 +49,7 @@ import { installImageAssets } from './image-assets';
 import { installLibraries } from './libraries';
 import { installProvenance } from './provenance';
 import { installCapture } from './capture';
+import { installRelight } from './relight';
 
 // Each feature registers its commands, tools, panels and overlays. Keep one
 // line per feature so parallel work merges cleanly.
@@ -73,6 +74,7 @@ export function installFeatures(e: Editor) {
   installType(e);
   installColor(e);
   installAdjust(e);
+  installRelight(e);
   installVector(e);
   installRetouch(e);
   installMeasure(e);

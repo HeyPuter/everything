@@ -172,7 +172,8 @@ export const layersPanel: Panel = {
           'layer.fill-solid', 'layer.fill-gradient', 'layer.fill-pattern', '-',
           'layer.adj-brightness-contrast', 'layer.adj-levels', 'layer.adj-curves', 'layer.adj-exposure', '-',
           'layer.adj-vibrance', 'layer.adj-hue-saturation', 'layer.adj-color-balance', 'layer.adj-black-white', 'layer.adj-photo-filter', 'layer.adj-channel-mixer', 'layer.adj-color-lookup', '-',
-          'layer.adj-invert', 'layer.adj-posterize', 'layer.adj-threshold', 'layer.adj-gradient-map', 'layer.adj-selective-color',
+          'layer.adj-invert', 'layer.adj-posterize', 'layer.adj-threshold', 'layer.adj-gradient-map', 'layer.adj-selective-color', '-',
+          'layer.adj-relight',
         ]);
         return;
       }

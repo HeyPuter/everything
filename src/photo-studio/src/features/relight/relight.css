@@ -1,0 +1,141 @@
+/* Relight layers: light handles over the canvas and the Properties editor. */
+.relight-handle {
+  pointer-events: all;
+  cursor: move;
+}
+.relight-handle .relight-halo {
+  fill: color-mix(in srgb, #000 22%, transparent);
+  stroke: #fff;
+}
+.relight-handle .relight-dot {
+  stroke: #000;
+  stroke-opacity: 0.55;
+}
+.relight-handle.selected .relight-halo {
+  stroke: var(--accent);
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.relight-handle.off {
+  opacity: 0.45;
+}
+.relight-handle:hover .relight-halo {
+  stroke-width: 3;
+}
+.relight-reach {
+  fill: none;
+  stroke: #fff;
+  stroke-opacity: 0.6;
+  pointer-events: none;
+  mix-blend-mode: difference;
+}
+
+.relight-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.relight-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.relight-bar > button:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.relight-bar > button:first-child svg {
+  flex: none;
+}
+.relight-lights {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.relight-light {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 4px;
+  padding: 1px 2px;
+}
+.relight-light.selected {
+  background: var(--row-selected);
+}
+.relight-light.off .relight-name {
+  color: var(--muted);
+}
+.relight-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  padding: 4px;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.relight-pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.relight-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.relight-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--input-line);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 20%, transparent);
+}
+.relight-section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+  font-weight: 600;
+}
+.relight-selected {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.relight-color {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.relight-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.relight-custom input[type='color'] {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 2px;
+  background: var(--input);
+  border: 1px solid var(--input-line);
+  border-radius: 3px;
+}
+.relight-ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: -1px;
+}
+.relight-hint {
+  margin-top: 2px;
+}

@@ -115,6 +115,12 @@ export function sampleAdjustment(kind: AdjustmentKind): Adjustment {
       return { kind, params: { clarity: 50, dehaze: 30 } };
     case 'grain':
       return { kind, params: { amount: 40, size: 30, roughness: 50, color: 30 } };
+    case 'relight': {
+      const p = defaultParams('relight');
+      p.lights[0] = { ...p.lights[0], x: 0.3, y: 0.2, temperature: 3200, brightness: 140 };
+      p.ambient = 50;
+      return { kind, params: p };
+    }
   }
 }
 

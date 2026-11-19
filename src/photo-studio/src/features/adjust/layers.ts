@@ -10,11 +10,16 @@ import { escapeXML } from '../../model/assets';
 import { svg } from '../../app/icons';
 import { adjustmentLayerName, adjustmentSpec } from './compile';
 import { kindIcon } from './icons';
+import { RELIGHT_MODE_MESSAGE, relightModeSupported } from '../relight/state';
 
 /** Add an adjustment layer above the selected layer. Its mask reveals all,
  * or the active selection (which is then dropped, as the mask carries it). */
 export function addAdjustmentLayer(e: Editor, kind: AdjustmentKind, adjustment: Adjustment = defaultAdjustment(kind)) {
   const doc = e.doc;
+  if (kind === 'relight' && !relightModeSupported(doc.mode)) {
+    e.message(RELIGHT_MODE_MESSAGE);
+    return;
+  }
   const l = layer('adjustment', adjustmentLayerName(kind, allLayers(doc.layers).map((x) => x.name)), doc.width, doc.height);
   l.adjustment = adjustmentSpec(adjustment);
   const sel = selectionGrid(doc, e.assets.tiles);

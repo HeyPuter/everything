@@ -16,6 +16,7 @@ import type { Fn1 } from './curves';
 import { planFor, type PixelFn, type Plan } from './kinds';
 import { isSpatialKind, type Adjustment } from './model';
 import { applySpatial, type SpatialContext } from './spatial';
+import { isIdentityRelight, normalizeRelight } from '../relight/model';
 
 export type CurveTables = { rgb: Float32Array; r: Float32Array; g: Float32Array; b: Float32Array };
 export type CompiledAdjustment = {
@@ -92,6 +93,7 @@ export function compileAdjustment(adj: Adjustment, opts: CompileOptions = {}): C
 export function isIdentityAdjustment(adj: Adjustment): boolean {
   if (adj.kind === 'clarity-dehaze') return !adj.params.clarity && !adj.params.dehaze;
   if (adj.kind === 'grain') return !adj.params.amount;
+  if (adj.kind === 'relight') return isIdentityRelight(normalizeRelight(adj.params));
   const p = planFor(adj);
   return !p.curves && !p.pixel;
 }

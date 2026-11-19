@@ -2,7 +2,7 @@
 // the target layer (or mask) within the selection.
 import type { Editor } from '../../editor';
 import { registerCommand } from '../../app/registry';
-import { ADJUSTMENT_KINDS, ADJUSTMENT_LABELS, adjustmentOperations, autoLevels, defaultParams, equalizeMap, histograms, type Adjustment, type AdjustmentKind } from '../../imaging/adjust';
+import { ADJUSTMENT_KINDS, ADJUSTMENT_LABELS, LAYER_ONLY_KINDS, adjustmentOperations, autoLevels, defaultParams, equalizeMap, histograms, type Adjustment, type AdjustmentKind } from '../../imaging/adjust';
 import type { RGBA8 } from '../../imaging/types';
 import { readMask } from '../../model/tiles';
 import { selectionGrid } from '../../model/selection';
@@ -49,6 +49,8 @@ async function analyzed(e: Editor, label: string, make: (src: RGBA8, sel?: Retur
 
 export function registerDestructiveCommands(e: Editor) {
   for (const kind of ADJUSTMENT_KINDS) {
+    // Relight works on what lies below a layer: there is no destructive form.
+    if (LAYER_ONLY_KINDS.includes(kind)) continue;
     // A dialog's settings are recorded when it is confirmed, and settings
     // given as { params } (actions, scripts) apply without the dialog.
     if (kind !== 'invert') deferRecording(`adjust.${kind}`);

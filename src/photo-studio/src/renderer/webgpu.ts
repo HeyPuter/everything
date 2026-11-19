@@ -3,7 +3,7 @@ import { wgsl, wgslFloat, wgslResample, wgslFloatResample } from './shaders';
 import { needsRgbaResampling } from './sampling';
 import { wgslColor } from './color-shaders';
 import { wgslLut } from './lut-shaders';
-import { wgslFilter } from './filter-shaders';
+import { FILTER_UNIFORM_FLOATS, wgslFilter } from './filter-shaders';
 export class WebGPUBackend implements Backend {
   readonly name = 'WebGPU';
   readonly maxSize: number;
@@ -386,9 +386,9 @@ export class WebGPUBackend implements Backend {
         });
       this.filterPipelines = { layout, byte: create('rgba8unorm'), float: create('rgba32float') };
     }
-    const data = new Float32Array(16);
-    data.set(uniforms.subarray(0, 16));
-    const buffer = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const data = new Float32Array(FILTER_UNIFORM_FLOATS);
+    data.set(uniforms.subarray(0, FILTER_UNIFORM_FLOATS));
+    const buffer = this.device.createBuffer({ size: FILTER_UNIFORM_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(buffer, 0, data);
     const group = this.device.createBindGroup({
       layout: this.filterPipelines.layout,

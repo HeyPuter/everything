@@ -16,7 +16,7 @@ import { diffStats, randomImage, rampImage, sampleAdjustment } from './adjust-fi
 
 const lumaCode = (d: Uint8ClampedArray, i: number) => luma(d[i], d[i + 1], d[i + 2]);
 // Defaults that are intentionally not identities.
-const NON_IDENTITY = new Set(['invert', 'posterize', 'threshold', 'gradient-map', 'black-white', 'photo-filter', 'grain']);
+const NON_IDENTITY = new Set(['invert', 'posterize', 'threshold', 'gradient-map', 'black-white', 'photo-filter', 'grain', 'relight']);
 
 describe('default adjustments', () => {
   const img = randomImage(64, 48, 11, true);

@@ -11,8 +11,10 @@ export interface AdjustHost<K extends AdjustmentKind = AdjustmentKind> {
   // Working copy; editors mutate it and then call `change`.
   params: AdjustmentParamsMap[K];
   // Live preview while a gesture runs (commit = false), one history step or
-  // final value when it ends (commit = true).
-  change(commit: boolean): void;
+  // final value when it ends (commit = true). `label` names the history step.
+  change(commit: boolean, label?: string): void;
+  // The adjustment layer being edited (absent in destructive dialogs).
+  layerId?: string;
   // Pixels the adjustment applies to, with their histograms.
   source(): Promise<SourceImage | null>;
   // One-shot eyedropper: the source color under a canvas click.

@@ -357,6 +357,11 @@ const custom: Record<string, Node[]> = {
   'adj-color-vibrance': [p('M7 4.5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0Z'), ['circle', { cx: 9, cy: 17, r: 1.6, fill: 'currentColor' }], p('M17.5 6c1.5 2 2.8 3.6 2.8 5.2a2.8 2.8 0 0 1-5.6 0c0-1.6 1.3-3.2 2.8-5.2Z')],
   'adj-clarity-dehaze': [p('M3 19l6-9 4 6 3-4 5 7Z'), p('M3 5h7M14 5h7M6 8h4M15 8h3')],
   'adj-grain': [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ...([[7, 7], [12, 6], [17, 8], [8, 12], [14, 11], [6, 17], [11, 16], [16, 15], [18, 18]] as const).map(([cx, cy]) => ['circle', { cx, cy, r: 0.9, fill: 'currentColor', stroke: 'none' }] as Node)],
+  // Relight layers: a lit sphere with its shadow side and a small light; a
+  // light handle with a plus; a light handle alone.
+  'adj-relight': [['circle', { cx: 14, cy: 14, r: 7 }], ['path', { d: 'M19 9.1a7 7 0 0 1-9.9 9.9A5.6 5.6 0 0 0 19 9.1Z', fill: 'currentColor', 'fill-opacity': 0.45 }], ['circle', { cx: 5, cy: 5, r: 1.8, fill: 'currentColor' }], p('M5 1v1.1M1 5h1.1M2.2 2.2l.8.8M7.8 2.2 7 3M2.2 7.8 3 7')],
+  'relight-add-light': [['circle', { cx: 10, cy: 13, r: 6 }], ['circle', { cx: 10, cy: 13, r: 2.2, fill: 'currentColor' }], p('M19 2.5v6M16 5.5h6')],
+  'relight-light': [['circle', { cx: 12, cy: 12, r: 7.5 }], ['circle', { cx: 12, cy: 12, r: 3, fill: 'currentColor' }]],
   'adj-clip': [p('M8 4v9a4 4 0 0 0 4 4h8'), p('m16 13 4 4-4 4'), ['circle', { cx: 8, cy: 4, r: 1.5, fill: 'currentColor' }]],
   // Vector tools (original glyphs).
   'path-fill': [['path', { d: 'M4 19c4 0 4-14 8-14s4 14 8 14Z', fill: 'currentColor', 'fill-opacity': 0.35 }]],
