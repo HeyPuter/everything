@@ -113,6 +113,7 @@ export async function runExport({ options, sourceRate, frames, read, markers = [
     sourceRate,
     channels: nch,
     bitDepth: options.bitDepth,
+    float: options.bitDepth === 32 && !options.int32,
     dither: options.dither,
     frames: total,
     markers: options.markers === false ? [] : markers,

@@ -9,7 +9,7 @@ import { muxOggOpus, oggCrc } from '../src/export/ogg.js';
 import { muxM4a } from '../src/export/mp4.js';
 import { readTags, parseVorbisComment } from '../src/audio/meta.js';
 import { Quantizer } from '../src/audio/quantize.js';
-import { conformOptions } from '../src/export/formats.js';
+import { conformOptions, describeSampleType } from '../src/export/formats.js';
 import { crc8Flac, crc16Flac } from './helpers/flac-crc.js';
 
 let dsp;
@@ -303,6 +303,21 @@ describe('sample rate and channel conversion', () => {
     expect(st.length).toBe(2);
     expect(st[1][0]).toBe(0.25);
     expect(mapChannels([Float32Array.of(1), Float32Array.of(2), Float32Array.of(3)], 2).map((c) => c[0])).toEqual([1, 2]);
+  });
+
+  it('writes 32-bit integer WAV and AIFF when asked, float otherwise', async () => {
+    const src = [Float32Array.of(0.5, -0.25, 0)];
+    for (const format of ['wav', 'aiff']) {
+      const int = await exportFrom(src, 8000, { format, sampleRate: 8000, channels: 1, bitDepth: 32, int32: true });
+      const flt = await exportFrom(src, 8000, { format, sampleRate: 8000, channels: 1, bitDepth: 32 });
+      const read = (b) => (format === 'wav' ? parseWav(b.buffer) : parseAiff(b.buffer));
+      expect(read(int).float).toBeFalsy();
+      expect(read(flt).float).toBe(true);
+      expect([...read(int).channels[0]]).toEqual([0.5, -0.25, 0]);
+    }
+    expect(describeSampleType({ sampleRate: 48000, channels: 2, bitDepth: 32, int32: true })).toBe('48000 Hz Stereo, 32-bit integer');
+    // FLAC has no 32-bit option: the flag goes with it.
+    expect(conformOptions('flac', { sampleRate: 48000, channels: 2, bitDepth: 32, int32: true, settings: {} }).options.int32).toBeUndefined();
   });
 
   it('mixes stereo to mono and mono to stereo with chosen levels', () => {

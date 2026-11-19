@@ -72,7 +72,7 @@ export function optionsForSave(doc, format) {
     const opts = converted ? { ...last, sampleRate, channels } : last;
     return conformOptions(format, opts).options;
   }
-  const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc) };
+  const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc), int32: doc.info?.int32 };
   return defaultOptions(source, format);
 }
 

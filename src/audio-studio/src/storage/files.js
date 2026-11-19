@@ -104,7 +104,8 @@ export async function audioFileFromBlob(blob, name, source = { type: 'local' }) 
     channels: r.channels.map((c) => Channel.fromSamples(c)),
     markers: sortMarkers((r.markers || []).map((m, i) => createMarker({ ...m, name: m.name || `Marker ${String(i + 1).padStart(2, '0')}` }))),
     meta: r.meta || {},
-    info: { bitDepth: r.bitDepth, format: r.format, size: blob.size, ...wavChunksInfo(r) },
+    // A 32-bit integer file saves as 32-bit integer again (32 bits otherwise means float).
+    info: { bitDepth: r.bitDepth, format: r.format, size: blob.size, ...(r.bitDepth === 32 && r.float === false ? { int32: true } : {}), ...wavChunksInfo(r) },
     source,
     origin: originFromMeta(r.meta),
   });

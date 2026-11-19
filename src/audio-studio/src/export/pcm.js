@@ -63,10 +63,10 @@ function packPcm(planar, n, { bitDepth, float, little, quantizer, unsigned8 }) {
 }
 
 export class WavWriter {
-  constructor({ sampleRate, channels, bitDepth = 16, dither = 'triangular', frames, markers = [], meta = {}, chunks = [] }) {
+  constructor({ sampleRate, channels, bitDepth = 16, float = bitDepth === 32, dither = 'triangular', frames, markers = [], meta = {}, chunks = [] }) {
     this.nch = channels;
     this.bitDepth = bitDepth;
-    this.float = bitDepth === 32;
+    this.float = bitDepth === 32 && float;
     this.quantizer = this.float ? null : new Quantizer(bitDepth, channels, dither);
     const bytes = bitDepth / 8;
     this.dataSize = frames * channels * bytes;
@@ -172,10 +172,10 @@ function pstring(text) {
 }
 
 export class AiffWriter {
-  constructor({ sampleRate, channels, bitDepth = 16, dither = 'triangular', frames, markers = [], meta = {} }) {
+  constructor({ sampleRate, channels, bitDepth = 16, float = bitDepth === 32, dither = 'triangular', frames, markers = [], meta = {} }) {
     this.nch = channels;
     this.bitDepth = bitDepth;
-    this.float = bitDepth === 32;
+    this.float = bitDepth === 32 && float;
     this.quantizer = this.float ? null : new Quantizer(bitDepth, channels, dither);
     const bytes = bitDepth / 8;
     this.dataSize = frames * channels * bytes;

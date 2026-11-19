@@ -102,6 +102,29 @@ describe('Export File dialog', () => {
     expect(app.prefs.get('exportPrefs').resampler).toEqual({ quality: 30, filter: true });
   });
 
+  it('keeps a 32-bit integer file at 32-bit integer', async () => {
+    const doc = AudioFile.blank({ name: 'Int.wav', sampleRate: 48000, channels: 1, seconds: 1 });
+    Object.assign(doc.info, { bitDepth: 32, int32: true });
+    const pending = exportFileDialog(app, doc, { mode: 'saveAs' });
+    await tick(10);
+    expect($('.io-export').textContent).toContain('48000 Hz Mono, 32-bit integer');
+    $('.dialog-foot .btn.primary').click();
+    expect((await pending).options).toMatchObject({ bitDepth: 32, int32: true });
+  });
+
+  it('offers 32-bit integer samples for WAV', async () => {
+    const doc = AudioFile.blank({ name: 'A.wav', sampleRate: 48000, channels: 2, seconds: 1 });
+    const pending = exportFileDialog(app, doc, { mode: 'export' });
+    await tick(10);
+    $('[aria-label="Change sample type"]').click();
+    change($('select[aria-label="Bit depth"]'), '32i');
+    [...document.querySelectorAll('.io-sample-actions .btn')].find((b) => b.textContent === 'OK').click();
+    expect($('.io-export').textContent).toContain('32-bit integer');
+    expect($('.io-export').textContent).toContain('Uncompressed, integer');
+    $('.dialog-foot .btn.primary').click();
+    expect((await pending).options).toMatchObject({ bitDepth: 32, int32: true });
+  });
+
   it('requires a file name and lets Escape leave the sample type page', async () => {
     const doc = AudioFile.blank({ name: 'a.wav', sampleRate: 44100, channels: 1, seconds: 1 });
     const pending = exportFileDialog(app, doc, { mode: 'saveAs' });

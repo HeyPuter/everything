@@ -17,6 +17,8 @@ export const FORMATS = [
     mime: 'audio/wav',
     lossy: false,
     bitDepths: [8, 16, 24, 32],
+    // 32 bits is floating point unless options.int32 asks for integers.
+    int32: true,
     // As many channels as the format holds: multitrack recorder files often have 10 or more.
     maxChannels: 65535,
     markers: true,
@@ -30,6 +32,7 @@ export const FORMATS = [
     mime: 'audio/aiff',
     lossy: false,
     bitDepths: [8, 16, 24, 32],
+    int32: true,
     maxChannels: 32767,
     markers: true,
     settings: [],
@@ -125,6 +128,7 @@ export function defaultOptions(source, formatId = 'wav') {
     sampleRate: source.sampleRate,
     channels: source.channels,
     bitDepth: source.bitDepth ?? 32,
+    int32: source.int32,
     dither: 'triangular',
     settings,
     markers: true,
@@ -156,6 +160,9 @@ export function conformOptions(formatId, input) {
       o.bitDepth = to;
     }
   } else o.bitDepth = undefined;
+  // 32-bit integer samples: only where the format stores them, and only at 32 bits.
+  if (f.int32 && o.bitDepth === 32 && o.int32) o.int32 = true;
+  else delete o.int32;
   if (!['none', 'triangular', 'shaped'].includes(o.dither)) o.dither = f.defaultDither || 'triangular';
   for (const s of f.settings) {
     const opts = typeof s.options === 'function' ? s.options(o) : s.options;
@@ -199,7 +206,7 @@ export function channelLabel(n) {
 
 /** "48000 Hz Stereo, 24-bit" */
 export function describeSampleType(o) {
-  const depth = o.bitDepth === undefined ? '' : o.bitDepth === 32 ? ', 32-bit (float)' : `, ${o.bitDepth}-bit`;
+  const depth = o.bitDepth === undefined ? '' : o.bitDepth === 32 ? (o.int32 ? ', 32-bit integer' : ', 32-bit (float)') : `, ${o.bitDepth}-bit`;
   return `${o.sampleRate} Hz ${channelLabel(o.channels)}${depth}`;
 }
 
@@ -207,7 +214,7 @@ export function describeSampleType(o) {
 export function describeSettings(o) {
   const f = getFormat(o.format);
   if (!f) return '';
-  if (f.id === 'wav' || f.id === 'aiff') return o.bitDepth === 32 ? 'Uncompressed, 32-bit floating point' : 'Uncompressed, integer';
+  if (f.id === 'wav' || f.id === 'aiff') return o.bitDepth === 32 && !o.int32 ? 'Uncompressed, 32-bit floating point' : 'Uncompressed, integer';
   if (f.id === 'flac') return `Lossless, level ${o.settings.level}`;
   if (f.id === 'mp3') return `${o.settings.bitrate} kbps CBR`;
   return `${o.settings.bitrate} kbps`;

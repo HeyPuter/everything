@@ -47,7 +47,7 @@ export function initialState(doc, { mode, frames, remembered = {}, includeMeta }
   const meta = includeMeta ?? remembered.includeMeta !== false;
   const sourceFormat = formatForName(doc.source?.path || doc.name);
   const format = mode === 'saveAs' ? sourceFormat || remembered.format || 'wav' : remembered.format || sourceFormat || 'wav';
-  const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc) };
+  const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc), int32: doc.info?.int32 };
   const base = defaultOptions(source, format);
   const options = conformOptions(format, {
     ...base,
@@ -171,7 +171,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   const samplePage = h(
     'div.io-sample-page',
     { hidden: true, role: 'group', 'aria-label': 'Sample type' },
-    h('p.muted.io-sample-note', `Source: ${describeSampleType({ sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc) })}. Conversion is applied to the exported file only.`),
+    h('p.muted.io-sample-note', `Source: ${describeSampleType({ sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc), int32: doc.info?.int32 })}. Conversion is applied to the exported file only.`),
     h('div.form-grid', h('label', 'Sample Rate:'), h('div.io-row', rateSel, customRate)),
     rateAdv,
     h('div.form-grid', h('label', 'Channels:'), chSel),
@@ -279,6 +279,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
 
   // The open sub-page ('sample' | 'mixdown') replaces the form until OK or Cancel.
   let page = null;
+  const pickedBits = () => (bitSel.value === '32i' ? 32 : Number(bitSel.value));
   const pickedRate = () => Math.round(Number(rateSel.value === 'custom' ? customRate.value : rateSel.value));
   const showPage = (el, title) => {
     main.hidden = true;
@@ -337,11 +338,12 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     sampleError.textContent = '';
     bitRow.forEach((el) => (el.hidden = !f.bitDepths));
     if (f.bitDepths) {
-      bitSel.replaceChildren(...f.bitDepths.map((b) => h('option', { value: b }, b === 32 ? '32-bit (float)' : `${b}-bit`)));
-      bitSel.value = String(state.options.bitDepth);
+      // "32i": 32-bit integer samples, where the format has them.
+      bitSel.replaceChildren(...f.bitDepths.flatMap((b) => (b === 32 && f.int32 ? [h('option', { value: '32i' }, '32-bit integer'), h('option', { value: 32 }, '32-bit (float)')] : [h('option', { value: b }, b === 32 ? '32-bit (float)' : `${b}-bit`)])));
+      bitSel.value = state.options.int32 ? '32i' : String(state.options.bitDepth);
     }
     const syncDither = () => {
-      const show = usesDither({ ...state.options, bitDepth: f.bitDepths ? Number(bitSel.value) : undefined });
+      const show = usesDither({ ...state.options, bitDepth: f.bitDepths ? pickedBits() : undefined });
       ditherRow.forEach((el) => (el.hidden = !show));
     };
     bitSel.onchange = syncDither;
@@ -366,7 +368,8 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
         ...state.options,
         sampleRate: rate,
         channels,
-        bitDepth: fmt().bitDepths ? Number(bitSel.value) : undefined,
+        bitDepth: fmt().bitDepths ? pickedBits() : undefined,
+        int32: fmt().bitDepths ? bitSel.value === '32i' : undefined,
         dither: ditherSel.value,
         resampler: { quality: clampNum(srcQualityNum.value, 0, 100, 50), filter: srcFilter.checked },
         mix: remix ? { left: clampNum(mixLeft.value, 0, 200, 100) / 100, right: clampNum(mixRight.value, 0, 200, 100) / 100 } : undefined,
