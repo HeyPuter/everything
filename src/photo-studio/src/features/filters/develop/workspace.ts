@@ -389,8 +389,12 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
       const sec = this.q(`[data-panel="${p.id}"]`);
       const on = this.params[p.toggle] !== false;
       const eye = sec.querySelector<HTMLElement>('.dv-eye')!;
-      eye.setAttribute('aria-pressed', String(on));
-      eye.innerHTML = svg(on ? 'eye' : 'eye-off', 15);
+      // Replace the icon only when the state changes: rewriting it between a
+      // press and release would lose the click.
+      if (eye.getAttribute('aria-pressed') !== String(on)) {
+        eye.setAttribute('aria-pressed', String(on));
+        eye.innerHTML = svg(on ? 'eye' : 'eye-off', 15);
+      }
       sec.classList.toggle('dv-off', !on);
       sec.querySelector<HTMLElement>('.dv-changed')!.hidden = panelIsDefault(this.params, p.id);
     }
