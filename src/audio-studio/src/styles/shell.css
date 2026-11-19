@@ -19,8 +19,8 @@
   gap: 4px;
   height: 30px;
   padding: 0 6px;
-  background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-soft);
   flex: none;
 }
 
@@ -170,8 +170,8 @@ puter-user-menu::part(apps-panel) {
   gap: 6px;
   height: 36px;
   padding: 0 8px;
-  background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  /* Toolbar and status bar share the panels' surface; the workspace gutter separates them. */
+  background: var(--bg-panel);
   flex: none;
   min-width: 0;
 }
@@ -186,8 +186,9 @@ puter-user-menu::part(apps-panel) {
 
 .mode-switch {
   display: flex;
-  border: 1px solid var(--divider);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius);
+  background: var(--bg-panel-alt);
   overflow: hidden;
   flex: none;
 }
@@ -205,7 +206,7 @@ puter-user-menu::part(apps-panel) {
 }
 
 .mode-btn + .mode-btn {
-  border-left: 1px solid var(--divider);
+  border-left: 1px solid var(--border-soft);
 }
 
 .mode-btn:hover {
@@ -213,9 +214,10 @@ puter-user-menu::part(apps-panel) {
   color: var(--text-strong);
 }
 
-/* Accent text moved a little toward the text color reads at 4.5:1 on the active fill, for every accent. */
+/* The current editor and tool sit sunken into the bar, drawn in the accent color.
+   Accent text moved a little toward the text color reads at 4.5:1 on the well, for every accent. */
 .mode-btn.on {
-  background: var(--bg-active);
+  background: var(--bg-app);
   color: color-mix(in srgb, var(--accent-strong) 80%, var(--text-strong));
 }
 
@@ -229,6 +231,13 @@ puter-user-menu::part(apps-panel) {
 .tool-group .icon-btn {
   width: 28px;
   height: 28px;
+  border: 1px solid transparent;
+}
+
+.tool-group .icon-btn[aria-pressed='true'] {
+  border-color: var(--border-soft);
+  background: var(--bg-app);
+  color: color-mix(in srgb, var(--accent-strong) 85%, var(--text-strong));
 }
 
 .workspace-tabs {
@@ -485,8 +494,7 @@ puter-user-menu::part(apps-panel) {
   gap: 10px;
   height: 22px;
   padding: 0 10px calc(env(safe-area-inset-bottom) * 0) 10px;
-  background: var(--bg-panel-alt);
-  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
   color: var(--text-dim);
   font-size: var(--fs-sm);
   flex: none;
