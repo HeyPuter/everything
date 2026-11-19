@@ -392,6 +392,40 @@ export function frequencyPanel(app) {
       ctx.fillRect(Math.round(hoverX), g.top, 1, g.bottom - g.top);
     }
     ctx.restore();
+    // What the trace shows, in the plot corner (live while playing, or what was measured).
+    if (data) {
+      ctx.font = CANVAS_FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = cssVar('--text-faint');
+      ctx.fillText(app.engine.playing ? 'Live' : data.label, g.left + 6, g.top + 4);
+    }
+    // Pointer readout at the cursor: a dot on the first trace and its frequency and level.
+    if (hoverX !== null && data && hoverX >= g.left && hoverX <= g.right) {
+      const f = scale.toHz((hoverX - g.left) / (g.right - g.left));
+      const [, db] = traces(data, channel)[0] || [];
+      const k = Math.round(f / (rate / data.fft));
+      const v = db && Number.isFinite(db[k]) ? db[k] : null;
+      const text = `${formatHz(f)}${v === null ? '' : `  ${v.toFixed(1)} dB`}`;
+      if (v !== null) {
+        const y = Math.min(g.bottom, Math.max(g.top, yOf(v)));
+        ctx.fillStyle = cssVar('--text-strong');
+        ctx.beginPath();
+        ctx.arc(hoverX, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.font = CANVAS_FONT;
+      const tw = ctx.measureText(text).width + 10;
+      const x = hoverX + 8 + tw > g.right ? hoverX - 8 - tw : hoverX + 8;
+      ctx.fillStyle = cssVar('--bg-raised');
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(x, g.top + 18, tw, 16);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = cssVar('--text-strong');
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + 5, g.top + 26);
+    }
     // Legend and readout.
     legend.replaceChildren(
       ...traces(data, channel).map(([name]) => h('span.legend-item', h('span.swatch', { style: { background: colors[name] } }), name === 'M' ? 'Mid' : name === 'L' ? 'Left' : 'Right')),
