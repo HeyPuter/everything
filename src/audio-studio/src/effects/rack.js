@@ -261,15 +261,20 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
       values: slot.values,
       title: `Effect - ${def.name} (Slot ${i + 1})`,
       slotId: slot.id,
+      // The window floats: the rack and the editor stay usable, so the slot is found by id
+      // each time (it may have moved, or been removed).
+      modeless: true,
       onChange: (values) => {
         const cur = slotsNow();
-        if (cur[i]?.id !== slot.id) return;
-        setSlots(setSlot(cur, i, { ...cur[i], values }));
+        const at = cur.findIndex((s) => s?.id === slot.id);
+        if (at < 0) return;
+        setSlots(setSlot(cur, at, { ...cur[at], values }));
       },
       onPower: (enabled) => {
         const cur = slotsNow();
-        if (cur[i]?.id !== slot.id) return;
-        setSlots(setSlot(cur, i, { ...cur[i], enabled }));
+        const at = cur.findIndex((s) => s?.id === slot.id);
+        if (at < 0) return;
+        setSlots(setSlot(cur, at, { ...cur[at], enabled }));
         render();
       },
       enabled: slot.enabled !== false,

@@ -609,6 +609,23 @@ input[type='number']:not(:focus):not(:disabled):not([readonly]) {
   max-width: min(880px, 100%);
 }
 
+/* A floating (modeless) window: the app behind it stays live. */
+.dialog-backdrop.modeless {
+  background: transparent;
+  pointer-events: none;
+}
+
+.dialog.floating {
+  position: fixed;
+  pointer-events: auto;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 45%);
+}
+
+.dialog.floating .dialog-head {
+  cursor: move;
+  touch-action: none;
+}
+
 .dialog-head {
   display: flex;
   align-items: center;

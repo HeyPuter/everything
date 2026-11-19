@@ -76,7 +76,7 @@ export async function runEffect(app, id, args = {}) {
   }
   if (!values) {
     const routing = {};
-    values = await openEffectDialog(app, def, { mode: 'apply', doc, routing });
+    values = await openEffectDialog(app, def, { mode: 'apply', doc, routing, modeless: true });
     if (!values) return false;
     route = routing.route || null;
   }

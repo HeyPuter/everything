@@ -260,6 +260,7 @@ registerEffect({
   name: 'Doppler Shifter',
   group: SPECIAL,
   kind: null,
+  modal: true, // laid out for the selection it opened with
   params: [
     choice('path', 'Path Type', ['Straight Line', 'Circular'], 0),
     num('startDistance', 'Starting Distance Away', 1, 200, 30, 'm', { step: 0.1, section: 'Straight Line' }),

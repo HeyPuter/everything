@@ -19,6 +19,10 @@ import { isRealtime, latencyFrames } from './apply.js';
 
 const CUSTOM = '\u0000custom';
 
+// The open floating effect window ({ key, handle, focus }): one at a time, like the
+// reference workflow of keeping a single effect window beside the editor.
+let floatingWindow = null;
+
 registerIcons({
   // Two inputs crossing to two outputs: the channel map.
   'channel-map': [['path', { d: 'M3 6h4c3 0 4 3 5 6s2 6 5 6h4' }], ['path', { d: 'M3 18h4c3 0 4-3 5-6s2-6 5-6h4' }], ['circle', { cx: '3', cy: '6', r: '1' }], ['circle', { cx: '3', cy: '18', r: '1' }]],
@@ -126,9 +130,21 @@ function inputPeak(doc, at, frames = 2048) {
  *  mode 'apply' | 'edit', values, title, applyLabel, enabled (power state),
  *  onChange(values), onPower(enabled), doc, slotId (the rack or track slot
  *  being edited, so editors can show that slot's live readouts), routing
- *  (an object that receives the chosen channel `route` on Apply)
+ *  (an object that receives the chosen channel `route` on Apply),
+ *  modeless (a floating window: the editor stays usable, Apply processes the
+ *  selection as it is then, and any playback of the file runs through the effect)
  */
-export function openEffectDialog(app, def, { mode = 'apply', values: initial, title, applyLabel = 'Apply', enabled = true, onChange, onPower, doc = app.active?.kind === 'audio' ? app.active : null, slotId = null, routing = null } = {}) {
+export function openEffectDialog(app, def, { mode = 'apply', values: initial, title, applyLabel = 'Apply', enabled = true, onChange, onPower, doc = app.active?.kind === 'audio' ? app.active : null, slotId = null, routing = null, modeless = false } = {}) {
+  const windowKey = `${mode}:${def.id}:${slotId || ''}`;
+  if (modeless && floatingWindow) {
+    // The same effect again brings its window forward; another effect replaces it.
+    if (floatingWindow.key === windowKey && floatingWindow.handle.el?.isConnected) {
+      floatingWindow.focus();
+      return Promise.resolve(null);
+    }
+    floatingWindow.handle.close?.(null);
+    floatingWindow = null;
+  }
   let values = normalizeValues(def, initial || lastValues(app.prefs, def));
   let power = enabled;
   const channelCount = doc ? doc.state.channels.length : 2;
@@ -136,8 +152,14 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   const routable = mode === 'apply' && Boolean(routing) && channelCount === 2;
   let route = routable ? recallRoute(def.id) || defaultRoute(doc.channelMask) : null;
   let previewing = false;
+  let ownPlayback = false; // the dialog's Preview button started the playback
   let restarting = false;
   const realtime = isRealtime(def);
+  // Dialogs laid out for the selection they opened with (stretch durations, envelopes drawn
+  // over the audio) stay modal, so that selection cannot change under them.
+  const floating = modeless && !def.modal && !def.params.some((p) => p.type === 'envelope');
+  // A floating window previews whenever the file plays (power on), not only from its own Preview button.
+  const live = floating && mode === 'apply' && realtime;
   const groups = linkGroups(def);
   const subscribers = new Set();
   const range = doc ? doc.editRange() : null;
@@ -192,7 +214,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     syncPresetSelect();
     onChange?.(values);
     announceValues(values);
-    if (previewing && mode === 'apply' && !previewTimer) {
+    if ((previewing || live) && mode === 'apply' && !previewTimer) {
       previewTimer = requestAnimationFrame(() => {
         previewTimer = 0;
         pushPreview();
@@ -266,7 +288,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
       route = next;
       showRoute();
       announceValues(values);
-      if (previewing) pushPreview();
+      if (previewing || live) pushPreview();
     };
     const inputs = [0, 1].map((c) => h('label.fx-chmap-cell', h('span.faint', full[c]), pick(route.in[c], [[0, `File ${names[0]}`], [1, `File ${names[1]}`], [-1, 'Silence']], (v) => set({ ...route, in: route.in.map((x, i) => (i === c ? v : x)) }), `Effect ${full[c].toLowerCase()} input`)));
     const outputs = [0, 1].map((c) => h('label.fx-chmap-cell', h('span.faint', full[c]), pick(route.out[c], [[0, `Effect ${names[0]}`], [1, `Effect ${names[1]}`], [-1, 'Unprocessed']], (v) => set({ ...route, out: route.out.map((x, i) => (i === c ? v : x)) }), `File ${full[c].toLowerCase()} channel output`)));
@@ -383,7 +405,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     powerBtn.setAttribute('aria-pressed', String(power));
     announce(power ? 'Effect on' : 'Effect bypassed');
     if (mode === 'edit') onPower?.(power);
-    else if (previewing) pushPreview();
+    else if (previewing || live) pushPreview();
   } }, icon('power', 15));
   const playBtn = h('button.icon-btn.fx-play', { type: 'button', 'aria-label': 'Preview', title: realtime || mode === 'edit' ? 'Play the selection through the effect' : 'Preview is not available for this effect', disabled: !playDoc || (!realtime && mode !== 'edit'), onclick: () => togglePreview() }, icon('transport-play', 15));
   const loopBtn = h('button.icon-btn.fx-loop', { type: 'button', 'aria-pressed': String(app.prefs.get('fxPreviewLoop') !== false), 'aria-label': 'Loop preview', title: 'Loop the preview', onclick: () => {
@@ -405,7 +427,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   function pushPreview() {
     if (mode !== 'apply') return;
     let spec = null;
-    if (previewing && realtime) {
+    if ((previewing || live) && realtime) {
       spec = slotSpec(def, values, { key: `preview:${def.id}`, enabled: power, doc, route });
       // Its processing delay, which the file's playback graph compensates (decorateGraph).
       const latency = doc ? latencyFrames(def, values, doc.sampleRate) : 0;
@@ -433,6 +455,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
       return;
     }
     if (app.active !== playDoc) app.activate(playDoc);
+    ownPlayback = true;
     setPreviewing(true);
     pushPreview();
     startPlayback();
@@ -440,9 +463,15 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   }
   const onTransport = (s) => {
     if (s === 'stopped' && previewing && !restarting) {
+      ownPlayback = false;
       setPreviewing(false);
       pushPreview();
       meters.set([0, 0], [0, 0]);
+    } else if (floating && s === 'playing' && !previewing && app.active === playDoc) {
+      // Playback started from the editor (Space, the transport): the window follows it.
+      setPreviewing(true);
+      pushPreview();
+      if (!meterRaf) meterRaf = requestAnimationFrame(meterLoop);
     }
   };
   cleanups.push(app.on('transport', onTransport));
@@ -473,18 +502,34 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     : [{ label: 'Close', value: null, primary: true }];
 
   announceValues(values);
-  return openDialog({
+  const handle = {};
+  if (floating) {
+    // Switching to another file closes the window: its settings belong to this one.
+    cleanups.push(app.on('active', (d) => d !== playDoc && handle.close?.(null)));
+    cleanups.push(app.on('documents', () => playDoc && !app.documents?.includes?.(playDoc) && handle.close?.(null)));
+    if (live) pushPreview();
+    if (live && app.engine?.playing && app.active === playDoc) onTransport('playing');
+  }
+  const opened = openDialog({
     title: title || `Effect - ${def.name}`,
     className: `fx-dialog${def.layout?.wide ? ' fx-wide' : ''}${editor?.dialogClass ? ` ${editor.dialogClass}` : ''}`,
     body,
     footerStart,
     buttons,
     initialFocus: '.fx-controls input, .fx-controls .hot, .fx-controls select, .fx-editor button',
-  }).then((r) => {
+    modeless: floating,
+    positionKey: 'fx-window',
+    handle,
+  });
+  const entry = floating ? { key: windowKey, handle, focus: () => (handle.el?.querySelector('.fx-controls input, .fx-controls .hot, .fx-controls select, .fx-editor button, button') || handle.el)?.focus() } : null;
+  if (entry) floatingWindow = entry;
+  return opened.then((r) => {
+    if (floatingWindow === entry) floatingWindow = null;
     cancelAnimationFrame(previewTimer);
     announceValues(null);
     cleanups.forEach((f) => f());
-    if (previewing) app.stop();
+    // A floating window leaves playback the editor started running; its own preview stops.
+    if (previewing && (!floating || r !== null || ownPlayback)) app.stop();
     if (mode === 'apply' && app.previewFx?.some((s) => s.key === `preview:${def.id}`)) {
       app.previewFx = null;
       app.syncGraph();

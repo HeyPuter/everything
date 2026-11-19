@@ -228,9 +228,11 @@ export function createShell(app, root) {
     if (typing && !(e.metaKey || e.ctrlKey)) return;
     // Text editing keys (select all, clipboard, undo, caret and word moves) stay with the field.
     if (typing && TEXT_KEYS.test(eventKey(e))) return;
-    if (document.querySelector('.dialog-backdrop')) return;
+    if (document.querySelector('.dialog-backdrop:not(.modeless)')) return;
     const id = app.commands.match(e);
     if (!id) return;
+    // Inside a floating effect window only the transport keys (Space to preview) reach the app.
+    if (t instanceof Element && t.closest('.dialog-backdrop.modeless') && !id.startsWith('transport.')) return;
     // Plain keys (Space, letters) should still activate focused buttons and menus.
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
     if (plain && (e.key === ' ' || e.key === 'Enter') && t instanceof HTMLElement && t.closest('button, input[type=checkbox], input[type=radio], [role=menuitem], [role=menuitemcheckbox], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio], a, summary')) return;

@@ -108,6 +108,7 @@ function makeMovable(dialog, head, key) {
     },
   };
 }
+const narrow = sheetLayout;
 
 /**
  * Opens a dialog. `build(close)` returns the body content; `buttons` are
@@ -117,13 +118,20 @@ function makeMovable(dialog, head, key) {
  * presses the primary button except inside an element with data-own-enter.
  * `initialFocus` is a selector, or selectors in order of preference; the
  * first match that can take focus gets it.
+ *
+ * `modeless: true` opens a floating window instead (not on phone-width
+ * screens): the rest of the app stays usable, its keys and the dialog's own
+ * (Escape, Enter, Tab) only act while focus is inside it, and its title bar
+ * drags it (the place is remembered per `positionKey`). `handle` receives
+ * { close(value), el } so the opener can close it from outside.
  */
-export function openDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onSubmit, footerStart, className = '', initialFocus }) {
+export function openDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onSubmit, footerStart, className = '', initialFocus, modeless = false, positionKey = className, handle = null }) {
   return new Promise((resolve) => {
     const previous = document.activeElement;
     const titleId = `dlg-title-${++openCount}`;
-    const dialog = h(`div.dialog${wide ? '.wide' : ''}${className ? `.${className}` : ''}`, { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId });
-    const backdrop = h('div.dialog-backdrop', dialog);
+    const floating = modeless && !narrow();
+    const dialog = h(`div.dialog${wide ? '.wide' : ''}${className ? `.${className}` : ''}`, { role: 'dialog', 'aria-modal': floating ? 'false' : 'true', 'aria-labelledby': titleId });
+    const backdrop = h(`div.dialog-backdrop${floating ? '.modeless' : ''}`, dialog);
     let done = false;
     const close = async (value) => {
       if (done) return;
@@ -132,11 +140,17 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
         if (ok === false) return;
       }
       done = true;
+      // A floating window gives focus back only when it had it (not while you work in the editor).
+      const hadFocus = dialog.contains(document.activeElement);
       backdrop.remove();
       document.removeEventListener('keydown', keys, true);
-      if (previous && previous.isConnected) previous.focus({ preventScroll: true });
+      if ((!floating || hadFocus) && previous && previous.isConnected) previous.focus({ preventScroll: true });
       resolve(value ?? null);
     };
+    if (handle) {
+      handle.close = close;
+      handle.el = dialog;
+    }
     const content = typeof body === 'function' ? body(close) : body;
     const foot = h('div.dialog-foot');
     if (footerStart) foot.append(footerStart, h('div.spacer'));
@@ -151,10 +165,12 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
     }
     // A div, not a <header>: outside sectioning content that is a second page banner landmark.
     const head = h('div.dialog-head', h('h2.dialog-title', { id: titleId }, title), h('button.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: () => close(null) }, icon('x')));
-    const movable = makeMovable(dialog, head, typeof title === 'string' ? title : className || 'dialog');
+    // Floating windows place and drag themselves (placeFloating); modal dialogs move by their title bar.
+    const movable = floating ? null : makeMovable(dialog, head, typeof title === 'string' ? title : className || 'dialog');
     dialog.append(head, h('div.dialog-body', content), buttons.length ? foot : null);
     const keys = (e) => {
       if (!backdrop.isConnected) return;
+      if (floating && !dialog.contains(e.target)) return;
       // Only the topmost dialog handles keys (a dialog may open another).
       const all = document.querySelectorAll('.dialog-backdrop');
       if (all[all.length - 1] !== backdrop) return;
@@ -196,11 +212,14 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       // Other keys reach the dialog's controls; the shell ignores keys while a dialog is open.
     };
     document.addEventListener('keydown', keys, true);
-    backdrop.addEventListener('pointerdown', (e) => {
-      if (e.target === backdrop) close(null);
-    });
+    if (!floating) {
+      backdrop.addEventListener('pointerdown', (e) => {
+        if (e.target === backdrop) close(null);
+      });
+    }
     document.body.append(backdrop);
-    movable.restore();
+    if (floating) placeFloating(dialog, positionKey || (typeof title === 'string' ? title : 'dialog'));
+    else movable?.restore();
     // The first candidate that takes focus (a layout may hide some, e.g. tabs on phones).
     const preferred = [].concat(initialFocus || []).flatMap((sel) => [...dialog.querySelectorAll(sel)]);
     // Without a field or default button, a footer button (Cancel) before the title bar's close button.
@@ -210,6 +229,56 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       return el && document.activeElement === el;
     });
     if (target?.select && target.tagName === 'INPUT') target.select();
+  });
+}
+
+/** Pins a floating window where it was last left (or where it opened) and lets its title bar drag it. */
+function placeFloating(dialog, key) {
+  const keep = (left, top) => {
+    // The whole window stays on screen (its title bar at least, when it is taller than the window).
+    const r = dialog.getBoundingClientRect();
+    const maxL = Math.max(0, window.innerWidth - r.width);
+    const maxT = Math.max(0, window.innerHeight - r.height);
+    dialog.style.left = `${Math.round(Math.min(maxL, Math.max(0, left)))}px`;
+    dialog.style.top = `${Math.round(Math.min(maxT, Math.max(0, top)))}px`;
+  };
+  const r = dialog.getBoundingClientRect();
+  const saved = store.get(`float:${key}`);
+  const placed = saved ? { left: saved.x, top: saved.y } : null;
+  dialog.classList.add('floating');
+  // A click on a bare part of the window (its title, a label) moves focus into it, so its keys work.
+  dialog.tabIndex = -1;
+  dialog.addEventListener('pointerdown', (e) => {
+    if (!dialog.contains(document.activeElement) && !e.target.closest('button, input, select, textarea, a, [tabindex]:not(.dialog)')) dialog.focus({ preventScroll: true });
+  });
+  keep(placed ? placed.left : r.left, placed ? placed.top : r.top);
+  // Steps off `rect` (e.g. the Preview Editor) unless the user has placed this window.
+  dialog.avoid = (rect) => {
+    if (store.get(`float:${key}`)) return;
+    const d = dialog.getBoundingClientRect();
+    if (d.right <= rect.left || d.left >= rect.right || d.bottom <= rect.top || d.top >= rect.bottom) return;
+    const left = rect.right + d.width <= window.innerWidth ? rect.right : rect.left - d.width >= 0 ? rect.left - d.width : window.innerWidth - 8 - d.width;
+    keep(left, d.top);
+  };
+  const head = dialog.querySelector('.dialog-head');
+  head?.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button, input, select, a')) return;
+    e.preventDefault();
+    const start = dialog.getBoundingClientRect();
+    const dx = e.clientX - start.left;
+    const dy = e.clientY - start.top;
+    head.setPointerCapture?.(e.pointerId);
+    const move = (ev) => keep(ev.clientX - dx, ev.clientY - dy);
+    const up = () => {
+      head.removeEventListener('pointermove', move);
+      head.removeEventListener('pointerup', up);
+      head.removeEventListener('pointercancel', up);
+      const now = dialog.getBoundingClientRect();
+      store.set(`float:${key}`, { x: now.left, y: now.top });
+    };
+    head.addEventListener('pointermove', move);
+    head.addEventListener('pointerup', up);
+    head.addEventListener('pointercancel', up);
   });
 }
 

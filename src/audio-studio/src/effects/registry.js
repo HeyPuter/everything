@@ -49,6 +49,9 @@
 //   tasks: { name: async (args) => result } // optional worker helpers (offline-fx.js runTask)
 //   editor: (ctx) => HTMLElement   // optional custom dialog body (EQ curve, graph...); ctx has
 //                                  // { values, set(id, value), def, app, doc, onReadout(fn), onClose(fn) }
+//   modal: true                    // optional: the dialog blocks the editor while open (its layout
+//                                  // depends on the selection it opened with); other Effects menu
+//                                  // dialogs float beside the editor
 //   measureOnly: true              // optional: passes audio through unchanged to measure it
 //                                  // (Loudness Meter); its dialog has no Apply
 //   display: 'loudness'            // optional: a built-in live display for the dialog (editors.js)

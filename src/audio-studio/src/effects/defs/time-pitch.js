@@ -207,6 +207,7 @@ registerEffect({
   name: 'Stretch and Pitch',
   group: GROUP,
   kind: null,
+  modal: true, // laid out for the selection it opened with
   params: [
     choice('algorithm', 'Algorithm', ['Spectral (music)', 'Waveform (speech)', 'Varispeed (tape)'], 0),
     num('stretch', 'Stretch', 10, 1000, 100, '%', { step: 0.1, scale: 'log', description: 'New duration as a percentage of the original' }),
@@ -247,6 +248,7 @@ registerEffect({
   name: 'Pitch Bender',
   group: GROUP,
   kind: null,
+  modal: true, // laid out for the selection it opened with
   params: [
     { id: 'envelope', label: 'Pitch', type: 'envelope', default: [{ t: 0, v: 0 }, { t: 1, v: 0 }], min: -48, max: 48, unit: 'st' },
     num('range', 'Range', 1, 48, 2, 'st', { step: 1, description: 'Vertical range of the pitch graph' }),
