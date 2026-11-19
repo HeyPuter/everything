@@ -16,6 +16,7 @@ import { icon } from './icons.js';
 import { openDialog, promptDialog, confirmDialog } from './dialog.js';
 import { formatShortcut, eventShortcut, normalizeShortcut, browserReserved, IS_MAC } from '../commands/registry.js';
 import { commandMenuPaths, contextLabel } from './menus.js';
+import { describeCommand } from '../commands/descriptions.js';
 
 /** Category of a command for the tree and the copied list. */
 const PREFIX_CATEGORY = {
@@ -178,6 +179,11 @@ export function shortcutsDialog(app) {
   const C = app.commands;
   const prefs = app.prefs;
   const paths = commandMenuPaths();
+  const descriptions = new Map();
+  const describe = (id) => {
+    if (!descriptions.has(id)) descriptions.set(id, describeCommand(C, id, { paths, label: C.label(id) }));
+    return descriptions.get(id);
+  };
   const label = (id) => contextLabel(id, C.label(id), paths);
   const opened = { overrides: snapshot(C), set: prefs.get('shortcutSet') || '' };
   const undoStack = [];
@@ -414,7 +420,7 @@ export function shortcutsDialog(app) {
   const matches = (id, q) => {
     if (!q) return true;
     const keys = C.keysFor(id);
-    return label(id).toLowerCase().includes(q) || categoryOf(id).toLowerCase().includes(q) || keys.some((k) => formatShortcut(k).toLowerCase().includes(q) || k.toLowerCase().includes(q));
+    return label(id).toLowerCase().includes(q) || categoryOf(id).toLowerCase().includes(q) || describe(id).toLowerCase().includes(q) || keys.some((k) => formatShortcut(k).toLowerCase().includes(q) || k.toLowerCase().includes(q));
   };
 
   /** A button in the command's current row (after a rebuild), focused. */
@@ -476,6 +482,7 @@ export function shortcutsDialog(app) {
           `div.sc-row${id === selectedId ? '.k-selected' : ''}`,
           { role: 'treeitem', 'aria-selected': String(id === selectedId), tabindex: id === selectedId ? '0' : '-1', dataset: { id } },
           h('span.sc-name', label(id), custom ? h('span.sc-custom', { title: 'Changed from the default' }, '•') : null),
+          h('span.sc-desc', { title: describe(id) }, describe(id)),
           shortcutCell(id),
         );
         row.addEventListener('click', () => selectCommand(id));
@@ -688,7 +695,7 @@ export function shortcutsDialog(app) {
     legend,
     h(
       'div.sc-split',
-      h('section.sc-pane.sc-commands', { 'aria-label': 'Commands' }, h('div.sc-pane-head', search, h('span.sc-col', 'Shortcuts')), tree),
+      h('section.sc-pane.sc-commands', { 'aria-label': 'Commands' }, h('div.sc-pane-head', search, h('span.sc-col.sc-col-desc', 'Description'), h('span.sc-col', 'Shortcuts')), tree),
       h('section.sc-pane.sc-keypane', { 'aria-label': 'Key details' }, h('div.sc-pane-head', keyTitle), h('div.sc-key-head', h('span', 'Modifiers'), h('span', 'Command')), keyRows, h('div.sc-actions', undoBtn, clearBtn, resetBtn)),
     ),
   );

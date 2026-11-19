@@ -522,3 +522,31 @@
 .sc-layout-row[hidden] {
   display: none;
 }
+
+/* Description column between the command and its shortcuts: fixed columns so they line up. */
+.sc-commands .sc-name {
+  flex: 0 0 36%;
+}
+.sc-desc {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.sc-commands .sc-keys {
+  flex: 0 0 auto;
+  max-width: 30%;
+}
+.sc-commands .sc-pane-head > input,
+.sc-commands .sc-pane-head > .search-box,
+.sc-commands .sc-pane-head > :first-child {
+  flex: 0 0 calc(36% + 22px);
+  min-width: 0;
+}
+.sc-col-desc {
+  margin-left: 0;
+  flex: 1 1 0;
+}
