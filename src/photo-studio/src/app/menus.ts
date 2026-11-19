@@ -91,7 +91,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
         'layer.adj-invert', 'layer.adj-posterize', 'layer.adj-threshold', 'layer.adj-gradient-map', 'layer.adj-selective-color',
       ] },
       'layer.new-relight', 'layer.content-options', '-',
-      { label: 'Layer Mask', id: 'layer.mask', items: ['layer.mask-reveal-all', 'layer.mask-hide-all', 'layer.mask-reveal-selection', 'layer.mask-hide-selection', 'layer.mask-from-transparency', '-', 'layer.mask-delete', 'layer.mask-apply', '-', 'layer.mask-toggle', 'layer.mask-link', 'layer.mask-invert', '-', 'layer.mask-refine-edge'] },
+      { label: 'Layer Mask', id: 'layer.mask', items: ['layer.mask-reveal-all', 'layer.mask-hide-all', 'layer.mask-reveal-selection', 'layer.mask-hide-selection', 'layer.mask-from-transparency', '-', 'layer.mask-delete', 'layer.mask-apply', '-', 'layer.mask-toggle', 'layer.mask-link', 'layer.mask-invert', '-', 'layer.mask-refine-edge', 'layer.mask-enhance-edge'] },
       { label: 'Vector Mask', id: 'layer.vector-mask', items: ['layer.vmask-reveal-all', 'layer.vmask-hide-all', 'layer.vmask-current-path', '-', 'layer.vmask-delete', 'layer.vmask-toggle', 'layer.vmask-link'] },
       'layer.clipping-mask', 'layer.mask-all-objects', 'layer.harmonize', '-',
       { label: 'Embedded Objects', id: 'layer.embedded', items: [

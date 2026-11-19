@@ -1,7 +1,8 @@
 // Layer → Layer Mask → Refine Mask Edge…: re-estimate a layer mask near its
 // edge from the layer's own pixels, with the matting Select and Mask uses
 // (guided filter in a band, adaptive radius, smoothing, feather, contrast and
-// edge shift). Only the area around the edge is processed.
+// edge shift); Enhance Edge does the same in one step with automatic
+// settings. Only the area around the edge is processed.
 import type { Editor } from '../../editor';
 import { findLayer, type Layer } from '../../model/document';
 import { canvasRect } from '../../model/selection';
@@ -57,21 +58,49 @@ export function writeRefinedBand(store: TileStore, grid: TileGrid, band: Rect, r
   return writeRect(store, grid, band.x, band.y, { width: band.width, height: band.height, data });
 }
 
-export async function refineMaskEdge(e: Editor) {
+type MaskInput = { layer: Layer; grid: TileGrid; mask: Mask8; inverted: boolean; area: Rect };
+/** The selected layer's mask as it applies (an inverted mask is refined as it
+ * shows), or undefined after explaining why there is nothing to refine. */
+async function maskInput(e: Editor, verb: string): Promise<MaskInput | undefined> {
   const l = e.layer;
-  if (!l || l.kind === 'group' || l.kind === 'adjustment') return e.message('Select a layer with a layer mask.');
-  if (layerLock(e.doc.layers, l.id, 'all')) return e.message('Unlock this layer to refine its mask.');
+  if (!l || l.kind === 'group' || l.kind === 'adjustment') return void e.message('Select a layer with a layer mask.');
+  if (layerLock(e.doc.layers, l.id, 'all')) return void e.message(`Unlock this layer to ${verb} its mask.`);
   const area = canvasRect(e.doc);
-  const store = e.assets.tiles;
-  // The mask as it applies (an inverted mask is refined as it shows).
   const grid = l.maskGrid ?? (await legacyMaskToGrid(e, l));
-  if (!grid) return e.message('This layer has no layer mask.');
-  const mask = readMask(store, grid, area);
+  if (!grid) return void e.message('This layer has no layer mask.');
+  const mask = readMask(e.assets.tiles, grid, area);
   // A legacy mask is converted as it shows, so the result drops the flag.
   const inverted = !!(l.maskGrid && l.maskInverted);
   if (inverted) for (let i = 0; i < mask.data.length; i++) mask.data[i] = 255 - mask.data[i];
-  // Checked before asking for settings: a uniform mask has nothing to refine.
-  if (!edgeBand(mask, 0)) return e.message('The mask has no edge to refine: it shows or hides the whole layer.');
+  // Checked before any work: a uniform mask has nothing to refine.
+  if (!edgeBand(mask, 0)) return void e.message(`The mask has no edge to ${verb}: it shows or hides the whole layer.`);
+  return { layer: l, grid, mask, inverted, area };
+}
+/** The layer's own pixels, without its mask or effects, which guide the matting. */
+function plainLayer(l: Layer): Layer {
+  return { ...l, mask: null, maskAsset: undefined, pixelMask: undefined, maskStrokes: undefined, maskGrid: undefined, maskInverted: false, maskDisabled: false, opacity: 1, blend: 'normal', fillOpacity: 1, style: undefined };
+}
+/** Store a refined band of the mask as one history step. */
+function commitBand(e: Editor, input: MaskInput, band: Rect, refined: Mask8, label: string) {
+  const { layer, grid, inverted, area } = input;
+  const next = writeRefinedBand(e.assets.tiles, grid, { ...band, x: band.x + area.x, y: band.y + area.y }, refined, inverted);
+  const id = layer.id;
+  e.command(label, (d) => {
+    const t = findLayer(d.layers, id);
+    if (!t) return;
+    t.mask = null;
+    delete t.maskAsset;
+    delete t.pixelMask;
+    delete t.maskStrokes;
+    if (inverted) t.maskInverted = true;
+    else delete t.maskInverted;
+    t.maskGrid = next;
+  });
+}
+
+export async function refineMaskEdge(e: Editor) {
+  const input = await maskInput(e, 'refine');
+  if (!input) return;
   const v = await formDialog('Refine Mask Edge', [
     { name: 'radius', label: 'Edge radius (px)', value: 8, type: 'number', min: 1, max: 250 },
     { name: 'adaptive', label: 'Adaptive radius (keep hard edges crisp)', value: 'yes', type: 'checkbox' },
@@ -91,26 +120,30 @@ export async function refineMaskEdge(e: Editor) {
     shiftEdge: clamp('shift', -100, 100),
     decontaminate: 0,
   };
-  const band = edgeBand(mask, Math.ceil(settings.radius * 2 + settings.feather + 4))!;
-  // The layer's own pixels, without its mask or effects, guide the matting.
-  const plain: Layer = { ...l, mask: null, maskAsset: undefined, pixelMask: undefined, maskStrokes: undefined, maskGrid: undefined, maskInverted: false, maskDisabled: false, opacity: 1, blend: 'normal', fillOpacity: 1, style: undefined };
-  const image = await layerRGBA(e, plain);
+  const band = edgeBand(input.mask, Math.ceil(settings.radius * 2 + settings.feather + 4))!;
+  const image = await layerRGBA(e, plainLayer(input.layer));
   const img = crop(image, band, 4),
-    part = crop(mask, band, 1);
+    part = crop(input.mask, band, 1);
   const res = await heavy<{ mask: Mask8 }>(e, 'Refining mask edge', 'refine', { img, mask: part, settings, brushed: null, brushRadius: 0 });
   if (!res) return;
-  const next = writeRefinedBand(store, grid, { ...band, x: band.x + area.x, y: band.y + area.y }, res.mask, inverted);
-  const id = l.id;
-  e.command('Refine Mask Edge', (d) => {
-    const t = findLayer(d.layers, id);
-    if (!t) return;
-    t.mask = null;
-    delete t.maskAsset;
-    delete t.pixelMask;
-    delete t.maskStrokes;
-    if (inverted) t.maskInverted = true;
-    else delete t.maskInverted;
-    t.maskGrid = next;
-  });
+  commitBand(e, input, band, res.mask, 'Refine Mask Edge');
   e.message('Refined the mask edge.');
+}
+
+// Context around the edge for the automatic band (at most 32 px) and the
+// matting's local color estimates.
+const ENHANCE_MARGIN = 72;
+/** Layer → Layer Mask → Enhance Edge: refine the mask edge in one step, with
+ * the band chosen automatically (in the retouching worker). */
+export async function enhanceMaskEdge(e: Editor) {
+  const input = await maskInput(e, 'enhance');
+  if (!input) return;
+  const band = edgeBand(input.mask, ENHANCE_MARGIN)!;
+  const res = await heavy<{ mask: Mask8; radius: number }>(e, 'Enhancing mask edge', 'enhance-edge', async () => {
+    const image = await layerRGBA(e, plainLayer(input.layer));
+    return { img: crop(image, band, 4), mask: crop(input.mask, band, 1), canvas: { width: input.area.width, height: input.area.height } };
+  });
+  if (!res) return;
+  commitBand(e, input, band, res.mask, 'Enhance Edge');
+  e.message(`Enhanced the mask edge (${res.radius} px around it).`);
 }

@@ -8,6 +8,8 @@ import { contributeMenu, registerCommand, registerOverlay, registerTool, type To
 import { lazy, lazyRun, lazyTool } from '../../app/lazy';
 import { installTaskbar } from './taskbar';
 import { hasMask } from '../../model/masks';
+import { svg } from '../../app/icons';
+import { propertySections } from '../panels/properties';
 
 const selectTools = lazy(() => import('./tools-select'));
 const healTools = lazy(() => import('./tools-heal'));
@@ -62,6 +64,13 @@ export function installRetouch(e: Editor) {
       enabled: (e) => !!e.layer && e.layer.kind !== 'group' && e.layer.kind !== 'adjustment' && (hasMask(e.layer) || !!e.layer.maskGrid),
       ...lazyRun(refineMask, (m, e) => m.refineMaskEdge(e)),
     },
+    {
+      id: 'layer.mask-enhance-edge',
+      label: 'Enhance Edge',
+      description: 'Refine the layer mask’s edge from the layer’s pixels in one step, so hair and fur follow the image.',
+      enabled: (e) => !!e.layer && e.layer.kind !== 'group' && e.layer.kind !== 'adjustment' && (hasMask(e.layer) || !!e.layer.maskGrid),
+      ...lazyRun(refineMask, (m, e) => m.enhanceMaskEdge(e)),
+    },
     { id: 'layer.defringe', label: 'Defringe…', enabled: pixel, ...lazyRun(commands, (m, e) => m.runMatting(e, 'defringe')) },
     { id: 'layer.color-decontaminate', label: 'Color Decontaminate…', enabled: pixel, ...lazyRun(commands, (m, e) => m.runMatting(e, 'decontaminate')) },
     { id: 'layer.remove-black-matte', label: 'Remove Black Matte', enabled: pixel, ...lazyRun(commands, (m, e) => m.runMatting(e, 'black')) },
@@ -87,4 +96,10 @@ export function installRetouch(e: Editor) {
   contributeMenu('edit', ['edit.ai-expand'], 'edit.ai-fill');
   installTaskbar(e);
   contributeMenu('layer', ['layer.remove-background'], 'layer.clipping-mask');
+  // Properties: refining the edge of the selected layer's mask.
+  propertySections.push((_e, l) =>
+    l.kind !== 'group' && l.kind !== 'adjustment' && (hasMask(l) || l.maskGrid)
+      ? `<div class="mask-info mask-edge">${svg('wand-sparkles', 13)} Mask edge <button type="button" data-command="layer.mask-enhance-edge" title="Refine the mask edge from the layer’s pixels in one step (Layer › Layer Mask › Enhance Edge)">Enhance</button><button type="button" data-command="layer.mask-refine-edge" title="Refine the mask edge with settings">Refine…</button></div>`
+      : '',
+  );
 }
