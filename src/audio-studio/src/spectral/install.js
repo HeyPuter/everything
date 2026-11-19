@@ -65,7 +65,9 @@ export function installSpectral(app) {
         const d = dspSync || (await loadDsp());
         if (!unchanged(doc, before, 'Spot Healing Brush')) return false;
         const next = healSpectral(before, selection, d);
-        if (commit(doc, 'Spot Healing Brush', next)) announce('Spot healing applied');
+        // A stroke outside the audio (past the end, or a disabled channel) changes nothing: say so.
+        if (next === before) app.setStatus('Spot healing: nothing to change under that stroke');
+        else if (commit(doc, 'Spot Healing Brush', next)) announce('Spot healing applied');
       } catch (err) {
         app.notify(`Spot healing could not be applied: ${err?.message || 'Unknown error'}`, { error: true });
         return false;
