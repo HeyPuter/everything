@@ -567,7 +567,8 @@ function bucketTool(): Tool {
       const session = e.session;
       const target = await pixelTarget(e);
       if (!target) return;
-      const region = await wandMask(e, x, y);
+      // The bucket always compares with the clicked pixel (the wand's sample size is its own).
+      const region = await wandMask(e, x, y, { sampleSize: 1 });
       // Another document was shown while the pixels were read: the fill
       // would land there, so it is dropped (as a stroke still starting is).
       if (e.session !== session) return;

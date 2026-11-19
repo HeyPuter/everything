@@ -188,6 +188,11 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
     // effect builds up while scrubbing. Dabs overlap about 1/spacing times;
     // each applies the share that makes one pass about the chosen strength.
     const share = 1 - Math.pow(1 - Math.min(1, strength), Math.min(1, Math.max(0.01, b.spacing)));
+    // Protect Detail keeps sharpened values within the range of their
+    // neighbors, so edges get crisper without halos or amplified noise.
+    const protect = kind === 'sharpen' && e.settings.sharpenProtectDetail !== false;
+    const lo = [0, 0, 0],
+      hi = [0, 0, 0];
     let read: LiveReader | undefined;
     return {
       kind: 'custom',
@@ -199,10 +204,19 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
         out[2] = cur[2];
         out[3] = cur[3];
         let r = 0, g = 0, bl = 0, a = 0;
+        if (protect) {
+          lo[0] = lo[1] = lo[2] = 255;
+          hi[0] = hi[1] = hi[2] = 0;
+        }
         for (let j = -1; j <= 1; j++)
           for (let i = -1; i <= 1; i++) {
             if (!read!(x + i, y + j, t)) continue;
             const w = t[3];
+            if (protect && w)
+              for (let c = 0; c < 3; c++) {
+                if (t[c] < lo[c]) lo[c] = t[c];
+                if (t[c] > hi[c]) hi[c] = t[c];
+              }
             r += t[0] * w;
             g += t[1] * w;
             bl += t[2] * w;
@@ -213,10 +227,15 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
         out[0] = cur[0] + (r / a - cur[0]) * k;
         out[1] = cur[1] + (g / a - cur[1]) * k;
         out[2] = cur[2] + (bl / a - cur[2]) * k;
+        if (protect) clampToRange(out, lo, hi);
         blend?.(cur, out);
       },
     };
   };
+}
+/** Keep each color channel within [lo, hi] (Protect Detail). */
+export function clampToRange(out: Uint8ClampedArray, lo: ArrayLike<number>, hi: ArrayLike<number>) {
+  for (let c = 0; c < 3; c++) out[c] = Math.max(lo[c], Math.min(hi[c], out[c]));
 }
 /** Applies a focus tool's mode to its result: Darken and Lighten keep only
  * darker or lighter results, Hue, Saturation, Color and Luminosity take only
@@ -295,6 +314,10 @@ function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
     };
   };
 }
+const magicEraserOpacity = (e: Editor) => {
+  const v = Number(e.settings.magicEraserOpacity ?? 100);
+  return Number.isFinite(v) ? Math.max(1, Math.min(100, v)) : 100;
+};
 function withOptions(tool: Tool, extra: (e: Editor) => string, bind: (e: Editor, el: HTMLElement) => void): Tool {
   return {
     ...tool,
@@ -419,7 +442,14 @@ export function installRetouchTools(_e: Editor) {
   registerTool(
     cloneTool(),
     withOptions(strokeTool('blur-tool', 'Blur Tool', 'blur-tool', 'focus', '', 'Blur Tool', {}, focusTarget('blur')), strengthField('blurStrength'), bindStrength('blurStrength')),
-    withOptions(strokeTool('sharpen-tool', 'Sharpen Tool', 'sharpen-tool', 'focus', '', 'Sharpen Tool', {}, focusTarget('sharpen')), strengthField('sharpenStrength'), bindStrength('sharpenStrength')),
+    withOptions(
+      strokeTool('sharpen-tool', 'Sharpen Tool', 'sharpen-tool', 'focus', '', 'Sharpen Tool', {}, focusTarget('sharpen')),
+      (e) => `${strengthField('sharpenStrength')(e)}<label class="transform-setting" title="Sharpen edges without halos, noise or blocky artifacts"><input type="checkbox" id="sharpen-protect" ${e.settings.sharpenProtectDetail !== false ? 'checked' : ''}>Protect Detail</label>`,
+      (e, el) => {
+        bindStrength('sharpenStrength')(e, el);
+        el.querySelector<HTMLInputElement>('#sharpen-protect')?.addEventListener('change', (ev) => (e.settings.sharpenProtectDetail = (ev.target as HTMLInputElement).checked));
+      },
+    ),
     withOptions(
       strokeTool('smudge-tool', 'Smudge Tool', 'smudge', 'focus', '', 'Smudge Tool', {}, focusTarget('smudge')),
       (e) => `${strengthField('smudgeStrength')(e)}<label class="transform-setting" title="Start each stroke with the foreground color on the tip"><input type="checkbox" id="finger-painting" ${e.settings.fingerPainting ? 'checked' : ''}>Finger Painting</label>`,
@@ -457,9 +487,11 @@ export function installRetouchTools(_e: Editor) {
       group: 'eraser',
       cursor: () => 'crosshair',
       options: (e) =>
-        `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`,
+        `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting" title="Soften the edge of the erased area"><input id="magic-eraser-aa" type="checkbox" ${e.settings.magicEraserAntiAlias !== false ? 'checked' : ''}>Anti-alias</label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label><label title="How much of the matching pixels is erased">Opacity <input id="magic-eraser-opacity" type="number" min="1" max="100" value="${magicEraserOpacity(e)}">%</label>`,
       bindOptions: ({ e, el }) => {
         bindTolerance(e, el);
+        el.querySelector<HTMLInputElement>('#magic-eraser-aa')?.addEventListener('change', (ev) => (e.settings.magicEraserAntiAlias = (ev.target as HTMLInputElement).checked));
+        bindNumberField(el, '#magic-eraser-opacity', () => magicEraserOpacity(e), (v) => (e.settings.magicEraserOpacity = Math.max(1, Math.min(100, Math.round(v)))));
         el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
         el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
       },
@@ -470,7 +502,8 @@ export function installRetouchTools(_e: Editor) {
         const session = e.session;
         const target = await pixelTarget(e, { allowMask: false, create: false });
         if (!target || target.kind !== 'pixels') return;
-        const region = await wandMask(e, x, y);
+        const region = await wandMask(e, x, y, { antiAlias: e.settings.magicEraserAntiAlias !== false, sampleSize: 1 });
+        const strength = magicEraserOpacity(e) / 100;
         // Another document was shown meanwhile: do not erase in it.
         if (e.session !== session) return;
         const area = canvasRect(e.doc);
@@ -480,7 +513,7 @@ export function installRetouchTools(_e: Editor) {
         // With transparency locked the region takes the background color instead.
         const fill = layerLock(e.doc.layers, target.layer.id, 'transparency') ? hexRgb(e.background) : undefined;
         for (let i = 0; i < region.data.length; i++) {
-          const k = (region.data[i] / 255) * (cover ? cover[i] / 255 : 1);
+          const k = (region.data[i] / 255) * (cover ? cover[i] / 255 : 1) * strength;
           if (!fill) img.data[i * 4 + 3] *= 1 - k;
           else if (k) for (let c = 0; c < 3; c++) img.data[i * 4 + c] += (fill[c] - img.data[i * 4 + c]) * k;
         }

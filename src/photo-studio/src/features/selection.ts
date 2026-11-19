@@ -581,7 +581,7 @@ export function wandReference(d: ArrayLike<number>, W: number, H: number, x: num
   return n ? (out.map((v) => v / n) as [number, number, number, number]) : out;
 }
 /** Pixels within tolerance of the clicked color, contiguous or global. */
-export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> {
+export async function wandMask(e: Editor, x: number, y: number, opts: { antiAlias?: boolean; sampleSize?: number } = {}): Promise<Mask8> {
   const img = await wandImage(e);
   const W = img.width,
     H = img.height,
@@ -590,7 +590,7 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
   // Colors are compared premultiplied by alpha: transparent pixels are alike
   // whatever color was erased there.
   const full = 255 * img.unit;
-  let ref = wandReference(d, W, H, x, y, wandSampleSize(e), full);
+  let ref = wandReference(d, W, H, x, y, opts.sampleSize ?? wandSampleSize(e), full);
   const within = (i: number) => {
     const a = d[i + 3];
     if (Math.abs(a - ref[3]) > t) return false;
@@ -631,7 +631,7 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
       }
     }
   }
-  if (e.settings.antiAlias !== false) {
+  if (opts.antiAlias ?? e.settings.antiAlias !== false) {
     // Soften the boundary by one pixel like an anti-aliased selection edge.
     const soft = new Uint8Array(out);
     for (let yy = 1; yy < H - 1; yy++)
