@@ -67,6 +67,25 @@ test('brush keys: [ ] size, Shift+[ ] hardness, number keys opacity and flow', a
   }
 });
 
+test('number keys on another layer make an undo step of its own', async ({ page }) => {
+  await run(page, 'layer.new-quick');
+  await run(page, 'layer.new-quick');
+  const opacities = () => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.opacity));
+  await page.keyboard.press('v');
+  await page.keyboard.press('5');
+  await idle(page);
+  // Layer 1 is selected with the keyboard; its opacity is a separate step.
+  await page.keyboard.press('Alt+BracketLeft');
+  await page.waitForTimeout(800);
+  await page.keyboard.press('3');
+  await idle(page);
+  expect(await opacities()).toEqual([1, 0.3, 0.5]);
+  const labels = await page.evaluate(() => window.photoStudio.history.labels);
+  expect(labels.filter((l) => l === 'Layer Opacity')).toHaveLength(2);
+  await run(page, 'edit.undo');
+  expect(await opacities()).toEqual([1, 1, 0.5]);
+});
+
 test('layer keys: opacity, stepping through layers, blend modes and fills', async ({ page }) => {
   await run(page, 'layer.new-quick');
   await run(page, 'layer.new-quick');

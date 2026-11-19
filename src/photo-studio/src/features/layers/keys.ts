@@ -3,6 +3,7 @@
 import type { Editor } from '../../editor';
 import { registerCommand } from '../../app/registry';
 import { blendLabel, blends, findLayer } from '../../model/document';
+import type { Layer, PhotoDocument } from '../../model/document';
 import { visibleRows } from '../../model/layers';
 import { layerLock } from '../../model/locks';
 import { shownInLayerList } from '../panels/layers';
@@ -26,18 +27,27 @@ function unlocked<T extends { id: string }>(e: Editor, layers: T[]): T[] {
   if (layers.length && !free.length) e.message('Unlock this layer to edit it.');
   return free;
 }
+// Repeated presses on the same layers make one undo step (two digits typed
+// quickly, a blend mode cycled through); other layers get a step of their own.
+let lastStep: { doc: PhotoDocument; key: string } | undefined;
+function keyStep(e: Editor, label: string, ids: string[], edit: (l: Layer) => void) {
+  const key = `${label}\n${ids.join('\n')}`;
+  const coalesce = lastStep?.doc === e.doc && lastStep.key === key;
+  e.command(label, (d) => {
+    for (const id of ids) {
+      const l = findLayer(d.layers, id);
+      if (l) edit(l);
+    }
+  }, { coalesce });
+  lastStep = { doc: e.doc, key };
+}
 function cycleBlend(e: Editor, by: 1 | -1) {
   const roots = unlocked(e, e.selectedLayers).filter((l) => l.kind !== 'group' || l.blend !== 'pass through');
   if (!roots.length) return;
   const ids = roots.map((l) => l.id);
   const at = Math.max(0, blends.indexOf(roots[0].blend as (typeof blends)[number]));
   const next = blends[(at + by + blends.length) % blends.length];
-  e.command('Blend Mode', (d) => {
-    for (const id of ids) {
-      const l = findLayer(d.layers, id);
-      if (l) l.blend = next;
-    }
-  }, { coalesce: true });
+  keyStep(e, 'Blend Mode', ids, (l) => (l.blend = next));
   e.message(`Blend mode: ${blendLabel(next)}`);
 }
 
@@ -64,12 +74,7 @@ export function installLayerKeys(_e: Editor) {
         if (!Number.isFinite(v)) return;
         const ids = unlocked(e, [...e.selectedIds].map((id) => ({ id }))).map((l) => l.id);
         if (!ids.length) return;
-        e.command('Layer Opacity', (d) => {
-          for (const id of ids) {
-            const l = findLayer(d.layers, id);
-            if (l) l.opacity = v;
-          }
-        }, { coalesce: true });
+        keyStep(e, 'Layer Opacity', ids, (l) => (l.opacity = v));
       },
     },
   );
