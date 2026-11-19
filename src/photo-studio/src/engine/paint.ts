@@ -128,6 +128,7 @@ export class StrokeSession {
   private seed: number;
   // Pressure or jitter gives dabs of one stroke different opacities.
   private varyingOpacity: boolean;
+  private unhold: () => void;
   dabs = 0;
   constructor(
     private store: TileStore,
@@ -138,6 +139,11 @@ export class StrokeSession {
     if ((options.target.kind === 'mask') !== (this.channels === 1))
       throw new Error('The paint target does not match the tile format.');
     this.preview = { ...original, tiles: { ...original.tiles } };
+    // The working tiles belong to no document until the stroke is committed:
+    // tile cleanup run by another edit meanwhile must keep them. A stroke
+    // abandoned without commit or cancel is not kept alive by the hold.
+    const self = new WeakRef(this.working);
+    this.unhold = store.hold(() => Array.from(self.deref()?.values() ?? [], (w) => w.id));
     this.seed = options.seed ?? 1;
     this.varyingOpacity = !!(options.dynamics?.pressureOpacity || options.dynamics?.opacityJitter);
     let state = (options.seed ?? 1) >>> 0 || 1;
@@ -554,11 +560,13 @@ export class StrokeSession {
     }
     grid.bounds = computeBounds(this.store, grid);
     this.working.clear();
+    this.unhold();
     return grid;
   }
   cancel() {
     for (const w of this.working.values()) this.store.delete(w.id);
     this.working.clear();
+    this.unhold();
   }
 }
 
