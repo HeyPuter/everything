@@ -69,6 +69,18 @@ function keyText(param, v) {
   return param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`;
 }
 
+/**
+ * The keyframes bounding the segment of an envelope at time `t`: the ones on either side (or the
+ * nearest one before the first or after the last). Returns { indices, lead } or null when empty.
+ */
+function segmentKeys(pts, t) {
+  if (!pts.length) return null;
+  let hi = pts.findIndex((p) => p.t > t);
+  if (hi < 0) hi = pts.length;
+  const indices = new Set([hi - 1, hi].filter((i) => i >= 0 && i < pts.length));
+  return { indices, lead: Math.max(0, hi - 1) };
+}
+
 /** Points to draw and evaluate for a lane: mute always steps. */
 const lanePoints = (param, pts) => (param === 'mute' ? S.muteSteps(pts) : pts);
 
@@ -1709,6 +1721,18 @@ export class MultitrackView {
     const f = this.frameAt(x);
     const base = { x0: x, y0: y, f0: f, hit, moved: false, state0: doc.state };
     const fine = e.metaKey || e.ctrlKey;
+    if (hit.part === 'autoLine' && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl-drag on a line: move the segment (its two keyframes) up or down.
+      const t = hit.row.track;
+      const pts = lanePoints(hit.param, t.automation[hit.param] || []).slice();
+      const seg = segmentKeys(pts, f);
+      if (seg) {
+        doc.selectedKeys = { owner: t.id, param: hit.param, indices: seg.indices };
+        this.drag = { ...base, kind: 'autoKey', trackId: t.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: this.#autoPos(hit.row, hit.param, y) };
+        this.invalidate('overlay');
+        return;
+      }
+    }
     if (hit.part === 'autoKey' || hit.part === 'autoLine') {
       const t = hit.row.track;
       const param = hit.param;
@@ -1777,6 +1801,15 @@ export class MultitrackView {
       case 'line': {
         const key = hit.param === 'pan' ? 'panEnv' : 'volumeEnv';
         let pts = c[key].slice();
+        const seg = hit.part === 'line' && (e.metaKey || e.ctrlKey) ? segmentKeys(pts, f - c.start) : null;
+        if (seg) {
+          // Cmd/Ctrl-drag on a line: move the segment up or down.
+          const r = hit.rect;
+          doc.selectedKeys = { owner: c.id, param: hit.param, indices: seg.indices };
+          this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4) };
+          this.invalidate('overlay');
+          return;
+        }
         let index = hit.index;
         if (hit.part === 'line') {
           const t = Math.round(this.snap(f, { off: fine }) - c.start);
@@ -1840,7 +1873,11 @@ export class MultitrackView {
     const pts = d.pts;
     const lead = pts[d.index];
     const pos0 = envPos(d.param, lead.v);
-    if (e.shiftKey) {
+    if (d.vertical) {
+      // A segment moves by how far the pointer moved, without jumping to it.
+      t = lead.t;
+      pos = pos0 + (pos - d.grab);
+    } else if (e.shiftKey) {
       if (Math.abs(x - d.x0) >= Math.abs(y - d.y0)) pos = pos0;
       else t = lead.t;
     }
