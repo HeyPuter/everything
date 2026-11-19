@@ -10,6 +10,7 @@
 //     opts.at         frame to insert at (default doc.cursor)
 //     opts.replace    [start, end] to punch in over (recording stops at end)
 //     opts.overwrite  record over the audio from opts.at instead of inserting
+//     opts.mask       channels to punch in or overwrite (others keep their audio)
 //     opts.channels   take channel count (default doc channels, else 2)
 //     opts.sampleRate rate of the take (default doc rate, else the engine's)
 //     opts.deviceId   input device (default: Preferences > Audio Hardware)
@@ -110,7 +111,7 @@ export function createRecorder(app) {
       // Punch-out limit in capture frames (the take is resampled later if rates differ).
       const limit = replace ? Math.round(((replace[1] - replace[0]) * rate) / sampleRate) : Infinity;
       const take = new Take(channels, { skip: latencyFrames, limit });
-      session = { doc, take, at, replace, overwrite: Boolean(opts.overwrite), sampleRate, rate, latencyFrames, base: doc?.state ?? null, last: null, pushed: false, timer: 0, onData: opts.onData, stopping: null };
+      session = { doc, take, at, replace, overwrite: Boolean(opts.overwrite), mask: opts.mask || null, sampleRate, rate, latencyFrames, base: doc?.state ?? null, last: null, pushed: false, timer: 0, onData: opts.onData, stopping: null };
       const s = session;
       const offData = engine.on('record-data', (data) => {
         if (session !== s) return;
@@ -215,7 +216,7 @@ export function createRecorder(app) {
       recorder.stop();
       return;
     }
-    const state = placeTake(s.base, s.take.toChannels(), { at: s.at, replace: s.replace, overwrite: s.overwrite });
+    const state = placeTake(s.base, s.take.toChannels(), { at: s.at, replace: s.replace, overwrite: s.overwrite, mask: s.mask });
     if (!s.pushed) {
       s.doc.apply('Record', state);
       s.pushed = true;
@@ -233,7 +234,7 @@ export function createRecorder(app) {
       if (s.pushed) doc.history.amend(s.base);
       return;
     }
-    const state = placeTake(s.base, channels, { at: s.at, replace: s.replace, overwrite: s.overwrite });
+    const state = placeTake(s.base, channels, { at: s.at, replace: s.replace, overwrite: s.overwrite, mask: s.mask });
     if (s.pushed && doc.history.state === s.last) doc.history.amend(state);
     else if (!s.pushed && doc.state === s.base) doc.apply('Record', state);
     else {

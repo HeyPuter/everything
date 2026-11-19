@@ -243,7 +243,8 @@ async function toggleRecord(app) {
   }
   // Without a selection the take goes in at the playhead, pushing later audio along, or
   // (Overwrite When Recording) records over it.
-  return app.recorder.start({ doc, replace, at: doc.cursor, overwrite: Boolean(app.prefs.get('recordOverwrite')) });
+  // Punching in or overwriting leaves channels disabled for editing alone.
+  return app.recorder.start({ doc, replace, at: doc.cursor, overwrite: Boolean(app.prefs.get('recordOverwrite')), mask: doc.channelMask });
 }
 
 /**

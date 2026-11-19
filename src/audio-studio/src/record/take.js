@@ -109,16 +109,20 @@ export function mapInput(input, count, from = 0, n = input[0].length - from) {
  *   never past `end` (the punch-out point); length and markers are kept
  *   overwrite: the take replaces audio from `at`, and the file grows when it
  *   runs past the end
+ * Punch and overwrite record only into the channels `mask` leaves enabled (null: all);
+ * the others keep their audio (and get silence where the file grows).
  */
-export function placeTake(base, recorded, { at = 0, replace = null, overwrite = false } = {}) {
+export function placeTake(base, recorded, { at = 0, replace = null, overwrite = false, mask = null } = {}) {
   const n = recorded[0]?.length ?? 0;
   if (!n) return base;
+  const on = (i) => !mask || mask[i] !== false;
   if (overwrite && !replace) {
     const len = base.channels[0]?.length ?? 0;
     const start = Math.min(at, len);
+    const grow = Math.max(0, start + n - len);
     return {
       ...base,
-      channels: base.channels.map((c, i) => c.splice(start, Math.min(len, start + n), recorded[Math.min(i, recorded.length - 1)])),
+      channels: base.channels.map((c, i) => (on(i) ? c.splice(start, Math.min(len, start + n), recorded[Math.min(i, recorded.length - 1)]) : grow ? c.concat(Channel.silence(grow)) : c)),
     };
   }
   if (replace) {
@@ -126,7 +130,7 @@ export function placeTake(base, recorded, { at = 0, replace = null, overwrite = 
     const len = Math.min(n, replace[1] - start);
     return {
       ...base,
-      channels: base.channels.map((c, i) => c.splice(start, start + len, recorded[Math.min(i, recorded.length - 1)].slice(0, len))),
+      channels: base.channels.map((c, i) => (on(i) ? c.splice(start, start + len, recorded[Math.min(i, recorded.length - 1)].slice(0, len)) : c)),
     };
   }
   return E.insertClip(base, at, { channels: recorded });

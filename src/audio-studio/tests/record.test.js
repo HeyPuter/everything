@@ -92,6 +92,18 @@ describe('placeTake', () => {
     expect(t.channels[1].toArray(899, 1100)[0]).toBe(1);
   });
 
+  it('punches in and overwrites only the channels enabled for editing', () => {
+    const p = placeTake(base, rec, { replace: [300, 400], mask: [false, true] });
+    expect(p.channels[0]).toBe(base.channels[0]);
+    expect(p.channels[1].toArray(300, 301)[0]).toBe(-0.5);
+    const o = placeTake(base, rec, { at: 900, overwrite: true, mask: [true, false] });
+    expect(o.channels[0].length).toBe(1100);
+    expect(o.channels[1].length).toBe(1100);
+    expect(o.channels[1].toArray(950, 951)[0]).toBe(1);
+    expect(o.channels[1].toArray(1050, 1051)[0]).toBe(0);
+    expect(o.channels[0].toArray(950, 951)[0]).toBe(0.5);
+  });
+
   it('names new recordings by date and time', () => {
     expect(recordingName(new Date(2026, 9, 10, 9, 5, 7))).toBe('Recording 2026-10-10 09.05.07');
   });
