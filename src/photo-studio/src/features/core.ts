@@ -563,11 +563,14 @@ async function layerVia(e: Editor, cut: boolean) {
   const nl = newPixelLayer(cut ? `${l.name} cut` : `${l.name} copy`, e.doc, gridFromImage(e.assets.tiles, { width: b.width, height: b.height, data: piece }, b.x, b.y));
   const remaining = cut ? writeRect(e.assets.tiles, target.grid, b.x, b.y, { width: b.width, height: b.height, data: rest }) : undefined;
   const id = target.layer.id;
+  // The selection has done its job: it goes away in the same step, and Reselect brings it back.
+  e.session.lastSelection = sel;
   e.command(cut ? 'Layer via Cut' : 'Layer via Copy', (d) => {
     if (remaining) setLayerPixels(findLayer(d.layers, id)!, remaining, d);
     const list = containerOf(d.layers, id)!;
     // Above the base of a clipping group the new layer joins the group.
     insertLayerAt(list, list.findIndex((x) => x.id === id) + 1, nl);
+    applySelection(d, null);
   });
   e.selected = nl.id;
   e.update();
