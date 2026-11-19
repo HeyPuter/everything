@@ -52,17 +52,25 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
  * entry ({ index into the slot's params, points }) the effect host applies every block.
  * Lanes are read in every mode but Off.
  */
-function automateSlots(t, specs, prefix) {
+function automateSlots(t, specs, prefix, slots = t.fx) {
   if (t.mode === 'off' || !t.automation) return;
   for (const [param, pts] of Object.entries(t.automation)) {
     const ref = pts?.length ? fxParamRef(param) : null;
     if (!ref) continue;
     const spec = specs.find((sp) => sp.key === `${prefix}:${ref.slotId}`);
-    const def = getEffect(t.fx.find((x) => x?.id === ref.slotId)?.effect);
+    const def = getEffect(slots.find((x) => x?.id === ref.slotId)?.effect);
     const index = def ? def.params.findIndex((p) => p.id === ref.paramId) : -1;
     if (!spec || index < 0) continue;
     (spec.paramEnv ||= []).push({ index, points: expandHolds(pts).map((p) => ({ t: p.t, v: p.v })) });
   }
+}
+
+/** The track EQ as a chain slot, with its automated settings (lanes `fx.eq.<param>`). */
+function eqSpecs(t, rateDoc) {
+  const slot = { id: 'eq', effect: 'parametricEq', values: t.eq.values, enabled: true };
+  const specs = slotSpecs([slot], `eq:${t.id}`, rateDoc);
+  automateSlots(t, specs, `eq:${t.id}`, [slot]);
+  return specs;
 }
 
 /** Processing delay (frames) of a track's or the master's rack: its switched-on slots, in series. */
@@ -342,7 +350,7 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
     }
     if (t.output && t.output !== 'master' && busIds.has(t.output) && t.output !== t.id) gt.output = t.output;
     // Track EQ runs after the effects chain, whatever the chain's power state.
-    if (t.eq?.on) gt.fx = [...gt.fx, ...slotSpecs([{ id: 'eq', effect: 'parametricEq', values: t.eq.values, enabled: true }], `eq:${t.id}`, rateDoc)];
+    if (t.eq?.on) gt.fx = [...gt.fx, ...eqSpecs(t, rateDoc)];
     const sends = (t.sends || []).map((x, i) => [x, sendParam(i)]).filter(([x]) => x.on && x.target !== t.id && busIds.has(x.target));
     if (sends.length) {
       gt.sends = sends.map(([x, param]) => {
@@ -427,7 +435,7 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   const masterLat = rackLatency(m, state.sampleRate, surround ? 6 : 2);
   if (masterLat) master.latency = masterLat;
   if (m.invert) master.invert = true;
-  if (m.eq?.on) master.fx = [...master.fx, ...slotSpecs([{ id: 'eq', effect: 'parametricEq', values: m.eq.values, enabled: true }], `eq:${m.id}`, rateDoc)];
+  if (m.eq?.on) master.fx = [...master.fx, ...eqSpecs(m, rateDoc)];
   const masterVol = m.mode !== 'off' && mo.volume === undefined && m.automation.volume.length ? dbEnvelopeToGain(expandHolds(m.automation.volume)) : null;
   const masterMute = m.mode !== 'off' && mo.mute === undefined ? m.automation.mute || [] : [];
   const masterEnv = withMuteAutomation(masterVol, master.gain, masterMute, state.sampleRate);

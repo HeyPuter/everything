@@ -197,7 +197,7 @@ export class TrackHeader {
     const lanes = trackLanes(track);
     const state = this.doc.state;
     const busName = (id) => state.tracks.find((b) => b.id === id)?.name || '';
-    const key = JSON.stringify([lanes, lanes.map((p) => Boolean(track.automation[p]?.length)), track.mode, (track.sends || []).map((x) => (x?.target ? busName(x.target) : '')), (track.fx || []).map((x) => (x ? `${x.id}:${x.effect}` : ''))]);
+    const key = JSON.stringify([lanes, lanes.map((p) => Boolean(track.automation[p]?.length)), track.mode, (track.sends || []).map((x) => (x?.target ? busName(x.target) : '')), (track.fx || []).map((x) => (x ? `${x.id}:${x.effect}` : '')), Boolean(track.eq?.on)]);
     if (this.lanesKey === key) return;
     this.lanesKey = key;
     const run = (cmd, args) => this.app.commands.run(cmd, { id: this.id, ...args });

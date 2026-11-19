@@ -96,7 +96,7 @@ export function automationParams(t) {
   return [...base, ...sends];
 }
 
-/** Automation parameter of an effect setting: `fx.<slot id>.<param id>` (the track's rack). */
+/** Automation parameter of an effect setting: `fx.<slot id>.<param id>` (the track's rack; slot `eq` is the track EQ). */
 export const fxParam = (slotId, paramId) => `fx.${slotId}.${paramId}`;
 
 /** { slotId, paramId } of an effect automation parameter, or null. */
@@ -108,7 +108,7 @@ export function fxParamRef(param) {
 /** A parameter's own (unautomated) value: the switch, knob, send level or effect setting (undefined: its default). */
 export function staticValue(t, param) {
   const ref = fxParamRef(param);
-  if (ref) return t.fx?.find((x) => x?.id === ref.slotId)?.values?.[ref.paramId];
+  if (ref) return (ref.slotId === 'eq' ? t.eq : t.fx?.find((x) => x?.id === ref.slotId))?.values?.[ref.paramId];
   const i = sendIndexOf(param);
   if (i >= 0) return t.sends?.[i]?.level ?? 0;
   return param === 'mute' ? Number(t.mute) : t[param];
@@ -125,7 +125,7 @@ export function trackLanes(t) {
   if (!t.showAutomation) return [];
   const has = (p) => {
     const ref = fxParamRef(p);
-    if (ref) return t.fx?.some((x) => x?.id === ref.slotId);
+    if (ref) return ref.slotId === 'eq' || t.fx?.some((x) => x?.id === ref.slotId);
     return sendIndexOf(p) < 0 || Boolean(t.sends?.[sendIndexOf(p)]);
   };
   const list = (t.lanes || [t.type === 'master' ? 'volume' : t.autoParam || 'volume']).filter(has);

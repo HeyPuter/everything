@@ -464,3 +464,30 @@ describe('effect setting automation', () => {
     expect(S.trackLanes({ ...t, fx: [] })).toEqual(['volume']);
   });
 });
+
+describe('track EQ automation', () => {
+  it('offers the EQ settings while the EQ is on and automates its slot', async () => {
+    const { fxAutomationParams } = await import('../src/multitrack/fx-automation.js');
+    const { getEffect } = await import('../src/effects/registry.js');
+    await import('../src/effects/defs/filter.js');
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    const id = st.tracks[0].id;
+    expect(fxAutomationParams(S.findTrack(st, id)).some((p) => p.id.startsWith('fx.eq.'))).toBe(false);
+    st = S.updateTrack(st, id, { eq: { on: true, values: {} } });
+    const eqParams = fxAutomationParams(S.findTrack(st, id)).filter((p) => p.id.startsWith('fx.eq.'));
+    expect(eqParams.length).toBeGreaterThan(0);
+    const { laneInfo } = await import('../src/multitrack/fx-automation.js');
+    const freq = eqParams.find((p) => p.id === 'fx.eq.band1Freq');
+    expect(freq.label).toBe('Band 1 Frequency');
+    const info = laneInfo(S.findTrack(st, id), freq.id);
+    expect(info.toPos(10)).toBe(0);
+    expect(info.toPos(20000)).toBe(1);
+    expect(info.fromPos(0.5)).toBeCloseTo(Math.sqrt(10 * 20000), -1);
+    const first = eqParams[0];
+    st = S.setAutomation(st, id, first.id, [{ t: 0, v: first.min }, { t: 100, v: first.max }]);
+    const specs = buildSessionGraph(st, new Map()).graph.tracks[0].fx;
+    const eq = specs.find((sp) => sp.key === `eq:${id}:eq`);
+    const index = getEffect('parametricEq').params.findIndex((p) => `fx.eq.${p.id}` === first.id);
+    expect(eq.paramEnv).toEqual([{ index, points: [{ t: 0, v: first.min }, { t: 100, v: first.max }] }]);
+  });
+});

@@ -69,8 +69,10 @@ export class TrackControls {
     } else if (fxParamRef(param)) {
       // An unautomated effect setting: change the slot's value.
       const ref = fxParamRef(param);
-      const fx = track.fx.map((x) => (x?.id === ref.slotId ? { ...x, values: { ...x.values, [ref.paramId]: value } } : x));
-      doc.apply('Effect Settings', updateTrack(doc.state, trackId, { fx }), { coalesce: `fx:${trackId}:${param}` });
+      const patch = ref.slotId === 'eq'
+        ? { eq: { ...track.eq, values: { ...track.eq.values, [ref.paramId]: value } } }
+        : { fx: track.fx.map((x) => (x?.id === ref.slotId ? { ...x, values: { ...x.values, [ref.paramId]: value } } : x)) };
+      doc.apply('Effect Settings', updateTrack(doc.state, trackId, patch), { coalesce: `fx:${trackId}:${param}` });
     } else if (sendIndexOf(param) >= 0) {
       const i = sendIndexOf(param);
       doc.apply('Track Send', setSend(doc.state, trackId, i, { level: value }), { coalesce: `send:${trackId}:${i}` });

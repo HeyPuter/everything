@@ -1,5 +1,5 @@
 // What each automation lane parameter is: volume, mute, pan, send levels and
-// the numeric settings of the effects in a track's rack. Lanes, the lane
+// the numeric settings of the effects in a track's rack and of its EQ. Lanes, the lane
 // headers and the track controls ask here for a parameter's name, range, the
 // mapping to a lane height and its unautomated value.
 
@@ -10,12 +10,18 @@ import { volumeToEnvPos, envPosToVolume, panToEnvPos, envPosToPan, formatGain, f
 /** Numeric settings of the effects in a track's rack that a lane can automate. */
 export function fxAutomationParams(t) {
   const out = [];
-  for (const slot of t.fx || []) {
+  // The track EQ (while it is on) follows the rack.
+  const slots = [...(t.fx || []), ...(t.eq?.on ? [{ id: 'eq', effect: 'parametricEq', name: 'Track EQ' }] : [])];
+  for (const slot of slots) {
     const def = slot && getEffect(slot.effect);
     if (!def) continue;
-    for (const p of def.params || []) {
-      if (p.type || !Number.isFinite(p.min) || !Number.isFinite(p.max) || p.max <= p.min) continue;
-      out.push({ id: fxParam(slot.id, p.id), effect: def.name, label: p.label || p.id, min: p.min, max: p.max, unit: p.unit || '', default: p.default ?? p.min, step: p.step });
+    const params = def.params || [];
+    for (const p of params) {
+      if ((p.type && p.type !== 'number') || !Number.isFinite(p.min) || !Number.isFinite(p.max) || p.max <= p.min) continue;
+      // Repeated labels (each EQ band's Gain) take their section's name.
+      const shared = p.section && params.some((q) => q !== p && q.label === p.label);
+      const label = shared ? `${p.section} ${p.label}` : p.label || p.id;
+      out.push({ id: fxParam(slot.id, p.id), effect: slot.name || def.name, label, min: p.min, max: p.max, unit: p.unit || '', default: p.default ?? p.min, step: p.step, log: p.scale === 'log' && p.min > 0 });
     }
   }
   return out;
@@ -51,11 +57,15 @@ export function laneInfo(t, param) {
     const round = (v) => Math.round(v / step) * step;
     const unit = p.unit ? ` ${p.unit}` : '';
     const own = staticValue(t, param);
+    // Log-scaled settings (frequencies) spread evenly by octave over the lane height.
+    const ratio = p.log ? Math.log(p.max / p.min) : 0;
+    const toPos = p.log ? (v) => Math.log(Math.max(p.min, v) / p.min) / ratio : (v) => (v - p.min) / span;
+    const at = p.log ? (pos) => p.min * Math.exp(pos * ratio) : (pos) => p.min + pos * span;
     return {
       label: `${p.effect}: ${p.label}`,
       short: p.label,
-      toPos: (v) => Math.max(0, Math.min(1, (v - p.min) / span)),
-      fromPos: (pos) => Math.max(p.min, Math.min(p.max, Number(round(p.min + pos * span).toFixed(6)))),
+      toPos: (v) => Math.max(0, Math.min(1, toPos(v))),
+      fromPos: (pos) => Math.max(p.min, Math.min(p.max, Number(round(at(pos)).toFixed(6)))),
       format: (v) => `${p.label} ${Number(v.toFixed(2))}${unit}`,
       value: Number.isFinite(own) ? own : p.default,
     };
