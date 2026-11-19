@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { boot, idle, start } from './helpers';
+import { boot, idle, run, start } from './helpers';
 
 // Face-aware Liquify: placing a face guide by hand, sliders, on-canvas handles,
 // adjusting the guide and saving / loading meshes.
@@ -265,5 +265,32 @@ test('view options hide the image and color the mesh; Pin Edges keeps working st
     return n;
   });
   expect(inked).toBeGreaterThan(100);
+  await d.locator('.lq-cancel').click();
+});
+
+test('Show Backdrop shows the other layers behind or in front, unwarped', async ({ page }) => {
+  await openFace(page);
+  await run(page, 'layer.duplicate');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(2);
+  await openLiquify(page);
+  const d = dialog(page);
+  const original = await canvasSum(page);
+  await expect(d.getByLabel('Backdrop Opacity', { exact: true })).toBeDisabled();
+  await drag(page, [150, 150], [200, 160]);
+  const warped = await canvasSum(page);
+  expect(warped).not.toBe(original);
+  await d.getByLabel('Show Backdrop').check();
+  // Behind an opaque layer the backdrop does not show.
+  expect(await canvasSum(page)).toBe(warped);
+  // In front at full opacity it covers the warped layer with the unwarped copy.
+  await d.getByLabel('Backdrop', { exact: true }).selectOption('front');
+  await d.getByLabel('Backdrop Opacity', { exact: true }).fill('100');
+  expect(await canvasSum(page)).toBe(original);
+  await d.getByLabel('Backdrop Opacity', { exact: true }).fill('40');
+  const mixed = await canvasSum(page);
+  expect(mixed).not.toBe(original);
+  expect(mixed).not.toBe(warped);
+  await d.getByLabel('Show Backdrop').uncheck();
+  expect(await canvasSum(page)).toBe(warped);
   await d.locator('.lq-cancel').click();
 });

@@ -43,7 +43,9 @@ import {
   type Pt,
   type SliderKey,
 } from '../../imaging/filters/liquify-face';
-import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
+import { rgba8, type IRect, type Mask8, type RGBA8 } from '../../imaging/types';
+import { allLayers, type Layer } from '../../model/document';
+import { toRGBA8 } from '../pixels';
 import { readRect } from '../../model/tiles';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
@@ -157,6 +159,10 @@ class LiquifyWorkspace {
   private maskColor = '#e62828';
   private showImage = true;
   private showFaces = true;
+  private backdrop?: RGBA8[];
+  private showBackdrop = false;
+  private backdropFront = false;
+  private backdropOpacity = 50;
   private faces: Face[] = [];
   private faceIndex = -1;
   private nextFaceId = 1;
@@ -299,6 +305,9 @@ class LiquifyWorkspace {
       <div class="fp-row"><label for="lq-mesh-color">Mesh Color</label><input id="lq-mesh-color" type="color" data-opt="mesh-color" value="${this.meshColor}"></div>
       <label class="lq-check"><input type="checkbox" data-opt="mask" checked> Show Mask</label>
       <div class="fp-row"><label for="lq-mask-color">Mask Color</label><input id="lq-mask-color" type="color" data-opt="mask-color" value="${this.maskColor}"></div>
+      <label class="lq-check" title="Show the document’s other layers with the layer being liquified"><input type="checkbox" data-opt="backdrop" ${this.canBackdrop() ? '' : 'disabled'}> Show Backdrop</label>
+      <div class="fp-row"><label for="lq-backdrop-mode">Backdrop</label><select id="lq-backdrop-mode" data-opt="backdrop-mode" disabled><option value="behind" selected>Behind</option><option value="front">In Front</option></select></div>
+      <div class="fp-row fp-number"><label for="lq-backdrop-opacity">Backdrop Opacity</label><input id="lq-backdrop-opacity" type="number" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" disabled><input type="range" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" aria-label="Backdrop opacity" disabled></div>
       <div class="lq-row lq-zoom"><button type="button" class="icon-button" data-act="zoom-out" aria-label="Zoom out">${svg('minus', 14)}</button><span class="lq-zoom-label"></span><button type="button" class="icon-button" data-act="zoom-in" aria-label="Zoom in">${svg('plus', 14)}</button><button type="button" data-act="fit">Fit</button><button type="button" data-act="undo" title="Undo (Mod+Z)">Undo</button></div>
     </section>
     <section><h3>Brush Reconstruct Options</h3><div class="lq-row"><button type="button" data-act="reconstruct">Reconstruct…</button><button type="button" data-act="restore" title="Undo every stroke and face edit">Restore All</button></div><div class="lq-reconstruct" hidden><div class="fp-row fp-number"><label for="lq-amount">Amount</label><input id="lq-amount" type="number" min="0" max="100" value="100"><input type="range" id="lq-amount-range" min="0" max="100" value="100" aria-label="Reconstruct amount"></div><div class="lq-row"><button type="button" data-act="reconstruct-cancel">Cancel</button><button type="button" class="primary" data-act="reconstruct-ok">OK</button></div></div></section>
@@ -384,6 +393,10 @@ class LiquifyWorkspace {
     else if (key === 'density') this.density = Math.max(0, Math.min(100, v));
     else if (key === 'pressure') this.pressure = Math.max(1, Math.min(100, v));
     else if (key === 'rate') this.rate = Math.max(0, Math.min(100, v));
+    else if (key === 'backdrop-opacity') {
+      this.backdropOpacity = Math.max(0, Math.min(100, v));
+      this.redraw();
+    }
     for (const i of this.dialog.querySelectorAll<HTMLInputElement>(`[data-opt="${key}"]`))
       if (document.activeElement !== i)
         i.value = String(Math.round(key === 'size' ? this.size : v));
@@ -496,6 +509,12 @@ class LiquifyWorkspace {
     const freeze = this.showMask ? this.freeze : undefined;
     const [mr, mg, mb] = hexRGB(this.maskColor);
     const showImage = this.showImage;
+    const bdl = this.showBackdrop && this.backdrop ? this.backdropLevel(k) : undefined;
+    const bd = bdl?.data,
+      bw = bdl?.width ?? 0,
+      bh = bdl?.height ?? 0,
+      bop = this.backdropOpacity / 100,
+      front = this.backdropFront;
     const t = new Float64Array(2);
     const cols = Math.ceil((sx1 - sx0) / G) + 2;
     const rowA = new Float32Array(cols * 2),
@@ -564,6 +583,23 @@ class LiquifyWorkspace {
               b = ld[i + 2];
               al = ld[i + 3];
             }
+          }
+          if (bd) {
+            // The other layers, unwarped, behind or in front at an opacity.
+            const j = (Math.min(bh - 1, (qy * f) | 0) * bw + Math.min(bw - 1, (qx * f) | 0)) * 4;
+            const ba = (bd[j + 3] / 255) * bop,
+              la = al / 255;
+            const top = front ? ba : la,
+              under = front ? la : ba;
+            const oa = top + under * (1 - top);
+            if (oa > 0) {
+              const wt = top / oa,
+                wu = (under * (1 - top)) / oa;
+              r = front ? bd[j] * wt + r * wu : r * wt + bd[j] * wu;
+              g = front ? bd[j + 1] * wt + g * wu : g * wt + bd[j + 1] * wu;
+              b = front ? bd[j + 2] * wt + b * wu : b * wt + bd[j + 2] * wu;
+            }
+            al = oa * 255;
           }
           if (freeze) {
             const m = freeze.data[(qy | 0) * iw + (qx | 0)];
@@ -983,6 +1019,45 @@ class LiquifyWorkspace {
       this.addFound(list, 'ai');
     });
   }
+  /** Backdrop: other layers exist and the target is a layer's pixels. */
+  private canBackdrop() {
+    const doc = this.e.doc;
+    return (
+      this.s.target.kind === 'pixels' && allLayers(doc.layers).filter((l) => l.visible).length > 1
+    );
+  }
+  private backdropLevel(k: number) {
+    const lv = this.backdrop!;
+    while (lv.length <= k) lv.push(halveRGBA(lv[lv.length - 1]));
+    return lv[k];
+  }
+  private async setBackdrop(on: boolean) {
+    for (const el of this.dialog.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+      '[data-opt="backdrop-mode"], [data-opt="backdrop-opacity"]',
+    ))
+      el.disabled = !on;
+    this.showBackdrop = on;
+    if (on && !this.backdrop) {
+      const target = this.s.target;
+      if (target.kind !== 'pixels') return;
+      const id = target.layer.id;
+      const doc = this.e.doc;
+      const hide = (layers: Layer[]): Layer[] =>
+        layers.map((l) =>
+          l.id === id
+            ? { ...l, visible: false }
+            : l.children.length
+              ? { ...l, children: hide(l.children) }
+              : l,
+        );
+      const samples = await this.e.renderer.documentPixels(
+        { ...doc, selection: null, layers: hide(doc.layers) },
+        this.e.assets,
+      );
+      this.backdrop = [cropRGBA(toRGBA8(samples, doc.width, doc.height), this.s.rect)];
+    }
+    this.redraw();
+  }
   private levelFor(maxSide: number) {
     let k = 0;
     while (Math.max(this.src.width, this.src.height) / 2 ** k > maxSide) k++;
@@ -1229,15 +1304,24 @@ class LiquifyWorkspace {
     return { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
   }
   private snapshot() {
+    // Steps that leave the field or the mask alone (face edits) share the
+    // previous step's copies; snapshots are never written to.
+    const prev = this.history[this.history.length - 1];
+    const f = this.field;
+    const freeze = this.freeze?.data;
     this.history.push({
-      dx: new Float32Array(this.field.dx),
-      dy: new Float32Array(this.field.dy),
-      freeze: this.freeze ? new Uint8Array(this.freeze.data) : undefined,
+      dx: prev && sameArray(prev.dx, f.dx) ? prev.dx : new Float32Array(f.dx),
+      dy: prev && sameArray(prev.dy, f.dy) ? prev.dy : new Float32Array(f.dy),
+      freeze: !freeze
+        ? undefined
+        : prev?.freeze && sameArray(prev.freeze, freeze)
+          ? prev.freeze
+          : new Uint8Array(freeze),
       faces: this.faces.map(cloneFace),
       face: this.faceIndex,
     });
     // Field snapshots can be large; keep the most recent few.
-    if (this.history.length > 12) this.history.shift();
+    if (this.history.length > 10) this.history.shift();
   }
   private undo() {
     this.endReconstruct();
@@ -1246,7 +1330,11 @@ class LiquifyWorkspace {
     this.field.dx.set(h.dx);
     this.field.dy.set(h.dy);
     // The step may have removed the mask (Mask None), so restore it as a whole.
-    this.freeze = h.freeze && { width: this.src.width, height: this.src.height, data: h.freeze };
+    this.freeze = h.freeze && {
+      width: this.src.width,
+      height: this.src.height,
+      data: new Uint8Array(h.freeze),
+    };
     this.faces = h.faces;
     this.faceIndex = Math.min(h.face, this.faces.length - 1);
     if (!this.faces.length && this.editGuide) this.editGuide = false;
@@ -1289,6 +1377,9 @@ class LiquifyWorkspace {
         this.faceIndex = Number(t.value);
         this.syncFaceUI();
         this.drawOverlay();
+      } else if (t.dataset.opt === 'backdrop-mode') {
+        this.backdropFront = t.value === 'front';
+        this.redraw();
       } else if (t.dataset.opt === 'mesh-size') {
         this.meshSize = t.value as MeshSize;
         this.drawOverlay();
@@ -1330,11 +1421,13 @@ class LiquifyWorkspace {
       } else if (key === 'image') {
         this.showImage = t.checked;
         this.redraw();
-      } else if (key === 'faces') {
+      } else if (key === 'backdrop') void this.setBackdrop(t.checked);
+      else if (key === 'faces') {
         this.showFaces = t.checked;
         this.drawOverlay();
       } else if (key === 'edit-guide') this.setEditGuide(t.checked);
-      else if (key && key !== 'mesh-size' && t.value !== '') this.setOpt(key, Number(t.value));
+      else if (key && key !== 'mesh-size' && key !== 'backdrop-mode' && t.value !== '')
+        this.setOpt(key, Number(t.value));
       else if (t.id === 'lq-amount' || t.id === 'lq-amount-range') {
         const v = Math.max(0, Math.min(100, Number(t.value) || 0));
         d.querySelector<HTMLInputElement>(
@@ -1786,6 +1879,27 @@ class LiquifyWorkspace {
 
 /** Frame coordinates of a landmark (in eye distances). */
 const faceCoord = (lm: FaceLandmarks, p: Pt) => toFrame(faceFrame(lm), p);
+function cropRGBA(img: RGBA8, r: IRect): RGBA8 {
+  if (r.x === 0 && r.y === 0 && r.width === img.width && r.height === img.height) return img;
+  const out = rgba8(r.width, r.height);
+  for (let y = 0; y < r.height; y++) {
+    const sy = r.y + y;
+    if (sy < 0 || sy >= img.height) continue;
+    const x0 = Math.max(0, r.x),
+      x1 = Math.min(img.width, r.x + r.width);
+    if (x1 > x0)
+      out.data.set(
+        img.data.subarray((sy * img.width + x0) * 4, (sy * img.width + x1) * 4),
+        (y * r.width + x0 - r.x) * 4,
+      );
+  }
+  return out;
+}
+function sameArray(a: ArrayLike<number>, b: ArrayLike<number>) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 function hexRGB(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
   const n = m ? parseInt(m[1], 16) : 0xe62828;
