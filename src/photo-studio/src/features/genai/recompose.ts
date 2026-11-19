@@ -274,7 +274,8 @@ export async function recomposeDialog(e: Editor) {
   /** Choose the picture and the object for the current mode. */
   const prepare = async (at?: [number, number]) => {
     prep?.abort();
-    gen.stop(false);
+    // A new picture or object: earlier results are cleared below.
+    gen.reset();
     const ac = (prep = new AbortController());
     obj = vacated = filled = undefined;
     objCanvas = undefined;

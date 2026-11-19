@@ -234,7 +234,8 @@ export async function rotateObjectDialog(e: Editor) {
   };
   const prepare = async (at?: [number, number]) => {
     prep?.abort();
-    gen.stop(false);
+    // A new picture or object: earlier results are cleared below.
+    gen.reset();
     const ac = (prep = new AbortController());
     obj = objMask = undefined;
     turned = [];
