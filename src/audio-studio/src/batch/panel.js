@@ -159,7 +159,7 @@ export function batchPanel(app) {
   const favorites = () => loadFavorites(app.prefs);
   function renderFavorites() {
     const s = settings();
-    favSel.replaceChildren(h('option', { value: '' }, 'None (convert only)'), ...favorites().map((f) => h('option', { value: f.id }, f.name)));
+    favSel.replaceChildren(h('option', { value: '' }, s.export === false ? 'None' : 'None (convert only)'), ...favorites().map((f) => h('option', { value: f.id }, f.name)));
     favSel.value = favorites().some((f) => f.id === s.favorite) ? s.favorite : '';
     const fav = favorites().find((f) => f.id === favSel.value);
     const problem = batchFavoriteProblem(fav);
@@ -375,7 +375,7 @@ export function batchPanel(app) {
     const s = settings();
     const inPlace = s.export === false;
     exportBox.checked = !inPlace;
-    exportText.textContent = inPlace ? 'Off: the favorite changes the files in the editor.' : `${describeBatch(s)}; ${locationText(s)}`;
+    exportText.textContent = inPlace ? 'Off: changes the files in the editor' : `${describeBatch(s)}; ${locationText(s)}`;
     undoBtn.hidden = !lastRun.length;
     undoBtn.disabled = busy;
     addOpenBtn.disabled = busy;
@@ -387,7 +387,8 @@ export function batchPanel(app) {
     favSel.disabled = busy;
     exportBtn.disabled = busy || inPlace;
     exportBox.disabled = busy;
-    runBtn.disabled = busy || !items.length;
+    // In place, a favorite is what does the work.
+    runBtn.disabled = busy || !items.length || (inPlace && !favSel.value);
     runBtn.hidden = busy;
     cancelBtn.hidden = !busy;
     if (!busy && !items.some((i) => i.status !== 'ready')) summary.textContent = items.length ? `${items.length} file${items.length === 1 ? '' : 's'} ready` : '';
