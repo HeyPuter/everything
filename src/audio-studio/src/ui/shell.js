@@ -14,6 +14,7 @@ import { TOOLS } from './tools.js';
 import { spectralToolOptions } from '../spectral/tool-options.js';
 import { eventKey } from '../commands/registry.js';
 import { keyedLabel, syncKeyedLabel } from '../panels/transport-controls.js';
+import { installTooltips } from './tooltip.js';
 
 /** Actions offered by the menu beside the current workspace tab. */
 const WORKSPACE_ACTIONS = ['workspace.reset', 'workspace.saveChanges', 'workspace.saveAs', '-', 'workspace.edit'];
@@ -85,6 +86,7 @@ export function createShell(app, root) {
   });
   const live = h('div#live-region.sr-only', { 'aria-live': 'polite', 'aria-atomic': 'true' });
   root.replaceChildren(appbar, toolbar, dockRoot, statusbar, live);
+  installTooltips();
 
   const dock = new Dock(app, dockRoot, app.panels);
   app.dock = dock;

@@ -557,6 +557,49 @@ input[type='range'].slider::-moz-range-thumb {
   height: 22px;
 }
 
+/* ----------------------------------------------------------------- tooltips */
+
+.tooltip {
+  position: fixed;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 8px));
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  pointer-events: none;
+  animation: tooltip-in 90ms var(--ease);
+}
+
+.tooltip-key {
+  flex: none;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--divider);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font: inherit;
+  text-align: center;
+}
+
+.tooltip-key[hidden] {
+  display: none;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* ---------------------------------------------------------------- utilities */
 
 .row {
