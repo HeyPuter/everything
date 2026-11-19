@@ -45,6 +45,7 @@ import { installCollab } from './collab';
 import { installHelp } from './help';
 import { installAssistant } from './assistant';
 import { installGenerations } from './generations';
+import { installGenAI } from './genai';
 import { installImageAssets } from './image-assets';
 import { installLibraries } from './libraries';
 import { installProvenance } from './provenance';
@@ -102,6 +103,7 @@ export function installFeatures(e: Editor) {
   installHelp(e);
   installAssistant(e);
   installGenerations(e);
+  installGenAI(e);
   installImageAssets(e);
   installLibraries(e);
   installProvenance(e);

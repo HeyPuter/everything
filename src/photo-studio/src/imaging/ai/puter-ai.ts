@@ -1,5 +1,6 @@
 // AI Fill, AI Expand, Generate Image, Edit with Prompt, the AI detail pass of
-// Upscale and image descriptions through Puter.js (loaded globally as
+// Upscale, AI Recompose, Remove Reflections, Rotate Object and image
+// descriptions through Puter.js (loaded globally as
 // `puter`). This is the only module that sends pixels anywhere, and only when one
 // of its functions is called; the UI must call them solely from an explicit user
 // command (menu item or button), never automatically or for previews.
@@ -552,6 +553,33 @@ export async function chatWithTools(messages: ChatMessage[], opts: ChatOptions =
   const err = (res as { error?: unknown; success?: boolean })?.error;
   if (err && (res as { success?: boolean }).success === false) throw toAIError(err);
   return parseChatReply(res);
+}
+
+/** Several image-to-image results for one complete instruction (the caller
+ * writes the whole prompt): the image is encoded once and each variation is
+ * its own request. Results come back at the input's size, or at the
+ * provider's size with `native` (Rotate Object trims and places them). Used
+ * by Remove Reflections and Rotate Object. */
+export async function instructedEdits(img: RGBA8, instruction: string, opts: EditOptions & { native?: boolean } = {}): Promise<RGBA8[]> {
+  if (!instruction.trim()) throw new AIError('bad-request', 'Describe the change first.');
+  const p = api();
+  checkAbort(opts.signal);
+  const s = Math.min(1, EDIT_MAX_SIDE / Math.max(img.width, img.height));
+  const sw = Math.max(1, Math.round(img.width * s)), sh = Math.max(1, Math.round(img.height * s));
+  const uri = await toDataUri(resample(img, sw, sh));
+  checkAbort(opts.signal);
+  const options = baseOptions(opts, sw, sh);
+  options.input_image = uri;
+  return variations(opts.count ?? 1, opts.signal, async () => {
+    let res: PuterImage;
+    try {
+      res = await p.ai.txt2img(instruction.trim(), options);
+    } catch (e) {
+      throw toAIError(e);
+    }
+    checkAbort(opts.signal);
+    return opts.native ? fromResult(res) : fromResult(res, img.width, img.height);
+  });
 }
 
 export type TransformOptions = { model?: string; quality?: string; reference?: RGBA8; testMode?: boolean; signal?: AbortSignal };

@@ -31,7 +31,7 @@ export type CatalogEntry = {
 
 // Generative commands: they spend the user's Puter credits, so a plan only
 // opens their dialog prefilled and the user presses Generate.
-export const AI_COMMANDS = new Set(['edit.generate-image', 'edit.edit-with-prompt', 'edit.ai-fill', 'edit.ai-expand']);
+export const AI_COMMANDS = new Set(['edit.generate-image', 'edit.edit-with-prompt', 'edit.ai-fill', 'edit.ai-expand', 'edit.ai-recompose', 'edit.remove-reflections', 'edit.rotate-object']);
 // Commands the Assistant never runs: script and Assistant management,
 // closing documents and discarding history.
 export function blockedCommand(id: string) {

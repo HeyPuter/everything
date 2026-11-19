@@ -291,7 +291,7 @@ export function validateDocument(value: unknown): PhotoDocument {
       validateFrame(l);
       validatePinWarp(l);
       const gen = l.generated;
-      if (gen !== undefined && (!gen || typeof gen !== 'object' || !['generate', 'edit', 'upscale', 'fill', 'expand'].includes(gen.kind) || typeof gen.prompt !== 'string' || gen.prompt.length > maxGeneratedPrompt ||
+      if (gen !== undefined && (!gen || typeof gen !== 'object' || !['generate', 'edit', 'upscale', 'fill', 'expand', 'recompose', 'reflection', 'rotate'].includes(gen.kind) || typeof gen.prompt !== 'string' || gen.prompt.length > maxGeneratedPrompt ||
         (gen.model !== undefined && typeof gen.model !== 'string') || (gen.style !== undefined && typeof gen.style !== 'string')))
         throw new Error('Invalid generated layer information.');
       if (l.assetColorSpace !== undefined && !['document', 'srgb'].includes(l.assetColorSpace))
