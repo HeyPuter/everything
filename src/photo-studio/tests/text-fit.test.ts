@@ -174,6 +174,27 @@ describe('dynamic text on curves', () => {
   });
 });
 
+describe('changing the fit shape', () => {
+  it('keeps the box between curves and the type size between block and curves', async () => {
+    const { fitFrom } = await import('../src/imaging/text/fit');
+    const arch = fitted('SHAPES', { shape: 'arch', width: 300, height: 200 });
+    const box = layoutText(arch, opts).fitBox!;
+    const circle = fitFrom(arch, 'circle', box, opts, layoutText);
+    expect(circle.fit).toMatchObject({ shape: 'circle', width: 300, height: 200 });
+    // A flat block becomes an arch whose type stays about as large.
+    const block = fitted('THE BIG SUMMER SALE', { width: 300, height: 30 });
+    const blockLayout = layoutText(block, opts);
+    const curved = fitFrom(block, 'arch', blockLayout.fitBox!, opts, layoutText);
+    const ratio = layoutText(curved, opts).runs[0].sizePx / blockLayout.runs[0].sizePx;
+    expect(ratio).toBeGreaterThan(0.75);
+    expect(ratio).toBeLessThan(1.33);
+    // Centered where the block was.
+    const b = curved.fit!;
+    expect(curved.origin.x + b.width / 2).toBeCloseTo(150, 3);
+    expect(curved.origin.y + b.height! / 2).toBeCloseTo(15, 3);
+  });
+});
+
 describe('fit data', () => {
   it('validates and scales with the layer', () => {
     const d = fitted('X', { shape: 'arch', width: 120, height: 80, gap: 4 }, { x: 10, y: 20 });

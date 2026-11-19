@@ -427,28 +427,26 @@ export function fitFrom(
   const f = d.fit;
   if (f) {
     if (f.shape === shape) return d;
-    if (shape === 'block')
+    // Between curves the box stays and the text refits it.
+    if (f.shape !== 'block' && shape !== 'block')
       return {
         ...d,
         origin: { x: current.x, y: current.y },
-        fit: {
-          ...f,
-          shape,
-          height: current.height,
-          gap: Math.round(current.width * 0.03),
-          autoLines: true,
-        },
+        fit: { ...f, shape, height: current.height },
       };
-    return {
-      ...d,
-      origin: { x: current.x, y: current.y },
-      fit: {
-        ...f,
-        shape,
-        height: current.height,
-        bend: f.shape === 'block' ? DEFAULT_BEND : f.bend,
-      },
-    };
+    // Between block and a curve the boxes have different proportions: start
+    // a new box around the text at the size it is drawn now.
+    const run = layout(d, opts).runs[0];
+    const nominal = run ? (run.style.size * (opts.resolution ?? 72)) / 72 : 0;
+    const k = run && nominal > 0 ? run.sizePx / nominal : 1;
+    const { fit: _fit, ...plain } = d;
+    return fitFrom(
+      { ...plain, content: scaleTextContent(d.content, k) },
+      shape,
+      current,
+      opts,
+      layout,
+    );
   }
   const bend = d.path?.arc?.bend ?? DEFAULT_BEND;
   const flat = pointText(d);
