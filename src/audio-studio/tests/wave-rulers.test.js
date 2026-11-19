@@ -297,3 +297,13 @@ describe('snap indicator', () => {
     expect(view.snapLine).toBe(null);
   });
 });
+
+describe('waveform context menu', () => {
+  it('offers Paste to New and the zero crossing adjustments', async () => {
+    const { WAVEFORM_CONTEXT } = await import('../src/ui/menus.js');
+    expect(WAVEFORM_CONTEXT).toContain('edit.pasteToNew');
+    const zero = WAVEFORM_CONTEXT.find((i) => i.label === 'Zero Crossings');
+    expect(zero.submenu).toContain('zero.inward');
+    expect(zero.submenu).toContain('zero.outward');
+  });
+});
