@@ -101,7 +101,7 @@ Status: `[ ]` planned, `[x]` done.
 - [x] Denoise (non-local means, automatic noise level) and Sharpen Details (Richardson–Lucy deconvolution) as filters, live filters and actions
 - [x] Mask All Objects (masked copies, masked groups or saved selections per object)
 - [x] Harmonize (Lab color transfer to the layers beneath, clipped Color Lookup layer or pixels)
-- [ ] Reflection removal: not shipped; no classical single-image method gave dependable results
+- [ ] Reflection removal: planned as a generative edit (see Round 6); no classical single-image method gave dependable results
 
 ## Type on paths and data-driven graphics
 
@@ -194,6 +194,16 @@ Status: `[ ]` planned, `[x]` done.
 - [x] View: Actual Size, sRGB and legacy Mac RGB proof presets, separate canvas and artboard guides, New Guides From Shape, show mesh and pins, pattern tile bounds
 - [x] Type: Match Font, more OpenType features (ornaments, justification alternates, proportional/tabular figures), East Asian alignment options, Convert to Block text
 - [x] Layer: Convert to Linked, Refine Mask Edge
-- [ ] Rotate Object (turning a flat object in depth): not planned; it needs a generative model that understands 3D shape
+- [ ] Rotate Object (turning a flat object in depth): planned as a generative edit (see Round 6)
 - [x] Help: What's New and hands-on tutorials (guided tours of real tasks)
 - [x] Audio tracks on the video timeline (import, mix, render with sound)
+
+## Round 6: relighting, generative layout, comparison and depth
+
+- [ ] Relight layers: virtual lights (color temperature, position, distance, brightness, softness) over an estimated surface shape, dragged on the canvas, editable in Properties, saved in projects
+- [ ] Generative Recompose: move, scale or remove an object and let the gap and seams be filled
+- [ ] Reflection Removal and Rotate Object as generative edits with variations
+- [ ] View → Quick Compare: before/after split against the opened state, a snapshot or a history state
+- [ ] Layer Mask → Enhance Edge, Filter → Blur → Selective (edge-preserving) Blur
+- [ ] Type: dynamic fit (text that refits its shape), Paste Text Attributes, more language options
+- [ ] Properties panel depth for documents and pixel layers (editable canvas, rulers and grids, guides, quick actions)
