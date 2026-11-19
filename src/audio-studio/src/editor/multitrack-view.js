@@ -386,6 +386,10 @@ export class MultitrackView {
     const rows = this.computeRows(state);
     const seen = new Set();
     const order = [];
+    // Output and send menus list the buses: every header refreshes when they change.
+    const buses = state.tracks.filter((t) => t.type === 'bus').map((t) => `${t.id}:${t.name}:${t.output}:${(t.sends || []).map((x) => x.target).join(',')}`).join('|');
+    const busesChanged = buses !== this.busKey;
+    this.busKey = buses;
     for (const r of rows) {
       seen.add(r.id);
       let hd = this.headers.get(r.id);
@@ -393,7 +397,7 @@ export class MultitrackView {
         hd = new TrackHeader(this, r.track);
         hd.setMode(this.headerMode);
         this.headers.set(r.id, hd);
-      } else if (hd.track !== r.track) hd.update(r.track);
+      } else if (hd.track !== r.track || busesChanged) hd.update(r.track);
       hd.setHeight(r.height, r.autoHeight);
       hd.setSelected(this.doc.selectedTrack === r.id);
       order.push(hd.el);
