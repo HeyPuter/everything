@@ -1261,6 +1261,10 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .grid-major { stroke: #808080; opacity: 0.7; fill: none; }
 .grid-minor { stroke: #808080; opacity: 0.3; fill: none; }
 .pixel-grid { stroke: #8888; fill: none; }
+.brush-popover .smoothing-options { display: grid; gap: 4px; margin: 2px 0; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 4px; }
+.brush-popover .smoothing-options legend { padding: 0 4px; font-size: 11px; color: var(--muted); }
+.brush-popover .smoothing-options label { display: flex; align-items: center; gap: 6px; }
+.pulled-string circle, .pulled-string line { fill: none; stroke: var(--accent); stroke-opacity: 0.8; stroke-width: 1; }
 .symmetry-popover { position: fixed; z-index: 70; display: grid; gap: 8px; padding: 10px 12px; min-width: 200px; }
 .symmetry-popover label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .symmetry-popover p { margin: 0; font-size: 11px; }

@@ -28,6 +28,12 @@ export type BrushSettings = BrushTip & {
   flow: number;
   mode: PaintMode;
   smoothing: number;
+  // Smoothing options: Pulled String (the stroke follows only once the
+  // pointer is a string's length away), catch up with the pointer when the
+  // stroke ends, and smoothing measured on screen (less when zoomed in).
+  pulledString?: boolean;
+  catchUpEnd?: boolean;
+  smoothForZoom?: boolean;
   dynamics: BrushDynamics;
   airbrush: boolean;
 };
@@ -289,14 +295,20 @@ function openBrushPopover(e: Editor, id: string, anchor: HTMLElement) {
   pop.className = 'brush-popover popover';
   pop.setAttribute('role', 'dialog');
   pop.setAttribute('aria-label', 'Brush settings');
-  pop.innerHTML = `<label>Size <input type="range" min="1" max="1000" value="${s.size}" data-k="size"><output>${Math.round(s.size)} px</output></label><label>Hardness <input type="range" min="0" max="100" value="${s.hardness * 100}" data-k="hardness"><output>${Math.round(s.hardness * 100)}%</output></label><label>Angle <input type="range" min="-180" max="180" value="${s.angle}" data-k="angle"><output>${s.angle}°</output></label><label>Roundness <input type="range" min="1" max="100" value="${s.roundness * 100}" data-k="roundness"><output>${Math.round(s.roundness * 100)}%</output></label><label>Spacing <input type="range" min="1" max="200" value="${s.spacing * 100}" data-k="spacing"><output>${Math.round(s.spacing * 100)}%</output></label><div class="preset-list" role="listbox" aria-label="Brush presets">${brushPresets.map((p, i) => `<button role="option" data-preset="${i}">${escapeXML(p.name)}</button>`).join('')}</div>`;
+  pop.innerHTML = `<label>Size <input type="range" min="1" max="1000" value="${s.size}" data-k="size"><output>${Math.round(s.size)} px</output></label><label>Hardness <input type="range" min="0" max="100" value="${s.hardness * 100}" data-k="hardness"><output>${Math.round(s.hardness * 100)}%</output></label><label>Angle <input type="range" min="-180" max="180" value="${s.angle}" data-k="angle"><output>${s.angle}°</output></label><label>Roundness <input type="range" min="1" max="100" value="${s.roundness * 100}" data-k="roundness"><output>${Math.round(s.roundness * 100)}%</output></label><label>Spacing <input type="range" min="1" max="200" value="${s.spacing * 100}" data-k="spacing"><output>${Math.round(s.spacing * 100)}%</output></label><fieldset class="smoothing-options"><legend>Smoothing</legend><label class="check" title="The stroke moves only once the pointer is a string's length away (the length grows with Smoothing)"><input type="checkbox" data-opt="pulledString" ${s.pulledString ? 'checked' : ''}>Pulled String Mode</label><label class="check" title="Finish the stroke at the pointer when the button is released"><input type="checkbox" data-opt="catchUpEnd" ${s.catchUpEnd !== false ? 'checked' : ''}>Catch Up on Stroke End</label><label class="check" title="Judge smoothing on screen: less when zoomed in, more when zoomed out"><input type="checkbox" data-opt="smoothForZoom" ${s.smoothForZoom !== false ? 'checked' : ''}>Adjust for Zoom</label></fieldset><div class="preset-list" role="listbox" aria-label="Brush presets">${brushPresets.map((p, i) => `<button role="option" data-preset="${i}">${escapeXML(p.name)}</button>`).join('')}</div>`;
   document.body.append(pop);
   const r = anchor.getBoundingClientRect();
   pop.style.left = `${r.left}px`;
   pop.style.top = `${r.bottom + 4}px`;
   pop.querySelector<HTMLInputElement>('input')?.focus();
+  pop.addEventListener('change', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    const o = t.dataset.opt as 'pulledString' | 'catchUpEnd' | 'smoothForZoom' | undefined;
+    if (o) s[o] = t.checked;
+  });
   pop.addEventListener('input', (ev) => {
     const t = ev.target as HTMLInputElement;
+    if (t.dataset.opt) return;
     const v = Number(t.value);
     const k = t.dataset.k!;
     if (k === 'size') s.size = v;
@@ -480,6 +492,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         return;
       }
       for (const q of p.coalesced ?? [p]) addSample(e, a, q);
+      stringIndicator(e, id, a, p);
     },
     hover: (e, p) => cursor(e, id, p),
     pointerUp: (e, p) => {
@@ -533,11 +546,13 @@ function addSample(e: Editor, a: Active, p: CanvasPointer) {
   const s = brushFor(e.tool);
   let x = p.x,
     y = p.y;
-  // Exponential smoothing pulls the stroke behind the pointer.
-  if (s.smoothing > 0) {
-    if (!a.smooth) a.smooth = [x, y];
-    const k = 1 - Math.min(0.95, s.smoothing);
-    a.smooth = [a.smooth[0] + (x - a.smooth[0]) * k, a.smooth[1] + (y - a.smooth[1]) * k];
+  // The stroke starts where the button went down; later samples are smoothed.
+  if (s.smoothing > 0 && !a.smooth) a.smooth = [x, y];
+  else if (s.smoothing > 0) {
+    const next = smoothStep(a.smooth!, [x, y], s, e.zoom);
+    // A pulled string that has not tightened leaves the stroke where it is.
+    if (!next) return;
+    a.smooth = next;
     [x, y] = a.smooth;
   }
   a.session!.addPoint(x, y, p.pressure);
@@ -545,12 +560,45 @@ function addSample(e: Editor, a: Active, p: CanvasPointer) {
   a.pressure = p.pressure;
   e.preview(previewTarget(e, a.target!, a.session!.grid));
 }
+/** With Pulled String Mode, the string's reach around the pointer and the
+ * string to where the stroke is, drawn with the brush outline. */
+function stringIndicator(e: Editor, id: string, a: Active, p: CanvasPointer) {
+  const s = brushFor(id);
+  if (!s.pulledString || s.smoothing <= 0 || !a.smooth) return;
+  const rect = e.el('#viewport').getBoundingClientRect();
+  const x = p.clientX - rect.left,
+    y = p.clientY - rect.top;
+  const [sx, sy] = e.clientPoint(a.smooth[0], a.smooth[1]);
+  const r = s.smoothing * 100 * (s.smoothForZoom !== false ? 1 : e.zoom);
+  e.screenOverlayContent += `<g class="pulled-string"><circle cx="${x}" cy="${y}" r="${r}"/><line x1="${x}" y1="${y}" x2="${sx - rect.left}" y2="${sy - rect.top}"/></g>`;
+  e.screenOverlay();
+}
+/** The stroke position after a pointer sample under smoothing, or undefined
+ * when it stays (Pulled String within the string's length). Exponential
+ * smoothing pulls the stroke behind the pointer; with Adjust for Zoom the
+ * amount is judged on screen, so zooming in smooths less. */
+export function smoothStep(at: [number, number], to: [number, number], s: Pick<BrushSettings, 'smoothing' | 'pulledString' | 'smoothForZoom'>, zoom = 1): [number, number] | undefined {
+  const forZoom = s.smoothForZoom !== false;
+  if (s.pulledString) {
+    // The string is up to 100 screen pixels long at 100% smoothing.
+    const r = (s.smoothing * 100) / (forZoom ? zoom : 1);
+    const dx = to[0] - at[0],
+      dy = to[1] - at[1],
+      d = Math.hypot(dx, dy);
+    if (d <= r) return undefined;
+    return [to[0] - (dx / d) * r, to[1] - (dy / d) * r];
+  }
+  const amount = forZoom ? Math.min(0.95, s.smoothing / Math.sqrt(Math.max(0.25, zoom))) : Math.min(0.95, s.smoothing);
+  const k = 1 - amount;
+  return [at[0] + (to[0] - at[0]) * k, at[1] + (to[1] - at[1]) * k];
+}
 function finish(e: Editor, a: Active, id: string) {
   clearInterval(a.timer);
   active = undefined;
   if (a.last) {
     const p = e.pointerInfo;
-    if (p && brushFor(id).smoothing > 0) a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
+    const b = brushFor(id);
+    if (p && b.smoothing > 0 && b.catchUpEnd !== false) a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
     lastPoint(e).set(id, a.last);
   }
   const grid = a.session!.commit();

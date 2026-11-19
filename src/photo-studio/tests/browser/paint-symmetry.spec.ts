@@ -52,3 +52,37 @@ test('a symmetric brush stroke paints its mirror image in one step', async ({ pa
     'Paint symmetry: Radial',
   );
 });
+
+test('Pulled String Mode trails the pointer and catches up at the end when asked', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 200, 100, '#ffffff');
+  await tool(page, 'Brush Tool');
+  await page.evaluate(() => window.photoStudio.setForeground('#000000'));
+  await page.locator('#brush-smoothing').fill('50');
+  await page.locator('#brush-smoothing').press('Enter');
+  await page.getByRole('button', { name: 'Brush preset and size' }).click();
+  const pop = page.getByRole('dialog', { name: 'Brush settings' });
+  await pop.getByLabel('Pulled String Mode').check();
+  await pop.getByLabel('Catch Up on Stroke End').uncheck();
+  await page.keyboard.press('Escape');
+  const stroke = () =>
+    canvasDrag(page, [
+      [20, 50],
+      [70, 50],
+      [120, 50],
+    ]);
+  await stroke();
+  await idle(page);
+  expect((await layerPixel(page, 20, 50))[0]).toBeLessThan(60);
+  // The stroke stopped a string's length behind the pointer.
+  expect((await layerPixel(page, 119, 50))[0]).toBe(255);
+  await undo(page);
+  await page.getByRole('button', { name: 'Brush preset and size' }).click();
+  await pop.getByLabel('Catch Up on Stroke End').check();
+  await page.keyboard.press('Escape');
+  await stroke();
+  await idle(page);
+  expect((await layerPixel(page, 119, 50))[0]).toBeLessThan(60);
+});
