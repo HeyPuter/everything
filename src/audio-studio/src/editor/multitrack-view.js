@@ -2460,8 +2460,8 @@ export class MultitrackView {
       if (pts.some((p) => Math.abs(p.t - at) <= near)) return;
       pts.push(key);
       pts.sort((a, b) => a.t - b.t);
+      // The new keyframe is not selected, so the next click adds another.
       doc.apply(`${info.short} Automation`, S.setAutomation(doc.state, t.id, d.param, pts));
-      doc.selectedKeys = { owner: t.id, param: d.param, indices: new Set([pts.indexOf(key)]) };
       announce(`Keyframe added: ${info.format(key.v)}`);
       return;
     }
