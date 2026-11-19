@@ -28,10 +28,53 @@ export function sortItems(items) {
   return items.slice().sort((a, b) => Number(puter.isDir(b)) - Number(puter.isDir(a)) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 }
 
-/** Items shown for a query and the audio-only filter. Pure. */
-export function filterItems(items, { query = '', audioOnly = true } = {}) {
+/** File type filters for the list (folders always show). */
+export const MEDIA_FILTERS = [
+  { id: 'audio', label: 'Audio Files', test: (n) => isAudioName(n) },
+  { id: 'wav', label: 'WAV', exts: ['wav', 'bwf', 'rf64', 'w64'] },
+  { id: 'aiff', label: 'AIFF', exts: ['aif', 'aiff', 'aifc'] },
+  { id: 'mp3', label: 'MP3', exts: ['mp3'] },
+  { id: 'flac', label: 'FLAC', exts: ['flac'] },
+  { id: 'ogg', label: 'Ogg and Opus', exts: ['ogg', 'oga', 'opus'] },
+  { id: 'm4a', label: 'AAC and M4A', exts: ['m4a', 'aac'] },
+  { id: 'video', label: 'Video Files', exts: ['mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi'] },
+  { id: 'session', label: 'Multitrack Sessions', exts: ['asesx', 'sesx'] },
+  { id: 'all', label: 'All Files', test: () => true },
+];
+
+/** Whether a file name passes a filter id. Pure. */
+export function matchesFilter(name, filter = 'audio') {
+  const f = MEDIA_FILTERS.find((x) => x.id === filter) || MEDIA_FILTERS[0];
+  return f.test ? f.test(name) : f.exts.includes(extensionOf(name));
+}
+
+/**
+ * Items shown for a query and a type filter (`type`, a MEDIA_FILTERS id; the
+ * older `audioOnly` flag means 'audio' or 'all'). Pure.
+ */
+export function filterItems(items, { query = '', audioOnly = true, type = audioOnly ? 'audio' : 'all' } = {}) {
   const q = query.trim().toLowerCase();
-  return items.filter((it) => (puter.isDir(it) || !audioOnly || isAudioName(it.name)) && (!q || it.name.toLowerCase().includes(q)));
+  return items.filter((it) => (puter.isDir(it) || matchesFilter(it.name, type)) && (!q || it.name.toLowerCase().includes(q)));
+}
+
+/** Optional list columns: header label and the cell text for an item and its probe. */
+export const MEDIA_COLUMNS = [
+  { id: 'duration', label: 'Duration', num: true },
+  { id: 'format', label: 'Format' },
+  { id: 'rate', label: 'Sample Rate', num: true, text: (it, p) => (p?.sampleRate ? `${p.sampleRate} Hz` : '') },
+  { id: 'channels', label: 'Channels', text: (it, p) => (p?.channels ? (p.channels === 1 ? 'Mono' : p.channels === 2 ? 'Stereo' : `${p.channels}`) : '') },
+  { id: 'bits', label: 'Bit Depth', num: true, text: (it, p) => (p?.bitDepth ? (p.bitDepth === 32 && /WAV|AIFF/.test(p.format) ? '32' : String(p.bitDepth)) : '') },
+  { id: 'size', label: 'Size', num: true },
+  { id: 'modified', label: 'Modified', text: (it) => modifiedText(it.modified) },
+];
+export const DEFAULT_MEDIA_COLUMNS = ['duration', 'format', 'size'];
+
+/** A file's modified time as a short date and time ('' when unknown). Seconds or milliseconds. */
+export function modifiedText(t) {
+  const n = Number(t);
+  if (!n) return '';
+  const d = new Date(n < 1e12 ? n * 1000 : n);
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /** Breadcrumb segments for a Puter path, or a device folder path: [{ name, path }]. Pure. */
@@ -101,16 +144,40 @@ export function mediaBrowserPanel(app) {
   addFolderBtn.hidden = !local.supported();
   const crumbBar = h('nav.media-crumbs', { 'aria-label': 'Folder path' });
   const search = h('input.input.panel-search', { type: 'search', placeholder: 'Search', 'aria-label': 'Search this folder' });
-  const audioOnly = h('button.icon-btn', { type: 'button', 'aria-label': 'Show only audio files', title: 'Show only audio files', 'aria-pressed': String(app.prefs.get('mediaAudioOnly') !== false) }, icon('file-audio', 15));
-  const toolbar = h('div.panel-toolbar.media-toolbar', upBtn, refreshBtn, addFolderBtn, crumbBar, search, audioOnly);
+  // File type filter (the older audio-only switch maps onto it).
+  const filterNow = () => app.prefs.get('mediaFilter') || (app.prefs.get('mediaAudioOnly') === false ? 'all' : 'audio');
+  const audioOnly = h('button.icon-btn.media-filter-btn', { type: 'button', 'aria-label': 'Filter by file type', title: 'Filter by file type', 'aria-haspopup': 'menu', 'aria-pressed': String(filterNow() !== 'all') }, icon('list-filter', 15));
+  // Favorite folders: listed at the top of the tree.
+  const favorites = () => (Array.isArray(app.prefs.get('mediaFavorites')) ? app.prefs.get('mediaFavorites') : []);
+  const isFavorite = (path) => favorites().some((f) => f.path === path);
+  const toggleFavorite = (path) => {
+    if (!path) return;
+    const name = path === home ? 'Home' : rootOf(path) && local.parseLocalPath(path).parts.length === 0 ? rootOf(path).name : path.slice(path.lastIndexOf('/') + 1);
+    app.prefs.set('mediaFavorites', isFavorite(path) ? favorites().filter((f) => f.path !== path) : [...favorites(), { path, name }]);
+    syncFavBtn();
+    renderTree();
+  };
+  const favBtn = tbtn('star', 'Add This Folder to Favorites', () => toggleFavorite(dir));
+  const syncFavBtn = () => {
+    const on = Boolean(dir) && isFavorite(dir);
+    favBtn.disabled = !dir;
+    favBtn.setAttribute('aria-pressed', String(on));
+    const label = on ? 'Remove This Folder from Favorites' : 'Add This Folder to Favorites';
+    favBtn.title = label;
+    favBtn.setAttribute('aria-label', label);
+  };
+  const toolbar = h('div.panel-toolbar.media-toolbar', upBtn, refreshBtn, addFolderBtn, favBtn, crumbBar, search, audioOnly);
   const treeEl = h('ul.media-tree', { role: 'tree', 'aria-label': 'Folders' });
   const body = h('tbody');
-  const table = h(
-    'table.data-table.media-table',
-    { role: 'grid', 'aria-label': 'Files' },
-    h('thead', h('tr', h('th', { scope: 'col' }, 'Name'), h('th.num', { scope: 'col' }, 'Duration'), h('th.media-format', { scope: 'col' }, 'Format'), h('th.num', { scope: 'col' }, 'Size'))),
-    body,
-  );
+  const headRow = h('tr');
+  const shownColumns = () => {
+    const ids = Array.isArray(app.prefs.get('mediaColumns')) ? app.prefs.get('mediaColumns') : DEFAULT_MEDIA_COLUMNS;
+    return MEDIA_COLUMNS.filter((c) => ids.includes(c.id));
+  };
+  const renderHead = () => headRow.replaceChildren(h('th', { scope: 'col' }, 'Name'), ...shownColumns().map((c) => h(`th${c.num ? '.num' : ''}${c.id === 'format' ? '.media-format' : ''}`, { scope: 'col' }, c.label)));
+  renderHead();
+  const table = h('table.data-table.media-table', { role: 'grid', 'aria-label': 'Files' }, h('thead', headRow), body);
+  const colspan = () => String(1 + shownColumns().length);
   const listWrap = h('div.table-scroll.media-list', table);
   const split = h('div.media-split', h('div.media-tree-wrap', treeEl), listWrap);
 
@@ -354,6 +421,13 @@ export function mediaBrowserPanel(app) {
     };
     const focused = treeEl.contains(document.activeElement) ? document.activeElement?.dataset?.path : null;
     const groups = [];
+    const favs = favorites();
+    if (favs.length) {
+      groups.push(h('li.media-tree-group', { role: 'presentation' }, 'Favorites'));
+      for (const f of favs) {
+        groups.push(h('li', { role: 'treeitem', 'aria-level': '1', 'aria-selected': String(f.path === dir), tabindex: '-1', dataset: { path: f.path, favorite: 'true' } }, h('div.media-tree-row', h('span.media-tree-twisty'), icon('star', 14), h('span.media-tree-name', { title: f.path }, f.name))));
+      }
+    }
     if (home) groups.push(h('li.media-tree-group', { role: 'presentation' }, 'Puter'), build(home, 1, 'Home', 'cloud'));
     else if (puter.sdk()) groups.push(h('li.media-tree-group', { role: 'presentation' }, 'Puter'), h('li', { role: 'treeitem', 'aria-level': '1', tabindex: '-1', dataset: { action: 'signin' } }, h('div.media-tree-row', h('span.media-tree-twisty'), icon('log-in', 14), h('span.media-tree-name', 'Sign in to browse'))));
     if (deviceRoots.length || local.supported()) groups.push(h('li.media-tree-group', { role: 'presentation' }, 'This Device'));
@@ -387,10 +461,19 @@ export function mediaBrowserPanel(app) {
   });
   treeEl.addEventListener('contextmenu', (e) => {
     const li = e.target.closest('[role=treeitem]');
-    const root = li?.dataset.path && li.getAttribute('aria-level') === '1' ? rootOf(li.dataset.path) : null;
-    if (!root) return;
+    const path = li?.dataset.path;
+    if (!path) return;
+    const root = li.getAttribute('aria-level') === '1' && !li.dataset.favorite ? rootOf(path) : null;
     e.preventDefault();
-    app.openMenu([{ type: 'cmd', label: 'Remove from List', enabled: true, run: () => removeFolder(root.id) }], { x: e.clientX, y: e.clientY, label: root.name });
+    const fav = isFavorite(path);
+    app.openMenu(
+      [
+        { type: 'cmd', label: 'Open Folder', enabled: true, run: () => navigate(path) },
+        { type: 'cmd', label: fav ? 'Remove from Favorites' : 'Add to Favorites', enabled: true, run: () => toggleFavorite(path) },
+        ...(root ? [{ type: 'sep' }, { type: 'cmd', label: 'Remove from List', enabled: true, run: () => removeFolder(root.id) }] : []),
+      ],
+      { x: e.clientX, y: e.clientY, label: li.textContent },
+    );
   });
   treeEl.addEventListener('keydown', (e) => {
     const li = e.target.closest('[role=treeitem]');
@@ -434,9 +517,14 @@ export function mediaBrowserPanel(app) {
         dataset: { path: it.path },
       },
       h('td.name-cell', icon(dirItem ? 'folder' : isAudioName(it.name) ? 'file-audio' : 'file-music', 14), h('span', it.name)),
-      h('td.num.tabular', dirItem ? '' : durationText(p)),
-      h('td.media-format', dirItem ? 'Folder' : describeProbe(p) || extensionOf(it.name).toUpperCase()),
-      h('td.num.tabular', dirItem ? '' : formatBytesShort(it.size || 0)),
+      ...shownColumns().map((c) => {
+        let text;
+        if (c.id === 'duration') text = dirItem ? '' : durationText(p);
+        else if (c.id === 'format') text = dirItem ? 'Folder' : describeProbe(p) || extensionOf(it.name).toUpperCase();
+        else if (c.id === 'size') text = dirItem ? '' : formatBytesShort(it.size || 0);
+        else text = dirItem && c.id !== 'modified' ? '' : c.text(it, p);
+        return h(`td${c.num ? '.num.tabular' : ''}${c.id === 'format' ? '.media-format' : ''}`, text);
+      }),
     );
     row.item = it;
     return row;
@@ -451,12 +539,13 @@ export function mediaBrowserPanel(app) {
   }
 
   function renderList() {
-    const shown = filterItems(items, { query: search.value, audioOnly: audioOnly.getAttribute('aria-pressed') === 'true' });
+    const shown = filterItems(items, { query: search.value, type: filterNow() });
+    syncFavBtn();
     body.replaceChildren();
-    if (!dir) body.append(h('tr', h('td.empty-row', { colspan: '4' }, h('span.empty-text', 'Choose a folder on the left.'))));
-    else if (loading) body.append(h('tr', h('td.empty-row', { colspan: '4' }, h('span.empty-text', 'Loading...'))));
-    else if (error) body.append(h('tr', h('td.empty-row', { colspan: '4' }, h('span.empty-text', error))));
-    else if (!shown.length) body.append(h('tr', h('td.empty-row', { colspan: '4' }, h('span.empty-text', items.length ? 'No matching files' : 'This folder is empty'))));
+    if (!dir) body.append(h('tr', h('td.empty-row', { colspan: colspan() }, h('span.empty-text', 'Choose a folder on the left.'))));
+    else if (loading) body.append(h('tr', h('td.empty-row', { colspan: colspan() }, h('span.empty-text', 'Loading...'))));
+    else if (error) body.append(h('tr', h('td.empty-row', { colspan: colspan() }, h('span.empty-text', error))));
+    else if (!shown.length) body.append(h('tr', h('td.empty-row', { colspan: colspan() }, h('span.empty-text', items.length ? 'No matching files' : 'This folder is empty'))));
     else for (const it of shown) body.append(rowFor(it));
     if (!body.querySelector('tr[tabindex="0"]')) body.querySelector('tr[data-path]')?.setAttribute('tabindex', '0');
     syncActions();
@@ -559,12 +648,25 @@ export function mediaBrowserPanel(app) {
   });
   search.addEventListener('input', renderList);
   search.addEventListener('keydown', (e) => e.stopPropagation());
-  audioOnly.addEventListener('click', () => {
-    const on = audioOnly.getAttribute('aria-pressed') !== 'true';
-    audioOnly.setAttribute('aria-pressed', String(on));
-    app.prefs.set('mediaAudioOnly', on);
+  const setFilter = (id) => {
+    app.prefs.set('mediaFilter', id);
+    audioOnly.setAttribute('aria-pressed', String(id !== 'all'));
+    const label = `Filter by file type: ${MEDIA_FILTERS.find((f) => f.id === id)?.label || ''}`;
+    audioOnly.title = label;
+    audioOnly.setAttribute('aria-label', label);
     renderList();
+  };
+  const filterItemsMenu = () => MEDIA_FILTERS.map((f) => ({ type: 'cmd', label: f.label, enabled: true, checked: filterNow() === f.id, run: () => setFilter(f.id) }));
+  audioOnly.addEventListener('click', () => {
+    const r = audioOnly.getBoundingClientRect();
+    app.openMenu(filterItemsMenu(), { x: r.left, y: r.bottom + 2, anchor: audioOnly, label: 'File types' });
   });
+  const toggleColumn = (id) => {
+    const ids = shownColumns().map((c) => c.id);
+    app.prefs.set('mediaColumns', ids.includes(id) ? ids.filter((x) => x !== id) : MEDIA_COLUMNS.map((c) => c.id).filter((x) => x === id || ids.includes(x)));
+    renderHead();
+    renderList();
+  };
 
   // ------------------------------------------------------------- preview
   let previewItem = null;
@@ -689,7 +791,9 @@ export function mediaBrowserPanel(app) {
         btn(refreshBtn, 'Refresh'),
         ...(addFolderBtn.hidden ? [] : [btn(addFolderBtn, 'Add a Folder from This Device...')]),
         { type: 'sep' },
-        { type: 'cmd', label: 'Show Only Audio Files', enabled: true, checked: audioOnly.getAttribute('aria-pressed') === 'true', run: () => audioOnly.click() },
+        { type: 'sub', label: 'Show', items: filterItemsMenu() },
+        { type: 'sub', label: 'Columns', items: MEDIA_COLUMNS.map((c) => ({ type: 'cmd', label: c.label, enabled: true, checked: shownColumns().some((x) => x.id === c.id), run: () => toggleColumn(c.id) })) },
+        { type: 'cmd', label: dir && isFavorite(dir) ? 'Remove Folder from Favorites' : 'Add Folder to Favorites', enabled: Boolean(dir), run: () => toggleFavorite(dir) },
         { type: 'cmd', label: 'Auto-Play', enabled: true, checked: autoPlay.checked, run: () => {
           autoPlay.checked = !autoPlay.checked;
           autoPlay.dispatchEvent(new Event('change'));
