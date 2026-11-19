@@ -9,8 +9,8 @@ import type { ParamSpec, RGBA8 } from '../../imaging/types';
 import { download } from '../../persistence/puter';
 import { failedNote, runProcessor, type Input } from '../files/automate';
 import { formatInfo, type ExportFormat } from '../files/encode';
-import { bytesBlob, formatBytes } from '../files/pipeline';
-import { zipStore } from '../files/zip';
+import { formatBytes } from '../files/pipeline';
+import { zipBlob, type ZipBlobEntry } from '../files/zip';
 import { saveToCloudFolder } from '../files/layers-export';
 import { hexRgb } from '../pixels';
 import type { LensJob } from './lens-batch.worker';
@@ -50,16 +50,16 @@ function paramField(p: ParamSpec) {
   return '';
 }
 
-type LensResults = { name: string; bytes: Uint8Array; blob: Blob }[] & { failed: string[] };
+type LensResults = ZipBlobEntry[] & { failed: string[] };
 /** Save the corrected images to a Puter folder or download them as a ZIP;
  * either way the closing message names the images that failed. */
 export function deliverLensResults(e: Editor, files: LensResults, dest: string) {
   if (!files.length) return;
   if (dest === 'puter') saveToCloudFolder(e, files, failedNote(files.failed));
   else {
-    const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
-    download(bytesBlob(zip, 'application/zip'), 'lens-corrected.zip');
-    e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
+    const zip = zipBlob(files);
+    download(zip, 'lens-corrected.zip');
+    e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.size)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
   }
 }
 

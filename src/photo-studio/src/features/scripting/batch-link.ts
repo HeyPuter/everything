@@ -8,8 +8,8 @@ import { escapeXML } from '../../model/assets';
 import { allActions, lastStopReason, playAction, type Action } from '../actions';
 import { failedNote, runProcessor, type Input } from '../files/automate';
 import { formatInfo } from '../files/encode';
-import { bytesBlob, formatBytes } from '../files/pipeline';
-import { zipStore } from '../files/zip';
+import { formatBytes } from '../files/pipeline';
+import { zipBlob } from '../files/zip';
 import { download } from '../../persistence/puter';
 import { decodeBatchLink, encodeBatchLink, linkableCommand, type BatchLink } from './batch-link-core';
 
@@ -208,9 +208,9 @@ export function openBatchLink(e: Editor, hash: string): Promise<void> {
           ran = true;
           const files = await runProcessor(e, batch, opts, (text) => (status.textContent = text), () => cancelled);
           if (cancelled || !files.length) return;
-          const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
-          download(bytesBlob(zip, 'application/zip'), `${link.name.replace(/[\\/:*?"<>|]+/g, '_')}.zip`);
-          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''} Drop more photos to run again.`;
+          const zip = zipBlob(files);
+          download(zip, `${link.name.replace(/[\\/:*?"<>|]+/g, '_')}.zip`);
+          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.size)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''} Drop more photos to run again.`;
         });
       })().finally(() => {
         running = false;

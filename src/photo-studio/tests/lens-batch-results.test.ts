@@ -10,10 +10,9 @@ vi.mock('../src/features/files/layers-export', () => ({
 vi.mock('../src/persistence/puter', () => ({ download: () => {} }));
 
 describe('deliverLensResults', () => {
-  const files = Object.assign(
-    [{ name: 'a.jpg', bytes: new Uint8Array([1, 2]), blob: new Blob(['a']) }],
-    { failed: ['b.tif: The file is damaged.'] },
-  );
+  const files = Object.assign([{ name: 'a.jpg', blob: new Blob(['a']), crc: 0xe8b7be43 }], {
+    failed: ['b.tif: The file is damaged.'],
+  });
   const editor = () => {
     const messages: string[] = [];
     return { messages, e: { message: (m: string) => messages.push(m) } as unknown as Editor };
