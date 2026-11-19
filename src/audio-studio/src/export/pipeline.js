@@ -13,9 +13,26 @@ export const WRITERS = { wav: WavWriter, aiff: AiffWriter, flac: FlacWriter, mp3
 
 const BLOCK = 1 << 16;
 
-/** Maps planar source channels onto `count` output channels. */
-export function mapChannels(src, count, n = src[0]?.length ?? 0) {
+/**
+ * Maps planar source channels onto `count` output channels. `mix` ({ left, right } gains) sets
+ * how much of each side a stereo-to-mono conversion takes (default half of each), or the level
+ * of a mono source on each side of a stereo output (default full).
+ */
+export function mapChannels(src, count, n = src[0]?.length ?? 0, mix = null) {
   if (src.length === count) return src;
+  if (count === 1 && mix && src.length === 2) {
+    const out = new Float32Array(n);
+    const [l, r] = src;
+    for (let i = 0; i < n; i++) out[i] = l[i] * mix.left + r[i] * mix.right;
+    return [out];
+  }
+  if (count === 2 && mix && src.length === 1 && (mix.left !== 1 || mix.right !== 1)) {
+    return [mix.left, mix.right].map((g) => {
+      const out = new Float32Array(n);
+      for (let i = 0; i < n; i++) out[i] = src[0][i] * g;
+      return out;
+    });
+  }
   if (count === 1) {
     const out = new Float32Array(n);
     const k = 1 / src.length;
@@ -120,7 +137,7 @@ export async function runExport({ options, sourceRate, frames, read, markers = [
       if (cancelled()) throw new Error('Cancelled');
       const n = Math.min(BLOCK, frames - at);
       const src = await read(at, n);
-      const mapped = mapChannels(src, nch, n).map((c) => (c.length === n ? c : c.subarray(0, n)));
+      const mapped = mapChannels(src, nch, n, options.mix).map((c) => (c.length === n ? c : c.subarray(0, n)));
       await emit(resample ? mapped.map((c, i) => resamplers[i].process(c)) : mapped);
       onProgress?.(Math.min(0.99, (at + n) / frames));
     }

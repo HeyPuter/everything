@@ -146,6 +146,35 @@
   display: none;
 }
 
+/* One label column across the page's separate grids, so the fields line up. */
+.io-sample-page > .form-grid,
+.io-adv .form-grid {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.io-adv {
+  margin: -4px 0 0;
+  padding-left: 12px;
+}
+
+.io-sample-page .io-adv[hidden],
+.io-rate[hidden] {
+  display: none;
+}
+
+.io-rate {
+  width: 110px;
+}
+
+.io-adv .io-row .slider {
+  flex: 1;
+  min-width: 120px;
+}
+
+.io-adv .input.num {
+  width: 64px;
+}
+
 .io-sample-actions {
   display: flex;
   justify-content: flex-end;

@@ -12,6 +12,13 @@ import { DITHER_MODES } from '../audio/quantize.js';
 import { codecSupported } from './webcodecs.js';
 import { mp3Bitrates } from './mp3.js';
 
+const MIN_RATE = 1000;
+const MAX_RATE = 384000;
+const clampNum = (v, lo, hi, d) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
+};
+
 const TITLES = { saveAs: 'Save As', copy: 'Save a Copy', export: 'Export Audio File', selection: 'Save Selection As', download: 'Download to This Device', mixdown: 'Export Multitrack Mixdown' };
 
 /** "Master only", "Master and 2 tracks", "3 tracks": what a mixdown export writes. */
@@ -136,7 +143,25 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
 
   // Sample type page (replaces the main form while open).
   const rateSel = h('select.select', { 'aria-label': 'Sample rate' });
+  // "Custom..." in the rate list: any rate the converter takes (formats with a fixed set have none).
+  const customRate = h('input.input.num.io-rate', { type: 'number', min: MIN_RATE, max: MAX_RATE, step: 1, 'aria-label': 'Custom sample rate (Hz)', hidden: true });
+  const srcQuality = h('input.slider', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': 'Conversion quality' });
+  const srcQualityNum = h('input.input.num', { type: 'number', min: 0, max: 100, step: 1, 'aria-label': 'Conversion quality (percent)' });
+  const srcFilter = h('input', { type: 'checkbox' });
+  srcQuality.addEventListener('input', () => (srcQualityNum.value = srcQuality.value));
+  srcQualityNum.addEventListener('change', () => (srcQuality.value = srcQualityNum.value = clampNum(srcQualityNum.value, 0, 100, 50)));
+  const rateAdv = h(
+    'details.dlg-adv.io-adv',
+    h('summary', 'Advanced'),
+    h('div.form-grid', h('label', 'Quality:'), h('div.io-row', srcQuality, srcQualityNum, h('span.muted', '%')), h('span'), h('label.check', srcFilter, 'Pre/Post Filter')),
+    h('p.muted.io-sample-note', 'Higher quality uses a longer filter and takes longer. The filter keeps the top of the band from folding back as aliasing.'),
+  );
   const chSel = h('select.select', { 'aria-label': 'Channels' });
+  const mixLeft = h('input.input.num', { type: 'number', min: 0, max: 200, step: 1, 'aria-label': 'Left mix (percent)' });
+  const mixRight = h('input.input.num', { type: 'number', min: 0, max: 200, step: 1, 'aria-label': 'Right mix (percent)' });
+  const mixNote = h('p.muted.io-sample-note');
+  const mixAdv = h('details.dlg-adv.io-adv', h('summary', 'Advanced'), h('div.form-grid', h('label', 'Left Mix:'), h('div.io-row', mixLeft, h('span.muted', '%')), h('label', 'Right Mix:'), h('div.io-row', mixRight, h('span.muted', '%'))), mixNote);
+  const sampleError = h('div.io-error', { role: 'alert' });
   const bitSel = h('select.select', { 'aria-label': 'Bit depth' });
   const ditherSel = h('select.select', { 'aria-label': 'Dither' }, DITHER_MODES.map((d) => h('option', { value: d.id }, d.label)));
   const bitRow = [h('label', 'Bit Depth:'), bitSel];
@@ -147,7 +172,12 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     'div.io-sample-page',
     { hidden: true, role: 'group', 'aria-label': 'Sample type' },
     h('p.muted.io-sample-note', `Source: ${describeSampleType({ sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc) })}. Conversion is applied to the exported file only.`),
-    h('div.form-grid', h('label', 'Sample Rate:'), rateSel, h('label', 'Channels:'), chSel, ...bitRow, ...ditherRow),
+    h('div.form-grid', h('label', 'Sample Rate:'), h('div.io-row', rateSel, customRate)),
+    rateAdv,
+    h('div.form-grid', h('label', 'Channels:'), chSel),
+    mixAdv,
+    h('div.form-grid', ...bitRow, ...ditherRow),
+    sampleError,
     h('div.io-sample-actions', sampleBack, sampleOk),
   );
 
@@ -249,6 +279,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
 
   // The open sub-page ('sample' | 'mixdown') replaces the form until OK or Cancel.
   let page = null;
+  const pickedRate = () => Math.round(Number(rateSel.value === 'custom' ? customRate.value : rateSel.value));
   const showPage = (el, title) => {
     main.hidden = true;
     el.hidden = false;
@@ -266,11 +297,44 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   const openSamplePage = () => {
     const f = fmt();
     const rates = f.rates || [...new Set([...COMMON_RATES, doc.sampleRate])].sort((a, b) => a - b);
-    rateSel.replaceChildren(...rates.map((r) => h('option', { value: r }, `${r} Hz`)));
-    rateSel.value = String(state.options.sampleRate);
+    const custom = !f.rates && !rates.includes(state.options.sampleRate);
+    rateSel.replaceChildren(...rates.map((r) => h('option', { value: r }, `${r} Hz`)), ...(f.rates ? [] : [h('option', { value: 'custom' }, 'Custom...')]));
+    rateSel.value = custom ? 'custom' : String(state.options.sampleRate);
+    customRate.value = String(state.options.sampleRate);
+    const rs = state.options.resampler || remembered.resampler || {};
+    srcQuality.value = srcQualityNum.value = String(rs.quality ?? app.prefs.get('srcQuality') ?? 50);
+    srcFilter.checked = rs.filter ?? app.prefs.get('srcFilter') !== false;
     const chans = [1, 2, ...(doc.channelCount > 2 && f.maxChannels >= doc.channelCount ? [doc.channelCount] : [])];
     chSel.replaceChildren(...chans.map((c) => h('option', { value: c }, channelLabel(c))));
     chSel.value = String(state.options.channels);
+    delete mixLeft.dataset.mode;
+    const syncRate = () => {
+      customRate.hidden = rateSel.value !== 'custom';
+      rateAdv.hidden = pickedRate() === doc.sampleRate;
+    };
+    const syncMix = () => {
+      const toMono = Number(chSel.value) === 1 && doc.channelCount === 2;
+      const toStereo = Number(chSel.value) === 2 && doc.channelCount === 1;
+      mixAdv.hidden = !toMono && !toStereo;
+      const mode = toMono ? 'mono' : toStereo ? 'stereo' : '';
+      if (mode && mixLeft.dataset.mode !== mode) {
+        const kept = state.options.mix && state.options.channels === Number(chSel.value) ? state.options.mix : null;
+        const d = toMono ? 50 : 100;
+        mixLeft.value = String(Math.round((kept?.left ?? d / 100) * 100));
+        mixRight.value = String(Math.round((kept?.right ?? d / 100) * 100));
+        mixLeft.dataset.mode = mode;
+      }
+      mixNote.textContent = toMono ? 'How much of each side goes into the mono channel.' : 'The level of the mono channel on each side.';
+    };
+    rateSel.onchange = () => {
+      syncRate();
+      if (rateSel.value === 'custom') customRate.focus();
+    };
+    customRate.oninput = syncRate;
+    chSel.onchange = syncMix;
+    syncRate();
+    syncMix();
+    sampleError.textContent = '';
     bitRow.forEach((el) => (el.hidden = !f.bitDepths));
     if (f.bitDepths) {
       bitSel.replaceChildren(...f.bitDepths.map((b) => h('option', { value: b }, b === 32 ? '32-bit (float)' : `${b}-bit`)));
@@ -289,8 +353,25 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   };
   const closeSamplePage = (apply) => {
     if (apply) {
+      const rate = pickedRate();
+      if (!(rate >= MIN_RATE && rate <= MAX_RATE)) {
+        sampleError.textContent = `Enter a sample rate from ${MIN_RATE} to ${MAX_RATE} Hz.`;
+        customRate.focus();
+        return;
+      }
       notes = [];
-      state.options = { ...state.options, sampleRate: Number(rateSel.value), channels: Number(chSel.value), bitDepth: fmt().bitDepths ? Number(bitSel.value) : undefined, dither: ditherSel.value };
+      const channels = Number(chSel.value);
+      const remix = !mixAdv.hidden;
+      state.options = {
+        ...state.options,
+        sampleRate: rate,
+        channels,
+        bitDepth: fmt().bitDepths ? Number(bitSel.value) : undefined,
+        dither: ditherSel.value,
+        resampler: { quality: clampNum(srcQualityNum.value, 0, 100, 50), filter: srcFilter.checked },
+        mix: remix ? { left: clampNum(mixLeft.value, 0, 200, 100) / 100, right: clampNum(mixRight.value, 0, 200, 100) / 100 } : undefined,
+      };
+      if (!remix) delete state.options.mix;
       refresh();
     }
     hidePage(samplePage, changeBtn);
@@ -389,6 +470,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   app.prefs.set('exportPrefs', {
     format: state.options.format,
     dither: state.options.dither,
+    ...(state.options.resampler ? { resampler: state.options.resampler } : remembered.resampler ? { resampler: remembered.resampler } : {}),
     includeMeta: state.options.meta !== false,
     settings: { ...(remembered.settings || {}), [state.options.format]: state.options.settings },
   });

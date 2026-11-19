@@ -305,6 +305,13 @@ describe('sample rate and channel conversion', () => {
     expect(mapChannels([Float32Array.of(1), Float32Array.of(2), Float32Array.of(3)], 2).map((c) => c[0])).toEqual([1, 2]);
   });
 
+  it('mixes stereo to mono and mono to stereo with chosen levels', () => {
+    const [m] = mapChannels([Float32Array.of(1, 0.5), Float32Array.of(0, 0.5)], 1, 2, { left: 1, right: 0 });
+    expect([...m]).toEqual([1, 0.5]);
+    const st = mapChannels([Float32Array.of(0.5)], 2, 1, { left: 1, right: 0.5 });
+    expect(st.map((c) => c[0])).toEqual([0.5, 0.25]);
+  });
+
   it('applies dither within one LSB and noise shaping keeps the mean', () => {
     const q = new Quantizer(16, 1, 'triangular');
     const src = new Float32Array(10000).fill(0.1);
