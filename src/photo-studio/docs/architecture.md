@@ -22,7 +22,8 @@ This guide is for contributors adding features.
   appears there shows up automatically; unregistered IDs are omitted. Dynamic submenus
   (e.g. `filter.blur`, `window.panels`) collect commands whose `menu` field names them.
   Shortcuts use `Mod` for Command/Ctrl, e.g. `Mod+Shift+N`, `Alt+Backspace`, `F5`.
-- `registerTool({ id, label, key, icon, group, options, bindOptions, pointerDown/Move/Up, hover, keyDown, overlay, activate, deactivate, cursor })`.
+- `registerTool({ id, label, key, icon, group, options, bindOptions, pointerDown/Move/Up, hover, keyDown, contextMenu, overlay, activate, deactivate, cursor })`.
+  `contextMenu` takes a right-click on the canvas (painting tools open the brush picker there).
   `group` selects the toolbar slot (see `toolGroups` in `src/app/toolbar.ts`); tools in
   one group share a slot with a flyout, and Shift+key cycles them. Holding a tool's
   key uses it only while the key is down (`src/app/spring-tools.ts`). Reset Tool

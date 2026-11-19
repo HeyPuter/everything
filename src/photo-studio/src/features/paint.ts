@@ -288,7 +288,7 @@ export function bindBrushOptions(e: Editor, el: HTMLElement, id: string) {
 }
 // Closes the open brush popover (the brush button toggles it); true when it was shown.
 let closePopover: ((refocus?: boolean) => boolean) | undefined;
-function openBrushPopover(e: Editor, id: string, anchor: HTMLElement) {
+function openBrushPopover(e: Editor, id: string, anchor: HTMLElement | { left: number; bottom: number }) {
   if (closePopover?.()) return;
   const s = brushFor(id);
   const pop = document.createElement('div');
@@ -297,9 +297,10 @@ function openBrushPopover(e: Editor, id: string, anchor: HTMLElement) {
   pop.setAttribute('aria-label', 'Brush settings');
   pop.innerHTML = `<label>Size <input type="range" min="1" max="1000" value="${s.size}" data-k="size"><output>${Math.round(s.size)} px</output></label><label>Hardness <input type="range" min="0" max="100" value="${s.hardness * 100}" data-k="hardness"><output>${Math.round(s.hardness * 100)}%</output></label><label>Angle <input type="range" min="-180" max="180" value="${s.angle}" data-k="angle"><output>${s.angle}°</output></label><label>Roundness <input type="range" min="1" max="100" value="${s.roundness * 100}" data-k="roundness"><output>${Math.round(s.roundness * 100)}%</output></label><label>Spacing <input type="range" min="1" max="200" value="${s.spacing * 100}" data-k="spacing"><output>${Math.round(s.spacing * 100)}%</output></label><fieldset class="smoothing-options"><legend>Smoothing</legend><label class="check" title="The stroke moves only once the pointer is a string's length away (the length grows with Smoothing)"><input type="checkbox" data-opt="pulledString" ${s.pulledString ? 'checked' : ''}>Pulled String Mode</label><label class="check" title="Finish the stroke at the pointer when the button is released"><input type="checkbox" data-opt="catchUpEnd" ${s.catchUpEnd !== false ? 'checked' : ''}>Catch Up on Stroke End</label><label class="check" title="Judge smoothing on screen: less when zoomed in, more when zoomed out"><input type="checkbox" data-opt="smoothForZoom" ${s.smoothForZoom !== false ? 'checked' : ''}>Adjust for Zoom</label></fieldset><div class="preset-list" role="listbox" aria-label="Brush presets">${brushPresets.map((p, i) => `<button role="option" data-preset="${i}">${escapeXML(p.name)}</button>`).join('')}</div>`;
   document.body.append(pop);
-  const r = anchor.getBoundingClientRect();
-  pop.style.left = `${r.left}px`;
-  pop.style.top = `${r.bottom + 4}px`;
+  const r = anchor instanceof HTMLElement ? anchor.getBoundingClientRect() : anchor;
+  // Kept inside the window (a right-click near its edge opens it inward).
+  pop.style.left = `${Math.max(4, Math.min(r.left, innerWidth - pop.offsetWidth - 4))}px`;
+  pop.style.top = `${Math.max(4, Math.min(r.bottom + 4, innerHeight - pop.offsetHeight - 4))}px`;
   pop.querySelector<HTMLInputElement>('input')?.focus();
   pop.addEventListener('change', (ev) => {
     const t = ev.target as HTMLInputElement;
@@ -495,6 +496,13 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
       stringIndicator(e, id, a, p);
     },
     hover: (e, p) => cursor(e, id, p),
+    // Right-clicking the canvas opens the brush picker where it was clicked.
+    contextMenu: (e, ev) => {
+      if (!e.root.querySelector(`[data-brush-popover="${id}"]`)) return false;
+      closePopover?.(false);
+      openBrushPopover(e, id, { left: ev.clientX, bottom: ev.clientY });
+      return true;
+    },
     pointerUp: (e, p) => {
       if (eyedrop) {
         eyedrop = undefined;

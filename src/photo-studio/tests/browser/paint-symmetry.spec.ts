@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { boot, canvasDrag, idle, layerPixel, openImage, tool, undo } from './helpers';
+import { boot, canvasDrag, client, idle, layerPixel, openImage, tool, undo } from './helpers';
 
 // Paint symmetry on the Brush, Pencil and Eraser options bars.
 
@@ -85,4 +85,25 @@ test('Pulled String Mode trails the pointer and catches up at the end when asked
   await stroke();
   await idle(page);
   expect((await layerPixel(page, 119, 50))[0]).toBeLessThan(60);
+});
+
+test('right-clicking the canvas with a brush opens the brush picker at the pointer', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 200, 100, '#ffffff');
+  await tool(page, 'Brush Tool');
+  const [x, y] = await client(page, 60, 40);
+  await page.mouse.click(x, y, { button: 'right' });
+  const pop = page.getByRole('dialog', { name: 'Brush settings' });
+  await expect(pop).toBeVisible();
+  const box = (await pop.boundingBox())!;
+  expect(Math.abs(box.x - x)).toBeLessThan(2);
+  await expect(page.locator('.context-menu')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(pop).toHaveCount(0);
+  // The Move tool keeps the canvas context menu.
+  await tool(page, 'Move Tool');
+  await page.mouse.click(x, y, { button: 'right' });
+  await expect(page.locator('.context-menu')).toBeVisible();
 });

@@ -969,6 +969,7 @@ export class Editor {
     });
     viewport.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      if (this.hasDocument && this.activeTool?.contextMenu?.(this, e)) return;
       void import('./app/menubar').then(({ showContextMenu }) => showContextMenu(this, e.clientX, e.clientY, this.canvasContextMenu()));
     });
     document.addEventListener('keydown', (e) => this.keyDown(e));
