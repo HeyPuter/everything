@@ -192,6 +192,25 @@
   color: var(--text-faint);
 }
 
+/* Snapshots: named states above the history list. */
+.history-section {
+  padding: 4px 10px 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.history-list.history-snapshots {
+  flex: none;
+  max-height: 40%;
+  border-bottom: 1px solid var(--border-soft);
+}
+.history-snapshot svg {
+  color: var(--accent);
+}
+.history-section[hidden],
+.history-list[hidden] {
+  display: none;
+}
+
 /* Levels */
 .levels-panel {
   position: absolute;
