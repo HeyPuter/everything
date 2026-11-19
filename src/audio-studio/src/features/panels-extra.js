@@ -47,10 +47,8 @@ export function installPanelsExtra(app) {
     title: 'Events',
     create: eventsPanel,
     near: ['history', 'markers'],
-    menu: (a) => [
-      { type: 'cmd', label: 'Delete Selected Events', enabled: Boolean(instance('events')?.el.querySelector('tr[aria-selected="true"]')), run: () => instance('events')?.deleteSelected() },
-      { type: 'cmd', label: 'Clear All', enabled: a.eventLog.entries.length > 0, run: () => a.eventLog.clear() },
-    ],
+    menu: (a) =>
+      instance('events')?.menu?.() || [{ type: 'cmd', label: 'Clear All', enabled: a.eventLog.entries.length > 0, run: () => a.eventLog.clear() }],
   });
 }
 

@@ -1,6 +1,8 @@
 // Events panel: the event log (errors, warnings such as playback dropouts,
 // and information messages) as a table. Click a column heading to sort by it
 // (again to reverse); select rows to delete them, or clear the whole log.
+// Ctrl/Cmd+C (or the right-click menu) copies the selected events as text,
+// for a bug report or a note.
 
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
@@ -14,6 +16,11 @@ const COLUMNS = [
 ];
 
 const TYPE_ICONS = { error: 'circle-alert', warning: 'triangle-alert', info: 'info' };
+
+/** Events as tab-separated lines (type, date and time, name, message). Pure. */
+export function eventsText(events) {
+  return events.map((e) => [eventTypeLabel(e.type), new Date(e.time).toLocaleString(), e.name || '', e.message || ''].join('\t')).join('\n');
+}
 
 /** Clock time of an event; the date too when it was not today. */
 export function eventTime(ms, now = Date.now()) {
@@ -56,6 +63,30 @@ export function eventsPanel(app) {
 
   const sorted = () => sortEvents(log.entries, sort.key, sort.dir);
 
+  async function copySelected() {
+    const rows = sorted().filter((e) => selected.has(e.id));
+    if (!rows.length) return;
+    try {
+      await navigator.clipboard.writeText(eventsText(rows));
+      app.setStatus?.(`Copied ${rows.length} event${rows.length === 1 ? '' : 's'}`);
+    } catch {
+      app.notify?.('Could not copy to the clipboard.', { error: true });
+    }
+  }
+
+  const selectAll = () => {
+    for (const e of sorted()) selected.add(e.id);
+    render();
+  };
+
+  const menu = () => [
+    { type: 'cmd', label: 'Copy', enabled: selected.size > 0, run: copySelected },
+    { type: 'cmd', label: 'Select All', enabled: log.entries.length > 0, run: selectAll },
+    { type: 'sep' },
+    { type: 'cmd', label: 'Delete Selected Events', enabled: selected.size > 0, run: deleteSelected },
+    { type: 'cmd', label: 'Clear All', enabled: log.entries.length > 0, run: () => log.clear() },
+  ];
+
   const select = (id, e) => {
     const rows = sorted();
     if (e?.shiftKey && anchor != null) {
@@ -95,7 +126,17 @@ export function eventsPanel(app) {
       body.append(
         h(
           `tr.event-${e.type}`,
-          { tabindex: isSel ? '0' : '-1', 'aria-selected': String(isSel), dataset: { id: String(e.id) }, onclick: (ev) => select(e.id, ev) },
+          {
+            tabindex: isSel ? '0' : '-1',
+            'aria-selected': String(isSel),
+            dataset: { id: String(e.id) },
+            onclick: (ev) => select(e.id, ev),
+            oncontextmenu: (ev) => {
+              ev.preventDefault();
+              if (!selected.has(e.id)) select(e.id);
+              app.openMenu?.(menu(), { x: ev.clientX, y: ev.clientY, label: 'Event' });
+            },
+          },
           h('td.name-cell.event-type', icon(TYPE_ICONS[e.type] || 'info', 13), eventTypeLabel(e.type)),
           h('td.tabular', { title: new Date(e.time).toLocaleString() }, eventTime(e.time, now)),
           h('td', { title: e.name }, e.name),
@@ -122,7 +163,8 @@ export function eventsPanel(app) {
     else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
       for (const r of rows) selected.add(Number(r.dataset.id));
       render();
-    } else return;
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') copySelected();
+    else return;
     e.preventDefault();
     e.stopPropagation();
   });
@@ -147,5 +189,7 @@ export function eventsPanel(app) {
       visible = false;
     },
     deleteSelected,
+    copySelected,
+    menu,
   };
 }
