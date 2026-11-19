@@ -313,3 +313,35 @@ test('relight layer: arrow keys nudge a selected path with the path tools', asyn
   await idle(page);
   expect(await lights(page)).toEqual(before);
 });
+
+// A slider moved and put back without a release (no change event) leaves no
+// preview behind: handles follow later edits of the stored settings.
+test('relight layer: handles follow nudges and undo after a slider returns to its value', async ({
+  page,
+}) => {
+  await boot(page);
+  await openScene(page);
+  await run(page, 'layer.new-relight');
+  await panel(page, 'Properties');
+  const props = page.locator('#properties');
+  const range = props.getByRole('slider', { name: 'Horizontal' });
+  await expect(range).toBeVisible();
+  await range.evaluate((el: HTMLInputElement) => {
+    const was = el.value;
+    el.value = '90';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.value = was;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const handleX = () =>
+    page.evaluate(() =>
+      Number(document.querySelector('#overlay .relight-dot')?.getAttribute('cx')),
+    );
+  await page.locator('#viewport').focus();
+  await page.keyboard.press('Shift+ArrowRight');
+  await idle(page);
+  expect((await historyLabels(page)).at(-1)).toBe('Nudge Light');
+  expect(await handleX()).toBeCloseTo((await lights(page))[0].x * 240, 3);
+  await undo(page);
+  expect(await handleX()).toBeCloseTo((await lights(page))[0].x * 240, 3);
+});

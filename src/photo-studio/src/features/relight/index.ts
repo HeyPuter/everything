@@ -58,7 +58,10 @@ export function commitRelight(e: Editor, id: string, params: RelightParams, labe
 function drawHandles(e: Editor) {
   const l = activeRelightLayer(e);
   if (!l || relightUi.hidden) return '';
-  const p = relightUi.draft?.layerId === l.id ? relightUi.draft.params : relightParams(l);
+  // A preview that never ended in a commit (a slider moved and put back)
+  // stops counting once the document changes.
+  const draft = relightUi.draft;
+  const p = draft?.layerId === l.id && draft.doc === e.doc ? draft.params : relightParams(l);
   const W = e.doc.width,
     H = e.doc.height,
     z = Math.max(1e-6, e.zoom);
@@ -118,7 +121,7 @@ function startDrag(e: Editor, l: Layer, lightId: string, ev: PointerEvent) {
     if (!moved && Math.hypot(m.clientX - ev.clientX, m.clientY - ev.clientY) < 2) return;
     moved = true;
     const params = at(m);
-    relightUi.draft = { layerId: l.id, params };
+    relightUi.draft = { layerId: l.id, params, doc: before };
     e.preview(withRelight(before, l.id, params));
     e.overlay();
     draftListeners.forEach((f) => f(l.id, params));
