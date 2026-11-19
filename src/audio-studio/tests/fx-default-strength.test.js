@@ -2,7 +2,9 @@
 // measured on synthesized voice-like speech, noise and music.
 import { describe, it, expect } from 'vitest';
 import './fx-wasm.js';
-import { speech, runFx, band, segRms, dbOf } from './helpers/fx-signals.js';
+import { speech, runFx, band, segRms, dbOf, gaussNoise, filter, biquad, rms, spectralPeakiness, RATE } from './helpers/fx-signals.js';
+import { captureNoisePrint } from '../src/effects/defs/restoration.js';
+import { dsp } from '../src/audio/dsp.js';
 
 describe('DeEsser defaults', () => {
   for (const [vowelDb, sibilantDb] of [
@@ -22,6 +24,37 @@ describe('DeEsser defaults', () => {
       expect(Math.abs(dbOf(segRms(y, sp.vowels)) - vowelDb)).toBeLessThan(0.1);
       const hf = (s) => dbOf(segRms(band(s, 2000, 20000), sp.vowels));
       expect(hf(sp.x) - hf(y)).toBeLessThan(0.5);
+    });
+  }
+});
+
+describe('Noise Reduction defaults', () => {
+  for (const colour of ['white', 'low-pass']) {
+    it(`take a steady ${colour} noise floor down by 12..22 dB without musical residue or speech damage`, async () => {
+      const d = await dsp();
+      const n = RATE * 6;
+      let nz = gaussNoise(n + RATE, 0.01, 5);
+      if (colour !== 'white') {
+        nz = filter(nz, biquad('lp', 400, 0.7));
+        const g = 0.01 / rms(nz);
+        nz = nz.map((v) => v * g);
+      }
+      // The print comes from a separate stretch of the same noise.
+      const print = await captureNoisePrint(d, [nz.subarray(n, n + RATE)], RATE);
+      const sp = speech({ seconds: 6, pause: 1.2 });
+      const x = sp.x.map((v, i) => v + nz[i]);
+      const [y] = await runFx('noiseReduction', {}, [x], { extra: { noisePrint: print } });
+      // Pauses, from half a second after the speech (the gain has settled).
+      const quiet = sp.pauses.filter(([a, b]) => b - a > RATE).map(([a, b]) => [a + RATE / 2, b - 2400]);
+      const removed = dbOf(segRms(x, quiet)) - dbOf(segRms(y, quiet));
+      expect(removed).toBeGreaterThan(12);
+      expect(removed).toBeLessThan(22);
+      // What is left is a steady, quieter floor (no tonal blips coming and going).
+      expect(spectralPeakiness(y, quiet)).toBeLessThan(2.3);
+      // Speech: level kept, and the vowels end up closer to the clean voice than the noisy input was.
+      expect(Math.abs(dbOf(segRms(y, sp.vowels)) - dbOf(segRms(sp.x, sp.vowels)))).toBeLessThan(0.3);
+      const err = (s) => dbOf(segRms(s.map((v, i) => v - sp.x[i]), sp.vowels));
+      expect(err(y)).toBeLessThan(err(x));
     });
   }
 });

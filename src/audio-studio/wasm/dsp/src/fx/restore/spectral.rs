@@ -280,6 +280,10 @@ pub struct GateSettings {
     pub smooth_bins: usize,
     /// Dilation radius across bins (keeps audio near detected signal).
     pub dilate_bins: usize,
+    /// Averaging radius across bins of the signal power before it is
+    /// compared with the noise: steadies the estimate in noise-only bins so
+    /// random peaks of the noise do not open the gate (musical noise).
+    pub snr_bins: usize,
     /// Per-frame multiplicative fall of the gain (0 = instant, near 1 = slow).
     pub fall: f32,
     /// Output only what is removed.
@@ -294,6 +298,7 @@ pub struct GateCore {
     p: Vec<f32>,
     g: Vec<f32>,
     g2: Vec<f32>,
+    sig: Vec<f32>,
     prefix: Vec<f64>,
     idx: Vec<usize>,
 }
@@ -307,6 +312,7 @@ impl GateCore {
             p: vec![0.0; bins],
             g: vec![0.0; bins],
             g2: vec![0.0; bins],
+            sig: vec![0.0; bins],
             prefix: vec![0.0; bins + 1],
             idx: vec![0; bins],
         }
@@ -332,8 +338,17 @@ impl GateCore {
         let floor_db = s.floor_db;
         for k in 0..b {
             ps[k] = if s.instant_rise && self.p[k] > ps[k] { self.p[k] } else { a * ps[k] + (1.0 - a) * self.p[k] };
+        }
+        let sigs: &[f32] = if s.snr_bins > 0 {
+            let r = s.snr_bins;
+            smooth_bins(ps, &mut self.sig, &mut self.prefix, |_| r);
+            &self.sig
+        } else {
+            ps
+        };
+        for k in 0..b {
             let n = noise[k] + 1e-20;
-            let sig = ps[k] + 1e-20;
+            let sig = sigs[k] + 1e-20;
             self.g[k] = if sig >= hi * n {
                 1.0
             } else {

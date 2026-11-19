@@ -109,6 +109,7 @@ impl Effect for AdaptiveNoiseReduction {
             instant_rise: true,
             smooth_bins: if hq { 2 } else { 1 },
             dilate_bins: (self.broadband / bin_hz).round() as usize,
+            snr_bins: 0,
             fall: fall_per_frame(self.decay_ms, hop, self.rate),
             residual: false,
         };

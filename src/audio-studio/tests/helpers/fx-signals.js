@@ -244,3 +244,71 @@ export async function runFx(id, values = {}, channels, { rate = RATE, extra = {}
   const spec = data || (def.data ? def.data(all, { rate, doc: extra.doc || null }) : []);
   return d.runEffect(def.kind, rate, channels, paramArray(def, all), { data: spec || [], tail });
 }
+
+/** In-place radix-2 FFT of re/im (length a power of two). */
+export function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (-2 * Math.PI) / len;
+    for (let i = 0; i < n; i += len) {
+      for (let k = 0; k < len / 2; k++) {
+        const wr = Math.cos(ang * k);
+        const wi = Math.sin(ang * k);
+        const a = i + k;
+        const b = a + len / 2;
+        const tr = re[b] * wr - im[b] * wi;
+        const ti = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - tr;
+        im[b] = im[a] - ti;
+        re[a] += tr;
+        im[a] += ti;
+      }
+    }
+  }
+}
+
+/**
+ * Musical-noise measure of a residual over segments: mean(p^2) / mean(p)^2 of
+ * the STFT bin powers in [lo, hi] Hz, each bin normalised by its own mean.
+ * Steady noise (Rayleigh magnitudes) reads about 2; isolated tonal blips
+ * that come and go (the "musical" residue of spectral gating) read higher.
+ */
+export function spectralPeakiness(x, segs, { n = 1024, lo = 500, hi = 8000, rate = RATE } = {}) {
+  const k0 = Math.ceil((lo * n) / rate);
+  const k1 = Math.floor((hi * n) / rate);
+  const frames = [];
+  for (const [a, b] of segs) {
+    for (let at = a; at + n <= b; at += n / 2) {
+      const re = new Float64Array(n);
+      const im = new Float64Array(n);
+      for (let i = 0; i < n; i++) re[i] = x[at + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / n));
+      fft(re, im);
+      const p = new Float64Array(k1 - k0 + 1);
+      for (let k = k0; k <= k1; k++) p[k - k0] = re[k] * re[k] + im[k] * im[k];
+      frames.push(p);
+    }
+  }
+  let ratio = 0;
+  const bins = k1 - k0 + 1;
+  for (let k = 0; k < bins; k++) {
+    let m1 = 0;
+    let m2 = 0;
+    for (const p of frames) {
+      m1 += p[k];
+      m2 += p[k] * p[k];
+    }
+    m1 /= frames.length;
+    m2 /= frames.length;
+    ratio += m2 / Math.max(1e-30, m1 * m1);
+  }
+  return ratio / bins;
+}

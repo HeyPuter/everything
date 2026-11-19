@@ -347,8 +347,9 @@ registerEffect({
   kind: 135,
   needsNoisePrint: true,
   params: [
-    pct('reduction', 'Noise Reduction', 60),
-    db('reduceBy', 'Reduce By', 0, 100, 20),
+    // Defaults take a steady noise floor down by about 19 dB.
+    pct('reduction', 'Noise Reduction', 80),
+    db('reduceBy', 'Reduce By', 0, 100, 24),
     pct('decay', 'Spectral Decay Rate', 65),
     num('smoothing', 'Smoothing', 0, 10, 1, '', { step: 1 }),
     num('precision', 'Precision Factor', 1, 20, 7, '', { step: 1 }),
