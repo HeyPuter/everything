@@ -2294,8 +2294,27 @@ export class MultitrackView {
       return;
     }
     if (d.kind === 'keyBand') {
-      // A click in an empty part of a lane clears its keyframe selection.
-      if (!d.initial.size) doc.selectedKeys = null;
+      // A click in an empty part of a lane clears its keyframe selection, or with nothing selected
+      // adds a keyframe on the curve at that time (the value it already has there).
+      if (d.initial.size) return;
+      if (doc.selectedKeys) {
+        doc.selectedKeys = null;
+        return;
+      }
+      const t = S.findTrack(doc.state, d.trackId);
+      if (!t || e.shiftKey || e.metaKey || e.ctrlKey) return;
+      const info = this.#info(t, d.param);
+      const pts = this.#laneKeys(t, d.param).slice();
+      const at = Math.round(this.snap(f));
+      const prev = pts.filter((p) => p.t <= at).pop();
+      const key = { t: at, v: S.envelopeValue(pts, at, info.value), ...(info.stepped || prev?.hold ? { hold: true } : {}) };
+      const near = Math.max(1, Math.round(this.fpp * 2));
+      if (pts.some((p) => Math.abs(p.t - at) <= near)) return;
+      pts.push(key);
+      pts.sort((a, b) => a.t - b.t);
+      doc.apply(`${info.short} Automation`, S.setAutomation(doc.state, t.id, d.param, pts));
+      doc.selectedKeys = { owner: t.id, param: d.param, indices: new Set([pts.indexOf(key)]) };
+      announce(`Keyframe added: ${info.format(key.v)}`);
       return;
     }
     if (d.kind === 'marquee' || (d.kind === 'select' && !hit.clip)) {
