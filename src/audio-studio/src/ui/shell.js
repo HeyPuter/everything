@@ -18,6 +18,12 @@ import { keyedLabel, syncKeyedLabel } from '../panels/transport-controls.js';
 /** Actions offered by the menu beside the current workspace tab. */
 const WORKSPACE_ACTIONS = ['workspace.reset', 'workspace.saveChanges', 'workspace.saveAs', '-', 'workspace.edit'];
 
+/** View > Status Bar's items (show the bar, then one check per field). */
+export function statusBarMenuSpec(menus = MENUS) {
+  const view = menus.find((m) => m.label === 'View');
+  return view?.submenu.find((it) => it?.label === 'Status Bar')?.submenu || ['view.statusBar'];
+}
+
 export function createShell(app, root) {
   const menubar = createMenubar(app, MENUS);
   const appMenuBtn = h(
@@ -72,6 +78,11 @@ export function createShell(app, root) {
   const status = h('span.status-message', { role: 'status' });
   const statusInfo = h('div.status-info');
   const statusbar = h('footer.statusbar', status, h('div.spacer'), statusInfo);
+  // Right-click picks the fields, as View > Status Bar does.
+  statusbar.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openMenu(app, resolveItems(app, statusBarMenuSpec()), { x: e.clientX, y: e.clientY, label: 'Status bar fields' });
+  });
   const live = h('div#live-region.sr-only', { 'aria-live': 'polite', 'aria-atomic': 'true' });
   root.replaceChildren(appbar, toolbar, dockRoot, statusbar, live);
 
