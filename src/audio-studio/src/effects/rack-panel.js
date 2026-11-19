@@ -23,6 +23,7 @@ import { inlinePrompt } from './dialog.js';
 import { smoothBoundaries } from '../model/edits.js';
 import { editSmoothFrames } from '../editor/view-prefs.js';
 import { findClip, findTrack, updateClips, updateTrack } from '../model/session-edits.js';
+import { clipAudio, trackAudio } from '../model/session-graph.js';
 
 const racks = new WeakMap();
 
@@ -113,6 +114,12 @@ export function sessionRackTarget(doc, kind) {
       id,
       name: findClip(doc.state, id)?.name || 'Clip',
       slots: () => findClip(doc.state, id)?.fx || [],
+      // The audio the chain plays, for settings found from it (DeHummer Auto).
+      sources: () => {
+        const c = findClip(doc.state, id);
+        const src = c && doc.pool?.get(c.sourceId);
+        return src?.channels?.length ? [clipAudio(c, src, doc.state.sampleRate)] : [];
+      },
       // Clip chains have no empty slots.
       set: (slots) => doc.apply('Clip Effects', updateClips(doc.state, [id], { fx: slots.filter(Boolean) }), { coalesce: `clip-fx:${id}` }),
     };
@@ -126,6 +133,7 @@ export function sessionRackTarget(doc, kind) {
     id,
     name: track.name || (track.type === 'master' ? 'Mix' : 'Track'),
     slots: () => findTrack(doc.state, id)?.fx || [],
+    sources: () => (doc.pool ? trackAudio(doc.state, findTrack(doc.state, id) || track, doc.pool) : []),
     set: (slots) => doc.apply('Track Effects', updateTrack(doc.state, id, { fx: slots }), { coalesce: `fx:${id}` }),
     // Rack input/output gain (dB) and dry/wet mix (0..1).
     levels: () => {
@@ -330,6 +338,10 @@ export function effectsRackPanel(app) {
     disabled: () => {
       const c = chain();
       return c ? Boolean(c.missing) || (c.power ? !c.power() : false) : !rack()?.power;
+    },
+    sources: () => {
+      const c = chain();
+      return c && !c.missing ? c.sources?.() || null : null;
     },
   });
 

@@ -153,6 +153,22 @@ describe('dehummer view', () => {
     expect(v.frequency).toBeGreaterThan(50);
   });
 
+  it('editing a session chain, shows the hum found in the audio its clips play', async () => {
+    const app = fakeApp();
+    const rate = 48000;
+    const x = Float32Array.from({ length: rate * 3 }, (_, i) => 0.01 * Math.sin((2 * Math.PI * 50 * i) / rate) + 0.005 * Math.sin((2 * Math.PI * 150 * i) / rate));
+    const sources = () => [{ channels: [x], rate, range: [0, x.length] }];
+    const p = openEffectDialog(app, getEffect('dehummer'), { mode: 'edit', values: {}, sources });
+    const dlg = document.querySelector('.fx-dialog');
+    expect(dlg.querySelector('.hum-detected').textContent).toBe('Detected hum: 50.0 Hz in the clips');
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    await p;
+    const q = openEffectDialog(app, getEffect('dehummer'), { mode: 'edit', values: {}, sources: () => [{ channels: [new Float32Array(rate * 3)], rate }] });
+    expect(document.querySelector('.fx-dialog .hum-detected').textContent).toBe('No steady hum found; using 60.0 Hz');
+    document.querySelector('.fx-dialog .dialog-head .icon-btn').click();
+    await q;
+  });
+
   it('draws the Output Hum Only curve the processor applies', async () => {
     const { instance } = await import('./fx-wasm.js');
     const { paramArray } = await import('../src/effects/registry.js');

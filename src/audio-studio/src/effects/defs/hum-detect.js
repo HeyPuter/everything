@@ -212,3 +212,23 @@ export function humIn(state, range = null, doc = null) {
   }
   return byRange.get(key);
 }
+
+const wrapped = new WeakMap();
+
+/**
+ * Hum in a multitrack chain's audio: `sources` are [{ channels, rate, range }]
+ * (a clip's source audio over the part it plays; a track's clips, longest
+ * first), or a function returning them. The first source with a steady hum
+ * wins. Cached per source audio.
+ */
+export function humInSources(sources) {
+  if (typeof sources === 'function') sources = sources();
+  for (const src of sources || []) {
+    if (!src?.channels?.length) continue;
+    let state = wrapped.get(src.channels);
+    if (!state) wrapped.set(src.channels, (state = { channels: src.channels, sampleRate: src.rate }));
+    const hum = humIn(state, src.range || null);
+    if (hum) return hum;
+  }
+  return null;
+}

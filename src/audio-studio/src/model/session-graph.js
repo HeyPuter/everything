@@ -27,9 +27,23 @@ export const dbToGain = (db) => (db <= SILENT_DB ? 0 : Math.pow(10, db / 20));
  * below 100%, { fxMix, fxWet, fxDry, fxLatency } (see mixcore runChain). Input and
  * output gain only apply while the rack has effects to run.
  */
-export function trackRackSpecs(t, rateDoc, channels = 2) {
+/** The source audio a clip plays: { channels, rate, range } (its offset over its length). */
+export function clipAudio(c, src, rate) {
+  return { channels: src.channels, rate: src.channelRate || rate, range: [c.offset, c.offset + c.length] };
+}
+
+/** The audio a track's clips play, longest clips first (at most four), for chains that analyse it. */
+export function trackAudio(state, t, pool) {
+  return state.clips
+    .filter((c) => c.trackId === t.id && !c.mute && pool.get(c.sourceId)?.channels?.length)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 4)
+    .map((c) => clipAudio(c, pool.get(c.sourceId), state.sampleRate));
+}
+
+export function trackRackSpecs(t, rateDoc, channels = 2, sources = null) {
   if (!t.fxPower) return { fx: [] };
-  const slots = slotSpecs(t.fx, `trk:${t.id}`, rateDoc, channels);
+  const slots = slotSpecs(t.fx, `trk:${t.id}`, rateDoc, channels, sources);
   if (!slots.length) return { fx: [] };
   automateSlots(t, slots, `trk:${t.id}`);
   const inGain = t.fxIn ? gainSpec(`trk:${t.id}:in`, t.fxIn) : null;
@@ -353,7 +367,7 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
       // Mute automation (or a live override while it is written) replaces the mute switch.
       mute: o.mute !== undefined ? o.mute >= 0.5 : mutePts.length ? false : t.mute,
       solo: t.solo,
-      ...trackRackSpecs(t, rateDoc, surround && t.channels === 6 ? 6 : 2),
+      ...trackRackSpecs(t, rateDoc, surround && t.channels === 6 ? 6 : 2, () => trackAudio(state, t, pool)),
       clips: [],
     };
     const lat = rackLatency(t, state.sampleRate, surround && t.channels === 6 ? 6 : 2);
@@ -428,7 +442,7 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
         const srcLen = src.channels[0].length;
         // 5.1 tracks in a 5.1 mix play their clips without clip chains (the mix core runs those on
         // stereo tracks only), so they must not read ahead for the chain's latency either.
-        const clipFx = c.fx?.length && !gt.six ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc) : null;
+        const clipFx = c.fx?.length && !gt.six ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc, 2, () => [clipAudio(c, pool.get(c.sourceId), state.sampleRate)]) : null;
         const timing = clipFx?.length ? rackTiming({ slots: c.fx }, state.sampleRate) : null;
         // Clip effect envelopes, on the timeline (the chain runs `latency` early, as the clip reads).
         if (clipFx?.length && c.fxEnv && Object.keys(c.fxEnv).length) automateSlots({ mode: 'read' }, clipFx, `clip:${c.id}`, c.fx, c.fxEnv, c.start - (timing?.latency || 0));

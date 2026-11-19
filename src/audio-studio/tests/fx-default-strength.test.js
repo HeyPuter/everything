@@ -10,6 +10,8 @@ import { normalizeValues } from '../src/effects/params.js';
 import { memoryPrefs } from './fx-helpers.js';
 import { captureNoisePrint, detectHum } from '../src/effects/defs/restoration.js';
 import { dsp } from '../src/audio/dsp.js';
+import { buildSessionGraph } from '../src/model/session-graph.js';
+import { createSessionState, createClip } from '../src/model/session-edits.js';
 
 describe('DeEsser defaults', () => {
   for (const [vowelDb, sibilantDb] of [
@@ -370,5 +372,32 @@ describe('DeHummer Auto', () => {
     const def = getEffect('dehummer');
     expect(normalizeValues(def, { frequency: 50, q: 30, gain: -40, harmonics: 6, slope: 75, humOnly: false }).auto).toBe(false);
     expect(normalizeValues(def, def.presets.find((p) => p.name === 'Mains 50 Hz').values).auto).toBe(false);
+  });
+
+  it('on multitrack track and clip chains, finds the hum in the audio the clips play', () => {
+    const { x } = withSpeech(50.2);
+    const state = createSessionState({ sampleRate: RATE, tracks: 2 });
+    const [t1, t2] = state.tracks;
+    const slot = { id: 'dh', effect: 'dehummer', values: {}, enabled: true };
+    // Track 1: the effect on the track; its short clip is clean, its long clip hums.
+    const quiet = createClip({ trackId: t1.id, sourceId: 'clean', start: 0, length: RATE });
+    const humming = createClip({ trackId: t1.id, sourceId: 'hum', start: RATE, length: x.length });
+    // Track 2: the effect on a clip that plays the humming source from 1 s in.
+    const clip = createClip({ trackId: t2.id, sourceId: 'hum', start: 0, offset: RATE, length: x.length - RATE, fx: [slot] });
+    const tracks = state.tracks.map((t) => (t.id === t1.id ? { ...t, fx: [slot], fxPower: true } : t));
+    const pool = new Map([
+      ['clean', { channels: [Channel.fromSamples(speech({ seconds: 1 }).x)], channelRate: RATE }],
+      ['hum', { channels: [Channel.fromSamples(x)], channelRate: RATE }],
+    ]);
+    const { graph } = buildSessionGraph({ ...state, tracks, clips: [quiet, humming, clip] }, pool);
+    const freqOf = (spec) => spec.params[getEffect('dehummer').params.findIndex((p) => p.id === 'frequency')];
+    const trackSpec = graph.tracks[0].fx.find((s) => s.key === `trk:${t1.id}:dh`);
+    expect(Math.abs(freqOf(trackSpec) - 50.2)).toBeLessThan(0.15);
+    const clipSpec = graph.tracks[1].clips[0].fx.find((s) => s.key === `clip:${clip.id}:dh`);
+    expect(Math.abs(freqOf(clipSpec) - 50.2)).toBeLessThan(0.15);
+    // A fixed frequency stays as set.
+    const fixed = { ...slot, values: { auto: false, frequency: 60 } };
+    const g2 = buildSessionGraph({ ...state, tracks: tracks.map((t) => ({ ...t, fx: [fixed] })), clips: [humming] }, pool).graph;
+    expect(freqOf(g2.tracks[0].fx.find((s) => s.key === `trk:${t1.id}:dh`))).toBe(60);
   });
 });

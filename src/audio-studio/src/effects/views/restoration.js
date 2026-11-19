@@ -10,7 +10,7 @@ import { icon } from '../../ui/icons.js';
 import { labelText, envelopeControl } from '../editors.js';
 import { controlsFor, disclosure, radioChoice, vSlider, groupBox, glyph, enableWhen, checkbox, readout } from '../layout.js';
 import { responseEditor, spectrumMonitor, hzLabel, needBanner } from './common.js';
-import { learnSoundModel, MAX_SOUND_SECONDS, captureNoisePrint, floorPoints, floorAt, FLOOR_DB, humIn } from '../defs/restoration.js';
+import { learnSoundModel, MAX_SOUND_SECONDS, captureNoisePrint, floorPoints, floorAt, FLOOR_DB, humIn, humInSources } from '../defs/restoration.js';
 import { getEffect } from '../registry.js';
 import { dsp } from '../../audio/dsp.js';
 import { downloadBlob, pickLocalFiles } from '../../storage/files.js';
@@ -24,7 +24,8 @@ import { decodeAudio } from '../../audio/decode.js';
 // notch switches to a manual frequency.
 const dehummer = (ctx) => {
   const def = getEffect('dehummer');
-  const hum = () => (ctx.values.auto ? humIn(ctx.doc?.state, ctx.range, ctx.doc) : null);
+  // A file's audio, or on a session track or clip chain the audio its clips play.
+  const hum = () => (ctx.values.auto ? humIn(ctx.doc?.state, ctx.range, ctx.doc) || (ctx.doc ? null : humInSources(ctx.sources)) : null);
   const shown = (v) => (v.auto ? { ...v, frequency: hum()?.frequency ?? v.frequency } : v);
   const manual = Object.create(ctx);
   manual.set = (id, value) => {
@@ -50,7 +51,8 @@ const dehummer = (ctx) => {
     const v = ctx.values;
     const found = hum();
     note.hidden = !v.auto;
-    note.textContent = !v.auto ? '' : found ? `Detected hum: ${found.frequency.toFixed(1)} Hz` : ctx.doc ? `No steady hum found; using ${v.frequency.toFixed(1)} Hz` : `Detects the hum when applied; until then ${v.frequency.toFixed(1)} Hz`;
+    const playing = !ctx.doc && ctx.sources?.()?.length;
+    note.textContent = !v.auto ? '' : found ? `Detected hum: ${found.frequency.toFixed(1)} Hz${playing ? ' in the clips' : ''}` : ctx.doc || playing ? `No steady hum found; using ${v.frequency.toFixed(1)} Hz` : `Detects the hum when applied; until then ${v.frequency.toFixed(1)} Hz`;
   };
   ctx.subscribe(update);
   update();

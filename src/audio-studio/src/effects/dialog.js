@@ -132,9 +132,10 @@ function inputPeak(doc, at, frames = 2048) {
  *  being edited, so editors can show that slot's live readouts), routing
  *  (an object that receives the chosen channel `route` on Apply),
  *  modeless (a floating window: the editor stays usable, Apply processes the
- *  selection as it is then, and any playback of the file runs through the effect)
+ *  selection as it is then, and any playback of the file runs through the effect),
+ *  sources (for a session chain: fn() => the audio it plays, [{ channels, rate, range }])
  */
-export function openEffectDialog(app, def, { mode = 'apply', values: initial, title, applyLabel = 'Apply', enabled = true, onChange, onPower, doc = app.active?.kind === 'audio' ? app.active : null, slotId = null, routing = null, modeless = false } = {}) {
+export function openEffectDialog(app, def, { mode = 'apply', values: initial, title, applyLabel = 'Apply', enabled = true, onChange, onPower, doc = app.active?.kind === 'audio' ? app.active : null, slotId = null, routing = null, modeless = false, sources = null } = {}) {
   const windowKey = `${mode}:${def.id}:${slotId || ''}`;
   if (modeless && floatingWindow) {
     // The same effect again brings its window forward; another effect replaces it.
@@ -181,6 +182,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     doc,
     range,
     slotId,
+    sources,
     /** Runs fn when the dialog closes. */
     onClose: (fn) => cleanups.push(fn),
     /** fn(input, output) with per-channel linear peaks while previewing; (null, null) when it stops. */

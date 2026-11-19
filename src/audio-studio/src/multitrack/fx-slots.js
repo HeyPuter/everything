@@ -10,6 +10,7 @@ import { isRealtime } from '../effects/apply.js';
 import { groupedEffects, makeSlot, setSlot, removeSlot, toggleSlot, fitSlots } from '../effects/rack.js';
 import { openEffectDialog } from '../effects/dialog.js';
 import { findTrack, updateTrack, fxParam } from '../model/session-edits.js';
+import { trackAudio } from '../model/session-graph.js';
 import { fxAutomationParams } from './fx-automation.js';
 import { TRACK_SLOTS } from './fx-editor.js';
 
@@ -45,6 +46,7 @@ export async function editTrackEffect(app, doc, trackId, index) {
     values: slot.values,
     title: `Effect - ${def.name} (${findTrack(doc.state, trackId)?.name || 'Track'}, Slot ${index + 1})`,
     slotId: slot.id,
+    sources: () => (doc.pool ? trackAudio(doc.state, findTrack(doc.state, trackId), doc.pool) : []),
     onChange: (values) => {
       // Automated settings (or any, while the track writes automation) go to their lanes.
       const cur = slotsOf(doc, trackId)[index];

@@ -92,11 +92,12 @@ export function playableSlots(slots) {
  * rackOptions.processBypassed, switched-off slots come along as `shadow`
  * specs that the effect host processes without using their output.
  */
-export function slotSpecs(slots, prefix = 'rack', doc = null, channels = 2) {
+export function slotSpecs(slots, prefix = 'rack', doc = null, channels = 2, sources = null) {
   const list = (slots || []).filter((s) => s && getEffect(s.effect) && isRealtime(getEffect(s.effect)) && (s.enabled !== false || rackOptions.processBypassed));
   return list.map((s) => {
     const def = getEffect(s.effect);
-    const spec = slotSpec(def, normalizeValues(def, s.values), { key: `${prefix}:${s.id}`, doc, rate: doc?.sampleRate, channels });
+    // `sources`: the audio a multitrack chain plays, for settings found from it (DeHummer Auto).
+    const spec = slotSpec(def, normalizeValues(def, s.values), { key: `${prefix}:${s.id}`, doc, rate: doc?.sampleRate, channels, sources });
     if (s.enabled === false) {
       spec.enabled = false;
       spec.shadow = true;
@@ -236,8 +237,10 @@ function categoryGroups(filter) {
  *   app, getSlots(), setSlots(slots), label, slotCount (16),
  *   onEdit(index, slot)   default: opens the effect dialog in edit mode
  *   disabled()            greys the list (e.g. master power off)
+ *   sources()             the audio a session chain plays ([{ channels, rate, range }]),
+ *                         for effect windows that show what they find in it (DeHummer Auto)
  */
-export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rack', slotCount = RACK_SLOTS, onEdit, disabled = () => false }) {
+export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rack', slotCount = RACK_SLOTS, onEdit, disabled = () => false, sources = null }) {
   const list = h('ol.rack-list', { 'aria-label': label });
   const el = h('div.rack-editor', list);
   const slotsNow = () => fitSlots(getSlots(), slotCount);
@@ -261,6 +264,7 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
       values: slot.values,
       title: `Effect - ${def.name} (Slot ${i + 1})`,
       slotId: slot.id,
+      sources,
       // The window floats: the rack and the editor stay usable, so the slot is found by id
       // each time (it may have moved, or been removed).
       modeless: true,

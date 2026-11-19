@@ -6,9 +6,9 @@
 import { registerEffect, getEffect, paramArray } from '../registry.js';
 import { offloaded, runTask } from '../offline-fx.js';
 import { num, db, hz, ms, pct, bool, choice, preset, pause, checkAbort, dataId, packCurve } from './util.js';
-import { humIn } from './hum-detect.js';
+import { humIn, humInSources } from './hum-detect.js';
 
-export { detectHum, humIn } from './hum-detect.js';
+export { detectHum, humIn, humInSources } from './hum-detect.js';
 
 const GROUP = 'Noise Reduction / Restoration';
 
@@ -58,7 +58,9 @@ registerEffect({
     // frequency before this option existed keep that frequency.
     bool('auto', 'Auto Detect Frequency', true, { order: -1, missing: (v) => (v.frequency !== undefined ? false : undefined) }),
   ],
-  resolve: (v, { doc, state, range }) => (v.auto ? { ...v, frequency: humIn(state, range, doc)?.frequency ?? v.frequency } : v),
+  // In a file: the audio being processed. On a multitrack track or clip chain: the
+  // clip's source audio, or the clips on the track (`sources`).
+  resolve: (v, { doc, state, range, sources }) => (v.auto ? { ...v, frequency: (humIn(state, range, doc) || humInSources(sources))?.frequency ?? v.frequency } : v),
   presets: [
     // The first preset is what the dialog opens with: the defaults (Auto).
     preset('Auto Detect', {}),
