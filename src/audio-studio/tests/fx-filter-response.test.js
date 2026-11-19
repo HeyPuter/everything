@@ -29,6 +29,24 @@ async function measured(def, values, f) {
   return 20 * Math.log10(rms(y.subarray(from)) / rms(x.subarray(from)));
 }
 
+describe('Parametric EQ L and H bands as peaks', () => {
+  it('draw and process the bell the band switches to', async () => {
+    const def = getEffect('parametricEq');
+    const values = { ...defaults(def), lsOn: true, lsFreq: 250, lsGain: 8, lsQ: 2, lsType: 1, hsOn: true, hsFreq: 6000, hsGain: -6, hsQ: 1.5, hsType: 1 };
+    const curve = def.response(values, FREQS, RATE);
+    for (let i = 0; i < FREQS.length; i++) {
+      const got = await measured(def, values, FREQS[i]);
+      expect(Math.abs(got - curve[i]), `${FREQS[i]} Hz: ${got} vs ${curve[i]}`).toBeLessThan(0.5);
+    }
+    // A bell, not a shelf: well below and above the bands the response is back near 0 dB.
+    const at = (f) => def.response(values, [f], RATE)[0];
+    expect(Math.abs(at(30))).toBeLessThan(1);
+    expect(Math.abs(at(18000))).toBeLessThan(1);
+    expect(at(250)).toBeCloseTo(8, 0);
+    expect(at(6000)).toBeCloseTo(-6, 0);
+  });
+});
+
 describe('filter response curves match the processors', () => {
   for (const id of ['parametricEq', 'graphicEq10', 'graphicEq20', 'graphicEq30', 'notchFilter', 'scientificFilter']) {
     it(id, async () => {
@@ -92,8 +110,8 @@ describe('filter response curves match the processors', () => {
 describe('filter definitions', () => {
   it('lay out parametric EQ parameters in the order the processor reads them', () => {
     const ids = getEffect('parametricEq').params.map((p) => p.id);
-    expect(ids.length).toBe(38);
-    expect(ids.slice(36)).toEqual(['ultraQuiet', 'range']);
+    expect(ids.length).toBe(40);
+    expect(ids.slice(36)).toEqual(['ultraQuiet', 'range', 'lsType', 'hsType']);
     expect(ids.slice(0, 9)).toEqual(['gain', 'qMode', 'hpOn', 'hpFreq', 'hpSlope', 'lsOn', 'lsFreq', 'lsGain', 'lsQ']);
     expect(ids.slice(9, 13)).toEqual(['band1On', 'band1Freq', 'band1Gain', 'band1Q']);
     expect(ids.slice(29, 36)).toEqual(['hsOn', 'hsFreq', 'hsGain', 'hsQ', 'lpOn', 'lpFreq', 'lpSlope']);

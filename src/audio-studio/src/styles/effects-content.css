@@ -716,7 +716,7 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   height: 200px;
 }
 
-/* A shelf's Q cell: the typed Q and the shape button that steps it. */
+/* The L and H bands' Q cell: the typed Q and the shelf/peak type button. */
 .fx-table-cell.peq-shelf-q {
   align-items: center;
   gap: 6px;
@@ -734,6 +734,11 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   background: var(--bg-input);
   color: var(--text);
   cursor: pointer;
+}
+
+.peq-shape[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .peq-shape:disabled {

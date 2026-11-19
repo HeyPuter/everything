@@ -28,26 +28,29 @@ const parametricParams = [
   db('gain', 'Master Gain', -80, 40, 0),
   choice('qMode', 'Constant', ['Q', 'Width'], 0),
   ...section('High Pass', 'hp', [bool('on', 'On', false), hz('freq', 'Frequency', 10, 20000, 60), choice('slope', 'Slope', SLOPES, 2)]),
-  ...section('Low Shelf', 'ls', [bool('on', 'On', false), hz('freq', 'Frequency', 10, 20000, 100), db('gain', 'Gain', -48, 48, 0), qParam(0.7071, 4)]),
+  ...section('Low Shelf', 'ls', [bool('on', 'On', false), hz('freq', 'Frequency', 10, 20000, 100), db('gain', 'Gain', -48, 48, 0), qParam(0.7071, 16)]),
   ...BAND_FREQS.flatMap((f, i) => section(`Band ${i + 1}`, `band${i + 1}`, [bool('on', 'On', true), hz('freq', 'Frequency', 10, 20000, f), db('gain', 'Gain', -48, 48, 0), qParam(1)])),
-  ...section('High Shelf', 'hs', [bool('on', 'On', false), hz('freq', 'Frequency', 10, 20000, 8000), db('gain', 'Gain', -48, 48, 0), qParam(0.7071, 4)]),
+  ...section('High Shelf', 'hs', [bool('on', 'On', false), hz('freq', 'Frequency', 10, 20000, 8000), db('gain', 'Gain', -48, 48, 0), qParam(0.7071, 16)]),
   ...section('Low Pass', 'lp', [bool('on', 'On', false), hz('freq', 'Frequency', 10, 20000, 18000), choice('slope', 'Slope', SLOPES, 2)]),
   // Double-precision filtering: a lower noise floor for deep, narrow or very low bands.
   bool('ultraQuiet', 'Ultra-Quiet', false),
   // The graph's span (the processor ignores it): 30 dB shows +/-15 dB, 96 dB shows +/-48 dB.
   choice('range', 'Range', [{ value: 0, label: '30 dB' }, { value: 1, label: '96 dB' }], 0),
+  // The L and H bands' type: a shelf, or a bell (peak) band like 1..5 (set by the
+  // type button in their Q cells).
+  choice('lsType', 'Low Band Type', [{ value: 0, label: 'Low Shelf' }, { value: 1, label: 'Peak' }], 0, { hidden: true }),
+  choice('hsType', 'High Band Type', [{ value: 0, label: 'High Shelf' }, { value: 1, label: 'Peak' }], 0, { hidden: true }),
 ];
 
 function parametricSections(v, rate) {
   const s = [];
   if (v.hpOn) s.push(...F.butterworth(rate, v.hpFreq, v.hpSlope, true));
-  if (v.lsOn) s.push(F.lowShelf(rate, v.lsFreq, v.lsQ, v.lsGain));
+  const bell = (f, q, g) => (v.qMode === 1 ? F.peaking(rate, f, q, g) : F.peakingCq(rate, f, q, g));
+  if (v.lsOn) s.push(v.lsType === 1 ? bell(v.lsFreq, v.lsQ, v.lsGain) : F.lowShelf(rate, v.lsFreq, v.lsQ, v.lsGain));
   for (let b = 1; b <= 5; b++) {
-    if (!v[`band${b}On`]) continue;
-    const args = [rate, v[`band${b}Freq`], v[`band${b}Q`], v[`band${b}Gain`]];
-    s.push(v.qMode === 1 ? F.peaking(...args) : F.peakingCq(...args));
+    if (v[`band${b}On`]) s.push(bell(v[`band${b}Freq`], v[`band${b}Q`], v[`band${b}Gain`]));
   }
-  if (v.hsOn) s.push(F.highShelf(rate, v.hsFreq, v.hsQ, v.hsGain));
+  if (v.hsOn) s.push(v.hsType === 1 ? bell(v.hsFreq, v.hsQ, v.hsGain) : F.highShelf(rate, v.hsFreq, v.hsQ, v.hsGain));
   if (v.lpOn) s.push(...F.butterworth(rate, v.lpFreq, v.lpSlope, false));
   return s;
 }
@@ -60,7 +63,7 @@ registerEffect({
   group: GROUP,
   kind: 10,
   params: parametricParams,
-  about: 'Shapes the tone with up to five bell bands, low and high shelves, and steep high-pass and low-pass filters. Drag the numbered handles on the graph; the wheel or Alt with the arrow keys changes a band\'s Q.',
+  about: 'Shapes the tone with up to five bell bands, low and high bands that are shelves or bells, and steep high-pass and low-pass filters. Drag the numbered handles on the graph; the wheel or Alt with the arrow keys changes a band\'s Q. The button beside the L and H bands\' Q switches them between a shelf and a bell.',
   layout: {
     table: {
       label: 'Bands',

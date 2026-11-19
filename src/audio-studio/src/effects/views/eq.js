@@ -59,43 +59,27 @@ for (const id of ['graphicEq10', 'graphicEq20', 'graphicEq30']) registerEditor(i
 export const parametricSpan = (values) => (values.range === 1 ? 48 : 15);
 
 /**
- * Shelf shapes the L and H bands step through: the Q of the shelf's
- * transition. Gentle spreads it over several octaves, Standard is the flat
- * Butterworth shelf, Steep packs it into about an octave with a small
- * overshoot either side. Any other Q typed in the table counts as the
- * nearest shape.
+ * The L and H bands' types: a shelf (the default) or a bell like bands 1..5.
+ * Each glyph draws its response; the high shelf's is mirrored.
  */
-export const SHELF_SHAPES = [
-  { name: 'Gentle', q: 0.5, d: 'M3 8c6 0 9 8 18 8' },
-  { name: 'Standard', q: 0.7071, d: 'M3 8h5c3 0 5 8 8 8h5' },
-  { name: 'Steep', q: 1.4, d: 'M3 8h6l1.5-1.5L13 17l1.5-1H21' },
+export const LH_TYPES = [
+  { name: 'Shelf', d: 'M3 8h5c3 0 5 8 8 8h5' },
+  { name: 'Peak', d: 'M3 16h4c3 0 3-9 5-9s2 9 5 9h4' },
 ];
 
-/** Index in SHELF_SHAPES of the shape nearest Q (on a log scale). */
-export function shelfShapeOf(q) {
-  let best = 0;
-  SHELF_SHAPES.forEach((s, i) => {
-    if (Math.abs(Math.log(q / s.q)) < Math.abs(Math.log(q / SHELF_SHAPES[best].q))) best = i;
-  });
-  return best;
-}
-
-/** A button in a shelf's Q cell: shows the shape and steps to the next one. */
-function shelfShapeButton(ctx, prefix, label, high) {
-  const id = `${prefix}Q`;
-  const btn = h('button.peq-shape', { type: 'button', onclick: () => {
-    const next = SHELF_SHAPES[(shelfShapeOf(ctx.values[id]) + 1) % SHELF_SHAPES.length];
-    ctx.set(id, next.q);
-  } });
+/** A button in the L or H band's Q cell: shows its type and switches shelf and peak. */
+function bandTypeButton(ctx, prefix, label, high) {
+  const id = `${prefix}Type`;
+  const btn = h('button.peq-shape', { type: 'button', onclick: () => ctx.set(id, ctx.values[id] === 1 ? 0 : 1) });
   const show = (values) => {
-    const k = shelfShapeOf(values[id]);
-    const s = SHELF_SHAPES[k];
-    const next = SHELF_SHAPES[(k + 1) % SHELF_SHAPES.length];
-    const svg = glyph(s.d, 16);
-    if (high) svg.style.transform = 'scaleX(-1)';
+    const k = values[id] === 1 ? 1 : 0;
+    const t = LH_TYPES[k];
+    const svg = glyph(t.d, 16);
+    if (high && k === 0) svg.style.transform = 'scaleX(-1)';
     btn.replaceChildren(svg);
-    btn.setAttribute('aria-label', `${label} shape: ${s.name}`);
-    btn.title = `${label} shape: ${s.name}. Click for ${next.name}; type a Q for any shape in between.`;
+    btn.setAttribute('aria-label', `${label} type: ${t.name}`);
+    btn.setAttribute('aria-pressed', String(k === 1));
+    btn.title = k === 1 ? `${label} band is a peak (bell). Click to make it a shelf.` : `${label} band is a shelf. Click to make it a peak (bell).`;
     btn.disabled = !values[`${prefix}On`];
   };
   show(ctx.values);
@@ -107,13 +91,13 @@ function parametricView(ctx) {
   const graph = eqEditor({ range: parametricSpan })(ctx);
   const sections = [...new Set(ctx.def.params.map((p) => p.section).filter(Boolean))];
   const table = sectionControls(ctx, sections);
-  // The shelves' Q cells also carry a shape button (beside the typed Q).
-  for (const [section, prefix, high] of [['Low Shelf', 'ls', false], ['High Shelf', 'hs', true]]) {
+  // The L and H bands' Q cells also carry their type button (beside the typed Q).
+  for (const [section, prefix, high, label] of [['Low Shelf', 'ls', false, 'Low'], ['High Shelf', 'hs', true, 'High']]) {
     // Its cells run Frequency, Gain, Q, On (the table's rows).
     const qCell = table.querySelectorAll(`.fx-table-cell[data-section="${section}"]`)[2];
     if (!qCell) continue;
     qCell.classList.add('peq-shelf-q');
-    qCell.append(shelfShapeButton(ctx, prefix, section, high));
+    qCell.append(bandTypeButton(ctx, prefix, label, high));
   }
   return h(
     'div.fx-stack',
