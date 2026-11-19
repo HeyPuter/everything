@@ -90,9 +90,29 @@ type MeshSize = keyof typeof MESH_STEP;
 /** The last mesh applied with OK (brush field and face settings), for Load
  * Last Mesh. Kept for the browser session. */
 let lastMesh: { field: LiquifyField; faces: Face[] } | undefined;
+/** Brush and view options, remembered between openings this session. */
+type Remembered = Pick<
+  LiquifyWorkspace,
+  | 'size'
+  | 'density'
+  | 'pressure'
+  | 'rate'
+  | 'stylus'
+  | 'pinEdges'
+  | 'showMesh'
+  | 'meshSize'
+  | 'meshColor'
+  | 'showMask'
+  | 'maskColor'
+  | 'showFaces'
+  | 'backdropFront'
+  | 'backdropOpacity'
+>;
+let remembered: Partial<Remembered> = {};
 /** For tests: forget the last mesh. */
 export function resetLastMesh() {
   lastMesh = undefined;
+  remembered = {};
 }
 
 export async function liquify(e: Editor) {
@@ -146,23 +166,23 @@ class LiquifyWorkspace {
   private levels: RGBA8[];
   private freeze?: Mask8;
   private tool: Tool = 'forward-warp';
-  private size = 100;
-  private density = 50;
-  private pressure = 100;
-  private rate = 80;
-  private stylus = true;
-  private pinEdges = false;
-  private showMesh = false;
-  private meshSize: MeshSize = 'medium';
-  private meshColor = '#78aaff';
-  private showMask = true;
-  private maskColor = '#e62828';
+  size = 100;
+  density = 50;
+  pressure = 100;
+  rate = 80;
+  stylus = true;
+  pinEdges = false;
+  showMesh = false;
+  meshSize: MeshSize = 'medium';
+  meshColor = '#78aaff';
+  showMask = true;
+  maskColor = '#e62828';
   private showImage = true;
-  private showFaces = true;
+  showFaces = true;
   private backdrop?: RGBA8[];
   private showBackdrop = false;
-  private backdropFront = false;
-  private backdropOpacity = 50;
+  backdropFront = false;
+  backdropOpacity = 50;
   private faces: Face[] = [];
   private faceIndex = -1;
   private nextFaceId = 1;
@@ -187,6 +207,8 @@ class LiquifyWorkspace {
   private spaceHand = false;
   private altDown = false;
   private busy = false;
+  /** Where the last brush stroke ended (Shift-click continues from it). */
+  private lastDab?: { x: number; y: number; tool: Tool };
   constructor(
     private e: Editor,
     private s: Session,
@@ -197,6 +219,7 @@ class LiquifyWorkspace {
     this.out = this.field.clone();
     this.levels = [src];
     this.size = Math.max(10, Math.min(400, Math.round(Math.min(src.width, src.height) / 8)));
+    Object.assign(this, remembered);
   }
   private level(k: number) {
     while (this.levels.length <= k)
@@ -207,6 +230,38 @@ class LiquifyWorkspace {
     this.build();
     return new Promise((resolve) => {
       const close = () => {
+        const {
+          size,
+          density,
+          pressure,
+          rate,
+          stylus,
+          pinEdges,
+          showMesh,
+          meshSize,
+          meshColor,
+          showMask,
+          maskColor,
+          showFaces,
+          backdropFront,
+          backdropOpacity,
+        } = this;
+        remembered = {
+          size,
+          density,
+          pressure,
+          rate,
+          stylus,
+          pinEdges,
+          showMesh,
+          meshSize,
+          meshColor,
+          showMask,
+          maskColor,
+          showFaces,
+          backdropFront,
+          backdropOpacity,
+        };
         cancelAnimationFrame(this.frame);
         applyLane.cancel();
         window.removeEventListener('resize', this.onResize);
@@ -261,7 +316,7 @@ class LiquifyWorkspace {
   }
   private build() {
     const d = document.createElement('dialog');
-    d.className = 'liquify-dialog';
+    d.className = 'liquify-dialog lq-liquify';
     d.setAttribute('aria-label', 'Liquify');
     const num = (key: string, label: string, min: number, max: number, value: number) =>
       `<div class="fp-row fp-number"><label for="lq-${key}">${label}</label><input id="lq-${key}" type="number" data-opt="${key}" min="${min}" max="${max}" value="${value}"><input type="range" data-opt="${key}" min="${min}" max="${max}" value="${value}" aria-label="${label}"></div>`;
@@ -286,7 +341,7 @@ class LiquifyWorkspace {
   <div class="lq-tools" role="toolbar" aria-label="Liquify tools" aria-orientation="vertical">${toolList.map((t) => `<button type="button" class="icon-button" data-tool="${t.id}" aria-pressed="${t.id === this.tool}" title="${escapeXML(t.label)} (${t.key})" aria-label="${escapeXML(t.label)}" aria-keyshortcuts="${t.key}">${svg(t.icon, 18)}</button>`).join('')}</div>
   <div class="lq-stage"><canvas class="lq-canvas" aria-label="Liquify preview"></canvas><canvas class="lq-overlay"></canvas><div class="lq-cursor" hidden></div></div>
   <aside class="lq-props" aria-label="Liquify options">
-    <section><h3>Brush Tool Options</h3>${num('size', 'Size', 1, 1500, this.size)}${num('density', 'Density', 0, 100, this.density)}${num('pressure', 'Pressure', 1, 100, this.pressure)}${num('rate', 'Rate', 0, 100, this.rate)}<label class="lq-check"><input type="checkbox" data-opt="stylus" checked> Stylus Pressure</label><label class="lq-check" title="Keep the image edges in place"><input type="checkbox" data-opt="pin"> Pin Edges</label></section>
+    <section><h3>Brush Tool Options</h3>${num('size', 'Size', 1, 1500, this.size)}${num('density', 'Density', 0, 100, this.density)}${num('pressure', 'Pressure', 1, 100, this.pressure)}${num('rate', 'Rate', 0, 100, this.rate)}<label class="lq-check"><input type="checkbox" data-opt="stylus" ${this.stylus ? 'checked' : ''}> Stylus Pressure</label><label class="lq-check" title="Keep the image edges in place"><input type="checkbox" data-opt="pin" ${this.pinEdges ? 'checked' : ''}> Pin Edges</label></section>
     <section class="lq-face-section"><h3>Face-Aware Liquify</h3>
       <div class="fp-row"><label for="lq-face">Face</label><select id="lq-face" disabled><option>No faces</option></select></div>
       <div class="lq-row">${hasDetector ? '<button type="button" data-act="face-find" title="Find faces with the browser’s built-in detector (works offline)">Find Faces</button>' : ''}<button type="button" data-act="face-ai" title="Send a reduced copy of the image to the AI service to place face guides">${svg('sparkles', 13)} Find with AI</button><button type="button" data-act="face-add" title="Place a face guide by hand: drag from one eye to the other with the Face tool">Add Face</button></div>
@@ -300,14 +355,14 @@ class LiquifyWorkspace {
     <section><h3>Mask Options</h3>${this.maskSourceRow()}<div class="lq-row"><button type="button" data-act="mask-none">None</button><button type="button" data-act="mask-all">Mask All</button><button type="button" data-act="mask-invert">Invert All</button></div></section>
     <section><h3>View Options</h3>
       <label class="lq-check"><input type="checkbox" data-opt="image" checked> Show Image</label>
-      <label class="lq-check"><input type="checkbox" data-opt="faces" checked> Show Face Overlay</label>
-      <label class="lq-check"><input type="checkbox" data-opt="mesh"> Show Mesh</label>
-      <div class="fp-row"><label for="lq-mesh-size">Mesh Size</label><select id="lq-mesh-size" data-opt="mesh-size"><option value="small">Small</option><option value="medium" selected>Medium</option><option value="large">Large</option></select></div>
+      <label class="lq-check"><input type="checkbox" data-opt="faces" ${this.showFaces ? 'checked' : ''}> Show Face Overlay</label>
+      <label class="lq-check"><input type="checkbox" data-opt="mesh" ${this.showMesh ? 'checked' : ''}> Show Mesh</label>
+      <div class="fp-row"><label for="lq-mesh-size">Mesh Size</label><select id="lq-mesh-size" data-opt="mesh-size">${(['small', 'medium', 'large'] as const).map((m) => `<option value="${m}" ${m === this.meshSize ? 'selected' : ''}>${m[0].toUpperCase() + m.slice(1)}</option>`).join('')}</select></div>
       <div class="fp-row"><label for="lq-mesh-color">Mesh Color</label><input id="lq-mesh-color" type="color" data-opt="mesh-color" value="${this.meshColor}"></div>
-      <label class="lq-check"><input type="checkbox" data-opt="mask" checked> Show Mask</label>
+      <label class="lq-check"><input type="checkbox" data-opt="mask" ${this.showMask ? 'checked' : ''}> Show Mask</label>
       <div class="fp-row"><label for="lq-mask-color">Mask Color</label><input id="lq-mask-color" type="color" data-opt="mask-color" value="${this.maskColor}"></div>
       <label class="lq-check" title="Show the document’s other layers with the layer being liquified"><input type="checkbox" data-opt="backdrop" ${this.canBackdrop() ? '' : 'disabled'}> Show Backdrop</label>
-      <div class="fp-row"><label for="lq-backdrop-mode">Backdrop</label><select id="lq-backdrop-mode" data-opt="backdrop-mode" disabled><option value="behind" selected>Behind</option><option value="front">In Front</option></select></div>
+      <div class="fp-row"><label for="lq-backdrop-mode">Backdrop</label><select id="lq-backdrop-mode" data-opt="backdrop-mode" disabled><option value="behind">Behind</option><option value="front" ${this.backdropFront ? 'selected' : ''}>In Front</option></select></div>
       <div class="fp-row fp-number"><label for="lq-backdrop-opacity">Backdrop Opacity</label><input id="lq-backdrop-opacity" type="number" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" disabled><input type="range" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" aria-label="Backdrop opacity" disabled></div>
       <div class="lq-row lq-zoom"><button type="button" class="icon-button" data-act="zoom-out" aria-label="Zoom out">${svg('minus', 14)}</button><span class="lq-zoom-label"></span><button type="button" class="icon-button" data-act="zoom-in" aria-label="Zoom in">${svg('plus', 14)}</button><button type="button" data-act="fit">Fit</button><button type="button" data-act="undo" title="Undo (Mod+Z)">Undo</button></div>
     </section>
@@ -378,7 +433,7 @@ class LiquifyWorkspace {
     }
     this.dialog.querySelector('.lq-hint')!.textContent =
       msg ??
-      `${t.label.replace(/ \(.*\)/, '')} · brush ${Math.round(this.size)} px · [ ] change size`;
+      `${t.label.replace(/ \(.*\)/, '')} · brush ${Math.round(this.size)} px · [ ] change size · Shift-click: straight line`;
     this.dialog.querySelector('.lq-zoom-label')!.textContent =
       `${Math.round(this.zoom * 1000) / 10}%`;
     for (const b of this.dialog.querySelectorAll<HTMLElement>('[data-tool]'))
@@ -1537,6 +1592,7 @@ class LiquifyWorkspace {
         this.endReconstruct();
         this.snapshot();
       }
+      const from = this.lastDab;
       stroke = {
         x: p.x,
         y: p.y,
@@ -1549,7 +1605,21 @@ class LiquifyWorkspace {
         timer: 0,
         last: performance.now(),
       };
-      if (tool !== 'hand') {
+      if (tool !== 'hand' && ev.shiftKey && from && from.tool === tool) {
+        // Shift-click: a straight stroke from the last brush point.
+        const dx = p.x - from.x,
+          dy = p.y - from.y;
+        const n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / Math.max(1, this.size * 0.1)));
+        for (let i = 1; i <= n; i++)
+          this.dab(
+            tool,
+            from.x + (dx * i) / n,
+            from.y + (dy * i) / n,
+            dx / n,
+            dy / n,
+            stroke.pressure,
+          );
+      } else if (tool !== 'hand') {
         this.dab(stroke.tool, p.x, p.y, 0, 0, stroke.pressure);
         // Stationary tools keep working while the button is held.
         if (!['forward-warp', 'push-left'].includes(tool))
@@ -1610,6 +1680,8 @@ class LiquifyWorkspace {
     });
     const end = () => {
       if (stroke) clearTimeout(stroke.timer);
+      if (stroke && stroke.tool !== 'hand')
+        this.lastDab = { x: stroke.x, y: stroke.y, tool: stroke.tool };
       stroke = undefined;
       if (this.faceDrag) this.faceUp();
     };

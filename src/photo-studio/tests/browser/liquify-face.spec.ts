@@ -346,3 +346,34 @@ test('Find with AI places a guide from the answer and skips faces already guided
   await expect(d.locator('#lq-face option')).toHaveText(['Face 1']);
   await d.locator('.lq-cancel').click();
 });
+
+test('Shift-click warps along a straight line, and options are remembered next time', async ({
+  page,
+}) => {
+  await openFace(page);
+  await openLiquify(page);
+  let d = dialog(page);
+  const original = await canvasSum(page);
+  // A click without movement does not push anything.
+  const a = await at(page, 120, 150),
+    b = await at(page, 220, 150);
+  await page.mouse.click(a.x, a.y);
+  expect(await canvasSum(page)).toBe(original);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(b.x, b.y);
+  await page.keyboard.up('Shift');
+  expect(await canvasSum(page)).not.toBe(original);
+  // One undo step for the line.
+  await d.locator('[data-act="undo"]').click();
+  expect(await canvasSum(page)).toBe(original);
+  await d.locator('#lq-density').fill('30');
+  await d.getByLabel('Show Mesh').check();
+  await d.getByLabel('Mask Color').fill('#00ff00');
+  await d.locator('.lq-cancel').click();
+  await openLiquify(page);
+  d = dialog(page);
+  await expect(d.locator('#lq-density')).toHaveValue('30');
+  await expect(d.getByLabel('Show Mesh')).toBeChecked();
+  await expect(d.getByLabel('Mask Color')).toHaveValue('#00ff00');
+  await d.locator('.lq-cancel').click();
+});
