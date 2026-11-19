@@ -68,7 +68,7 @@ export function sessionPropertySection(app, doc) {
     const set = (label, patch) => doc.apply(label, S.updateClips(doc.state, [c.id], patch));
     const fade = (dir, label, patch) => doc.apply(label, S.setFade(doc.state, [c.id], dir, patch));
     const [name, nameId] = input(c.name, (v) => v.trim() && set('Rename Clip', { name: v.trim() }), { 'aria-label': 'Clip name' });
-    const [color, colorId] = select([{ value: '', label: 'Track Color' }, ...S.TRACK_COLORS.map((x, i) => ({ value: x, label: COLOR_NAMES[i] }))], c.color || '', (v) => set('Clip Color', { color: v || null }));
+    const [color, colorId] = select([{ value: '', label: 'Track Color' }, ...S.TRACK_COLORS.map((x, i) => ({ value: x, label: COLOR_NAMES[i] })), ...(c.color && !S.TRACK_COLORS.includes(c.color) ? [{ value: c.color, label: 'Custom' }] : [])], c.color || '', (v) => set('Clip Color', { color: v || null }));
     const [gain, gainId] = input(String(c.gain), (v) => {
       // An emptied field is not a value (Number('') would read as 0 dB).
       const g = parseGain(v);
@@ -158,7 +158,7 @@ export function sessionPropertySection(app, doc) {
   if (t) {
     const set = (label, patch) => doc.apply(label, S.updateTrack(doc.state, t.id, patch));
     const [name, nameId] = input(t.name, (v) => v.trim() && set('Rename Track', { name: v.trim() }), { 'aria-label': 'Track name' });
-    const [color, colorId] = select(S.TRACK_COLORS.map((x, i) => ({ value: x, label: COLOR_NAMES[i] })), t.color, (v) => set('Track Color', { color: v }));
+    const [color, colorId] = select([...S.TRACK_COLORS.map((x, i) => ({ value: x, label: COLOR_NAMES[i] })), ...(S.TRACK_COLORS.includes(t.color) ? [] : [{ value: t.color, label: 'Custom' }])], t.color, (v) => set('Track Color', { color: v }));
     const [mode, modeId] = select(S.AUTOMATION_MODES.map((m) => ({ value: m.id, label: m.label })), t.mode, (v) => set('Automation Mode', { mode: v }));
     const outs = [{ value: 'master', label: t.type === 'master' ? 'Default Output' : 'Mix' }, ...state.tracks.filter((b) => b.type === 'bus' && b.id !== t.id && !S.wouldCycle(state, t.id, b.id)).map((b) => ({ value: b.id, label: b.name }))];
     const [out, outId] = select(outs, t.output || 'master', (v) => app.commands.run('mt.setTrackOutput', { id: t.id, output: v }));

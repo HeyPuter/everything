@@ -15,6 +15,7 @@ import { getEffect } from '../effects/registry.js';
 import { MeterBar } from '../multitrack/meter.js';
 import { SendControls, EqControls, toggleTrackEffect } from '../multitrack/send-eq.js';
 import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
+import { pickCustomColor } from '../multitrack/custom-color.js';
 
 export class TrackHeader {
   /**
@@ -140,7 +141,11 @@ export class TrackHeader {
     const r = this.colorBtn.getBoundingClientRect();
     const names = ['Green', 'Blue', 'Amber', 'Red', 'Violet', 'Cyan', 'Pink', 'Lime', 'Orange', 'Indigo', 'Olive', 'Slate'];
     this.app.openMenu(
-      TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: names[i], enabled: true, checked: this.track.color === c, run: () => this.app.commands.run('mt.trackColor', { id: this.id, color: c }) })),
+      [
+        ...TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: names[i], enabled: true, checked: this.track.color === c, run: () => this.app.commands.run('mt.trackColor', { id: this.id, color: c }) })),
+        { type: 'sep' },
+        { type: 'cmd', label: 'Custom Color...', enabled: true, checked: !TRACK_COLORS.includes(this.track.color), run: () => pickCustomColor(this.track.color, (color) => this.app.commands.run('mt.trackColor', { id: this.id, color })) },
+      ],
       { x: r.right, y: r.top, anchor: this.colorBtn, label: 'Track color' },
     );
     e.stopPropagation();
