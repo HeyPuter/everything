@@ -173,7 +173,7 @@ ${c.opacity === false ? '' : `<label>Opacity <input id="brush-opacity" type="num
 ${c.flow === false ? '' : `<label>Flow <input id="brush-flow" type="number" min="1" max="100" value="${Math.round(s.flow * 100)}" aria-label="Brush flow (%)">%</label>`}${c.airbrush === false ? '' : `<button class="icon-button toggle" id="airbrush" aria-pressed="${s.airbrush}" title="Airbrush build-up" aria-label="Airbrush">${svg('airbrush', 16)}</button>`}
 <label>Smoothing <input id="brush-smoothing" type="number" min="0" max="100" value="${Math.round(s.smoothing * 100)}" aria-label="Smoothing (%)">%</label>
 ${c.angle === false ? '' : `<label title="Angle of the brush tip">Angle <input id="brush-angle" type="number" min="-180" max="180" value="${Math.round(s.angle)}" aria-label="Brush angle (degrees)">°</label>`}
-<button class="icon-button toggle" id="pressure-size" aria-pressed="${!!s.dynamics.pressureSize}" title="Pressure controls size" aria-label="Pressure controls size">${svg('pressure-size', 16)}</button>${id === 'pencil' ? `<label class="transform-setting" title="Strokes that start on the foreground color paint the background color"><input type="checkbox" id="pencil-auto-erase" ${e.settings.pencilAutoErase ? 'checked' : ''}>Auto Erase</label>` : ''}${id === 'eraser' ? `<label class="transform-setting" title="Restore the History Brush source state instead of erasing to transparency"><input type="checkbox" id="erase-to-history" ${e.settings.eraseToHistory ? 'checked' : ''}>Erase to History</label>` : ''}${SYMMETRY_TOOLS.has(id) ? symmetryControls(e) : ''}${extra}`;
+<button class="icon-button toggle" id="pressure-size" aria-pressed="${!!s.dynamics.pressureSize}" title="Pressure controls size" aria-label="Pressure controls size">${svg('pressure-size', 16)}</button>${id === 'pencil' ? `<label class="transform-setting" title="Strokes that start on the foreground color paint the background color"><input type="checkbox" id="pencil-auto-erase" ${e.settings.pencilAutoErase ? 'checked' : ''}>Auto Erase</label>` : ''}${id === 'eraser' ? `<label class="transform-setting" title="Restore the History Brush source state instead of erasing to transparency (Alt-drag does it for one stroke)"><input type="checkbox" id="erase-to-history" ${e.settings.eraseToHistory ? 'checked' : ''}>Erase to History</label>` : ''}${SYMMETRY_TOOLS.has(id) ? symmetryControls(e) : ''}${extra}`;
 }
 
 // ----- Paint symmetry -----
@@ -362,7 +362,8 @@ function paintTargetFor(e: Editor, id: string, target: PixelTarget, p: CanvasPoi
     return { kind: 'mask', value: Math.round(r * 0.299 + g * 0.587 + b * 0.114) };
   }
   const preserveAlpha = !!layerLock(e.doc.layers, target.layer.id, 'transparency');
-  if (id === 'eraser' && e.settings.eraseToHistory) return historyPaintTarget(e, target, 'normal');
+  // Erase to History, or for one stroke while Alt is held.
+  if (id === 'eraser' && (e.settings.eraseToHistory || p.alt)) return historyPaintTarget(e, target, 'normal');
   if (id === 'eraser') return { kind: 'color', rgb: hexRgb(e.background), mode: 'normal', erase: !preserveAlpha, preserveAlpha };
   return { kind: 'color', rgb: hexRgb(autoErase ? e.background : e.color), mode: s.mode, preserveAlpha };
 }

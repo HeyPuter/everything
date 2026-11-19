@@ -168,6 +168,32 @@ test('Erase to History restores the history source instead of erasing', async ({
   expect(await layerPixel(page, 100, 60)).toEqual([128, 128, 128, 255]);
 });
 
+test('Alt-drag with the Eraser erases to history for that stroke', async ({ page }) => {
+  await setTool(page, 'brush', { size: 30, hardness: 1 });
+  await page.evaluate(() => window.photoStudio.setForeground('#ff00ff'));
+  await canvasDrag(page, [
+    [60, 60],
+    [140, 60],
+  ]);
+  await setTool(page, 'eraser', { size: 30, hardness: 1 }, { eraserMode: 'brush', eraseToHistory: false });
+  await canvasDrag(
+    page,
+    [
+      [60, 60],
+      [100, 60],
+    ],
+    6,
+    ['Alt'],
+  );
+  expect(await layerPixel(page, 80, 60)).toEqual([128, 128, 128, 255]);
+  // Without Alt the Eraser erases as usual.
+  await canvasDrag(page, [
+    [110, 60],
+    [140, 60],
+  ]);
+  expect((await layerPixel(page, 125, 60))[3]).toBe(0);
+});
+
 test('Alt-click with the Brush picks the foreground color without painting', async ({ page }) => {
   await filledLayer(page, [10, 120, 230, 255]);
   await setTool(page, 'brush');

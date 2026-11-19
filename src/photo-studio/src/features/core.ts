@@ -448,6 +448,7 @@ async function shortcutsDialog(e: Editor) {
     row('Nudge with the Move tool (Shift: 10 px)', '← ↑ → ↓'),
     row('Move a copy of the layers with the Move tool', `${alt} drag`),
     row('Move layers while a painting, fill or eyedropper tool is active', `${mod} drag`),
+    row('Eraser: restore the history source for one stroke', `${alt} drag`),
     row('Keep a move horizontal or vertical (press during the drag)', 'Shift'),
     row('Nudge the selected light of a relight layer (Shift: 10 px)', '← ↑ → ↓'),
     row('Show or hide the lights of the selected relight layer', 'N'),
