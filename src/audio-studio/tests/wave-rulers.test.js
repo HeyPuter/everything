@@ -562,3 +562,29 @@ describe('Repeat Previous Command for edits', () => {
     expect(doc.history.undoLabel).toBe('Mix Paste');
   });
 });
+
+describe('markers on the ruler', () => {
+  it('a click on a marker moves the playhead there; a double-click on a range bar selects it', async () => {
+    const { app, doc, view } = await makeView();
+    const { createMarker } = await import('../src/model/markers.js');
+    app.prefs.set('snapping', false);
+    const cue = createMarker({ start: 6000, name: 'C' });
+    const range = createMarker({ start: 24000, duration: 12000, name: 'R' });
+    doc.apply('Markers', { ...doc.state, markers: [cue, range] });
+    doc.setView(0, 48000);
+    const el = view.ruler.el;
+    el.setPointerCapture = () => {};
+    const ev = (type, x) => {
+      const e = new MouseEvent(type, { bubbles: true, button: 0 });
+      Object.defineProperties(e, { offsetX: { value: x }, offsetY: { value: 20 }, pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+      return e;
+    };
+    el.dispatchEvent(ev('pointerdown', 126));
+    el.dispatchEvent(ev('pointerup', 126));
+    expect(doc.cursor).toBe(6000);
+    expect(doc.state.markers[0].start).toBe(6000);
+    el.dispatchEvent(ev('dblclick', 620));
+    expect([doc.selection.start, doc.selection.end]).toEqual([24000, 36000]);
+    expect(view.selectedMarkers.has(range.id)).toBe(true);
+  });
+});

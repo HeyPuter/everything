@@ -6,7 +6,8 @@
 //   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame),
 //   host.cancelMarkerMove() (drops a marker drag's preview)
 // Optional: host.resizeMarker(id, end, { preview }) to drag range ends,
-//   host.setSelection(a, b) for selection handles, host.menuItems(), host.zoomRange(a, b)
+//   host.setSelection(a, b) for selection handles, host.selectRange(a, b, id) for a
+//   double-click on a range marker's bar, host.menuItems(), host.zoomRange(a, b)
 //   and host.wheel(e, x) (see the constructor).
 
 import { h } from '../lib/dom.js';
@@ -87,7 +88,10 @@ export class TimeRuler {
     this.el.addEventListener('keydown', (e) => this.#keys(e));
     this.el.addEventListener('dblclick', (e) => {
       const m = this.#markerAt(e.offsetX);
-      if (m) host.renameMarker?.(m.id);
+      if (m) return host.renameMarker?.(m.id);
+      // Double-click a range's bar to select its time range.
+      const r = e.offsetY > this.height * 0.45 ? this.rangeBarAt(e.offsetX) : null;
+      if (r && host.selectRange) host.selectRange(r.start, r.start + r.duration, r.id);
     });
     // Optional: host.menuItems() for a right-click menu, host.zoomRange(a, b) for a
     // right-drag that zooms to the range dragged over, host.wheel(e, x) for the mouse wheel.
@@ -173,6 +177,19 @@ export class TimeRuler {
         best = m;
         bestD = d;
       }
+    }
+    return best;
+  }
+
+  /** The range marker whose bar spans x (the shortest when ranges overlap), or null. */
+  rangeBarAt(x) {
+    const t = this.host.timeline();
+    let best = null;
+    for (const m of t.markers || []) {
+      if (!m.duration) continue;
+      const a = this.xOf(m.start, t.view);
+      const b = this.xOf(m.start + m.duration, t.view);
+      if (x >= a && x <= b && (!best || m.duration < best.duration)) best = m;
     }
     return best;
   }
@@ -318,6 +335,10 @@ export class TimeRuler {
     else if (this.drag.kind === 'marker' && this.drag.moved) {
       const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
       this.host.moveMarker(this.drag.id, Math.max(0, this.host.snap ? this.host.snap(f, { exclude: this.drag.id }) : f), { preview: false });
+    } else if (this.drag.kind === 'marker' && !cancelled) {
+      // A click on a marker (no drag) also moves the playhead to it.
+      const m = this.host.timeline().markers?.find((x) => x.id === this.drag.id);
+      if (m) this.host.seek(m.start);
     }
     this.drag = null;
   }

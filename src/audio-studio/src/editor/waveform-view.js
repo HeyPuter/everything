@@ -284,6 +284,11 @@ export class WaveformView {
       viewMax: () => Math.max(doc.length, doc.sampleRate),
       moveMarker: (id, start, { preview }) => this.moveMarker(id, start, preview),
       resizeMarker: (id, end, { preview }) => this.resizeMarker(id, end, preview),
+      selectRange: (a, b, id) => {
+        doc.setSelection(a, b, { channels: doc.state.channels.map(() => true) });
+        if (!app.engine.playing) doc.setCursor(a, { silent: true });
+        this.selectMarker(id);
+      },
       cancelMarkerMove: () => {
         this.markerPreview = null;
         this.invalidate('ruler');
