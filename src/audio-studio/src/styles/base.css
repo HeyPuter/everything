@@ -690,9 +690,14 @@ input[type='range'].slider::-moz-range-thumb {
     outline-offset: -2px;
   }
 
-  .panel-tab[aria-selected='true']::after {
+  .panel-tab[aria-selected='true']::after,
+  .dock-drop.insert {
     forced-color-adjust: none;
     background: Highlight;
+  }
+
+  .tooltip {
+    border-color: CanvasText;
   }
 
   .workspace-tab[aria-selected='true'],
