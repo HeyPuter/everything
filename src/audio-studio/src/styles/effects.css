@@ -1862,6 +1862,32 @@ input[type='range'].fx-slider:disabled {
   gap: 6px;
 }
 
+/* The transfer curve with the output meter beside it, the meter as tall as the curve. */
+.fx-dp-top {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.fx-dp-top > :first-child {
+  flex: 0 1 340px;
+  min-width: 0;
+}
+
+.fx-dp-meter.fx-lm.v {
+  justify-content: flex-start;
+}
+
+.fx-dp-meter .fx-lm-barwrap {
+  flex: 1;
+}
+
+.fx-dp-meter .fx-lm-bar.v {
+  height: auto;
+  min-height: 120px;
+}
+
 .fx-dp-tools {
   display: flex;
   gap: 2px;

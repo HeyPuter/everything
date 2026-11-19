@@ -181,7 +181,16 @@ export function dynamicsProcessingEditor({ id = 'curve' } = {}) {
     };
     ctx.subscribe(update);
     update(ctx.values);
-    return h('div.fx-dp', graph, tools, h('div.fx-dp-scroll', table));
+    // The output level beside the curve while audio plays through the effect.
+    const out = levelMeter({ label: 'Out', kind: 'level', min: -60, vertical: true, scale: [0, -12, -24, -36, -48, -60] });
+    out.el.classList.add('fx-dp-meter');
+    out.el.title = 'Output level';
+    ctx.onLevels?.((input, output) => {
+      if (!output) return out.clear();
+      const peak = Math.max(...output);
+      out.set(peak > 1e-6 ? 20 * Math.log10(peak) : -60);
+    });
+    return h('div.fx-dp', h('div.fx-dp-top', graph, out.el), tools, h('div.fx-dp-scroll', table));
   };
 }
 
