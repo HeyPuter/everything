@@ -73,6 +73,10 @@ registerEffect({
     release(80, { min: 10, max: 1000 }),
     bool('link', 'Link Channels', true),
     choice('truePeak', 'Detection', ['Peak', 'True Peak'], 0, { order: -1 }),
+    // Raises the audio so its loudest peak meets the ceiling (Input Boost
+    // then drives further into the limiter). The processor never sees it:
+    // `resolve` folds it into the boost.
+    bool('maximize', 'Maximize to Ceiling', false),
   ],
   presets: [
     preset('Default', { ceiling: -0.1, inputBoost: 0, lookahead: 5, release: 80, link: true }),
@@ -82,10 +86,54 @@ registerEffect({
     preset('Gentle Lift +3 dB', { ceiling: -0.5, inputBoost: 3, lookahead: 7, release: 200, link: true }),
     preset('Loud and Tight +6 dB', { ceiling: -0.1, inputBoost: 6, lookahead: 4, release: 50, link: true }),
     preset('Dialogue -2 dB Ceiling', { ceiling: -2, inputBoost: 4, lookahead: 5, release: 120, link: true }),
+    preset('Maximize to Ceiling', { ceiling: -1, inputBoost: 0, lookahead: 5, release: 100, link: true, truePeak: 1, maximize: true }),
   ],
   latency: (v, rate) => limiterLatency(v.lookahead, rate) + (v.truePeak ? TRUE_PEAK_DELAY : 0),
   transfer: (v, inDb) => Math.min(inDb + v.inputBoost, v.ceiling),
+  resolve: (v, ctx) => (v.maximize ? { ...v, inputBoost: maximizeBoost(v, ctx) } : v),
 });
+
+const peakCache = new WeakMap();
+
+/**
+ * Peak level (dBFS) of `state` over `range`, else the selection of `doc`, else
+ * all of it; null when there is no audio or it is silent.
+ */
+export function audioPeakDb(state, range = null, doc = null) {
+  const channels = state?.channels;
+  if (!channels?.length) return null;
+  const len = channels[0].length;
+  const sel = doc?.selection;
+  const [a, b] = range || (sel && sel.end > sel.start ? [sel.start, sel.end] : [0, len]);
+  const start = Math.max(0, Math.min(len, a));
+  const end = Math.max(start, Math.min(len, b));
+  const key = `${start}:${end}`;
+  let byRange = peakCache.get(state);
+  if (!byRange) peakCache.set(state, (byRange = new Map()));
+  if (!byRange.has(key)) {
+    let p = 0;
+    const chunk = 1 << 16;
+    for (const ch of channels) {
+      for (let at = start; at < end; at += chunk) {
+        const x = ch.toArray(at, Math.min(end, at + chunk));
+        for (let i = 0; i < x.length; i++) {
+          const v = Math.abs(x[i]);
+          if (v > p) p = v;
+        }
+      }
+    }
+    if (byRange.size > 32) byRange.clear();
+    byRange.set(key, p > 0 ? 20 * Math.log10(p) : null);
+  }
+  return byRange.get(key);
+}
+
+/** Input boost that brings the peak of the processed audio to the ceiling, plus Input Boost. */
+function maximizeBoost(v, { doc, state, range } = {}) {
+  const peakDb = audioPeakDb(state, range, doc);
+  const lift = peakDb == null ? 0 : Math.max(0, v.ceiling - peakDb);
+  return Math.min(48, lift + v.inputBoost);
+}
 
 // --------------------------------------------------- Single-band Compressor
 

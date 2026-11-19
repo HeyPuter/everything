@@ -3,7 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import './fx-wasm.js';
 import { speech, runFx, band, segRms, dbOf, gaussNoise, filter, biquad, rms, spectralPeakiness, sine, peak, RATE } from './helpers/fx-signals.js';
-import { getEffect } from '../src/effects/index.js';
+import { getEffect, slotSpec } from '../src/effects/index.js';
+import { Channel } from '../src/audio/channel.js';
 import { lastValues } from '../src/effects/presets.js';
 import { normalizeValues } from '../src/effects/params.js';
 import { memoryPrefs } from './fx-helpers.js';
@@ -104,5 +105,57 @@ describe('Delete Silence defaults', () => {
     const long = sp.pauses.filter(([a, b]) => b - a > RATE).length;
     expect(gaps.filter((g) => g > 0.25 && g < 0.4)).toHaveLength(long);
     expect(y.length).toBeLessThan(sp.x.length - long * 0.8 * RATE);
+  });
+});
+
+describe('Hard Limiter: Maximize to Ceiling', () => {
+  const music = () => {
+    // Quiet chords with a few louder hits: peak about -20 dBFS.
+    const n = RATE * 2;
+    const x = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / RATE;
+      x[i] = 0.03 * (Math.sin(2 * Math.PI * 220 * t) + 0.7 * Math.sin(2 * Math.PI * 330 * t) + 0.5 * Math.sin(2 * Math.PI * 440 * t));
+      if (i % 24000 < 600) x[i] += 0.04 * Math.sin(2 * Math.PI * 1500 * t);
+    }
+    return x;
+  };
+  const render = async (values, x, range = null) => {
+    const def = getEffect('hardLimiter');
+    const state = { sampleRate: RATE, channels: [Channel.fromSamples(x), Channel.fromSamples(x)] };
+    const spec = slotSpec(def, normalizeValues(def, values), { state, range, rate: RATE });
+    return (await dsp()).runEffect(def.kind, RATE, [x, x], spec.params);
+  };
+
+  it('at the defaults leaves quiet material unchanged (no boost)', async () => {
+    const x = music();
+    const [y] = await render({}, x);
+    expect(peak(y)).toBeCloseTo(peak(x), 4);
+  });
+
+  it('raises quiet material so its peak meets the ceiling, and never above it', async () => {
+    const x = music();
+    expect(dbOf(peak(x))).toBeLessThan(-12);
+    const [y] = await render({ maximize: true, ceiling: -1 }, x);
+    expect(dbOf(peak(y))).toBeGreaterThan(-1.3);
+    expect(dbOf(peak(y))).toBeLessThanOrEqual(-1 + 1e-3);
+    // Input Boost adds drive on top: louder, still under the ceiling.
+    const [z] = await render({ maximize: true, ceiling: -1, inputBoost: 6 }, x);
+    expect(rms(z)).toBeGreaterThan(rms(y) * 1.5);
+    expect(dbOf(peak(z))).toBeLessThanOrEqual(-1 + 1e-3);
+  });
+
+  it('measures the range being processed', async () => {
+    const x = music();
+    const half = x.slice();
+    for (let i = RATE; i < half.length; i++) half[i] *= 4; // second second 12 dB louder
+    const def = getEffect('hardLimiter');
+    const state = { sampleRate: RATE, channels: [Channel.fromSamples(half)] };
+    const boost = (range) => slotSpec(def, normalizeValues(def, { maximize: true, ceiling: -1 }), { state, range }).params[1];
+    expect(boost([0, RATE]) - boost([RATE, 2 * RATE])).toBeCloseTo(20 * Math.log10(4), 1);
+    // Without a range: the document's selection, else the whole file.
+    const doc = { state, selection: { start: 0, end: RATE } };
+    expect(slotSpec(def, normalizeValues(def, { maximize: true, ceiling: -1 }), { doc }).params[1]).toBeCloseTo(boost([0, RATE]), 4);
+    expect(boost(null)).toBeCloseTo(boost([RATE, 2 * RATE]), 4);
   });
 });

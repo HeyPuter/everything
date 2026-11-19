@@ -109,7 +109,7 @@ export async function renderEffect({ def, values, state, start, end, mask = null
   const latency = latencyFrames(def, values, rate);
   const channels = state.channels.length;
   const routed = channels === 2 ? route : null;
-  const spec = slotSpec(def, values, { key: 'apply', doc, rate, route: routed, channels });
+  const spec = slotSpec(def, values, { key: 'apply', doc, state, rate, route: routed, channels, range: [start, end] });
   const outs = await applyChain(state.channels, rate, [spec], { start, end, tail, latency, onProgress, signal });
   if (signal?.aborted) throw abortError();
   return { state: writeResult(state, start, end, outs, mask, { tail }), length: end - start };
