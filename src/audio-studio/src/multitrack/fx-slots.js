@@ -1,14 +1,16 @@
 // Effect slots of a track edited in place from the Mixer and the track
 // headers: a slot's menu inserts or replaces an effect right there (grouped
 // like the Effects menu), and edits, bypasses or removes the one in it. Each
-// change is one undo step on the session.
+// change is one undo step on the session. Settings that follow automation
+// lanes write keyframes (or record during Write, Latch and Touch playback).
 
 import { announce } from '../lib/dom.js';
 import { getEffect } from '../effects/registry.js';
 import { isRealtime } from '../effects/apply.js';
 import { groupedEffects, makeSlot, setSlot, removeSlot, toggleSlot, fitSlots } from '../effects/rack.js';
 import { openEffectDialog } from '../effects/dialog.js';
-import { findTrack, updateTrack } from '../model/session-edits.js';
+import { findTrack, updateTrack, fxParam } from '../model/session-edits.js';
+import { fxAutomationParams } from './fx-automation.js';
 import { TRACK_SLOTS } from './fx-editor.js';
 
 const slotsOf = (doc, trackId) => fitSlots(findTrack(doc.state, trackId)?.fx || [], TRACK_SLOTS);
@@ -43,11 +45,41 @@ export async function editTrackEffect(app, doc, trackId, index) {
     values: slot.values,
     title: `Effect - ${def.name} (${findTrack(doc.state, trackId)?.name || 'Track'}, Slot ${index + 1})`,
     slotId: slot.id,
-    onChange: (values) => update({ values }),
+    onChange: (values) => {
+      // Automated settings (or any, while the track writes automation) go to their lanes.
+      const cur = slotsOf(doc, trackId)[index];
+      if (cur?.id !== slot.id) return;
+      const lanes = automatedChanges(doc, trackId, slot.id, cur.values, values);
+      const rest = Object.fromEntries(Object.entries(values).filter(([k]) => !lanes.has(k)));
+      update({ values: { ...cur.values, ...rest } });
+    },
     onPower: (enabled) => update({ enabled }),
     enabled: slot.enabled !== false,
   });
   doc.endGesture();
+}
+
+const WRITING = new Set(['write', 'latch', 'touch']);
+
+/**
+ * Sends changed effect settings that follow automation through the track controls (a keyframe at
+ * the playhead, or a recorded move during Write, Latch or Touch playback). Returns the keys sent.
+ */
+export function automatedChanges(doc, trackId, slotId, before, values) {
+  const sent = new Set();
+  const c = doc.controls;
+  const t = findTrack(doc.state, trackId);
+  if (!c || !t) return sent;
+  const writing = c.playing && WRITING.has(t.mode);
+  const ok = new Set(fxAutomationParams(t).map((p) => p.id));
+  for (const [k, v] of Object.entries(values)) {
+    const param = fxParam(slotId, k);
+    if (v === before?.[k] || typeof v !== 'number' || !ok.has(param)) continue;
+    if (!writing && !c.automated(t, param)) continue;
+    c.set(trackId, param, v, 'input');
+    sent.add(k);
+  }
+  return sent;
 }
 
 /** Menu items for slot `index` of a track: effects to put there, then what to do with the one in it. */

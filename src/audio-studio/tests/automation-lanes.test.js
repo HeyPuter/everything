@@ -527,3 +527,18 @@ describe('thinning recorded automation', () => {
     expect(S.thinEnvelope(held, 1)).toEqual(held);
   });
 });
+
+describe('effect dialog edits on automated settings', () => {
+  it('write a keyframe at the playhead instead of changing the setting', async () => {
+    const { automatedChanges } = await import('../src/multitrack/fx-slots.js');
+    const { app, doc } = await appWithSession();
+    const id = doc.state.tracks[0].id;
+    doc.apply('Fx', S.updateTrack(doc.state, id, { fx: [{ id: 'sA', effect: 'amplify', values: { left: 0, right: 0, linked: true }, enabled: true }] }));
+    doc.apply('Auto', S.setAutomation(doc.state, id, 'fx.sA.left', [{ t: 0, v: -6 }]));
+    doc.controls = new TrackControls(app, doc);
+    doc.setCursor(RATE);
+    const sent = automatedChanges(doc, id, 'sA', { left: 0, right: 0, linked: true }, { left: 3, right: 2, linked: true });
+    expect([...sent]).toEqual(['left']);
+    expect(S.findTrack(doc.state, id).automation['fx.sA.left']).toEqual([{ t: 0, v: -6 }, { t: RATE, v: 3 }]);
+  });
+});
