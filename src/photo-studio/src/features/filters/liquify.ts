@@ -48,6 +48,7 @@ import { allLayers, type Layer } from '../../model/document';
 import { toRGBA8 } from '../pixels';
 import { readMask, readRect } from '../../model/tiles';
 import { svg } from '../../app/icons';
+import { formatShortcut } from '../../app/shortcuts';
 import { escapeXML } from '../../model/assets';
 import { download } from '../../persistence/puter';
 import {
@@ -368,7 +369,7 @@ class LiquifyWorkspace {
       <label class="lq-check" title="Show the document’s other layers with the layer being liquified"><input type="checkbox" data-opt="backdrop" ${this.canBackdrop() ? '' : 'disabled'}> Show Backdrop</label>
       <div class="fp-row"><label for="lq-backdrop-mode">Backdrop</label><select id="lq-backdrop-mode" data-opt="backdrop-mode" disabled><option value="behind">Behind</option><option value="front" ${this.backdropFront ? 'selected' : ''}>In Front</option></select></div>
       <div class="fp-row fp-number"><label for="lq-backdrop-opacity">Backdrop Opacity</label><input id="lq-backdrop-opacity" type="number" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" disabled><input type="range" data-opt="backdrop-opacity" min="0" max="100" value="${this.backdropOpacity}" aria-label="Backdrop opacity" disabled></div>
-      <div class="lq-row lq-zoom"><button type="button" class="icon-button" data-act="zoom-out" aria-label="Zoom out">${svg('minus', 14)}</button><span class="lq-zoom-label"></span><button type="button" class="icon-button" data-act="zoom-in" aria-label="Zoom in">${svg('plus', 14)}</button><button type="button" data-act="fit">Fit</button><button type="button" data-act="undo" title="Undo (Mod+Z)">Undo</button></div>
+      <div class="lq-row lq-zoom"><button type="button" class="icon-button" data-act="zoom-out" aria-label="Zoom out">${svg('minus', 14)}</button><span class="lq-zoom-label"></span><button type="button" class="icon-button" data-act="zoom-in" aria-label="Zoom in">${svg('plus', 14)}</button><button type="button" data-act="fit">Fit</button><button type="button" data-act="undo" title="Undo (${formatShortcut('Mod+Z')})">Undo</button></div>
     </section>
     <section><h3>Brush Reconstruct Options</h3><div class="lq-row"><button type="button" data-act="reconstruct">Reconstruct…</button><button type="button" data-act="restore" title="Undo every stroke and face edit">Restore All</button></div><div class="lq-reconstruct" hidden><div class="fp-row fp-number"><label for="lq-amount">Amount</label><input id="lq-amount" type="number" min="0" max="100" value="100"><input type="range" id="lq-amount-range" min="0" max="100" value="100" aria-label="Reconstruct amount"></div><div class="lq-row"><button type="button" data-act="reconstruct-cancel">Cancel</button><button type="button" class="primary" data-act="reconstruct-ok">OK</button></div></div></section>
   </aside>

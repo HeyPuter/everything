@@ -5,6 +5,7 @@
 import type { Editor } from '../../editor';
 import { registerCommand } from '../../app/registry';
 import { svg } from '../../app/icons';
+import { formatShortcut } from '../../app/shortcuts';
 import { escapeXML } from '../../model/assets';
 import { findLayer } from '../../model/document';
 import { canvasRect, selectionGrid } from '../../model/selection';
@@ -145,7 +146,7 @@ class Workspace {
     <section><h3>Planes</h3><div class="pp-list" role="listbox" aria-label="Planes"></div><div class="lq-row"><button type="button" data-act="delete-plane">Delete Plane</button></div>${num('grid', 'Grid Size', 1, 40, this.grid, 'cells')}</section>
     <section><h3>Brush</h3>${num('size', 'Diameter', 1, 2000, this.size, 'px')}${num('hardness', 'Hardness', 0, 100, this.hardness * 100, '%')}${num('opacity', 'Opacity', 1, 100, this.opacity * 100, '%')}</section>
     <section><h3>Paste</h3><p class="hint">Pastes the last copied pixels (Edit → Copy) onto the selected plane; drag to move, adjust the size, then apply.</p><div class="lq-row"><button type="button" data-act="paste">Paste</button><button type="button" data-act="paste-apply" disabled>Apply Paste</button></div>${num('paste-size', 'Size', 1, 100, 50, '%')}</section>
-    <section><h3>History</h3><div class="lq-row"><button type="button" data-act="undo" title="Undo the last edit (Mod+Z)">Undo</button></div></section>
+    <section><h3>History</h3><div class="lq-row"><button type="button" data-act="undo" title="Undo the last edit (${formatShortcut('Mod+Z')})">Undo</button></div></section>
   </aside>
 </div>`;
     document.body.append(d);

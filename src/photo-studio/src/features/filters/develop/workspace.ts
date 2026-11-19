@@ -10,6 +10,7 @@
 // Filters and applies like any other filter.
 import type { Editor } from '../../../editor';
 import { svg } from '../../../app/icons';
+import { formatShortcut } from '../../../app/shortcuts';
 import { escapeXML } from '../../../model/assets';
 import { findLayer, type Blend } from '../../../model/document';
 import type { NormPath, ParamValues, RGBA8 } from '../../../imaging/types';
@@ -235,11 +236,11 @@ class DevelopWorkspace {
   <section class="dv-stage" aria-label="Preview">
     <div class="dv-view"><canvas class="dv-pane" width="300" height="200" tabindex="0" aria-label="Preview; drag to pan, double-click to switch between fit and 100%"></canvas><div class="dv-progress" hidden><progress max="1" value="0" aria-label="Rendering"></progress><button type="button" class="dv-stop">Stop</button></div></div>
     <div class="dv-stagebar" role="toolbar" aria-label="View">
-      <button type="button" class="dv-fit" title="Fit in view (Mod+0)">Fit</button>
-      <button type="button" class="dv-actual" title="Actual pixels (Mod+1)">100%</button>
-      <button type="button" class="icon-button" data-zoom="-1" title="Zoom out (Mod+−)" aria-label="Zoom out">${svg('zoom-out', 16)}</button>
+      <button type="button" class="dv-fit" title="Fit in view (${formatShortcut('Mod+0')})">Fit</button>
+      <button type="button" class="dv-actual" title="Actual pixels (${formatShortcut('Mod+1')})">100%</button>
+      <button type="button" class="icon-button" data-zoom="-1" title="Zoom out (${formatShortcut('Mod+-')})" aria-label="Zoom out">${svg('zoom-out', 16)}</button>
       <span class="dv-zoom-label" aria-live="polite">100%</span>
-      <button type="button" class="icon-button" data-zoom="1" title="Zoom in (Mod+=)" aria-label="Zoom in">${svg('zoom-in', 16)}</button>
+      <button type="button" class="icon-button" data-zoom="1" title="Zoom in (${formatShortcut('Mod+=')})" aria-label="Zoom in">${svg('zoom-in', 16)}</button>
       <span class="dv-spacer"></span>
       <span class="dv-pixel" aria-live="off"></span>
       <div class="dv-views" role="radiogroup" aria-label="Before and after (Y cycles, \\ shows the original)">${view('after', 'image', 'Result')}${view('before', 'eye-off', 'Original')}${view('split', 'compare-split', 'Before and after, split')}${view('side', 'compare-side', 'Before and after, side by side')}</div>
@@ -272,7 +273,7 @@ class DevelopWorkspace {
     ${tool('zoom', 'zoom-in', 'Zoom: click to zoom in, Alt-click to zoom out', 'Z')}${tool('hand', 'hand', 'Hand: drag to pan (hold Space with any tool)', 'H')}
   </nav>
 </div>
-<p id="dv-help" class="sr-only">Panels hold the settings; each panel's eye button turns its effect off. Mod+Z undoes an edit in this window.</p>
+<p id="dv-help" class="sr-only">Panels hold the settings; each panel's eye button turns its effect off. ${formatShortcut('Mod+Z')} undoes an edit in this window.</p>
 <footer class="rw-footer">
   <label class="dv-canvas-toggle" title="Show the result on the canvas behind this window"><input type="checkbox" class="dv-canvas" checked> Preview on canvas</label>
   <button type="button" class="dv-reset-all" title="Reset every setting to its default">Reset All</button>
