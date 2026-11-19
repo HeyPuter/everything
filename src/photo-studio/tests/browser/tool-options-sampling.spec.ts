@@ -289,3 +289,56 @@ test('the Healing Brush in Replace mode copies the source; Spot Healing offers t
   await expect(page.locator('#heal-mode option[value="replace"]')).toHaveCount(0);
   await expect(page.locator('#heal-mode option[value="darken"]')).toHaveCount(1);
 });
+
+test('Smudge with Sample All Layers smears the photo onto an empty layer', async ({ page }) => {
+  const photo = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA, writeRect } = await import('/src/model/tiles.ts');
+    const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+    e.command('Edge', (d) => {
+      const l = d.layers[0];
+      const img = readRGBA(e.assets.tiles, l.pixels!, { x: 0, y: 0, width: 200, height: 100 });
+      for (let y = 0; y < 100; y++)
+        for (let x = 100; x < 200; x++) img.data.set([0, 0, 255, 255], (y * 200 + x) * 4);
+      setLayerPixels(l, writeRect(e.assets.tiles, l.pixels!, 0, 0, img), d);
+    });
+    const id = e.selected;
+    await e.runCommand('layer.new-quick');
+    return id;
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.setTool('smudge-tool'));
+  await page.locator('#tool-strength').fill('90');
+  await page.locator('#tool-strength').press('Enter');
+  await page.locator('#focus-sample-all').check();
+  // Drag red into the blue side.
+  await canvasDrag(page, [
+    [80, 50],
+    [100, 50],
+    [130, 50],
+  ]);
+  await idle(page);
+  const top = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    return Array.from(
+      readRGBA(e.assets.tiles, e.layer!.pixels!, { x: 115, y: 50, width: 1, height: 1 }).data,
+    );
+  });
+  expect(top[3]).toBeGreaterThan(100);
+  expect(top[0]).toBeGreaterThan(60);
+  const base = await page.evaluate(async (id) => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const { findLayer } = await import('/src/model/document.ts');
+    return Array.from(
+      readRGBA(e.assets.tiles, findLayer(e.doc.layers, id!)!.pixels!, {
+        x: 115,
+        y: 50,
+        width: 1,
+        height: 1,
+      }).data,
+    );
+  }, photo);
+  expect(base).toEqual([0, 0, 255, 255]);
+});

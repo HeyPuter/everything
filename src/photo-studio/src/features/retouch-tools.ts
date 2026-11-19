@@ -1,3 +1,5 @@
+import { layersBelow } from './clone-source/state';
+import type { Layer } from '../model/document';
 import type { Editor } from '../editor';
 import { registerTool, type Tool } from '../app/registry';
 import { strokeTool, brushOptions, bindBrushOptions, brushFor, FOCUS_MODES, COLOR_REPLACE_MODES } from './paint';
@@ -172,6 +174,7 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
     const t = new Uint8ClampedArray(4);
     const b = brushFor(`${kind}-tool`);
     const blend = modeBlender(b.mode);
+    if (kind === 'smudge' && e.settings.smudgeSampleAll) return sampledSmudgeTarget(e, target.layer.id, strength, blend);
     if (kind === 'smudge') {
       // The tip carries the colors it passes over along the stroke; with
       // Finger Painting each stroke starts with the foreground color on it.
@@ -234,6 +237,33 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
     };
   };
 }
+/** Smudge with Sample All Layers: the tip picks up the layer over the
+ * layers below it (read once when the stroke starts) and smears onto the layer. */
+async function sampledSmudgeTarget(e: Editor, layerId: string, strength: number, blend: ReturnType<typeof modeBlender>): Promise<PaintTarget> {
+  const below = layersBelow(e.doc.layers, layerId);
+  const img = await compositeRGBA(e, { ...e.doc, layers: below ? hideLayer(below, layerId) : e.doc.layers });
+  const { width: W, height: H, data } = img;
+  const under = (x: number, y: number, out: Uint8ClampedArray) => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const i = (y * W + x) * 4;
+    out[0] = data[i];
+    out[1] = data[i + 1];
+    out[2] = data[i + 2];
+    out[3] = data[i + 3];
+    return data[i + 3] > 0;
+  };
+  const b = brushFor('smudge-tool');
+  const finger = new SmudgeFinger(b.size, strength, e.settings.fingerPainting ? hexRgb(e.color) : undefined, under);
+  return {
+    kind: 'custom',
+    dab: (cx, cy, size) => finger.dab(cx, cy, size),
+    pixel: (x, y, alpha, cur, out) => {
+      finger.pixel(x, y, alpha, cur, out);
+      blend?.(cur, out);
+    },
+  };
+}
+const hideLayer = (list: Layer[], id: string): Layer[] => list.map((l) => (l.id === id ? { ...l, visible: false } : l.kind === 'group' ? { ...l, children: hideLayer(l.children, id) } : l));
 /** Blur or Sharpen with Sample All Layers: the visible image is read once
  * when the stroke starts, and the result is painted onto the target layer
  * (an empty layer above the photo keeps the retouching separate). */
@@ -395,9 +425,9 @@ function withOptions(tool: Tool, extra: (e: Editor) => string, bind: (e: Editor,
     },
   };
 }
-const sampleAllField = (kind: 'blur' | 'sharpen') => (e: Editor) =>
+const sampleAllField = (kind: 'blur' | 'sharpen' | 'smudge') => (e: Editor) =>
   `<label class="transform-setting" title="Use the image as shown (all visible layers), and paint the result onto this layer: an empty layer keeps the retouching separate"><input type="checkbox" id="focus-sample-all" ${e.settings[`${kind}SampleAll`] ? 'checked' : ''}>Sample All Layers</label>`;
-const bindSampleAll = (kind: 'blur' | 'sharpen') => (e: Editor, el: HTMLElement) =>
+const bindSampleAll = (kind: 'blur' | 'sharpen' | 'smudge') => (e: Editor, el: HTMLElement) =>
   el.querySelector<HTMLInputElement>('#focus-sample-all')?.addEventListener('change', (ev) => (e.settings[`${kind}SampleAll`] = (ev.target as HTMLInputElement).checked));
 const strengthField = (key: string) => (e: Editor) => `<label>Strength <input id="tool-strength" type="number" min="1" max="100" value="${Number(e.settings[key] ?? 50)}">%</label>`;
 const bindStrength = (key: string) => (e: Editor, el: HTMLElement) =>
@@ -531,9 +561,10 @@ export function installRetouchTools(_e: Editor) {
     ),
     withOptions(
       strokeTool('smudge-tool', 'Smudge Tool', 'smudge', 'focus', '', 'Smudge Tool', {}, focusTarget('smudge')),
-      (e) => `${strengthField('smudgeStrength')(e)}<label class="transform-setting" title="Start each stroke with the foreground color on the tip"><input type="checkbox" id="finger-painting" ${e.settings.fingerPainting ? 'checked' : ''}>Finger Painting</label>`,
+      (e) => `${strengthField('smudgeStrength')(e)}${sampleAllField('smudge')(e)}<label class="transform-setting" title="Start each stroke with the foreground color on the tip"><input type="checkbox" id="finger-painting" ${e.settings.fingerPainting ? 'checked' : ''}>Finger Painting</label>`,
       (e, el) => {
         bindStrength('smudgeStrength')(e, el);
+        bindSampleAll('smudge')(e, el);
         el.querySelector<HTMLInputElement>('#finger-painting')?.addEventListener('change', (ev) => (e.settings.fingerPainting = (ev.target as HTMLInputElement).checked));
       },
     ),
