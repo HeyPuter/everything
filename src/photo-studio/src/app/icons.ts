@@ -340,6 +340,7 @@ const custom: Record<string, Node[]> = {
   // Brush option toggles: stylus pressure driving opacity or size, airbrush build-up.
   'pressure-opacity': [p('M19 3.5a1.8 1.8 0 0 1 2.5 2.5L12 15.5l-3 .5.5-3Z'), ['circle', { cx: 6, cy: 18, r: 3.5 }], ['path', { d: 'M6 14.5a3.5 3.5 0 0 0 0 7Z', fill: 'currentColor' }]],
   'pressure-size': [p('M19 3.5a1.8 1.8 0 0 1 2.5 2.5L12 15.5l-3 .5.5-3Z'), ['circle', { cx: 6, cy: 18, r: 1.3, fill: 'currentColor' }], ['circle', { cx: 6, cy: 18, r: 3.8 }]],
+  'paint-symmetry': [p('M12 3v2.5M12 8.5v2.5M12 13v2.5M12 18.5V21'), p('M9 5.5C4.5 6.5 3 11 5 15c1 2 2.5 3 4 3.5'), p('M15 5.5c4.5 1 6 5.5 4 9.5-1 2-2.5 3-4 3.5')],
   'airbrush': [p('M13 8h6a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-6Z'), p('M13 10.5H9.5M17 13v7'), ...([[6.5, 7], [4, 10.5], [6.5, 14], [2.5, 6.5], [2.5, 14.5]] as const).map(([cx, cy]) => ['circle', { cx, cy, r: 0.9, fill: 'currentColor', stroke: 'none' }] as Node)],
   // ----- adjust: one original glyph per adjustment kind -----
   'adj-brightness-contrast': [['circle', { cx: 12, cy: 12, r: 4.5 }], ['path', { d: 'M12 7.5a4.5 4.5 0 0 1 0 9Z', fill: 'currentColor' }], p('M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8')],

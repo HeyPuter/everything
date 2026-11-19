@@ -1,3 +1,4 @@
+import { transformDab, type Affine } from '../imaging/symmetry';
 import type { IRect, Mask8 } from '../imaging/types';
 import { blendColor, blendModeIndex, hash01, type BlendMode } from '../imaging/blend/modes';
 import {
@@ -98,6 +99,9 @@ export type StrokeOptions = {
   // Pattern preview: dabs repeat with this period so strokes wrap across
   // the edges of a tile anchored at the document origin.
   wrap?: { width: number; height: number };
+  // Paint symmetry: each dab is also stamped through these transforms (the
+  // first is normally the identity); see imaging/symmetry.
+  symmetry?: Affine[];
   seed?: number;
 };
 type Working = {
@@ -216,7 +220,13 @@ export class StrokeSession {
       if (d.flowJitter) flow *= 1 - d.flowJitter * this.random();
       let cap = opacity * (d.pressureOpacity ? pressure : 1);
       if (d.opacityJitter) cap *= 1 - d.opacityJitter * this.random();
-      dirty = unionRect(dirty, this.wrapped(x, y, size, angle, roundness, flow, cap));
+      const sym = this.options.symmetry;
+      if (!sym) dirty = unionRect(dirty, this.wrapped(x, y, size, angle, roundness, flow, cap));
+      else
+        for (const t of sym) {
+          const [tx, ty, ta] = transformDab(t, x, y, angle);
+          dirty = unionRect(dirty, this.wrapped(tx, ty, size, ta, roundness, flow, cap));
+        }
     }
     this.dabs++;
     return dirty;

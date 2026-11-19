@@ -1,5 +1,6 @@
 import type { Editor } from '../editor';
-import { registerTool, registerCommand, type Tool } from '../app/registry';
+import { registerTool, registerCommand, registerOverlay, type Tool } from '../app/registry';
+import { SYMMETRY_KINDS, clampSegments, isSymmetryKind, symmetryAxes, symmetryTransforms, usesSegments, type SymmetryKind } from '../imaging/symmetry';
 import type { CanvasPointer } from '../app/pointer';
 import type { DocumentSession } from '../app/session';
 import { brushSizeStep } from '../app/shortcuts';
@@ -166,7 +167,92 @@ ${c.opacity === false ? '' : `<label>Opacity <input id="brush-opacity" type="num
 ${c.flow === false ? '' : `<label>Flow <input id="brush-flow" type="number" min="1" max="100" value="${Math.round(s.flow * 100)}" aria-label="Brush flow (%)">%</label>`}${c.airbrush === false ? '' : `<button class="icon-button toggle" id="airbrush" aria-pressed="${s.airbrush}" title="Airbrush build-up" aria-label="Airbrush">${svg('airbrush', 16)}</button>`}
 <label>Smoothing <input id="brush-smoothing" type="number" min="0" max="100" value="${Math.round(s.smoothing * 100)}" aria-label="Smoothing (%)">%</label>
 ${c.angle === false ? '' : `<label title="Angle of the brush tip">Angle <input id="brush-angle" type="number" min="-180" max="180" value="${Math.round(s.angle)}" aria-label="Brush angle (degrees)">°</label>`}
-<button class="icon-button toggle" id="pressure-size" aria-pressed="${!!s.dynamics.pressureSize}" title="Pressure controls size" aria-label="Pressure controls size">${svg('pressure-size', 16)}</button>${id === 'pencil' ? `<label class="transform-setting" title="Strokes that start on the foreground color paint the background color"><input type="checkbox" id="pencil-auto-erase" ${e.settings.pencilAutoErase ? 'checked' : ''}>Auto Erase</label>` : ''}${id === 'eraser' ? `<label class="transform-setting" title="Restore the History Brush source state instead of erasing to transparency"><input type="checkbox" id="erase-to-history" ${e.settings.eraseToHistory ? 'checked' : ''}>Erase to History</label>` : ''}${extra}`;
+<button class="icon-button toggle" id="pressure-size" aria-pressed="${!!s.dynamics.pressureSize}" title="Pressure controls size" aria-label="Pressure controls size">${svg('pressure-size', 16)}</button>${id === 'pencil' ? `<label class="transform-setting" title="Strokes that start on the foreground color paint the background color"><input type="checkbox" id="pencil-auto-erase" ${e.settings.pencilAutoErase ? 'checked' : ''}>Auto Erase</label>` : ''}${id === 'eraser' ? `<label class="transform-setting" title="Restore the History Brush source state instead of erasing to transparency"><input type="checkbox" id="erase-to-history" ${e.settings.eraseToHistory ? 'checked' : ''}>Erase to History</label>` : ''}${SYMMETRY_TOOLS.has(id) ? symmetryControls(e) : ''}${extra}`;
+}
+
+// ----- Paint symmetry -----
+// Brush, Pencil and Eraser strokes can repeat mirrored or turned about the
+// center of the canvas.
+const SYMMETRY_TOOLS = new Set(['brush', 'pencil', 'eraser']);
+export function paintSymmetry(e: Editor): { kind: SymmetryKind; segments: number } {
+  const kind = e.settings.paintSymmetry;
+  return { kind: isSymmetryKind(kind) ? kind : 'off', segments: clampSegments(e.settings.symmetrySegments ?? 6) };
+}
+/** A compact button in the options bar; its popover holds the choices. */
+function symmetryControls(e: Editor) {
+  // Reads the kind and segment count, so tool presets and Reset Tool include both.
+  const { kind } = paintSymmetry(e);
+  const name = SYMMETRY_KINDS.find(([k]) => k === kind)![1];
+  return `<button type="button" class="icon-button toggle" id="symmetry-button" aria-pressed="${kind !== 'off'}" aria-haspopup="dialog" aria-label="Paint symmetry: ${name}" title="Paint symmetry: ${name}\nRepeat strokes mirrored or turned about the center of the canvas">${svg('paint-symmetry', 16)}</button>`;
+}
+function symmetryFields(e: Editor) {
+  const { kind, segments } = paintSymmetry(e);
+  return `<label>Symmetry <select id="paint-symmetry">${SYMMETRY_KINDS.map(([k, l]) => `<option value="${k}" ${kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label><label title="How many times the stroke repeats around the center" ${usesSegments(kind) ? '' : 'hidden'}>Segments <input id="symmetry-segments" type="number" min="2" max="12" step="1" value="${segments}"></label><p class="muted">Strokes repeat about the center of the canvas.</p>`;
+}
+let closeSymmetry: (() => void) | undefined;
+function openSymmetryPopover(e: Editor, anchor: HTMLElement) {
+  if (closeSymmetry) return closeSymmetry();
+  const pop = document.createElement('div');
+  pop.className = 'popover symmetry-popover';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Paint symmetry');
+  pop.innerHTML = symmetryFields(e);
+  document.body.append(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = `${Math.max(4, Math.min(r.left, innerWidth - pop.offsetWidth - 4))}px`;
+  pop.style.top = `${r.bottom + 4}px`;
+  const sync = () => {
+    const { kind } = paintSymmetry(e);
+    (pop.querySelector('#symmetry-segments')!.closest('label') as HTMLElement).hidden = !usesSegments(kind);
+    const button = e.root.querySelector<HTMLElement>('#symmetry-button');
+    const name = SYMMETRY_KINDS.find(([k]) => k === kind)![1];
+    button?.setAttribute('aria-pressed', String(kind !== 'off'));
+    button?.setAttribute('aria-label', `Paint symmetry: ${name}`);
+    e.overlay();
+  };
+  pop.querySelector<HTMLSelectElement>('#paint-symmetry')!.addEventListener('change', (ev) => {
+    e.settings.paintSymmetry = (ev.target as HTMLSelectElement).value;
+    sync();
+  });
+  bindNumberField(pop, '#symmetry-segments', () => paintSymmetry(e).segments, (v) => {
+    e.settings.symmetrySegments = clampSegments(v);
+    sync();
+  });
+  const outside = (ev: Event) => {
+    if (!pop.contains(ev.target as Node) && !anchor.contains(ev.target as Node)) closeSymmetry?.();
+  };
+  const keys = (ev: KeyboardEvent) => {
+    if (ev.key !== 'Escape') return;
+    ev.stopPropagation();
+    closeSymmetry?.();
+    e.root.querySelector<HTMLElement>('#symmetry-button')?.focus();
+  };
+  document.addEventListener('pointerdown', outside, true);
+  pop.addEventListener('keydown', keys);
+  closeSymmetry = () => {
+    pop.remove();
+    document.removeEventListener('pointerdown', outside, true);
+    closeSymmetry = undefined;
+    // The button's tooltip names the new choice.
+    e.options();
+  };
+  pop.querySelector<HTMLElement>('select')!.focus();
+}
+/** The stroke option for the current symmetry, or none. */
+function strokeSymmetry(e: Editor, id: string) {
+  const { kind, segments } = paintSymmetry(e);
+  if (!SYMMETRY_TOOLS.has(id) || kind === 'off') return {};
+  return { symmetry: symmetryTransforms(kind, segments, e.doc.width / 2, e.doc.height / 2) };
+}
+function symmetryOverlay(e: Editor) {
+  if (!SYMMETRY_TOOLS.has(e.tool) || !e.hasDocument) return '';
+  const { kind, segments } = paintSymmetry(e);
+  if (kind === 'off') return '';
+  const cx = e.doc.width / 2,
+    cy = e.doc.height / 2;
+  const lines = symmetryAxes(kind, segments, cx, cy, Math.hypot(e.doc.width, e.doc.height) / 2);
+  const w = 1 / e.zoom;
+  return `<g class="symmetry-axes">${lines.map(([x1, y1, x2, y2]) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${w}" stroke-dasharray="${6 * w} ${4 * w}"/>`).join('')}<circle cx="${cx}" cy="${cy}" r="${4 * w}" stroke-width="${w}"/></g>`;
 }
 export function bindBrushOptions(e: Editor, el: HTMLElement, id: string) {
   const s = brushFor(id);
@@ -183,6 +269,7 @@ export function bindBrushOptions(e: Editor, el: HTMLElement, id: string) {
   });
   el.querySelector<HTMLInputElement>('#pencil-auto-erase')?.addEventListener('change', (ev) => (e.settings.pencilAutoErase = (ev.target as HTMLInputElement).checked));
   el.querySelector<HTMLInputElement>('#erase-to-history')?.addEventListener('change', (ev) => (e.settings.eraseToHistory = (ev.target as HTMLInputElement).checked));
+  el.querySelector<HTMLButtonElement>('#symmetry-button')?.addEventListener('click', (ev) => openSymmetryPopover(e, ev.currentTarget as HTMLElement));
   el.querySelector<HTMLSelectElement>('#brush-mode')?.addEventListener('change', (ev) => (s.mode = (ev.target as HTMLSelectElement).value as PaintMode));
   const toggle = (sel: string, f: () => void) => el.querySelector<HTMLButtonElement>(sel)?.addEventListener('click', () => {
     f();
@@ -313,6 +400,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
     },
     deactivate: (e) => {
       closePopover?.(false);
+      closeSymmetry?.();
       endStroke(e, id);
       e.screenOverlayContent = '';
       e.screenOverlay();
@@ -363,6 +451,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         // Paint stops at the canvas edge: strokes never store hidden pixels beyond it.
         clip: canvasRect(e.doc),
         ...(patternPreviewOn(e) ? { wrap: { width: e.doc.width, height: e.doc.height } } : {}),
+        ...strokeSymmetry(e, id),
       });
       // Shift-click continues with a straight line from the previous stroke.
       const prev = lastPoint(e).get(id);
@@ -679,6 +768,7 @@ export function installPaint(editor: Editor) {
     if (p && /brush-cursor-(outer|cross)/.test(shown) && !shown.includes('brush-adjust'))
       cursor(e, e.tool, p);
   });
+  registerOverlay('paint-symmetry', symmetryOverlay);
   registerTool(
     strokeTool('brush', 'Brush Tool', 'paintbrush', 'brush', 'B', 'Brush Tool'),
     strokeTool('pencil', 'Pencil Tool', 'pencil', 'brush', 'B', 'Pencil'),
