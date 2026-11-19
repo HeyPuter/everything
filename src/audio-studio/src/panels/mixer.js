@@ -140,7 +140,7 @@ class Strip {
       // Sections the gutter can collapse (data-sec); the master keeps empty
       // ones so its controls line up with the tracks'.
       h('div.mx-sec', { dataset: { sec: 'io' } }, h('div.mx-io', h('div.mx-io-top', this.invert), this.input ? h('label.mx-io-row', icon('log-in', 12), this.input) : h('div.mx-io-row.placeholder', { 'aria-hidden': 'true' }), h('label.mx-io-row', icon('log-out', 12), this.output))),
-      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', h('span', { title: 'Effects' }, 'FX'), h('div.spacer'), this.fxPower, this.fxPost, this.freeze, this.fxEdit), this.fxRows),
+      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', { title: 'Effects' }, this.fxPower, this.fxPost, this.freeze, h('div.spacer'), this.fxEdit), this.fxRows),
       h('div.mx-sec', { dataset: { sec: 'sends' } }, this.sends?.el),
       h('div.mx-sec', { dataset: { sec: 'eq' } }, this.eq.el),
       h('div.mx-panrow', this.pan, this.pan ? this.panText : null),
