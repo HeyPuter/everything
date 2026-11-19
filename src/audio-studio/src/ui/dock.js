@@ -531,7 +531,10 @@ export class Dock extends Emitter {
       const overflow = tabs.scrollWidth > tabs.clientWidth + 1;
       more.hidden = !overflow;
       const active = tabs.querySelector('[role=tab][aria-selected=true]');
-      const mark = () => tabs.classList.toggle('scrolled', tabs.scrollLeft > 1);
+      const mark = () => {
+        tabs.classList.toggle('scrolled', tabs.scrollLeft > 1);
+        tabs.classList.toggle('clipped', tabs.scrollLeft + tabs.clientWidth < tabs.scrollWidth - 1);
+      };
       if (!tabs._scrollWatch) {
         tabs._scrollWatch = true;
         tabs.addEventListener('scroll', mark, { passive: true });

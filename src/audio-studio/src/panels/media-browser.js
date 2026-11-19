@@ -228,7 +228,8 @@ export function mediaBrowserPanel(app) {
     gate.replaceChildren(
       icon('cloud', 28),
       h('p', puter.sdk() ? 'Sign in to Puter to browse your audio files.' : 'Puter is not available. Check your connection to browse your files.'),
-      puter.sdk() ? h('button.btn.primary', { type: 'button', onclick: signIn }, icon('log-in', 14), 'Sign In') : null,
+      // Outlined: the app bar's Sign In is the one filled button for this, so a first launch has a single call to action.
+      puter.sdk() ? h('button.btn', { type: 'button', onclick: signIn }, icon('log-in', 14), 'Sign In') : null,
       local.supported() ? h('p.faint', 'Or browse a folder on this device.') : null,
       local.supported() ? h('button.btn', { type: 'button', onclick: () => addFolder() }, icon('folder-plus', 14), 'Add Folder...') : null,
     );

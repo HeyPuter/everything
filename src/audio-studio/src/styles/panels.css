@@ -261,10 +261,15 @@
   width: 10px;
   height: 10px;
   padding: 0;
-  border: 1px solid var(--divider);
+  /* Unlit: the meter's own well color, so idle LEDs read as part of the meter, not as empty fields. */
+  border: 1px solid transparent;
   border-radius: 2px;
   background: var(--meter-bg);
   cursor: pointer;
+}
+
+.clip-led:hover {
+  border-color: var(--border-well);
 }
 
 .clip-led.on {

@@ -64,9 +64,20 @@
 }
 
 /* The suggested audio type. */
+/* The type the audio sounds like: a dashed edge and a small tag, so it never reads as chosen. */
 .sa-type-btn.suggested {
+  position: relative;
+  border-style: dashed;
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.sa-type-btn.suggested::after {
+  content: 'Suggested';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  color: var(--hot);
+  font-size: var(--fs-xs);
 }
 
 .sa-suggest {

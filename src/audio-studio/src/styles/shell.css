@@ -445,6 +445,17 @@ puter-user-menu::part(apps-panel) {
   mask-image: linear-gradient(to right, transparent 0, #000 24px);
 }
 
+/* More tabs past the right edge (beside the overflow chevron): that edge fades too. */
+.panel-tabs.clipped {
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 24px);
+  mask-image: linear-gradient(to left, transparent 0, #000 24px);
+}
+
+.panel-tabs.scrolled.clipped {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+}
+
 .panel-tabs::-webkit-scrollbar {
   display: none;
 }
