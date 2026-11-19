@@ -19,6 +19,9 @@ export { relightUi } from './state';
 /** Listeners told when the selected light or the handle visibility changes
  * (the Properties editor highlights the selected light). */
 export const relightListeners = new Set<() => void>();
+/** Listeners told about settings previewed by a canvas drag (the
+ * Properties sliders follow the light). */
+export const draftListeners = new Set<(layerId: string, params: RelightParams) => void>();
 // A snapshot: listeners re-register themselves when the editor re-renders.
 export const notifyRelight = () => [...relightListeners].forEach((f) => f());
 
@@ -118,23 +121,38 @@ function startDrag(e: Editor, l: Layer, lightId: string, ev: PointerEvent) {
     relightUi.draft = { layerId: l.id, params };
     e.preview(withRelight(before, l.id, params));
     e.overlay();
+    draftListeners.forEach((f) => f(l.id, params));
   };
-  const up = (u: PointerEvent) => {
-    if (u.pointerId !== ev.pointerId) return;
+  const end = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', up);
-    const params = moved && u.type === 'pointerup' ? at(u) : undefined;
+    window.removeEventListener('keydown', key, true);
     relightUi.draft = undefined;
     e.toolBusy = false;
+  };
+  const up = (u: PointerEvent) => {
+    if (u.pointerId !== ev.pointerId) return;
+    end();
+    const params = moved && u.type === 'pointerup' ? at(u) : undefined;
     // One history step per drag; a click only selects the light.
     if (params && e.doc === before) commitRelight(e, l.id, params, 'Move Light');
     else e.update();
+  };
+  // Escape puts the light back and ends the drag.
+  const key = (k: KeyboardEvent) => {
+    if (k.key !== 'Escape') return;
+    k.preventDefault();
+    k.stopImmediatePropagation();
+    end();
+    draftListeners.forEach((f) => f(l.id, base));
+    e.update();
   };
   e.toolBusy = true;
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', up);
+  window.addEventListener('keydown', key, true);
 }
 
 function bindCanvas(e: Editor) {

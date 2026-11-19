@@ -96,9 +96,24 @@ test('relight layer: add and drag lights, N hides them, undo, and save and reope
     'true',
   );
 
-  // Drag Light 1: many pointer moves, one history step.
+  // Dragging moves the Properties sliders along; Escape puts the light back.
   const before = await lights(page);
   const steps = (await historyLabels(page)).length;
+  const second = (await handles(page).nth(1).boundingBox())!;
+  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 4; i++)
+    await page.mouse.move(second.x + second.width / 2 + i * 10, second.y + second.height / 2);
+  const field = props.getByRole('spinbutton', { name: 'Horizontal value' });
+  await expect(field).not.toHaveValue(String(Math.round(before[1].x * 100)));
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await idle(page);
+  expect(await lights(page)).toEqual(before);
+  expect((await historyLabels(page)).length).toBe(steps);
+  await expect(field).toHaveValue(String(Math.round(before[1].x * 100)));
+
+  // Drag Light 1: many pointer moves, one history step.
   const box = (await handles(page).first().boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();

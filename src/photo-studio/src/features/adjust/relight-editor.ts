@@ -14,11 +14,13 @@ import {
   newLight,
   temperatureRgb,
   type RelightLight,
+  type RelightParams,
 } from '../../imaging/relight/model';
 import { relightUi, selectedLight, selectLight } from '../relight/state';
-import { notifyRelight, relightListeners } from '../relight';
+import { draftListeners, notifyRelight, relightListeners } from '../relight';
 
 let listening: (() => void) | undefined;
+let following: ((layerId: string, params: RelightParams) => void) | undefined;
 
 const hex = (c: readonly number[]) =>
   `#${c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
@@ -280,21 +282,31 @@ function lightControls(light: RelightLight, host: AdjustHost<'relight'>) {
     );
   }
   const pct = (v: number) => Math.round(v * 100);
+  const horizontal = endSlider('Horizontal', ['Left', 'Right'], {
+    min: -50,
+    max: 150,
+    unit: '%',
+    value: pct(light.x),
+    onInput: (v, c) => ((light.x = v / 100), change(c, 'Move Light')),
+  });
+  const vertical = endSlider('Vertical', ['Top', 'Bottom'], {
+    min: -50,
+    max: 150,
+    unit: '%',
+    value: pct(light.y),
+    onInput: (v, c) => ((light.y = v / 100), change(c, 'Move Light')),
+  });
+  // A light dragged on the canvas moves these sliders as it goes.
+  if (following) draftListeners.delete(following);
+  following = (layerId, params) => {
+    if (!box.isConnected || layerId !== host.layerId) return;
+    const at = params.lights.find((x) => x.id === light.id);
+    if (at) (horizontal.set(pct(at.x)), vertical.set(pct(at.y)));
+  };
+  draftListeners.add(following);
   box.append(
-    endSlider('Horizontal', ['Left', 'Right'], {
-      min: -50,
-      max: 150,
-      unit: '%',
-      value: pct(light.x),
-      onInput: (v, c) => ((light.x = v / 100), change(c, 'Move Light')),
-    }).el,
-    endSlider('Vertical', ['Top', 'Bottom'], {
-      min: -50,
-      max: 150,
-      unit: '%',
-      value: pct(light.y),
-      onInput: (v, c) => ((light.y = v / 100), change(c, 'Move Light')),
-    }).el,
+    horizontal.el,
+    vertical.el,
     endSlider('Depth', ['Behind', 'In front'], {
       min: -100,
       max: 100,
