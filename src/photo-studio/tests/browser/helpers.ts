@@ -96,13 +96,15 @@ export async function tool(page: Page, label: string) {
   const direct = slots.getByRole('button', { name: label, exact: true });
   if (await direct.count()) await direct.click();
   else {
-    const id = await page.evaluate(async (label) => {
+    const found = await page.evaluate(async (label) => {
       const { tools } = await import('/src/app/registry.ts');
-      return [...tools.values()].find((t) => t.label === label)?.group;
+      const t = [...tools.values()].find((t) => t.label === label);
+      return t && { id: t.id, group: t.group };
     }, label);
-    if (!id) throw new Error(`No tool labelled ${label}`);
-    await slots.locator(`[data-slot="${id}"]`).click({ button: 'right' });
-    await page.getByRole('menuitemradio', { name: label }).click();
+    if (!found?.group) throw new Error(`No tool labelled ${label}`);
+    await slots.locator(`[data-slot="${found.group}"]`).click({ button: 'right' });
+    // By id: a name match for 'Healing Brush Tool' also hits 'Spot Healing Brush Tool'.
+    await page.locator(`[role="menuitemradio"][data-flyout-tool="${found.id}"]`).click();
   }
   await expect.poll(() => page.evaluate(() => window.photoStudio.activeTool?.label)).toBe(label);
 }
