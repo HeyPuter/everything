@@ -35,6 +35,7 @@ import { closestSnap, handles, snapTargets, snapTranslation, transformSelection,
 import { layerLock } from '../../model/locks';
 import { layerMoveHooks, pickFallbacks } from '../../ui/transform';
 import { formDialog } from '../../ui/dialog';
+import { paramsOf, recordsSettings, settingsDialog } from '../action-settings';
 import { lazy } from '../../app/lazy';
 
 // Exporting pages loads on first use.
@@ -461,13 +462,16 @@ async function renameArtboard(e: Editor, id: string) {
 function presetFieldOptions(): [string, string][] {
   return [['', 'Custom'], ...artboardPresets.map((p): [string, string] => [p.id, `${p.category}: ${p.name} (${p.width} × ${p.height})`])];
 }
-async function newArtboardDialog(e: Editor) {
+async function newArtboardDialog(e: Editor, arg?: unknown) {
   if (e.doc.timeline) throw new Error(artboardConflict);
   const s = defaultSize(e);
   const used = new Set(artboardLayers(e.doc).map((a) => a.name));
   let n = artboardLayers(e.doc).length + 1;
   while (used.has(`Artboard ${n}`)) n++;
-  const pending = formDialog(
+  const pending = settingsDialog(
+    e,
+    'layer.new-artboard',
+    arg,
     'New Artboard',
     [
       { name: 'name', label: 'Name', value: `Artboard ${n}` },
@@ -480,7 +484,8 @@ async function newArtboardDialog(e: Editor) {
     'The artboard is placed beside the existing ones.',
   );
   // A preset fills in the size; typing a size that matches no preset shows Custom.
-  const form = document.querySelector<HTMLFormElement>('#dialog form');
+  // Recorded settings (action playback) open no dialog.
+  const form = paramsOf(arg) ? null : document.querySelector<HTMLFormElement>('#dialog form');
   const field = (name: string) => form?.querySelector<HTMLInputElement & HTMLSelectElement>(`[name="${name}"]`);
   field('preset')?.addEventListener('change', () => {
     const p = presetById(field('preset')!.value);
@@ -510,11 +515,11 @@ async function newArtboardDialog(e: Editor) {
   }
 }
 const topLevelSelection = (e: Editor) => e.selectedIds.size > 0 && [...e.selectedIds].every((id) => e.doc.layers.some((l) => l.id === id && !l.artboard));
-async function fromLayers(e: Editor, group: boolean) {
+async function fromLayers(e: Editor, group: boolean, arg?: unknown) {
   if (e.doc.timeline) throw new Error(artboardConflict);
   let name = '';
   if (!group) {
-    const v = await formDialog('Artboard from Layers', [{ name: 'name', label: 'Name', value: `Artboard ${artboardLayers(e.doc).length + 1}` }], 'Create');
+    const v = await settingsDialog(e, 'layer.artboard-from-layers', arg, 'Artboard from Layers', [{ name: 'name', label: 'Name', value: `Artboard ${artboardLayers(e.doc).length + 1}` }], 'Create');
     if (!v) return;
     // A blank name keeps the default.
     name = v.name.trim();
@@ -536,6 +541,8 @@ const artboardPages = (e: Editor, m: typeof import('./page-export')) =>
     .map((a) => ({ name: a.name, doc: m.artboardDocument(e.doc, a) }));
 
 export function installArtboards(e: Editor) {
+  // Dialog commands record the settings they were confirmed with.
+  for (const id of ['layer.new-artboard', 'layer.artboard-from-layers']) recordsSettings(id);
   registerTool({
     id: 'artboard',
     label: 'Artboard Tool',
@@ -551,9 +558,9 @@ export function installArtboards(e: Editor) {
     deactivate: () => (drag = undefined),
   });
   registerCommand(
-    { id: 'layer.new-artboard', label: 'Artboard…', run: (e) => newArtboardDialog(e), enabled: (e) => e.hasDocument, description: 'Add an artboard with a preset or custom size' },
+    { id: 'layer.new-artboard', label: 'Artboard…', run: (e, arg) => newArtboardDialog(e, arg), enabled: (e) => e.hasDocument, description: 'Add an artboard with a preset or custom size' },
     { id: 'layer.artboard-from-group', label: 'Artboard from Group', run: (e) => fromLayers(e, true), enabled: (e) => e.selectedIds.size === 1 && topLevelSelection(e) && e.layer?.kind === 'group' && !e.layer.frame },
-    { id: 'layer.artboard-from-layers', label: 'Artboard from Layers…', run: (e) => fromLayers(e, false), enabled: topLevelSelection },
+    { id: 'layer.artboard-from-layers', label: 'Artboard from Layers…', run: (e, arg) => fromLayers(e, false, arg), enabled: topLevelSelection },
     {
       id: 'view.fit-artboard',
       label: 'Fit Artboard on Screen',

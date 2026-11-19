@@ -3,7 +3,7 @@
 // rendering and importing video frames as layers.
 import type { Editor } from '../../editor';
 import { commands, contributeMenu, registerCommand, registerOverlay, registerPanel, type Command, type MenuItem } from '../../app/registry';
-import { formDialog } from '../../ui/dialog';
+import { recordsSettings, settingsDialog } from '../action-settings';
 import { allLayers } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
@@ -52,7 +52,7 @@ function ensureAnimation(e: Editor) {
   if (!hasAnimation(e)) e.command('Create Frame Animation', (d) => (d.animation = createAnimation(d)));
 }
 
-async function tweenDialog(e: Editor) {
+async function tweenDialog(e: Editor, arg?: unknown) {
   const anim = animationOf(e)!;
   const sel = selectedFrames(e);
   const pair = sel.length === 2 && sel[1] === sel[0] + 1;
@@ -66,7 +66,10 @@ async function tweenDialog(e: Editor) {
     e.message('Select one frame next to another, or two neighboring frames, to tween.');
     return;
   }
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'animation.tween',
+    arg,
     'Tween',
     [
       { name: 'with', label: 'Tween with', type: 'select', value: options[0][0], options },
@@ -92,9 +95,12 @@ async function tweenDialog(e: Editor) {
   e.update();
 }
 
-async function onionSettings(e: Editor) {
+async function onionSettings(e: Editor, arg?: unknown) {
   const o = animationOf(e)!.onion ?? defaultOnion;
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'animation.onion-settings',
+    arg,
     'Onion Skins',
     [
       // Shows the current state; checked before onion skins were ever set up.
@@ -133,9 +139,9 @@ async function flattenFrames(e: Editor) {
   e.message(`Flattened ${layers.length} frames into layers.`);
 }
 
-async function customDelay(e: Editor) {
+async function customDelay(e: Editor, arg?: unknown) {
   const anim = animationOf(e)!;
-  const v = await formDialog('Frame Delay', [{ name: 'seconds', label: 'Delay (seconds)', type: 'number', value: anim.frames[anim.current].delay / 1000, min: 0, max: maxDelay / 1000, step: 0.01 }], 'OK');
+  const v = await settingsDialog(e, 'animation.delay-custom', arg, 'Frame Delay', [{ name: 'seconds', label: 'Delay (seconds)', type: 'number', value: anim.frames[anim.current].delay / 1000, min: 0, max: maxDelay / 1000, step: 0.01 }], 'OK');
   if (!v) return;
   const ms = Number(v.seconds) * 1000;
   if (!Number.isFinite(ms)) return;
@@ -143,9 +149,9 @@ async function customDelay(e: Editor) {
   e.command('Frame Delay', (d) => setFrameDelay(d, frames, ms));
 }
 
-async function customLoop(e: Editor) {
+async function customLoop(e: Editor, arg?: unknown) {
   const anim = animationOf(e)!;
-  const v = await formDialog('Looping', [{ name: 'plays', label: 'Play the animation (times)', type: 'number', value: anim.loop || 1, min: 1, max: 65535, step: 1 }], 'OK');
+  const v = await settingsDialog(e, 'animation.loop-custom', arg, 'Looping', [{ name: 'plays', label: 'Play the animation (times)', type: 'number', value: anim.loop || 1, min: 1, max: 65535, step: 1 }], 'OK');
   if (!v) return;
   const n = Math.max(1, Math.min(65535, Math.round(Number(v.plays) || 1)));
   e.command('Looping', (d) => (d.animation!.loop = n));
@@ -193,6 +199,8 @@ export function installAnimation(e: Editor) {
   // Onion skins hide while playing.
   onPlaybackChange(() => e.overlay());
   installVideo(e);
+  // Dialog commands record the settings they were confirmed with.
+  for (const id of ['animation.tween', 'animation.onion-settings', 'animation.delay-custom', 'animation.loop-custom', 'timeline.settings', 'timeline.convert-to-frames']) recordsSettings(id);
   const animated = hasAnimation;
   const many = (e: Editor) => frameCount(e) > 1;
   // Playback, stepping and onion skins also drive the video timeline.
@@ -301,7 +309,7 @@ export function installAnimation(e: Editor) {
         e.command('Reverse Frames', (d) => reverseFrames(d, frames));
       },
     },
-    { id: 'animation.tween', label: 'Tween…', enabled: many, description: 'Add frames that interpolate position, opacity and effects', run: (e) => tweenDialog(e) },
+    { id: 'animation.tween', label: 'Tween…', enabled: many, description: 'Add frames that interpolate position, opacity and effects', run: (e, arg) => tweenDialog(e, arg) },
     {
       id: 'animation.frames-from-layers',
       label: 'Make Frames From Layers',
@@ -339,7 +347,7 @@ export function installAnimation(e: Editor) {
         e.command('Onion Skins', (d) => (d.animation!.onion = { ...(d.animation!.onion ?? defaultOnion), enabled: !d.animation!.onion?.enabled }));
       },
     },
-    { id: 'animation.onion-settings', label: 'Onion Skin Settings…', enabled: timed, run: async (e) => (hasTimeline(e) ? (await videoCommands()).videoOnionSettings(e) : onionSettings(e)) },
+    { id: 'animation.onion-settings', label: 'Onion Skin Settings…', enabled: timed, run: async (e, arg) => (hasTimeline(e) ? (await videoCommands()).videoOnionSettings(e, arg) : onionSettings(e, arg)) },
     ...delayPresets.map(
       (ms, i): Command => ({
         id: `animation.delay-${ms}`,
@@ -354,7 +362,7 @@ export function installAnimation(e: Editor) {
         },
       }),
     ),
-    { id: 'animation.delay-custom', label: 'Other…', menu: 'animation.delay', order: 99, enabled: animated, run: (e) => customDelay(e) },
+    { id: 'animation.delay-custom', label: 'Other…', menu: 'animation.delay', order: 99, enabled: animated, run: (e, arg) => customDelay(e, arg) },
     ...([1, 3, 0] as const).map(
       (n, i): Command => ({
         id: `animation.loop-${n === 0 ? 'forever' : n === 1 ? 'once' : n}`,
@@ -366,7 +374,7 @@ export function installAnimation(e: Editor) {
         run: (e) => e.command('Looping', (d) => (d.animation!.loop = n)),
       }),
     ),
-    { id: 'animation.loop-custom', label: 'Other…', menu: 'animation.loop', order: 99, enabled: animated, checked: (e) => ![0, 1, 3].includes(animationOf(e)?.loop ?? 0), run: (e) => customLoop(e) },
+    { id: 'animation.loop-custom', label: 'Other…', menu: 'animation.loop', order: 99, enabled: animated, checked: (e) => ![0, 1, 3].includes(animationOf(e)?.loop ?? 0), run: (e, arg) => customLoop(e, arg) },
     { id: 'file.export-animation', label: 'Export Animation…', enabled: animated, recordable: false, description: 'Animated GIF, PNG or WebP from the Timeline frames', ...lazyRun(exporting, (m, e) => m.exportAnimation(e)) },
     { id: 'file.render-video', label: 'Render Video…', enabled: timed, recordable: false, description: 'Render the animation or video timeline to a WebM video or a PNG image sequence', ...lazyRun(exporting, (m, e) => m.renderVideo(e)) },
     { id: 'file.import-video-frames', label: 'Video Frames to Layers…', recordable: false, description: 'Open frames of a video as layers, optionally as a frame animation', ...lazyRun(videoImport, (m, e, arg) => m.importVideoFrames(e, arg)) },

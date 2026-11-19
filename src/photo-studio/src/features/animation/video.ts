@@ -92,9 +92,9 @@ export function installVideo(e: Editor) {
     // Timelines
     { id: 'timeline.create', label: 'Create Video Timeline', enabled: (e) => docOpen(e) && !hasTimeline(e) && !hasAnimation(e), description: 'Animate layers over time with clips, keyframes and video layers', ...lazyRun(cmd, (m, e) => m.createVideoTimeline(e)) },
     { id: 'timeline.convert-to-video', label: 'Convert to Video Timeline', enabled: hasAnimation, description: 'Frames become clip ranges and hold keyframes', ...lazyRun(cmd, (m, e) => m.convertToVideo(e)) },
-    { id: 'timeline.convert-to-frames', label: 'Convert to Frame Animation…', enabled: hasTimeline, description: 'Sample the timeline into frames', ...lazyRun(cmd, (m, e) => m.convertToFrames(e)) },
+    { id: 'timeline.convert-to-frames', label: 'Convert to Frame Animation…', enabled: hasTimeline, description: 'Sample the timeline into frames', ...lazyRun(cmd, (m, e, arg) => m.convertToFrames(e, arg)) },
     { id: 'timeline.delete', label: 'Delete Video Timeline', enabled: hasTimeline, description: 'Remove clips and keyframes; layers keep the current time', ...lazyRun(cmd, (m, e) => m.deleteTimeline(e)) },
-    { id: 'timeline.settings', label: 'Timeline Settings…', enabled: hasTimeline, description: 'Duration and frame rate', ...lazyRun(cmd, (m, e) => m.timelineSettings(e)) },
+    { id: 'timeline.settings', label: 'Timeline Settings…', enabled: hasTimeline, description: 'Duration and frame rate', ...lazyRun(cmd, (m, e, arg) => m.timelineSettings(e, arg)) },
     { id: 'timeline.frame-rate', label: 'Timeline Frame Rate', hidden: true, enabled: hasTimeline, ...lazyRun(cmd, (m, e, arg) => m.setFrameRate(e, Number(arg))) },
     { id: 'timeline.go-to', label: 'Go to Time', hidden: true, recordable: false, enabled: hasTimeline, ...lazyRun(cmd, (m, e, arg) => m.goTo(e, Number(arg))) },
     {

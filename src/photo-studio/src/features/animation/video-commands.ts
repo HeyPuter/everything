@@ -6,7 +6,7 @@ import type { Editor } from '../../editor';
 import { allLayers, assertSize, findLayer, insertLayerAt, type Layer, type PhotoDocument } from '../../model/document';
 import { hasArtboards } from '../../model/artboard';
 import { newPixelLayer } from '../../model/pixel-layer';
-import { formDialog } from '../../ui/dialog';
+import { settingsDialog } from '../action-settings';
 import { escapeXML } from '../../model/assets';
 import type { TileGrid } from '../../model/tiles';
 import { modal, fieldChecked, fieldValue } from '../files/ui';
@@ -124,10 +124,13 @@ export async function convertToVideo(e: Editor) {
 }
 
 /** Convert the timeline to frames sampled at a chosen rate over the work area or the whole timeline. */
-export async function convertToFrames(e: Editor) {
+export async function convertToFrames(e: Editor, arg?: unknown) {
   const tl = tlOf(e);
   const [ws, we] = workArea(tl);
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'timeline.convert-to-frames',
+    arg,
     'Convert to Frame Animation',
     [
       { name: 'fps', label: 'Frames per second', type: 'number', value: Math.min(10, Math.round(tl.fps)), min: 1, max: Math.round(tl.fps), step: 1 },
@@ -181,10 +184,13 @@ export function deleteTimeline(e: Editor) {
   });
 }
 
-export async function timelineSettings(e: Editor) {
+export async function timelineSettings(e: Editor, arg?: unknown) {
   const tl = tlOf(e);
   const rates = frameRates.includes(tl.fps) ? frameRates : [...frameRates, tl.fps].sort((a, b) => a - b);
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'timeline.settings',
+    arg,
     'Timeline Settings',
     [
       { name: 'seconds', label: 'Duration (seconds)', type: 'number', value: Math.round((tl.duration / tl.fps) * 1000) / 1000, min: 1 / tl.fps, max: maxTimelineFrames / tl.fps, step: 'any' as unknown as number },
@@ -639,10 +645,13 @@ export async function transitionsDialog(e: Editor) {
 
 // ----- Onion skins -----
 
-export async function videoOnionSettings(e: Editor) {
+export async function videoOnionSettings(e: Editor, arg?: unknown) {
   const { defaultOnion, onionBlends } = await import('../../model/animation');
   const o = tlOf(e).onion ?? defaultOnion;
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'animation.onion-settings',
+    arg,
     'Onion Skins',
     [
       // Shows the current state; checked before onion skins were ever set up.

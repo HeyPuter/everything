@@ -11,7 +11,7 @@ import { layerBounds, nestIntoArtboards, unionRect } from '../../model/artboard'
 import { assertEditable, selectedRoots } from '../../model/layers';
 import { layerLock } from '../../model/locks';
 import { closestSnap, snapTargets } from '../../model/transform';
-import { formDialog } from '../../ui/dialog';
+import { recordsSettings, settingsDialog } from '../action-settings';
 import { propertiesEditors } from '../panels/properties';
 import { layoutCommand } from './artboards';
 
@@ -118,14 +118,17 @@ function editFrame(e: Editor, id: string, label: string, edit: (f: FrameLayer) =
   });
 }
 
-async function frameFromLayers(e: Editor) {
+async function frameFromLayers(e: Editor, arg?: unknown) {
   const roots = e.selectedLayers;
   try {
     assertEditable(e.doc, roots);
   } catch (error) {
     return void e.message((error as Error).message);
   }
-  const v = await formDialog(
+  const v = await settingsDialog(
+    e,
+    'layer.frame-from-layers',
+    arg,
     'Frame from Layers',
     [
       { name: 'name', label: 'Name', value: roots.length === 1 ? `${roots[0].name} Frame` : 'Frame' },
@@ -277,6 +280,8 @@ const numField = (key: string, label: string, value: number, min?: number) =>
   `<label class="number-field"><span>${label}</span><input type="number" data-frame="${key}" step="1" ${min !== undefined ? `min="${min}"` : ''} value="${Math.round(value)}" aria-label="Frame ${label}"></label>`;
 
 export function installFrames(_e: Editor) {
+  // Records the settings its dialog was confirmed with.
+  recordsSettings('layer.frame-from-layers');
   registerTool({
     id: 'frame',
     label: 'Frame Tool',
@@ -321,7 +326,7 @@ export function installFrames(_e: Editor) {
     deactivate: () => (drag = undefined),
   });
   registerCommand(
-    { id: 'layer.frame-from-layers', label: 'Frame from Layers…', run: (e) => frameFromLayers(e), enabled: canFrame, description: 'Mask the selected layers with a new frame' },
+    { id: 'layer.frame-from-layers', label: 'Frame from Layers…', run: (e, arg) => frameFromLayers(e, arg), enabled: canFrame, description: 'Mask the selected layers with a new frame' },
     { id: 'layer.convert-to-frame', label: 'Convert to Frame', run: (e) => convertToFrame(e), enabled: canConvert, description: 'Turn a rectangle or ellipse shape into an empty frame, or frame a layer' },
     {
       id: 'frame.place',
