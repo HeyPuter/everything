@@ -3,7 +3,20 @@
 // with arrow keys, undone, rasterized, and kept through a .photo round trip.
 // The compositor's result is compared with the CPU reference.
 import { expect, test, type Page } from '@playwright/test';
-import { boot, historyLabels, idle, menu, openFiles, panel, run, undo } from './helpers';
+import {
+  boot,
+  canvasClick,
+  canvasDrag,
+  historyLabels,
+  idle,
+  menu,
+  openFiles,
+  openImage,
+  panel,
+  run,
+  tool,
+  undo,
+} from './helpers';
 
 async function openScene(page: Page) {
   await page.evaluate(async () => {
@@ -275,4 +288,28 @@ test('relight layer: the WebGL2 compositor matches the CPU reference, shadows an
   });
   await idle(page);
   await matchesCpu(page);
+});
+
+// The path selection tools own the arrow keys: with a relight layer
+// selected they nudge the selected path, not the selected light.
+test('relight layer: arrow keys nudge a selected path with the path tools', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 1200, 900, '#3080ff');
+  await run(page, 'layer.new-relight');
+  await tool(page, 'Rectangle Tool');
+  await page.selectOption('#vec-mode', 'path');
+  await canvasDrag(page, [
+    [200, 200],
+    [600, 500],
+  ]);
+  const left = () =>
+    page.evaluate(() => window.photoStudio.doc.workPath?.paths[0]?.knots[0].points[2]);
+  expect(await left()).toBe(200);
+  const before = await lights(page);
+  await tool(page, 'Path Selection Tool');
+  await canvasClick(page, 200, 280);
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  await expect.poll(left).toBe(203);
+  await idle(page);
+  expect(await lights(page)).toEqual(before);
 });

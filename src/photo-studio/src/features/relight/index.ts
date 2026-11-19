@@ -212,6 +212,8 @@ export function nudgeLight(e: Editor, dx: number, dy: number) {
   return true;
 }
 
+const PATH_TOOLS = new Set(['path-select', 'direct-select']);
+
 function bindKeys(e: Editor) {
   // Capture phase: these keys mean something else elsewhere (N has no
   // command; arrows nudge layers with the Move tool), so they are taken only
@@ -241,6 +243,8 @@ function bindKeys(e: Editor) {
       if (!ev.key.startsWith('Arrow') || relightUi.hidden) return;
       // With a selection and a tool other than Move, arrows keep nudging the selection outline.
       if (e.doc.selection && e.tool !== 'move') return;
+      // The path selection tools nudge the selected path or anchor points.
+      if (PATH_TOOLS.has(e.tool)) return;
       const step = ev.shiftKey ? 10 : 1;
       const dx = ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0,
         dy = ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0;
