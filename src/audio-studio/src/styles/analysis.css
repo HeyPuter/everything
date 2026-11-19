@@ -417,6 +417,10 @@
   font-size: var(--fs-sm);
 }
 
+.match-settings[hidden] {
+  display: none;
+}
+
 .match-settings {
   display: flex;
   flex-wrap: wrap;

@@ -81,6 +81,26 @@ describe('Match Loudness panel', () => {
     expect(doc.length).toBe(RATE * 3);
   });
 
+  it('Undo takes back the last Run, and the settings fold away', async () => {
+    const { app, doc, panel, button } = setup();
+    app.matchLoudnessAdd?.(doc);
+    const before = doc.state;
+    expect(button(/^Undo$/).disabled).toBe(true);
+    button(/^Run$/).click();
+    await expect.poll(() => button(/^Run$/).disabled, { timeout: 5000 }).toBe(false);
+    expect(doc.state).not.toBe(before);
+    expect(button(/^Undo$/).disabled).toBe(false);
+    button(/^Undo$/).click();
+    expect(doc.state).toBe(before);
+    expect(button(/^Undo$/).disabled).toBe(true);
+    const toggle = panel.el.querySelector('.match-settings-toggle');
+    toggle.click();
+    expect(panel.el.querySelector('.match-settings').hidden).toBe(true);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    expect(panel.el.querySelector('.match-settings').hidden).toBe(false);
+  });
+
   it('keeps keyboard focus in the list when files are removed', () => {
     const { app, doc, panel } = setup();
     document.body.append(panel.el);
