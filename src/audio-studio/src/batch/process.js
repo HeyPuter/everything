@@ -6,7 +6,7 @@
 
 import { getEffect } from '../effects/registry.js';
 import { normalizeValues } from '../effects/params.js';
-import { renderEffect } from '../effects/apply.js';
+import { renderEffect, writeResult } from '../effects/apply.js';
 import * as E from '../model/edits.js';
 import { peakOf } from '../effects/commands.js';
 import { exportAudio } from '../export/export.js';
@@ -89,6 +89,34 @@ export async function processItem(item, { favorite, settings, write, signal, onP
   const output = await write(item.output, blob);
   onProgress?.(1);
   return { output: output || item.output };
+}
+
+/**
+ * Applies a favorite to an item without exporting it. An open document (or
+ * a range of one) is processed from its current state; a file from this
+ * device or Puter is opened first with `openDoc(item)`, which returns its
+ * document. Returns { doc, before, state }: the caller applies `state` to
+ * `doc` as one undoable edit (unless the document changed meanwhile).
+ */
+export async function processInPlace(item, { favorite, signal, onProgress, openDoc, applyChain }) {
+  if (!favorite) throw new UserError('Choose a favorite to apply.');
+  const s = item.source;
+  onProgress?.(0.02);
+  const doc = s.type === 'doc' || s.type === 'range' ? s.doc : await openDoc(item);
+  if (signal?.aborted) throw abortError();
+  onProgress?.(0.1);
+  const before = doc.state;
+  const range = s.type === 'range' ? [s.start, s.end] : null;
+  const input = range ? E.cropRange(before, range[0], range[1]) : before;
+  const out = await applyFavoriteToState(favorite, input, { signal, doc, applyChain, onProgress: (f) => onProgress?.(0.1 + 0.85 * f) });
+  if (signal?.aborted) throw abortError();
+  let state = out;
+  if (range) {
+    if (out.channels.length !== before.channels.length) throw new UserError('This favorite changes the number of channels, so it cannot be applied to a range.');
+    state = writeResult(before, range[0], range[1], out.channels.map((c) => c.toArray()), null);
+  }
+  onProgress?.(1);
+  return { doc, before, state };
 }
 
 function abortError() {

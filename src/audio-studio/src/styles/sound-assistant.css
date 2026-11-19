@@ -421,8 +421,15 @@
 
 .batch-label {
   flex: none;
-  width: 58px;
+  width: 66px;
   color: var(--text-dim);
+}
+
+.batch-export-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 66px;
 }
 
 .batch-export {

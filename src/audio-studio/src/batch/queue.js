@@ -74,6 +74,8 @@ export const BATCH_DEFAULTS = {
   dir: null,
   collision: 'rename',
   favorite: '',
+  // Off: the favorite is applied to the files in the editor instead of exporting them.
+  export: true,
 };
 
 /** Settings completed with defaults. */

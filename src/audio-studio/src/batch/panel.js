@@ -4,6 +4,9 @@
 // zipped when there are several files), and Run with per-file progress,
 // status and Cancel. Decoding, effects and encoding all run in workers, and
 // files are processed one at a time so memory stays bounded.
+// With Export off, the Favorite is applied to the files in the editor instead
+// (files from this device or Puter are opened first), each as one undoable
+// edit; Undo reverts the last such run on every file it changed.
 
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
@@ -13,7 +16,7 @@ import { loadFavorites } from '../effects/favorites.js';
 import { PUTER_DRAG_TYPE, resolveMediaItems } from '../panels/media-browser.js';
 import { STATUS_LABELS, addSources, removeItems, resetItems, batchSettings, plannedNames, describeBatch, runQueue, sourceSampleType } from './queue.js';
 import { probeSource } from '../storage/probe.js';
-import { processItem, batchFavoriteProblem } from './process.js';
+import { processItem, processInPlace, loadItem, batchFavoriteProblem } from './process.js';
 import { exportSettingsDialog as openExportSettings, outputWriter, locationText } from './export-settings.js';
 
 const PREFS = 'batchExport';
@@ -52,6 +55,13 @@ export function batchPanel(app) {
   });
   const favNote = h('div.batch-note.faint', { role: 'status' });
   const exportText = h('span.batch-export-text');
+  const exportBox = h('input', { type: 'checkbox', checked: settings().export !== false, onchange: () => {
+    saveSettings({ export: exportBox.checked });
+    refresh();
+  } });
+  // The files the last in-place run changed: [{ doc, state }] (state: what the run left).
+  let lastRun = [];
+  const undoBtn = h('button.btn.batch-undo', { type: 'button', title: 'Undo the last in-place run on every file it changed', onclick: () => undoRun() }, icon('undo-2', 14), h('span', 'Undo'));
   const exportBtn = h('button.btn', { type: 'button', onclick: () => exportSettingsDialog() }, 'Export Settings...');
   const runBtn = h('button.btn.primary.batch-run', { type: 'button', onclick: () => run() }, icon('play', 14), h('span', 'Run'));
   const cancelBtn = h('button.btn.batch-cancel', { type: 'button', hidden: true, onclick: () => running?.abort() }, 'Cancel');
@@ -60,8 +70,8 @@ export function batchPanel(app) {
     'div.batch-foot',
     h('div.batch-field', h('label.batch-label', 'Favorite'), favSel),
     favNote,
-    h('div.batch-field', h('span.batch-label', 'Export'), h('div.batch-export', exportText, exportBtn)),
-    h('div.batch-actions', summary, h('div.spacer'), cancelBtn, runBtn),
+    h('div.batch-field', h('label.check.batch-label.batch-export-check', { title: 'Export the processed files. Off: apply the favorite to the files in the editor.' }, exportBox, 'Export'), h('div.batch-export', exportText, exportBtn)),
+    h('div.batch-actions', summary, h('div.spacer'), cancelBtn, undoBtn, runBtn),
   );
   const el = h('div.batch-panel', toolbar, listWrap, foot);
 
@@ -172,6 +182,7 @@ export function batchPanel(app) {
     const fav = favorites().find((f) => f.id === s.favorite) || null;
     const problem = batchFavoriteProblem(fav);
     if (problem) return app.notify(`${fav.name}: ${problem}`, { error: true });
+    if (s.export === false) return runInPlace(fav);
     // Own startup and final output as well as per-file processing, so another
     // Run or an early Cancel cannot escape the batch's controller.
     running = new AbortController();
@@ -209,6 +220,72 @@ export function batchPanel(app) {
       running = null;
       refresh();
     }
+  }
+
+  /** Export off: the favorite changes the files in the editor, one undoable step per file. */
+  async function runInPlace(fav) {
+    if (!fav) return app.notify('Choose a favorite to apply, or turn Export on to convert the files.', { error: true });
+    running = new AbortController();
+    const signal = running.signal;
+    const changed = [];
+    refresh();
+    try {
+      const open = new Set(app.documents);
+      items = resetItems(items.filter((i) => (i.source.type !== 'doc' && i.source.type !== 'range') || open.has(i.source.doc)));
+      if (!items.length) return;
+      // Files from this device or Puter open in the editor once, and the queue then works on that document.
+      const openDoc = async (item) => {
+        const { doc } = await loadItem(item);
+        app.addDocument(doc, { activate: false });
+        return doc;
+      };
+      announce('Batch processing started');
+      const result = await runQueue(items, {
+        names: items.map(() => 'In place'),
+        signal,
+        onUpdate: (list) => {
+          items = list;
+          renderRows();
+        },
+        process: async (item, o) => {
+          const r = await processInPlace(item, { favorite: fav, openDoc, ...o });
+          if (!app.documents.includes(r.doc)) throw new Error('The file was closed.');
+          if (r.doc.state !== r.before) throw new Error('The file changed while it was processing.');
+          r.doc.apply(`Batch Process: ${fav.name}`, r.state);
+          changed.push({ doc: r.doc, state: r.doc.state });
+          if (item.source.type !== 'doc' && item.source.type !== 'range') item.source = { type: 'doc', doc: r.doc }; // `item` is the queue's own entry
+          return { output: r.doc.name };
+        },
+      });
+      // Opened files now point at their documents (set on the item above), so a second run reuses them.
+      items = result.items;
+      const msg = `${result.done} of ${items.length} file${items.length === 1 ? '' : 's'} changed in place${result.failed ? `, ${result.failed} failed` : ''}${result.cancelled ? `, ${result.cancelled} cancelled` : ''}.`;
+      summary.textContent = msg;
+      announce(msg);
+    } finally {
+      // Undo covers the files this run changed (a run that changed nothing keeps the previous one).
+      if (changed.length) lastRun = changed;
+      running = null;
+      refresh();
+    }
+  }
+
+  /** Reverts the last in-place run on each file it changed that has not been edited since. */
+  function undoRun() {
+    if (running || !lastRun.length) return;
+    let undone = 0;
+    let skipped = 0;
+    for (const { doc, state } of lastRun) {
+      if (app.documents.includes(doc) && doc.state === state && doc.history?.canUndo) {
+        doc.history.undo();
+        undone++;
+      } else skipped++;
+    }
+    lastRun = [];
+    const msg = `Batch Process undone on ${undone} file${undone === 1 ? '' : 's'}${skipped ? `; ${skipped} changed since or closed, left as they are` : ''}.`;
+    summary.textContent = msg;
+    announce(msg);
+    refresh();
   }
 
   // -------------------------------------------------------------- render
@@ -269,7 +346,8 @@ export function batchPanel(app) {
       return;
     }
     probeLocal();
-    const outputs = plannedNames(items, settings());
+    const inPlace = settings().export === false;
+    const outputs = inPlace ? items.map((i) => (i.status === 'done' && i.output ? i.output : 'In place')) : plannedNames(items, settings());
     const hadFocus = body.contains(document.activeElement);
     body.replaceChildren(
       ...items.map((item, i) =>
@@ -295,7 +373,11 @@ export function batchPanel(app) {
     const busy = Boolean(running);
     renderFavorites();
     const s = settings();
-    exportText.textContent = `${describeBatch(s)}; ${locationText(s)}`;
+    const inPlace = s.export === false;
+    exportBox.checked = !inPlace;
+    exportText.textContent = inPlace ? 'Off: the favorite changes the files in the editor.' : `${describeBatch(s)}; ${locationText(s)}`;
+    undoBtn.hidden = !lastRun.length;
+    undoBtn.disabled = busy;
     addOpenBtn.disabled = busy;
     addLocalBtn.disabled = busy;
     addPuterBtn.disabled = busy;
@@ -303,7 +385,8 @@ export function batchPanel(app) {
     removeBtn.disabled = busy || !selected.size;
     clearBtn.disabled = busy || !items.length;
     favSel.disabled = busy;
-    exportBtn.disabled = busy;
+    exportBtn.disabled = busy || inPlace;
+    exportBox.disabled = busy;
     runBtn.disabled = busy || !items.length;
     runBtn.hidden = busy;
     cancelBtn.hidden = !busy;
