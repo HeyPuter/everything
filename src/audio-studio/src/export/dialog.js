@@ -77,7 +77,11 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   }
   const support = await webCodecsSupport();
   const sdk = Boolean(puter.sdk());
-  let locationType = mode === 'download' || !sdk ? 'download' : app.prefs.get('exportLocation') === 'download' ? 'download' : 'puter';
+  // Signed out, a file that did not come from Puter starts on This device (Puter would ask
+  // to sign in first) until a Puter save makes that the remembered choice.
+  const lastLocation = app.prefs.get('exportLocation');
+  const puterFirst = lastLocation === 'puter' || (lastLocation !== 'download' && (puter.isSignedIn() || doc.source?.type === 'puter'));
+  let locationType = mode === 'download' || !sdk ? 'download' : puterFirst ? 'puter' : 'download';
   if (initial && sdk && mode !== 'download') locationType = initial.location.type;
   // Save As, Save a Copy and a mixdown start in the folder of the document's (session's) own Puter file.
   const ownPath = doc.source?.type === 'puter' ? doc.source.path : null;

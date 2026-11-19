@@ -161,4 +161,21 @@ describe('Export File dialog', () => {
       .click();
     await third;
   });
+
+  it('starts on This device while signed out, until a Puter save is remembered', async () => {
+    window.puter = { auth: { isSignedIn: () => false } };
+    const doc = AudioFile.blank({ name: 'Voice.wav', sampleRate: 48000, channels: 1, seconds: 1 });
+    const cancel = () => [...document.querySelectorAll('.dialog-foot .btn')].find((b) => b.textContent === 'Cancel').click();
+    let pending = exportFileDialog(app, doc, { mode: 'saveAs' });
+    await tick(10);
+    expect($('select[aria-label=Location]').value).toBe('download');
+    cancel();
+    await pending;
+    app.prefs.set('exportLocation', 'puter');
+    pending = exportFileDialog(app, doc, { mode: 'saveAs' });
+    await tick(10);
+    expect($('select[aria-label=Location]').value).toBe('puter');
+    cancel();
+    await pending;
+  });
 });
