@@ -372,6 +372,19 @@
   inset: 0;
 }
 
+/* Range picked by a right-drag on the amplitude ruler. */
+.amp-zoom-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+.amp-zoom-band[hidden] {
+  display: none;
+}
+
 .wf-channel-buttons {
   position: absolute;
   inset: 0;

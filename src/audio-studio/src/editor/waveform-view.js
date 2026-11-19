@@ -19,6 +19,7 @@ import './editor-icons.js';
 import { gainRange, fadeRange, fadeCurve, smoothBoundaries } from '../model/edits.js';
 import { WAVEFORM_CONTEXT } from '../ui/menus.js';
 import { contextMenu, resolveItems } from '../ui/menubar.js';
+import { bindRightDrag } from './right-drag.js';
 import { dbToGain, formatDb, framesPerSecond, musicalStep } from '../lib/time.js';
 import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
 import {
@@ -151,6 +152,20 @@ export function linearTicks(lane, amp, unit, bits = 16) {
   return out;
 }
 
+/**
+ * Amplitude zoom that makes the range y0..y1 (px, dragged on the amplitude ruler) fill
+ * the lane it starts in: the edge further from the centre line goes to the lane edge.
+ * Null when the range is outside the lanes.
+ */
+export function ampForRange(lanes, y0, y1, amp) {
+  const lane = lanes.find((l) => y0 >= l.top && y0 <= l.bottom);
+  if (!lane) return null;
+  const mid = (lane.top + lane.bottom) / 2;
+  const half = (lane.bottom - lane.top) / 2;
+  const d = Math.max(Math.abs(y0 - mid), Math.abs(Math.max(lane.top, Math.min(lane.bottom, y1)) - mid), 2);
+  return (amp * half) / d;
+}
+
 /** Amplitude zoom for a vertical drag of dy px on the amplitude ruler (up zooms in). */
 export const ampDragZoom = (amp0, dy) => amp0 * Math.pow(1.01, -dy);
 
@@ -227,6 +242,9 @@ export class WaveformView {
         if (!app.engine.playing) doc.setCursor(Math.min(a, b), { silent: true });
       },
       wheel: (e, x) => this.#wheel(e, x),
+      zoomRange: (a, b) => {
+        if (b - a >= MIN_VIEW_FRAMES) doc.setView(a, b);
+      },
       menuItems: () => this.rulerMenuItems(),
       peaksKey: () => doc.state,
     };
@@ -865,7 +883,7 @@ export class WaveformView {
 
   #ampTitle() {
     const u = AMP_UNITS.find((x) => x.id === this.ampUnit());
-    return `Amplitude (${u.label}). Drag or scroll to zoom, double-click to reset, right-click for units.`;
+    return `Amplitude (${u.label}). Drag or scroll to zoom, right-drag over a range to zoom to it, double-click to reset, right-click for units.`;
   }
 
   /** Unit of the amplitude ruler and grid: 'db', 'percent', 'normalized' or 'samples'. */
@@ -898,10 +916,24 @@ export class WaveformView {
     // Only the amplitude ruler itself: layers (the spectral display's frequency ruler)
     // and the channel buttons share this column and handle their own events.
     const mine = (e) => e.target === el || e.target === this.ampCanvas;
-    el.addEventListener('contextmenu', (e) => {
-      if (!mine(e)) return;
-      e.preventDefault();
-      this.app.openMenu(this.ampMenuItems(), { x: e.clientX, y: e.clientY, label: 'Amplitude ruler' });
+    // Right-click: units and zoom. Right-drag: zoom so the range dragged over fills the lane.
+    const band = h('div.amp-zoom-band', { hidden: true });
+    el.append(band);
+    const yOf = (e) => e.clientY - el.getBoundingClientRect().top;
+    bindRightDrag(el, {
+      filter: mine,
+      move: (a, b) => {
+        const [y0, y1] = [yOf(a), yOf(b)].sort((p, q) => p - q);
+        Object.assign(band.style, { top: `${y0}px`, height: `${y1 - y0}px` });
+        band.hidden = false;
+      },
+      done: (a, b) => {
+        band.hidden = true;
+        const amp = ampForRange(this.lanes(), yOf(a), yOf(b), this.doc.view.amp);
+        if (amp) this.doc.setAmp(amp);
+      },
+      cancel: () => (band.hidden = true),
+      menu: (x, y) => this.app.openMenu(this.ampMenuItems(), { x, y, label: 'Amplitude ruler' }),
     });
     el.addEventListener(
       'wheel',

@@ -345,3 +345,65 @@ describe('overview wheel', () => {
     expect(doc.view.start).toBeGreaterThan(v.start);
   });
 });
+
+describe('right-drag zoom', () => {
+  const pe = (type, x, y, button = 2) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, button, clientX: x, clientY: y });
+    Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+    return e;
+  };
+
+  it('zooms the time ruler to the range dragged over and swallows the menu event after it', async () => {
+    const { app, doc, view } = await makeView();
+    const el = view.ruler.el;
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 24 });
+    el.setPointerCapture = () => {};
+    doc.setView(0, 48000);
+    let menus = 0;
+    app.openMenu = () => menus++;
+    el.dispatchEvent(pe('pointerdown', 250, 10));
+    el.dispatchEvent(pe('pointermove', 400, 10));
+    el.dispatchEvent(pe('pointermove', 500, 10));
+    el.dispatchEvent(pe('pointerup', 500, 10));
+    el.dispatchEvent(pe('contextmenu', 500, 10));
+    expect(doc.view.start).toBe(12000);
+    expect(doc.view.end).toBe(24000);
+    expect(menus).toBe(0);
+  });
+
+  it('opens the menu on release for a right-click without a drag (menu event on press)', async () => {
+    const { app, view } = await makeView();
+    const el = view.ruler.el;
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 24 });
+    el.setPointerCapture = () => {};
+    const opened = [];
+    app.openMenu = (items, o) => opened.push(o.label);
+    el.dispatchEvent(pe('pointerdown', 250, 10));
+    el.dispatchEvent(pe('contextmenu', 250, 10));
+    expect(opened).toEqual([]);
+    el.dispatchEvent(pe('pointerup', 251, 10));
+    expect(opened).toEqual(['Time ruler']);
+    // Menu event on release (after the pointer events) opens it directly.
+    el.dispatchEvent(pe('pointerdown', 250, 10));
+    el.dispatchEvent(pe('pointerup', 250, 10));
+    el.dispatchEvent(pe('contextmenu', 250, 10));
+    expect(opened).toEqual(['Time ruler', 'Time ruler']);
+  });
+
+  it('zooms amplitude so a dragged range fills the lane', async () => {
+    const { ampForRange } = await import('../src/editor/waveform-view.js');
+    const lanes = [{ top: 0, bottom: 200 }];
+    expect(ampForRange(lanes, 50, 90, 1)).toBeCloseTo(2);
+    expect(ampForRange(lanes, 90, 150, 1)).toBeCloseTo(2);
+    expect(ampForRange(lanes, 300, 350, 1)).toBe(null);
+    const { app, doc, view } = await makeView();
+    view.amp.getBoundingClientRect = () => ({ left: 0, top: 0, width: 54, height: 400 });
+    view.amp.setPointerCapture = () => {};
+    app.openMenu = () => {};
+    // Left lane 0..199.5: a drag from 75 to 90 px (centre ~100) zooms to about 4x.
+    view.amp.dispatchEvent(pe('pointerdown', 10, 75));
+    view.amp.dispatchEvent(pe('pointermove', 10, 90));
+    view.amp.dispatchEvent(pe('pointerup', 10, 90));
+    expect(doc.view.amp).toBeCloseTo(4, 0);
+  });
+});

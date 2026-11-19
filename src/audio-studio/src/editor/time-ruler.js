@@ -7,6 +7,7 @@
 //   host.cancelMarkerMove() (drops a marker drag's preview)
 
 import { h } from '../lib/dom.js';
+import { bindRightDrag } from './right-drag.js';
 import { rulerStep, rulerLabel, formatTime, musicalStep, frameRateOf } from '../lib/time.js';
 import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { markerColor } from '../ui/appearance.js';
@@ -85,11 +86,29 @@ export class TimeRuler {
       const m = this.#markerAt(e.offsetX);
       if (m) host.renameMarker?.(m.id);
     });
-    // Optional: host.menuItems() for a right-click menu, host.wheel(e, x) for the mouse wheel.
-    if (host.menuItems) {
-      this.el.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        this.app.openMenu?.(host.menuItems(), { x: e.clientX, y: e.clientY, label: 'Time ruler' });
+    // Optional: host.menuItems() for a right-click menu, host.zoomRange(a, b) for a
+    // right-drag that zooms to the range dragged over, host.wheel(e, x) for the mouse wheel.
+    if (host.menuItems || host.zoomRange) {
+      const xOfEvent = (e) => e.clientX - this.el.getBoundingClientRect().left;
+      bindRightDrag(this.el, {
+        move: (a, b) => {
+          if (!host.zoomRange) return;
+          this.zoomBand = [xOfEvent(a), xOfEvent(b)];
+          this.draw();
+        },
+        done: (a, b) => {
+          this.zoomBand = null;
+          if (host.zoomRange) {
+            const [x0, x1] = [xOfEvent(a), xOfEvent(b)].sort((p, q) => p - q);
+            host.zoomRange(this.frameAt(Math.max(0, x0)), this.frameAt(Math.min(this.width, x1)));
+          }
+          this.draw();
+        },
+        cancel: () => {
+          this.zoomBand = null;
+          this.draw();
+        },
+        menu: (x, y) => host.menuItems && this.app.openMenu?.(host.menuItems(), { x, y, label: 'Time ruler' }),
       });
     }
     if (host.wheel) {
@@ -362,6 +381,12 @@ export class TimeRuler {
           if (xe >= 0 && xe <= W) ctx.fillRect(Math.round(xe) - 3, H - 10, 3, 10);
         }
       }
+    }
+    // A right-drag's zoom range.
+    if (this.zoomBand) {
+      const [a, b] = this.zoomBand;
+      ctx.fillStyle = cssVar('--accent-soft');
+      ctx.fillRect(Math.min(a, b), 0, Math.abs(b - a), H);
     }
     // Markers.
     for (const m of t.markers || []) {
