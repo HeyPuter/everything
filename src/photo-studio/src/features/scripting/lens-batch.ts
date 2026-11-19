@@ -50,6 +50,19 @@ function paramField(p: ParamSpec) {
   return '';
 }
 
+type LensResults = { name: string; bytes: Uint8Array; blob: Blob }[] & { failed: string[] };
+/** Save the corrected images to a Puter folder or download them as a ZIP;
+ * either way the closing message names the images that failed. */
+export function deliverLensResults(e: Editor, files: LensResults, dest: string) {
+  if (!files.length) return;
+  if (dest === 'puter') saveToCloudFolder(e, files, failedNote(files.failed));
+  else {
+    const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
+    download(bytesBlob(zip, 'application/zip'), 'lens-corrected.zip');
+    e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
+  }
+}
+
 export function lensCorrectionBatch(e: Editor): Promise<void> {
   const inputs: Input[] = [];
   const dialog = document.createElement('dialog');
@@ -174,13 +187,7 @@ export function lensCorrectionBatch(e: Editor): Promise<void> {
           lens.dispose();
           if (cancelled) return;
           close();
-          if (!files.length) return;
-          if (dest === 'puter') saveToCloudFolder(e, files);
-          else {
-            const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
-            download(bytesBlob(zip, 'application/zip'), 'lens-corrected.zip');
-            e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
-          }
+          deliverLensResults(e, files, dest);
         })
         .catch((error) => {
           lens.dispose();
