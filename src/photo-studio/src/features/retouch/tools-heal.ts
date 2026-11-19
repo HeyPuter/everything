@@ -6,7 +6,7 @@ import type { DocumentSession } from '../../app/session';
 import type { Tool } from '../../app/registry';
 import type { CanvasPointer } from '../../app/pointer';
 import { brushFor, cursor } from '../paint';
-import { previewTarget, roundIRect } from '../pixels';
+import { previewTarget, retireTiles, roundIRect } from '../pixels';
 import { commitSelectionMask, rasterizePolygon, selectionOp } from '../selection';
 import { StrokeSession } from '../../engine/paint';
 import { maskGrid, selectionGrid } from '../../model/selection';
@@ -413,6 +413,8 @@ const healingBrushTool: Tool = {
       flow: 1,
       target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal', source: sampler },
       selection: selectionGrid(e.doc, e.assets.tiles),
+      // The preview may still be drawing the stroke when it is replaced.
+      release: (ids) => retireTiles(e, ids),
     });
     for (const q of st.points) st.session.addPoint(q[0], q[1]);
     e.preview(previewTarget(e, target, st.session.grid));

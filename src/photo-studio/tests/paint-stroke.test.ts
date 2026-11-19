@@ -236,3 +236,35 @@ describe('pressure-controlled opacity', () => {
     expect(alpha(44)).toBeLessThan(80);
   });
 });
+
+describe('freeing a stroke’s working tiles', () => {
+  it('hands cancelled and unused tiles to the release hook instead of deleting them', () => {
+    const store = new TileStore();
+    const released: string[][] = [];
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip,
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+      release: (ids) => released.push(ids),
+    });
+    s.addPoint(10, 10);
+    const ids = Object.values(s.grid.tiles);
+    expect(ids.length).toBeGreaterThan(0);
+    s.cancel();
+    // A preview still being drawn can read them until the hook frees them.
+    expect(ids.every((id) => store.has(id))).toBe(true);
+    expect(released).toEqual([ids]);
+    // Without a hook the tiles go at once.
+    const t = new StrokeSession(store, emptyGrid(4), {
+      tip,
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+    });
+    t.addPoint(10, 10);
+    const own = Object.values(t.grid.tiles);
+    t.cancel();
+    expect(own.some((id) => store.has(id))).toBe(false);
+  });
+});

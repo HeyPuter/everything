@@ -6,7 +6,7 @@ import type { DocumentSession } from '../app/session';
 import { brushSizeStep } from '../app/shortcuts';
 import { StrokeSession, type BrushTip, type PaintMode, type PaintTarget, type BrushDynamics } from '../engine/paint';
 import { smudgeSpacing } from '../engine/smudge';
-import { pixelTarget, previewTarget, commitTarget, hexRgb, type PixelTarget } from './pixels';
+import { pixelTarget, previewTarget, commitTarget, hexRgb, retireTiles, type PixelTarget } from './pixels';
 import { selectionGrid, canvasRect } from '../model/selection';
 import { layerLock } from '../model/locks';
 import { readMask, readRGBA, writeRect } from '../model/tiles';
@@ -464,6 +464,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         target: paint,
         selection: sel,
         seed: (Math.random() * 2 ** 31) | 0,
+        release: (ids) => retireTiles(e, ids),
         // Paint stops at the canvas edge: strokes never store hidden pixels beyond it.
         clip: canvasRect(e.doc),
         ...(patternPreviewOn(e) ? { wrap: { width: e.doc.width, height: e.doc.height } } : {}),

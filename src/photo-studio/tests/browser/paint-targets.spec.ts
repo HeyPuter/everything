@@ -761,3 +761,53 @@ test('Escape drops a Spot Healing or Remove stroke being painted', async ({ page
     await expect(page.locator('.retouch-stroke')).toHaveCount(0);
   }
 });
+
+test('a stroke preview still waiting behind a slow render is not left without its pixels', async ({
+  page,
+}) => {
+  // A large document draws slowly; a stroke's preview can wait in the
+  // renderer's queue while the stroke is cancelled or replaced.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const messages: string[] = [];
+    (window as unknown as { __messages: string[] }).__messages = messages;
+    const message = e.message.bind(e);
+    e.message = (m: string) => {
+      messages.push(String(m));
+      return message(m);
+    };
+    const r = e.renderer as unknown as { draw: (...args: unknown[]) => Promise<void> };
+    const draw = r.draw.bind(r);
+    r.draw = async (...args: unknown[]) => {
+      await new Promise((done) => setTimeout(done, 150));
+      return draw(...args);
+    };
+  });
+  await page.evaluate(() => window.photoStudio.setTool('healing-brush'));
+  await page.keyboard.down('Alt');
+  await page.mouse.click(...(await client(page, 20, 20)));
+  await page.keyboard.up('Alt');
+  await idle(page);
+  for (let i = 0; i < 3; i++) {
+    await page.mouse.move(...(await client(page, 60 + i * 30, 60)));
+    await page.mouse.down();
+    await page.mouse.up();
+    await idle(page);
+  }
+  // Brush strokes cancelled with Escape.
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  for (let i = 0; i < 3; i++) {
+    await page.mouse.move(...(await client(page, 40, 90 + i * 5)));
+    await page.mouse.down();
+    await page.mouse.move(...(await client(page, 120, 90 + i * 5)), { steps: 5 });
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+  }
+  await idle(page);
+  await page.waitForTimeout(800);
+  await idle(page);
+  const messages = await page.evaluate(
+    () => (window as unknown as { __messages: string[] }).__messages,
+  );
+  expect(messages.filter((m) => /Missing pixel tile/.test(m))).toEqual([]);
+});
