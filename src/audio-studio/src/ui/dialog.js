@@ -5,6 +5,62 @@ import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 
 let openCount = 0;
+/** Where each dialog (by title) was last moved to, for this session: { x, y } offsets. */
+const positions = new Map();
+/** Pixels of a moved dialog's title bar kept inside the window. */
+const KEEP = 80;
+
+const sheetLayout = () => typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
+
+/**
+ * Lets a dialog be dragged by its title bar, like a desktop window, and puts
+ * it back where it was last left. Phone-width bottom sheets stay put.
+ */
+function makeMovable(dialog, head, key) {
+  let offset = { x: 0, y: 0 };
+  const apply = (x, y) => {
+    const r = dialog.getBoundingClientRect();
+    const left = r.left - offset.x;
+    const top = r.top - offset.y;
+    const hh = head.offsetHeight || 32;
+    offset = {
+      x: Math.round(Math.max(KEEP - (left + r.width), Math.min(window.innerWidth - KEEP - left, x))),
+      y: Math.round(Math.max(-top, Math.min(window.innerHeight - hh - top, y))),
+    };
+    dialog.style.translate = offset.x || offset.y ? `${offset.x}px ${offset.y}px` : '';
+  };
+  head.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || sheetLayout()) return;
+    if (e.target instanceof Element && e.target.closest('button, input, select, textarea, a, [role=button]')) return;
+    e.preventDefault();
+    head.setPointerCapture?.(e.pointerId);
+    const start = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+    head.classList.add('moving');
+    const move = (ev) => apply(start.ox + ev.clientX - start.x, start.oy + ev.clientY - start.y);
+    const up = () => {
+      head.classList.remove('moving');
+      head.removeEventListener('pointermove', move);
+      head.removeEventListener('pointerup', up);
+      head.removeEventListener('pointercancel', up);
+      positions.set(key, { ...offset });
+    };
+    head.addEventListener('pointermove', move);
+    head.addEventListener('pointerup', up);
+    head.addEventListener('pointercancel', up);
+  });
+  // Double-clicking the title bar puts the dialog back in the middle.
+  head.addEventListener('dblclick', (e) => {
+    if (e.target instanceof Element && e.target.closest('button')) return;
+    apply(0, 0);
+    positions.delete(key);
+  });
+  return {
+    restore() {
+      const p = positions.get(key);
+      if (p && !sheetLayout()) apply(p.x, p.y);
+    },
+  };
+}
 
 /**
  * Opens a dialog. `build(close)` returns the body content; `buttons` are
@@ -46,12 +102,10 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
         ),
       );
     }
-    dialog.append(
-      // A div, not a <header>: outside sectioning content that is a second page banner landmark.
-      h('div.dialog-head', h('h2.dialog-title', { id: titleId }, title), h('button.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: () => close(null) }, icon('x'))),
-      h('div.dialog-body', content),
-      buttons.length ? foot : null,
-    );
+    // A div, not a <header>: outside sectioning content that is a second page banner landmark.
+    const head = h('div.dialog-head', h('h2.dialog-title', { id: titleId }, title), h('button.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: () => close(null) }, icon('x')));
+    const movable = makeMovable(dialog, head, typeof title === 'string' ? title : className || 'dialog');
+    dialog.append(head, h('div.dialog-body', content), buttons.length ? foot : null);
     const keys = (e) => {
       if (!backdrop.isConnected) return;
       // Only the topmost dialog handles keys (a dialog may open another).
@@ -89,6 +143,7 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       if (e.target === backdrop) close(null);
     });
     document.body.append(backdrop);
+    movable.restore();
     // The first candidate that takes focus (a layout may hide some, e.g. tabs on phones).
     const preferred = [].concat(initialFocus || []).flatMap((sel) => [...dialog.querySelectorAll(sel)]);
     const candidates = [...preferred, dialog.querySelector('input, select, textarea'), dialog.querySelector('.btn.primary'), dialog.querySelector('button')];

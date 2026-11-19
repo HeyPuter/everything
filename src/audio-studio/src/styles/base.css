@@ -474,6 +474,18 @@ input[type='range'].slider::-moz-range-thumb {
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* The title bar moves the dialog (desktop layouts). */
+@media (min-width: 601px) {
+  .dialog-head {
+    cursor: move;
+    user-select: none;
+  }
+
+  .dialog-head .icon-btn {
+    cursor: pointer;
+  }
+}
+
 .dialog-title {
   flex: 1;
   margin: 0;
