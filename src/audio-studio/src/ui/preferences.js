@@ -25,6 +25,7 @@ import { WINDOWS, FFT_SIZES, FLOORS, settings as spectralSettings, setSettings a
 import { ACCENTS, WAVE_PRESETS, EDITOR_COLORS, COLOR_FIELDS, cleanColor, toHex } from './appearance.js';
 import { VIDEO_ZOOMS } from '../video/video-panel.js';
 import { cssVar } from './theme.js';
+import { LOOKS, lookPicker } from './looks.js';
 import { formatBytesShort } from '../export/formats.js';
 import { userTemplates, saveTemplate, deleteTemplate, renameTemplate, templateFileText, parseTemplateFile } from '../multitrack/templates.js';
 
@@ -88,6 +89,10 @@ export const CATEGORIES = [
     id: 'appearance',
     label: 'Appearance',
     sections: [
+      {
+        title: 'Look',
+        items: [{ type: 'custom', bare: true, label: 'Look: theme, brightness, accent and editor colors together', keys: ['theme', 'uiBrightness', 'accentColor', 'waveColors'], keywords: 'look preset scheme bundle ' + LOOKS.map((l) => l.label).join(' '), render: lookPicker }],
+      },
       {
         title: 'Editor Colors',
         items: [{ type: 'custom', bare: true, label: 'Waveform, background, selection, playhead and marker colors', keys: ['waveColors'], keywords: 'color colour preset waveform background selection playhead marker cue subclip cart cd save delete', render: colorEditor }],

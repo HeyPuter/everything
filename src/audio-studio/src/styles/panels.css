@@ -950,6 +950,83 @@
   outline-offset: 2px;
 }
 
+/* Looks (Preferences > Appearance): radio cards with a small preview. */
+.look-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.look-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.look-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 4px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.look-card:hover {
+  border-color: var(--btn-border-hover);
+}
+
+.look-card[aria-checked='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--text-strong);
+}
+
+.look-preview {
+  display: grid;
+  grid-template-columns: 30% 1fr;
+  gap: 2px;
+  height: 46px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.look-preview-panel {
+  position: relative;
+  border-radius: 2px;
+}
+
+.look-preview-tab {
+  position: absolute;
+  left: 4px;
+  top: 5px;
+  width: 50%;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.look-preview-editor {
+  display: flex;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.look-preview-editor svg {
+  width: 100%;
+  height: 100%;
+}
+
+.look-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
+
 .prefs-wave-colors {
   display: flex;
   flex-direction: column;
