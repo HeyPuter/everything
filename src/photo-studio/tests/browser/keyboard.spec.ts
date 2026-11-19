@@ -178,6 +178,7 @@ test('tooltips name the modifier key of the platform, not a placeholder or the M
       return { auto: document.querySelector('#auto-select')?.closest('label')?.title ?? document.querySelector('#auto-select')?.getAttribute('title') ?? '', swatch: document.querySelector('[data-swatch]')?.getAttribute('title') ?? '' };
     });
   const mac = await tips();
+  expect(await page.locator('.top-search').getAttribute('title')).toBe('Search commands (⌘F)');
   expect(mac.auto).toContain('⌘');
   expect(mac.auto).not.toMatch(/\bMod\b/);
   expect(mac.swatch).toContain('⌘-click');
@@ -185,6 +186,7 @@ test('tooltips name the modifier key of the platform, not a placeholder or the M
   await page.reload();
   await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
   const win = await tips();
+  expect(await page.locator('.top-search').getAttribute('title')).toBe('Search commands (Ctrl+F)');
   expect(win.auto).toContain('hold Ctrl');
   expect(win.swatch).toContain('Ctrl-click');
   expect(win.swatch).not.toContain('⌘');

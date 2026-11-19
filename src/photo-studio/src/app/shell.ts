@@ -1,4 +1,5 @@
 import { svg } from './icons';
+import { formatShortcut } from './shortcuts';
 import { labelDialogsOnOpen } from '../ui/dialog';
 import { installLongPress } from './long-press';
 
@@ -12,7 +13,7 @@ export function appShell(root: HTMLElement) {
   <div class="brand" title="Photo Studio" aria-label="Photo Studio">${appIcon(22)}</div>
   <nav class="menubar" aria-label="Application menu"></nav>
   <div class="top-actions">
-    <button class="top-search" data-command="edit.search" title="Search commands (⌘F)" aria-label="Search commands">${svg('search', 16)}</button>
+    <button class="top-search" data-command="edit.search" title="Search commands (${formatShortcut('Mod+F')})" aria-label="Search commands">${svg('search', 16)}</button>
     <button data-command="file.save" class="save-button" title="Save to Puter">${svg('cloud-upload', 16)}<span>Save</span></button>
     <button data-command="file.export-as" class="export-button" title="Export">Export ${svg('arrow-up-right', 16)}</button>
     <button data-command="app.account" id="account" class="account" title="Puter account" aria-label="Puter account">${svg('user-round', 16)}</button>
