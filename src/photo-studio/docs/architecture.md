@@ -24,7 +24,10 @@ This guide is for contributors adding features.
   Shortcuts use `Mod` for Command/Ctrl, e.g. `Mod+Shift+N`, `Alt+Backspace`, `F5`.
 - `registerTool({ id, label, key, icon, group, options, bindOptions, pointerDown/Move/Up, hover, keyDown, overlay, activate, deactivate, cursor })`.
   `group` selects the toolbar slot (see `toolGroups` in `src/app/toolbar.ts`); tools in
-  one group share a slot with a flyout, and Shift+key cycles them.
+  one group share a slot with a flyout, and Shift+key cycles them. Holding a tool's
+  key uses it only while the key is down (`src/app/spring-tools.ts`). Reset Tool
+  returns the option keys a tool's `options` reads (found by the tool preset
+  recorder) to the values recorded once all features installed.
   Pointer events give `CanvasPointer` (`x`, `y` in document pixels, `pressure`, modifier flags, `coalesced` samples).
 - `registerPanel({ id, title, icon, location: 'dock-top'|'dock-middle'|'dock-bottom'|'strip', mount, update, menu })`.
   `mount` runs once; `update` runs after every edit while the panel is visible.
@@ -81,6 +84,16 @@ reachability) and `tests/browser/smoke-all.spec.ts` runs every command, tool and
 panel in the browser; add fixture state there when a new command needs it.
 Options-bar controls get tooltips from `src/app/option-tips.ts` when they have no
 `title`; add an entry for a new control whose label alone does not explain it.
+
+The Quick Actions Bar (`src/features/retouch/taskbar.ts`) picks its buttons from
+`taskbar-actions.ts`, a DOM-free table from the editor state (selection, Quick
+Mask, mask target, layer kind, several layers, empty) to commands, tools and
+command menus; add an entry there rather than special-casing the bar. Tools with
+their own on-canvas controls (crop, transform and warp sessions) hide it.
+
+Brush, Pencil and Eraser strokes take `StrokeOptions.symmetry`, a list of affine
+transforms from `src/imaging/symmetry.ts`; the engine stamps each dab through
+every transform, so a symmetric stroke is still one session and one undo step.
 
 ## Documents, history and tiles
 
