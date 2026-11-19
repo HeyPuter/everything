@@ -225,6 +225,7 @@ export class Dock extends Emitter {
           type: 'button',
           role: 'tab',
           id: tabId,
+          dataset: { label: this.#title(id) },
           'aria-selected': String(active),
           // Only the active tab's panel is in the DOM.
           'aria-controls': active ? `body-${id}` : null,

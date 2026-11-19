@@ -402,6 +402,10 @@ puter-user-menu::part(apps-panel) {
 
 .panel-tab {
   position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   height: 100%;
   padding: 0 8px;
   border: 0;
@@ -422,6 +426,16 @@ puter-user-menu::part(apps-panel) {
 
 .panel-tab[aria-selected='true'] {
   color: var(--text-strong);
+  font-weight: 600;
+}
+
+/* Reserves the bold label's width, so tabs keep their places when the current one changes. */
+.panel-tab[data-label]::before {
+  content: attr(data-label) / '';
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 600;
 }
 
 .panel-tab[aria-selected='true']::after {
