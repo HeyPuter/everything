@@ -7,6 +7,7 @@ import { decontaminate, refineEdge } from '../../imaging/segment/refine';
 import { colorRange, type ColorRangePreset } from '../../imaging/segment/color-select';
 import { boundingBox } from '../../imaging/segment/mask-ops';
 import { KNOWN, UNKNOWN, solveMembrane } from '../../imaging/retouch/poisson';
+import { blendColor } from '../../imaging/blend/modes';
 
 export type Pt = [number, number];
 
@@ -499,4 +500,52 @@ export function prefillHole(img: RGBA8, hole: Mask8): RGBA8 {
       img.data[o + 3] = a;
     }
   return img;
+}
+
+// ----- Healing modes -----
+export type HealMode = 'normal' | 'replace' | 'multiply' | 'screen' | 'darken' | 'lighten' | 'color' | 'luminosity';
+export const HEAL_MODES: [HealMode, string][] = [
+  ['normal', 'Normal'],
+  ['replace', 'Replace'],
+  ['multiply', 'Multiply'],
+  ['screen', 'Screen'],
+  ['darken', 'Darken'],
+  ['lighten', 'Lighten'],
+  ['color', 'Color'],
+  ['luminosity', 'Luminosity'],
+];
+export const isHealMode = (v: unknown): v is HealMode => HEAL_MODES.some(([m]) => m === v);
+/** Apply a healing tool's Mode to its result. Normal keeps the healed pixels;
+ * Replace copies the source with the stroke's soft edge (keeping its grain
+ * and texture); the blend modes combine the healed pixels with what was there,
+ * inside the stroke only. */
+export function applyHealMode(mode: HealMode, backdrop: RGBA8, healed: RGBA8, mask: Mask8, source?: RGBA8): RGBA8 {
+  if (mode === 'normal' || (mode === 'replace' && !source)) return healed;
+  const out: RGBA8 = { width: healed.width, height: healed.height, data: new Uint8ClampedArray(healed.data) };
+  const b = backdrop.data,
+    h = healed.data,
+    o = out.data;
+  const bc = [0, 0, 0],
+    sc = [0, 0, 0],
+    rc = [0, 0, 0];
+  for (let i = 0, p = 0; i < mask.data.length; i++, p += 4) {
+    const k = mask.data[i] / 255;
+    if (!k) {
+      for (let c = 0; c < 4; c++) o[p + c] = b[p + c];
+      continue;
+    }
+    if (mode === 'replace') {
+      const s = source!.data;
+      for (let c = 0; c < 4; c++) o[p + c] = b[p + c] + (s[p + c] - b[p + c]) * k;
+      continue;
+    }
+    for (let c = 0; c < 3; c++) {
+      bc[c] = b[p + c] / 255;
+      sc[c] = h[p + c] / 255;
+    }
+    blendColor(mode, bc, sc, rc);
+    for (let c = 0; c < 3; c++) o[p + c] = b[p + c] + (rc[c] * 255 - b[p + c]) * k;
+    o[p + 3] = b[p + 3] + (h[p + 3] - b[p + 3]) * k;
+  }
+  return out;
 }

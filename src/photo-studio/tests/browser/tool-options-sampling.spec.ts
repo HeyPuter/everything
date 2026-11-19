@@ -243,3 +243,49 @@ test('Blur with Sample All Layers retouches onto an empty layer above the photo'
   expect(await read(photo, 100, 50)).toEqual([0, 0, 255, 255]);
   expect((await read(null, 20, 50))[3]).toBe(0);
 });
+
+test('the Healing Brush in Replace mode copies the source; Spot Healing offers the blend modes', async ({
+  page,
+}) => {
+  // Gray photo with a dark band at the top to sample from.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA, writeRect } = await import('/src/model/tiles.ts');
+    const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+    e.command('Band', (d) => {
+      const l = d.layers[0];
+      const img = readRGBA(e.assets.tiles, l.pixels!, { x: 0, y: 0, width: 200, height: 100 });
+      for (let i = 0; i < img.data.length; i += 4)
+        img.data.set(i < 200 * 30 * 4 ? [40, 40, 40, 255] : [160, 160, 160, 255], i);
+      setLayerPixels(l, writeRect(e.assets.tiles, l.pixels!, 0, 0, img), d);
+    });
+  });
+  await idle(page);
+  // (The tool() helper's flyout lookup also matches the Spot Healing Brush by name.)
+  await page.evaluate(() => window.photoStudio.setTool('healing-brush'));
+  await page.locator('#heal-mode').selectOption('replace');
+  await page.locator('#retouch-size').fill('20');
+  await page.locator('#retouch-size').press('Enter');
+  await canvasClick(page, 100, 15, ['Alt']);
+  await canvasDrag(page, [
+    [100, 70],
+    [101, 70],
+  ]);
+  await idle(page);
+  const px = (x: number, y: number) =>
+    page.evaluate(
+      async ({ x, y }) => {
+        const e = window.photoStudio;
+        const { readRGBA } = await import('/src/model/tiles.ts');
+        return readRGBA(e.assets.tiles, e.layer!.pixels!, { x, y, width: 1, height: 1 }).data[0];
+      },
+      { x, y },
+    );
+  // The source's dark gray, copied as is (a Normal heal would match the surroundings).
+  expect(await px(100, 70)).toBeLessThan(70);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Healing Brush');
+  // Spot Healing offers the blend modes, not Replace.
+  await tool(page, 'Spot Healing Brush Tool');
+  await expect(page.locator('#heal-mode option[value="replace"]')).toHaveCount(0);
+  await expect(page.locator('#heal-mode option[value="darken"]')).toHaveCount(1);
+});

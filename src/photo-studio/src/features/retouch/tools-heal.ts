@@ -29,6 +29,10 @@ import {
   strokeBounds,
   strokeMask,
   unionRects,
+  applyHealMode,
+  HEAL_MODES,
+  isHealMode,
+  type HealMode,
   type Pt,
 } from './logic';
 import { cropSafe, imageSampler, imageURL, retouchTarget, selectionMask, sourceRect, writeResult, type PixelsTarget } from './source';
@@ -149,8 +153,11 @@ async function spotHeal(e: Editor, s: Collected) {
   const before = await sourceRect(e, R, false, target);
   const img = sampleAll ? await sourceRect(e, R, true) : cloneRGBA8(before);
   const weight = binarize(mask);
+  // The worker takes the buffers; a Mode other than Normal still needs them.
+  const mode = healMode(e, 'spotMode');
+  const kept = mode === 'normal' ? undefined : { img: cloneRGBA8(img), mask: { ...mask, data: new Uint8Array(mask.data) } };
   const result = await heavy<RGBA8>(e, 'Healing', 'spot-heal', { img, mask, mode: (e.settings.spotType as SpotHealMode) ?? 'context', seed: s.points.length }, buffersOf(img, mask));
-  if (result) writeResult(e, target, R, before, result, 'Spot Healing Brush', { sampleAll, weight });
+  if (result) writeResult(e, target, R, before, kept ? applyHealMode(mode, kept.img, result, kept.mask) : result, 'Spot Healing Brush', { sampleAll, weight });
 }
 const spotHealingTool = collectingTool(
   {
@@ -164,10 +171,11 @@ const spotHealingTool = collectingTool(
         ['context', 'Context Aware'],
         ['proximity', 'Proximity Match'],
         ['texture', 'Create Texture'],
-      ])}${checkbox('spot-all', 'Sample All Layers', !!e.settings.spotSampleAll)}`,
+      ])}${healModeField(e, 'spotMode', false)}${checkbox('spot-all', 'Sample All Layers', !!e.settings.spotSampleAll)}`,
     bindOptions: ({ e, el }) => {
       bindSize(el, SPOT);
       bindHardness(el, SPOT);
+      bindSelect(e, el, 'heal-mode', 'spotMode');
       bindSelect(e, el, 'spot-type', 'spotType');
       bindCheck(e, el, 'spot-all', 'spotSampleAll');
     },
@@ -275,6 +283,12 @@ const removeTool = collectingTool(
 // ----- Healing Brush -----
 // Shares sources, offsets and transforms with the Clone Stamp (Clone Source panel).
 const HEAL = 'healing-brush';
+const healMode = (e: Editor, key: string): HealMode => (isHealMode(e.settings[key]) ? (e.settings[key] as HealMode) : 'normal');
+/** The Mode menu of the healing brushes (Replace needs a sampled source). */
+function healModeField(e: Editor, key: string, replace: boolean) {
+  const list = HEAL_MODES.filter(([m]) => replace || m !== 'replace');
+  return `<label title="How the healed pixels combine with the image: Replace keeps the source's grain and texture">Mode <select id="heal-mode">${list.map(([m, l]) => `<option value="${m}" ${healMode(e, key) === m ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+}
 type HealStroke = { session?: StrokeSession; target?: PixelsTarget; points: Pt[]; anchor: [number, number]; src: CloneSource; mode: SampleMode; done: boolean };
 let healStroke: HealStroke | undefined;
 async function finishHealing(e: Editor) {
@@ -300,8 +314,12 @@ async function finishHealing(e: Editor) {
       const src = renderMapped(isTranslation(st.src) ? imageSampler(image) : bilinearSampler(image), map, D);
       const mask = strokeMask(st.points, b.size, b.hardness, D);
       const weight = binarize(mask);
-      const result = await heavy<RGBA8>(e, 'Healing', 'heal', { dst, src, mask, offset: { x: 0, y: 0 } }, buffersOf(dst, src, mask));
-      if (result) writeResult(e, target, D, before, result, 'Healing Brush', { sampleAll, weight });
+      const mode = healMode(e, 'healMode');
+      // The worker takes the buffers; Replace still needs the source.
+      const kept = mode === 'replace' ? cloneRGBA8(src) : undefined;
+      const backdrop = mode === 'normal' ? undefined : cloneRGBA8(dst);
+      const result = await heavy<RGBA8>(e, 'Healing', 'heal', { dst, src, mask: { ...mask, data: new Uint8Array(mask.data) }, offset: { x: 0, y: 0 } }, buffersOf(dst, src));
+      if (result) writeResult(e, target, D, before, backdrop ? applyHealMode(mode, backdrop, result, mask, kept) : result, 'Healing Brush', { sampleAll, weight });
       else e.preview(e.doc);
     });
   } finally {
@@ -317,10 +335,11 @@ const healingBrushTool: Tool = {
   group: 'heal',
   cursor: () => 'none',
   options: (e) =>
-    `${sizeField(HEAL)}${hardnessField(HEAL)}${checkbox('heal-aligned', 'Aligned', e.settings.healAligned !== false)}${sampleOptions('heal-sample', sampleMode(e, 'heal'))}<button class="icon-button toggle" id="heal-ignore-adj" aria-pressed="${ignoreAdjustments(e)}" title="Ignore adjustment layers when sampling" aria-label="Ignore adjustment layers when sampling">${svg('layers-2', 16)}</button><button class="icon-button" id="heal-panel" title="Clone Source panel" aria-label="Open the Clone Source panel">${svg('copy-plus', 16)}</button>`,
+    `${sizeField(HEAL)}${hardnessField(HEAL)}${healModeField(e, 'healMode', true)}${checkbox('heal-aligned', 'Aligned', e.settings.healAligned !== false)}${sampleOptions('heal-sample', sampleMode(e, 'heal'))}<button class="icon-button toggle" id="heal-ignore-adj" aria-pressed="${ignoreAdjustments(e)}" title="Ignore adjustment layers when sampling" aria-label="Ignore adjustment layers when sampling">${svg('layers-2', 16)}</button><button class="icon-button" id="heal-panel" title="Clone Source panel" aria-label="Open the Clone Source panel">${svg('copy-plus', 16)}</button>`,
   bindOptions: ({ e, el }) => {
     bindSize(el, HEAL);
     bindHardness(el, HEAL);
+    bindSelect(e, el, 'heal-mode', 'healMode');
     bindSampleOptions(e, el, 'heal');
   },
   activate: (e) => warmSource(e, sampleMode(e, 'heal')),
