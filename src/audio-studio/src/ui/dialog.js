@@ -5,8 +5,39 @@ import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 
 let openCount = 0;
-/** Where each dialog (by title) was last moved to, for this session: { x, y } offsets. */
-const positions = new Map();
+/** Where each dialog (by title) was last moved to: { x, y } offsets from the centered place. */
+const memory = new Map();
+let store = {
+  get: (key) => memory.get(key),
+  set: (key, p) => (p ? memory.set(key, p) : memory.delete(key)),
+};
+/** At most this many dialogs' places are kept. */
+const MAX_PLACES = 60;
+
+/**
+ * Keeps dialog places in preferences (a { title: { x, y } } object under `key`)
+ * instead of for this session only.
+ */
+export function rememberDialogPlaces(prefs, key = 'dialogPositions') {
+  const all = () => {
+    const v = prefs.get(key);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  };
+  store = {
+    get: (name) => {
+      const p = all()[name];
+      return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? p : undefined;
+    },
+    set: (name, p) => {
+      const next = { ...all() };
+      delete next[name];
+      if (p) next[name] = { x: p.x, y: p.y };
+      const names = Object.keys(next);
+      for (const old of names.slice(0, Math.max(0, names.length - MAX_PLACES))) delete next[old];
+      prefs.set(key, next);
+    },
+  };
+}
 /** Pixels of a moved dialog's title bar kept inside the window. */
 const KEEP = 80;
 
@@ -42,7 +73,7 @@ function makeMovable(dialog, head, key) {
       head.removeEventListener('pointermove', move);
       head.removeEventListener('pointerup', up);
       head.removeEventListener('pointercancel', up);
-      positions.set(key, { ...offset });
+      store.set(key, offset.x || offset.y ? { ...offset } : null);
     };
     head.addEventListener('pointermove', move);
     head.addEventListener('pointerup', up);
@@ -52,7 +83,7 @@ function makeMovable(dialog, head, key) {
   head.addEventListener('dblclick', (e) => {
     if (e.target instanceof Element && e.target.closest('button')) return;
     apply(0, 0);
-    positions.delete(key);
+    store.set(key, null);
   });
   /**
    * Moves a dialog the user has not placed off `rect` (client px), e.g. the Preview
@@ -72,7 +103,7 @@ function makeMovable(dialog, head, key) {
   };
   return {
     restore() {
-      const p = positions.get(key);
+      const p = store.get(key);
       if (p && !sheetLayout()) apply(p.x, p.y);
     },
   };

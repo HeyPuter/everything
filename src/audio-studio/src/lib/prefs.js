@@ -9,6 +9,7 @@ export const DEFAULTS = {
   theme: 'system',
   workspace: 'Default',
   layouts: {},
+  dialogPositions: {}, // { [dialog title]: { x, y } } where each dialog was last moved to
   timeFormat: 'decimal',
   tempo: 120,
   beatsPerBar: 4,
@@ -146,7 +147,7 @@ export const DEFAULTS = {
 };
 
 /** Keys left out of exported settings: they point at files on this device or account. */
-export const LOCAL_ONLY_KEYS = new Set(['recent', 'exportFolder', 'mediaFolder', 'inputDevice', 'outputDevice']);
+export const LOCAL_ONLY_KEYS = new Set(['recent', 'exportFolder', 'mediaFolder', 'inputDevice', 'outputDevice', 'dialogPositions']);
 
 const SETTINGS_KIND = 'audio-studio-settings';
 

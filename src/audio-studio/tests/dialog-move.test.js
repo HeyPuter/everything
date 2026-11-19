@@ -1,6 +1,6 @@
 // Dialogs move by their title bar and reopen where they were left.
 import { describe, it, expect } from 'vitest';
-import { openDialog } from '../src/ui/dialog.js';
+import { openDialog, rememberDialogPlaces } from '../src/ui/dialog.js';
 
 const at = (type, x, y) => {
   const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
@@ -51,5 +51,23 @@ describe('movable dialogs', () => {
     expect(dialog.style.translate).toBe('');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await again;
+  });
+
+  it('keeps places in preferences when asked to, so they survive a reload', async () => {
+    const values = { dialogPositions: { Elsewhere: { x: 5, y: 6 } } };
+    const prefs = { get: (k) => values[k], set: (k, v) => (values[k] = v) };
+    rememberDialogPlaces(prefs);
+    const done = openDialog({ title: 'Stored', body: 'x' });
+    const dialog = document.querySelector('.dialog');
+    layOut(dialog);
+    const head = dialog.querySelector('.dialog-head');
+    head.dispatchEvent(at('pointerdown', 500, 250));
+    head.dispatchEvent(at('pointermove', 520, 260));
+    head.dispatchEvent(at('pointerup', 520, 260));
+    expect(values.dialogPositions).toEqual({ Elsewhere: { x: 5, y: 6 }, Stored: { x: 20, y: 10 } });
+    head.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(values.dialogPositions).toEqual({ Elsewhere: { x: 5, y: 6 } });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await done;
   });
 });
