@@ -402,6 +402,44 @@ test('link-colored text (links, search tags) keeps 4.5:1 contrast on every surfa
   }
 });
 
+test('the keyboard focus ring of an accent-filled button stands out from its surroundings in every theme', async ({ page }) => {
+  await page.evaluate(() => {
+    const b = document.createElement('button');
+    b.className = 'primary focus-probe';
+    b.textContent = 'Done';
+    b.style.cssText = 'position:fixed;left:600px;top:400px;z-index:999';
+    document.querySelector('.dock')!.append(b);
+  });
+  const ring = () =>
+    page.evaluate(() => {
+      const lum = (c: string) => {
+        const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+        x.fillStyle = c;
+        x.fillRect(0, 0, 1, 1);
+        const [r, g, b] = [...x.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const b = document.querySelector('.focus-probe')!;
+      const cs = getComputedStyle(b);
+      const ratio = (a: string, c: string) => {
+        const [x, y] = [lum(a), lum(c)];
+        return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+      };
+      // Drawn outside the button, the ring sits on the dock's background.
+      return { offset: parseFloat(cs.outlineOffset), outside: ratio(cs.outlineColor, getComputedStyle(document.querySelector('.dock')!).backgroundColor) };
+    });
+  for (const theme of ['dark', 'medium', 'light']) {
+    await page.locator('#theme').selectOption(theme);
+    await page.locator('.focus-probe').focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(page.locator('.focus-probe')).toBeFocused();
+    const r = await ring();
+    expect(r.offset, theme).toBeGreaterThanOrEqual(1);
+    expect(r.outside, theme).toBeGreaterThanOrEqual(3);
+  }
+});
+
 test('the History list stays where it was scrolled when an update adds no step', async ({ page }) => {
   for (let i = 0; i < 20; i++) await page.evaluate(() => window.photoStudio.runCommand('layer.duplicate'));
   await idle(page);

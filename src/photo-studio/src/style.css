@@ -133,6 +133,8 @@ button:active:not(:disabled):not(.primary) { background: var(--selected); }
 :root { scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
 .panel-body, .dock-drawer, dialog, .menu-pop, .search-results, .bottom-panel-body { scrollbar-width: thin; }
 button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* On an accent-filled button an inset ring would vanish into the fill: draw it outside. */
+.primary:focus-visible { outline-offset: 2px; }
 input, select, textarea { background: var(--input); border: 1px solid var(--input-line); border-radius: 3px; min-height: 22px; padding: 1px 5px; }
 input[type='number'] { width: 52px; }
 input[type='checkbox'] { min-height: 0; accent-color: var(--accent); }
