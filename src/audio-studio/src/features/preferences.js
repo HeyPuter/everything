@@ -17,6 +17,7 @@ import { formatBytesShort } from '../export/formats.js';
 import { openDialog } from '../ui/dialog.js';
 import { pickLocalFiles, downloadBlob } from '../storage/files.js';
 import { setResampleSettings } from '../audio/dsp.js';
+import * as puter from '../storage/puter.js';
 
 /** Copies preference values into the module options that read them. */
 export function applyModulePrefs(prefs) {
@@ -61,8 +62,20 @@ export function importSettingsValues(app, values) {
   if (app.dock && app.layoutMode === 'desktop') app.setWorkspace(app.prefs.get('workspace'));
 }
 
-async function importSettings(app) {
+/** A settings file: from Puter when signed in, else from this device. */
+async function pickSettingsFile() {
+  if (puter.sdk() && puter.isSignedIn()) {
+    const [item] = await puter.pickFiles({ multiple: false, accept: '.json' });
+    if (!item) return null;
+    const blob = typeof item.read === 'function' ? await item.read() : await puter.readFile(item.path);
+    return new File([blob], item.name || 'Settings.json');
+  }
   const [file] = await pickLocalFiles({ accept: '.json,application/json', multiple: false });
+  return file || null;
+}
+
+async function importSettings(app) {
+  const file = await pickSettingsFile();
   if (!file) return false;
   let parsed;
   try {
