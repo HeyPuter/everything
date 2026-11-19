@@ -26,9 +26,22 @@ export function slotOrder(defaults: string[], layout: ToolbarLayout): string[] {
   });
   return out;
 }
-/** Tools of a slot in registration order. */
+// The order of the tools inside their own slot, most used first (the first
+// is the one a slot shows until another is chosen); tools not listed follow
+// in registration order.
+export const SLOT_TOOL_ORDER: Record<string, string[]> = {
+  select: ['object-selection', 'quick-selection', 'magic-wand'],
+  heal: ['spot-healing', 'remove-tool', 'healing-brush', 'patch', 'context-move', 'red-eye'],
+  eyedropper: ['eyedropper', 'color-sampler', 'ruler', 'note', 'count', 'comment'],
+  fill: ['gradient', 'bucket'],
+};
+/** Tools of a slot: their default order in their own slot, then registration order. */
 export function slotTools<T extends ToolLike>(tools: T[], slot: string, layout: ToolbarLayout): T[] {
-  return tools.filter((t) => toolSlot(t, layout) === slot);
+  const list = tools.filter((t) => toolSlot(t, layout) === slot);
+  const order = SLOT_TOOL_ORDER[slot];
+  if (!order) return list;
+  const rank = (t: T) => (t.group === slot && order.includes(t.id) ? order.indexOf(t.id) : order.length);
+  return list.map((t, i) => ({ t, i })).sort((a, b) => rank(a.t) - rank(b.t) || a.i - b.i).map((x) => x.t);
 }
 /** Move a tool to a slot (or the extra list); returns a new layout with
  * redundant entries removed so a reset tool leaves no trace. */
