@@ -169,6 +169,21 @@ export function filesPanel(app) {
     return app.commands.run('mt.insertFiles');
   }
 
+  /** Inserts into a chosen open session, or a new one ('new') made with the New Session dialog. */
+  async function insertInto(target, docs = selectedDocs()) {
+    const audio = docs.filter((d) => d.kind === 'audio' && d.length > 0);
+    if (!audio.length) return;
+    if (target === 'new') {
+      const before = new Set(app.documents);
+      await app.commands.run('file.newSession');
+      target = app.documents.find((d) => d.kind === 'session' && !before.has(d));
+      if (!target) return;
+    }
+    if (!app.documents.includes(target)) return;
+    app.activate(target);
+    return app.commands.run('mt.insertFiles', { docs: audio });
+  }
+
   function sendToBatch(docs = selectedDocs()) {
     const audio = docs.filter((d) => d.kind === 'audio');
     if (!audio.length || !app.panels.has('batch')) return;
@@ -192,6 +207,20 @@ export function filesPanel(app) {
       { type: 'cmd', label: 'Open in Editor', enabled: Boolean(one), run: () => open(one) },
       { type: 'cmd', label: insertable.length > 1 ? `Insert ${insertable.length} Files into Multitrack Session` : 'Insert into Multitrack Session', enabled: insertable.length > 0, run: () => insertSelected(docs) },
     ];
+    // With sessions open, choose which one (or a new one).
+    const sessions = app.documents.filter((d) => d.kind === 'session');
+    if (sessions.length && app.commands.commands.has('file.newSession')) {
+      items.push({
+        type: 'sub',
+        label: 'Insert into',
+        enabled: insertable.length > 0,
+        items: [
+          ...sessions.map((sd) => ({ type: 'cmd', label: sd.name, enabled: insertable.length > 0, run: () => insertInto(sd, docs) })),
+          { type: 'sep' },
+          { type: 'cmd', label: 'New Multitrack Session...', enabled: insertable.length > 0, run: () => insertInto('new', docs) },
+        ],
+      });
+    }
     if (app.panels.has('batch')) items.push({ type: 'cmd', label: 'Send to Batch Process', enabled: audio.length > 0, run: () => sendToBatch(docs) });
     items.push(
       { type: 'sep' },
@@ -486,5 +515,5 @@ export function filesPanel(app) {
     if (e.kind === 'edit' || e.kind === 'history' || e.kind === 'saved' || e.kind === 'rename') render();
   });
   render();
-  return { el, show: render, menu, api: { selectedDocs, closeSelected, insertSelected } };
+  return { el, show: render, menu, api: { selectedDocs, closeSelected, insertSelected, insertInto } };
 }

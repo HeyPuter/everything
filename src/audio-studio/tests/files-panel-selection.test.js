@@ -155,3 +155,25 @@ describe('column values', () => {
     expect(mediaTypeOf({ kind: 'audio', state: {} })).toBe('Audio');
   });
 });
+
+describe('Insert into a chosen session', () => {
+  it('offers each open session and inserts into the chosen one', async () => {
+    const { Session } = await import('../src/model/session.js');
+    const { app, docs, row, click } = setup(2);
+    const s1 = new Session({ name: 'One.asesx', sampleRate: RATE, tracks: 1 });
+    const s2 = new Session({ name: 'Two.asesx', sampleRate: RATE, tracks: 1 });
+    app.addDocument(s1, { activate: false });
+    app.addDocument(s2, { activate: false });
+    const menus = [];
+    app.openMenu = (items) => menus.push(items);
+    const runs = [];
+    app.commands.register({ id: 'file.newSession', label: 'New', run: () => {} });
+    app.commands.register({ id: 'mt.insertFiles', label: 'Insert', run: (a, args) => runs.push([a.active, args.docs]) });
+    click(docs[0]);
+    row(docs[0]).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const sub = menus[0].find((i) => i.label === 'Insert into');
+    expect(sub.items.filter((i) => i.label).map((i) => i.label)).toEqual(['One.asesx', 'Two.asesx', 'New Multitrack Session...']);
+    await sub.items[0].run();
+    expect(runs).toEqual([[s1, [docs[0]]]]);
+  });
+});
