@@ -14,6 +14,39 @@ import { isAbort } from '../effects/apply.js';
 import { formatTime } from '../lib/time.js';
 import { TYPES, TYPE_IDS, TASKS, LOUDNESS_TARGETS, taskItems, defaultSettings, normalizeSettings, setPath, getPath, presetsFor, applyPreset, saveUserPreset, deleteUserPreset, loudnessGain, assistantChain } from './model.js';
 import * as ops from './ops.js';
+import { classifyAudio } from './classify.js';
+
+/** Suggested types, keyed by the file state or the clip they were worked out for. */
+const suggestions = new WeakMap();
+
+/**
+ * The type the audio sounds like ({ type, confidence } or null): the whole
+ * file (its middle 40 s), or the first selected clip's audio. Cached.
+ */
+export function suggestionFor(t) {
+  let key;
+  let run;
+  if (t.mode === 'file') {
+    key = t.doc.state;
+    run = () => classifyAudio(t.doc.state.channels, t.doc.sampleRate, 0, t.doc.length);
+  } else if (t.mode === 'session' && t.clips.length) {
+    const clip = t.clips[0];
+    const src = t.doc.pool?.get(clip.sourceId);
+    if (!src?.channels?.length) return null;
+    key = clip;
+    run = () => classifyAudio(src.channels, t.doc.sampleRate, clip.offset, Math.min(src.channels[0].length, clip.offset + clip.length));
+  } else return null;
+  if (!suggestions.has(key)) {
+    let r = null;
+    try {
+      r = run();
+    } catch (err) {
+      console.error(err);
+    }
+    suggestions.set(key, r?.type ? { type: r.type, confidence: r.confidence } : null);
+  }
+  return suggestions.get(key);
+}
 
 const PRESETS_KEY = 'soundAssistantPresets';
 const COLLAPSED_KEY = 'soundAssistantCollapsed';
@@ -299,6 +332,25 @@ export function soundAssistantPanel(app) {
       h('option', { value: '', disabled: true, selected: true }, 'Start from a preset...'),
       TYPE_IDS.map((type) => h('optgroup', { label: TYPES[type].label }, presetsFor(type, userPresets()).map((p) => h('option', { value: `${type}\n${p.name}` }, p.user ? `${p.name} (mine)` : p.name)))),
     );
+    // The type the audio sounds like, worked out just after the view shows (it reads the audio).
+    const suggestRow = h('p.sa-suggest', { 'aria-live': 'polite', hidden: true });
+    if (!t.mixed) {
+      setTimeout(() => {
+        if (!suggestRow.isConnected) return;
+        const sug = suggestionFor(t);
+        if (!sug) return;
+        const sure = sug.confidence >= 0.15;
+        const btn = el.querySelector(`.sa-type-btn[data-type="${sug.type}"]`);
+        btn?.classList.add('suggested');
+        btn?.setAttribute('aria-description', 'Suggested');
+        suggestRow.replaceChildren(
+          icon('wand-sparkles', 13),
+          h('span', `${sure ? 'Sounds like' : 'Might be'} ${TYPES[sug.type].label}. `),
+          h('button.link-btn', { type: 'button', onclick: () => assign(sug.type) }, `Use ${TYPES[sug.type].label}`),
+        );
+        suggestRow.hidden = false;
+      }, 30);
+    }
     presetSel.addEventListener('change', () => {
       const [type, name] = presetSel.value.split('\n');
       const p = presetsFor(type, userPresets()).find((x) => x.name === name);
@@ -314,6 +366,7 @@ export function soundAssistantPanel(app) {
         { role: 'group', 'aria-label': 'Audio type' },
         TYPE_IDS.map((id) => h('button.sa-type-btn', { type: 'button', 'data-type': id, onclick: () => assign(id) }, icon(TYPES[id].icon, 20), h('span', TYPES[id].label))),
       ),
+      suggestRow,
       t.mixed ? h('button.btn.sa-clear-mixed', { type: 'button', onclick: clearType }, 'Clear Audio Types') : null,
       h('p.sa-hint.faint', t.mode === 'file' ? 'Tasks you turn on can be previewed during playback and applied to the selection or the whole file.' : 'Settings are stored on the clips and play back in real time. Mixdowns and exports include them.'),
     );
