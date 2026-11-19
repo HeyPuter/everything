@@ -71,7 +71,7 @@ test('enhances the mask edge in one undoable step', async ({ page }) => {
 
 test('runs from the mask section of the Properties panel', async ({ page }) => {
   await panel(page, 'Properties');
-  const button = page.locator('#properties .mask-edge').getByRole('button', { name: 'Enhance' });
+  const button = page.locator('#properties .pf-mask-actions').getByRole('button', { name: 'Enhance Edge' });
   await expect(button).toBeVisible();
   await button.click();
   await page.waitForFunction(() => window.photoStudio.history.labels.at(-1) === 'Enhance Edge');

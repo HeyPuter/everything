@@ -8,8 +8,7 @@ import { contributeMenu, registerCommand, registerOverlay, registerTool, type To
 import { lazy, lazyRun, lazyTool } from '../../app/lazy';
 import { installTaskbar } from './taskbar';
 import { hasMask } from '../../model/masks';
-import { svg } from '../../app/icons';
-import { propertySections } from '../panels/properties';
+import { maskActions } from '../panels/layer-properties';
 
 const selectTools = lazy(() => import('./tools-select'));
 const healTools = lazy(() => import('./tools-heal'));
@@ -96,10 +95,9 @@ export function installRetouch(e: Editor) {
   contributeMenu('edit', ['edit.ai-expand'], 'edit.ai-fill');
   installTaskbar(e);
   contributeMenu('layer', ['layer.remove-background'], 'layer.clipping-mask');
-  // Properties: refining the edge of the selected layer's mask.
-  propertySections.push((_e, l) =>
-    l.kind !== 'group' && l.kind !== 'adjustment' && (hasMask(l) || l.maskGrid)
-      ? `<div class="mask-info mask-edge">${svg('wand-sparkles', 13)} Mask edge <button type="button" data-command="layer.mask-enhance-edge" title="Refine the mask edge from the layer’s pixels in one step (Layer › Layer Mask › Enhance Edge)">Enhance</button><button type="button" data-command="layer.mask-refine-edge" title="Refine the mask edge with settings">Refine…</button></div>`
-      : '',
+  // Properties: refining the edge of the selected layer's mask, in its Mask section.
+  maskActions.push(
+    ['layer.mask-enhance-edge', 'Enhance Edge', 'wand-sparkles'],
+    ['layer.mask-refine-edge', 'Refine Edge…', 'feather'],
   );
 }
