@@ -122,7 +122,7 @@ class Strip {
     this.mute = toggle('mute', 'M', 'Mute');
     this.solo = isMaster ? null : toggle('solo', 'S', 'Solo');
     this.arm = isAudio ? toggle('arm', 'R', 'Arm for Record') : null;
-    this.monitor = isAudio ? h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-label': 'Monitor input', title: 'Monitor Input', 'aria-pressed': 'false', onclick: () => c().toggle(this.id, 'monitor') }, icon('monitor-input', 12)) : null;
+    this.monitor = isAudio ? h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-label': 'Monitor input', title: 'Monitor Input: hear the input of an armed track while stopped and while recording', 'aria-pressed': 'false', onclick: () => c().toggle(this.id, 'monitor') }, icon('monitor-input', 12)) : null;
     this.fader = fader({ value: 0, label: `${track.name} volume`, onInput: (v) => c().set(this.id, 'volume', v, 'input'), onChange: (v) => c().set(this.id, 'volume', v, 'change') });
     this.meter = new MeterBar({ vertical: true, label: `${track.name} level` });
     this.dbNum = hotNumber({ value: 0, min: SILENT_DB, max: MAX_DB, step: 0.1, defaultValue: 0, label: 'Volume (dB)', format: formatGainShort, parse: parseGain, onInput: (v) => c().set(this.id, 'volume', v, 'input'), onChange: (v) => c().set(this.id, 'volume', v, 'change') });

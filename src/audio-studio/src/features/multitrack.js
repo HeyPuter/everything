@@ -14,6 +14,7 @@ import { insertDocs, insertFiles, syncLinkedSources } from '../multitrack/insert
 import { TrackControls } from '../multitrack/track-controls.js';
 import { SessionRecorder } from '../multitrack/recorder.js';
 import { FreezeController } from '../multitrack/freeze.js';
+import { SmartMonitor } from '../multitrack/monitor.js';
 import { sessionPropertySection } from '../multitrack/properties.js';
 import { mixerPanel } from '../panels/mixer.js';
 import { followDucking } from '../multitrack/ducking.js';
@@ -31,6 +32,7 @@ export function installMultitrack(app) {
   installSessionStorage();
   const recorder = new SessionRecorder(app);
   app.freezer = new FreezeController(app);
+  app.smartMonitor = new SmartMonitor(app);
   app.multitrack = {
     recorder,
     insertDocs: (session, docs, o) => insertDocs(app, session, docs, o),

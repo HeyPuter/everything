@@ -626,3 +626,30 @@ describe('frozen tracks', () => {
     expect(fs.tracks[0].automation['fx.sA.left']).toEqual([{ t: 0, v: 2 }]);
   });
 });
+
+describe('smart input monitoring', () => {
+  it('monitors an armed track while stopped, not during playback', async () => {
+    const { SmartMonitor } = await import('../src/multitrack/monitor.js');
+    const { Emitter } = await import('../src/lib/emitter.js');
+    const links = [];
+    const node = { connect: (d) => links.push(['node', d]), disconnect: () => links.push(['node-off']) };
+    const engine = Object.assign(new Emitter(), { playing: false, ctx: { createGain: () => node, destination: 'out' }, input: { src: { connect: (n) => links.push(['src', n]), disconnect: () => links.push(['src-off']) } } });
+    const app = Object.assign(new Emitter(), { engine, recording: false, active: null });
+    const doc = new Session({ name: 'M.asesx', sampleRate: RATE, tracks: 1 });
+    app.active = doc;
+    const mon = new SmartMonitor(app);
+    mon.sync();
+    expect(mon.active).toBe(false);
+    doc.apply('Arm', S.updateTrack(doc.state, doc.state.tracks[0].id, { arm: true, monitor: true }));
+    mon.sync();
+    expect(mon.active).toBe(true);
+    expect(links).toContainEqual(['node', 'out']);
+    engine.playing = true;
+    mon.sync();
+    expect(mon.active).toBe(false);
+    engine.playing = false;
+    app.recording = false;
+    mon.sync();
+    expect(mon.active).toBe(true);
+  });
+});

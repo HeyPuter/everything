@@ -65,7 +65,7 @@ export class TrackHeader {
     // The master is never soloed (it carries the whole mix), as in the Mixer.
     this.solo = isMaster ? null : toggle('solo', 'Solo', 'S', 'Solo');
     this.arm = isMaster || isBus ? null : toggle('arm', 'Arm for recording', 'R', 'Arm for Record');
-    this.monitor = isMaster || isBus ? null : h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Monitor input', title: 'Monitor Input', onclick: () => controls().toggle(this.id, 'monitor') }, icon('monitor-input', 12));
+    this.monitor = isMaster || isBus ? null : h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Monitor input', title: 'Monitor Input: hear the input of an armed track while stopped and while recording', onclick: () => controls().toggle(this.id, 'monitor') }, icon('monitor-input', 12));
 
     const volSet = (v, phase) => controls().set(this.id, 'volume', v, phase);
     const panSet = (v, phase) => controls().set(this.id, 'pan', v, phase);
