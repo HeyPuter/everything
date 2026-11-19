@@ -363,6 +363,8 @@
   min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--divider);
+  cursor: ns-resize;
+  touch-action: none;
 }
 
 .wf-amp canvas {

@@ -85,6 +85,38 @@ export class TimeRuler {
       const m = this.#markerAt(e.offsetX);
       if (m) host.renameMarker?.(m.id);
     });
+    // Optional: host.menuItems() for a right-click menu, host.wheel(e, x) for the mouse wheel.
+    if (host.menuItems) {
+      this.el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.app.openMenu?.(host.menuItems(), { x: e.clientX, y: e.clientY, label: 'Time ruler' });
+      });
+    }
+    if (host.wheel) {
+      this.el.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          host.wheel(e, e.clientX - this.el.getBoundingClientRect().left);
+        },
+        { passive: false },
+      );
+    }
+  }
+
+  /**
+   * The time selection edge within `tol` px of x, when the host lets the ruler adjust the
+   * selection (host.setSelection): 'start' or 'end', else null.
+   */
+  selectionEdgeAt(x, tol = 5) {
+    if (!this.host.setSelection) return null;
+    const t = this.host.timeline();
+    const sel = t.selection;
+    if (!sel || sel.end <= sel.start) return null;
+    const ds = Math.abs(x - this.xOf(sel.start, t.view));
+    const de = Math.abs(x - this.xOf(sel.end, t.view));
+    if (Math.min(ds, de) > tol) return null;
+    return ds <= de ? 'start' : 'end';
   }
 
   resize(w, hgt) {
@@ -177,6 +209,13 @@ export class TimeRuler {
       this.host.selectMarker?.(m.id);
       return;
     }
+    const edge = this.selectionEdgeAt(e.offsetX, tol + 1);
+    if (edge) {
+      // Grabbing a selection handle adjusts that edge; a click without moving still seeks.
+      const sel = this.host.timeline().selection;
+      this.drag = { kind: 'edge', anchor: edge === 'start' ? sel.end : sel.start, x0: e.offsetX, moved: false };
+      return;
+    }
     this.drag = { kind: 'seek' };
     const f0 = this.host.snap ? this.host.snap(this.frameAt(e.offsetX)) : this.frameAt(e.offsetX);
     this.host.seek(f0);
@@ -185,7 +224,16 @@ export class TimeRuler {
 
   #move(e) {
     if (!this.drag) {
-      this.el.style.cursor = this.#markerAt(e.offsetX) && e.offsetY > this.height * 0.45 ? 'ew-resize' : '';
+      const grab = (this.#markerAt(e.offsetX) && e.offsetY > this.height * 0.45) || this.selectionEdgeAt(e.offsetX);
+      this.el.style.cursor = grab ? 'ew-resize' : '';
+      return;
+    }
+    if (this.drag.kind === 'edge') {
+      if (!this.drag.moved && Math.abs(e.offsetX - this.drag.x0) < 3) return;
+      this.drag.moved = true;
+      const t = this.host.timeline();
+      const raw = Math.max(0, Math.min(t.length, this.frameAt(e.offsetX)));
+      this.host.setSelection(this.drag.anchor, this.host.snap ? this.host.snap(raw) : Math.round(raw));
       return;
     }
     const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
@@ -203,6 +251,10 @@ export class TimeRuler {
   #up(e, cancelled = false) {
     if (!this.drag) return;
     // A cancelled marker drag (the system took the touch) leaves the marker where it was.
+    if (this.drag.kind === 'edge' && !this.drag.moved && !cancelled) {
+      const f = this.host.snap ? this.host.snap(this.frameAt(this.drag.x0)) : Math.round(this.frameAt(this.drag.x0));
+      this.host.seek(f);
+    }
     if (cancelled && this.drag.kind === 'marker') this.host.cancelMarkerMove?.();
     else if (this.drag.kind === 'marker' && this.drag.moved) {
       const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
@@ -301,6 +353,14 @@ export class TimeRuler {
       if (x1 > x0) {
         ctx.fillStyle = cssVar('--accent-soft');
         ctx.fillRect(x0, H - 6, x1 - x0, 6);
+        // Handles for hosts that let the ruler adjust the selection.
+        if (this.host.setSelection) {
+          ctx.fillStyle = cssVar('--sel-edge');
+          const xs = this.xOf(sel.start, t.view);
+          const xe = this.xOf(sel.end, t.view);
+          if (xs >= 0 && xs <= W) ctx.fillRect(Math.round(xs), H - 10, 3, 10);
+          if (xe >= 0 && xe <= W) ctx.fillRect(Math.round(xe) - 3, H - 10, 3, 10);
+        }
       }
     }
     // Markers.

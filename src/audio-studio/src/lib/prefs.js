@@ -49,6 +49,7 @@ export const DEFAULTS = {
   defaultFadeCurve: 'linear', // 'linear' | 'log' | 'cosine' for new fades
   rightClick: 'menu', // 'menu' | 'extend' (extend the time selection)
   hudSelectionOnly: false,
+  ampUnits: 'db', // amplitude ruler unit: 'db' | 'percent' | 'normalized' | 'samples'
   syncFiles: false, // selection, zoom and playhead follow across open audio files
   zoomStep: 50, // percent of the view each Zoom In/Out (Time) step removes
   dismissedNotices: [], // notice ids turned off with "Don't show this again"

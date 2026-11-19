@@ -17,7 +17,7 @@ import { icon } from '../ui/icons.js';
 import './editor-icons.js';
 import { gainRange, fadeRange, fadeCurve, smoothBoundaries } from '../model/edits.js';
 import { WAVEFORM_CONTEXT } from '../ui/menus.js';
-import { contextMenu } from '../ui/menubar.js';
+import { contextMenu, resolveItems } from '../ui/menubar.js';
 import { dbToGain, formatDb, framesPerSecond, musicalStep } from '../lib/time.js';
 import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
 import {
@@ -86,6 +86,55 @@ export function dbMinorTicks(lane, amp) {
   return out;
 }
 
+/** Units the amplitude ruler can show (right-click the ruler to choose). */
+export const AMP_UNITS = [
+  { id: 'db', label: 'Decibels', caption: 'dB' },
+  { id: 'percent', label: 'Percentage', caption: '%' },
+  { id: 'normalized', label: 'Normalized Values', caption: 'norm' },
+  { id: 'samples', label: 'Samples', caption: 'smpl' },
+];
+
+/** Full-scale value of a linear amplitude unit: integer sample values for fixed-point files. */
+export function ampFullScale(unit, bits = 16) {
+  if (unit === 'percent') return 100;
+  if (unit === 'samples' && bits <= 24) return 2 ** (bits - 1);
+  return 1;
+}
+
+function formatAmpValue(v, step, unit) {
+  if (unit === 'samples' && step >= 1) return Math.abs(v) >= 10000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v));
+  const decimals = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9) + (String(step).includes('25') ? 1 : 0));
+  return v.toFixed(Math.min(4, decimals)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+/**
+ * Linear amplitude ruler ticks (percent, normalized or sample values) for a lane:
+ * [{ value, y, y2, label }] at round steps at least 24 px apart, up to full scale,
+ * with y above the centre line and y2 the negative value's mirror below (null near the edge).
+ */
+export function linearTicks(lane, amp, unit, bits = 16) {
+  const mid = (lane.top + lane.bottom) / 2;
+  const half = (lane.bottom - lane.top) / 2;
+  const full = ampFullScale(unit, bits);
+  const pxPer = (half * amp) / full;
+  if (!(pxPer > 0)) return [];
+  const raw = 24 / pxPer;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw * 0.9999);
+  const out = [];
+  for (let k = 1; k * step <= full * 1.0001 && out.length < 200; k++) {
+    const value = k * step;
+    const y = mid - value * pxPer;
+    if (y < lane.top + 15) break;
+    const y2 = mid + value * pxPer;
+    out.push({ value, y, y2: y2 < lane.bottom - 6 ? y2 : null, label: formatAmpValue(value, step, unit) });
+  }
+  return out;
+}
+
+/** Amplitude zoom for a vertical drag of dy px on the amplitude ruler (up zooms in). */
+export const ampDragZoom = (amp0, dy) => amp0 * Math.pow(1.01, -dy);
+
 /**
  * The first sample at or after a grid line between samples (a video frame or beat): the
  * time display rounds down, so the nearest sample could show as the previous frame.
@@ -113,6 +162,7 @@ export class WaveformView {
       if (key === 'waveLayered' || key === 'waveUniqueColors') this.#buildChannelButtons();
       if (key === 'waveLayered') this.overview.peaksFor = null;
       if (key === 'hudPinned') this.syncHudPin?.();
+      if (key === 'ampUnits') this.amp.title = this.#ampTitle();
       this.invalidate();
     });
     this.onTheme = () => this.invalidate();
@@ -147,6 +197,12 @@ export class WaveformView {
       renameMarker: (id) => app.commands.run('marker.rename', { id }),
       selectMarker: (id) => this.selectMarker(id),
       overviewPeaks: (cols, total) => this.#overviewPeaks(cols, total),
+      setSelection: (a, b) => {
+        doc.setSelection(a, b, { channels: doc.selection.channels });
+        if (!app.engine.playing) doc.setCursor(Math.min(a, b), { silent: true });
+      },
+      wheel: (e, x) => this.#wheel(e, x),
+      menuItems: () => this.rulerMenuItems(),
       peaksKey: () => doc.state,
     };
     this.ruler = new TimeRuler(app, timelineHost);
@@ -181,6 +237,7 @@ export class WaveformView {
     this.ampCanvas = h('canvas', { 'aria-hidden': 'true' });
     this.channelButtons = h('div.wf-channel-buttons');
     this.amp = h('div.wf-amp', this.ampCanvas, this.channelButtons);
+    this.amp.title = this.#ampTitle();
     this.snapBtn = h(
       'button.icon-btn.sm',
       {
@@ -215,6 +272,7 @@ export class WaveformView {
     this.#bindPointer();
     this.#bindKeys();
     this.#bindFadeHandles();
+    this.#bindAmpRuler();
     this.resizeObserver = new ResizeObserver(() => this.layout());
     this.resizeObserver.observe(this.surface);
     this.resizeObserver.observe(this.ruler.el);
@@ -594,12 +652,13 @@ export class WaveformView {
     const amp = doc.view.amp;
     // Grid: centre line and dB lines.
     // Grid lines sit on the dB values labelled in the ruler beside the lanes.
+    const unit = this.ampUnit();
     for (const lane of lanes) {
       const mid = (lane.top + lane.bottom) / 2;
       ctx.fillStyle = cssVar('--grid-strong');
       ctx.fillRect(0, Math.round(mid), W, 1);
       ctx.fillStyle = cssVar('--grid');
-      for (const t of dbTicks(lane, amp)) {
+      for (const t of unit === 'db' ? dbTicks(lane, amp) : linearTicks(lane, amp, unit, this.#bits())) {
         ctx.fillRect(0, Math.round(t.y), W, 1);
         if (t.y2 !== null) ctx.fillRect(0, Math.round(t.y2), W, 1);
       }
@@ -716,8 +775,23 @@ export class WaveformView {
     ctx.fillStyle = cssVar('--text-dim');
     const amp = this.doc.view.amp;
     const faint = cssVar('--text-faint');
+    const unit = this.ampUnit();
+    const caption = AMP_UNITS.find((u) => u.id === unit)?.caption || 'dB';
     for (const lane of this.lanes()) {
       const mid = (lane.top + lane.bottom) / 2;
+      if (unit !== 'db') {
+        for (const { y, y2, label } of linearTicks(lane, amp, unit, this.#bits())) {
+          ctx.fillRect(0, Math.round(y), 4, 1);
+          ctx.fillText(label, 6, y);
+          if (y2 !== null) {
+            ctx.fillRect(0, Math.round(y2), 4, 1);
+            ctx.fillText(`-${label}`, 6, y2);
+          }
+        }
+        ctx.fillText('0', 6, mid);
+        ctx.fillText(caption, 6, lane.top + 6);
+        continue;
+      }
       // Minor ticks every dB while they stay a few pixels apart.
       ctx.fillStyle = faint;
       for (const y of dbMinorTicks(lane, amp)) ctx.fillRect(0, Math.round(y), 2, 1);
@@ -734,6 +808,71 @@ export class WaveformView {
       ctx.fillText('-\u221e', 6, mid);
       ctx.fillText('dB', 6, lane.top + 6);
     }
+  }
+
+  #ampTitle() {
+    const u = AMP_UNITS.find((x) => x.id === this.ampUnit());
+    return `Amplitude (${u.label}). Drag or scroll to zoom, double-click to reset, right-click for units.`;
+  }
+
+  /** Unit of the amplitude ruler and grid: 'db', 'percent', 'normalized' or 'samples'. */
+  ampUnit() {
+    const u = this.app.prefs.get('ampUnits');
+    return AMP_UNITS.some((x) => x.id === u) ? u : 'db';
+  }
+
+  #bits() {
+    return this.doc.info?.bitDepth || 32;
+  }
+
+  /** Right-click menu of the amplitude ruler: units and amplitude zoom. */
+  ampMenuItems() {
+    const app = this.app;
+    const unit = this.ampUnit();
+    const cmd = (id) => ({ type: 'cmd', label: app.commands.label(id), shortcut: app.commands.shortcutLabel(id), enabled: app.commands.isEnabled(id), run: () => app.commands.run(id) });
+    return [
+      ...AMP_UNITS.map((u) => ({ type: 'cmd', label: u.label, enabled: true, checked: unit === u.id, run: () => app.prefs.set('ampUnits', u.id) })),
+      { type: 'sep' },
+      cmd('view.zoomInAmp'),
+      cmd('view.zoomOutAmp'),
+      { type: 'cmd', label: 'Reset Amplitude Zoom', enabled: this.doc.view.amp !== 1, run: () => this.doc.setAmp(1) },
+    ];
+  }
+
+  /** Amplitude ruler: right-click for units, wheel or vertical drag to zoom, double-click to reset. */
+  #bindAmpRuler() {
+    const el = this.amp;
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.app.openMenu(this.ampMenuItems(), { x: e.clientX, y: e.clientY, label: 'Amplitude ruler' });
+    });
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.doc.setAmp(this.doc.view.amp * Math.pow(1.0015, -(e.deltaY || e.deltaX)));
+      },
+      { passive: false },
+    );
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('.channel-btn')) return;
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      const y0 = e.clientY;
+      const amp0 = this.doc.view.amp;
+      const move = (ev) => this.doc.setAmp(ampDragZoom(amp0, ev.clientY - y0));
+      const up = () => {
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', up);
+        el.removeEventListener('pointercancel', up);
+      };
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+    });
+    el.addEventListener('dblclick', (e) => {
+      if (!e.target.closest('.channel-btn')) this.doc.setAmp(1);
+    });
   }
 
   /** Overview peaks: one strip per channel, like the lanes (merged when layered). */
@@ -999,26 +1138,40 @@ export class WaveformView {
       'wheel',
       (e) => {
         e.preventDefault();
-        const rect = s.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const v = this.doc.view;
-        const span = v.end - v.start;
-        if (e.altKey) {
-          this.doc.setAmp(this.doc.view.amp * Math.pow(1.0015, -e.deltaY));
-          return;
-        }
-        // Horizontal trackpad motion (or Shift+wheel) scrolls; vertical zooms
-        // around the pointer, as in desktop audio editors.
-        const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
-        if (Math.abs(dx) > Math.abs(e.deltaY) || e.shiftKey) {
-          const shift = (dx / this.width) * span;
-          this.doc.setView(v.start + shift, v.end + shift);
-          return;
-        }
-        wheelZoom(this.app, this.doc, e, x, this.width);
+        this.#wheel(e, e.clientX - s.getBoundingClientRect().left);
       },
       { passive: false },
     );
+  }
+
+  /** Mouse wheel over the lanes or the time ruler, at x px from the left edge. */
+  #wheel(e, x) {
+    const v = this.doc.view;
+    const span = v.end - v.start;
+    if (e.altKey) {
+      this.doc.setAmp(this.doc.view.amp * Math.pow(1.0015, -e.deltaY));
+      return;
+    }
+    // Horizontal trackpad motion (or Shift+wheel) scrolls; vertical zooms
+    // around the pointer, as in desktop audio editors.
+    const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+    if (Math.abs(dx) > Math.abs(e.deltaY) || e.shiftKey) {
+      const shift = (dx / this.width) * span;
+      this.doc.setView(v.start + shift, v.end + shift);
+      return;
+    }
+    wheelZoom(this.app, this.doc, e, x, this.width);
+  }
+
+  /** Right-click menu of the time ruler: the time display format and time zoom. */
+  rulerMenuItems() {
+    const app = this.app;
+    const formats = app.timeFormatMenuItems?.() || [];
+    return [
+      ...formats,
+      ...(formats.length ? [{ type: 'sep' }] : []),
+      ...resolveItems(app, ['view.zoomInTime', 'view.zoomOutTime', 'view.zoomSelection', 'view.zoomFull', '-', 'edit.selectView', 'edit.selectAll']),
+    ];
   }
 
   /** Extends the time selection to `frame` from its far edge (or from the playhead). */
