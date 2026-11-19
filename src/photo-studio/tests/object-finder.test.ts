@@ -7,7 +7,7 @@ const square = (x: number, y: number, size: number, area: number) => ({
   area,
 });
 
-describe('Object Finder', () => {
+describe('object highlighting', () => {
   it('finds the most specific object under a point', () => {
     const big = square(0, 0, 100, 0.5),
       small = square(20, 20, 10, 0.01),

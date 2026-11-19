@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { boot, canvasClick, client, idle, openImage, tool } from './helpers';
 
-// Object Finder: objects are found when the Object Selection tool is chosen,
+// Highlight Objects: objects are found when the Object Selection tool is chosen,
 // the one under the pointer is highlighted and a click selects it.
 
 test('highlights the object under the pointer and selects it with a click', async ({ page }) => {

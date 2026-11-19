@@ -1,4 +1,4 @@
-// Object Finder for the Object Selection tool: the objects of the image are
+// Highlight Objects for the Object Selection tool: the objects of the image are
 // found in the background (see imaging/segment/objects) while the tool is
 // active; the one under the pointer is highlighted and a click selects it.
 // Results are kept per source image, so moving the selection or switching

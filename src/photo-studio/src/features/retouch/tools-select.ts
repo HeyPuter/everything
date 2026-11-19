@@ -171,7 +171,7 @@ const objectSelectionTool: Tool = {
   options: (e) =>
     optionsFor(
       e,
-      `<label class="transform-setting" title="Highlight the object under the pointer; click to select it"><input type="checkbox" id="object-finder" ${finderOn(e) ? 'checked' : ''}>Object Finder</label><button type="button" class="icon-button" id="object-refresh" title="Find the objects again" aria-label="Find the objects again" ${finderOn(e) ? '' : 'disabled'}>${svg('refresh-cw', 15)}</button><button type="button" class="icon-button toggle" id="object-show-all" aria-pressed="${!!e.settings.objectShowAll}" title="Show all objects found" aria-label="Show all objects" ${finderOn(e) ? '' : 'disabled'}>${svg('eye', 15)}</button><label>Mode <select id="object-mode"><option value="rect">Rectangle</option><option value="lasso" ${e.settings.objectMode === 'lasso' ? 'selected' : ''}>Lasso</option></select></label>${checkbox('object-all', 'Sample All Layers', e.settings.objectSampleAll !== false)}`,
+      `<label class="transform-setting" title="Highlight the object under the pointer; click to select it"><input type="checkbox" id="object-finder" ${finderOn(e) ? 'checked' : ''}>Highlight Objects</label><button type="button" class="icon-button" id="object-refresh" title="Find the objects again" aria-label="Find the objects again" ${finderOn(e) ? '' : 'disabled'}>${svg('refresh-cw', 15)}</button><button type="button" class="icon-button toggle" id="object-show-all" aria-pressed="${!!e.settings.objectShowAll}" title="Show all objects found" aria-label="Show all objects" ${finderOn(e) ? '' : 'disabled'}>${svg('eye', 15)}</button><label>Mode <select id="object-mode"><option value="rect">Rectangle</option><option value="lasso" ${e.settings.objectMode === 'lasso' ? 'selected' : ''}>Lasso</option></select></label>${checkbox('object-all', 'Sample All Layers', e.settings.objectSampleAll !== false)}`,
       { subject: true },
     ),
   bindOptions: ({ e, el }) => {
@@ -228,7 +228,7 @@ const objectSelectionTool: Tool = {
     }
     const box = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
     if (box.width < 4 || box.height < 4) {
-      // A click selects the object the Object Finder shows under the pointer.
+      // A click selects the object highlighted under the pointer.
       const o = finderObject(e, p.x, p.y);
       if (o) {
         finishShape(e, selectionOp(e, p), pasteMask(mask8(e.doc.width, e.doc.height), o.mask, o.rect.x, o.rect.y), 'Object Selection');
