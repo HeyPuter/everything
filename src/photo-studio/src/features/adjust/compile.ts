@@ -27,7 +27,9 @@ export function compileSpec(spec: AdjustmentSpec): CompiledLut | null {
     out.curves = { r: comp(r), g: comp(g), b: comp(b) };
   }
   if (c.lut3d) out.lut3d = c.lut3d;
-  if (c.postCurves) out.postCurves = c.postCurves;
+  // A hard step is compared exactly in the shader (a table would blur it).
+  if (c.postStep !== undefined) out.postStep = c.postStep;
+  else if (c.postCurves) out.postCurves = c.postCurves;
   return out.curves || out.lut3d ? out : null;
 }
 

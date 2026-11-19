@@ -219,7 +219,10 @@ export class WebGLBackend implements Backend {
       g.activeTexture(g.TEXTURE0 + i);
       g.bindTexture(g.TEXTURE_2D, t.handle as WebGLTexture);
     });
-    g.uniform4fv(g.getUniformLocation(program, 'u[0]'), uniforms);
+    // Two vec4s (see lut-shaders.ts); shorter uniform arrays leave the step off.
+    const values = new Float32Array(8);
+    values.set(uniforms.subarray(0, 8));
+    g.uniform4fv(g.getUniformLocation(program, 'u[0]'), values);
     g.drawArrays(g.TRIANGLES, 0, 3);
   }
   colorPass(source: Texture, transform: Texture, target?: Texture, clampRgb = false, tone?: readonly number[]) {

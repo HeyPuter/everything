@@ -34,6 +34,7 @@ function shade(p: ReturnType<typeof packLut>, rgb: [number, number, number]): [n
     });
   }
   if (u[1] > 1.5) c = [curveAt(c[0], 0, n + 1), curveAt(c[1], 1, n + 1), curveAt(c[2], 2, n + 1)];
+  if (u[4] > 0.5) c = c.map((v) => (v >= u[5] ? 1 : 0));
   return c.map((v) => Math.min(1, Math.max(0, v))) as [number, number, number];
 }
 
@@ -72,7 +73,7 @@ describe('packLut', () => {
     });
     expect(p.width).toBe(curveEntries);
     expect(p.height).toBe(1 + n + 1);
-    expect([...p.uniforms]).toEqual([1, 2, 3, 0]);
+    expect([...p.uniforms]).toEqual([1, 2, 3, 0, 0, 0, 0, 0]);
     // Row 0 resamples the 5-entry curves at 1024 points.
     const at = (x: number, y: number, c: number) => p.data[(y * p.width + x) * 4 + c];
     expect(at(0, 0, 2)).toBeCloseTo(1);
@@ -88,14 +89,14 @@ describe('packLut', () => {
   it('keeps the original layout and flags without post curves', () => {
     const p = packLut({ lut3d: { size: 2, data: new Float32Array(32).fill(1) } });
     expect(p.height).toBe(3);
-    expect([...p.uniforms]).toEqual([0, 1, 2, 0]);
+    expect([...p.uniforms]).toEqual([0, 1, 2, 0, 0, 0, 0, 0]);
     expect(packLut({}).height).toBe(1);
   });
   it('folds post curves into the first row when there is no 3D table', () => {
     const id = Float32Array.from([0, 1]);
     const p = packLut({ curves: { r: Float32Array.from([1, 0]), g: id, b: id }, postCurves: { r: Float32Array.from([0, 0.5]), g: id, b: Float32Array.from([1, 1]) } });
     expect(p.height).toBe(1);
-    expect([...p.uniforms]).toEqual([1, 0, 0, 0]);
+    expect([...p.uniforms]).toEqual([1, 0, 0, 0, 0, 0, 0, 0]);
     expect(p.data[0]).toBeCloseTo(0.5); // r: post(1 - 0) = 0.5
     expect(p.data[(curveEntries - 1) * 4]).toBeCloseTo(0);
     expect(p.data[2]).toBe(1);
@@ -115,9 +116,9 @@ describe('compiled adjustment layers on the GPU path', () => {
       if (kind === 'gradient-map') (adj.params as { dither: boolean }).dither = false;
       const exact = applyAdjustment(img, adj),
         gpu = gpuApply(img, adj);
-      const tol = kind === 'threshold' ? 255 : 6;
-      expect(meanDiff(exact, gpu), kind).toBeLessThan(kind === 'threshold' ? 1 : 1.2);
-      expect(maxDiff(exact, gpu), kind).toBeLessThanOrEqual(tol);
+      expect(meanDiff(exact, gpu), kind).toBeLessThan(1.2);
+      // Threshold compares its edge exactly: no gray pixels, no flips.
+      expect(maxDiff(exact, gpu), kind).toBeLessThanOrEqual(kind === 'threshold' ? 0 : 6);
     }
   });
   it('render Threshold and Gradient Map exactly with post curves', () => {
@@ -126,10 +127,9 @@ describe('compiled adjustment layers on the GPU path', () => {
       const adj: Adjustment = { kind: 'threshold', params: { level } };
       const exact = applyAdjustment(ramp, adj),
         gpu = gpuApply(ramp, adj);
-      // Gray inputs land exactly on the edge only at the level itself.
       let wrong = 0;
       for (let i = 0; i < ramp.data.length; i += 4) if (exact.data[i] !== gpu.data[i]) wrong++;
-      expect(wrong, `level ${level}`).toBeLessThanOrEqual(1);
+      expect(wrong, `level ${level}`).toBe(0);
     }
     const gm: Adjustment = {
       kind: 'gradient-map',
@@ -140,6 +140,21 @@ describe('compiled adjustment layers on the GPU path', () => {
       },
     };
     expect(maxDiff(applyAdjustment(ramp, gm), gpuApply(ramp, gm))).toBeLessThanOrEqual(1);
+  });
+  it('keep Threshold black and white where luma sits next to the edge', () => {
+    // Luma 109.51 is 0.01 level above the edge of level 110 (109.5): a table
+    // entry spans 0.25 levels, which used to give gray (83) here.
+    const px = { width: 1, height: 1, data: new Uint8ClampedArray([102, 102, 206, 255]) };
+    const adj: Adjustment = { kind: 'threshold', params: { level: 110 } };
+    expect([...gpuApply(px, adj).data]).toEqual([...applyAdjustment(px, adj).data]);
+    expect([...gpuApply(px, adj).data]).toEqual([255, 255, 255, 255]);
+    let gray = 0;
+    const img = randomImage(128, 128, 11);
+    for (const level of [2, 64, 110, 128, 191, 255]) {
+      const out = gpuApply(img, { kind: 'threshold', params: { level } });
+      for (let i = 0; i < out.data.length; i++) if (i % 4 !== 3 && out.data[i] % 255) gray++;
+    }
+    expect(gray).toBe(0);
   });
   it('compose the composite curve before the channel curves', () => {
     const p = defaultParams('levels');

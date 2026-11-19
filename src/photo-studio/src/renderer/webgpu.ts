@@ -350,8 +350,14 @@ export class WebGPUBackend implements Backend {
         });
       this.lutPipelines = { layout, byte: create('rgba8unorm'), float: create('rgba32float') };
     }
-    const buffer = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.device.queue.writeBuffer(buffer, 0, uniforms as Float32Array<ArrayBuffer>);
+    // Two vec4s (see lut-shaders.ts); shorter uniform arrays leave the step off.
+    const values = new Float32Array(8);
+    values.set(uniforms.subarray(0, 8));
+    const buffer = this.device.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(buffer, 0, values);
     const group = this.device.createBindGroup({
       layout: this.lutPipelines.layout,
       entries: [

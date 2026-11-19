@@ -23,6 +23,10 @@ export type CompiledAdjustment = {
   curves?: CurveTables;
   lut3d?: { size: number; data: Float32Array };
   postCurves?: { r: Float32Array; g: Float32Array; b: Float32Array };
+  // A hard step that replaces `postCurves` exactly (Threshold): every channel
+  // becomes 1 at or above it and 0 below. Tables cannot hold the edge between
+  // two entries, so pipelines that can compare should use this instead.
+  postStep?: number;
   // True when the 3D LUT cannot represent a hard edge (Threshold) or a
   // position-dependent effect (Gradient Map dither) exactly.
   approximate?: boolean;
@@ -82,6 +86,7 @@ export function compileAdjustment(adj: Adjustment, opts: CompileOptions = {}): C
     out.lut3d = bakeLut(plan.split.pixel, size);
     const p = plan.split.post;
     out.postCurves = { r: curveTable(p.r, n), g: curveTable(p.g, n), b: curveTable(p.b, n) };
+    if (plan.split.step !== undefined) out.postStep = plan.split.step;
     if (plan.dither) out.approximate = true;
   } else if (plan.pixel) {
     out.lut3d = bakeLut(plan.pixel, size);
@@ -423,7 +428,8 @@ export function applyCompiled(src: RGBA8, c: CompiledAdjustment): RGBA8 {
       const c0 = c00 + (c10 - c00) * fg,
         c1 = c01v + (c11 - c01v) * fg;
       let v = c0 + (c1 - c0) * fb;
-      if (post) v = sampleTable(k === 0 ? post.r : k === 1 ? post.g : post.b, v);
+      if (c.postStep !== undefined) v = v >= c.postStep ? 1 : 0;
+      else if (post) v = sampleTable(k === 0 ? post.r : k === 1 ? post.g : post.b, v);
       d[i + k] = v * 255;
     }
   }
