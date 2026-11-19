@@ -464,7 +464,14 @@
 
 .meta-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+/* UMIDs are long hex strings: monospace keeps them readable. */
+.metadata-panel .meta-hex {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-sm);
 }
 
 .meta-actions .btn .icon {

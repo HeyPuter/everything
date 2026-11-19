@@ -12,7 +12,7 @@ import { ByteSink, ascii, concatBytes } from './sink.js';
 import { Quantizer } from '../audio/quantize.js';
 import { buildCue } from '../audio/wav.js';
 import { writeExtended } from '../audio/aiff.js';
-import { riffInfoChunk, bextChunk, cartChunk, aiffMetaChunks, concatChunks, hasXmpOnly } from '../audio/meta.js';
+import { riffInfoChunk, bextChunk, cartChunk, aiffMetaChunks, concatChunks, hasXmpOnly, withIxmlChunk } from '../audio/meta.js';
 import { wavXmpChunk } from '../audio/xmp.js';
 
 function u32le(v) {
@@ -73,7 +73,8 @@ export class WavWriter {
     this.sink = new ByteSink();
     // LIST/INFO, bext, cart and XMP (_PMX) chunks, then chunks kept from the opened file
     // (iXML...), all before the audio data.
-    const kept = chunks.map(({ id, bytes: b }) => {
+    // The iXML chunk carries the editable scene, take... fields (merged into the file's own iXML).
+    const kept = withIxmlChunk(chunks, meta).map(({ id, bytes: b }) => {
       return concatBytes([ascii(id), u32le(b.length), b, new Uint8Array(b.length & 1)]);
     });
     const xmp = hasXmpOnly(meta) ? wavXmpChunk(meta) : null;

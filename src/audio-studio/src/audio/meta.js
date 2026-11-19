@@ -42,6 +42,8 @@ export const ALL_META_FIELDS = [
   { id: 'bextDate', label: 'Origination Date', max: 10, kind: 'date' },
   { id: 'bextTime', label: 'Origination Time', max: 8, kind: 'time' },
   { id: 'bextTimeRef', label: 'Time Reference (samples)', kind: 'int' },
+  // SMPTE unique material identifier: 32 (basic) or 64 (extended) bytes, as hex.
+  { id: 'bextUmid', label: 'UMID', kind: 'hex', max: 128 },
   { id: 'bextCodingHistory', label: 'Coding History', multiline: true },
   { id: 'cartCutId', label: 'Cut ID', max: 64 },
   { id: 'cartClientId', label: 'Client ID', max: 64 },
@@ -55,6 +57,13 @@ export const ALL_META_FIELDS = [
   { id: 'cartUserDef', label: 'User Defined', max: 64 },
   { id: 'cartUrl', label: 'URL', max: 1024 },
   { id: 'cartTagText', label: 'Tag Text', multiline: true },
+  // iXML (production sound: field recorders and picture editors).
+  { id: 'ixmlProject', label: 'Project' },
+  { id: 'ixmlScene', label: 'Scene' },
+  { id: 'ixmlTake', label: 'Take' },
+  { id: 'ixmlTape', label: 'Tape' },
+  { id: 'ixmlCircled', label: 'Circled', kind: 'bool' },
+  { id: 'ixmlNote', label: 'Note', multiline: true },
   // XMP (Dublin Core) only.
   { id: 'description', label: 'Description', multiline: true },
   { id: 'publisher', label: 'Publisher' },
@@ -228,7 +237,8 @@ export function bextChunk(meta) {
   const ref = Math.max(0, Math.floor(Number(m.bextTimeRef) || 0));
   dv.setUint32(338, ref % 2 ** 32, true);
   dv.setUint32(342, Math.floor(ref / 2 ** 32), true);
-  dv.setUint16(346, 1, true); // version 1: UMID present (zero), no loudness fields
+  dv.setUint16(346, 1, true); // version 1: UMID present, no loudness fields
+  body.set(umidBytes(m.bextUmid), 348);
   body.set(history, BEXT_FIXED);
   const pad = body.length & 1;
   return concat([ascii4('bext'), u32le(body.length), body, new Uint8Array(pad)]);
@@ -246,8 +256,100 @@ export function parseBext(bytes) {
     bextDate: readFixed(bytes, 320, 10),
     bextTime: readFixed(bytes, 330, 8),
     bextTimeRef: ref ? String(ref) : '',
+    bextUmid: bytes.length >= 412 ? umidHex(bytes.subarray(348, 412)) : '',
     bextCodingHistory: bytes.length > BEXT_FIXED ? decodeText(bytes.subarray(BEXT_FIXED)).replace(/\0+$/, '').replace(/\r\n/g, '\n').trim() : '',
   });
+}
+
+/** The 64 UMID bytes of a bext chunk from hex (zeros when empty or invalid). */
+export function umidBytes(hex) {
+  const out = new Uint8Array(64);
+  const clean = String(hex || '').replace(/\s+/g, '');
+  if (!/^([0-9a-fA-F]{2}){1,64}$/.test(clean)) return out;
+  for (let i = 0; i < clean.length / 2; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/** Hex text of a UMID: the basic 32 bytes unless the extended half is used; '' when all zero. */
+export function umidHex(bytes) {
+  if (!bytes.some((b) => b)) return '';
+  const n = bytes.subarray(32).some((b) => b) ? 64 : 32;
+  return [...bytes.subarray(0, n)].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+/**
+ * A new basic UMID (SMPTE 330M): universal label, length, a zero instance
+ * number and a random material number. `random(n)` returns n bytes.
+ */
+export function newUmid(random = (n) => crypto.getRandomValues(new Uint8Array(n))) {
+  const label = [0x06, 0x0a, 0x2b, 0x34, 0x01, 0x01, 0x01, 0x05, 0x01, 0x01, 0x0f, 0x20];
+  return umidHex(Uint8Array.from([...label, 0x13, 0, 0, 0, ...random(16)]));
+}
+
+// ------------------------------------------------------------------- iXML
+
+/** iXML elements behind the ixml* fields (top-level elements of the BWFXML document). */
+export const IXML_TAGS = { ixmlProject: 'PROJECT', ixmlScene: 'SCENE', ixmlTake: 'TAKE', ixmlTape: 'TAPE', ixmlCircled: 'CIRCLED', ixmlNote: 'NOTE' };
+const IXML_IDS = Object.keys(IXML_TAGS);
+
+const xmlEscape = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const xmlUnescape = (v) => v.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+
+/** Whether meta has any iXML field. */
+export function hasIxml(meta) {
+  return IXML_IDS.some((id) => meta?.[id]);
+}
+
+/** ixml* fields from the text of an iXML chunk. */
+export function parseIxml(text) {
+  const out = {};
+  for (const [id, tag] of Object.entries(IXML_TAGS)) {
+    const m = String(text || '').match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+    if (m) out[id] = xmlUnescape(m[1]).trim();
+  }
+  return cleanMeta(out);
+}
+
+/**
+ * iXML text with the ixml* fields of `meta` written into `existing` (the
+ * file's own iXML, whose other elements are kept), or into a new document.
+ * Fields that are empty remove their element. Null when there is nothing to write.
+ */
+export function writeIxml(meta, existing = '') {
+  const m = cleanMeta(meta);
+  let text = String(existing || '');
+  if (!/<BWFXML[\s>]/.test(text) || !/<\/BWFXML>/.test(text)) {
+    if (!hasIxml(m)) return null;
+    text = '<?xml version="1.0" encoding="UTF-8"?>\n<BWFXML>\n<IXML_VERSION>2.10</IXML_VERSION>\n</BWFXML>\n';
+  }
+  for (const [id, tag] of Object.entries(IXML_TAGS)) {
+    const re = new RegExp(`<${tag}>[^<]*</${tag}>\\n?|<${tag}/>\\n?`);
+    const v = m[id];
+    if (re.test(text)) text = text.replace(re, v ? `<${tag}>${xmlEscape(v)}</${tag}>\n` : '');
+    else if (v) text = text.replace(/<\/BWFXML>/, `<${tag}>${xmlEscape(v)}</${tag}>\n</BWFXML>`);
+  }
+  return text;
+}
+
+/**
+ * Kept WAV chunks with the iXML chunk brought up to date with `meta` (added
+ * or rewritten). `chunks` = [{ id, bytes }].
+ */
+export function withIxmlChunk(chunks = [], meta = {}) {
+  const list = chunks || [];
+  const i = list.findIndex((c) => c.id === 'iXML');
+  const existing = i >= 0 ? utf8.decode(list[i].bytes).replace(/\0+$/, '') : '';
+  const m = cleanMeta(meta);
+  // Unchanged (or no iXML fields given at all): the file's own chunk stays byte for byte.
+  if (i >= 0) {
+    const own = parseIxml(existing);
+    const same = IXML_IDS.every((id) => (own[id] || '') === (m[id] || ''));
+    if (same || !hasIxml(m)) return list;
+  }
+  const text = writeIxml(m, existing);
+  const rest = list.filter((c) => c.id !== 'iXML');
+  if (text == null) return rest;
+  return [...rest, { id: 'iXML', bytes: enc.encode(text) }];
 }
 
 // Cart chunk text fields in file order (after the 4-byte version), with sizes.

@@ -1,6 +1,8 @@
 // Metadata panel: the active audio file's tags, on tabs by format.
 //   BWF: broadcast extension (description, originator, origination date and
-//        time, time reference, coding history), written as a WAV bext chunk.
+//        time, time reference, UMID, coding history), written as a WAV bext chunk.
+//   iXML: production sound fields (project, scene, take, tape, circled, note),
+//        merged into the file's own iXML chunk (other elements are kept).
 //   ID3: title, artist, album, year, genre, track and the other music tags,
 //        written as ID3v2 (MP3, AIFF), Vorbis comments (FLAC, Ogg) or MP4 atoms.
 //   RIFF: the WAV INFO list, sharing the general fields with ID3.
@@ -13,8 +15,9 @@
 // metadata" is on.
 
 import { h } from '../lib/dom.js';
-import { icon } from '../ui/icons.js';
-import { ALL_META_FIELDS, cleanMeta } from '../audio/meta.js';
+import { Fingerprint } from 'lucide';
+import { icon, registerIcons } from '../ui/icons.js';
+import { ALL_META_FIELDS, cleanMeta, newUmid } from '../audio/meta.js';
 import { subTabs } from './subtabs.js';
 
 /** New document state with one field changed (null when nothing changes). Pure. */
@@ -28,7 +31,13 @@ export function withMetaField(state, field, value) {
 
 /** Tabs and their fields; a second entry relabels a shared field for that format. */
 export const META_TABS = [
-  { id: 'bwf', label: 'BWF', note: 'Saved in WAV exports as a broadcast extension (bext) chunk.', fields: ['bextDescription', 'bextOriginator', 'bextOriginatorRef', 'bextDate', 'bextTime', 'bextTimeRef', 'bextCodingHistory'] },
+  { id: 'bwf', label: 'BWF', note: 'Saved in WAV exports as a broadcast extension (bext) chunk.', fields: ['bextDescription', 'bextOriginator', 'bextOriginatorRef', 'bextDate', 'bextTime', 'bextTimeRef', 'bextUmid', 'bextCodingHistory'] },
+  {
+    id: 'ixml',
+    label: 'iXML',
+    note: 'Saved in WAV exports as an iXML chunk, read by field recorders and video editors. Other iXML data the file came with is kept.',
+    fields: ['ixmlProject', 'ixmlScene', 'ixmlTake', 'ixmlTape', 'ixmlCircled', 'ixmlNote'],
+  },
   {
     id: 'id3',
     label: 'ID3',
@@ -69,6 +78,14 @@ export function normalizeMetaValue(field, text) {
     const m = v.match(/^(\d{4})[-/.:]?(\d{1,2})[-/.:]?(\d{1,2})$/);
     if (!m || Number(m[2]) < 1 || Number(m[2]) > 12 || Number(m[3]) < 1 || Number(m[3]) > 31) return { error: 'Enter a date as YYYY-MM-DD.' };
     v = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  } else if (f?.kind === 'hex') {
+    v = v.replace(/[\s:-]+/g, '');
+    if (!/^([0-9a-fA-F]{2}){32}$|^([0-9a-fA-F]{2}){64}$/.test(v)) return { error: 'Enter 64 or 128 hexadecimal digits.' };
+    return { value: v.toUpperCase() };
+  } else if (f?.kind === 'bool') {
+    if (/^(y|yes|true|1|on|circled)$/i.test(v)) return { value: 'TRUE' };
+    if (/^(n|no|false|0|off)$/i.test(v)) return { value: 'FALSE' };
+    return { error: 'Enter Yes or No.' };
   } else if (f?.kind === 'time') {
     const m = v.match(/^(\d{1,2})[:.-](\d{1,2})(?:[:.-](\d{1,2}))?$/);
     if (!m || Number(m[1]) > 23 || Number(m[2]) > 59 || Number(m[3] || 0) > 59) return { error: 'Enter a time as HH:MM:SS.' };
@@ -79,6 +96,8 @@ export function normalizeMetaValue(field, text) {
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
+
+registerIcons({ fingerprint: Fingerprint });
 
 export function metadataPanel(app) {
   const inputs = new Map(); // field id -> inputs showing it (one per tab)
@@ -106,10 +125,10 @@ export function metadataPanel(app) {
     const f = FIELD.get(fieldId);
     const id = `meta-${fieldId}-${++n}`;
     const errId = `${id}-err`;
-    const placeholder = f.kind === 'date' ? 'YYYY-MM-DD' : f.kind === 'time' ? 'HH:MM:SS' : null;
+    const placeholder = f.kind === 'date' ? 'YYYY-MM-DD' : f.kind === 'time' ? 'HH:MM:SS' : f.kind === 'bool' ? 'Yes or No' : null;
     const input = f.multiline
       ? h('textarea.input.meta-comment', { id, rows: fieldId === 'bextDescription' ? 2 : 3, spellcheck: 'true', 'aria-describedby': errId })
-      : h('input.input', { id, type: 'text', autocomplete: 'off', placeholder, inputMode: f.kind === 'int' || fieldId === 'year' ? 'numeric' : null, maxLength: f.max || (fieldId === 'year' ? 10 : 500), 'aria-describedby': errId });
+      : h(`input.input${f.kind === 'hex' ? '.meta-hex' : ''}`, { id, type: 'text', autocomplete: 'off', spellcheck: f.kind === 'hex' ? 'false' : null, placeholder, inputMode: f.kind === 'int' || fieldId === 'year' ? 'numeric' : null, maxLength: f.kind === 'hex' ? 200 : f.max || (fieldId === 'year' ? 10 : 500), 'aria-describedby': errId });
     const error = h('div.meta-error', { id: errId, hidden: true, role: 'alert' });
     input.addEventListener('change', () => commit(fieldId, input, error));
     input.addEventListener('keydown', (e) => {
@@ -143,10 +162,24 @@ export function metadataPanel(app) {
     doc.apply('Edit Metadata', { ...doc.state, meta: cleanMeta(meta) });
   };
 
+  /** BWF: a new basic UMID (replacing the current one). */
+  const generateUmid = () => {
+    const doc = app.active;
+    if (!doc || doc.kind !== 'audio') return;
+    const state = withMetaField(doc.state, 'bextUmid', newUmid());
+    if (state) doc.apply('Edit Metadata', state);
+  };
+
   const tabs = subTabs(
     META_TABS.map((t) => {
       const form = h('div.form-grid.meta-form', ...t.fields.flatMap(fieldRow));
-      const extra = t.id === 'bwf' ? h('div.meta-actions', h('button.btn.sm', { type: 'button', title: 'Set the origination date and time to now', onclick: stampNow }, icon('clock', 13), 'Stamp Date and Time')) : null;
+      const extra = t.id === 'bwf'
+        ? h(
+            'div.meta-actions',
+            h('button.btn.sm', { type: 'button', title: 'Set the origination date and time to now', onclick: stampNow }, icon('clock', 13), 'Stamp Date and Time'),
+            h('button.btn.sm', { type: 'button', title: 'Give the file a new unique material identifier', onclick: generateUmid }, icon('fingerprint', 13), 'New UMID'),
+          )
+        : null;
       return { id: t.id, label: t.label, pane: h('div.meta-pane', form, extra, h('p.muted.meta-note', t.note)) };
     }),
     { label: 'Metadata formats', value: app.prefs.get('metadataTab') || 'bwf', onChange: (id) => app.prefs.set('metadataTab', id) },
