@@ -1,4 +1,4 @@
-import { UNIFORM_FLOATS, type Backend, type Texture } from './backend';
+import { UNIFORM_FLOATS, type Backend, type Texture, type TextureCopy } from './backend';
 import { glVertex, glFragment, glFloatFragment, glResampleFragment, glFloatResampleFragment } from './shaders';
 import { needsRgbaResampling } from './sampling';
 import { glColorFragment } from './color-shaders';
@@ -183,6 +183,28 @@ export class WebGLBackend implements Backend {
       t.format === 'r32float' ? [g.RED, g.FLOAT] : t.format === 'rgba32float' ? [g.RGBA, g.FLOAT] : [g.RGBA, g.UNSIGNED_BYTE];
     g.texSubImage2D(g.TEXTURE_2D, 0, x, y, width, height, format, type, data);
   }
+  private copyFramebuffers?: [WebGLFramebuffer, WebGLFramebuffer];
+  copy(target: Texture, regions: TextureCopy[]) {
+    if (!regions.length) return true;
+    const g = this.gl;
+    // Blitting float textures needs them to be render targets.
+    if (target.format !== 'rgba8unorm' && !g.getExtension('EXT_color_buffer_float')) return false;
+    const [read, draw] = (this.copyFramebuffers ??= [g.createFramebuffer()!, g.createFramebuffer()!]);
+    g.bindFramebuffer(g.DRAW_FRAMEBUFFER, draw);
+    g.framebufferTexture2D(g.DRAW_FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, target.handle as WebGLTexture, 0);
+    g.bindFramebuffer(g.READ_FRAMEBUFFER, read);
+    let bound: Texture | undefined;
+    for (const r of regions) {
+      if (r.source !== bound) {
+        g.framebufferTexture2D(g.READ_FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, r.source.handle as WebGLTexture, 0);
+        bound = r.source;
+      }
+      g.blitFramebuffer(r.sx, r.sy, r.sx + r.width, r.sy + r.height, r.dx, r.dy, r.dx + r.width, r.dy + r.height, g.COLOR_BUFFER_BIT, g.NEAREST);
+    }
+    g.bindFramebuffer(g.READ_FRAMEBUFFER, null);
+    g.bindFramebuffer(g.DRAW_FRAMEBUFFER, null);
+    return true;
+  }
   lutPass(source: Texture, lut: Texture, uniforms: Float32Array, target: Texture) {
     const g = this.gl;
     this.target(target);
@@ -273,6 +295,7 @@ export class WebGLBackend implements Backend {
   }
   dispose() {
     this.gl.deleteFramebuffer(this.framebuffer);
+    for (const f of this.copyFramebuffers ?? []) this.gl.deleteFramebuffer(f);
     this.gl.deleteProgram(this.program);
     if (this.floatProgram) this.gl.deleteProgram(this.floatProgram);
     if (this.colorProgram) this.gl.deleteProgram(this.colorProgram);

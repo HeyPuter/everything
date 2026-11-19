@@ -7,6 +7,16 @@ export interface Texture {
 // Composite pass uniforms (vec4 u[24] in the shaders); see shaders.ts and
 // model/blending.ts for the layout of the upper half.
 export const UNIFORM_FLOATS = 96;
+/** One rectangle copied from `source` into a destination texture of the same format. */
+export interface TextureCopy {
+  source: Texture;
+  sx: number;
+  sy: number;
+  dx: number;
+  dy: number;
+  width: number;
+  height: number;
+}
 export interface Backend {
   readonly name: string;
   readonly maxSize: number;
@@ -30,6 +40,9 @@ export interface Backend {
   ): void;
   // Replace a sub-rectangle of a texture (RGBA8 bytes, or floats for coverage/float textures).
   write(t: Texture, x: number, y: number, width: number, height: number, data: Uint8Array | Float32Array): void;
+  // Copy rectangles between textures on the GPU (no CPU upload). Returns false
+  // when this device cannot copy that format; the caller then uploads instead.
+  copy(target: Texture, regions: TextureCopy[]): boolean;
   // Apply packed adjustment curves/3D table (see lut-shaders.ts) from source into target.
   lutPass(source: Texture, lut: Texture, uniforms: Float32Array, target: Texture): void;
   // Image filter pass for spatial adjustments (see filter-shaders.ts): reads up

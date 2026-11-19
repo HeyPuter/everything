@@ -1,4 +1,4 @@
-import { UNIFORM_FLOATS, type Backend, type Texture } from './backend';
+import { UNIFORM_FLOATS, type Backend, type Texture, type TextureCopy } from './backend';
 import { wgsl, wgslFloat, wgslResample, wgslFloatResample } from './shaders';
 import { needsRgbaResampling } from './sampling';
 import { wgslColor } from './color-shaders';
@@ -290,6 +290,18 @@ export class WebGPUBackend implements Backend {
   write(t: Texture, x: number, y: number, width: number, height: number, data: Uint8Array | Float32Array) {
     const bytes = t.format === 'r32float' ? 4 : t.format === 'rgba32float' ? 16 : 4;
     this.upload(t.handle as GPUTexture, x, y, width, height, data, bytes);
+  }
+  copy(target: Texture, regions: TextureCopy[]) {
+    if (!regions.length) return true;
+    const e = this.device.createCommandEncoder();
+    for (const r of regions)
+      e.copyTextureToTexture(
+        { texture: r.source.handle as GPUTexture, origin: [r.sx, r.sy] },
+        { texture: target.handle as GPUTexture, origin: [r.dx, r.dy] },
+        [r.width, r.height],
+      );
+    this.device.queue.submit([e.finish()]);
+    return true;
   }
   /** Bands of rows within the device's buffer limit (`row` bytes each). */
   private bands(row: number, height: number) {
