@@ -18,9 +18,12 @@ import { h } from '../lib/dom.js';
 import { Channel } from '../audio/channel.js';
 import { WaveformRenderer } from '../render/waveform-gl.js';
 import { renderEffect, isAbort, isRealtime } from '../effects/apply.js';
-import { cssVar } from '../ui/theme.js';
+import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { icon } from '../ui/icons.js';
 import { TimeRuler } from './time-ruler.js';
+import { Overview } from './overview.js';
+import { dbTicks, linearTicks, AMP_UNITS } from './waveform-view.js';
+import { channelColumns } from '../audio/peaks.js';
 
 /** Most audio the preview processes, in seconds of the original. */
 export const PREVIEW_MAX_SECONDS = 120;
@@ -65,9 +68,11 @@ export function installPreviewEditor(app, host) {
     h('option', { value: 'independent' }, 'Independent'),
   );
   const head = h('div.preview-head', h('span.preview-title', 'Preview Editor:'), label, h('div.spacer'), status, h('label.preview-zoom-label', 'Zoom:', zoomSelect), close);
-  const surface = h('div.preview-surface', canvas);
+  const ampCanvas = h('canvas.preview-amp', { 'aria-hidden': 'true' });
+  const surface = h('div.preview-surface', canvas, ampCanvas);
   const rulerRow = h('div.preview-ruler');
-  const el = h('div.preview-editor', { hidden: true, role: 'region', 'aria-label': 'Preview Editor' }, head, rulerRow, surface);
+  const overviewRow = h('div.preview-overview');
+  const el = h('div.preview-editor', { hidden: true, role: 'region', 'aria-label': 'Preview Editor' }, head, overviewRow, rulerRow, surface);
   host.append(el);
   const renderer = new WaveformRenderer(canvas);
   let current = null; // { def, values, doc }
@@ -106,6 +111,32 @@ export function installPreviewEditor(app, host) {
     },
   });
   rulerRow.append(ruler.el);
+
+  // Zoom navigator over the preview: the original file, framing the preview's view.
+  const shownDoc = () => current?.doc || idleDoc();
+  const overview = new Overview(app, {
+    timeline: () => {
+      const doc = shownDoc();
+      if (!doc) return { rate: 48000, length: 0, view: { start: 0, end: 1 }, cursor: 0, selection: null };
+      return { rate: doc.sampleRate, length: doc.length, view: viewOf(doc), cursor: app.active === doc ? app.playhead : doc.cursor, selection: doc.selection };
+    },
+    setView: (a, b) => {
+      const doc = shownDoc();
+      if (!doc) return;
+      const span = Math.max(16, Math.min(Math.max(doc.length, 1), b - a));
+      const start = Math.max(0, Math.min(Math.max(0, doc.length - span), a));
+      setView(doc, { start, end: start + span });
+    },
+    viewMax: () => Math.max(1, shownDoc()?.length || 1),
+    peaksKey: () => shownDoc()?.state,
+    overviewPeaks: (cols, total) => {
+      const doc = shownDoc();
+      if (!doc?.length) return null;
+      const strips = doc.state.channels.map((c) => channelColumns(c, 0, total / cols, cols));
+      return strips.length === 1 ? strips[0] : strips;
+    },
+  });
+  overviewRow.append(overview.el);
 
   // Automatic: for effects that change the length, or for any effect (Preferences > Effects).
   const wanted = () => (current ? Boolean(app.prefs.get('previewEditor') || (app.prefs.get('previewAuto') !== false && (changesLength || app.prefs.get('previewAutoMode') === 'any'))) : Boolean(idleDoc()));
@@ -180,9 +211,13 @@ export function installPreviewEditor(app, host) {
     const left = wave && wave.width ? Math.max(0, wave.left - rect.left) : 0;
     const W = Math.max(1, Math.min(rect.width - left, wave?.width || rect.width));
     canvas.style.left = `${left}px`;
-    ruler.el.style.marginLeft = `${left}px`;
-    ruler.el.style.width = `${W}px`;
+    for (const row of [ruler.el, overview.el]) {
+      row.style.marginLeft = `${left}px`;
+      row.style.width = `${W}px`;
+    }
     ruler.resize(W, rulerRow.clientHeight || 20);
+    overview.resize(W, overviewRow.clientHeight || 18);
+    if (overview.ctx) overview.draw();
     const H = Math.max(1, rect.height);
     const dpr = window.devicePixelRatio || 1;
     renderer.resize(W, H, dpr);
@@ -204,7 +239,42 @@ export function installPreviewEditor(app, host) {
     const lh = (H * dpr - gap * (n - 1)) / n;
     const lanes = result.channels.map((_, i) => ({ top: i * (lh + gap), bottom: i * (lh + gap) + lh }));
     const color = cssVar('--wave');
-    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: (current?.doc || idle).view.amp || 1, offset: (current?.doc || idle).view.ampOffset || 0, lanes, colors: result.channels.map(() => color) });
+    const view = (current?.doc || idle).view;
+    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: view.amp || 1, offset: view.ampOffset || 0, lanes, colors: result.channels.map(() => color) });
+    drawAmpRuler(lanes.map((l) => ({ top: l.top / dpr, bottom: l.bottom / dpr })), left + W, Math.min(54, rect.width - left - W), H, view, (current?.doc || idle).info?.bitDepth);
+  }
+
+  /** The amplitude ruler beside the preview lanes, in the main editor's units. */
+  function drawAmpRuler(lanes, x, w, H, view, bits = 32) {
+    const dpr = window.devicePixelRatio || 1;
+    ampCanvas.hidden = w < 20;
+    if (ampCanvas.hidden) return;
+    Object.assign(ampCanvas.style, { left: `${x}px`, width: `${w}px`, height: `${H}px` });
+    ampCanvas.width = Math.round(w * dpr);
+    ampCanvas.height = Math.round(H * dpr);
+    const ctx = ampCanvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, H);
+    ctx.font = CANVAS_FONT;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = cssVar('--text-dim');
+    const amp = view.amp || 1;
+    const off = view.ampOffset || 0;
+    const unit = AMP_UNITS.some((u) => u.id === app.prefs.get('ampUnits')) ? app.prefs.get('ampUnits') : 'db';
+    for (const lane of lanes) {
+      const mid = (lane.top + lane.bottom) / 2;
+      const zero = mid + off * amp * ((lane.bottom - lane.top) / 2);
+      const ticks = unit === 'db' ? dbTicks(lane, amp, off).map((t) => ({ ...t, label: t.db === 0 ? '0' : String(t.db) })) : linearTicks(lane, amp, unit, bits, off).map((t) => ({ ...t, label2: `-${t.label}` }));
+      for (const t of ticks) {
+        for (const [y, label] of [[t.y, t.label], [t.y2, t.label2 ?? t.label]]) {
+          if (y === null || y === undefined) continue;
+          ctx.fillRect(0, Math.round(y), 4, 1);
+          ctx.fillText(label, 6, y);
+        }
+      }
+      if (zero >= lane.top + 10 && zero <= lane.bottom - 4) ctx.fillText(unit === 'db' ? '-\u221e' : '0', 6, zero);
+    }
   }
 
   app.on('effect-values', (payload) => {

@@ -150,3 +150,29 @@ describe('preview editor without an effect', () => {
     expect(active.view).toEqual({ start: 0, end: 48000, amp: 1 });
   });
 });
+
+describe('preview editor navigator and amplitude ruler', () => {
+  it('has a zoom navigator and an amplitude ruler beside the lanes', () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    HTMLCanvasElement.prototype.getContext = () => null;
+    const store = { previewEditor: true, previewZoom: 'independent' };
+    const prefs = new Emitter();
+    prefs.get = (k) => store[k];
+    prefs.set = (k, v) => ((store[k] = v), prefs.emit('change', k));
+    const active = { kind: 'audio', name: 'a.wav', length: 48000, sampleRate: 48000, view: { start: 0, end: 48000, amp: 1 }, state: { channels: [Channel.fromSamples(new Float32Array(48000))] }, selection: { start: 0, end: 0 }, setView() {} };
+    const app = new Emitter();
+    Object.assign(app, { prefs, active, commands: { register() {} }, formatTime: String });
+    const host = document.createElement('div');
+    document.body.replaceChildren(host);
+    installPreviewEditor(app, host);
+    prefs.emit('change', 'previewEditor');
+    expect(host.querySelector('.preview-overview .overview')).toBeTruthy();
+    expect(host.querySelector('.preview-amp')).toBeTruthy();
+    // The navigator frames the preview's own view in Independent mode.
+    host.querySelector('.preview-overview .overview').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(active.view).toEqual({ start: 0, end: 48000, amp: 1 });
+  });
+});

@@ -592,6 +592,22 @@
   height: 20px;
   border-bottom: 1px solid var(--border-soft);
 }
+.preview-overview {
+  flex: none;
+  height: 18px;
+  padding: 1px 0;
+}
+.preview-overview > .overview {
+  height: 100%;
+}
+.preview-amp {
+  position: absolute;
+  top: 0;
+  border-left: 1px solid var(--divider);
+}
+.preview-amp[hidden] {
+  display: none;
+}
 .preview-ruler > .time-ruler {
   height: 100%;
 }
