@@ -50,6 +50,17 @@ describe('playing actions', () => {
     expect(ok).toBe(true);
     expect(ran).toEqual([{ params: { radius: 2 } }]);
   });
+  it('refuses commands that cannot be recorded, which only an imported file or a batch link can name', async () => {
+    const ran: string[] = [];
+    registerCommand({ id: 'test.delete-presets', label: 'Delete Custom Presets', recordable: false, run: () => void ran.push('deleted') }, { id: 'test.edit', label: 'Edit', run: () => void ran.push('edited') });
+    const { e, messages } = editor();
+    const step = (command: string) => ({ command, enabled: true, dialog: false });
+    expect(await playAction(e, { id: 'a', name: 'Shared', steps: [step('test.edit'), step('test.delete-presets'), step('test.edit')] })).toBe(false);
+    expect(ran).toEqual(['edited']);
+    expect(messages).toEqual(['Action stopped: Actions cannot run “Delete Custom Presets”.']);
+    commands.delete('test.delete-presets');
+    commands.delete('test.edit');
+  });
   it('a batch that runs an action reports why the action stopped on a file', async () => {
     installActions({ dock: { update() {} } } as unknown as Editor);
     const { batchSteps } = await import('../src/features/files/automate-steps');
