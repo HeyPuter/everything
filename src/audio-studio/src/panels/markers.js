@@ -14,6 +14,7 @@ import { MARKER_TYPES, sortMarkers } from '../model/markers.js';
 import { parseTime, TIME_DISPLAY_KEYS } from '../lib/time.js';
 import { playlistOf, setPlaylist, MARKERS_DRAG_TYPE } from './playlist.js';
 import { addMarkers } from '../model/playlist.js';
+import { toolbarKeys } from './toolbar-keys.js';
 
 const COLUMNS = [
   { id: 'name', label: 'Name', key: (m) => (m.name || '').toLowerCase() },
@@ -71,6 +72,7 @@ export function markersPanel(app) {
   const filterBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Filter by type', title: 'Show Marker Types', 'aria-haspopup': 'menu', onclick: () => filterMenu() }, icon('list-filter', 15));
   const toolbar = h(
     'div.panel-toolbar',
+    { role: 'toolbar', 'aria-label': 'Markers' },
     tbtn('marker.add', 'marker-add', 'Add Cue Marker (M)'),
     tbtn('marker.deleteSelected', 'trash-2', 'Delete Selected Markers'),
     tbtn('marker.merge', 'link', 'Merge Selected Markers'),
@@ -82,6 +84,7 @@ export function markersPanel(app) {
     search,
     filterBtn,
   );
+  const toolKeys = toolbarKeys(toolbar);
   const headRow = h('tr');
   const body = h('tbody');
   const table = h('table.data-table.markers-table', { role: 'grid', 'aria-label': 'Markers', 'aria-multiselectable': 'true' }, h('thead', headRow), body);
@@ -345,6 +348,7 @@ export function markersPanel(app) {
     playlistBtn.disabled = !doc() || !selected.size || !app.panels.has('playlist');
     batchBtn.disabled = !app.panels.has('batch') || !batchRanges().length;
     sessionBtn.disabled = !app.commands.commands.has('mt.insertFiles') || !batchRanges().length;
+    toolKeys.sync();
   };
 
   /** Range audio into a session: one clip per range, end to end, named after its marker. */

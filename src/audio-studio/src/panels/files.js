@@ -17,6 +17,7 @@ import { icon, registerIcons } from '../ui/icons.js';
 
 registerIcons({ loader: LoaderCircle, 'circle-dot': CircleDot });
 import { resolveItems } from '../ui/menubar.js';
+import { toolbarKeys } from './toolbar-keys.js';
 
 const bitsOf = (doc) => (doc.kind === 'audio' ? doc.info.bitDepth ?? 0 : 32);
 const channelsOf = (doc) => (doc.kind === 'audio' ? doc.channelCount : 2);
@@ -144,6 +145,7 @@ export function filesPanel(app) {
   const tbtn = (cmd, ic, label, run) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, onclick: run || (() => app.commands.run(cmd)), dataset: { cmd } }, icon(ic, 15));
   const toolbar = h(
     'div.panel-toolbar',
+    { role: 'toolbar', 'aria-label': 'Files' },
     tbtn('file.open', 'folder-open', 'Open'),
     tbtn('file.import', 'download', 'Import'),
     tbtn('file.newAudio', 'file-plus', 'New Audio File'),
@@ -151,6 +153,7 @@ export function filesPanel(app) {
     tbtn('file.close', 'trash-2', 'Close Selected Files', () => closeSelected()),
     search,
   );
+  const toolKeys = toolbarKeys(toolbar);
   const head = h('tr');
   // Open order until a header is clicked.
   let sort = app.prefs.get('filesSort') || null;
@@ -430,6 +433,7 @@ export function filesPanel(app) {
     playBtn.replaceChildren(icon(app.engine.playing ? 'square' : 'play', app.engine.playing ? 13 : 15));
     loopBtn.setAttribute('aria-pressed', String(app.loop));
     for (const b of toolbar.querySelectorAll('[data-cmd]')) b.disabled = !app.commands.isEnabled(b.dataset.cmd);
+    toolKeys.sync();
   };
 
   /** Status column: an icon and a word for the file's state (see fileStatus). */

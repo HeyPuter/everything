@@ -13,6 +13,7 @@ import { dsp } from '../audio/dsp.js';
 import { makeScale, frequencyTicks, formatHzLong, noteName, formatHz } from '../spectral/freq-scale.js';
 import { analysisPool } from './pool.js';
 import { fitCanvas, masterTap } from './common.js';
+import { toolbarKeys } from '../panels/toolbar-keys.js';
 
 const FFTS = [1024, 2048, 4096, 8192, 16384];
 const WINDOWS = [
@@ -99,9 +100,11 @@ export function frequencyPanel(app) {
   const toolbar = h(
     'div.panel-toolbar.analysis-toolbar',
     h('label.freq-field', h('span', 'Scale:'), scaleSel),
-    h('div.freq-holds', { role: 'group', 'aria-label': 'Hold slots' }, h('span.freq-holds-label', 'Hold:'), ...holdBtns),
+    h('div.freq-holds', { role: 'toolbar', 'aria-label': 'Hold slots' }, h('span.freq-holds-label', 'Hold:'), ...holdBtns),
     clearBtn,
   );
+  // The eight slots are one tab stop; arrow keys move between them.
+  toolbarKeys(toolbar.querySelector('.freq-holds'));
   const displaySel = select({ label: 'Display', value: p0.display, options: DISPLAYS, onChange: (v) => setPref({ display: v }) });
   const scanBtn = h('button.btn.sm', { type: 'button', title: 'Average the spectrum of the selection, or of the whole file', onclick: () => scanNow() }, 'Scan');
   const advBtn = h('button.disclosure.freq-adv-toggle', { type: 'button', 'aria-expanded': String(Boolean(p0.advanced)), onclick: () => setPref({ advanced: !prefs().advanced }) }, icon('chevron-right', 12), 'Advanced');

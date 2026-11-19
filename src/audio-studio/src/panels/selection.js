@@ -29,6 +29,7 @@ export function selectionPanel(app) {
   };
   const table = h(
     'table.selview-table',
+    { 'aria-label': 'Selection and view ranges' },
     h('thead', h('tr', h('td'), h('th', { scope: 'col' }, 'Start'), h('th', { scope: 'col' }, 'End'), h('th', { scope: 'col' }, 'Duration'))),
     h(
       'tbody',

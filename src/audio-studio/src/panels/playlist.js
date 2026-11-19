@@ -9,6 +9,7 @@
 import { TIME_DISPLAY_KEYS } from '../lib/time.js';
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
+import { toolbarKeys } from './toolbar-keys.js';
 import { addMarkers, moveEntries, insertMarkersAt, moveEntriesTo, entryFrames, totalFrames, clampLoops, PlaylistPlayer } from '../model/playlist.js';
 
 /** Drag data types: marker ids from the Markers panel, entry ids within the playlist. */
@@ -37,7 +38,8 @@ export function playlistPanel(app) {
   const up = tbtn('chevron-up', 'Move Up', () => move(-1));
   const down = tbtn('chevron-down', 'Move Down', () => move(1));
   const play = h('button.icon-btn.playlist-play', { type: 'button', onclick: () => togglePlay() });
-  const toolbar = h('div.panel-toolbar', play, h('span.toolbar-gap'), addSel, addRanges, remove, up, down);
+  const toolbar = h('div.panel-toolbar', { role: 'toolbar', 'aria-label': 'Playlist' }, play, h('span.toolbar-gap'), addSel, addRanges, remove, up, down);
+  const toolKeys = toolbarKeys(toolbar);
   const body = h('tbody');
   const table = h(
     'table.data-table.playlist-table',
@@ -187,6 +189,7 @@ export function playlistPanel(app) {
     play.setAttribute('aria-label', label);
     play.setAttribute('aria-pressed', String(player.running));
     play.disabled = !player.running && totalFrames(list, markers, d?.length || 0) === 0;
+    toolKeys.sync();
   }
 
   body.addEventListener('keydown', (e) => {

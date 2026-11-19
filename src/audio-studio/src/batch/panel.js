@@ -17,6 +17,7 @@ import { PUTER_DRAG_TYPE, resolveMediaItems } from '../panels/media-browser.js';
 import { STATUS_LABELS, addSources, removeItems, resetItems, batchSettings, plannedNames, describeBatch, runQueue, sourceSampleType } from './queue.js';
 import { probeSource } from '../storage/probe.js';
 import { processItem, processInPlace, loadItem, batchFavoriteProblem } from './process.js';
+import { toolbarKeys } from '../panels/toolbar-keys.js';
 import { exportSettingsDialog as openExportSettings, outputWriter, locationText } from './export-settings.js';
 
 const PREFS = 'batchExport';
@@ -35,7 +36,8 @@ export function batchPanel(app) {
   const addPuterBtn = h('button.btn', { type: 'button', onclick: () => addPuter(), title: 'Add audio files from Puter', 'aria-label': 'Add Files from Puter' }, icon('cloud', 14), h('span', 'From Puter...'));
   const removeBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Remove selected files', title: 'Remove selected files', onclick: () => removeSelected() }, icon('trash-2', 14));
   const clearBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Clear the list', title: 'Clear the list', onclick: () => clearAll() }, icon('x', 14));
-  const toolbar = h('div.panel-toolbar.batch-toolbar', addOpenBtn, addLocalBtn, addPuterBtn, h('div.spacer'), removeBtn, clearBtn);
+  const toolbar = h('div.panel-toolbar.batch-toolbar', { role: 'toolbar', 'aria-label': 'Batch files' }, addOpenBtn, addLocalBtn, addPuterBtn, h('div.spacer'), removeBtn, clearBtn);
+  const toolKeys = toolbarKeys(toolbar);
 
   // --------------------------------------------------------------- list
   const body = h('tbody');
@@ -385,6 +387,7 @@ export function batchPanel(app) {
     addPuterBtn.hidden = !puter.sdk();
     removeBtn.disabled = busy || !selected.size;
     clearBtn.disabled = busy || !items.length;
+    toolKeys.sync();
     favSel.disabled = busy;
     exportBtn.disabled = busy || inPlace;
     exportBox.disabled = busy;

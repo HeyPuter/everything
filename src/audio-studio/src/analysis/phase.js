@@ -92,7 +92,7 @@ export function phaseAnalysisPanel(app) {
   const GRID = 160;
   const density = new Float32Array(GRID * GRID);
   const scope = h('canvas', { 'aria-hidden': 'true' });
-  const scopeWrap = h('div.phase-scope', scope);
+  const scopeWrap = h('div.phase-scope', { role: 'img', 'aria-label': 'Stereo image' }, scope);
   // Correlation as a number in the toolbar; the Phase Meter panel shows it as a bar.
   const value = h('div.phase-value', { title: 'Phase correlation (+1 mono, 0 unrelated, -1 out of phase)' }, '');
   toolbar.append(h('div.spacer'), value);
@@ -138,6 +138,11 @@ export function phaseAnalysisPanel(app) {
     drawScope();
     const st = !block && !app.engine.playing ? stillBlock() : null;
     value.textContent = st ? `${st.corr >= 0 ? '+' : ''}${st.corr.toFixed(2)}` : block || seen ? `${corr >= 0 ? '+' : ''}${corr.toFixed(2)}` : '';
+    // The scope's text alternative: what it shows and the correlation (not while it moves every frame).
+    if (!app.engine.playing) {
+      const label = st ? `Stereo image of the ${st.label.toLowerCase()}, correlation ${correlationText(st.corr)}` : 'Stereo image';
+      if (scopeWrap.getAttribute('aria-label') !== label) scopeWrap.setAttribute('aria-label', label);
+    }
     if (!app.engine.playing && block) {
       // Let the trail fade out after playback stops.
       block = null;

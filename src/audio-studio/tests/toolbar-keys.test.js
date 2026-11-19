@@ -69,3 +69,28 @@ describe('panel toolbars', () => {
     expect(tools.el.querySelectorAll('[role=toolbar] button[tabindex="0"]')).toHaveLength(1);
   });
 });
+
+describe('panel toolbars are labelled toolbars with one tab stop', () => {
+  it('Files, Markers and Playlist', async () => {
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { installPanelsExtra } = await import('../src/features/panels-extra.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    installPanelsExtra(app);
+    app.syncGraph = () => {};
+    app.addDocument(new AudioFile({ name: 'a.wav', sampleRate: 1000, channels: [Channel.fromSamples(new Float32Array(1000))] }));
+    for (const [id, label] of [['files', 'Files'], ['markers', 'Markers'], ['playlist', 'Playlist']]) {
+      const panel = app.panels.get(id).create(app);
+      panel.show?.();
+      const bar = panel.el.querySelector('[role=toolbar]');
+      expect(bar.getAttribute('aria-label')).toBe(label);
+      expect(bar.querySelectorAll('button[tabindex="0"]').length).toBeLessThanOrEqual(1);
+    }
+    const sel = app.panels.get('selection').create(app);
+    expect(sel.el.querySelector('table').getAttribute('aria-label')).toBe('Selection and view ranges');
+  });
+});
