@@ -165,8 +165,7 @@ describe('saving to Puter', () => {
     expect(doc.dirty).toBe(false);
   });
 
-  // M4A where the browser can encode AAC; this test environment has no encoder, so the
-  // dialog offers WAV instead of a format it could not write.
+  // Save As does not suggest another lossy pass: it proposes a lossless copy (WAV).
   for (const [file, proposed] of [
     ['Clip.mp4', 'Clip.wav'],
     ['Stream.aac', 'Stream.wav'],

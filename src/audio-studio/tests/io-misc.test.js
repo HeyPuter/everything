@@ -106,6 +106,16 @@ describe('export option logic', () => {
     const c = initialState(doc, { mode: 'selection', frames: 10 });
     expect(c.name).toBe('Interview Selection.flac');
   });
+
+  it('Save As after a lossy save suggests the last lossless format instead', () => {
+    const doc = AudioFile.blank({ name: 'Voice.mp3', sampleRate: 48000, channels: 1, seconds: 1 });
+    expect(initialState(doc, { mode: 'saveAs', frames: 1, remembered: { format: 'mp3' } }).options.format).toBe('wav');
+    const s = initialState(doc, { mode: 'saveAs', frames: 1, remembered: { format: 'mp3', lossless: 'flac' } });
+    expect(s.options.format).toBe('flac');
+    expect(s.name).toBe('Voice.flac');
+    // Export still follows the last format used.
+    expect(initialState(doc, { mode: 'export', frames: 1, remembered: { format: 'mp3', lossless: 'flac' } }).options.format).toBe('mp3');
+  });
 });
 
 describe('metadata writers and readers', () => {

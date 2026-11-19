@@ -69,7 +69,11 @@ export function formatNote(formatId, formats) {
 export function initialState(doc, { mode, frames, remembered = {}, includeMeta } = {}) {
   const meta = includeMeta ?? remembered.includeMeta !== false;
   const sourceFormat = formatForName(doc.source?.path || doc.name);
-  const format = mode === 'saveAs' ? sourceFormat || remembered.format || 'wav' : remembered.format || sourceFormat || 'wav';
+  // Save As never suggests saving a lossy file over again (each pass loses more): after an
+  // MP3, Opus or AAC save it offers the last lossless format used, else WAV.
+  const lossless = remembered.lossless && !getFormat(remembered.lossless)?.lossy ? remembered.lossless : 'wav';
+  const saveAsFormat = sourceFormat && getFormat(sourceFormat)?.lossy ? lossless : sourceFormat;
+  const format = mode === 'saveAs' ? saveAsFormat || remembered.format || 'wav' : remembered.format || sourceFormat || 'wav';
   const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc), int32: doc.info?.int32 };
   const base = defaultOptions(source, format);
   const options = conformOptions(format, {
@@ -504,6 +508,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   // Remember choices for next time.
   app.prefs.set('exportPrefs', {
     format: state.options.format,
+    lossless: getFormat(state.options.format)?.lossy ? remembered.lossless : state.options.format,
     dither: state.options.dither,
     ...(state.options.resampler ? { resampler: state.options.resampler } : remembered.resampler ? { resampler: remembered.resampler } : {}),
     includeMeta: state.options.meta !== false,
