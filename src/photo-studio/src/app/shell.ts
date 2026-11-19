@@ -38,8 +38,10 @@ export function appShell(root: HTMLElement) {
       <button class="chip fg-chip" data-command="color.pick-foreground" aria-label="Foreground color" title="Set foreground color"></button>
       <input type="color" id="foreground" value="#000000" aria-label="Foreground color value" tabindex="-1" class="sr-only">
     </div>
-    <button class="tool-slot quick-mask-button" data-command="select.quick-mask" title="Edit in Quick Mask mode (Q)" aria-label="Quick Mask mode">${svg('quick-mask')}</button>
-    <button class="tool-slot" data-command="view.cycle-screen-mode" title="Change screen mode (F)" aria-label="Change screen mode">${svg('screen-mode')}</button>
+    <button class="tool-slot quick-mask-button" data-command="select.quick-mask" data-alt-command="select.quick-mask-options" title="Edit in Quick Mask mode (Q)
+Double-click or Alt-click for options" aria-label="Quick Mask mode">${svg('quick-mask')}</button>
+    <button class="tool-slot" data-command="view.cycle-screen-mode" title="Change screen mode (F)
+Right-click or hold for the list" aria-label="Change screen mode" aria-haspopup="menu">${svg('screen-mode')}</button>
   </aside>
   <main class="workspace">
     <div class="document-tabs" role="tablist" aria-label="Open documents"></div>

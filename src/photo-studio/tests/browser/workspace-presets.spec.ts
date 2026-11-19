@@ -88,7 +88,8 @@ test('toolbar and menu customization', async ({ page }) => {
   await page.locator('dialog.toolbar-editor [data-tbe-reset]').click();
   await page.locator('dialog.toolbar-editor button.primary').click();
   await expect(page.locator('[data-slot="zoom"]')).toHaveCount(1);
-  await expect(page.locator('[data-slot="extra"]')).toHaveCount(0);
+  // The slot stays, leading to Edit Toolbar only.
+  await expect(page.locator('[data-slot="extra"]')).toHaveAccessibleName('Edit toolbar');
 
   await menu(page, 'Edit', 'Menus…');
   await page.locator('dialog.menu-editor [data-menu-tab="1"]').click();

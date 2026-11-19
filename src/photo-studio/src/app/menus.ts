@@ -151,7 +151,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       'select.color-range', 'select.focus-area', 'select.subject', 'select.sky', '-',
       'select.mask-refine', { label: 'Modify', id: 'select.modify', items: ['select.modify-border', 'select.modify-smooth', 'select.modify-expand', 'select.modify-contract', 'select.modify-feather'] },
       '-', 'select.grow', 'select.similar', '-', 'select.transform-selection', '-',
-      'select.quick-mask', '-', 'select.load', 'select.save',
+      'select.quick-mask', 'select.quick-mask-options', '-', 'select.load', 'select.save',
     ],
   },
   {

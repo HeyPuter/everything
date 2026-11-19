@@ -14,6 +14,12 @@ export const toolGroups = [
 // Separators between families of slots.
 const separatorsBefore = new Set(['crop', 'heal', 'pen', 'hand']);
 
+/** The menu a toolbar button shows on right-click or a long press. */
+function buttonMenu(target: HTMLElement): string[] | undefined {
+  if (target.closest('[data-command="view.cycle-screen-mode"]')) return ['view.screen-standard', 'view.screen-full-menus', 'view.screen-full'];
+  if (target.closest('.quick-mask-button')) return ['select.quick-mask', 'select.quick-mask-options'];
+  return undefined;
+}
 /** Tools shown in a slot, after toolbar customization (Edit → Toolbar). */
 export function groupTools(group: string): Tool[] {
   const all = [...tools.values()];
@@ -31,6 +37,13 @@ export class Toolbar {
     private e: Editor,
     private el: HTMLElement,
   ) {
+    // Double-clicking the Quick Mask button opens its options (the first click
+    // already entered Quick Mask mode, so the second does not leave it).
+    el.addEventListener('click', (ev) => {
+      if (ev.detail !== 2 || !(ev.target as HTMLElement).closest('.quick-mask-button')) return;
+      ev.stopPropagation();
+      void e.runCommand('select.quick-mask-options');
+    });
     el.addEventListener('click', (ev) => {
       const target = ev.target as HTMLElement;
       const flyoutItem = target.closest<HTMLElement>('[data-flyout-tool]');
@@ -44,6 +57,12 @@ export class Toolbar {
       else if (slot) e.setTool(slot.dataset.tool!);
     });
     el.addEventListener('contextmenu', (ev) => {
+      const menu = buttonMenu(ev.target as HTMLElement);
+      if (menu) {
+        ev.preventDefault();
+        showContextMenu(e, ev.clientX, ev.clientY, menu);
+        return;
+      }
       const slot = (ev.target as HTMLElement).closest<HTMLElement>('[data-slot]');
       if (!slot) {
         if (!(ev.target as HTMLElement).closest('button')) {
@@ -63,8 +82,20 @@ export class Toolbar {
     // A long press opens the group's flyout on touch and pen input.
     let timer = 0;
     el.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      const menu = buttonMenu(ev.target as HTMLElement);
+      if (menu) {
+        // A long press shows the menu; the click that follows is swallowed.
+        const button = (ev.target as HTMLElement).closest<HTMLElement>('button')!;
+        timer = window.setTimeout(() => {
+          const r = button.getBoundingClientRect();
+          showContextMenu(e, r.right + 4, r.top, menu);
+          button.addEventListener('click', (c) => c.stopPropagation(), { once: true, capture: true });
+        }, 450);
+        return;
+      }
       const slot = (ev.target as HTMLElement).closest<HTMLElement>('[data-slot]');
-      if (!slot || ev.button !== 0) return;
+      if (!slot) return;
       timer = window.setTimeout(() => this.openFlyout(slot.dataset.slot!, slot), 450);
     });
     const cancel = () => clearTimeout(timer);
@@ -106,12 +137,12 @@ export class Toolbar {
       const more = many ? `\n${t.key ? `Shift+${t.key.toUpperCase()} or right-click` : 'Right-click'} for the other tools in this slot` : '';
       html += `<button class="tool-slot ${many ? 'has-flyout' : ''}" data-slot="${group}" data-tool="${t.id}" aria-label="${escapeXML(t.label)}" title="${escapeXML(toolTitle(t) + more)}" aria-pressed="${groupTools(group).some((g) => g.id === active) && t.id === active}">${svg(t.icon)}</button>`;
     }
-    // Tools moved out of the toolbar stay one click away in the Extra Tools slot.
+    // Tools moved out of the toolbar stay one click away in the Extra Tools
+    // slot, which also leads to Edit Toolbar (so it is always there).
     const extra = groupTools(EXTRA_SLOT);
-    if (extra.length) {
-      const current = extra.find((t) => t.id === active);
-      html += `<div class="tool-separator" role="separator"></div><button class="tool-slot extra-tools-slot has-flyout" data-slot="${EXTRA_SLOT}" data-tool="${current?.id ?? ''}" aria-haspopup="menu" aria-label="Extra tools${current ? `: ${escapeXML(current.label)}` : ''}" title="Extra tools${current ? ` — ${escapeXML(current.label)}` : ''}" aria-pressed="${!!current}">${svg(current?.icon ?? 'ellipsis')}</button>`;
-    }
+    const current = extra.find((t) => t.id === active);
+    const extraLabel = extra.length ? `Extra tools${current ? `: ${escapeXML(current.label)}` : ''}` : 'Edit toolbar';
+    html += `<div class="tool-separator" role="separator"></div><button class="tool-slot extra-tools-slot ${extra.length ? 'has-flyout' : ''}" data-slot="${EXTRA_SLOT}" data-tool="${current?.id ?? ''}" aria-haspopup="menu" aria-label="${extraLabel}" title="${extra.length ? `Extra tools${current ? ` — ${escapeXML(current.label)}` : ''}\nClick for these tools and Edit Toolbar` : 'Edit Toolbar\nChoose which tools show and in what order'}" aria-pressed="${!!current}">${svg(current?.icon ?? 'ellipsis')}</button>`;
     const slots = this.el.querySelector<HTMLElement>('.tool-slots')!;
     // The toolbar redraws after every edit: keep unchanged markup, and the
     // keyboard focus on the slot that had it.
@@ -127,13 +158,13 @@ export class Toolbar {
     this.closeFlyout();
     const list = groupTools(group);
     const extra = group === EXTRA_SLOT;
-    if (list.length < (extra ? 1 : 2)) return;
+    if (!extra && list.length < 2) return;
     const pop = document.createElement('div');
     pop.className = 'tool-flyout';
     pop.setAttribute('role', 'menu');
     pop.innerHTML = list
       .map((t) => `<button role="menuitemradio" aria-checked="${t.id === this.e.tool}" data-flyout-tool="${t.id}" title="${escapeXML(toolTitle(t))}">${svg(t.icon)}<span>${escapeXML(t.label)}</span><kbd>${t.key ?? ''}</kbd></button>`)
-      .join('') + (extra ? `<div class="tool-flyout-separator" role="separator"></div><button role="menuitem" data-flyout-command="edit.toolbar">${svg('settings', 16)}<span>Edit Toolbar…</span></button>` : '');
+      .join('') + (extra ? `${list.length ? '<div class="tool-flyout-separator" role="separator"></div>' : ''}<button role="menuitem" data-flyout-command="edit.toolbar">${svg('settings', 16)}<span>Edit Toolbar…</span></button>` : '');
     // Fixed to the page: inside the scrollable toolbar it would scroll it sideways.
     document.body.append(pop);
     const r = anchor.getBoundingClientRect();
