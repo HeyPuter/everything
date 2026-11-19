@@ -111,10 +111,20 @@ test('black and white, profiles and a saved preset', async ({ page }) => {
   await d.locator('#dv-preset-name').fill('Red filter');
   await d.locator('.dv-preset-save').click();
   await expect(d.locator('[data-preset="Red filter"]')).toBeVisible();
-  await d.locator('[data-preset="__defaults"]').click();
+  // A preset may have any name, also one that looks like a built-in entry's ID.
+  await d.locator('#dv-preset-name').fill('__defaults');
+  await d.locator('.dv-preset-save').click();
+  await expect(d.locator('[data-preset="__defaults"]')).toBeVisible();
+  await d.locator('[data-preset-builtin="defaults"]').click();
   await d.locator('[data-tool="edit"]').click();
   await expect(d.locator('select[data-key="profile"]')).toHaveValue('natural');
   await d.locator('[data-tool="presets"]').click();
+  await d.locator('[data-preset="__defaults"]').click();
+  await expect(d.locator('.dv-presets')).toBeVisible();
+  await d.locator('[data-tool="edit"]').click();
+  await expect(d.locator('select[data-key="profile"]')).toHaveValue('mono');
+  await d.locator('[data-tool="presets"]').click();
+  await d.locator('[data-preset-builtin="defaults"]').click();
   await d.locator('[data-preset="Red filter"]').click();
   await d.locator('[data-tool="edit"]').click();
   await expect(d.locator('select[data-key="profile"]')).toHaveValue('mono');

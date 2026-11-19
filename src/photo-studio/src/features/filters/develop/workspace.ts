@@ -942,6 +942,9 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
       this.set({ upright: up.dataset.upright! });
       return;
     }
+    // Built-in entries are told apart from saved presets of any name.
+    const builtin = t.closest<HTMLElement>('[data-preset-builtin]')?.dataset.presetBuiltin;
+    if (builtin === 'defaults' || builtin === 'last') return this.applyBuiltinPreset(builtin);
     const preset = t.closest<HTMLElement>('[data-preset]');
     if (preset) return this.applyPreset(preset.dataset.preset!);
     const del = t.closest<HTMLElement>('[data-preset-delete]');
@@ -1063,26 +1066,25 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     const host = this.q('.dv-presets');
     const user = developPresets();
     const last = developLast();
-    host.innerHTML = `<h3>Presets</h3><ul class="dv-preset-list"><li><button type="button" data-preset="__defaults">Defaults</button></li><li><button type="button" data-preset="__last" ${last ? '' : 'disabled'} title="The settings last applied with OK">Last Used</button></li></ul><h4>Saved</h4>${user.length ? `<ul class="dv-preset-list">${user.map((p) => `<li><button type="button" data-preset="${escapeXML(p.name)}">${escapeXML(p.name)}</button><button type="button" class="icon-button" data-preset-delete="${escapeXML(p.name)}" title="Delete ${escapeXML(p.name)}" aria-label="Delete preset ${escapeXML(p.name)}">${svg('trash-2', 14)}</button></li>`).join('')}</ul>` : '<p class="dv-note">No saved presets yet.</p>'}<div class="dv-preset-new"><label for="dv-preset-name">Save current settings as</label><div class="dv-preset-row"><input type="text" id="dv-preset-name" maxlength="80" placeholder="Preset name" autocomplete="off"><button type="button" class="dv-preset-save">Save</button></div></div>`;
+    host.innerHTML = `<h3>Presets</h3><ul class="dv-preset-list"><li><button type="button" data-preset-builtin="defaults">Defaults</button></li><li><button type="button" data-preset-builtin="last" ${last ? '' : 'disabled'} title="The settings last applied with OK">Last Used</button></li></ul><h4>Saved</h4>${user.length ? `<ul class="dv-preset-list">${user.map((p) => `<li><button type="button" data-preset="${escapeXML(p.name)}">${escapeXML(p.name)}</button><button type="button" class="icon-button" data-preset-delete="${escapeXML(p.name)}" title="Delete ${escapeXML(p.name)}" aria-label="Delete preset ${escapeXML(p.name)}">${svg('trash-2', 14)}</button></li>`).join('')}</ul>` : '<p class="dv-note">No saved presets yet.</p>'}<div class="dv-preset-new"><label for="dv-preset-name">Save current settings as</label><div class="dv-preset-row"><input type="text" id="dv-preset-name" maxlength="80" placeholder="Preset name" autocomplete="off"><button type="button" class="dv-preset-save">Save</button></div></div>`;
     host.querySelector<HTMLInputElement>('#dv-preset-name')!.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter') return;
       ev.preventDefault();
       this.savePreset();
     });
   }
-  private applyPreset(id: string) {
-    let p: ParamValues | undefined;
-    if (id === '__defaults') p = developDefaults();
-    else if (id === '__last') {
-      const last = developLast();
-      p = last && presetSettings(last);
-    } else {
-      const found = developPresets().find((x) => x.name === id);
-      p = found && presetSettings(found.params);
-    }
+  private applyBuiltinPreset(which: 'defaults' | 'last') {
+    const last = which === 'last' ? developLast() : undefined;
+    const p = which === 'defaults' ? developDefaults() : last && presetSettings(last);
     if (!p) return;
     this.set(p);
-    this.status(`Applied ${id === '__defaults' ? 'Defaults' : id === '__last' ? 'Last Used' : id}`);
+    this.status(`Applied ${which === 'defaults' ? 'Defaults' : 'Last Used'}`);
+  }
+  private applyPreset(name: string) {
+    const found = developPresets().find((x) => x.name === name);
+    if (!found) return;
+    this.set(presetSettings(found.params));
+    this.status(`Applied ${name}`);
   }
   private savePreset() {
     const input = this.ws.dialog.querySelector<HTMLInputElement>('#dv-preset-name');
