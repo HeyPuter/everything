@@ -323,6 +323,16 @@ puter-user-menu::part(apps-panel) {
   background: transparent;
 }
 
+/* The search field starts narrower in one row and widens while you type in it. */
+.chrome-merged .command-search {
+  width: 120px;
+  transition: width 120ms var(--ease);
+}
+
+.chrome-merged .command-search:focus {
+  width: 180px;
+}
+
 .chrome-merged .toolbar::before {
   content: '';
   flex: none;
@@ -770,8 +780,19 @@ puter-user-menu::part(apps-panel) {
   margin-right: -6px;
   padding-right: 6px;
   border-radius: 0;
-  border-left: 1px solid var(--border-soft);
   background: var(--bg-panel);
+}
+
+/* Tabs running under the chevron fade out beside it. */
+.panel-tabs-more::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 24px;
+  background: linear-gradient(to right, transparent, var(--bg-panel));
+  pointer-events: none;
 }
 
 .panel-tabs-more[hidden] {

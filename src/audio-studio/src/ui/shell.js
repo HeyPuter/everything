@@ -168,6 +168,7 @@ export function createShell(app, root) {
   // One row on wide desktop windows: the toolbar joins the menu bar when
   // everything in both fits (the other workspace tabs move to the chevron and
   // the document name to the window title and the editor tab), saving a row.
+  const MERGED_SEARCH = 120;
   const fitChrome = () => {
     const merged = root.classList.contains('chrome-merged');
     // Without layout (tests, hidden tabs) nothing can be measured.
@@ -177,7 +178,8 @@ export function createShell(app, root) {
       const w = (el) => (el && !el.hidden ? el.offsetWidth : 0);
       const current = workspaceTabs.querySelector('.workspace-tab[aria-selected=true]');
       const bar = w(title.querySelector('.app-logo')) + menubar.scrollWidth + w(account);
-      const tools = [...toolbar.children].filter((c) => !c.classList.contains('spacer') && c !== workspaceTabs).reduce((a, c) => a + w(c), 0);
+      // The search field is narrower in one row (shell.css), so it counts at that width.
+      const tools = [...toolbar.children].filter((c) => !c.classList.contains('spacer') && c !== workspaceTabs).reduce((a, c) => a + (c === searchWrap ? Math.min(w(c), MERGED_SEARCH) : w(c)), 0);
       const tabs = w(current) + w(workspaceTabs.querySelector('.workspace-menu-btn'));
       const gaps = 6 * (toolbar.children.length + 4) + 48;
       const need = bar + tools + tabs + gaps;
@@ -186,6 +188,7 @@ export function createShell(app, root) {
     }
     if (want === merged) return;
     root.classList.toggle('chrome-merged', want);
+    search.placeholder = want ? 'Search' : 'Search commands';
     if (want) appbar.insertBefore(toolbar, appbarSpacer);
     else appbar.after(toolbar);
     dock.emit('resize');

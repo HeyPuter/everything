@@ -141,6 +141,14 @@ svg.icon {
   outline-offset: 1px;
 }
 
+/* A default button that is off reads as off in both themes: a quiet fill, not a faded accent. */
+.btn.primary:disabled {
+  border-color: var(--border-soft);
+  background: var(--bg-active);
+  color: var(--text-faint);
+  opacity: 1;
+}
+
 .btn.danger {
   color: var(--danger);
 }
