@@ -320,3 +320,29 @@ test('Freeze From combines the layer transparency with the freeze mask', async (
   expect(await canvasSum(page)).toBe(frozen);
   await d.locator('.lq-cancel').click();
 });
+
+test('Find with AI places a guide from the answer and skips faces already guided', async ({
+  page,
+}) => {
+  // A stubbed AI service that reports the drawn face (points in 0..1000).
+  const answer = JSON.stringify({
+    faces: [{ eyeL: [412, 417], eyeR: [587, 417], mouthL: [430, 663], mouthR: [570, 663] }],
+  });
+  await boot(
+    page,
+    'default',
+    `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{txt2img:async()=>({src:""}),chat:async()=>({message:{content:${JSON.stringify(answer)}}})}};`,
+  );
+  await openFace(page);
+  await openLiquify(page);
+  const d = dialog(page);
+  await expect(d.locator('.lq-ai-note')).toContainText('Puter');
+  await d.locator('[data-act="face-ai"]').click();
+  await expect(d.locator('#lq-face option')).toHaveText(['Face 1']);
+  await expect(d.locator('[data-tool="face"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(d.getByLabel('Left eye size value')).toBeEnabled();
+  await d.locator('[data-act="face-ai"]').click();
+  await expect(d.locator('[data-act="face-ai"]')).toBeEnabled();
+  await expect(d.locator('#lq-face option')).toHaveText(['Face 1']);
+  await d.locator('.lq-cancel').click();
+});

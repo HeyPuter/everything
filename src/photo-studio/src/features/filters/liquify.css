@@ -18,3 +18,4 @@
 .lq-eye-side input[type='number'] { width: 46px; flex: none; text-align: right; }
 .lq-props .fp-number input[type='number'] { width: 56px; }
 .lq-busy { cursor: progress; }
+.lq-ai-note { margin: 6px 0 0; font-size: 11px; color: var(--muted); line-height: 1.35; }

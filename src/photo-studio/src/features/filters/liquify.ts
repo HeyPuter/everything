@@ -290,6 +290,7 @@ class LiquifyWorkspace {
     <section class="lq-face-section"><h3>Face-Aware Liquify</h3>
       <div class="fp-row"><label for="lq-face">Face</label><select id="lq-face" disabled><option>No faces</option></select></div>
       <div class="lq-row">${hasDetector ? '<button type="button" data-act="face-find" title="Find faces with the browser’s built-in detector (works offline)">Find Faces</button>' : ''}<button type="button" data-act="face-ai" title="Send a reduced copy of the image to the AI service to place face guides">${svg('sparkles', 13)} Find with AI</button><button type="button" data-act="face-add" title="Place a face guide by hand: drag from one eye to the other with the Face tool">Add Face</button></div>
+      <p class="lq-ai-note">Find with AI sends a reduced copy of the image (at most 1024 px) to Puter’s AI service. It needs a Puter account and may use credits.</p>
       <p class="lq-face-empty">Add a face guide, then drag its handles with the Face tool (A) or use the sliders.</p>
       <label class="lq-check"><input type="checkbox" data-opt="edit-guide" disabled> Adjust Face Guide</label>
       <div class="lq-row"><button type="button" data-act="face-reset" disabled>Reset</button><button type="button" data-act="face-reset-all" disabled>Reset All</button><button type="button" data-act="face-remove" disabled>Remove Face</button></div>
@@ -1010,7 +1011,11 @@ class LiquifyWorkspace {
     const img = this.level(k),
       scale = 2 ** k;
     await this.busyWhile('Finding faces with AI…', async () => {
-      const { locateFaces } = await import('../../imaging/ai/puter-ai');
+      const [{ ensureSignedIn }, { locateFaces }] = await Promise.all([
+        import('../retouch/ai'),
+        import('../../imaging/ai/puter-ai'),
+      ]);
+      await ensureSignedIn();
       const answer = await locateFaces(img);
       const list = parseFaceAnswer(answer, img.width, img.height).map((lm) => {
         for (const id of LANDMARKS) lm[id] = { x: lm[id].x * scale, y: lm[id].y * scale };

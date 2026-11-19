@@ -156,6 +156,25 @@ every transform, so a symmetric stroke is still one session and one undo step.
   layer, restricted and blended by the active selection, as one undo step.
 - `compositeRGBA(e)` and `layerRGBA(e, layer)` read pixels back from the GPU.
 
+## Liquify (`src/features/filters/liquify.ts`, `src/imaging/filters/liquify*.ts`)
+
+- Brush strokes edit a `LiquifyField` (inverse displacement at nodes every
+  4–6 px). Face edits are parametric: a face guide (13 landmarks, placed by
+  dragging eye to eye, by the browser's `FaceDetector` where it exists, or by
+  Find with AI through `locateFaces` + `parseFaceAnswer`) plus slider values.
+  `faceOps` turns the sliders into elementary move/scale/rotate warps with
+  raised-cosine falloff, each kept inside the amount that stays one-to-one,
+  so no setting folds the image (`tests/liquify-face.test.ts` checks the
+  Jacobian at every extreme).
+- `bakeFaces` composes them into the rendered field:
+  `d(q) = b(q) + (1 − freeze(q)) · f(q + b(q))`, re-baking only the changed
+  rectangle; Pin Edges zeroes motion across the border. OK sends that field
+  to the filter worker, so the result is one history step. Liquify is not a
+  Live Filter; Save/Load Mesh (`.lqmesh`: JSON faces + field) and Load Last
+  Mesh keep face settings re-editable.
+- Partial repaints sample displacement on a grid fixed to the canvas, so they
+  match full repaints exactly (the browser specs compare canvas checksums).
+
 ## Embedded objects (`src/model/embedded.ts`, `src/features/embedded/`)
 
 - `doc.embeds[id]` holds the content of an embedded object: a nested `.photo`
