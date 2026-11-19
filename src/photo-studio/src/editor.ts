@@ -1037,7 +1037,10 @@ export class Editor {
       this.el('#viewport').focus({ preventScroll: true });
       return;
     }
-    const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
+    // A checkbox or radio button (focused by the click that set it) keeps only
+    // the keys it uses itself; tool keys and shortcuts such as Select All work.
+    const toggle = target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio');
+    const typing = toggle ? [' ', 'Enter', 'Tab'].includes(e.key) || e.key.startsWith('Arrow') : !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
     // A modal dialog makes the workspace behind it inert: keys that reach the
     // page (the focus fell off a control the dialog rebuilt, or Tab left its

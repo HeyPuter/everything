@@ -33,6 +33,21 @@ test('tool keys select tools and Shift cycles through a slot', async ({ page }) 
   expect(await tool(page)).toBe('rect-marquee');
 });
 
+test('tool keys and shortcuts still work after clicking an options-bar checkbox, which keeps Space for itself', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('move'));
+  const box = page.locator('#auto-select');
+  const checked = await box.isChecked();
+  await box.click();
+  await expect(box).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
+  await idle(page);
+  expect(await page.evaluate(() => !!window.photoStudio.doc.selection)).toBe(true);
+  await page.keyboard.press('Space');
+  await expect(box).toBeChecked({ checked });
+  await page.keyboard.press('b');
+  expect(await tool(page)).toBe('brush');
+});
+
 test('brush keys: [ ] size, Shift+[ ] hardness, number keys opacity and flow', async ({ page }) => {
   await page.keyboard.press('b');
   const size = Number(await value(page, '#brush-size'));
