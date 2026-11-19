@@ -439,11 +439,13 @@ export class Dock extends Emitter {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
         ghost = h('div.dock-ghost', this.#title(id));
         document.body.append(ghost, overlay);
+        tab.classList.add('dragging');
       }
       ghost.style.transform = `translate(${ev.clientX + 10}px, ${ev.clientY + 10}px)`;
-      zone = this.#dropZone(ev.clientX, ev.clientY);
+      zone = this.#dropZone(ev.clientX, ev.clientY, g, id);
       if (zone) {
         const r = zone.rect;
+        overlay.classList.toggle('insert', zone.side === 'tabs');
         Object.assign(overlay.style, { display: 'block', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
       } else overlay.style.display = 'none';
     };
@@ -454,6 +456,7 @@ export class Dock extends Emitter {
       window.removeEventListener('keydown', escape, true);
       ghost?.remove();
       overlay.remove();
+      tab.classList.remove('dragging');
       if (ghost && zone) this.#drop(g, id, zone);
     };
     const cancel = () => {
@@ -475,13 +478,32 @@ export class Dock extends Emitter {
     window.addEventListener('keydown', escape, true);
   }
 
-  #dropZone(x, y) {
+  /**
+   * Where a dragged tab would land: in a tab strip at an index (an insertion
+   * bar shows), the middle of a frame (joins its tabs) or a frame edge (splits it).
+   */
+  #dropZone(x, y, from = null, id = null) {
     for (const el of this.root.querySelectorAll('.panel-group')) {
       const r = el.getBoundingClientRect();
       if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
       const group = el._group;
-      const tabsH = el.querySelector('.panel-tabs').offsetHeight;
-      if (y < r.top + tabsH) return { group, side: 'center', rect: r };
+      const strip = el.querySelector('.panel-tabs');
+      const tabsH = strip.offsetHeight;
+      if (y < r.top + tabsH) {
+        const tabs = [...strip.querySelectorAll('.panel-tab')];
+        const boxes = tabs.map((t) => t.getBoundingClientRect());
+        const hasBoxes = boxes.some((b) => b.width > 0);
+        if (!hasBoxes) return { group, side: 'center', rect: r };
+        let index = boxes.findIndex((b) => x < b.left + b.width / 2);
+        if (index < 0) index = tabs.length;
+        // Dropping a tab beside itself changes nothing.
+        const own = group === from ? group.tabs.indexOf(id) : -1;
+        if (own >= 0 && (index === own || index === own + 1)) return null;
+        const sr = strip.getBoundingClientRect();
+        const edge = index < boxes.length ? boxes[index].left : boxes[boxes.length - 1].right;
+        const left = Math.max(sr.left, Math.min(sr.right - 2, edge - 1));
+        return { group, side: 'tabs', index, rect: { left, top: sr.top + 4, width: 2, height: Math.max(8, sr.height - 8) } };
+      }
       const fx = (x - r.left) / r.width;
       const fy = (y - r.top) / r.height;
       const edge = Math.min(fx, 1 - fx, fy, 1 - fy);
@@ -502,7 +524,18 @@ export class Dock extends Emitter {
     return null;
   }
 
-  #drop(from, id, { group: to, side }) {
+  #drop(from, id, { group: to, side, index }) {
+    if (side === 'tabs') {
+      const at = to === from && from.tabs.indexOf(id) < index ? index - 1 : index;
+      from.tabs = from.tabs.filter((t) => t !== id);
+      if (from.a === id) from.a = from.tabs[0] ?? null;
+      to.tabs.splice(Math.max(0, Math.min(at, to.tabs.length)), 0, id);
+      to.a = id;
+      this.tree = normalize(this.tree, this.registry) || { t: 'group', tabs: [], a: null };
+      this.render();
+      this.emit('change');
+      return;
+    }
     if (to === from && (side === 'center' || from.tabs.length === 1)) return;
     from.tabs = from.tabs.filter((t) => t !== id);
     if (from.a === id) from.a = from.tabs[0] ?? null;

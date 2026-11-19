@@ -129,4 +129,52 @@ describe('tab drag', () => {
     window.dispatchEvent(at('pointerup', 400, 200));
     expect(dock.groupOf('history').tabs).toContain('editor');
   });
+
+  it('reorders tabs dropped on a tab strip, with an insertion bar between tabs', () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    const dock = new Dock({ openMenu() {} }, root, registry(['editor', 'files', 'history', 'markers']));
+    dock.setLayout({ t: 'row', c: [{ t: 'group', tabs: ['files', 'history', 'markers'] }, { t: 'group', tabs: ['editor'] }], s: [1, 3] });
+    // jsdom has no layout: give the frames, strips and tabs boxes.
+    const box = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+    const layoutBoxes = () => {
+      const frames = [...root.querySelectorAll('.panel-group')];
+      frames.forEach((f, i) => {
+        f.getBoundingClientRect = () => box(i * 300, 0, 300, 400);
+        const strip = f.querySelector('.panel-tabs');
+        strip.getBoundingClientRect = () => box(i * 300, 0, 300, 30);
+        Object.defineProperty(strip, 'offsetHeight', { value: 30, configurable: true });
+        [...strip.querySelectorAll('.panel-tab')].forEach((t, j) => (t.getBoundingClientRect = () => box(i * 300 + j * 80, 0, 70, 30)));
+      });
+    };
+    layoutBoxes();
+    const at = (type, x, y) => {
+      const e = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+      Object.defineProperty(e, 'pointerType', { value: 'mouse' });
+      return e;
+    };
+    // Markers to before Files.
+    root.querySelector('#tab-markers').dispatchEvent(at('pointerdown', 170, 10));
+    window.dispatchEvent(at('pointermove', 20, 12));
+    const bar = document.querySelector('.dock-drop');
+    expect(bar.classList.contains('insert')).toBe(true);
+    expect(bar.style.width).toBe('2px');
+    window.dispatchEvent(at('pointerup', 20, 12));
+    expect(dock.groupOf('files').tabs).toEqual(['markers', 'files', 'history']);
+    expect(dock.groupOf('files').a).toBe('markers');
+    // Files into the editor's strip, after Editor.
+    layoutBoxes();
+    root.querySelector('#tab-files').dispatchEvent(at('pointerdown', 90, 10));
+    window.dispatchEvent(at('pointermove', 360, 12));
+    window.dispatchEvent(at('pointerup', 360, 12));
+    expect(dock.groupOf('editor').tabs).toEqual(['editor', 'files']);
+    expect(dock.groupOf('markers').tabs).toEqual(['markers', 'history']);
+    // Dropping a tab next to itself changes nothing.
+    layoutBoxes();
+    const before = JSON.stringify(dock.layout());
+    root.querySelector('#tab-markers').dispatchEvent(at('pointerdown', 10, 10));
+    window.dispatchEvent(at('pointermove', 60, 12));
+    window.dispatchEvent(at('pointerup', 60, 12));
+    expect(JSON.stringify(dock.layout())).toBe(before);
+  });
 });

@@ -416,6 +416,10 @@ puter-user-menu::part(apps-panel) {
   color: var(--text-strong);
 }
 
+.panel-tab.dragging {
+  opacity: 0.45;
+}
+
 .panel-tab[aria-selected='true'] {
   color: var(--text-strong);
 }
@@ -484,8 +488,18 @@ puter-user-menu::part(apps-panel) {
   z-index: 1100;
   display: none;
   border: 2px solid var(--accent);
+  border-radius: var(--radius);
   background: var(--accent-soft);
   pointer-events: none;
+  transition: left 80ms var(--ease), top 80ms var(--ease), width 80ms var(--ease), height 80ms var(--ease);
+}
+
+/* Between two tabs: an insertion bar. */
+.dock-drop.insert {
+  border: 0;
+  border-radius: 1px;
+  background: var(--accent);
+  transition: none;
 }
 
 /* ----------------------------------------------------------- status bar */
