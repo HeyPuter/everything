@@ -4,7 +4,7 @@ import { svg } from './icons';
 import { toolTitle } from './option-tips';
 import { tools, type Tool } from './registry';
 import { showContextMenu } from './menubar';
-import { EXTRA_SLOT, slotOrder, slotTools, toolSlot, toolbarLayout } from './toolbar-layout';
+import { EXTRA_SLOT, shownSlots, simplifiedSlots, slotOrder, slotTools, toolSlot, toolbarLayout } from './toolbar-layout';
 
 // Toolbar slots in display order; tools register into a slot by group.
 export const toolGroups = [
@@ -16,7 +16,12 @@ const separatorsBefore = new Set(['crop', 'heal', 'pen', 'hand']);
 
 /** Tools shown in a slot, after toolbar customization (Edit → Toolbar). */
 export function groupTools(group: string): Tool[] {
-  return slotTools([...tools.values()], group, toolbarLayout());
+  const all = [...tools.values()];
+  const own = slotTools(all, group, toolbarLayout());
+  if (group !== EXTRA_SLOT) return own;
+  // Slots hidden by Assisted mode list their tools here too.
+  const shown = simplifiedSlots();
+  return shown ? [...own, ...all.filter((t) => { const s = toolSlot(t, toolbarLayout()); return s !== EXTRA_SLOT && toolGroups.includes(s) && !shown.has(s); })] : own;
 }
 
 export class Toolbar {
@@ -93,7 +98,7 @@ export class Toolbar {
   render() {
     const active = this.e.tool;
     let html = '';
-    for (const group of slotOrder(toolGroups, toolbarLayout())) {
+    for (const group of shownSlots(slotOrder(toolGroups, toolbarLayout()))) {
       const t = this.toolFor(group);
       if (!t) continue;
       if (separatorsBefore.has(group) && html) html += '<div class="tool-separator" role="separator"></div>';

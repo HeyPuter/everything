@@ -208,6 +208,14 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 /* Options bar */
 .optionsbar { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--chrome); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden; }
 .active-tool-icon { display: grid; place-items: center; width: 28px; height: 26px; border-right: 1px solid var(--line-soft); padding-right: 6px; }
+.mode-switch { display: inline-flex; flex: none; padding: 2px; gap: 2px; border: 1px solid var(--input-line); border-radius: 6px; background: var(--input); margin-right: 4px; }
+.mode-switch[hidden] { display: none; }
+.mode-switch button { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.mode-switch button:hover { color: var(--text); }
+.mode-switch button[aria-checked='true'] { background: var(--surface); border-color: var(--input-line); color: var(--text); box-shadow: 0 1px 2px #0003; }
+.mode-switch button[aria-checked='true'][data-mode='assisted'] svg { color: var(--accent); }
+.mode-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 900px) { .mode-switch button span { display: none; } }
 #tool-options { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; flex: 1; }
 /* More controls or tabs past an edge (narrow windows): that edge fades (app/scroll-row.ts). */
 .scroll-row.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }

@@ -73,3 +73,15 @@ export function setToolbarLayout(layout: ToolbarLayout) {
     /* Optional. */
   }
 }
+
+// Assisted mode shows a smaller set of slots; the tools of the other slots
+// stay one click away in the Extra Tools flyout. Null: every slot.
+let simplified: ReadonlySet<string> | null = null;
+export const simplifiedSlots = () => simplified;
+export function setSimplifiedSlots(slots: Iterable<string> | null) {
+  simplified = slots ? new Set(slots) : null;
+}
+/** Slots shown: all of `order`, or only the simplified set. */
+export function shownSlots(order: string[]): string[] {
+  return simplified ? order.filter((g) => simplified!.has(g)) : order;
+}

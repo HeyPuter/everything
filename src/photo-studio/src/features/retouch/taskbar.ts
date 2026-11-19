@@ -20,6 +20,16 @@ function save() {
     /* Optional. */
   }
 }
+let rerender = () => {};
+/** Whether the bar is turned on (it still hides when there is nothing to offer). */
+export const taskbarVisible = () => visible;
+/** Turn the bar on or off (Assisted mode), remembered like the menu toggle. */
+export function setTaskbarVisible(on: boolean) {
+  if (visible === on) return;
+  visible = on;
+  save();
+  rerender();
+}
 
 type Action = { id: string; label: string; icon: string };
 function actionsFor(e: Editor): Action[] {
@@ -109,6 +119,7 @@ export function installTaskbar(e: Editor) {
   });
   e.el('#viewport').append(bar);
   e.onUpdate(render);
+  rerender = render;
   // Pan and zoom move the stage; follow it.
   new MutationObserver(() => placed && place()).observe(e.el('#stage'), { attributes: true, attributeFilter: ['style'] });
   window.addEventListener('resize', () => placed && place());

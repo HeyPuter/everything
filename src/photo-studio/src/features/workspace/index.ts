@@ -10,6 +10,7 @@ import {
 } from './layouts';
 import { installToolPresets } from './tool-presets';
 import { installStatusBar } from './status-bar';
+import { installEditorMode } from './editor-mode';
 import { lazy, lazyRun } from '../../app/lazy';
 
 // Editors and the Preset Manager load on first use.
@@ -200,6 +201,7 @@ export function installWorkspace(e: Editor) {
   );
   installToolPresets();
   installStatusBar(e);
+  installEditorMode(e);
   refreshLabels();
 
   // The dock exists once the workspace chrome is built (after features install).
