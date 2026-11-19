@@ -378,6 +378,7 @@ class CompareView {
       stage = e.el('#stage');
     this.setSide(st.mode === 'side' ? st.orientation : '');
     const size = { width: vp.clientWidth, height: vp.clientHeight };
+    this.bar.classList.toggle('narrow', size.width < 620);
     const cached = this.cache.get(s);
     if (this.shown !== cached) {
       this.shown?.canvas.remove();

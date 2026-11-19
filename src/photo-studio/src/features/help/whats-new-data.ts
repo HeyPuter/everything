@@ -39,6 +39,20 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     action: { commands: ['type.justification'], needs: 'document', hint: 'Select a text layer, then open the Paragraph panel menu.' },
   },
   {
+    id: 'quick-compare',
+    title: 'Quick Compare',
+    text: 'See your edits beside the image as it was opened, as last saved, as a snapshot or at any history step: drag a divider, view side by side, or press and hold. Press \\ to start and to finish.',
+    release: 'November 2026',
+    action: { commands: ['view.quick-compare'], needs: 'document' },
+  },
+  {
+    id: 'enhance-edge',
+    title: 'Enhance Edge',
+    text: 'One click refines a layer mask’s edge from the layer’s own pixels, so hair and fur follow the image while hard outlines stay crisp.',
+    release: 'November 2026',
+    action: { commands: ['layer.mask-enhance-edge'], needs: 'document', hint: 'Select a layer with a layer mask, then choose Layer → Layer Mask → Enhance Edge.' },
+  },
+  {
     id: 'assistant',
     title: 'Describe an Edit',
     text: 'Describe a change in words and the Assistant plans it with Photo Studio’s own commands. Review or change the steps, then run them as one undo step (Puter AI).',

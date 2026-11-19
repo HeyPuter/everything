@@ -12,7 +12,9 @@
 .compare-status { color: var(--muted); }
 .compare-status:empty { display: none; }
 .compare-done { height: 26px; margin-left: 2px; }
-@media (max-width: 760px) { .compare-ref span, .compare-hold span { display: none; } }
+/* Narrow windows (tiled layouts, small screens) drop the text labels. */
+.compare-bar.narrow .compare-ref > span, .compare-bar.narrow .compare-hold span, .compare-bar.narrow .compare-sep { display: none; }
+.compare-bar.narrow .compare-ref select { max-width: 150px; }
 
 /* The stored state, drawn above the live canvas inside the stage. */
 .compare-before { position: absolute; display: block; pointer-events: none; }

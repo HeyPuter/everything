@@ -26,7 +26,9 @@ export function installQuickCompare(e: Editor) {
   });
   let pressed: { at: number; wasOn: boolean } | undefined;
   const plainBackslash = (ev: KeyboardEvent) =>
-    ev.key === '\\' &&
+    // Matched by key position, as the editor matches shortcuts.
+    (ev.code === 'Backslash' || ev.key === '\\') &&
+    !ev.shiftKey &&
     !ev.metaKey &&
     !ev.ctrlKey &&
     !ev.altKey &&
@@ -48,7 +50,7 @@ export function installQuickCompare(e: Editor) {
     true,
   );
   window.addEventListener('keyup', (ev) => {
-    if (ev.key !== '\\' || !pressed) return;
+    if ((ev.code !== 'Backslash' && ev.key !== '\\') || !pressed) return;
     const { at, wasOn } = pressed;
     pressed = undefined;
     if (!wasOn && compareActive(e) && performance.now() - at > PEEK_MS) view.loaded?.exitCompare(e);
