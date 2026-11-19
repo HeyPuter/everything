@@ -1,6 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
 import { layer, newDocument } from '../../src/model/document';
-import { boot, historyLabels, idle, openProject, panel, redo, undo } from './helpers';
+import {
+  boot,
+  canvasDrag,
+  historyLabels,
+  idle,
+  openImage,
+  openProject,
+  panel,
+  redo,
+  tool,
+  undo,
+} from './helpers';
 
 const props = (page: Page) => page.locator('#properties');
 const spin = (page: Page, name: string) =>
@@ -323,4 +334,38 @@ test.describe('groups, masks and the Layers panel', () => {
       ),
     ).toBe('none');
   });
+});
+
+test('artboard fields commit one step after the editor remounts', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 600, 400, '#808080');
+  await tool(page, 'Artboard Tool');
+  await canvasDrag(page, [
+    [20, 20],
+    [220, 320],
+  ]);
+  await panel(page, 'Properties');
+  const ids = await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.id));
+  // Show the artboard editor several times; each mount must not add listeners.
+  for (let i = 0; i < 3; i++)
+    for (const id of ids) {
+      await page.evaluate((id) => {
+        window.photoStudio.selectLayers([id]);
+        window.photoStudio.update();
+      }, id);
+      await idle(page);
+    }
+  const artboard = await page.evaluate(
+    () => window.photoStudio.doc.layers.find((l) => l.artboard)!.id,
+  );
+  await page.evaluate((id) => {
+    window.photoStudio.selectLayers([id]);
+    window.photoStudio.update();
+  }, artboard);
+  const before = (await historyLabels(page)).length;
+  const width = page.locator('#properties').getByLabel('Artboard W');
+  await width.fill('300');
+  await width.press('Enter');
+  await idle(page);
+  expect((await historyLabels(page)).length).toBe(before + 1);
 });
