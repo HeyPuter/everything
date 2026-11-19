@@ -10,7 +10,7 @@ import { allLayers } from '../../model/document';
 import { clipStates, keyProperties, presentTimeline, syncTimeline, videoFrameAt, canAnimate, type KeyProperty } from '../../model/video-timeline';
 import { registerPresentation } from '../../renderer/renderer';
 import { hasAnimation } from './state';
-import { hasTimeline, isVideoLayer, timelineOf, videoLayerOf, videoView, type VideoLayer } from './video-state';
+import { hasTimeline, isVideoLayer, mediaCleanups, timelineOf, videoLayerOf, videoView, type VideoLayer } from './video-state';
 import { audioCommands, audioMenu, audioSelected, installAudio } from './audio';
 
 export const videoCommands = lazy(() => import('./video-commands'));
@@ -68,6 +68,8 @@ export function installVideo(e: Editor) {
   registerPresentation(presentTimeline);
   e.documentHooks.push((doc, before) => syncTimeline(doc, before));
   e.onUpdate((e) => videoPlaybackModule.loaded?.videoPlaybackUpdate(e));
+  // A closed document's decoded frames, decoders and sound are freed.
+  e.closeHooks.push((s) => mediaCleanups.forEach((fn) => fn(s, e.sessions)));
   cacheMb = e.preferences.videoCacheSize;
   e.preferenceHooks.push((e) => {
     cacheMb = e.preferences.videoCacheSize;
