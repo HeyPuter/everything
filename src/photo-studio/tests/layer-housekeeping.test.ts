@@ -163,6 +163,18 @@ describe('housekeeping', () => {
     expect(removeEmptyLayers(doc.layers)).toBe(4);
     expect(doc.layers.map((l) => l.name)).toEqual(['Background', 'Full']);
   });
+  it('keeps empty layers that are locked or inside a locked group', () => {
+    const doc = newDocument(32, 32);
+    const locked = newPixelLayer('Locked', doc);
+    locked.locked = true;
+    const group = layer('group', 'Locked group', 32, 32);
+    group.locked = true;
+    group.children = [newPixelLayer('Nested', doc)];
+    const empty = newPixelLayer('Empty', doc);
+    doc.layers = [locked, group, empty];
+    expect(removeEmptyLayers(doc.layers)).toBe(1);
+    expect(allLayers(doc.layers).map((l) => l.name)).toEqual(['Locked', 'Locked group', 'Nested']);
+  });
   it('removes hidden layers anywhere in the tree and dissolves broken links', () => {
     const { doc, a, b, c } = fixture();
     const g = layer('group', 'G', 1, 1);
