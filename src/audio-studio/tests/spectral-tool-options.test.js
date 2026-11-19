@@ -143,3 +143,22 @@ describe('spectral right-click menu', () => {
     view.destroy();
   });
 });
+
+describe('narrow spectral selections', () => {
+  it('land in the analysis column they fall in instead of between column centres', async () => {
+    const { intervalsNear } = await import('../src/spectral/mask.js');
+    const n = 64;
+    const rate = 6400;
+    // A 20-frame click between the column centres at 100 and 200 (hop 100).
+    const click = { channels: [true], shapes: [{ type: 'rect', t0: 130, t1: 150, f0: 0, f1: 3200 }] };
+    const m = rasterize(click, { first: 100, cols: 3, hop: 100, n, rate, growBins: 0, growCols: 0 });
+    const bins = n / 2 + 1;
+    expect(m[5]).toBe(1); // column at 100 covers 50..150
+    expect(m[bins + 5]).toBe(0); // column at 200 covers 150..250: the click ends at 150, outside
+    expect(intervalsNear(click.shapes[0], 100, 50)).toEqual([[0, 3200, 1]]);
+    expect(intervalsNear(click.shapes[0], 300, 50)).toEqual([]);
+    // A small brush dot between centres too.
+    const dot = { type: 'brush', log: false, rt: 5, rf: 100, opacity: 1, dots: [[160, 1000]] };
+    expect(intervalsNear(dot, 200, 50).length).toBe(1);
+  });
+});
