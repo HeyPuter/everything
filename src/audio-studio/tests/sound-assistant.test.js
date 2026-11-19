@@ -106,6 +106,8 @@ describe('chain mapping', () => {
     expect(by.eq).toMatchObject({ hpOn: true, hpFreq: 400, lpOn: true, lpFreq: 3200, band3Gain: 6 });
     expect(by.enhance.mode).toBe(1);
     expect(by.reverb).toMatchObject({ dry: 100, wet: 35, decay: 2600 });
+    // Ess control listens to the DeEsser's own default band (7 kHz, 6 kHz wide).
+    expect(by.ess).toMatchObject({ mode: 1, frequency: 7000, bandwidth: 6000 });
     // Every value is inside its parameter's range, and every effect plays in realtime.
     for (const e of chain) {
       const def = getEffect(e.effect);
@@ -373,5 +375,21 @@ describe('file operations', () => {
     // The tail continues at the same gain as the processed selection.
     expect(y.toArray(n + 5, n + 6)[0]).toBeCloseTo(0.05 * g, 4);
     expect(y.toArray(n + tail + 5, n + tail + 6)[0]).toBe(0);
+  });
+});
+
+describe('Sound Assistant ess control', () => {
+  it('uses the DeEsser defaults at the default amount and goes deeper as the amount grows', async () => {
+    const { deesserValues } = await import('../src/sound-assistant/model.js');
+    const def = getEffect('deesser');
+    const d = normalizeValues(def, {});
+    expect(deesserValues(0.4)).toEqual({ mode: d.mode, frequency: d.frequency, bandwidth: d.bandwidth, threshold: d.threshold, reduction: d.reduction, sibilanceOnly: false });
+    const lo = deesserValues(0.1);
+    const hi = deesserValues(1);
+    expect(hi.threshold).toBeLessThan(d.threshold);
+    expect(lo.threshold).toBeGreaterThan(d.threshold);
+    expect(hi.reduction).toBeGreaterThan(d.reduction);
+    expect(lo.reduction).toBeLessThan(d.reduction);
+    for (const v of [lo, hi]) expect(normalizeValues(def, v)).toEqual({ ...d, ...v });
   });
 });
