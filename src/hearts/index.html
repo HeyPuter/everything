@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Play Hearts free in your browser. Classic Microsoft-style rules: pass left/right/across/hold, shoot the moon, first to 100 loses."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="icon-128.png" />
+    <meta name="theme-color" content="#1b4d3e" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0c1a15" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Hearts" />
+    <meta property="og:title" content="Hearts — classic trick-taking in your browser" />
+    <meta
+      property="og:description"
+      content="Pass three, duck the queen, shoot the moon. Play to 100 against three computer opponents."
+    />
+    <title>Hearts</title>
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = (JSON.parse(localStorage.getItem('hearts.settings.v1')) || {}).theme;
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <p class="noscript-note">
+        Hearts runs entirely in your browser and needs JavaScript. Enable it to play.
+      </p>
+    </noscript>
+
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="icon-128.png" alt="" width="28" height="28" />
+          </span>
+          <h1 class="brand-name">Hearts</h1>
+        </div>
+        <div class="segmented" role="group" aria-label="Colour theme">
+          <button type="button" data-theme="light" aria-pressed="false" title="Light theme">Light</button>
+          <button type="button" data-theme="dark" aria-pressed="false" title="Dark theme">Dark</button>
+          <button type="button" data-theme="system" aria-pressed="false" title="Match system">System</button>
+        </div>
+      </header>
+
+      <main class="shell">
+        <section class="scoreboard" aria-label="Scores">
+          <div class="score-card" data-seat="2"><span>North</span><strong id="score-2">0</strong></div>
+          <div class="score-mid">
+            <div class="score-card" data-seat="1"><span>West</span><strong id="score-1">0</strong></div>
+            <div class="match-meta">
+              <p id="hand-label" class="hand-label">Hand 1 · Pass left</p>
+              <p id="status-line" class="status-line" role="status" aria-live="polite"></p>
+            </div>
+            <div class="score-card" data-seat="3"><span>East</span><strong id="score-3">0</strong></div>
+          </div>
+          <div class="score-card you" data-seat="0"><span>You</span><strong id="score-0">0</strong></div>
+        </section>
+
+        <section class="table" aria-label="Trick">
+          <div class="opp north" id="opp-north" aria-hidden="true"></div>
+          <div class="mid-row">
+            <div class="opp west" id="opp-west" aria-hidden="true"></div>
+            <div id="trick" class="trick" aria-label="Current trick"></div>
+            <div class="opp east" id="opp-east" aria-hidden="true"></div>
+          </div>
+          <div id="hand" class="hand" aria-label="Your hand"></div>
+        </section>
+
+        <section class="actions" aria-label="Game actions">
+          <button type="button" id="btn-pass" class="primary" hidden>Pass 3 cards</button>
+          <button type="button" id="btn-continue" class="primary" hidden>Continue</button>
+          <button type="button" id="btn-new" class="ghost">New match</button>
+        </section>
+
+        <details class="help">
+          <summary>How to play</summary>
+          <ul>
+            <li>Pass three cards (left, right, across, then hold) before each hand.</li>
+            <li>The player with the 2♣ leads the first trick. Follow suit when you can.</li>
+            <li>Hearts and the Queen of Spades are penalty cards (1 each / 13). Hearts may not be led until broken.</li>
+            <li>Take all 26 points to shoot the moon — everyone else scores 26.</li>
+            <li>First player to 100 ends the match; lowest total wins.</li>
+          </ul>
+        </details>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
