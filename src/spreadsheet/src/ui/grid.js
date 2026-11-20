@@ -4612,6 +4612,7 @@ export function createGrid(opts) {
   let drag = null; // { kind: 'select'|'fill'|'colsel'|'rowsel'|'colresize'|'rowresize', ... }
   const coarsePointer = typeof matchMedia === 'function' && !!matchMedia('(pointer: coarse)')?.matches;
   let handlePresses = 0; // presses in a row that landed on the fill handle (a double-click on it needs two)
+  let borderPresses = 0; // presses in a row that landed on the selection's border (so does a double-click on it)
   let tap = null;  // touch: { r, c, x, y, t, timer }
   let longPressAt = 0; // when a long press last opened the cell menu
   let pressMenu = false; // the touch still down opened the cell menu: its release is not a tap
@@ -4707,6 +4708,9 @@ export function createGrid(opts) {
     // middle one is the browser's (autoscroll, or a paste), as Excel leaves it.
     if (e.button !== 0 || macSecondaryClick(e)) return;
     if (e.target === editor || editor.contains(e.target)) return;
+    // Counted afresh by each press: only one on the border carries the run on.
+    const borderRun = borderPresses;
+    borderPresses = 0;
     ensureOffsets(); // the frozen pane's extent, read below, comes from the layout
     notePane(e.clientX, e.clientY);
     // Page Break Preview: a page break or an edge of the print area, dragged to a new line.
@@ -4758,8 +4762,11 @@ export function createGrid(opts) {
       handlePresses++; startFill(e); return;
     }
     handlePresses = 0;
+    // Whether the press is on the selection's border as it stands before the press selects anything.
+    const onBorder = e.pointerType !== 'touch' && !e.shiftKey && !!onSelectionBorder(e.clientX, e.clientY);
+    if (onBorder) borderPresses = borderRun + 1;
     // Dragging the selection by its border moves it (Alt/Ctrl copies).
-    if (e.pointerType !== 'touch' && !e.shiftKey && appOption('fillHandle') && onSelectionBorder(e.clientX, e.clientY)) {
+    if (onBorder && appOption('fillHandle')) {
       e.preventDefault();
       if (edit && !commitEdit()) return;
       const source = S.selRange(sel);
@@ -5168,8 +5175,11 @@ export function createGrid(opts) {
       if (target) { wb.fill(sheetId, source, target); setSelection(S.fromRange(target, sel.active)); opts.onFilled?.({ source, target, inverted: false }); }
       return;
     }
-    // Double-clicking an edge of the selection moves the active cell to the edge of the data that way, as Ctrl+arrow does.
-    const side = e.pointerType !== 'touch' && !edit ? onSelectionBorder(e.clientX, e.clientY) : false;
+    // Double-clicking an edge of the selection moves the active cell to the edge of the data that way, as Ctrl+arrow does —
+    // but only when both presses landed on it. A double-click near a gridline selects the cell on one side of it with its
+    // first press, which puts that cell's own edge under the pointer; that double-click must still edit the cell, not
+    // jump (often away from where it was aimed) to the end of the data or the sheet.
+    const side = e.pointerType !== 'touch' && !edit && borderPresses >= 2 ? onSelectionBorder(e.clientX, e.clientY) : false;
     if (side) {
       const [dr, dc] = { top: [-1, 0], bottom: [1, 0], left: [0, -1], right: [0, 1] }[side];
       const target = jumpFrom(S.single(sel.active.r, sel.active.c), dr, dc).active;
