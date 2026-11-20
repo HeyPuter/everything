@@ -35,6 +35,7 @@ import {
   extractBodyText, extractHtml, listAttachments, listInlineParts, parseListUnsubscribe, referencedCids, listCalendarInvites,
 } from '../lib/mime.js';
 import { sanitizeHtml, hasRemoteContent } from '../lib/sanitize.js';
+import { parseSenderAuth, senderNotice } from '../lib/senderauth.js';
 import { linkify } from '../lib/linkify.js';
 import {
   formatWhen, formatFullDate, initialFor, hueFor, formatSize,
@@ -4138,8 +4139,15 @@ export function renderApp(root, ctx) {
         };
       }
 
+      // Mail the user sent is not checked against anyone's claim.
+      const notice = OUTGOING.has(message.box) ? null : senderNotice(parseSenderAuth(headers));
+
       clear(full);
       append(full, [
+        // First, and an alert, so it is read before anything the message says.
+        notice && el(`div.msg-sender-check.is-${notice.level}`, { role: 'alert' },
+          el('span.msg-sender-check-icon', { html: icon('alert', 16) }),
+          el('span.msg-sender-check-text', {}, notice.text)),
         invites.map((event) => calendarCard(event, downloadAttachment)),
         attachments.length > 0 && el('div.msg-attachments', {
           role: 'group', 'aria-label': `${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`,

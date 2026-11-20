@@ -1090,6 +1090,30 @@ puter-user-menu::part(apps-panel) {
   font-size: 12.5px;
   color: var(--ink-2);
 }
+/* The sender check: louder than the images bar, since it is about whether the
+   message is what it says it is. */
+.msg-sender-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  margin-bottom: 16px;
+}
+.msg-sender-check-icon { display: flex; flex: none; padding-top: 1px; color: var(--ink-3); }
+.msg-sender-check-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.msg-sender-check.is-fail {
+  border-color: var(--danger);
+  color: var(--ink);
+  font-weight: 500;
+}
+.msg-sender-check.is-fail .msg-sender-check-icon { color: var(--danger); }
+
 .msg-images-icon { display: flex; color: var(--ink-3); }
 .msg-images-text { flex: 1 1 16rem; min-width: 0; }
 /* One group, so the two choices wrap together rather than the second one
