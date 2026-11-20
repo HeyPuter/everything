@@ -24,12 +24,16 @@ class FakeTrack {
     this.#listeners.delete(fn);
   }
   stop() {
+    if (this.readyState === 'ended') return;
     this.readyState = 'ended';
+    // Real MediaStreamTrack.stop() fires 'ended' synchronously. A share
+    // teardown that stops tracks before clearing screenStream would then
+    // re-enter stopScreenShare via the ended listener and emit twice.
+    for (const fn of [...this.#listeners]) fn();
   }
   /** What the browser's own "Stop sharing" control does. */
   end() {
     this.stop();
-    for (const fn of [...this.#listeners]) fn();
   }
 }
 
@@ -141,6 +145,20 @@ describe('screen share', () => {
     release.at(-1)();
     await again;
     expect(media.presenting).toBe(true);
+  });
+
+  it('emits screen-off once when stop() fires ended synchronously', async () => {
+    const events = [];
+    media.on('screen', (e) => events.push(e.on));
+    const started = media.startScreenShare();
+    release[0]();
+    await started;
+
+    media.stopScreenShare();
+
+    expect(media.presenting).toBe(false);
+    // One off event — not a second from the track's ended listener re-entering.
+    expect(events).toEqual([true, false]);
   });
 
   it('follows the browser’s own Stop sharing control', async () => {
