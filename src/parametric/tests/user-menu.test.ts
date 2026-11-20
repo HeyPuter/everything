@@ -71,6 +71,10 @@ describe('with <puter-user-menu>', () => {
     expect(app.shell.account.hidden).toBe(true);
   });
 
+  it('asks it for its Upgrade button', () => {
+    expect(userMenuElement()!.hasAttribute('show-upgrade')).toBe(true);
+  });
+
   it("steps aside inside a Puter app window, where the app's account menu stays", async () => {
     setPuterForTests(sdk('app'));
     const app = fakeApp();

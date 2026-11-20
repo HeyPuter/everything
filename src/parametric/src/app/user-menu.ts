@@ -17,6 +17,8 @@ export const USER_MENU_TAG = 'puter-user-menu';
 export function userMenuElement(): HTMLElement | null {
   if (typeof customElements === 'undefined' || !customElements.get(USER_MENU_TAG)) return null;
   const el = document.createElement(USER_MENU_TAG);
+  // An Upgrade button beside its Apps button, for a signed-in account.
+  el.setAttribute('show-upgrade', '');
   el.hidden = inPuterApp();
   syncUserMenuTheme(el);
   return el;
