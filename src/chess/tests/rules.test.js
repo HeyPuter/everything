@@ -281,9 +281,22 @@ describe('mating material', () => {
     expect(material('4k3/8/8/8/8/8/8/4KN2 w - - 0 1', 'w')).toBe(false);
   });
 
-  it('two minor pieces are enough', () => {
+  it('two knights or opposite-colored bishops are enough', () => {
     expect(material('4k3/8/8/8/8/8/8/3NKN2 w - - 0 1', 'w')).toBe(true);
-    expect(material('4k3/8/8/8/8/8/8/3BKB2 w - - 0 1', 'w')).toBe(true);
+    // Bishops on c1 and f1 (opposite colors).
+    expect(material('4k3/8/8/8/8/8/8/2B1KB2 w - - 0 1', 'w')).toBe(true);
+  });
+
+  it('same-colored bishops alone cannot mate', () => {
+    // Bishops on d1 and f1 share a square color.
+    expect(material('4k3/8/8/8/8/8/8/3BKB2 w - - 0 1', 'w')).toBe(false);
+    // White bishops on a3 and c1 (same color); Black has a pawn so the
+    // position is not a draw by insufficient material, but White still
+    // cannot mate — flag-fall must be a draw (FIDE 6.9).
+    const fen = 'k7/p7/8/8/8/B7/8/2B4K w - - 0 1';
+    const game = new Chess(fen);
+    expect(game.isInsufficientMaterial()).toBe(false);
+    expect(game.hasMatingMaterial('w')).toBe(false);
   });
 
   it('a pawn, a rook or a queen is always enough', () => {
