@@ -91,14 +91,31 @@ export function fieldLabel(format, key) {
   return (format.labels && format.labels[key]) || ADDRESS_FIELD_LABELS[key] || ''
 }
 
+/** Build the city / postal / region line using the country's form field order. */
+function formatLocalityLine(addr, format) {
+  // When postal code and city share a form row (DE/FR/ES/IT/NL), keep that order
+  // with a space: "10117 Berlin" rather than the US-style "Berlin, 10117".
+  const cityPostalRow = (format.rows || []).find(
+    (row) => row.includes('city') && row.includes('postalCode'),
+  )
+  if (cityPostalRow) {
+    return cityPostalRow
+      .filter((k) => k === 'city' || k === 'state' || k === 'postalCode')
+      .map((k) => addr[k])
+      .filter(Boolean)
+      .join(' ')
+  }
+  const region = [addr.state, addr.postalCode].filter(Boolean).join(' ')
+  return [addr.city, region].filter(Boolean).join(', ')
+}
+
 /** Render an address as display lines (street, city/region, PO box, country). */
 export function formatAddressLines(addr) {
   if (!addr) return []
   const lines = []
   if (addr.street) lines.push(addr.street)
   if (addr.street2) lines.push(addr.street2)
-  const region = [addr.state, addr.postalCode].filter(Boolean).join(' ')
-  const cityLine = [addr.city, region].filter(Boolean).join(', ')
+  const cityLine = formatLocalityLine(addr, addressFormat(addr.country))
   if (cityLine) lines.push(cityLine)
   if (addr.poBox) lines.push(`PO Box ${addr.poBox}`)
   const cn = countryName(addr.country)
