@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Play Reversi (Othello) free in your browser. Classic 8×8 rules, legal-move hints, hotseat or vs computer."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="icon-128.png" />
+    <meta name="theme-color" content="#0f3d2e" />
+    <title>Reversi</title>
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = (JSON.parse(localStorage.getItem('reversi.settings.v1')) || {}).theme;
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <p class="noscript-note">Reversi needs JavaScript enabled in your browser.</p>
+    </noscript>
+
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="icon-128.png" alt="" width="28" height="28" />
+          </span>
+          <h1 class="brand-name">Reversi</h1>
+        </div>
+        <div class="segmented" role="group" aria-label="Colour theme">
+          <button type="button" data-theme="light" aria-pressed="false">Light</button>
+          <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+          <button type="button" data-theme="system" aria-pressed="false">System</button>
+        </div>
+      </header>
+
+      <main class="shell">
+        <section class="mode-row" aria-label="Game mode">
+          <div class="segmented" role="group" aria-label="Players">
+            <button type="button" data-mode="ai" aria-pressed="true">Vs computer</button>
+            <button type="button" data-mode="hotseat" aria-pressed="false">Two players</button>
+          </div>
+          <button type="button" id="new-game" class="primary">New game</button>
+        </section>
+
+        <section class="scoreboard" aria-live="polite">
+          <div class="score black-score" data-active="true">
+            <span class="swatch" aria-hidden="true"></span>
+            <div>
+              <strong id="black-count">2</strong>
+              <span id="black-label">Black</span>
+            </div>
+          </div>
+          <p id="status" class="status">Black to move</p>
+          <div class="score white-score" data-active="false">
+            <span class="swatch" aria-hidden="true"></span>
+            <div>
+              <strong id="white-count">2</strong>
+              <span id="white-label">White</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="board-wrap">
+          <div id="board" class="board" role="grid" aria-label="Reversi board"></div>
+        </section>
+
+        <details class="help">
+          <summary>How to play</summary>
+          <ul>
+            <li>Place a disc so it brackets one or more opponent discs in a straight line.</li>
+            <li>Bracketed discs flip to your colour. Black always opens.</li>
+            <li>If you have no legal move, you pass. The game ends when neither side can move.</li>
+            <li>Most discs wins. Dots mark legal squares; <kbd>H</kbd> toggles the hints.</li>
+          </ul>
+        </details>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
