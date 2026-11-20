@@ -70,6 +70,22 @@ function otherColor(color) {
   return color === WHITE ? BLACK : WHITE;
 }
 
+/**
+ * Strip the marks a PGN file may hang on a move so it can be matched against
+ * the SAN this engine writes. Check, mate, annotation (`!`/`?`), the equals
+ * in a promotion, and zeros-for-castling are all the same move.
+ */
+function normalizeSan(san) {
+  return String(san)
+    .replace(/0-0-0/g, 'O-O-O')
+    .replace(/0-0/g, 'O-O')
+    .replace(/×/g, 'x')
+    .replace(/e\.p\.?/gi, '')
+    .replace(/[+#?!]+$/g, '')
+    .replace(/=([qrbn])/i, (_, piece) => piece.toUpperCase())
+    .replace(/([a-h](?:x[a-h])?[18])([qrbn])$/i, (_, rest, piece) => rest + piece.toUpperCase());
+}
+
 export class Chess {
   constructor(fen = START_FEN) {
     this.load(fen);
@@ -558,10 +574,14 @@ export class Chess {
   }
 
   /**
-   * Make a move given `{from, to, promotion}` (algebraic squares). Returns the
-   * verbose move (including `san`) or null if the move is illegal.
+   * Make a move given `{from, to, promotion}` (algebraic squares) or a SAN /
+   * UCI string (`Nf3`, `O-O`, `e2e4`). Returns the verbose move (including
+   * `san`) or null if the move is illegal or the SAN does not name exactly
+   * one legal move.
    */
-  move({ from, to, promotion = 'q' } = {}) {
+  move(spec) {
+    if (typeof spec === 'string') return this._moveSan(spec);
+    const { from, to, promotion = 'q' } = spec || {};
     const fromIdx = squareToIndex(from);
     const toIdx = squareToIndex(to);
     const legal = this._legalMoves();
@@ -572,7 +592,41 @@ export class Chess {
         (o.promotion === null || o.promotion === promotion),
     );
     if (!m) return null;
+    return this._commitMove(m, legal);
+  }
 
+  /**
+   * Play a move written in SAN (the form the move list and PGN use) or as
+   * UCI coordinates. Check, mate and annotation marks are ignored, so
+   * `Qxf7#` and `e4!` match the same moves as `Qxf7` and `e4`. Castling
+   * written with zeros (`0-0`) is accepted. Returns null when the token is
+   * empty, names no legal move, or names more than one.
+   */
+  _moveSan(token) {
+    const raw = String(token).trim();
+    if (!raw) return null;
+    const uci = raw.match(/^([a-h][1-8])([a-h][1-8])([qrbn])?$/i);
+    if (uci) {
+      return this.move({
+        from: uci[1],
+        to: uci[2],
+        promotion: (uci[3] || 'q').toLowerCase(),
+      });
+    }
+    const wanted = normalizeSan(raw);
+    if (!wanted) return null;
+    const legal = this._legalMoves();
+    let found = null;
+    for (const m of legal) {
+      if (normalizeSan(this._moveToSan(m, legal)) !== wanted) continue;
+      if (found) return null;
+      found = m;
+    }
+    if (!found) return null;
+    return this._commitMove(found, legal);
+  }
+
+  _commitMove(m, legal) {
     const san = this._moveToSan(m, legal);
     this._makeMove(m);
     const key = this._positionKey();

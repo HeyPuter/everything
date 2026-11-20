@@ -206,6 +206,9 @@
             <div class="card-head">
               <h2 class="card-title">Moves</h2>
               <div class="card-actions">
+                <button class="icon-btn icon-btn-sm" id="pgn-import-btn" type="button" title="Load a PGN game" aria-label="Load a PGN game">
+                  <i data-lucide="file-up"></i>
+                </button>
                 <button class="icon-btn icon-btn-sm" id="pgn-copy-btn" type="button" title="Copy the game as PGN" aria-label="Copy the game as PGN" disabled>
                   <i data-lucide="clipboard-copy"></i>
                 </button>
@@ -343,6 +346,19 @@
       <div class="dialog-buttons">
         <button class="btn btn-primary" id="rematch-accept" type="button" autofocus>Accept</button>
         <button class="btn btn-ghost" id="rematch-decline" type="button">Decline</button>
+      </div>
+    </dialog>
+
+    <dialog class="dialog pgn-dialog" id="pgn-dialog" aria-labelledby="pgn-title" aria-describedby="pgn-sub">
+      <h2 class="dialog-title" id="pgn-title">Load a PGN</h2>
+      <p class="dialog-sub" id="pgn-sub">Paste a game, or open a .pgn file, to step through it on the board.</p>
+      <textarea id="pgn-input" rows="8" spellcheck="false" autocomplete="off" placeholder="1. e4 e5 2. Nf3 …"></textarea>
+      <p class="pgn-error" id="pgn-error" hidden></p>
+      <div class="dialog-buttons pgn-dialog-buttons">
+        <button class="btn btn-ghost" id="pgn-file-btn" type="button">Choose file</button>
+        <input id="pgn-file" type="file" accept=".pgn,.txt,application/x-chess-pgn,text/plain" hidden>
+        <button class="btn btn-ghost" id="pgn-cancel" type="button">Cancel</button>
+        <button class="btn btn-primary" id="pgn-load" type="button">Load</button>
       </div>
     </dialog>
 
