@@ -16,6 +16,7 @@
    highlight on these labels. Event titles/descriptions stay selectable. */
 .month__dow,
 .month__daynum,
+.month__weeknum,
 .timegrid__head,
 .timegrid__allday-label,
 .timegrid__hour-label,
@@ -34,6 +35,10 @@
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   border-bottom: 1px solid var(--border);
+}
+.month--weeks .month__dow,
+.month--weeks .month__grid {
+  grid-template-columns: 28px repeat(7, 1fr);
 }
 .month__dow-cell {
   padding: var(--sp-2) var(--sp-3);
@@ -63,8 +68,33 @@
   transition: background var(--dur-fast) var(--ease);
   position: relative;
 }
-.month__cell:nth-child(7n) {
+.month:not(.month--weeks) .month__cell:nth-child(7n) {
   border-right: none;
+}
+.month--weeks .month__cell:nth-child(8n) {
+  border-right: none;
+}
+.month__weeknum {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  cursor: pointer;
+  min-width: 0;
+}
+.month__weeknum--head {
+  border-bottom: none;
+  cursor: default;
+  pointer-events: none;
 }
 .month__cell.is-othermonth {
   background: var(--surface-2);
@@ -130,6 +160,10 @@
   .month__more:hover {
     background: var(--surface-3);
     color: var(--text);
+  }
+  .month__weeknum:not(.month__weeknum--head):hover {
+    color: var(--text);
+    background: var(--surface-3);
   }
 }
 
@@ -1327,6 +1361,13 @@ button.year__day {
   }
   .month__dow-cell {
     padding: var(--sp-1);
+    font-size: 10px;
+  }
+  .month--weeks .month__dow,
+  .month--weeks .month__grid {
+    grid-template-columns: 22px repeat(7, 1fr);
+  }
+  .month__weeknum {
     font-size: 10px;
   }
   /* Agenda: the desktop 96px date column + 128px time column left event

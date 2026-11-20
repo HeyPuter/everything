@@ -193,6 +193,33 @@ export function getWeekDays(date, weekStartsOn = 0) {
   return Array.from({ length: 7 }, (_, i) => addDays(start, i));
 }
 
+/**
+ * ISO 8601 week number of `date` (1–53). Week 1 is the week containing the
+ * year's first Thursday; weeks run Monday–Sunday. The Thursday of the ISO
+ * week decides the year, so 1 Jan can be week 52/53 of the previous year
+ * and 31 Dec can be week 1 of the next.
+ */
+export function isoWeekNumber(date) {
+  const d = startOfDay(date);
+  const isoDow = d.getDay() === 0 ? 7 : d.getDay(); // Mon=1 … Sun=7
+  const thursday = addDays(d, 4 - isoDow);
+  const jan4 = startOfDay(new Date(thursday.getFullYear(), 0, 4));
+  const jan4Iso = jan4.getDay() === 0 ? 7 : jan4.getDay();
+  const week1Monday = addDays(jan4, 1 - jan4Iso);
+  return 1 + Math.round(diffCalendarDays(week1Monday, thursday) / 7);
+}
+
+/**
+ * ISO week number shown for a 7-day row that starts on `weekStart` (whatever
+ * the user's week-start day is). Every such row contains exactly one Thursday;
+ * that Thursday's ISO week is the number, matching Google Calendar.
+ */
+export function displayedWeekNumber(weekStart) {
+  const start = startOfDay(weekStart);
+  const offsetToThursday = (4 - start.getDay() + 7) % 7;
+  return isoWeekNumber(addDays(start, offsetToThursday));
+}
+
 /** Ordered weekday indices given the week-start (e.g. Mon-first -> [1..6,0]). */
 export function orderedWeekdays(weekStartsOn = 0) {
   // Coerce to a number: a stringy setting (e.g. "1" from malformed persisted

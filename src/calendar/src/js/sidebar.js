@@ -16,6 +16,7 @@ import {
   isSameMonth,
   isToday,
   formatMonthYearShort,
+  displayedWeekNumber,
   WEEKDAYS_NARROW,
 } from './date-utils.js';
 
@@ -286,8 +287,9 @@ function defaultTime(day) {
 
 function buildMini(ctx) {
   const { store, settings, cursor, miniCursor, now, actions } = ctx;
+  const showWeeks = settings.showWeekNumbers === true;
 
-  const wrap = el('div', { class: 'mini' });
+  const wrap = el('div', { class: 'mini' + (showWeeks ? ' mini--weeks' : '') });
   wrap.append(
     el('div', { class: 'mini__head' }, [
       el('span', { class: 'mini__title', text: formatMonthYearShort(miniCursor) }),
@@ -313,6 +315,9 @@ function buildMini(ctx) {
   );
 
   const gridEl = el('div', { class: 'mini__grid' });
+  if (showWeeks) {
+    gridEl.append(el('div', { class: 'mini__weeknum mini__weeknum--head', 'aria-hidden': 'true' }));
+  }
   orderedWeekdays(settings.weekStartsOn).forEach((idx) => {
     gridEl.append(el('div', { class: 'mini__dow', text: WEEKDAYS_NARROW[idx] }));
   });
@@ -320,7 +325,22 @@ function buildMini(ctx) {
   const days = getMonthGrid(miniCursor, settings.weekStartsOn);
   const eventDays = daysWithEvents(store, days);
 
-  days.forEach((day) => {
+  days.forEach((day, i) => {
+    if (showWeeks && i % 7 === 0) {
+      const weekStart = day;
+      const week = displayedWeekNumber(weekStart);
+      gridEl.append(
+        el('button', {
+          class: 'mini__weeknum',
+          type: 'button',
+          text: String(week),
+          title: `Open week ${week}`,
+          'aria-label': `Open week ${week}`,
+          dataset: { focusKey: `mini-week-${startOfDay(weekStart).getTime()}` },
+          on: { click: () => actions.gotoWeekView(weekStart) },
+        }),
+      );
+    }
     const classes = ['mini__cell'];
     if (!isSameMonth(day, miniCursor)) classes.push('is-muted');
     if (isToday(day, now)) classes.push('is-today');
