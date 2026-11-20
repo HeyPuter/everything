@@ -1,0 +1,23 @@
+{
+  "name": "binary-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Binary Studio: open PE and ELF binaries in the browser, inspect sections, hex, x86/x64 disassembly, functions and cross-references — an open-source static analysis workspace.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0"
+  }
+}
