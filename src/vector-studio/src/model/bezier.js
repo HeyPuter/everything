@@ -352,9 +352,11 @@ export function autoSmooth(anchors, i, closed) {
  * Fit cubic Beziers to a polyline (Philip J. Schneider, "An Algorithm for
  * Automatically Fitting Digitized Curves", Graphics Gems 1990). Used by the
  * Pencil and Paintbrush tools. `error` is the maximum squared-distance
- * tolerance in document units. Returns an anchor list.
+ * tolerance in document units. `tangents` can fix the direction the curve
+ * leaves its first point (`start`) and arrives at its last (`end`), as unit
+ * vectors along the way it runs. Returns an anchor list.
  */
-export function fitCurve(points, error = 4) {
+export function fitCurve(points, error = 4, tangents = {}) {
   const pts = [];
   for (const p of points) {
     const last = pts[pts.length - 1];
@@ -362,8 +364,8 @@ export function fitCurve(points, error = 4) {
   }
   if (pts.length < 2) return pts.map((p) => anchor(p.x, p.y));
   const beziers = [];
-  const tHat1 = unit(sub(pts[1], pts[0]));
-  const tHat2 = unit(sub(pts[pts.length - 2], pts[pts.length - 1]));
+  const tHat1 = tangents.start ? unit(tangents.start) : unit(sub(pts[1], pts[0]));
+  const tHat2 = tangents.end ? unit(mul(tangents.end, -1)) : unit(sub(pts[pts.length - 2], pts[pts.length - 1]));
   fitCubic(pts, 0, pts.length - 1, tHat1, tHat2, error, beziers);
   const out = [anchor(beziers[0][0].x, beziers[0][0].y)];
   for (const bz of beziers) {

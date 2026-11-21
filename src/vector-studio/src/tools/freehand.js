@@ -16,6 +16,7 @@ import { isSmooth, mirrorAngle } from './direct-selection.js';
 import { removeEmptyContainers } from '../ops/object-ops.js';
 import { Stabilizer, drawString, smoothingStyle, SMOOTHING_STYLES } from './stabilizer.js';
 import { fitStroke } from './corners.js';
+import { planReshape, applyReshape, remapAlong } from './reshape.js';
 
 /** Fit tolerance in document units for a fidelity value 0 (accurate) .. 100 (smooth). */
 export function fidelityTolerance(fidelity, zoom) {
@@ -28,12 +29,15 @@ export class PencilTool extends Tool {
   static label = 'Pencil Tool';
   static shortcut = 'N';
   static icon = 'tool-pencil';
-  static hint = 'Drag to draw a freeform path | Hold Option at the end to close it | Drag near a selected path end to continue it';
+  static hint = 'Drag to draw a freeform path | Draw from a selected path to redraw part of it | Hold Option at the end to close it | Drag near a selected path end to continue it';
   static brush = false;
   /** Preference holding the tool's Smoothing (0 off .. 100). */
   static smoothingPref = 'pencilSmoothing';
   /** Preference holding the tool's Corners (0 off .. 100). */
   static cornersPref = 'pencilCorners';
+  /** Preferences holding "Edit selected paths" and its reach (Within, in screen pixels). */
+  static editSelectedPref = 'pencilEditSelected';
+  static withinPref = 'pencilWithin';
 
   constructor(app) {
     super(app);
@@ -81,6 +85,25 @@ export class PencilTool extends Tool {
     this.app.prefs.set(this.constructor.cornersPref, Math.max(0, Math.min(100, Number(v) || 0)));
   }
 
+  /** Whether a stroke drawn from a selected path redraws that part of it (on unless turned off). */
+  get editSelected() {
+    return this.app.prefs.get(this.constructor.editSelectedPref) !== false;
+  }
+
+  set editSelected(v) {
+    this.app.prefs.set(this.constructor.editSelectedPref, Boolean(v));
+  }
+
+  /** How near a selected path (screen pixels, 2 .. 20) a stroke must start to edit it. */
+  get within() {
+    const v = Number(this.app.prefs.get(this.constructor.withinPref));
+    return Number.isFinite(v) && v > 0 ? Math.max(2, Math.min(20, v)) : 12;
+  }
+
+  set within(v) {
+    this.app.prefs.set(this.constructor.withinPref, Math.max(2, Math.min(20, Number(v) || 12)));
+  }
+
   /** Escape, a pointer cancel or a second finger drops the stroke being drawn. */
   cancel() {
     if (!this.points) return;
@@ -109,21 +132,62 @@ export class PencilTool extends Tool {
     }
     this.points = [{ x: e.x, y: e.y }];
     this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y }, e.native?.timeStamp, this.smoothingStyle);
-    this.continueFrom = this.#endpointNear(e);
   }
 
-  /** A selected open path whose end is near the pointer (to extend it). */
-  #endpointNear(e) {
+  /**
+   * The selected path a finished stroke edits and how, or null for a new
+   * path: with "Edit selected paths" on, a stroke from a selected path
+   * redraws part of it; either way a stroke from an end of a selected open
+   * path continues it. The path the stroke starts nearest wins, preferring
+   * one it ends on too.
+   */
+  reshapeTarget(pts) {
     const editor = this.editor;
+    const doc = editor.doc;
+    const edit = this.editSelected;
+    const reach = tol(editor, this.within);
+    const endReach = tol(editor, 8);
+    let best = null;
     for (const id of editor.selection) {
-      const n = editor.doc.get(id);
-      if (!n || n.type !== 'path' || n.closed || n.anchors.length < 2) continue;
-      const last = n.anchors[n.anchors.length - 1];
-      const first = n.anchors[0];
-      if (Math.hypot(last.x - e.x, last.y - e.y) < tol(editor, 8)) return { id, end: 'end' };
-      if (Math.hypot(first.x - e.x, first.y - e.y) < tol(editor, 8)) return { id, end: 'start' };
+      const n = doc.get(id);
+      if (!n || n.type !== 'path' || n.anchors.length < 2 || doc.isLocked(id)) continue;
+      const plan = planReshape(n, pts, { reach, endReach, edit });
+      if (!plan) continue;
+      if (!best || (plan.both && !best.plan.both) || (plan.both === best.plan.both && plan.start < best.plan.start)) best = { node: n, plan, reach };
     }
-    return null;
+    return best;
+  }
+
+  /**
+   * Values the stroke carries along its length for the path it reshapes,
+   * by attribute: { brushPressure, velocity, widthProfile } as rows [t, ...]
+   * (none for the Pencil).
+   */
+  strokeRows(pts, node) {
+    return {};
+  }
+
+  /** Redraw part of a path (or continue it) with a stroke, per a plan from reshapeTarget. */
+  applyReshapeTarget(target, pts, corners) {
+    const editor = this.editor;
+    const t = fidelityTolerance(this.fidelity, editor.view.zoom);
+    const n = target.node;
+    const result = applyReshape(n, target.plan, pts, corners, { error: t * t, simplify: t * 0.5, reach: target.reach });
+    const rows = this.strokeRows(pts, n);
+    const patch = { anchors: result.anchors, closed: result.closed, shape: undefined };
+    // Values stored along the path stay with the parts that were kept.
+    if (n.brushPressure || rows.brushPressure) patch.brushPressure = remapAlong(result, n.brushPressure, rows.brushPressure, [0.5]) || undefined;
+    if (n.brush?.velocity || (n.brush && rows.velocity)) {
+      const velocity = remapAlong(result, n.brush.velocity, rows.velocity, [0.5]);
+      patch.brush = { ...n.brush, velocity: velocity || undefined };
+    }
+    if (n.widthProfile || rows.widthProfile) {
+      const prof = remapAlong(result, n.widthProfile?.map((p) => [p.t, p.l, p.r]), rows.widthProfile, [1, 1]);
+      patch.widthProfile = prof ? prof.map(([t, l, r]) => ({ t, l, r })) : undefined;
+    }
+    const doc = editor.doc;
+    doc.transact(this.constructor.label.replace(' Tool', ''), () => doc.update(n.id, patch));
+    editor.select([n.id]);
   }
 
   onPointerMove(e) {
@@ -149,6 +213,18 @@ export class PencilTool extends Tool {
       this.overlay();
       return;
     }
+    const target = this.reshapeTarget(pts);
+    if (target) {
+      this.applyReshapeTarget(target, pts, corners);
+      this.overlay();
+      return;
+    }
+    this.newStroke(pts, corners, e);
+    this.overlay();
+  }
+
+  /** A finished stroke that edits no selected path becomes a new path. */
+  newStroke(pts, corners, e) {
     const editor = this.editor;
     const t = fidelityTolerance(this.fidelity, editor.view.zoom);
     let anchors = fitStroke(pts, corners, t * t, t * 0.5);
@@ -157,17 +233,6 @@ export class PencilTool extends Tool {
     const close = e.alt || Math.hypot(first.x - last.x, first.y - last.y) < tol(editor, 4);
     const doc = editor.doc;
     doc.transact(this.constructor.label.replace(' Tool', ''), () => {
-      if (this.continueFrom && doc.has(this.continueFrom.id)) {
-        const base = doc.get(this.continueFrom.id);
-        let baseAnchors = base.anchors;
-        if (this.continueFrom.end === 'start') baseAnchors = baseAnchors.slice().reverse().map((a) => ({ ...a, ix: a.ox, iy: a.oy, ox: a.ix, oy: a.iy }));
-        const joint = baseAnchors[baseAnchors.length - 1];
-        const rest = anchors.slice(1);
-        const merged = baseAnchors.slice(0, -1).concat([{ ...joint, ox: anchors[0].ox, oy: anchors[0].oy }], rest);
-        doc.update(base.id, { anchors: merged, shape: undefined });
-        editor.select([base.id]);
-        return;
-      }
       if (close && anchors.length > 2) {
         // Merge the final anchor into the first.
         const lastA = anchors.pop();
@@ -179,7 +244,6 @@ export class PencilTool extends Tool {
       if (this.keepSelected) editor.select([node.id]);
       else editor.clearSelection();
     });
-    this.overlay();
   }
 
   pathStyle() {
@@ -218,7 +282,10 @@ export class PencilTool extends Tool {
         { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: this.smoothing },
         { key: 'corners', label: 'Corners (keeps sharp turns sharp)', type: 'range', min: 0, max: 100, value: this.corners },
         { key: 'smoothingStyle', label: 'Smoothing style', type: 'radio', options: SMOOTHING_STYLES, value: this.smoothingStyle },
+        { type: 'heading', label: 'Options' },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: this.keepSelected },
+        { key: 'editSelected', label: 'Edit selected paths', type: 'checkbox', value: this.editSelected },
+        { key: 'within', label: 'Within (pixels)', type: 'range', min: 2, max: 20, value: this.within },
       ],
     });
     if (!v) return;
@@ -227,6 +294,8 @@ export class PencilTool extends Tool {
     this.smoothingStyle = v.smoothingStyle;
     this.corners = v.corners;
     this.keepSelected = v.keepSelected;
+    this.editSelected = v.editSelected;
+    this.within = v.within;
   }
 }
 
@@ -239,6 +308,8 @@ export class PaintbrushTool extends PencilTool {
   static brush = true;
   static smoothingPref = 'paintbrushSmoothing';
   static cornersPref = 'paintbrushCorners';
+  static editSelectedPref = 'paintbrushEditSelected';
+  static withinPref = 'paintbrushWithin';
 
   activate() {
     this.setCursor('var(--cursor-brush)');

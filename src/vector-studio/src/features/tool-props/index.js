@@ -32,8 +32,10 @@ function freehandSettings(tool) {
     { key: 'corners', label: 'Corners', type: 'range', min: 0, max: 100, value: tool.corners ?? 0, hint: 'Keeps sharp turns sharp' },
     { key: 'smoothingStyle', label: 'Style', type: 'radio', options: SMOOTHING_STYLES, value: tool.smoothingStyle },
     { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: Boolean(tool.keepSelected) },
+    { key: 'editSelected', label: 'Edit selected paths', type: 'checkbox', value: Boolean(tool.editSelected) },
+    { key: 'within', label: 'Within', type: 'range', min: 2, max: 20, value: tool.within ?? 12, hint: 'How near a selected path a stroke starts to redraw it (pixels)' },
   ];
-  if (opts) fields.push({ key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: Boolean(opts.fill) }, { key: 'editSelected', label: 'Edit selected paths', type: 'checkbox', value: Boolean(opts.editSelected) }, { key: 'pressure', label: 'Pen pressure varies the width', type: 'checkbox', value: opts.pressure !== false });
+  if (opts) fields.push({ key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: Boolean(opts.fill) }, { key: 'pressure', label: 'Pen pressure varies the width', type: 'checkbox', value: opts.pressure !== false });
   // The smoothing style is one preference shared by the freehand tools, not a Paintbrush option.
   return { fields, set: (k, v) => (k === 'smoothingStyle' ? (tool.smoothingStyle = v) : write({ [k]: v })) };
 }

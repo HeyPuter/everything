@@ -207,14 +207,16 @@ export function restoreCorners(raw, corners, length) {
  * (indices into `points`): the curves between them are fitted as before, and
  * each corner is an anchor whose handles point their own ways. `error` is
  * the squared fit tolerance and `simplify` the simplify tolerance, as for
- * fitCurve and simplifyPolyline.
+ * fitCurve and simplifyPolyline; `tangents` fixes the directions at the
+ * stroke's two ends, as for fitCurve.
  */
-export function fitStroke(points, corners, error, simplify) {
-  if (!corners?.length) return fitCurve(simplifyPolyline(points, simplify), error);
+export function fitStroke(points, corners, error, simplify, tangents = {}) {
+  if (!corners?.length) return fitCurve(simplifyPolyline(points, simplify), error, tangents);
   const stops = [0, ...corners, points.length - 1];
   let out = [];
   for (let j = 0; j + 1 < stops.length; j++) {
-    const piece = fitCurve(simplifyPolyline(points.slice(stops[j], stops[j + 1] + 1), simplify), error);
+    const ends = { start: j === 0 ? tangents.start : undefined, end: j + 2 === stops.length ? tangents.end : undefined };
+    const piece = fitCurve(simplifyPolyline(points.slice(stops[j], stops[j + 1] + 1), simplify), error, ends);
     if (piece.length < 2) continue;
     if (!out.length) {
       out = piece;
@@ -224,5 +226,5 @@ export function fitStroke(points, corners, error, simplify) {
     out[out.length - 1] = { ...joint, ox: piece[0].ox, oy: piece[0].oy };
     out.push(...piece.slice(1));
   }
-  return out.length >= 2 ? out : fitCurve(simplifyPolyline(points, simplify), error);
+  return out.length >= 2 ? out : fitCurve(simplifyPolyline(points, simplify), error, tangents);
 }

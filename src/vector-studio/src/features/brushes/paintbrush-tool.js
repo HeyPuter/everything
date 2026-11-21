@@ -4,14 +4,11 @@
  * that vary with pressure and drawing speed for brushes that vary with
  * velocity, a plain stroke (or a calligraphic brush of a fixed size) gets
  * its width from the pen pressure, and with "Edit selected paths" a stroke drawn
- * along a selected path reshapes that part of it instead of making a new
- * path. Double-click the tool for its options.
+ * from a selected path redraws just that part of it instead of making a new
+ * path (tools/reshape.js), keeping the pressure, speed and widths of the
+ * rest. Double-click the tool for its options.
  */
-import { PaintbrushTool, fidelityTolerance } from '../../tools/freehand.js';
-import { tol } from '../../tools/tool.js';
-import { createPath } from '../../model/nodes.js';
-import { nearestOnPath, insertAnchor } from '../../model/bezier.js';
-import { fitStroke } from '../../tools/corners.js';
+import { PaintbrushTool } from '../../tools/freehand.js';
 import { newPathStyle } from '../../tools/pen.js';
 import { brushById } from './brush-model.js';
 import { brushState } from './brush-actions.js';
@@ -51,36 +48,8 @@ export function velocities(points, times, zoom = 1) {
   });
 }
 
-/** Global position (segment index + t) of the nearest point on a path. */
-function locate(anchors, closed, x, y) {
-  const n = nearestOnPath(anchors, closed, x, y);
-  return n ? { u: n.index + n.t, index: n.index, t: n.t, d: n.d } : null;
-}
-
-/**
- * Replace the part of an open path between two located positions by new
- * anchors (oriented from a to b). Returns the new anchor list.
- */
-export function reshapeSection(anchors, a, b, fresh) {
-  let [lo, hi, pts] = a.u <= b.u ? [a, b, fresh] : [b, a, fresh.slice().reverse().map((p) => ({ ...p, ix: p.ox, iy: p.oy, ox: p.ix, oy: p.iy }))];
-  // Insert the later position first so the earlier index stays valid.
-  let list = anchors;
-  let hiIndex;
-  if (hi.t > 1e-6 && hi.t < 1 - 1e-6) {
-    list = insertAnchor(list, false, hi.index, hi.t);
-    hiIndex = hi.index + 1;
-  } else hiIndex = hi.t >= 1 - 1e-6 ? hi.index + 1 : hi.index;
-  let loIndex;
-  if (lo.t > 1e-6 && lo.t < 1 - 1e-6) {
-    list = insertAnchor(list, false, lo.index, lo.t);
-    loIndex = lo.index + 1;
-    hiIndex += 1;
-  } else loIndex = lo.t >= 1 - 1e-6 ? lo.index + 1 : lo.index;
-  return [...list.slice(0, loIndex), ...pts, ...list.slice(hiIndex + 1)];
-}
-
 export class BrushPaintbrushTool extends PaintbrushTool {
-  static hint = 'Drag to paint with the current brush | Draw along a selected path to reshape it | [ and ] change the stroke weight | Double-click the tool for options';
+  static hint = 'Drag to paint with the current brush | Draw from a selected path to redraw part of it | [ and ] change the stroke weight | Double-click the tool for options';
 
   constructor(app) {
     super(app);
@@ -112,6 +81,26 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     this.app.prefs.set('paintbrushOptions', this.opts);
   }
 
+  /** "Edit selected paths" and Within live with the other Paintbrush options. */
+  get editSelected() {
+    return this.opts?.editSelected !== false;
+  }
+
+  set editSelected(v) {
+    this.opts = { ...this.opts, editSelected: Boolean(v) };
+    this.app.prefs.set('paintbrushOptions', this.opts);
+  }
+
+  get within() {
+    const v = Number(this.opts?.within);
+    return Number.isFinite(v) && v > 0 ? Math.max(2, Math.min(20, v)) : DEFAULTS.within;
+  }
+
+  set within(v) {
+    this.opts = { ...this.opts, within: Math.max(2, Math.min(20, Number(v) || DEFAULTS.within)) };
+    this.app.prefs.set('paintbrushOptions', this.opts);
+  }
+
   onPointerDown(e) {
     this.preview?.reset();
     super.onPointerDown(e);
@@ -134,61 +123,58 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     }
   }
 
-  /** A selected open path near both ends of the stroke (or near its start), for reshaping. */
-  editTarget(first, last) {
-    if (!this.opts.editSelected) return null;
-    const ed = this.editor;
-    const reach = tol(ed, this.opts.within);
-    for (const id of ed.selection) {
-      const n = ed.doc.get(id);
-      if (!n || n.type !== 'path' || n.closed || n.anchors.length < 2 || ed.doc.isLocked(id)) continue;
-      const a = locate(n.anchors, false, first.x, first.y);
-      if (!a || a.d > reach) continue;
-      const b = locate(n.anchors, false, last.x, last.y);
-      return { node: n, a, b: b && b.d <= reach ? b : null };
-    }
-    return null;
-  }
-
   onPointerUp(e) {
-    const pts = this.strokePoints();
-    const pressures = this.pressures;
-    const times = this.times;
+    // The stroke's pen pressures and timestamps, for the new path or the stretch it redraws.
+    this.strokePressures = this.pressures;
+    this.strokeTimes = this.times;
     this.pressures = null;
     this.times = null;
-    if (!pts || pts.length < 2) {
+    try {
       super.onPointerUp(e);
-      return;
+    } finally {
+      this.strokePressures = null;
+      this.strokeTimes = null;
     }
-    const target = this.editTarget(pts[0], pts[pts.length - 1]);
-    const endpoint = target && (target.a.u < 1e-3 || target.a.u > target.node.anchors.length - 1 - 1e-3);
-    if (!target || (endpoint && !target.b)) {
-      // A new stroke (or one continuing an end of a selected path: the base tool handles it).
-      this.lastPressure = pressureSamples(pts, pressures);
-      this.lastWidth = pressures && this.opts.pressure ? pressureWidthProfile(pressureSamples(pts, smoothPressures(pressures), 32)) : null;
-      this.lastVelocity = pressureSamples(pts, velocities(pts, times, this.editor?.view.zoom || 1));
-      super.onPointerUp(e);
+  }
+
+  newStroke(pts, corners, e) {
+    const pressures = this.strokePressures;
+    this.lastPressure = pressureSamples(pts, pressures);
+    this.lastWidth = pressures && this.opts.pressure ? pressureWidthProfile(pressureSamples(pts, smoothPressures(pressures), 32)) : null;
+    this.lastVelocity = pressureSamples(pts, velocities(pts, this.strokeTimes, this.editor?.view.zoom || 1));
+    try {
+      super.newStroke(pts, corners, e);
+    } finally {
       this.lastPressure = null;
       this.lastWidth = null;
       this.lastVelocity = null;
-      return;
     }
-    this.points = null;
-    this.stabilizer = null;
-    const ed = this.editor;
-    const t = fidelityTolerance(this.fidelity, ed.view.zoom);
-    const fresh = fitStroke(pts, this.strokeCorners || [], t * t, t * 0.5);
-    const n = target.node;
-    let anchors;
-    if (target.b) anchors = reshapeSection(n.anchors, target.a, target.b, fresh);
-    else {
-      // Redraw from where the stroke started to the end of the path.
-      const endLoc = { u: n.anchors.length - 1, index: n.anchors.length - 2, t: 1 };
-      anchors = reshapeSection(n.anchors, target.a, endLoc, fresh);
+  }
+
+  /**
+   * What the stroke redrawing part of `node` carries along it, as the path
+   * would get it drawn new: pen pressure for a brush that reads it, drawing
+   * speed for a brush that reads that, and widths from the pen pressure for
+   * a plain stroke or a calligraphic brush of a fixed size.
+   */
+  strokeRows(pts, node) {
+    const rows = {};
+    const pressures = this.strokePressures;
+    const brush = node?.brush?.id ? brushById(this.editor.doc, node.brush.id) : null;
+    if (brush && brushUsesPressure(brush)) {
+      const p = pressureSamples(pts, pressures);
+      if (p) rows.brushPressure = p;
     }
-    ed.doc.transact('Paintbrush', () => ed.doc.update(n.id, { anchors, shape: undefined, brushPressure: undefined }));
-    ed.select([n.id]);
-    this.overlay();
+    if (brush && brushUsesMode(brush, 'velocity')) {
+      const v = pressureSamples(pts, velocities(pts, this.strokeTimes, this.editor?.view.zoom || 1));
+      if (v) rows.velocity = v;
+    }
+    const widths = this.opts.pressure && (!brush || (brush.type === 'calligraphic' && !brushUsesPressure(brush)));
+    if (widths && pressures) {
+      const prof = pressureWidthProfile(pressureSamples(pts, smoothPressures(pressures), 32));
+      if (prof) rows.widthProfile = prof.map((w) => [w.t, w.l, w.r]);
+    }
+    return rows;
   }
 
   pathStyle() {

@@ -6,7 +6,8 @@ import { rectangle } from '../src/model/shapes.js';
 import { isLive, liveArtwork } from '../src/model/live.js';
 import { docBrushes, setDocBrushes, brushById } from '../src/features/brushes/brush-model.js';
 import { DEFAULT_BRUSHES, BRUSH_LIBRARIES } from '../src/features/brushes/libraries.js';
-import { pressureSamples, reshapeSection } from '../src/features/brushes/paintbrush-tool.js';
+import { pressureSamples } from '../src/features/brushes/paintbrush-tool.js';
+import { span } from '../src/tools/reshape.js';
 import { selectSame } from '../src/ops/select-ops.js';
 import { resolveItems } from '../src/ui/menubar.js';
 import { MENUS } from '../src/ui/menus.js';
@@ -367,8 +368,8 @@ describe('Paintbrush', () => {
     const s = pressureSamples([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }], [0, 0.5, 1], 5);
     expect(s).toEqual([[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]]);
     const base = [anchor(0, 0), anchor(100, 0), anchor(200, 0)];
-    const out = reshapeSection(base, { u: 0.5, index: 0, t: 0.5 }, { u: 1.5, index: 1, t: 0.5 }, [anchor(50, 5), anchor(150, 5)]);
-    expect(out.map((p) => [p.x, p.y])).toEqual([[0, 0], [50, 5], [150, 5], [200, 0]]);
+    expect(span(base, 0.5, 1.5).map((p) => [p.x, p.y])).toEqual([[50, 0], [100, 0], [150, 0]]);
+    expect(span(base, 0, 0.5).map((p) => [p.x, p.y])).toEqual([[0, 0], [50, 0]]);
   });
 });
 
