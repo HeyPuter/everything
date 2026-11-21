@@ -301,8 +301,9 @@ describe('contacts client — reading the directory', () => {
     };
 
     const first = h2.contacts.warm(); // the read is now in flight
-    await sleep(10); // launch + handshake + the list request
-    expect(pendingLists).toHaveLength(1);
+    // Wait for the list request itself — a fixed sleep(10) races the
+    // launch/handshake on slower Windows hosts and flakes as "expected 1, got 0".
+    await vi.waitFor(() => expect(pendingLists).toHaveLength(1));
 
     // The book changes while that read is still in flight. The notice must not
     // be satisfied by a read that started before the change — that read lands
@@ -311,11 +312,9 @@ describe('contacts client — reading the directory', () => {
     h2.service.emit({ $: 'contacts-api', v: 1, type: 'changed' });
     answerNext([PEOPLE[0]]); // the stale read lands: just Ada
     await first;
-    await sleep(10);
-    expect(pendingLists).toHaveLength(1); // one more read went out on its own
+    await vi.waitFor(() => expect(pendingLists).toHaveLength(1)); // one more read went out on its own
     answerNext(PEOPLE);
-    await sleep(10);
-    expect(h2.contacts.suggest('grace')).toHaveLength(2);
+    await vi.waitFor(() => expect(h2.contacts.suggest('grace')).toHaveLength(2));
   });
 
   it('re-reads when Contacts says the address book changed', async () => {
