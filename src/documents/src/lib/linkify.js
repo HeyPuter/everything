@@ -9,7 +9,7 @@
  * — so ordinary writing ("e.g.", "Fig. 2", "file.pdf") is not linked.
  */
 
-import { paragraphText } from './autocorrect.js';
+import { insideAddress, paragraphText } from './autocorrect.js';
 import { textAnchor } from './hyperlink-target.js';
 
 const KEY = 'documents:autolink';
@@ -103,6 +103,27 @@ export function linkCandidateBefore(text, end) {
   const href = hrefForToken(trimmed);
   if (!href) return null;
   return { start, end: start + trimmed.length, text: trimmed, href };
+}
+
+/**
+ * A web or email address is written as typed: when the word that began with a letter capitalized as the start of
+ * a sentence turns out to be one, the letter goes back to the one typed ("john@example.com", "www.example.com",
+ * "example.com" at the start of a line). `before` is the paragraph's text up to and including the character just
+ * typed, and `capital` says where in it that letter is and what was typed: `{ offset, typed }`.
+ *
+ * While the word is being typed, that is known once it has an address's marks (an @ with the host begun, a
+ * scheme, "www."); when a space ends it, also for a host on a well-known domain, as for a link made as you type.
+ * Returns `{ back, length, text }` (the `length` characters starting `back` before the end of `before` become
+ * `text`), or null.
+ */
+export function addressCapital(before, typed, capital) {
+  if (typeof before !== 'string' || !capital || !Number.isInteger(capital.offset) || typeof capital.typed !== 'string') return null;
+  const letter = before[capital.offset];
+  if (!letter || letter === capital.typed || letter.toLowerCase() !== capital.typed.toLowerCase()) return null;
+  const ended = /\s/.test(typed), word = capital.typed + before.slice(capital.offset + 1, ended ? -1 : undefined);
+  if (!word || /\s/.test(word)) return null;
+  if (!(ended ? linkCandidateBefore(word, word.length) : insideAddress(word))) return null;
+  return { back: before.length - capital.offset, length: 1, text: capital.typed };
 }
 
 /** Whether an existing hyperlink already covers any of [start, end) in the block; `text` puts the anchors into the text's coordinates. */

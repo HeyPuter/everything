@@ -24914,3 +24914,35 @@ text typed here. Inside a `w:rtl` run, brackets around a Latin word followed by 
 UAX #9 rule N0, which differs from the reference application (line 12 of the control). Positions were
 compared with the reference application by eye at screen resolution, not by recorded glyph coordinates; a
 schema pass is not layout fidelity.
+
+## Addresses typed at a sentence's start, and the look of a removed link (2026-11-22)
+
+Two reports from one writer: an email address typed on a new line had its first letter capitalized, with
+no way to type it in lowercase again, and removing the link from it left the text blue and underlined.
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Addresses keep their case | Original typing policy; the address rules of "Autocorrect and links as you type" | Sentence capitalization still acts on the first letter as it is typed. The editor remembers that capital while the same word is typed on without a break (`typedCapital` in `src/engine/canvas-editor.js`) and the host takes it back (`addressCapital` in `src/lib/linkify.js`) once the word has an address's marks (an @ with the host begun, a scheme with `://`, `www.`) or, when a space or a new paragraph ends it, is a host the link rule accepts. The letter goes back before the address is linked, so the link's text and `mailto:` target are as typed. It is an undo step of its own, labelled AutoCorrect: Undo returns the capital. A capital the writer typed is never changed. |
+| A letter typed again stays as typed | Original typing policy | A letter typed in place of the same letter (selected alone, or removed there by a single Backspace or Delete just before) is not capitalized. Another letter in its place, and a word removed by a run of presses and typed again, start the sentence as before. |
+| Removing a link removes its look | ECMA-376 Part 1 §§17.16.22 `hyperlink`, 17.3.2.29 `rStyle`, 17.3.2.6 `color`, 17.3.2.40 `u` | Remove link (toolbar, link card, context menu, the Links dialog and Remove All Links, all through `TextDocument.removeHyperlink`) also takes off what "Link appearance" gives a new link: the document's Hyperlink character style (`w:rStyle` is no longer written for the run), or the link color 0563C1 with a single underline stated on the run itself. Other run properties stay (bold, italics, font, size, highlight), and so does a color or an underline that is not that pair. In place of the direct look the text takes the color and underline of the text beside the link, as text typed beside a link does; a link with no such text beside it shows again what the run declared before the look was given, or, for a look read from the file, states what its styles give it. Link and look go in one undo step and come back in one. This replaces "keep run formatting intact when unlinking" in the external-hyperlink iteration for these properties only; setting or changing a link is unchanged, and `changeHyperlink` still only links or unlinks. |
+
+Evidence: `tests/autocorrect.test.js` and `tests/linkify.test.js` cover the two typing rules;
+`tests/canvas-hyperlinks.test.js` covers the style and the direct look, the text beside a link, partial
+removal, a look saved and reopened, colors and underlines that stay, a document without styles, serialized
+run properties and exact undo, on the independently generated `public/fixtures/hyperlinks.docx` and on
+documents made in the test. `tests/browser/autocorrect.spec.js` types addresses and retyped letters into
+the editor; `tests/browser/link-appearance.spec.js` removes typed links with the toolbar, undoes it, and
+downloads and reopens the result; `tests/browser/hyperlinks.spec.js` removes a styled link of the fixture
+and reopens the download. The downloads `typed-addresses.docx`, `unlinked-addresses.docx` and
+`hyperlinks.docx` pass `check:conformance`.
+
+**Remaining gaps:** only the Hyperlink character style and the exact pair 0563C1 with a single underline
+are taken for a link's look; a link another producer colored directly with a different blue keeps that
+color when unlinked. The formatting a text had before it became a link is not recorded, so the color of
+the text beside it is a stand-in, and text that was deliberately given exactly the link's color and a
+single underline loses them with the link. Where the look was read from a file, the replacement is written
+as explicit `w:color` and `w:u w:val="none"` declarations rather than by removing the old ones. Paragraph
+marks, linked pictures and the inputs of plain-text content controls are not restyled. The capital is taken
+back only while the word is typed without a break: after the caret moves, an input-method composition, or
+a paste, it stays. Addresses are recognized by the conservative rules of links as you type, so a host on
+an uncommon domain typed without a scheme keeps its capital. A schema pass is not layout fidelity.

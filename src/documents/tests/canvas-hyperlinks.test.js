@@ -48,9 +48,10 @@ it('keeps differently formatted linked runs in one wrapper and adjacent equal-ta
   sameParts(unzipSync(await save(p,d)), p.parts, ['word/document.xml']);
 });
 
-it('partial unlink and partial target changes split wrappers while retaining character formatting', async () => {
-  const p=await DocxPackage.open(source),d=model(p); select(d,'the guide'); d.removeHyperlink(); expect(d.hyperlink).toBeNull(); expect(d.runFormatting).toMatchObject({bold:true,color:'0563C1',underline:true});
-  let out=model(await DocxPackage.open(await save(p,d))); select(out,'the guide'); expect(out.hyperlink).toBeNull(); select(out,'Read '); expect(out.hyperlink.link.target).toBe(TARGET);
+it('partial unlink and partial target changes split wrappers while retaining character formatting other than the link style', async () => {
+  const p=await DocxPackage.open(source),d=model(p); select(d,'the guide'); d.removeHyperlink(); expect(d.hyperlink).toBeNull(); expect(d.runFormatting).toMatchObject({bold:true,color:'auto',underline:false}); expect(d.characterStyle).toBe('');
+  select(d,'Read '); expect(d.characterStyle).toBe('Hyperlink'); expect(d.runFormatting).toMatchObject({bold:false,color:'0563C1',underline:true});
+  let out=model(await DocxPackage.open(await save(p,d))); select(out,'the guide'); expect(out.hyperlink).toBeNull(); expect(out.runFormatting).toMatchObject({bold:true,color:'auto',underline:false}); select(out,'Read '); expect(out.hyperlink.link.target).toBe(TARGET);
   d.undo(); select(d,'the guide'); d.setHyperlink('mailto:other@example.com'); out=model(await DocxPackage.open(await save(p,d))); select(out,'the guide'); expect(out.hyperlink.link.target).toBe('mailto:other@example.com'); select(out,'Read '); expect(out.hyperlink.link.target).toBe(TARGET);
 });
 
@@ -108,7 +109,8 @@ it('does not affect shaping, wrapping, caret stops, selection or table paginatio
   const ranges=hyperlinkRanges(d.paragraphs),header=ranges.find(r=>d.text.slice(r.start,r.end)==='Linked header'),rects=selectionRects(before,header.start,header.end);expect(new Set(rects.map(r=>r.page)).size).toBeGreaterThan(1);
   for(const r of rects){expect(hyperlinkAtPoint(before,d.paragraphs,r.page,r.x+r.width/2,r.y+r.height/2)?.link.target).toBe('https://example.com/header');expect(hyperlinkAtPoint(before,d.paragraphs,r.page,r.x-10,r.y+r.height/2)).toBeNull();}
   const pos=d.text.indexOf('á😀',d.text.indexOf('Read'))+2,c=caretRect(before,pos);expect(hitTest(before,c.page,c.x,c.y+c.height/2)).toBe(pos);
-  d.select(0,d.text.length);d.removeHyperlink();expect(layout(d)).toEqual(before);
+  // The link itself, apart from the look that removing one takes off its text (changeHyperlink only unlinks).
+  d.select(0,d.text.length);d.checkpoint();d.changeHyperlink(0,d.text.length,null);d.didChange();expect(hyperlinkRanges(d.paragraphs).filter(r=>!r.drawing)).toEqual([]);expect(layout(d)).toEqual(before);
 });
 
 it('preserves character-style inheritance through link edits and reopening',async()=>{
@@ -157,4 +159,72 @@ it('keeps an unopenable relationship target as an editable, unopened link',async
   const p=await DocxPackage.open(revise('word/_rels/document.xml.rels',xml=>{for(const r of [...xml.documentElement.children].filter(n=>n.getAttribute('Type')===R+'/hyperlink'))r.setAttribute('Target','javascript:alert(1)');}));
   expect(p.readOnly).not.toBe(true);const d=model(p),link=hyperlinkRanges(d.paragraphs)[0].link;
   expect(link).toMatchObject({target:'javascript:alert(1)',retainedTarget:true});expect(openableHyperlink(link)).toBe(false);
+});
+
+// Removing a link takes the look of a link off its text: the Hyperlink character style, or the link color and
+// underline a document without that style states on the text itself.
+const styled = async text => { const d = new TextDocument([paragraph(text)]), p = await DocxPackage.open(await save(createDocx(d.paragraphs), d)); return [p, model(p)]; };
+const runXml = (bytes, text) => { const t = [...parsed(bytes).getElementsByTagNameNS(W, 't')].find(n => n.textContent === text); expect(t, text).toBeTruthy(); return new XMLSerializer().serializeToString(t.parentNode); };
+const look = (d, text) => { select(d, text); const f = d.runFormatting; return [f.color, f.underlineStyle, f.bold]; };
+
+it('removes the Hyperlink character style with the link, keeps the other formatting, and undoes both in one step', async () => {
+  const p = await DocxPackage.open(source), d = model(p);
+  select(d, 'Same destination'); d.setRunFormat({ italic: true }); const linked = d.snapshot();
+  expect(d.removeHyperlink()).toBe(true);
+  expect(d.hyperlink).toBeNull(); expect(d.characterStyle).toBe(''); expect(d.runFormatting).toMatchObject({ italic: true, color: 'auto', underline: false });
+  const bytes = await save(p, d), xml = runXml(bytes, 'Same destination');
+  expect(xml).not.toContain('w:rStyle'); expect(xml).toContain('<w:i'); expect(links(parsed(bytes)).some(n => n.textContent === 'Same destination')).toBe(false);
+  // The links around it keep their style.
+  expect(look(d, 'First')).toEqual([LINK_COLOR, 'single', false]);
+  d.undo(); expect(d.snapshot()).toEqual(linked); select(d, 'Same destination'); expect(d.hyperlink.link.target).toBe(TARGET); expect(d.characterStyle).toBe('Hyperlink');
+});
+
+it('removes the link color and underline from a link made in a document without the style, leaving no declaration behind', async () => {
+  const [p, d] = await styled('john@example.com');
+  d.select(0, d.text.length); d.setRunFormat({ bold: true }); d.setHyperlink('mailto:john@example.com'); showLink(d);
+  expect(look(d, 'john@example.com')).toEqual([LINK_COLOR, 'single', true]);
+  d.select(3); const linked = d.snapshot();
+  expect(d.removeHyperlink()).toBe(true);
+  expect(hyperlinkRanges(d.paragraphs)).toEqual([]); expect(look(d, 'john@example.com')).toEqual(['auto', 'none', true]);
+  // Nothing of the look stays stated on the run: what it declared before shows again.
+  expect(d.paragraphs[0].runs.map(r => [r.text, r.overrides])).toEqual([['john@example.com', { bold: true }]]);
+  const xml = runXml(await save(p, d), 'john@example.com');
+  expect(xml).not.toContain(LINK_COLOR); expect(xml).not.toContain('w:val="single"'); expect(xml).toContain('<w:b w:val="1"/>');
+  d.undo(); expect(d.snapshot()).toEqual(linked); expect(look(d, 'john@example.com')).toEqual([LINK_COLOR, 'single', true]);
+});
+
+it('gives unlinked text the color and underline of the text beside the link', async () => {
+  const [p, d] = await styled('Write to john@example.com today');
+  d.select(0, d.text.length); d.setRunFormat({ color: 'C00000' });
+  select(d, 'john@example.com'); d.setHyperlink('mailto:john@example.com'); showLink(d);
+  expect(look(d, 'john@example.com')).toEqual([LINK_COLOR, 'single', false]);
+  d.removeHyperlink(); expect(look(d, 'john@example.com')).toEqual(['C00000', 'none', false]);
+  const out = model(await DocxPackage.open(await save(p, d)));
+  expect(hyperlinkRanges(out.paragraphs)).toEqual([]); expect(out.text).toBe('Write to john@example.com today');
+  expect(new Set(out.paragraphs[0].runs.map(r => `${r.color} ${r.underlineStyle}`))).toEqual(new Set(['C00000 none']));
+  // A link at the start of its paragraph takes them from the text after it; unlinking part of a link leaves the rest a link.
+  const [, e] = await styled('example.com is down');
+  e.select(0, 11); e.setHyperlink('https://example.com'); showLink(e);
+  e.select(0, 7); e.removeHyperlink();
+  expect(look(e, 'example')).toEqual(['auto', 'none', false]); expect(look(e, '.com')).toEqual([LINK_COLOR, 'single', false]);
+  expect(hyperlinkRanges(e.paragraphs).map(r => e.text.slice(r.start, r.end))).toEqual(['.com']);
+});
+
+it('removes a link look saved in the file, and keeps a color or an underline that is not the link look', async () => {
+  const [p, d] = await styled('john@example.com');
+  d.select(0, d.text.length); d.setHyperlink('mailto:john@example.com'); showLink(d);
+  const saved = await DocxPackage.open(await save(p, d)), reopened = model(saved);
+  expect(look(reopened, 'john@example.com')).toEqual([LINK_COLOR, 'single', false]);
+  reopened.select(2); reopened.removeHyperlink(); expect(look(reopened, 'john@example.com')).toEqual(['auto', 'none', false]);
+  const again = model(await DocxPackage.open(await save(saved, reopened)));
+  expect(hyperlinkRanges(again.paragraphs)).toEqual([]); expect(look(again, 'john@example.com')).toEqual(['auto', 'none', false]);
+  // Recolored, or underlined otherwise, the text was formatted by someone: it stays as it is.
+  for (const [patch, expected] of [[{ color: '00B050' }, ['00B050', 'single', false]], [{ underlineStyle: 'double' }, [LINK_COLOR, 'double', false]]]) {
+    const [, e] = await styled('john@example.com');
+    e.select(0, e.text.length); e.setHyperlink('mailto:john@example.com'); showLink(e); e.setRunFormat(patch);
+    e.removeHyperlink(); expect(hyperlinkRanges(e.paragraphs)).toEqual([]); expect(look(e, 'john@example.com')).toEqual(expected);
+  }
+  // A document without styles: the color and underline go back to the defaults.
+  const plain = new TextDocument([paragraph('site')]); plain.select(0, 4); plain.setHyperlink(TARGET); showLink(plain);
+  plain.removeHyperlink(); expect(plain.paragraphs[0].runs.map(r => [r.text, r.color, r.underlineStyle, r.link])).toEqual([['site', 'auto', 'none', undefined]]);
 });

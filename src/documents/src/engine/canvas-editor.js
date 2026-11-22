@@ -1945,11 +1945,13 @@ export class CanvasEditor {
       // Ctrl+Enter there starts the caret's row on a new page, the table split around the break.
       const columnBreak = () => this.model.tableContext ? splitTable(this.model) : this.model.insertColumnBreak();
       const pageBreak = () => this.model.tableContext ? insertTablePageBreak(this.model) : this.model.insertPageBreak();
+      const capital = this.continuedCapital(...this.model.range);
       const done = this.execute(() => mod ? (e.shiftKey ? columnBreak() : pageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph());
       // A new paragraph ends the word before it, which may be an address to link.
       if (done && !mod && !e.shiftKey) {
         const caret = this.model.selection.focus, place = locate(this.model.paragraphs, caret);
         if (place.offset === 0 && place.index > 0) {
+          this.restoreTypedCase(place.index - 1, capital);
           const previous = paragraphText(this.model.paragraphs[place.index - 1]);
           this.linkTypedAddress(caret - 1 - previous.length, place.index - 1, previous.length, caret);
           this.correctParagraphEnd(place.index - 1);
@@ -2077,6 +2079,7 @@ export class CanvasEditor {
     const newWord = /\S/u.test(text[0] || '') && /\s/u.test(group?.last || '');
     const merge = !!group && !newWord && start === end && group.at === start &&
       group.revision === this.session.revision && group.path === this.session.path;
+    const context = this.typingContext(start, end);
     this.typingGroup = null;
     // While true, the host may refresh its controls after the frame that shows the typed text.
     this.typing = true;
@@ -2084,8 +2087,28 @@ export class CanvasEditor {
     try { executed = this.execute(action, undefined, { record: !merge, typing: true, label: 'Typing' }); } finally { this.typing = false; }
     if (executed) {
       this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: text.at(-1) };
-      if (text.length === 1) this.assistTyping(text);
+      if (text.length === 1) this.assistTyping(text, context);
     }
+  }
+  /**
+   * What a character typed at [start, end) follows on from, for the corrections made after it (assistTyping):
+   * `replaced`, the one character it takes the place of (selected, or deleted there by the key press just before),
+   * and `capital`, the letter a correction capitalized at the start of the word this typing goes on with.
+   */
+  typingContext(start, end) {
+    const removed = this.deleteGroup;
+    let replaced = '';
+    if (end - start === 1) {
+      const { index, offset } = locate(this.model.paragraphs, start);
+      replaced = paragraphText(this.model.paragraphs[index])[offset] ?? '';
+    } else if (start === end && removed?.single && removed.at === start && removed.revision === this.session.revision && removed.path === this.session.path) replaced = removed.single;
+    return { replaced, capital: this.continuedCapital(start, end) };
+  }
+  /** The capital a correction made of the first letter of the word the caret is at the end of, typed without a break since. */
+  continuedCapital(start, end) {
+    const capital = this.typedCapital;
+    this.typedCapital = null;
+    return capital && start === end && capital.at === start && capital.revision === this.session.revision && capital.path === this.session.path ? capital : null;
   }
   /**
    * Once the view hides text (Simple Markup, No Markup, hidden text no longer shown), a caret left inside it goes to
@@ -2118,33 +2141,72 @@ export class CanvasEditor {
     // Hidden text beside the caret is passed over: the key deletes the character a reader sees next to it.
     const stretch = start === end && hiddenStretchAt(this.model.paragraphs, start);
     const past = stretch && (direction < 0 ? stretch[0] < start : start < stretch[1]) ? stretch[direction < 0 ? 0 : 1] : null;
+    // The one character a single press deletes (not a run of presses, nor a longer selection): typed again there,
+    // it is left as typed (typingContext).
+    let single = '';
+    if (!merge && past === null && end - start <= 1) {
+      const { index, offset } = locate(this.model.paragraphs, start);
+      single = paragraphText(this.model.paragraphs[index])[start !== end || direction > 0 ? offset : offset - 1] ?? '';
+    }
     try {
       done = this.execute(() => {
         if (past !== null) this.model.select(past);
         return this.model.delete(direction);
       }, undefined, { record: !merge, typing: true, label: 'Typing' });
     } finally { this.deleting = false; }
-    if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path };
+    if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path, single };
   }
   // Corrections and links made as you type (the host decides which, from its
   // settings). Each is its own undo step, so Undo takes back the change alone.
-  assistTyping(typed) {
+  // `replaced` and `capital` are what the character follows on from (typingContext). A fix replaces the `back`
+  // characters before the caret, or only the first `length` of them, the caret staying after the rest.
+  assistTyping(typed, { replaced = '', capital = null } = {}) {
     const paragraphs = this.model.paragraphs, at = this.model.selection.focus, { index, offset } = locate(paragraphs, at);
-    const fix = this.correctTyping?.(paragraphText(paragraphs[index]).slice(0, offset), typed, { list: !!paragraphs[index].list });
-    if (fix && fix.back <= offset && fix.text !== undefined) {
+    // The capitalized letter the word began with, when it is in this paragraph and before the character typed.
+    const began = capital && capital.position >= at - offset && capital.position < at - 1 ? capital : null;
+    const fix = this.correctTyping?.(paragraphText(paragraphs[index]).slice(0, offset), typed, { list: !!paragraphs[index].list, replaced, capital: began ? { offset: began.position - (at - offset), typed: began.typed } : null });
+    const applies = !!fix && fix.back <= offset && fix.text !== undefined;
+    if (applies) {
       this.execute(() => {
-        this.model.select(at - fix.back, at);
-        const changed = this.model.replace(fix.text);
+        const changed = this.replaceBefore(at, fix);
         // A typed list marker ("* ", "1. ") becomes a list.
         if (fix.list) this.model.toggleList(fix.list);
         return changed;
       }, undefined, { label: fix.list ? 'AutoFormat' : 'AutoCorrect' }, true);
       if (fix.list) return;
     }
+    // A correction that only made a capital of the letter typed is remembered while its word is typed on, so the
+    // host can take it back should the word prove to be an address (correctTyping's `capital`).
+    const caret = this.model.selection.focus, mark = { at: caret, revision: this.session.revision, path: this.session.path };
+    const capitalized = applies && fix.back === 1 && fix.length === undefined && !fix.list && fix.text !== typed && fix.text.length === 1 && fix.text.toLowerCase() === typed.toLowerCase();
+    if (capitalized) this.typedCapital = { position: caret - 1, typed, ...mark };
+    else if (began && !/\s/.test(typed) && !(applies && fix.length !== undefined)) this.typedCapital = { position: began.position, typed: began.typed, ...mark };
     if (/\s/.test(typed)) {
       const caret = this.model.selection.focus, place = locate(this.model.paragraphs, caret);
       this.linkTypedAddress(caret - place.offset, place.index, place.offset - 1, caret);
     }
+  }
+  /** Make a typing fix for the text before `at`, and leave the caret after what it did not replace. */
+  replaceBefore(at, fix) {
+    const start = at - fix.back, length = fix.length ?? fix.back;
+    this.model.select(start, start + length);
+    const changed = this.model.replace(fix.text);
+    // The replacement ends where the replaced text did (after any deletion Track Changes keeps).
+    if (length < fix.back) this.model.select(this.model.selection.focus + fix.back - length);
+    return changed;
+  }
+  /**
+   * A new paragraph ends the word before it as a space does. A capital made of that word's first letter (`capital`,
+   * continuedCapital) is taken back when the word is an address, before the address is linked: its own undo step,
+   * the caret staying at the start of the next paragraph.
+   */
+  restoreTypedCase(index, capital) {
+    const paragraph = this.model.paragraphs[index], text = paragraphText(paragraph), from = this.model.paragraphOffset(index);
+    if (!capital || capital.position < from || capital.position >= from + text.length) return;
+    const fix = this.correctTyping?.(`${text} `, ' ', { list: !!paragraph.list, replaced: '', capital: { offset: capital.position - from, typed: capital.typed } });
+    if (!fix || fix.length === undefined || typeof fix.text !== 'string' || fix.back - 1 > text.length) return;
+    this.execute(() => this.replaceBefore(from + text.length + 1, fix), undefined, { label: 'AutoCorrect' }, true);
+    this.typingGroup = null;
   }
   /**
    * A new paragraph ends the word before it as a space does, so the corrections a space makes (the pronoun i, a
@@ -2153,8 +2215,8 @@ export class CanvasEditor {
    */
   correctParagraphEnd(index) {
     const paragraph = this.model.paragraphs[index], text = paragraphText(paragraph);
-    const fix = this.correctTyping?.(`${text} `, ' ', { list: !!paragraph.list });
-    if (!fix || fix.list || typeof fix.text !== 'string' || !fix.text.endsWith(' ') || fix.back < 2 || fix.back - 1 > text.length) return;
+    const fix = this.correctTyping?.(`${text} `, ' ', { list: !!paragraph.list, replaced: '', capital: null });
+    if (!fix || fix.list || fix.length !== undefined || typeof fix.text !== 'string' || !fix.text.endsWith(' ') || fix.back < 2 || fix.back - 1 > text.length) return;
     const end = this.model.paragraphOffset(index) + text.length;
     this.execute(() => {
       this.model.select(end - (fix.back - 1), end);

@@ -11,7 +11,7 @@ async function dialog(page, input) { await input.focus(); await input.press('Con
 async function apply(page) { await page.getByRole('dialog').getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0); await expect(page.getByRole('textbox', { name: 'Document text' })).toBeFocused(); }
 async function stubOpen(page) { await page.addInitScript(() => { window.linkOpens = []; window.open = (...args) => { window.linkOpens.push(args); return null; }; }); }
 
-test('edits shared external links with undo, retains formatting, removes a link and reopens the downloaded DOCX', async ({ page }, info) => {
+test('edits shared external links with undo, removes a link with its Hyperlink style and reopens the downloaded DOCX', async ({ page }, info) => {
   await stubOpen(page); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/hyperlinks.docx');
   // Opening the document brings the Home tab to the front: choose Insert once it has opened.
   const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^External hyperlinks/);
@@ -20,7 +20,10 @@ test('edits shared external links with undo, retains formatting, removes a link 
   await dialog(page, input); await expect(page.getByRole('textbox', { name: 'Link address', exact: true })).toHaveValue(TARGET); await page.getByRole('textbox', { name: 'Link address', exact: true }).fill('https://example.com/edited#new');
   await page.getByRole('dialog').screenshot({ path: info.outputPath('hyperlink-dialog.png'), animations: 'disabled' }); await apply(page); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(range);
   await page.getByRole('button', { name: 'Undo', exact: true }).click(); await dialog(page, input); await expect(page.getByRole('textbox', { name: 'Link address', exact: true })).toHaveValue(TARGET); await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click(); await expect(page.getByRole('dialog')).toHaveCount(0); await page.getByRole('button', { name: 'Redo', exact: true }).click();
-  await choose(input, 'Email us'); await page.getByRole('button', { name: 'Remove link', exact: true }).click(); await expect(button).toHaveAttribute('aria-pressed', 'false'); await expect((await onTab(page, 'home')).getByRole('button', { name: 'Underline', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await choose(input, 'Email us'); await page.getByRole('button', { name: 'Remove link', exact: true }).click(); await expect(button).toHaveAttribute('aria-pressed', 'false');
+  // The text stops looking like a link: the Hyperlink character style goes with it. A link beside it keeps the style.
+  const underline = (await onTab(page, 'home')).getByRole('button', { name: 'Underline', exact: true }); await expect(underline).toHaveAttribute('aria-pressed', 'false');
+  await choose(input, 'Call us'); await expect(underline).toHaveAttribute('aria-pressed', 'true'); await choose(input, 'Email us');
   const path = await download(page, info, 'hyperlinks.docx'); await reopenDocx(page, input, path, text); await choose(input, 'Read the guide', true); await dialog(page, input); await expect(page.getByRole('textbox', { name: 'Link address', exact: true })).toHaveValue('https://example.com/edited#new'); await page.getByRole('dialog').getByRole('button', { name: 'Open link', exact: true }).click();
   expect(await page.evaluate(() => window.linkOpens)).toEqual([['https://example.com/edited#new', '_blank', 'noopener,noreferrer']]); await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await choose(input, 'Same destination'); await dialog(page, input); await expect(page.getByRole('textbox', { name: 'Link address', exact: true })).toHaveValue(TARGET);

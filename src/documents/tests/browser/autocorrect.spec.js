@@ -87,3 +87,47 @@ test('Enter ends the word before it as a space does: the pronoun i and a fractio
   await expect(input(page)).toHaveValue('So do i\nHalf ½\nNext\n*\n');
   expect(await page.getByRole('button', { name: 'Bulleted list', exact: true }).getAttribute('aria-pressed')).toBe('false');
 });
+
+test('a web or email address at the start of a line stays as typed', async ({ page }) => {
+  await blank(page);
+  // The first letter is capitalized as the start of a sentence, and goes back to the one typed once the word is an address.
+  await page.keyboard.type('john'); await expect(input(page)).toHaveValue('John');
+  await page.keyboard.type('@e'); await expect(input(page)).toHaveValue('john@e');
+  await page.keyboard.type('xample.com '); await expect(input(page)).toHaveValue('john@example.com ');
+  // A host on a well-known domain, when the space or the new line ends it; a scheme and "www." while they are typed.
+  await page.keyboard.press('Enter'); await page.keyboard.type('example.com');
+  await page.keyboard.press('Enter'); await page.keyboard.type('www.example.org/a is up. sales@example.org wrote. ask them');
+  await page.keyboard.press('Enter'); await page.keyboard.type('https://example.net ');
+  await expect(input(page)).toHaveValue('john@example.com \nexample.com\nwww.example.org/a is up. sales@example.org wrote. Ask them\nhttps://example.net ');
+  expect(await links(page)).toEqual([['john@example.com', 'mailto:john@example.com'], ['example.com', 'https://example.com'],
+    ['www.example.org/a', 'https://www.example.org/a'], ['sales@example.org', 'mailto:sales@example.org'], ['https://example.net', 'https://example.net']]);
+  // Taking the capital back is a step of its own: Undo returns the capital.
+  await page.keyboard.press('Enter'); await page.keyboard.type('mary@x');
+  await expect(input(page)).toHaveValue(/\nmary@x$/);
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue(/\nMary@x$/);
+  // A capital the writer typed stays, and so do ordinary sentences.
+  await page.keyboard.press('Enter'); await page.keyboard.type('Bob@example.com and hello. ok');
+  await expect(input(page)).toHaveValue(/\nBob@example\.com and hello\. Ok$/);
+});
+
+test('a capital deleted and typed again in lowercase stays lowercase', async ({ page }) => {
+  await blank(page);
+  await page.keyboard.type('i'); await expect(input(page)).toHaveValue('I');
+  await page.keyboard.press('Backspace'); await page.keyboard.type('iphone is here');
+  await expect(input(page)).toHaveValue('iphone is here');
+  // Typed over while selected, and deleted with Delete.
+  await page.keyboard.press('Enter'); await page.keyboard.type('ebay');
+  await expect(input(page)).toHaveValue('iphone is here\nEbay');
+  await page.keyboard.press('Home'); await page.keyboard.press('Shift+ArrowRight'); await page.keyboard.type('e');
+  await page.keyboard.press('End'); await page.keyboard.press('Enter'); await page.keyboard.type('apple');
+  await page.keyboard.press('Home'); await page.keyboard.press('Delete'); await page.keyboard.type('a');
+  await expect(input(page)).toHaveValue('iphone is here\nebay\napple');
+  // Another letter in its place, or a word deleted by a run of presses and typed again, starts the sentence as usual.
+  await page.keyboard.press('End'); await page.keyboard.press('Enter'); await page.keyboard.type('x');
+  await page.keyboard.press('Backspace'); await page.keyboard.type('yes');
+  await page.keyboard.press('Enter'); await page.keyboard.type('teh');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Backspace');
+  await page.keyboard.type('the');
+  await expect(input(page)).toHaveValue('iphone is here\nebay\napple\nYes\nThe');
+});

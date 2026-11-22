@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { hrefForToken, trimTrailing, linkCandidateBefore, linkExistsInRange, linkifyBefore, autolinkEnabled, setAutolinkEnabled } from '../src/lib/linkify.js';
+import { hrefForToken, trimTrailing, linkCandidateBefore, linkExistsInRange, linkifyBefore, autolinkEnabled, setAutolinkEnabled, addressCapital } from '../src/lib/linkify.js';
 
 describe('hrefForToken', () => {
   it('links schemes, www, emails, and hosts on known TLDs', () => {
@@ -164,5 +164,43 @@ describe('link anchors and note references', () => {
     // The address in the text is already linked; the check sees that once the anchor is shifted.
     expect(linkExistsInRange([link], 'p1', 11, 22, text)).toBe(true);
     expect(linkExistsInRange([link], 'p1', 22, 23, text)).toBe(false);
+  });
+});
+
+describe('addressCapital', () => {
+  const j = { offset: 0, typed: 'j' };
+  it('takes a sentence capital back once the word being typed is an address', () => {
+    // An email: once the host has begun after the @.
+    expect(addressCapital('John', 'n', j)).toBeNull();
+    expect(addressCapital('John@', '@', j)).toBeNull();
+    expect(addressCapital('John@e', 'e', j)).toEqual({ back: 6, length: 1, text: 'j' });
+    // A scheme, and "www.".
+    expect(addressCapital('Https:/', '/', { offset: 0, typed: 'h' })).toBeNull();
+    expect(addressCapital('Https://', '/', { offset: 0, typed: 'h' })).toEqual({ back: 8, length: 1, text: 'h' });
+    expect(addressCapital('Www', 'w', { offset: 0, typed: 'w' })).toBeNull();
+    expect(addressCapital('Www.', '.', { offset: 0, typed: 'w' })).toEqual({ back: 4, length: 1, text: 'w' });
+    // After a sentence, and after an opening quote or bracket.
+    expect(addressCapital('Ask them. John@e', 'e', { offset: 10, typed: 'j' })).toEqual({ back: 6, length: 1, text: 'j' });
+    expect(addressCapital('(John@e', 'e', { offset: 1, typed: 'j' })).toEqual({ back: 6, length: 1, text: 'j' });
+    expect(addressCapital('Élan@e', 'e', { offset: 0, typed: 'é' })).toEqual({ back: 6, length: 1, text: 'é' });
+  });
+
+  it('takes it back when a space ends a host on a well-known domain, as for a link made as you type', () => {
+    expect(addressCapital('Example.com', 'm', { offset: 0, typed: 'e' })).toBeNull();
+    expect(addressCapital('Example.com ', ' ', { offset: 0, typed: 'e' })).toEqual({ back: 12, length: 1, text: 'e' });
+    expect(addressCapital('Example.com. ', ' ', { offset: 0, typed: 'e' })).toEqual({ back: 13, length: 1, text: 'e' });
+    expect(addressCapital('Docs.example.co.uk/path\n', '\n', { offset: 0, typed: 'd' })).toEqual({ back: 24, length: 1, text: 'd' });
+  });
+
+  it('leaves ordinary words, and capitals it did not make, alone', () => {
+    expect(addressCapital('Hello ', ' ', { offset: 0, typed: 'h' })).toBeNull();
+    expect(addressCapital('Hello. ', ' ', { offset: 0, typed: 'h' })).toBeNull();
+    expect(addressCapital('File.pdf ', ' ', { offset: 0, typed: 'f' })).toBeNull();
+    expect(addressCapital('Mail me@e', 'e', { offset: 0, typed: 'm' })).toBeNull();
+    // No capital to take back: none was made, the letter is no longer there, or it is already as typed.
+    expect(addressCapital('John@e', 'e', null)).toBeNull();
+    expect(addressCapital('john@e', 'e', j)).toBeNull();
+    expect(addressCapital('Kohn@e', 'e', j)).toBeNull();
+    expect(addressCapital('John@e', 'e', { offset: 9, typed: 'j' })).toBeNull();
   });
 });

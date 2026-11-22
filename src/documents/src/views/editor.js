@@ -58,7 +58,7 @@ import { printPages } from '../lib/print.js';
 import { templateById } from '../lib/templates.js';
 import { autocorrectEnabled, capitalizeSentencesEnabled, correction, sentenceCapital } from '../lib/autocorrect.js';
 import { execClipboardCommand } from '../lib/clipboard.js';
-import { autolinkEnabled, linkCandidateBefore } from '../lib/linkify.js';
+import { addressCapital, autolinkEnabled, linkCandidateBefore } from '../lib/linkify.js';
 import { layoutTemplate } from '../lib/template-layout.js';
 import { createWordCommands, documentStatistics as documentStatisticsOf } from './editor-commands.js';
 import { createReview } from './review.js';
@@ -1846,7 +1846,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
         window.open(target, '_blank', 'noopener,noreferrer');
       },
       // The account menu's typing settings, read at each keystroke so a change applies at once.
-      correctTyping: (before, typed, { list }) => (autocorrectEnabled() && (listMarker(before, typed, list) || correction(before, typed))) || (capitalizeSentencesEnabled() && sentenceCapital(before, typed)) || null,
+      // A capital made at a sentence's start is taken back when its word turns out to be a web or email address.
+      correctTyping: (before, typed, { list, replaced, capital }) => addressCapital(before, typed, capital) || (autocorrectEnabled() && (listMarker(before, typed, list) || correction(before, typed))) || (capitalizeSentencesEnabled() && sentenceCapital(before, typed, { replaced })) || null,
       linkTyping: (text, end) => autolinkEnabled() ? linkCandidateBefore(text, end) : null,
       preparePicture: pictureFile,
     });

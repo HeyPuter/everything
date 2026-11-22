@@ -24,6 +24,7 @@ import { checkedCellMargins, resolveCellMargins } from './cell-margins.js';
 import { checkedRowHeight, rowHeight } from './row-height.js';
 import { checkedLineSpacing } from './line-spacing.js';
 import { hasDirectRunFormatting, clearedRun, hasDirectMarkFormatting, clearMark, hasDirectParagraphFormatting, clearParagraph } from './direct-formatting.js';
+import { linkStyleId, hasLinkFormat, linkLook, withoutLinkLook } from './link-appearance.js';
 import { findText, checkedSearchText, replacedRuns, replacedBookmarks, matchedCase } from './search.js';
 import { advancedFind, replaceAdvanced } from './advanced-search.js';
 import { hiddenRun } from './hidden-text.js';
@@ -1835,24 +1836,35 @@ export class TextDocument {
     if (start === end) { const link = this.hyperlink; if (!link) return false; start = link.start; end = link.end; }
     const changed = hyperlinkRanges(this.paragraphs).some(r => r.start < end && r.end > start);
     if (!changed) return false;
-    this.checkpoint(); this.changeHyperlink(start, end, null); this.didChange();
+    this.checkpoint(); this.changeHyperlink(start, end, null, true); this.didChange();
     return true;
   }
-  changeHyperlink(start, end, link) {
+  /** Link [start, end) to `link`, or unlink it; `plain` also takes the look of a link off text that stops being one. */
+  changeHyperlink(start, end, link, plain = false) {
     if(this.hasHyperlinkFields)unwrapEditedFieldHyperlinks(this.paragraphs,bodyFieldRanges(this.paragraphs),start,end);
+    const linkStyle = plain && !link && this.stylesEnabled ? linkStyleId(this.styles) : null;
     // Paragraphs before the one holding the start, and after the end, keep their links.
     const first = this.locate(start);
     let at = start - first.offset;
     for (let i = first.index; i < this.paragraphs.length && at <= end; i++) {
       const p = this.paragraphs[i], length = paragraphLength(p), a = Math.max(0, start - at), b = Math.min(length, end - at);
+      const links = plain && !link && b > a ? hyperlinkRanges([p], 0, 1, at) : [];
+      let position = at + a, restyled = false;
       if (b > a) p.runs = normalize([...sliceRuns(p.runs, 0, a), ...sliceRuns(p.runs, a, b).map(r => {
-        const next = { ...r };
+        const next = { ...r }, from = position;
+        position += r.text.length;
         if (r.image?.hyperlink || r.image?.hyperlinkChanged) {
           next.image = { ...r.image, hyperlink: link ? { ...link } : null, hyperlinkChanged: true };
           delete next.link;
-        } else if (link) next.link = { ...link }; else delete next.link;
+        } else if (link) next.link = { ...link };
+        else {
+          delete next.link;
+          const range = r.link && links.find(l => l.start <= from && from < l.end);
+          if (range) restyled = this.unlinkedLook(next, p, at, range, linkStyle) || restyled;
+        }
         return next;
       }), ...sliceRuns(p.runs, b)]);
+      if (restyled && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
       if(b>a&&p.fieldMarkers)p.fieldMarkers=p.fieldMarkers.map(marker=>{
         const selected=marker.type==='start'?a<=marker.offset&&marker.offset<b:a<marker.offset&&marker.offset<=b;
         if(!selected)return marker;
@@ -1860,6 +1872,30 @@ export class TextDocument {
       });
       at += length + 1;
     }
+  }
+  /**
+   * Take the look of a link off `run`, a copy of a run of paragraph `p` (which starts at `at`) that was part of the
+   * link at `range` and no longer is: the Hyperlink character style, and the link color and underline stated on
+   * the run itself (showLink gives a new link one or the other). Its other formatting stays, and so does a color
+   * or an underline someone chose. In place of the direct look it takes the color and underline of the text
+   * beside the link, as text typed there does (typingRun); a link with no such text beside it goes back to what
+   * its own formatting and its styles say. Returns whether the paragraph's styles are to be resolved again.
+   */
+  unlinkedLook(run, p, at, range, linkStyle) {
+    let restyled = false;
+    if (linkStyle && run.styleId === linkStyle) { run.styleId = null; run.styleChanged = true; restyled = true; }
+    if (!hasLinkFormat(run)) return restyled;
+    const beside = range.start > at ? this.formatAt(range.start, 'backward') : range.end < at + paragraphLength(p) ? this.formatAt(range.end, 'forward') : null;
+    const state = look => { Object.assign(run, look); run.overrides = { ...withoutLinkLook(run.overrides), ...look }; };
+    if (beside && !beside.link && !beside.image && !hasLinkFormat(beside)) { state(linkLook(beside)); return restyled; }
+    if (!this.stylesEnabled) { state(linkLook(RUN_FORMAT)); return restyled; }
+    // The look given in this session lies over what the run declared before: without it, that shows again. A look
+    // read from the file is the declaration itself, and is stated over with what the styles give the run.
+    const inherited = paragraphRunStyle(p, this.styles);
+    const shown = resolveCharacterRun({ ...run, overrides: withoutLinkLook(run.overrides) }, this.styles, inherited);
+    if (!hasLinkFormat(shown)) { Object.assign(run, linkLook(shown)); run.overrides = withoutLinkLook(run.overrides); return true; }
+    state(linkLook(resolveCharacterRun({ ...shown, directFormat: withoutLinkLook(shown.directFormat) }, this.styles, inherited)));
+    return true;
   }
   get characterStyle() {
     const [start, end] = this.textFormattingRange;

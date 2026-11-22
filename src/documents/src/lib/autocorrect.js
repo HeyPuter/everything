@@ -128,10 +128,15 @@ export function endsWithAbbreviation(prev) {
  * up to and including the typed character. Returns `{ back: 1, text }` when a
  * lowercase letter begins a sentence — at the start of the paragraph, or
  * after sentence-ending punctuation and a space — or null.
+ *
+ * `replaced` is the one character the letter was typed in place of (selected, or deleted there just before). The
+ * same letter typed again is left as typed: a capital made here, deleted and typed in lowercase once more, is
+ * meant to be lowercase ("iPhone", a name written without capitals).
  */
-export function sentenceCapital(before, typed) {
+export function sentenceCapital(before, typed, { replaced = '' } = {}) {
   // Any lowercase letter with a single uppercase form ("é" too, not "ß", whose capital is two letters).
   if (typeof before !== 'string' || !/^\p{Ll}$/u.test(typed) || typed.toUpperCase().length !== typed.length || !before.endsWith(typed)) return null;
+  if (replaced && replaced.toUpperCase() === typed.toUpperCase()) return null;
   // An opening quote or bracket may stand between the sentence's start and its first letter. They are found by
   // stepping back over them: a regular expression anchored only at the end (/["…]+$/) tries every start position,
   // so a run of thousands of quotation marks earlier in the paragraph made each letter typed after it take seconds.

@@ -131,6 +131,17 @@ describe('sentence capitalization', () => {
     expect(sentenceCapital('He said "hi." t', 't')).toEqual({ back: 1, text: 'T' });
   });
 
+  it('leaves a letter typed in place of the same letter as typed', () => {
+    // The capital made of "j" was deleted and "j" typed again: it is meant to be lowercase.
+    expect(sentenceCapital('j', 'j', { replaced: 'J' })).toBeNull();
+    expect(sentenceCapital('Done. é', 'é', { replaced: 'É' })).toBeNull();
+    expect(sentenceCapital('j', 'j', { replaced: 'j' })).toBeNull();
+    // Another letter in its place, or nothing replaced, starts the sentence as usual.
+    expect(sentenceCapital('k', 'k', { replaced: 'J' })).toEqual({ back: 1, text: 'K' });
+    expect(sentenceCapital('j', 'j', { replaced: '' })).toEqual({ back: 1, text: 'J' });
+    expect(sentenceCapital('j', 'j', {})).toEqual({ back: 1, text: 'J' });
+  });
+
   it('leaves mid-sentence letters, non-letters, and abbreviations alone', () => {
     expect(sentenceCapital('Hello wor', 'r')).toBeNull();
     expect(sentenceCapital('Hi there. World i', 'i')).toBeNull();
