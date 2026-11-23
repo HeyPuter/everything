@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 import { inspectPaths, pathColorHex } from '../../src/core/path-edit.js';
 import { inspectImages, imageCorners } from '../../src/core/image-edit.js';
@@ -1425,3 +1425,56 @@ test('every sample of a quick stroke is part of the drawn signature', async ({
   // One curve to each sample: all 30 turns are in the signature.
   expect(path.source.match(/ c\b/g).length).toBeGreaterThanOrEqual(30);
 });
+
+// A photo of a signature went into the PDF at its full size: 12 megapixels, megabytes of file,
+// for a mark a few inches wide. It is kept at 1500 pixels on its longest side, transparency,
+// orientation and all.
+for (const format of ['png', 'jpeg'])
+  test(`a large uploaded ${format} signature is kept at a sensible size`, async ({ page }) => {
+    await mockPuter(page);
+    await page.goto('/');
+    await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+    const canvas = createCanvas(4000, 2000);
+    const context = canvas.getContext('2d');
+    if (format === 'jpeg') {
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, 4000, 2000);
+    }
+    context.strokeStyle = '#123';
+    context.lineWidth = 40;
+    context.beginPath();
+    context.moveTo(200, 1600);
+    context.bezierCurveTo(1200, 0, 2400, 2000, 3800, 400);
+    context.stroke();
+    let buffer = canvas.toBuffer(format === 'png' ? 'image/png' : 'image/jpeg');
+    if (format === 'jpeg') {
+      // Taken with the phone on its side: EXIF orientation 6 turns it a quarter clockwise.
+      const exif = Buffer.from(
+        'ffe1002245786966000049492a0008000000010012010300010000000600000000000000',
+        'hex',
+      );
+      buffer = Buffer.concat([buffer.subarray(0, 2), exif, buffer.subarray(2)]);
+    }
+    await page.getByRole('button', { name: 'Sign', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add signature' });
+    await dialog.getByRole('tab', { name: 'Upload', exact: true }).click();
+    await dialog
+      .getByLabel('Signature image file')
+      .setInputFiles({ name: `signature.${format}`, mimeType: `image/${format}`, buffer });
+    await expect(dialog.getByLabel('Uploaded signature preview')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+    const [image] = inspectImages(await exported(page), 0);
+    const width = image.object.dict.lookup(PDFName.of('Width')).asNumber(),
+      height = image.object.dict.lookup(PDFName.of('Height')).asNumber();
+    // Upright as the photo is seen: the sideways photo is taller than wide.
+    expect([width, height]).toEqual(format === 'png' ? [1500, 750] : [750, 1500]);
+    const size = [
+      Math.hypot(image.transform[0], image.transform[1]),
+      Math.hypot(image.transform[2], image.transform[3]),
+    ];
+    expect(size[0] > size[1]).toBe(format === 'png');
+    // The transparent background stays transparent.
+    expect(!!image.object.dict.lookup(PDFName.of('SMask'))).toBe(format === 'png');
+  });

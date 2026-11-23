@@ -96,6 +96,35 @@ async function decodeImage(blob) {
     }
   }
 }
+/**
+ * The longest side, in pixels, an uploaded signature is kept at: about 340 dpi at the largest
+ * size a signature is placed at, and still about 180 dpi stretched across a letter page. A phone
+ * photo of a signature otherwise went into the PDF at its full 12 megapixels.
+ */
+export const SIGNATURE_PIXELS = 1500;
+/**
+ * An uploaded signature's bytes at no more than SIGNATURE_PIXELS on its longest side, from the
+ * decoded (and so already upright) picture: a PNG stays a PNG with its transparency, a JPEG a
+ * JPEG. A picture already that small, or one the browser cannot make smaller, is kept as it is.
+ */
+async function signatureBytes(bytes, image) {
+  const width = image.naturalWidth || image.width,
+    height = image.naturalHeight || image.height;
+  const scale = SIGNATURE_PIXELS / Math.max(width, height);
+  if (!(scale < 1)) return bytes;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext('2d');
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const png = isPng(bytes);
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, png ? 'image/png' : 'image/jpeg', 0.92),
+  );
+  const smaller = blob && new Uint8Array(await blob.arrayBuffer());
+  return smaller?.length && smaller.length < bytes.length ? smaller : bytes;
+}
 /** Paint a signature preview; `frame` preserves the drawing pad's coordinate space on resize. */
 export function paintSignature(
   canvas,
@@ -367,7 +396,12 @@ export function signatureDialog({ signal } = {}) {
           image.close?.();
           return;
         }
-        upload = { type: 'image', bytes, image };
+        const placed = await signatureBytes(bytes, image);
+        if (!current()) {
+          image.close?.();
+          return;
+        }
+        upload = { type: 'image', bytes: placed, image };
         uploadPreview.hidden = false;
         repaint();
       } catch (error) {
