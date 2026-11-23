@@ -312,3 +312,29 @@ test("menu items tell assistive technology their shortcuts", async ({
     page.getByRole("menuitem", { name: "Selection Pane", exact: true }),
   ).toHaveAttribute("aria-keyshortcuts", "Meta+Alt+U");
 });
+
+// The status bar names the language of the selected text, as the language
+// menu does, and follows the selection, a new language and undo.
+test("the status bar's language follows the selected text", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== "desktop",
+    "phones and tablets leave the language out",
+  );
+  await mockPuter(page);
+  await story(page);
+  const language = page.locator("#status-language");
+  await expect(language).toHaveText("English (United States)");
+  await page.locator("#slide-canvas .object-hit").first().click();
+  await language.click();
+  await page.getByRole("menu").getByText("French (France)").click();
+  await expect(language).toHaveText("French (France)");
+  // Nothing selected, then the same text again.
+  await page.keyboard.press("Escape");
+  await expect(language).toHaveText("English (United States)");
+  await page.locator("#slide-canvas .object-hit").first().click();
+  await expect(language).toHaveText("French (France)");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(language).toHaveText("English (United States)");
+});

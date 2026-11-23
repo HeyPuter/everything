@@ -4911,6 +4911,10 @@ function updateStatusBar() {
     );
   const a11y = document.querySelector("#status-accessibility span");
   if (a11y && doc) a11y.textContent = review.accessibilityStatus();
+  // The language of the selected text, as the language menu checks it.
+  const language = document.querySelector("#status-language");
+  const name = language && languageName();
+  if (name && language.textContent !== name) language.textContent = name;
 }
 // The proofing language of the deck's text: what the browser's spell checker
 // is told, and what new text is marked with.
