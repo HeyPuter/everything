@@ -199,3 +199,24 @@ test.describe('on a touch screen', () => {
     await expect(page.getByRole('menu', { name: 'Heading 1' })).toBeVisible();
   });
 });
+
+// Delete was offered for Normal and the built-in headings, and choosing it only said they cannot be deleted. It is
+// unavailable for them now, as in Word, and still there for a style of the document's own.
+test('the Styles pane offers no Delete for a style that cannot be deleted', async ({ page }) => {
+  const { input, errors } = await blank(page, 'Chapter one\nBody text here');
+  await page.getByRole('button', { name: 'Styles Pane' }).click();
+  const pane = page.getByRole('complementary', { name: 'Styles pane' });
+  for (const name of ['Normal', 'Heading 1', 'Title']) {
+    await pane.getByRole('button', { name: `${name} options`, exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: `Delete ${name}…` })).toBeDisabled();
+    await page.keyboard.press('Escape');
+  }
+  await select(input, 'Body text here');
+  await pane.getByRole('button', { name: 'New Style…' }).click();
+  const create = page.getByRole('dialog', { name: 'Create New Style from Formatting' });
+  await create.getByLabel('Name').fill('Aside');
+  await create.getByRole('button', { name: 'OK' }).click();
+  await pane.getByRole('button', { name: 'Aside options' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Delete Aside…' })).toBeEnabled();
+  expect(errors).toEqual([]);
+});
