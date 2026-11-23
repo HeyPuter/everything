@@ -481,10 +481,13 @@ export async function prepareMorph({
           : false,
     });
     const image = await load(url);
-    // Text that runs out of its box, a wide shadow or glow: everything the
-    // object draws is in its layer, so the first and last frames match the
-    // slides.
-    item.area = unite(cropArea(item, W, H), inkArea(image, W, H));
+    // Text can run out of its box: its layer takes in everything it draws,
+    // so the first and last frames match the slides. Other objects (their
+    // outlines and shadows) stay within the margin of their crop.
+    item.area =
+      item.text && !split
+        ? unite(cropArea(item, W, H), inkArea(image, W, H))
+        : cropArea(item, W, H);
     item.picture = cut(image, item.area);
   };
   await Promise.all([
