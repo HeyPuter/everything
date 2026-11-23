@@ -38,7 +38,9 @@ export function nextCycleCase(text) {
  */
 export function convertCase(text, mode, sentenceStart = true, { before = '', after = '' } = {}) {
   const chars = [...text];
-  let start = sentenceStart, wordStart = true;
+  // A period, question or exclamation mark (or an ellipsis) ends a sentence once white space follows it, closing
+  // quotes and brackets allowed between: "index.html" and "3.14" go on in lowercase.
+  let start = sentenceStart, wordStart = true, ended = false;
   return chars.map((ch, index) => {
     const letter = /\p{L}/u.test(ch);
     let out = ch;
@@ -51,9 +53,14 @@ export function convertCase(text, mode, sentenceStart = true, { before = '', aft
       else if (mode === 'sentence') out = start ? upper : lower;
       if (out.length !== ch.length) out = ch;
       else if (out === 'σ' && ch === 'Σ' && finalSigma(chars, index, before, after)) out = 'ς';
-      start = false;
+      start = false; ended = false;
     }
-    if (mode === 'sentence' && /[.!?\n\f\v]/.test(ch)) start = true;
+    if (mode === 'sentence' && !letter) {
+      if (/[\n\f\v]/.test(ch)) start = true;
+      else if (/[.!?…]/.test(ch)) ended = true;
+      else if (/\s/u.test(ch)) { if (ended) start = true; ended = false; }
+      else if (!/[\p{M}"'”’)\]]/u.test(ch)) ended = false;
+    }
     // A combining mark (a decomposed accent) belongs to the letter before it, as digits and apostrophes stay in a word.
     wordStart = !(letter || /[\p{N}\p{M}'’]/u.test(ch));
     return out;
@@ -78,10 +85,11 @@ function finalSigma(chars, index, before, after) {
 // regular expression anchored only at the end (/[\s"…]+$/) tries every start position, so a run of thousands
 // of quotation marks earlier in the paragraph made each change of case take seconds.
 function sentenceStartsAt(text, position) {
-  let end = position;
-  while (end > 0 && /[\s"'“‘(\[]/u.test(text[end - 1])) end--;
+  let end = position, spaced = false;
+  while (end > 0 && /[\s"'“‘(\[]/u.test(text[end - 1])) { spaced ||= /\s/u.test(text[end - 1]); end--; }
   const before = text.slice(0, end);
-  return !before || /[.!?\n\f\v]$/.test(before);
+  // A period ends a sentence only with white space after it (and closing quotes or brackets before that).
+  return !before || /[\n\f\v]$/.test(before) || spaced && /[.!?…]["'”’)\]]*$/.test(before.slice(-32));
 }
 
 /**

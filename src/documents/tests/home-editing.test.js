@@ -76,6 +76,18 @@ describe('Change Case', () => {
     changeCase(doc, 'sentence');
     expect(texts(doc)).toEqual(['First one. Second one']);
   });
+  it('ends a sentence at a period only with white space after it', async () => {
+    expect(convertCase('SEE INDEX.HTML NOW. PI IS 3.14... NEXT', 'sentence')).toBe('See index.html now. Pi is 3.14... Next');
+    expect(convertCase('he said "stop." then left', 'sentence')).toBe('He said "stop." Then left');
+    // A selection that starts in a file name, or just after a period with no space, is not a sentence's start.
+    const { doc } = await styledDocument(['open index.HTML now. AND then']);
+    doc.select(11, 15);
+    changeCase(doc, 'sentence');
+    expect(texts(doc)).toEqual(['open index.html now. AND then']);
+    doc.select(21, 29);
+    changeCase(doc, 'sentence');
+    expect(texts(doc)).toEqual(['open index.html now. And then']);
+  });
 });
 
 describe('Format Painter', () => {
