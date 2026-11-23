@@ -5100,6 +5100,14 @@ function toggleSelectionPane() {
     class: "task-pane selection-pane",
     "aria-label": "Selection",
     tabindex: -1,
+    // Escape closes it, as it does the other task panes. A name being typed
+    // keeps Escape for itself.
+    onkeydown: (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelectionPane();
+    },
   });
   document.querySelector(".editor-body")?.append(selectionPane);
   renderSelectionPane();
