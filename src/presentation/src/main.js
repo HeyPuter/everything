@@ -4111,7 +4111,7 @@ const themeTools = createThemeTools({
   masterView: () => masterView.active,
   mutate: (fn, options) => {
     commitText();
-    return mutate(fn, options);
+    return mutate(() => followingEquations(fn), options);
   },
   skip: SKIP_MUTATION,
   palette: () => theme,
@@ -16202,7 +16202,9 @@ async function themeDialog() {
     confirm: "Apply theme",
   });
   if (ok && doc === target)
-    mutate(() => (recolorDeck(chosen) === false ? SKIP_MUTATION : undefined));
+    mutate(async () =>
+      (await recolorDeck(chosen)) === false ? SKIP_MUTATION : undefined,
+    );
 }
 // Recolors every slide from the current palette to `chosen`: what uses the
 // current palette's colors takes the new one's, and custom colors and
@@ -16210,7 +16212,17 @@ async function themeDialog() {
 function recolorDeck(chosen) {
   // The theme's master comes in, and what the slides paint in the current
   // palette's colors takes the new one's (themes/engine.js).
-  return themeTools.applyPalette(chosen);
+  return followingEquations(() => themeTools.applyPalette(chosen));
+}
+// A theme or color change, within an edit, after which equations drawn in
+// their slide's text color are drawn again in its new one.
+async function followingEquations(change) {
+  const equations = insertFeatures?.equations;
+  const before = equations?.textColorsBefore(doc.pres);
+  const result = await change();
+  if (result !== SKIP_MUTATION && result !== false)
+    await equations?.followTextColor(doc.pres, before);
+  return result;
 }
 const normalizeColor = (c) =>
   String(c || "")

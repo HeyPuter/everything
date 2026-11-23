@@ -1716,8 +1716,8 @@ async function applyTheme(pres, args, env) {
     throw new ToolError(
       `theme must be one of ${Object.keys(THEMES).join(", ")}.`,
     );
-  const { applied } = await env.edit(() =>
-    env.applyTheme(key) === false ? NO_CHANGE : undefined,
+  const { applied } = await env.edit(async () =>
+    (await env.applyTheme(key)) === false ? NO_CHANGE : undefined,
   );
   return {
     content: applied

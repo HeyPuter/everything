@@ -398,3 +398,39 @@ test("the current theme's thumbnail and variants are shown inline, and the tab f
     page.getByRole("menuitem", { name: "Customize Fonts…" }),
   ).toBeVisible();
 });
+
+// An equation is drawn in the slide's text color; it stayed black when a
+// dark theme turned the slide dark.
+test("an equation in the text color follows a theme change, undone in one step", async ({
+  page,
+}) => {
+  await start(page);
+  await expect(page.locator("#slide-canvas .slide-image")).toBeVisible();
+  await tab(page, "insert");
+  await command(page, "equation");
+  const dialog = page.getByRole("dialog", { name: "Equation" });
+  await dialog.getByLabel("Equation (TeX-style)").fill("x^2");
+  await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+  await expect(
+    page.locator('.object-hit[aria-label^="Image: Equation"]'),
+  ).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  const equation = (p) =>
+    P.getShapeObjectData(
+      P.getSlideShapes(P.getSlides(p)[0]).find(
+        (s) => P.getShapeObjectData(s)?.type === "equation",
+      ),
+    );
+  const before = equation((await download(page)).p).color;
+  await tab(page, "design");
+  await (await themeOption(page, "Midnight")).click();
+  await expect(page.locator("#save-status")).toContainText("Saved");
+  let { p } = await download(page);
+  const body = P.resolveDeckBodyTextColor(P.getSlides(p)[0]);
+  expect(body.toLowerCase()).not.toBe(before.toLowerCase());
+  expect(equation(p).color.toLowerCase()).toBe(body.toLowerCase());
+  await page.keyboard.press(`${mod}+z`);
+  await expect
+    .poll(async () => equation((await download(page)).p).color)
+    .toBe(before);
+});
