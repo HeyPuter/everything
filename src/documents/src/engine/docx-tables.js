@@ -415,9 +415,24 @@ function uniqueRowIdentifier(doc, tr) {
 }
 
 const DECIMAL_WIDTHS = new Set(['tblW', 'tblInd', 'tcW', 'wBefore', 'wAfter', 'tblCellSpacing', 'top', 'start', 'left', 'bottom', 'end', 'right']);
+// Table, row and cell shells parsed from their source XML, by that XML. A save writes every table, and parsing
+// each shell again took most of an autosave in a document with many tables (150 tables: about 135 ms of a
+// 190 ms task). Each use imports a copy, so a parsed shell is never changed. Bounded, as the shells of the
+// documents opened in a session can be many.
+const parsedShells = new Map();
+function parsedShell(xml) {
+  let root = parsedShells.get(xml);
+  if (!root) {
+    root = parseXml(xml).documentElement;
+    if (parsedShells.size >= 2048) parsedShells.clear();
+    parsedShells.set(xml, root);
+  }
+  return root;
+}
+
 export function writeTable(block, doc, writeParagraph) {
   const make = name => doc.createElementNS(W, `w:${name}`);
-  const from = (value, name) => value ? doc.importNode(parseXml(value).documentElement, true) : make(name);
+  const from = (value, name) => value ? doc.importNode(parsedShell(value), true) : make(name);
   const prop = (name, attrs) => { const n = make(name); for (const [k, v] of Object.entries(attrs)) n.setAttributeNS(W, `w:${k}`, String(v)); return n; };
   const widthAttrs = w => ({ type: w.type, w: w.type === 'pct' && !Number.isInteger(w.value) ? `${w.value / 50}%` : w.value });
   const { table } = block, node = from(table.shell, 'tbl');
