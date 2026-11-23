@@ -2004,6 +2004,22 @@ dialog.leave-save-dialog {
 .dialog-actions {
   flex: none;
 }
+/* A short window (a phone turned sideways, a zoomed-in laptop) keeps the title and the actions
+   close, so the body, which scrolls, keeps more of the little height there is. */
+@media (max-height: 500px) {
+  dialog {
+    max-height: calc(100dvh - 16px);
+  }
+  .dialog-head {
+    padding: 8px 16px;
+  }
+  .dialog-body {
+    padding: 14px 18px;
+  }
+  .dialog-actions {
+    padding: 0 18px 10px;
+  }
+}
 .dialog-body .stack > .btn {
   justify-content: flex-start;
 }
