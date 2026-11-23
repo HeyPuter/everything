@@ -64,9 +64,12 @@ import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatt
 import {
   dateFormat,
   decimalMark,
+  emailValidation,
   formulaCalculation,
+  isEmailAddress,
   numberFormat,
   printedDate,
+  rangeValidation,
   simpleCalculation,
   specialDigits,
   specialFormat,
@@ -1784,6 +1787,32 @@ export async function fillFields(doc, values) {
         throw Object.assign(
           new Error(
             `Enter a ${timeOnly(pattern) ? 'time' : 'date'} in ${fieldTooltip(field) || name}, such as ${printedDate(EXAMPLE_DATE, pattern)}.`,
+          ),
+          { field: name },
+        );
+      // A number outside the field's range is refused; text that is no number is not checked.
+      const range = rangeValidation(field);
+      const number = range && String(value).trim() ? typedNumber(value, format) : null;
+      if (
+        number !== null &&
+        ((range.min !== null && number < range.min) || (range.max !== null && number > range.max))
+      )
+        throw Object.assign(
+          new Error(
+            `Enter a number ${
+              range.min === null
+                ? `of at most ${range.max}`
+                : range.max === null
+                  ? `of at least ${range.min}`
+                  : `from ${range.min} to ${range.max}`
+            } in ${fieldTooltip(field) || name}.`,
+          ),
+          { field: name },
+        );
+      if (String(value).trim() && emailValidation(field) && !isEmailAddress(value))
+        throw Object.assign(
+          new Error(
+            `Enter an email address in ${fieldTooltip(field) || name}, such as name@example.com.`,
           ),
           { field: name },
         );

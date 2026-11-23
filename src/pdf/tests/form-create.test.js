@@ -666,6 +666,56 @@ it('takes times in a time field, and shows them as its pattern writes them', asy
   expect(text).toEqual(['9:05 am', '19:05']);
 });
 
+it('refuses numbers outside a field’s range and text that is no email address', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  const checks = {
+    Percent: 'AFRange_Validate(true, 0, true, 100);',
+    Age: 'AFRange_Validate(true, 18, false, 0);',
+    Count: 'AFRange_Validate(false, 0, true, 9.5);',
+  };
+  for (const [i, [fieldName, script]] of Object.entries(checks).entries()) {
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+    });
+    doc
+      .getForm()
+      .getTextField(fieldName)
+      .acroField.dict.set(
+        name('AA'),
+        doc.context.obj({ V: { S: 'JavaScript', JS: PDFHexString.fromText(script) } }),
+      );
+  }
+  await addFormField(doc, 0, {
+    type: 'text',
+    name: 'Email',
+    rect: rect(50, 400, 200, 24),
+    format: 'email',
+  });
+  await expect(fillFields(doc, { Percent: '100.5' })).rejects.toThrow(
+    'Enter a number from 0 to 100 in Percent.',
+  );
+  await expect(fillFields(doc, { Age: '17' })).rejects.toThrow(
+    'Enter a number of at least 18 in Age.',
+  );
+  await expect(fillFields(doc, { Count: '10' })).rejects.toThrow(
+    'Enter a number of at most 9.5 in Count.',
+  );
+  await expect(fillFields(doc, { Email: 'ada at example' })).rejects.toThrow(
+    'Enter an email address in Email, such as name@example.com.',
+  );
+  // The ends of the range are in it; text that is no number is not a number out of range.
+  await fillFields(doc, { Percent: '100', Age: 'adult', Count: '-3', Email: 'ada@example.com' });
+  expect(listFields(doc).map((field) => field.value)).toEqual([
+    '100',
+    'adult',
+    '-3',
+    'ada@example.com',
+  ]);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>

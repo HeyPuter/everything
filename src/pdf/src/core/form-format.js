@@ -364,6 +364,26 @@ export function formulaCalculation(field) {
   }
 }
 
+/**
+ * The field's range check (AFRange_Validate: "Value must be greater than or equal to 0 and
+ * less than or equal to 100"): its least and greatest numbers, either null when unchecked.
+ */
+export function rangeValidation(field) {
+  const check = actionScript(field, 'V').match(
+    /AFRange_Validate\(\s*(true|false)\s*,\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*,\s*(true|false)\s*,\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*\)/,
+  );
+  if (!check || (check[1] === 'false' && check[3] === 'false')) return null;
+  return {
+    min: check[1] === 'true' ? Number(check[2]) : null,
+    max: check[3] === 'true' ? Number(check[4]) : null,
+  };
+}
+
+/** Whether the field checks for an email address, as Prepare a form's Email format does. */
+export const emailValidation = (field) => actionScript(field, 'V').includes('valid email');
+/** The address check of the Email format's script. */
+export const isEmailAddress = (text) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(text).trim());
+
 /** Acrobat's separator styles: thousands groups and decimal mark. */
 const SEPARATORS = [
   [',', '.'],
