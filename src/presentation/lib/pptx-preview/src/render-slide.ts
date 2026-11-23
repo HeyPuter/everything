@@ -12253,6 +12253,12 @@ const renderShape = (
   const fx = buildEffectsFilter(effects);
   const filterAttr = fx ? ` filter="url(#${fx.id})"` : "";
   let fxDefs = fx ? fx.defs : "";
+  // The outline's miter joins and arrowheads reach past the geometry too.
+  const outlinePx =
+    p.stroke !== "none" && p.strokeWidth > 0
+      ? (p.strokeWidth / EMU_PER_PX) * (p.markerAttrs ? 7 : 2)
+      : 0;
+  const extent = fx ? effectsExtent(fx, { x, y, w, h }, outlinePx) : "";
   // Reflection can't live in the `<filter>` chain (SVG has no flip-and-fade
   // primitive), so it's a duplicated, vertically mirrored copy of the raw
   // geometry masked by an opacity gradient — built from the un-filtered
@@ -12269,7 +12275,7 @@ const renderShape = (
   );
   // Apply the filter to the geometry only — text overlays use foreignObject
   // and react badly to feGaussianBlur (DOM gets rasterized).
-  geomSvg = `<g${filterAttr}>${geomSvg}</g>`;
+  geomSvg = `<g${filterAttr}>${extent}${geomSvg}</g>`;
   if (activeLayerPart && !activeLayerPart.body) {
     geomSvg = "";
     fxDefs = "";
@@ -12366,7 +12372,28 @@ const renderShape = (
 interface EffectsResult {
   readonly id: string;
   readonly defs: string;
+  /** How far, in px, the effects paint beyond the geometry's own edges. */
+  readonly reach: number;
 }
+
+// The filter region is measured on the filtered element's bounding box, which
+// is the geometry's alone: a straight line has none (and is then not drawn at
+// all), and a thin or small shape leaves its shadow or glow cut off at the
+// region's edge. An unpainted rectangle around the shape, as far out as the
+// effects and the outline reach, gives every shape a box that holds them.
+const effectsExtent = (
+  fx: EffectsResult,
+  box: { x: number; y: number; w: number; h: number },
+  outlinePx = 0,
+): string => {
+  const m = fx.reach + outlinePx;
+  if (!(m > 0) || !Number.isFinite(m)) return "";
+  const x = box.x / EMU_PER_PX - m,
+    y = box.y / EMU_PER_PX - m;
+  const w = box.w / EMU_PER_PX + 2 * m,
+    h = box.h / EMU_PER_PX + 2 * m;
+  return `<rect x="${px(x)}" y="${px(y)}" width="${px(w)}" height="${px(h)}" fill="none" stroke="none"/>`;
+};
 
 interface ReflectionResult {
   readonly svg: string;
@@ -12478,7 +12505,9 @@ const withPictureEffects = (
   }
   if (!effects.length) return svg;
   const fx = buildEffectsFilter(effects);
-  let out = fx ? `<g filter="url(#${fx.id})">${svg}</g>` : svg;
+  let out = fx
+    ? `<g filter="url(#${fx.id})">${effectsExtent(fx, box)}${svg}</g>`
+    : svg;
   let defs = fx ? fx.defs : "";
   const reflection = buildReflection(effects, svg, box);
   if (reflection) {
@@ -12547,6 +12576,8 @@ const buildEffectsFilter = (
   // Chain primitives by passing each result as `in` to the next merge.
   // The shape's original alpha + RGB live in SourceGraphic / SourceAlpha.
   const layers: string[] = [];
+  // A Gaussian blur visibly reaches about three standard deviations.
+  let reach = 0;
 
   for (const e of effects) {
     if (e.kind === "outerShdw") {
@@ -12555,6 +12586,10 @@ const buildEffectsFilter = (
       const dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
       const dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
       const blurPx = e.blurEmu / EMU_PER_PX / 2;
+      reach = Math.max(
+        reach,
+        Math.max(Math.abs(dx), Math.abs(dy)) + 3 * blurPx,
+      );
       const opacity = e.opacity ?? 1;
       const color = e.color || "#000000";
       // feDropShadow handles the whole shadow primitive in one go.
@@ -12591,6 +12626,7 @@ const buildEffectsFilter = (
       const radiusPx = e.radiusEmu / EMU_PER_PX;
       const dilatePx = radiusPx * 0.5;
       const featherPx = radiusPx * 0.3;
+      reach = Math.max(reach, dilatePx + 3 * featherPx);
       const color = e.color || "#FFFFFF";
       const opacity = e.opacity ?? 1;
       const i = primitives.length;
@@ -12603,6 +12639,7 @@ const buildEffectsFilter = (
       layers.push(`glowOut${i}`);
     } else if (e.kind === "softEdge") {
       const blurPx = e.radiusEmu / EMU_PER_PX / 2;
+      reach = Math.max(reach, 3 * blurPx);
       // Soft-edge feathers the shape's mask. Replace the source by a
       // blurred version of itself.
       const i = primitives.length;
@@ -12615,6 +12652,7 @@ const buildEffectsFilter = (
       layers.push(`softOut${i}`);
     } else if (e.kind === "blur") {
       const blurPx = e.radiusEmu / EMU_PER_PX / 2;
+      reach = Math.max(reach, 3 * blurPx);
       const i = primitives.length;
       primitives.push(
         `<feGaussianBlur in="SourceGraphic" stdDeviation="${blurPx.toFixed(2)}" result="blurOut${i}"/>`,
@@ -12642,7 +12680,7 @@ const buildEffectsFilter = (
   primitives.push(`<feMerge>${mergeChildren}${sourceMerge}</feMerge>`);
 
   const defs = `<defs><filter id="${id}" x="-25%" y="-25%" width="150%" height="150%">${primitives.join("")}</filter></defs>`;
-  return { id, defs };
+  return { id, defs, reach };
 };
 
 // ---------------------------------------------------------------------------
