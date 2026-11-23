@@ -161,3 +161,40 @@ test('text saved from the keyboard hands the focus to its own target, so Tab car
     page.getByRole('button', { name: 'Edit text: Third line', exact: true }),
   ).toBeFocused();
 });
+
+test('selected text tells screen readers the keys that edit and delete it, and they do', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  sheet.drawText('Keep me', { x: 40, y: 400, size: 16 });
+  sheet.drawText('Remove me', { x: 40, y: 300, size: 16 });
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'keys.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit text: Keep me', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  const handle = page.getByRole('button', { name: 'Move text', exact: true });
+  await expect(handle).toBeFocused();
+  await expect(handle).toHaveAccessibleDescription(/Enter or F2 edits the text; Delete removes it/);
+  await page.keyboard.press('F2');
+  await expect(page.getByRole('textbox', { name: 'Edit text', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Edit text: Remove me', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(handle).toBeFocused();
+  await page.keyboard.press('Delete');
+  await expect(page.getByRole('button', { name: 'Edit text: Remove me', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('button', { name: 'Edit text: Keep me', exact: true })).toBeVisible();
+});
