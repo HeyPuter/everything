@@ -179,6 +179,29 @@ it('new multiline text stays one block that moves, edits and deletes as a whole'
   expect(deleted.groups.map((g) => g.text)).toEqual(['Single']);
 });
 
+it('a paragraph turned bold names its new font once, not once for each line', async () => {
+  serveFonts();
+  const doc = await PDFDocument.create();
+  doc
+    .addPage([400, 400])
+    .drawText('The first line of words\nthe second line of words\nand the third line ends', {
+      x: 40,
+      y: 300,
+      size: 14,
+      lineHeight: 18,
+    });
+  const parsed = await read(await doc.save());
+  const group = parsed.groups[0];
+  expect(group.text.split(/\s+/)).toHaveLength(15);
+  await replaceTextGroup(parsed.doc, 0, group, group.text, { fontStyle: { bold: true } });
+  const fonts = parsed.doc.getPage(0).node.Resources().lookup(PDFName.of('Font'));
+  const added = fonts.keys().filter((key) => /^\/LineFont/.test(key.toString()));
+  expect(added).toHaveLength(1);
+  const bold = await read(await parsed.doc.save());
+  expect(bold.groups[0].text).toBe(group.text);
+  expect(bold.groups[0].parts.every((run) => /Bold/.test(run.fontName))).toBe(true);
+});
+
 it('bold changes retain italic fragments instead of flattening their slant', async () => {
   serveFonts();
   const doc = await PDFDocument.create(),

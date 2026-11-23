@@ -790,8 +790,8 @@ it('shares one fallback font across every line re-encoded in the same edit', asy
     .entries()
     .filter(([key]) => key.toString().startsWith('/LineFont'))
     .map(([, ref]) => ref.toString());
-  expect(lineFonts.length).toBeGreaterThan(1);
-  expect(new Set(lineFonts).size).toBe(1);
+  // Every line drawn in the fallback font names it the same way.
+  expect(lineFonts).toHaveLength(1);
   // One content stream now; the shared standard font is materialized on save.
   expect(r.doc.context.enumerateIndirectObjects().length).toBe(objects + 1);
   const next = await read(await r.doc.save());
