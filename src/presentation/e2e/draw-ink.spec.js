@@ -371,6 +371,33 @@ test("Ink Replay plays the strokes back over the slide and closes with Escape", 
   await expect(hits(page)).toHaveCount(2);
 });
 
+// Another slide shown during a replay took the replay's picture away but
+// left it running: the button stayed pressed, and Escape and Space went to
+// it, so a dialog opened next would not close with Escape.
+test("Ink Replay closes when another slide is shown", async ({ page }) => {
+  await start(page);
+  await openNewSlideMenu(page);
+  await page.getByRole("menuitem").filter({ hasText: /Blank/ }).first().click();
+  await expect(page.locator(".slide-thumb")).toHaveCount(2);
+  await page.getByRole("tab", { name: "Draw" }).click();
+  await page.locator('[data-command="draw-pen2"]').click();
+  await stroke(page, wave(100, 150));
+  await expect(hits(page)).toHaveCount(1);
+  await command(page, "draw-ink-replay");
+  await expect(page.locator(".ink-replay")).toHaveCount(1);
+  await page.locator(".slide-thumb").first().click();
+  await expect(page.locator(".ink-replay")).toHaveCount(0);
+  await expect(
+    page.locator('[data-command="draw-ink-replay"]'),
+  ).toHaveAttribute("aria-pressed", "false");
+  // Escape reaches what is open next.
+  await page.keyboard.press("ControlOrMeta+f");
+  const find = page.getByRole("searchbox", { name: "Find", exact: true });
+  await expect(find).toBeVisible();
+  await find.press("Escape");
+  await expect(find).toBeHidden();
+});
+
 test("a stroke begun on the ruler's edge is drawn straight along it", async ({
   page,
 }) => {

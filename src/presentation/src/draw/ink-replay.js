@@ -269,6 +269,10 @@ export function playInkReplay({
     close: finish,
     play,
     pause,
+    // False once the slide is drawn again (another slide shown) without it.
+    get shown() {
+      return overlay.isConnected;
+    },
     get total() {
       return total;
     },

@@ -135,6 +135,9 @@ export function createDrawTools({
   // lasso is chosen, so drawing never moves the objects under it.
   function attach() {
     const node = canvas();
+    // A replay whose slide was drawn again without it, with another slide
+    // shown, ends: it held on to Escape and Space.
+    if (replay && !replay.shown) replay.close();
     ruler.attach();
     if (!node) return;
     // A stroke under way goes with its layer: when the pen is put down, or
