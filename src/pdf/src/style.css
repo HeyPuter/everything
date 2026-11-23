@@ -2326,7 +2326,16 @@ dialog.signature-dialog {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 6px 14px;
+  /* A key too long to sit beside its name (on the smallest phones) goes under it, at the end,
+     rather than past the edge of the list. */
+  flex-wrap: wrap;
+}
+.shortcut-list > div > span {
+  flex: 1 1 0;
+}
+.shortcut-list kbd {
+  margin-inline-start: auto;
 }
 kbd {
   font-size: 11px;

@@ -34,3 +34,26 @@ test('the shortcuts list names select all and the text styles', async ({ page })
   await expect(dialog).toContainText('Select all the text on the pageCtrl / ⌘ A');
   await expect(dialog).toContainText('Bold, italic, underline while editing textCtrl / ⌘ B, I, U');
 });
+
+// On the smallest phones the longest keys ("Ctrl / ⌘ G, with Shift; F3") ran past the edge of
+// the list and squeezed their names into a word a line.
+test('every shortcut fits the list on the smallest phones', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  await page.goto('/#library');
+  await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts', exact: true });
+  await expect(dialog).toBeVisible();
+  const overflowing = await dialog.locator('.shortcut-list > div').evaluateAll((rows) =>
+    rows
+      .filter((row) => {
+        const box = row.getBoundingClientRect();
+        return [...row.children].some((part) => {
+          const own = part.getBoundingClientRect();
+          return own.right > box.right + 0.5 || own.height > 60;
+        });
+      })
+      .map((row) => row.textContent),
+  );
+  expect(overflowing).toEqual([]);
+});
