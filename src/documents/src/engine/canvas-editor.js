@@ -1978,6 +1978,11 @@ export class CanvasEditor {
     if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.model.tableContext) {
       e.preventDefault(); this.tabCell(e.shiftKey ? -1 : 1); return;
     }
+    // Tab moves between cells, so Option+Tab (Alt+Tab) types a tab character in one, as in Word for the Mac;
+    // the browser otherwise moved focus out of the document. Ctrl+Tab, Word's key on Windows, switches browser tabs.
+    if (e.key === 'Tab' && e.altKey && !mod && !e.shiftKey && !leaveWithTab && this.model.tableContext) {
+      e.preventDefault(); this.insertTab(); return;
+    }
     // At the start of list items, Tab demotes them and Shift+Tab promotes them, as in other word processors.
     // At the top level Shift+Tab still moves focus on.
     if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.listTab(e.shiftKey ? -1 : 1)) {

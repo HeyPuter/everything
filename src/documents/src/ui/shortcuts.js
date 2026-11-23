@@ -90,6 +90,7 @@ const GROUPS = [
     [IS_MAC ? 'Ctrl + F2' : 'Alt + F10', 'Go to the menu bar'],
     ...(IS_MAC ? [['Cmd + Option + M', 'Paragraph settings'], ['Cmd + Ctrl + Shift + F', 'Focus']] : []),
     [['Tab', 'Shift + Tab'], 'Next or previous table cell'],
+    ...(IS_MAC ? [['Option + Tab', 'Type a tab character in a table cell']] : []),
     [['Tab', 'Shift + Tab'], 'Demote or promote a list item, at its start'],
     ['Shift + F10', 'Open the menu for the selection'],
     ['Escape', 'Close a panel or menu; in the document, Tab then moves to the toolbar'],

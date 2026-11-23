@@ -78,3 +78,17 @@ it('adds a row with Tab in the last cell, one step to undo and redo', () => {
   editor.redo(); expect(editor.model.tables[0].rows).toHaveLength(4); expect(editor.model.tableContext.cell.id).toBe(editor.model.tables[0].rows[3].cells[0].id);
   expect(calls.errors).toHaveLength(0);
 });
+
+it('types a tab character in a cell with Option+Tab (Alt+Tab), keeping the caret in the document', () => {
+  const { editor, calls } = tableEditor(2, 2), table = editor.model.tables[0];
+  editor.model.selectCell(table.rows[0].cells[1].id); editor.syncInput();
+  const cell = editor.model.tableContext.cell.id, history = editor.session.history.length;
+  const event = new KeyboardEvent('keydown', { key: 'Tab', altKey: true, cancelable: true });
+  editor.input.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  expect(editor.model.tableContext.cell.id).toBe(cell);
+  expect(editor.model.paragraphs.find(p => p.cellId === cell).runs.map(r => r.text).join('')).toMatch(/^\t/);
+  expect(editor.session.history).toHaveLength(history + 1);
+  editor.undo(); expect(editor.model.paragraphs.find(p => p.cellId === cell).runs.map(r => r.text).join('')).not.toMatch(/\t/);
+  expect(calls.errors).toHaveLength(0);
+});
