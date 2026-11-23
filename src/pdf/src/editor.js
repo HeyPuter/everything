@@ -6172,6 +6172,7 @@ export function createEditor({
           entry.ordinal,
           document.activeElement === document.body || document.activeElement === priorFocus,
         );
+      revealPlaced();
     });
     input.click();
   }
@@ -6675,8 +6676,8 @@ export function createEditor({
     revealPlaced();
   }
   /**
-   * A signature or stamp lands in the middle of the page, which on a phone can be below what
-   * is in view once the selection's properties dock opens; the view follows it there.
+   * A picture, signature or stamp lands in the middle of the page, which on a phone can be below
+   * what is in view once the selection's properties dock opens; the view follows it there.
    */
   function revealPlaced() {
     const frame = editorRoot.querySelector('.image-move');
