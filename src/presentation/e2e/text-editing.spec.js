@@ -486,3 +486,24 @@ test("right-to-left and vertical text are edited the way they read", async ({
   await expect(editor).toBeFocused();
   await expect(editor).toHaveCSS("writing-mode", "vertical-rl");
 });
+
+test("Find whole words only skips the word inside longer words", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "A cat, a catalog and a cat.");
+  await page.keyboard.press("Escape");
+  await expect(editor).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+f");
+  const bar = page.getByRole("search", { name: "Find and replace" });
+  await bar.getByRole("searchbox", { name: "Find" }).fill("cat");
+  const count = bar.locator(".find-count");
+  await expect(count).toHaveText("1 of 3");
+  const words = bar.getByRole("button", { name: "Find whole words only" });
+  await words.click();
+  await expect(words).toHaveAttribute("aria-pressed", "true");
+  await expect(count).toHaveText("1 of 2");
+  await bar.getByRole("textbox", { name: "Replace with" }).fill("dog");
+  await bar.getByRole("button", { name: "Replace all" }).click();
+  await expect(count).toHaveText("No matches");
+  expect(await slideSvg(page)).toContain(">A dog, a catalog and a dog.<");
+});

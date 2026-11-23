@@ -14311,7 +14311,13 @@ function detachComments(target, ids) {
  * writes into the run that holds the match, so the rest of the formatting
  * stays; a match that spans runs is found but left for a whole-text replace.
  */
-const find = { query: "", caseSensitive: false, matches: [], at: -1 };
+const find = {
+  query: "",
+  caseSensitive: false,
+  wholeWords: false,
+  matches: [],
+  at: -1,
+};
 function findBar() {
   const query = el("input", {
     class: "input find-input",
@@ -14357,6 +14363,16 @@ function findBar() {
     },
     { "aria-pressed": "false" },
   );
+  const wordsButton = iconButton(
+    "Find whole words only",
+    "WholeWord",
+    () => {
+      find.wholeWords = !find.wholeWords;
+      wordsButton.setAttribute("aria-pressed", String(find.wholeWords));
+      search();
+    },
+    { "aria-pressed": "false" },
+  );
   return el(
     "div",
     {
@@ -14379,6 +14395,7 @@ function findBar() {
       iconButton("Previous match", "ChevronUp", () => moveMatch(-1)),
       iconButton("Next match", "ChevronDown", () => moveMatch(1)),
       caseButton,
+      wordsButton,
     ),
     el(
       "div",
@@ -14444,10 +14461,14 @@ function closeFind() {
   document.querySelector("#main")?.focus({ preventScroll: true });
 }
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Whole words only: a match with no letter, digit or underscore just
+// before or after it, in any script.
+const WORD_EDGE = "[\\p{L}\\p{M}\\p{N}_]";
 function findRegExp(flags = "") {
+  const pattern = escapeRegExp(find.query);
   return new RegExp(
-    escapeRegExp(find.query),
-    `${flags}${find.caseSensitive ? "" : "i"}`,
+    find.wholeWords ? `(?<!${WORD_EDGE})${pattern}(?!${WORD_EDGE})` : pattern,
+    `${flags}${find.caseSensitive ? "" : "i"}${find.wholeWords ? "u" : ""}`,
   );
 }
 // The speaker notes Find reads, each slide's read once per revision of the
