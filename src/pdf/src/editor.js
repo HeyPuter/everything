@@ -7069,6 +7069,21 @@ export function createEditor({
     if (!remove) toolColors.note = hex;
     returnFocus();
   }
+  /**
+   * A new signature's or stamp's box in PDF units: `share` of the page across, kept between
+   * `least` and `most` points but always well inside a small page, `ratio` as tall as wide.
+   */
+  function placedMarkSize(share, least, most, ratio) {
+    const across = viewport.width / zoom,
+      down = viewport.height / zoom;
+    const width = Math.min(
+      most,
+      Math.max(least, across * share),
+      across * 0.9,
+      (down * 0.9) / ratio,
+    );
+    return { width: width / viewport.userUnit, height: (width * ratio) / viewport.userUnit };
+  }
   /** Ask for a signature and place it in the middle of the page, selected and ready to drag. */
   async function insertSignature() {
     const version = beginDialogRequest();
@@ -7080,9 +7095,7 @@ export function createEditor({
     if (!choice || destroyed || busy || !pageReady) return;
     const { signature, hex, outline } = choice;
     // About a third of the page across, in the middle, upright however the page is rotated.
-    const pointsAcross = viewport.width / (zoom * viewport.userUnit);
-    const width = Math.min(320, Math.max(120, pointsAcross * 0.35)),
-      height = width * 0.4;
+    const { width, height } = placedMarkSize(0.35, 120, 320, 0.4);
     const center = pdfPoint({ x: viewport.width / 2, y: viewport.height / 2 });
     const target = { x: center.x - width / 2, y: center.y - height / 2, width, height };
     const rotation = viewport.rotation,
@@ -7149,9 +7162,7 @@ export function createEditor({
     if (busy || !pageReady) return;
     await finishDrafts();
     if (!canOpenDialog(version) || busy || !pageReady) return;
-    const pointsAcross = viewport.width / (zoom * viewport.userUnit);
-    const width = Math.min(260, Math.max(110, pointsAcross * 0.32)),
-      height = width * 0.45;
+    const { width, height } = placedMarkSize(0.32, 110, 260, 0.45);
     const choice = await stampDialog({ ...dialogOptions, size: { width, height } });
     if (!choice || destroyed || busy || !pageReady) return;
     const center = pdfPoint({ x: viewport.width / 2, y: viewport.height / 2 });
