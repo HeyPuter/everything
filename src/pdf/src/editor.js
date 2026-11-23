@@ -2640,7 +2640,9 @@ export function createEditor({
       access().copy ||
       destroyed ||
       event.target === searchInput ||
-      ['owner-password', 'unlock-password'].includes(event.target?.id)
+      ['owner-password', 'unlock-password'].includes(event.target?.id) ||
+      // The app's own drag sources (Organize pages' tiles) move pages; they carry no content.
+      (event.type === 'dragstart' && event.target.closest?.('[draggable="true"]'))
     )
       return;
     event.preventDefault();
