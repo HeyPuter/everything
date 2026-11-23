@@ -37,6 +37,24 @@ test('the shortcuts list names select all and the text styles', async ({ page })
   );
 });
 
+// The keys that edit, remove, save and cancel text (said by the selected text's description and
+// the editing panel) had no line in the list.
+test('the shortcuts list names the keys that edit, save and cancel text', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  await page.goto('/#library');
+  await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts', exact: true });
+  const row = (label) => dialog.locator('.shortcut-list > div').filter({ hasText: label });
+  await expect(row('Edit the selected text').locator('kbd')).toHaveText('Enter / F2');
+  await expect(row('Delete the selected text, comment or object').locator('kbd')).toHaveText(
+    'Delete',
+  );
+  await expect(row('Save the text, note or reply being written').locator('kbd')).toHaveText(
+    /^(⌘Enter|Ctrl\+Enter)$/,
+  );
+  await expect(row('Cancel the text being edited').locator('kbd')).toHaveText('Esc');
+});
+
 // On the smallest phones the longest keys ("Ctrl / ⌘ G, with Shift; F3", as the list then wrote it) ran past the edge of
 // the list and squeezed their names into a word a line.
 test('every shortcut fits the list on the smallest phones', async ({ page }) => {
