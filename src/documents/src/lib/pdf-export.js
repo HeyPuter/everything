@@ -6,8 +6,10 @@
  * and whose ToUnicode map returns the original characters.
  */
 
-import { selectionRects } from '../engine/layout.js';
+import { selectionRectFinder } from '../engine/layout.js';
 import { bidiEmbeddingLevels, bidiMirroredCharacter, bidiVisualOrder } from '../engine/bidi-text.js';
+import { bookmarkEntries, bookmarksByName, bookmarkNamed } from '../engine/bookmarks.js';
+import { outlineEntries } from '../engine/outline.js';
 
 const encoder = new TextEncoder();
 const PT_PER_PX = 0.75;
@@ -106,7 +108,7 @@ end`;
  * Build a PDF from pages: [{ widthPx, heightPx, jpeg: Uint8Array, imageWidth, imageHeight, fragments }].
  * Returns a Uint8Array.
  */
-export function buildPdf(pages, { title = 'Document', author = '' } = {}) {
+export function buildPdf(pages, { title = 'Document', author = '', outline = [] } = {}) {
   const chunks = [], offsets = [];
   let length = 0;
   const push = data => { const bytes = typeof data === 'string' ? encoder.encode(data) : data; chunks.push(bytes); length += bytes.length; };
@@ -122,19 +124,29 @@ export function buildPdf(pages, { title = 'Document', author = '' } = {}) {
   define(descriptor, '<< /Type /FontDescriptor /FontName /DocumentsTextLayer /Flags 4 /FontBBox [0 -200 1000 800] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >>');
   define(cidFont, `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /DocumentsTextLayer /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${descriptor} 0 R /DW 500 /CIDToGIDMap /Identity >>`);
   define(font, `<< /Type /Font /Subtype /Type0 /BaseFont /DocumentsTextLayer /Encoding /Identity-H /DescendantFonts [${cidFont} 0 R] /ToUnicode ${toUnicode} 0 R >>`);
-  const kids = [];
   // A link's address is a 7-bit string (§12.6.4.7): characters beyond ASCII, spaces and controls are percent-encoded.
   const uri = target => `(${String(target).replace(/[^\x21-\x7e]/gu, ch => encodeURIComponent(ch)).replace(/[\\()]/g, m => '\\' + m)})`;
-  for (const page of pages) {
-    const pageId = reserve(), image = reserve(), content = reserve();
-    kids.push(pageId);
+  // Every page's object first, so a link to a later page can name it.
+  const kids = pages.map(() => { const pageId = reserve(); reserve(); reserve(); return pageId; });
+  const pt = n => (n * PT_PER_PX).toFixed(2);
+  // A web, mail or phone link opens its address (§12.6.4.7 URI action); a link to a bookmark in the document goes
+  // to where the bookmark is (§12.6.4.2 GoTo action, an /XYZ destination keeping the reader's zoom, §12.3.2.2).
+  const action = link => {
+    if (link.target) return `<< /S /URI /URI ${uri(link.target)} >>`;
+    const page = pages[link.dest?.page];
+    return page ? `<< /S /GoTo /D [${kids[link.dest.page]} 0 R /XYZ null ${pt(page.heightPx - link.dest.y)} null] >>` : null;
+  };
+  for (const [index, page] of pages.entries()) {
+    const pageId = kids[index], image = pageId + 1, content = pageId + 2;
     const w = page.widthPx * PT_PER_PX, h = page.heightPx * PT_PER_PX;
-    // Each linked area is a link annotation (§12.5.6.5) with a URI action, without a border of its own.
+    // Each linked area is a link annotation (§12.5.6.5) without a border of its own.
     const annots = (page.links || []).map(link => {
-      const id = reserve(), pt = n => (n * PT_PER_PX).toFixed(2);
-      define(id, `<< /Type /Annot /Subtype /Link /Rect [${pt(link.x)} ${pt(page.heightPx - link.y - link.height)} ${pt(link.x + link.width)} ${pt(page.heightPx - link.y)}] /Border [0 0 0] /A << /S /URI /URI ${uri(link.target)} >> >>`);
+      const act = action(link);
+      if (!act) return null;
+      const id = reserve();
+      define(id, `<< /Type /Annot /Subtype /Link /Rect [${pt(link.x)} ${pt(page.heightPx - link.y - link.height)} ${pt(link.x + link.width)} ${pt(page.heightPx - link.y)}] /Border [0 0 0] /A ${act} >>`);
       return id;
-    });
+    }).filter(Boolean);
     define(image, { dict: `/Type /XObject /Subtype /Image /Width ${page.imageWidth} /Height ${page.imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, stream: page.jpeg });
     define(content, { stream: encoder.encode(`q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} 0 0 cm /Im1 Do Q\n${textLayer(page.fragments, page.heightPx, astral)}`) });
     define(pageId, `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${w.toFixed(2)} ${h.toFixed(2)}] /Resources << /XObject << /Im1 ${image} 0 R >> /Font << /F1 ${font} 0 R >> >> /Contents ${content} 0 R${annots.length ? ` /Annots [${annots.map(id => `${id} 0 R`).join(' ')}]` : ''} >>`);
@@ -142,7 +154,31 @@ export function buildPdf(pages, { title = 'Document', author = '' } = {}) {
   // Written once every page's text has met its characters beyond the BMP.
   define(toUnicode, { stream: encoder.encode(toUnicodeMap(astral)) });
   define(pagesId, `<< /Type /Pages /Kids [${kids.map(k => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`);
-  define(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  // The document's headings as the PDF's bookmarks (§12.3.3 document outline), nested by level, each going to its page.
+  const headings = outline.filter(h => pages[h.page]);
+  let outlines = null;
+  if (headings.length) {
+    outlines = reserve();
+    const items = headings.map(h => ({ ...h, id: reserve(), children: [] })), top = [], stack = [];
+    for (const item of items) {
+      while (stack.length && stack.at(-1).level >= item.level) stack.pop();
+      item.parent = stack.at(-1) || null;
+      (item.parent ? item.parent.children : top).push(item);
+      stack.push(item);
+    }
+    const descendants = item => item.children.reduce((n, c) => n + 1 + descendants(c), 0);
+    const link = (list, parentId) => list.forEach((item, i) => {
+      const fields = [`/Title ${pdfString(item.title)}`, `/Parent ${parentId} 0 R`, `/Dest [${kids[item.page]} 0 R /XYZ null ${pt(pages[item.page].heightPx - item.y)} null]`];
+      if (i > 0) fields.push(`/Prev ${list[i - 1].id} 0 R`);
+      if (i < list.length - 1) fields.push(`/Next ${list[i + 1].id} 0 R`);
+      if (item.children.length) fields.push(`/First ${item.children[0].id} 0 R /Last ${item.children.at(-1).id} 0 R /Count ${descendants(item)}`);
+      define(item.id, `<< ${fields.join(' ')} >>`);
+      link(item.children, item.id);
+    });
+    link(top, outlines);
+    define(outlines, `<< /Type /Outlines /First ${top[0].id} 0 R /Last ${top.at(-1).id} 0 R /Count ${items.length} >>`);
+  }
+  define(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${outlines ? ` /Outlines ${outlines} 0 R` : ''} >>`);
 
   push(new Uint8Array([...encoder.encode('%PDF-1.7\n%'), 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
   for (let i = 0; i < objects.length; i++) {
@@ -177,27 +213,58 @@ export function pageFragments(lines, page) {
 }
 
 /**
- * The areas of the page where a web, mail or phone link's text is laid out: [{ page, x, y, width, height, target }]
- * in page pixels, one per line (or picture) the link covers. Links within the document (to a bookmark) are left out.
+ * The areas of the page where a link's text is laid out, in page pixels, one per line (or picture) the link covers:
+ * [{ page, x, y, width, height, target }] for a web, mail or phone link, and [{ …, dest: { page, y } }] for a link
+ * to a bookmark in the document (a table of contents' entries) or to its start, `dest` being where that is.
  */
 export function pageLinks(paragraphs, layout) {
   const ranges = [];
-  let at = 0;
+  let at = 0, bookmarks = null;
+  const position = anchor => {
+    if (anchor === null) return 0;
+    bookmarks ??= bookmarksByName(bookmarkEntries(paragraphs, null, () => {}));
+    return bookmarkNamed(bookmarks, anchor)?.start ?? null;
+  };
   for (const p of paragraphs) {
     for (const run of p.runs) {
       const length = String(run.text || '').length, target = run.link?.target;
-      if (typeof target === 'string' && SAFE_LINK.test(target) && !run.vanish) {
-        const last = ranges.at(-1);
-        if (last?.target === target && last.end === at) last.end += length;
-        else ranges.push({ start: at, end: at + length, target });
+      const internal = !target && run.link && Object.hasOwn(run.link, 'anchor') && (run.link.anchor === null || typeof run.link.anchor === 'string');
+      if ((typeof target === 'string' && SAFE_LINK.test(target) || internal) && !run.vanish) {
+        const key = internal ? `#${run.link.anchor ?? ''}` : target, last = ranges.at(-1);
+        if (last?.key === key && last.end === at) last.end += length;
+        else ranges.push({ start: at, end: at + length, key, ...(internal ? { anchor: run.link.anchor } : { target }) });
       }
       at += length;
     }
     at++;
   }
-  const out = [];
-  for (const { start, end, target } of ranges) {
-    for (const r of selectionRects(layout, start, end)) if (r.width > 0 && r.height > 0) out.push({ page: r.page ?? 0, x: r.x, y: r.y, width: r.width, height: r.height, target });
+  // One look-up structure for all the ranges: a long document has many links and lines.
+  const out = [], selectionRects = selectionRectFinder(layout);
+  for (const { start, end, target, anchor } of ranges) {
+    let dest;
+    if (!target) {
+      const to = position(anchor);
+      if (to === null) continue;
+      // The line the bookmark starts on: the character after it, or before it at the end of a paragraph.
+      const [r] = [...selectionRects(to, to + 1), ...(to > 0 ? selectionRects(to - 1, to) : [])];
+      if (!r) continue;
+      dest = { page: r.page ?? 0, y: r.y };
+    }
+    for (const r of selectionRects(start, end)) if (r.width > 0 && r.height > 0) out.push({ page: r.page ?? 0, x: r.x, y: r.y, width: r.width, height: r.height, ...(target ? { target } : { dest }) });
+  }
+  return out;
+}
+
+/**
+ * The document's headings where the layout places them, for the PDF's bookmarks: [{ title, level, page, y }] in
+ * page pixels. A heading inside a table, or one with no text, is left out, as the navigation pane names those.
+ */
+export function pageOutline(paragraphs, layout) {
+  const out = [], selectionRects = selectionRectFinder(layout);
+  for (const entry of outlineEntries(paragraphs)) {
+    if (entry.inTable || entry.text === '(Empty heading)') continue;
+    const [r] = selectionRects(entry.start, Math.max(entry.start + 1, entry.end));
+    if (r) out.push({ title: entry.text, level: entry.level, page: r.page ?? 0, y: r.y });
   }
   return out;
 }
@@ -219,7 +286,9 @@ export async function exportPdf(engine, { title, batch = PDF_BATCH_PAGES } = {})
     const { layout, storyLayout } = engine.printedLayout || engine;
     let links = [];
     try { links = pageLinks(engine.model.paragraphs, layout); } catch (e) { console.warn('[documents] the PDF\'s links could not be placed', e); }
-    return { layout, lines: [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])], links };
+    let outline = [];
+    try { outline = pageOutline(engine.model.paragraphs, layout); } catch (e) { console.warn('[documents] the PDF\'s bookmarks could not be placed', e); }
+    return { layout, lines: [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])], links, outline };
   };
   const release = sheets => { for (const canvas of sheets) if (canvas) canvas.width = canvas.height = 0; };
   const encode = async (sheets, { layout, lines, links }, pages) => {
@@ -247,7 +316,8 @@ export async function exportPdf(engine, { title, batch = PDF_BATCH_PAGES } = {})
   if (whole) {
     pages = [];
     const sheets = engine.printSheets();
-    await encode(sheets, printed(), pages);
+    first = printed();
+    await encode(sheets, first, pages);
   }
-  return new Blob([buildPdf(pages, { title })], { type: 'application/pdf' });
+  return new Blob([buildPdf(pages, { title, outline: first?.outline || [] })], { type: 'application/pdf' });
 }

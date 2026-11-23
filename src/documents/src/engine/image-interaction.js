@@ -120,6 +120,8 @@ export function createImageInteraction(editor) {
   const show = (box, rotation = normalizedRotation(box.image?.rotation) / ANGLE_PER_DEGREE) => {
     if (!place(overlay, box.page, box)) return;
     overlay.style.transform = `rotate(${rotation}deg)`;
+    // The Move button and the angle readout turn back, so their text stays upright on a turned frame.
+    overlay.style.setProperty('--frame-turn', `${rotation}deg`);
   };
   // The frame drawn around a drawing: retained drawings paint their own rotation inside their bounds.
   const boxOf = f => f.image.retainedDrawing ? { ...positionedImageBounds(f), page: f.page } : f;

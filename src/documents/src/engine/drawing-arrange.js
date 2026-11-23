@@ -117,18 +117,12 @@ export function alignmentMoves(editor, images, mode, relativeTo = images.length 
   return moves;
 }
 
-/** The nine square-wrapped page positions: [id, label, horizontal (0..1), vertical (0..1)]. */
+/** The nine square-wrapped positions inside the page margins: [id, label, horizontal (0..1), vertical (0..1)]. */
 export const POSITION_PRESETS = [
   ['topLeft', 'Top Left', 0, 0], ['topCenter', 'Top Center', 0.5, 0], ['topRight', 'Top Right', 1, 0],
   ['middleLeft', 'Middle Left', 0, 0.5], ['middleCenter', 'Middle Center', 0.5, 0.5], ['middleRight', 'Middle Right', 1, 0.5],
   ['bottomLeft', 'Bottom Left', 0, 1], ['bottomCenter', 'Bottom Center', 0.5, 1], ['bottomRight', 'Bottom Right', 1, 1],
 ];
-
-/** Where a position preset puts a drawing of this size inside the page margins, in page pixels. */
-export function presetPosition(page, frame, [, , h, v]) {
-  const left = page.left, top = page.top, width = page.width - page.left - page.right, height = page.height - page.top - page.bottom;
-  return { x: left + (width - frame.width) * h, y: top + (height - frame.height) * v };
-}
 
 /** Bring Forward, Send Backward, to Front/Back, in Front of/Behind Text (§20.4.2.3 relativeHeight, behindDoc). */
 export const ORDER_COMMANDS = ['forward', 'backward', 'front', 'back', 'inFront', 'behind'];

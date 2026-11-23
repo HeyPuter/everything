@@ -32,6 +32,7 @@ export function userMenu({ onSignOut = null } = {}) {
   const menu = document.createElement(USER_MENU_TAG);
   syncTheme(menu);
   watchTheme();
+  syncUpgradeTooltip(menu);
   // Caught on the way down to the item, before the element's own handler. Should a later puter.js name the
   // item otherwise, the element signs out by itself and the app follows its `signout` below.
   if (onSignOut) menu.addEventListener('click', (e) => {
@@ -56,6 +57,21 @@ function syncTheme(menu) {
   const theme = currentTheme();
   if (theme === 'light' || theme === 'dark') menu.setAttribute('theme', theme);
   else menu.removeAttribute('theme');
+}
+
+// The editor's title bar shows the element's Upgrade button as an icon below 1761px (views.css): its words, Upgrade or
+// Manage plan as the account's plan has it, are its accessible name and become its tooltip too. The element renders
+// into its open shadow root and rewrites the words as the plan changes, so they are followed.
+function syncUpgradeTooltip(menu) {
+  const root = menu.shadowRoot;
+  if (!root || typeof MutationObserver === 'undefined') return;
+  const sync = () => {
+    const button = root.querySelector('.upgrade-button');
+    const words = button?.textContent.trim();
+    if (button && words && button.title !== words) button.title = words;
+  };
+  sync();
+  new MutationObserver(sync).observe(root, { childList: true, subtree: true, characterData: true });
 }
 
 let watching = false;

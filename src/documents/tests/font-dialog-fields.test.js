@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { openFontDialog } from '../src/views/font-dialog.js';
+import { openFontDialog, selectsComplexScriptText } from '../src/views/font-dialog.js';
 import { closeAllModals } from '../src/ui/modal.js';
 import { el } from '../src/ui/dom.js';
 
@@ -75,5 +75,34 @@ describe('Font dialog Text Effects button', () => {
     expect(textEffects).not.toHaveBeenCalled();
     expect(modal.panel.querySelector('.field-error').textContent).toBe('Not here.');
     expect(modal.panel.isConnected).toBe(true);
+  });
+});
+
+// §17.3.2.26 rFonts cs, §17.3.2.2 bCs, §17.3.2.17 iCs: Hebrew or Arabic text is shown in its complex script font,
+// bold and italic, which Font and Font style alone left as they were.
+describe('Font dialog for right-to-left text', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal('matchMedia', () => ({ matches: true })); document.body.replaceChildren(el('div', { id: 'app' })); });
+  afterEach(() => { closeAllModals(); vi.runAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+  const field = (modal, label) => modal.panel.querySelector(`[aria-label="${label}"]`);
+  it('offers the complex script font, and sets its bold and italic with the Font style', async () => {
+    const apply = vi.fn(() => true);
+    const format = { ...FORMAT, fontCs: 'Noto Sans', rtl: true, cs: false };
+    const modal = openFontDialog({ format, apply, complexScript: selectsComplexScriptText('שלום', [0, 4], format) });
+    const cs = field(modal, 'Complex script font');
+    expect(cs.value).toBe('Noto Sans');
+    cs.value = 'Arial'; cs.dispatchEvent(new Event('input', { bubbles: true }));
+    field(modal, 'Font style').value = 'boldItalic'; field(modal, 'Font style').dispatchEvent(new Event('change'));
+    modal.panel.querySelector('form').requestSubmit(); await vi.runAllTimersAsync();
+    expect(apply.mock.calls[0][0]).toEqual({ fontCs: 'Arial', bold: true, italic: true, boldCs: true, italicCs: true });
+  });
+  it('offers it where the selection, or the caret\'s paragraph, holds right-to-left letters or text marked so', () => {
+    const plain = { rtl: false, cs: false };
+    expect(selectsComplexScriptText('Hello\nשלום', [8, 8], plain)).toBe(true);
+    expect(selectsComplexScriptText('Hello\nمرحبا', [0, 2], plain)).toBe(false);
+    expect(selectsComplexScriptText('Hello', [0, 5], { rtl: null, cs: false })).toBe(true);
+    expect(selectsComplexScriptText('Hello', [0, 5], { rtl: false, cs: true })).toBe(true);
+    expect(selectsComplexScriptText('Hello 日本', [0, 8], plain)).toBe(false);
+    const modal = openFontDialog({ format: FORMAT, apply: () => true });
+    expect(field(modal, 'Complex script font')).toBeNull();
   });
 });

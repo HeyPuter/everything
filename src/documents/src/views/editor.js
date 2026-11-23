@@ -50,6 +50,7 @@ import { announce, toast } from '../ui/toast.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { saveAsTemplate, templateExists, TEMPLATE_FOLDER } from '../lib/customtemplates.js';
 import { accountControls } from '../ui/appmenu.js';
+import { cycleRegions } from './regions.js';
 import { openShortcuts } from '../ui/shortcuts.js';
 import { loadEngine } from '../lib/engine.js';
 import { session } from '../lib/session.js';
@@ -235,7 +236,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
         await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
       } else await navigator.clipboard.writeText(text);
-      if (cut && !destroyed && engine === editor && revision === editor.session.revision && JSON.stringify(selection) === JSON.stringify(editor.model.range)) editor.deleteSelection();
+      if (cut && !destroyed && engine === editor && revision === editor.session.revision && JSON.stringify(selection) === JSON.stringify(editor.model.range)) editor.cutSelection();
     } catch (e) { if (!destroyed) clipboardError(e, false); }
     if (!destroyed) engine?.focus();
   };
@@ -325,7 +326,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     message.hidden = !message.childElementCount;
     if (!message.hidden && !failed) message.prepend(dismissNotices);
   };
-  const host = el('div.canvas-host', { 'aria-label': 'Document pages' });
+  const host = el('div.canvas-host', { role: 'region', 'aria-label': 'Document pages' });
   const surface = el('div.canvas-document-surface', {}, host);
   // Bookmarks are in the body: a link made in a note, header or footer goes to one there.
   const editHyperlink = (anchor = hyperlink, options = {}) => {
@@ -350,11 +351,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     importFile(file);
   } });
   const error = e => toast(e?.message || String(e), { icon: 'alert', duration: 8000 });
+  // A document open read-only, or not at all, downloads as the file it was: a template or macro-enabled package keeps
+  // its extension (pkg.fileExtension), since Word refuses one named .docx. A file that did not open keeps the name it
+  // came with: one picked under "All files" (an OpenDocument file, say) is no .docx either.
+  const originalName = () => {
+    const stem = P.documentStem(doc.name) || 'Untitled document';
+    if (pkg) return `${stem}${pkg.fileExtension}`;
+    const own = P.sanitizeName(doc.blob?.name || (doc.path ? P.displayName(doc.path) : ''));
+    return /\.[^.]+$/.test(own) && P.stripExtension(own) ? own : `${stem}.docx`;
+  };
   const download = async () => {
     try {
       await ready;
       if (!engine || failed || destroyed) return;
-      if (pkg.readOnly) { P.downloadBlob(doc.blob, P.ensureDocx(doc.name)); return; }
+      if (pkg.readOnly) { P.downloadBlob(doc.blob, originalName()); return; }
       engine.finishComposition();
       P.downloadBlob(engine.export(pkg), P.ensureDocx(title.value || 'Untitled document'));
       // On this device the download is the save. A copy of a document on Puter leaves its file as it was: the status
@@ -493,13 +503,19 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     update();
   }
   const fontFamily = el('button.canvas-font-label', { type: 'button', disabled: true, 'aria-label': 'Latin font family', 'aria-haspopup': 'dialog', onclick: () => fontFamily.openPopover(fontFamily) }, 'Noto Sans');
+  // Right-to-left and complex script text (w:rtl, w:cs) is shown in its complex script font (§17.3.2.26 rFonts cs):
+  // for a selection of only such text the box shows and sets that font, and for one mixing it with other text it
+  // sets that font as well as the Latin one.
+  const fontScript = run => run.rtl === true || run.cs === true ? 'complex' : run.rtl === false && run.cs === false ? 'latin' : 'both';
+  const shownFont = run => fontScript(run) === 'complex' ? run.fontCs : run.fontAscii === run.fontHAnsi ? run.fontAscii : null;
   fontFamily.openPopover = (anchor, options) => {
     if (!engine) return; engine.finishComposition();
     const fontEditor = engine;
-    const run = engine.model.runFormatting;
-    fontPopover = openFontPicker({ anchor, ...options, value: run.fontAscii === run.fontHAnsi ? run.fontAscii : null,
+    const run = engine.model.runFormatting, script = fontScript(run);
+    fontPopover = openFontPicker({ anchor, ...options, value: shownFont(run),
       onFontsAvailable: () => refreshAvailableFonts(fontEditor),
-      alternatives: engine.model.styles.fontAlternatives, apply: name => engine?.setRunFormat({ fontAscii: name, fontHAnsi: name }) });
+      alternatives: engine.model.styles.fontAlternatives,
+      apply: name => engine?.setRunFormat(script === 'complex' ? { fontCs: name } : { fontAscii: name, fontHAnsi: name, ...(script === 'both' ? { fontCs: name } : {}) }) });
   };
   let fontSizeDraftCancelled = false;
   function applyFontSize() {
@@ -938,7 +954,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.extendMenu = (id, kit) => [...(chromeExtendMenu?.(id, kit) || [])];
   const chromeContextMenuItems = editorCommands.contextMenuItems;
   editorCommands.contextMenuItems = (context, kit) => [...(chromeContextMenuItems?.(context, kit) || [])];
-  const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update(), redoable: () => redoable() });
+  const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update(), redoable: () => redoable(), noteCommand: (label, run) => editorCommands.noteCommand?.(label, run) });
   Object.assign(editorCommands, editCommands);
   // Undo steps are named (their `label`) after the command that made them, a name the step keeps through Undo and Redo
   // (StorySession.travel); a command that changed the document is the one Repeat runs. A shared document's steps are
@@ -952,18 +968,25 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (label && !run && pendingCommand?.label === label && Date.now() - pendingCommand.at < 3000) return;
     pendingCommand = label ? { label: String(label).replace(/…$/, ''), run, at: Date.now() } : null;
   };
+  let recordedSteps = null;
   function labelHistory() {
     if (!engine) return;
     const top = engine.session.history.at(-1), length = engine.model.text.length;
+    // Whether this change made a new undo step (not Undo, Redo or typing on in the step before).
+    const recorded = { session: engine.session, count: engine.session.recorded || 0 };
+    const fresh = recordedSteps?.session === recorded.session && recordedSteps.count !== recorded.count;
+    recordedSteps = recorded;
     // A step the editor named itself (typing, AutoCorrect) is that: a command noted just before changed nothing, and is
     // neither its name nor what Repeat runs.
-    if (top?.label) pendingCommand = null;
+    if (top?.label) { pendingCommand = null; if (fresh) editCommands.forgetRepeat(); }
     else if (top && !labelOf(top)) {
       // A command is remembered for a few seconds, and while a dialog it opened then is open (or just closing).
       const fromDialog = command => [...document.querySelectorAll('.modal-root')].some(node => { const opened = Number(node.dataset.opened); return opened >= command.at && opened - command.at < 3000; });
       const recent = pendingCommand && (Date.now() - pendingCommand.at < 3000 || fromDialog(pendingCommand)) ? pendingCommand : null, label = recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting');
       if (Object.isFrozen(top)) sharedLabels.set(top, label); else top.label = label;
       if (recent?.run) editCommands.recordRepeat(recent.label, recent.run);
+      // Made by no command Repeat can run (a key the editor takes itself, as Cmd+B): Repeat no longer runs an older one.
+      else if (fresh) editCommands.forgetRepeat();
       pendingCommand = null;
     }
     lastTextLength = length;
@@ -1180,7 +1203,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     await ready; if (!engine || failed) throw new Error('The document is not open.');
     engine.finishComposition();
     const blob = pkg.readOnly ? doc.blob : engine.export(pkg);
-    if (andDownload) P.downloadBlob(blob, P.ensureDocx(title.value || 'Untitled document'));
+    if (andDownload) P.downloadBlob(blob, pkg.readOnly ? originalName() : P.ensureDocx(title.value || 'Untitled document'));
     return blob;
   };
   const exportPdfBlob = async (andDownload = false) => {
@@ -1261,7 +1284,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       return failure;
     } : null,
     // "Report copy", as Puter's Save dialog suggests below, or "Report copy 2" when that is taken.
-    copyName: cloud ? async () => P.documentStem(await P.uniqueName(`${P.documentStem(doc.name) || 'Untitled document'} copy.docx`)) : null,
+    copyName: cloud ? async () => P.stripExtension(await P.uniqueName(`${P.documentStem(doc.name) || 'Untitled document'} copy${doc.copyExtension}`)) : null,
     // Inside the Puter desktop Save a copy asks where, with Puter's Save dialog, rather than for a name in the app folder.
     saveCopyWhere: cloud && P.asksWhereToSave() ? async () => {
       try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }
@@ -1362,7 +1385,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     ...(IS_MAC ? { 'edit.goTo': ['Mod+Alt+G'], 'format.paragraph': ['Mod+Alt+M'], 'view.focus': ['Mod+Ctrl+Shift+F'] } : {}),
     'format.styles': ['Mod+Alt+Shift+S'], 'file.open': ['Mod+O'], ...(cloud ? { 'file.saveAs': ['Mod+Shift+S'] } : {}),
     'app.preferences': ['Mod+Comma'], 'app.search': [IS_MAC ? 'Mod+Alt+K' : 'Alt+Q'], 'view.ribbon': [IS_MAC ? 'Mod+Alt+R' : 'Mod+F1'],
-    'app.menubar': [IS_MAC ? 'Ctrl+F2' : 'Alt+F10'],
+    'app.menubar': [IS_MAC ? 'Ctrl+F2' : 'Alt+F10'], 'view.nextRegion': ['F6'], 'view.previousRegion': ['Shift+F6'],
   };
   const builtInCommands = {
     'edit.copyFormat': () => editCommands.copyFormat(),
@@ -1379,6 +1402,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     'file.open': () => openInput.click(), 'file.saveAs': () => backstage.open('save'),
     'app.preferences': () => openPreferencesDialog(), 'app.search': () => chrome.focusSearch(), 'view.ribbon': () => chrome.ribbonModes?.toggle(),
     'app.menubar': () => chrome.focusMenubar(),
+    'view.nextRegion': () => cycleRegions(root, { step: 1, focusDocument: () => engine?.focus() }),
+    'view.previousRegion': () => cycleRegions(root, { step: -1, focusDocument: () => engine?.focus() }),
   };
   // Copy Formatting makes Cmd/Ctrl+Shift+V paste formatting until text is copied or cut again.
   let formatClipboard = false;
@@ -1639,11 +1664,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       indicator.classList.toggle('is-none', control === highlight && value === 'none');
     }
     fontSize.disabled = fontSizeMenu.disabled = fontFamily.disabled = false;
-    const family = run.fontAscii === run.fontHAnsi ? run.fontAscii : null;
+    const family = shownFont(run), complex = fontScript(run) === 'complex';
+    fontFamily.setAttribute('aria-label', complex ? 'Complex script font family' : 'Latin font family');
     const substituted = family && documentFontAvailable(family, engine.model.styles.fontAlternatives) === false;
     const replacement = substituted ? displayedFont({ fontFamily: family }, engine.model.styles.fontAlternatives) : family;
     fontFamily.textContent = !family ? 'Mixed fonts' : substituted ? `${family} → ${replacement}` : family;
-    fontFamily.title = substituted ? `${family} is unavailable in this browser. Displaying ${replacement}; the original font is retained in the DOCX.` : !family ? 'The selection uses different Latin font declarations.' : `Latin font: ${family}`;
+    fontFamily.title = substituted ? `${family} is unavailable in this browser. Displaying ${replacement}; the original font is retained in the DOCX.` : !family ? `The selection uses different ${complex ? 'complex script' : 'Latin'} font declarations.` : `${complex ? 'Complex script' : 'Latin'} font: ${family}`;
     if (document.activeElement !== fontSize) fontSize.value = run.fontSize ?? '';
     for (const control of [pageSetup, pageBreak, pageBreakBefore, outdent, indent, paragraphGeometry, insertTab, lineSpacingOptions, lineSpacingMenu, ...alignmentButtons, ...directionButtons]) control.disabled = false;
     pageBreak.disabled = !!engine.model.selectedParagraphs[0]?.cellId;
@@ -1852,6 +1878,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       preparePicture: pictureFile,
     });
     created.onPagesPainted = pages => { if (engine === created) outlinePanel.pagesPainted(pages); };
+    // Page thumbnails draw every page: while they show, pages far from the view keep their pixels (releasePages).
+    created.keepsEveryPage = () => outlinePanel.showsPages || views.thumbnailsShown;
+    // The split view's second pane shows pages of its own, which stay painted as the editor's do.
+    created.pagesShownElsewhere = () => views.mirrorShownPages();
     // Double-clicking a chart, diagram or text box edits it (insert-tab.js).
     created.onOpenDrawing = () => { if (!pkg.readOnly) editorCommands.openSelectedDrawing?.(); };
     // A key pressed in the document is a new command of its own: a ribbon or menu command noted just before, which
@@ -2023,6 +2053,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const handed = doc.opened; doc.opened = null;
     const opened = handed || (doc.blob ? await openCanvasDocument(doc.blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) }) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
     pkg = opened.pkg; openedAssets.set(pkg, Object.keys(pkg.assets || {}));
+    // Save As copies a read-only document's own bytes, under the extension they go by.
+    if (pkg.readOnly) doc.originalExtension = pkg.fileExtension;
     const images = opened.images; decodedPictures = images;
     await loadCanvasFonts();
     if (destroyed) { releasePictures(); return; }
@@ -2119,7 +2151,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     status.disabled = true;
     // A failed imported copy still has bytes/text worth recovering. No save handler is attached.
     if (doc.template && !doc.blob && !doc.pendingImport) doc.discardEdits();
-    if (doc.blob) actions.append(button('Download original', () => P.downloadBlob(doc.blob, P.ensureDocx(doc.name)), { className: 'btn btn-outline' }));
+    if (doc.blob) actions.append(button('Download original', () => P.downloadBlob(doc.blob, originalName()), { className: 'btn btn-outline' }));
     throw e;
   });
   ready.catch(() => {});

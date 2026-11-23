@@ -363,3 +363,22 @@ test('with cells selected, Shift+Down and Shift+Up go a row at a time past cells
   await input(page).press('Shift+ArrowDown'); await input(page).press('Shift+ArrowDown'); await input(page).press('Shift+ArrowDown');
   await expect.poll(() => page.evaluate(() => { const m = window.__docs.current.view.engine.model; return m.selection.focus === m.text.length && !m.paragraphs.at(-1).cellId; })).toBe(true);
 });
+
+test('screen readers hear the table size on entering it and the row and column of each cell the caret moves to', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await page.keyboard.type('Intro'); await page.keyboard.press('Enter');
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 2 rows' }).click();
+  const live = page.locator('.toast-root[aria-live="polite"]');
+  const spoken = () => live.locator('.visually-hidden').evaluateAll(nodes => nodes.map(n => n.textContent));
+  await expect.poll(spoken).toEqual(['Table, 2 rows, 3 columns. Row 1, column 1']);
+  await input(page).press('Tab');
+  await expect.poll(spoken).toEqual(['Table, 2 rows, 3 columns. Row 1, column 1', 'Row 1, column 2']);
+  // Typing and moving within a cell say nothing more; moving to another cell, or out of the table, does.
+  await page.keyboard.type('Two'); await input(page).press('ArrowLeft');
+  await input(page).press('ArrowDown');
+  await input(page).press('ArrowDown');
+  await expect.poll(spoken).toEqual(['Table, 2 rows, 3 columns. Row 1, column 1', 'Row 1, column 2', 'Row 2, column 2', 'Out of table']);
+});

@@ -92,7 +92,7 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES, MAX_PACKAGE_ITEMS, hasPart } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
@@ -103,6 +103,7 @@ export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordproc
 // A template (.dotx) or macro-enabled file (.docm, .dotm) differs from a document only in its main
 // part's content type, and in the macros (refused for editing below). Saving writes a .docx.
 const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroenabled.main+xml', 'application/vnd.ms-word.template.macroenabledtemplate.main+xml']);
+const FILE_EXTENSIONS = { 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml': '.dotx', 'application/vnd.ms-word.document.macroenabled.main+xml': '.docm', 'application/vnd.ms-word.template.macroenabledtemplate.main+xml': '.dotm' };
 // Macros and signatures are found by what their parts are, not what they are called: part names are the
 // producer's choice (ECMA-376 Part 2, §9.1.1), and a VBA project stored as word/code.bin was kept and saved
 // into a .docx, which Word refuses. Macro parts are the VBA project and its data ([MS-OFFMACRO2]);
@@ -567,7 +568,7 @@ function writeDefaultTabStop(parts, distance, initial, fresh) {
   if (distance === initial && (!fresh || distance === 720)) return;
   const related = relatedPartPath(parts, 'settings');
   let path = related || 'word/settings.xml';
-  if (!related) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/settings${i}.xml`;
+  if (!related) for (let i = 1; hasPart(parts, path); i++) path = `word/settings${i}.xml`;
   const settings = related ? readSettings(parts) : xml(`<w:settings xmlns:w="${W}"/>`);
   const root = settings.documentElement;
   let stop = child(root, 'defaultTabStop');
@@ -581,7 +582,7 @@ function writeDefaultTabStop(parts, distance, initial, fresh) {
 function openSettings(parts) {
   const related = relatedPartPath(parts, 'settings');
   let path = related || 'word/settings.xml';
-  if (!related) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/settings${i}.xml`;
+  if (!related) for (let i = 1; hasPart(parts, path); i++) path = `word/settings${i}.xml`;
   return { settings: related ? readSettings(parts) : xml(`<w:settings xmlns:w="${W}"/>`), related, path };
 }
 /** Turn Track Changes on or off for the document (§17.15.1.90). */
@@ -715,7 +716,7 @@ function writeStyles(parts, styles) {
   const existingPath = stylesPath(parts);
   let path = existingPath || 'word/styles.xml';
   // Preserve any unrelated/orphan part occupying the conventional name.
-  if (!existingPath) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/styles${i}.xml`;
+  if (!existingPath) for (let i = 1; hasPart(parts, path); i++) path = `word/styles${i}.xml`;
   const doc = existingPath ? xml(parts[path]) : xml(`<w:styles xmlns:w="${W}"/>`), root = doc.documentElement;
   const make = name => doc.createElementNS(W, `w:${name}`);
   // Deleted styles leave the part; every other definition keeps its XML.
@@ -1234,10 +1235,27 @@ function hasPageStoryControls(root) {
   });
 }
 
+// Other ZIP-based formats a user may pick under "All files": "not a supported DOCX document" told them nothing to do.
+// An OpenDocument package names its kind in its first, uncompressed `mimetype` item (ODF 1.2 Part 3, §3.3), and an
+// Excel or PowerPoint package has its main part in xl/ or ppt/.
+function otherPackageProblem(parts) {
+  let mimetype = '';
+  try { mimetype = parts.mimetype ? new TextDecoder().decode(parts.mimetype.subarray(0, 100)).trim() : ''; } catch { /* not text */ }
+  if (/^application\/vnd\.oasis\.opendocument\.text(?:-template)?$/.test(mimetype)) return 'This is an OpenDocument text file (.odt), which this editor cannot open. Save it as a Word Document (.docx) in the app that made it, then open it here.';
+  const kind = /^application\/vnd\.oasis\.opendocument\.spreadsheet/.test(mimetype) || parts['xl/workbook.xml'] ? 'a spreadsheet'
+    : /^application\/vnd\.oasis\.opendocument\.presentation/.test(mimetype) || parts['ppt/presentation.xml'] ? 'a presentation' : null;
+  return kind && `This is ${kind}, not a Word document. Open it in a ${kind.slice(2)} app.`;
+}
+
 const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
+const ARCHIVE_LIMITS = {
+  maxBytes: MAX_EXPANDED_PACKAGE_BYTES, maxItems: MAX_PACKAGE_ITEMS, message: EXPANDED_LIMIT,
+  itemsMessage: `This document is made of more than ${MAX_PACKAGE_ITEMS.toLocaleString('en-US')} pictures and other parts, more than this editor opens.`,
+  compressionMessage: 'This file stores its contents with a kind of compression Word documents do not use, so it cannot be opened. Save it again as a Word Document (.docx) in the app that made it.',
+};
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
-  const parts = canonicalMainPart(unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT }));
+  const parts = canonicalMainPart(unzipBounded(bytes, ARCHIVE_LIMITS));
   return DocxPackage.preview(parts).paragraphs;
 }
 
@@ -1284,14 +1302,14 @@ export class DocxPackage {
     let parts;
     const names = new Set(), duplicates = new Set();
     try {
-      parts = unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT, onItem: entry => {
+      parts = unzipBounded(bytes, { ...ARCHIVE_LIMITS, onItem: entry => {
         const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
         if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
       } });
-    } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
+    } catch (e) { throw new Error([ARCHIVE_LIMITS.itemsMessage, ARCHIVE_LIMITS.compressionMessage].includes(e.message) ? e.message : `Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);
     if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
-    if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
+    if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error(otherPackageProblem(parts) || 'This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
     if (!MAIN_TYPES.has(mainPartType(types))) {
       throw new Error('Only standard .docx files are supported in this version.');
@@ -2321,6 +2339,16 @@ export class DocxPackage {
   }
   /** Document properties (Part 2 §11): the file's values with this session's edits over them. */
   get coreProperties() { return { ...readCoreProperties(this.parts), ...(this.coreEdits || {}) }; }
+  /**
+   * The extension the opened file's own bytes go by: .dotx, .docm or .dotm for a template or macro-enabled
+   * package (its main part's content type), else .docx. Word refuses such a package under a .docx name, so a
+   * read-only document's original is downloaded under this one.
+   */
+  get fileExtension() {
+    let type = '';
+    try { type = mainPartType(xml(this.parts['[Content_Types].xml'])); } catch { /* an unreadable stream names no other kind */ }
+    return FILE_EXTENSIONS[type] || '.docx';
+  }
   /** Change title, subject, author, keywords… on the next export. An empty value removes one. */
   setCoreProperties(patch) {
     if (this.readOnly) throw new Error('This document is open read-only.');
@@ -2534,6 +2562,10 @@ export class DocxPackage {
         const background = doc.createElementNS(W, 'w:background');
         background.setAttributeNS(W, 'w:color', pageSettings.background);
         doc.documentElement.prepend(background);
+        // Word shows the page color in Print Layout only with displayBackgroundShape (§17.15.1.25) on, as it
+        // writes it when a page color is chosen; without it, the color chosen here did not show there.
+        const { settings, related, path } = openSettings(parts);
+        if (writeSettingsFlag(settings, 'displayBackgroundShape', true)) saveSettings(parts, settings, related, path);
       }
     }
     const writeImage = imageWriter(parts, paragraphs, assets, doc);
@@ -2573,8 +2605,13 @@ export class DocxPackage {
     const sectionSource = p => p.sectionProperties ? { xml: p.sectionProperties, settings: sourceSections.get(p.sectionProperties) || p.sectionEnd } : finalSource;
     if (section) writePageSettings(section, pageSettings, this.initialPageSettings, make, !this.originals.size);
     const writeParagraph = paragraphWriter(doc, styles, numbering, this.originals, writeImage, writeLink, sectionSource);
-    // The final paragraph the reader added to a body without one stays out of the file while it is untouched.
-    blocks = blocks.filter(block => { const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id); return !(original?.added && original.signature === signature(block.paragraph)); });
+    // The final paragraph the reader added to a body without one stays out of the file while it is untouched and
+    // still ends the body after what needed it (nothing, a section break or a table). Once that table is gone or text
+    // follows it, it is a paragraph of the document like any other.
+    blocks = blocks.filter((block, i) => {
+      const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id), before = blocks[i - 1];
+      return !(original?.added && original.signature === signature(block.paragraph) && i === blocks.length - 1 && (!before || before.type === 'table' || before.paragraph?.sectionEnd));
+    });
     appendControlledBlocks(body, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc, null, section || null);
     writeParagraph.finish();
     const sectionParagraphs = paragraphs.filter(p => p.sectionEnd);

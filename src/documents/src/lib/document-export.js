@@ -150,14 +150,19 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
         const start = number ?? 1;
         // A list numbered with letters or Roman numerals keeps them: "see (b)" still finds item b.
         const type = tag === 'ol' ? LIST_TYPES[(() => { try { return levelFor(model.numbering, p.list).format; } catch { return null; } })()] : null;
-        html += `<${tag}${type ? ` type="${type}"` : ''}${start !== 1 ? ` start="${start}"` : ''}>`;
-        lists.push({ tag, depth, number: start });
+        // A list started by a right-to-left item is right-to-left too: its numbers then stand in its indent at the
+        // right, not past the page's right edge. Within one, a left-to-right list says so.
+        const listRtl = !!p.format?.bidi, within = !!lists.at(-1)?.itemRtl;
+        html += `<${tag}${listRtl !== within ? ` dir="${listRtl ? 'rtl' : 'ltr'}"` : ''}${type ? ` type="${type}"` : ''}${start !== 1 ? ` start="${start}"` : ''}>`;
+        lists.push({ tag, depth, number: start, rtl: listRtl });
       }
     }
     const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level, pageLanguage(model))).join('') || '<br>';
     // A right-to-left paragraph (w:bidi) says so; its stored alignment is relative to its right-hand start.
     const rtl = !!p.format?.bidi, alignment = rtl ? { left: 'start', right: 'left' }[p.format?.alignment ?? 'left'] ?? p.format?.alignment : p.format?.alignment;
-    const align = (rtl ? ' dir="rtl"' : '') + (['center', 'right', 'left', 'both', 'thaiDistribute'].includes(alignment) && (rtl || alignment !== 'left') ? ` style="text-align:${alignment === 'both' || alignment === 'thaiDistribute' ? 'justify' : alignment}"` : '');
+    // A left-to-right item of a right-to-left list says so, or it would take the list's direction.
+    if (tag) lists.at(-1).itemRtl = rtl;
+    const align = (rtl ? ' dir="rtl"' : tag && lists.at(-1).rtl ? ' dir="ltr"' : '') + (['center', 'right', 'left', 'both', 'thaiDistribute'].includes(alignment) && (rtl || alignment !== 'left') ? ` style="text-align:${alignment === 'both' || alignment === 'thaiDistribute' ? 'justify' : alignment}"` : '');
     html += tag ? `<li${value != null ? ` value="${value}"` : ''}${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
   }
   closeLists();

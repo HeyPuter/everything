@@ -53,10 +53,11 @@ test('typing repaints only the pages on screen, and a page scrolled into view is
   const read = await page.evaluate(middle => pixels(middle), middle);
   expect(await page.evaluate(middle => editor.stalePages.has(middle), middle)).toBe(false);
   expect(read).toBe(await page.evaluate(middle => fresh(middle), middle));
-  // Idle time paints the rest once changes pause, nearest first, a few pages at a time.
+  // Idle time paints the pages near the view once changes pause, nearest first, a few pages at a time;
+  // the pages far from it give up their pixels instead.
   await expect.poll(() => page.evaluate(() => {
     for (const task of idleTasks.splice(0)) task({didTimeout: false, timeRemaining: () => 10});
-    return editor.stalePages.size;
+    return [...editor.stalePages].filter(index => !editor.releasedPages.has(index)).length;
   }), {timeout: 10000}).toBe(0);
   for (const index of [middle + 1, last - 2]) {
     const idle = await page.evaluate(index => pixels(index), index);
@@ -116,9 +117,44 @@ test('a document of a few dozen pages shows current pages when scrolled, read or
   expect(read).toBe(await page.evaluate(middle => fresh(middle), middle));
   await expect.poll(() => page.evaluate(() => {
     for (const task of idleTasks.splice(0)) task({didTimeout: false, timeRemaining: () => 10});
-    return editor.stalePages.size;
+    return [...editor.stalePages].filter(index => !editor.releasedPages.has(index)).length;
   }), {timeout: 10000}).toBe(0);
   expect(await page.evaluate(index => pixels(index), 2)).toBe(await page.evaluate(index => fresh(index), 2));
+});
+
+// Every page canvas held its pixels (about 14 MB a page on a 2x display): a 160-page document held over 2 GB.
+test('pages far from the view give up their pixels, and show and read current content again', async ({page}) => {
+  const count = await page.evaluate(() => editor.canvases.length);
+  const held = () => page.evaluate(() => {
+    for (const task of idleTasks.splice(0)) task({didTimeout: false, timeRemaining: () => 10});
+    return editor.canvases.filter(canvas => canvas.width > 0).length;
+  });
+  await expect.poll(held).toBeLessThan(20);
+  const last = count - 1;
+  expect(await page.evaluate(last => [editor.canvases[last].width, editor.releasedPages.has(last), editor.stalePages.has(last)], last)).toEqual([0, true, true]);
+  // The page keeps its size on screen, so the document scrolls as before.
+  expect(await page.evaluate(last => editor.canvases[last].getBoundingClientRect().height, last)).toBeGreaterThan(500);
+  // Scrolled to, it is painted at once, at full resolution.
+  await page.evaluate(last => { painted.clear(); editor.canvases[last].scrollIntoView(); }, last);
+  await expect.poll(() => page.evaluate(last => editor.releasedPages.has(last) || editor.stalePages.has(last), last)).toBe(false);
+  expect(await page.evaluate(last => editor.canvases[last].width, last)).toBe(await page.evaluate(() => editor.canvases[0].width || editor.canvases[1].width));
+  expect(await page.evaluate(last => pixels(last), last)).toBe(await page.evaluate(last => fresh(last), last));
+  // The first pages are now far away: they give up theirs, and a read paints the page first.
+  await expect.poll(held).toBeLessThan(20);
+  expect(await page.evaluate(() => editor.releasedPages.has(0))).toBe(true);
+  expect(await page.evaluate(() => pixels(0))).toBe(await page.evaluate(() => fresh(0)));
+  // A short document keeps every page.
+  const kept = await page.evaluate(async () => {
+    const {paragraph} = await import('/src/engine/model.js');
+    const host = editor.host, Editor = editor.constructor; editor.destroy();
+    window.editor = new Editor(host, {paragraphs: Array.from({length: 140}, (_, i) => paragraph(`Short ${i}. ${'Words fill the line. '.repeat(10)}`))});
+    editor.focus();
+    for (let i = 0; i < 20; i++) for (const task of idleTasks.splice(0)) task({didTimeout: false, timeRemaining: () => 10});
+    return {count: editor.canvases.length, held: editor.canvases.filter(canvas => canvas.width > 0).length, released: editor.releasedPages.size};
+  });
+  expect(kept.count).toBeGreaterThan(8);
+  expect(kept.count).toBeLessThanOrEqual(16);
+  expect(kept).toEqual({...kept, held: kept.count, released: 0});
 });
 
 test('a long selection is worked out once for all the pages painted after it', async ({page}) => {

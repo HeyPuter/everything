@@ -22,6 +22,8 @@ for(const [name,ref] of Object.entries(references)) test(`matches native page nu
   await expect(input).toHaveJSProperty('readOnly',false);
   const canvases=page.locator('canvas.canvas-page');await expect(canvases).toHaveCount(ref.pages.length);
   await expect.poll(()=>page.evaluate(()=>[...document.querySelectorAll('canvas.canvas-page')].map(canvas=>{
+    // Pages far from the view are painted when something asks for them, not all at idle: ask for each.
+    canvas.getContext('2d');
     const drawn=new Map();for(const p of window.pageNumberPaint)if(p.canvas===canvas)drawn.set(`${p.x},${p.y}`,p);
     const text=footer=>[...drawn.values()].filter(p=>(p.y>900)===footer).sort((a,b)=>a.y-b.y||a.x-b.x).map(p=>p.text).join('').trim()||null;
     return {body:text(false),footer:text(true)};

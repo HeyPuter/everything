@@ -149,6 +149,16 @@ puter-user-menu::part(sign-in) {
   height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-sm);
   background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 600; white-space: nowrap;
 }
+/* puter.js shows an Upgrade button before the Apps button, signed in or out: an outlined button in the app's accent,
+   and in the editor's title bar a pill like the ones beside it. */
+puter-user-menu::part(upgrade-button) {
+  height: 32px; padding: 0 12px; border: 1px solid var(--accent); border-radius: var(--r-sm);
+  background: transparent; color: var(--accent); font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.ed-header puter-user-menu::part(upgrade-button) {
+  height: 28px; padding: 0 10px; border-color: var(--ed-line); border-radius: 7px;
+  background: var(--ed-card); color: var(--ed-accent); font-weight: 500;
+}
 .ed-header .settings-btn { width: 32px; height: 32px; border-radius: 7px; color: var(--ed-ink-2); }
 .ed-header puter-user-menu::part(apps-button) { width: 32px; height: 32px; border-radius: 7px; color: var(--ed-ink-2); }
 .ed-header puter-user-menu::part(avatar) { width: 28px; height: 28px; line-height: 28px; font-size: 13px; }
@@ -156,7 +166,9 @@ puter-user-menu::part(sign-in) {
 @media (hover: hover) {
   puter-user-menu::part(apps-button):hover { background: var(--surface-2); color: var(--ink); }
   puter-user-menu::part(sign-in):hover { background: var(--accent-strong); }
+  puter-user-menu::part(upgrade-button):hover { background: var(--accent-wash); }
   .ed-header .settings-btn:hover, .ed-header puter-user-menu::part(apps-button):hover { background: var(--ed-hover); color: var(--ed-ink); }
+  .ed-header puter-user-menu::part(upgrade-button):hover { border-color: var(--ed-field); background: var(--ed-hover); }
 }
 puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
   background: var(--surface); border-color: var(--hairline-strong);
@@ -167,6 +179,26 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 @media (max-width: 480px) {
   .ed-header .settings-btn, .ed-header puter-user-menu::part(apps-button) { display: none; }
 }
+/* Below 1761px the editor's title bar has no room for the Upgrade pill: it cut the document's name short and pushed
+   the last menus out of the menu bar. It becomes an icon button there (its words stay its accessible name, and
+   user-menu.js makes them its tooltip), and phones leave it out, as Parametric does. The icon is lucide's
+   circle-arrow-up (ISC), drawn as a mask in the button's color. The home screen keeps the pill, but for the
+   narrowest phones, where it pushed the account off the screen. */
+@media (max-width: 1760px) {
+  .ed-header puter-user-menu::part(upgrade-button) { width: 32px; padding: 0; font-size: 0; }
+  .ed-header puter-user-menu::part(upgrade-button)::before {
+    content: ''; display: block; width: 18px; height: 18px; margin: auto; background: currentColor;
+    -webkit-mask: var(--upgrade-icon) center / contain no-repeat; mask: var(--upgrade-icon) center / contain no-repeat;
+  }
+}
+@media (max-width: 1760px) and (forced-colors: active) {
+  .ed-header puter-user-menu::part(upgrade-button)::before { forced-color-adjust: none; background: ButtonText; }
+}
+.ed-header {
+  --upgrade-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m16 12-4-4-4 4'/%3E%3Cpath d='M12 16V8'/%3E%3C/svg%3E");
+}
+@media (max-width: 760px) { .ed-header puter-user-menu::part(upgrade-button) { display: none; } }
+@media (max-width: 374px) { puter-user-menu::part(upgrade-button) { display: none; } }
 
 .apps-panel {
   position: fixed;
@@ -221,6 +253,8 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .apps-panel-actions { display: flex; align-items: center; gap: 2px; }
 .apps-panel-action { width: 28px; height: 28px; text-decoration: none; }
 
+/* The keyboard's stop after the embed (apps-panel.js) takes no room: reaching it moves on at once. */
+.apps-panel-end { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 /* The iframe fills the rest of the card; the body clips it to the card's bottom corners. */
 .apps-panel-body {
   position: relative;

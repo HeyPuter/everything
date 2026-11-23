@@ -125,6 +125,15 @@ Character selection rules above use for those letters; **Font** keeps setting th
 Home font box still sets only those two: telling a Latin font from an East Asian one would need the font's
 coverage, which is not read. `tests/browser/font-dialog.spec.js` checks layout, undo and the saved attribute.
 
+Likewise its **Complex script font** (offered when the selection, or the caret's paragraph, holds Hebrew, Arabic or
+other right-to-left letters, or text marked `w:rtl` or `w:cs`) sets the complex script slot alone
+(`w:rFonts/@w:cs`, §17.3.2.26), the font such text is shown in; for that text **Font style** also sets `w:bCs` and
+`w:iCs` (§§17.3.2.2, 17.3.2.17), as Bold and Italic do. The Home font box tells by run direction rather than font
+coverage: for a selection of only `w:rtl` or `w:cs` text it shows and sets the complex script slot alone (named
+Complex script font family), and for one mixing such text with other text it sets that slot with the ASCII and
+high-ANSI ones. `tests/font-dialog-fields.test.js` and
+`tests/browser/rtl-paragraph-review.spec.js` check the field and the saved attributes.
+
 `tools/canvas_font_family_fixture.py` independently generates
 `public/fixtures/font-families.docx` with python-docx and original XML. It covers
 partial style overrides, theme precedence, empty marks, AutoFit cells, mixed
@@ -22277,6 +22286,10 @@ Supported subset:
   the Comments pane still show them, and replying, resolving, deleting or going to one returns to the body
   first, so the change is the body's own undo step. New Comment stays unavailable there.
   Tests: `tests/browser/review-comments-in-stories.spec.js`.
+- Cut and paste in the same document moves a comment whose whole range was cut: its `commentRangeStart` and
+  `commentRangeEnd` go around the pasted text in one undo step with the paste. A copy pasted again leaves the
+  comment on its original text (no second range for one comment), and a paste into another document or story
+  carries no comment. A comment only partly cut keeps the rest of its range. Tests: `tests/comment-clipboard.test.js`.
 
 Gaps: comments in headers, footers, footnotes and drawing text keep the previous read-only
 behaviour; rich formatting inside comment bodies is flattened when a comment is edited; people
@@ -22555,7 +22568,10 @@ the `w:caps` property (§17.3.2.5); that remains **All caps** in the Font settin
 **Format Painter** copies the character style (`w:rStyle`, §17.3.2.29) and the
 direct character formatting of the selection's first character; with a caret, or
 a selection covering whole paragraphs, it also copies the paragraph style
-(`w:pStyle`, §17.3.1.27) and direct paragraph formatting. Direct formatting is
+(`w:pStyle`, §17.3.1.27) and direct paragraph formatting, including the paragraph's own list membership
+(`w:numPr` `numId`/`ilvl`, §17.9.18): the painted paragraphs become items of that list at that level, and painted
+from a paragraph that is no list item in its own right, direct list items stop being items (numbering that
+comes through a style follows the style). A `numId` the target document lacks is not painted. Direct formatting is
 taken as the resolved values that differ from the styles alone, so imported
 `w:rPr`/`w:pPr` declarations and in-editor edits copy alike. Painting first clears
 the target's direct formatting (replacing, not merging), then applies each
@@ -23855,6 +23871,9 @@ Supported subset:
   Combine) with `ins`/`del` and `rPrChange`/`pPrChange` revisions authored by the chosen label.
   A paragraph only the other document has keeps its list (§17.3.1.19 `numPr`) when the base document's numbering
   defines that list and level; otherwise it is copied unnumbered.
+  At word level, runs of Chinese, Japanese, Thai, Lao, Khmer and Myanmar letters (no spaces between words) are
+  split where the dictionary finds words (`Intl.Segmenter`, as for Ctrl+Arrow), so one changed word is marked
+  instead of its whole sentence; without a segmenter such a run stays one word.
 
 Validation: `tests/document-protection.test.js`, `tests/tracked-formatting.test.js`,
 `tests/compare-documents.test.js`, `tests/review-fixtures.test.js` (fixtures written by
@@ -24202,7 +24221,10 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   `margin`), `w:lines`, `w:wrap="around"`, `w:vAnchor="text"`, `w:hAnchor` (`text` for drop, `page`
   for margin) and `w:hSpace`, exact line spacing and a lowered (`w:position`) enlarged run. Layout
   places the cap at the following paragraph's first line, spanning `lines` lines, with its baseline
-  on line `lines`; dropped caps indent those lines, margin caps sit left of the column. Ignored for
+  on line `lines`; dropped caps indent those lines, margin caps sit left of the column. A cap before a
+  right-to-left paragraph (§17.3.1.6 `bidi`) stands at the column's right edge (in the right margin
+  for `margin`), and its letter takes the complex-script size too (§17.3.2.39 `szCs`), which is the
+  size right-to-left text shows. Ignored for
   caps: x/y offsets and alignments. Gaps: indented paragraphs (the cap uses the column edge),
   per-font cap heights, caps across pages or in section columns.
 
@@ -24715,6 +24737,8 @@ reason in the document itself. Each row has a unit regression that fails without
 | Empty hyperlinks | §17.16.22 `hyperlink` (CT_Hyperlink: zero or more run-level children) | A hyperlink with no content (`<w:hyperlink r:id="…"/>`, one holding only an empty run, or only a bookmark; producers leave these behind after the link text is deleted) opened the whole document read-only ("empty hyperlinks"). The schema allows an empty wrapper and it shows nothing, so it is now read as no link: untouched paragraphs keep it byte for byte, and a paragraph rewritten after an edit keeps its text and bookmarks but has no wrapper there (its relationship stays in the package). Unit regression `tests/empty-hyperlinks.test.js` (four variants in a body paragraph and a table cell: editable open, byte-identical save, edit and reopen, bookmark kept); edited exports pass `check:conformance`. |
 | Line feeds inside run text | §17.3.3.31 `t`, §17.3.3.8 `delText` (text content and `xml:space`), §17.3.3.1 `br`, §17.3.3.4 `cr` | A line feed or carriage return inside `w:t` or `w:delText` (generators that pretty-print XML or copy multi-line strings write them) opened the whole document read-only ("line breaks inside text runs"). It is whitespace, not a break, and Word shows it as a space, so it is now read as one space (the read-only preview also stopped showing it as a line break). Untouched paragraphs keep their XML; an edited paragraph saves spaces. Gaps: whitespace inside a `w:t` without `xml:space="preserve"` is not collapsed; a carriage return written as a character reference in an untouched paragraph is saved as a line feed when another part of the document is edited (both are whitespace). Unit regression `tests/text-run-newlines.test.js` (preserved, character-reference, pretty-printed and tracked-deletion text: editable open, byte-identical save, edits elsewhere and inside, reopen); the edited export passes `check:conformance`. |
 | Content type entries for created parts | ECMA-376 Part 2 §10.1.2 content types stream (`Override`, at most one per part name), §9.1.1 part names (compared case-insensitively) | Creating core properties, settings, numbering, styles, a header or footer, footnotes, endnotes or a picture part appended an `Override` without looking for one already naming that part. A package that kept an entry for a part it no longer contains (as some tools leave behind) was saved with two entries for the same part name, which is an invalid package. Every creator now sets the part's entry through one helper that reuses (and corrects the content type of) an existing entry, matching part names without regard to case, and removes repeats. Unit regression `tests/content-type-overrides.test.js`: a package with leftover entries for all eight kinds, each part created, exactly one entry per name with the needed type, and the result reopens; its XML parts pass `check:conformance` (the checker does not validate the content types stream). Comments, bibliography and mail-merge parts already checked for an entry and are unchanged. |
+| Names of created parts | ECMA-376 Part 2 §9.1.1.1 part names (equivalent names compare without regard to ASCII case; a package holds no two equivalent names), §8.3 relationships, §11 core properties | A part the editor adds (a header or footer, footnotes, endnotes, numbering, styles, settings, core properties, a bibliography source) took the first conventional name free in exact case. Beside an existing `word/Header1.xml`, a new first-page header was written as `word/header1.xml`: the saved package held two equivalent part names, which Word refuses and which reopens here only as the read-only preview ("parts that share a name"). New names are now free in any capitals. Core properties are found through their relationship in any capitals too: a relationship naming `docProps/core.xml` for the item `docProps/Core.xml` read as no properties, and setting a title wrote a second, empty part beside the original. Unit regression `tests/docx-equivalent-part-names.test.js` (header, footnotes and endnotes beside differently cased parts, core properties; no equivalent names, reopens editable, the existing header keeps its content type entry). |
+| Read-only templates and macro-enabled documents | ECMA-376 Part 2 §10.1.2.4 content type of the main part (`…wordprocessingml.template.main+xml`, `application/vnd.ms-word.document.macroEnabled.main+xml`, `application/vnd.ms-word.template.macroEnabledTemplate.main+xml`); [MS-OFFMACRO2] VBA project parts | A document that opens read-only is downloaded, saved as (Save As, Save a Copy) and offered after a failed open as its own unchanged bytes. Those copies were always named `.docx`, so a macro-enabled document (read-only for its macros) or a read-only template became a `.docx` whose main part is not a document's, a file Word refuses. The copies now take the extension the main part's content type calls for (`.docm`, `.dotm`, `.dotx`), or for a file that did not open, the extension of the file's own name. Editable documents still save as `.docx` with the document content type. `tests/docx-macro-parts.test.js`, `tests/doc.test.js`, `tests/save-dialog.test.js`, `tests/browser/editor-failure.spec.js`. |
 | Tracked field code | §17.13.5.18 `ins`, §17.13.5.14 `del` (CT_RunTrackChange: runs, no `fldSimple`), §17.16.18 `fldChar`, §17.16.23 `instrText`, §17.16 `delInstrText` (deleted field code), §17.3.3.8 `delText` | A field inserted or deleted with Track Changes on has its code (begin, instruction, separator and end delimiters) inside the `w:ins` or `w:del`, and a deleted field's instruction is `w:delInstrText`. `w:delInstrText` made the whole document open read-only ("visible content inside a body field instruction"). A tracked field opened editable lost its tracking on save: the delimiters were written outside the change, so rejecting an inserted field (or accepting a deleted one), here or in Word, left an empty field behind, and accepting or rejecting here did the same. A field whose begin, separator and end delimiters sit in one change now keeps that change; saving writes its delimiters (and `w:delInstrText` for a deletion) inside the change, merged with its result; accepting or rejecting the change, at the caret, over a selection or for all changes, removes or keeps the whole field, and a deletion of another reviewer's insertion resolves as its text does. A field only partly inside a change keeps the earlier behaviour. Unit regression `tests/tracked-field-codes.test.js` (inserted, deleted and deleted-inserted fields: open, byte-identical save, delimiters inside the change after an edit, reopen, accept/reject all, at the caret and by reviewer, undo); edited exports pass `check:conformance`. Gaps: tracked fields in headers, footers and text boxes are not handled; a tracked field with an empty result (an index entry) is resolved only by resolving a stretch or all changes, and is not listed as a change of its own. |
 | Fields inserted or deleted while tracking | §17.13.5.18 `ins`, §17.13.5.14 `del`, §17.16.18 `fldChar` | With Track Changes on, inserting a field (Date and Time, Field, page numbers placed in the body, captions and cross-references) marked only its result inserted, and deleting a selection that took a whole field marked only its result deleted. Saved, the field's delimiters sat outside the change, so rejecting the insertion (or accepting the deletion) in Word, or here after reopening, left an empty field. The field's code is now part of the change: a field inserted while tracking (or added by a command whose insertion is then tracked) records the insertion; a deletion that takes a whole field, by the same rule an untracked deletion removes it (the selection reaches past at least one end), records the deletion, nested in another reviewer's insertion where there is one; the author's own inserted field is removed outright. Selecting exactly the result and deleting it deletes only the result, as it does untracked. Unit regression `tests/tracked-field-codes.test.js` (tracked insert, tracked command insertion, whole-field deletion saved, reopened and accepted, result-only deletion, own and other reviewers' fields). |
 | Main document part names | ECMA-376 Part 2 §8.3 package relationships, §9.1.1.1 part names (compared without regard to ASCII case), §10.1.2 content types; Part 1 §11.3.10 main document part | The main document part is the target of the package's `…/officeDocument` relationship, whatever its name. Packages whose main part is `word/document2.xml` (written by the Open XML SDK), whose relationship targets `./word/document.xml`, or whose relationship or `Override` names the part with other capitals (`/word/Document.xml`) were refused outright ("This file is not a supported DOCX document", "Unsupported DOCX document location", "Only standard .docx files are supported"). A main part stored under another name directly in `word/` is now renamed to `word/document.xml` on opening, with its relationships part, and the package relationship and content type entry are pointed at the new name; relative targets keep resolving because the folder does not change. A package whose main part is already `word/document.xml` is not rewritten. A main part in another folder, or one that competes with an existing `word/document.xml`, is still refused. Unit regression `tests/docx-main-part.test.js` (four variants: editable open, styles resolve, saved names, reopen; untouched package parts byte for byte; refusals). |
@@ -24874,7 +24898,7 @@ edited and saved.
 | Feature | Specification basis | Supported subset and evidence |
 | --- | --- | --- |
 | Paragraph direction | ECMA-376 Part 1 §17.3.1.6 `bidi`, §17.7.2 style hierarchy, §17.17.4 on/off values | Read from the paragraph, its styles and the document defaults; an explicit off value overrides a style. Lines start at the right edge of the text area (page, column, table cell, text box, header, footer, note) and are ordered by UAX #9 from a right-to-left base. Set from the Home tab's Right-to-Left Text Direction toggle, Format > Text Direction (both directions) and the Paragraph dialog; written as `w:bidi` in `CT_PPrBase` order and kept through undo, redo, copy and paste. |
-| Alignment | §17.3.1.13 `jc`, §17.18.44 ST_Jc | `left`/`start` is the leading edge and `right`/`end` the trailing one: in a right-to-left paragraph the stored `left` is drawn at the right margin, as the reference application draws it. The alignment buttons, their shortcuts and the dialog name physical sides and store the reading-relative value per paragraph, so one command aligns a mixed selection to one side. Centered, justified and distributed text are direction-independent; a justified line fills from margin to margin. |
+| Alignment | §17.3.1.13 `jc`, §17.18.44 ST_Jc | `left`/`start` is the leading edge and `right`/`end` the trailing one: in a right-to-left paragraph the stored `left` is drawn at the right margin, as the reference application draws it. The alignment buttons, their shortcuts, the dialog and the table cell alignment grid (`tests/rtl-paragraph-review.test.js`, `tests/browser/rtl-paragraph-review.spec.js`) name physical sides and store the reading-relative value per paragraph, so one command aligns a mixed selection to one side. Centered, justified and distributed text are direction-independent; a justified line fills from margin to margin. |
 | Indents | §17.3.1.12 `ind` (`left`/`start`, `right`/`end`, `firstLine`, `hanging`), §17.3.1.18 `mirrorIndents` | The stored left indent, first-line indent and hanging indent apply at the right edge, the right indent at the left. Mirrored indents swap the other way on facing pages. The ruler shows the markers mirrored and edits the same stored values; the dialog labels them Before text and After text. |
 | Tabs | §17.3.1.37 `tab`, §17.3.1.38 `tabs` | Positions are measured from the right margin and fields advance leftwards: a left tab starts its text at the stop, a right tab ends it there, center and decimal tabs align on it. Leaders, tab underlines and backgrounds fill the gap on the side the field was reached from; bar tabs are measured from the right margin. |
 | Lists | §17.9 numbering, §17.3.1.19 `numPr` | The label hangs at the right of its text with the level's indents read from the right edge, and is ordered as right-to-left text ("1." reads ".1"). A right-to-left direction stated in a numbering level's own `pPr` still opens read-only. |
@@ -24946,3 +24970,80 @@ marks, linked pictures and the inputs of plain-text content controls are not res
 back only while the word is typed without a break: after the caret moves, an input-method composition, or
 a paste, it stays. Addresses are recognized by the conservative rules of links as you type, so a host on
 an uncommon domain typed without a scheme keeps its capital. A schema pass is not layout fidelity.
+
+### Position presets align to the margins (2026-11-22)
+
+Picture Format > Position (and Shape Format and Layout > Position) placed a picture with an offset from
+its column and anchor paragraph. When the text above the picture wrapped around it, or lines were added
+above its paragraph, the paragraph moved down and took the picture with it, so "Top Right" left a gap
+under the top margin. The Layout dialog also showed an aligned axis's offset measured from the margins
+while labelling it as below the paragraph, so OK moved a Word-made "Top Right" picture to its paragraph.
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Position presets | ECMA-376 Part 1 §§20.4.2.10 `positionH`, 20.4.2.11 `positionV`, 20.4.2.1 `align`, 20.4.2.17 `wrapSquare` | The nine presets write `relativeFrom="margin"` with `wp:align` left, center or right and top, center or bottom, and square wrapping on both sides with ⅛ in side distances, as Word writes them. The picture keeps its place on the page of its anchor paragraph wherever that paragraph moves on the page; Layout Options then shows Fix Position on Page. Not available in table cells (unchanged). |
+| Changing the wrapping of a positioned picture | §§20.4.2.17 `wrapSquare`, 20.4.2.18 `wrapThrough`, 20.4.2.19 `wrapTight`, 20.4.2.20 `wrapTopAndBottom` | Square, Tight and Through keep a page or margin position and margin alignment (a preset's) as they are; only a position they cannot hold (a line-relative or percentage position, alignment against the paragraph) is rewritten as column and paragraph offsets where the picture is. Top and Bottom still measures down from the paragraph, not above it. |
+| Layout dialog offsets of aligned axes | Same clauses | An aligned axis shows its current place as an offset from the column (horizontal) or paragraph (vertical), the frames the dialog offers for it, so confirming the dialog for a text-wrapped object (written as column and paragraph offsets) keeps it where it is. |
+| Layout dialog offsets below the top or bottom margin | Same clauses; §20.4.3.5 `ST_RelFromV` | A vertical offset measured from `topMargin` or `bottomMargin` is shown and kept as such (Top margin and Bottom margin are offered below Margin and Page). It was shown as an offset below the paragraph, so OK moved the object; any other frame the list does not offer is converted to the paragraph's before it is shown. |
+
+Evidence: `tests/browser/position-presets.spec.js` places a picture in Top Right, adds lines above its
+paragraph, checks it stays against the top and right margins, and downloads and reopens the result; it
+also checks Bottom Left and Middle Center. `tests/browser/layout-dialog-aligned.spec.js` opens pictures
+rewritten with Word's margin alignment and with offsets below the top margin (in front of text and
+square-wrapped) and confirms the Layout dialog without moving them. The downloads
+`top-right.docx` and `aligned.docx` pass `check:conformance`.
+
+**Remaining gaps:** the Layout dialog still writes a text-wrapped object as column and paragraph offsets,
+so after OK it moves with its paragraph again; inside and outside alignment and book-layout positions are
+not offered.
+
+### Header and footer tags name the variant and section (2026-11-22)
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Editing cues | ECMA-376 Part 1 §§17.10.5 `headerReference`/`footerReference` types, 17.6.19 `titlePg`, 17.15.1.35 `evenAndOddHeaders` | While a header or footer is edited, each page's tags say which story the page shows, as layout chooses it (`pageStoryVariant` in `src/engine/page-stories.js`, `pageVariants` from `layoutPageStories`): First Page, Even Page or Odd Page Header/Footer, or plain Header/Footer, followed by "-Section n-" when the document has more than one section. A page whose variant has no story yet is named too. Screen only; nothing is written. |
+
+Evidence: `tests/page-story-labels.test.js` (variants of the independently generated
+`public/fixtures/empty-page-stories.docx`, labels, and the painted tags).
+
+**Remaining gaps:** the status bar's editing-area list still says Header or Footer with the page number
+(longer names do not fit the bar at 1280 px); there is no Link to Previous, so a section's tag does not say
+"Same as Previous".
+
+### Page setup for selected sections (2026-11-22)
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Margins, Orientation and Size with a selection across sections | ECMA-376 Part 1 §§17.6.17 `sectPr`, 17.6.13 `pgSz`, 17.6.11 `pgMar` | Without a section named, page settings go to every section the selection reaches (Word's "Selected sections"), not only the first; with a caret alone, to its section as before. Orientation turns each section's own paper and margins, and Size keeps each section's orientation (`setPageSettings` takes a patch made from each section's settings). One undo step. The Page Setup dialog, which names its section, is unchanged. |
+
+Evidence: `tests/selected-sections-page-setup.test.js` (margins across sections, the caret's section, a named
+section, per-section turning and undo) and `tests/browser/selected-sections-orientation.spec.js` (Letter and
+A4 sections turned together from Layout > Orientation, saved, and undone in one step).
+
+## Copy and Paste of a floating picture (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §20.4.2.3 `anchor` (`relativeHeight`), §20.4.2.10 `positionH` / §20.4.2.11
+`positionV` with §20.4.3.3 `posOffset`, §20.4.2.17 `wrapSquare` (and the other wrap elements), §20.4.2.5
+`docPr` (its `id` is unique in the document).
+
+A selected floating (anchored) picture still copies as its image for other applications; the copy also carries
+the picture whole (its frame, wrapping, position, crop and retained drawing XML, referring to the same image
+part) for a paste in the same document and story. Pasted there, it floats with the same wrapping, a new `docPr`
+id and the front-most `relativeHeight`, and is selected. Where it would cover a picture anchored at exactly the
+same position (a paste over the selected original), its `posOffset` values move 0.25 in (228600 EMU) right and
+down, past each earlier copy; an axis aligned with `wp:align` (or a percentage offset) stays aligned. A cut
+picture pasted back keeps its position. Before, the paste came back as an inline picture. Gaps: a copy pasted
+in another document, or in a table cell, is still an inline picture at the copied size; pictures with both axes
+aligned paste on top of the original. Tests: `tests/browser/paste-picture.spec.js` (export: two `wrapSquare`
+pictures and three distinct `docPr` ids).
+
+## Page color shown in Word's Print Layout (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §17.2.1 `background`, §17.15.1.25 `displayBackgroundShape`.
+
+A solid page color written from Design > Page Color now also turns on `w:displayBackgroundShape` in the settings
+part (added in schema order; a document without a settings part gets one, with its relationship and content
+type), as Word writes it when a page color is chosen. Without it Word does not show the background in Print
+Layout, so the color chosen here appeared only in this editor. Removing the color leaves the settings as they
+are; an unchanged color writes nothing. Tests: `tests/canvas-page-background.test.js` (new package, existing
+settings part, removal); exports pass `tools/check-docx-schema.py`.

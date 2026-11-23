@@ -145,6 +145,19 @@ describe('rules', () => {
     const nextIf = mergeCopy([' MERGEFIELD City ', 'NEXTIF "{ MERGEFIELD Country }" = "Norway"', ' MERGEFIELD City '], { data });
     expect(nextIf.results).toEqual(['Oslo', '', 'Austin']);
   });
+  // A rule as Word's Rules menu writes it compares an unquoted field. A recipient's value holding "=", "<" or ">"
+  // was read as a comparison of its own: IF chose the wrong text and SKIPIF left out a recipient.
+  it('compares a field value holding a comparison sign as one value', () => {
+    const coded = [{ number: 1, values: { Code: 'a=b', Note: 'x<y', City: 'Oslo' } }, { number: 2, values: { Code: '', Note: '', City: 'Rome' } }];
+    const at = cursor => mergeContext({ data: coded, cursor });
+    expect(evaluateField('IF { MERGEFIELD Code } = "a=b" "yes" "no"', at(0))).toBe('yes');
+    expect(evaluateField('IF { MERGEFIELD Note } > "x" "after" "before"', at(0))).toBe('after');
+    expect(planMerge(['SKIPIF { MERGEFIELD Note } = "zzz"', ' MERGEFIELD City '], { data: coded }).map(c => c.results[1])).toEqual(['Oslo', 'Rome']);
+    expect(planMerge(['SKIPIF { MERGEFIELD Code } = ""', ' MERGEFIELD City '], { data: coded }).map(c => c.results[1])).toEqual(['Oslo']);
+    expect(mergeCopy([' MERGEFIELD City ', 'NEXTIF { MERGEFIELD Note } = "x"', ' MERGEFIELD City '], { data: coded }).results).toEqual(['Oslo', '', 'Oslo']);
+    // A field value that starts with a backslash is text, not a switch.
+    expect(evaluateField('IF "1" = "1" "{ MERGEFIELD Path }" "no"', mergeContext({ data: [{ number: 1, values: { Path: '\\\\server\\share' } }] }))).toBe('\\\\server\\share');
+  });
   it('shows placeholders outside preview', () => {
     expect(placeholderText(' MERGEFIELD "First Name" ')).toBe('«First Name»');
     expect(placeholderText(' NEXT ')).toBe('«Next Record»');

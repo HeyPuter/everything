@@ -54,7 +54,13 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
   special.addEventListener('change', syncSpecial); syncSpecial();
   const leftLabel = el('span.field-label', {}, 'Left'), rightLabel = el('span.field-label', {}, 'Right');
   // The stored left indent is the one before the text: on the right in a right-to-left paragraph.
-  const labelIndents = on => { leftLabel.textContent = on ? 'Inside' : rtlNow() ? 'Before text' : 'Left'; rightLabel.textContent = on ? 'Outside' : rtlNow() ? 'After text' : 'Right'; };
+  const labelIndents = on => {
+    leftLabel.textContent = on ? 'Inside' : rtlNow() ? 'Before text' : 'Left'; rightLabel.textContent = on ? 'Outside' : rtlNow() ? 'After text' : 'Right';
+    // The fields are named as they are labelled: "Left indent" would name the other side of a right-to-left paragraph.
+    const named = !on && rtlNow();
+    left.setAttribute('aria-label', `${named ? 'Before text' : 'Left'} indent (${left.unit})`);
+    right.setAttribute('aria-label', `${named ? 'After text' : 'Right'} indent (${right.unit})`);
+  };
   const mirror = checkbox('Mirror indents', f.mirrorIndents, on => { labelIndents(on); preview(); });
   labelIndents(!!f.mirrorIndents);
   direction.addEventListener('change', () => {

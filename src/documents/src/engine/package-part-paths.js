@@ -32,10 +32,29 @@ export function partPathForUrl(parts, url) {
   return packagePartName(parts, decoded) ?? packagePartName(parts, encoded) ?? decoded;
 }
 
+// Each stream's Overrides by lowercased part name, built on the first look-up: a package with thousands of pictures
+// looked through every Override for every picture it read, which took seconds to open. The index is rebuilt when the
+// stream's entries change in number (an entry added or removed), and a found entry is checked against its part name.
+// The writers only give an entry another name when it is created or keeps the same name in other capitals.
+const overrideIndexes = new WeakMap();
+const lowerName = text => text.replace(/[A-Z]+/g, c => c.toLowerCase());
 /** The Override element of a parsed [Content_Types].xml root declaring part `path`, compared without regard to case. */
 export function contentTypeOverride(typesRoot, path) {
-  const key = `/${path}`.replace(/[A-Z]+/g, c => c.toLowerCase());
-  return [...typesRoot.children].find(n => n.localName === 'Override' && n.getAttribute('PartName')?.replace(/[A-Z]+/g, c => c.toLowerCase()) === key);
+  const key = lowerName(`/${path}`);
+  let index = overrideIndexes.get(typesRoot);
+  if (!index || index.count !== typesRoot.childElementCount) {
+    index = { count: typesRoot.childElementCount, byName: new Map() };
+    for (const n of typesRoot.children) {
+      const name = n.localName === 'Override' && n.getAttribute('PartName');
+      if (name && !index.byName.has(lowerName(name))) index.byName.set(lowerName(name), n);
+    }
+    overrideIndexes.set(typesRoot, index);
+  }
+  const found = index.byName.get(key);
+  if (found && found.parentNode === typesRoot && lowerName(found.getAttribute('PartName') || '') === key) return found;
+  // Renamed or removed since the index was built: looked for as before.
+  if (found) { overrideIndexes.delete(typesRoot); return [...typesRoot.children].find(n => n.localName === 'Override' && lowerName(n.getAttribute('PartName') || '') === key); }
+  return undefined;
 }
 
 /**
@@ -66,12 +85,30 @@ export function packagePartName(parts, name) {
 }
 
 /**
+ * Whether the package holds part `name`, or another whose name equals it ignoring ASCII case. A new part's name
+ * must be free in this sense: a package may not hold two equivalent part names (ECMA-376 Part 2, §9.1.1.1), so a
+ * header added as word/header1.xml beside an existing word/Header1.xml made a file Word refuses, and that opens
+ * here read-only.
+ */
+export function hasPart(parts, name) {
+  if (Object.hasOwn(parts, name)) return true;
+  const lower = text => text.replace(/[A-Z]+/g, c => c.toLowerCase()), key = lower(name);
+  return Object.keys(parts).some(item => lower(item) === key);
+}
+
+/**
  * The largest DOCX file the editor opens, and the most its parts may expand to. A session holds up to 50 MB
  * of pictures (validateImageAssets), which are stored as they are; at 20 MB, a document saved with them could
  * not be opened again. These admit that, with the document's own XML, and still refuse archive bombs.
  */
 export const MAX_PACKAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_EXPANDED_PACKAGE_BYTES = 128 * 1024 * 1024;
+/**
+ * The most items a DOCX archive may hold. Each picture the editor saves is a part of its own, and a document
+ * saved with a couple of thousand pictures could not be opened again at 2,000. Well past any document a
+ * session builds; the archive's bytes stay bounded by MAX_EXPANDED_PACKAGE_BYTES.
+ */
+export const MAX_PACKAGE_ITEMS = 20000;
 
 /**
  * The items of a ZIP archive the user chose, refusing (with `message`) one that expands past `maxBytes` or
@@ -79,11 +116,15 @@ export const MAX_EXPANDED_PACKAGE_BYTES = 128 * 1024 * 1024;
  * inflating it, so a small file declaring gigabytes (a "zip bomb") made the tab allocate and decode them.
  * `onItem(entry)` sees each item first, as unzipSync's filter does.
  */
-export function unzipBounded(bytes, { maxBytes = 50 * 1024 * 1024, maxItems = 2000, message = 'The archive expands past the editor limit.', onItem } = {}) {
+export function unzipBounded(bytes, { maxBytes = 50 * 1024 * 1024, maxItems = 2000, message = 'The archive expands past the editor limit.', itemsMessage = message, compressionMessage = 'The archive stores its contents with a kind of compression this editor does not read.', onItem } = {}) {
   let total = 0, count = 0;
   return unzipSync(bytes, { filter: entry => {
     total += entry.originalSize;
-    if (++count > maxItems || total > maxBytes) throw new Error(message);
+    if (++count > maxItems) throw new Error(itemsMessage);
+    if (total > maxBytes) throw new Error(message);
+    // Items are stored or deflated (ECMA-376 Part 2, Annex C); any other method (bzip2, LZMA) was refused as
+    // "unknown compression type 12".
+    if (entry.compression !== 0 && entry.compression !== 8) throw new Error(compressionMessage);
     onItem?.(entry);
     return true;
   } });

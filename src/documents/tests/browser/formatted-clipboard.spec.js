@@ -218,3 +218,18 @@ for (const platform of ['MacIntel', 'Linux x86_64']) test(`Paste without formatt
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
+
+test('control characters in pasted text and HTML are left out, not shown as replacement marks', async ({ page }) => {
+  await blank(page);
+  await input(page).fill('Start ');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(6, 6); el.dispatchEvent(new Event('select')); });
+  // A terminal's colour codes, a bell and a NUL in plain text; tabs and lines stay.
+  await paste(page, '', 'red\u001b[31m\u0007 a\u0000b\tc\r\nnext\u0085line');
+  await expect(input(page)).toHaveValue('Start red[31m ab\tc\nnextline');
+  await input(page).press('ControlOrMeta+z');
+  // The same in HTML from another application, which keeps its bold.
+  await paste(page, '<p>x<b>bo\u0001ld</b>\u009by</p>', 'xbo\u0001ld\u009by');
+  await expect(input(page)).toHaveValue('Start xboldy');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.filter(r => r.bold).map(r => r.text))).toEqual(['bold']);
+  expect(await input(page).inputValue()).not.toContain('�');
+});

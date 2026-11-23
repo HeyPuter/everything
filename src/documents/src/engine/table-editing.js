@@ -6,7 +6,7 @@
 // layout and painting simply follow the model.
 import { tableModelInternals as M, paragraph, paragraphText, locate } from './model.js';
 import { tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, rowGrid, spanWidth, cellContext, documentBlocks } from './tables.js';
-import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements, blockRowRange, blockColumnRange } from './table-selection.js';
+import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements, blockRowRange, blockColumnRange, wholeRows } from './table-selection.js';
 import { resolveStyledParagraph } from './styles.js';
 import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
 import { mergeCellControls } from './block-controls.js';
@@ -542,7 +542,8 @@ export function splitCells(model, { rows = 1, columns = 2, widths: measured } = 
       const created = Array.from({ length: rows - 1 }, () => ({ ...copy(row), id: tableId('row'), headerChanged: true,
         cells: row.cells.map(source => {
           const cell = newCell(source);
-          if (pieceIds.has(source.id)) { cell.width = copy(source.width); cell.widthChanged = true; state.byCell.set(cell.id, [blankFor(state, target.cell, cell)]); }
+          // A piece the file gave no width (automatic, §17.4.72) keeps none; its copy says so already.
+          if (pieceIds.has(source.id)) { if (source.width) { cell.width = copy(source.width); cell.widthChanged = true; } state.byCell.set(cell.id, [blankFor(state, target.cell, cell)]); }
           else { cell.vMerge = 'continue'; cell.mergeChanged = true; }
           return cell;
         }) }));
@@ -725,23 +726,36 @@ export function autofitTable(model, mode) {
 export function eachSelectedCell(model, fn) {
   const block = model.cellBlock, selection = { ...model.selection }, cells = model.selectedTableCells;
   let changed = false;
-  for (const cell of cells) {
-    const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
-    if (first < 0) continue;
-    model.select(model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length);
-    if (fn(cell)) changed = true;
-  }
+  // Each cell's whole content, an empty last paragraph included (TextDocument.selectedParagraphs).
+  model.inBlockCellPass = true;
+  try {
+    for (const cell of cells) {
+      const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
+      if (first < 0) continue;
+      model.select(model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length);
+      if (fn(cell)) changed = true;
+    }
+  } finally { model.inBlockCellPass = false; }
   if (block) model.setCellBlock(block); else model.select(selection.anchor, selection.focus);
   return changed;
 }
 
-/** Alignment grid: the selected cells' text aligns horizontally and vertically at once. */
+/**
+ * Alignment grid: the selected cells' text aligns horizontally and vertically at once. Left and right
+ * name sides of the cell, as the grid shows them: a right-to-left paragraph stores the other value
+ * (setParagraphAlignment, rtl-paragraph.js).
+ */
 export function setCellAlignment(model, { horizontal, vertical } = {}) {
   if (vertical !== undefined && vertical !== null) checkedCellAlignment(vertical);
   if (horizontal !== undefined && !['left', 'center', 'right', 'both'].includes(horizontal)) throw new Error('Choose left, center or right alignment.');
   let changed = false;
   if (vertical !== undefined) changed = model.setCellVerticalAlignment(vertical) || changed;
-  if (horizontal !== undefined) changed = eachSelectedCell(model, () => model.setParagraphFormat({ alignment: horizontal })) || changed;
+  if (horizontal !== undefined) {
+    // Whole rows are one stretch of text already selected: one change aligns all their cells, where one per cell
+    // read the whole document again for each (seconds for a long table).
+    const block = model.activeCellBlock, align = () => model.setParagraphAlignment(horizontal);
+    changed = (block && wholeRows(block.table, block) ? align() : eachSelectedCell(model, align)) || changed;
+  }
   return changed;
 }
 
@@ -794,10 +808,11 @@ function blockEdges(table, block, which) {
   }
   return edges;
 }
-// The neighbouring cells whose opposite side touches this edge, outside the block.
-function neighbourEdges(table, placement, side) {
+// The neighbouring cells whose opposite side touches this edge, outside the block. `all`: the table's
+// ownerPlacements, worked out once for a command that asks about many edges.
+function neighbourEdges(table, placement, side, all = ownerPlacements(table)) {
   const opposite = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[side];
-  return ownerPlacements(table).filter(p => side === 'top' ? p.endRow === placement.rowIndex - 1 && p.column < placement.end && p.end > placement.column
+  return all.filter(p => side === 'top' ? p.endRow === placement.rowIndex - 1 && p.column < placement.end && p.end > placement.column
     : side === 'bottom' ? p.rowIndex === placement.endRow + 1 && p.column < placement.end && p.end > placement.column
     : side === 'left' ? p.end === placement.column && p.rowIndex <= placement.endRow && p.endRow >= placement.rowIndex
     : p.column === placement.end && p.rowIndex <= placement.endRow && p.endRow >= placement.rowIndex).map(p => ({ cell: p.cell, side: opposite }));
@@ -829,10 +844,10 @@ export function applyBorderPreset(model, preset, pen, { toggle = true } = {}) {
   }[preset];
   const edges = blockEdges(table, block, pick);
   if (!edges.length) return false;
-  const placements = new Map(ownerPlacements(table).map(p => [p.cell.id, p]));
+  const owners = ownerPlacements(table), placements = new Map(owners.map(p => [p.cell.id, p]));
   const outside = edges.flatMap(edge => {
     const kind = (({ top: placements.get(edge.cell.id).rowIndex === block.top, bottom: placements.get(edge.cell.id).endRow === block.bottom, left: placements.get(edge.cell.id).column === block.left, right: placements.get(edge.cell.id).end === block.right })[edge.side]);
-    return kind ? neighbourEdges(table, placements.get(edge.cell.id), edge.side) : [];
+    return kind ? neighbourEdges(table, placements.get(edge.cell.id), edge.side, owners) : [];
   });
   const on = edges.every(({ cell, side }) => sameBorder(cell.borders?.[side], border));
   const value = preset === 'none' || toggle && on ? none : border;

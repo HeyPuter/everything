@@ -6,7 +6,7 @@
  */
 import '../styles/pictures.css';
 import '../styles/drawing-handles.css';
-import { el, isComposing, amountInRange } from '../ui/dom.js';
+import { el, isComposing, amountInRange, collapsedUntilOpened } from '../ui/dom.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { openMenu, closeMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
@@ -16,7 +16,7 @@ import { galleryItems } from './insert-gallery.js';
 import { formatDrawing, formatDrawings, drawingKind, drawingParts, currentDrawingXml } from '../engine/drawing-format.js';
 import { describeDrawing, setFill, setOutline, setEffects, set3d, setGeometry, setTransform, setBlipEffects, setCrop, setBodyProperties, setDocProperties, writeFrame, readFrame, themeColors,
   child, childrenOf, A, WP, R } from '../engine/drawing-xml.js';
-import { frameOf, offsetsFor, moveDrawings, alignmentMoves, arrangeDrawings, POSITION_PRESETS, presetPosition } from '../engine/drawing-arrange.js';
+import { frameOf, offsetsFor, moveDrawings, alignmentMoves, arrangeDrawings, POSITION_PRESETS } from '../engine/drawing-arrange.js';
 import { groupDrawings, ungroupDrawing, groupUnavailable } from '../engine/drawing-groups.js';
 import { EMU_PER_PX, isPositionedImage, normalizedRotation, ANGLE_PER_DEGREE } from '../engine/images.js';
 import { SHAPE_PRESETS, LINE_PRESETS } from '../engine/authored-shapes.js';
@@ -257,9 +257,13 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     if (current === mode) return false;
     const place = !image.anchor ? inlinePlace(engine, image) : null;
     const anchor = image.anchor;
-    // Wrapped drawings measure from the column and paragraph; keep the drawing where it is on the page.
+    // A wrapped drawing whose position the new wrapping cannot hold is measured from its column and paragraph
+    // instead, where it is on the page. Square, tight and through wrapping hold page and margin positions and
+    // alignment (a Position preset's), so those keep them; top-and-bottom wrapping measures down from the paragraph.
+    const sided = ['square', 'tight', 'through'].includes(mode);
+    const heldBySide = anchor && ['column', 'page', 'margin'].includes(anchor.horizontal) && ['paragraph', 'page', 'margin', 'topMargin', 'bottomMargin'].includes(anchor.vertical) && !(anchor.yAlign && anchor.vertical === 'paragraph') && anchor.xPercentage === undefined && anchor.yPercentage === undefined;
     let position = null;
-    if (mode !== 'inline' && anchor && ['square', 'tight', 'through', 'topAndBottom'].includes(mode) && (anchor.horizontal !== 'column' || anchor.vertical !== 'paragraph' || anchor.xAlign || anchor.yAlign || anchor.xPercentage !== undefined || anchor.yPercentage !== undefined)) {
+    if (mode !== 'inline' && anchor && (sided || mode === 'topAndBottom') && !(sided && heldBySide) && (anchor.horizontal !== 'column' || anchor.vertical !== 'paragraph' || anchor.xAlign || anchor.yAlign || anchor.xPercentage !== undefined || anchor.yPercentage !== undefined)) {
       const f = frameOf(engine, image);
       if (f) {
         const zero = offsetsFor(engine, { ...f, image: { ...image, anchor: { ...anchor, horizontal: 'column', vertical: 'paragraph' } } }, f.x, f.y);
@@ -292,22 +296,14 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   async function positionPreset(preset) {
     const image = selected(), engine = ready(); if (!engine || !image) return false;
     if (!formattable(image)) { fail(new Error('This object keeps its position.')); return false; }
-    const page = engine.layout.pages?.[engine.caretPageIndex ?? 0] || engine.layout.page;
-    const frame = image.anchor ? frameOf(engine, image) : null;
-    const size = { width: image.width / EMU_PER_PX, height: image.height / EMU_PER_PX };
-    const target = presetPosition(page, size, preset);
-    let place;
-    if (frame) {
-      const at = offsetsFor(engine, { ...frame, image: { ...image, anchor: { ...image.anchor, horizontal: 'column', vertical: 'paragraph' } } }, target.x, target.y);
-      place = at;
-    } else {
-      const layout = engine.selectionLayout || engine.layout;
-      const line = layout.lines.find(l => l.fragments.some(f => f.image === image));
-      const top = line ? Math.min(...layout.lines.filter(l => l.paragraphId === line.paragraphId && l.page === line.page).map(l => l.y)) : page.top;
-      place = { x: Math.round((target.x - (line?.columnLeft ?? page.left)) * EMU_PER_PX), y: Math.round((target.y - top) * EMU_PER_PX) };
-    }
+    // Aligned to the margins of its page (§20.4.2.1 align), as Word writes these presets: an offset from the
+    // anchor paragraph would carry the picture down with that paragraph when the text above it wraps around
+    // the picture or grows.
+    const [, , h, v] = preset;
+    const horizontal = { relativeFrom: 'margin', align: h === 0 ? 'left' : h === 1 ? 'right' : 'center' };
+    const vertical = { relativeFrom: 'margin', align: v === 0 ? 'top' : v === 1 ? 'bottom' : 'center' };
     const order = image.anchor?.order ?? Math.max(0, ...runImages(engine.model).map(i => i.anchor?.order || 0)) + 1;
-    return apply('Position', async drawing => writeFrame(drawing, { horizontal: { relativeFrom: 'column', offset: place.x }, vertical: { relativeFrom: 'paragraph', offset: place.y },
+    return apply('Position', async drawing => writeFrame(drawing, { horizontal, vertical,
       wrap: { type: 'square', side: 'bothSides', distances: { T: 0, B: 0, L: 114300, R: 114300 } }, behind: false, order }));
   }
   function arrange(direction) {
@@ -856,7 +852,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     pictureGallery.append(...pictureStyleButtons.map(i => i.button));
     const pictureStylesMore = command('More Picture Styles', 'more', e => openMenu({ anchor: pictureStylesMore, label: 'Picture Styles', pointer: !!e?.detail, onClose: e?.detail ? kit.focusEditor : null,
       items: kit.inDocument(galleryItems([{ columns: 5, items: presets.PICTURE_STYLES.map(style => ({ label: style.name, preview: styleThumb(pictureSource(ready(), selected()), style, palette()), onSelect: () => commands.pictureStyle(style) })) }], { size: 'small', label: 'Picture Styles' })) }));
-    pictureStylesMore.classList.add('ribbon-gallery-more'); pictureStylesMore.setAttribute('aria-haspopup', 'menu');
+    pictureStylesMore.classList.add('ribbon-gallery-more'); collapsedUntilOpened(pictureStylesMore, 'menu');
     track(pictureStylesMore, pic);
     const border = menuButton('Picture Border', 'pictureBorder', () => outlineItems('Picture Border'), { size: 'small', text: 'Picture Border' });
     const effects = menuButton('Picture Effects', 'pictureEffects', () => effectsItems('Picture Effects'), { size: 'small', text: 'Picture Effects' });
@@ -897,7 +893,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     renderShapeGallery();
     const shapeStylesMore = command('More Shape Styles', 'more', e => openMenu({ anchor: shapeStylesMore, label: 'Shape Styles', pointer: !!e?.detail, onClose: e?.detail ? kit.focusEditor : null,
       items: kit.inDocument(galleryItems(presets.SHAPE_STYLE_KINDS.map(k => ({ header: k.name, columns: 7, items: presets.shapeStyles(!!theme()).filter(s => s.kind === k.id).map(style => ({ label: style.name, preview: shapeStyleThumb(style, palette(), { width: 36, height: 28, text: 'Abc' }), onSelect: () => commands.shapeStyle(style) })) })), { size: 'small', label: 'Shape Styles' })) }));
-    shapeStylesMore.classList.add('ribbon-gallery-more'); shapeStylesMore.setAttribute('aria-haspopup', 'menu');
+    shapeStylesMore.classList.add('ribbon-gallery-more'); collapsedUntilOpened(shapeStylesMore, 'menu');
     track(shapeStylesMore, () => editable() && (isShape(selected())));
     const fillButton = menuButton('Shape Fill', 'shapeFill', () => fillItems('Shape Fill'), { size: 'small', text: 'Shape Fill' });
     const outlineButton = menuButton('Shape Outline', 'shapeOutline', () => outlineItems('Shape Outline'), { size: 'small', text: 'Shape Outline' });

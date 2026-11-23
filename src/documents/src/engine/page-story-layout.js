@@ -1,5 +1,5 @@
 import { measurePageStory, storyContentKey, layoutSerializer } from './page-story-measure.js';
-import { pageStoryPath } from './page-stories.js';
+import { pageStoryPath, pageStoryVariant } from './page-stories.js';
 import { positionedImageFrame } from './positioned-images.js';
 import { resolveDrawingCollisions } from './drawing-collisions.js';
 import { isPositionedImage } from './images.js';
@@ -40,9 +40,12 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
     }
   });
   const numbers = pageNumberSequence(body.pageSections, definition, body.numberingApproximations), pageNumbers = numbers;
+  // Which header and footer each page shows, also where that story is missing or empty (editing cues name it).
+  const pageVariants = [];
   for (let page = 0; page < body.pageCount; page++) {
     const section = body.pageSections[page], settings = sectionSettings[section], geometry = referencePageGeometry(body.pages[page]);
     if (section === null) continue;
+    pageVariants[page] = { section, variant: pageStoryVariant(definition, section, numbers[page], firstPages.get(section) === page) };
     for (const kind of ['header', 'footer']) {
       const path = pageStoryPath(definition, section, kind, numbers[page], firstPages.get(section) === page);
       const story = path && definition.stories[path];
@@ -57,7 +60,7 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
         const { placed, trim, storyGeometry, positions: storyPositions } = measurePageStory({ ...story, paragraphs: storyParagraphs(path, story) }, { ...geometry, storyKind: kind }, measure, numbering,
           { pageNumber: numbers[page], pageCount: body.pageCount, sectionPageCount: counts.get(section), pageNumbering: definition.sections[section].pageNumbering },
           { drawingLayouts, onUnsupported: bestEffort ? error => unsupported.push({ path, page, message: error.message }) : undefined, storyKeys, ...styleOptions, numberingKey, contentKey: storyContentKey(definition, path) });
-        positions.push({ path, page, positions: storyPositions });
+        positions.push({ path, page, positions: storyPositions, ...pageVariants[page] });
         const y = kind === 'header' ? settings.header / 15 : geometry.height - settings.footer / 15 - placed.endY + trim;
         const frames = new Map((placed.paragraphFrames || []).map(f=>[f.frameId,f]));
         const shiftY = item => item.frameId && frames.get(item.frameId)?.vAnchor !== 'text' ? 0 : y;
@@ -118,5 +121,5 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       }
     }
   }
-  return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, positions, watermarks };
+  return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, positions, watermarks, pageVariants };
 }

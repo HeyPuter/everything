@@ -208,3 +208,32 @@ test('inside the Puter desktop the window title names the document, and follows 
   await title(page).press('Enter');
   await expect.poll(() => page.evaluate(() => window.__windowTitles.at(-1))).toBe('Quarterly plan — Documents');
 });
+
+test('signed out, "Sign in to save" shortens to its cloud before the document\'s name does', async ({ page }) => {
+  const status = page.locator('.ed-titlebar .canvas-save-status');
+  for (const width of [1920, 1366, 1200, 768, 390]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto('/mock.html?signedout#/new');
+    await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+    await expect(status).toHaveAttribute('aria-label', 'Sign in to save');
+    const name = await title(page).evaluate(el => el.clientWidth);
+    // It kept its words and squeezed the name to nothing at all of these but the widest.
+    expect(name, `${width}px`).toBeGreaterThan(50);
+    if (width === 1920) expect(await status.locator('.save-label').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    else await expect(status.locator('svg')).toBeVisible();
+  }
+});
+
+test('the document\'s name shows whole and no menu is cut off just above each of the title bar\'s steps', async ({ page }) => {
+  // Each width sits just above where the title bar used to drop something: the name lost letters at all of them,
+  // and Window and Help were cut out of the menu bar at 1101 to 1200px.
+  for (const width of [1536, 1366, 1200, 1120, 834, 768]) {
+    await openEditor(page, width);
+    expect(await title(page).evaluate(el => el.scrollWidth <= el.clientWidth), `${width}px`).toBe(true);
+    expect(await page.locator('.ed-header .ed-menubar').evaluate(bar => {
+      if (!bar.offsetWidth) return true;
+      const right = bar.getBoundingClientRect().right;
+      return [...bar.querySelectorAll('.menu-btn')].every(b => b.getBoundingClientRect().right <= right + 0.5);
+    }), `${width}px`).toBe(true);
+  }
+});

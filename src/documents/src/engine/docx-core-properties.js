@@ -1,5 +1,6 @@
 import { strToU8 } from 'fflate';
 import { parseXml, setContentTypeOverride } from './docx-xml.js';
+import { hasPart, packagePartName } from './package-part-paths.js';
 
 /**
  * Package core properties (ECMA-376 Part 2, §11 "Core Properties"): the document's title, subject,
@@ -55,7 +56,8 @@ function coreTarget(parts) {
 /** The core-properties part named by the package relationships, or null. */
 export function corePropertiesPath(parts) {
   const path = coreTarget(parts);
-  return path && Object.hasOwn(parts, path) ? path : null;
+  // Part names compare without regard to ASCII case (Part 2, §9.1.1.1): docProps/core.xml names docProps/Core.xml.
+  return path && packagePartName(parts, path);
 }
 
 /** { title, subject, creator, keywords, … } as strings; properties the part lacks are ''. */
@@ -129,7 +131,7 @@ function createCorePart(parts) {
     return dangling;
   }
   let path = 'docProps/core.xml';
-  for (let n = 2; Object.hasOwn(parts, path); n++) path = `docProps/core${n}.xml`;
+  for (let n = 2; hasPart(parts, path); n++) path = `docProps/core${n}.xml`;
   parts[path] = empty;
   const rels = parseXml(parts['_rels/.rels']);
   const ids = new Set([...rels.documentElement.children].map(n => n.getAttribute('Id')));

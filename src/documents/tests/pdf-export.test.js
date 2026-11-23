@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { buildPdf, pageFragments, pageLinks, textLayer, utf16Hex } from '../src/lib/pdf-export.js';
+import { buildPdf, pageFragments, pageLinks, pageOutline, textLayer, utf16Hex } from '../src/lib/pdf-export.js';
 
 // A 1×1 baseline JPEG (independently written bytes).
 const JPEG = Uint8Array.from(atob('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k='), c => c.charCodeAt(0));
@@ -183,4 +183,67 @@ it('makes the PDF of the edited document, whole, when the document is edited bet
   expect(mediaBoxes(text)).toEqual(Array(25).fill(450));
   expect(engine.painted.at(-1)).toBe('all');
   expect(engine.live.size).toBe(0);
+});
+
+// A link to a bookmark in the document (a table of contents' entries, a "see section" link) was left out of the PDF,
+// so its contents could not be followed there as they can in the document and in Word's PDFs. Each such link now
+// goes to the page and height where its bookmark is.
+it('makes links to bookmarks in the document go to where the bookmark is', async () => {
+  const { TextDocument, paragraph } = await import('../src/engine/model.js');
+  const { layoutDocument } = await import('../src/engine/layout.js');
+  const measure = text => ({ width: [...text].length * 8, ascent: 12, descent: 3 });
+  const doc = new TextDocument([paragraph()]);
+  doc.replace('Contents: Scope, Top');
+  doc.select(10, 15); doc.setHyperlink({ anchor: 'Scope' });
+  doc.select(17, 20); doc.setHyperlink({ anchor: null });
+  doc.select(doc.text.length); doc.insertParagraph(); doc.insertPageBreak();
+  doc.insertParagraph(); doc.replace('Scope of the work');
+  doc.select(doc.text.length - 17, doc.text.length); doc.addBookmark('Scope');
+  doc.select(doc.text.length); doc.insertParagraph(); doc.replace('Missing'); doc.select(doc.text.length - 7, doc.text.length); doc.setHyperlink({ anchor: 'Nowhere' });
+  const layout = layoutDocument(doc.paragraphs, measure, undefined, doc.numbering, doc.tables);
+  const links = pageLinks(doc.paragraphs, layout);
+  const target = layout.lines.find(line => line.fragments?.some(f => f.text?.includes('Scope of')));
+  expect(target.page).toBe(1);
+  // A link to a bookmark that does not exist goes nowhere, and is left out.
+  expect(links.map(l => [l.page, l.dest])).toEqual([[0, { page: 1, y: expect.any(Number) }], [0, { page: 0, y: expect.any(Number) }]]);
+  expect(links[0].dest.y).toBeLessThanOrEqual(target.baseline);
+  expect(links[0].dest.y).toBeGreaterThan(target.baseline - 20);
+  const page = { widthPx: 816, heightPx: 1056, jpeg: JPEG, imageWidth: 1, imageHeight: 1, fragments: [] };
+  const text = new TextDecoder('latin1').decode(buildPdf([{ ...page, links }, page]));
+  const pageIds = [...text.matchAll(/(\d+) 0 obj\n<< \/Type \/Page /g)].map(m => Number(m[1]));
+  expect(pageIds).toHaveLength(2);
+  expect(text).toContain(`/A << /S /GoTo /D [${pageIds[1]} 0 R /XYZ null ${((1056 - links[0].dest.y) * 0.75).toFixed(2)} null] >>`);
+  expect(text).toContain(`/A << /S /GoTo /D [${pageIds[0]} 0 R /XYZ null ${((1056 - links[1].dest.y) * 0.75).toFixed(2)} null] >>`);
+  const xref = Number(/startxref\n(\d+)/.exec(text)[1]);
+  [...text.slice(xref).matchAll(/^(\d{10}) 00000 n $/gm)].map(m => Number(m[1])).forEach((offset, i) => expect(text.slice(offset, offset + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`));
+});
+
+// A saved PDF had no bookmarks: a long report could only be paged through. Its headings are now the PDF's bookmarks,
+// nested by level, each going to its heading's page, as Word's PDFs have them.
+it('gives the PDF a bookmark for each heading, nested by level', async () => {
+  const { TextDocument, paragraph } = await import('../src/engine/model.js');
+  const { layoutDocument } = await import('../src/engine/layout.js');
+  const measure = text => ({ width: [...text].length * 8, ascent: 12, descent: 3 });
+  const doc = new TextDocument([paragraph()]);
+  const heading = (text, level) => { doc.replace(text); doc.setOutlineLevel(level); doc.insertParagraph(); doc.setOutlineLevel(null); };
+  heading('Café plan', 0); doc.replace('Body'); doc.insertParagraph();
+  heading('Scope', 1); heading('Detail', 2); doc.insertPageBreak(); doc.insertParagraph();
+  heading('Budget', 1); heading('Appendix', 0); doc.replace('End');
+  const layout = layoutDocument(doc.paragraphs, measure, undefined, doc.numbering, doc.tables);
+  const outline = pageOutline(doc.paragraphs, layout);
+  expect(outline.map(h => [h.title, h.level, h.page])).toEqual([['Café plan', 1, 0], ['Scope', 2, 0], ['Detail', 3, 0], ['Budget', 2, 1], ['Appendix', 1, 1]]);
+  const page = { widthPx: 816, heightPx: 1056, jpeg: JPEG, imageWidth: 1, imageHeight: 1, fragments: [] };
+  const text = new TextDecoder('latin1').decode(buildPdf([page, page], { outline }));
+  const objects = new Map([...text.matchAll(/(\d+) 0 obj\n([^]*?)\nendobj/g)].map(m => [Number(m[1]), m[2].replace(/^<< | >>$/g, '')]));
+  const ref = (body, key) => Number(new RegExp(`/${key} (\\d+) 0 R`).exec(body)?.[1]);
+  const pageIds = [...objects].filter(([, body]) => body.startsWith('/Type /Page ')).map(([id]) => id);
+  const root = ref(objects.get(ref(text.slice(text.lastIndexOf('trailer')), 'Root')), 'Outlines');
+  expect(objects.get(root)).toMatch(/^\/Type \/Outlines /);
+  // Walks the outline from the root, by First and Next: [title, page, children].
+  const title = body => { const hex = /\/Title <FEFF([0-9A-F]+)>/.exec(body); return hex ? String.fromCharCode(...hex[1].match(/.{4}/g).map(h => parseInt(h, 16))) : /\/Title \(([^)]*)\)/.exec(body)[1]; };
+  const walk = parent => { const out = []; for (let id = ref(objects.get(parent), 'First'); id; id = ref(objects.get(id), 'Next')) { const body = objects.get(id); expect(ref(body, 'Parent')).toBe(parent); out.push([title(body), pageIds.indexOf(Number(/\/Dest \[(\d+) 0 R/.exec(body)[1])), ...(ref(body, 'First') ? [walk(id)] : [])]); } return out; };
+  expect(walk(root)).toEqual([['Café plan', 0, [['Scope', 0, [['Detail', 0]]], ['Budget', 1]]], ['Appendix', 1]]);
+  expect(objects.get(root)).toContain('/Count 5');
+  // Without headings the PDF has no outline.
+  expect(new TextDecoder('latin1').decode(buildPdf([page]))).not.toContain('/Outlines');
 });

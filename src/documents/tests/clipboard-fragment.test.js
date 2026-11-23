@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { it, expect } from 'vitest';
-import { htmlFragment, fragmentHtml, formattedPasteFits, FRAGMENT_ATTRIBUTE } from '../src/engine/clipboard-fragment.js';
+import { htmlFragment, fragmentHtml, formattedPasteFits, FRAGMENT_ATTRIBUTE, pastedFragment, withoutPastedControls, OBJECT_STAND_IN } from '../src/engine/clipboard-fragment.js';
 
 const texts = html => htmlFragment(html)?.paragraphs.map(p => p.text);
 
@@ -39,6 +39,22 @@ it('marks headings and nested lists, and keeps a lone phrase in the destination 
   expect(fragment.paragraphs.map(p => [p.text, p.styleName, p.list, p.mark])).toEqual([
     ['Title', 'Heading 3', null, true], ['One', 'Normal', { kind: 'number', level: 0, id: 1 }, true], ['Inner', 'Normal', { kind: 'bullet', level: 1, id: 2 }, true]]);
   expect(htmlFragment('<p>Just a <b>phrase</b></p>').paragraphs[0].mark).toBe(false);
+});
+
+it('copies nested list items for other applications as lists inside their items, so levels and numbering carry over', () => {
+  const item = (text, kind, level) => ({ text, runs: [{ text, format: {} }], mark: true, styleId: null, alignment: 'left', list: { kind, level } });
+  const plain = text => ({ text, runs: [{ text, format: {} }], mark: true, styleId: null, alignment: 'left', list: null });
+  const fragment = { paragraphs: [item('One', 'number', 0), item('Inner', 'bullet', 1), item('Deep', 'bullet', 2), item('Two', 'number', 0), item('Bullet', 'bullet', 0), plain('After'), item('Skipped', 'number', 1)] };
+  // Another application sees the HTML alone, without this editor's own description of the copy.
+  const html = fragmentHtml(fragment).replace(new RegExp(` ${FRAGMENT_ATTRIBUTE}="[^"]*"`), '');
+  const li = text => `<li style="white-space:pre-wrap">${text}`;
+  expect(html).toBe(`<div><ol>${li('One')}<ul>${li('Inner')}<ul>${li('Deep')}</li></ul></li></ul></li>${li('Two')}</li></ol><ul>${li('Bullet')}</li></ul>`
+    + `<p style="white-space:pre-wrap">After</p><ol><ol>${li('Skipped')}</li></ol></ol></div>`);
+  // Read back as another application's HTML: each item keeps its level, and Two goes on in One's list.
+  const read = htmlFragment(html).paragraphs.map(p => [p.text, p.list && p.list.kind, p.list && p.list.level, p.list && p.list.id]);
+  expect(read).toEqual([['One', 'number', 0, 1], ['Inner', 'bullet', 1, 2], ['Deep', 'bullet', 2, 3], ['Two', 'number', 0, 1], ['Bullet', 'bullet', 0, 4], ['After', null, null, null], ['Skipped', 'number', 1, 6]]);
+  // This editor still reads its own copy as it was.
+  expect(htmlFragment(fragmentHtml(fragment))).toEqual(fragment);
 });
 
 it('reads its own embedded fragment and ignores a malformed one', () => {
@@ -123,4 +139,18 @@ it('pastes Word for the web paragraphs without the no-break space that marks eac
   expect(texts(html)).toEqual(['Hello world', '', 'Bold end ']);
   const list = `<div class="ListContainerWrapper SCXW1 BCX0"><ul class="BulletListStyle1 SCXW1 BCX0" role="list"><li data-leveltext="" data-listid="1" data-aria-level="1" role="listitem" class="OutlineElement Ltr SCXW1 BCX0">${p(run('Item')).replace(/^<div[^>]*>|<\/div>$/g, '')}</li></ul></div>`;
   expect(htmlFragment(list).paragraphs.map(q => [q.text, q.list?.kind])).toEqual([['Item', 'bullet']]);
+});
+
+it('a paste leaves out control characters, keeping tabs, lines, this editor\'s breaks and objects; reading HTML keeps them', () => {
+  expect(withoutPastedControls('a\u0000b\u0007c\u001b[0m\u007f\u0085\u009fd\te\r\nf\vg\fh\u000ei')).toBe('abc[0md\te\r\nf\vg\fh\u000ei');
+  const fragment = htmlFragment('<p>x<b>\u0001</b>y</p>');
+  // Reading the HTML (as a file is opened) keeps the text as it is; the paste drops the control and its empty run.
+  expect(fragment.paragraphs[0].text).toBe('x\u0001y');
+  const pasted = pastedFragment(fragment);
+  expect(pasted.paragraphs[0].runs.map(r => r.text)).toEqual(['x', 'y']);
+  expect(pasted.paragraphs[0].text).toBe('xy');
+  const clean = htmlFragment('<p>plain</p>');
+  expect(pastedFragment(clean)).toBe(clean);
+  const object = { paragraphs: [{ text: `a\u0002${OBJECT_STAND_IN}`, runs: [{ text: 'a\u0002', format: {} }, { text: OBJECT_STAND_IN, object: { math: { xml: '<m/>' } }, format: {} }], mark: false, list: null }] };
+  expect(pastedFragment(object).paragraphs[0]).toMatchObject({ text: `a${OBJECT_STAND_IN}`, runs: [{ text: 'a' }, { text: OBJECT_STAND_IN, object: { math: { xml: '<m/>' } } }] });
 });

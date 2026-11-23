@@ -18,7 +18,7 @@ import { PASTE_MODES, pastePayload, availablePasteModes } from '../engine/paste-
 import { fragmentHtml } from '../engine/clipboard-fragment.js';
 import { levelFor } from '../engine/numbering.js';
 import { styleDisplayName } from '../lib/style-names.js';
-import { openFontDialog, selectsEastAsianText } from './font-dialog.js';
+import { openFontDialog, selectsEastAsianText, selectsComplexScriptText } from './font-dialog.js';
 import { openParagraphDialog } from './paragraph-dialog.js';
 import { openTabsDialog } from './tabs-dialog.js';
 import { openBordersAndShading } from './borders-shading.js';
@@ -70,6 +70,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const [start, end] = engine.model.range;
     const format = seed ? { ...NULL_RUN, ...seed } : engine.model.runCommandFormatting;
     return track(openFontDialog({ title, format, sample: engine.model.text.slice(start, end), onClose: capture ? null : later, eastAsian: selectsEastAsianText(engine.model.text, [start, end]),
+      complexScript: !capture && selectsComplexScriptText(engine.model.text, [start, end], format),
       ligatures: !capture && !!engine.model.styles?.openTypeFeatures,
       textEffects: capture || readOnly() ? null : () => textEffectsDialog(),
       setDefault: capture || readOnly() ? null : async (patch, fail) => {
@@ -83,7 +84,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       },
       apply: async (patch, fail) => {
         if (capture) { capture(patch); return true; }
-        for (const name of new Set([patch.fontAscii, patch.fontEastAsia].filter(Boolean))) {
+        for (const name of new Set([patch.fontAscii, patch.fontEastAsia, patch.fontCs].filter(Boolean))) {
           await prepareCanvasFont(name);
           if (documentFontAvailable(name, engine.model.styles.fontAlternatives) !== true) { fail(new Error(`${name} could not be loaded on this device. Choose another font.`)); return false; }
         }
@@ -445,7 +446,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const rect = engine.input.getBoundingClientRect(), root = host();
     if (!root || !rect.width && !rect.height) return;
     const bounds = root.getBoundingClientRect();
-    const button = el('button.paste-options-chip', { type: 'button', 'aria-label': 'Pasted text options', title: 'Pasted text options: keep, merge or drop the formatting', 'aria-haspopup': 'menu', onclick: () => openMenu({ anchor: button, label: 'Paste Options', onClose: () => editor()?.focus(), items: pasteModeItems() }) },
+    const button = el('button.paste-options-chip', { type: 'button', 'aria-label': 'Pasted text options', title: 'Pasted text options: keep, merge or drop the formatting (Ctrl)', 'aria-keyshortcuts': 'Control', 'aria-haspopup': 'menu', onclick: () => openMenu({ anchor: button, label: 'Paste Options', onClose: () => editor()?.focus(), items: pasteModeItems() }) },
       commandIconEl('paste', 16), el('span.ribbon-caret', { 'aria-hidden': 'true' }));
     button.addEventListener('mousedown', e => e.preventDefault());
     button.style.left = `${Math.max(4, Math.min(bounds.width - 48, rect.left - bounds.left + root.scrollLeft + 4))}px`;
@@ -511,8 +512,29 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       try { original(text, html); } finally { if (engine.session.revision === before) commandsRef().noteCommand?.(null); }
       if (engine.session.revision !== before && (text || html)) remember(engine, { text, html }, html ? 'keep' : 'text');
     };
-    engine.input.addEventListener('keydown', e => { if (chip && !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) hideChip(); });
-    engine.input.addEventListener('pointerdown', hideChip);
+    // A cut from the keyboard is named Cut in Undo too, as the Edit menu's is, not Typing.
+    const copy = engine.copy.bind(engine);
+    engine.copy = (e, cut) => {
+      if (!cut) return copy(e, cut);
+      const before = engine.session.revision;
+      commandsRef().noteCommand?.('Cut');
+      try { return copy(e, cut); } finally { if (engine.session.revision === before) commandsRef().noteCommand?.(null); }
+    };
+    // Ctrl pressed and let go alone opens the options from the keyboard, as in Word; any other key goes on typing
+    // and puts them away.
+    let soleControl = false;
+    engine.input.addEventListener('keydown', e => {
+      if (e.key === 'Control' && e.repeat) return;
+      soleControl = !!chip && e.key === 'Control' && !e.shiftKey && !e.altKey && !e.metaKey;
+      if (chip && !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) hideChip();
+    });
+    engine.input.addEventListener('keyup', e => {
+      const open = soleControl && e.key === 'Control' && chip?.isConnected && !isComposing(e);
+      soleControl = false;
+      if (open) chip.click();
+    });
+    engine.input.addEventListener('blur', () => { soleControl = false; });
+    engine.input.addEventListener('pointerdown', () => { soleControl = false; hideChip(); });
   }
 
   /* ---- Format painter keyboard ---- */

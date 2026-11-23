@@ -69,6 +69,7 @@ describe('accessibility rules', () => {
       para([run('Title')], { format: { outlineLevel: 0 } }),
       para([run('Skipped')], { format: { outlineLevel: 2 } }),
       para([run('￼', { image: { name: 'Chart', alt: '' } })]),
+      para([run('￼', { image: { name: 'Oval 2', alt: '', retainedDrawing: true } })]),
       para([run('Faint', { color: 'EEEEEE' }), run(' highlighted', { color: '000000', highlight: 'black' })]),
       para([]), para([]), para([]),
       para([run('See '), run('here', { link: { id: 'l1', target: 'https://example.com' } }), run('   gap')]),
@@ -80,6 +81,8 @@ describe('accessibility rules', () => {
     const by = rule => issues.filter(i => i.rule === rule);
     expect(by('headingOrder')).toHaveLength(1);
     expect(by('altText')[0]).toMatchObject({ severity: 'error', fix: { kind: 'altText' } });
+    // A drawing kept whole (a shape, a chart) takes its description in the Alt Text pane.
+    expect(by('altText')[1]).toMatchObject({ detail: 'Oval 2', fix: { kind: 'altText', pane: true } });
     expect(by('lowContrast')[0]).toMatchObject({ fix: { kind: 'autoColor' } });
     expect(by('hardColors')[0]).toMatchObject({ fix: { kind: 'clearHighlight' } });
     expect(by('emptyParagraphs')[0].fix.paragraphs).toHaveLength(3);

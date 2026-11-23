@@ -566,6 +566,23 @@ describe('Doc', () => {
     expect(await doc.saveAs('B')).toBe('A file with that name already exists');
   });
 
+  it('saves a copy of a macro-enabled document open read-only under its own extension', async () => {
+    // A read-only document has no exporter: the copy is its bytes, which Word refuses under a .docx name.
+    const original = blob('macro-enabled package');
+    const doc = new Doc({ name: 'Budget', path: 'Documents/Budget.docm', blob: original });
+    doc.originalExtension = '.docm';
+    expect(await doc.saveAs('Budget 2')).toBeNull();
+    expect(doc.path).toBe('Documents/Budget 2.docm');
+    expect(P.__fs.get('Documents/Budget 2.docm')).toBe(original);
+    expect(P.__fs.has('Documents/Budget 2.docx')).toBe(false);
+    // An editable document's copy is the export, a .docx, whatever it was opened from.
+    const template = new Doc({ name: 'Letter', path: 'Documents/Letter.dotx', blob: blob('t') });
+    template.originalExtension = '.dotx';
+    template.attach(async () => blob('exported'));
+    expect(await template.saveAs('Letter 2')).toBeNull();
+    expect(template.path).toBe('Documents/Letter 2.docx');
+  });
+
   it('waits for an active save before exporting a copy', async () => {
     const doc = new Doc({ name: 'A', path: 'Documents/A.docx', blob: blob('original') });
     P.__fs.set(doc.path, doc.blob);

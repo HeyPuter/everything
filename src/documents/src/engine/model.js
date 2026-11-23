@@ -521,8 +521,9 @@ export class TextDocument {
     const [start, end] = this.range;
     const first = this.locate(start).index;
     const located = this.locate(end), last = located.index;
-    // A selection ending at the next paragraph's start does not format that paragraph.
-    const stop = end > start && located.offset === 0 ? last - 1 : last;
+    // A selection ending at the next paragraph's start does not format that paragraph. A block of cells (and each
+    // cell of one in turn) runs to the end of its last cell, an empty last paragraph there included.
+    const stop = end > start && located.offset === 0 && !this.cellBlock && !this.inBlockCellPass ? last - 1 : last;
     return this.paragraphs.slice(first, Math.max(first, stop) + 1);
   }
   /**
@@ -880,9 +881,13 @@ export class TextDocument {
    * caret's section, or `section`), 'forward' (from the caret on: a section break of `breakType` starts
    * a new section there unless the caret already starts one) or 'selection' (the selected text becomes
    * its own section between two breaks). Document-wide settings always apply to every section. With one
-   * section the default scope is the document; with several, the caret's section.
+   * section the default scope is the document; with several, the caret's section, or every section the
+   * selection reaches (Word's "Selected sections"). `patch` can be a function of a section's settings giving
+   * that section's own patch (Orientation turns each section's page); it sets section settings only.
    */
   setPageSettings(patch, { scope, section, breakType = 'nextPage' } = {}) {
+    const ownPatch = typeof patch === 'function' ? patch : null;
+    if (ownPatch) patch = {};
     for (const key of ['compatibilityMode', 'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing']) if (key in patch && patch[key] !== this.pageSettings[key]) throw new Error('Page compatibility settings are retained from the document.');
     if ('backgroundPicture' in patch && patch.backgroundPicture !== null && JSON.stringify(patch.backgroundPicture) !== JSON.stringify(this.pageSettings.backgroundPicture)) throw new Error('Creating a picture page background is not supported.');
     scope ??= this.sectionCount > 1 ? 'section' : 'document';
@@ -893,23 +898,34 @@ export class TextDocument {
     // Columns of their own widths keep their proportions when the writing width changes (another paper size,
     // orientation or margins), as in Word; kept as they were, they ran past the page's edge.
     const writingWidth = s => readingPageSize(s)[0] - s.left - s.right - (s.gutterAtTop ? 0 : s.gutter || 0);
-    const fitted = (before, after) => {
-      if (!after.columns || after.columns.equalWidth || 'columns' in patch) return after;
+    const sectionPatchOf = settings => {
+      if (!ownPatch) return sectionPatch;
+      const own = ownPatch(settings) || {};
+      if (Object.keys(own).some(key => DOCUMENT_PAGE_KEYS.includes(key))) throw new Error('A section\'s own page settings cannot change the whole document\'s.');
+      return own;
+    };
+    const fitted = (before, after, own) => {
+      if (!after.columns || after.columns.equalWidth || 'columns' in own) return after;
       const from = writingWidth(before), to = writingWidth(after);
       if (!(from > 0) || !(to > 0) || from === to) return after;
       const entries = after.columns.entries.map(e => ({ ...e, width: Math.max(1, Math.round(e.width * to / from)), ...(e.space !== undefined ? { space: Math.round(e.space * to / from) } : {}) }));
       return { ...after, columns: { ...after.columns, entries } };
     };
-    const plan = (first, last) => this.sectionSettings.map((settings, i) => validatePageSettings(fitted(settings, { ...settings, ...documentPatch, ...(i >= first && i <= last ? sectionPatch : {}) })));
+    const plan = (first, last) => this.sectionSettings.map((settings, i) => {
+      const own = i >= first && i <= last ? sectionPatchOf(settings) : {};
+      return validatePageSettings(fitted(settings, { ...settings, ...documentPatch, ...own }, own));
+    });
     const apply = next => {
       const ends = this.paragraphs.filter(p => p.sectionEnd);
       next.forEach((settings, i) => { if (i < ends.length) ends[i].sectionEnd = settings; else this.pageSettings = settings; });
     };
     const changed = next => next.some((settings, i) => Object.keys(settings).some(key => JSON.stringify(settings[key]) !== JSON.stringify(this.sectionSettings[i][key])));
     if (scope === 'document' || scope === 'section') {
-      const at = scope === 'document' ? 0 : section ?? this.sectionIndexAt(this.range[0]);
+      const [start, end] = this.range;
+      const at = scope === 'document' ? 0 : section ?? this.sectionIndexAt(start);
       if (!Number.isInteger(at) || at < 0 || at >= this.sectionCount) throw new Error('There is no such section.');
-      const next = plan(at, scope === 'document' ? this.sectionCount - 1 : at);
+      const last = scope === 'document' ? this.sectionCount - 1 : section ?? this.sectionIndexAt(Math.max(start, end - 1));
+      const next = plan(at, last);
       if (!changed(next)) return false;
       this.checkpoint(); apply(next); this.didChange(); return true;
     }
@@ -1391,7 +1407,8 @@ export class TextDocument {
     next.cells.forEach((cell, i) => {
       const owner = owners.get(row.cells[i].id); clearMerge(cell);
       if (owner.endRow > rowIndex) cell.vMerge = 'continue';
-      else state.byCell.set(cell.id, [blankCellParagraph(state.byCell.get(owner.cell.id)[0], cell)]);
+      // Formatted like the cell's own first paragraph: not one of a table nested at its start (another table's style).
+      else { const content = state.byCell.get(owner.cell.id); state.byCell.set(cell.id, [blankCellParagraph(content.find(p => p.cellId === owner.cell.id) || content[0], cell)]); }
     });
     state.bookmarks.insertedRow = { tableId: table.id, after: row.id, id: next.id };
     this.checkpoint(); table.rows.splice(rowIndex + 1, 0, next); applyTableContent(this, table, state);
@@ -2184,8 +2201,10 @@ export class TextDocument {
       ]);
       // Direct formatting applies to the mark when all paragraph text is
       // selected, even when the selection stops immediately before that mark.
-      // A trailing partial selection must not change subsequent Enter typing.
-      if (mark && (at + length >= start && at + length < end || start === end && at === start && !length || length > 0 && a === 0 && b === length)) {
+      // A trailing partial selection must not change subsequent Enter typing. A block of cells runs to the end of its
+      // last cell, so an empty paragraph there is selected as well (selectedParagraphs).
+      const blockEnd = !length && at === end && end > start && (this.cellBlock || this.inBlockCellPass);
+      if (mark && (at + length >= start && at + length < end || start === end && at === start && !length || length > 0 && a === 0 && b === length || blockEnd)) {
         p.markFormat = { ...runFormat(p.markFormat), ...patch };
         p.markOverrides = { ...p.markOverrides, ...patch };
       }
@@ -2749,8 +2768,13 @@ export class TextDocument {
           if (next) target[key] = next; else delete target[key];
           // Deleted text hides a formatting change made to it before. Rejecting a selection or all changes brings
           // the text back and rejects that change too, instead of leaving it behind as a change of its own.
-          const hidden = !accept && r.type === 'del' && start !== end && !mark && !run.revision && runFormatChange(run);
-          if (hidden && only(hidden)) { if (rejectFormatChange(run)) acceptFormatChange(run, 'run'); else this.formatRejectSkipped = true; if (this.stylesEnabled) resolveStyledParagraph(paragraph, this.styles, this.numbering); }
+          // Inserted text likewise hides another reviewer's formatting of it (w:rPrChange inside w:ins): accepting a
+          // selection or all changes accepts that change too, instead of leaving it behind after Accept All.
+          const hidden = (accept ? r.type === 'ins' : r.type === 'del') && start !== end && !mark && !run.revision && runFormatChange(run);
+          if (hidden && only(hidden)) {
+            if (accept) acceptFormatChange(run, 'run');
+            else { if (rejectFormatChange(run)) acceptFormatChange(run, 'run'); else this.formatRejectSkipped = true; if (this.stylesEnabled) resolveStyledParagraph(paragraph, this.styles, this.numbering); }
+          }
         });
         else {
           const index = indexAt(r.start), p = this.paragraphs[index], from = r.start - starts[index], to = r.end - starts[index];

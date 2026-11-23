@@ -136,5 +136,28 @@ describe('changing a cited source\'s tag', () => {
     updateCitations(d, [book, article], 'apa');
     expect(d.text).toBe('Engines compute (Lovelace, 2020) (Hopper, 2019). Machines learn.');
   });
+
+  // A citation inserted with Track Changes on lost its insertion mark when the style changed or a source was
+  // edited: Reject All then left it in the text. A deleted one came back as ordinary text.
+  it('keeps a tracked citation inserted, or deleted, when citations are refreshed', async () => {
+    const { d } = await setup();
+    d.revisionAuthor = 'Me';
+    d.select(d.text.indexOf('.'));
+    const before = d.text;
+    insertCitation(d, { tags: ['Lov20'] }, [book], 'apa');
+    d.trackChanges = true; d.trackInsertion(before, new Set()); d.trackChanges = false;
+    const changes = () => d.revisions.map(r => [r.type, d.text.slice(r.start, r.end)]);
+    expect(changes()).toEqual([['ins', ' (Lovelace, 2020)']]);
+    updateCitations(d, [book], 'mla');
+    expect(changes()).toEqual([['ins', ' (Lovelace)']]);
+    d.resolveRevisions(false);
+    expect(d.text).toBe('Engines compute. Machines learn.');
+    // Deleted with Track Changes on, a refreshed citation stays deleted.
+    d.select(d.text.indexOf('.')); insertCitation(d, { tags: ['Lov20'] }, [book], 'apa');
+    const cited = citationFields(d.paragraphs)[0];
+    d.trackChanges = true; d.select(cited.start, cited.end); d.replace(''); d.trackChanges = false;
+    updateCitations(d, [book], 'mla');
+    expect(changes()).toEqual([['del', '(Lovelace)']]);
+  });
 });
 

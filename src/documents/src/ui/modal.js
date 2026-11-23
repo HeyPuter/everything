@@ -20,7 +20,10 @@ export function openModal({ title, content, onClose, wide = false }) {
     el('div.modal-scrim', { onclick: () => close() }),
     panel);
 
-  let opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // Inside a component (puter.js's <puter-user-menu>), the control that has focus: the component itself takes none back.
+  let opener = document.activeElement;
+  while (opener?.shadowRoot?.activeElement) opener = opener.shadowRoot.activeElement;
+  if (!(opener instanceof HTMLElement)) opener = null;
   // A prompt can open its next dialog before the previous one's exit animation
   // ends. Follow that dialog's opener instead of retaining a soon-removed input.
   while (opener?.closest('.modal-root.closing')) {

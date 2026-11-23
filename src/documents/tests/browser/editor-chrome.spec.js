@@ -161,9 +161,12 @@ test('keeps the sign-in action visible beside a narrow title and saves after sig
   await page.goto('/mock.html?signedout#/new');
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
   const status = page.locator('.canvas-save-status');
-  await expect(status.locator('.save-label')).toBeVisible();
-  await expect(status).toHaveText('Sign in to save');
+  // Too narrow for its words beside the name: its cloud stays, and the words stay its name and tooltip.
+  await expect(status.locator('svg')).toBeVisible();
+  await expect(status).toHaveAccessibleName('Sign in to save');
+  await expect(status).toHaveAttribute('title', 'Sign in to save');
   await expect(status).toBeInViewport();
+  expect(await page.getByRole('textbox', { name: 'Document name' }).evaluate(el => el.clientWidth)).toBeGreaterThan(10);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await text(page).fill('Save these local edits');
   await status.click();
@@ -205,4 +208,13 @@ test('the File view\'s current section keeps its white name readable in both the
     expect(ratio, colorScheme).toBeGreaterThanOrEqual(4.5);
     await page.keyboard.press('Escape');
   }
+});
+
+test('screen readers reach the document as a landmark between the title bar and the status bar', async ({ page }) => {
+  await openEditor(page);
+  // Its name was set on a plain container, which has none: landmark navigation went from the banner to the
+  // status bar, past the document.
+  const pages = page.getByRole('region', { name: 'Document pages' });
+  await expect(pages).toBeVisible();
+  await expect(pages.getByRole('textbox', { name: 'Document text' })).toHaveCount(1);
 });

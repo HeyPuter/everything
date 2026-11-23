@@ -221,3 +221,64 @@ test('a double click on an empty line places the caret there instead of selectin
   await page.mouse.dblclick(box.x + lines[0].x + 100, box.y + lines[0].y);
   expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([5, 5]);
 });
+
+test('Backspace or Delete on a double-clicked word takes one space with it, so no double space is left', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const canvas = page.locator('canvas.canvas-page').first();
+  // The middle of the letter at `offset` on the first line.
+  const letter = offset => page.evaluate(offset => {
+    const e = window.__docs.current.view.engine, line = e.selectionLayout.lines[0], x = o => line.stops.find(s => s.offset === o).x * e.zoom;
+    return { x: (x(offset) + x(offset + 1)) / 2, y: (line.y + line.height / 2) * e.zoom };
+  }, offset);
+  for (const [text, offset, key, left, word] of [['one two three', 5, 'Backspace', 'one three', 'two'], ['one two three', 5, 'Delete', 'one three', 'two'], ['one two.', 5, 'Backspace', 'one.', 'two'], ['one two three', 1, 'Backspace', 'two three', 'one']]) {
+    await input(page).fill(text);
+    await canvas.dblclick({ position: await letter(offset) });
+    await page.keyboard.press(key);
+    await expect(input(page)).toHaveValue(left);
+    // One step: Undo brings back the word and its space, with the word selected again.
+    await input(page).press('ControlOrMeta+z');
+    await expect(input(page)).toHaveValue(text);
+    expect(await selected(page)).toBe(word);
+    await page.waitForTimeout(600);
+  }
+  // A selection made with the keys is deleted as it is.
+  await input(page).fill('one two three');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(4, 7); el.dispatchEvent(new Event('select')); });
+  await page.keyboard.press('Backspace');
+  await expect(input(page)).toHaveValue('one  three');
+});
+
+test('Shift+click after a double click extends by whole words, and after a triple click by paragraphs', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha beta gamma. Delta epsilon zeta.\nSecond para here, with words.\nThird one.');
+  const canvas = page.locator('canvas.canvas-page').first();
+  // The middle of the letter at `offset`, on whichever line holds it.
+  const letter = offset => page.evaluate(offset => {
+    const e = window.__docs.current.view.engine, line = e.selectionLayout.lines.find(l => l.stops.some(s => s.offset === offset) && l.stops.some(s => s.offset === offset + 1));
+    const x = o => line.stops.find(s => s.offset === o).x * e.zoom;
+    return { x: (x(offset) + x(offset + 1)) / 2, y: (line.y + line.height / 2) * e.zoom };
+  }, offset);
+  const range = () => page.evaluate(() => [...window.__docs.current.view.engine.model.range]);
+  await canvas.dblclick({ position: await letter(7) });
+  expect(await selected(page)).toBe('beta');
+  // Into "epsilon", forward, then back into "Alpha": the double-clicked word stays and the far word is taken whole.
+  await canvas.click({ position: await letter(26), modifiers: ['Shift'] });
+  expect(await selected(page)).toBe('beta gamma. Delta epsilon');
+  await canvas.click({ position: await letter(2), modifiers: ['Shift'] });
+  expect(await selected(page)).toBe('Alpha beta');
+  await page.waitForTimeout(600);
+  await canvas.click({ position: await letter(7), clickCount: 3 });
+  expect(await range()).toEqual([0, 37]);
+  await page.waitForTimeout(600);
+  await canvas.click({ position: await letter(45), modifiers: ['Shift'] });
+  expect(await selected(page)).toBe('Alpha beta gamma. Delta epsilon zeta.\nSecond para here, with words.');
+  // After the keys change the selection, Shift+click extends to the letter clicked, as before.
+  await page.waitForTimeout(600);
+  await canvas.dblclick({ position: await letter(7) });
+  await page.keyboard.press('Shift+ArrowRight');
+  const left = await letter(26), right = await letter(25);
+  await canvas.click({ position: { x: (left.x + right.x) / 2, y: left.y }, modifiers: ['Shift'] });
+  expect(await range()).toEqual([6, 26]);
+});

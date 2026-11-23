@@ -4,8 +4,9 @@
 // table-styles.js, table-formula.js) as one undoable transaction each.
 import '../styles/tables.css';
 import { clipText } from '../core/text.js';
-import { el, MOD_KEY, isComposing, amountInRange } from '../ui/dom.js';
+import { el, MOD_KEY, isComposing, amountInRange, collapsedUntilOpened } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
+import { announce } from '../ui/toast.js';
 import { openColorPalette } from '../ui/color-palette.js';
 import { TEXT_COLORS } from './text-color.js';
 import * as T from '../engine/table-editing.js';
@@ -15,6 +16,7 @@ import { insertFormula, evaluateFormula, suggestedFormula, FORMULA_FUNCTIONS, NU
 import { QUICK_TABLES, insertQuickTable } from '../engine/quick-tables.js';
 import { headerRowCount, rowGrid, verticalMerges } from '../engine/tables.js';
 import { locate } from '../engine/model.js';
+import { physicalAlignment } from '../engine/rtl-paragraph.js';
 import { createTableStyleGallery } from '../ui/table-design-gallery.js';
 import { openInsertTableDialog, openConvertTextDialog, openConvertTableDialog, openSplitCellsDialog, openCellsDialog, openSortDialog, openFormulaDialog } from './table-dialogs.js';
 import { openTableStyleDialog } from './table-style-dialog.js';
@@ -316,7 +318,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
 
     /* Table Design */
     const more = command('More Table Styles', 'more', e => openMenu({ anchor: more, label: 'Table Styles', minWidth: 300, pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, className: 'table-style-menu', items: inDocument(styleMenuItems()) }));
-    more.classList.add('ribbon-gallery-more'); more.setAttribute('aria-haspopup', 'menu'); noSteal(more); enabled(more);
+    more.classList.add('ribbon-gallery-more'); collapsedUntilOpened(more, 'menu'); noSteal(more); enabled(more);
     large(c.cellShading, { label: 'Shading', icon: 'cellShading' });
     const shading = split(c.cellShading, { label: 'Shading colors', size: 'large', open: (anchor, e) => shadingPalette(anchor, e) });
     enabled(shading.arrow);
@@ -438,7 +440,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   function measureAlignment(m, b) {
     const cells = cellBlockPlacements(b.table, b).map(p => p.cell);
     const vertical = cells.every(cell => (cell.vertical || 'top') === (cells[0].vertical || 'top')) ? cells[0].vertical || 'top' : null;
-    const ids = new Set(cells.map(c => c.id)), aligns = new Set(m.paragraphs.filter(p => ids.has(p.cellId)).map(p => p.format?.alignment || 'left'));
+    const ids = new Set(cells.map(c => c.id)), aligns = new Set(m.paragraphs.filter(p => ids.has(p.cellId)).map(p => physicalAlignment(p.format?.alignment || 'left', p.format?.bidi)));
     const horizontal = aligns.size === 1 ? [...aligns][0] : null;
     return vertical && horizontal ? `${vertical}-${horizontal === 'both' ? 'left' : horizontal}` : null;
   }
@@ -504,6 +506,27 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     ];
   }
 
+  /* ---- Where the caret is, for screen readers ---- */
+  // The page shows which cell the caret is in; a screen reader heard only the cell's text. Entering a table says its
+  // size, and each cell the caret moves to says its row and column (as desktop word processors do).
+  let spoken = { table: null, cell: null };
+  function announceCell() {
+    const m = editor()?.model;
+    if (!m || m.range[0] !== m.range[1]) return;
+    let context = null;
+    try { context = m.tableContext; } catch { context = null; }
+    if ((context?.cell.id || null) === spoken.cell) return;
+    const entering = context && context.table.id !== spoken.table, leaving = !context && spoken.cell;
+    spoken = { table: context?.table.id || null, cell: context?.cell.id || null };
+    if (leaving) announce('Out of table');
+    if (!context) return;
+    const { table, cell } = context, rowIndex = table.rows.findIndex(row => row.cells.includes(cell));
+    const column = rowIndex < 0 ? -1 : rowGrid(table.rows[rowIndex]).find(entry => entry.cell === cell)?.column ?? -1;
+    if (column < 0) return;
+    const size = `${table.parentCellId ? 'Nested table' : 'Table'}, ${table.rows.length} ${table.rows.length === 1 ? 'row' : 'rows'}, ${table.grid.length} ${table.grid.length === 1 ? 'column' : 'columns'}. `;
+    announce(`${entering ? size : ''}Row ${rowIndex + 1}, column ${column + 1}`);
+  }
+
   /* ---- Engine attachment: pointer tools, gridlines and keys ---- */
   function attach(engine) {
     pointer?.detach();
@@ -521,7 +544,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
       tableRibbon, tableInsertMenuItems: insertMenuItems, openTableProperties: openProperties, insertTableDialog, convertTextToTable, tableCommands: cmd,
     },
     extendMenu, contextMenuItems, attach,
-    refresh() { pointer?.refresh(); },
+    refresh() { pointer?.refresh(); announceCell(); },
     destroy() { pointer?.detach(); pointer = null; },
   };
 }

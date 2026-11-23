@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { el, append, debounce, clamp, formatBytes, relativeTime, fieldId, scrollBehavior, shortcutCode, typesCharacter } from '../src/ui/dom.js';
+import { el, append, debounce, clamp, formatBytes, relativeTime, fieldId, scrollBehavior, shortcutCode, typesCharacter, collapsedUntilOpened } from '../src/ui/dom.js';
 
 describe('el', () => {
   it('builds elements from a tag.class spec with attributes, listeners, and children', () => {
@@ -114,5 +114,28 @@ describe('typesCharacter', () => {
     expect(typesCharacter({ key: '˚', code: 'KeyK', altKey: true, metaKey: true }, true)).toBe(false);
     expect(typesCharacter({ key: 'Dead', code: 'KeyE', altKey: true }, true)).toBe(false);
     expect(typesCharacter({ key: 'ArrowLeft', code: 'ArrowLeft', altKey: true, shiftKey: true }, true)).toBe(false);
+  });
+});
+
+describe('buttons that open a menu', () => {
+  it('say they are collapsed before their menu first opens, and openMenu keeps the state after', async () => {
+    const { openMenu, closeMenu } = await import('../src/ui/menu.js');
+    const menuButton = el('button', { type: 'button', 'aria-haspopup': 'menu' }, 'Share');
+    expect(menuButton.getAttribute('aria-expanded')).toBe('false');
+    document.body.append(menuButton);
+    openMenu({ anchor: menuButton, items: [{ label: 'Copy link', onSelect() {} }] });
+    expect(menuButton.getAttribute('aria-expanded')).toBe('true');
+    closeMenu();
+    expect(menuButton.getAttribute('aria-expanded')).toBe('false');
+    menuButton.remove();
+    // A list box and a combobox too; a state given is kept.
+    expect(el('input', { role: 'combobox', 'aria-haspopup': 'listbox' }).getAttribute('aria-expanded')).toBe('false');
+    expect(el('button', { 'aria-haspopup': 'true', 'aria-expanded': 'true' }).getAttribute('aria-expanded')).toBe('true');
+    // A dialog opener has no expanded state to keep, and a container is not a button.
+    expect(el('button', { 'aria-haspopup': 'dialog' }).hasAttribute('aria-expanded')).toBe(false);
+    expect(el('div', { 'aria-haspopup': 'menu' }).hasAttribute('aria-expanded')).toBe(false);
+    // A button built elsewhere is marked as opening one.
+    const more = collapsedUntilOpened(document.createElement('button'), 'menu');
+    expect([more.getAttribute('aria-haspopup'), more.getAttribute('aria-expanded')]).toEqual(['menu', 'false']);
   });
 });

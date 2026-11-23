@@ -24,7 +24,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
   const editorPane = createEditorPane({ editor, pkg, proofing, error, onState: onChange });
   const thesaurus = createThesaurusPane({ editor, pkg, error });
-  const accessibility = createAccessibilityPane({ editor, pkg, error, onState: onChange });
+  const accessibility = createAccessibilityPane({ editor, pkg, error, onState: onChange, editAltText: () => w?.editAltText?.() });
   const translator = createTranslatePane({ editor, pkg, error, openDocument, documentName });
   const people = () => {
     const engine = editor(); if (!engine) return [];

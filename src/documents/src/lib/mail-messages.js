@@ -4,6 +4,8 @@
  * available.
  */
 
+import { physicalAlignment } from '../engine/rtl-paragraph.js';
+
 const escape = text => String(text ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Hidden text is neither shown nor printed, so a merged message leaves it out too.
 const paragraphText = p => p.runs.map(r => r.vanish ? '' : r.text).join('');
@@ -52,8 +54,10 @@ function runHtml(run) {
   return text;
 }
 const paragraphHtml = p => {
-  const alignment = Object.hasOwn(ALIGNMENTS, p.format?.alignment ?? '') ? ALIGNMENTS[p.format.alignment] : null;
-  const align = alignment ? ` style="text-align:${alignment}"` : '';
+  // A right-to-left paragraph (w:bidi) says so, and its stored alignment is relative to its right-hand start.
+  const rtl = !!p.format?.bidi, side = physicalAlignment(p.format?.alignment ?? 'left', rtl);
+  const alignment = rtl && side === 'left' ? 'left' : Object.hasOwn(ALIGNMENTS, side) && !(rtl && side === 'right') ? ALIGNMENTS[side] : null;
+  const align = (rtl ? ' dir="rtl"' : '') + (alignment ? ` style="text-align:${alignment}"` : '');
   return `<p${align}>${p.runs.map(runHtml).join('') || '&nbsp;'}</p>`;
 };
 

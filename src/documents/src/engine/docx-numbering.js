@@ -14,6 +14,7 @@ import { checkedBaselineShift } from './vertical-align.js';
 import { readRunVertical } from './docx-vertical-align.js';
 import { readRunBackground } from './docx-backgrounds.js';
 import { parseXml as xml, setContentTypeOverride } from './docx-xml.js';
+import { hasPart } from './package-part-paths.js';
 import { strToU8 } from 'fflate';
 import { emptyNumbering, READ_NUMBER_FORMATS } from './numbering.js';
 import { relatedPartPath } from './docx-relationships.js';
@@ -307,7 +308,7 @@ export function writeNumbering(parts, numbering) {
   if (!abstracts.length && !instances.length) return;
   const existingPath = relatedPartPath(parts, 'numbering');
   let path = existingPath || 'word/numbering.xml';
-  if (!existingPath) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/numbering${i}.xml`;
+  if (!existingPath) for (let i = 1; hasPart(parts, path); i++) path = `word/numbering${i}.xml`;
   const doc = existingPath ? xml(parts[path]) : xml(`<w:numbering xmlns:w="${W}"/>`), root = doc.documentElement;
   const make = (name, value) => { const node = doc.createElementNS(W, `w:${name}`); if (value !== undefined) node.setAttributeNS(W, 'w:val', String(value)); return node; };
   const writeLevel = (level, index) => {

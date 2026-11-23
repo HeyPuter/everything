@@ -12,7 +12,7 @@ const id = location.hash.slice(1);
 const status = el('span.mirror-status', { role: 'status', 'aria-live': 'polite' }, 'Waiting for the document…');
 const title = el('strong.mirror-title', {}, 'Documents');
 const zoom = el('select', { 'aria-label': 'Zoom' }, ...[0.5, 0.75, 1, 1.25, 1.5].map(n => el('option', { value: n, selected: n === 1 }, `${n * 100}%`)));
-const host = el('div.canvas-host', { 'aria-label': 'Document pages' });
+const host = el('div.canvas-host', { role: 'region', 'aria-label': 'Document pages' });
 const shell = el('main.canvas-workspace.ed-workspace.mirror-shell', {},
   el('header.mirror-bar', {}, title, el('span.mirror-note', {}, 'Second window · read only · edits in the original window appear here'), el('span.mirror-spacer'), status, el('label.mirror-zoom', {}, 'Zoom ', zoom)),
   el('div.canvas-document-surface', {}, host));

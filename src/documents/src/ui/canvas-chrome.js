@@ -1,4 +1,4 @@
-import { el, isComposing, MOD_KEY, shortcutCode, styleColor, amountInRange, keepDocumentFocus } from './dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode, styleColor, amountInRange, keepDocumentFocus, collapsedUntilOpened } from './dom.js';
 import { iconEl } from './icons.js';
 import { openMenu, closeMenu } from './menu.js';
 import { openShortcuts } from './shortcuts.js';
@@ -179,7 +179,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
       { label: 'Modify Style…', icon: 'editStyle', disabled: c.editStyle.disabled, onSelect: () => c.editStyle.click() },
       { label: 'Clear Formatting', icon: 'clearFormat', disabled: c.clearParagraphFormatting.disabled, onSelect: () => c.clearParagraphFormatting.click() }]) });
   });
-  galleryMore.classList.add('ribbon-gallery-more'); galleryMore.setAttribute('aria-haspopup', 'menu');
+  galleryMore.classList.add('ribbon-gallery-more'); collapsedUntilOpened(galleryMore, 'menu');
   noFocusSteal(galleryMore);
   let gallerySignature = '';
   function refreshGallery() {

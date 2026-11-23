@@ -72,3 +72,47 @@ test('with Track Changes on, deleting rows explains it cannot be tracked and lea
   await expect.poll(() => cells(page)).toEqual([['1', '2']]);
   expect(errors).toEqual([]);
 });
+
+test('Cut removes whole selected rows, columns or the table, as Word does, and Undo puts them back exactly', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.focus();
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 3 rows' }).click();
+  for (const [i, value] of ['1', '2', '3', '4', '5', '6', '7', '8', '9'].entries()) { if (i) await input.press('Tab'); await page.keyboard.type(value); }
+  const state = () => page.evaluate(() => JSON.stringify(window.__docs.current.view.engine.model.documentState()));
+  const select = (top, bottom, left, right) => page.evaluate(([top, bottom, left, right]) => {
+    const engine = window.__docs.current.view.engine, table = engine.model.tables[0];
+    engine.model.setCellBlock({ tableId: table.id, top, bottom, left, right });
+    engine.syncInput(); engine.paint(); engine.onSelection(); engine.focus();
+  }, [top, bottom, left, right]);
+  const before = await state();
+
+  await select(1, 1, 0, 3);
+  expect(await cut(page)).toBe('4\t5\t6');
+  expect(await cells(page)).toEqual([['1', '2', '3'], ['7', '8', '9']]);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await state()).toBe(before);
+
+  await select(0, 2, 1, 2);
+  expect(await cut(page)).toBe('2\n5\n8');
+  expect(await cells(page)).toEqual([['1', '3'], ['4', '6'], ['7', '9']]);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await state()).toBe(before);
+
+  await select(0, 2, 0, 3);
+  await cut(page);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.tables.length)).toBe(0);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await state()).toBe(before);
+
+  // Part of a row is emptied, not removed.
+  await select(0, 0, 0, 2);
+  await cut(page);
+  expect(await cells(page)).toEqual([['', '', '3'], ['4', '5', '6'], ['7', '8', '9']]);
+  expect(errors).toEqual([]);
+});

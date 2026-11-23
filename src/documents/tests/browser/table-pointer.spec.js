@@ -82,6 +82,41 @@ test('a row of exact height stays exact when its border is dragged or its height
   expect(rows[1]).toMatchObject({ rule: 'atLeast', height: 1152 });
 });
 
+test('dragging the border of a row that breaks across pages draws its guide at the pointer on each page', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1300 });
+  await newTable(page, 2, 2);
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, t = e.model.tables[0];
+    e.execute(() => { e.model.selectCell(t.rows[0].cells[0].id); e.model.replace(Array.from({ length: 70 }, (_, i) => `Line ${i}`).join('\n')); });
+  });
+  // The client rectangle of the first row's part on a page, scrolled into view.
+  const part = p => page.evaluate(p => {
+    const e = window.__docs.current.view.engine, row = e.model.tables[0].rows[0];
+    e.canvases[p].scrollIntoView({ block: 'center' });
+    const box = e.selectionLayout.cells.find(c => c.rowId === row.id && c.page === p), r = e.canvases[p].getBoundingClientRect();
+    return { x: r.left + box.x * e.zoom, y: r.top + box.y * e.zoom, w: box.width * e.zoom, h: box.height * e.zoom };
+  }, p);
+  // The client y of each line of the page's canvas that the dashed accent-blue guide crosses.
+  const guide = p => page.evaluate(p => {
+    const c = window.__docs.current.view.engine.canvases[p], r = c.getBoundingClientRect(), data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, found = [];
+    for (let y = 0; y < c.height; y++) {
+      let blue = 0; for (let x = 0; x < c.width; x++) { const i = (y * c.width + x) * 4; if (data[i + 2] - data[i] > 50) blue++; }
+      if (blue > 100) found.push(Math.round(r.top + y * r.height / c.height));
+    }
+    return found;
+  }, p);
+  expect(await page.evaluate(() => new Set(window.__docs.current.view.engine.selectionLayout.cells.filter(c => c.rowId === window.__docs.current.view.engine.model.tables[0].rows[0].id).map(c => c.page)).size)).toBeGreaterThan(1);
+  for (const p of [0, 1]) {
+    await part(p); await page.waitForTimeout(100);
+    const box = await part(p), border = { x: box.x + box.w / 2, y: box.y + box.h };
+    await page.mouse.move(border.x, border.y - 30); await page.mouse.move(border.x, border.y);
+    await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'row-resize');
+    await page.mouse.down(); await page.mouse.move(border.x, border.y - 20, { steps: 4 });
+    await expect.poll(() => guide(p)).toEqual([Math.round(border.y - 20)]);
+    await page.keyboard.press('Escape'); await page.mouse.up();
+  }
+});
+
 test('the + marks insert rows and columns; the move handle selects the table; keys follow desktop conventions', async ({ page }) => {
   await newTable(page, 2, 2);
   let box = await cells(page);
@@ -116,6 +151,83 @@ test('the + marks insert rows and columns; the move handle selects the table; ke
   await input(page).evaluate(el => { const at = el.value.lastIndexOf('X3') + 2; el.setSelectionRange(at, at); el.dispatchEvent(new Event('select', { bubbles: true })); });
   await input(page).press('Tab');
   expect((await tables(page))[0].rows).toHaveLength(3);
+});
+
+test('a press left of a row, just above a column or just inside a cell’s left edge selects it, and a drag selects more', async ({ page }) => {
+  await newTable(page, 3, 3);
+  const box = await cells(page), cursor = () => page.locator('.canvas-pages').getAttribute('data-table-cursor');
+  const press = async (x, y, kind) => {
+    await page.mouse.move(x, y);
+    await expect.poll(cursor).toBe(kind);
+    await page.mouse.down(); await page.mouse.up();
+  };
+  // Beside the middle of row 2 (its lines are the + marks' places).
+  await press(box[1][0].x - 12, box[1][0].y + box[1][0].h / 2, 'select-row');
+  expect(await block(page)).toEqual([1, 1, 0, 3]);
+  await press(box[0][1].x + box[0][1].w / 2, box[0][1].y - 6, 'select-column');
+  expect(await block(page)).toEqual([0, 2, 1, 2]);
+  await press(box[2][1].x + 6, box[2][1].y + box[2][1].h / 2, 'select-cell');
+  expect(await block(page)).toEqual([2, 2, 1, 2]);
+  await press(box[1][0].x + 3, box[1][0].y + box[1][0].h / 2, 'select-cell');
+  expect(await block(page)).toEqual([1, 1, 0, 1]);
+  // The borders, the + marks and the text keep their own presses.
+  await page.mouse.move(box[1][1].x + 1, box[1][1].y + box[1][1].h / 2);
+  await expect.poll(cursor).toBe('col-resize');
+  await page.mouse.move(box[1][0].x - 12, box[1][0].y);
+  await expect.poll(cursor).toBe('pointer');
+  await page.mouse.move(box[1][1].x + 20, box[1][1].y + box[1][1].h / 2);
+  await expect.poll(cursor).toBe(null);
+  await page.mouse.down(); await page.mouse.up();
+  expect(await block(page)).toBe(null);
+  // Dragging down the rows' bar, along the columns' or across cells selects every one passed.
+  await drag(page, { x: box[0][0].x - 12, y: box[0][0].y + box[0][0].h / 2 }, { x: box[1][0].x - 12, y: box[1][0].y + box[1][0].h / 2 });
+  expect(await block(page)).toEqual([0, 1, 0, 3]);
+  await drag(page, { x: box[0][2].x + box[0][2].w / 2, y: box[0][2].y - 6 }, { x: box[0][1].x + box[0][1].w / 2, y: box[0][1].y - 6 });
+  expect(await block(page)).toEqual([0, 2, 1, 3]);
+  await drag(page, { x: box[0][1].x + 6, y: box[0][1].y + 8 }, { x: box[1][2].x + 30, y: box[1][2].y + 8 });
+  expect(await block(page)).toEqual([0, 1, 1, 3]);
+  expect((await tables(page))[0].rows).toHaveLength(3);
+});
+
+test('beside a table nested in a cell, the outer column line still resizes rather than selecting a nested row', async ({ page }) => {
+  await newTable(page, 2, 2);
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model, t = m.tables[0];
+    e.execute(() => { m.selectCell(t.rows[0].cells[1].id); return m.insertTable(3, 2, 3000); });
+  });
+  const geometry = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model, outer = m.tables.find(t => !t.parentCellId), inner = m.tables.find(t => t.parentCellId);
+    const box = id => { const b = e.selectionLayout.cells.find(c => c.id === id), r = e.canvases[b.page].getBoundingClientRect(); return { x: r.left + b.x * e.zoom, y: r.top + b.y * e.zoom, h: b.height * e.zoom }; };
+    return { line: box(outer.rows[0].cells[1].id).x, inner: box(inner.rows[1].cells[0].id) };
+  });
+  const cursor = () => page.locator('.canvas-pages').getAttribute('data-table-cursor'), y = geometry.inner.y + geometry.inner.h / 2;
+  await page.mouse.move(geometry.line + 1, y);
+  await expect.poll(cursor).toBe('col-resize');
+  // Just inside the outer cell, before the nested table, a press selects the outer cell.
+  await page.mouse.move(geometry.line + 5, y);
+  await expect.poll(cursor).toBe('select-cell');
+});
+
+test('a press on the text just above a table places the caret there rather than inserting a column', async ({ page }) => {
+  await newTable(page, 3, 2);
+  // The intro runs past the first column line, so its text lies over the strip where the column + marks show.
+  await input(page).evaluate(el => { el.setSelectionRange(5, 5); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.keyboard.type(' paragraph that runs well across the page');
+  const point = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, table = e.model.tables[0], first = e.selectionLayout.cells.find(c => c.id === table.rows[0].cells[0].id);
+    const line = e.selectionLayout.lines.filter(l => !l.cellId && l.page === first.page && l.y < first.y).at(-1);
+    const r = e.canvases[first.page].getBoundingClientRect(), x = first.x + first.width;
+    // On the line's text, inside the strip 3 to 20 page units above the table.
+    const y = Math.min(line.y + line.height - 1, first.y - 4);
+    return { x: r.left + x * e.zoom, y: r.top + y * e.zoom, inStrip: y >= first.y - 20 && y < first.y - 3, onText: x > line.stops[0].x && x < line.stops.at(-1).x, length: e.model.paragraphs[0].runs.map(run => run.text).join('').length };
+  });
+  expect(point).toMatchObject({ inStrip: true, onText: true });
+  await page.mouse.move(point.x, point.y);
+  await expect(page.locator('.canvas-pages')).not.toHaveAttribute('data-table-cursor', 'pointer');
+  await page.mouse.click(point.x, point.y);
+  expect((await tables(page))[0].grid).toHaveLength(3);
+  const caret = await input(page).evaluate(el => [el.selectionStart, el.selectionEnd]);
+  expect(caret[0]).toBe(caret[1]); expect(caret[0]).toBeGreaterThan(0); expect(caret[0]).toBeLessThanOrEqual(point.length);
 });
 
 test('Draw Table draws a table and splits cells; the eraser merges them; the Border Painter paints edges', async ({ page }) => {
@@ -165,4 +277,42 @@ test('a block of cells formats every cell, and typing replaces only its first ce
   expect(bold).toMatchObject({ X0: false, X1: true, X2: true, X3: false, X4: true, X5: true });
   await page.keyboard.type('Z');
   await expect(input(page)).toHaveValue(/\nX0\nZ\nX2\nX3\nX4\nX5\n/);
+});
+
+test('a ruler marker drag the browser cancels leaves the columns as they were and the borders answering the pointer', async ({ page }) => {
+  await newTable(page, 3, 2);
+  await expect(page.locator('.table-ruler-marker')).toHaveCount(4);
+  const result = await page.evaluate(async () => {
+    // Synthetic pointers have no capture to set; a real finger's drag is cancelled when it turns into a scroll.
+    Element.prototype.setPointerCapture = () => {};
+    const marker = document.querySelectorAll('.table-ruler-marker')[1], b = marker.getBoundingClientRect();
+    const touch = { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', button: 0, clientX: b.x + 4, clientY: b.y + 4, isPrimary: true };
+    marker.dispatchEvent(new PointerEvent('pointerdown', touch));
+    marker.dispatchEvent(new PointerEvent('pointermove', { ...touch, clientX: b.x + 40 }));
+    marker.dispatchEvent(new PointerEvent('pointercancel', touch));
+    await new Promise(r => setTimeout(r, 100));
+    const e = window.__docs.current.view.engine, table = e.model.tables[0], cell = e.selectionLayout.cells.find(c => c.id === table.rows[1].cells[0].id);
+    const r = e.canvases[cell.page].getBoundingClientRect();
+    e.canvases[cell.page].dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: r.left + (cell.x + cell.width) * e.zoom, clientY: r.top + (cell.y + cell.height / 2) * e.zoom }));
+    return { grid: [...table.grid], dragging: document.querySelectorAll('.table-ruler-marker.is-dragging').length };
+  });
+  expect(result).toEqual({ grid: (await tables(page))[0].grid, dragging: 0 });
+  expect(new Set(result.grid).size).toBe(1);
+  await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'col-resize');
+});
+
+test('Escape while dragging a column border puts the border back', async ({ page }) => {
+  await newTable(page, 3, 2);
+  const before = await tables(page), box = (await cells(page))[0];
+  const border = { x: box[0].x + box[0].w, y: box[0].y + box[0].h / 2 };
+  const text = await input(page).inputValue();
+  await page.mouse.move(border.x, border.y); await page.mouse.down();
+  await page.mouse.move(border.x + 60, border.y, { steps: 6 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(await tables(page)).toEqual(before);
+  await expect(input(page)).toHaveValue(text);
+  // The next drag still resizes.
+  await drag(page, border, { x: border.x + 60, y: border.y });
+  expect((await tables(page))[0].grid[0]).toBeGreaterThan(before[0].grid[0]);
 });

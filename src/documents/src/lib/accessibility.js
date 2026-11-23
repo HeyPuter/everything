@@ -77,7 +77,7 @@ export function checkAccessibility({ paragraphs, tables = [], pageSettings = {} 
     let at = start;
     for (const run of p.runs) {
       const end = at + run.text.length;
-      if (run.image && !run.image.alt?.trim() && !run.image.decorative && on('altText')) add('altText', at, end, run.image.name || 'Picture', run.image.retainedDrawing ? null : { kind: 'altText' });
+      if (run.image && !run.image.alt?.trim() && !run.image.decorative && on('altText')) add('altText', at, end, run.image.name || 'Picture', run.image.retainedDrawing ? { kind: 'altText', pane: true } : { kind: 'altText' });
       if (run.text.trim() && !run.image && !run.revision?.type?.startsWith?.('del')) {
         const background = runBackground(run, page), color = textColor(run, background);
         const ratio = contrastRatio(color, background);

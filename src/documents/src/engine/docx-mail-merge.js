@@ -12,7 +12,7 @@
 //   every copy of the body with merge fields replaced by their results.
 import { strToU8, strFromU8 } from 'fflate';
 import { parseXml, declareContentType } from './docx-xml.js';
-import { relationshipPartPath, relativePartTarget } from './package-part-paths.js';
+import { relationshipPartPath, relativePartTarget, hasPart } from './package-part-paths.js';
 import { planMerge, MERGE_TYPES, fieldKeyword } from './merge-fields.js';
 import { xmlAttributeText } from './text-limits.js';
 
@@ -159,7 +159,7 @@ function writeSettings(parts, state) {
   if (path) doc = parseXml(parts[path]);
   else {
     path = 'word/settings.xml';
-    for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/settings${i}.xml`;
+    for (let i = 1; hasPart(parts, path); i++) path = `word/settings${i}.xml`;
     doc = parseXml(`<w:settings xmlns:w="${W}"/>`);
     const rels = relationships(parts, 'word/document.xml');
     const link = rels.doc.createElementNS(REL, 'Relationship');

@@ -141,7 +141,8 @@ export function createNavigationPane(api) {
               while (entries[target] && (entries[target].level > entry.level || entries[target].inTable)) target += step;
               if (entries[target]) { actions().move(entry.id, entries[target].id, step < 0 ? 'before' : 'after'); refocus(entry.id); }
             }
-          } }, el('span', {}, entry.text));
+          // A Hebrew or Arabic heading reads right-to-left, its closing punctuation at its left end.
+          } }, el('span', { dir: 'auto' }, entry.text));
         const row = el('div.nav-heading-row', { style: { paddingInlineStart: `${4 + (entry.level - 1) * 14}px` } }, toggle, heading);
         if (editable() && !entry.inTable) dragHeading(row, heading, entry);
         rows.push(el('li', { role: 'none' }, row));
@@ -251,9 +252,10 @@ export function createNavigationPane(api) {
         item.setAttribute('aria-label', `Page ${i + 1}`);
         item.lastChild.textContent = String(i + 1);
         if (i === currentPage) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
-        const thumb = item.firstChild, ratio = source.height / source.width || 1.294, scale = window.devicePixelRatio || 1;
+        // A page's shape from its size on screen: a page far from the view has given up its pixels (releasePages).
+        const thumb = item.firstChild, ratio = parseFloat(source.style.height) / parseFloat(source.style.width) || source.height / source.width || 1.294, scale = window.devicePixelRatio || 1;
         const width = Math.round(THUMB_WIDTH * scale), height = Math.round(THUMB_WIDTH * ratio * scale);
-        if (!all && thumb.source === source && thumb.width === width && thumb.height === height && !paintedPages.has(i)) return;
+        if (!all && thumb.source === source && (thumb.width === width && thumb.height === height && !paintedPages.has(i) || !source.width)) return;
         thumb.source = source;
         thumb.width = width; thumb.height = height;
         thumb.style.width = `${THUMB_WIDTH}px`; thumb.style.height = `${Math.round(THUMB_WIDTH * ratio)}px`;
@@ -288,7 +290,7 @@ export function createNavigationPane(api) {
       }
       // The row chooses the match at its place in the list when clicked, so a kept row chooses the moved match.
       const next = el('li', { dataset: { key } }, el('button.nav-result', { type: 'button', 'aria-current': i === current ? 'true' : null, onclick: () => { current = i; api.selectMatch(matches[i]); status.textContent = `Result ${i + 1} of ${matches.length}`; renderResults(); } },
-        parts[0], el('mark', {}, parts[1]), parts[2]));
+        el('span', { dir: 'auto' }, parts[0], el('mark', {}, parts[1]), parts[2])));
       if (row) row.replaceWith(next); else resultList.append(next);
     });
     while (resultList.children.length > shown.length) resultList.lastChild.remove();
@@ -331,6 +333,8 @@ export function createNavigationPane(api) {
     /** The text searched for last, for Find Next. */
     get query() { return search.value; },
     get tab() { return tab; },
+    /** Whether the pane shows page thumbnails, which draw every page. */
+    get showsPages() { return !node.hidden && tab === 'pages'; },
     select,
   };
 }

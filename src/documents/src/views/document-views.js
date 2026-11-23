@@ -234,7 +234,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     if (all) engine.flushPaint?.();
     const pages = engine.canvases, current = engine.caretPageIndex ?? 0, height = 84, scale = window.devicePixelRatio || 1;
     while (thumbStrip.children.length > pages.length) thumbStrip.lastChild.remove();
-    const sizeOf = source => { const ratio = source.width / source.height || 0.77; return { ratio, width: Math.round(height * ratio * scale), height: Math.round(height * scale) }; };
+    // A page's shape from its size on screen: a page far from the view has given up its pixels (releasePages).
+    const sizeOf = source => { const ratio = parseFloat(source.style.width) / parseFloat(source.style.height) || source.width / source.height || 0.77; return { ratio, width: Math.round(height * ratio * scale), height: Math.round(height * scale) }; };
     const redrawn = pages.flatMap((source, index) => {
       const thumb = thumbStrip.children[index]?.firstChild.firstChild, size = sizeOf(source);
       return all || paintedThumbs.has(index) || !thumb || thumb.source !== source || thumb.width !== size.width || thumb.height !== size.height ? [index] : [];
@@ -520,7 +521,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       engine.model.select(e.shiftKey ? engine.model.selection.anchor : position, position);
       engine.focus(); engine.onSelection();
     });
-    pane.addEventListener('scroll', () => paintMirror(), { passive: true });
+    // Pages the pane comes to that changed while far from the editor's view are painted once the browser is idle.
+    pane.addEventListener('scroll', () => { paintMirror(); editor()?.schedulePaint?.(); }, { passive: true });
     paintMirror();
     onState(); layoutChanged();
   }
@@ -534,7 +536,10 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       let copy = pages.children[index];
       if (!copy) { copy = el('canvas.canvas-page'); pages.append(copy); dirty.add(index); }
       copy.dataset.page = index;
-      if (copy.width !== source.width || copy.height !== source.height) { copy.width = source.width; copy.height = source.height; dirty.add(index); }
+      // A page far from the editor's view has given up its pixels (releasePages): its copy takes the size the
+      // page has when painted.
+      const size = engine.releasedPages?.has(index) ? engine.backingSize(index) : source;
+      if (copy.width !== size.width || copy.height !== size.height) { copy.width = size.width; copy.height = size.height; dirty.add(index); }
       copy.style.width = source.style.width; copy.style.height = source.style.height;
     });
     // Only the pages the second pane shows (and a screen around them) are painted and copied; the
@@ -547,7 +552,22 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     });
     const stale = wanted.filter(index => engine.stalePages?.has(index));
     if (stale.length) engine.paint({ pages: stale });
-    for (const index of wanted) { pages.children[index].getContext('2d').drawImage(sources[index], 0, 0); dirty.delete(index); }
+    for (const index of wanted) {
+      const copy = pages.children[index], source = sources[index];
+      if (copy.width !== source.width || copy.height !== source.height) { copy.width = source.width; copy.height = source.height; }
+      if (source.width && source.height) copy.getContext('2d').drawImage(source, 0, 0);
+      dirty.delete(index);
+    }
+  }
+  /** The pages the second pane shows, with a screen around them: the editor keeps them painted (retainedPages). */
+  function mirrorShownPages() {
+    if (!split) return [];
+    const view = split.pane.getBoundingClientRect(), height = view.height, width = view.width;
+    if (!height || !width) return [];
+    return [...split.pages.children].flatMap((copy, index) => {
+      const r = copy.getBoundingClientRect();
+      return r.bottom > view.top - height && r.top < view.bottom + height && r.right > view.left - width && r.left < view.right + width ? [index] : [];
+    });
   }
 
   /* ---- Navigation pane heading commands (drag to reorder, promote, demote, add, delete) ---- */
@@ -708,6 +728,9 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       zoomDialog, zoomTextWidth: textWidth, manyPages, headingActions,
     },
     extendTab, contextTabs, extendMenu, refresh,
+    /** Whether the side-to-side page thumbnails show, which draw every page. */
+    get thumbnailsShown() { return !thumbStrip.hidden; },
+    mirrorShownPages,
     /** Contextual tabs this module shows: the Outlining tab in Outline view. */
     extraContexts: () => (mode === 'outline' ? ['outlining'] : []),
     get mode() { return mode; },

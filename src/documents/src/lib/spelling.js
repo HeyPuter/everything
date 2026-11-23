@@ -158,11 +158,26 @@ export function loadSpeller(base = document.baseURI) {
     ]);
     const engine = nspell(aff, dic);
     for (const word of personalWords()) engine.add(word);
-    return {
-      correct: word => engine.correct(word) || engine.correct(word.toLowerCase()) && word[0] === word[0].toUpperCase() && word.slice(1) === word.slice(1).toLowerCase(),
-      suggest: word => rankSuggestions(word, [...apostropheSuggestions(word, candidate => engine.correct(candidate)), ...engine.suggest(word)]),
-      add: word => { engine.add(word); addPersonalWord(word); },
-    };
+    return spellerFrom(engine);
   })().catch(error => { speller = null; throw error; });
   return speller;
+}
+
+/** An accented Latin letter, precomposed or with its combining mark; and a word with its accents taken off. */
+const ACCENTED = /[\u00c0-\u024f\u1e00-\u1eff]|\p{M}/u;
+const unaccented = word => word.normalize('NFD').replace(/\p{M}/gu, '').normalize('NFC');
+
+/**
+ * Spelling with a Hunspell engine ({ correct, suggest, add }). The word list is plain ASCII, so English words
+ * written with their accents (café, naïve, résumé, façade) are checked as their unaccented forms, which it has, as
+ * a word processor's English dictionary accepts both. The list cannot tell a wrong accent from a right one (cafè
+ * passes too). A letter that is no accented Latin letter (ø, æ, ß) is checked as it is.
+ */
+export function spellerFrom(engine) {
+  const known = word => engine.correct(word) || engine.correct(word.toLowerCase()) && word[0] === word[0].toUpperCase() && word.slice(1) === word.slice(1).toLowerCase();
+  return {
+    correct: word => known(word) || ACCENTED.test(word) && /^[\x00-\x7f]+$/.test(unaccented(word)) && known(unaccented(word)),
+    suggest: word => rankSuggestions(word, [...apostropheSuggestions(word, candidate => engine.correct(candidate)), ...engine.suggest(word)]),
+    add: word => { engine.add(word); addPersonalWord(word); },
+  };
 }

@@ -35,12 +35,37 @@ const OBJECT = '\uFFFC';
 const TWIP_EMU = 635;
 const AUTOTEXT_KEY = 'documents.insert.autoText';
 
+const HEIF_BRANDS = /^(heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/;
+/** Whether a file is a HEIC/HEIF photo (an iPhone's camera format), by its type, name or `ftyp` box (ISO/IEC 23008-12). */
+async function heifPhoto(blob) {
+  if (/^image\/hei[cf]/i.test(blob.type || '') || /\.hei[cf]$/i.test(blob.name || '')) return true;
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  return head.length === 12 && String.fromCharCode(...head.subarray(4, 8)) === 'ftyp' && HEIF_BRANDS.test(String.fromCharCode(...head.subarray(8, 12)));
+}
+/**
+ * An SVG as a canvas can draw it and still export: embedded HTML (`foreignObject`, which diagram tools use for
+ * labels) marks the canvas as unreadable, so it is left out; such a drawing's own fallback (an SVG `switch`'s
+ * text) shows in its place. Scripts never run in a picture, and go too.
+ */
+async function drawableSvg(blob) {
+  const text = await blob.text();
+  if (!/<(?:[\w-]+:)?(?:foreignObject|script)\b/.test(text)) return blob;
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  if (doc.getElementsByTagName('parsererror').length) return blob;
+  for (const node of [...doc.getElementsByTagNameNS('*', 'foreignObject'), ...doc.getElementsByTagNameNS('*', 'script')]) node.remove();
+  return new Blob([new XMLSerializer().serializeToString(doc)], { type: 'image/svg+xml' });
+}
+
 /** Draw an image file at most `max` pixels per side (and `pixels` in all) and encode it as PNG, or as `type`: its bytes and pixel size. */
 export async function rasterize(blob, max = 1600, { pixels = Infinity, type = 'image/png', quality } = {}) {
+  if (/^image\/svg\+xml$/i.test(blob.type || '') || /\.svg$/i.test(blob.name || '')) blob = await drawableSvg(blob);
   const url = URL.createObjectURL(blob);
   try {
     const img = new Image(); img.src = url;
-    try { await img.decode(); } catch { throw new Error('The picture could not be read. Choose a PNG, JPEG, GIF, WebP, BMP, TIFF or SVG image.'); }
+    try { await img.decode(); } catch {
+      if (await heifPhoto(blob)) throw new Error('HEIC photos can’t be inserted. Save the photo as JPEG or PNG first (most photo apps can export it that way), then insert that.');
+      throw new Error('The picture could not be read. Choose a PNG, JPEG, GIF, WebP, BMP, TIFF or SVG image.');
+    }
     let width = img.naturalWidth || 300, height = img.naturalHeight || 150;
     const scale = Math.min(1, max / Math.max(width, height), Math.sqrt(pixels / (width * height))), natural = { width, height };
     width = Math.max(1, Math.round(width * scale)); height = Math.max(1, Math.round(height * scale));
@@ -50,7 +75,10 @@ export async function rasterize(blob, max = 1600, { pixels = Infinity, type = 'i
     while (width * height > pixels && Math.max(width, height) > 1) { if (width >= height) width--; else height--; }
     const canvas = Object.assign(document.createElement('canvas'), { width, height });
     canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-    const encoded = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('The picture could not be converted.')), type, quality));
+    const encoded = await new Promise((resolve, reject) => {
+      // A canvas the picture made unreadable (content from elsewhere) throws rather than giving no blob.
+      try { canvas.toBlob(b => b ? resolve(b) : reject(new Error('The picture could not be converted.')), type, quality); } catch { reject(new Error('The picture could not be converted.')); }
+    });
     const bytes = new Uint8Array(await encoded.arrayBuffer());
     return { png: bytes, bytes, width, height };
   } finally { URL.revokeObjectURL(url); }
@@ -374,6 +402,10 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   async function removeStory(kind) {
     const engine = ready(); if (!engine) return;
     try {
+      // A page without a header (or footer) has nothing to remove: opening one to clear it would add an empty part.
+      engine.finishComposition();
+      const page = engine.session.path !== null ? engine.storyPage ?? 0 : engine.caretPageIndex ?? 0;
+      if (!(engine.storyLayout?.positions || []).some(item => item.page === page && engine.pageStories?.stories[item.path]?.kind === kind)) { engine.focus(); return; }
       await base.editHeader?.(kind);
       if (activeKind(engine) !== kind) return;
       run(engine, () => { engine.model.select(0, engine.model.text.length); if (engine.model.text.length) engine.model.replace(''); return true; });

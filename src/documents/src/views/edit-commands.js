@@ -9,7 +9,7 @@ import { captureFormat, applyFormat } from '../engine/home-editing.js';
  * Next and Previous, and the Links dialog. Every document change goes through the engine's
  * transactions, so it is one undo step and respects read-only and view-only documents.
  */
-export function createEditCommands({ editor, pkg, editLink, searchQuery = () => '', onChange = () => {}, redoable = () => !!editor()?.session.future.length }) {
+export function createEditCommands({ editor, pkg, editLink, searchQuery = () => '', onChange = () => {}, redoable = () => !!editor()?.session.future.length, noteCommand = () => {} }) {
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly ? engine : null; };
   let repeatable = null; // { label, run }
   let copiedFormat = null;
@@ -23,12 +23,17 @@ export function createEditCommands({ editor, pkg, editLink, searchQuery = () => 
 
   const commands = {
     recordRepeat: record,
+    /** The last change was made by something Repeat cannot run (typing, a key the editor takes itself): Repeat has nothing. */
+    forgetRepeat() { repeatable = null; },
     repeatLabel: () => repeatable?.label || null,
     canRepeat: () => !!repeatable && !!ready(),
     repeat() {
       const engine = ready(); if (!engine || !repeatable) return false;
       engine.finishComposition();
-      repeatable.run();
+      // The step it makes is named after the command, which stays the one Repeat runs.
+      const { label, run } = repeatable;
+      noteCommand(label, run);
+      run();
       return true;
     },
     /** Cmd/Ctrl+Y: redo what was undone, else repeat the last command. */

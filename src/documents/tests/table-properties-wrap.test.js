@@ -36,3 +36,23 @@ it('sets a column of a table sized as a share of the window to the width typed, 
   // Kept at 100%, the columns would be stretched back to fill the window and the first would not be 1 in.
   expect(apply.mock.calls[0][0].table).toMatchObject({ columns: [1440, 4680], width: { type: 'dxa', value: 6120 } });
 });
+
+it('sets a column of a table with a width in inches to the width typed, the table narrowing with it', () => {
+  const apply = vi.fn(() => true);
+  openTableProperties(table({ width: { type: 'dxa', value: 9360 }, grid: [4680, 4680] }), [4680, 4680], 0, apply, { wrap: 'none', altText: { title: '', description: '' } });
+  const width = document.querySelector('[aria-label="Column width (in)"]');
+  width.value = '1.5'; width.dispatchEvent(new Event('input'));
+  document.querySelector('form.table-properties').requestSubmit();
+  // Kept at 6.5 in, a fixed table's columns would stretch back to fill it: the first would be wider than typed.
+  expect(apply.mock.calls[0][0].table).toMatchObject({ columns: [2160, 4680], width: { type: 'dxa', value: 6840 } });
+});
+
+it('keeps a width in inches typed together with a column width', () => {
+  const apply = vi.fn(() => true);
+  openTableProperties(table({ width: { type: 'dxa', value: 9360 }, grid: [4680, 4680] }), [4680, 4680], 0, apply, { wrap: 'none', altText: { title: '', description: '' } });
+  const column = document.querySelector('[aria-label="Column width (in)"]'), total = document.querySelector('[aria-label="Preferred table width"]');
+  column.value = '1.5'; column.dispatchEvent(new Event('input'));
+  total.value = '7'; total.dispatchEvent(new Event('input'));
+  document.querySelector('form.table-properties').requestSubmit();
+  expect(apply.mock.calls[0][0].table).toMatchObject({ columns: [2160, 4680], width: { type: 'dxa', value: 10080 } });
+});

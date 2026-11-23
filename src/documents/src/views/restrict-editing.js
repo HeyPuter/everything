@@ -106,6 +106,19 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     // Keep keyboard focus on the control that was focused before the rebuild.
     if (focused) [...pane.body.querySelectorAll('button, input, select')].find(n => nameOf(n) === focused)?.focus({ preventScroll: true });
   }
+  /**
+   * Starting or stopping protection replaces the button that opened its dialog, where the dialog gave the keyboard back:
+   * it was left on nothing, and the next key went nowhere. It goes to the pane's new main button (Stop Protection, or
+   * Start Enforcing), or back to the document.
+   */
+  function keepFocus() {
+    const active = document.activeElement;
+    // Still in the closing dialog, the keyboard would be left on nothing once it goes.
+    if (active && active !== document.body && active.isConnected && !active.closest('.modal-root.closing')) return;
+    const main = pane.isOpen ? pane.body.querySelector('[data-main-action]:not(:disabled)') : null;
+    if (main) main.focus({ preventScroll: true });
+    if (document.activeElement !== main) editor()?.focus();
+  }
 
   function setupView(engine) {
     syncDraft();
@@ -134,6 +147,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
       })),
       regionList()) : null;
     const start = button('Yes, Start Enforcing Protection', () => startEnforcing(), { primary: true, small: false, disabled: readOnly || !draft.formatting && !draft.editing });
+    start.dataset.mainAction = '';
     return el('div', {},
       section('1. Formatting restrictions', el('label.rv-check', {}, formattingBox, 'Limit formatting to a selection of styles'), button('Choose styles…', () => chooseStyles(), { disabled: readOnly })),
       section('2. Editing restrictions', el('label.rv-check', {}, editingBox, 'Allow only this type of editing in the document:'), kind),
@@ -194,7 +208,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     setSettings({ protection: { edit, formatting, enforcement: true, ...(verifier || {}) } });
     // Earlier edits cannot be undone past the point protection began.
     engine.session.history = []; engine.session.future = [];
-    applyGuard(); render();
+    applyGuard(); render(); keepFocus();
     toast(edit === 'trackedChanges' && !formatting ? 'Tracking is locked' : 'Protection is on');
     return true;
   }
@@ -205,7 +219,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
       if (ok === null) return false;
     } else if (!await confirmDialog({ title, message: 'Turn off protection for this document?', confirmLabel: 'Stop Protection', danger: false })) return false;
     setSettings({ protection: { edit: p.edit, formatting: p.formatting, enforcement: false } });
-    applyGuard(); render();
+    applyGuard(); render(); keepFocus();
     return true;
   }
 
@@ -220,13 +234,15 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     const p = readOnlyView ? { edit: 'readOnly' } : protection();
     const mine = myRegions();
     const highlight = el('input', { type: 'checkbox', checked: HIGHLIGHT.get(), onchange: () => { HIGHLIGHT.set(highlight.checked); onChange(); } });
+    const stop = button(readOnlyView ? 'Edit Anyway' : 'Stop Protection', () => stopEnforcing(), { small: false });
+    stop.dataset.mainAction = '';
     return el('div', {},
       section('Your permissions', el('p.rv-status', {}, readOnlyView ? 'You opened this document read-only, as its author recommends.' : EXPLAIN[p.edit] || EXPLAIN.readOnly),
         p.formatting && p.edit !== 'none' ? el('p.rv-status', {}, EXPLAIN.none) : null,
         ['readOnly', 'comments', 'forms'].includes(p.edit) && mine.length ? el('div', {}, hint('You may edit in the highlighted regions.'),
           el('div.rv-actions', {}, button('Find Next Region I Can Edit', () => nextRegion(), { primary: true }), button('Show All Regions I Can Edit', () => { const engine = editor(); if (mine.length) reveal(engine, mine[0].start, mine.at(-1).end); })),
           el('label.rv-check', {}, highlight, 'Highlight the regions I can edit')) : null),
-      el('div.rv-actions', {}, button(readOnlyView ? 'Edit Anyway' : 'Stop Protection', () => stopEnforcing(), { small: false })));
+      el('div.rv-actions', {}, stop));
   }
 
   return {

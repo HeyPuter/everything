@@ -104,20 +104,34 @@ input:disabled + .ed-switch { opacity: .5; }
 .ed-ribbon-reveal[hidden] { display: none; }
 
 /* Narrower windows give the menus one button, then shorten the pills. */
-/* Below 1520px the document's name wins over a wide search box and the Share label. */
-@media (max-width: 1520px) { .ed-header .ed-search { width: 150px; } .ed-share .ed-pill-label { display: none; } .ed-header .ed-menubar .menu-btn { padding: 0 5px; } }
+/* Below 1620px the document's name wins over a wide search box and the Share label. Each step starts where the name
+   would otherwise be cut short (at 1521px the name lost half its width); measured signed in, with puter.js's Apps
+   button and its Upgrade button as an icon (views.css). */
+@media (max-width: 1620px) { .ed-header .ed-search { width: 150px; } .ed-share .ed-pill-label { display: none; } .ed-header .ed-menubar .menu-btn { padding: 0 5px; } }
 /* It wins over the routine save labels too (the cloud icon still shows the state). Each edit runs through unsaved, saving
    and saved: all three are icons alone until there is room for their labels, and then keep room for the longest of them,
    so the centered name does not shift at every save. */
-@media (max-width: 1680px) { .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label { display: none; } }
-@media (min-width: 1681px) {
+@media (max-width: 1720px) { .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label { display: none; } }
+@media (min-width: 1721px) {
   .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label { display: inline-grid; }
   .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label::before { content: 'Unsaved changes'; height: 0; overflow: hidden; visibility: hidden; }
 }
-/* The search box gives up the Apps button's width, so the name still shows whole at 1280px. */
-@media (max-width: 1360px) { .ed-mode-label, .ed-autosave-label { display: none; } .ed-header .ed-search { width: 112px; } }
-@media (max-width: 1100px) { .ed-header .ed-menubar { display: none; } .ed-menus-button { display: inline-flex; } }
-@media (max-width: 900px) { .ed-header .ed-search { width: 34px; padding: 0 8px; } .ed-header .ed-search:focus-within { width: 200px; } .ed-header .ed-search-input:not(:focus) { width: 0; } }
+/* Signed out, "Sign in to save" gives way to the name too: it shortens, then leaves its cloud alone (the tooltip and the
+   accessible name keep the words). It kept its width and squeezed the name out of sight, at 1366px and on phones. */
+.ed-header .canvas-save-status.signed-out { flex: 0 1000 auto; min-width: 22px; }
+.ed-header .canvas-save-status.signed-out svg { display: inline-block; flex: none; }
+.ed-header .canvas-save-status.signed-out .save-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The search box gives up the Apps button's width, so the name still shows whole at 1366px. */
+@media (max-width: 1480px) { .ed-mode-label, .ed-autosave-label { display: none; } .ed-header .ed-search { width: 112px; } }
+/* Below 1280px the menu bar no longer fits whole: Window and Help were cut off (out of reach of the pointer), so the
+   menus take one button. */
+@media (max-width: 1279px) { .ed-header .ed-menubar { display: none; } .ed-menus-button { display: inline-flex; } }
+/* Below 1321px the search box is its magnifier until it has focus, which leaves the name whole at 1280px with the menu
+   bar and Upgrade beside it. */
+@media (max-width: 1320px) { .ed-header .ed-search { width: 34px; padding: 0 8px; } .ed-header .ed-search:focus-within { width: 200px; } .ed-header .ed-search-input:not(:focus) { width: 0; } }
+/* A tablet held upright (768 to 880px) cut the name to a few letters: AutoSave and the quick access customize
+   button go first, as on phones (Preferences ▸ Save keeps AutoSave). */
+@media (max-width: 880px) { .ed-autosave, .ed-quick-customize { display: none; } }
 @media (max-width: 700px) {
   .ed-header .ed-titlebar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px; }
   .ed-autosave, .ed-quick-customize, .ed-title-details, .ed-comments-button, .ed-share { display: none; }

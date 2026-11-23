@@ -2,7 +2,7 @@ import { el, isComposing } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { changeCase, captureFormat, applyFormat, sortParagraphs } from '../engine/home-editing.js';
 import { prepareCanvasFont, documentFontAvailable } from '../engine/font-availability.js';
-import { openFontDialog, selectsEastAsianText } from './font-dialog.js';
+import { openFontDialog, selectsEastAsianText, selectsComplexScriptText } from './font-dialog.js';
 import { insertCoverPage, COVER_DESIGNS } from '../engine/cover-pages.js';
 import { setImageWrap, imageWrapMode, wrapUnavailable } from '../engine/image-wrap.js';
 import { applyListLibrary, libraryIndex, applyMultilevelList, MULTILEVEL_LIBRARY } from '../engine/list-library.js';
@@ -250,10 +250,12 @@ export function createEditingCommands({ editor, pkg, host, refresh, zoomControl,
       const engine = ready(); if (!engine) return;
       engine.finishComposition();
       const [start, end] = engine.model.range;
-      openFontDialog({ format: engine.model.runCommandFormatting, sample: engine.model.text.slice(start, end), eastAsian: selectsEastAsianText(engine.model.text, [start, end]),
+      const format = engine.model.runCommandFormatting;
+      openFontDialog({ format, sample: engine.model.text.slice(start, end), eastAsian: selectsEastAsianText(engine.model.text, [start, end]),
+        complexScript: selectsComplexScriptText(engine.model.text, [start, end], format),
         onClose: () => queueMicrotask(() => editor()?.focus()),
         apply: async (patch, fail) => {
-          for (const name of new Set([patch.fontAscii, patch.fontEastAsia].filter(Boolean))) {
+          for (const name of new Set([patch.fontAscii, patch.fontEastAsia, patch.fontCs].filter(Boolean))) {
             await prepareCanvasFont(name);
             if (documentFontAvailable(name, engine.model.styles.fontAlternatives) !== true) { fail(new Error(`${name} could not be loaded on this device. Choose another font.`)); return false; }
           }

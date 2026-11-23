@@ -13,6 +13,8 @@ for(const suffix of ['', '-legacy'])test(`top/bottom margin anchors match the na
   await expect(page.locator('canvas.canvas-page')).toHaveCount(18);
   for(let i=0;i<18;i++){
    const result=await page.locator('canvas.canvas-page').nth(i).evaluate(async(c,png)=>{
+    // A page far from the view gives up its pixels in a long document; asking for its context paints it again.
+    c.getContext('2d');
     const im=new Image();im.src='data:image/png;base64,'+png;await im.decode();
     const native=document.createElement('canvas');native.width=im.width;native.height=im.height;native.getContext('2d').drawImage(im,0,0);
     if(c.width!==im.width||c.height!==im.height)throw Error('Reference size mismatch');

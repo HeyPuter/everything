@@ -4,6 +4,7 @@
 // customXml relationships; a new one gets its item properties part (§22.5.2.1).
 import { strToU8, strFromU8 } from 'fflate';
 import { parseXml, declareContentType } from './docx-xml.js';
+import { hasPart } from './package-part-paths.js';
 import { relationshipEntries } from './docx-relationships.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { BIB_NS, newGuid, parseSources, serializeSources, parseCitation, citationInstruction, bibliographyInstruction } from './bibliography.js';
@@ -58,7 +59,7 @@ export function writeBibliographyPart(parts, data) {
     if (strFromU8(parts[existing.path]) !== text) parts[existing.path] = strToU8(text);
     return existing.path;
   }
-  let n = 1; while (Object.hasOwn(parts, `customXml/item${n}.xml`) || Object.hasOwn(parts, `customXml/itemProps${n}.xml`)) n++;
+  let n = 1; while (hasPart(parts, `customXml/item${n}.xml`) || hasPart(parts, `customXml/itemProps${n}.xml`)) n++;
   const item = `customXml/item${n}.xml`, props = `customXml/itemProps${n}.xml`;
   parts[item] = strToU8(text);
   const guid = newGuid();

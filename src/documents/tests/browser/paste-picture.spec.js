@@ -166,3 +166,61 @@ test('a cropped, flipped picture copied and pasted keeps its crop, flip and fram
   expect(xml.match(/<a:xfrm flipH="1"/g)).toHaveLength(2);
   expect(errors).toEqual([]);
 });
+
+test('a floating picture copied and pasted in the document keeps its wrapping, beside the original, not in line', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('First paragraph of the text.\nSecond paragraph, beside the picture.\nThird paragraph.');
+  await input(page).evaluate((el, bytes) => {
+    el.focus(); el.setSelectionRange(29, 29); el.dispatchEvent(new Event('select'));
+    const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, png);
+  await expect.poll(() => pictures(page)).toBe(1);
+  await page.locator('#ribbon-panel-picture').getByRole('button', { name: 'Wrap Text', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Square' }).click();
+  const anchors = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image)
+    .map(({ image: { id, anchor } }) => ({ id, wrap: anchor?.wrap || null, x: anchor?.x ?? null, y: anchor?.y ?? null })));
+  await expect.poll(async () => (await anchors())[0]?.wrap).toBe('square');
+  const [original] = await anchors();
+  const copy = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine, data = new DataTransfer();
+    e.input.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+    return data.getData('text/html');
+  });
+  const paste = html => input(page).evaluate((el, html) => {
+    const data = new DataTransfer(); data.setData('text/html', html); data.setData('text/plain', '');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, html);
+  const html = await copy();
+  // Other applications still get the image.
+  expect(html).toMatch(/^<img src="data:image\/png;base64,/);
+  // Pasted over the selected picture, the copy floats with the same wrapping a quarter inch down and right, and is selected.
+  await paste(html);
+  await expect.poll(async () => (await anchors()).length).toBe(2);
+  const [, pasted] = await anchors();
+  expect(pasted).toMatchObject({ wrap: 'square', x: original.x + 228600, y: original.y + 228600 });
+  expect(pasted.id).not.toBe(original.id);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.selectedImage?.id)).toBe(pasted.id);
+  // A further paste goes past that copy too.
+  await paste(html);
+  await expect.poll(async () => (await anchors()).length).toBe(3);
+  expect((await anchors())[2]).toMatchObject({ wrap: 'square', x: original.x + 2 * 228600, y: original.y + 2 * 228600 });
+  // One undo takes a paste back.
+  await input(page).press('ControlOrMeta+z');
+  await expect.poll(async () => (await anchors()).length).toBe(2);
+  // A copy from another document's editor is the picture alone, inserted in line.
+  await paste(html.replace(/(&quot;token&quot;:&quot;)[^&]+/, '$1another'));
+  await expect.poll(async () => (await anchors()).length).toBe(3);
+  expect((await anchors()).filter(a => a.wrap === null)).toHaveLength(1);
+  const download = page.waitForEvent('download');
+  await downloadDocx(page);
+  const path = info.outputPath('floating-paste.docx');
+  await (await download).saveAs(path);
+  const xml = strFromU8(unzipSync(readFileSync(path))['word/document.xml']);
+  expect(xml.match(/<wp:wrapSquare /g)).toHaveLength(2);
+  const ids = [...xml.matchAll(/<wp:docPr id="(\d+)"/g)].map(m => m[1]);
+  expect(new Set(ids).size).toBe(3);
+  expect(errors).toEqual([]);
+});

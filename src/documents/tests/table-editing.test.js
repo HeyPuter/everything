@@ -290,6 +290,20 @@ describe('cells', () => {
     expect(shape(doc)).toEqual(['a0/a1/b0/b1  a2', '  b2', 'c0 c1 c2']);
     valid(doc);
   });
+
+  it('splits a cell the file gave no width into rows and still saves', async () => {
+    // Cells without w:tcW (§17.4.72: their width is automatic) split into rows used to have an empty width written.
+    const parts = unzipSync(readFileSync('public/fixtures/table-headers.docx'));
+    parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace(/<w:tcW [^>]*\/>/g, ''));
+    const pkg = await DocxPackage.open(zipSync(parts)), doc = open(pkg);
+    expect(cellAt(doc, 1, 1).width).toBeUndefined();
+    const rows = doc.tables.at(-1).rows.length;
+    at(doc, 1, 1); expect(T.splitCells(doc, { rows: 2, columns: 1 })).toBe(true);
+    expect(doc.tables.at(-1).rows).toHaveLength(rows + 1);
+    const { reopened, xml } = await roundTrip(pkg, doc);
+    expect(shape(reopened, reopened.tables.at(-1))).toEqual(shape(doc));
+    expect(xml).not.toMatch(/<w:tcW(?![^>]*w:type)/);
+  });
 });
 
 describe('inserting a table', () => {
@@ -603,6 +617,60 @@ describe('table commands', () => {
     expect(cellAt(reopened, 2, 2).borders.top).toMatchObject({ style: 'double', size: 12, color: 'C00000' });
   });
 
+  it('borders a whole long table walking its rows a few times, not again for every edge', () => {
+    // Outside Borders on a whole 500-row table took most of a second: each outside edge read the whole table again.
+    const { doc } = tableDocument(40, 4), table = doc.tables[0];
+    let walks = 0;
+    doc.checkpoint = () => {};
+    table.rows.forEach = function (...args) { walks++; return Array.prototype.forEach.apply(this, args); };
+    block(doc, 0, 0, 39, 4);
+    expect(T.applyBorderPreset(doc, 'outside', { style: 'single', size: 8, color: 'FF0000' })).toBe(true);
+    delete table.rows.forEach;
+    expect(walks).toBeLessThan(12);
+    expect(cellAt(doc, 39, 3).borders).toMatchObject({ bottom: { color: 'FF0000' }, right: { color: 'FF0000' } });
+    expect(cellAt(doc, 20, 1).borders?.top).toBeUndefined();
+  });
+
+  it('formats an empty last cell of selected rows, and a cell\'s empty last paragraph, with the others', () => {
+    // A text range that ends at the start of a paragraph leaves that paragraph out; a block of cells runs to its end.
+    const { doc } = tableDocument(2, 2), table = doc.tables[0];
+    doc.selectCell(cellAt(doc, 1, 1).id); doc.select(doc.range[0], doc.range[0] + 2); doc.replace('');
+    block(doc, 0, 0, 1, 2);
+    expect(doc.setParagraphFormat({ alignment: 'center' })).toBe(true);
+    const alignments = () => doc.paragraphs.filter(p => p.cellId).map(p => p.format?.alignment);
+    expect(alignments()).toEqual(['center', 'center', 'center', 'center']);
+    // A cell whose text ends in an empty paragraph: Align Right reaches that paragraph too.
+    doc.selectCell(cellAt(doc, 0, 1).id); doc.select(doc.range[0] + 2); doc.insertParagraph();
+    doc.selectCell(cellAt(doc, 0, 1).id);
+    expect(T.setCellAlignment(doc, { horizontal: 'right' })).toBe(true);
+    expect(doc.paragraphs.filter(p => p.cellId === cellAt(doc, 0, 1).id).map(p => [paragraphText(p), p.format?.alignment])).toEqual([['a1', 'right'], ['', 'right']]);
+    expect(table.rows).toHaveLength(2);
+  });
+
+  it('aligns the cells of whole selected rows in one change, not one pass over the document per cell', () => {
+    // Select Table and Align Center on a 500-row table took seconds: each cell was selected and formatted in turn.
+    const { doc } = tableDocument(40, 4);
+    block(doc, 0, 0, 39, 4);
+    let selections = 0;
+    const select = doc.select;
+    doc.select = function (...args) { selections++; return select.apply(this, args); };
+    expect(T.setCellAlignment(doc, { horizontal: 'center', vertical: 'center' })).toBe(true);
+    delete doc.select;
+    expect(selections).toBeLessThan(5);
+    expect(doc.paragraphs.filter(p => p.cellId).every(p => p.format?.alignment === 'center')).toBe(true);
+    expect(doc.tables[0].rows.every(row => row.cells.every(cell => cell.vertical === 'center'))).toBe(true);
+    expect(doc.activeCellBlock).toMatchObject({ top: 0, bottom: 39, left: 0, right: 4 });
+  });
+
+  it('makes text typed later in an empty last cell of selected rows bold, as in the other empty cells', () => {
+    const { doc } = tableDocument(2, 2);
+    for (const [r, c] of [[0, 1], [1, 0], [1, 1]]) { doc.selectCell(cellAt(doc, r, c).id); doc.select(doc.range[0], doc.range[0] + 2); doc.replace(''); }
+    block(doc, 0, 0, 1, 2);
+    expect(doc.toggleBold()).toBe(true);
+    const typed = (r, c) => { doc.selectCell(cellAt(doc, r, c).id); doc.replace('t'); return doc.paragraphs.find(p => p.cellId === cellAt(doc, r, c).id).runs[0].bold; };
+    expect([typed(0, 1), typed(1, 0), typed(1, 1)]).toEqual([true, true, true]);
+  });
+
   it('draws diagonal borders across the selected cells and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 1, 1, 1, 3);
@@ -693,6 +761,18 @@ describe('table commands', () => {
 });
 
 describe('cells holding a nested table', () => {
+  it('gives the row Tab adds the outer table\'s formatting, not that of a table nested at the start of its cell', () => {
+    const { doc } = tableDocument(1, 1), outer = doc.tables[0], cell = outer.rows[0].cells[0];
+    doc.selectCell(cell.id); doc.insertTable(1, 2, 4000);
+    const nested = doc.tables[1];
+    doc.selectCell(nested.rows[0].cells[0].id); doc.setParagraphFormat({ alignment: 'center' });
+    doc.select(doc.paragraphOffset(doc.paragraphs.findLastIndex(p => p.cellId === cell.id)));
+    expect(doc.moveCell(1)).toBe(true);
+    const added = doc.paragraphs.find(p => p.cellId === outer.rows[1].cells[0].id);
+    expect([added.tableStyleId, added.format?.alignment ?? 'left']).toEqual([outer.styleId, 'left']);
+    valid(doc);
+  });
+
   it('applies row options to the table of the selected cells when the selection ends in a nested table', () => {
     const { doc } = tableDocument(3, 2), outer = doc.tables[0];
     const holder = cellAt(doc, 0, 1), last = doc.paragraphs.findLastIndex(p => p.cellId === holder.id);

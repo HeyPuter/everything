@@ -98,12 +98,33 @@ describe('Format Painter', () => {
     const { doc } = await styledDocument(['Heading here', 'plain words']);
     doc.select(0); doc.setParagraphStyle('Heading2'); doc.setParagraphFormat({ alignment: 'center' });
     const captured = captureFormat(doc);
-    expect(captured.paragraph).toEqual({ styleId: 'Heading2', format: { alignment: 'center' } });
+    expect(captured.paragraph).toEqual({ styleId: 'Heading2', format: { alignment: 'center' }, list: null });
     doc.select(15);
     applyFormat(doc, captured);
     expect(doc.paragraphs[1].styleId).toBe('Heading2');
     expect(doc.paragraphs[1].format.alignment).toBe('center');
     expect(doc.range).toEqual([13, 18]);
+  });
+  it('paints a list item\'s list onto other paragraphs, and a plain paragraph\'s plainness onto list items', async () => {
+    const { pkg, doc } = await styledDocument(['one', 'two', 'plain a', 'plain b', 'plain c']);
+    doc.select(0, 7); doc.toggleList('number'); doc.select(4); doc.changeListLevel(1);
+    const list = doc.paragraphs[1].list;
+    // From the second item's caret onto the next two paragraphs: items of the same list at its level.
+    doc.select(5); const item = captureFormat(doc);
+    expect(item.paragraph.list).toEqual({ numId: list.numId, level: 1 });
+    doc.select(8, 23); expect(applyFormat(doc, item)).toBe(true);
+    expect(doc.paragraphs.map(p => p.list && [p.list.numId, p.list.level])).toEqual([[list.numId, 0], [list.numId, 1], [list.numId, 1], [list.numId, 1], null]);
+    // From the plain paragraph onto the first item: it is a list item no longer.
+    doc.select(25); const plain = captureFormat(doc);
+    expect(plain.paragraph.list).toBeNull();
+    doc.select(1); applyFormat(doc, plain);
+    expect(doc.paragraphs[0].list).toBeNull();
+    const reopened = await roundTrip(pkg, doc);
+    expect(reopened.paragraphs.map(p => p.list ? p.list.level : null)).toEqual([null, 1, 1, 1, null]);
+    // Copied in another document, a list this one does not have is left alone.
+    const other = await styledDocument(['x']); other.doc.select(0);
+    applyFormat(other.doc, { ...item, paragraph: { ...item.paragraph, list: { numId: '999', level: 0 } } });
+    expect(other.doc.paragraphs[0].list).toBeFalsy();
   });
   it('removes direct formatting the source does not have', async () => {
     const { doc } = await styledDocument(['plain', 'bold']);
