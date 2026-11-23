@@ -15927,6 +15927,9 @@ async function present(options = {}) {
         advanceClock.clear();
         syncPause();
         clearTransition();
+        // The last slide's effects (a repeat, a sound to come) stop with it.
+        animator?.destroy();
+        animator = null;
         stage.classList.remove("blank", "blank-white");
         stage.classList.add("ended");
         endMessage.hidden = false;

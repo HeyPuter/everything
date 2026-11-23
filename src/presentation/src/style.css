@@ -2194,8 +2194,9 @@ kbd {
 .presenter-stage.ended {
   background: #000;
 }
-.presenter-stage.ended .presenter-slide,
-.presenter-stage.ended .presenter-links {
+/* The end screen shows only its message: nothing of the last slide (its
+   animated objects, media, cameras or ink) stays over it. */
+.presenter-stage.ended .presenter-frame > :not(.presenter-end) {
   visibility: hidden;
 }
 .presenter-end {
