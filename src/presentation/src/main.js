@@ -14271,7 +14271,12 @@ function editTableCell(target, row, col) {
     pending = null;
     line = false;
   });
-  let move = null;
+  let move = null,
+    grow = false;
+  const focusTable = () =>
+    [...canvas.querySelectorAll(".object-hit")]
+      .find((hit) => hit.dataset.shapeId === String(P.getShapeId(obj)))
+      ?.focus({ preventScroll: true });
   input.addEventListener("keydown", (e) => {
     line = e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.metaKey;
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
@@ -14283,10 +14288,14 @@ function editTableCell(target, row, col) {
       e.preventDefault();
       return;
     }
+    // Tab in the last cell adds a row to go on in; Shift+Tab in the first
+    // leaves the table selected.
     if (e.key === "Tab") {
       e.preventDefault();
       move = nextCell(obj, { row, col }, e.shiftKey ? -1 : 1);
+      if (!move && !e.shiftKey) grow = true;
       input.blur();
+      if (!move && !grow) focusTable();
       return;
     }
     // Escape leaves the cell keeping what was typed, as in a text box; undo
@@ -14294,9 +14303,7 @@ function editTableCell(target, row, col) {
     if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key === "Enter")) {
       e.preventDefault();
       input.blur();
-      [...canvas.querySelectorAll(".object-hit")]
-        .find((hit) => hit.dataset.shapeId === String(P.getShapeId(obj)))
-        ?.focus({ preventScroll: true });
+      focusTable();
     }
   });
   input.addEventListener(
@@ -14320,6 +14327,18 @@ function editTableCell(target, row, col) {
       // The next cell opens at once, so typing carries straight on while the
       // last cell's text is still being written.
       if (move) editTableCell(obj, move.row, move.col);
+      else if (grow) {
+        const id = P.getShapeId(obj);
+        // The table holds the keyboard until the new row's first cell opens.
+        focusTable();
+        tableAction((table) =>
+          P.insertTableRow(table, P.getTableDimensions(table).rows),
+        )?.then((applied) => {
+          const table = currentShape();
+          if (!applied || !table || P.getShapeId(table) !== id) return;
+          editTableCell(table, P.getTableDimensions(table).rows - 1, 0);
+        });
+      }
     },
     { once: true },
   );
@@ -14331,7 +14350,7 @@ function tableAction(fn) {
   const obj = currentShape();
   if (!obj || !isTable(obj)) return;
   const { row, col } = currentCell(obj);
-  mutateShape(obj, (obj) => {
+  return mutateShape(obj, (obj) => {
     const b = slideBounds(doc.pres, obj);
     if (!b) return;
     const before = tableLayout(doc.pres, obj);
