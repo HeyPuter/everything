@@ -3216,7 +3216,8 @@ async function slideSizeDialog(preset = null) {
           const b = slideBounds(doc.pres, obj);
           if (!b) continue;
           const next = scaled(b);
-          P.setShapeBounds(obj, next);
+          // A SmartArt graphic is laid out again for its new size.
+          setSlideBounds(doc.pres, obj, next, parents);
           if (isTable(obj)) {
             fitTableGrid(obj, next);
             for (const row of P.getTableCells(obj))

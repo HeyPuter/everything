@@ -424,3 +424,31 @@ test("lines pasted into the Text Pane become items of their own", async ({
     { text: "Shipped", level: 0 },
   ]);
 });
+
+// Scaling the slides to a new size shrank a graphic's frame but left its
+// shapes drawn at the old size, running off the frame and the slide.
+test("a graphic scaled with the slide size is drawn within its frame", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  await page.keyboard.press("Escape");
+  await ribbonCommand(page, "Design", "slide-size");
+  await page.getByRole("menuitemcheckbox", { name: "Standard (4:3)" }).click();
+  const dialog = page.getByRole("dialog", { name: "Slide size" });
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.waitForTimeout(300);
+  const { bytes, graphic } = await download(page);
+  const frame = P.getShapeBounds(graphic);
+  const files = unzipSync(bytes);
+  const drawing = Object.keys(files).find((n) =>
+    /^ppt\/diagrams\/drawing\d*\.xml$/.test(n),
+  );
+  const xml = new TextDecoder().decode(files[drawing]);
+  const rights = [
+    ...xml.matchAll(/<a:off x="(-?\d+)" y="-?\d+"\/><a:ext cx="(\d+)"/g),
+  ].map((m) => Number(m[1]) + Number(m[2]));
+  expect(rights.length).toBeGreaterThan(0);
+  expect(Math.max(...rights)).toBeLessThanOrEqual(frame.w + 1);
+});
