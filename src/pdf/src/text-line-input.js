@@ -107,6 +107,9 @@ export function textLineInput(group) {
   input.updateStyle = (hex, size, face) => {
     const fallbacks = [];
     if (group.paragraph) input.style.lineHeight = `${group.paragraph.leading * size}px`;
+    // Read the draft once: reading it walks every span, and a line drawn glyph by glyph has
+    // thousands of them, so reading it for each span took seconds per keystroke.
+    const value = input.value;
     for (const span of input.querySelectorAll('[data-part]')) {
       const run = group.parts[Number(span.dataset.part)];
       const ratio =
@@ -114,7 +117,7 @@ export function textLineInput(group) {
         Math.hypot(group.transform[2], group.transform[3]);
       const fallback =
         face?.(run) ||
-        cjkDraftFace(run, span.textContent, undefined, input.value) ||
+        cjkDraftFace(run, span.textContent, undefined, value) ||
         fallbackDraftFace(run, span.textContent);
       if (fallback?.variant) fallbacks.push(fallback.variant);
       Object.assign(span.style, {
