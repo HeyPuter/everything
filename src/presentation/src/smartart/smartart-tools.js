@@ -213,6 +213,10 @@ export function createSmartArtTools(h) {
         current = { key, index: i };
         h.refreshRibbon();
       },
+      returnFocus: () =>
+        P.getSlidePartName(h.slide()) === part
+          ? document.querySelector(`.object-hit[data-shape-id="${id}"]`)
+          : null,
     });
     if (!opened) return;
     opened.key = key;

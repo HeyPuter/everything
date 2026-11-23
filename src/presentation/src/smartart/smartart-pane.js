@@ -17,8 +17,16 @@ import {
 const SAMPLE = "[Text]";
 
 // `read()` gives the graphic's items now (null once it is gone), `write(items)`
-// applies new ones; `onCurrent(index)` hears the item being edited.
-export function openTextPane({ title, about, read, write, onCurrent }) {
+// applies new ones; `onCurrent(index)` hears the item being edited;
+// `returnFocus()` gives the element the keyboard goes back to on closing.
+export function openTextPane({
+  title,
+  about,
+  read,
+  write,
+  onCurrent,
+  returnFocus = null,
+}) {
   let items = read();
   if (!items) return null;
   if (!items.length) items = [{ text: "", level: 0 }];
@@ -191,7 +199,9 @@ export function openTextPane({ title, about, read, write, onCurrent }) {
     if (disposed) return;
     if (timer) commitNow();
     disposed = true;
+    const hadFocus = panel.contains(document.activeElement);
     panel.remove();
+    if (hadFocus) returnFocus?.()?.focus({ preventScroll: true });
     onClose?.();
   }
   draw();

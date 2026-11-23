@@ -99,6 +99,11 @@ export function createChartTools(h) {
   }
   const updateSelected = (fn, coalesce) =>
     update(selectedChart(), fn, coalesce);
+  // The chart's object on the canvas, while its slide is shown.
+  const objectHit = (part, id) =>
+    P.getSlidePartName(h.slide()) === part
+      ? document.querySelector(`.object-hit[data-shape-id="${id}"]`)
+      : null;
 
   /* ---------- Insert ---------- */
   async function insert() {
@@ -165,6 +170,7 @@ export function createChartTools(h) {
         const s = spec?.series[i];
         return s?.color || ctx().accents[i % 6];
       },
+      returnFocus: () => objectHit(part, id),
     });
     if (!opened) return;
     opened.key = `${part}#${id}`;

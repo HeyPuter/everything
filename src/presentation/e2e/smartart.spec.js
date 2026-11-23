@@ -244,3 +244,17 @@ test("Find and Replace reach a graphic's text, Replace All in one step", async (
   ({ model } = await download(page));
   expect(model.items[1].text).toBe("Budget sign-off");
 });
+
+// Closing the Text Pane from the keyboard dropped the focus to the page.
+test("closing the Text Pane with Escape puts the keyboard back on the graphic", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  await expect(page.locator(".smartart-outline-input").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".smartart-pane")).toHaveCount(0);
+  await expect(
+    page.locator("#slide-canvas .object-hit.selected"),
+  ).toBeFocused();
+});

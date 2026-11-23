@@ -243,3 +243,23 @@ test("Select Data renames a series by clicking its name and typing", async ({
     "Series 3",
   ]);
 });
+
+// Closing the data sheet from the keyboard dropped the focus to the page,
+// so the next Tab started again from the top of the window.
+test("closing the data sheet with Escape puts the keyboard back on the chart", async ({
+  page,
+}) => {
+  await start(page);
+  await insertChart(page, "Column", "Clustered Column");
+  const cell = page.locator('.chart-sheet input[data-row="1"][data-col="1"]');
+  await expect(cell).toBeFocused();
+  await page.keyboard.type("9");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".chart-sheet")).toHaveCount(0);
+  const chart = page.locator("#slide-canvas .object-hit.selected");
+  await expect(chart).toBeFocused();
+  await page.waitForTimeout(500);
+  await expect(chart).toBeFocused();
+  const { spec } = await download(page);
+  expect(spec.series[0].values[0]).toBe(9);
+});

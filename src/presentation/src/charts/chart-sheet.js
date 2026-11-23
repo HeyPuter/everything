@@ -35,8 +35,16 @@ const MIN_ROWS = 6,
 
 // `target()` gives the chart shape now (or null once it is gone), `read(shape)`
 // its definition and `write(spec)` applies one; `seriesColor(i)` the colour a
-// series is drawn in, for the header swatches.
-export function openChartSheet({ title, target, read, write, seriesColor }) {
+// series is drawn in, for the header swatches; `returnFocus()` the element
+// the keyboard goes back to when the sheet closes with it.
+export function openChartSheet({
+  title,
+  target,
+  read,
+  write,
+  seriesColor,
+  returnFocus = null,
+}) {
   let spec = read(target());
   if (!spec) return null;
   let grid = specToGrid(spec);
@@ -362,7 +370,11 @@ export function openChartSheet({ title, target, read, write, seriesColor }) {
     if (disposed) return;
     if (timer) commitNow();
     disposed = true;
+    // Closed from the keyboard (Escape, the close button), the focus would
+    // fall to the page and Tab start again from its top.
+    const hadFocus = panel.contains(document.activeElement);
     panel.remove();
+    if (hadFocus) returnFocus?.()?.focus({ preventScroll: true });
     onClose?.();
   }
   let onClose = null;
