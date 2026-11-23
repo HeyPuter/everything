@@ -16664,6 +16664,17 @@ async function present(options = {}) {
       ).catch(fail);
       return;
     }
+    // Alt+End and Alt+Home move the slide's media between its bookmarks.
+    if (
+      e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      (e.key === "End" || e.key === "Home")
+    ) {
+      e.preventDefault();
+      showInserted.bookmark(e.key === "End" ? 1 : -1);
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const wasBlank =
       stage.classList.contains("blank") ||

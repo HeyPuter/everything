@@ -598,6 +598,33 @@ test("a sound that was never played leaves with its slide", async ({
   await expect(sounds).toHaveCount(1);
 });
 
+test("Alt+End and Alt+Home move a sound between its bookmarks", async ({
+  page,
+}) => {
+  const pres = deck([{ effect: "none" }]);
+  addLoopingSound(P.getSlides(pres)[0], {
+    start: "whenClicked",
+    bookmarks: [
+      { name: "One", time: 300 },
+      { name: "Two", time: 700 },
+    ],
+  });
+  await load(page, pres);
+  const sound = page.locator(".presenter-frame audio");
+  const at = () => sound.evaluate((a) => a.currentTime);
+  // The first press starts the sound at its first bookmark.
+  await page.keyboard.press("Alt+End");
+  await expect.poll(at).toBeGreaterThanOrEqual(0.3);
+  await sound.evaluate((a) => a.pause());
+  await page.keyboard.press("Alt+End");
+  await expect.poll(at).toBeCloseTo(0.7, 2);
+  await page.keyboard.press("Alt+Home");
+  await expect.poll(at).toBeCloseTo(0.3, 2);
+  // Neither moves the show.
+  await expect(counter(page)).toHaveText("1 / 1");
+  await expect(page.locator(".presenter-end")).toBeHidden();
+});
+
 test("a zoom still growing when the show ends opens nothing", async ({
   page,
 }) => {

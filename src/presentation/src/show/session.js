@@ -23,6 +23,7 @@ import { createRehearsal } from "./rehearse.js";
 import { createRecordingStudio } from "./recorder.js";
 
 const CTRL = IS_MAC ? "Control" : "Ctrl";
+const ALT = IS_MAC ? "Option" : "Alt";
 const IDLE_CURSOR_MS = 3000;
 const ZOOM_STEPS = [1, 2, 3, 4];
 
@@ -37,6 +38,7 @@ export const SHOW_SHORTCUTS = [
   ["Black screen, or back", "B or ."],
   ["White screen, or back", "W or ,"],
   ["Pause or resume automatic advance", "S"],
+  ["Next or previous media bookmark", `${ALT}+End, ${ALT}+Home`],
   ["Laser pointer", `L or ${CTRL}+L`],
   ["Pen", `${CTRL}+P`],
   ["Highlighter", `${CTRL}+I`],

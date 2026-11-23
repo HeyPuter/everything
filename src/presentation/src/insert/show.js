@@ -460,6 +460,38 @@ export function createShowExtras(ctx, show) {
     else player.play();
   }
 
+  /** Moves the slide's media to its next (1) or previous (-1) bookmark:
+   * the focused media, else the one playing, else the one started. Returns
+   * whether there was a bookmark to go to. */
+  function bookmark(direction) {
+    const marked = [...slideMedia.values()].filter(
+      (p) => p.options.bookmarks?.length,
+    );
+    const player =
+      marked.find((p) => p.node.contains(document.activeElement)) ??
+      marked.find((p) => !p.element.paused) ??
+      marked.find((p) => p.started) ??
+      marked[0];
+    if (!player) return false;
+    const { element, node } = player;
+    const from = Number(node.dataset.start) || 0;
+    const to = Number(node.dataset.end) || Infinity;
+    const times = player.options.bookmarks
+      .map((b) => b.time / 1000)
+      .filter((t) => t >= from && t < to)
+      .sort((a, b) => a - b);
+    const now = element.currentTime;
+    // Going back from just after a bookmark skips it, so presses step on.
+    const target =
+      direction > 0
+        ? times.find((t) => t > now + 0.05)
+        : times.findLast((t) => t < now - 0.25);
+    if (target === undefined) return false;
+    element.currentTime = target;
+    if (!player.started) player.play();
+    return true;
+  }
+
   /** The slide to go to instead of `i`; null when the step was used up.
    * `step` is "click" or "auto" (the show's timer) for a plain advance and
    * unset for a jump to a slide. */
@@ -498,6 +530,7 @@ export function createShowExtras(ctx, show) {
     slideShown,
     ended,
     mediaStep,
+    bookmark,
     navigate,
     claims,
     dispose,
