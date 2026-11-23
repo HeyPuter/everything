@@ -483,3 +483,78 @@ test("switching to a custom show asks about the ink first", async ({
   await prompt.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(d.locator(".presenter-counter")).toHaveText("1 / 2");
 });
+
+test("a trimmed video's control bar covers only the part that is left", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  // A three-second video, recorded from a canvas.
+  const webm = await page.evaluate(async () => {
+    const canvas = Object.assign(document.createElement("canvas"), {
+      width: 64,
+      height: 36,
+    });
+    const g = canvas.getContext("2d");
+    const recorder = new MediaRecorder(canvas.captureStream(30), {
+      mimeType: "video/webm",
+    });
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.start(100);
+    const t0 = performance.now();
+    await new Promise((resolve) => {
+      const draw = () => {
+        g.fillStyle = `hsl(${(performance.now() - t0) / 10}, 80%, 50%)`;
+        g.fillRect(0, 0, 64, 36);
+        if (performance.now() - t0 < 3000) requestAnimationFrame(draw);
+        else resolve();
+      };
+      draw();
+    });
+    recorder.stop();
+    await new Promise((resolve) => (recorder.onstop = resolve));
+    return [...new Uint8Array(await new Blob(chunks).arrayBuffer())];
+  });
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const video = P.addSlideMedia(
+    slide,
+    { kind: "video", data: Uint8Array.from(webm), contentType: "video/webm" },
+    { x: 914400, y: 914400, w: 3657600, h: 2057400 },
+    { start: "automatically", trimStart: 1500, trimEnd: 500 },
+  );
+  P.setShapeObjectData(video, { type: "media", durationMs: 3000 });
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Trimmed.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = show(page);
+  const element = d.locator(".presenter-media video");
+  const time = () => element.evaluate((v) => v.currentTime);
+  // It plays from the trimmed start, and the bar counts from there.
+  await expect.poll(time).toBeGreaterThan(1.5);
+  await element.evaluate((v) => v.pause());
+  await expect(d.locator(".show-media-time")).toHaveText("0:00");
+  const seek = d.getByRole("slider", { name: "Seek" });
+  expect(Number(await seek.inputValue())).toBeLessThan(800);
+  // Its start is the trimmed start, not the start of the file.
+  await seek.evaluate((input) => {
+    input.value = "0";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(await time()).toBeGreaterThanOrEqual(1.49);
+});

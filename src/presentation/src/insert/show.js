@@ -233,6 +233,14 @@ export function createShowExtras(ctx, show) {
     const startAt = o.trimStart / 1000;
     const endAt = () =>
       ((durationMs || element.duration * 1000 || Infinity) - o.trimEnd) / 1000;
+    // The trimmed clip, in seconds of the file, for the show's media
+    // controls (src/show/session.js).
+    node.dataset.start = String(startAt);
+    const markEnd = () => {
+      if (Number.isFinite(endAt())) node.dataset.end = String(endAt());
+    };
+    markEnd();
+    element.addEventListener("loadedmetadata", markEnd);
     const volume = o.muted ? 0 : o.volume;
     element.volume = volume;
     let fading = 0;

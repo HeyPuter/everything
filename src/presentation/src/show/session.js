@@ -1033,14 +1033,19 @@ export function createShowSession(ctx, show) {
       const bar = el("div", { class: "show-media-bar" }, play, seek, time);
       const fmt = (s) =>
         `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, "0")}`;
+      // A trimmed video's bar spans only what is left of it.
+      const start = () => Number(node.dataset.start) || 0;
+      const length = () =>
+        (Number(node.dataset.end) || video.duration) - start();
       const sync = () => {
         play.replaceChildren(lineIcon(video.paused ? "Play" : "Pause", 14));
         play.setAttribute("aria-label", video.paused ? "Play" : "Pause");
-        if (Number.isFinite(video.duration) && video.duration > 0)
+        const at = Math.max(0, video.currentTime - start());
+        if (Number.isFinite(length()) && length() > 0)
           seek.value = String(
-            Math.round((video.currentTime / video.duration) * 1000),
+            Math.min(1000, Math.round((at / length()) * 1000)),
           );
-        time.textContent = fmt(video.currentTime);
+        time.textContent = fmt(at);
       };
       for (const type of ["play", "pause", "timeupdate", "loadedmetadata"])
         video.addEventListener(type, sync);
@@ -1051,8 +1056,8 @@ export function createShowSession(ctx, show) {
       });
       seek.addEventListener("input", (e) => {
         e.stopPropagation();
-        if (Number.isFinite(video.duration))
-          video.currentTime = (Number(seek.value) / 1000) * video.duration;
+        if (Number.isFinite(length()) && length() > 0)
+          video.currentTime = start() + (Number(seek.value) / 1000) * length();
       });
       bar.addEventListener("click", (e) => e.stopPropagation());
       bar.addEventListener("keydown", (e) => e.stopPropagation());
