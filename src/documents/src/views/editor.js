@@ -946,8 +946,22 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // A picture dropped on the pages goes in where it lands, as Insert > Pictures puts it in. Other files
   // (a document to open) go on to the window's own drop handling.
   const pictureDrop = e => !!engine && !failed && !pkg.readOnly && !engine.viewOnly && [...(e.dataTransfer?.items || [])].some(item => item.kind === 'file' && /^image\//i.test(item.type));
-  host.addEventListener('dragover', e => { if (pictureDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  // Text dragged in from another application or page goes in where it lands, as a paste of it would (formatted
+  // where it comes with HTML); the pages took no drop of it, so nothing happened.
+  const textDrop = e => !!engine && !failed && !pkg.readOnly && !engine.viewOnly && ![...(e.dataTransfer?.types || [])].includes('Files')
+    && [...(e.dataTransfer?.types || [])].some(type => type === 'text/plain' || type === 'text/html');
+  host.addEventListener('dragover', e => { if (pictureDrop(e) || textDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
   host.addEventListener('drop', async e => {
+    if (textDrop(e)) {
+      const text = e.dataTransfer.getData('text/plain'), html = e.dataTransfer.getData('text/html');
+      if (!text && !html) return;
+      e.preventDefault();
+      const editor = engine;
+      editor.finishComposition();
+      editor.model.select(editor.point(e)); editor.syncInput();
+      editor.pasteData(text, html); editor.focus();
+      return;
+    }
     const files = pictureDrop(e) ? imageFilesFrom(e.dataTransfer) : [];
     if (!files.length) return;
     e.preventDefault();

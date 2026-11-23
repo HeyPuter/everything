@@ -57,6 +57,29 @@ test('a picture dropped on the page is inserted where it lands', async ({ page }
   await expect(page.getByText('Drop pictures on the page to insert them')).toHaveCount(0);
 });
 
+test('text dropped on the page from another application goes in where it lands, with its formatting', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha bravo\nCharlie');
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const at = await page.evaluate(() => { const e = window.__docs.current.view.engine, line = e.selectionLayout.lines[0]; return { x: line.stops.find(s => s.offset === 6).x * e.zoom, y: (line.y + line.height / 2) * e.zoom }; });
+  const drop = (text, html) => page.locator('canvas.canvas-page').first().evaluate((canvas, { x, y, text, html }) => {
+    const data = new DataTransfer(); data.setData('text/plain', text); if (html) data.setData('text/html', html);
+    const point = { dataTransfer: data, clientX: x, clientY: y, bubbles: true, cancelable: true };
+    const over = new DragEvent('dragover', point), drop = new DragEvent('drop', point);
+    canvas.dispatchEvent(over); canvas.dispatchEvent(drop);
+    return over.defaultPrevented && drop.defaultPrevented;
+  }, { x: box.x + at.x, y: box.y + at.y, text, html });
+  expect(await drop('new', '<b>new</b>')).toBe(true);
+  await expect(input(page)).toHaveValue('Alpha newbravo\nCharlie');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.map(r => [r.text, !!r.bold]))).toEqual([['Alpha ', false], ['new', true], ['bravo', false]]);
+  await expect(input(page)).toBeFocused();
+  // One step to undo, as a paste is.
+  await input(page).press('ControlOrMeta+z'); await expect(input(page)).toHaveValue('Alpha bravo\nCharlie');
+  expect(await drop('plain ', '')).toBe(true);
+  await expect(input(page)).toHaveValue('Alpha plain bravo\nCharlie');
+});
+
 test('a pasted picture larger than the session holds is scaled down, as Insert > Pictures does', async ({ page }) => {
   await page.goto('/mock.html#/new');
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
