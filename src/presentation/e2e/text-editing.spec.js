@@ -1,6 +1,8 @@
 // Editing text on the canvas: what the keys do to the runs and paragraphs
 // of the text being edited.
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { unzipSync, strFromU8 } from "fflate";
 import {
   installMenuNow,
   ribbonButton,
@@ -15,6 +17,21 @@ const slideSvg = async (page) =>
 const pressKey = async (page, key, times = 1) => {
   for (let i = 0; i < times; i++) await page.keyboard.press(key);
 };
+
+// The first slide's XML in the presentation as downloaded.
+async function downloadedSlide(page) {
+  await page
+    .getByRole("menuitem", { name: "File", exact: true })
+    .or(page.getByRole("button", { name: "File options" }))
+    .filter({ visible: true })
+    .click();
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const files = unzipSync(await readFile(await (await download).path()));
+  return strFromU8(files["ppt/slides/slide1.xml"]);
+}
 
 // A text box with `text` typed in it, left open for editing.
 async function typedBox(page, text) {
@@ -353,4 +370,15 @@ test("Find and Replace reach the speaker notes", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+z");
   await expect(notes).toHaveValue("First hello\nThen HELLO again");
   expect(await slideSvg(page)).toContain(">Say hello<");
+});
+
+test("an ordinal AutoCorrect raises is saved raised by a third", async ({
+  page,
+}) => {
+  await typedBox(page, "The 1st ");
+  await page.keyboard.type("place");
+  await page.keyboard.press("Escape");
+  const xml = await downloadedSlide(page);
+  expect(xml).toMatch(/baseline="30000"[^>]*>(?:(?!<\/a:r>).)*<a:t>st<\/a:t>/);
+  expect(xml).not.toMatch(/baseline="\d{6,}"/);
 });

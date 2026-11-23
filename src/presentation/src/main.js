@@ -12477,7 +12477,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     },
     superscript: (from, to) => {
       setSelection(from, to);
-      apply({ baseline: 30000 }, { refocus: false });
+      apply({ baseline: 0.3 }, { refocus: false });
     },
     transform,
   };
