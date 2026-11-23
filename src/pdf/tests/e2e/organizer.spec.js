@@ -257,6 +257,58 @@ test('a drag parked at the panel edge keeps the list scrolling', async ({ page, 
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 30');
 });
 
+test("a thumbnail's picture stays with its page when pages are deleted, moved or undone", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  [300, 350, 400, 450].forEach((height) => doc.addPage([400, height]));
+  await openPdf(page, doc);
+  await showPanel(page);
+  const canvases = page.locator('.thumb-paper canvas');
+  // Each drawn thumbnail is marked with the page it shows. A redraw paints the same canvas, so
+  // a mark in the wrong place means another page's picture stood in there.
+  await expect
+    .poll(() => canvases.evaluateAll((list) => list.filter((c) => c.style.width).length))
+    .toBe(4);
+  await canvases.evaluateAll((list) => list.forEach((c, i) => (c.__page = i + 1)));
+  const marks = () => canvases.evaluateAll((list) => list.map((c) => c.__page ?? null));
+  const shows = async (pages) => {
+    const now = await marks();
+    // A thumbnail without a picture yet is blank, which is right; any picture must be its own.
+    expect(now.map((mark, i) => (mark == null ? pages[i] : mark))).toEqual(pages);
+  };
+  const menu = async (n, item) => {
+    await page
+      .locator('.thumb-item')
+      .nth(n - 1)
+      .hover();
+    await page.getByRole('button', { name: `Page ${n} actions`, exact: true }).click();
+    await page.getByRole('menuitem', { name: item }).click();
+  };
+  await menu(1, 'Delete page');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await expect(canvases).toHaveCount(3);
+  await shows([2, 3, 4]);
+  await page.keyboard.press('ControlOrMeta+z');
+  await settled(page);
+  await expect(canvases).toHaveCount(4);
+  await shows([1, 2, 3, 4]);
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 4');
+  await menu(1, 'Move page later');
+  await settled(page);
+  await shows([2, 1, 3, 4]);
+  await page.keyboard.press('ControlOrMeta+z');
+  await settled(page);
+  await shows([1, 2, 3, 4]);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settled(page);
+  await shows([2, 1, 3, 4]);
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([350, 300, 400, 450]);
+});
+
 test('deleting or moving another page keeps the current page in view', async ({ page }) => {
   await mockPuter(page);
   await page.goto('/#library');

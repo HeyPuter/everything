@@ -258,6 +258,10 @@ function pageGeometry(doc) {
   return parts.join('\n');
 }
 
+/** The page objects of a document's pages, in order, as "12 0". */
+const pageObjects = (doc) =>
+  doc.getPages().map(({ ref }) => `${ref.objectNumber} ${ref.generationNumber}`);
+
 /** Transactions retain original bytes, commit only on success, and bound undo memory. */
 export class PdfSession {
   constructor(bytes) {
@@ -271,6 +275,10 @@ export class PdfSession {
     // laying them out as it did instead of waiting to read every page's size again.
     this.geometry = 0;
     this.nextGeometry = 1;
+    // Which page objects ("12 0") the pages are, in order, when known: a page moved, added or
+    // removed keeps or loses its object, so views can follow each page through the change.
+    // Unknown for a file as opened (or rewritten whole) until its first edit reads them.
+    this.pages = null;
   }
   get dirty() {
     return this.revision !== this.savedRevision;
@@ -282,6 +290,9 @@ export class PdfSession {
     // Reconciliation must see the original Info timestamps, not pdf-lib's load time.
     const doc = await waitFor(() => loadPdfDocument(this.bytes, { updateMetadata: false }), signal);
     signal?.throwIfAborted();
+    // The pages as they were, read from the document the edit loads anyway, so the revision
+    // kept for Undo knows them too.
+    this.pages ??= pageObjects(doc);
     // Read before the repairs, which can move or resize pages as much as the operation can.
     const geometry = pageGeometry(doc);
     repairDocument(doc);
@@ -319,13 +330,16 @@ export class PdfSession {
     const bytes = await waitFor(() => savePdf(doc, saveOptions), signal);
     signal?.throwIfAborted();
     if (canCommit && !canCommit()) return false;
-    this.adopt(bytes, { sameGeometry: geometry !== null && geometry === pageGeometry(doc) });
+    this.adopt(bytes, {
+      sameGeometry: geometry !== null && geometry === pageGeometry(doc),
+      pages: pageObjects(doc),
+    });
   }
   /** Make `next` the current bytes and keep the previous ones in history. */
-  adopt(next, { sameGeometry = false } = {}) {
+  adopt(next, { sameGeometry = false, pages = null } = {}) {
     if (next.length > MAX_FILE_SIZE)
       throw new Error('This edit would exceed the 100 MB PDF limit.');
-    this.past.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
+    this.past.push(this.state());
     while (
       this.past.length > 25 ||
       (this.past.length > 1 &&
@@ -335,19 +349,31 @@ export class PdfSession {
     this.bytes = next;
     this.revision = this.nextRevision++;
     if (!sameGeometry) this.geometry = this.nextGeometry++;
+    this.pages = pages;
     this.future = [];
+  }
+  /** The page objects of a revision still at hand (current, or in Undo or Redo), if known. */
+  pagesAt(revision) {
+    if (revision === this.revision) return this.pages;
+    return (
+      [...this.past, ...this.future].find((state) => state.revision === revision)?.pages ?? null
+    );
+  }
+  state() {
+    const { bytes, revision, geometry, pages } = this;
+    return { bytes, revision, geometry, pages };
   }
   undo() {
     const prev = this.past.pop();
     if (!prev) return false;
-    this.future.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
+    this.future.push(this.state());
     Object.assign(this, prev);
     return true;
   }
   redo() {
     const next = this.future.pop();
     if (!next) return false;
-    this.past.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
+    this.past.push(this.state());
     Object.assign(this, next);
     return true;
   }

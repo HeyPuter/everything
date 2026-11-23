@@ -3273,7 +3273,22 @@ export function createEditor({
         }
       : null;
     if (restore && movedThumbnail?.from === restore.index) restore.index = movedThumbnail.to;
+    // A drawn thumbnail stands in until its page is drawn again: the picture of the same page
+    // object, which a page moved, or with pages added or removed before it, keeps. Taken by
+    // place, a deleted page's picture showed in the next page's place until that was redrawn.
     const canvases = [...thumbnails.querySelectorAll('.thumb-paper canvas')];
+    const pageRefs = session.pages?.length === pdf.numPages ? session.pages : null;
+    const drawn = new Map();
+    if (pageRefs)
+      for (const canvas of canvases)
+        if (canvas.dataset.page && !drawn.has(canvas.dataset.page))
+          drawn.set(canvas.dataset.page, canvas);
+    const standIn = (i) => {
+      if (!pageRefs) return canvases.length === pdf.numPages ? canvases[i] : null;
+      const canvas = drawn.get(pageRefs[i]);
+      drawn.delete(pageRefs[i]);
+      return canvas;
+    };
     thumbnails.replaceChildren();
     const stop = Number.isInteger(restore?.index)
       ? Math.min(restore.index, pdf.numPages - 1)
@@ -3316,6 +3331,7 @@ export function createEditor({
                 }).promise;
                 if (destroyed || pdf !== thisPdf || !c.isConnected) return;
                 paintCanvas(c, rendered, v);
+                if (page.ref) c.dataset.page = `${page.ref.num} ${page.ref.gen}`;
               } finally {
                 rendered.width = rendered.height = 0;
               }
@@ -3344,7 +3360,7 @@ export function createEditor({
             navigate(i);
           },
         },
-        el('div', { class: 'thumb-paper' }, canvases[i] || el('canvas', { 'aria-hidden': 'true' })),
+        el('div', { class: 'thumb-paper' }, standIn(i) || el('canvas', { 'aria-hidden': 'true' })),
         el('span', {}, String(i + 1)),
       );
       // Each page has its own menu, on a button beside it and on a right click.
