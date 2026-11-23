@@ -36,9 +36,12 @@ export function collectPictures(P, pres, { bounds, selection = null } = {}) {
       selected: false,
     });
   }
-  const pictureSources = new Map(); // part → Set(slide part)
+  // Pictures of each part on each slide, keyed by part and slide.
+  const pictureCounts = new Map();
+  const slideXml = new Map();
   for (const slide of P.getSlides(pres)) {
     const slidePart = P.getSlidePartName(slide);
+    slideXml.set(slidePart, P.getSlideXmlString(slide));
     for (const shape of P.getSlideShapes(slide)) {
       if (P.getShapeKind(shape) !== "picture") continue;
       const name = P.getShapeImagePartName(shape)?.toLowerCase();
@@ -60,31 +63,43 @@ export function collectPictures(P, pres, { bounds, selection = null } = {}) {
       });
       if (selection?.has(`${slidePart}#${P.getShapeId(shape)}`))
         entry.selected = true;
-      if (!pictureSources.has(name)) pictureSources.set(name, new Set());
-      pictureSources.get(name).add(slidePart);
+      const key = `${name}\n${slidePart}`;
+      pictureCounts.set(key, (pictureCounts.get(key) || 0) + 1);
     }
   }
-  // Other references: any relationship to the part from a part that showed
-  // no picture of it.
+  // Other references: any relationship to the part from a part other than
+  // a slide, and on a slide each reference beyond its pictures of the part
+  // (a shape or the background filled with it, through the picture's own
+  // relationship or another).
+  const other = () => ({
+    kind: "other",
+    w: size.width,
+    h: size.height,
+    crop: null,
+  });
+  const onSlides = new Map(); // part and slide → references
   for (const part of pkg.parts) {
     const rels = pkg.getRels(part.name);
     if (!rels) continue;
+    const xml = SLIDE_PART.test(part.name) ? slideXml.get(part.name) : null;
     for (const rel of rels.items) {
       if (rel.targetMode === "External") continue;
       const target = resolveTarget(part.name, rel.target).toLowerCase();
       const entry = parts.get(target);
       if (!entry) continue;
-      const fromPicture =
-        SLIDE_PART.test(part.name) &&
-        pictureSources.get(target)?.has(part.name);
-      if (!fromPicture)
-        entry.uses.push({
-          kind: "other",
-          w: size.width,
-          h: size.height,
-          crop: null,
-        });
+      if (xml == null) {
+        entry.uses.push(other());
+        continue;
+      }
+      const key = `${target}\n${part.name}`;
+      const references = xml.split(`="${rel.id}"`).length - 1;
+      onSlides.set(key, (onSlides.get(key) || 0) + references);
     }
+  }
+  for (const [key, references] of onSlides) {
+    const entry = parts.get(key.slice(0, key.indexOf("\n")));
+    for (let n = pictureCounts.get(key) || 0; n < references; n++)
+      entry.uses.push(other());
   }
   return [...parts.values()];
 }
