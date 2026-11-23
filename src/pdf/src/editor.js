@@ -13445,6 +13445,12 @@ export function createEditor({
       ? e.code.slice(3).toLowerCase()
       : e.key.toLowerCase();
   /**
+   * The digit a key stands for. A French (AZERTY) keyboard types à, &, é on the digit keys
+   * without Shift, so the key's place names the digit then, as browsers' own zoom keys do.
+   */
+  const zoomDigit = (e) =>
+    /^Digit[0-9]$/.test(e.code) && !/^[0-9]$/.test(e.key) ? e.code.slice(5) : e.key;
+  /**
    * Whether Alt with Ctrl or ⌘ goes with G. Option changes the letter a Mac reports (⌥G is "©"),
    * so the key's place names it then; AltGr, which Windows reports as Ctrl and Alt, types instead.
    */
@@ -13559,10 +13565,10 @@ export function createEditor({
       // The application zooms the page where a browser would zoom the whole interface.
       e.preventDefault();
       safe(() => setZoom(zoomStep(e.key === '-' || e.key === '_' ? -1 : 1)))();
-    } else if (modifier && !e.altKey && !e.shiftKey && ['0', '1', '2'].includes(e.key)) {
+    } else if (modifier && !e.altKey && !e.shiftKey && ['0', '1', '2'].includes(zoomDigit(e))) {
       // Fit page, actual size, and fit width, as desktop PDF editors bind them.
       e.preventDefault();
-      safe(() => setZoom({ 0: 'page', 1: '1', 2: 'fit' }[e.key]))();
+      safe(() => setZoom({ 0: 'page', 1: '1', 2: 'fit' }[zoomDigit(e)]))();
     } else if (
       (modifier && e.shiftKey && !e.altKey && key === 'n') ||
       (modifier && e.altKey && !e.shiftKey && goToPageKey(e))
