@@ -7142,6 +7142,14 @@ function disableControl(node, disabled, fallback) {
   node.disabled = disabled;
   if (disabled && focused) fallback()?.focus({ preventScroll: true });
 }
+// The skip link goes to the main region on show, which in Slide Sorter and
+// Notes Page is the view, not the hidden slide area its address names.
+document.querySelector(".skip-link")?.addEventListener("click", (e) => {
+  const target = view === "editor" ? workspace() : null;
+  if (!target || target.id === "main") return;
+  e.preventDefault();
+  target.focus();
+});
 // The main region on show: the slide with its panes, or Slide Sorter or
 // Notes Page in their place.
 const workspace = () => {

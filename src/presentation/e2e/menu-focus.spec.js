@@ -38,3 +38,21 @@ test("a menu bar command in Notes Page or Slide Sorter hands the keyboard to the
     await expect(page.locator("#main")).toBeFocused();
   }
 });
+
+test("the skip link goes to Slide Sorter or Notes Page when one is on show", async ({
+  page,
+}) => {
+  await story(page);
+  const bar = page.getByRole("menubar");
+  test.skip(!(await bar.isVisible()), "the views are chosen from the menu bar");
+  for (const view of ["Slide Sorter", "Notes Page"]) {
+    await bar.getByRole("menuitem", { name: "View", exact: true }).click();
+    await page
+      .locator('.menu [role^="menuitem"]')
+      .filter({ has: page.getByText(view, { exact: true }) })
+      .click();
+    await page.locator(".skip-link").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#view-host")).toBeFocused();
+  }
+});
