@@ -1932,6 +1932,120 @@ export function groupFlip(
   }
   return flip;
 }
+/* A group's frame is the box around what it holds: when an edit moves,
+ * resizes, turns, adds or removes one of its objects, the group's offset
+ * and extent (and its children's space) are worked out again, so its
+ * selection outline and handles match its contents. Nothing on the slide
+ * moves: the group keeps its scale, and a turned or mirrored group is
+ * shifted so its objects show where they did. */
+// An object's box in its group's space, as its own turn shows it.
+function ownShownBox(pres, shape) {
+  let b = P.getShapeBoundsResolved(pres, shape);
+  if (!b) return null;
+  if (P.isTableShape(shape)) {
+    const grid = tableLayout(pres, shape);
+    b = { ...b, w: grid.width || b.w, h: grid.height || b.h };
+  }
+  const rotation = P.getShapeRotation(shape) || 0;
+  if (!rotation) return b;
+  const rad = (rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad)),
+    sin = Math.abs(Math.sin(rad));
+  const w = b.w * cos + b.h * sin,
+    h = b.w * sin + b.h * cos;
+  return { x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - h / 2, w, h };
+}
+const groupKey = (group) =>
+  P.getGroupChildren(group)
+    .map((child) =>
+      [
+        P.getShapeId(child),
+        JSON.stringify(P.getShapeBounds(child)),
+        P.getShapeRotation(child) || 0,
+      ].join(":"),
+    )
+    .join("|");
+// What each group on a slide holds, read before an edit so fitGroups can
+// tell which groups it changed. Null when the slide has no groups.
+export function groupFrames(slide) {
+  let frames = null;
+  for (const shape of P.getSlideShapes(slide))
+    if (P.getShapeKind(shape) === "group")
+      (frames ??= new Map()).set(P.getShapeId(shape), groupKey(shape));
+  return frames;
+}
+function fitGroup(pres, group) {
+  const t = P.getGroupTransform(group);
+  const boxes = P.getGroupChildren(group)
+    .map((child) => ownShownBox(pres, child))
+    .filter(Boolean);
+  if (!t || !boxes.length) return;
+  const x = Math.round(Math.min(...boxes.map((b) => b.x))),
+    y = Math.round(Math.min(...boxes.map((b) => b.y)));
+  const inner = {
+    x,
+    y,
+    w: Math.round(Math.max(...boxes.map((b) => b.x + b.w))) - x,
+    h: Math.round(Math.max(...boxes.map((b) => b.y + b.h))) - y,
+  };
+  if (["x", "y", "w", "h"].every((k) => inner[k] === t.inner[k])) return;
+  const sx = t.inner.w && t.outer.w ? t.outer.w / t.inner.w : 1,
+    sy = t.inner.h && t.outer.h ? t.outer.h / t.inner.h : 1;
+  const outer = {
+    x: t.outer.x + (inner.x - t.inner.x) * sx,
+    y: t.outer.y + (inner.y - t.inner.y) * sy,
+    w: inner.w * sx,
+    h: inner.h * sy,
+  };
+  // The group mirrors and turns about its frame's center, which has moved:
+  // the frame shifts by the difference, so its objects stay put.
+  const dx = outer.x + outer.w / 2 - (t.outer.x + t.outer.w / 2),
+    dy = outer.y + outer.h / 2 - (t.outer.y + t.outer.h / 2);
+  const flip = P.getShapeFlip(group) || {};
+  const [mx, my] = [flip.horizontal ? -dx : dx, flip.vertical ? -dy : dy];
+  const [rx, ry] = turned(mx, my, 0, 0, P.getShapeRotation(group) || 0);
+  outer.x += rx - dx;
+  outer.y += ry - dy;
+  P.setGroupTransform(group, { outer, inner });
+}
+// After an edit: each group whose objects it changed, and the groups around
+// it, fitted again to what they hold, innermost first.
+export function fitGroups(pres, slide, frames) {
+  if (!frames) return;
+  const parents = groupParents(slide);
+  const groups = P.getSlideShapes(slide).filter(
+    (shape) => P.getShapeKind(shape) === "group",
+  );
+  const changed = new Set();
+  for (const group of groups) {
+    const id = P.getShapeId(group);
+    if (!frames.has(id) || frames.get(id) === groupKey(group)) continue;
+    const seen = new Set();
+    for (
+      let at = group;
+      at && !seen.has(at);
+      at = parents.get(P.getShapeId(at))
+    ) {
+      seen.add(at);
+      changed.add(at);
+    }
+  }
+  const depth = (group) => {
+    let n = 0;
+    const seen = new Set();
+    for (
+      let at = parents.get(P.getShapeId(group));
+      at && !seen.has(at);
+      at = parents.get(P.getShapeId(at))
+    ) {
+      seen.add(at);
+      n++;
+    }
+    return n;
+  };
+  for (const group of [...changed].sort((a, b) => depth(b) - depth(a)))
+    fitGroup(pres, group);
+}
 /* Connectors glued to shapes (decks made elsewhere have them) keep their
  * ends on the shapes' connection sites when the shapes move, turn, flip or
  * resize. An end dragged away on its own comes unglued, and so does one

@@ -53,6 +53,8 @@ import {
   groupFlip,
   connectorGlue,
   followConnectors,
+  groupFrames,
+  fitGroups,
   hasSlideJump,
   slideTitle,
   slideDescription,
@@ -2690,11 +2692,17 @@ function mutateSlide(target, fn, options) {
   return mutate(async () => {
     const targetSlide = slideByPart(part);
     if (!targetSlide) return SKIP_MUTATION;
-    // Connectors glued to the shapes an edit moves go along with them.
+    // Groups fit what they hold after an edit to it, and connectors glued
+    // to the shapes an edit moves go along with them.
+    const frames = groupFrames(targetSlide);
     const glue = connectorGlue(doc.pres, targetSlide);
     const result = await fn(targetSlide);
-    const after = glue && result !== SKIP_MUTATION && slideByPart(part);
-    if (after) followConnectors(doc.pres, after, glue);
+    const after =
+      (frames || glue) && result !== SKIP_MUTATION && slideByPart(part);
+    if (after) {
+      fitGroups(doc.pres, after, frames);
+      followConnectors(doc.pres, after, glue);
+    }
     return result;
   }, options);
 }

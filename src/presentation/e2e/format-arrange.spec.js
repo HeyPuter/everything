@@ -220,6 +220,50 @@ test("Ungroup takes apart every selected group", async ({ page }) => {
   ]);
 });
 
+// A grouped object moved out of its group's frame left the frame behind:
+// the group's outline and handles no longer matched what it held.
+test("a group's frame follows an object moved within it", async ({ page }) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  await addShape(page, "Circle");
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  // The circle steps away from the rectangle, then the two are grouped.
+  const box = (locator) =>
+    locator.evaluate((node) =>
+      ["left", "top", "width", "height"].map((k) => parseFloat(node.style[k])),
+    );
+  const onSlide = (name) =>
+    page.locator("#slide-canvas").getByRole("button", { name });
+  await pane.getByRole("button", { name: /^Circle/ }).click();
+  await onSlide(/^Circle/).focus();
+  for (let i = 0; i < 20; i++) await page.keyboard.press("Shift+ArrowRight");
+  await selectAll(page);
+  await page.keyboard.press(`${mod}+Alt+g`);
+  await expect(pane.locator("li[data-depth]")).toHaveCount(2);
+  // The circle, on its own inside the group, moves down.
+  await pane.getByRole("button", { name: /^Circle/ }).click();
+  await onSlide(/^Circle/).focus();
+  const before = await box(onSlide(/^Circle/));
+  for (let i = 0; i < 20; i++) await page.keyboard.press("Shift+ArrowDown");
+  await expect
+    .poll(async () => (await box(onSlide(/^Circle/)))[1])
+    .toBeGreaterThan(before[1] + 10);
+  await pane.getByRole("button", { name: /^Group/ }).click();
+  const hits = page.locator(".object-hit");
+  const [group, rect, circle] = await Promise.all(
+    [/^Group/, /^Rectangle/, /^Circle/].map((name) => box(onSlide(name))),
+  );
+  expect(await hits.count()).toBe(3);
+  const right = (b) => b[0] + b[2],
+    bottom = (b) => b[1] + b[3];
+  expect(group[0]).toBeCloseTo(Math.min(rect[0], circle[0]), 1);
+  expect(group[1]).toBeCloseTo(Math.min(rect[1], circle[1]), 1);
+  expect(right(group)).toBeCloseTo(Math.max(right(rect), right(circle)), 1);
+  expect(bottom(group)).toBeCloseTo(Math.max(bottom(rect), bottom(circle)), 1);
+});
+
 // Align and Distribute moved the unturned box, so Align Top put a long
 // rectangle turned upright half off the slide.
 test("a turned object aligns and distributes where the slide shows it", async ({

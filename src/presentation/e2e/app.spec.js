@@ -9761,7 +9761,23 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
   );
   const shapes = P.getSlideShapes(P.getSlides(loaded)[0]);
   const savedGroup = shapes.find((s) => P.getShapeKind(s) === "group");
-  expect(P.getGroupTransform(savedGroup)).toEqual(P.getGroupTransform(group));
+  // The group's frame is the box around what it holds: the leftmost object
+  // moved a hundredth of an inch right (half that in the doubled group's
+  // own numbers), so the frame's left edge did too. Its scale stays double.
+  const before = P.getGroupTransform(group);
+  const nudge = P.inches(0.01) / 2;
+  expect(P.getGroupTransform(savedGroup)).toEqual({
+    inner: {
+      ...before.inner,
+      x: before.inner.x + nudge,
+      w: before.inner.w - nudge,
+    },
+    outer: {
+      ...before.outer,
+      x: before.outer.x + 2 * nudge,
+      w: before.outer.w - 2 * nudge,
+    },
+  });
   // The child's own numbers moved by half as much inside the doubled group.
   expect(P.getShapeBounds(P.getGroupChildren(savedGroup)[0])).toEqual({
     x: P.inches(1) + P.inches(0.01) / 2,
