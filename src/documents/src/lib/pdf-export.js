@@ -8,6 +8,7 @@
 
 import { selectionRects } from '../engine/layout.js';
 import { bidiEmbeddingLevels, bidiMirroredCharacter, bidiVisualOrder } from '../engine/bidi-text.js';
+import { bookmarkEntries, bookmarksByName, bookmarkNamed } from '../engine/bookmarks.js';
 
 const encoder = new TextEncoder();
 const PT_PER_PX = 0.75;
@@ -122,19 +123,29 @@ export function buildPdf(pages, { title = 'Document', author = '' } = {}) {
   define(descriptor, '<< /Type /FontDescriptor /FontName /DocumentsTextLayer /Flags 4 /FontBBox [0 -200 1000 800] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >>');
   define(cidFont, `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /DocumentsTextLayer /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${descriptor} 0 R /DW 500 /CIDToGIDMap /Identity >>`);
   define(font, `<< /Type /Font /Subtype /Type0 /BaseFont /DocumentsTextLayer /Encoding /Identity-H /DescendantFonts [${cidFont} 0 R] /ToUnicode ${toUnicode} 0 R >>`);
-  const kids = [];
   // A link's address is a 7-bit string (§12.6.4.7): characters beyond ASCII, spaces and controls are percent-encoded.
   const uri = target => `(${String(target).replace(/[^\x21-\x7e]/gu, ch => encodeURIComponent(ch)).replace(/[\\()]/g, m => '\\' + m)})`;
-  for (const page of pages) {
-    const pageId = reserve(), image = reserve(), content = reserve();
-    kids.push(pageId);
+  // Every page's object first, so a link to a later page can name it.
+  const kids = pages.map(() => { const pageId = reserve(); reserve(); reserve(); return pageId; });
+  const pt = n => (n * PT_PER_PX).toFixed(2);
+  // A web, mail or phone link opens its address (§12.6.4.7 URI action); a link to a bookmark in the document goes
+  // to where the bookmark is (§12.6.4.2 GoTo action, an /XYZ destination keeping the reader's zoom, §12.3.2.2).
+  const action = link => {
+    if (link.target) return `<< /S /URI /URI ${uri(link.target)} >>`;
+    const page = pages[link.dest?.page];
+    return page ? `<< /S /GoTo /D [${kids[link.dest.page]} 0 R /XYZ null ${pt(page.heightPx - link.dest.y)} null] >>` : null;
+  };
+  for (const [index, page] of pages.entries()) {
+    const pageId = kids[index], image = pageId + 1, content = pageId + 2;
     const w = page.widthPx * PT_PER_PX, h = page.heightPx * PT_PER_PX;
-    // Each linked area is a link annotation (§12.5.6.5) with a URI action, without a border of its own.
+    // Each linked area is a link annotation (§12.5.6.5) without a border of its own.
     const annots = (page.links || []).map(link => {
-      const id = reserve(), pt = n => (n * PT_PER_PX).toFixed(2);
-      define(id, `<< /Type /Annot /Subtype /Link /Rect [${pt(link.x)} ${pt(page.heightPx - link.y - link.height)} ${pt(link.x + link.width)} ${pt(page.heightPx - link.y)}] /Border [0 0 0] /A << /S /URI /URI ${uri(link.target)} >> >>`);
+      const act = action(link);
+      if (!act) return null;
+      const id = reserve();
+      define(id, `<< /Type /Annot /Subtype /Link /Rect [${pt(link.x)} ${pt(page.heightPx - link.y - link.height)} ${pt(link.x + link.width)} ${pt(page.heightPx - link.y)}] /Border [0 0 0] /A ${act} >>`);
       return id;
-    });
+    }).filter(Boolean);
     define(image, { dict: `/Type /XObject /Subtype /Image /Width ${page.imageWidth} /Height ${page.imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, stream: page.jpeg });
     define(content, { stream: encoder.encode(`q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} 0 0 cm /Im1 Do Q\n${textLayer(page.fragments, page.heightPx, astral)}`) });
     define(pageId, `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${w.toFixed(2)} ${h.toFixed(2)}] /Resources << /XObject << /Im1 ${image} 0 R >> /Font << /F1 ${font} 0 R >> >> /Contents ${content} 0 R${annots.length ? ` /Annots [${annots.map(id => `${id} 0 R`).join(' ')}]` : ''} >>`);
@@ -177,27 +188,43 @@ export function pageFragments(lines, page) {
 }
 
 /**
- * The areas of the page where a web, mail or phone link's text is laid out: [{ page, x, y, width, height, target }]
- * in page pixels, one per line (or picture) the link covers. Links within the document (to a bookmark) are left out.
+ * The areas of the page where a link's text is laid out, in page pixels, one per line (or picture) the link covers:
+ * [{ page, x, y, width, height, target }] for a web, mail or phone link, and [{ …, dest: { page, y } }] for a link
+ * to a bookmark in the document (a table of contents' entries) or to its start, `dest` being where that is.
  */
 export function pageLinks(paragraphs, layout) {
   const ranges = [];
-  let at = 0;
+  let at = 0, bookmarks = null;
+  const position = anchor => {
+    if (anchor === null) return 0;
+    bookmarks ??= bookmarksByName(bookmarkEntries(paragraphs, null, () => {}));
+    return bookmarkNamed(bookmarks, anchor)?.start ?? null;
+  };
   for (const p of paragraphs) {
     for (const run of p.runs) {
       const length = String(run.text || '').length, target = run.link?.target;
-      if (typeof target === 'string' && SAFE_LINK.test(target) && !run.vanish) {
-        const last = ranges.at(-1);
-        if (last?.target === target && last.end === at) last.end += length;
-        else ranges.push({ start: at, end: at + length, target });
+      const internal = !target && run.link && Object.hasOwn(run.link, 'anchor') && (run.link.anchor === null || typeof run.link.anchor === 'string');
+      if ((typeof target === 'string' && SAFE_LINK.test(target) || internal) && !run.vanish) {
+        const key = internal ? `#${run.link.anchor ?? ''}` : target, last = ranges.at(-1);
+        if (last?.key === key && last.end === at) last.end += length;
+        else ranges.push({ start: at, end: at + length, key, ...(internal ? { anchor: run.link.anchor } : { target }) });
       }
       at += length;
     }
     at++;
   }
   const out = [];
-  for (const { start, end, target } of ranges) {
-    for (const r of selectionRects(layout, start, end)) if (r.width > 0 && r.height > 0) out.push({ page: r.page ?? 0, x: r.x, y: r.y, width: r.width, height: r.height, target });
+  for (const { start, end, target, anchor } of ranges) {
+    let dest;
+    if (!target) {
+      const to = position(anchor);
+      if (to === null) continue;
+      // The line the bookmark starts on: the character after it, or before it at the end of a paragraph.
+      const [r] = [...selectionRects(layout, to, to + 1), ...(to > 0 ? selectionRects(layout, to - 1, to) : [])];
+      if (!r) continue;
+      dest = { page: r.page ?? 0, y: r.y };
+    }
+    for (const r of selectionRects(layout, start, end)) if (r.width > 0 && r.height > 0) out.push({ page: r.page ?? 0, x: r.x, y: r.y, width: r.width, height: r.height, ...(target ? { target } : { dest }) });
   }
   return out;
 }

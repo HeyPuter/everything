@@ -184,3 +184,36 @@ it('makes the PDF of the edited document, whole, when the document is edited bet
   expect(engine.painted.at(-1)).toBe('all');
   expect(engine.live.size).toBe(0);
 });
+
+// A link to a bookmark in the document (a table of contents' entries, a "see section" link) was left out of the PDF,
+// so its contents could not be followed there as they can in the document and in Word's PDFs. Each such link now
+// goes to the page and height where its bookmark is.
+it('makes links to bookmarks in the document go to where the bookmark is', async () => {
+  const { TextDocument, paragraph } = await import('../src/engine/model.js');
+  const { layoutDocument } = await import('../src/engine/layout.js');
+  const measure = text => ({ width: [...text].length * 8, ascent: 12, descent: 3 });
+  const doc = new TextDocument([paragraph()]);
+  doc.replace('Contents: Scope, Top');
+  doc.select(10, 15); doc.setHyperlink({ anchor: 'Scope' });
+  doc.select(17, 20); doc.setHyperlink({ anchor: null });
+  doc.select(doc.text.length); doc.insertParagraph(); doc.insertPageBreak();
+  doc.insertParagraph(); doc.replace('Scope of the work');
+  doc.select(doc.text.length - 17, doc.text.length); doc.addBookmark('Scope');
+  doc.select(doc.text.length); doc.insertParagraph(); doc.replace('Missing'); doc.select(doc.text.length - 7, doc.text.length); doc.setHyperlink({ anchor: 'Nowhere' });
+  const layout = layoutDocument(doc.paragraphs, measure, undefined, doc.numbering, doc.tables);
+  const links = pageLinks(doc.paragraphs, layout);
+  const target = layout.lines.find(line => line.fragments?.some(f => f.text?.includes('Scope of')));
+  expect(target.page).toBe(1);
+  // A link to a bookmark that does not exist goes nowhere, and is left out.
+  expect(links.map(l => [l.page, l.dest])).toEqual([[0, { page: 1, y: expect.any(Number) }], [0, { page: 0, y: expect.any(Number) }]]);
+  expect(links[0].dest.y).toBeLessThanOrEqual(target.baseline);
+  expect(links[0].dest.y).toBeGreaterThan(target.baseline - 20);
+  const page = { widthPx: 816, heightPx: 1056, jpeg: JPEG, imageWidth: 1, imageHeight: 1, fragments: [] };
+  const text = new TextDecoder('latin1').decode(buildPdf([{ ...page, links }, page]));
+  const pageIds = [...text.matchAll(/(\d+) 0 obj\n<< \/Type \/Page /g)].map(m => Number(m[1]));
+  expect(pageIds).toHaveLength(2);
+  expect(text).toContain(`/A << /S /GoTo /D [${pageIds[1]} 0 R /XYZ null ${((1056 - links[0].dest.y) * 0.75).toFixed(2)} null] >>`);
+  expect(text).toContain(`/A << /S /GoTo /D [${pageIds[0]} 0 R /XYZ null ${((1056 - links[1].dest.y) * 0.75).toFixed(2)} null] >>`);
+  const xref = Number(/startxref\n(\d+)/.exec(text)[1]);
+  [...text.slice(xref).matchAll(/^(\d{10}) 00000 n $/gm)].map(m => Number(m[1])).forEach((offset, i) => expect(text.slice(offset, offset + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`));
+});
