@@ -18,14 +18,14 @@ const options = {
   resolveFontFamily: () => "Arial",
 };
 
-function deck(direction) {
+function deck(direction, h = 0.8) {
   const pres = createDeck("blank"),
     slide = P.getSlides(pres)[0];
   const table = P.addSlideTable(slide, {
     x: P.inches(1),
     y: P.inches(1),
     w: P.inches(4),
-    h: P.inches(0.8),
+    h: P.inches(h),
     rows: [
       ["Header label", "Peer"],
       ["a", "b"],
@@ -40,14 +40,17 @@ function deck(direction) {
 
 describe("a table cell's text direction", () => {
   it("turns the cell's text and keeps the others level", () => {
-    const { pres, slide } = deck("vert270");
+    const { pres, slide } = deck("vert270", 3);
     const svg = renderSlideToSvg(pres, slide, options);
     const turned = svg.match(/<g transform="rotate\(270 [^)]+\)">(.*?)<\/g>/);
-    expect(turned?.[1]).toContain("Header label");
+    expect(turned?.[1]).toContain("Header");
+    expect(turned?.[1]).toContain("label");
     expect(turned?.[1]).not.toContain("Peer");
   });
-  it("grows the row to hold the turned text on one line", () => {
-    const { pres, table } = deck("vert270");
+  it("keeps the row's height and wraps turned text at it", () => {
+    // As the desktop app draws it: a turned label longer than the row runs
+    // on in further lines across the cell rather than growing the row.
+    const { pres, slide, table } = deck("vert270");
     const level = deck(null);
     const [turnedRow] = getTableLayout(pres, table, options).rowHeights;
     const [levelRow] = getTableLayout(
@@ -55,9 +58,12 @@ describe("a table cell's text direction", () => {
       level.table,
       options,
     ).rowHeights;
-    // "Header label" is 144 px long; the cell's left and right insets add
-    // 0.1 inch each.
-    expect(turnedRow).toBeCloseTo((144 + 19.2) * 9525, -2);
-    expect(turnedRow).toBeGreaterThan(levelRow);
+    expect(turnedRow).toBe(levelRow);
+    expect(turnedRow).toBe(P.inches(0.4));
+    // 0.4 inch less 0.2 inch of insets holds 19.2 px: "Header label" is
+    // 144 px, so it takes several turned lines.
+    const svg = renderSlideToSvg(pres, slide, options);
+    const turned = svg.match(/<g transform="rotate\(270 [^)]+\)">(.*?)<\/g>/);
+    expect((turned?.[1].match(/<text /g) ?? []).length).toBeGreaterThan(1);
   });
 });

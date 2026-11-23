@@ -226,7 +226,6 @@ import {
   layoutCore,
   layoutTextSvg,
   measureTextBodyHeight,
-  measureTextBodyWidth,
   substituteFamily,
   type BulletInput,
   type ColumnLayout,
@@ -11321,15 +11320,15 @@ const measureTableLayout = (
       const width = columnWidths
         .slice(c, c + span.gridSpan)
         .reduce((a, b) => a + b, 0);
+      const vert = verticalLayoutOf(getTableCellTextDirection(cell));
+      // Turned text wraps at the row's height and never grows the row, as
+      // in the desktop app; a long label runs on in further lines.
+      if (vert === "cw90" || vert === "cw270") continue;
       const margins = getTableCellMargins(cell);
-      const left = margins.left ?? DEFAULT_INSET_X;
-      const right = margins.right ?? DEFAULT_INSET_X;
       const top = margins.top ?? DEFAULT_INSET_Y;
       const bottom = margins.bottom ?? DEFAULT_INSET_Y;
       const paragraphs = style.paragraphs(cell, style.cell(cell).textFormat);
       const { paraData } = cellParaData(paragraphs, ctx);
-      const vert = verticalLayoutOf(getTableCellTextDirection(cell));
-      const turned = vert === "cw90" || vert === "cw270";
       const input = buildSvgTextInput({
         pres,
         shape,
@@ -11347,7 +11346,12 @@ const measureTableLayout = (
         includeOuterSpacing: false,
         innerX: 0,
         innerY: 0,
-        innerW: turned ? 0 : Math.max(0, width - left - right),
+        innerW: Math.max(
+          0,
+          width -
+            (margins.left ?? DEFAULT_INSET_X) -
+            (margins.right ?? DEFAULT_INSET_X),
+        ),
         innerH: 0,
         measure: ctx.measure,
         vert: vert === "upright" ? vert : "none",
@@ -11355,11 +11359,8 @@ const measureTableLayout = (
         resolveFamily: ctx.resolveFamily,
         resolveKerning: ctx.resolveKerning,
       });
-      // Turned text runs along the row: the row grows to hold its longest
-      // line (unwrapped), between the cell's left and right insets.
-      const height = turned
-        ? measureTextBodyWidth(input, ctx.measure) * EMU_PER_PX + left + right
-        : measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
+      const height =
+        measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
       if (end === r + 1) rowHeights[r] = Math.max(rowHeights[r] ?? 0, height);
       else spans.push({ start: r, end, height });
     }
