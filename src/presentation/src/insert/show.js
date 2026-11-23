@@ -304,16 +304,15 @@ export function createShowExtras(ctx, show) {
       }
       element.pause();
       node.classList.remove("full-screen");
-      if (o.rewind) {
-        element.currentTime = startAt;
-        node.classList.remove("playing");
-      }
+      if (o.rewind) element.currentTime = startAt;
+      // Rewound, or hidden while not playing, it shows as before it began.
+      if (o.rewind || o.hideWhileNotPlaying) node.classList.remove("playing");
     });
     element.addEventListener("ended", () => {
       if (o.loop) player.play();
       else {
         node.classList.remove("full-screen");
-        if (o.rewind) node.classList.remove("playing");
+        if (o.rewind || o.hideWhileNotPlaying) node.classList.remove("playing");
       }
     });
     element.addEventListener("pause", () => cancelAnimationFrame(fading));

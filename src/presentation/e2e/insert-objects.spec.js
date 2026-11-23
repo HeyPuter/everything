@@ -438,6 +438,35 @@ test("video plays on the canvas and in the slide show, with its playback setting
   await expect(page.locator(".presenter-end")).toBeHidden();
 });
 
+test("a video hidden while not playing goes away again when it ends", async ({
+  page,
+}) => {
+  await start(page);
+  const video = await webm(page);
+  await choose(page, () => command(page, "video"), {
+    name: "clip.webm",
+    mimeType: "video/webm",
+    buffer: video,
+  });
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+  await tab(page, "Playback");
+  await command(page, "playback-hide");
+  await expect(
+    page.locator('[data-command="playback-hide"]').first(),
+  ).toBeChecked();
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(page.locator(".presenter-counter")).toHaveText("1 / 1");
+  await page.keyboard.press("Space");
+  const media = page.locator(".presenter-media");
+  await expect(media).toHaveClass(/playing/);
+  await expect
+    .poll(() => media.locator("video").evaluate((v) => v.ended), {
+      timeout: 10_000,
+    })
+    .toBe(true);
+  await expect(media).not.toHaveClass(/playing/);
+});
+
 test("a video's bytes are let go once another presentation opens", async ({
   page,
 }) => {
