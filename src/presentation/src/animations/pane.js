@@ -5,7 +5,7 @@
 import { el, icon, openMenu } from "../ui.js";
 import { commandIcon } from "../chrome/icons.js";
 import { categoryOf, effectIcon, effectName } from "./catalog.js";
-import { buildSequence, slideTimeline, totalDuration } from "./player.js";
+import { buildSequence, effectSpan, slideTimeline } from "./player.js";
 
 const START_LABELS = {
   click: "On Click",
@@ -74,6 +74,7 @@ export function createAnimationPane({ tools, P, ctx }) {
         sub: 0,
         start: effect.start,
         delay: effect.delayMs,
+        span: effectSpan(ctx.slide(), effect),
       }));
       const groups = buildSequence(items, { main: !trigger });
       const auto = groups[0]?.auto ? 1 : 0;
@@ -179,7 +180,7 @@ export function createAnimationPane({ tools, P, ctx }) {
     let longest = 1;
     for (const seq of sequences)
       for (const row of seq.rows)
-        longest = Math.max(longest, row.at + totalDuration(row.effect));
+        longest = Math.max(longest, row.at + row.span);
     scale = zoom * Math.min(60, 110 / Math.max(1, longest / 1000));
     for (const seq of sequences) {
       if (seq.trigger)
@@ -354,8 +355,7 @@ export function createAnimationPane({ tools, P, ctx }) {
   }
 
   function timelineBar(row) {
-    const { effect } = row;
-    const total = totalDuration(effect);
+    const { effect, span: total } = row;
     const wrap = el("span", { class: "anim-time", "aria-hidden": "true" });
     const barEl = el("span", {
       class: `anim-bar cls-${effect.presetClass}`,
