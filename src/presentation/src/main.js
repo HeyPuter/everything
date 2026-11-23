@@ -157,6 +157,7 @@ import {
   dismissMenuWithin,
   closeMenu,
   MOD_KEY,
+  ALT_KEY,
   IS_MAC,
 } from "./ui.js";
 
@@ -5014,7 +5015,7 @@ function arrangeMenuItems() {
     {
       label: "Selection Pane",
       icon: "o:selectionPane",
-      shortcut: `${M}+Alt+U`,
+      shortcut: `${M}+${ALT_KEY}+U`,
       onSelect: toggleSelectionPane,
     },
   ];
@@ -7787,7 +7788,7 @@ function viewItems() {
     {
       label: "Ribbon",
       icon: "PanelTop",
-      shortcut: `${M}+${IS_MAC ? "⌥" : "Alt"}+R`,
+      shortcut: `${M}+${ALT_KEY}+R`,
       checked: !!ribbon && !ribbon.collapsed,
       onSelect: toggleRibbon,
     },
@@ -7830,7 +7831,7 @@ function viewItems() {
       ].map(([kind, label, icon, key]) => ({
         label,
         icon,
-        shortcut: `${M}+${IS_MAC ? "⌥" : "Alt"}+${key}`,
+        shortcut: `${M}+${ALT_KEY}+${key}`,
         checked: masterView.mode === kind,
         onSelect: () => setView(masterView.viewId(kind)),
       })),
@@ -8047,7 +8048,7 @@ function formatItems() {
     {
       label: "Animation Painter",
       icon: "o:animationPainter",
-      shortcut: `${MOD_KEY}+Alt+Shift+C`,
+      shortcut: `${MOD_KEY}+${ALT_KEY}+Shift+C`,
       checked: animationTools.painting,
       disabled: !animationTools.painting && !animationTools.current().length,
       onSelect: () => animationTools.startPainter(false),
@@ -14956,14 +14957,14 @@ function arrangeItems() {
     {
       label: "Group",
       icon: "Group",
-      shortcut: `${M}+Alt+G`,
+      shortcut: `${M}+${ALT_KEY}+G`,
       disabled: !canGroup,
       onSelect: groupSelection,
     },
     {
       label: "Ungroup",
       icon: "Ungroup",
-      shortcut: `${M}+Alt+Shift+G`,
+      shortcut: `${M}+${ALT_KEY}+Shift+G`,
       disabled: !canUngroup,
       onSelect: ungroupSelection,
     },

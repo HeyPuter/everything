@@ -6,7 +6,7 @@
 // primitives as `ctx` and merges what this returns into the ribbon API, the
 // menus, the format pane, and the keyboard.
 import "./icons.js";
-import { el, openMenu, closeMenu, MOD_KEY, IS_MAC } from "../ui.js";
+import { el, openMenu, closeMenu, MOD_KEY, ALT_KEY, IS_MAC } from "../ui.js";
 import { cssColor, galleryGrid, IN, PT } from "./controls.js";
 import {
   applyListStyle,
@@ -1314,7 +1314,7 @@ export function createFormatTools(ctx) {
         {
           label: "Regroup",
           icon: "o:regroup",
-          shortcut: `${MOD_KEY}+Alt+J`,
+          shortcut: `${MOD_KEY}+${ALT_KEY}+J`,
           disabled: !canRegroup(),
           onSelect: regroup,
         },
@@ -1339,13 +1339,13 @@ export function createFormatTools(ctx) {
         {
           label: "Paste Special…",
           icon: "o:pasteSpecial",
-          shortcut: IS_MAC ? "⌃⌘V" : null,
+          shortcut: IS_MAC ? "⌘+Ctrl+V" : null,
           onSelect: () => openPasteSpecial(),
         },
         {
           label: "Paste and Match Formatting",
           icon: "o:paste",
-          shortcut: IS_MAC ? "⌥⇧⌘V" : null,
+          shortcut: IS_MAC ? "⌘+⌥+Shift+V" : null,
           onSelect: () => pasteAndMatch(),
         },
       ],
@@ -1360,13 +1360,13 @@ export function createFormatTools(ctx) {
       {
         label: "Paste Special…",
         icon: "o:pasteSpecial",
-        shortcut: IS_MAC ? "⌃⌘V" : null,
+        shortcut: IS_MAC ? "⌘+Ctrl+V" : null,
         onSelect: () => openPasteSpecial(),
       },
       {
         label: "Paste and Match Formatting",
         icon: "o:paste",
-        shortcut: IS_MAC ? "⌥⇧⌘V" : null,
+        shortcut: IS_MAC ? "⌘+⌥+Shift+V" : null,
         onSelect: () => pasteAndMatch(),
       },
       {
@@ -1396,14 +1396,14 @@ export function createFormatTools(ctx) {
       {
         label: "Font…",
         icon: "o:fontDialog",
-        shortcut: IS_MAC ? "⌘T" : "Ctrl+Shift+F",
+        shortcut: IS_MAC ? "⌘+T" : "Ctrl+Shift+F",
         disabled: !text,
         onSelect: () => openFont(),
       },
       {
         label: "Paragraph…",
         icon: "o:paragraph",
-        shortcut: IS_MAC ? "⌥⌘M" : "Ctrl+Alt+M",
+        shortcut: IS_MAC ? "⌘+⌥+M" : "Ctrl+Alt+M",
         disabled: !text,
         onSelect: () => openParagraph(),
       },
@@ -1457,7 +1457,7 @@ export function createFormatTools(ctx) {
       {
         label: "Regroup",
         icon: "o:regroup",
-        shortcut: `${MOD_KEY}+Alt+J`,
+        shortcut: `${MOD_KEY}+${ALT_KEY}+J`,
         disabled: !canRegroup(),
         onSelect: regroup,
       },

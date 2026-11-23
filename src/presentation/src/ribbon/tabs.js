@@ -413,7 +413,7 @@ export function buildTabs(api) {
                 label: "Paragraph Settings",
                 showLabel: false,
                 icon: "paragraph",
-                title: `Paragraph… (${api.modKey === "⌘" ? "⌥⌘M" : "Ctrl+Alt+M"})`,
+                title: `Paragraph… (${api.modKey === "⌘" ? "⌘+⌥+M" : "Ctrl+Alt+M"})`,
                 description:
                   "Alignment, indentation, spacing and tab stops for the paragraphs.",
                 visible: () => !!api.paragraphDialog,

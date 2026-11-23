@@ -191,3 +191,27 @@ test("the Bring Forward and Send Backward tips name their own shortcuts", async 
   await press("send-backward");
   await expect.poll(order).toEqual(before);
 });
+
+// The menu bar writes every shortcut one way on a Mac: keys joined by "+",
+// with ⌘ and ⌥ for Command and Option.
+test("menu shortcuts are written one way on a Mac", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "the menu bar");
+  await mockPuter(page);
+  await story(page);
+  expect(await page.evaluate(() => navigator.platform)).toMatch(/Mac/);
+  await page.locator("#slide-canvas .object-hit").first().click();
+  const shortcuts = [];
+  for (const name of ["Edit", "View", "Format", "Arrange", "Tools"]) {
+    await page
+      .getByRole("menubar")
+      .getByRole("menuitem", { name, exact: true })
+      .click();
+    shortcuts.push(
+      ...(await page.locator('[role="menu"] .menu-shortcut').allTextContents()),
+    );
+    await page.keyboard.press("Escape");
+  }
+  expect(shortcuts).toContain("⌘+⌥+G");
+  expect(shortcuts).toContain("⌘+T");
+  expect(shortcuts.filter((s) => /Alt|[⌘⌥⌃⇧](?!\+)/.test(s))).toEqual([]);
+});
