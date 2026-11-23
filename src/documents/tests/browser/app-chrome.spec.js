@@ -369,6 +369,30 @@ test('KeyTips typed faster than a frame (Alt, H, B at once) still run the comman
   await expect(page.locator('.ed-keytip')).toHaveCount(0);
 });
 
+test('an auto-hidden ribbon shows its tabs for the KeyTips, and hides them again after', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Keys');
+  await page.getByRole('button', { name: 'Ribbon display options' }).click();
+  await page.getByRole('menuitemradio', { name: 'Auto-hide the Ribbon' }).click();
+  const home = page.locator('#ribbon-tab-home');
+  await expect(home).toBeHidden();
+  await select(page, 0, 4);
+  // The tabs' letters were given to hidden tabs, so none showed: only the quick access numbers did.
+  await page.keyboard.press('Alt');
+  await expect(page.locator('.ed-keytip', { hasText: /^H$/ })).toBeVisible();
+  await expect(home).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+  await expect(home).toBeHidden();
+  await expect(text(page)).toBeFocused();
+  // A tab's letter keeps the ribbon out for its commands, as before.
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  await expect(page.locator('.ed-keytip', { hasText: /^B$/ })).toBeVisible();
+  await page.keyboard.press('b');
+  await expect.poll(async () => (await engine(page)).bold).toBe(true);
+});
+
 test('Escape in the text, then Tab, goes to the ribbon, and Escape there comes back', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Words');

@@ -143,6 +143,8 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
   /* ---- KeyTips ---- */
   const keyTips = (() => {
     let layer = null, level = null, codes = [], typed = '';
+    // An auto-hidden ribbon shows its tabs for the letters, and hides them again unless a tab is chosen.
+    let peekedForTips = false;
     const visible = node => node && node.getClientRects().length && !node.closest('[hidden]');
     function badge(target, code, disabled) {
       const box = target.getBoundingClientRect();
@@ -182,6 +184,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       render(targets);
     }
     function openTab(id) {
+      peekedForTips = false;
       ribbon.select(id);
       // The tab's letters go up at once: a quick typist's next key can come before the next frame, and
       // it is meant for them. Shown over the document, the commands are fitted first (peeking fits them a
@@ -203,6 +206,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     }
     function hide() {
       layer?.remove(); layer = null; level = null; typed = '';
+      if (peekedForTips) { peekedForTips = false; peek(false); }
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('blur', hide);
       window.removeEventListener('resize', hide);
@@ -225,6 +229,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     }
     function show() {
       if (document.querySelector('.modal-root:not(.closing), .backstage:not([hidden])')) return;
+      if (effective() === 'auto' && !peeking) { peek(true); peekedForTips = true; }
       top();
       window.addEventListener('keydown', onKey, true);
       window.addEventListener('blur', hide);
