@@ -157,3 +157,27 @@ test("Change Case while editing changes the selected text, keeping its runs", as
   expect(svg).toMatch(/font-weight="700"[^>]*>wo th</);
   expect(svg.replace(/<[^>]+>/g, "")).toContain("One Two three");
 });
+
+test("typing over a triple-clicked paragraph leaves the next paragraph alone", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "First line");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Second line");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Third");
+  await editor.locator(".para").nth(1).click({ clickCount: 3 });
+  await page.keyboard.type("New");
+  await expect(editor.locator(".para")).toHaveText([
+    "First line",
+    "New",
+    "Third",
+  ]);
+  // The typing over the selection is one step.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(editor.locator(".para")).toHaveText([
+    "First line",
+    "Second line",
+    "Third",
+  ]);
+});

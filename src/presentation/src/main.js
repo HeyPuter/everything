@@ -12030,8 +12030,9 @@ function editText(target, event = null, { inserted = null } = {}) {
     let sel = selectionOffsets();
     // A selection across paragraphs goes before the input method types over
     // it, as typed text's does, so the paragraph joined keeps its runs.
-    if (sel && textOf(read().runs).slice(sel[0], sel[1]).includes("\n")) {
-      replaceRange(sel[0], sel[1], "");
+    const value = textOf(read().runs);
+    if (sel && value.slice(sel[0], sel[1]).includes("\n")) {
+      replaceRange(sel[0], typedOver(sel[0], sel[1], value), "");
       sel = selectionOffsets();
     }
     const change = caretFormat && caretFormatAt(sel, textOf(read().runs));
@@ -12151,10 +12152,20 @@ function editText(target, event = null, { inserted = null } = {}) {
         : selectionOffsets();
     if (!sel || sel[0] === sel[1]) return null;
     const [start, end] = sel[0] <= sel[1] ? sel : [sel[1], sel[0]];
-    return textOf(read().runs).slice(start, end).includes("\n")
-      ? [start, end]
-      : null;
+    const value = textOf(read().runs);
+    if (!value.slice(start, end).includes("\n")) return null;
+    return [
+      start,
+      e.inputType.startsWith("insert") ? typedOver(start, end, value) : end,
+    ];
   }
+  // Text typed over whole paragraphs, selected with the break after them as
+  // a triple click selects one, takes their place: the paragraph after stays
+  // a paragraph of its own.
+  const typedOver = (start, end, value) =>
+    value[end - 1] === "\n" && (start === 0 || value[start - 1] === "\n")
+      ? end - 1
+      : end;
   // Line breaks and pasted text go through the runs; the browser's own rich
   // formatting and drops stay out.
   input.addEventListener("beforeinput", (e) => {
@@ -12187,6 +12198,9 @@ function editText(target, event = null, { inserted = null } = {}) {
       // formatting of the text before it.
       e.preventDefault();
       replaceRange(joined[0], joined[1], e.data || "");
+      // Typing or deleting on from here belongs to the same step.
+      typingKind = e.inputType.startsWith("delete") ? "delete" : "insert";
+      typingSince = Date.now();
     } else if (caretFormat && e.inputType === "insertText" && e.data) {
       const sel = selectionOffsets();
       const change = caretFormatAt(sel, textOf(read().runs));
