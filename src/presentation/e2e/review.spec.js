@@ -410,6 +410,51 @@ test("a comment on an ungrouped group stays put, off any new object", async ({
   expect(thread.pos).not.toBeNull();
 });
 
+// Duplicate Slide started the copy without the slide's comments.
+test("a duplicated slide takes its comments, anchored to the copied objects", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "mobile", "the sheet covers the slide");
+  await stub(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const shape = P.addSlideShape(slide, {
+    preset: "rect",
+    x: 914400,
+    y: 914400,
+    w: 914400 * 2,
+    h: 914400,
+  });
+  P.setSlideCommentThreads(slide, [
+    {
+      author: { name: "Grace" },
+      text: "Check this",
+      shapeId: String(P.getShapeId(shape)),
+    },
+  ]);
+  await open(page, pres);
+  await reviewTab(page);
+  await command(page, "show-comments");
+  await page
+    .getByRole("menubar")
+    .getByRole("menuitem", { name: "Insert", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Duplicate slide" }).click();
+  await expect(page.locator(".slide-thumb")).toHaveCount(2);
+  const anchor = page.locator("#review-pane .comment-anchor");
+  await expect(anchor).toContainText("Rectangle");
+  const { pres: saved } = await download(page);
+  const [a, b] = P.getSlides(saved).map((s) => P.getSlideCommentThreads(s));
+  expect(b.map((t) => t.text)).toEqual(["Check this"]);
+  expect(b[0].id).not.toBe(a[0].id);
+  expect(b[0].shapeId).toBe(
+    String(P.getShapeId(P.getSlideShapes(P.getSlides(saved)[1])[0])),
+  );
+  // Undo takes the copy away with its comments.
+  await page.keyboard.press(`${MOD}+z`);
+  await expect(page.locator(".slide-thumb")).toHaveCount(1);
+});
+
 // A change of slide size that scales the content moves the comments with it;
 // they stayed at their old places, off the content or past the slide's edge.
 test("comments move with the content when the slide size changes", async ({

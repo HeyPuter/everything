@@ -1791,6 +1791,44 @@ export function replaceInSmartArt(shape, regex, replacement, only = null) {
   if (changed) P.setShapeSmartArt(shape, { ...model, items });
   return changed;
 }
+// A duplicated slide takes its source's comments, legacy ones too, as
+// threads of its own: new ids, the same authors, and each anchored to the
+// copy of the object its original was on (found by place in the slide).
+export function copySlideComments(source, copy) {
+  let threads;
+  try {
+    threads = P.getSlideCommentThreads(source);
+  } catch {
+    return;
+  }
+  if (!threads.length) return;
+  const from = P.getSlideShapes(source).map((s) => String(P.getShapeId(s)));
+  const to = P.getSlideShapes(copy).map((s) => String(P.getShapeId(s)));
+  const ids = new Map(from.map((id, i) => [id, to[i]]));
+  const person = (p) => ({
+    ...(p.id && !p.id.startsWith("legacy:") ? { id: p.id } : {}),
+    name: p.name,
+    initials: p.initials,
+    userId: p.userId,
+    providerId: p.providerId,
+  });
+  P.setSlideCommentThreads(
+    copy,
+    threads.map((t) => ({
+      author: person(t.author),
+      created: t.created,
+      text: t.text,
+      status: t.status,
+      shapeId: (t.shapeId != null && ids.get(String(t.shapeId))) || null,
+      pos: t.pos,
+      replies: t.replies.map((r) => ({
+        author: person(r.author),
+        created: r.created,
+        text: r.text,
+      })),
+    })),
+  );
+}
 // Comments on objects being deleted stay where their markers were, on the
 // slide itself: the next object added could be given a deleted one's id.
 // Read before the objects go; the returned step writes the comments after.

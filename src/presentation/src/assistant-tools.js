@@ -42,6 +42,7 @@ import {
   slideRotation,
   removeAnyShape,
   detachShapeComments,
+  copySlideComments,
   replaceInSmartArt,
   pruneUnusedMedia,
   removeSlides,
@@ -1044,6 +1045,7 @@ async function duplicateSlide(pres, args, env) {
     if (!Number.isInteger(at) || at < 1 || at > count + 1)
       throw new ToolError(`position must be from 1 to ${count + 1}.`);
     const copy = P.duplicateSlide(pres, original);
+    copySlideComments(original, copy);
     P.moveSlide(pres, copy, at - 1);
     return { part: P.getSlidePartName(copy), number: slideNumber(pres, copy) };
   });

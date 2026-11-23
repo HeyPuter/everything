@@ -44,6 +44,7 @@ import {
   tableLayout,
   setSlideBounds,
   detachShapeComments,
+  copySlideComments,
   replaceInSmartArt,
   slideRotation,
   ownRotation,
@@ -9458,6 +9459,7 @@ function duplicateSlides(targets) {
     const copies = [];
     for (const s of chosen) {
       const copy = P.duplicateSlide(doc.pres, s);
+      copySlideComments(s, copy);
       P.moveSlide(doc.pres, copy, at++);
       copies.push(P.getSlidePartName(copy));
     }
