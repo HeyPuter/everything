@@ -92,6 +92,12 @@ export function createDrawTools({
   shapeLabels = {},
   equation = null,
 }) {
+  // Removing ink removes its animations too: the next stroke drawn is given
+  // the removed one's id, and took its animation over.
+  const removeInk = (slide, shape) => {
+    P.removeShape(shape);
+    P.pruneSlideAnimations(slide);
+  };
   let tool = null; // null (select) | pen id | "eraser" | "lasso"
   let pens = loadPens();
   const prefs = {
@@ -405,7 +411,7 @@ export function createDrawTools({
             const shape = P.findShapeById(s, id);
             if (!shape) continue;
             if (point) rubOut(s, shape, path, reach);
-            else P.removeShape(shape);
+            else removeInk(s, shape);
           }
         }).catch(report);
       },
@@ -434,7 +440,7 @@ export function createDrawTools({
       P.setShapeZIndex(piece, z + i);
     });
     const original = P.findShapeById(slide, P.getShapeId(shape));
-    if (original) P.removeShape(original);
+    if (original) removeInk(slide, original);
   }
 
   /* ---------- Lasso ---------- */
@@ -569,7 +575,7 @@ export function createDrawTools({
       const z = top - zs.filter((v) => v >= 0 && v < top).length;
       for (const id of ids) {
         const shape = P.findShapeById(s, id);
-        if (shape) P.removeShape(shape);
+        if (shape) removeInk(s, shape);
       }
       const restack = () => {
         if (made && top >= 0) P.setShapeZIndex(made, z);
@@ -641,7 +647,7 @@ export function createDrawTools({
         if (!ink) continue;
         const z = P.getShapeZIndex(ink);
         const shape = addRecognizedShape(P, s, f.shape, f.pen, shapeLabels);
-        P.removeShape(P.findShapeById(s, f.id));
+        removeInk(s, P.findShapeById(s, f.id));
         P.setShapeZIndex(shape, z);
         made.push(P.getShapeId(shape));
       }

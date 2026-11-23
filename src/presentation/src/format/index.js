@@ -633,6 +633,7 @@ export function createFormatTools(ctx) {
         const z = P.getShapeZIndex(first);
         for (const s of shapes)
           P.removeShape(P.findShapeById(target, P.getShapeId(s)));
+        P.pruneSlideAnimations(target);
         made.forEach((id, i) => {
           const s = P.findShapeById(target, id);
           if (s)

@@ -367,6 +367,7 @@ export function createAccessibility(env, host) {
                 const target = P.findShapeById(s, issue.shapeId);
                 if (!target) return env.SKIP;
                 P.removeShape(target);
+                P.pruneSlideAnimations(s);
               }),
           },
         ];

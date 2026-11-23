@@ -411,6 +411,7 @@ export function createIconFeatures(ctx) {
         if (flip?.horizontal || flip?.vertical) P.setShapeFlip(shape, flip);
         const z = P.getShapeZIndex(obj);
         P.removeShape(obj);
+        P.pruneSlideAnimations(slide);
         if (z >= 0) P.setShapeZIndex(shape, z);
         ids.push(P.getShapeId(shape));
       }
