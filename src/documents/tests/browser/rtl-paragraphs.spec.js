@@ -156,8 +156,12 @@ test('shows and sets direction in the Paragraph dialog and mirrors the ruler', a
   const dialog = page.getByRole('dialog', { name: 'Paragraph' }), direction = dialog.getByRole('combobox', { name: 'Direction', exact: true }), alignment = dialog.getByRole('combobox', { name: 'Alignment', exact: true });
   await expect(direction).toHaveValue('rtl'); await expect(alignment).toHaveValue('right');
   await expect(dialog.locator('.field-label').getByText('Before text', { exact: true })).toBeVisible();
+  // The fields are named as they are labelled: the indent before the text is the right-hand one here.
+  await expect(dialog.getByRole('spinbutton', { name: 'Before text indent (in)', exact: true })).toHaveValue('1');
+  await expect(dialog.getByRole('spinbutton', { name: 'After text indent (in)', exact: true })).toBeVisible();
   // Switching direction keeps the stored alignment: the side shown flips with the paragraph.
   await direction.selectOption('ltr'); await expect(alignment).toHaveValue('left'); await expect(dialog.locator('.field-label').getByText('Left', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('spinbutton', { name: 'Left indent (in)', exact: true })).toHaveValue('1');
   await dialog.getByRole('button', { name: 'OK', exact: true }).click(); await expect(dialog).toBeHidden();
   await expect(page.getByRole('button', { name: 'Right-to-Left Text Direction', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByRole('button', { name: 'Align left', exact: true })).toHaveAttribute('aria-pressed', 'true');
