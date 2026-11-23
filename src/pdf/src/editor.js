@@ -38,7 +38,12 @@ import { userMenuSlot } from './user-menu.js';
 import { createAttachmentsPanel, createLayersPanel } from './side-panels.js';
 import { createSignaturesPanel, createSignatureBar } from './signatures-panel.js';
 import { chooseDigitalId, signatureDetailsDialog } from './digital-id-dialog.js';
-import { addAttachment, attachmentBytes, removeAttachment } from './core/attachments.js';
+import {
+  MAX_ATTACHMENT_SIZE,
+  addAttachment,
+  attachmentBytes,
+  removeAttachment,
+} from './core/attachments.js';
 import {
   listFonts,
   readInitialView,
@@ -931,6 +936,9 @@ export function createEditor({
     input.onchange = safe(async () => {
       const file = input.files?.[0];
       if (!file || destroyed) return;
+      // A file too large to attach is turned down before it is read: a video of several
+      // gigabytes would otherwise be held in memory first, and could take the tab down.
+      if (file.size > MAX_ATTACHMENT_SIZE) throw new Error('Attach files of up to 20 MB.');
       const bytes = new Uint8Array(await file.arrayBuffer());
       await mutate(
         (doc) => addAttachment(doc, { name: file.name, bytes, mimeType: file.type || undefined }),
