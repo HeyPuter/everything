@@ -3314,7 +3314,20 @@ export function createEditor({
   /** Keep the current page's thumbnail inside the panel's scroll viewport. */
   function revealThumbnail() {
     if (editorRoot.classList.contains('hide-pages')) return;
-    thumbnails.children[pageIndex]?.scrollIntoView({ block: 'nearest' });
+    const item = thumbnails.children[pageIndex];
+    // The list scrolls itself rather than through scrollIntoView, which also moved the browser's
+    // starting point for Tab: a keyboard's first Tab in a PDF just opened went to the thumbnails,
+    // past the skip link, the menus and the tools.
+    if (item) {
+      const list = thumbnails.getBoundingClientRect(),
+        box = item.getBoundingClientRect();
+      if (box.top < list.top) thumbnails.scrollTop -= list.top - box.top;
+      else if (box.bottom > list.bottom)
+        thumbnails.scrollTop += Math.min(box.bottom - list.bottom, box.top - list.top);
+      if (box.left < list.left) thumbnails.scrollLeft -= list.left - box.left;
+      else if (box.right > list.right)
+        thumbnails.scrollLeft += Math.min(box.right - list.right, box.left - list.left);
+    }
     revealedThumbnail = pageIndex;
   }
   function renderThumbnails() {
