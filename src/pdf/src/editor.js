@@ -3666,6 +3666,8 @@ export function createEditor({
     updateStatus();
     try {
       const previousPage = pageIndex;
+      const place = pagePlace();
+      pageOnViewRemoved = false;
       try {
         if (
           (await session.change(operation, {
@@ -3683,9 +3685,11 @@ export function createEditor({
       onCommit?.();
       rememberPageStep(previousPage);
       await reload(retainedScale);
-      // A page moved with the page on view (no page added or removed, so the pages were not
-      // laid out again) takes the view along.
-      if (previousPage !== pageIndex && !destroyed) stack.scrollTo(pageIndex);
+      // A page moved with the page on view, or by pages added or removed before it, takes the
+      // view along, the page staying where it was on screen. A page taking the place of the
+      // one deleted is shown from its top.
+      if (previousPage !== pageIndex) restorePagePlace(pageOnViewRemoved ? null : place);
+      settledNavigation = navigationGeneration;
       if (message && !destroyed) toast(message);
     } finally {
       busy = false;
@@ -3743,15 +3747,34 @@ export function createEditor({
     }
     return committed;
   }
+  /** Where the page being worked on sits in the view, while it is in sight. */
+  function pagePlace() {
+    if (!stack.continuous || paper.hidden || !paper.isConnected) return null;
+    const box = paper.getBoundingClientRect(),
+      view = workspace.getBoundingClientRect();
+    return box.bottom > view.top && box.top < view.bottom ? box.top : null;
+  }
+  /** Bring the page being worked on, moved to another place, back to `place` in the view. */
+  function restorePagePlace(place) {
+    if (destroyed) return;
+    if (place == null || !stack.continuous || paper.hidden) return stack.scrollTo(pageIndex);
+    workspace.scrollTop += paper.getBoundingClientRect().top - place;
+    stack.quiet();
+  }
   /**
    * The page each edit moved the reader from and to, by the revision it made. A page added,
    * deleted, or moved before or at the page on view takes the reader along to the same page;
    * undoing or redoing it does the same, as long as the reader has not moved on since.
    */
   const pageSteps = new Map();
+  // Whether the edit under way deletes the page on view.
+  let pageOnViewRemoved = false;
+  // The navigation count when the last edit or history step settled: a page chosen since, even
+  // the same one again, means the reader has moved on.
+  let settledNavigation = -1;
   function rememberPageStep(before) {
     if (before === pageIndex) return;
-    pageSteps.set(session.revision, { before, after: pageIndex });
+    pageSteps.set(session.revision, { before, after: pageIndex, same: !pageOnViewRemoved });
     // The history keeps 25 steps; older ones can no longer be undone.
     for (const key of pageSteps.keys()) if (pageSteps.size > 50) pageSteps.delete(key);
   }
@@ -3804,7 +3827,8 @@ export function createEditor({
       const step = pageSteps.get(action === 'undo' ? undone : session.revision);
       const [from, to] =
         action === 'undo' ? [step?.after, step?.before] : [step?.before, step?.after];
-      const follow = step && pageIndex === from;
+      const follow = step && pageIndex === from && navigationGeneration === settledNavigation;
+      const place = follow && step.same ? pagePlace() : null;
       if (follow) pageIndex = to;
       // Pressed from the keyboard, the button is disabled while the PDF is redrawn, which drops
       // the focus; it takes it back for the next press unless the focus has moved meanwhile.
@@ -3816,8 +3840,9 @@ export function createEditor({
       updateStatus();
       try {
         await reload();
-        // A page moved back to its place (no page added or removed) is brought into view too.
-        if (follow && !destroyed) stack.scrollTo(pageIndex);
+        // The page goes back to its place in the PDF, and stays where it was on screen.
+        if (follow) restorePagePlace(place);
+        settledNavigation = navigationGeneration;
       } finally {
         busy = false;
         updateStatus();
@@ -9124,6 +9149,7 @@ export function createEditor({
     await mutate(
       (doc) => {
         deleteDocumentPages(doc, list);
+        if (list.includes(pageIndex)) pageOnViewRemoved = true;
         for (const index of list) if (index < pageIndex) pageIndex--;
         pageIndex = Math.min(pageIndex, doc.getPageCount() - 1);
       },
@@ -9191,6 +9217,7 @@ export function createEditor({
     await mutate(
       (doc) => {
         deletePage(doc, index);
+        if (index === pageIndex) pageOnViewRemoved = true;
         if (index < pageIndex) pageIndex--;
       },
       null,
