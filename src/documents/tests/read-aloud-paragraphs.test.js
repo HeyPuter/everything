@@ -13,6 +13,13 @@ describe('speakableParagraphs', () => {
     expect(first.at).toEqual([0, 1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
     expect(last).toMatchObject({ start: 23, end: 27, text: 'Last', at: [23, 24, 25, 26] });
   });
+  it('leaves out hidden text while the page does not show it, and reads it when it does', () => {
+    const hidden = [{ runs: [run('Say '), { text: 'secret ', vanish: true }, run('this')] }, { runs: [{ text: 'All hidden', vanish: true }] }, { runs: [run('End')] }];
+    const shown = speakableParagraphs(hidden, 'all', false);
+    expect(shown.map(p => p.text)).toEqual(['Say this', 'End']);
+    expect(shown[0].at).toEqual([0, 1, 2, 3, 11, 12, 13, 14]);
+    expect(speakableParagraphs(hidden, 'all', true).map(p => p.text)).toEqual(['Say secret this', 'All hidden', 'End']);
+  });
   it('in the Original view, reads the deleted text and leaves out the inserted', () => {
     expect(speakableParagraphs(paragraphs, 'original')[0].text).toBe('Keep old word .');
   });

@@ -10,16 +10,17 @@ import { revisionView } from '../engine/revisions.js';
 /**
  * What Read Aloud says of each paragraph that has words: [{ start, end, text, at }], where `start` and `end` are the
  * paragraph's document positions and `at[i]` is the position of `text[i]`. Text tracked as deleted is left out, as the
- * page strikes it out (in the Original view, the inserted text is, as the page hides it).
+ * page strikes it out (in the Original view, the inserted text is, as the page hides it), and so is hidden text
+ * (w:vanish) while the page does not show it.
  */
-export function speakableParagraphs(paragraphs, view = revisionView.mode) {
+export function speakableParagraphs(paragraphs, view = revisionView.mode, showHidden = revisionView.showHidden) {
   const skip = view === 'original' ? 'ins' : 'del', out = [];
   let position = 0;
   for (const p of paragraphs) {
     const start = position, at = [], spoken = [];
     let text = '';
     for (const run of p.runs) {
-      if (run.revision?.type !== skip && run.text) {
+      if (run.revision?.type !== skip && run.text && !(run.vanish && !showHidden)) {
         text += run.text.replace(/\ufffc/g, ' ');
         for (let i = 0; i < run.text.length; i++) at.push(position + i);
         spoken.push(run);
