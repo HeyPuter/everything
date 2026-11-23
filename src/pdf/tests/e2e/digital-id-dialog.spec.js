@@ -241,7 +241,20 @@ test('a new digital ID asks for its password twice', async ({ page }) => {
   await confirm.press('Enter');
   await expect(chooser.getByRole('alert')).toHaveText('The passwords do not match.');
   await expect(confirm).toBeFocused();
+  // The field to fix is marked as refused, for screen readers too, until it is changed.
+  await expect(confirm).toHaveAttribute('aria-invalid', 'true');
   expect(files).toEqual([]);
+  await confirm.press('Backspace');
+  await expect(confirm).not.toHaveAttribute('aria-invalid');
+  // A password too short is marked in its turn, and the confirmation no longer is.
+  await chooser.getByLabel('Password for the ID file').fill('abc');
+  await confirm.press('Enter');
+  await expect(chooser.getByLabel('Password for the ID file')).toHaveAttribute(
+    'aria-invalid',
+    'true',
+  );
+  await expect(confirm).not.toHaveAttribute('aria-invalid');
+  await chooser.getByLabel('Password for the ID file').fill('secret-123');
   await confirm.fill('secret-123');
   await confirm.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Certify document' })).toBeVisible();

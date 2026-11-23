@@ -39,7 +39,11 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
   return new Promise((resolve) => {
     let result = null;
     const mode = (value) => {
-      for (const [key, section] of Object.entries(sections)) section.hidden = key !== value;
+      for (const [key, section] of Object.entries(sections)) {
+        section.hidden = key !== value;
+        for (const node of section.querySelectorAll('[aria-invalid]'))
+          node.removeAttribute('aria-invalid');
+      }
       dialog.querySelector('.dialog-error').hidden = true;
     };
     const radios = el(
@@ -165,6 +169,10 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         const feedback = dialog.querySelector('.dialog-error');
         feedback.textContent = message;
         feedback.hidden = false;
+        // The field to fix is marked as refused, for screen readers too, until it is changed.
+        for (const other of form.querySelectorAll('[aria-invalid]'))
+          other.removeAttribute('aria-invalid');
+        field?.setAttribute('aria-invalid', 'true');
         field?.focus();
         field?.select?.();
       };
@@ -228,6 +236,9 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         if (dialog.open && !dialog.contains(document.activeElement)) submit.focus();
       }
     };
+    const changed = (e) => e.target.removeAttribute?.('aria-invalid');
+    form.addEventListener('input', changed);
+    form.addEventListener('change', changed);
     form.onsubmit = (e) => {
       e.preventDefault();
       choose();
