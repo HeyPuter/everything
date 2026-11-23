@@ -548,6 +548,9 @@ function redactionPolicy(doc, areas, { codec } = {}) {
     softMasks: true,
     glyph: (quad) => hits(quad),
     path: (bounds) => areas.some(({ rect }) => rectInside(bounds, rect)),
+    // A path partly under the areas (outlined text, a drawn signature) loses what lies under
+    // them; the rest is painted as before.
+    cutPath: (bounds) => areas.map(({ rect }) => rect).filter((rect) => rectsOverlap(bounds, rect)),
     async image({ object, ctm, resources }) {
       const quad = placementQuad(ctm);
       let stream = object,

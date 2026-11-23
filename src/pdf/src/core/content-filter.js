@@ -13,6 +13,7 @@ import { decode, matrix, parseContent, uniqueName } from './text-edit.js';
 import { fontMetrics } from './glyph-metrics.js';
 import { retainCryptFilter } from './stream-filters.js';
 import { expandInlineKey } from './image-redact.js';
+import { cutPath } from './path-cut.js';
 
 /**
  * Remove selected content from a content stream while keeping everything else where it was.
@@ -32,6 +33,11 @@ const whitespace = (c) => /[\x00\t\n\f\r ]/.test(c);
 const delimiter = (c) => !c || whitespace(c) || '()<>[]{}/%'.includes(c);
 const formatNumber = (n) => PDFNumber.of(Math.round(n * 10000) / 10000).toString();
 const MAX_DEPTH = 20;
+/** A dash pattern as `{ array, phase }`; null for a solid line or one that cannot be read. */
+const dashOf = (array, phase) =>
+  Array.isArray(array) && array.every((n) => Number.isFinite(n) && n >= 0)
+    ? { array, phase: Number.isFinite(phase) ? phase : 0 }
+    : null;
 export const unsafeContent = () =>
   new Error('This page uses a PDF structure that cannot be redacted safely.');
 
@@ -300,6 +306,7 @@ const freshGraphics = () => ({
   Ts: 0,
   Tr: 0,
   lineWidth: 1,
+  dash: null,
   fillPattern: null,
   strokePattern: null,
 });
@@ -328,6 +335,8 @@ export const contentReport = () => ({
  *  - glyph(quad, ctx) → remove?   quad is the glyph box in page space; ctx { mode, hidden,
  *    code, metrics, size, box } (box: the glyph box in glyph space, [x0, y0, x1, y1])
  *  - path(bounds, ctx) → remove?  bounds of the painted path, including stroke width
+ *  - cutPath(bounds, ctx) → the areas (page space) to cut out of a path that `path` keeps, so
+ *    only what lies outside them is painted; none (or an empty list) leaves it whole
  *  - image({ object, ctm, resources, hidden }) → { remove } | { stream } | null (keep);
  *    `repeated` with `remove` leaves the image out of the count of undecodable ones
  *  - inlineImage({ header, data, ctm, resources, hidden }) → { remove } | { source } | null
@@ -454,7 +463,8 @@ export async function filterContent(doc, options) {
     const { op, args } = command;
     const a = args.map((t) => t.value);
     if (PATH.has(op)) {
-      if (!path) path = { start: command.start, points: [] };
+      if (!path) path = { start: command.start, points: [], commands: [] };
+      path.commands.push({ op, a });
       if (op === 're' && a.length === 4 && a.every(Number.isFinite)) {
         const [x, y, w, h] = a;
         path.points.push(
@@ -490,7 +500,39 @@ export async function filterContent(doc, options) {
         ];
         if (FILL.has(op)) paintWith(gs.fillPattern, bounds);
         if (STROKE.has(op)) paintWith(gs.strokePattern, bounds);
-        if (policy.path?.(bounds, { hidden: isHidden() })) {
+        const remove = policy.path?.(bounds, { hidden: isHidden() });
+        const cuts = remove ? null : policy.cutPath?.(bounds, { hidden: isHidden() });
+        if (cuts?.length) {
+          // Partly under the areas: what lies under them goes, the rest is painted as before.
+          const painted =
+            !path.interrupted &&
+            path.commands.every(({ a }) => a.every(Number.isFinite)) &&
+            cutPath({
+              commands: path.commands,
+              ctm: gs.ctm,
+              fill: FILL.has(op) ? (op.endsWith('*') ? 'evenodd' : 'nonzero') : null,
+              stroke: STROKE.has(op),
+              lineWidth: gs.lineWidth,
+              dash: gs.dash,
+              close: ['s', 'b', 'b*'].includes(op),
+              rects: cuts,
+              format: formatNumber,
+            });
+          report.paths++;
+          taint();
+          // A clipping path still clips (its painting came first); a path that cannot be cut
+          // is not painted at all.
+          if (painted == null || painted === false)
+            edits.push({ start: command.start, end: command.end, text: 'n' });
+          else
+            edits.push({
+              start: path.start,
+              end: command.end,
+              text: clipPending
+                ? `${painted}\n${source.slice(path.start, command.start)}n`
+                : painted,
+            });
+        } else if (remove) {
           report.paths++;
           taint();
           // A clipping path still clips; only its painting goes.
@@ -521,6 +563,12 @@ export async function filterContent(doc, options) {
       case 'w':
         if (Number.isFinite(a[0])) gs.lineWidth = a[0];
         break;
+      case 'd':
+        gs.dash = dashOf(
+          args[0]?.value?.map?.((t) => t.value),
+          a[1],
+        );
+        break;
       case 'scn':
       case 'SCN': {
         const last = args.at(-1);
@@ -533,6 +581,9 @@ export async function filterContent(doc, options) {
         const state = get(get(resources, 'ExtGState'), a[0]);
         const lw = get(state, 'LW')?.asNumber?.();
         if (Number.isFinite(lw)) gs.lineWidth = lw;
+        const dash = get(state, 'D');
+        if (dash instanceof PDFArray)
+          gs.dash = dashOf(numbers(dash.lookup(0)), dash.lookup(1)?.asNumber?.());
         const font = get(state, 'Font');
         if (font instanceof PDFArray) {
           gs.font = font.lookup(0);
