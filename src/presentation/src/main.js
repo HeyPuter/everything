@@ -12433,7 +12433,13 @@ async function readImageFile(file) {
 // `place` puts the picture in an empty placeholder, which it replaces; a
 // place with a `box` puts it there (EMU), as a picture pasted in place of
 // copied objects does.
-async function insertImageFile(file, place = null) {
+// A picture inserted from a file is described by the file's name. One
+// pasted from a screenshot or a web page arrives as "image.png", a name not
+// worth reading out, so it gets no description and the accessibility check
+// asks for one.
+const pastedImageName = (name) =>
+  /^image\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+async function insertImageFile(file, place = null, { describe = true } = {}) {
   commitText();
   const target = doc,
     part = place?.part ?? P.getSlidePartName(slide());
@@ -12468,7 +12474,7 @@ async function insertImageFile(file, place = null) {
               h: P.inches(height),
             },
     );
-    P.setShapeDescription(s, file.name);
+    if (describe) P.setShapeDescription(s, file.name);
     fillSlot(destination, place, P.getShapeId(s));
     // The same picture inserted twice travels once in the file.
     dedupeSlideMedia(doc.pres, destination);
@@ -15629,7 +15635,10 @@ async function pasteData(data) {
   const image =
     [...data.files].find(isImageFile) ||
     [...data.files].find((file) => file.type.startsWith("image/"));
-  if (image) return insertImageFile(image);
+  if (image)
+    return insertImageFile(image, null, {
+      describe: !pastedImageName(image.name),
+    });
   const value = data.getData("text/plain");
   if (value.trim()) return pasteText(value);
   if (clipboard) return pasteClipboard();
@@ -15661,6 +15670,8 @@ async function pasteFromMenu() {
               type,
             },
           ),
+          null,
+          { describe: false },
         );
       }
     }

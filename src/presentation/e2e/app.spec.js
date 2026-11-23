@@ -10516,16 +10516,14 @@ test("pasting an image or text from another app inserts a picture or a text box"
   await expect(page.locator(".editor")).toBeVisible();
   const objects = page.locator(".object-hit");
   const paste = (data) =>
-    page.evaluate(({ text, png }) => {
+    page.evaluate(({ text, png, name = "screenshot.png" }) => {
       const transfer = new DataTransfer();
       if (text) transfer.setData("text/plain", text);
       if (png)
         transfer.items.add(
-          new File(
-            [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
-            "screenshot.png",
-            { type: "image/png" },
-          ),
+          new File([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], name, {
+            type: "image/png",
+          }),
         );
       document.dispatchEvent(
         new ClipboardEvent("paste", {
@@ -10547,6 +10545,13 @@ test("pasting an image or text from another app inserts a picture or a text box"
   await expect(page.locator(".object-hit.selected")).toHaveAccessibleName(
     "Image: screenshot.png. Select to edit",
   );
+  // A screenshot or a picture copied from a web page arrives as
+  // "image.png": a name not worth reading out, so it is not its description.
+  await paste({ png: PIXEL_PNG, name: "image.png" });
+  await expect(objects).toHaveCount(4);
+  await expect(page.locator(".object-hit.selected")).toHaveAccessibleName(
+    "Image. Select to edit",
+  );
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
   await page
@@ -10557,11 +10562,16 @@ test("pasting an image or text from another app inserts a picture or a text box"
   const pictures = P.getSlideShapes(P.getSlides(loaded)[0]).filter(
     (shape) => P.getShapeKind(shape) === "picture",
   );
-  expect(pictures).toHaveLength(2);
+  expect(pictures).toHaveLength(3);
   for (const picture of pictures)
     expect(Buffer.from(P.getShapeImageBytes(picture)).toString("base64")).toBe(
       PIXEL_PNG,
     );
+  expect(pictures.map((picture) => P.getShapeDescription(picture))).toEqual([
+    "screenshot.png",
+    "screenshot.png",
+    null,
+  ]);
   expect(
     Object.keys(unzipSync(bytes)).filter((name) =>
       name.startsWith("ppt/media/"),
