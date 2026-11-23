@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { inspectPaths } from '../../src/core/path-edit.js';
+import { inspectPaths, pathColorHex } from '../../src/core/path-edit.js';
 import { inspectImages, imageCorners } from '../../src/core/image-edit.js';
 import { createCanvas } from '@napi-rs/canvas';
 
@@ -1364,4 +1364,26 @@ test('a saved signature’s delete button covers none of its ink', async ({ page
     // The drawing ends before the button starts.
     expect(thumb.x + thumb.width).toBeLessThanOrEqual(remove.x + 0.5);
   }
+});
+
+test('a typed signature takes the color chosen on the Type tab', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await squarePdf());
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  await dialog.getByRole('tab', { name: 'Type', exact: true }).click();
+  await dialog.getByLabel('Signature text').fill('Ada Lovelace');
+  // The color is there on the Type tab itself, not only beside the drawing pad.
+  const color = dialog.getByRole('tabpanel').getByLabel('Signature color');
+  await expect(color).toBeVisible();
+  await color.fill('#2255aa');
+  await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
+  const [path] = inspectPaths(await exported(page), 0);
+  expect(pathColorHex(path.state.fill)).toBe('#2255aa');
+  // Back on the Draw tab, the same color sits beside the pad again.
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  await expect(dialog.getByRole('tabpanel').getByLabel('Signature color')).toBeVisible();
+  await expect(dialog.getByLabel('Signature color')).toHaveValue('#111111');
 });

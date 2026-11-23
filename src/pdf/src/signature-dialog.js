@@ -403,6 +403,9 @@ export function signatureDialog({ signal } = {}) {
         if (!remember.checked || remembered) persist(remember.checked && items.length > 0);
       },
     });
+    // One color for drawn and typed signatures, shown on whichever of the two tabs is open.
+    const colorLabel = el('label', {}, 'Color ', color);
+    const typeRow = el('div', { class: 'signature-row' });
     const tabs = [
       ['draw', 'Draw'],
       ['type', 'Type'],
@@ -418,7 +421,7 @@ export function signatureDialog({ signal } = {}) {
           'aria-labelledby': 'signature-tab-draw',
         },
         el('div', { class: 'signature-pad-wrap' }, pad, padHint),
-        el('div', { class: 'signature-row' }, el('label', {}, 'Color ', color), clear),
+        el('div', { class: 'signature-row' }, colorLabel, clear),
       ),
       type: el(
         'div',
@@ -431,6 +434,7 @@ export function signatureDialog({ signal } = {}) {
         },
         nameInput,
         typePreview,
+        typeRow,
       ),
       upload: el(
         'div',
@@ -491,6 +495,8 @@ export function signatureDialog({ signal } = {}) {
         b.tabIndex = key === id ? 0 : -1;
       });
       Object.entries(panels).forEach(([key, panel]) => (panel.hidden = key !== id));
+      if (id === 'type') typeRow.append(colorLabel);
+      else if (id === 'draw') panels.draw.querySelector('.signature-row').prepend(colorLabel);
       if (id === 'type') ensureFontFace()?.then(() => repaint());
       repaint();
       if (focus && id === 'type') nameInput.focus();
