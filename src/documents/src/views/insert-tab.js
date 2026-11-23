@@ -56,6 +56,22 @@ async function drawableSvg(blob) {
   return new Blob([new XMLSerializer().serializeToString(doc)], { type: 'image/svg+xml' });
 }
 
+/**
+ * An SVG whose outer width or height is zero (or negative) draws nothing, at any size it is given. Such a
+ * length is left out, so the picture takes its size from its viewBox, or the usual 300 × 150, and shows.
+ */
+export function sizedSvgText(text) {
+  if (!/<(?:[\w-]+:)?svg\b[^>]*\b(?:width|height)\s*=\s*["']\s*[-+]?0*\.?0*(?:px|pt|em|in|cm|mm|%)?\s*["']/i.test(text) && !/\b(?:width|height)\s*=\s*["']\s*-/.test(text)) return text;
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml'), root = doc.documentElement;
+  if (doc.getElementsByTagName('parsererror').length || root.localName !== 'svg') return text;
+  let changed = false;
+  for (const name of ['width', 'height']) {
+    const value = root.getAttribute(name);
+    if (value !== null && /^\s*[-+]?[\d.]+(?:e[-+]?\d+)?\s*[a-z%]*\s*$/i.test(value) && !(parseFloat(value) > 0)) { root.removeAttribute(name); changed = true; }
+  }
+  return changed ? new XMLSerializer().serializeToString(doc) : text;
+}
+
 /** Draw an image file at most `max` pixels per side (and `pixels` in all) and encode it as PNG, or as `type`: its bytes and pixel size. */
 export async function rasterize(blob, max = 1600, { pixels = Infinity, type = 'image/png', quality } = {}) {
   if (/^image\/svg\+xml$/i.test(blob.type || '') || /\.svg$/i.test(blob.name || '')) blob = await drawableSvg(blob);
@@ -201,7 +217,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       engine.finishComposition(); afterSelectedDrawing(engine);
       const name = file.name || 'picture', type = file.type || P.mimeFor?.(name) || '';
       if (type === 'image/svg+xml' || /\.svg$/i.test(name)) {
-        const svg = await file.text(), { png, width, height } = await rasterize(new Blob([svg], { type: 'image/svg+xml' }));
+        const svg = sizedSvgText(await file.text()), { png, width, height } = await rasterize(new Blob([svg], { type: 'image/svg+xml' }));
         const [w, h] = fittedSize(width, height, textWidth(engine) / EMU_PER_INCH);
         // The SVG goes in beside its PNG rendering when the document's reader can keep it; an SVG it cannot read
         // (editor metadata, CSS it does not support) is inserted as the PNG alone, as other readers show it anyway.
