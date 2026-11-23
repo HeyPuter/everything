@@ -1002,6 +1002,7 @@ export function createFormatTools(ctx) {
   }
 
   // ---- Paste Special -------------------------------------------------------
+  const CLIPBOARD_STAMP = "web text/x-presentation-clipboard";
   async function readClipboardItems() {
     try {
       return await navigator.clipboard.read();
@@ -1010,9 +1011,15 @@ export function createFormatTools(ctx) {
     }
   }
   async function openPasteSpecial() {
-    const clip = ctx.clipboardInfo();
     const items = await readClipboardItems();
     const types = new Set(items.flatMap((i) => i.types));
+    // Objects copied in another tab of this app come along by their token.
+    const stamp = items.find((i) => i.types.includes(CLIPBOARD_STAMP));
+    if (stamp)
+      await ctx.adoptSharedCopy({
+        token: await (await stamp.getType(CLIPBOARD_STAMP)).text(),
+      });
+    const clip = ctx.clipboardInfo();
     const available = [];
     if (clip) available.push("destination", "source", "picture");
     if (clip?.text || types.has("text/plain")) available.push("text");

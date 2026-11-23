@@ -102,6 +102,7 @@ import {
 import { hasUserMenu, syncUserMenuTheme, userMenu } from "./user-menu.js";
 import { createAssistantPanel } from "./assistant-panel.js";
 import { createRibbon } from "./ribbon/ribbon.js";
+import { shareClipboard, sharedClipboard } from "./clipboard-store.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
@@ -4369,6 +4370,7 @@ const formatTools = createFormatTools({
   insertImageFile: (file, placement) =>
     insertImageFile(file, placement ? { box: placement } : null),
   clipboardInfo: () => clipboard,
+  adoptSharedCopy: (wanted) => adoptSharedCopy(wanted),
   pasteClipboard: (options) => pasteClipboard(options),
   pasteText: (value) => pasteText(value),
   pasteRichText: (paragraphs) => pasteRichText(paragraphs),
@@ -15504,7 +15506,62 @@ function copySelection() {
       .join("\n"),
     origin: `${doc.id}:${P.getSlidePartName(source)}`,
     pastes: new Map(),
+    time: Date.now(),
   };
+  shareCopy(clipboard);
+  return true;
+}
+// The copy is offered to this app's other tabs once the copy itself is done.
+function shareCopy(clip) {
+  setTimeout(() => {
+    if (clipboard !== clip) return;
+    P.savePresentation(clip.pkg)
+      .then((bytes) => {
+        if (clipboard !== clip) return;
+        const { ids, bounds, links, deck, token, text, origin, time } = clip;
+        return shareClipboard({
+          bytes,
+          ids,
+          bounds,
+          links,
+          deck,
+          token,
+          text,
+          origin,
+          time,
+        });
+      })
+      .catch(() => {});
+  });
+}
+// A copy made in another tab becomes this tab's clipboard when a paste
+// brings its token, or, from a paste event that dropped the token, its text;
+// `latest` takes the last copy whatever it was. False when there is none to
+// be had.
+const clipboardText = (value) =>
+  String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+async function adoptSharedCopy({ token = null, text = null, latest = false }) {
+  if (token && clipboard?.token === token) return true;
+  let entry = null;
+  try {
+    entry = await sharedClipboard();
+  } catch {}
+  if (!entry) return false;
+  // A copy made here since is the later one.
+  if (latest && clipboard && clipboard.time >= (entry.time ?? 0)) return true;
+  if (
+    !latest &&
+    (token ? entry.token !== token : clipboardText(entry.text) !== text)
+  )
+    return false;
+  if (entry.token === clipboard?.token) return true;
+  const pkg = await P.loadPresentation(entry.bytes);
+  const [held] = P.getSlides(pkg);
+  if (!held) return false;
+  const { bytes, ...rest } = entry;
+  clipboard = { ...rest, pkg, slide: held, pastes: new Map() };
   return true;
 }
 function importReferencedEmbeddedFonts(target, source) {
@@ -15630,7 +15687,7 @@ function focusPasted() {
 async function pasteData(data) {
   const marker =
     data.getData(CLIPBOARD_TYPE) || data.getData(`web ${CLIPBOARD_TYPE}`);
-  if (marker && clipboard && marker === clipboard.token)
+  if (marker && (await adoptSharedCopy({ token: marker })))
     return pasteClipboard();
   const image =
     [...data.files].find(isImageFile) ||
@@ -15640,6 +15697,10 @@ async function pasteData(data) {
       describe: !pastedImageName(image.name),
     });
   const value = data.getData("text/plain");
+  // The objects last copied, here or in another tab, come back when the
+  // paste brings their text without their token.
+  if (!marker && (await adoptSharedCopy({ text: clipboardText(value) })))
+    return pasteClipboard();
   if (value.trim()) return pasteText(value);
   if (clipboard) return pasteClipboard();
 }
@@ -15653,9 +15714,9 @@ async function pasteFromMenu() {
   if (items) {
     for (const item of items) {
       const stamp = item.types.find((type) => type === `web ${CLIPBOARD_TYPE}`);
-      if (stamp && clipboard) {
+      if (stamp) {
         const token = await (await item.getType(stamp)).text();
-        if (token === clipboard.token) return pasteClipboard();
+        if (await adoptSharedCopy({ token })) return pasteClipboard();
       }
     }
     for (const item of items) {
@@ -15681,6 +15742,10 @@ async function pasteFromMenu() {
       if (value.trim() && value !== clipboard?.text) return pasteText(value);
     }
   }
+  // A clipboard the browser would not let us read stands for the last copy
+  // made here or in another tab.
+  if (!items && (await adoptSharedCopy({ latest: true })))
+    return pasteClipboard();
   if (clipboard) return pasteClipboard();
   toast("Nothing to paste. Copy an object, an image, or text first.");
 }
