@@ -84,6 +84,20 @@ export function pageStoryPath(definition, sectionIndex, kind, pageNumber, firstP
   return section[kind][variant] || null;
 }
 
+/** Which of its section's headers and footers a page shows (§17.10.5): 'first', 'even', 'odd' (with different odd and even pages) or 'default'. */
+export function pageStoryVariant(definition, sectionIndex, pageNumber, firstPageInSection) {
+  if (firstPageInSection && definition.sections[sectionIndex]?.firstPageDifferent) return 'first';
+  if (!definition.evenAndOdd) return 'default';
+  return pageNumber % 2 === 0 ? 'even' : 'odd';
+}
+
+/** A header's or footer's name as the editor shows it: "First Page Header", "Even Page Footer"… with "-Section 2-" when there are several sections. */
+export function pageStoryLabel(kind, { variant = 'default', section = 0 } = {}, sectionCount = 1) {
+  const name = { header: 'Header', footer: 'Footer' }[kind] || 'Story';
+  const prefix = { first: 'First Page ', even: 'Even Page ', odd: 'Odd Page ' }[variant] || '';
+  return `${prefix}${name}${sectionCount > 1 && Number.isInteger(section) ? ` -Section ${section + 1}-` : ''}`;
+}
+
 // Include every story that can become visible as body edits change pagination.
 // Disabled first/even references still inherit and retain their package parts.
 export function activePageStoryPaths(definition) {

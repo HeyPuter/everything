@@ -31,6 +31,7 @@ import { text3dSurface } from './text-3d.js';
 import { enterCellText, leaveCellText } from './canvas-cell-text.js';
 import { tableBorderWidth } from './table-border-layout.js';
 import { layoutPageStories } from './page-story-layout.js';
+import { pageStoryLabel } from './page-stories.js';
 import { layoutSerializer } from './page-story-measure.js';
 import { drawingPageContexts, drawingPageContext } from './shape-page-fields.js';
 import { paintParagraphBorder } from './canvas-paragraph-borders.js';
@@ -539,6 +540,11 @@ export class CanvasEditor {
   transact(action) { return this.session.transact(action); }
   /** The section index of a body page. */
   sectionOfPage(page = this.caretPageIndex) { return this.layout?.pageSections?.[page] ?? 0; }
+  /** The names of the header and footer a page shows, as its header/footer editing cues label them. */
+  storyChromeLabels(page) {
+    const shown = this.storyLayout?.pageVariants?.[page], sections = this.pageStories?.sections?.length || 1;
+    return shown ? { header: pageStoryLabel('header', shown, sections), footer: pageStoryLabel('footer', shown, sections) } : {};
+  }
   updatePageReferences() {
     if (this.session.path !== null) { this.onError(new Error('Update page references from the document body.')); return false; }
     let result;
@@ -1239,7 +1245,7 @@ export class CanvasEditor {
         paintText(ctx, { ...label.style, text: label.text, x: label.x, width: label.width }, label.baseline); ctx.restore();
       }
       if (geometry.pageBorders?.zOrder !== 'back') for (const border of pageBorders) paintParagraphBorder(ctx, border);
-      if (storyChrome && storyChrome.active !== 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, storyChrome.active);
+      if (storyChrome && storyChrome.active !== 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, storyChrome.active, this.storyChromeLabels(index));
       if (!printing) for (const overlay of this.overlays) if (!overlay.spelling) overlay(ctx, index, geometry);
       if (!printing && controlRects) paintControlCarets(ctx, controlRects, index, scale);
       if (composedRects.length) paintCompositionUnderline(ctx, composedRects, this.selectionLayout.lines, index, scale);

@@ -24979,3 +24979,16 @@ rewritten with Word's margin alignment and confirms the Layout dialog without mo
 **Remaining gaps:** the Layout dialog still writes a text-wrapped object as column and paragraph offsets,
 so after OK it moves with its paragraph again; inside and outside alignment and book-layout positions are
 not offered.
+
+### Header and footer tags name the variant and section (2026-11-22)
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Editing cues | ECMA-376 Part 1 §§17.10.5 `headerReference`/`footerReference` types, 17.6.19 `titlePg`, 17.15.1.35 `evenAndOddHeaders` | While a header or footer is edited, each page's tags say which story the page shows, as layout chooses it (`pageStoryVariant` in `src/engine/page-stories.js`, `pageVariants` from `layoutPageStories`): First Page, Even Page or Odd Page Header/Footer, or plain Header/Footer, followed by "-Section n-" when the document has more than one section. A page whose variant has no story yet is named too. Screen only; nothing is written. |
+
+Evidence: `tests/page-story-labels.test.js` (variants of the independently generated
+`public/fixtures/empty-page-stories.docx`, labels, and the painted tags).
+
+**Remaining gaps:** the status bar's editing-area list still says Header or Footer with the page number
+(longer names do not fit the bar at 1280 px); there is no Link to Previous, so a section's tag does not say
+"Same as Previous".
