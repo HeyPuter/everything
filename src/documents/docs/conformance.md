@@ -23855,6 +23855,9 @@ Supported subset:
   Combine) with `ins`/`del` and `rPrChange`/`pPrChange` revisions authored by the chosen label.
   A paragraph only the other document has keeps its list (§17.3.1.19 `numPr`) when the base document's numbering
   defines that list and level; otherwise it is copied unnumbered.
+  At word level, runs of Chinese, Japanese, Thai, Lao, Khmer and Myanmar letters (no spaces between words) are
+  split where the dictionary finds words (`Intl.Segmenter`, as for Ctrl+Arrow), so one changed word is marked
+  instead of its whole sentence; without a segmenter such a run stays one word.
 
 Validation: `tests/document-protection.test.js`, `tests/tracked-formatting.test.js`,
 `tests/compare-documents.test.js`, `tests/review-fixtures.test.js` (fixtures written by

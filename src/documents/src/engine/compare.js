@@ -11,6 +11,7 @@ import { trackFormatChanges } from './revisions.js';
 import { documentBlocks } from './tables.js';
 import { readCoreProperties } from './docx-core-properties.js';
 import { hasNumberingDefinition, hasListLevel } from './numbering.js';
+import { wordBreaks } from './dictionary-breaks.js';
 
 const OBJECT = '￼';
 
@@ -25,7 +26,15 @@ export function tokenize(text, granularity = 'word') {
     for (const segment of segments) { out.push({ text: segment, start: at, end: at + segment.length }); at += segment.length; }
     return out;
   }
-  return [...text.matchAll(WORD)].map(m => ({ text: m[0], start: m.index, end: m.index + m[0].length }));
+  // Chinese, Japanese, Thai, Lao, Khmer and Myanmar put no spaces between words: a run of their letters is split
+  // where the dictionary finds words (dictionary-breaks.js, as Ctrl+Arrow steps), or a changed word in a sentence
+  // marked the whole sentence deleted and inserted again.
+  return [...text.matchAll(WORD)].flatMap(m => {
+    const breaks = wordBreaks(m[0]);
+    if (!breaks) return [{ text: m[0], start: m.index, end: m.index + m[0].length }];
+    const cuts = [0, ...[...breaks].sort((a, b) => a - b), m[0].length];
+    return cuts.slice(1).map((end, i) => ({ text: m[0].slice(cuts[i], end), start: m.index + cuts[i], end: m.index + end }));
+  });
 }
 
 /**

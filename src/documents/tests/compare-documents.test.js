@@ -105,6 +105,17 @@ describe('compare documents', () => {
     expect(model.revisions.every(r => r.author === 'Rev')).toBe(true);
   });
 
+  it('marks the changed words of Chinese, Japanese and Thai text, which has no spaces between words', async () => {
+    // Each sentence was one word: changing one word in it marked the whole sentence deleted and inserted again.
+    expect(changes((await compare(p('我喜欢吃苹果。'), p('我喜欢吃香蕉。'))).model)).toEqual([['del', '苹果'], ['ins', '香蕉']]);
+    const japanese = changes((await compare(p('私は東京に行きます。'), p('私は大阪に行きます。'))).model);
+    expect(japanese.map(([, text]) => text).join('').length).toBeLessThan(8);
+    expect(japanese.some(([type, text]) => type === 'del' && text.includes('東京'))).toBe(true);
+    const thai = changes((await compare(p('ฉันชอบกินข้าว'), p('ฉันชอบกินผลไม้'))).model);
+    expect(thai.some(([, text]) => text.includes('ฉันชอบ'))).toBe(false);
+    expect(tokenize('Word 文字').map(t => t.text)).toEqual(['Word', ' ', '文字']);
+  });
+
   it('compares by character when asked', async () => {
     const { model } = await compare(p('colour'), p('color'), { granularity: 'character' });
     expect(changes(model)).toEqual([['del', 'u']]);
