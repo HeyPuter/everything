@@ -502,6 +502,39 @@ test("media that starts by itself stays silent once the show has left its slide"
   expect(await sounding()).toBe(0);
 });
 
+test("a looping show plays a slide's media from one copy of its bytes", async ({
+  page,
+}) => {
+  const pres = deck([{ effect: "none" }, { effect: "none" }], 'loop="1"');
+  addLoopingSound(P.getSlides(pres)[0]);
+  // The media addresses the page holds, and the bytes behind them.
+  await page.addInitScript(() => {
+    const create = URL.createObjectURL;
+    const revoke = URL.revokeObjectURL;
+    window.held = new Map();
+    URL.createObjectURL = (blob) => {
+      const url = create(blob);
+      if (/^(audio|video)\//.test(blob.type)) window.held.set(url, blob.size);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => {
+      window.held.delete(url);
+      revoke(url);
+    };
+  });
+  await load(page, pres);
+  for (let pass = 0; pass < 6; pass++) {
+    await page.keyboard.press("ArrowRight");
+    await expect(counter(page)).toHaveText("2 / 2");
+    await page.keyboard.press("ArrowRight");
+    await expect(counter(page)).toHaveText("1 / 2");
+  }
+  expect(await page.evaluate(() => window.held.size)).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("dialog.presenter")).toHaveCount(0);
+  expect(await page.evaluate(() => window.held.size)).toBe(0);
+});
+
 test("a zoom still growing when the show ends opens nothing", async ({
   page,
 }) => {
