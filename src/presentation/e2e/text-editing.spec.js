@@ -507,3 +507,29 @@ test("Find whole words only skips the word inside longer words", async ({
   await expect(count).toHaveText("No matches");
   expect(await slideSvg(page)).toContain(">A dog, a catalog and a dog.<");
 });
+
+test("Change Case changes the text of the table cell being worked in", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await installMenuNow(page);
+  await page.evaluate(() => window.__menuNow("Insert", "Table"));
+  const dialog = page.getByRole("dialog", { name: "Insert table" });
+  await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
+  await dialog.getByRole("spinbutton", { name: "Columns" }).fill("2");
+  await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+  const table = page.locator(".object-hit").last();
+  const box = await table.boundingBox();
+  await page.mouse.dblclick(
+    box.x + box.width * 0.25,
+    box.y + box.height * 0.25,
+  );
+  const cell = page.locator("#slide-canvas textarea.inline-editor");
+  await expect(cell).toBeFocused();
+  await page.keyboard.type("quiet words");
+  await (await ribbonButton(page, "Home", "change-case")).click();
+  await page.getByRole("menuitem", { name: "UPPERCASE" }).click();
+  await expect.poll(() => slideSvg(page)).toContain(">QUIET WORDS<");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => slideSvg(page)).toContain(">quiet words<");
+});

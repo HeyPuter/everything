@@ -5468,7 +5468,31 @@ function changeCase(mode) {
   };
   const editor = editorFor(obj);
   if (editor?.transform) return editor.transform(convert);
-  if (isTable(obj)) return;
+  // In a table, the cell being worked in changes, letter by letter where
+  // the length holds, so its words keep their formatting.
+  if (isTable(obj))
+    return mutateShape(obj, (target) => {
+      const cell = cellOf(target);
+      const text = displayTableCellText(doc.pres, cell);
+      const next = convert(text);
+      if (next === text) return SKIP_MUTATION;
+      const edits = [];
+      if (next.length === text.length)
+        for (let i = 0; i < text.length;) {
+          if (text[i] === next[i]) {
+            i++;
+            continue;
+          }
+          let j = i;
+          while (j < text.length && text[j] !== next[j]) j++;
+          edits.push({ start: i, end: j, text: next.slice(i, j) });
+          i = j;
+        }
+      else edits.push({ start: 0, end: text.length, text: next });
+      // From the last edit back, so the offsets of earlier ones hold.
+      if (!editCellText(cell, edits.reverse(), next))
+        P.setTableCellText(cell, next);
+    });
   mutateShape(obj, (obj) => {
     const paragraphs = textRuns(doc.pres, obj).map((p) => ({
       ...p,
