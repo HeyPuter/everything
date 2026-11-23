@@ -131,7 +131,7 @@ function parseDA(da) {
     ) || [1, 0, 0],
   };
 }
-function readMark(doc, index, ref) {
+function readMark(doc, index, ref, position) {
   const dict = doc.context.lookup(ref);
   if (!(dict instanceof PDFDict) || get(dict, 'Subtype') !== name('Redact')) return null;
   const areas = markAreas(dict);
@@ -142,7 +142,8 @@ function readMark(doc, index, ref) {
   const align = get(dict, 'Q')?.asNumber?.();
   return {
     page: index,
-    id: annotationId(ref),
+    // A dictionary written straight into /Annots is named by its place there ("direct:N").
+    id: annotationId(ref, position),
     ref,
     dict,
     rects: areas,
@@ -160,7 +161,7 @@ function readMark(doc, index, ref) {
 function pageMarks(doc, index) {
   const page = doc.getPage(index);
   return (annotationsOf(page)?.asArray() || [])
-    .map((ref) => readMark(doc, index, ref))
+    .map((ref, position) => readMark(doc, index, ref, position))
     .filter(Boolean);
 }
 
@@ -283,7 +284,10 @@ export function listRedactionMarks(doc) {
 export function removeRedactionMark(doc, pageIndex, id) {
   const mark = pageMarks(doc, pageIndex).find((m) => m.id === id);
   if (!mark) return false;
-  removeAnnotationThread(doc.getPage(pageIndex), mark.ref.toString());
+  removeAnnotationThread(
+    doc.getPage(pageIndex),
+    mark.ref instanceof PDFDict ? mark.id : mark.ref.toString(),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------

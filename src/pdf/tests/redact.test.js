@@ -205,6 +205,25 @@ describe('redaction marks', () => {
     expect(removeRedactionMark(saved, 0, 'nope')).toBe(false);
   });
 
+  it('names marks written straight into /Annots by their place, as the page does', async () => {
+    const doc = await PDFDocument.load(await makePdf([{ content: '' }]));
+    const mark = (overlay) =>
+      doc.context.obj({
+        Type: 'Annot',
+        Subtype: 'Redact',
+        Rect: [10, 10, 60, 30],
+        OverlayText: PDFString.of(overlay),
+      });
+    doc.getPage(0).node.set(n('Annots'), doc.context.obj([mark('one'), mark('two')]));
+    const marks = listRedactionMarks(doc);
+    expect(marks.map((m) => [m.id, m.overlayText])).toEqual([
+      ['direct:0', 'one'],
+      ['direct:1', 'two'],
+    ]);
+    removeRedactionMark(doc, 0, 'direct:1');
+    expect(listRedactionMarks(doc).map((m) => m.overlayText)).toEqual(['one']);
+  });
+
   it('rejects empty areas and resolves to false when nothing is marked', async () => {
     const doc = await PDFDocument.load(await makePdf([{ content: '' }]));
     expect(() => addRedactionMarks(doc, 0, [[1, 1, 1, 50]])).toThrow('Select an area');

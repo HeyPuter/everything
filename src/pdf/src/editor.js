@@ -2911,7 +2911,8 @@ export function createEditor({
       ]);
       if (token !== pageRenderGeneration || destroyed) return;
       directIds = new Map();
-      const pairs = (a) => COMMENT_KINDS[a.subtype] || a.subtype === 'Link';
+      const pairs = (a) =>
+        COMMENT_KINDS[a.subtype] || a.subtype === 'Link' || a.subtype === 'Redact';
       if (annotations.some((a) => pairs(a) && !/^\d+R\d*$/.test(a.id))) {
         const doc =
           editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
@@ -2930,7 +2931,8 @@ export function createEditor({
       const bareRedactions = new Set(
         visibleAnnotations
           .filter((a) => a.subtype === 'Redact' && !a.hasAppearance && !(a.annotationFlags & 34))
-          .map((a) => a.id),
+          // One written straight into /Annots has a PDF.js ID of its own; the marks use its place.
+          .map((a) => (/^\d+R\d*$/.test(a.id) ? a.id : directIds.get(a.id))),
       );
       if (bareRedactions.size) {
         const doc =
