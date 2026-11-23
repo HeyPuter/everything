@@ -5,15 +5,24 @@ const REST = 180;
  * Group a held arrow (including repeats), and presses in quick succession, into one completed
  * geometry action. Completing saves the document and replaces the control, so completing
  * after every press lost the presses that came while it saved.
+ *
+ * Returns `waiting` (nudges made, not yet completed) and `hold()`, which keeps them waiting
+ * instead: Undo saves and undoes them itself, so the save cannot turn Undo off mid-click.
  */
 export function arrowKeyGesture(handle, { update, completed }) {
   const held = new Set();
-  let resting = 0;
-  /** Complete the nudges at once: another key, or the focus leaving, acts on them as saved. */
-  const flush = () => {
-    if (!resting) return;
+  let resting = 0,
+    waiting = false,
+    holding = false;
+  const stop = () => {
     clearTimeout(resting);
     resting = 0;
+  };
+  /** Complete the nudges at once: another key, or the focus leaving, acts on them as saved. */
+  const flush = () => {
+    stop();
+    if (!waiting) return;
+    waiting = holding = false;
     completed();
   };
   handle.addEventListener('keydown', (e) => {
@@ -33,28 +42,32 @@ export function arrowKeyGesture(handle, { update, completed }) {
     e.stopPropagation();
     if (update(direction, e.shiftKey ? 10 : 1) !== false) {
       held.add(e.key);
-      clearTimeout(resting);
-      resting = 0;
+      waiting = true;
+      holding = false;
+      stop();
     }
   });
   handle.addEventListener('keyup', (e) => {
     if (!held.delete(e.key)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (held.size) return;
-    clearTimeout(resting);
-    resting = setTimeout(() => {
-      resting = 0;
-      completed();
-    }, REST);
+    if (held.size || holding) return;
+    stop();
+    resting = setTimeout(flush, REST);
   });
   // A key released outside the control must not leave the action pending indefinitely.
   handle.addEventListener('blur', () => {
-    if (held.size) {
-      held.clear();
-      clearTimeout(resting);
-      resting = 0;
-      completed();
-    } else flush();
+    held.clear();
+    if (!holding) flush();
   });
+  return {
+    get waiting() {
+      return waiting;
+    },
+    hold() {
+      if (!waiting) return;
+      holding = true;
+      stop();
+    },
+  };
 }

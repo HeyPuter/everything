@@ -91,3 +91,54 @@ test('Delete and Escape right after an arrow key press act on the moved text', a
   await page.getByRole('button', { name: 'Edit text: Nudge me', exact: true }).click();
   await expect(page.getByLabel('Text Y in points', { exact: true })).toHaveValue('699');
 });
+
+// Undo pressed while the arrow keys' move waited to be saved: the save, started as the press
+// took the focus, turned Undo off before the click, and the click was lost.
+for (const way of ['button', 'slow button', 'menu'])
+  test(`Undo from the ${way} right after arrow key presses undoes the move`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(isMobile && way === 'menu', 'desktop menus');
+    const handle = await openNudge(page);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(handle).toBeFocused();
+    const undo = page.getByRole('button', { name: 'Undo', exact: true });
+    if (way === 'button') await undo.click();
+    else if (way === 'slow button') {
+      // The press outlasts the keys' rest. A save started then would turn Undo off before the
+      // release (a large document's save takes that long, so it is held here until released).
+      await page.evaluate(async () => {
+        const { blankPdf, validatePdf } = await import('/src/core/document.js');
+        const prototype = Object.getPrototypeOf(await validatePdf(await blankPdf()));
+        const save = prototype.save;
+        prototype.save = async function (...args) {
+          prototype.save = save;
+          const bytes = await save.apply(this, args);
+          await new Promise((resolve) => {
+            window.releaseSave = resolve;
+          });
+          return bytes;
+        };
+      });
+      const box = await undo.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(400);
+      await page.mouse.up();
+      await expect.poll(() => page.evaluate(() => !!window.releaseSave)).toBe(true);
+      await page.evaluate(() => window.releaseSave());
+    } else {
+      await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Undo', exact: true }).click();
+    }
+    const redo = page.getByRole('button', { name: 'Redo', exact: true });
+    await expect(redo).toBeEnabled();
+    await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('.save-status')).not.toHaveText('Unsaved changes');
+    await redo.click();
+    await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+    await page.getByRole('button', { name: 'Edit text: Nudge me', exact: true }).click();
+    await expect(page.getByLabel('Text X in points', { exact: true })).toHaveValue('52');
+  });

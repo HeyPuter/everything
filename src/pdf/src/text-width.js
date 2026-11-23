@@ -116,7 +116,7 @@ export function textWidthControls({
       return;
     }
   });
-  arrowKeyGesture(resize, {
+  const keys = arrowKeyGesture(resize, {
     completed,
     update: ([x, y], distance) => {
       if (gesture) return false;
@@ -126,6 +126,8 @@ export function textWidthControls({
   return {
     root: el('div', { class: 'text-position-controls' }, el('label', {}, 'Width', field, 'pt')),
     handle: resize,
+    /** Arrow-key nudges not yet completed (see arrowKeyGesture). */
+    keys,
     sync,
     refresh: () => {
       if (gesture) drag(gesture.event);

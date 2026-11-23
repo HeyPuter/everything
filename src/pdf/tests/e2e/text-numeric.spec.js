@@ -354,9 +354,6 @@ test('a keyboard paragraph resize is one redoable action and leaves selection re
   await resize.press('Shift+ArrowRight');
   await expect(field).toHaveValue(String(before + 10));
   await expect(resize).toBeFocused();
-  // Presses in quick succession are saved together, once the keys have rested (180 ms).
-  await page.waitForTimeout(400);
-  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();

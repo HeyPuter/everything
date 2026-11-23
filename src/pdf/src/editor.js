@@ -502,7 +502,24 @@ export function createEditor({
   // field and turn that draft into an unintended PDF transaction.
   undoButton.addEventListener('pointerdown', (e) => {
     if (e.button === 0 && pageImages.dirty) e.preventDefault();
+    // Arrow-key moves waiting to be saved are saved by the Undo itself (see applyHistory).
+    // Saved as the press takes the focus, the save would turn Undo off before the click.
+    if (e.button === 0) holdNudges();
   });
+  redoButton.addEventListener('pointerdown', (e) => {
+    if (e.button === 0) holdNudges();
+  });
+  function holdNudges() {
+    textEdit?.positionControl?.keys?.hold();
+    textEdit?.widthControl?.keys?.hold();
+  }
+  /** Whether the selected text has arrow-key moves not yet saved. */
+  const textKeysWaiting = () =>
+    !!(
+      textEdit &&
+      !textEdit.editing &&
+      (textEdit.positionControl?.keys?.waiting || textEdit.widthControl?.keys?.waiting)
+    );
   let pageInputDirty = false;
   const pageInput = el('input', {
     type: 'number',
@@ -3829,6 +3846,9 @@ export function createEditor({
     const focusPage = () => {
       if (document.activeElement !== undoButton || undoButton.disabled) overlay.focus();
     };
+    // Arrow-key moves still waiting to be saved are saved, then undone (and can be redone),
+    // as when the keys have rested; any other change to the text is discarded as a draft.
+    if (action === 'undo' && textKeysWaiting()) await finishTextEdit();
     if (action === 'undo' && pendingTextEdit()) {
       await finishTextEdit(false);
       focusPage();
@@ -8666,12 +8686,16 @@ export function createEditor({
     ];
   }
   function editItems() {
+    // Undo waits its turn behind an edit being saved, as its shortcut does: a menu opened
+    // meanwhile (a move just made with the arrow keys saves as the menu takes the focus)
+    // still offers it.
+    const undoQueues = busy && !!(session.past.length || finishingText);
     return [
       {
         label: 'Undo',
         icon: 'Undo2',
         shortcut: 'Mod+Z',
-        disabled: stepOff(undoButton),
+        disabled: stepOff(undoButton) && !undoQueues,
         onSelect: safe(() => history('undo')),
       },
       {

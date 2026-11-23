@@ -103,7 +103,7 @@ export function textPositionControls({
       return;
     }
   });
-  arrowKeyGesture(move, {
+  const keys = arrowKeyGesture(move, {
     completed,
     update: (direction, distance) => {
       if (gesture) return false;
@@ -138,6 +138,8 @@ export function textPositionControls({
   return {
     root,
     handle: move,
+    /** Arrow-key nudges not yet completed (see arrowKeyGesture). */
+    keys,
     begin,
     drag,
     end,
