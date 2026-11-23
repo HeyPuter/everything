@@ -3891,6 +3891,7 @@ export function createEditor({
     toolButtons.forEach((b, id) => b.setAttribute('aria-pressed', String(id === tool)));
     const passive = tool === 'select' || tool === 'hand';
     overlay.classList.toggle('active', !passive);
+    overlay.classList.toggle('tap-to-place', tool === 'text');
     overlay.tabIndex = passive ? -1 : 0;
     textTargets.hidden = !['text', 'select'].includes(tool);
     textTargets.classList.toggle('select-text-objects', tool === 'select');
@@ -4406,10 +4407,59 @@ export function createEditor({
       height,
     );
   };
+  /** Add text where the Text tool was pressed, or let go of the text being edited. */
+  function placeText(e) {
+    if (busy || !pageReady || gesture || tool !== 'text') return;
+    if (textEdit) {
+      safe(deselectObjects)();
+      return;
+    }
+    const overText = textLayer?.textDivs.some((node) => {
+      const r = node.getBoundingClientRect();
+      return (
+        node.textContent.trim() &&
+        e.clientX >= r.left &&
+        e.clientX <= r.right &&
+        e.clientY >= r.top &&
+        e.clientY <= r.bottom
+      );
+    });
+    if (overText) {
+      toast('This text cannot yet be edited. Choose an empty area to add text.');
+      return;
+    }
+    const p = screenPoint(e);
+    safe(() => textDialog(p))();
+  }
+  // With the Text tool a finger scrolls or zooms the page, as it does in Select mode; a tap
+  // (a finger lifted where it came down, which a scroll cancels) adds the text there.
+  let textTouch = null,
+    placeTap = null;
+  overlay.addEventListener('pointerup', (e) => {
+    const touch = textTouch;
+    if (touch?.pointerId !== e.pointerId) return;
+    textTouch = null;
+    if (Math.hypot(e.clientX - touch.clientX, e.clientY - touch.clientY) < 10) placeTap = touch;
+  });
+  overlay.addEventListener('pointercancel', (e) => {
+    if (textTouch?.pointerId === e.pointerId) textTouch = null;
+  });
+  // The tap's click comes after the focus its press gave the page; the new text then takes it.
+  overlay.addEventListener('click', () => {
+    const tap = placeTap;
+    placeTap = null;
+    if (tap) placeText(tap);
+  });
   overlay.addEventListener('pointerdown', (e) => {
+    textTouch = placeTap = null;
     if (busy || !pageReady || gesture || !e.isPrimary || tool === 'select' || e.button !== 0)
       return;
+    if (tool === 'text' && e.pointerType === 'touch') {
+      textTouch = e;
+      return;
+    }
     e.preventDefault();
+    if (tool === 'text') return placeText(e);
     const p = screenPoint(e);
     if (tool === 'note') {
       if (noteEdit) {
@@ -4417,28 +4467,6 @@ export function createEditor({
         return;
       }
       safe(() => openNoteEditor({ point: p }))();
-      return;
-    }
-    if (tool === 'text') {
-      if (textEdit) {
-        safe(deselectObjects)();
-        return;
-      }
-      const overText = textLayer?.textDivs.some((node) => {
-        const r = node.getBoundingClientRect();
-        return (
-          node.textContent.trim() &&
-          e.clientX >= r.left &&
-          e.clientX <= r.right &&
-          e.clientY >= r.top &&
-          e.clientY <= r.bottom
-        );
-      });
-      if (overText) {
-        toast('This text cannot yet be edited. Choose an empty area to add text.');
-        return;
-      }
-      safe(() => textDialog(p))();
       return;
     }
     if (tool === 'crop') discardCropDraft();

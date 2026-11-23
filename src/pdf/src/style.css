@@ -1520,6 +1520,10 @@ puter-user-menu::part(apps-panel) {
   touch-action: none;
   cursor: crosshair;
 }
+/* Text is added with a tap; a finger scrolls or zooms the page meanwhile. */
+.drawing-overlay.active.tap-to-place {
+  touch-action: auto;
+}
 .page-caption {
   font-size: 10px;
   color: var(--muted);

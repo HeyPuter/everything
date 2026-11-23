@@ -107,3 +107,48 @@ test('a double tap on text starts typing in it', async ({ page }) => {
   await expect(input).toBeFocused();
   await expect(input).not.toHaveClass(/text-object-selected/);
 });
+
+// With the Text tool on a phone, a swipe anywhere on the page put a new text box where the
+// finger first came down, and the page did not scroll, so text could be added only to what
+// was in view when the tool was chosen.
+test('with the Text tool a swipe scrolls the page and a tap adds text', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  doc.addPage([612, 792]);
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'text-touch.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 2');
+  await settled(page);
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Text', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  const workspace = page.locator('.workspace');
+  const before = await workspace.evaluate((node) => node.scrollTop);
+  const box = await page.locator('.paper').boundingBox();
+  const viewport = page.viewportSize();
+  const x = box.x + box.width / 2;
+  const y = Math.min(box.y + box.height - 40, viewport.height - 150);
+  await swipe(page, x, y, -200);
+  await settled(page);
+  await expect
+    .poll(() => workspace.evaluate((node) => node.scrollTop))
+    .toBeGreaterThan(before + 100);
+  const draft = page.getByRole('textbox', { name: 'Text to add', exact: true });
+  await expect(draft).toHaveCount(0);
+
+  await page.touchscreen.tap(x, y - 100);
+  await expect(draft).toBeFocused();
+  await page.keyboard.insertText('Tapped');
+  await expect(draft).toHaveValue('Tapped');
+});
