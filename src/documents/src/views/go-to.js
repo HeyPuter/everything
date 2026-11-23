@@ -17,21 +17,23 @@ export function goToTargets(engine, kind) {
   const layout = kind === 'page' || kind === 'line' ? engine.printLayout?.().layout ?? engine.layout : engine.layout;
   const body = engine.session.body, lines = layout.lines.filter(line => !line.virtual && !line.pageStory);
   if (kind === 'page') {
-    // A page without body text (a full-page picture) goes to where the text before it ends.
-    const first = new Map();
-    for (const line of lines) if (!first.has(line.page)) first.set(line.page, line.start);
+    // A page without body text (a blank page before an odd- or even-page section, a full-page picture) goes to where
+    // the text before it ends; `empty` marks it, so the page itself is brought into view.
+    const first = new Map(), ends = new Map();
+    for (const line of lines) { if (!first.has(line.page)) first.set(line.page, line.start); ends.set(line.page, Math.max(ends.get(line.page) ?? 0, line.end)); }
     // Each page with the number printed on it, as its section numbers pages (§17.6.12 pgNumType): sections can
     // restart numbering, count from 0 or show letters and Roman numerals.
     const sections = layout.pageSections || [], definition = engine.pageStories;
     let numbers = [];
     try { numbers = pageNumberSequence(sections, definition, layout.numberingApproximations); } catch { numbers = []; }
-    let last = 0;
+    let end = 0;
     return Array.from({ length: layout.pageCount }, (_, i) => {
-      if (first.has(i)) last = first.get(i);
-      const number = numbers[i] ?? null, section = sections[i] ?? null;
+      const number = numbers[i] ?? null, section = sections[i] ?? null, empty = !first.has(i);
       let text = number === null ? null : String(number);
       try { if (number !== null) text = formatPageNumber(number, definition?.sections?.[section]?.pageNumbering?.format || 'decimal').trim() || null; } catch { /* the plain number */ }
-      return { position: last, label: `Page ${i + 1}`, number, text, section };
+      const target = { position: empty ? end : first.get(i), label: `Page ${i + 1}`, number, text, section, ...(empty ? { empty: true } : {}) };
+      if (ends.has(i)) end = ends.get(i);
+      return target;
     });
   }
   if (kind === 'line') return lines.map((line, i) => ({ position: line.start, label: `Line ${i + 1}` }));
@@ -121,8 +123,35 @@ export function openGoTo(engine, { onClose } = {}) {
     engine.caretAffinity = 'forward'; engine.caretPage = null; engine.preferredX = null;
     engine.syncInput(); engine.paint(); engine.revealCaret(); engine.onSelection();
   }
+  // The page last gone to: a page without body text puts the caret where the text before it ends, on the page
+  // before, so the next step counts from the page itself while the caret is still there.
+  let landed = null;
+  function landPage(pages, index) {
+    const target = pages[index];
+    land(target.position);
+    landed = { index, position: target.position };
+    if (target.empty && engine.printLayout?.().layout === engine.layout) {
+      const canvas = engine.canvases?.[index];
+      if (canvas && engine.host) engine.host.scrollTop = Math.max(0, canvas.offsetTop - 24);
+    }
+  }
+  /** The page the caret is on (or the page last gone to, while the caret stays where that put it), from 0. */
+  function currentPage() {
+    if (engine.session.path !== null) return engine.storyPage ?? 0;
+    if (landed && engine.model.range[0] === landed.position && engine.model.range[1] === landed.position) return landed.index;
+    return (engine.printedPages?.().current ?? 1) - 1;
+  }
   const fail = text => { message.textContent = text; message.hidden = false; };
   function step(direction) {
+    if (kind.value === 'page') {
+      // Pages go by their place in the document: pages without body text share a position with the text before them.
+      const pages = targetsOf('page'), page = currentPage(), at = engine.model.range[0];
+      // Previous goes to the start of this page first, as from the middle of any other item.
+      const index = direction > 0 ? page + 1 : !pages[page]?.empty && pages[page]?.position < at && !(landed?.index === page && landed.position === at) ? page : page - 1;
+      if (!pages[index]) { fail(`There is no ${direction > 0 ? 'next' : 'previous'} page.`); return; }
+      landPage(pages, index); message.hidden = true;
+      return;
+    }
     const targets = targetsOf(kind.value), here = current();
     const index = targets.findLastIndex(t => t.position <= here);
     const target = direction > 0 ? targets.find(t => t.position > here) : targets[index] && targets[index].position < here ? targets[index] : targets[index - 1];
@@ -140,20 +169,21 @@ export function openGoTo(engine, { onClose } = {}) {
       const pages = goToTargets(engine, 'page'), target = printedPage(pages, value);
       if (target === undefined) { fail('Enter a page number, + or − followed by a number, or p and s numbers such as p2s3 for page 2 of section 3.'); return; }
       if (!target) { fail(/^\d+$/.test(value) ? `This document has ${pages.length} page${pages.length === 1 ? '' : 's'}.` : `This document has no page ${value}.`); return; }
-      land(target.position); modal.close(); return;
+      landPage(pages, pages.indexOf(target)); modal.close(); return;
     }
     const match = /^([+-]?)(\d+)$/.exec(value.replace('−', '-'));
     if (!match) { fail('Enter a number, or + or − followed by a number.'); return; }
     const targets = targetsOf(kind.value), n = Number(match[2]);
     let index;
     if (match[1]) {
-      // Before the first target, +1 is the first one.
-      const here = targets.findLastIndex(t => t.position <= current());
+      // Before the first target, +1 is the first one. Pages count from the caret's page.
+      const here = kind.value === 'page' ? currentPage() : targets.findLastIndex(t => t.position <= current());
       index = here + (match[1] === '+' ? n : -n);
     } else index = n - 1;
     const target = targets[index];
     if (!target) { fail(targets.length ? `This document has ${targets.length} ${kind.selectedOptions[0].textContent.toLowerCase()}${targets.length === 1 ? '' : 's'}.` : `This document has no ${kind.selectedOptions[0].textContent.toLowerCase()}s.`); return; }
-    land(target.position); modal.close();
+    if (kind.value === 'page') landPage(targets, index); else land(target.position);
+    modal.close();
   }
   kind.addEventListener('change', refresh); number.addEventListener('input', refresh);
   const form = el('form.ed-dialog-body.ed-goto', { onsubmit: e => { e.preventDefault(); go(); } },
