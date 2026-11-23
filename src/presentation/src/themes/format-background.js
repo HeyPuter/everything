@@ -889,19 +889,27 @@ export function createBackgroundPane(host) {
                 const all = host.slides();
                 const from = all.find((s) => P.getSlidePartName(s) === source);
                 if (!from) return host.skip;
+                // Pictures the backgrounds no longer show leave the file.
+                const pictures = [];
+                const replacing = (s) => {
+                  if (P.getSlideBackground(s).kind === "image")
+                    pictures.push(s);
+                  return s;
+                };
                 // The slides' masters take it too, so a slide added later
                 // shows it, in this file and once it is opened again.
                 if (P.getSlideBackground(from).kind !== "inherit")
                   for (const master of mastersOf(host.pres(), all))
                     P.copySlideBackground(
                       from,
-                      P.getTemplateSlide(host.pres(), master),
+                      replacing(P.getTemplateSlide(host.pres(), master)),
                     );
                 for (const s of all) {
                   if (s === from) continue;
-                  P.copySlideBackground(from, s);
+                  P.copySlideBackground(from, replacing(s));
                   P.setTemplateShowsMasterShapes(s, !hidesArt);
                 }
+                for (const s of pictures) host.afterPicture(s);
               });
             },
             "secondary",

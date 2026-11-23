@@ -434,3 +434,32 @@ test("an equation in the text color follows a theme change, undone in one step",
     .poll(async () => equation((await download(page)).p).color)
     .toBe(before);
 });
+
+// A picture background replaced by a color stayed in the saved file, on
+// every slide Apply to All had given it.
+test("a picture background replaced on every slide leaves the file", async ({
+  page,
+}) => {
+  await storyDeck(page);
+  await tab(page, "design");
+  await command(page, "format-background");
+  const pane = page.locator("#format-background");
+  await pane.getByRole("radio", { name: "Picture or texture fill" }).check();
+  await pane.getByRole("button", { name: "Linen texture" }).click();
+  await pane.getByRole("button", { name: "Apply to All" }).click();
+  await expect(page.locator("#save-status")).toContainText("Saved");
+  const media = (files) =>
+    Object.keys(files).filter((n) => n.startsWith("ppt/media/"));
+  expect(media((await download(page)).files)).toHaveLength(1);
+  await pane.getByRole("radio", { name: "Solid fill" }).check();
+  await expect(pane.getByRole("radio", { name: "Solid fill" })).toBeChecked();
+  await pane.getByRole("button", { name: "Apply to All" }).click();
+  await expect
+    .poll(async () => media((await download(page)).files))
+    .toEqual([]);
+  // Undo brings the picture back.
+  await page.keyboard.press(`${mod}+z`);
+  await expect
+    .poll(async () => media((await download(page)).files))
+    .toHaveLength(1);
+});

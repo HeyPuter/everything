@@ -4187,8 +4187,13 @@ function mutateBackgrounds(target, fn, options) {
   const parts = partsOf(actionSlides(target));
   return mutate(() => {
     let changed = false;
-    for (const s of resolveSlides(parts))
-      if (fn(s) !== SKIP_MUTATION) changed = true;
+    for (const s of resolveSlides(parts)) {
+      // A picture the background no longer shows leaves the file with it.
+      const picture = P.getSlideBackground(s).kind === "image";
+      if (fn(s) === SKIP_MUTATION) continue;
+      changed = true;
+      if (picture) pruneUnusedMedia(doc.pres, s);
+    }
     return changed ? undefined : SKIP_MUTATION;
   }, options);
 }
