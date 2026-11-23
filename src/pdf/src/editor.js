@@ -54,7 +54,12 @@ import {
 } from './core/initial-view.js';
 import { createAccessibilityReport } from './accessibility-report.js';
 import { createFormDesigner, fieldTypeLabel } from './form-designer.js';
-import { createAnnotationLayer, ANNOTATION_KINDS, resizeBox } from './annotation-layer.js';
+import {
+  createAnnotationLayer,
+  ANNOTATION_KINDS,
+  reshapable,
+  resizeBox,
+} from './annotation-layer.js';
 import { measureLabel, MEASURE_UNITS } from './core/measure.js';
 import {
   addTextBox,
@@ -11722,6 +11727,56 @@ export function createEditor({
           }),
         )
       : [];
+    // A line's or arrow's length and angle as the page shows it: the keyboard's way to move its
+    // end, as dragging that end does. The start stays where it is (an arrow's tail).
+    const line =
+      editable && reshapable(entry) && entry.subtype === 'Line' && entry.points?.length === 2;
+    const lineShape = () => {
+      const [[x1, y1], [x2, y2]] = entry.points.map((p) =>
+        viewport.convertToViewportPoint(p.x, p.y),
+      );
+      const unit = screenUnit() / pagePt;
+      const angle = (Math.atan2(y1 - y2, x2 - x1) * 180) / Math.PI;
+      return {
+        start: { x: x1, y: y1 },
+        length: Math.hypot(x2 - x1, y2 - y1) / unit,
+        angle: (angle + 360) % 360,
+      };
+    };
+    const lineFields = line
+      ? [
+          ['length', 'Length', 'length in points', { min: 1, max: 14400 }],
+          ['angle', 'Angle', 'angle in degrees', { min: -360, max: 360 }],
+        ].map(([key, shown, spoken, range]) =>
+          el(
+            'label',
+            {},
+            el('span', {}, shown),
+            el('input', {
+              type: 'number',
+              ...range,
+              step: 'any',
+              required: true,
+              value: Number(lineShape()[key].toFixed(key === 'angle' ? 1 : 2)),
+              'aria-label': `${entry.kind} ${spoken}`,
+              onchange: (e) => {
+                if (!e.target.reportValidity()) return;
+                const now = lineShape();
+                const next = { ...now, [key]: Number(e.target.value) };
+                if (Math.abs(next[key] - now[key]) < (key === 'angle' ? 0.05 : 0.005)) return;
+                const reach = (next.length / pagePt) * screenUnit(),
+                  turn = (next.angle * Math.PI) / 180;
+                const end = pdfPoint({
+                  x: now.start.x + reach * Math.cos(turn),
+                  y: now.start.y - reach * Math.sin(turn),
+                });
+                const [start] = entry.points;
+                apply({ points: [{ x: start.x, y: start.y }, end] });
+              },
+            }),
+          ),
+        )
+      : [];
     const when = (date) =>
       date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
     const thread = commentThread(entry, async (operation, message, control) => {
@@ -11769,6 +11824,7 @@ export function createEditor({
           el('label', {}, el('span', {}, 'Width'), width),
         el('label', {}, el('span', {}, 'Opacity'), opacity),
         fontSize && el('label', {}, el('span', {}, 'Font size'), fontSize),
+        ...lineFields,
         ...sizeFields.map((field, axis) =>
           el('label', {}, el('span', {}, axis ? 'H' : 'W'), field),
         ),
