@@ -83,11 +83,21 @@ export const shouldStore = (name: string): boolean =>
 /**
  * Reads a ZIP archive (a `.pptx` file is a ZIP) and returns entries in
  * central-directory order. Throws if `input` is not a valid ZIP.
+ *
+ * `snapshot`: `input` is an archive `writeZip` returned, its bytes unchanged
+ * since. Entries whose bytes are still in memory are then returned as they
+ * are, and the others with their compression known.
  */
-export const readZip = (input: Uint8Array): ZipReadResult => {
-  const known = archives.get(input);
+export const readZip = (
+  input: Uint8Array,
+  { snapshot = false }: { snapshot?: boolean } = {},
+): ZipReadResult => {
+  const known = snapshot ? archives.get(input) : undefined;
   const paths = new Map<string, string>();
   const partNames = new Set<string>();
+  // Every entry, in the order the library would list them, and the bytes
+  // of those an archive written here still has in memory.
+  const listed: Record<string, Uint8Array | null> = {};
   const obj = unzipSync(input, {
     filter: ({ name }) => {
       // Repair Windows archive member separators without changing part bodies.
@@ -99,17 +109,22 @@ export const readZip = (input: Uint8Array): ZipReadResult => {
         partNames.add(key);
       }
       paths.set(name, path);
-      return true;
+      // An archive written here (an undo step's snapshot) holds bytes that
+      // are still in memory, unchanged, when the deck being edited still
+      // has that part: they are taken as they are rather than unpacked.
+      const kept = known?.get(name)?.data.deref() ?? null;
+      listed[name] = kept;
+      return !kept;
     },
   });
   const entries: ZipEntry[] = [];
-  for (const name of Object.keys(obj)) {
-    const data = obj[name];
-    if (data === undefined) continue;
-    // An archive written here (an undo step's snapshot) gives back bytes it
-    // has already compressed; the next save reuses that work.
+  for (const name of Object.keys(listed)) {
+    const data = listed[name] ?? obj[name];
+    if (data === undefined || data === null) continue;
+    // Bytes unpacked from an archive written here were compressed for it;
+    // the next save reuses that work.
     const entry = known?.get(name);
-    if (entry && !written.has(data)) written.set(data, entry);
+    if (entry && !written.has(data)) written.set(data, entry.written);
     entries.push({ name: paths.get(name)!, data });
   }
   return { entries };
@@ -137,10 +152,15 @@ interface Written {
 const written = new WeakMap<Uint8Array, Written>();
 // What each archive written here holds, by entry name, for as long as the
 // archive is kept: a package read back from it (the undo history keeps its
-// snapshots as archives) starts with every part's compressed bytes known,
-// so the first edit after an undo compresses only what it changed rather
-// than every part of the deck.
-const archives = new WeakMap<Uint8Array, Map<string, Written>>();
+// snapshots as archives) takes the parts the deck in memory still shares
+// with it as they are, unpacks only the others, and starts with every
+// part's compressed bytes known, so the first edit after an undo compresses
+// only what it changed. Each entry's bytes are held weakly: an archive
+// keeps no part alive that no deck holds any more.
+const archives = new WeakMap<
+  Uint8Array,
+  Map<string, { written: Written; data: WeakRef<Uint8Array> }>
+>();
 
 let crcTable: Int32Array | null = null;
 const crc32 = (data: Uint8Array): number => {
@@ -221,12 +241,15 @@ export const writeZip = (
   }[] = [];
   let offset = 0;
   let central = 0;
-  const contents = new Map<string, Written>();
+  const contents = new Map<
+    string,
+    { written: Written; data: WeakRef<Uint8Array> }
+  >();
   for (const [name, data] of byName) {
     const level: CompressionLevel = shouldStore(name) ? 0 : defaultLevel;
     const entry = entryBytes(data, level);
     const { crc, compressed } = entry;
-    contents.set(name, entry);
+    contents.set(name, { written: entry, data: new WeakRef(data) });
     const encoded = ENCODER.encode(name);
     if (encoded.length > 65535) throw new Error("filename too long");
     const body = compressed ?? data;

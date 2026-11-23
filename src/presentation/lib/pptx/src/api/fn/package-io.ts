@@ -33,12 +33,19 @@ const normalize = async (input: PresentationInput): Promise<Uint8Array> => {
 
 /**
  * Loads an existing `.pptx` and returns a `PresentationData` value.
+ *
+ * `snapshot`: `input` is bytes `savePresentation` returned, unchanged
+ * since (an undo history keeps such snapshots). Parts the decks in memory
+ * still hold are then shared rather than unpacked again, and their
+ * compression is reused on the next save. Parts are never changed in
+ * place, so sharing them is safe.
  */
 export const loadPresentation = async (
   input: PresentationInput,
+  options: { snapshot?: boolean } = {},
 ): Promise<PresentationData> => {
   const bytes = await normalize(input);
-  const pkg = OpcPackage.load(bytes);
+  const pkg = OpcPackage.load(bytes, options);
   return {
     [INTERNAL_PACKAGE]: pkg,
     [FIELD_DATE]: Date.now(),

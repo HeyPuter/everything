@@ -2376,7 +2376,9 @@ export class History {
   async undo() {
     if (!this.past.length) return null;
     // These snapshots come from our own serializer, rather than file imports.
-    const pres = await P.loadPresentation(this.past.at(-1));
+    const pres = await P.loadPresentation(this.past.at(-1), {
+      snapshot: true,
+    });
     P.refreshPresentationFields(
       pres,
       P.getPresentationFieldDate(this.presentation),
@@ -2388,7 +2390,9 @@ export class History {
   }
   async redo() {
     if (!this.future.length) return null;
-    const pres = await P.loadPresentation(this.future.at(-1));
+    const pres = await P.loadPresentation(this.future.at(-1), {
+      snapshot: true,
+    });
     P.refreshPresentationFields(
       pres,
       P.getPresentationFieldDate(this.presentation),

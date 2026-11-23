@@ -122,7 +122,7 @@ describe("zip", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 10, 22, 13, 37, 42));
       const archive = writeZip(entries());
-      const read = readZip(archive).entries;
+      const read = readZip(archive, { snapshot: true }).entries;
       deflated.mockClear();
       expect(writeZip(read)).toEqual(archive);
       expect(deflated).not.toHaveBeenCalled();
@@ -130,14 +130,31 @@ describe("zip", () => {
       const next = writeZip(read);
       expect(deflated).toHaveBeenCalledTimes(1);
       expect(next).toEqual(reference(read));
-      // An archive from elsewhere, though byte for byte the same, gives
-      // nothing to reuse: its compression is not known to be ours.
-      const copy = readZip(archive.slice()).entries;
-      deflated.mockClear();
-      expect(writeZip(copy)).toEqual(archive);
-      expect(deflated).toHaveBeenCalledTimes(
-        copy.filter((e) => !shouldStore(e.name)).length,
-      );
+      // An archive from elsewhere, though byte for byte the same, or one
+      // not read as an unchanged snapshot, gives nothing to reuse.
+      for (const copy of [
+        readZip(archive.slice(), { snapshot: true }).entries,
+        readZip(archive).entries,
+      ]) {
+        deflated.mockClear();
+        expect(writeZip(copy)).toEqual(archive);
+        expect(deflated).toHaveBeenCalledTimes(
+          copy.filter((e) => !shouldStore(e.name)).length,
+        );
+      }
+    });
+
+    // Parts the deck in memory still holds are taken as they are, not
+    // unpacked into copies; the entries and their order are as unpacked.
+    it("take back the bytes still in memory when read back", () => {
+      const list = entries();
+      const archive = writeZip(list);
+      const read = readZip(archive, { snapshot: true }).entries;
+      const unpacked = readZip(archive).entries;
+      expect(read.map((e) => e.name)).toEqual(unpacked.map((e) => e.name));
+      expect(read).toEqual(unpacked);
+      read.forEach((e, i) => expect(e.data).toBe(list[i]!.data));
+      unpacked.forEach((e, i) => expect(e.data).not.toBe(list[i]!.data));
     });
 
     // Media added without its picture leaves a part with no bytes; the save
