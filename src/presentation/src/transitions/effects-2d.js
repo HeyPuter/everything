@@ -178,9 +178,10 @@ export const EFFECTS_2D = {
     const e = easeInOut(g.q);
     const [ax, ay] = sideOffset(g, g.o.direction, e);
     draw(g, g.B);
-    // A soft shadow trails the slide being drawn away.
+    // A soft shadow trails the slide being drawn away; it fades as the
+    // slide goes, so none is left at the edge at the end.
     g.ctx.save();
-    g.ctx.shadowColor = "rgba(0,0,0,0.45)";
+    g.ctx.shadowColor = `rgba(0,0,0,${0.45 * clamp((1 - e) * 10)})`;
     g.ctx.shadowBlur = g.H * 0.03;
     draw(g, g.A, ax, ay);
     g.ctx.restore();
@@ -189,8 +190,9 @@ export const EFFECTS_2D = {
     const e = easeInOut(g.q);
     const [bx, by] = sideOffset(g, g.o.direction, e - 1);
     draw(g, g.A);
+    // The shadow comes with the slide, so none shows at the start.
     g.ctx.save();
-    g.ctx.shadowColor = "rgba(0,0,0,0.45)";
+    g.ctx.shadowColor = `rgba(0,0,0,${0.45 * clamp(e * 10)})`;
     g.ctx.shadowBlur = g.H * 0.03;
     draw(g, g.B, bx, by);
     g.ctx.restore();
@@ -212,8 +214,11 @@ export const EFFECTS_2D = {
     const e = easeInOut(g.q);
     const vertical = o.orientation === "vert";
     const size = vertical ? g.W : g.H;
-    const half = (o.direction === "out" ? e : 1 - e) * (size / 2);
     const soft = size * 0.04;
+    // The soft edges start and end past the middle and the sides, so the
+    // first and last frames are wholly one slide.
+    const half =
+      (o.direction === "out" ? e : 1 - e) * (size / 2 + soft) - soft / 2;
     const band = (mc) => {
       const c = size / 2;
       const alpha = (d) => clamp((half - Math.abs(d - c)) / soft + 0.5);
@@ -448,17 +453,24 @@ export const EFFECTS_2D = {
         const image = p < 0.5 ? g.A : g.B;
         ctx.save();
         ctx.beginPath();
-        if (hex) polygon(ctx, x, y, size * 0.58, 6, Math.PI / 6);
-        else polygon(ctx, x, y, size * 0.52, 4);
+        if (hex) polygon(ctx, x, y, size * 0.58 + 1, 6, Math.PI / 6);
+        else polygon(ctx, x, y, size * 0.52 + 1, 4);
         ctx.clip();
-        ctx.fillStyle = "#000";
-        ctx.fill();
+        // Black shows behind a piece while it turns; a piece that has
+        // turned lies flat, edge to edge with its neighbours.
+        if (flip < 0.999) {
+          ctx.fillStyle = "#000";
+          ctx.fill();
+        }
         ctx.translate(x, y);
         ctx.scale(Math.max(0.02, flip), 1);
         ctx.translate(-x, -y);
         ctx.drawImage(image, 0, 0, g.W, g.H);
-        ctx.fillStyle = `rgba(255,255,255,${Math.sin(p * Math.PI) * 0.7})`;
-        ctx.fill();
+        const shine = Math.sin(p * Math.PI) * 0.7;
+        if (shine > 0.002) {
+          ctx.fillStyle = `rgba(255,255,255,${shine})`;
+          ctx.fill();
+        }
         ctx.restore();
       }
   },

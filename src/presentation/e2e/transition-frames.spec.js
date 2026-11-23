@@ -34,24 +34,23 @@ test("every transition starts on the leaving slide and ends on the arriving one"
     document.body.append(host);
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    // The share of the picture in the leaving (red) or arriving (blue)
-    // slide's color; null for a picture that cannot be read (WebGL).
+    // The share of the picture that is exactly the leaving (red) or the
+    // arriving (blue) slide's color, so a shadow, a soft edge or a seam
+    // left over counts; null for a picture that cannot be read (WebGL).
     const share = () => {
       const source = host.querySelector(".slide-transition canvas");
-      const canvas = document.createElement("canvas");
-      canvas.width = 64;
-      canvas.height = 36;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(source, 0, 0, 64, 36);
-      const data = ctx.getImageData(0, 0, 64, 36).data;
+      const ctx = source.getContext("2d");
+      if (!ctx) return null;
+      const { width, height } = source;
+      const data = ctx.getImageData(0, 0, width, height).data;
       let red = 0,
         blue = 0;
       for (let i = 0; i < data.length; i += 4) {
-        if (data[i] > 150 && data[i + 2] < 100) red++;
-        if (data[i + 2] > 150 && data[i] < 100) blue++;
+        const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
+        if (r > 247 && g < 8 && b < 8) red++;
+        if (b > 247 && r < 8 && g < 8) blue++;
       }
-      if (!red && !blue) return null;
-      return { red: red / 2304, blue: blue / 2304 };
+      return { red: red / (width * height), blue: blue / (width * height) };
     };
     const wrong = [];
     for (const entry of TRANSITIONS) {
@@ -79,9 +78,9 @@ test("every transition starts on the leaving slide and ends on the arriving one"
         await frame();
         const last = share();
         playback.cancel();
-        if (first && first.red < 0.99)
+        if (first && first.red < 0.995)
           wrong.push(`${name} starts ${first.red}`);
-        if (last && last.blue < 0.99) wrong.push(`${name} ends ${last.blue}`);
+        if (last && last.blue < 0.995) wrong.push(`${name} ends ${last.blue}`);
       }
     }
     host.remove();
