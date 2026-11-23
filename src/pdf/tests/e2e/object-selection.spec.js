@@ -245,3 +245,38 @@ test('an object commit locks actions in the initiating event while native focus 
   });
   await expect(move).toBeEnabled();
 });
+
+test('a redraw keeps the targets of unchanged objects, which then select the redrawn objects', async ({
+  page,
+}) => {
+  await mount(page);
+  const result = await page.evaluate(() => {
+    const { layer, entries, viewport } = window.selectionTest;
+    const before = [...layer.targets.children];
+    // A page of thousands of shapes is redrawn after each nudge: only the moved one changes.
+    const next = entries.map((entry) => ({ ...entry, id: `${entry.id}-again` }));
+    next[0].transform = [80, 0, 0, 60, 90, 140];
+    layer.render(next, viewport, 'second', 'page-1');
+    const after = [...layer.targets.children];
+    layer.render(next, { ...viewport, transform: [2, 0, 0, -2, 0, 800] }, 'zoom', 'page-1');
+    const zoomed = [...layer.targets.children];
+    layer.render(next, viewport, 'third', 'page-1');
+    layer.setBusy(false);
+    window.selectionTest.entries = next;
+    return {
+      moved: after[0] === before[0],
+      kept: after[1] === before[1],
+      left: after[0].style.left,
+      keptOnZoom: zoomed.some((target) => after.includes(target)),
+    };
+  });
+  expect(result).toEqual({ moved: false, kept: true, left: '90px', keptOnZoom: false });
+  await page.getByRole('button', { name: 'Select shape 2', exact: true }).press('Enter');
+  await page.evaluate(() => window.selectionTest.pending[0].resolve());
+  const move = page.getByRole('button', { name: 'Move selected shape', exact: true });
+  await expect(move).toBeVisible();
+  await move.press('ArrowRight');
+  await expect
+    .poll(() => page.evaluate(() => window.selectionTest.commits))
+    .toEqual([{ ordinal: 1, transform: [80, 0, 0, 60, 241, 140] }]);
+});

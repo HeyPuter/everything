@@ -19,6 +19,45 @@ const fieldNumber = (n) => Number(Math.abs(n) >= 1 ? n.toFixed(2) : n.toPrecisio
  * turned by 30 degrees (stored as a matrix rounded to a few digits) reads 30, not 30.0007. */
 const shownAngle = (degrees) => Number(degrees.toFixed(2)) % 360;
 const same = (a, b) => a.every((n, i) => Math.abs(n - b[i]) < 1e-7);
+/** The object each target button stands for, replaced when a redraw keeps the button. */
+const targetEntry = new WeakMap();
+/** What each target button was drawn from: an entry can change in place after it is drawn. */
+const targetDrawn = new WeakMap();
+const drawnFrom = (entry) => ({
+  ordinal: entry.ordinal,
+  kind: entry.kind,
+  labelIndex: entry.labelIndex,
+  invisible: entry.invisible,
+  svg: entry.svg,
+  filled: entry.filled,
+  stroked: entry.stroked,
+  fillRule: entry.fillRule,
+  transform: entry.transform?.slice(),
+  ctm: entry.ctm?.slice(),
+  cap: entry.state?.cap,
+  join: entry.state?.join,
+  miter: entry.state?.miter,
+  width: entry.state?.width,
+});
+const sameList = (a, b) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((n, i) => n === b[i]));
+/** Whether a target drawn as `drawn` reads and hits exactly as one drawn for `entry` would. */
+const drawnAs = (drawn, entry) =>
+  !!drawn &&
+  drawn.ordinal === entry.ordinal &&
+  drawn.kind === entry.kind &&
+  drawn.labelIndex === entry.labelIndex &&
+  drawn.invisible === entry.invisible &&
+  drawn.svg === entry.svg &&
+  drawn.filled === entry.filled &&
+  drawn.stroked === entry.stroked &&
+  drawn.fillRule === entry.fillRule &&
+  sameList(drawn.transform, entry.transform) &&
+  sameList(drawn.ctm, entry.ctm) &&
+  drawn.cap === entry.state?.cap &&
+  drawn.join === entry.state?.join &&
+  drawn.miter === entry.state?.miter &&
+  drawn.width === entry.state?.width;
 const minimumPathTarget = (node) => {
   node.setAttribute('stroke-width', '8');
   node.setAttribute('vector-effect', 'non-scaling-stroke');
@@ -168,7 +207,8 @@ export function createImageLayer({
       properties.replaceChildren();
       onProperties(null);
     }
-    targets.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+    for (const b of targets.querySelectorAll('[aria-pressed="true"]'))
+      b.setAttribute('aria-pressed', 'false');
   }
   function selectOrdinal(ordinal, focus = false) {
     const entry = entries.find((entry) => entry.ordinal === ordinal && entry.editable);
@@ -176,11 +216,11 @@ export function createImageLayer({
     selected = entry;
     draft = null;
     buildControls();
-    targets
-      .querySelectorAll('button')
-      .forEach((b) =>
-        b.setAttribute('aria-pressed', String(Number(b.dataset.ordinal) === ordinal)),
-      );
+    // Only the buttons whose state changes are touched: each change restyles its button.
+    for (const b of targets.querySelectorAll('button')) {
+      const pressed = String(Number(b.dataset.ordinal) === ordinal);
+      if (b.getAttribute('aria-pressed') !== pressed) b.setAttribute('aria-pressed', pressed);
+    }
     if (focus) controls.querySelector('.image-move')?.focus({ preventScroll: true });
   }
   async function choose(entry, focus = false) {
@@ -425,10 +465,25 @@ export function createImageLayer({
     pageKey = nextPageKey;
     close(preserveSelection, { preserveControls });
     entries = images;
+    const sameView = !!viewport && sameList(viewport.transform, nextViewport.transform);
     viewport = nextViewport;
-    targets.replaceChildren();
+    // A page of thousands of shapes is redrawn after every nudge, and one target each is a lot
+    // for the browser to restyle and lay out again: a target whose object and view are as they
+    // were stays in place. The focused one is made anew, as all of them were before.
+    const reusable = new Map();
+    for (const target of targets.children)
+      if (sameView && target !== document.activeElement)
+        reusable.set(target.dataset.ordinal, target);
+    const wanted = [];
     for (const entry of entries) {
       if (!entry.editable) continue;
+      const kept = reusable.get(String(entry.ordinal));
+      if (kept && drawnAs(targetDrawn.get(kept), entry)) {
+        reusable.delete(String(entry.ordinal));
+        targetEntry.set(kept, entry);
+        wanted.push(kept);
+        continue;
+      }
       const target = el('button', {
         type: 'button',
         class: kind(entry) === 'image' ? 'image-target' : 'path-target',
@@ -444,10 +499,12 @@ export function createImageLayer({
           touched = null;
           if ((!e.detail || tap) && !busy && !committing)
             safe(async () => {
-              if (await choose(entry, true)) onSelected();
+              if (await choose(targetEntry.get(target), true)) onSelected();
             })();
         },
       });
+      targetEntry.set(target, entry);
+      targetDrawn.set(target, drawnFrom(entry));
       const corners = setPolygon(target, entry.transform);
       if (entry.svg) {
         target.style.pointerEvents = 'none';
@@ -509,10 +566,17 @@ export function createImageLayer({
           touched = e.isPrimary ? target : null;
           return;
         }
-        begin(e, entry);
+        begin(e, targetEntry.get(target));
       });
-      targets.append(target);
+      wanted.push(target);
     }
+    const keep = new Set(wanted);
+    for (const target of [...targets.children]) if (!keep.has(target)) target.remove();
+    // The kept targets are already in order; only the new ones go in between them.
+    let next = targets.firstChild;
+    for (const target of wanted)
+      if (target === next) next = next.nextSibling;
+      else targets.insertBefore(target, next);
     targets.hidden = !enabled;
     if (restore != null) selectOrdinal(restore);
     if (preserveSelection) controls.hidden = false;
