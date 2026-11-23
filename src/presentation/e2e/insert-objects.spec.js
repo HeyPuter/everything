@@ -389,6 +389,42 @@ test("the table picker sizes a table with the arrow keys", async ({ page }) => {
   expect(slide().match(/<a:tr /g)).toHaveLength(2);
 });
 
+// A video file holding only sound was placed as a video with a blank
+// picture: an empty box on the slide and in the slide show.
+test("a video file holding only sound goes in as a sound with its speaker", async ({
+  page,
+}) => {
+  await start(page);
+  const data = await page.evaluate(async () => {
+    const ctx = new AudioContext();
+    const tone = ctx.createOscillator();
+    const out = ctx.createMediaStreamDestination();
+    tone.connect(out);
+    tone.start();
+    const rec = new MediaRecorder(out.stream, { mimeType: "audio/webm" });
+    const chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.start(100);
+    await new Promise((r) => setTimeout(r, 800));
+    rec.stop();
+    await new Promise((r) => (rec.onstop = r));
+    tone.stop();
+    return [...new Uint8Array(await new Blob(chunks).arrayBuffer())];
+  });
+  await choose(page, () => command(page, "video"), {
+    name: "talk.webm",
+    mimeType: "video/webm",
+    buffer: Buffer.from(data),
+  });
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+  const saved = await download(page);
+  expect(saved.slide()).toContain("<a:audioFile");
+  expect(saved.slide()).not.toContain("<a:videoFile");
+  expect(saved.rels()).toMatch(/relationships\/audio"/);
+  const types = strFromU8(saved.files["[Content_Types].xml"]);
+  expect(types).toMatch(/audio\/webm/);
+});
+
 test("audio from a file and from a recording is saved as media", async ({
   page,
 }) => {

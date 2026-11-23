@@ -133,7 +133,7 @@ export function createMediaFeatures(ctx) {
   }
 
   async function insertMediaFile(file, kindWanted) {
-    const type = mediaType(file);
+    let type = mediaType(file);
     if (!type || (kindWanted && type.kind !== kindWanted))
       throw new Error(
         kindWanted === "audio"
@@ -151,6 +151,15 @@ export function createMediaFeatures(ctx) {
       const durationMs = Number.isFinite(media.duration)
         ? Math.round(media.duration * 1000)
         : 0;
+      // A video file holding only sound (a recorded talk, a podcast) has no
+      // picture to show: placed as a video it was an empty, invisible box.
+      // It goes in as a sound, with the speaker to click.
+      if (type.kind === "video" && !media.videoWidth)
+        type = {
+          ...type,
+          kind: "audio",
+          contentType: type.extension === "webm" ? "audio/webm" : "audio/mp4",
+        };
       let poster, width, height;
       if (type.kind === "video") {
         ({ png: poster, width, height } = await videoFrame(media, 0));
