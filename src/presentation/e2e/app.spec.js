@@ -9064,6 +9064,48 @@ test("slide options are visible without hovering on touch screens", async ({
   ).toBeVisible();
 });
 
+test("dropping several pictures while editing puts every one on the slide", async ({
+  page,
+}) => {
+  await story(page);
+  await expect(page.locator(".object-hit")).toHaveCount(7);
+  const png = Array.from(
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  );
+  await page.evaluate(
+    ({ png }) => {
+      const transfer = new DataTransfer();
+      for (const [name, type, bytes] of [
+        ["One.png", "image/png", png],
+        ["Animation.gif", "image/gif", new Array(64).fill(0)],
+        ["Two.png", "image/png", png],
+      ])
+        transfer.items.add(new File([new Uint8Array(bytes)], name, { type }));
+      document.querySelector("#slide-canvas").dispatchEvent(
+        new DragEvent("drop", {
+          dataTransfer: transfer,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { png },
+  );
+  await expect(page.locator("#toast")).toHaveText(
+    "“Animation.gif” was left out. Choose a PNG or JPEG image.",
+  );
+  await expect(page.locator(".object-hit")).toHaveCount(9);
+  await expect(
+    page.getByRole("button", { name: "Image: One.png. Select to edit" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Image: Two.png. Select to edit" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
 test("dropping an unsupported image while editing explains the image formats", async ({
   page,
 }) => {

@@ -17210,10 +17210,13 @@ function dropPromise(transfer) {
   // A modal dialog or slideshow owns the screen and the drop is ignored
   // behind it, so promise nothing.
   if (document.querySelector("dialog[open]")) return null;
-  const file = [...transfer.items].find((item) => item.kind === "file");
-  return view === "editor" && doc && file?.type.startsWith("image/")
-    ? "Drop to add the image to this slide"
-    : "Drop to open a presentation";
+  const files = [...transfer.items].filter((item) => item.kind === "file");
+  const file = files[0];
+  if (!(view === "editor" && doc && file?.type.startsWith("image/")))
+    return "Drop to open a presentation";
+  return files.filter((item) => item.type.startsWith("image/")).length > 1
+    ? "Drop to add the images to this slide"
+    : "Drop to add the image to this slide";
 }
 const dropOverlay = document.querySelector("#drop-overlay");
 let dropOverlayTimer;
@@ -17272,9 +17275,32 @@ document.addEventListener("drop", (e) => {
   // unsupported image format is reported as such rather than as a non-PPTX
   // file.
   if (view === "editor" && doc && file.type.startsWith("image/"))
-    insertImageFile(file).catch(fail);
+    insertDroppedImages(
+      [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/")),
+    ).catch(fail);
   else importFile(file).catch(fail);
 });
+// Pictures dropped together all go on the slide, in the order dropped. One
+// that cannot is left out, and said so, without holding up the others.
+async function insertDroppedImages(images) {
+  if (images.length === 1) return insertImageFile(images[0]);
+  const target = doc;
+  const left = [];
+  for (const image of images) {
+    if (doc !== target) return;
+    try {
+      await insertImageFile(image);
+    } catch (error) {
+      left.push({ name: image.name, error });
+    }
+  }
+  if (left.length && doc === target)
+    toast(
+      left.length === 1
+        ? `“${left[0].name}” was left out. ${left[0].error?.message || ""}`.trim()
+        : `${left.length} pictures were left out. ${left[0].error?.message || ""}`.trim(),
+    );
+}
 // A bookmark or the address bar can ask for a screen too. Changing only the
 // fragment does not reload the page, so the address is followed here the way
 // a fresh load would: the library address opens the library, any other
