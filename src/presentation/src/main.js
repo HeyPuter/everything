@@ -1687,32 +1687,49 @@ function libraryFileMenu(e, f) {
           pendingRecovery.request === documentRequest
         )
           documentRequest++;
+        // Another tab editing the draft would keep its edits nowhere: it
+        // writes the draft again only on its next edit, and leaving it
+        // takes the draft as already holding them.
+        if (f.kind === "draft" && !(await lockDraft(f.id))) {
+          toast(
+            "This draft is open in another tab. Close it there to delete it.",
+          );
+          return;
+        }
+        const confirmed = await dialog({
+          title: `Delete “${fileTitle(f)}”?`,
+          // A draft lives on this device only; the cloud file it may be
+          // linked to stays in Puter.
+          body: el(
+            "p",
+            { class: "dialog-body" },
+            f.kind === "draft"
+              ? "This removes the recovery draft from this device. Work that was not saved to Puter or downloaded is lost."
+              : "This removes the file from your Puter cloud permanently. This action cannot be undone.",
+          ),
+          confirm: "Delete",
+          danger: true,
+          returnFocus,
+        });
+        // The lock taken above is let go of unless this tab has it open.
         if (
-          await dialog({
-            title: `Delete “${fileTitle(f)}”?`,
-            // A draft lives on this device only; the cloud file it may be
-            // linked to stays in Puter.
-            body: el(
-              "p",
-              { class: "dialog-body" },
-              f.kind === "draft"
-                ? "This removes the recovery draft from this device. Work that was not saved to Puter or downloaded is lost."
-                : "This removes the file from your Puter cloud permanently. This action cannot be undone.",
-            ),
-            confirm: "Delete",
-            danger: true,
-            returnFocus,
-          })
+          f.kind === "draft" &&
+          (!confirmed ||
+            accountVersion !== accountRequest ||
+            deletingDrafts.has(f.id))
         ) {
+          releaseDraftLocks();
+          return;
+        }
+        if (confirmed) {
           if (f.kind === "draft") {
-            if (accountVersion !== accountRequest || deletingDrafts.has(f.id))
-              return;
             deletingDrafts.add(f.id);
             try {
               await drafts.deleteDraft(f.id);
               libraryMeta(requestOwner).forget(f);
             } finally {
               deletingDrafts.delete(f.id);
+              releaseDraftLocks();
             }
           } else
             await saveQueue.run(async () => {

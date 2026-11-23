@@ -724,6 +724,53 @@ test("a recovery draft open in one tab does not open in another", async ({
   await expect(other.locator(".object-hit")).toHaveCount(1);
 });
 
+test("a recovery draft open in one tab can't be deleted from another", async ({
+  page,
+  context,
+}) => {
+  await mockDrive(page);
+  await expect(title(page)).toHaveText("Untitled presentation");
+  await addText(page);
+  const other = await context.newPage();
+  await mockDrive(other, { path: "/#/home" });
+  await other
+    .getByRole("button", {
+      name: "Options for Untitled presentation",
+      exact: true,
+    })
+    .click();
+  await other
+    .getByRole("menuitem", { name: "Delete draft", exact: true })
+    .click();
+  await expect(other.locator("#toast")).toHaveText(
+    "This draft is open in another tab. Close it there to delete it.",
+  );
+  await expect(other.getByRole("dialog")).toHaveCount(0);
+  // The edits are still on this device for the tab that has them open.
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  await expect(
+    page.getByRole("button", { name: "Untitled presentation Recovery draft" }),
+  ).toBeVisible();
+  // Once no tab has it open, it can be deleted.
+  await other.reload();
+  await other
+    .getByRole("button", {
+      name: "Options for Untitled presentation",
+      exact: true,
+    })
+    .click();
+  await other
+    .getByRole("menuitem", { name: "Delete draft", exact: true })
+    .click();
+  await other
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(
+    other.getByRole("button", { name: "Untitled presentation Recovery draft" }),
+  ).toHaveCount(0);
+});
+
 test("closing the Puter window asks about a presentation never saved", async ({
   page,
 }) => {
