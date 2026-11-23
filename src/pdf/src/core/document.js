@@ -45,7 +45,7 @@ import {
 } from 'pdf-lib';
 import { textStyleBits } from './paragraph-data.js';
 import { textDecorationQuads } from './text-decoration.js';
-import { inheritPdfVersion, loadPdfDocument, savePdf } from './version.js';
+import { dropUsageRights, inheritPdfVersion, loadPdfDocument, savePdf } from './version.js';
 import { sweepUnreferenced } from './compress.js';
 import { removePageStructure } from './struct-tree.js';
 import { shiftPageLabels } from './page-labels.js';
@@ -256,19 +256,6 @@ function pageGeometry(doc) {
     } else parts.push([...values, node.get(USER_UNIT)].map(text).join(' '));
   }
   return parts.join('\n');
-}
-
-/**
- * A Reader-enabled PDF carries a usage-rights signature (/Perms /UR3, or the older /UR) over
- * the file as it was. An edit saves the file anew and breaks it, and Adobe Reader then warns
- * that the document was changed and its extended features are gone, so the edit drops it.
- * A certification (/DocMDP) stays, to be reported as changed.
- */
-function dropUsageRights(doc) {
-  const perms = doc.catalog.lookup(PDFName.of('Perms'));
-  if (!(perms instanceof PDFDict)) return;
-  for (const key of ['UR3', 'UR']) perms.delete(PDFName.of(key));
-  if (!perms.keys().length) doc.catalog.delete(PDFName.of('Perms'));
 }
 
 /** Transactions retain original bytes, commit only on success, and bound undo memory. */

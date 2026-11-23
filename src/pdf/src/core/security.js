@@ -26,7 +26,7 @@ import {
   ParseSpeeds,
 } from 'pdf-lib';
 
-import { pdfVersion, savePdf } from './version.js';
+import { dropUsageRights, pdfVersion, savePdf } from './version.js';
 import { withoutCryptFilter } from './stream-filters.js';
 
 export class PasswordError extends Error {
@@ -945,6 +945,8 @@ function copyInto(value, context, from) {
  */
 async function encryptAsBefore(bytes, { fileKey, security, dict }) {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  // Encrypting writes every string and stream anew, which breaks a usage-rights signature.
+  dropUsageRights(doc);
   if (security.R === 6) declareRevision6(doc);
   const { context } = doc;
   await transformLargeStreams(
@@ -1006,6 +1008,8 @@ export async function protectPdf(
   if (!open && !ownerPassword) throw new Error('Choose a password.');
   const R = reader ? reader.security.R : 6;
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  // Encrypting writes every string and stream anew, which breaks a usage-rights signature.
+  dropUsageRights(doc);
   if (R === 6) declareRevision6(doc);
   const { context } = doc;
   // Fresh protection defines only StdCF, and encrypts every stream with it. A Crypt selector
