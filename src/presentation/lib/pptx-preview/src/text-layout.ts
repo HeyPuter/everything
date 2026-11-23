@@ -241,7 +241,7 @@ export interface BulletInput {
 }
 
 export interface ParaInput {
-  readonly align: "left" | "center" | "right" | "justify";
+  readonly align: "left" | "center" | "right" | "justify" | "distribute";
   readonly marLpx: number;
   readonly marRpx: number;
   readonly firstIndentPx: number; // first-line indent (negative = hanging)
@@ -352,6 +352,9 @@ export interface Line {
    *  paragraph that ends where the text wrapped (not on its last line, nor
    *  on one that ends at a line break). */
   justifyWidth?: number;
+  /** Width a distributed line is spread to, by spacing out its characters:
+   *  set on every line of a distributed paragraph. */
+  distributeWidth?: number;
   bullet: { x: number; baselineDy: number; b: BulletInput } | null;
 }
 
@@ -935,6 +938,7 @@ export const layoutCore = (
         line.extent = line.baselineOffset + descent;
         if (para.align === "justify" && paraLines[li + 1]?.automaticStart)
           line.justifyWidth = availableW;
+        else if (para.align === "distribute") line.distributeWidth = availableW;
         cursorY += line.advance;
         lines.push(line);
       }
@@ -1229,6 +1233,34 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
           g.width += wordSpacing * countWordSeparators(g.text);
     }
   }
+  // A distributed line spaces out every character, its last line too. The
+  // spacing after the final character falls past the line's end unseen.
+  if (line.distributeWidth !== undefined) {
+    let used = 0,
+      characters = 0;
+    const counts = groups.map((g) => {
+      used += g.width;
+      if (/^\t+$/.test(g.text)) return 0;
+      let n = 0;
+      for (const _ of graphemes(g.text)) n++;
+      characters += n;
+      return n;
+    });
+    const slack = line.distributeWidth - used;
+    if (characters > 1 && slack > 0.01) {
+      const extra = slack / (characters - 1);
+      groups.forEach((g, i) => {
+        if (!counts[i]) return;
+        g.extraLetterSpacing = extra;
+        g.width += extra * counts[i]!;
+      });
+      for (let i = groups.length - 1; i >= 0; i--)
+        if (counts[i]) {
+          groups[i]!.width -= extra;
+          break;
+        }
+    }
+  }
   let pendingDx = 0;
   const tspans = groups
     .map((g) => {
@@ -1355,6 +1387,8 @@ interface Group {
   text: string;
   piece: PieceInput;
   width: number;
+  /** Spacing added after each character of a distributed line. */
+  extraLetterSpacing?: number;
 }
 
 const groupTokens = (toks: Token[]): Group[] => {
@@ -1527,8 +1561,8 @@ const tspan = (g: Group, dx = 0): string => {
       attrs.push(`stroke-opacity="${p.strokeOpacity}"`);
   }
   if (deco.length) attrs.push(`text-decoration="${deco.join(" ")}"`);
-  if (p.letterSpacingPx !== 0)
-    attrs.push(`letter-spacing="${fmt(p.letterSpacingPx)}"`);
+  const letterSpacing = p.letterSpacingPx + (g.extraLetterSpacing ?? 0);
+  if (letterSpacing !== 0) attrs.push(`letter-spacing="${fmt(letterSpacing)}"`);
   if (p.superSub !== 0)
     attrs.push(`baseline-shift="${fmt(baselineShiftPxOf(p))}"`);
   return `<tspan ${attrs.join(" ")}>${escapeXml(g.text)}</tspan>`;

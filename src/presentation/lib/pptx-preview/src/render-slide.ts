@@ -2313,7 +2313,9 @@ const wrapTextEffects = (
 };
 
 const alignOf = (a: string): ParaInput["align"] =>
-  a === "center" || a === "right" || a === "justify" ? a : "left";
+  a === "center" || a === "right" || a === "justify" || a === "distribute"
+    ? a
+    : "left";
 
 // Map the OOXML `vert` token onto the engine's layout modes, mirroring the
 // foreignObject path's writing-mode grouping so server == browser: the

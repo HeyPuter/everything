@@ -1314,3 +1314,24 @@ describe("highlighted runs", () => {
     expect(Number(band[1])).toBe(160 - 60 - 40);
   });
 });
+
+describe("distributed paragraphs", () => {
+  it("spaces out the characters of every line, the last one too", () => {
+    const svg = layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 200,
+        wrap: true,
+        paragraphs: [
+          para({ align: "distribute", pieces: [piece("aa bb cc dd", 40)] }),
+        ],
+      }),
+      measure,
+    );
+    // "aa bb cc" (8 characters, 160 px) and "dd" (2, 40 px) each fill 200 px:
+    // 40 px over 7 gaps, and 160 px over 1.
+    expect(
+      [...svg.matchAll(/letter-spacing="([^"]+)"/g)].map((m) => Number(m[1])),
+    ).toEqual([5.71, 160]);
+  });
+});

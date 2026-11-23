@@ -8,7 +8,7 @@ import { P } from "../src/model.js";
 const TEXT =
   "Justified text spreads every line that wraps across the whole box, so that both of its edges line up, while the last line keeps to the start.";
 
-async function justifiedDeck() {
+async function justifiedDeck(align = "just") {
   const pres = P.createPresentation();
   const s = P.addBlankSlide(pres);
   P.addSlideTextBox(s, {
@@ -25,15 +25,15 @@ async function justifiedDeck() {
   files[name] = strToU8(
     strFromU8(files[name]).replace(
       /<a:p><a:r><a:rPr lang="en-US"\/><a:t>JUSTIFIED<\/a:t><\/a:r><\/a:p>/,
-      `<a:p><a:pPr algn="just"/><a:r><a:rPr lang="en-US" sz="2000"/><a:t>${TEXT}</a:t></a:r></a:p>`,
+      `<a:p><a:pPr algn="${align}"/><a:r><a:rPr lang="en-US" sz="2000"/><a:t>${TEXT}</a:t></a:r></a:p>`,
     ),
   );
   return Buffer.from(zipSync(files));
 }
 
-test("justified paragraphs fill each wrapped line in the slide image", async ({
-  page,
-}) => {
+// The extent of each line the slide image draws, in slide pixels (96 per
+// inch), laid out by the browser as it draws the image.
+async function drawnLines(page, deck) {
   await page.route("https://js.puter.com/v2/", (route) =>
     route.fulfill({
       contentType: "application/javascript",
@@ -49,12 +49,10 @@ test("justified paragraphs fill each wrapped line in the slide image", async ({
     name: "Justified.pptx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    buffer: await justifiedDeck(),
+    buffer: deck,
   });
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  // The slide image's own SVG, laid out by the browser as it draws it, in
-  // slide pixels (96 per inch).
-  const lines = await page.locator(".slide-image").evaluate(async (img) => {
+  return page.locator(".slide-image").evaluate(async (img) => {
     await img.decode();
     const host = document.createElement("div");
     host.innerHTML = await (await fetch(img.src)).text();
@@ -65,10 +63,27 @@ test("justified paragraphs fill each wrapped line in the slide image", async ({
     document.body.append(host);
     const origin = svg.getBoundingClientRect();
     return [...host.querySelectorAll("text")].map((t) => {
-      const box = t.getBoundingClientRect();
-      return { left: box.left - origin.left, right: box.right - origin.left };
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const box = range.getBoundingClientRect();
+      // Letter spacing also follows the last character, unseen.
+      const spacing = parseFloat(
+        [...t.querySelectorAll("tspan")]
+          .at(-1)
+          ?.getAttribute("letter-spacing") ?? "0",
+      );
+      return {
+        left: box.left - origin.left,
+        right: box.right - origin.left - spacing,
+      };
     });
   });
+}
+
+test("justified paragraphs fill each wrapped line in the slide image", async ({
+  page,
+}) => {
+  const lines = await drawnLines(page, await justifiedDeck());
   expect(lines.length).toBeGreaterThan(2);
   // The text box runs from 1 to 6 inches, inset by 0.1 inch on each side.
   for (const line of lines.slice(0, -1)) {
@@ -76,4 +91,15 @@ test("justified paragraphs fill each wrapped line in the slide image", async ({
     expect(Math.abs(line.right - 566.4)).toBeLessThan(2);
   }
   expect(lines.at(-1).right).toBeLessThan(566.4 - 20);
+});
+
+test("distributed paragraphs spread every line, the last one too", async ({
+  page,
+}) => {
+  const lines = await drawnLines(page, await justifiedDeck("dist"));
+  expect(lines.length).toBeGreaterThan(2);
+  for (const line of lines) {
+    expect(line.left).toBeCloseTo(105.6, 0);
+    expect(Math.abs(line.right - 566.4)).toBeLessThan(3);
+  }
 });
