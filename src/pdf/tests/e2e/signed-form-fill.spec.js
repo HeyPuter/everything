@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFHexString } from 'pdf-lib';
 import { createSelfSignedId, signPdf, verifySignatures } from '../../src/core/digital-signature.js';
 
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
@@ -79,4 +79,41 @@ test('filling in a PDF certified against changes asks first', async ({ page }) =
   await ask.getByRole('button', { name: 'Edit anyway' }).click();
   await settled(page);
   await expect(page.locator('.signature-bar')).toContainText('changed after it was signed');
+});
+
+// A field the signature locks still asks first; another field fills in without asking.
+test('filling in a field a signature locks asks first', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 400]);
+  const form = doc.getForm();
+  form.createTextField('Note').addToPage(sheet, { x: 40, y: 300, width: 200, height: 24 });
+  form.createTextField('Total').addToPage(sheet, { x: 40, y: 250, width: 200, height: 24 });
+  const field = doc.context.obj({
+    FT: 'Sig',
+    T: PDFHexString.fromText('Approver'),
+    Type: 'Annot',
+    Subtype: 'Widget',
+    Rect: [40, 40, 240, 90],
+    F: 4,
+    P: sheet.ref,
+    Lock: { Type: 'SigFieldLock', Action: 'Include', Fields: [PDFHexString.fromText('Total')] },
+  });
+  const ref = doc.context.register(field);
+  form.acroForm.addField(ref);
+  sheet.node.addAnnot(ref);
+  const id = await createSelfSignedId({ name: 'Grace Hopper', keyType: 'P-256' });
+  await open(page, await signPdf(await doc.save(), id, { fieldName: 'Approver' }));
+  const note = page.getByRole('textbox', { name: 'Note (on page)' });
+  await note.fill('Reviewed');
+  await note.press('Enter');
+  await settled(page);
+  const ask = page.getByRole('dialog', { name: 'Edit a signed PDF?' });
+  await expect(ask).toHaveCount(0);
+  const total = page.getByRole('textbox', { name: 'Total (on page)' });
+  await total.fill('12');
+  await total.press('Enter');
+  await expect(ask).toContainText('does not allow this field to change');
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(total).toHaveValue('12');
+  await expect(page.locator('.signature-bar')).not.toContainText('changed');
 });
