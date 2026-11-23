@@ -1454,6 +1454,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   if (Object.keys(keymap.custom).length) syncShortcuts();
   editorCommands.menuShortcuts = (items, prefix) => withShownShortcuts(items, prefix, shownFor);
   root.addEventListener('keydown', e => { if (!e.target.closest?.('.backstage') || e.key === 'Escape') keymap.handle(e); }, true);
+  // A notice F6 brought the keyboard to sits outside the editor: its keys (F6 on round the areas) are the editor's too.
+  document.addEventListener('keydown', e => { if (e.target.closest?.('.toast-root')) keymap.handle(e); }, { capture: true, signal: printAbort.signal });
   // Escape in the text, then Tab, goes to the ribbon (its tab row, where the arrows and Down lead into the commands),
   // as the keyboard sheet says: the next control in the page's order was the assistant button or the status bar.
   root.addEventListener('keydown', e => {
