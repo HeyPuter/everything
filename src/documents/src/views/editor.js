@@ -888,6 +888,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (proofingButton.dataset.state !== state) { proofingButton.dataset.state = state; proofingButton.replaceChildren(commandIconEl(state === 'errors' ? 'proofingErrors' : 'proofingClean', 16)); }
   }
   const proofing = createProofing({ editor: () => engine, pkg: () => pkg, error, onState: () => { chrome?.refresh(); updateProofingStatus(); } });
+  // Named from the start: it had no name until spelling first reported, a screen reader heard a bare "button".
+  updateProofingStatus();
   Object.assign(editorCommands, {
     goTo: () => { if (engine) { engine.finishComposition(); openGoTo(engine, { onClose: () => queueMicrotask(() => engine?.focus()) }); } },
     spelling: () => proofing.openPane(),
