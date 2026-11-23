@@ -860,6 +860,28 @@ test("inside Puter, exports download to this device and copies go through Puter'
   ).toHaveCount(0);
 });
 
+test("Open recent lists the presentations in Puter from the first screen", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    env: "web",
+    seed: {
+      "Presentations/Alpha.pptx": story,
+      "Presentations/Beta.pptx": story,
+    },
+  });
+  await expect(title(page)).toHaveText("Untitled presentation");
+  await fileMenu(page);
+  await page.getByRole("menuitem", { name: "Open recent" }).click();
+  const items = page
+    .getByRole("menu", { name: "Open recent" })
+    .getByRole("menuitem");
+  await expect(items).toHaveText([/^Beta/, /^Alpha/]);
+  await items.filter({ hasText: "Alpha" }).click();
+  await expect(title(page)).toHaveText("Alpha");
+});
+
 test("a cancelled Open dialog leaves things as they were", async ({ page }) => {
   const story = await base64(createDeck("story"));
   await mockDrive(page, { seed: { "~/Desktop/Pick.pptx": story } });

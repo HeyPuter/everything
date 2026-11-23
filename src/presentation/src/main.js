@@ -590,6 +590,7 @@ function setAccount(connected) {
   accountPicture = null;
   const request = ++accountPictureRequest;
   if (!account) return;
+  loadRecentList();
   cloud.profilePicture().then((picture) => {
     if (request !== accountPictureRequest || !picture) return;
     accountPicture = picture;
@@ -7495,15 +7496,43 @@ const menuFor = (label, items) => (anchor) =>
   });
 // Presentations to reopen from the File menu: the newest in the library and
 // those opened from elsewhere on the drive, without the one already open.
+// The editor's Open recent lists the Presentations folder, which only the
+// library reads otherwise: an editor shown first (as the app opens, with a
+// new presentation) reads it too, when the account is known and each time
+// the File menu opens, for the next time.
+let recentListRequest = 0,
+  recentListAt = 0;
+function loadRecentList({ again = true } = {}) {
+  if (!account || view === "home") return;
+  // A menu opened again soon after does not read the folder again.
+  if (!again && Date.now() - recentListAt < 20000) return;
+  recentListAt = Date.now();
+  const request = ++recentListRequest;
+  const requestOwner = owner();
+  cloud
+    .listFiles()
+    .then((list) => {
+      if (
+        request === recentListRequest &&
+        view !== "home" &&
+        owner() === requestOwner
+      )
+        files = list;
+    })
+    .catch(() => {});
+}
 function recentMenuItems() {
   const open = doc?.path;
   const seen = new Set();
   const list = [
-    ...files.map((f) => ({
+    ...(account ? files : []).map((f) => ({
       ...f,
       at: Number(f.modified || f.created || 0) * 1000,
     })),
-    ...recentFiles.map((r) => ({ ...r, at: cloud.modifiedMs(r) ?? r.at ?? 0 })),
+    ...(account ? recent.recentFiles(owner()) : []).map((r) => ({
+      ...r,
+      at: cloud.modifiedMs(r) ?? r.at ?? 0,
+    })),
   ]
     .filter(
       (f) => f.path && f.path !== open && !seen.has(f.path) && seen.add(f.path),
@@ -7525,6 +7554,7 @@ function recentMenuItems() {
 // layout keeps, carries the other menus too.
 function fileMenu(anchor) {
   const mobile = anchor.classList.contains("mobile-only");
+  loadRecentList({ again: false });
   openMenu({
     anchor,
     label: "File",
