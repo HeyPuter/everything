@@ -168,6 +168,25 @@ test('each thumbnail has a menu for its own page, on a button and on right click
   ]);
 });
 
+test("Shift+F10 on a thumbnail opens that page's menu, as a right click does", async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await showPanel(page);
+  const third = page.getByRole('button', { name: 'Go to page 3', exact: true });
+  await third.focus();
+  // Mac browsers send no context menu event for it, so the panel opens the menu itself.
+  await page.keyboard.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: 'Page 3' });
+  await expect(menu).toBeVisible();
+  // The keyboard is in the menu.
+  await expect(menu.locator('[role="menuitem"]:focus')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(third).toBeFocused();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+});
+
 test("another page's menu inserts pages after that page and keeps the current page in view", async ({
   page,
 }) => {

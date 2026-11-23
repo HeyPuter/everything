@@ -3414,11 +3414,27 @@ export function createEditor({
   );
   thumbnails.addEventListener('keydown', (e) => {
     const target = e.target.closest?.('.thumbnail, .thumb-menu');
-    if (!target || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (!target || e.altKey || e.ctrlKey || e.metaKey) return;
     const item = target.closest('.thumb-item'),
       items = thumbnails.children,
       index = Number(item.dataset.index),
       menu = target.classList.contains('thumb-menu');
+    if (e.shiftKey && e.key === 'F10' && !menu) {
+      // The keyboard's way to the page's menu, as a right click opens it: macOS browsers send
+      // no context menu event for Shift+F10, and Mac keyboards have no menu key.
+      e.preventDefault();
+      const box = target.getBoundingClientRect();
+      openMenu({
+        anchor: item.querySelector('.thumb-menu'),
+        items: pageItems(index),
+        label: `Page ${index + 1}`,
+        x: box.left + 16,
+        y: box.bottom,
+        minWidth: 230,
+      });
+      return;
+    }
+    if (e.shiftKey) return;
     let next;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp')
       next = items[index + (e.key === 'ArrowDown' ? 1 : -1)]?.querySelector(
