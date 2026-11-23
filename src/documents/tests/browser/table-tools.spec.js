@@ -401,3 +401,18 @@ test('in a header, a table’s Width box shows its column width and sets it', as
   await width.fill('2'); await width.press('Enter');
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.tables[0].grid)).toEqual([2880, 4680]);
 });
+
+test('Delete in the paragraph between two tables of the same columns joins them; Undo parts them again', async ({ page }) => {
+  await newTable(page, 2, 2, ['A', 'B', 'C', 'D']);
+  await input(page).press('ControlOrMeta+End');
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '2 columns, 1 row' }).click();
+  await page.keyboard.type('E');
+  expect((await model(page)).tables).toHaveLength(2);
+  // The empty paragraph between them: Delete there.
+  await input(page).evaluate(el => { const at = el.value.indexOf('D') + 2; el.setSelectionRange(at, at); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await input(page).press('Delete');
+  expect(await texts(page)).toEqual([['A', 'B'], ['C', 'D'], ['E', '']]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect((await model(page)).tables).toHaveLength(2);
+});

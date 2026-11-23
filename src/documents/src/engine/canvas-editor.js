@@ -50,7 +50,7 @@ import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext, rowGrid, verticalMerges } from './tables.js';
 import { cellBlockRects, cellBlockPlacements, wholeRows, wholeColumns, blockBetween } from './table-selection.js';
-import { clearCells, deleteColumns, deleteRows, deleteTable, splitTable, insertTablePageBreak } from './table-editing.js';
+import { clearCells, deleteColumns, deleteRows, deleteTable, splitTable, insertTablePageBreak, joinTables } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -2234,7 +2234,8 @@ export class CanvasEditor {
       done = this.execute(() => {
         if (past !== null) this.model.select(past);
         if (word) this.model.select(...word);
-        return this.model.delete(direction);
+        // Delete in the paragraph between two tables joins them (table-editing.js).
+        return this.model.delete(direction) || direction > 0 && joinTables(this.model);
       }, undefined, { record: !merge, typing: true, label: 'Typing' });
     } finally { this.deleting = false; }
     if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path, single };

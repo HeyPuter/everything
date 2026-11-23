@@ -1038,3 +1038,49 @@ describe('the paragraph before a table', () => {
     expect(doc.paragraphs[empty].cellId).toBeUndefined();
   });
 });
+
+describe('joining tables', () => {
+  const between = doc => doc.paragraphs.findIndex((p, i) => !p.cellId && doc.paragraphs[i - 1]?.cellId && doc.paragraphs[i + 1]?.cellId);
+  it('Delete in the paragraph between two tables of the same columns joins them, one undo step', async () => {
+    const { pkg, doc } = tableDocument(3, 2);
+    at(doc, 1, 0); T.splitTable(doc);
+    expect(doc.tables).toHaveLength(2);
+    doc.select(doc.paragraphOffset(between(doc)));
+    expect(T.joinTables(doc)).toBe(true);
+    expect(doc.tables).toHaveLength(1);
+    expect(shape(doc)).toEqual(['a0 a1', 'b0 b1', 'c0 c1']);
+    // The caret is at the start of the rows that joined.
+    expect(doc.paragraphs[locate(doc.paragraphs, doc.range[0]).index].cellId).toBe(cellAt(doc, 1, 0).id);
+    valid(doc);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(shape(reopened)).toEqual(['a0 a1', 'b0 b1', 'c0 c1']);
+    doc.undo();
+    expect(doc.tables).toHaveLength(2);
+    // Two tables inserted alike (each with its own copy of the same style) join too.
+    const two = tableDocument(1, 2).doc;
+    two.select(two.text.length); two.insertTable(1, 2, 9000);
+    two.select(two.paragraphOffset(between(two)));
+    expect(T.joinTables(two)).toBe(true);
+    expect(two.tables[0].rows).toHaveLength(2);
+  });
+
+  it('keeps tables of other columns, header rows of the second, and with Track Changes on refuses', () => {
+    const { doc } = tableDocument(1, 2);
+    doc.select(doc.text.length); doc.insertTable(1, 3, 9000);
+    const index = between(doc);
+    doc.select(doc.paragraphOffset(index));
+    expect(T.joinTables(doc)).toBe(false);
+    expect(doc.tables).toHaveLength(2);
+    const same = tableDocument(2, 2).doc;
+    at(same, 1, 0); T.splitTable(same);
+    same.tables[1].rows[0].header = true;
+    same.select(same.paragraphOffset(between(same)));
+    same.trackChanges = true;
+    expect(() => T.joinTables(same)).toThrow(/Track Changes/);
+    expect(same.tables).toHaveLength(2);
+    same.trackChanges = false;
+    expect(T.joinTables(same)).toBe(true);
+    // A row that headed the second table is a body row in the middle of the joined one.
+    expect(same.tables[0].rows.map(row => !!row.header)).toEqual([false, false]);
+  });
+});

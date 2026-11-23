@@ -604,6 +604,45 @@ export function splitTable(model) {
 }
 
 /**
+ * Delete in the empty paragraph that keeps two tables apart joins them, as in Word: the second table's rows follow
+ * the first's, and the caret goes to the first of them. Only tables that would look the same as one do: the same
+ * columns and widths, table formatting and style (a style the document gave each its own copy of counts as the
+ * same). Others, floating tables, and a paragraph holding a section break, bookmark, comment, field or control stay
+ * as they are, as do tables with bookmarks or content controls around their rows or cells. Returns false then.
+ */
+export function joinTables(model) {
+  const [start, end] = model.range;
+  if (start !== end) return false;
+  const { index, offset } = locate(model.paragraphs, start), p = model.paragraphs[index];
+  if (offset || paragraphText(p) || p.sectionEnd || p.bookmarks?.length || p.fieldMarkers?.length || p.blockControls?.length || p.markRevision) return false;
+  const level = p.cellId || null;
+  // The table at the paragraph's level that holds a neighbouring paragraph (possibly in a table nested in it).
+  const tableAt = cellId => { for (let at = cellId && cellContext(model.tables, cellId); at; at = at.table.parentCellId && cellContext(model.tables, at.table.parentCellId)) if ((at.table.parentCellId || null) === level) return at.table; return null; };
+  const first = tableAt(model.paragraphs[index - 1]?.cellId), second = tableAt(model.paragraphs[index + 1]?.cellId);
+  if (!first || !second || first === second || first.floating || second.floating) return false;
+  const style = table => { const definition = model.styles.definitions[table.styleId]; return definition ? JSON.stringify({ ...definition, id: null, name: null }) : String(table.styleId ?? ''); };
+  const look = table => JSON.stringify([table.grid, table.layout, table.alignment, table.indent, table.borders, table.margins, table.shading, table.look, table.conditionalStyle?.settings, table.styleRowBandSize, table.styleColBandSize]);
+  if (look(first) !== look(second) || style(first) !== style(second)) return false;
+  // A merge continuing from nothing at the top of the second table would join a merged cell above it.
+  if (second.rows[0].cells.some(cell => cell.vMerge === 'continue')) return false;
+  const state = M.tableContent(model, second), before = M.tableContent(model, first);
+  const contents = [...state.byCell.values(), ...before.byCell.values()].flat();
+  if (contents.some(q => q.blockControls?.length || q.bookmarks?.some(m => m.tableBoundary || m.columnRange || m.blockScope))) return false;
+  refuseUntracked(model, 'Joining tables');
+  model.checkpoint();
+  for (const row of second.rows) if (row.header) { row.header = false; row.headerChanged = true; }
+  const own = new Set(tableCells(second).map(cell => cell.id));
+  for (const q of model.paragraphs) if (own.has(q.cellId)) q.tableStyleId = first.styleId;
+  first.rows.push(...second.rows);
+  model.tables = model.tables.filter(t => t !== second);
+  model.paragraphs.splice(index, 1);
+  M.refreshTableStyles(model, first);
+  validate(model);
+  model.select(start);
+  model.didChange(); return true;
+}
+
+/**
  * Ctrl+Enter in a table, as in Word: the caret's row starts a new page. The table splits above it and a
  * page break goes between the parts (in the first row: before the table). A page break written into a
  * cell is kept but does not advance (§17.3.3.1 br in a cell), so the keys would seem to do nothing.
