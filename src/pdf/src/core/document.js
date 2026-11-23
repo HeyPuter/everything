@@ -1801,14 +1801,61 @@ export async function resetFields(doc, { fields: names = [], refs = [], include 
 }
 /** The date a date field's message shows as an example, in the field's pattern. */
 const EXAMPLE_DATE = new Date(Date.UTC(2025, 2, 15, 14, 30));
+/**
+ * Put widgets on the pages that the form's field list leaves out (as tools that combine PDFs
+ * often do) back in it, when they are fields of these names: other readers, PDF.js among
+ * them, still offer them to fill in. Returns whether any was added.
+ */
+function adoptOrphanFields(doc, names) {
+  const wanted = new Set(names);
+  const fields = doc.getForm().acroForm.dict.lookup(PDFName.of('Fields'));
+  if (!(fields instanceof PDFArray) || !wanted.size) return false;
+  const listed = new Set(fields.asArray());
+  let adopted = false;
+  for (const page of doc.getPages())
+    for (const ref of annotationsOf(page)?.asArray() ?? []) {
+      let dict = doc.context.lookup(ref);
+      if (!(dict instanceof PDFDict) || dict.lookup(PDFName.of('Subtype')) !== PDFName.of('Widget'))
+        continue;
+      // The topmost field above the widget, and the widget's full name.
+      let top = ref;
+      const parts = [];
+      for (let depth = 0; dict instanceof PDFDict && depth < 64; depth++) {
+        const part = dict.lookup(PDFName.of('T'));
+        if (part instanceof PDFString || part instanceof PDFHexString)
+          parts.unshift(part.decodeText());
+        const parent = dict.get(PDFName.of('Parent'));
+        if (!(parent instanceof PDFRef)) break;
+        top = parent;
+        dict = doc.context.lookup(parent);
+      }
+      if (!(top instanceof PDFRef) || listed.has(top) || !wanted.has(parts.join('.'))) continue;
+      fields.push(top);
+      listed.add(top);
+      adopted = true;
+    }
+  return adopted;
+}
 export async function fillFields(doc, values) {
-  const fields = formFields(doc);
+  let fields = formFields(doc);
   if (!fields) throw new Error(DAMAGED_FORM);
   const form = doc.getForm();
   const byName = new Map();
-  for (const field of fields) {
-    const name = formFieldName(field);
-    if (!byName.has(name)) byName.set(name, field);
+  const index = () => {
+    for (const field of fields) {
+      const name = formFieldName(field);
+      if (!byName.has(name)) byName.set(name, field);
+    }
+  };
+  index();
+  if (
+    adoptOrphanFields(
+      doc,
+      Object.keys(values).filter((name) => !byName.has(name)),
+    )
+  ) {
+    fields = formFields(doc) ?? fields;
+    index();
   }
   let changed = false;
   const changedText = new Map();

@@ -776,6 +776,30 @@ it('resets fields to their defaults as a Reset button does, and offers Print and
   }
 });
 
+it('fills a field whose widget the form’s field list left out, as combining tools leave them', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  form.createTextField('Kept').addToPage(page, { x: 50, y: 700, width: 150, height: 20 });
+  const orphan = form.createTextField('Orphan.Name');
+  orphan.addToPage(page, { x: 50, y: 650, width: 150, height: 20 });
+  // The field list keeps only the first field; the other's widget stays on the page.
+  form.acroForm.dict.set(PDFName.of('Fields'), source.context.obj([form.getTextField('Kept').ref]));
+  const doc = await PDFDocument.load(await source.save({ updateFieldAppearances: false }));
+  expect(listFields(doc).map(({ name }) => name)).toEqual(['Kept']);
+  await fillFields(doc, { 'Orphan.Name': 'Ada' });
+  const reopened = await PDFDocument.load(await doc.save());
+  expect(listFields(reopened).map(({ name, value }) => [name, value])).toEqual([
+    ['Kept', ''],
+    ['Orphan.Name', 'Ada'],
+  ]);
+  // A name no widget has is still refused.
+  await expect(fillFields(reopened, { Nowhere: 'x' })).rejects.toThrow('Nowhere');
+});
+
 it('a number field does not take its thousands separator for a decimal mark', async () => {
   const source = await PDFDocument.create();
   const page = source.addPage();
