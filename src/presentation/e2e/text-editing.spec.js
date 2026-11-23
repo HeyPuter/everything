@@ -746,3 +746,67 @@ test("list items pasted from another app become list paragraphs", async ({
   expect(xml.match(/<a:buAutoNum/g)).toHaveLength(2);
   expect(xml).toMatch(/<a:pPr[^>]*lvl="1"/);
 });
+
+test("emoji, flags and combining marks move, select and delete whole", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "x");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.insertText("a👨‍👩‍👧b🇯🇵c👍🏽déf");
+  const caret = () =>
+    editor.evaluate((input) => {
+      const s = getSelection();
+      const r = document.createRange();
+      r.setStart(input, 0);
+      r.setEnd(s.focusNode, s.focusOffset);
+      return r.toString().length;
+    });
+  const stops = [];
+  for (let i = 0; i < 9; i++) {
+    await page.keyboard.press("ArrowLeft");
+    stops.push(await caret());
+  }
+  expect(stops).toEqual([22, 20, 19, 15, 14, 10, 9, 1, 0]);
+  // A selection takes the family whole, and formatting keeps it whole.
+  await pressKey(page, "Shift+ArrowRight", 2);
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(editor.locator("[data-run]")).toHaveText(["a👨‍👩‍👧", "b🇯🇵c👍🏽déf"]);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Backspace");
+  await expect(editor).toHaveText("ab🇯🇵c👍🏽déf");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Delete");
+  await expect(editor).toHaveText("abc👍🏽déf");
+  await pressKey(page, "ArrowRight", 3);
+  await page.keyboard.press("Delete");
+  await expect(editor).toHaveText("abc👍🏽df");
+  await page.keyboard.press("Escape");
+  expect((await slideSvg(page)).replace(/<[^>]+>/g, "")).toContain("abc👍🏽df");
+});
+
+test("speaker notes typing undoes as one step per visit", async ({ page }) => {
+  await page.goto("/");
+  const notes = page.locator("#speaker-notes");
+  test.skip(!(await notes.isVisible()), "the phone layout hides the notes");
+  await notes.click();
+  await page.keyboard.type("Hello notes");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("second");
+  // Undo inside the notes is the notes' own while they are typed in.
+  await page.keyboard.type(" extra");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(notes).not.toHaveValue(/extra/);
+  await page.locator("#slide-canvas").click({ position: { x: 3, y: 3 } });
+  await notes.click();
+  await page.keyboard.press("ControlOrMeta+ArrowDown");
+  await page.keyboard.type(" more");
+  await page.locator("#slide-canvas").click({ position: { x: 3, y: 3 } });
+  const value = await notes.inputValue();
+  expect(value).toMatch(/ more$/);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(notes).toHaveValue(value.replace(/ more$/, ""));
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(notes).toHaveValue("");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(notes).toHaveValue(value.replace(/ more$/, ""));
+});
