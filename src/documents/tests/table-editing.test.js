@@ -1084,3 +1084,30 @@ describe('joining tables', () => {
     expect(same.tables[0].rows.map(row => !!row.header)).toEqual([false, false]);
   });
 });
+
+describe('Tab in a table', () => {
+  it('selects the contents of the cell it goes to, as Word does; an empty cell or one holding a table takes the caret', () => {
+    const { doc } = tableDocument(2, 3);
+    at(doc, 0, 0);
+    doc.moveCell(1);
+    expect(doc.text.slice(...doc.range)).toBe('a1');
+    doc.moveCell(-1);
+    expect(doc.text.slice(...doc.range)).toBe('a0');
+    // A cell of two paragraphs is selected whole.
+    at(doc, 0, 2); doc.select(doc.range[1] + 2); doc.replace('\nmore');
+    at(doc, 0, 1); doc.moveCell(1);
+    expect(doc.text.slice(...doc.range)).toBe('a2\nmore');
+    // Typing replaces what Tab selected.
+    doc.replace('x');
+    expect(shape(doc)[0]).toBe('a0 a1 x');
+    at(doc, 1, 0); doc.select(doc.range[0], doc.range[0] + 2); doc.replace('');
+    at(doc, 0, 2); doc.moveCell(1);
+    expect(doc.range[0]).toBe(doc.range[1]);
+    // A cell holding a table: the caret at its start.
+    const outer = doc.tables[0];
+    at(doc, 1, 1); doc.insertTable(1, 1, 1000);
+    doc.selectCell(cellAt(doc, 1, 0, outer).id); doc.moveCell(1);
+    expect(doc.range[0]).toBe(doc.range[1]);
+    expect(doc.paragraphs[locate(doc.paragraphs, doc.range[0]).index].cellId).toBe(cellAt(doc, 1, 1, outer).id);
+  });
+});

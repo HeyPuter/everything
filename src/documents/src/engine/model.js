@@ -1375,6 +1375,16 @@ export class TextDocument {
     this.select(this.paragraphOffset(index)); return true;
   }
   /**
+   * Tab and Shift+Tab select the contents of the cell they go to, as in Word, so typing replaces them; an empty cell
+   * takes the caret. A cell holding a table keeps the caret at its start: typing there would replace that table.
+   */
+  selectCellContents(id) {
+    const first = this.paragraphs.findIndex(p => p.cellId === id), last = this.paragraphs.findLastIndex(p => p.cellId === id);
+    if (first < 0) return false;
+    if (this.tables.some(table => table.parentCellId === id)) return this.selectCell(id);
+    this.select(this.paragraphOffset(first), this.paragraphOffset(last) + paragraphLength(this.paragraphs[last])); return true;
+  }
+  /**
    * Where Tab (1) or Shift+Tab (-1) goes from the caret's cell: { cell } to select, { addRow } after the last
    * cell, or { before } the table, out of its first cell. Only adding a row changes the document.
    */
@@ -1386,7 +1396,7 @@ export class TextDocument {
   }
   moveCell(direction, move = this.cellMove(direction)) {
     if (!move) return false;
-    if (move.cell) { this.selectCell(move.cell); return false; }
+    if (move.cell) { this.selectCellContents(move.cell); return false; }
     if (move.addRow) return this.insertTableRow();
     const p = this.paragraphs.findIndex(p => p.cellId === move.before);
     this.select(Math.max(0, this.paragraphOffset(p) - 1)); return false;
