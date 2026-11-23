@@ -8466,14 +8466,16 @@ function restoreHistory(direction, steps = 1) {
           P.getSlides(pres).findIndex((s) => P.getSlidePartName(s) === wanted);
         // A step that changed what is on another slide shows that slide; one
         // that added, removed or moved slides shows in the navigator, and
-        // the slide in view stays.
+        // the slide in view stays. When the step takes that slide away (a
+        // new or duplicated slide undone), the slide the edit was made from
+        // is shown, not whichever slide moved up into its place.
         const order = (deck) =>
           P.getSlides(deck).map(P.getSlidePartName).join();
         const shown =
           !masterView.active &&
           place &&
           position(place.part) >= 0 &&
-          order(pres) === order(previous)
+          (order(pres) === order(previous) || position(part) < 0)
             ? place.part
             : part;
         if (position(shown) >= 0) index = position(shown);
