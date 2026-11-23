@@ -1387,3 +1387,41 @@ test('a typed signature takes the color chosen on the Type tab', async ({ page }
   await expect(dialog.getByRole('tabpanel').getByLabel('Signature color')).toBeVisible();
   await expect(dialog.getByLabel('Signature color')).toHaveValue('#111111');
 });
+
+// A busy page or a fast pen hands over several pointer samples in one event. Only the last of
+// each was kept, so a quick zigzag lost most of its turns and came out as a gentle wave.
+test('every sample of a quick stroke is part of the drawn signature', async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'Coalesced pointer samples as Chromium hands them over.');
+  await mockPuter(page);
+  await page.goto('/');
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  const pad = dialog.locator('.signature-pad');
+  const box = await pad.boundingBox();
+  await page.mouse.move(box.x + 20, box.y + box.height / 2);
+  await page.mouse.down();
+  // The page is busy while the pen zigzags 30 times, so the moves arrive together.
+  await page.evaluate(() =>
+    setTimeout(() => {
+      const start = performance.now();
+      while (performance.now() - start < 400);
+    }),
+  );
+  await page.waitForTimeout(20);
+  await Promise.all(
+    Array.from({ length: 30 }, (_, i) =>
+      page.mouse.move(box.x + 20 + (i + 1) * 8, box.y + box.height / 2 + (i % 2 ? 30 : -30)),
+    ),
+  );
+  await page.mouse.up();
+  await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const [path] = inspectPaths(await exported(page), 0);
+  // One curve to each sample: all 30 turns are in the signature.
+  expect(path.source.match(/ c\b/g).length).toBeGreaterThanOrEqual(30);
+});

@@ -246,7 +246,10 @@ export function signatureDialog({ signal } = {}) {
     pad.addEventListener('pointermove', (e) => {
       // Touch contacts receive implicit capture, including ignored secondary fingers.
       if (pending || current?.id !== e.pointerId || !pad.hasPointerCapture(e.pointerId)) return;
-      current.points.push(point(e));
+      // A busy page or a fast pen hands over several samples in one event; each is part of the
+      // stroke, or a quick zigzag would be drawn as a straight line through some of its turns.
+      const samples = e.getCoalescedEvents?.() || [];
+      for (const sample of samples.length ? samples : [e]) current.points.push(point(sample));
       repaint();
     });
     const endStroke = (e) => {
