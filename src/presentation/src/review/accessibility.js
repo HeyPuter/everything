@@ -125,7 +125,8 @@ const isTitlePh = (type) => type === "title" || type === "ctrTitle";
 /**
  * Every issue in the deck: [{ id, kind, severity, index, part, slide,
  * shapeId, label }]. `env` gives isTable, slideBounds(shape), size() and
- * textColors(shape) → { text, background, size, bold } | null.
+ * textColors(shape) → { text, background, size, bold } | null, and may give
+ * slidePosition(shape): slideBounds' x and y, at less cost.
  */
 export function findAccessibilityIssues(pres, env) {
   const issues = [];
@@ -199,12 +200,15 @@ export function findAccessibilityIssues(pres, env) {
     }
     // Reading order: objects read in an order unlike the one they show in.
     // Decorative objects are passed over, so their place does not matter.
+    // Only where each box starts counts here, which a table shows without
+    // laying out its rows.
+    const position = env.slidePosition || env.slideBounds;
     const boxes = shapes
       .filter(
         (s) =>
           !ownGroupChildren.has(P.getShapeId(s)) && !P.isShapeDecorative(s),
       )
-      .map((s) => ({ id: P.getShapeId(s), ...(env.slideBounds(s) || {}) }))
+      .map((s) => ({ id: P.getShapeId(s), ...(position(s) || {}) }))
       .filter((b) => Number.isFinite(b.x) && b.y > -1e9);
     if (boxes.length >= 2) {
       const size = env.size();

@@ -677,6 +677,19 @@ export function slideBounds(
     bounds = throughGroup(bounds, group);
   return bounds;
 }
+// Where a shape's box starts on the slide, for checks that use only its x
+// and y. A table's laid-out rows change its width and height but not where
+// it starts, so a table outside any group skips the layout; inside a group,
+// whose turn or mirroring moves the box by its size, it is laid out.
+export function slidePosition(
+  pres,
+  shape,
+  parents = groupParents(P.getShapeSlide(shape)),
+) {
+  if (P.isTableShape(shape) && !parents.has(P.getShapeId(shape)))
+    return P.getShapeBoundsResolved(pres, shape);
+  return slideBounds(pres, shape, parents);
+}
 // Geometry can place text away from the shape centre or beyond its
 // outline. Use the renderer's inset rectangle, then carry it onto the slide
 // through the shape's text rotation and enclosing groups.

@@ -40,6 +40,7 @@ import {
   visibleSlideShapes,
   groupParents,
   slideBounds,
+  slidePosition,
   tableLayout,
   setSlideBounds,
   slideRotation,
@@ -4060,6 +4061,7 @@ const review = createReview({
   SKIP: SKIP_MUTATION,
   size: () => currentSize(),
   slideBounds: (shape) => slideBounds(doc.pres, shape),
+  slidePosition: (shape) => slidePosition(doc.pres, shape),
   account: () => account,
   isTable: (shape) => isTable(shape),
   replaceInShape: (shape, re, value, only) =>
