@@ -6,6 +6,28 @@ import { addShape, menu, start } from "./format-helpers.js";
 
 test.setTimeout(90_000);
 
+// Whether the copy has been offered to the other tabs yet.
+const shared = (page) =>
+  page.evaluate(async () => {
+    const name = "presentation-clipboard-v1";
+    if (!(await indexedDB.databases()).some((db) => db.name === name))
+      return false;
+    return new Promise((resolve) => {
+      const open = indexedDB.open(name);
+      open.onerror = () => resolve(false);
+      open.onsuccess = () => {
+        const get = open.result
+          .transaction("clipboard")
+          .objectStore("clipboard")
+          .get("last");
+        get.onsuccess = () => {
+          open.result.close();
+          resolve(!!get.result);
+        };
+      };
+    });
+  });
+
 test("objects copied in one tab paste as objects in another", async ({
   page,
   context,
@@ -27,29 +49,7 @@ test("objects copied in one tab paste as objects in another", async ({
   const copied = await names(page);
 
   // The copy is offered to the other tabs once it is made.
-  await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const name = "presentation-clipboard-v1";
-        if (!(await indexedDB.databases()).some((db) => db.name === name))
-          return false;
-        return new Promise((resolve) => {
-          const open = indexedDB.open(name);
-          open.onerror = () => resolve(false);
-          open.onsuccess = () => {
-            const get = open.result
-              .transaction("clipboard")
-              .objectStore("clipboard")
-              .get("last");
-            get.onsuccess = () => {
-              open.result.close();
-              resolve(!!get.result);
-            };
-          };
-        });
-      }),
-    )
-    .toBe(true);
+  await expect.poll(() => shared(page)).toBe(true);
 
   const other = await context.newPage();
   await start(other);
@@ -86,4 +86,71 @@ test("objects copied in one tab paste as objects in another", async ({
     );
   });
   await expect.poll(() => names(third)).toEqual(copied);
+});
+
+// A copy made since in another app wins over objects copied here earlier:
+// a picture, or text that is only spaces, does not bring the old objects
+// back, nor does a Paste command that cannot read the clipboard.
+test("objects copied earlier stay put once something else is copied", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: baseURL,
+  });
+  await start(page);
+  await addShape(page, "Rectangle");
+  await menu(page, "Edit", "Copy");
+  await expect.poll(() => shared(page)).toBe(true);
+  const objects = (p) => p.locator(".object-hit");
+  const pasteEvent = (p, data) =>
+    p.evaluate(async ({ text, png }) => {
+      const transfer = new DataTransfer();
+      if (png) {
+        const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "image/png": new Blob([bytes], { type: "image/png" }),
+          }),
+        ]);
+        transfer.items.add(
+          new File([bytes], "image.png", { type: "image/png" }),
+        );
+      } else {
+        await navigator.clipboard.writeText(text);
+        transfer.setData("text/plain", text);
+      }
+      document.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: transfer,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }, data);
+
+  const other = await context.newPage();
+  await start(other);
+  await pasteEvent(other, {
+    png: "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+  });
+  await expect(objects(other)).toHaveCount(1);
+  await expect(objects(other)).toHaveAccessibleName("Image. Select to edit");
+
+  const third = await context.newPage();
+  await start(third);
+  await pasteEvent(third, { text: "   " });
+  await expect(third.getByText(/^Nothing to paste/)).toBeVisible();
+  await expect(objects(third)).toHaveCount(0);
+  // The Paste command, kept from reading the clipboard, says how to paste.
+  await third.evaluate(() => {
+    navigator.clipboard.read = () =>
+      Promise.reject(new DOMException("Denied", "NotAllowedError"));
+  });
+  await menu(third, "Edit", "Paste");
+  await expect(
+    third.getByText(/did not let Paste read the clipboard/),
+  ).toBeVisible();
+  await expect(objects(third)).toHaveCount(0);
 });

@@ -16335,7 +16335,6 @@ function copySelection() {
       .join("\n"),
     origin: `${doc.id}:${P.getSlidePartName(source)}`,
     pastes: new Map(),
-    time: Date.now(),
   };
   shareCopy(clipboard);
   return true;
@@ -16347,7 +16346,7 @@ function shareCopy(clip) {
     P.savePresentation(clip.pkg)
       .then((bytes) => {
         if (clipboard !== clip) return;
-        const { ids, bounds, links, deck, token, text, origin, time } = clip;
+        const { ids, bounds, links, deck, token, text, origin } = clip;
         return shareClipboard({
           bytes,
           ids,
@@ -16357,33 +16356,26 @@ function shareCopy(clip) {
           token,
           text,
           origin,
-          time,
         });
       })
       .catch(() => {});
   });
 }
 // A copy made in another tab becomes this tab's clipboard when a paste
-// brings its token, or, from a paste event that dropped the token, its text;
-// `latest` takes the last copy whatever it was. False when there is none to
-// be had.
+// brings its token, or, from a paste event that dropped the token, its text.
+// False when there is none to be had.
 const clipboardText = (value) =>
   String(value ?? "")
     .replace(/\r\n?/g, "\n")
     .trim();
-async function adoptSharedCopy({ token = null, text = null, latest = false }) {
+async function adoptSharedCopy({ token = null, text = null }) {
   if (token && clipboard?.token === token) return true;
   let entry = null;
   try {
     entry = await sharedClipboard();
   } catch {}
   if (!entry) return false;
-  // A copy made here since is the later one.
-  if (latest && clipboard && clipboard.time >= (entry.time ?? 0)) return true;
-  if (
-    !latest &&
-    (token ? entry.token !== token : clipboardText(entry.text) !== text)
-  )
+  if (token ? entry.token !== token : clipboardText(entry.text) !== text)
     return false;
   if (entry.token === clipboard?.token) return true;
   const pkg = await P.loadPresentation(entry.bytes);
@@ -16526,12 +16518,39 @@ async function pasteData(data) {
       describe: !pastedImageName(image.name),
     });
   const value = data.getData("text/plain");
-  // The objects last copied, here or in another tab, come back when the
-  // paste brings their text without their token.
-  if (!marker && (await adoptSharedCopy({ text: clipboardText(value) })))
-    return pasteClipboard();
+  const text = clipboardText(value);
+  if (!marker && text) {
+    // The objects last copied, here or in another tab, come back when the
+    // paste brings their text without their token.
+    if (await adoptSharedCopy({ text })) return pasteClipboard();
+  } else if (!marker) {
+    // Without text to go by, only the clipboard itself can say the copy is
+    // still on it: something copied since in another app is not.
+    const stamp = await clipboardStamp();
+    if (stamp && (await adoptSharedCopy({ token: stamp })))
+      return pasteClipboard();
+    if (stamp !== undefined) return nothingToPaste();
+  }
   if (value.trim()) return pasteText(value);
-  if (clipboard) return pasteClipboard();
+  // The copy made here last, unless the paste names another.
+  if (clipboard && !marker) return pasteClipboard();
+  nothingToPaste();
+}
+const nothingToPaste = () =>
+  toast("Nothing to paste. Copy an object, an image, or text first.");
+// The token of a copy made in this app that the system clipboard holds, read
+// directly: null when it holds something else, undefined when the browser
+// will not let it be read.
+async function clipboardStamp() {
+  let items;
+  try {
+    items = await navigator.clipboard.read();
+  } catch {
+    return undefined;
+  }
+  const type = `web ${CLIPBOARD_TYPE}`;
+  const item = items.find((entry) => entry.types.includes(type));
+  return item ? (await item.getType(type)).text() : null;
 }
 // A paste asked for through a menu or a shortcut the browser did not turn
 // into a paste event reads the clipboard directly, when allowed.
@@ -16571,12 +16590,14 @@ async function pasteFromMenu() {
       if (value.trim() && value !== clipboard?.text) return pasteText(value);
     }
   }
-  // A clipboard the browser would not let us read stands for the last copy
-  // made here or in another tab.
-  if (!items && (await adoptSharedCopy({ latest: true })))
-    return pasteClipboard();
   if (clipboard) return pasteClipboard();
-  toast("Nothing to paste. Copy an object, an image, or text first.");
+  // A clipboard the browser will not let a menu read may still hold objects
+  // copied in another tab, which the paste shortcut brings.
+  if (!items)
+    return toast(
+      `The browser did not let Paste read the clipboard. Press ${M}+V to paste.`,
+    );
+  nothingToPaste();
 }
 // Pasted objects land where the originals were on another slide, and step
 // down and to the right with each further paste onto the same slide.
