@@ -342,6 +342,8 @@ function shortcuts() {
         ],
         ['Undo', 'Ctrl / ⌘ Z'],
         ['Redo', 'Ctrl / ⌘ Shift Z or Ctrl Y'],
+        ['Select all the text on the page', 'Ctrl / ⌘ A'],
+        ['Bold, italic, underline while editing text', 'Ctrl / ⌘ B, I, U'],
         ['Find in PDF', 'Ctrl / ⌘ F'],
         ['Find next / previous', 'Ctrl / ⌘ G, with Shift; F3'],
         ['Print', 'Ctrl / ⌘ P'],

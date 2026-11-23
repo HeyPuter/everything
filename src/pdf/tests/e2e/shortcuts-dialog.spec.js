@@ -24,3 +24,13 @@ test('the keyboard scrolls through the shortcuts list in a short window', async 
   await expect(dialog).toBeHidden();
   await expect(page.getByRole('button', { name: 'Keyboard shortcuts', exact: true })).toBeFocused();
 });
+
+// Select all (in the Edit menu) and the text styles had keys but no line in the list.
+test('the shortcuts list names select all and the text styles', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  await page.goto('/#library');
+  await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts', exact: true });
+  await expect(dialog).toContainText('Select all the text on the pageCtrl / ⌘ A');
+  await expect(dialog).toContainText('Bold, italic, underline while editing textCtrl / ⌘ B, I, U');
+});
