@@ -795,10 +795,11 @@ function blockEdges(table, block, which) {
   }
   return edges;
 }
-// The neighbouring cells whose opposite side touches this edge, outside the block.
-function neighbourEdges(table, placement, side) {
+// The neighbouring cells whose opposite side touches this edge, outside the block. `all`: the table's
+// ownerPlacements, worked out once for a command that asks about many edges.
+function neighbourEdges(table, placement, side, all = ownerPlacements(table)) {
   const opposite = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[side];
-  return ownerPlacements(table).filter(p => side === 'top' ? p.endRow === placement.rowIndex - 1 && p.column < placement.end && p.end > placement.column
+  return all.filter(p => side === 'top' ? p.endRow === placement.rowIndex - 1 && p.column < placement.end && p.end > placement.column
     : side === 'bottom' ? p.rowIndex === placement.endRow + 1 && p.column < placement.end && p.end > placement.column
     : side === 'left' ? p.end === placement.column && p.rowIndex <= placement.endRow && p.endRow >= placement.rowIndex
     : p.column === placement.end && p.rowIndex <= placement.endRow && p.endRow >= placement.rowIndex).map(p => ({ cell: p.cell, side: opposite }));
@@ -830,10 +831,10 @@ export function applyBorderPreset(model, preset, pen, { toggle = true } = {}) {
   }[preset];
   const edges = blockEdges(table, block, pick);
   if (!edges.length) return false;
-  const placements = new Map(ownerPlacements(table).map(p => [p.cell.id, p]));
+  const owners = ownerPlacements(table), placements = new Map(owners.map(p => [p.cell.id, p]));
   const outside = edges.flatMap(edge => {
     const kind = (({ top: placements.get(edge.cell.id).rowIndex === block.top, bottom: placements.get(edge.cell.id).endRow === block.bottom, left: placements.get(edge.cell.id).column === block.left, right: placements.get(edge.cell.id).end === block.right })[edge.side]);
-    return kind ? neighbourEdges(table, placements.get(edge.cell.id), edge.side) : [];
+    return kind ? neighbourEdges(table, placements.get(edge.cell.id), edge.side, owners) : [];
   });
   const on = edges.every(({ cell, side }) => sameBorder(cell.borders?.[side], border));
   const value = preset === 'none' || toggle && on ? none : border;

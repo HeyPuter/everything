@@ -617,6 +617,20 @@ describe('table commands', () => {
     expect(cellAt(reopened, 2, 2).borders.top).toMatchObject({ style: 'double', size: 12, color: 'C00000' });
   });
 
+  it('borders a whole long table walking its rows a few times, not again for every edge', () => {
+    // Outside Borders on a whole 500-row table took most of a second: each outside edge read the whole table again.
+    const { doc } = tableDocument(40, 4), table = doc.tables[0];
+    let walks = 0;
+    doc.checkpoint = () => {};
+    table.rows.forEach = function (...args) { walks++; return Array.prototype.forEach.apply(this, args); };
+    block(doc, 0, 0, 39, 4);
+    expect(T.applyBorderPreset(doc, 'outside', { style: 'single', size: 8, color: 'FF0000' })).toBe(true);
+    delete table.rows.forEach;
+    expect(walks).toBeLessThan(12);
+    expect(cellAt(doc, 39, 3).borders).toMatchObject({ bottom: { color: 'FF0000' }, right: { color: 'FF0000' } });
+    expect(cellAt(doc, 20, 1).borders?.top).toBeUndefined();
+  });
+
   it('draws diagonal borders across the selected cells and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 1, 1, 1, 3);
