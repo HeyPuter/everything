@@ -458,3 +458,63 @@ describe("line ends", () => {
     },
   );
 });
+
+describe("gradients fixed to the page", () => {
+  const turned = async (rotWithShape, rotation, flip) => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const s = P.addSlideShape(slide, {
+      preset: "rect",
+      x: IN(1),
+      y: IN(1),
+      w: IN(2),
+      h: IN(1),
+    });
+    P.setShapeGradientFill(s, {
+      stops: [
+        { offset: 0, color: "#FF0000" },
+        { offset: 1, color: "#0000FF" },
+      ],
+      angleDeg: 0,
+    });
+    P.setShapeRotation(s, rotation);
+    if (flip) P.setShapeFlip(s, { horizontal: true, vertical: false });
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    files[name] = strToU8(
+      strFromU8(files[name]).replace(
+        /<a:gradFill[^>]*>/,
+        `<a:gradFill rotWithShape="${rotWithShape}">`,
+      ),
+    );
+    const loaded = await parseDeck(zipSync(files));
+    return P.getShapeGradientFillEffective(
+      loaded,
+      P.getSlideShapes(P.getSlides(loaded)[0])[0],
+    );
+  };
+
+  it("reads whether a gradient turns with its shape", async () => {
+    expect((await turned("0", 90)).fixedToPage).toBe(true);
+    expect((await turned("1", 90)).fixedToPage).toBeUndefined();
+  });
+
+  it("keeps a left-to-right gradient left to right on a turned shape", async () => {
+    const { pageFixedAngle } =
+      await import("../lib/pptx-preview/src/render-slide.ts");
+    const pres = createDeck("blank");
+    const s = P.addSlideShape(P.getSlides(pres)[0], {
+      preset: "rect",
+      x: 0,
+      y: 0,
+      w: IN(1),
+      h: IN(1),
+    });
+    P.setShapeRotation(s, 90);
+    // Drawn inside the quarter turn, the gradient runs up the shape.
+    expect(pageFixedAngle(0, s)).toBe(270);
+    P.setShapeRotation(s, 0);
+    P.setShapeFlip(s, { horizontal: true, vertical: false });
+    expect(pageFixedAngle(0, s)).toBe(180);
+  });
+});

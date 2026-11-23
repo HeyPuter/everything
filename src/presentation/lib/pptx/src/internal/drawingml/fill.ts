@@ -113,6 +113,9 @@ export interface GradientFillOptions {
   readonly angleDeg?: number;
   /** Scale the linear gradient with the shape's aspect ratio. Defaults to false. */
   readonly scaled?: boolean;
+  /** Read only: `rotWithShape="0"`, so a linear gradient keeps its angle on
+   *  the page when the shape is turned or flipped. */
+  readonly fixedToPage?: true;
   /**
    * Gradient tile insets relative to the paint bounds (DrawingML tileRect).
    * Positive values inset an edge; negative values extend it. Missing edges

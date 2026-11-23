@@ -1508,6 +1508,20 @@ interface PaintResult {
   compound?: "dbl" | "thickThin" | "thinThick" | "tri" | undefined;
 }
 
+// A linear gradient that does not turn with its shape (`rotWithShape="0"`)
+// keeps its page angle: the fill is drawn inside the shape's turn and flips,
+// so its angle there undoes them.
+export const pageFixedAngle = (
+  angleDeg: number,
+  shape: SlideShapeData,
+): number => {
+  let a = angleDeg - (getShapeRotation(shape) || 0);
+  const flip = getShapeFlip(shape);
+  if (flip?.horizontal) a = 180 - a;
+  if (flip?.vertical) a = -a;
+  return ((a % 360) + 360) % 360;
+};
+
 // ECMA-376 `<a:prstDash val="…"/>` → SVG `stroke-dasharray` (in stroke widths).
 // The pattern scales with the line width; the multipliers below were
 // measured from real PPTX exports so the visual cadence is right.
@@ -1669,7 +1683,15 @@ const paint = (
         : getShapeGradientFill(shape)
       : null;
     if (grad) {
-      const built = gradientDef(grad, theme, bounds, allowCss, fillFrame);
+      const built = gradientDef(
+        grad.fixedToPage && shape && !grad.path
+          ? { ...grad, angleDeg: pageFixedAngle(grad.angleDeg ?? 90, shape) }
+          : grad,
+        theme,
+        bounds,
+        allowCss,
+        fillFrame,
+      );
       defs = built.defs;
       fillColor = built.fillAttr;
       cssGradient = built.cssGradient;
