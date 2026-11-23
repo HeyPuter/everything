@@ -263,3 +263,32 @@ test("closing the data sheet with Escape puts the keyboard back on the chart", a
   const { spec } = await download(page);
   expect(spec.series[0].values[0]).toBe(9);
 });
+
+// Clicking a cell placed the caret in its value, so clicking 4.3 and
+// typing 7 made it 4.37; Tab and Enter already chose the whole cell.
+test("a click on a data sheet cell chooses it, and typing replaces its value", async ({
+  page,
+}) => {
+  await start(page);
+  await insertChart(page, "Column", "Clustered Column");
+  const sheet = page.locator(".chart-sheet");
+  const cell = sheet.locator('input[data-row="2"][data-col="2"]');
+  await expect(cell).toHaveValue("4.3");
+  await cell.click();
+  await page.keyboard.type("7");
+  await expect(cell).toHaveValue("7");
+  // A click in the cell being typed in places the caret.
+  await cell.click({ position: { x: 4, y: 8 } });
+  await page.keyboard.type("1");
+  await expect(cell).toHaveValue(/^(17|71)$/);
+  // The cell already chosen when the sheet opens is replaced too.
+  const first = sheet.locator('input[data-row="1"][data-col="1"]');
+  await first.click();
+  await page.keyboard.type("5");
+  await page.keyboard.press("Enter");
+  await expect(first).toHaveValue("5");
+  await page.waitForTimeout(500);
+  const { spec } = await download(page);
+  expect(spec.series[0].values[0]).toBe(5);
+  expect([17, 71]).toContain(spec.series[1].values[1]);
+});

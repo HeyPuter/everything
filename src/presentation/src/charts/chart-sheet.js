@@ -51,6 +51,8 @@ export function openChartSheet({
   let focus = { row: 1, col: 1 };
   let timer = null;
   let disposed = false;
+  // Whether the focused cell is being typed in, rather than just chosen.
+  let editing = false;
 
   const table = el("table", {
     class: "chart-sheet-grid",
@@ -220,15 +222,29 @@ export function openChartSheet({
           "data-row": r,
           "data-col": c,
           onfocus: () => {
+            editing = false;
             focus = { row: r, col: c };
             for (const other of table.querySelectorAll("input[tabindex='0']"))
               if (other !== input) other.tabIndex = -1;
             input.tabIndex = 0;
           },
           oninput: () => {
+            editing = true;
             setCell(r, c, input.value);
             schedule();
           },
+          // A click on a cell chooses the whole cell, as Tab and Enter do,
+          // so typing replaces its value: clicking 4.1 and typing 10 made
+          // it 104.1. A double-click, or a click in the cell being typed
+          // in, places the caret.
+          onmousedown: (e) => {
+            if (e.button !== 0 || e.detail > 1) return;
+            if (document.activeElement === input && editing) return;
+            e.preventDefault();
+            input.focus();
+            input.select();
+          },
+          ondblclick: () => (editing = true),
           onchange: () => commitNow(),
           onkeydown: (e) => move(e, r, c),
           onpaste: (e) => paste(e, r, c),
