@@ -40,6 +40,12 @@ export const OFFLINE_SAVE = 'You are offline. Your changes will save when you re
 export const OFFLINE_SAVE_MANUAL = 'You are offline. Save again when you reconnect';
 /** Markdown, HTML, and plain text are read and converted on the main thread; a novel is about a megabyte. */
 export const MAX_TEXT_IMPORT_BYTES = 20 * 1024 * 1024;
+const TEXT_TOO_LARGE = 'This file is too large to import as text. Files up to 20 MB can be imported';
+/**
+ * The largest .docx the engine opens (engine/package-part-paths.js MAX_PACKAGE_BYTES) and the Hanword converter's file
+ * limit (lib/hwp/binary.js LIMITS.file), kept here so neither module loads with this one; tests keep them equal.
+ */
+export const OPEN_LIMITS = { docx: 64 * 1024 * 1024, hanword: 32 * 1024 * 1024 };
 /** Version snapshots after saves; tests switch them off. */
 export const versioning = { enabled: true };
 /** A published page following renames and deletions; tests switch it off. */
@@ -908,6 +914,10 @@ export class Doc extends EventTarget {
   /* ---------- Constructors ---------- */
 
   static async fromPath(path) {
+    // A file the drive has listed as too large to open is refused before it is downloaded (P.knownFileSize).
+    const size = P.knownFileSize(path), limit = HANWORD_IMPORTABLE.test(path) ? [OPEN_LIMITS.hanword, 'Hanword imports are limited to 32 MB per file.']
+      : importKind(path) ? [MAX_TEXT_IMPORT_BYTES, TEXT_TOO_LARGE] : [OPEN_LIMITS.docx, `This editor currently opens DOCX files up to ${OPEN_LIMITS.docx / 1024 / 1024} MB.`];
+    if (size > limit[0]) throw Object.assign(new Error(limit[1]), { tooLarge: true });
     // Arm conflict detection before the first edit, including a file deleted
     // after opening. Metadata and bytes load together; a storage that cannot
     // stat must still allow reading the document.
@@ -930,7 +940,7 @@ export class Doc extends EventTarget {
     }
     const kind = importKind(file.name, file.type);
     if (kind) {
-      if (file.size > MAX_TEXT_IMPORT_BYTES) throw new Error('This file is too large to import as text. Files up to 20 MB can be imported');
+      if (file.size > MAX_TEXT_IMPORT_BYTES) throw new Error(TEXT_TOO_LARGE);
       return Doc.fromTextImport(P.stripExtension(file.name), toInsertPayload(decodeTextFile(await file.arrayBuffer(), kind), kind));
     }
     return Doc.fromBrowserFile(file);

@@ -13,7 +13,7 @@
  * share, or open with any other app.
  */
 
-import { DOCUMENT_FOLDER, documentRoot, rememberDocumentRoot, learnDocumentPath } from './document-paths.js';
+import { DOCUMENT_FOLDER, documentRoot, rememberDocumentRoot, learnDocumentPath, documentPathKey } from './document-paths.js';
 import { clipText } from '../core/text.js';
 
 export const FOLDER = DOCUMENT_FOLDER;
@@ -152,6 +152,22 @@ export function ensureDocx(name) {
 
 /* ---------- Files ---------- */
 
+/**
+ * File sizes the drive has already told the app (the documents list, Puter's Open dialog, Open with), by path: a file
+ * too large to open is refused by its size before it is downloaded, with no request of its own.
+ */
+const knownSizes = new Map();
+export function noteFileSize(path, size) {
+  const key = documentPathKey(path);
+  if (typeof key !== 'string' || !key || !Number.isFinite(size) || size < 0) return;
+  knownSizes.delete(key); knownSizes.set(key, size);
+  if (knownSizes.size > 2000) knownSizes.delete(knownSizes.keys().next().value);
+}
+/** The size of the file at `path` as the drive last listed it, or null. */
+export function knownFileSize(path) {
+  return knownSizes.get(documentPathKey(path)) ?? null;
+}
+
 /** Document files in the app folder, newest first. */
 export async function listFiles() {
   const owner = sdk();
@@ -169,7 +185,7 @@ export async function listFiles() {
     }
   }
   await prepareDocumentPaths(owner);
-  return (items || [])
+  const files = (items || [])
     .filter((it) => !it.is_dir && !it.isDir && OPENABLE.test(it.name))
     .map((it) => ({
       name: it.name,
@@ -179,6 +195,8 @@ export async function listFiles() {
       uid: it.uid || it.id || null,
     }))
     .sort((a, b) => (b.modified || 0) - (a.modified || 0));
+  for (const f of items || []) if (f && !f.is_dir && !f.isDir && Number.isFinite(f.size)) noteFileSize(f.path || `${FOLDER}/${f.name}`, f.size);
+  return files;
 }
 
 /** Read a file as a Blob. */
@@ -304,6 +322,7 @@ export async function pickFile({ accept = DOCUMENT_EXTENSIONS } = {}) {
   }
   const item = Array.isArray(result) ? result[0] : result;
   if (!item) return null;
+  noteFileSize(item.path, item.size);
   return { path: item.path, name: item.name || displayName(item.path), item };
 }
 

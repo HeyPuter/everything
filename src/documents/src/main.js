@@ -57,7 +57,7 @@ function go(hash, { newDocument = false } = {}) {
 }
 
 /** Why a document could not be opened, in the user's terms. */
-const openFailureMessage = (e) => (P.isNotFound(e) ? 'That file no longer exists' : e?.name === 'HwpError' ? e.message : 'Could not open the file');
+const openFailureMessage = (e) => (P.isNotFound(e) ? 'That file no longer exists' : e?.name === 'HwpError' || e?.tooLarge ? e.message : 'Could not open the file');
 
 /** The URL that shows a document: its file, the invitation to the shared document it is, or the template it is being written from. */
 const docHash = (doc) => (doc.path ? `#/edit/${encodeURIComponent(doc.path)}` : doc.collab?.hash ? doc.collab.hash : doc.template ? `#/new/${encodeURIComponent(doc.template)}` : '#/new');
@@ -428,6 +428,7 @@ async function start() {
   P.onLaunchedWithItems((items) => {
     const first = items.find((it) => it?.path);
     if (!first) return;
+    P.noteFileSize(first.path, first.size);
     if (booted) nav.openPath(first.path);
     else launchedPath = first.path;
   });

@@ -31,7 +31,7 @@ vi.mock('../src/lib/puter.js', async (importOriginal) => {
   };
 });
 
-import { publishing, Doc, AUTOSAVE_MS, MAX_AUTOSAVE_MS, RETRY_MS, UNTITLED, needsUnloadWarning, versioning } from '../src/lib/doc.js';
+import { publishing, Doc, OPEN_LIMITS, AUTOSAVE_MS, MAX_AUTOSAVE_MS, RETRY_MS, UNTITLED, needsUnloadWarning, versioning } from '../src/lib/doc.js';
 import * as P from '../src/lib/puter.js';
 import { hwp, paragraph } from './helpers/hwp-fixtures.js';
 import { isStarred, toggleStar } from '../src/lib/starred.js';
@@ -117,6 +117,30 @@ describe('Doc', () => {
     expect(doc.dirty).toBe(true);
     expect(P.__fs.get(path)).toBe(source);
     doc.destroy();
+  });
+
+  // A file the documents list, Puter's Open dialog or Open with gave a size for was downloaded whole before the
+  // engine refused it as too large: one of gigabytes held the tab while it downloaded, or took it down.
+  it('refuses a file the drive listed as too large before downloading it', async () => {
+    P.readFile.mockClear();
+    const MB = 1024 * 1024;
+    P.noteFileSize('Documents/Huge.docx', 65 * MB);
+    P.noteFileSize('Documents/Scan.hwp', 33 * MB);
+    P.noteFileSize('Documents/Dump.txt', 21 * MB);
+    await expect(Doc.fromPath('Documents/Huge.docx')).rejects.toMatchObject({ tooLarge: true, message: 'This editor currently opens DOCX files up to 64 MB.' });
+    await expect(Doc.fromPath('Documents/Scan.hwp')).rejects.toMatchObject({ tooLarge: true, message: 'Hanword imports are limited to 32 MB per file.' });
+    await expect(Doc.fromPath('Documents/Dump.txt')).rejects.toMatchObject({ tooLarge: true });
+    expect(P.readFile).not.toHaveBeenCalled();
+    // A file within the limit opens as before.
+    P.__fs.set('Documents/Fine.docx', blob('fine'));
+    P.noteFileSize('Documents/Fine.docx', 4);
+    expect((await Doc.fromPath('Documents/Fine.docx')).path).toBe('Documents/Fine.docx');
+  });
+
+  it('keeps its open limits equal to the engine\'s and the Hanword converter\'s', async () => {
+    const { MAX_PACKAGE_BYTES } = await import('../src/engine/package-part-paths.js');
+    const { LIMITS } = await import('../src/lib/hwp/binary.js');
+    expect(OPEN_LIMITS).toEqual({ docx: MAX_PACKAGE_BYTES, hanword: LIMITS.file });
   });
 
   it('rejects a broken Hanword import before creating or writing a document', async () => {
