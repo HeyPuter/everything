@@ -1253,6 +1253,14 @@ export const AUTOFIT_STEPS = [
 // scale it fits at, and a shape set to fit its text takes the text's height.
 // Whether anything changed.
 export function fitTextToShape(pres, shape) {
+  // Measuring never stands in the way of the edit it follows.
+  try {
+    return fitText(pres, shape);
+  } catch {
+    return false;
+  }
+}
+function fitText(pres, shape) {
   let mode = null;
   try {
     if (P.getShapeKind(shape) !== "shape") return false;

@@ -252,4 +252,22 @@ describe("outline model", () => {
       expect(bold(pres, body()).replace("|", "")).toBe("quick");
     });
   });
+  it("shrinks a body that overflows as the outline writes it", () => {
+    const pres = deck();
+    const rows = rowsFromOutline(readOutline(pres));
+    const extra = Array.from({ length: 24 }, (_, i) => ({
+      level: 1,
+      text: `Point ${i}`,
+      part: null,
+    }));
+    rows.splice(3, 0, ...extra);
+    applyOutline(pres, structureFromRows(rows));
+    const { body } = P.getSlideOutlineShapes(P.getSlides(pres)[0]);
+    expect(P.getShapeTextAutoFitParams(body)?.fontScale).toBeLessThan(1);
+    // The second slide's short body is left as it was.
+    const second = P.getSlideOutlineShapes(P.getSlides(pres)[1]).body;
+    expect(P.getShapeTextAutoFitParams(second)?.hasFontScale ?? false).toBe(
+      false,
+    );
+  });
 });
