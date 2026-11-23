@@ -11975,7 +11975,13 @@ export function createEditor({
     try {
       const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
       if (destroyed) return;
-      accessibilityReport.show(checkAccessibility(doc, { access: access() }));
+      const report = checkAccessibility(doc, { access: access() });
+      // Every fix but changing the protection edits the PDF; a PDF that does not allow
+      // editing gets no button that would only end in a refusal (or lose typed alt text).
+      if (!access().edit)
+        for (const rule of report.categories.flatMap((category) => category.rules))
+          if (rule.fix !== 'protection') delete rule.fix;
+      accessibilityReport.show(report);
       accessibilityChecked = true;
       sidebarTabs.querySelector('[data-tab="accessibility"]').hidden = false;
       if (open) {
