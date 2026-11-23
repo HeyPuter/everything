@@ -3350,9 +3350,9 @@ export function createEditor({
       );
       pageImages.setEnabled(tool === 'select' && access().edit);
       pageReady = true;
-      accessibleText.textContent = access().accessibility
-        ? content.items.map((i) => i.str || '').join(' ')
-        : '';
+      // Words as Read aloud speaks them: a word split between fonts ("Im" in bold, "portant")
+      // or hyphenated at a line end is one word, not two.
+      accessibleText.textContent = access().accessibility ? pageSpeechText(content.items) : '';
       textContainer.setAttribute('aria-hidden', String(!access().accessibility));
       markSearch();
       // A comment chosen from the list opens once the page is ready to show its editor.
