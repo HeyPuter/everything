@@ -11452,10 +11452,19 @@ function editText(target, event = null, { inserted = null } = {}) {
           family: resolveFont(f.font || format.font),
         }) || "auto",
       textDecoration: decoration(f),
-      fontSize:
-        f.size && Math.abs(f.size - baseSize) > 0.01
-          ? `${f.size / baseSize}em`
-          : "",
+      // Raised and lowered text shows smaller, as the slide draws it.
+      fontSize: (() => {
+        const scale =
+          (f.size ? f.size / baseSize : 1) * (f.baseline ? RAISED_SIZE : 1);
+        return Math.abs(scale - 1) > 0.0001 ? `${scale}em` : "";
+      })(),
+      verticalAlign: f.baseline > 0 ? "super" : f.baseline < 0 ? "sub" : "",
+      // Character spacing is in hundredths of a point.
+      letterSpacing: f.spc ? `${f.spc / 100 / baseSize}em` : "",
+      textTransform: f.cap === "all" ? "uppercase" : "",
+      fontVariantCaps: f.cap === "small" ? "small-caps" : "",
+      backgroundColor:
+        readable && /^#[\da-f]{6}$/i.test(f.highlight || "") ? f.highlight : "",
       fontFamily: f.font && f.font !== format.font ? resolveFont(f.font) : "",
       color:
         readable && f.color && f.color !== format.color && legible(f.color)
@@ -12485,6 +12494,8 @@ function editText(target, event = null, { inserted = null } = {}) {
   input.focus();
   getSelection()?.selectAllChildren(input);
 }
+// Raised or lowered text is drawn at this share of its size.
+const RAISED_SIZE = 0.65;
 // The text editor open on the canvas, if any: the toolbar's bold, italic,
 // underline, and strikethrough act on its selection while it is.
 let richEditor = null;

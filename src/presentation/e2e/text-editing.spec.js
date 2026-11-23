@@ -382,3 +382,15 @@ test("an ordinal AutoCorrect raises is saved raised by a third", async ({
   expect(xml).toMatch(/baseline="30000"[^>]*>(?:(?!<\/a:r>).)*<a:t>st<\/a:t>/);
   expect(xml).not.toMatch(/baseline="\d{6,}"/);
 });
+
+test("raised text shows raised while it is edited", async ({ page }) => {
+  const editor = await typedBox(page, "E = mc2");
+  await page.keyboard.press("Shift+ArrowLeft");
+  await (await ribbonButton(page, "Home", "superscript")).click();
+  const raised = editor.locator("[data-run]", { hasText: /^2$/ });
+  await expect(raised).toHaveCSS("vertical-align", "super");
+  const size = (loc) =>
+    loc.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+  const base = await size(editor.locator("[data-run]").first());
+  expect(await size(raised)).toBeLessThan(base * 0.7);
+});
