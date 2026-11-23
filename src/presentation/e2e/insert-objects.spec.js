@@ -345,6 +345,36 @@ test("equations are pictures that keep their source and reopen for editing", asy
     .toContain("Equation: \\frac{a}{b}");
 });
 
+test("editing an equation keeps alt text written for it", async ({ page }) => {
+  await start(page);
+  await command(page, "equation");
+  const dialog = page.getByRole("dialog", { name: "Equation" });
+  await dialog.getByLabel("Equation (TeX-style)").fill("a^2+b^2=c^2");
+  await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+  // Alt text of the person's own, from the Alt Text command.
+  await tab(page, "Review");
+  await command(page, "alt-text");
+  const altDialog = page.getByRole("dialog", { name: "Alt Text" });
+  await altDialog
+    .getByRole("textbox", { name: "Alt text" })
+    .fill("Pythagorean theorem");
+  await altDialog.getByRole("button", { name: "Done" }).click();
+  await expect
+    .poll(async () => (await download(page)).slide())
+    .toContain('descr="Pythagorean theorem"');
+  await page.locator(".object-hit").first().dblclick();
+  const edit = page.getByRole("dialog", { name: "Edit Equation" });
+  await edit.getByLabel("Equation (TeX-style)").fill("a^2+b^2=c^3");
+  await edit.getByRole("button", { name: "Update" }).click();
+  await expect
+    .poll(async () => (await download(page)).slide())
+    .toContain("c^3");
+  expect((await download(page)).slide()).toContain(
+    'descr="Pythagorean theorem"',
+  );
+});
+
 test("video plays on the canvas and in the slide show, with its playback settings saved", async ({
   page,
 }) => {
