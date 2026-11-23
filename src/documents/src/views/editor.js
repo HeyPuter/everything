@@ -1271,7 +1271,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       return failure;
     } : null,
     // "Report copy", as Puter's Save dialog suggests below, or "Report copy 2" when that is taken.
-    copyName: cloud ? async () => P.documentStem(await P.uniqueName(`${P.documentStem(doc.name) || 'Untitled document'} copy.docx`)) : null,
+    copyName: cloud ? async () => P.stripExtension(await P.uniqueName(`${P.documentStem(doc.name) || 'Untitled document'} copy${doc.copyExtension}`)) : null,
     // Inside the Puter desktop Save a copy asks where, with Puter's Save dialog, rather than for a name in the app folder.
     saveCopyWhere: cloud && P.asksWhereToSave() ? async () => {
       try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }
@@ -2037,6 +2037,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const handed = doc.opened; doc.opened = null;
     const opened = handed || (doc.blob ? await openCanvasDocument(doc.blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) }) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
     pkg = opened.pkg; openedAssets.set(pkg, Object.keys(pkg.assets || {}));
+    // Save As copies a read-only document's own bytes, under the extension they go by.
+    if (pkg.readOnly) doc.originalExtension = pkg.fileExtension;
     const images = opened.images; decodedPictures = images;
     await loadCanvasFonts();
     if (destroyed) { releasePictures(); return; }

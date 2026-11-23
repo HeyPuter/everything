@@ -330,6 +330,30 @@ describe('the first save inside the Puter desktop', () => {
     doc.destroy();
   });
 
+  // Its bytes are a macro-enabled package: named "Budget copy.docx", or given .docx after the name typed in the dialog,
+  // the copy was a file Word refuses.
+  it('Save a Copy of a macro-enabled document open read-only keeps its .docm extension', async () => {
+    const original = docx('macro-enabled package, kept as is');
+    files.set('~/Desktop/Budget.docm', original);
+    const doc = new Doc({ name: 'Budget', path: '~/Desktop/Budget.docm', blob: original });
+    doc.originalExtension = '.docm';
+    let copying = doc.saveCopy();
+    await settle();
+    expect(dialogs[0].suggestedName).toBe('Budget copy.docm');
+    dialogs[0].save();
+    expect(await copying).toBeNull();
+    expect(doc.path).toBe('~/Desktop/Budget copy.docm');
+    expect(files.get('~/Desktop/Budget copy.docm')).toBe(original);
+    // A name typed without an extension gets the copy's own.
+    copying = doc.saveCopy();
+    await settle();
+    dialogs[1].save('Second');
+    expect(await copying).toBeNull();
+    expect(doc.path).toBe('~/Desktop/Second.docm');
+    expect(files.get('~/Desktop/Second.docm')).toBe(original);
+    doc.destroy();
+  });
+
   it('counts only the time in the dialog as the user\'s, not a stalled connection after it answered', async () => {
     let release;
     // The room memory lives in the cloud: a stalled connection holds the step after the dialog.

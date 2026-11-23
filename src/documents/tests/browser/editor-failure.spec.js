@@ -50,7 +50,7 @@ test('a damaged file keeps its original available beside the navigation', async 
 
 // A macro-enabled document opens read-only, and its download is the file as it was. Named Budget.docx, Word refused
 // it: a package whose main part is macro-enabled must keep the .docm extension (and a template its .dotx).
-test('a read-only macro-enabled document downloads under its own extension', async ({ page }) => {
+function macroEnabledDocument() {
   const files = {
     '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/><Override PartName="/word/document.xml" ContentType="application/vnd.ms-word.document.macroEnabled.main+xml"/></Types>',
     '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
@@ -59,7 +59,11 @@ test('a read-only macro-enabled document downloads under its own extension', asy
   };
   const parts = Object.fromEntries(Object.entries(files).map(([name, text]) => [name, strToU8(text)]));
   parts['word/vbaProject.bin'] = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0]);
-  const buffer = Buffer.from(zipSync(parts));
+  return Buffer.from(zipSync(parts));
+}
+
+test('a read-only macro-enabled document downloads under its own extension', async ({ page }) => {
+  const buffer = macroEnabledDocument();
   await page.goto('/mock.html#/new');
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
   // Saved to this device without a name of its kind (the download of an e-mail attachment, say).
@@ -70,4 +74,23 @@ test('a read-only macro-enabled document downloads under its own extension', asy
   const download = await downloading;
   expect(download.suggestedFilename()).toBe('Budget.docm');
   expect(readFileSync(await download.path()).equals(buffer)).toBe(true);
+});
+
+// Save As writes a read-only document's own bytes: a macro-enabled package keeps .docm, as its download does.
+test('Save As of a read-only macro-enabled document keeps its .docm extension', async ({ page }) => {
+  const buffer = macroEnabledDocument();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('input[type=file][aria-label="Open DOCX file"]').setInputFiles({ name: 'Budget', mimeType: 'application/octet-stream', buffer });
+  await expect(page.getByText('Read only').first()).toBeVisible();
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await view.getByRole('tab', { name: 'Save' }).click();
+  await view.getByRole('textbox', { name: 'New file name' }).fill('Budget kept');
+  await view.getByRole('button', { name: 'Save As', exact: true }).click();
+  await expect(view.getByRole('status')).toHaveText('Saved. You are now editing the copy.');
+  const drive = await page.evaluate(() => Object.fromEntries(Object.entries(JSON.parse(sessionStorage.getItem('documents-mock-state')).fs).map(([k, f]) => [k, f.b64])));
+  expect(Object.keys(drive)).toEqual(['Documents/Budget kept.docm']);
+  expect(Buffer.from(drive['Documents/Budget kept.docm'], 'base64').equals(buffer)).toBe(true);
 });

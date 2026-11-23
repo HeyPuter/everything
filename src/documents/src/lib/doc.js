@@ -67,8 +67,8 @@ export function needsUnloadWarning(doc) {
  * A file Puter's Save dialog wrote under a name without ".docx" ("Notes", "Plan v1.2") gets it, as a word
  * processor's Save adds it. When that name is taken the file keeps the name the user gave it.
  */
-async function withDocxExtension(item) {
-  const name = `${P.displayName(item.path)}.docx`;
+async function withDocxExtension(item, extension = '.docx') {
+  const name = `${P.displayName(item.path)}${extension}`;
   const target = `${item.path.slice(0, item.path.lastIndexOf('/') + 1)}${name}`;
   try {
     if (await P.fileExists(target)) return item;
@@ -127,6 +127,11 @@ export class Doc extends EventTarget {
     /** Imported text content ({ value, type }) to build once the engine is ready. */
     this.pendingImport = pendingImport;
     this.importInfo = importInfo;
+    /**
+     * The extension of a document open read-only, as its own bytes go by (.dotx, .docm, .dotm or .docx): with nothing
+     * to export, a copy is those bytes, and Word refuses a template or macro-enabled package named .docx.
+     */
+    this.originalExtension = null;
     /** The file's bytes as opened, for the engine to read; let go once the engine has them, since every later export comes from the engine. */
     this.blob = blob;
     /** Size of the last known bytes, for the details dialog. */
@@ -167,6 +172,11 @@ export class Doc extends EventTarget {
 
   get fileName() {
     return P.ensureDocx(this.name);
+  }
+
+  /** The extension a copy of the document takes: .docx, unless it is the opened file's own bytes (originalExtension). */
+  get copyExtension() {
+    return (!this.exporter && this.originalExtension) || '.docx';
   }
 
   /** Editable .docx target; other extensions are saved as a fresh .docx. */
@@ -739,7 +749,8 @@ export class Doc extends EventTarget {
       if (!item || this._deleted) return null;
       // Puter's dialog keeps the name as typed. Without the extension ("Notes") the file would count as a source to
       // copy from, as a template does: nothing would autosave to it, and every Save would ask again.
-      if (!/\.docx$/i.test(item.path)) item = await withDocxExtension(item);
+      const extension = copy ? this.copyExtension : '.docx';
+      if (!item.path.toLowerCase().endsWith(extension)) item = await withDocxExtension(item, extension);
       // The dialog answers with a path from the home folder (~/Desktop/Report.docx) and no time stamp. The file
       // as the drive has it gives the spelling the home screen's listing uses, so its star, room and reading
       // position stay with it there, and the time stamp that arms the check for another window's writes.
@@ -782,7 +793,7 @@ export class Doc extends EventTarget {
     if (this._closed || !stillWanted()) return 'Saving a copy cancelled';
     if (this._deleted) return 'This document has been deleted';
     try {
-      return await this._placeFile(`${P.documentStem(this.name) || UNTITLED} copy.docx`, { copy: true }) ? null : '';
+      return await this._placeFile(`${P.documentStem(this.name) || UNTITLED} copy${this.copyExtension}`, { copy: true }) ? null : '';
     } catch (e) {
       return e?.message || 'Could not save';
     }
@@ -799,7 +810,7 @@ export class Doc extends EventTarget {
     if (this._deleted) return 'This document has been deleted';
     const clean = P.documentStem(newName);
     if (!clean) return 'Enter a name';
-    const target = `${P.FOLDER}/${clean}.docx`;
+    const target = `${P.FOLDER}/${clean}${this.copyExtension}`;
     try {
       if (await P.fileExists(target)) return 'A file with that name already exists';
       if (this._snapshotting) await this._snapshotting;
