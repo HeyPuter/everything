@@ -1545,6 +1545,27 @@ const SHAPE_LOCAL_NAMES = new Set([
   "cxnSp",
   "graphicFrame",
 ]);
+// Replaces in a SmartArt graphic's items, written back the way the Text
+// Pane writes them.
+export function replaceInSmartArt(shape, regex, replacement, only = null) {
+  const model = P.getShapeSmartArt(shape);
+  if (!model) return false;
+  let seen = 0;
+  let changed = false;
+  const items = model.items.map((item) => {
+    const text = item.text || "";
+    const next = text.replace(regex, (hit) => {
+      const mine = only == null || seen === only;
+      seen++;
+      return mine ? replacement : hit;
+    });
+    if (next === text) return item;
+    changed = true;
+    return { ...item, text: next };
+  });
+  if (changed) P.setShapeSmartArt(shape, { ...model, items });
+  return changed;
+}
 // Comments on objects being deleted stay where their markers were, on the
 // slide itself: the next object added could be given a deleted one's id.
 // Read before the objects go; the returned step writes the comments after.

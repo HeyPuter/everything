@@ -44,6 +44,7 @@ import {
   tableLayout,
   setSlideBounds,
   detachShapeComments,
+  replaceInSmartArt,
   slideRotation,
   ownRotation,
   carriedByGroup,
@@ -14202,27 +14203,6 @@ function smartArtItems(shape) {
   } catch {
     return [];
   }
-}
-// Replaces in a SmartArt graphic's items, written back the way the Text
-// Pane writes them.
-function replaceInSmartArt(shape, regex, replacement, only = null) {
-  const model = P.getShapeSmartArt(shape);
-  if (!model) return false;
-  let seen = 0;
-  let changed = false;
-  const items = model.items.map((item) => {
-    const text = item.text || "";
-    const next = text.replace(regex, (hit) => {
-      const mine = only == null || seen === only;
-      seen++;
-      return mine ? replacement : hit;
-    });
-    if (next === text) return item;
-    changed = true;
-    return { ...item, text: next };
-  });
-  if (changed) P.setShapeSmartArt(shape, { ...model, items });
-  return changed;
 }
 function replaceInCell(cell, regex, replacement, only = null) {
   const text = displayTableCellText(doc.pres, cell);

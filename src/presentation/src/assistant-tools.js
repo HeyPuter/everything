@@ -42,6 +42,7 @@ import {
   slideRotation,
   removeAnyShape,
   detachShapeComments,
+  replaceInSmartArt,
   pruneUnusedMedia,
   removeSlides,
   canHoldText,
@@ -576,6 +577,14 @@ function textArg(value, what = "text") {
     );
   return s;
 }
+// A SmartArt graphic's items; none for any other object.
+const smartArtItems = (shape) => {
+  try {
+    return (P.isDiagramShape(shape) && P.getShapeSmartArt(shape)?.items) || [];
+  } catch {
+    return [];
+  }
+};
 const isTable = (shape) => {
   try {
     return P.isTableShape(shape);
@@ -724,6 +733,13 @@ function describeObject(pres, shape, parents, { full = true } = {}) {
     line += `; ${t.rows}×${t.cols} table:\n${t.lines.join("\n")}`;
   } else if (kind === "chart") {
     line += "; its data cannot be read or edited here";
+  } else if (smartArtItems(shape).length) {
+    // SmartArt: its items, as the Text Pane lists them; replace_text edits
+    // them.
+    const items = smartArtItems(shape).map(
+      (item) => `${"  ".repeat(item.level || 0)}${item.text || ""}`,
+    );
+    line += `; SmartArt items:\n${clip(items.join("\n"), full ? 4000 : 160)}`;
   } else if (hasTextBody(shape)) {
     const value = displayShapeText(pres, shape);
     if (value) {
@@ -840,6 +856,10 @@ function findText(pres, args) {
               displayTableCellText(pres, P.getTableCell(s, r, c)),
             );
       } else if (hasTextBody(s)) hit(where, displayShapeText(pres, s));
+      else
+        smartArtItems(s).forEach((item, k) =>
+          hit(`${where} item ${k + 1}`, item.text || ""),
+        );
     }
     hit(
       `slide ${i + 1} speaker notes`,
@@ -1658,6 +1678,18 @@ async function replaceText(pres, args, env) {
             ...displayShapeText(pres, s).matchAll(new RegExp(source, flags)),
           ].length;
           if (hits && env.replaceIn(s, new RegExp(source, flags), replacement))
+            here += hits;
+        } else {
+          const hits = smartArtItems(s).reduce(
+            (n, item) =>
+              n +
+              [...(item.text || "").matchAll(new RegExp(source, flags))].length,
+            0,
+          );
+          if (
+            hits &&
+            replaceInSmartArt(s, new RegExp(source, flags), replacement)
+          )
             here += hits;
         }
       }
