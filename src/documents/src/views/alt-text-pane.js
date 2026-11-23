@@ -26,7 +26,9 @@ export function createPane(context) {
       el('div.pic-actions', {}, el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => save() }, 'Save'))));
   // `owner` is the object the fields describe. Selecting another object while a field still has focus
   // refreshes the pane before the field blurs, so edits are saved to their owner, never to the new selection.
-  let shown = null, owner = null, saved = null;
+  // `undecorated`: the description written before "Mark as decorative" took it away, given back when the box
+  // is cleared again (as long as the same object stays selected).
+  let shown = null, owner = null, saved = null, undecorated = null;
   const current = () => { const image = selected(); return image ? describe(image) : null; };
   async function save(image = owner) {
     if (!image) return;
@@ -42,7 +44,11 @@ export function createPane(context) {
   description.addEventListener('blur', () => save());
   title.addEventListener('blur', () => save());
   description.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); save(); } });
-  decorative.addEventListener('change', () => { description.disabled = decorative.checked; save(); });
+  decorative.addEventListener('change', () => {
+    if (decorative.checked) undecorated = description.value;
+    else if (!description.value.trim() && undecorated) { description.value = undecorated; counter.textContent = `${description.value.length} / 2000`; }
+    description.disabled = decorative.checked; save();
+  });
   node.addEventListener('keydown', e => { if (e.key === 'Escape' && !isComposing(e) && !e.defaultPrevented) { e.preventDefault(); save(); close(); } });
   function refresh() {
     const image = selected(), info = current();
@@ -50,7 +56,7 @@ export function createPane(context) {
     const key = image ? `${image.id}:${image.shell}:${image.alt}` : '';
     if (key === shown) return;
     const switched = (owner?.id ?? null) !== (image?.id ?? null);
-    if (switched) save(owner);
+    if (switched) { save(owner); undecorated = null; }
     shown = key; owner = image; saved = null;
     const disabled = !image || !info;
     for (const control of [description, title, decorative]) control.disabled = disabled;
