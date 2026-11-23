@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { P } from "../src/model.js";
+import { P, textRuns, setRichText } from "../src/model.js";
 import {
   readOutline,
   rowsFromOutline,
@@ -181,5 +181,75 @@ describe("outline model", () => {
     );
     expect(result.changed).toBe(false);
     expect(P.getSlides(pres).map(P.getSlideXmlString)).toEqual(before);
+  });
+
+  describe("keeps the formatting inside paragraphs", () => {
+    // "The quick fox" with "quick" bold, as the first body paragraph.
+    function formatted() {
+      const pres = deck();
+      const { body } = P.getSlideOutlineShapes(P.getSlides(pres)[0]);
+      const paragraphs = textRuns(pres, body);
+      const [run] = paragraphs[0].runs;
+      paragraphs[0].runs = [
+        { ...run, text: "The " },
+        { ...run, text: "quick", changes: { bold: true } },
+        { ...run, text: " fox" },
+      ];
+      setRichText(body, paragraphs);
+      return {
+        pres,
+        body: () => P.getSlideOutlineShapes(P.getSlides(pres)[0]).body,
+      };
+    }
+    const bold = (pres, shape, pi = 0) =>
+      textRuns(pres, shape)
+        [pi].runs.filter((r) => r.format.bold)
+        .map((r) => r.text)
+        .join("|");
+    const apply = (pres, edit) => {
+      const rows = rowsFromOutline(readOutline(pres));
+      const next = edit(rows) ?? rows;
+      applyOutline(pres, structureFromRows(next));
+      return rowsFromOutline(readOutline(pres)).map((r) => [r.level, r.text]);
+    };
+
+    it("when words are typed into the paragraph", () => {
+      const { pres, body } = formatted();
+      expect(bold(pres, body())).toBe("quick");
+      apply(pres, (rows) => {
+        rows[1].text = "The quick fox jumps";
+      });
+      expect(bold(pres, body())).toBe("quick");
+      apply(pres, (rows) => {
+        rows[1].text = "A quick fox jumps";
+      });
+      expect(P.getSlideBody(P.getSlides(pres)[0])).toBe(
+        "A quick fox jumps\nTwo",
+      );
+      expect(bold(pres, body())).toBe("quick");
+    });
+
+    it("when a paragraph goes in above it", () => {
+      const { pres, body } = formatted();
+      const rows = apply(pres, (rows) => splitRow(rows, 1, 0).rows);
+      expect(rows.slice(1, 4)).toEqual([
+        [1, ""],
+        [1, "The quick fox"],
+        [1, "Two"],
+      ]);
+      expect(bold(pres, body(), 1)).toBe("quick");
+    });
+
+    it("when the paragraph is split, demoted or joined", () => {
+      const { pres, body } = formatted();
+      apply(pres, (rows) => splitRow(rows, 1, "The qu".length).rows);
+      expect(bold(pres, body(), 0)).toBe("qu");
+      expect(bold(pres, body(), 1)).toBe("ick");
+      apply(pres, (rows) => mergeWithPrevious(rows, 2).rows);
+      expect(bold(pres, body())).toMatch(/^qu\|?ick$/);
+      apply(pres, (rows) => demoteRow(rows, 1).rows);
+      expect(textRuns(pres, body())[0].level).toBe(1);
+      expect(bold(pres, body()).replace("|", "")).toBe("quick");
+    });
   });
 });

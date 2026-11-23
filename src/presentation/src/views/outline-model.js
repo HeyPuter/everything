@@ -155,10 +155,63 @@ export function mergeWithPrevious(rows, i) {
   return { rows: next, focus: { row: i - 1, offset } };
 }
 
-// Writes paragraphs into a text placeholder, keeping each unchanged
-// paragraph's runs and properties, and giving a changed or new paragraph
-// the formatting of the paragraph it replaces or of its nearest neighbour
-// at the same level.
+// The runs of `paragraphs` with the text between `start` and `end` (counted
+// in their text joined by "\n") replaced by `text`, split back into
+// paragraphs at each "\n". The words outside the edit keep their runs; typed
+// words take the run they follow, or the first run at a paragraph's start.
+function spliceRuns(paragraphs, start, end, text) {
+  const spans = [];
+  let pos = 0;
+  paragraphs.forEach((p, i) => {
+    for (const run of i ? [{ text: "\n", gap: true }, ...p.runs] : p.runs) {
+      spans.push({ run, from: pos, to: pos + run.text.length });
+      pos += run.text.length;
+    }
+  });
+  const words = spans.filter((s) => !s.run.gap && s.to > s.from);
+  const host =
+    words.find((s) => s.from < start && start <= s.to) ||
+    words.find((s) => s.from >= start) ||
+    words.at(-1);
+  // What comes before the edit, the typed words, and what comes after.
+  const out = [];
+  for (const { run, from } of spans)
+    if (from < start) out.push({ run, text: run.text.slice(0, start - from) });
+  const typed = { run: host?.run || { text: "", rpr: null }, text };
+  const rest = [];
+  for (const { run, from, to } of spans)
+    if (to > end)
+      rest.push({ run, text: run.text.slice(Math.max(0, end - from)) });
+  if (out.at(-1)?.run === typed.run) out.at(-1).text += text;
+  else if (rest[0]?.run === typed.run) rest[0].text = text + rest[0].text;
+  else out.push(typed);
+  out.push(...rest);
+  // Back into paragraphs. A paragraph left without words keeps a run, empty,
+  // so its formatting goes on to what is typed there next.
+  const result = [[]];
+  for (const { run, text } of out) {
+    if (run.gap) {
+      for (const _ of text) result.push([]);
+      continue;
+    }
+    text.split("\n").forEach((piece, i) => {
+      if (i) result.push([]);
+      result.at(-1).push({ ...run, text: piece, changes: {} });
+    });
+  }
+  return result.map((runs) => {
+    const kept = runs.filter((r) => r.text);
+    return kept.length ? kept : runs.slice(0, 1);
+  });
+}
+
+// Writes paragraphs into a text placeholder. The paragraphs at either end
+// that are unchanged keep their runs and properties, and the edit between
+// them keeps the runs of the words it leaves alone: a bold word or a link
+// stays as it is when other words of its paragraph change, when the
+// paragraph is split or joined, or when a paragraph goes in above it. A new
+// paragraph with no words of its own takes the formatting of its nearest
+// neighbour at the same level.
 export function writeParagraphs(pres, shape, wanted) {
   const old = shapeParagraphs(pres, shape);
   const lists = wanted.length ? wanted : [{ text: "", level: 0 }];
@@ -170,29 +223,81 @@ export function writeParagraphs(pres, shape, wanted) {
     );
     return copy;
   };
-  const paragraphs = lists.map((p, i) => {
-    const same = old[i];
-    const text = p.text.replaceAll("\n", SOFT_BREAK);
-    if (same && runText(same) === p.text && (same.level || 0) === p.level)
-      return { ...same, runs: same.runs.map((r) => ({ ...r, changes: {} })) };
-    const model =
-      same ||
-      [...old].reverse().find((o) => (o.level || 0) === p.level) ||
-      old.at(-1);
-    const keepPpr = model && (model.level || 0) === p.level;
-    return {
-      runs: [
-        {
-          text,
-          rpr: model?.runs[0]?.rpr ? structuredClone(model.runs[0].rpr) : null,
-          changes: {},
-        },
-      ],
-      ppr: keepPpr ? model.ppr : strip(model?.ppr),
-      level: p.level,
-    };
+  const shaped = (model, level, runs) => ({
+    ...(model && (model.level || 0) === level
+      ? model
+      : { ppr: strip(model?.ppr) }),
+    runs: runs.map((r) => ({ ...r, changes: {} })),
+    level,
   });
-  setRichText(shape, paragraphs);
+  // The paragraphs whose words are unchanged at either end, matched in
+  // order. A level change keeps the words' runs.
+  const oldText = old.map(runText);
+  let head = 0;
+  while (
+    head < lists.length &&
+    head < old.length &&
+    oldText[head] === lists[head].text
+  )
+    head++;
+  let tail = 0;
+  while (
+    tail < lists.length - head &&
+    tail < old.length - head &&
+    oldText[old.length - 1 - tail] === lists[lists.length - 1 - tail].text
+  )
+    tail++;
+  const before = old.slice(head, old.length - tail);
+  const after = lists.slice(head, lists.length - tail);
+  let middle;
+  if (before.length && after.length) {
+    // The words between, edited where the old and new text differ.
+    const from = before
+      .map((p) => p.runs.map((r) => r.text).join(""))
+      .join("\n");
+    const to = after.map((p) => p.text.replaceAll("\n", SOFT_BREAK)).join("\n");
+    let start = 0;
+    while (start < from.length && from[start] === to[start]) start++;
+    let end = 0;
+    while (
+      end < from.length - start &&
+      end < to.length - start &&
+      from[from.length - 1 - end] === to[to.length - 1 - end]
+    )
+      end++;
+    const runs = spliceRuns(
+      before,
+      start,
+      from.length - end,
+      to.slice(start, to.length - end),
+    );
+    middle = after.map((p, i) =>
+      shaped(before[Math.min(i, before.length - 1)], p.level, runs[i]),
+    );
+  } else
+    middle = after.map((p) => {
+      const model =
+        [...old].reverse().find((o) => (o.level || 0) === p.level) ||
+        old.at(-1);
+      const rpr = model?.runs[0]?.rpr;
+      return shaped(model, p.level, [
+        {
+          text: p.text.replaceAll("\n", SOFT_BREAK),
+          rpr: rpr ? structuredClone(rpr) : null,
+        },
+      ]);
+    });
+  const kept = (p, i) =>
+    (old[i].level || 0) === p.level
+      ? { ...old[i], runs: old[i].runs.map((r) => ({ ...r, changes: {} })) }
+      : shaped(old[i], p.level, old[i].runs);
+  setRichText(shape, [
+    ...lists.slice(0, head).map(kept),
+    ...middle,
+    ...lists
+      .slice(lists.length - tail)
+      .map((p, i) => kept(p, old.length - tail + i)),
+  ]);
 }
 
 const titleLines = (text) =>
