@@ -13,7 +13,6 @@ import {
   detectChartType,
   isXYKind,
   sampleSpec,
-  withSeriesBack,
   switchRowColumn,
   canSwitchRowColumn,
   cleanSpec,
@@ -180,37 +179,21 @@ export function createChartTools(h) {
     };
     sheet = opened;
   }
-  // The series a change to a pie left out, by chart, for a change back.
-  const pieOthers = new Map();
   async function changeType(obj = selectedChart()) {
-    const current = specOf(obj);
-    if (!current) return;
-    const key = keyOf(obj);
-    // Only the pie they were left out of takes them back.
-    const kept = pieOthers.get(key);
-    const spec =
-      kept && kept.pie === current.series[0]?.name
-        ? withSeriesBack(current, kept.others)
-        : current;
+    const spec = specOf(obj);
+    if (!spec) return;
     const theme = h.theme();
     const choice = await chooseChartType({
       title: "Change Chart Type",
       confirm: "OK",
       spec,
-      current: detectChartType(current) || "column-clustered",
+      current: detectChartType(spec) || "column-clustered",
       theme,
       accents: themeContext(theme).accents,
       aspect: aspectOf(obj),
     });
     if (!choice) return;
-    const ok = await update(obj, () => choice.spec);
-    if (ok === false) return;
-    if (choice.spec.kind === "pie" && spec.series.length > 1)
-      pieOthers.set(key, {
-        pie: choice.spec.series[0]?.name,
-        others: spec.series.slice(1),
-      });
-    else pieOthers.delete(key);
+    await update(obj, () => choice.spec);
   }
   function aspectOf(obj) {
     try {

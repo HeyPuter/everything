@@ -1088,15 +1088,16 @@ const buildLineChart = (
   return elem(c("lineChart"), { children });
 };
 
+// A pie plots its first series. Any others stay in the chart, as native
+// files keep them after a change to a pie, so a change back plots them again.
 const buildPieChart = (spec: ChartSpec, sheet: string): XmlElement => {
-  if (spec.series.length !== 1) {
-    throw new Error("pie chart requires exactly one series");
+  if (spec.series.length === 0) {
+    throw new Error("pie chart requires at least one series");
   }
-  const ser = seriesElement(spec, 0, sheet);
   const dl = dLblsElement(spec);
   const children: XmlElement[] = [
     valNode(c("varyColors"), "1"),
-    ser,
+    ...spec.series.map((_, i) => seriesElement(spec, i, sheet)),
     ...(dl ? [dl] : []),
   ];
   if (spec.firstSliceAngleDeg !== undefined) {

@@ -205,6 +205,8 @@ test("a chart changed to a pie and back gets its other series again", async ({
   };
   await change("Pie", "Pie");
   await expect.poll(async () => (await download(page)).spec.kind).toBe("pie");
+  // The saved pie keeps them, so they come back after a reopen too.
+  expect((await download(page)).spec.series).toHaveLength(3);
   await change("Column", "Clustered Column");
   await expect
     .poll(async () => (await download(page)).spec.kind)

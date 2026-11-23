@@ -51,8 +51,10 @@ export function chartElements(spec) {
       label: vertical ? "Horizontal Gridlines" : "Vertical Gridlines",
     });
   }
-  spec.series.forEach((s, i) =>
-    list.push({ id: `series:${i}`, label: `Series "${s.name || i + 1}"` }),
+  // A pie plots its first series only.
+  (spec.kind === "pie" ? spec.series.slice(0, 1) : spec.series).forEach(
+    (s, i) =>
+      list.push({ id: `series:${i}`, label: `Series "${s.name || i + 1}"` }),
   );
   return list;
 }

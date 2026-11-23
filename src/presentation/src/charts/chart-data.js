@@ -169,7 +169,7 @@ export const CHART_TYPES = [
     family: "pie",
     label: "Doughnut",
     apply: (spec) => ({
-      ...single({ ...spec, kind: "doughnut" }, true),
+      ...single({ ...spec, kind: "doughnut" }),
       holeSizePct: spec.holeSizePct ?? 50,
     }),
   },
@@ -401,17 +401,17 @@ function withKinds(spec, choices) {
     }),
   };
 }
-const single = (spec, keepAll = false) => {
+// A pie plots its first series and a doughnut rings them all. A pie keeps
+// the others, unplotted, so a change back plots them again.
+const single = (spec) => {
   const cat = toCategories(spec);
   const stripped = stripFor(cat, spec.kind);
-  const series = cat.series.map((s) =>
-    withoutLineOnlyFields(stripSeries(s, spec.kind)),
-  );
   return {
     ...stripped,
     kind: spec.kind,
-    // A pie shows one series; a doughnut may ring several.
-    series: keepAll ? series : series.slice(0, 1),
+    series: cat.series.map((s) =>
+      withoutLineOnlyFields(stripSeries(s, spec.kind)),
+    ),
   };
 };
 
@@ -659,27 +659,6 @@ export function convertChart(spec, typeId) {
   if (!type) return spec;
   return cleanSpec(withBarDefaults(spec, type.apply(spec)));
 }
-// A pie plots one series, so a chart changed to a pie leaves its others
-// out. Kept aside, they come back with a change to a type that plots them
-// all: this is the pie with them again (as long as its categories), to
-// convert from. Converting it to a pie leaves them out once more.
-export function withSeriesBack(spec, others) {
-  if (spec?.kind !== "pie" || !others?.length) return spec;
-  const n = Math.max(
-    spec.categories.length,
-    spec.series[0]?.values.length || 0,
-  );
-  return {
-    ...spec,
-    series: [
-      ...spec.series,
-      ...others.map((s) => ({
-        ...s,
-        values: Array.from({ length: n }, (_, i) => s.values[i] ?? null),
-      })),
-    ],
-  };
-}
 // Custom combinations: the kind and axis of each series, by index.
 export function comboSpec(spec, choices) {
   return cleanSpec(withBarDefaults(spec, withKinds(spec, choices)));
@@ -818,8 +797,6 @@ export function gridToSpec(grid, spec) {
             .slice(0, 1)
             .map((s) => ({ ...s, values: categories.map(() => null) })),
     };
-    // A pie shows its first series only.
-    if (spec.kind === "pie") out.series = out.series.slice(0, 1);
     if (
       out.categoryNumberFormat !== undefined &&
       !categories.every((c) => c.trim() === "" || Number.isFinite(Number(c)))
