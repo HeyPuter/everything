@@ -707,6 +707,44 @@ test("a picture the album can't use is left out, not the whole album", async ({
   );
 });
 
+// A JPEG photo turned black and white was redrawn as a PNG, many times its
+// size in the file (a 400 KB photo took 2.9 MB).
+test("a black and white album keeps its JPEG photos as JPEGs", async ({
+  page,
+}) => {
+  await start(page);
+  const jpeg = Buffer.from(
+    await page.evaluate(async () => {
+      const c = document.createElement("canvas");
+      c.width = 640;
+      c.height = 480;
+      const g = c.getContext("2d");
+      for (let i = 0; i < 600; i++) {
+        g.fillStyle = `hsl(${i % 360},60%,50%)`;
+        g.fillRect((i * 37) % 640, (i * 53) % 480, 40, 30);
+      }
+      const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+      return [...new Uint8Array(await blob.arrayBuffer())];
+    }),
+  );
+  await command(page, "photo-album");
+  const dialog = page.getByRole("dialog", { name: "Photo Album" });
+  await choose(
+    page,
+    () => dialog.getByRole("button", { name: "Add Pictures…" }).click(),
+    [{ name: "photo.jpg", mimeType: "image/jpeg", buffer: jpeg }],
+  );
+  await dialog.getByLabel("All pictures black and white").check();
+  await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(page.locator(".slide-item")).toHaveCount(3);
+  const { files } = await download(page);
+  const media = Object.keys(files).filter((n) => n.startsWith("ppt/media/"));
+  expect(media).toHaveLength(1);
+  expect(media[0]).toMatch(/\.jpe?g$/);
+  expect([...files[media[0]].subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  expect(files[media[0]].length).toBeLessThan(jpeg.length * 2);
+});
+
 test("objects are embedded as packages and handed back on opening", async ({
   page,
 }) => {
