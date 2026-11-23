@@ -12353,6 +12353,14 @@ function editText(target, event = null, { inserted = null } = {}) {
     }
     close();
   });
+  // A press in the text puts the caret where it lands, not back where the
+  // selection was before a control took the focus.
+  input.addEventListener("pointerdown", () => {
+    if (suspended) {
+      suspended = false;
+      saved = null;
+    }
+  });
   input.addEventListener("focus", () => {
     if (suspended) {
       suspended = false;

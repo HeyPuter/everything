@@ -270,3 +270,19 @@ test("a text box set to resize to fit its text follows the text", async ({
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(height).toBeCloseTo(oneLine, 0);
 });
+
+test("a click in the text after using the ribbon puts the caret there", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "One two three");
+  await pressKey(page, "Shift+ArrowLeft", 5);
+  // A ribbon tab takes the focus and leaves the editor waiting.
+  await page.getByRole("tab", { name: "Insert", exact: true }).click();
+  await expect(editor).toBeVisible();
+  const box = await editor.locator("[data-run]").first().boundingBox();
+  await page.mouse.click(box.x + 1, box.y + box.height / 2);
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("X");
+  // The text is typed where clicked; "three", selected before, stays.
+  await expect(editor).toHaveText("XOne two three");
+});
