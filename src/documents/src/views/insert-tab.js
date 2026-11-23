@@ -271,7 +271,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const pages = engine.pages, band = el('div.insert-draw-band', { hidden: true });
     const hint = el('div.insert-draw-hint', { role: 'status' }, `${label}: drag on the page to draw it, or click for the default size. Esc cancels.`);
     document.body.append(band, hint);
-    pages.classList.add('is-drawing-shape');
+    pages.classList.add('is-drawing-shape'); engine.host.classList.add('is-drawing-shape');
     let start = null;
     const rectOf = (a, b) => ({ left: Math.min(a.clientX, b.clientX), top: Math.min(a.clientY, b.clientY), width: Math.abs(a.clientX - b.clientX), height: Math.abs(a.clientY - b.clientY) });
     const down = e => {
@@ -295,7 +295,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     };
     const key = e => { if (e.key === 'Escape' && !isComposing(e)) { e.preventDefault(); e.stopPropagation(); cancelDrawing(); engine.focus(); } };
     pages.addEventListener('pointerdown', down, true); pages.addEventListener('pointermove', move, true); pages.addEventListener('pointerup', up, true); window.addEventListener('keydown', key, true);
-    drawing = { stop() { pages.removeEventListener('pointerdown', down, true); pages.removeEventListener('pointermove', move, true); pages.removeEventListener('pointerup', up, true); window.removeEventListener('keydown', key, true); pages.classList.remove('is-drawing-shape'); band.remove(); hint.remove(); } };
+    drawing = { stop() { pages.removeEventListener('pointerdown', down, true); pages.removeEventListener('pointermove', move, true); pages.removeEventListener('pointerup', up, true); window.removeEventListener('keydown', key, true); pages.classList.remove('is-drawing-shape'); engine.host.classList.remove('is-drawing-shape'); band.remove(); hint.remove(); } };
   }
   /** Insert a preset: at the caret with its default size, or in the rectangle drawn on a page. */
   function insertShapeAt(preset, rect = null) {
