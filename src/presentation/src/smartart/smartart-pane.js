@@ -179,6 +179,24 @@ export function openTextPane({
     ) {
       e.preventDefault();
       change(joinWithPrevious(items, i));
+    } else if (
+      e.key === "Backspace" &&
+      i === 0 &&
+      !input.value &&
+      items.length > 1
+    ) {
+      // An empty first item goes, as any other empty item does.
+      e.preventDefault();
+      change({ items: items.slice(1), index: 0, caret: 0 });
+    } else if (
+      e.key === "Delete" &&
+      caret === input.value.length &&
+      input.selectionEnd === caret &&
+      i < items.length - 1
+    ) {
+      // Delete at the end of an item brings the next one up to join it.
+      e.preventDefault();
+      change(joinWithPrevious(items, i + 1));
     } else if (e.key === "ArrowUp" && i > 0) {
       e.preventDefault();
       focusItem(i - 1);

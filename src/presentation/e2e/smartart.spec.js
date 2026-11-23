@@ -139,6 +139,34 @@ test("a click on the sample text in the item being typed in chooses all of it", 
   await expect(first).toHaveValue("Plan");
 });
 
+test("Backspace takes away an empty first item, and Delete joins the next item on", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  const inputs = page.locator(".smartart-outline-input");
+  const count = await inputs.count();
+  await expect(inputs.first()).toBeFocused();
+  await page.keyboard.type("Plan");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.type("Build");
+  await inputs.first().click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await expect(inputs).toHaveCount(count - 1);
+  await expect(inputs.first()).toHaveValue("Build");
+  await expect(inputs.first()).toBeFocused();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Delete");
+  await expect(inputs).toHaveCount(count - 2);
+  await expect(inputs.first()).toHaveValue("Build[Text]");
+  await page.waitForTimeout(600);
+  const { model } = await download(page);
+  expect(model.items[0].text).toBe("Build[Text]");
+  expect(model.items).toHaveLength(count - 2);
+});
+
 test("SmartArt Design adds and moves shapes, and changes layout, colors and style", async ({
   page,
 }) => {
