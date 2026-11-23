@@ -106,6 +106,7 @@ button {
 /* Main regions receive focus after screen changes and from the skip link;
    they are not controls, so the next Tab press shows focus instead. */
 #main:focus,
+#view-host:focus,
 #inspector:focus {
   outline: none;
 }

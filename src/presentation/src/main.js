@@ -3551,7 +3551,7 @@ function renderEditor() {
           ),
           // Slide Sorter and Notes Page take the place of the panes, and of
           // their main landmark (hidden with them).
-          el("main", { id: "view-host", class: "view-host" }),
+          el("main", { id: "view-host", class: "view-host", tabindex: -1 }),
           el("aside", {
             class: "inspector",
             id: "inspector",
@@ -7134,7 +7134,12 @@ function disableControl(node, disabled, fallback) {
   node.disabled = disabled;
   if (disabled && focused) fallback()?.focus({ preventScroll: true });
 }
-const workspace = () => document.querySelector("#main");
+// The main region on show: the slide with its panes, or Slide Sorter or
+// Notes Page in their place.
+const workspace = () => {
+  const host = document.querySelector("#view-host");
+  return host?.getClientRects().length ? host : document.querySelector("#main");
+};
 // The ribbon shows the selected object's text format and enables what
 // applies to the selection; it follows every change of either.
 let ribbonSync = 0;
