@@ -3,7 +3,18 @@
  * "Export comments" and "Import comments" write and read), and a plain-text comment summary.
  */
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
-import { PDFArray, PDFDict, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFObjectCopier,
+  PDFParser,
+  PDFRef,
+  PDFString,
+} from 'pdf-lib';
 import { annotationList, annotationsOf } from './structure.js';
 import { POPUP_FLAGS, parsePdfDate } from './notes.js';
 import {
@@ -551,6 +562,59 @@ export function decodeXfdf(bytes) {
   }
 }
 
+/** Whether these bytes are an FDF file, the PDF-syntax comments file Acrobat also exports. */
+const isFdf = (bytes) =>
+  bytes instanceof Uint8Array &&
+  String.fromCharCode(...bytes.subarray(0, 1024))
+    .trimStart()
+    .startsWith('%FDF-');
+
+/**
+ * The comments of an FDF file as XFDF, with how many it holds that no page could take. FDF
+ * writes each comment as the PDF dictionary it is, numbering its page (Page); they are put on
+ * the pages of a scratch PDF and written out as XFDF, so both files are imported the same way.
+ */
+async function fdfAsXfdf(bytes) {
+  const copy = bytes.slice();
+  // The same syntax under a PDF header, which the parser looks for.
+  const at = String.fromCharCode(...copy.subarray(0, 1024)).indexOf('%FDF-');
+  copy[at + 1] = 0x50;
+  let context;
+  try {
+    const parser = PDFParser.forBytesWithOptions(copy, Infinity, false, false);
+    await parser.parseDocument();
+    context = parser.context;
+  } catch {
+    throw new Error('This comments file could not be read.');
+  }
+  const root = context.lookup(context.trailerInfo.Root);
+  const fdf = root instanceof PDFDict ? root.lookup(PDFName.of('FDF')) : null;
+  const annots = fdf instanceof PDFDict ? fdf.lookup(PDFName.of('Annots')) : null;
+  if (!(fdf instanceof PDFDict)) throw new Error('This comments file could not be read.');
+  const scratch = await PDFDocument.create();
+  const copier = PDFObjectCopier.for(context, scratch.context);
+  let skipped = 0;
+  const entries = annots instanceof PDFArray ? annots.asArray() : [];
+  if (entries.length > MAX_XFDF_ANNOTATIONS)
+    throw new Error('This comments file has too many comments to import.');
+  for (const entry of entries) {
+    const dict = context.lookup(entry);
+    const page = dict instanceof PDFDict ? dict.lookup(PDFName.of('Page'))?.asNumber?.() : null;
+    if (!Number.isInteger(page) || page < 0 || page > 9999) {
+      skipped++;
+      continue;
+    }
+    while (scratch.getPageCount() <= page) scratch.addPage();
+    const ref =
+      entry instanceof PDFRef ? copier.copy(entry) : scratch.context.register(copier.copy(dict));
+    const own = scratch.context.lookup(ref);
+    own.delete(PDFName.of('Page'));
+    own.set(PDFName.of('P'), scratch.getPage(page).ref);
+    annotationList(scratch.getPage(page)).push(ref);
+  }
+  return { xfdf: exportXfdf(scratch), skipped };
+}
+
 /**
  * Add the comments in an XFDF file (its text, or its bytes) to their pages, drawing each one's
  * appearance. Comments whose name a page already has are skipped, so importing the same file
@@ -560,6 +624,13 @@ export function decodeXfdf(bytes) {
 export async function importXfdf(doc, xfdf) {
   if (xfdf instanceof Uint8Array && xfdf.length > MAX_XFDF_SIZE)
     throw new Error('This comments file is too large to import.');
+  // An FDF file (Acrobat's other comments file) is read as the XFDF it amounts to.
+  if (isFdf(xfdf)) {
+    const { xfdf: converted, skipped } = await fdfAsXfdf(xfdf);
+    const result = await importXfdf(doc, converted);
+    result.skipped += skipped;
+    return result;
+  }
   const source = xfdf instanceof Uint8Array ? decodeXfdf(xfdf) : String(xfdf ?? '');
   if (source.length > MAX_XFDF_SIZE) throw new Error('This comments file is too large to import.');
   const unreadable = () => new Error('This comments file could not be read.');

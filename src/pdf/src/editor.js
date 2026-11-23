@@ -11917,7 +11917,10 @@ export function createEditor({
   }
   function importComments() {
     requireAccess('annotate');
-    const input = el('input', { type: 'file', accept: '.xfdf,application/vnd.adobe.xfdf,.xml' });
+    const input = el('input', {
+      type: 'file',
+      accept: '.xfdf,application/vnd.adobe.xfdf,.xml,.fdf,application/vnd.fdf',
+    });
     input.onchange = safe(async () => {
       const file = input.files?.[0];
       if (!file) return;
