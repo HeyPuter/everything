@@ -1945,7 +1945,12 @@ export async function fillFields(doc, values) {
   for (const field of changedFields) {
     const text = changedText.get(field) ?? '';
     const font = await embedFont(doc, 'regular', text);
-    assertSupportedText(font, text);
+    try {
+      assertSupportedText(font, text);
+    } catch (error) {
+      // The field with the character, for the page to point at it and not at every change.
+      throw Object.assign(error, { field: formFieldName(field) });
+    }
     fonts.set(field, font);
   }
   for (const { field, labels, options } of changedChoices) {
