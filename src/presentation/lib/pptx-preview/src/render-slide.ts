@@ -715,23 +715,9 @@ const renderPicture = (
       // starting from the alignment corner plus the offsets.
       const tw = Math.max(EMU_PER_PX, natural.w * EMU_PER_PX * fillMode.scaleX);
       const th = Math.max(EMU_PER_PX, natural.h * EMU_PER_PX * fillMode.scaleY);
-      const al = fillMode.align;
-      const ox =
-        x +
-        fillMode.offsetX +
-        (al.endsWith("r")
-          ? w - tw
-          : al === "t" || al === "b" || al === "ctr"
-            ? (w - tw) / 2
-            : 0);
-      const oy =
-        y +
-        fillMode.offsetY +
-        (al.startsWith("b")
-          ? h - th
-          : al === "l" || al === "r" || al === "ctr"
-            ? (h - th) / 2
-            : 0);
+      const [ax, ay] = rectAlignment(fillMode.align);
+      const ox = x + fillMode.offsetX + (w - tw) * ax;
+      const oy = y + fillMode.offsetY + (h - th) * ay;
       const mirrorX = fillMode.mirror === "x" || fillMode.mirror === "xy";
       const mirrorY = fillMode.mirror === "y" || fillMode.mirror === "xy";
       const cell = (fx: boolean, fy: boolean, dx: number, dy: number) =>

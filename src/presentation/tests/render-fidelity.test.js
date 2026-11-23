@@ -198,3 +198,41 @@ describe("shadows", () => {
     expect(f).toBeCloseTo(144 - 1.2 * 144 + off, 2);
   });
 });
+
+describe("tiled picture fills", () => {
+  const tiled = (align) => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const s = P.addSlideShape(slide, {
+      preset: "rect",
+      x: IN(1),
+      y: IN(1),
+      w: IN(2),
+      h: IN(1),
+    });
+    P.setShapeImageFill(s, geometryImage);
+    P.setShapeImageFillMode(s, {
+      mode: "tile",
+      offsetX: 0,
+      offsetY: 0,
+      scaleX: 10,
+      scaleY: 10,
+      align,
+      mirror: "none",
+    });
+    const svg = renderSlideToSvg(pres, slide, { textLayout: "svg" });
+    return /<pattern [^>]*x="([\d.]+)" y="([\d.]+)"/
+      .exec(svg)
+      .slice(1)
+      .map(Number);
+  };
+  // A 2px picture at 1000% is a 20px tile in a 192 x 96px box at (96, 96).
+  it.each([
+    ["tl", 96, 96],
+    ["ctr", 96 + 86, 96 + 38],
+    ["r", 96 + 172, 96 + 38],
+    ["b", 96 + 86, 96 + 76],
+  ])("lines the tiles up from the %s point", (align, x, y) => {
+    expect(tiled(align)).toEqual([x, y]);
+  });
+});
