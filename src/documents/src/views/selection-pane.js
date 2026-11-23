@@ -152,5 +152,5 @@ export function createPane(context) {
     showAll.disabled = hideAll.disabled = !items.length || !ready();
     if (focused) list.querySelector(`li[data-id="${focused}"] .pic-selection-name`)?.focus();
   }
-  return { node, refresh: () => refresh(), show: () => queueMicrotask(() => list.querySelector('.pic-selection-name[aria-current="true"], .pic-selection-name')?.focus()), close: () => node.remove() };
+  return { node, refresh: () => refresh(), show: () => { refresh(); queueMicrotask(() => list.querySelector('.pic-selection-name[aria-current="true"], .pic-selection-name')?.focus()); }, close: () => node.remove() };
 }
