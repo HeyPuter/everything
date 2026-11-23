@@ -13576,6 +13576,9 @@ export function createEditor({
       const { createOcrEngine } = await import('./ocr-engine.js');
       const { pageNeedsOcr, addOcrTextLayer } = await import('./core/ocr.js');
       ocrEngine ??= createOcrEngine();
+      // Pages that have text are passed over; a long document of them showed no progress at
+      // all while they were looked through.
+      if (skipText) progress.textContent = 'Looking for pages without text…';
       for (const [k, index] of pages.entries()) {
         controller.signal.throwIfAborted();
         const page = await thisPdf.getPage(index + 1);
@@ -13583,6 +13586,7 @@ export function createEditor({
           const content = await page.getTextContent({ includeMarkedContent: true });
           if (!pageNeedsOcr(content, userArea(page))) {
             skipped++;
+            bar.value = (k + 1) / pages.length;
             continue;
           }
         }

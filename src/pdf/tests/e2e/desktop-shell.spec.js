@@ -1585,6 +1585,49 @@ test('Scan & OCR skips a page with text whatever its unit size', async ({ page }
   });
 });
 
+// A long document whose pages all had text showed "Starting text recognition…" and an empty
+// bar while each page was looked through.
+test('Scan & OCR shows its progress through pages that already have text', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  for (let i = 0; i < 6; i++)
+    doc.addPage([306, 396]).drawText(`PLAN ${i + 1}`, { x: 40, y: 200, size: 40, font });
+  await openPdf(page, doc);
+  // Every value the progress bar takes, and every word it says, while the dialog is open.
+  await page.evaluate(() => {
+    window.ocrProgress = { values: [], words: [] };
+    new MutationObserver(() => {
+      const dialog = [...document.querySelectorAll('dialog[open]')].find((node) =>
+        node.textContent.startsWith('Recognizing text'),
+      );
+      const bar = dialog?.querySelector('progress');
+      if (!bar) return;
+      window.ocrProgress.values.push(bar.value);
+      window.ocrProgress.words.push(dialog.querySelector('[role="status"]').textContent);
+    }).observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+  });
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Scan & OCR', exact: true }).click();
+  await pane.getByRole('button', { name: 'In this file…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Recognize text' })
+    .getByRole('button', { name: 'Recognize text' })
+    .click();
+  await expect(page.getByText('These pages already have text', { exact: false })).toBeVisible({
+    timeout: 120000,
+  });
+  const { values, words } = await page.evaluate(() => window.ocrProgress);
+  // The bar moves on with the pages looked through (the last step closes the dialog).
+  expect(Math.max(...values)).toBeGreaterThan(0.5);
+  expect(words).toContain('Looking for pages without text…');
+});
+
 test('Batch process applies the same steps to several PDFs', async ({ page }) => {
   await openPdf(page, await numberedPdf(2));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
