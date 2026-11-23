@@ -95,10 +95,8 @@ export function createWordCommands({ editor, pkg, error, zoomControl, fitWidth, 
   const commands = {
     growFont(direction, step = null) {
       const engine = ready(); if (!engine) return;
-      const size = engine.model.runCommandFormatting.fontSize;
-      if (size === null || size === undefined) return;
-      const next = step ? size + direction * step : stepFontSize(size, direction);
-      engine.setFontSize(Math.max(1, Math.min(MAX_FONT_SIZE, next)));
+      // Each size in a selection of several steps from its own.
+      engine.stepFontSize(size => Math.max(1, Math.min(MAX_FONT_SIZE, step ? size + direction * step : stepFontSize(size, direction))));
     },
     // Replace goes to its own field once there is something to find; with Find empty it starts there.
     openReplace() { openFind(); queueMicrotask(() => { if (document.querySelector('.canvas-find input[aria-label="Find text"]')?.value) document.querySelector('.canvas-find input[aria-label="Replace with"]')?.focus(); }); },

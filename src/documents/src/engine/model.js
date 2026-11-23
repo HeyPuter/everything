@@ -2125,6 +2125,52 @@ export class TextDocument {
   }
   setFontSize(fontSize) { return this.setRunFormat({ fontSize, fontSizeCs: fontSize }); }
   /**
+   * Increase or Decrease Font Size: `next(size)` is the size a step from `size`. A selection of several sizes steps
+   * each stretch from its own size, as Word does, keeping the differences between them; with no one size to step
+   * from, the command did nothing.
+   */
+  stepFontSize(next) {
+    const pass = this.blockCellPass(() => this.stepFontSize(next));
+    if (pass !== undefined) return pass;
+    const size = this.runCommandFormatting.fontSize, [start, end] = this.textFormattingRange;
+    if (size !== null && size !== undefined) return this.setFontSize(next(size));
+    if (start === end) return false;
+    // Stretches of one size within each paragraph.
+    const stretches = [], first = this.locate(start);
+    let at = start - first.offset;
+    for (let i = first.index; i < this.paragraphs.length && at <= end; i++) {
+      let last = null;
+      for (const run of this.paragraphs[i].runs) {
+        const a = Math.max(start, at), b = Math.min(end, at + run.text.length), runSize = commandRunFormat(run).fontSize;
+        if (a < b) {
+          if (last && last.size === runSize && last.end === a) last.end = b;
+          else stretches.push(last = { start: a, end: b, size: runSize });
+        }
+        at += run.text.length;
+      }
+      at++;
+    }
+    const selection = { ...this.selection }, cellBlock = this.cellBlock, own = Object.hasOwn(this, 'checkpoint') ? this.checkpoint : null;
+    let changed = false;
+    // One undo step for them all.
+    this.checkpoint();
+    this.checkpoint = () => {};
+    try {
+      // Only formatting changes: each stretch's paragraph is found from the paragraphs' starts (withFixedText).
+      this.withFixedText(() => {
+        for (const stretch of stretches) {
+          this.selection = { anchor: stretch.start, focus: stretch.end }; this.cellBlock = null;
+          if (this.setFontSize(next(stretch.size))) changed = true;
+        }
+      });
+    } finally {
+      if (own) this.checkpoint = own; else delete this.checkpoint;
+      this.selection = selection; this.cellBlock = cellBlock;
+    }
+    if (!changed) this.history.pop();
+    return changed;
+  }
+  /**
    * `mark: false` formats the selected text alone. Formatting that belongs to the text itself (a link's look,
    * a pasted run) must not reach the paragraph mark, which a list label and the next paragraph take their format from.
    */

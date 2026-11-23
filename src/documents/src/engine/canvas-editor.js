@@ -681,6 +681,8 @@ export class CanvasEditor {
   toggleBold() { this.execute(() => this.model.toggleBold()); this.focus(); }
   setRunFormat(patch) { this.execute(() => this.model.setRunFormat(patch)); this.focus(); }
   setFontSize(size) { this.execute(() => this.model.setFontSize(size)); this.focus(); }
+  /** Increase or Decrease Font Size: each size in the selection takes `next(size)` (model.stepFontSize). */
+  stepFontSize(next) { this.execute(() => this.model.stepFontSize(next)); this.focus(); }
   toggleItalic() { this.execute(() => this.model.toggleItalic()); this.focus(); }
   toggleUnderline() { this.execute(() => this.model.toggleUnderline()); this.focus(); }
   clearDirectTextFormatting() { this.finishComposition(); const ok = this.execute(() => this.model.clearDirectTextFormatting()); this.focus(); return ok; }

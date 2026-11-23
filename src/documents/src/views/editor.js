@@ -1452,11 +1452,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const styles = engine?.model.paragraphStyles || [];
     return styles.find(s => !s.error && String(s.name || '').toLowerCase() === wanted) || styles.find(s => !s.error && s.id.toLowerCase() === wanted.replace(' ', ''));
   };
-  const stepSize = dir => {
-    const size = engine.model.runCommandFormatting.fontSize;
-    if (size === null || size === undefined) return;
-    engine.setFontSize(Math.min(MAX_FONT_SIZE, stepFontSize(size, dir)));
-  };
+  const stepSize = dir => engine.stepFontSize(size => Math.min(MAX_FONT_SIZE, stepFontSize(size, dir)));
   // The conventional word-processor formatting chords, beyond the engine's own (Cmd+B, I, U, Z, Y, A,
   // K, J and Cmd+Space). Each goes through the toolbar's control, so a command disabled for this selection stays
   // inert, and only while the keyboard is in the document: the same keys mean other things in a field.
