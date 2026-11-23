@@ -567,8 +567,9 @@ export async function readPage(pdf, page, { images, signal, layers } = {}) {
     }
     if (!item.str.trim() || run?.hidden) continue;
     const m = mul(view, item.transform);
-    const size = Math.hypot(m[2], m[3]),
-      scaleX = Math.hypot(m[0], m[1]);
+    // The size is the glyphs' height across the baseline, which a slant leaves unchanged.
+    const scaleX = Math.hypot(m[0], m[1]),
+      size = Math.abs(m[0] * m[3] - m[1] * m[2]) / scaleX;
     if (!(size > 0.5) || !(scaleX > 0)) continue;
     const font = fontFor(item.fontName);
     const ascent =
@@ -580,15 +581,18 @@ export async function readPage(pdf, page, { images, signal, layers } = {}) {
         ? Math.min(0.4, -font.style.descent)
         : 0.2;
     const width = item.width;
+    // A level baseline is upright text even when slanted: writers make an italic for a font
+    // that has none by leaning its glyphs forward (m[2] > 0 with y down) about 12 to 20 degrees.
     const upright =
-      Math.abs(m[1]) < 0.02 * scaleX && Math.abs(m[2]) < 0.02 * size && m[0] > 0 && m[3] < 0;
+      Math.abs(m[1]) < 0.02 * scaleX && Math.abs(m[2]) < 0.6 * -m[3] && m[0] > 0 && m[3] < 0;
+    const slanted = upright && m[2] > 0.1 * -m[3];
     const mode = run?.mode ?? 0;
     const span = {
       text: item.str,
       size,
       font: font.family,
       bold: font.bold || mode === 2 || mode === 6,
-      italic: font.italic,
+      italic: font.italic || slanted,
       symbolic: font.symbolic,
       color: (mode === 1 || mode === 5 ? run?.stroke : run?.fill) || '000000',
       invisible: mode === 3 || mode === 7,

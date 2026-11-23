@@ -1272,3 +1272,30 @@ it('keeps the running heads of each page in rich text exports', async () => {
     await loading.destroy();
   }
 });
+
+it('keeps slanted (synthetic italic) text on its line, in italics', async () => {
+  // Word and other writers slant a font that has no italic face with the text matrix.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  page.drawText('•', { x: 72, y: 700, size: 12, font, ySkew: degrees(18) });
+  page.drawText('First item of the list', { x: 108, y: 700, size: 12, font, ySkew: degrees(18) });
+  page.drawText('Second item of the list', { x: 108, y: 680, size: 12, font });
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const slanted = await loading.promise;
+  try {
+    const out = await exportDocument(slanted, bytes, 'txt');
+    expect(new TextDecoder().decode(out.bytes)).toMatch(/^•\s+First item of the list\n/);
+    const docx = checkPackage(await unzip((await exportDocument(slanted, bytes, 'docx')).bytes));
+    const runs = elements(docx['word/document.xml'], 'w:r');
+    const runOf = (start) => runs.find((r) => r.textContent.startsWith(start));
+    expect(elements(runOf('First'), 'w:i')).toHaveLength(1);
+    expect(elements(runOf('Second'), 'w:i')).toHaveLength(0);
+    // The size is the glyphs' height, not stretched by the slant.
+    const size = (run) => elements(run, 'w:sz')[0]?.getAttribute('w:val');
+    expect(size(runOf('First'))).toBe(size(runOf('Second')));
+  } finally {
+    await loading.destroy();
+  }
+});
