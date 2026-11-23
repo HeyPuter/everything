@@ -435,3 +435,23 @@ test('the Height box shows a row breaking across pages by its height on its firs
   expect(row.rule).toBe('atLeast');
   expect(Math.abs(row.value - Math.round((Number(firstPart.toFixed(2)) + 0.01) * 1440))).toBeLessThan(2);
 });
+
+test('typing in a table that AutoFits to the window keeps its columns’ proportions while the text fits', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Insert Table' });
+  await dialog.getByLabel('Number of columns').fill('3'); await dialog.getByLabel('Number of rows').fill('2');
+  await dialog.getByLabel('AutoFit to window').check();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  const widths = () => page.evaluate(() => { const e = window.__docs.current.view.engine, t = e.model.tables[0]; return t.rows[0].cells.map(c => Math.round(e.selectionLayout.cells.find(b => b.id === c.id).width)); });
+  const before = await widths();
+  await page.keyboard.type('x');
+  expect(await widths()).toEqual(before);
+  await page.keyboard.press('Tab'); await page.keyboard.type('a few short words');
+  expect(await widths()).toEqual(before);
+  // The columns share the window in percent (w:tcW pct).
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.tables[0].rows[0].cells.map(c => c.width.type))).toEqual(['pct', 'pct', 'pct']);
+});

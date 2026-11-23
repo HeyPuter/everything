@@ -583,6 +583,22 @@ describe('table commands', () => {
     expect(doc.tables[0].width).toEqual({ type: 'pct', value: 5000 });
   });
 
+  it('AutoFit to window gives each column its share of the table in percent, and merges keep the shares', async () => {
+    const { pkg, doc } = tableDocument(2, 3);
+    T.autofitTable(doc, 'window', { widths: [2000, 4000, 4000] });
+    const table = doc.tables[0];
+    expect(table.rows[0].cells.map(cell => cell.width)).toEqual([{ type: 'pct', value: 1000 }, { type: 'pct', value: 2000 }, { type: 'pct', value: 2000 }]);
+    const { xml, reopened } = await roundTrip(pkg, doc);
+    expect(xml).toContain('<w:tcW w:type="pct" w:w="1000"/>');
+    expect(reopened.tables[0].rows[1].cells.map(cell => cell.width.value)).toEqual([1000, 2000, 2000]);
+    block(doc, 0, 1, 0, 3); T.mergeBlock(doc);
+    expect(table.rows[0].cells.map(cell => cell.width)).toEqual([{ type: 'pct', value: 1000 }, { type: 'pct', value: 4000 }]);
+    // Deleting a column shares the window among the columns left.
+    at(doc, 1, 0); T.deleteColumns(doc);
+    expect(table.rows[1].cells.map(cell => cell.width.value)).toEqual([2500, 2500]);
+    valid(doc);
+  });
+
   it('sets text direction, alignment, wrap and preferred cell width and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 0, 0, 0, 2);
@@ -961,9 +977,9 @@ describe('inserting columns into an AutoFit table', () => {
       expect(table.grid).toHaveLength(4);
       // The new column is as wide as the one it follows; the others keep their widths.
       expect(table.grid).toEqual([3120, 3120, 3120, 3120]);
-      // The table stays AutoFit to the window: the cells keep automatic widths.
+      // The table stays AutoFit to the window: the cells share it in percent, a quarter each now.
       expect([table.layout, table.width]).toEqual(['autofit', { type: 'pct', value: 5000 }]);
-      expect(tableCells(table).every(cell => cell.width?.type === 'auto')).toBe(true);
+      expect(tableCells(table).every(cell => cell.width?.type === 'pct' && cell.width.value === 1250)).toBe(true);
       const { xml } = await roundTrip(pkg, doc);
       expect(xml).not.toContain('<w:gridCol w:w="0"/>');
     }

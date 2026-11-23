@@ -5,7 +5,7 @@
 // reads the change flags it leaves (`gridChanged`, `spanChanged`...), and
 // layout and painting simply follow the model.
 import { tableModelInternals as M, paragraph, paragraphText, locate } from './model.js';
-import { tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, rowGrid, spanWidth, cellContext, documentBlocks } from './tables.js';
+import { tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, rowGrid, spanWidth, cellContext, documentBlocks, windowShared, windowShares } from './tables.js';
 import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements, blockRowRange, blockColumnRange, wholeRows } from './table-selection.js';
 import { resolveStyledParagraph } from './styles.js';
 import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
@@ -197,6 +197,7 @@ export function insertColumns(model, { left = false, count = null, widths: measu
     if (rowIndex === block.top) selected = added[0].id;
   });
   setGrid(table, grid, { fixed: !automatic });
+  if (automatic && windowShared(table) && grid.every(w => w > 0)) windowShares(table, grid);
   M.applyTableContent(model, table, state);
   validate(model);
   if (selected) model.selectCell(selected);
@@ -267,6 +268,7 @@ export function deleteColumns(model, { widths: measured } = {}) {
   }
   for (const row of table.rows) row.cells = row.cells.filter(cell => !removed.has(cell.id));
   setGrid(table, automatic ? widths : integerWidths(widths), { fixed: !automatic });
+  if (automatic && windowShared(table) && widths.every(w => w > 0)) windowShares(table, widths);
   M.applyTableContent(model, table, state);
   validate(model);
   selectOwner(model, table, block.top, Math.min(column, table.grid.length - 1));
@@ -426,7 +428,10 @@ export function mergeBlock(model) {
   if (placements.length < 2) throw new Error('Select two or more cells to merge.');
   requireAligned(table, block);
   const owner = placements[0].cell, span = block.right - block.left;
-  const width = table.layout === 'fixed' ? { type: 'dxa', value: Math.round(spanWidth(fixedColumnWidths(table, model.sectionWritingWidth), block.left, span)) } : { type: 'auto', value: 0 };
+  const top = cellsInRow(table.rows[block.top], block.left, block.right);
+  // A merged cell of a table sharing the window (AutoFit to window) takes the share of the cells it joins.
+  const width = table.layout === 'fixed' ? { type: 'dxa', value: Math.round(spanWidth(fixedColumnWidths(table, model.sectionWritingWidth), block.left, span)) }
+    : top.length && top.every(c => c.cell.width?.type === 'pct') ? { type: 'pct', value: sum(top.map(c => c.cell.width.value)) } : { type: 'auto', value: 0 };
   if (width.value > MAX_WIDTH) throw new Error('The merged cell would be wider than 22 inches.');
   const state = M.tableContent(model, table);
   model.checkpoint();
@@ -781,14 +786,17 @@ export function fixColumnWidths(model, { widths: measured } = {}) {
 }
 
 /** AutoFit to contents or window, for the selected table (not only the caret's innermost one). */
-export function autofitTable(model, mode) {
+export function autofitTable(model, mode, { widths: measured } = {}) {
   const table = requireBlock(model).table;
   if (!['contents', 'window'].includes(mode)) throw new Error('Choose AutoFit to contents or window.');
   model.checkpoint();
   table.layout = 'autofit'; table.layoutChanged = true;
   table.width = mode === 'window' ? { type: 'pct', value: 5000 } : { type: 'auto', value: 0 }; table.widthChanged = true;
-  for (const cell of tableCells(table)) if (cell.width?.type !== 'auto') { cell.width = { type: 'auto', value: 0 }; cell.widthChanged = true; }
-  for (const row of table.rows) for (const side of ['Before', 'After']) if (row[`grid${side}`] && row[`width${side}`]?.type !== 'auto') { row[`width${side}`] = { type: 'auto', value: 0 }; row[`width${side}Changed`] = true; }
+  if (mode === 'window') windowShares(table, columnWidths(model, table, measured));
+  else {
+    for (const cell of tableCells(table)) if (cell.width?.type !== 'auto') { cell.width = { type: 'auto', value: 0 }; cell.widthChanged = true; }
+    for (const row of table.rows) for (const side of ['Before', 'After']) if (row[`grid${side}`] && row[`width${side}`]?.type !== 'auto') { row[`width${side}`] = { type: 'auto', value: 0 }; row[`width${side}Changed`] = true; }
+  }
   // Fitting the contents may widen a column past its old grid width: the grid stops being a cap.
   if (mode === 'contents' && table.grid.some(w => w)) { table.grid = table.grid.map(() => 0); table.gridChanged = true; }
   model.didChange(); return true;
@@ -1188,7 +1196,8 @@ function applyAutofit(table, autofit) {
   if (autofit === 'fixed' || !autofit) return;
   table.layout = 'autofit';
   table.width = autofit === 'window' ? { type: 'pct', value: 5000 } : { type: 'auto', value: 0 };
-  for (const cell of tableCells(table)) cell.width = { type: 'auto', value: 0 };
+  if (autofit === 'window') windowShares(table, table.grid);
+  else for (const cell of tableCells(table)) cell.width = { type: 'auto', value: 0 };
 }
 
 /**

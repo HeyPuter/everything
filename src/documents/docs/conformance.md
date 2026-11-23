@@ -23700,7 +23700,11 @@ shells. Supported authoring subset:
 - Column resizing (border drags, Width spinner, Distribute Columns, Fixed
   Column Width, the resize handle) writes a fixed `w:tblLayout` with matching
   grid and `w:tcW` values; AutoFit Contents/Window writes `w:tblLayout`
-  autofit, `w:tblW` auto or 5000 pct, and automatic cell widths. Dragging the
+  autofit and `w:tblW` auto or 5000 pct. AutoFit to Contents writes automatic
+  cell widths; AutoFit to Window writes each column's share of the table as
+  `w:tcW` pct (and `w:wBefore`/`w:wAfter` pct), as Word does, so the columns
+  keep their proportions while typed text fits. Inserting, deleting and merging
+  in such a table share the window again among its columns. Dragging the
   table's right edge (on the page or the ruler) or its resize handle sets
   `w:tblW` (§17.4.63) to the columns' total in twips, also for a table that was
   a percentage of the window, as the Width spinner does; a pct width would

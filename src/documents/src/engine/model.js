@@ -40,7 +40,7 @@ import { checkedCharacterSpacing } from './character-spacing.js';
 import { checkedHighlight, checkedShading, cellShadingFill } from './backgrounds.js';
 import { checkedVerticalAlign, checkedBaselineShift } from './vertical-align.js';
 import { normalizeColor } from './colors.js';
-import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, documentBlocks, cellSpan, rowGrid, spanWidth } from './tables.js';
+import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, documentBlocks, cellSpan, rowGrid, spanWidth, windowShared, windowShares } from './tables.js';
 import { normalizeCellBlock, cellBlockPlacements } from './table-selection.js';
 import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, resolveCharacterRun, paragraphRunStyle } from './styles.js';
 import { emptyNumbering, hasListLevel, hasNumberingDefinition, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
@@ -1502,6 +1502,8 @@ export class TextDocument {
       if (row === context.row) selected = cell.id;
     }
     table.grid = grid; table.gridChanged = true;
+    // A table sharing the window in percent (AutoFit to window) shares it among its columns again.
+    if (automatic && windowShared(table) && grid.every(w => w > 0)) windowShares(table, grid);
     if (!automatic) { setCellWidths(table, grid); table.width = { type: 'dxa', value: total }; table.widthChanged = true; }
     applyTableContent(this, table, state);
     this.selectCell(selected); this.didChange(); return true;

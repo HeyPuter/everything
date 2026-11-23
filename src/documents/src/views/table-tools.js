@@ -119,7 +119,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
       m.insertTable(rows, columns, available);
       const table = m.tableContext.table;
       if (width) T.setColumnWidths(m, table, Array(columns).fill(Math.round(width * 1440)), { layout: 'fixed' });
-      if (autofit !== 'fixed') T.autofitTable(m, autofit);
+      if (autofit !== 'fixed') T.autofitTable(m, autofit, { widths: table.grid });
       return true;
     });
   }
@@ -313,7 +313,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     mergeCells: () => withTable(m => T.mergeBlock(m)),
     splitCells: splitCellsDialog,
     splitTable: () => withTable(m => T.splitTable(m)),
-    autofit: mode => withTable((m, b, engine) => mode === 'fixed' ? T.fixColumnWidths(m, { widths: widthsOf(engine, b.table) }) : T.autofitTable(m, mode)),
+    autofit: mode => withTable((m, b, engine) => mode === 'fixed' ? T.fixColumnWidths(m, { widths: widthsOf(engine, b.table) }) : T.autofitTable(m, mode, { widths: widthsOf(engine, b.table) })),
     distributeRows: () => withTable((m, b, engine) => T.distributeRows(m, { heights: rowHeightsOf(engine, b.table) })),
     distributeColumns: () => withTable((m, b, engine) => T.distributeColumns(m, { widths: widthsOf(engine, b.table) })),
     align: (vertical, horizontal) => withTable(m => T.setCellAlignment(m, { vertical, horizontal })),
