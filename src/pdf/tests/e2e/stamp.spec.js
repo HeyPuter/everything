@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { inspectPaths } from '../../src/core/path-edit.js';
+import { inspectPaths, pathColorHex } from '../../src/core/path-edit.js';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
 async function mockPuter(page) {
@@ -264,4 +264,39 @@ test('custom stamp text and color are validated and used', async ({ page }) => {
   const paths = inspectPaths(await exported(page), 0);
   expect(paths).toHaveLength(1);
   expect(paths[0]).toMatchObject({ filled: true, stroked: true });
+});
+
+// A stamp's letters are filled and outlined in one color. A new fill color left the outline in
+// the old one, a rim of red or green around the recolored letters; so did a new opacity.
+test('a new color or opacity for a stamp recolors its letters and their outline alike', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await openPdf(page, doc);
+  await menu(page, 'Stamp…');
+  const dialog = page.getByRole('dialog', { name: 'Add stamp' });
+  await dialog.getByRole('button', { name: 'Place stamp', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const fill = page.getByLabel('Stamp fill color', { exact: true });
+  await fill.evaluate((input) => {
+    input.value = '#0033cc';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(page.getByLabel('Stamp stroke color', { exact: true })).toHaveValue('#0033cc');
+  await settled(page);
+  const opacity = page.getByLabel('Stamp stroke opacity in percent', { exact: true });
+  await opacity.fill('40');
+  await opacity.press('Enter');
+  await expect(page.getByLabel('Stamp fill opacity in percent', { exact: true })).toHaveValue('40');
+  await settled(page);
+  const [stamp] = inspectPaths(await exported(page), 0);
+  expect(pathColorHex(stamp.state.fill)).toBe('#0033cc');
+  expect(pathColorHex(stamp.state.stroke)).toBe('#0033cc');
+  expect(stamp.state.alpha).toBeCloseTo(0.4, 5);
+  expect(stamp.state.strokeAlpha).toBeCloseTo(0.4, 5);
 });

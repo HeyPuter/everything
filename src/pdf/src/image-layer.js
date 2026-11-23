@@ -627,6 +627,13 @@ export function createImageLayer({
     if (selected.kind && selected.kind !== 'image') {
       const panel = properties.querySelector('.image-edit-panel'),
         styles = el('div', { class: 'path-style-controls' });
+      // A stamp's lettering and frame are filled and outlined in one color, which thickens them;
+      // while both still match, a new color or opacity for either is given to both, or the
+      // letters would keep a rim of the old color.
+      const stamp = selected.kind === 'stamp' && selected.filled && selected.stroked,
+        sameColor =
+          stamp && pathColorHex(selected.state.fill) === pathColorHex(selected.state.stroke),
+        sameOpacity = stamp && Math.abs(selected.state.alpha - selected.state.strokeAlpha) < 1e-6;
       for (const [key, painted] of [
         ['fill', selected.filled],
         ['stroke', selected.stroked],
@@ -650,7 +657,12 @@ export function createImageLayer({
             value: pathColorHex(selected.state[key]),
             'aria-label': `${title()} ${key} color`,
           });
-          input.onchange = safe(() => finish(false, { [key]: input.value }));
+          input.onchange = safe(() =>
+            finish(
+              false,
+              sameColor ? { fill: input.value, stroke: input.value } : { [key]: input.value },
+            ),
+          );
           const alpha = selected.state[key === 'fill' ? 'alpha' : 'strokeAlpha'];
           const opacity = el('input', {
             type: 'number',
@@ -663,11 +675,16 @@ export function createImageLayer({
             'aria-label': `${title()} ${key} opacity in percent`,
             title: `${key === 'fill' ? 'Fill' : 'Stroke'} opacity`,
           });
-          opacity.onchange = safe(() =>
-            opacity.value.trim() && opacity.reportValidity()
-              ? finish(false, { [`${key}Opacity`]: Number(opacity.value) / 100 })
-              : undefined,
-          );
+          opacity.onchange = safe(() => {
+            if (!opacity.value.trim() || !opacity.reportValidity()) return;
+            const value = Number(opacity.value) / 100;
+            return finish(
+              false,
+              sameOpacity
+                ? { fillOpacity: value, strokeOpacity: value }
+                : { [`${key}Opacity`]: value },
+            );
+          });
           row.append(input, el('label', {}, opacity, '%'));
         }
         styles.append(row);
