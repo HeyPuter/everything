@@ -932,6 +932,11 @@
   .organize-thumb canvas {
     outline: 1px solid CanvasText;
   }
+  /* Drawn as a background, which forced colors paint over with the canvas. */
+  .appbar-sep,
+  .organize-sep {
+    background: CanvasText;
+  }
 }
 @media print {
   .tools-pane,

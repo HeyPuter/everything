@@ -2671,6 +2671,10 @@ kbd {
   .paper {
     forced-color-adjust: none;
   }
+  /* The dividers are drawn as a background, which forced colors paint over with the canvas. */
+  .menu-sep {
+    background: CanvasText;
+  }
 }
 
 /* PDF.js text metrics and page rotation must track the rendered viewport. */
