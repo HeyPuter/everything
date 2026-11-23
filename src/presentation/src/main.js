@@ -62,6 +62,7 @@ import {
   displayTableCellText,
   shapeTextFields,
   tableTextFields,
+  storedTableCellEdits,
   retainTextFields,
   fieldFormattingRange,
   firstTextElement,
@@ -14114,12 +14115,27 @@ function replaceInCell(cell, regex, replacement, only = null) {
   if (edits.text === text) return false;
   // The rest of the cell keeps its formatting; a field showing a value other
   // than its own text has the cell's text replaced as a whole.
-  try {
-    P.editTableCellText(cell, ranges, edits.text);
-  } catch {
+  if (!editCellText(cell, ranges, edits.text))
     P.setTableCellText(cell, edits.text, { fields: edits.fields });
-  }
   return true;
+}
+// Applies edits made to a cell's text as shown, keeping the formatting and
+// equations of the text they leave alone. A field showing a value other than
+// its saved text (a date) is counted at its saved length. Whether the edits
+// applied.
+function editCellText(cell, edits, text) {
+  try {
+    P.editTableCellText(cell, edits, text);
+    return true;
+  } catch {}
+  const stored = storedTableCellEdits(doc.pres, cell, edits, text);
+  if (!stored) return false;
+  try {
+    P.editTableCellText(cell, stored.edits, stored.text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function replaceMatch(all) {
@@ -14436,15 +14452,12 @@ function editTableCell(target, row, col) {
       if (next !== value)
         mutateShape(obj, (obj) => {
           const cell = P.getTableCell(obj, row, col);
-          try {
-            P.editTableCellText(cell, history.edits(), next);
-          } catch {
-            // Edits that do not fit the cell's own text (a field showing a
-            // value other than its own) replace the text as a whole.
+          if (!editCellText(cell, history.edits(), next))
+            // Edits that reach into a field showing a value other than its
+            // own replace the text as a whole.
             P.setTableCellText(cell, next, {
               fields: fieldEdits?.fields || [],
             });
-          }
         });
       // The next cell opens at once, so typing carries straight on while the
       // last cell's text is still being written.

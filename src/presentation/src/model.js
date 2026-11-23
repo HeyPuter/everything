@@ -1724,6 +1724,44 @@ export function tableTextFields(pres, cell, { normalizeNewlines = true } = {}) {
   });
   return fields;
 }
+// Edits made to a cell's text as shown, carried over to the text the cell
+// stores, where a field that shows another value than its own (a date
+// saved on another day) holds its saved text: { edits, text }, the edits
+// and the text they end at. Null when an edit reaches into such a field.
+export function storedTableCellEdits(pres, cell, edits, text) {
+  const raw = P.getTableCellParagraphs(cell);
+  const shown = tableTextFields(pres, cell);
+  let k = 0;
+  const fields = [];
+  raw.forEach((p) =>
+    p.elements.forEach((e) => {
+      if (e.kind !== "fld") return;
+      const field = shown[k++];
+      const stored = (e.text || "").replace(/\r\n?/g, "\n");
+      if (field) fields.push({ ...field, stored });
+    }),
+  );
+  const mapped = [];
+  for (const { start, end, text: typed } of edits) {
+    // Words typed at either edge of a field stay outside it.
+    if (fields.some((f) => start < f.end && end > f.start)) return null;
+    if (fields.some((f) => start > f.start && start < f.end)) return null;
+    const offset = fields
+      .filter((f) => f.end <= start)
+      .reduce((n, f) => n + f.stored.length - (f.end - f.start), 0);
+    mapped.push({ start: start + offset, end: end + offset, text: typed });
+    const grow = typed.length - (end - start);
+    for (const f of fields)
+      if (f.start >= end) {
+        f.start += grow;
+        f.end += grow;
+      }
+  }
+  let stored = text;
+  for (const f of [...fields].reverse())
+    stored = stored.slice(0, f.start) + f.stored + stored.slice(f.end);
+  return { edits: mapped, text: stored };
+}
 export function retainTextFields(paragraphs, fields, source = []) {
   if (!fields.length) return paragraphs;
   // A pending formatting write may have completed while the control stayed
