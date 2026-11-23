@@ -56,11 +56,38 @@ export function createPaneHost({ onChange = () => {} } = {}) {
     if (!pane) return;
     title.textContent =
       typeof pane.title === "function" ? pane.title() : pane.title;
-    tools.replaceChildren(...(pane.tools?.() || []));
     // What had the focus, to give it back after the redraw.
     const active = document.activeElement;
+    const inPane = keepFocus && active !== node && node.contains(active);
+    const tool = inPane && tools.contains(active) ? active : null;
+    tools.replaceChildren(...(pane.tools?.() || []));
+    // A tool button drawn again (a filter just chosen from its menu) keeps
+    // the focus.
+    if (tool && !tool.isConnected) {
+      const label = tool.getAttribute("aria-label");
+      const again =
+        label &&
+        [...tools.querySelectorAll("button")].find(
+          (b) => b.getAttribute("aria-label") === label,
+        );
+      (again || node).focus({ preventScroll: true });
+    }
     const key =
-      keepFocus && node.contains(active) ? active?.dataset?.focusKey : null;
+      inPane && body.contains(active) ? active?.dataset?.focusKey : null;
+    // A control inside a keyed item (a comment's Resolve or options button)
+    // falls back to its item, and an item that is gone (a comment deleted, an
+    // issue fixed) to the one that takes its place in the list.
+    const item =
+      inPane && body.contains(active)
+        ? active.closest("[data-focus-key]")
+        : null;
+    const kind = (k) => k.split(":")[0];
+    const sameKind = (k) =>
+      [...body.querySelectorAll("[data-focus-key]")].filter(
+        (n) => kind(n.dataset.focusKey) === kind(k),
+      );
+    const place = item ? sameKind(item.dataset.focusKey).indexOf(item) : -1;
+    const strayed = inPane && body.contains(active);
     const field =
       key && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")
         ? {
@@ -84,6 +111,18 @@ export function createPaneHost({ onChange = () => {} } = {}) {
         }
         again.focus({ preventScroll: true });
       }
+    }
+    // Whatever had the focus is gone with the redraw: it stays in the pane
+    // rather than dropping out of the page.
+    if (strayed && !node.contains(document.activeElement)) {
+      const itemKey = item?.dataset.focusKey;
+      const others = itemKey ? sameKind(itemKey) : [];
+      const again =
+        (itemKey &&
+          body.querySelector(`[data-focus-key="${CSS.escape(itemKey)}"]`)) ||
+        others[Math.min(place, others.length - 1)] ||
+        node;
+      again.focus({ preventScroll: true });
     }
   }
   // On a phone the pane is a sheet across the screen. A page wider than the

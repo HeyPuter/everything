@@ -821,6 +821,8 @@ export function createComments(env, host) {
             {
               class: "btn icon-btn comment-resolve",
               disabled: env.blocksEdits() || null,
+              // Resolving keeps the focus here, on Reopen.
+              "data-focus-key": `resolve:${t.id}`,
             },
           ),
         iconButton(
@@ -847,6 +849,7 @@ export function createComments(env, host) {
       {
         class: `comment-thread ${active ? "active" : ""} ${resolved ? "resolved" : ""}`,
         "data-thread-id": t.id,
+        "data-focus-key": `thread:${t.id}`,
         tabindex: -1,
         "aria-label": `Comment by ${t.author.name || "unknown"}${resolved ? ", resolved" : ""}${t.replies.length ? `, ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}`,
         onclick: (e) => {

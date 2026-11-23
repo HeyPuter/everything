@@ -93,3 +93,69 @@ test("Slide Sorter and Notes Page are the page's main landmark", async ({
     expect(violations, label).toEqual([]);
   }
 });
+
+// Resolving or deleting a comment redraws the Comments pane; the keyboard
+// stays in the pane, on what took the pressed control's place, instead of
+// dropping out of the page.
+test("the Comments pane keeps the keyboard when a comment is resolved or deleted", async ({
+  page,
+}) => {
+  const MOD = process.platform === "darwin" ? "Meta" : "Control";
+  await mockPuter(page);
+  await story(page);
+  const pane = page.locator("#review-pane");
+  await page.locator(".object-hit").first().click();
+  await page.keyboard.press(`${MOD}+Shift+M`);
+  for (const text of ["First note", "Second note"]) {
+    if (text !== "First note")
+      await pane.getByRole("button", { name: "New comment" }).click();
+    await pane.getByRole("textbox", { name: "New comment" }).fill(text);
+    await pane.getByRole("button", { name: "Post", exact: true }).click();
+    if (text === "First note") {
+      await page.getByRole("textbox", { name: "Your name" }).fill("Ada");
+      await page.getByRole("button", { name: "Continue" }).click();
+    }
+    await expect(pane.getByText(text)).toBeVisible();
+  }
+  const threads = pane.locator(".comment-thread");
+  await expect(threads).toHaveCount(2);
+  const first = threads.first();
+  await first.getByRole("textbox", { name: "Reply" }).fill("A reply");
+  await first.getByRole("textbox", { name: "Reply" }).press(`${MOD}+Enter`);
+  await expect(first.locator(".comment-reply")).toHaveCount(1);
+  const choose = async (button, item) => {
+    await button.focus();
+    await page.keyboard.press("Enter");
+    await page.locator('[role^="menuitem"]', { hasText: item }).first().focus();
+    await page.keyboard.press("Enter");
+  };
+  // A reply deleted: its comment has the focus.
+  await choose(
+    first.getByRole("button", { name: "Reply options" }),
+    "Delete Reply",
+  );
+  await expect(first.locator(".comment-reply")).toHaveCount(0);
+  await expect(threads.first()).toBeFocused();
+  // Resolved: the focus is on Reopen, to take it back.
+  await threads.first().getByRole("button", { name: "Resolve thread" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    threads.first().getByRole("button", { name: "Reopen thread" }),
+  ).toBeFocused();
+  // A comment deleted: the one after it has the focus.
+  await choose(
+    threads.first().getByRole("button", { name: "Comment options" }),
+    "Delete Thread",
+  );
+  await expect(threads).toHaveCount(1);
+  await expect(threads.first()).toBeFocused();
+  await expect(threads.first()).toContainText("Second note");
+  // A filter chosen: its button keeps the focus.
+  await choose(
+    pane.getByRole("button", { name: "Filter comments" }),
+    "Open comments",
+  );
+  await expect(
+    pane.getByRole("button", { name: "Filter comments" }),
+  ).toBeFocused();
+});
