@@ -1175,8 +1175,8 @@ export function createEditor({
       pending.kind === 'note'
         ? notes.find((note) => note.id === id) || notes[pending.noteOrdinal]
         : highlights.find((highlight) => highlight.id === id);
-    // A read-only markup has no edit controls on its page, so it is shown there, not selected.
-    if (!entry || (pending.kind !== 'note' && entry.readOnly)) return;
+    // A read-only markup is selected to be read, without its edit controls.
+    if (!entry) return;
     // Navigation or an earlier draft can take time. Keep a newer focus choice while
     // still selecting the requested comment. A draft may focus the overlay or rebuild
     // the comments list, restoring focus to the same comment's replacement button.
@@ -4092,6 +4092,8 @@ export function createEditor({
   /** The Delete and Backspace keys delete a markup, as they delete other comments. */
   const deleteHighlightKey = (entry) => (e) => {
     if (!['Delete', 'Backspace'].includes(e.key) || e.repeat || !access().annotate) return;
+    // A locked or read-only markup stays, as its absent Delete button says.
+    if (entry.readOnly) return;
     e.preventDefault();
     const control = e.currentTarget;
     safe(() => deleteHighlight(entry, control))();
@@ -4102,8 +4104,9 @@ export function createEditor({
     properties.clear('highlight');
     if (tool !== 'select' || !viewport) return;
     for (const entry of highlights) {
-      if (entry.readOnly) continue;
       const label = MARKUP_KINDS[entry.kind].label;
+      // A locked or read-only markup opens to be read, with its thread, as a locked note does.
+      const editable = !entry.readOnly && access().annotate;
       entry.quads.forEach((quad, i) => {
         const points = [];
         for (let j = 0; j < 8; j += 2)
@@ -4117,10 +4120,9 @@ export function createEditor({
         const target = el('button', {
           class: 'highlight-target',
           type: 'button',
-          'aria-label': `Edit ${label}${entry.text ? ': ' + entry.text.slice(0, 80) : ''}${i ? ` (part ${i + 1})` : ''}`,
+          'aria-label': `${editable ? 'Edit' : 'Read'} ${label}${entry.text ? ': ' + entry.text.slice(0, 80) : ''}${i ? ` (part ${i + 1})` : ''}`,
           'aria-pressed': selectedHighlight?.id === entry.id,
           'data-highlight-id': entry.id,
-          disabled: !access().annotate,
           onkeydown: deleteHighlightKey(entry),
           onclick: safe(() =>
             selectionProperties(async () => {
@@ -4151,10 +4153,11 @@ export function createEditor({
         highlightTargets.append(target);
       });
     }
-    if (!selectedHighlight || !access().annotate) return;
+    if (!selectedHighlight) return;
     const entry = selectedHighlight,
       label = MARKUP_KINDS[entry.kind].label,
       Label = label[0].toUpperCase() + label.slice(1);
+    const editable = !entry.readOnly && access().annotate;
     const picker = el('input', {
       type: 'color',
       value: entry.hex,
@@ -4200,15 +4203,20 @@ export function createEditor({
     });
     const panel = el(
       'div',
-      { class: 'highlight-edit-panel', role: 'group', 'aria-label': `Edit ${label}` },
-      picker,
-      button(
-        `Delete ${label}`,
-        'Trash2',
-        safe((e) => deleteHighlight(entry, e.currentTarget)),
-        'text-btn',
-        { 'data-markup-mutation': '' },
-      ),
+      {
+        class: 'highlight-edit-panel',
+        role: 'group',
+        'aria-label': `${editable ? 'Edit' : 'Read'} ${label}`,
+      },
+      editable && picker,
+      editable &&
+        button(
+          `Delete ${label}`,
+          'Trash2',
+          safe((e) => deleteHighlight(entry, e.currentTarget)),
+          'text-btn',
+          { 'data-markup-mutation': '' },
+        ),
       iconButton(`Close ${label} editor`, 'X', closeHighlightEditor),
     );
     // Its replies and review status, as every other comment shows them.
