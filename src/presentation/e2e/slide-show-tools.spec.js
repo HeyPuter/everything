@@ -291,9 +291,11 @@ test("presenter view shows notes, the next slide and a timer, with an audience w
   await audience.keyboard.press("b");
   await expect(audience.locator(".show-audience")).toHaveClass(/blank/);
   await audience.keyboard.press("b");
+  await expect(d.getByRole("button", { name: "One window" })).toBeVisible();
   // Closing it brings the slide back to this window.
   await audience.close();
   await expect(d.locator(".show-mirror")).toHaveCount(0);
+  await expect(swap).toBeVisible();
   await expect(
     d.locator(".presenter-slide-area .presenter-frame .presenter-slide"),
   ).toBeVisible();

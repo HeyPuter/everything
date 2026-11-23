@@ -797,8 +797,17 @@ export function createShowSession(ctx, show) {
       dispose: () => disposers.forEach((f) => f()),
     };
   }
+  // Its label says what a press does, also once the audience's window has
+  // been closed from that window.
+  let audienceButton = null;
+  function syncAudienceButton() {
+    if (audienceButton)
+      audienceButton.firstChild.textContent = audience
+        ? "One window"
+        : "Audience window";
+  }
   function audienceToggle() {
-    const b = el(
+    audienceButton = el(
       "button",
       {
         type: "button",
@@ -818,14 +827,12 @@ export function createShowSession(ctx, show) {
                 "The browser blocked the audience window. Allow pop-ups for this site to use a second screen.",
               );
           }
-          b.firstChild.textContent = audience
-            ? "One window"
-            : "Audience window";
         },
       },
-      el("span", {}, options.audience ? "One window" : "Audience window"),
+      el("span", {}),
     );
-    return b;
+    syncAudienceButton();
+    return audienceButton;
   }
 
   // The slide moves to the audience's window; the presenter keeps a copy.
@@ -888,6 +895,7 @@ export function createShowSession(ctx, show) {
     };
     requestAnimationFrame(fit);
     setTimeout(fit, 100);
+    syncAudienceButton();
   }
   function detachAudience({ closing = false } = {}) {
     if (!audience) return;
@@ -899,6 +907,7 @@ export function createShowSession(ctx, show) {
     stage.prepend(slideArea);
     subtitles.moveTo(stage);
     if (!closing) current.dispose();
+    syncAudienceButton();
     applyZoom();
     show.fit();
     requestAnimationFrame(() => show.fit());
