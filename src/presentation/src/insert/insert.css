@@ -81,11 +81,14 @@
   border-color: var(--accent);
   color: var(--accent-ink);
 }
+.icon-grid,
+.icon-empty {
+  height: min(46dvh, 380px);
+}
 .icon-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
   gap: 6px;
-  height: min(46dvh, 380px);
   overflow-y: auto;
   align-content: start;
   padding: 2px;

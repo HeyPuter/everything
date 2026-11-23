@@ -104,6 +104,11 @@ export function createIconFeatures(ctx) {
       "aria-multiselectable": single ? "false" : "true",
       "aria-label": "Icons",
     });
+    const empty = el(
+      "p",
+      { class: "icon-empty", hidden: true },
+      "No icons match your search.",
+    );
     const count = el("span", { class: "icon-count", role: "status" });
     const chips = el("div", {
       class: "icon-categories",
@@ -145,10 +150,10 @@ export function createIconFeatures(ctx) {
           .slice(0, LIMIT)
           .map((n) => iconCell(n, icons[n], chosen.has(n), toggle)),
       );
-      if (!shown.length)
-        grid.append(
-          el("p", { class: "icon-empty" }, "No icons match your search."),
-        );
+      // No icons: the list gives way to a message, which a list of options
+      // cannot hold.
+      grid.hidden = !shown.length;
+      empty.hidden = !!shown.length;
       // Tab reaches the icons once, at the first; the arrow keys move on.
       const first = grid.querySelector(".icon-cell");
       if (first) first.tabIndex = 0;
@@ -244,6 +249,7 @@ export function createIconFeatures(ctx) {
       search,
       chips,
       grid,
+      empty,
       el(
         "div",
         { class: "icon-footer" },
