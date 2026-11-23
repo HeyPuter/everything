@@ -189,8 +189,10 @@ export function writeInlineField(doc, { field, existing = null, runs }) {
   if (existing) {
     field = existing.field; start = existing.start;
     doc.select(existing.start, existing.end);
+    // replaceResult keeps the tracked insertion or deletion the old result had: a citation a reviewer inserted is
+    // still an insertion after a refresh, and Reject All removes it.
     if (existing.start === existing.end) { if (text) doc.replaceUntracked(text, { checkpoint: false }); }
-    else if (text) doc.replaceUntracked(text, { checkpoint: false });
+    else if (text) doc.replaceResult(text, { checkpoint: false });
     else throw new Error('A generated inline result cannot be empty.');
   } else {
     if (!text) throw new Error('A generated inline result cannot be empty.');
