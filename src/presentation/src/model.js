@@ -85,6 +85,11 @@ export const cleanName = (
     .slice(0, maxLength)
     .replace(/[\uD800-\uDBFF]$/, "")
     .trimEnd() || "Untitled presentation";
+// A name for a file inside a ZIP archive the app makes: unzipped on Windows,
+// a name holding any of these characters cannot be written, and the
+// archive fails to extract.
+export const archiveEntryName = (name) =>
+  String(name).replace(/[<>:"|?*]/g, "_");
 const box = (x, y, w, h) => ({
   x: P.inches(x),
   y: P.inches(y),

@@ -208,6 +208,24 @@ test("exports slides as PNG pictures in a ZIP and the current slide as JPEG", as
   expect([...jpeg.bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
 });
 
+test("names the pictures in a ZIP so that it unzips on Windows too", async ({
+  page,
+}) => {
+  await start(page);
+  const zip = await exportAs(page, "PNG pictures", async (dialog) => {
+    await dialog
+      .getByRole("textbox", { name: "File name" })
+      .fill('Q3: "Plan" <draft>?');
+    await dialog.getByRole("combobox", { name: "Size" }).selectOption("1280");
+  });
+  expect(Object.keys(unzipSync(zip.bytes))).toEqual([
+    "Q3_ _Plan_ _draft__ - Slide 1.png",
+    "Q3_ _Plan_ _draft__ - Slide 2.png",
+    "Q3_ _Plan_ _draft__ - Slide 3.png",
+    "Q3_ _Plan_ _draft__ - Slide 5.png",
+  ]);
+});
+
 test("exports the show as a WebM video that plays for the show's length", async ({
   page,
 }) => {

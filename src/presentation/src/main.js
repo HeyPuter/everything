@@ -85,6 +85,7 @@ import {
   restoreDeck,
   History,
   cleanName,
+  archiveEntryName,
 } from "./model.js";
 import * as cloud from "./cloud.js";
 import {
@@ -3220,8 +3221,11 @@ async function exportImages(all) {
   for (const [i, s] of slides.entries()) {
     const blob = await rasterizeSlide(target.pres, s, target.previews);
     if (doc !== target) return;
-    files[`${name} - Slide ${String(i + 1).padStart(digits, "0")}.png`] =
-      new Uint8Array(await blob.arrayBuffer());
+    files[
+      archiveEntryName(
+        `${name} - Slide ${String(i + 1).padStart(digits, "0")}.png`,
+      )
+    ] = new Uint8Array(await blob.arrayBuffer());
   }
   const zip = zipSync(files, { level: 0 });
   await cloud.downloadBlob(

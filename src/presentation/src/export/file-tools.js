@@ -5,6 +5,7 @@
 import "./export.css";
 import { zipSync, strToU8 } from "fflate";
 import { el } from "../ui.js";
+import { archiveEntryName } from "../model.js";
 import {
   openModal,
   selectField,
@@ -681,7 +682,9 @@ export function createFileTools(ctx) {
         const files = {};
         for (const [i, blob] of blobs.entries())
           files[
-            `${fileBase} - Slide ${String(slides[i].number).padStart(digits, "0")}.${ext}`
+            archiveEntryName(
+              `${fileBase} - Slide ${String(slides[i].number).padStart(digits, "0")}.${ext}`,
+            )
           ] = new Uint8Array(await blob.arrayBuffer());
         return ctx.download(
           new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }),
