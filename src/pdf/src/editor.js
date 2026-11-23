@@ -5066,6 +5066,12 @@ export function createEditor({
       operation.closed = linkDialog(initial, link, (dialog) => (operation.dialog = dialog));
       const choice = await operation.closed;
       if (!choice || destroyed) return;
+      if (choice.remove) {
+        await mutate((doc) => removeLink(doc, sourcePage, link.id), 'Link removed.', 'annotate');
+        if (!destroyed && document.activeElement === document.body)
+          overlay.focus({ preventScroll: true });
+        return;
+      }
       // Opening, cancelling, or saving an unchanged link must not create history or
       // replace an existing page destination's precise position and zoom.
       if (choice.page != null ? choice.page === initial.page : choice.url === initial.url) return;
@@ -5170,6 +5176,20 @@ export function createEditor({
               dialog.close();
               return followLink(link);
             }),
+          ),
+        );
+      // Also here, not only in the link's right-click menu: a phone or a keyboard on a Mac
+      // has no way to open that menu, and the link could not be removed.
+      if (link)
+        actions.unshift(
+          button(
+            'Remove link',
+            'Unlink',
+            () => {
+              result = { remove: true };
+              dialog.close();
+            },
+            'btn danger',
           ),
         );
       const dialog = modal(initial ? 'Edit link' : 'Add link', form, actions);
