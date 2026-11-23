@@ -12671,13 +12671,34 @@ export function createEditor({
       if (!done) controller.abort();
     });
     const thisPdf = pdf;
+    // Slide backgrounds are drawn without the text the slides show as text boxes, from one
+    // text-free copy of the pages made when the first one is needed.
+    let textFree = null,
+      textFreeTask = null;
+    const textFreePdf = (source) =>
+      (textFree ??= (async () => {
+        try {
+          const { textFreePages } = await import('./core/slide-backgrounds.js');
+          const bytes = await textFreePages(source, pages, { signal: controller.signal });
+          textFreeTask = loadPdf(bytes);
+          const doc = await textFreeTask.promise;
+          const layers = doc.getOptionalContentConfig({ intent: 'display' }).then((config) => {
+            for (const [id, visible] of layerChoices)
+              if (config.getGroup(id)) config.setVisibility(id, visible);
+            return config;
+          });
+          return { doc, layers };
+        } catch (error) {
+          // Without the copy, the pages are drawn as they are, text and all.
+          if (controller.signal.aborted) throw error;
+          return null;
+        }
+      })());
     try {
       const { exportDocument } = await import('./core/export-office.js');
       const { documentDetails } = await import('./core/details.js');
-      const details = documentDetails(
-        await PDFDocument.load(session.bytes, { updateMetadata: false }),
-        session.bytes,
-      );
+      const source = await PDFDocument.load(session.bytes, { updateMetadata: false });
+      const details = documentDetails(source, session.bytes);
       const result = await exportDocument(thisPdf, session.bytes, format, {
         // Layers turned off in the Layers panel are left out, as they are on screen.
         layers: documentLayers || undefined,
@@ -12698,17 +12719,19 @@ export function createEditor({
                 ? `Drawing slide ${finished - count + 1} of ${count}…`
                 : 'Writing the file…';
         },
-        renderPage: async (index, scale = 2) =>
-          new Uint8Array(
+        renderPage: async (index, scale = 2, { text = true } = {}) => {
+          const free = text ? null : await textFreePdf(source);
+          return new Uint8Array(
             await (
-              await pageImage(thisPdf, index, {
+              await pageImage(free?.doc || thisPdf, index, {
                 dpi: 72 * scale,
                 type: 'image/png',
                 signal: controller.signal,
-                layers: documentLayers || undefined,
+                layers: free ? free.layers : documentLayers || undefined,
               })
             ).arrayBuffer(),
-          ),
+          );
+        },
       });
       controller.signal.throwIfAborted();
       if (destroyed) return;
@@ -12724,6 +12747,7 @@ export function createEditor({
       if (!['AbortError', 'RenderingCancelledException'].includes(error?.name)) throw error;
     } finally {
       done = true;
+      textFreeTask?.destroy().catch(() => {});
       if (d.open) d.close();
       busy = false;
       updateStatus();

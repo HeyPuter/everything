@@ -11,9 +11,11 @@
  *     pages        zero-based page indices to export (default: every page)
  *     onProgress   (done, total) => void, called as pages are read and when the file is written
  *     signal       AbortSignal; aborting rejects with the signal's reason
- *     renderPage   async (index, scale) => Uint8Array (PNG). Optional and browser-only: pages
- *                  drawn only with vector art (no text, no pictures) are exported as a picture
- *                  of the page, and PowerPoint slides can use it as their background.
+ *     renderPage   async (index, scale, { text }) => Uint8Array (PNG). Optional and
+ *                  browser-only: pages drawn only with vector art (no text, no pictures) are
+ *                  exported as a picture of the page, and PowerPoint slides can use it as their
+ *                  background, drawn with `text: false`: without the page text, which the slide
+ *                  shows in its own editable text boxes.
  *     slideBackgrounds  PPTX: put each rendered page behind the slide's text (needs renderPage)
  *     singleSheet  XLSX: one worksheet for the whole document instead of one per page
  *     title, author     document properties (title defaults to the PDF's own title)
@@ -185,7 +187,7 @@ export async function exportDocument(pdf, bytes, format, options = {}) {
       for (const page of model.pages) {
         signal?.throwIfAborted();
         try {
-          const png = await renderPage(page.index, 2);
+          const png = await renderPage(page.index, 2, { text: false });
           if (png?.length) rendered.set(page.index, png);
         } catch (error) {
           if (signal?.aborted) throw error;
