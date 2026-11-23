@@ -144,8 +144,10 @@ test("comments: post, mention, reply and resolve, saved as threaded comments", a
   await page.mouse.down();
   await page.mouse.move(box.x - 160, box.y + 90, { steps: 6 });
   await page.mouse.up();
+  // The markers are drawn again with the slide; between two drawings there
+  // is none to measure.
   await expect
-    .poll(async () => (await marker.boundingBox()).x)
+    .poll(async () => (await marker.boundingBox())?.x ?? Infinity)
     .toBeLessThan(box.x - 100);
 
   const { pres: saved, zip } = await download(page);
