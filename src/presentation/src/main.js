@@ -2228,6 +2228,7 @@ async function locateFile(pending, uid) {
     const moved = await cloud.statByUid(uid).catch(() => null);
     if (followable(moved)) {
       recent.moveRecent(pending.owner, pending.path, moved.path, moved.name);
+      forgetListed(pending.path);
       pending.name = moved.name || cloud.displayName(moved.path);
       pending.path = moved.path;
       return moved;
@@ -2260,10 +2261,17 @@ function followable(moved) {
   );
 }
 // A failed open, in words that say what happened to the file.
+// A file found gone or moved leaves the list Open recent shows at once, and
+// the folder is read again the next time the File menu opens.
+function forgetListed(path) {
+  files = files.filter((f) => f.path !== path);
+  recentListAt = 0;
+}
 function openError(error, file) {
   const name = cleanName(file.name || cloud.displayName(file.path));
   if (cloud.isNotFound(error)) {
     recent.forgetRecent(file.owner || owner(), file.path);
+    forgetListed(file.path);
     return new Error(
       `“${name}” is no longer there. It may have been moved or deleted.`,
       { cause: error },

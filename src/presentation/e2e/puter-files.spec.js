@@ -1100,3 +1100,40 @@ test("a slide show or template in Puter opens as a new presentation that saves a
   await expect(title(page)).toHaveText("Untitled presentation");
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
 });
+
+test("Open recent leaves out a file found deleted, and follows one renamed", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    env: "web",
+    seed: {
+      "Presentations/Alpha.pptx": story,
+      "Presentations/Beta.pptx": story,
+    },
+  });
+  await expect(title(page)).toHaveText("Untitled presentation");
+  const recentItems = async () => {
+    await fileMenu(page);
+    await page.getByRole("menuitem", { name: "Open recent" }).click();
+    return page
+      .getByRole("menu", { name: "Open recent" })
+      .getByRole("menuitem");
+  };
+  await expect(await recentItems()).toHaveText([/^Beta/, /^Alpha/]);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  // Elsewhere, Beta is renamed and Alpha deleted.
+  await page.evaluate((folder) => {
+    window.__fs.move(`${folder}/Beta.pptx`, `${folder}/Beta 2.pptx`);
+    window.__fs.remove(`${folder}/Alpha.pptx`);
+  }, APP_FOLDER);
+  await (await recentItems()).filter({ hasText: "Alpha" }).click();
+  await expect(page.locator("#toast")).toHaveText(
+    "“Alpha” is no longer there. It may have been moved or deleted.",
+  );
+  await (await recentItems()).filter({ hasText: "Beta" }).click();
+  await expect(title(page)).toHaveText("Beta 2");
+  // Neither is offered again under its old name.
+  await expect(await recentItems()).toHaveText(["No recent presentations"]);
+});
