@@ -65,8 +65,10 @@ import {
   MAX_XFDF_SIZE,
   exportCommentSummary,
   annotationAccepts,
+  directAnnotationIds,
   REVIEW_STATES,
 } from './core/annotations.js';
+import { COMMENT_KINDS } from './core/comments.js';
 import { ensureStyledFontFaces, cjkDraftFace } from './text-fonts.js';
 import {
   documentAccess,
@@ -1136,10 +1138,12 @@ export function createEditor({
     else if (id === 'attachments' && pdf) loadAttachments(pdf);
     else if (id === 'outline') outline.setCurrent(pageIndex, { reveal: true });
   }
-  // PDF.js names annotations "12R"; the editors use pdf-lib's "12 0 R".
+  // PDF.js names annotations "12R"; the editors use pdf-lib's "12 0 R". Comments written into
+  // the page's Annots directly have IDs of PDF.js's own making, paired as the page is drawn.
+  let directIds = new Map();
   function editorAnnotationId(id) {
     const m = /^(\d+)R(\d*)$/.exec(id);
-    return m ? `${m[1]} ${m[2] || 0} R` : id;
+    return m ? `${m[1]} ${m[2] || 0} R` : (directIds.get(id) ?? id);
   }
   /** Open the note or select the markup a comment points to, once its page is rendered. */
   async function applyRevealComment() {
@@ -2901,6 +2905,14 @@ export function createEditor({
         layers,
       ]);
       if (token !== pageRenderGeneration || destroyed) return;
+      directIds = new Map();
+      if (annotations.some((a) => COMMENT_KINDS[a.subtype] && !/^\d+R\d*$/.test(a.id))) {
+        const doc =
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
+        if (token !== pageRenderGeneration || destroyed) return;
+        editDocument = doc;
+        directIds = directAnnotationIds(doc.getPage(pageIndex), annotations);
+      }
       const hiddenAnnotations = new Set();
       const visibleAnnotations = annotations.filter((annotation) => {
         if (annotationLayerVisible(annotation, layerConfig)) return true;
@@ -4235,9 +4247,14 @@ export function createEditor({
   /** Reply to the selected markup or set its status, keeping it selected afterwards. */
   async function changeHighlightThread(entry, operation, message, control) {
     await finishDrafts();
+    // One written into the page's Annots directly takes a new ID when a reply first points at
+    // it; its place in the list stays.
+    const ordinal = entry.id.startsWith('direct:')
+      ? highlights.findIndex((h) => h.id === entry.id)
+      : -1;
     await mutate((doc) => operation(doc, entry.id), message, 'annotate', { retainScale: true });
     if (destroyed || tool !== 'select' || selectedHighlight) return;
-    selectedHighlight = highlights.find((h) => h.id === entry.id) || null;
+    selectedHighlight = highlights.find((h) => h.id === entry.id) || highlights[ordinal] || null;
     if (!selectedHighlight) return;
     renderHighlightTargets();
     properties.root.querySelector(`[aria-label="${control}"]`)?.focus({ preventScroll: true });

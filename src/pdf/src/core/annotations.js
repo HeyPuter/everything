@@ -12,7 +12,9 @@
 import { PDFDict, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
 import {
   annotationForEdit,
+  annotationKey,
   annotationList,
+  annotationPosition,
   annotationsOf,
   pageRotation,
   pageUserUnit,
@@ -50,6 +52,7 @@ import {
 } from './annotation-appearance.js';
 
 export { exportXfdf, importXfdf, exportCommentSummary, MAX_XFDF_SIZE } from './annotation-xfdf.js';
+export { directAnnotationIds } from './structure.js';
 
 export const MAX_COMMENT_LENGTH = 20000;
 export const MAX_INK_POINTS = 20000;
@@ -165,14 +168,22 @@ function register(doc, page, dict) {
 /** An annotation on the page by its ID, with its position in the page's Annots. */
 function locate(doc, page, id) {
   const annots = annotationsOf(page);
-  const position = annots
-    ? annots.asArray().findIndex((ref) => ref instanceof PDFRef && ref.toString() === id)
-    : -1;
+  const position = annotationPosition(annots, id);
   const dict = position < 0 ? null : doc.context.lookup(annots.get(position));
   if (!(dict instanceof PDFDict)) throw new Error('This comment is no longer on the page.');
   return { position, dict, ref: annots.get(position) };
 }
-const idAt = (page, position) => annotationsOf(page).get(position).toString();
+/**
+ * A reference to a located annotation, for a reply or group member to point at (IRT must be
+ * one). A dictionary written into Annots directly becomes an object of its own first.
+ */
+function referenceTo(doc, page, { position, dict, ref }) {
+  if (ref instanceof PDFRef) return ref;
+  const registered = doc.context.register(dict);
+  annotationList(page).set(position, registered);
+  return registered;
+}
+const idAt = (page, position) => annotationKey(annotationsOf(page).get(position), position);
 
 // ---------------------------------------------------------------------------------------------
 // Text boxes and callouts
@@ -489,8 +500,7 @@ function pageThreads(doc, page) {
   const entries = [];
   for (const [position, ref] of (annotationsOf(page)?.asArray() || []).entries()) {
     const dict = doc.context.lookup(ref);
-    if (ref instanceof PDFRef && dict instanceof PDFDict)
-      entries.push({ id: ref.toString(), dict, position });
+    if (dict instanceof PDFDict) entries.push({ id: annotationKey(ref, position), dict, position });
   }
   const children = new Map();
   for (const entry of entries) {
@@ -1021,8 +1031,8 @@ function shiftGroup(doc, page, position, shift) {
  */
 export function groupAnnotation(doc, page, memberId, parentId) {
   page = pageAt(doc, page);
-  const { ref } = locate(doc, page, parentId);
   const { dict } = locate(doc, page, memberId);
+  const ref = referenceTo(doc, page, locate(doc, page, parentId));
   dict.set(name('IRT'), ref);
   dict.set(name('RT'), name('Group'));
 }
@@ -1044,7 +1054,9 @@ export function deleteAnnotation(doc, page, id) {
  * changes alike. Readers list it in the parent's thread instead of drawing an icon of its own.
  */
 function threadAnnotation(doc, page, parentId, { contents, author, extra = {} }) {
-  const { dict: parent, ref } = locate(doc, page, parentId);
+  const located = locate(doc, page, parentId);
+  const { dict: parent } = located;
+  const ref = referenceTo(doc, page, located);
   const rect = rectOf(parent) || [0, 0, REPLY_SIZE, REPLY_SIZE];
   const dict = baseDict(doc, page, 'Text', {
     author,

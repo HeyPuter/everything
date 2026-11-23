@@ -1,7 +1,9 @@
 import { PDFArray, PDFDict, PDFName, PDFNumber, PDFHexString, PDFString, PDFStream } from 'pdf-lib';
 import {
   annotationForEdit,
+  annotationKey,
   annotationList,
+  annotationPosition,
   annotationsOf,
   pageRotation,
   pageUserUnit,
@@ -228,7 +230,7 @@ export function listNotes(doc, index) {
       .filter((ref) => !((doc.context.lookup(ref)?.lookup?.(name('F'))?.asNumber?.() || 0) & 32))
       .map(String),
   );
-  return refs.flatMap((ref) => {
+  return refs.flatMap((ref, position) => {
     const dict = doc.context.lookup(ref);
     if (!(dict instanceof PDFDict) || dict.lookup(name('Subtype')) !== name('Text')) return [];
     const flags = dict.lookup(name('F'))?.asNumber?.() || 0;
@@ -259,7 +261,7 @@ export function listNotes(doc, index) {
             : [1, 0.85, 0.3];
     return [
       {
-        id: ref.toString(),
+        id: annotationKey(ref, position),
         x: Math.min(rect[0], rect[2]),
         y: Math.max(rect[1], rect[3]),
         width: Math.abs(rect[2] - rect[0]),
@@ -289,7 +291,7 @@ export function editNote(doc, index, id, { text, hex, x, y, remove = false } = {
   if (!entry || entry.readOnly) throw new Error('This note cannot be edited.');
   const page = doc.getPage(index),
     annots = annotationsOf(page);
-  const position = annots.asArray().findIndex((ref) => ref.toString() === id);
+  const position = annotationPosition(annots, id);
   let dict = doc.context.lookup(annots.get(position));
   if (remove) {
     if (entry.propertiesLocked) throw new Error('Properties are locked for this note.');
