@@ -9,6 +9,8 @@ import { parseCellValue } from '../src/core/export-xlsx.js';
 import { encodePng } from '../src/core/export-images.js';
 import { zipPackage } from '../src/core/ooxml-zip.js';
 import { crc32 } from '../src/lib/crc32.js';
+import { jpegOrientation } from '../src/core/image-orientation.js';
+import { jpegExif } from './fixtures/jpeg-padding.js';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -967,6 +969,39 @@ it('turns pictures the way their page shows them', async () => {
     expect(top[2]).toBeLessThan(60);
     expect(bottom[2]).toBeGreaterThan(200);
     expect(bottom[0]).toBeLessThan(60);
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('hands over photos without the camera turn PDF readers ignore', async () => {
+  // A phone photo copied into a PDF keeps its EXIF orientation, which PDF readers ignore but
+  // Word, PowerPoint and browsers apply: the photo came out turned a quarter in the export.
+  const canvas = createCanvas(200, 100),
+    ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ff0000';
+  ctx.fillRect(0, 0, 200, 100);
+  const photo = new Uint8Array(jpegExif(canvas.toBuffer('image/jpeg'), 6));
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]).drawImage(await doc.embedJpg(photo), {
+    x: 100,
+    y: 400,
+    width: 200,
+    height: 100,
+  });
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  try {
+    const pdf = await loading.promise;
+    const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+    const [name] = Object.keys(files).filter((file) => file.startsWith('word/media/'));
+    expect(name).toMatch(/\.jpeg$/);
+    expect(jpegOrientation(files[name])).toBe(1);
+    // Only the turn changes; the picture is otherwise handed over as it is.
+    expect(files[name].length).toBe(photo.length);
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    const [, data] = /src="data:image\/jpeg;base64,([^"]+)"/.exec(html);
+    expect(jpegOrientation(new Uint8Array(Buffer.from(data, 'base64')))).toBe(1);
   } finally {
     await loading.destroy();
   }

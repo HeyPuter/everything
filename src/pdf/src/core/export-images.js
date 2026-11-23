@@ -11,6 +11,7 @@
 import { PDFDocument, PDFName, PDFRawStream, PDFRef, PDFArray } from 'pdf-lib';
 import { crc32 } from '../lib/crc32.js';
 import { zlibDeflate } from './ooxml-zip.js';
+import { prepareImageOrientation } from './image-orientation.js';
 
 /** PDF.js ImageKind values (pdfjs-dist 6.x). */
 export const IMAGE_KIND = { GRAYSCALE_1BPP: 1, RGB_24BPP: 2, RGBA_32BPP: 3 };
@@ -250,7 +251,9 @@ function passthroughJpeg(doc, ref) {
   }
   const bytes = stream.contents;
   if (!ok || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
-  return bytes;
+  // PDF readers ignore a camera's EXIF orientation, but Office and browsers turn the picture by
+  // it: clear the tag (in a copy) so the picture shows as the page does.
+  return prepareImageOrientation(bytes).bytes;
 }
 
 /**
