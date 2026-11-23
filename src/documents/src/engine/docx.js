@@ -1295,8 +1295,12 @@ export class DocxPackage {
     this.initialPageSettings = { ...this.pageSettings };
   }
   static async open(input, { bestEffort = false } = {}) {
+    const tooLarge = () => new Error(`This editor currently opens DOCX files up to ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`);
+    // A file past the limit is refused by its size before its bytes are read: a file of gigabytes chosen on the
+    // device was read into memory whole first, which can fail with an allocation error or take the tab down.
+    if (!(input instanceof Uint8Array) && input?.size > MAX_PACKAGE_BYTES) throw tooLarge();
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(await input.arrayBuffer());
-    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error(`This editor currently opens DOCX files up to ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`);
+    if (bytes.length > MAX_PACKAGE_BYTES) throw tooLarge();
     const compound = compoundFileProblem(bytes);
     if (compound) throw new Error(compound);
     let parts;

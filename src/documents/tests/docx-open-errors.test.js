@@ -51,3 +51,11 @@ it('names an OpenDocument text, a spreadsheet or a presentation picked instead o
   // Any other archive is still not a DOCX document.
   expect(await message(zipSync({ 'notes.txt': strToU8('hello') }))).toBe('This file is not a supported DOCX document.');
 });
+
+// A file of gigabytes chosen on the device was read into memory whole before its size was checked.
+it('refuses a file past the size limit without reading its bytes', async () => {
+  let read = false;
+  const huge = { size: 3 * 1024 ** 3, arrayBuffer: async () => { read = true; throw new RangeError('Array buffer allocation failed'); } };
+  await expect(DocxPackage.open(huge)).rejects.toThrow('This editor currently opens DOCX files up to 64 MB.');
+  expect(read).toBe(false);
+});
