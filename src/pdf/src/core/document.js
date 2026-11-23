@@ -1036,7 +1036,11 @@ export async function addText(
   const angle = (rotation * Math.PI) / 180,
     c = Math.cos(angle),
     s = Math.sin(angle);
-  if (underline || strikethrough) {
+  const decorated = underline || strikethrough;
+  // The lines of new text stay one block, as they were typed: edited, moved and deleted together
+  // rather than line by line.
+  const block = decorated || lines.length > 1;
+  if (block) {
     const width = Math.max(1, ...widths),
       leading = size * 1.35;
     const items = lines.flatMap((_, i) => (i ? [-1, 1] : [1]));
@@ -1062,7 +1066,7 @@ export async function addText(
     rotate: degrees(rotation),
     lineHeight: size * 1.35,
   });
-  if (underline || strikethrough) {
+  if (decorated) {
     page.pushOperators(
       PDFOperator.of('BMC', [PDFName.of('PuterTextDecoration')]),
       pushGraphicsState(),
@@ -1084,13 +1088,9 @@ export async function addText(
           fill(),
         );
     }
-    page.pushOperators(
-      popGraphicsState(),
-      PDFOperator.of('EMC'),
-      PDFOperator.of('EMC'),
-      popGraphicsState(),
-    );
+    page.pushOperators(popGraphicsState(), PDFOperator.of('EMC'));
   }
+  if (block) page.pushOperators(PDFOperator.of('EMC'), popGraphicsState());
 }
 /**
  * The bundled faces flattening needs for fields it draws anew whose text the standard font

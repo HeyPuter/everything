@@ -154,6 +154,31 @@ it('new decorated multiline text can be edited and deleted without leaving lines
   expect(pageSource(deleted.doc.getPage(0))).not.toContain('/PuterTextDecoration');
 });
 
+it('new multiline text stays one block that moves, edits and deletes as a whole', async () => {
+  serveFonts();
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await addText(doc, 0, { text: 'Hello world\nSecond line', x: 50, y: 280, size: 16 });
+  await addText(doc, 0, { text: 'Single', x: 50, y: 100, size: 16 });
+  const saved = await read(await doc.save());
+  expect(saved.groups.map((g) => g.text)).toEqual(['Hello world\nSecond line', 'Single']);
+  expect(saved.groups[0]).toMatchObject({ underline: false, strikethrough: false });
+  // A single line is written as before, with no block around it.
+  expect(pageSource(saved.doc.getPage(0)).match(/PuterParagraph/g)).toHaveLength(1);
+  await replaceTextGroup(saved.doc, 0, saved.groups[0], saved.groups[0].text, {
+    offset: [10, -15],
+  });
+  const moved = await read(await saved.doc.save());
+  expect(moved.groups.map((g) => g.text)).toEqual(['Hello world\nSecond line', 'Single']);
+  expect(moved.groups[0].transform[5]).toBeCloseTo(saved.groups[0].transform[5] - 15, 5);
+  await replaceTextGroup(moved.doc, 0, moved.groups[0], 'Hello world\nSecond line\nThird');
+  const edited = await read(await moved.doc.save());
+  expect(edited.groups.map((g) => g.text)).toEqual(['Hello world\nSecond line\nThird', 'Single']);
+  await replaceTextGroup(edited.doc, 0, edited.groups[0], '');
+  const deleted = await read(await edited.doc.save());
+  expect(deleted.groups.map((g) => g.text)).toEqual(['Single']);
+});
+
 it('bold changes retain italic fragments instead of flattening their slant', async () => {
   serveFonts();
   const doc = await PDFDocument.create(),
