@@ -303,7 +303,11 @@ export function createOutlineView({ editor, readOnly, error, onState = () => {} 
     if (isComposing(e) || typesCharacter(e)) return;
     const mod = e.ctrlKey || e.metaKey;
     const handled = () => { e.preventDefault(); e.stopPropagation(); };
-    if (e.altKey && e.shiftKey && !mod) {
+    // Alt+Shift with the arrows, + and −, a digit or A; on a Mac Control+Shift, as in Word for Mac, since Option+Shift
+    // with − (an em dash), = or a digit types a character there and never reached these (Option+Shift with an arrow,
+    // which types nothing, still works).
+    const outlineChord = e.shiftKey && !e.metaKey && (MOD_KEY === 'Cmd' ? e.ctrlKey !== e.altKey : e.altKey && !e.ctrlKey);
+    if (outlineChord && (!e.altKey || MOD_KEY !== 'Cmd' || e.key.startsWith('Arrow'))) {
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { handled(); move(e.key === 'ArrowUp' ? -1 : 1); return; }
       if (e.key === 'ArrowLeft') { handled(); changeLevel(promotedLevel); return; }
       if (e.key === 'ArrowRight') { handled(); changeLevel(demotedLevel); return; }
@@ -375,6 +379,6 @@ export function createOutlineView({ editor, readOnly, error, onState = () => {} 
     currentLevel: () => (focusedId ? levelAt(focusedId) : null),
     canMove: () => !!focusedId && editable(),
     levelNames: LEVEL_NAMES,
-    shortcutHint: `${MOD_KEY === 'Cmd' ? 'Option' : 'Alt'}+Shift`,
+    shortcutHint: MOD_KEY === 'Cmd' ? 'Ctrl+Shift' : 'Alt+Shift',
   };
 }

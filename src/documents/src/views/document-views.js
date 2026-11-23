@@ -647,7 +647,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const { command, menuButton, rows, when, check, divider } = kit;
     const on = () => mode === 'outline' && !!ready() && !pkg()?.readOnly;
     const level = () => outline.currentLevel();
-    const toHeading1 = command('Promote to Heading 1', 'promoteHeading1', () => outline.promoteToHeading1(), { shortcut: `${MOD_KEY === 'Cmd' ? 'Option' : 'Alt'}+Shift+1` });
+    // No chord of its own: Alt+Shift+1 (Control+Shift+1 on a Mac) shows level 1, as in Word, which this said it did.
+    const toHeading1 = command('Promote to Heading 1', 'promoteHeading1', () => outline.promoteToHeading1());
     const promote = command('Promote', 'promote', () => outline.promote(), { shortcut: `${outline.shortcutHint}+Left` });
     const levelMenu = menuButton('Outline Level', 'outlineView', () => outline.levelNames.map((label, i) => ({ label, radio: true, checked: level() === i + 1, onSelect: () => outline.setLevel(i + 1) })), { size: 'small', text: 'Outline Level' });
     const demote = command('Demote', 'demote', () => outline.demote(), { shortcut: `${outline.shortcutHint}+Right` });
@@ -657,8 +658,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const down = command('Move Down', 'moveDown', () => outline.moveDown(), { shortcut: `${outline.shortcutHint}+Down` });
     const expand = command('Expand', 'expand', () => outline.expand(), { shortcut: `${outline.shortcutHint}+Plus` });
     const collapse = command('Collapse', 'collapse', () => outline.collapse(), { shortcut: `${outline.shortcutHint}+Minus` });
-    const showLevel = menuButton('Show Level', 'showLevel', () => [...Array.from({ length: 9 }, (_, i) => ({ label: `Level ${i + 1}`, radio: true, checked: outline.showLevel === i + 1, onSelect: () => outline.setShowLevel(i + 1) })),
-      { label: 'All Levels', radio: true, checked: outline.showLevel === BODY_LEVEL, onSelect: () => outline.setShowLevel(BODY_LEVEL) }], { size: 'small', text: 'Show Level' });
+    const showLevel = menuButton('Show Level', 'showLevel', () => [...Array.from({ length: 9 }, (_, i) => ({ label: `Level ${i + 1}`, radio: true, checked: outline.showLevel === i + 1, shortcut: `${outline.shortcutHint}+${i + 1}`, onSelect: () => outline.setShowLevel(i + 1) })),
+      { label: 'All Levels', radio: true, checked: outline.showLevel === BODY_LEVEL, shortcut: `${outline.shortcutHint}+A`, onSelect: () => outline.setShowLevel(BODY_LEVEL) }], { size: 'small', text: 'Show Level' });
     const formatting = check('Show Text Formatting', () => outline.formatting, value => outline.setFormatting(value));
     const firstLine = check('Show First Line Only', () => outline.firstLineOnly, value => outline.setFirstLineOnly(value));
     const close = command('Close Outline View', 'closeView', () => setDocumentView(pkg()?.documentView && pkg().documentView !== 'outline' ? pkg().documentView : 'print'), { size: 'large', text: 'Close Outline View' });

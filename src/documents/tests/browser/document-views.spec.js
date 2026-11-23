@@ -743,3 +743,34 @@ test('Ctrl + wheel in Read Mode zooms the text, which is laid out again, and edi
   await expect(page.getByRole('toolbar', { name: 'Read Mode' })).toBeHidden();
   expect((await state()).zoom).toBe(before.zoom);
 });
+
+// Outline's collapse, expand and show-level chords never worked on a Mac: Option+Shift with −, = or a digit types a
+// character there (Option+Shift+− is the em dash), so the key was typed into the heading instead. A Mac takes them
+// with Control+Shift, as Word for Mac does; elsewhere they stay on Alt+Shift. Promote to Heading 1 also named
+// Alt+Shift+1 as its chord, which shows level 1 instead.
+test('Outline view collapses, expands and shows levels from the keyboard, on a Mac with Control+Shift', async ({ page }) => {
+  await headings(page);
+  const mac = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || ''));
+  const chord = mac ? 'Control+Shift' : 'Alt+Shift';
+  await (await viewTab(page)).getByRole('button', { name: 'Outline', exact: true }).click();
+  const outline = page.getByRole('tree', { name: 'Document outline' });
+  const rows = outline.getByRole('treeitem');
+  await expect(rows).toHaveCount(6);
+  await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-text').click();
+  const before = await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-text').textContent();
+  await page.keyboard.press(`${chord}+Minus`);
+  // Introduction folds its text and Background (with its text) away.
+  await expect(rows).toHaveCount(3);
+  await page.keyboard.press(`${chord}+Equal`);
+  await expect(rows).toHaveCount(6);
+  await page.keyboard.press(`${chord}+Digit1`);
+  await expect(rows).toHaveCount(2);
+  await page.keyboard.press(`${chord}+KeyA`);
+  await expect(rows).toHaveCount(6);
+  // Nothing was typed into the heading.
+  await expect(page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-text')).toHaveText(before);
+  // The tab names the chords that work.
+  const tab = ribbon(page);
+  expect(await tab.getByRole('button', { name: 'Collapse', exact: true }).getAttribute('title')).toBe(`Collapse (${chord.replace('Control', 'Ctrl')}+Minus)`);
+  expect(await tab.getByRole('button', { name: 'Promote to Heading 1', exact: true }).getAttribute('title')).toBe('Promote to Heading 1');
+});
