@@ -48,7 +48,7 @@ import { textDecorationQuads } from './text-decoration.js';
 import { dropUsageRights, inheritPdfVersion, loadPdfDocument, savePdf } from './version.js';
 import { sweepUnreferenced } from './compress.js';
 import { removePageStructure } from './struct-tree.js';
-import { shiftPageLabels } from './page-labels.js';
+import { pageLabelSpecs, setPageLabels, shiftPageLabels } from './page-labels.js';
 import { retargetDeletedPages, stabilizeLocalDestinations } from './destinations.js';
 import { addHighlight, rectQuad } from './highlight.js';
 import { checkedFontData } from './font-data.js';
@@ -750,8 +750,20 @@ export async function insertPdfPages(
     copyPageStandIns(copier, source, doc),
   );
   const position = Math.min(Math.max(after + 1, 0), doc.getPageCount());
+  const labelsBefore = pageLabelSpecs(doc);
   copied.forEach((page, k) => ownGeometry(doc.insertPage(position + k, page)));
-  shiftPageLabels(doc, position, copied.length);
+  // Pages from a PDF with labels of its own keep them ("A-1", "A-2"), and the pages around
+  // them keep theirs; pages without labels carry on the numbering where they land.
+  const sourceLabels = pageLabelSpecs(source);
+  if (sourceLabels) {
+    const before = labelsBefore || new Array(position).fill(null);
+    setPageLabels(doc, [
+      ...before.slice(0, position),
+      ...indices.map((index) => sourceLabels[index]),
+      ...(labelsBefore ? labelsBefore.slice(position) : []),
+      ...new Array(labelsBefore ? 0 : doc.getPageCount() - position - indices.length).fill(null),
+    ]);
+  } else shiftPageLabels(doc, position, copied.length);
   pruneCopiedResources(doc, copied);
   const indexToRef = new Map(indices.map((index, k) => [index, copied[k].ref]));
   relinkCopiedPages(doc, copied, indexToRef);
