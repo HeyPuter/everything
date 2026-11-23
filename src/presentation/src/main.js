@@ -2465,7 +2465,9 @@ function mutate(
           P.getSlides(active.pres).forEach((s) => P.syncSlideTextBuilds(s));
         syncTextBuilds();
         const sizeBefore = packageSize(previous);
+        const placeBefore = editPlace();
         if ((await fn()) === SKIP_MUTATION) return false;
+        const placeAfter = editPlace();
         checkPackageSize(packageSize(active.pres), sizeBefore);
         syncTextBuilds();
         // Formatting given to a master's or layout's placeholder text
@@ -2498,8 +2500,19 @@ function mutate(
         const before = history.bytes;
         if (takesBack && history.bytes === takesBack && history.past.length)
           history.drop(doc.pres);
-        else if (merge) await history.amend(doc.pres, theme);
-        else await history.capture(doc.pres, theme);
+        else if (merge) {
+          await history.amend(doc.pres, theme);
+          editPlaces.set(history.bytes, {
+            before: editPlaces.get(before)?.before ?? placeBefore,
+            after: placeAfter,
+          });
+        } else {
+          await history.capture(doc.pres, theme);
+          editPlaces.set(history.bytes, {
+            before: placeBefore,
+            after: placeAfter,
+          });
+        }
         onApplied?.(before, history.bytes);
         lastCoalesce = coalesce ? { key: coalesce, time: Date.now() } : null;
         revision++;
@@ -8226,6 +8239,17 @@ function updateHistoryButtons() {
   disableControl(r, !history.future.length, workspace);
   assistant?.historyChanged();
 }
+// Where each history step was made: the slide, and the objects selected
+// before and after it. Undo shows the slide a step changed with the objects
+// selected as they were before it; redo, as they were after it.
+const editPlaces = new WeakMap();
+function editPlace() {
+  try {
+    return { part: P.getSlidePartName(slide()), ids: [...selectionIds()] };
+  } catch {
+    return null;
+  }
+}
 function undo() {
   return restoreHistory("undo");
 }
@@ -8242,12 +8266,18 @@ function restoreHistory(direction, steps = 1) {
     .then(async () => {
       if (!active || doc !== active || readOnlyDocument()) return;
       const part = P.getSlidePartName(slide());
-      let pres = null;
+      let pres = null,
+        place = null;
       // Several steps go back as one: the slide shows only where they end.
       for (let i = 0; i < steps; i++) {
+        const undone = editPlaces.get(history.bytes)?.before;
         const next = await history[direction]();
         if (!next) break;
         pres = next;
+        place =
+          (direction === "undo"
+            ? undone
+            : editPlaces.get(history.bytes)?.after) ?? null;
       }
       if (pres) {
         const previous = active.pres;
@@ -8259,12 +8289,24 @@ function restoreHistory(direction, steps = 1) {
         lastCoalesce = null;
         doc.pres = pres;
         disposeDocumentFonts(previous);
-        const position = P.getSlides(pres).findIndex(
-          (s) => P.getSlidePartName(s) === part,
-        );
-        if (position >= 0) index = position;
+        const position = (wanted) =>
+          P.getSlides(pres).findIndex((s) => P.getSlidePartName(s) === wanted);
+        // A step that changed what is on another slide shows that slide; one
+        // that added, removed or moved slides shows in the navigator, and
+        // the slide in view stays.
+        const order = (deck) =>
+          P.getSlides(deck).map(P.getSlidePartName).join();
+        const shown =
+          !masterView.active &&
+          place &&
+          position(place.part) >= 0 &&
+          order(pres) === order(previous)
+            ? place.part
+            : part;
+        if (position(shown) >= 0) index = position(shown);
+        if (shown !== part) slideExtras.clear();
         theme = history.state;
-        await afterHistory();
+        await afterHistory(place);
       }
     })
     .catch(fail)
@@ -8294,9 +8336,10 @@ async function undoAssistantTurn(first, count) {
     clearSelection();
   });
 }
-async function afterHistory() {
+async function afterHistory(place = null) {
   index = Math.min(index, P.getSlides(doc.pres).length - 1);
   clearSelection();
+  if (place && P.getSlidePartName(slide()) === place.part) selectIds(place.ids);
   revision++;
   // The step shows first; the draft follows it, as an edit's does.
   refreshMatches();

@@ -1747,9 +1747,13 @@ test("create, edit, undo, recover, and download a real PPTX", async ({
     }),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Object text" })).toHaveCount(
-    0,
-  );
+  // The text box stays selected with the text it had before.
+  await expect(
+    page.getByRole("button", {
+      name: "A better way to present. Select to edit",
+    }),
+  ).toHaveCount(0);
+  await expect(page.locator(".object-hit.selected")).toHaveCount(1);
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(
     page.getByRole("button", {
@@ -5858,6 +5862,33 @@ for (const action of ["Undo", "Redo"]) {
   });
 }
 
+test("undo shows the slide it changes and selects the objects again", async ({
+  page,
+}) => {
+  await story(page);
+  await page.locator('[data-object="1"]').click();
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await page.getByRole("button", { name: /^Slide 3:/ }).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
+  await expect(page.locator(".object-hit.selected")).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
+  await expect(page.locator(".object-hit.selected")).toHaveAttribute(
+    "data-object",
+    "1",
+  );
+  await page.getByRole("button", { name: /^Slide 2:/ }).click();
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
+  await expect(page.locator(".object-hit.selected")).toHaveAttribute(
+    "data-object",
+    "1",
+  );
+});
+
 test("canvas typing survives completion of a delayed cloud rename", async ({
   page,
 }) => {
@@ -8533,8 +8564,9 @@ test("the canvas shows the same render as the active slide thumbnail", async ({
   );
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
   expect(await same()).toBe(true);
+  // Undo shows the slide it changes.
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
   expect(await same()).toBe(true);
 });
 
@@ -12149,8 +12181,12 @@ test("shapes take a drop shadow from the format panel or the Format menu and kee
   // Undo lifts all eight at once; without a selection the menu item is off.
   await page.keyboard.press("Control+z");
   await expect.poll(shadows).toBe(0);
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".object-hit.selected")).toHaveCount(0);
+  // Undo selects the eight again; Escape lets them go (after closing the
+  // format panel first, where it covers the slide).
+  const selected = page.locator(".object-hit.selected");
+  for (let i = 0; i < 3 && (await selected.count()); i++)
+    await page.keyboard.press("Escape");
+  await expect(selected).toHaveCount(0);
   await openBarMenu(page, "Format");
   await expect(item).toBeDisabled();
   await page.keyboard.press("Escape");
@@ -14976,16 +15012,22 @@ test("keyboard focus stays in the editor when the control under it is used up", 
   await page.keyboard.press("Enter");
   await expect(undo).toBeDisabled();
   await expect(page.locator("#redo")).toBeEnabled();
-  // A text control left without a selection hands it to the workspace.
-  await title.click();
+  // A text control left without a selection hands it to the workspace: a
+  // text box added on a new slide, where nothing was selected, and undone.
+  await menuCommand(page, "Insert", "New slide", "Blank");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 6");
+  await addText(page);
+  await page.locator(".object-hit").click();
   const font = ribbonControl(page, "font-name");
-  await setRibbonFont(page, "Georgia");
+  await expect(font).toBeEnabled();
   await font.focus();
   await page.keyboard.press("Control+z");
+  await expect(page.locator(".object-hit")).toHaveCount(0);
   await expect(font).toBeDisabled();
   await expect(page.locator("#main")).toBeFocused();
   // A panel button that removes itself, or can no longer be used, hands it
   // to the panel.
+  await page.locator(".slide-thumb").first().click();
   await title.click();
   await page.keyboard.press("Control+k");
   await page.getByRole("textbox", { name: "Web address" }).fill("puter.com");
