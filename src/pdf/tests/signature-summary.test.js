@@ -39,3 +39,11 @@ it('says a certified PDF is certified', () => {
     'Certified, and all 2 signatures are valid.',
   );
 });
+
+it('says a PDF with only a document timestamp is timestamped, not signed', () => {
+  const timestamp = { status: 'valid', kind: 'timestamp' };
+  expect(signatureSummary([timestamp]).text).toBe('Timestamped, and the timestamp is valid.');
+  expect(signatureSummary([{ status: 'valid', kind: 'approval' }, timestamp]).text).toBe(
+    'Signed, and all 2 signatures are valid.',
+  );
+});

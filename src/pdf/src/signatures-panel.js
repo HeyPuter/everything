@@ -29,9 +29,16 @@ const when = (date) =>
 /** One sentence for the bar above the document, from all of its signatures. */
 export function signatureSummary(reports) {
   if (!reports.length) return null;
-  const count = reports.length === 1 ? 'The signature' : `All ${reports.length} signatures`;
+  // A PDF with nothing but document timestamps is timestamped, not signed by anyone.
+  const stamped = reports.every((r) => r.kind === 'timestamp');
+  const noun = stamped ? 'timestamp' : 'signature';
+  const count = reports.length === 1 ? `The ${noun}` : `All ${reports.length} ${noun}s`;
   // A certification signature (the author's) makes the whole document certified.
-  const signed = reports.some((r) => r.certification) ? 'Certified' : 'Signed';
+  const signed = reports.some((r) => r.certification)
+    ? 'Certified'
+    : stamped
+      ? 'Timestamped'
+      : 'Signed';
   if (reports.some((r) => r.status === 'invalid'))
     return { tone: 'bad', text: 'At least one signature is invalid.' };
   if (reports.some((r) => r.status === 'modified'))
