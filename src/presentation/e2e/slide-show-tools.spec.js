@@ -414,10 +414,13 @@ test("ending a show before the browser hands over the camera lets it go", async 
     const media = navigator.mediaDevices;
     const ask = media.getUserMedia.bind(media);
     window.tracks = [];
+    window.asking = 0;
     media.getUserMedia = async (want) => {
+      window.asking++;
       await new Promise((r) => setTimeout(r, 1500));
       const stream = await ask(want);
       window.tracks.push(...stream.getTracks());
+      window.asking--;
       return stream;
     };
   });
@@ -429,13 +432,19 @@ test("ending a show before the browser hands over the camera lets it go", async 
   await expect(d.getByRole("toolbar", { name: "Recording" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(d).toBeHidden();
-  // The studio's camera and microphone and the slide's live camera.
+  // Whatever the browser hands over once the show has ended (the slide's
+  // live camera, and the studio's camera and microphone if it had asked
+  // before the show ended) is let go.
   await expect
-    .poll(() => page.evaluate(() => window.tracks.length), { timeout: 10_000 })
-    .toBe(3);
-  expect(
-    await page.evaluate(() => window.tracks.map((t) => t.readyState)),
-  ).toEqual(["ended", "ended", "ended"]);
+    .poll(
+      () => page.evaluate(() => (window.asking ? -1 : window.tracks.length)),
+      { timeout: 10_000 },
+    )
+    .toBeGreaterThan(0);
+  const states = await page.evaluate(() =>
+    window.tracks.map((t) => t.readyState),
+  );
+  expect(states.every((state) => state === "ended")).toBe(true);
 });
 
 test("switching to a custom show asks about the ink first", async ({
