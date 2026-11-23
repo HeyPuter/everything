@@ -300,6 +300,25 @@ describe("variants, colors, fonts and effects", () => {
     expect(info.fonts).toEqual({ major: "Georgia", minor: "Tahoma" });
     expect(info.effectsName).toBe("Soft Shadow");
   });
+
+  // A "$&" or "$1" in a name typed for the fonts was read as a replacement
+  // pattern, and the theme part came out broken.
+  it("writes font and scheme names with dollar signs as typed", () => {
+    const base = themeXml({
+      name: "T",
+      colors: { ...themeById("paper").variants[0].colors, name: "P" },
+      fonts: { major: "Arial", minor: "Arial" },
+    });
+    const changed = withFonts(base, {
+      name: "$1M plan $& $' $`",
+      major: "Font $1",
+      minor: "Font $&",
+    });
+    const info = readThemeXml(changed);
+    expect(info.fontName).toBe("$1M plan $& $' $`");
+    expect(info.fonts).toEqual({ major: "Font $1", minor: "Font $&" });
+    expect(changed.match(/<a:fontScheme/g)).toHaveLength(1);
+  });
 });
 
 describe("theme files", () => {

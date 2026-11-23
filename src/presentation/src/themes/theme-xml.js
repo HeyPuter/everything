@@ -387,9 +387,12 @@ export function withColors(xml, colors) {
 /** Theme XML with its heading and body typefaces replaced. */
 export function withFonts(xml, fonts) {
   const p = "(?:[A-Za-z0-9_]+:)?";
+  // Replaced through functions: a "$&" or "$1" in a name the user typed
+  // is text, not a replacement pattern.
   let out = xml.replace(
     new RegExp(`(<${p}fontScheme\\b[^>]*?)\\sname="[^"]*"`),
-    `$1 name="${esc(fonts.name || `${fonts.major}-${fonts.minor}`)}"`,
+    (_, start) =>
+      `${start} name="${esc(fonts.name || `${fonts.major}-${fonts.minor}`)}"`,
   );
   for (const [which, face] of [
     ["major", fonts.major],
@@ -399,7 +402,7 @@ export function withFonts(xml, fonts) {
       new RegExp(
         `(<${p}${which}Font>\\s*<${p}latin\\b[^>]*?)\\stypeface="[^"]*"`,
       ),
-      `$1 typeface="${esc(face)}"`,
+      (_, start) => `${start} typeface="${esc(face)}"`,
     );
   return out;
 }
