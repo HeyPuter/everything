@@ -1038,6 +1038,7 @@ export function textRuns(pres, shape) {
       align: PARAGRAPH_ALIGNMENTS[effective?.align] || "left",
       list: listOf(bullet),
       bullet,
+      rtl: !!effective?.rtl,
       // A multiple of single spacing, as the library reports it: 1.5 is 150%.
       lineSpacing:
         lines?.kind === "pct" ? Math.round(lines.value * 100) / 100 : 1,

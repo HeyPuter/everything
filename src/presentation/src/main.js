@@ -11335,6 +11335,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     align: paragraph.align || "left",
     list: paragraph.list || "none",
     bullet: paragraph.bullet ?? null,
+    rtl: !!paragraph.rtl,
     lineSpacing: paragraph.lineSpacing || 1,
     spaceBefore: paragraph.spaceBefore || 0,
     spaceAfter: paragraph.spaceAfter || 0,
@@ -11426,6 +11427,8 @@ function editText(target, event = null, { inserted = null } = {}) {
       { ctr: "center", b: "flex-end" }[textAnchor(obj)] || "flex-start",
     color: readable ? format.color : "",
     background: readable ? surface : "",
+    // Vertical text runs down its box as the slide draws it.
+    ...editorWritingMode(obj),
     // The editor lies over the box as the slide turns it, about the same
     // center, so the text is edited where it is shown.
     transform: `rotate(${geometryTextRect?.rotation ?? slideRotation(obj)}deg)`,
@@ -11504,7 +11507,9 @@ function editText(target, event = null, { inserted = null } = {}) {
         "data-list": para.list || "none",
       });
       if (markers[k]) block.dataset.marker = markers[k];
-      block.style.paddingLeft = level ? `${level * 1.5}em` : "";
+      // A right-to-left paragraph reads, and moves the caret, that way.
+      if (para.rtl) block.dir = "rtl";
+      block.style.paddingInlineStart = level ? `${level * 1.5}em` : "";
       block.style.textAlign = para.align || "";
       block.style.lineHeight =
         para.lineSpacing && para.lineSpacing !== 1
@@ -11518,8 +11523,8 @@ function editText(target, event = null, { inserted = null } = {}) {
         spacing?.[k]?.afterPx != null
           ? spacing[k].afterPx * 0.75
           : para.spaceAfter;
-      block.style.marginTop = before ? `${before / baseSize}em` : "";
-      block.style.marginBottom = after ? `${after / baseSize}em` : "";
+      block.style.marginBlockStart = before ? `${before / baseSize}em` : "";
+      block.style.marginBlockEnd = after ? `${after / baseSize}em` : "";
       blocks.push(block);
     };
     open();
@@ -12514,6 +12519,23 @@ function editText(target, event = null, { inserted = null } = {}) {
   review.attachEditor(richEditor);
   input.focus();
   getSelection()?.selectAllChildren(input);
+}
+// The writing mode of the text editor for a box of vertical text: lines
+// down the box, turned a quarter right ("vert", and East Asian text with
+// its letters upright), or left ("vert270"), or Mongolian columns from the
+// left.
+function editorWritingMode(obj) {
+  let vert = null;
+  try {
+    vert =
+      P.getShapeBodyPrEffective(doc.pres, obj).vert ??
+      P.getShapeTextDirection(obj);
+  } catch {}
+  if (["vert", "eaVert", "wordArtVertRtl"].includes(vert))
+    return { writingMode: "vertical-rl" };
+  if (vert === "vert270") return { writingMode: "sideways-lr" };
+  if (vert === "mongolianVert") return { writingMode: "vertical-lr" };
+  return {};
 }
 // Raised or lowered text is drawn at this share of its size.
 const RAISED_SIZE = 0.65;

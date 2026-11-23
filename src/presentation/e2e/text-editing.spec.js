@@ -2,7 +2,7 @@
 // of the text being edited.
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { P } from "../src/model.js";
 import {
   installMenuNow,
@@ -18,6 +18,21 @@ const slideSvg = async (page) =>
 const pressKey = async (page, key, times = 1) => {
   for (let i = 0; i < times; i++) await page.keyboard.press(key);
 };
+
+// Opens a presentation's bytes as an imported file.
+async function importDeck(page, bytes, name = "Deck.pptx") {
+  await page.goto("/#/home");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name,
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(bytes),
+  });
+}
 
 // The first slide's XML in the presentation as downloaded.
 async function downloadedSlide(page) {
@@ -411,17 +426,7 @@ test("list paragraphs show the numbers and bullets the slide shows while edited"
     P.setParagraphBullet(box, i, { autoNum: "romanUcPeriod", startAt: 3 });
   P.setParagraphLevel(box, 2, 1);
   P.setParagraphBullet(box, 2, { char: "–" });
-  await page.goto("/#/home");
-  const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
-  await (
-    await chooser
-  ).setFiles({
-    name: "Lists.pptx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    buffer: Buffer.from(await P.savePresentation(pres)),
-  });
+  await importDeck(page, await P.savePresentation(pres), "Lists.pptx");
   await page.locator(".object-hit").dblclick();
   const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
   await expect(editor).toBeFocused();
@@ -439,4 +444,45 @@ test("list paragraphs show the numbers and bullets the slide shows while edited"
   await page.keyboard.press("Enter");
   await page.keyboard.type("New");
   await expect.poll(markers).toEqual(["III.", "IV.", "V.", "–", "VI."]);
+});
+
+test("right-to-left and vertical text are edited the way they read", async ({
+  page,
+}) => {
+  const pres = P.createPresentation();
+  const slide = P.addBlankSlide(pres);
+  P.addSlideTextBox(slide, {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(1),
+    text: "RIGHT-TO-LEFT",
+  });
+  const vertical = P.addSlideTextBox(slide, {
+    x: P.inches(8),
+    y: P.inches(1),
+    w: P.inches(1),
+    h: P.inches(4),
+    text: "Down the box",
+  });
+  P.setShapeTextDirection(vertical, "vert");
+  const files = unzipSync(await P.savePresentation(pres));
+  const name = Object.keys(files).find((n) =>
+    /^ppt\/slides\/slide\d+\.xml$/.test(n),
+  );
+  files[name] = strToU8(
+    strFromU8(files[name]).replace(
+      /<a:p><a:r><a:rPr lang="en-US"\/><a:t>RIGHT-TO-LEFT<\/a:t><\/a:r><\/a:p>/,
+      '<a:p><a:pPr algn="r" rtl="1"/><a:r><a:rPr lang="he-IL"/><a:t>גרסה 2 של Office.</a:t></a:r></a:p>',
+    ),
+  );
+  await importDeck(page, zipSync(files));
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await page.locator(".object-hit").first().dblclick();
+  await expect(editor).toBeFocused();
+  await expect(editor.locator(".para")).toHaveAttribute("dir", "rtl");
+  await page.keyboard.press("Escape");
+  await page.locator(".object-hit").last().dblclick();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveCSS("writing-mode", "vertical-rl");
 });
