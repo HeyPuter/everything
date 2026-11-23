@@ -207,6 +207,25 @@ export function icon(name, size = 18, { plain = false } = {}) {
 const APPLE = /Mac|iPhone|iPad|iPod/.test(
   globalThis.navigator?.platform || globalThis.navigator?.userAgent || '',
 );
+/**
+ * Whether a key press belongs to the text field it was typed in on an Apple device, where Control
+ * with a letter is the field's own editing key in every app: ⌃D deletes forward, ⌃F and ⌃B move
+ * by a character, ⌃P and ⌃N by a line, ⌃O opens a line, ⌃L centers it. The app's shortcuts there
+ * are the ⌘ ones; Control elsewhere (Windows and Linux) is left to them.
+ */
+export function fieldEditingKey(e) {
+  if (!APPLE || !e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (!/^Key[BDFLOP]$/.test(e.code)) return false;
+  const field = e.target;
+  return (
+    !!field?.isContentEditable ||
+    field instanceof HTMLTextAreaElement ||
+    (field instanceof HTMLInputElement &&
+      !['checkbox', 'radio', 'range', 'color', 'button', 'submit', 'reset', 'file'].includes(
+        field.type,
+      ))
+  );
+}
 const MAC_KEYS = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Mod: '⌘', Plus: '+', Minus: '−' };
 const PC_KEYS = { Mod: 'Ctrl', Plus: 'Plus', Minus: 'Minus' };
 const ARIA_KEYS = {

@@ -127,6 +127,7 @@ import {
   copyText,
   formatBytes,
   contrastInk,
+  fieldEditingKey,
 } from './lib/ui.js';
 import * as P from './lib/puter.js';
 import { waitFor } from './lib/abort.js';
@@ -13844,6 +13845,9 @@ export function createEditor({
     if (e.isComposing || document.querySelector('dialog[open]')) return;
     // So does puter.js's user menu: keys from its shadow root arrive as the element's.
     if (e.target.closest?.('puter-user-menu')) return;
+    // On a Mac ⌃D, ⌃F, ⌃P and the like edit the text in a field (ui.js); they used to open
+    // Document details, the Find bar, and Print over it.
+    if (fieldEditingKey(e)) return;
     if (e.key === 'Escape' && closeOverlaidPanel(e.target)) {
       e.preventDefault();
       return;

@@ -13,6 +13,7 @@ import {
   promptText,
   toast,
   dismissToast,
+  fieldEditingKey,
   download,
   applyTheme,
   themeValue,
@@ -1248,7 +1249,7 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 window.addEventListener('keydown', (e) => {
-  if (document.querySelector('dialog[open]')) return;
+  if (document.querySelector('dialog[open]') || fieldEditingKey(e)) return;
   // Also by the key's place, for layouts whose letters are not Latin (Ctrl+O arrives as "щ").
   const o =
     e.key.toLowerCase() === 'o' || (e.code === 'KeyO' && !e.altKey && !/[\x00-\x7f]/.test(e.key));
