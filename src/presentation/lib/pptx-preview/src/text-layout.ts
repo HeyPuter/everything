@@ -810,11 +810,12 @@ export const layoutCore = (
       const hasText = para.pieces.some((p) => !p.isBreak && p.text !== "");
       const bullet = para.bullet && hasText ? para.bullet : null;
       // Picture bullets reserve a square of `sizePx` plus a trailing space;
-      // glyph bullets reserve the measured "<glyph> " width.
+      // glyph bullets reserve their measured width: text that has no room
+      // after one starts right where it ends, as in the desktop app.
       const bulletLead = bullet
         ? bullet.imageHref
           ? bullet.sizePx + mWidth(" ", bulletSpec(bullet))
-          : mWidth(`${bullet.text} `, bulletSpec(bullet))
+          : mWidth(bullet.text, bulletSpec(bullet))
         : 0;
 
       // Break units can span formatted runs. Pre-split units wider than a full

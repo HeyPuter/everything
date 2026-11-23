@@ -122,3 +122,37 @@ describe("numbering schemes", () => {
     expect((await labels(scheme)).join(" ")).toBe(expected);
   });
 });
+
+describe("bullet spacing", () => {
+  it("starts the text right where a bullet with no room after it ends", async () => {
+    // Bullet and text with no indent: "•" is 10 px in the test measurer and
+    // the text follows it directly, as the desktop app draws "•Text".
+    const measureText = (text, f) => ({
+      widthPx: [...text].length * f.sizePx * 0.5,
+      ascentPx: f.sizePx * 0.8,
+      descentPx: f.sizePx * 0.2,
+      lineGapPx: 0,
+    });
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    files[name] = strToU8(
+      strFromU8(files[name]).replace(
+        "<p:grpSpPr/>",
+        `<p:grpSpPr/>${textBox('<a:p><a:pPr algn="l" marL="0" indent="0"><a:buFont typeface="Arial"/><a:buChar char="•"/></a:pPr><a:r><a:rPr lang="en-US" sz="1500"/><a:t>Text</a:t></a:r></a:p>')}`,
+      ),
+    );
+    const loaded = await parseDeck(zipSync(files));
+    const svg = renderSlideToSvg(loaded, P.getSlides(loaded)[0], {
+      textLayout: "svg",
+      measureText,
+    });
+    const bulletX = Number(/<text x="([\d.]+)"[^>]*>•<\/text>/.exec(svg)[1]);
+    const textX = Number(
+      /<text x="([\d.]+)"[^>]*><tspan[^>]*>Text/.exec(svg)[1],
+    );
+    // 15 pt is 20 px, so "•" is 10 px wide.
+    expect(textX - bulletX).toBeCloseTo(10, 5);
+  });
+});
