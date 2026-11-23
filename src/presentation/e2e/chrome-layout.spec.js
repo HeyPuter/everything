@@ -387,3 +387,31 @@ test("forced colors mark the current slide", async ({ page }, info) => {
     await border(".sorter-card:not(.current) .sorter-thumb"),
   );
 });
+
+// On a screen too narrow for every tab, a contextual tab arriving with the
+// selection scrolls into view rather than appearing out of sight, and the
+// row fades out at the edge with more tabs beyond it.
+test("a contextual tab comes into view on a narrow screen", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "desktop", "every tab fits");
+  await mockPuter(page);
+  await story(page);
+  const tabs = page.getByRole("tablist", { name: "Ribbon tabs" });
+  await expect(tabs).toHaveClass(/more-after/);
+  await page.locator("#slide-canvas .object-hit").first().click();
+  const tab = page.getByRole("tab", { name: "Shape Format" });
+  await expect(tab).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [t, row] = await Promise.all([
+        tab.boundingBox(),
+        tabs.boundingBox(),
+      ]);
+      return (
+        !!t && !!row && t.x >= row.x && t.x + t.width <= row.x + row.width + 1
+      );
+    })
+    .toBe(true);
+  await expect(tabs).toHaveClass(/more-before/);
+});

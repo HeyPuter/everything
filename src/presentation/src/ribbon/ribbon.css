@@ -37,6 +37,23 @@
 .ribbon-tabs::-webkit-scrollbar {
   display: none;
 }
+/* A row of tabs wider than the window fades out at an edge with more
+   beyond it, as a panel does. */
+.ribbon-tabs.more-after {
+  mask-image: linear-gradient(to left, transparent, #000 28px);
+}
+.ribbon-tabs.more-before {
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
+.ribbon-tabs.more-before.more-after {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+}
 .ribbon-tab {
   flex: none;
   position: relative;
