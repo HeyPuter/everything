@@ -14697,12 +14697,23 @@ export function createEditor({
   // fingers move and drawn afresh at the new zoom once they lift.
   let pinch = null;
   const touchSpan = ([a, b]) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-  // Where a finger rests on something that takes touches itself (a drawing tool's surface, an
-  // object being moved), the browser never zoomed either, so neither does the page.
+  // Where a finger rests on something that takes touches itself (a drawing tool's surface, say),
+  // the browser never zoomed either, so neither does the page. A selected object's frame and
+  // handles are the exception: two fingers there zoom, and take back the move one began.
   const takesTouch = (node) => {
+    if (pageImages.controls.contains(node)) return false;
     for (let at = node; at && at !== workspace; at = at.parentElement)
       if (getComputedStyle(at).touchAction === 'none') return true;
     return false;
+  };
+  /** Whether a finger is on the page view. Selecting an object replaces the frame a finger went
+   * down on, which then counts by where the finger is. */
+  const inWorkspace = ({ target, clientX, clientY }) => {
+    if (target.isConnected) return workspace.contains(target);
+    const box = workspace.getBoundingClientRect();
+    return (
+      clientX >= box.left && clientX <= box.right && clientY >= box.top && clientY <= box.bottom
+    );
   };
   /** The pages' stretch from a pinch, kept after the fingers lift until the zoom is drawn. */
   function clearPinchScale() {
@@ -14724,12 +14735,7 @@ export function createEditor({
     (e) => {
       if (e.touches.length !== 2) return endPinch(false);
       const touches = [...e.touches];
-      if (
-        !pdf ||
-        busy ||
-        touches.some((t) => !workspace.contains(t.target) || takesTouch(t.target))
-      )
-        return;
+      if (!pdf || busy || touches.some((t) => !inWorkspace(t) || takesTouch(t.target))) return;
       panning = null;
       editorRoot.classList.remove('panning');
       // A pinch started while the last one is still being drawn starts from the pages as laid out.

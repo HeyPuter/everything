@@ -1048,9 +1048,17 @@ export function createImageLayer({
       180,
     );
   };
+  // A second finger, wherever it lands, makes a finger's move of the object a pinch of the page:
+  // the move is taken back rather than saved when the fingers lift.
+  const secondFinger = (e) => {
+    const held = gesture || selecting;
+    if (e.pointerType === 'touch' && !e.isPrimary && held && held.pointerId !== e.pointerId)
+      cancel();
+  };
   // Release can arrive after focus leaves a handle; leaving the window ends the hold too.
   window.addEventListener('keyup', endKeyboardMove, true);
   window.addEventListener('blur', endKeyboardMove);
+  window.addEventListener('pointerdown', secondFinger, true);
   controls.addEventListener('keydown', onKey);
   properties.addEventListener('keydown', onKey);
   return {
@@ -1083,6 +1091,7 @@ export function createImageLayer({
     destroy() {
       window.removeEventListener('keyup', endKeyboardMove, true);
       window.removeEventListener('blur', endKeyboardMove);
+      window.removeEventListener('pointerdown', secondFinger, true);
       close();
     },
   };
