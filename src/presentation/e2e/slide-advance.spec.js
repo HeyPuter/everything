@@ -561,6 +561,23 @@ test("a looping show plays a slide's media from one copy of its bytes", async ({
   expect(await page.evaluate(() => window.held.size)).toBe(0);
 });
 
+test("a sound that was never played leaves with its slide", async ({
+  page,
+}) => {
+  const pres = deck([{ effect: "none" }, { effect: "none" }], 'loop="1"');
+  addLoopingSound(P.getSlides(pres)[0], { start: "whenClicked" });
+  await load(page, pres);
+  const sounds = page.locator(".presenter-frame audio");
+  await expect(sounds).toHaveCount(1);
+  for (let pass = 0; pass < 4; pass++) {
+    await page.keyboard.press("ArrowRight");
+    await expect(counter(page)).toHaveText("2 / 2");
+    await page.keyboard.press("ArrowRight");
+    await expect(counter(page)).toHaveText("1 / 2");
+  }
+  await expect(sounds).toHaveCount(1);
+});
+
 test("a zoom still growing when the show ends opens nothing", async ({
   page,
 }) => {

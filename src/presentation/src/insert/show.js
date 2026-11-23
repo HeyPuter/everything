@@ -334,6 +334,15 @@ export function createShowExtras(ctx, show) {
   }
 
   // ---- Slide lifecycle ----------------------------------------------------
+  // The slide's media stops and leaves the page, whether it played or not
+  // (a sound sits on the frame, outside the slide's layer). Only a sound
+  // playing across slides goes on.
+  function leaveMedia() {
+    for (const p of new Set([...playing, ...slideMedia.values()]))
+      if (!(p.across && playing.has(p))) p.stop();
+    pendingMedia = [];
+    slideMedia = new Map();
+  }
   function slideShown(slide, i) {
     index = i;
     if (viewed[viewed.length - 1] !== i) viewed.push(i);
@@ -342,9 +351,7 @@ export function createShowExtras(ctx, show) {
     layer?.remove();
     if (hadFocus)
       frame.querySelector(".presenter-slide:not(.presenter-leaving)")?.focus();
-    for (const p of [...playing]) if (!p.across) p.stop();
-    pendingMedia = [];
-    slideMedia = new Map();
+    leaveMedia();
     layer = el("div", { class: "presenter-objects" });
     frame.append(layer);
     const parents = groupParents(slide);
