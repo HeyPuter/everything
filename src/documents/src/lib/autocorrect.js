@@ -1,8 +1,8 @@
 /**
  * Autocorrect as you type: straight quotes become
  * typographic ones, two hyphens between words an em dash, three periods an
- * ellipsis, (c) (r) (tm) their symbols, 1/2 1/4 3/4 real fractions, and the
- * pronoun i a capital.
+ * ellipsis, (c) (r) (tm) their symbols, 1/2 1/4 3/4 real fractions, the
+ * pronoun i a capital, and common misspellings (teh) their words.
  *
  * The engine inserts the typed character first; the correction then
  * replaces the characters just before the caret as its own step, so Undo
@@ -45,6 +45,25 @@ export function autocorrectHinted() {
 
 export const FRACTIONS = { '1/2': '½', '1/4': '¼', '3/4': '¾' };
 const SYMBOLS = { c: '©', r: '®', tm: '™' };
+
+/**
+ * Common slips a word processor's AutoCorrect list puts right as the word ends, in the capitalization they were typed
+ * in (teh → the, Teh → The, TEH → THE), contractions with the typographic apostrophe smart quotes type. Only
+ * misspellings that are no English word of their own are listed.
+ */
+export const MISSPELLINGS = Object.freeze({
+  teh: 'the', hte: 'the', adn: 'and', nad: 'and', taht: 'that', thta: 'that', thier: 'their', recieve: 'receive', recieved: 'received',
+  beleive: 'believe', acheive: 'achieve', wierd: 'weird', freind: 'friend', seperate: 'separate', definately: 'definitely', occured: 'occurred',
+  occurence: 'occurrence', untill: 'until', becuase: 'because', becasue: 'because', alot: 'a lot', accomodate: 'accommodate', wich: 'which',
+  whcih: 'which', woudl: 'would', coudl: 'could', shoudl: 'should', jsut: 'just', knwo: 'know', konw: 'know', wiht: 'with', tihs: 'this',
+  waht: 'what', yuo: 'you', yoru: 'your', thsi: 'this', ahve: 'have', didnt: 'didn’t', dont: 'don’t', doesnt: 'doesn’t', isnt: 'isn’t',
+  wasnt: 'wasn’t', couldnt: 'couldn’t', wouldnt: 'wouldn’t', shouldnt: 'shouldn’t', arent: 'aren’t',
+  goverment: 'government', enviroment: 'environment', tommorow: 'tomorrow', tommorrow: 'tomorrow', begining: 'beginning',
+  existance: 'existence', independant: 'independent', neccessary: 'necessary', necesary: 'necessary', occassion: 'occasion', publically: 'publicly',
+  recomend: 'recommend', refered: 'referred', succesful: 'successful', truely: 'truly', withough: 'without',
+});
+const casedLike = (typed, fix) => typed.length > 1 && typed === typed.toUpperCase() ? fix.toUpperCase()
+  : typed[0] !== typed[0].toLowerCase() ? fix[0].toUpperCase() + fix.slice(1) : fix;
 
 /** Whether a quote typed after `last` opens (start of text, after space, an opening bracket, or a dash). */
 export function opensQuote(last) {
@@ -108,6 +127,11 @@ export function correction(before, typed) {
   if (out === typed && back === 1 && /^[\s,;:!?]$/.test(typed)) {
     const m = /(?:^|[\s"“‘])(i(?:['’](?:m|ll|d|ve))?)$/.exec(prev) || (/\s/.test(typed) ? /[\s"“‘](i\.)$/.exec(prev) : null);
     if (m) return { back: m[1].length + 1, text: `I${m[1].slice(1)}${typed}` };
+  }
+  // A word on the list of common misspellings, ended by a space or punctuation.
+  if (out === typed && back === 1 && /^[\s,;:!?.)\]"”’]$/.test(typed)) {
+    const m = /(?:^|[\s"“‘(\[])(\p{L}+)$/u.exec(prev), fix = m && Object.hasOwn(MISSPELLINGS, m[1].toLowerCase()) ? MISSPELLINGS[m[1].toLowerCase()] : null;
+    if (fix) return { back: m[1].length + 1, text: `${casedLike(m[1], fix)}${typed}` };
   }
   return out === typed && back === 1 ? null : { back, text: out };
 }

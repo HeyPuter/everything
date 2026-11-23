@@ -2,6 +2,17 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { correction, insideAddress, smartQuote, opensQuote, replaceTarget, paragraphText, autocorrectAt, autocorrectEnabled, setAutocorrectEnabled, autocorrectHinted, sentenceCapital, endsWithAbbreviation, capitalizeSentencesEnabled, setCapitalizeSentencesEnabled } from '../src/lib/autocorrect.js';
 
 describe('autocorrect rules', () => {
+  it('puts common misspellings right as the word ends, in the capitals they were typed in', () => {
+    expect(correction('teh ', ' ')).toEqual({ back: 4, text: 'the ' });
+    expect(correction('So Teh,', ',')).toEqual({ back: 4, text: 'The,' });
+    expect(correction('TEH.', '.')).toEqual({ back: 4, text: 'THE.' });
+    expect(correction('I dont ', ' ')).toEqual({ back: 5, text: 'don’t ' });
+    expect(correction('(alot)', ')')).toEqual({ back: 5, text: 'a lot)' });
+    // Only a whole word, and not inside an address.
+    expect(correction('xteh ', ' ')).toBe(null);
+    expect(correction('www.teh ', ' ')).toBe(null);
+    expect(correction('teh', 'h')).toBe(null);
+  });
   it('looks back only to the start of the word being typed, however long the paragraph without spaces before it', () => {
     // Finding the word being typed searched the paragraph with a pattern that took time in the length of a stretch
     // without spaces squared: typing after a long run of Chinese, Japanese or Thai text waited seconds a key.
