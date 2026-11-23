@@ -662,6 +662,15 @@ describe('table commands', () => {
     expect(doc.activeCellBlock).toMatchObject({ top: 0, bottom: 39, left: 0, right: 4 });
   });
 
+  it('makes text typed later in an empty last cell of selected rows bold, as in the other empty cells', () => {
+    const { doc } = tableDocument(2, 2);
+    for (const [r, c] of [[0, 1], [1, 0], [1, 1]]) { doc.selectCell(cellAt(doc, r, c).id); doc.select(doc.range[0], doc.range[0] + 2); doc.replace(''); }
+    block(doc, 0, 0, 1, 2);
+    expect(doc.toggleBold()).toBe(true);
+    const typed = (r, c) => { doc.selectCell(cellAt(doc, r, c).id); doc.replace('t'); return doc.paragraphs.find(p => p.cellId === cellAt(doc, r, c).id).runs[0].bold; };
+    expect([typed(0, 1), typed(1, 0), typed(1, 1)]).toEqual([true, true, true]);
+  });
+
   it('draws diagonal borders across the selected cells and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 1, 1, 1, 3);

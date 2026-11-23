@@ -2185,8 +2185,10 @@ export class TextDocument {
       ]);
       // Direct formatting applies to the mark when all paragraph text is
       // selected, even when the selection stops immediately before that mark.
-      // A trailing partial selection must not change subsequent Enter typing.
-      if (mark && (at + length >= start && at + length < end || start === end && at === start && !length || length > 0 && a === 0 && b === length)) {
+      // A trailing partial selection must not change subsequent Enter typing. A block of cells runs to the end of its
+      // last cell, so an empty paragraph there is selected as well (selectedParagraphs).
+      const blockEnd = !length && at === end && end > start && (this.cellBlock || this.inBlockCellPass);
+      if (mark && (at + length >= start && at + length < end || start === end && at === start && !length || length > 0 && a === 0 && b === length || blockEnd)) {
         p.markFormat = { ...runFormat(p.markFormat), ...patch };
         p.markOverrides = { ...p.markOverrides, ...patch };
       }
