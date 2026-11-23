@@ -19,6 +19,7 @@ import { copyPagesWithLayers } from './optional-content.js';
 import { mapPageDestinations } from './page-actions.js';
 import { tokenize } from './content-filter.js';
 import { appendOutline } from './outline-edit.js';
+import { pageLabelSpecs, setPageLabels } from './page-labels.js';
 
 /**
  * Parse a print-style page list such as "1-3, 5" into zero-based indices for a PDF with
@@ -542,6 +543,13 @@ export async function copyPagesFrom(source, indices, details) {
       copyPageStandIns(copier, source, out),
     );
     pages.forEach((page) => out.addPage(page));
+    // The pages keep the labels they had ("iv", "A-3"), as they keep their bookmarks.
+    const labels = pageLabelSpecs(source);
+    if (labels)
+      setPageLabels(
+        out,
+        indices.map((index) => labels[index]),
+      );
     pruneCopiedResources(out, pages);
     const indexToRef = new Map(indices.map((index, position) => [index, pages[position].ref]));
     relinkCopiedPages(out, pages, indexToRef);

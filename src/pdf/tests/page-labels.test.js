@@ -47,3 +47,30 @@ for (const [label, operation, expected] of [
     await session.change(operation);
     expect(await labels(session.bytes)).toEqual(expected);
   });
+
+it('extracted pages and the parts of a split keep their page labels', async () => {
+  const { extractPages } = await import('../src/core/pages.js');
+  const { splitPdf } = await import('../src/core/split.js');
+  const bytes = await labelled();
+  expect(await labels(await extractPages(bytes, [1, 2, 3]))).toEqual(['ii', '1', '2']);
+  // Out of order, each page still says what it said.
+  expect(await labels(await extractPages(bytes, [4, 0]))).toEqual(['3', 'i']);
+  // Pages that were numbered from 1 need no labels of their own.
+  expect(await labels(await extractPages(bytes, [2, 3]))).toBeNull();
+  const parts = await splitPdf(
+    bytes,
+    [
+      [0, 1],
+      [2, 3, 4],
+    ],
+    'Book',
+  );
+  expect(await labels(parts[0].bytes)).toEqual(['i', 'ii']);
+  expect(await labels(parts[1].bytes)).toBeNull();
+  const thirds = await splitPdf(bytes, [[0], [1, 2], [3, 4]], 'Book');
+  expect(await Promise.all(thirds.map((part) => labels(part.bytes)))).toEqual([
+    ['i'],
+    ['ii', '1'],
+    ['2', '3'],
+  ]);
+});
