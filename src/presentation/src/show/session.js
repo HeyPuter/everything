@@ -128,6 +128,43 @@ export function createShowSession(ctx, show) {
   listen(stage, "pointermove", wake);
   wake();
 
+  // ---- Keeping the screen on ----------------------------------------------
+  // A slide can stay up for minutes with nothing moving, so the show asks
+  // the device not to dim or lock its screen, and asks again whenever the
+  // page comes back into view (the browser lets the lock go when it hides).
+  let wakeLock = null;
+  let askingWake = false;
+  let awake = true;
+  async function keepAwake() {
+    const doc = stage.ownerDocument;
+    if (!awake || wakeLock || askingWake || doc.visibilityState !== "visible")
+      return;
+    const wake = doc.defaultView?.navigator?.wakeLock;
+    if (!wake?.request) return;
+    askingWake = true;
+    try {
+      const lock = await wake.request("screen");
+      if (!awake) lock.release().catch(() => {});
+      else {
+        wakeLock = lock;
+        lock.addEventListener?.("release", () => {
+          if (wakeLock === lock) wakeLock = null;
+        });
+      }
+    } catch {
+      // Refused (a battery saver, a policy): the show goes on without it.
+    } finally {
+      askingWake = false;
+    }
+  }
+  listen(stage.ownerDocument, "visibilitychange", keepAwake);
+  keepAwake();
+  cleanups.push(() => {
+    awake = false;
+    wakeLock?.release().catch(() => {});
+    wakeLock = null;
+  });
+
   // ---- Cameras on slides --------------------------------------------------
   const cameras = createCameraSource();
   const cameraLayer = el("div", {

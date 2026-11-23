@@ -472,6 +472,47 @@ test("a recording keeps when each click came on the slide", async ({
   );
 });
 
+test("the screen stays on during a show, and is let go when it ends", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.wake = { asked: 0, released: 0 };
+    Object.defineProperty(navigator, "wakeLock", {
+      configurable: true,
+      value: {
+        request: async () => {
+          window.wake.asked++;
+          const lock = new EventTarget();
+          lock.release = async () => {
+            window.wake.released++;
+            lock.dispatchEvent(new Event("release"));
+          };
+          return lock;
+        },
+      },
+    });
+  });
+  await story(page);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = show(page);
+  await expect(d).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.wake))
+    .toEqual({
+      asked: 1,
+      released: 0,
+    });
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Escape");
+  await expect(d).toBeHidden();
+  await expect
+    .poll(() => page.evaluate(() => window.wake))
+    .toEqual({
+      asked: 1,
+      released: 1,
+    });
+});
+
 test("ending a show before the browser hands over the camera lets it go", async ({
   page,
 }) => {
