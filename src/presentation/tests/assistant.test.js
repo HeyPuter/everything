@@ -23,7 +23,7 @@ import {
   TOOLS,
   NO_CHANGE,
 } from "../src/assistant-tools.js";
-import { aiChatStream } from "../src/cloud.js";
+import { aiChatStream, withCacheBreakpoints } from "../src/cloud.js";
 import { addInkStroke } from "../src/draw/ink-model.js";
 import { fixture } from "./slide-transition-fixture.js";
 import { solidPaintInheritanceFixture } from "./solid-paint-inheritance-fixture.js";
@@ -783,12 +783,93 @@ describe("Puter AI streaming", () => {
       stream: true,
       model: "m",
       tools: [1],
+      parallelToolCalls: true,
       max_tokens: 10,
     });
     expect(parts).toEqual([
       { type: "text", text: "Hi" },
       { type: "tool", id: "t1", name: "read_slide", input: { slide: 2 } },
     ]);
+  });
+
+  // Puter lets the model call one tool per reply unless asked, and serves
+  // an unpinned request from whichever route is healthiest (a reseller,
+  // holding none of the conversation in its cache, after anyone's failure).
+  it("asks for Claude itself and for several tool calls per reply", async () => {
+    const chat = vi.fn().mockResolvedValue((async function* () {})());
+    vi.stubGlobal("puter", { ai: { chat } });
+    for await (const p of aiChatStream([], {
+      model: "claude-opus-5-5",
+      tools: [1],
+    }))
+      void p;
+    expect(chat.mock.calls[0][1]).toEqual({
+      stream: true,
+      model: "claude-opus-5-5",
+      provider: "claude",
+      tools: [1],
+      parallelToolCalls: true,
+    });
+  });
+
+  // Claude caches nothing unless asked: each round of a reply sent the whole
+  // conversation again at full price.
+  it("marks the assistant's conversation for the prompt cache", async () => {
+    const turn1 = [
+      { role: "system", content: "rules" },
+      { role: "user", content: "add a box" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "c1", type: "function", function: {} }],
+      },
+      { role: "tool", tool_call_id: "c1", content: "Added." },
+    ];
+    const LONG = { type: "ephemeral", ttl: "1h" };
+    const SHORT = { type: "ephemeral" };
+    const sent = withCacheBreakpoints(turn1);
+    expect(sent[0].content).toEqual([
+      { type: "text", text: "rules", cache_control: LONG },
+    ]);
+    // The turn's opening message, and the newest, a result in Claude's shape.
+    expect(sent[1].content).toEqual([
+      { type: "text", text: "add a box", cache_control: SHORT },
+    ]);
+    expect(sent[2]).toBe(turn1[2]);
+    expect(sent[3]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "c1",
+          content: "Added.",
+          cache_control: SHORT,
+        },
+      ],
+    });
+    // The next turn reads the finished one from the cache: its end is marked.
+    const turn2 = [
+      ...turn1,
+      { role: "assistant", content: "Done." },
+      { role: "user", content: "thanks" },
+    ];
+    const next = withCacheBreakpoints(turn2);
+    expect(next[4].content).toEqual([
+      { type: "text", text: "Done.", cache_control: SHORT },
+    ]);
+    expect(next[5].content.at(-1).cache_control).toEqual(SHORT);
+    expect(
+      next.filter((m) => JSON.stringify(m).includes("cache_control")),
+    ).toHaveLength(3);
+    // What was given is left as it was.
+    expect(turn2[1].content).toBe("add a box");
+    // Only the assistant asks for it; a one-off request goes as it is.
+    const chat = vi.fn().mockResolvedValue((async function* () {})());
+    vi.stubGlobal("puter", { ai: { chat } });
+    for await (const p of aiChatStream(turn2, { cache: true })) void p;
+    for await (const p of aiChatStream(turn2)) void p;
+    expect(chat.mock.calls[0][0]).toEqual(next);
+    expect(chat.mock.calls[1][0]).toBe(turn2);
   });
 
   it("reads a whole reply with tool calls, and throws the service's error", async () => {

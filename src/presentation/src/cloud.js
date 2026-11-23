@@ -297,21 +297,33 @@ export const canAI = () => !!globalThis.puter?.ai?.chat;
 // (system, user, assistant with tool_calls, tool). A reply the SDK hands back
 // whole rather than streamed is yielded in the same pieces. A failure throws
 // an Error carrying the service's own message and code where it gives them.
+//
+// `cache` marks a conversation sent again and again as it grows (the
+// assistant's): it goes with prompt-cache breakpoints (withCacheBreakpoints).
 export async function* aiChatStream(
   messages,
-  { model, tools, maxTokens } = {},
+  { model, tools, maxTokens, cache = false } = {},
 ) {
   const ai = globalThis.puter?.ai;
   if (!ai?.chat) throw new Error("AI is not available here.");
   const options = {
     stream: true,
     ...(model ? { model } : {}),
-    ...(tools?.length ? { tools } : {}),
+    // Unpinned, Puter starts a request on whichever route is healthiest,
+    // which after anyone's recent failure is a reseller holding none of the
+    // conversation in its cache. Pinned, Puter still falls back when it fails.
+    ...(model?.startsWith("claude-") ? { provider: "claude" } : {}),
+    // Unless asked, Puter lets the model call one tool per reply, so reading
+    // three slides took three requests, each sending the whole conversation.
+    ...(tools?.length ? { tools, parallelToolCalls: true } : {}),
     ...(maxTokens ? { max_tokens: maxTokens } : {}),
   };
   let res;
   try {
-    res = await ai.chat(messages, options);
+    res = await ai.chat(
+      cache ? withCacheBreakpoints(messages) : messages,
+      options,
+    );
   } catch (e) {
     throw aiError(e);
   }
@@ -363,6 +375,83 @@ export async function* aiChatStream(
     }
     yield { type: "tool", id: call.id, name: call.function?.name, input };
   }
+}
+// Content as blocks with a cache breakpoint on the last one (an empty text
+// block cannot take one).
+function marked(content, cache) {
+  const blocks =
+    typeof content === "string"
+      ? content
+        ? [{ type: "text", text: content }]
+        : []
+      : [...(content ?? [])];
+  const last = blocks.at(-1);
+  if (!last || (last.type === "text" && !last.text)) return null;
+  blocks[blocks.length - 1] = { ...last, cache_control: cache };
+  return blocks;
+}
+/**
+ * The conversation with prompt-cache breakpoints. Puter passes them to
+ * Claude, which caches nothing unless asked and takes at most four:
+ * - the instructions (the tools, which come before them, are cached with
+ *   them, for an hour: they are the same for everyone);
+ * - the end of the last finished turn, and on a turn's first request the end
+ *   of the one before. Earlier turns are sent shortened (requestMessages),
+ *   so they read the same in every later request: a new turn reads them from
+ *   the cache the turn before wrote, rather than paying to send them again;
+ * - the message that started the current turn;
+ * - the newest message, which the next round reads up to.
+ * A tool result goes in Claude's own shape, which keeps its breakpoint (an
+ * OpenAI tool message loses it on the way). The messages given are not
+ * changed.
+ */
+export function withCacheBreakpoints(messages) {
+  const LONG = { type: "ephemeral", ttl: "1h" };
+  const SHORT = { type: "ephemeral" };
+  const out = [...messages];
+  const markAt = (i, cache) => {
+    const m = messages[i];
+    if (!m) return;
+    if (m.role === "tool") {
+      if (!m.content) return;
+      out[i] = {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: m.tool_call_id,
+            content: m.content,
+            cache_control: cache,
+          },
+        ],
+      };
+      return;
+    }
+    // On a reply's text a breakpoint would sit before its tool calls.
+    if (m.role === "assistant" && m.tool_calls?.length) return;
+    const content = marked(m.content, cache);
+    if (content) out[i] = { ...m, content };
+  };
+  if (messages[0]?.role === "system") markAt(0, LONG);
+  // Where each turn starts: a user message after the instructions or after
+  // a finished reply.
+  const starts = [];
+  for (let i = 1; i < messages.length; i++) {
+    const prev = messages[i - 1];
+    if (
+      messages[i].role === "user" &&
+      (prev.role === "system" ||
+        (prev.role === "assistant" && !prev.tool_calls?.length))
+    )
+      starts.push(i);
+  }
+  const turn = starts.at(-1) ?? -1;
+  const last = messages.length - 1;
+  if (turn === last && starts.length > 2) markAt(starts.at(-2) - 1, SHORT);
+  if (starts.length > 1) markAt(turn - 1, SHORT);
+  if (turn > 0 && turn < last) markAt(turn, SHORT);
+  if (last > 0) markAt(last, SHORT);
+  return out;
 }
 // The SDK often rejects with a plain { error: { message } } object.
 function aiError(e) {

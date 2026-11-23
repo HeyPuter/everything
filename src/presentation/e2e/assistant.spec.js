@@ -13,6 +13,12 @@ async function mockPuter(page) {
     }),
   );
 }
+// A message's words, whether sent as text or as blocks (the assistant marks
+// its conversation for the prompt cache).
+const textOf = (content) =>
+  typeof content === "string"
+    ? content
+    : content.map((b) => b.text ?? b.content ?? "").join("");
 const reply = (page, ...replies) =>
   page.evaluate((r) => window.__replies.push(...r), replies);
 const toolCall = (name, input, id = `call_${name}`) => ({
@@ -128,14 +134,20 @@ test("the assistant edits the slide, shows its steps, and undoes its reply", asy
   expect(requests).toHaveLength(2);
   expect(requests[0].options).toMatchObject({
     model: "claude-opus-5-5",
+    provider: "claude",
+    parallelToolCalls: true,
     stream: true,
   });
   expect(requests[0].options.tools).toBeGreaterThan(10);
-  expect(requests[0].messages[1].content).toContain("<presentation_state>");
-  expect(requests[0].messages[1].content).toContain("The user is on slide 1");
-  expect(requests[1].messages.at(-1)).toMatchObject({
-    role: "tool",
-    tool_call_id: "call_add_text",
+  expect(textOf(requests[0].messages[1].content)).toContain(
+    "<presentation_state>",
+  );
+  expect(textOf(requests[0].messages[1].content)).toContain(
+    "The user is on slide 1",
+  );
+  expect(requests[1].messages.at(-1).content[0]).toMatchObject({
+    type: "tool_result",
+    tool_use_id: "call_add_text",
   });
 
   await panel.getByRole("button", { name: "Undo" }).click();
@@ -258,7 +270,9 @@ test("a request made while the assistant answers waits in the message box", asyn
   await box.press("Enter");
   await expect
     .poll(() =>
-      page.evaluate(() => window.__requests.at(-1).messages.at(-1).content),
+      page
+        .evaluate(() => window.__requests.at(-1).messages.at(-1).content)
+        .then(textOf),
     )
     .toMatch(/Our goals for next year$/);
 });

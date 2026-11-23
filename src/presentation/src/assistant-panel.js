@@ -136,7 +136,11 @@ export function createAssistantPanel(env) {
   const pinned = new WeakMap();
   const agent = createAgent({
     chat: (messages, options) =>
-      cloud.aiChatStream(messages, { ...options, maxTokens: 8192 }),
+      cloud.aiChatStream(messages, {
+        ...options,
+        maxTokens: 8192,
+        cache: true,
+      }),
     runTool: async (name, args, control) => {
       // A change, or a move to show the user something, waits for the text
       // they are typing to be committed: committing it for them would cut
