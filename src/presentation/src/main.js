@@ -3525,8 +3525,9 @@ function renderEditor() {
               speakerNotes(),
             ),
           ),
-          // Slide Sorter and Notes Page take the place of the panes.
-          el("section", { id: "view-host", class: "view-host" }),
+          // Slide Sorter and Notes Page take the place of the panes, and of
+          // their main landmark (hidden with them).
+          el("main", { id: "view-host", class: "view-host" }),
           el("aside", {
             class: "inspector",
             id: "inspector",

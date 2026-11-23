@@ -1,6 +1,7 @@
 // The editor's frame at the window sizes people use: the title bar, the
 // dialogs and the panels around the slide.
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 async function mockPuter(page, { userMenu = false } = {}) {
   await page.route("https://js.puter.com/v2/", (route) =>
@@ -67,3 +68,28 @@ for (const userMenu of [false, true])
       await expect(status).toHaveText("Saved on this device");
     }
   });
+
+// Slide Sorter and Notes Page take the place of the slide and its panes,
+// and of their main landmark, which a screen reader jumps to.
+test("Slide Sorter and Notes Page are the page's main landmark", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await story(page);
+  for (const label of ["Slide Sorter", "Notes Page", "Normal"]) {
+    const bar = page
+      .getByRole("menubar")
+      .getByRole("menuitem", { name: "View", exact: true });
+    if (await bar.isVisible()) await bar.click();
+    else {
+      await page.getByRole("button", { name: "File options" }).click();
+      await page.getByRole("menuitem", { name: "View", exact: true }).click();
+    }
+    await page
+      .getByRole("menuitemcheckbox", { name: new RegExp(`^${label}`) })
+      .click();
+    await expect(page.getByRole("main")).toHaveCount(1);
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    expect(violations, label).toEqual([]);
+  }
+});
