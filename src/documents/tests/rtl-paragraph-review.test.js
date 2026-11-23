@@ -5,6 +5,7 @@ import { setCellAlignment } from '../src/engine/table-editing.js';
 import { directedRuns } from '../src/engine/script-input.js';
 import { copyFragment, fragmentHtml, htmlFragment } from '../src/engine/clipboard-fragment.js';
 import { documentHtml } from '../src/lib/document-export.js';
+import { documentHtml as mailHtml } from '../src/lib/mail-messages.js';
 import { layoutDocument, hitTest, hitTestStop, selectionRects } from '../src/engine/layout.js';
 
 let dom;
@@ -76,4 +77,13 @@ it('writes a right-to-left list as a right-to-left HTML list, for the page and t
   // Read back as HTML from elsewhere, each paragraph keeps its direction.
   const foreign = htmlFragment(html.replace(/^<div [^>]*>/, '<div>'), { copied: false });
   expect(foreign.paragraphs.map(p => p.bidi)).toEqual([true, true, false, undefined]);
+});
+
+// A merged message written from a right-to-left letter reads right-to-left, its sides as the page shows them.
+it('writes right-to-left paragraphs of a merged message right-to-left', () => {
+  const doc = new TextDocument([paragraph('שלום רב,'), paragraph('בברכה'), paragraph('Dear Dana,')]);
+  doc.select(0, doc.text.indexOf('Dear')); doc.setParagraphDirection(true);
+  doc.select(doc.text.indexOf('בברכה')); doc.setParagraphAlignment('left');
+  const html = mailHtml(doc);
+  expect(html).toContain('<p dir="rtl">שלום רב,</p>\n<p dir="rtl" style="text-align:left">בברכה</p>\n<p>Dear Dana,</p>');
 });
