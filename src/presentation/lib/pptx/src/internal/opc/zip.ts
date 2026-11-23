@@ -83,10 +83,21 @@ export const shouldStore = (name: string): boolean =>
 /**
  * Reads a ZIP archive (a `.pptx` file is a ZIP) and returns entries in
  * central-directory order. Throws if `input` is not a valid ZIP.
+ *
+ * `snapshot`: `input` is an archive `writeZip` returned, its bytes unchanged
+ * since. Entries whose bytes are still in memory are then returned as they
+ * are, and the others with their compression known.
  */
-export const readZip = (input: Uint8Array): ZipReadResult => {
+export const readZip = (
+  input: Uint8Array,
+  { snapshot = false }: { snapshot?: boolean } = {},
+): ZipReadResult => {
+  const known = snapshot ? archives.get(input) : undefined;
   const paths = new Map<string, string>();
   const partNames = new Set<string>();
+  // Every entry, in the order the library would list them, and the bytes
+  // of those an archive written here still has in memory.
+  const listed: Record<string, Uint8Array | null> = {};
   const obj = unzipSync(input, {
     filter: ({ name }) => {
       // Repair Windows archive member separators without changing part bodies.
@@ -98,13 +109,22 @@ export const readZip = (input: Uint8Array): ZipReadResult => {
         partNames.add(key);
       }
       paths.set(name, path);
-      return true;
+      // An archive written here (an undo step's snapshot) holds bytes that
+      // are still in memory, unchanged, when the deck being edited still
+      // has that part: they are taken as they are rather than unpacked.
+      const kept = known?.get(name)?.data.deref() ?? null;
+      listed[name] = kept;
+      return !kept;
     },
   });
   const entries: ZipEntry[] = [];
-  for (const name of Object.keys(obj)) {
-    const data = obj[name];
-    if (data === undefined) continue;
+  for (const name of Object.keys(listed)) {
+    const data = listed[name] ?? obj[name];
+    if (data === undefined || data === null) continue;
+    // Bytes unpacked from an archive written here were compressed for it;
+    // the next save reuses that work.
+    const entry = known?.get(name);
+    if (entry && !written.has(data)) written.set(data, entry.written);
     entries.push({ name: paths.get(name)!, data });
   }
   return { entries };
@@ -130,20 +150,59 @@ interface Written {
   compressed: Uint8Array | null;
 }
 const written = new WeakMap<Uint8Array, Written>();
+// What each archive written here holds, by entry name, for as long as the
+// archive is kept: a package read back from it (the undo history keeps its
+// snapshots as archives) takes the parts the deck in memory still shares
+// with it as they are, unpacks only the others, and starts with every
+// part's compressed bytes known, so the first edit after an undo compresses
+// only what it changed. Each entry's bytes are held weakly: an archive
+// keeps no part alive that no deck holds any more.
+const archives = new WeakMap<
+  Uint8Array,
+  Map<string, { written: Written; data: WeakRef<Uint8Array> }>
+>();
 
-let crcTable: Int32Array | null = null;
+// CRC-32 eight bytes at a time ("slicing by 8"): table k gives a byte's
+// contribution k bytes further on. The same checksum as one byte at a time,
+// several times faster on the megabytes of pictures a deck carries.
+let crcTables: Int32Array | null = null;
 const crc32 = (data: Uint8Array): number => {
-  if (!crcTable) {
-    crcTable = new Int32Array(256);
+  let t = crcTables;
+  if (!t) {
+    t = new Int32Array(8 * 256);
     for (let n = 0; n < 256; n++) {
       let c = n;
       for (let k = 0; k < 8; k++) c = c & 1 ? -306674912 ^ (c >>> 1) : c >>> 1;
-      crcTable[n] = c;
+      t[n] = c;
     }
+    for (let n = 0; n < 256; n++)
+      for (let k = 1; k < 8; k++) {
+        const c = t[(k - 1) * 256 + n]!;
+        t[k * 256 + n] = t[c & 255]! ^ (c >>> 8);
+      }
+    crcTables = t;
   }
   let c = -1;
-  for (let i = 0; i < data.length; i++)
-    c = crcTable[(c ^ data[i]!) & 255]! ^ (c >>> 8);
+  let i = 0;
+  const end = data.length - (data.length % 8);
+  for (; i < end; i += 8) {
+    const a =
+      c ^
+      (data[i]! |
+        (data[i + 1]! << 8) |
+        (data[i + 2]! << 16) |
+        (data[i + 3]! << 24));
+    c =
+      t[1792 + (a & 255)]! ^
+      t[1536 + ((a >>> 8) & 255)]! ^
+      t[1280 + ((a >>> 16) & 255)]! ^
+      t[1024 + (a >>> 24)]! ^
+      t[768 + data[i + 4]!]! ^
+      t[512 + data[i + 5]!]! ^
+      t[256 + data[i + 6]!]! ^
+      t[data[i + 7]!]!;
+  }
+  for (; i < data.length; i++) c = t[(c ^ data[i]!) & 255]! ^ (c >>> 8);
   return ~c >>> 0;
 };
 
@@ -210,9 +269,15 @@ export const writeZip = (
   }[] = [];
   let offset = 0;
   let central = 0;
+  const contents = new Map<
+    string,
+    { written: Written; data: WeakRef<Uint8Array> }
+  >();
   for (const [name, data] of byName) {
     const level: CompressionLevel = shouldStore(name) ? 0 : defaultLevel;
-    const { crc, compressed } = entryBytes(data, level);
+    const entry = entryBytes(data, level);
+    const { crc, compressed } = entry;
+    contents.set(name, { written: entry, data: new WeakRef(data) });
     const encoded = ENCODER.encode(name);
     if (encoded.length > 65535) throw new Error("filename too long");
     const body = compressed ?? data;
@@ -268,5 +333,6 @@ export const writeZip = (
   put16(out, at + 10, files.length);
   put32(out, at + 12, central);
   put32(out, at + 16, offset);
+  archives.set(out, contents);
   return out;
 };

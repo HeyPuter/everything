@@ -561,6 +561,70 @@ test("a looping show plays a slide's media from one copy of its bytes", async ({
   expect(await page.evaluate(() => window.held.size)).toBe(0);
 });
 
+test("the last slide's sound stops at the end screen", async ({ page }) => {
+  const pres = deck([{ effect: "none" }, { effect: "none" }]);
+  addLoopingSound(P.getSlides(pres)[1]);
+  const sounding = await trackMedia(page);
+  await load(page, pres);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("2 / 2");
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".presenter-end")).toBeVisible();
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+  // Going back plays it again.
+  await page.keyboard.press("ArrowLeft");
+  await expect(counter(page)).toHaveText("2 / 2");
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+});
+
+test("a sound that was never played leaves with its slide", async ({
+  page,
+}) => {
+  const pres = deck([{ effect: "none" }, { effect: "none" }], 'loop="1"');
+  addLoopingSound(P.getSlides(pres)[0], { start: "whenClicked" });
+  await load(page, pres);
+  const sounds = page.locator(".presenter-frame audio");
+  await expect(sounds).toHaveCount(1);
+  for (let pass = 0; pass < 4; pass++) {
+    await page.keyboard.press("ArrowRight");
+    await expect(counter(page)).toHaveText("2 / 2");
+    await page.keyboard.press("ArrowRight");
+    await expect(counter(page)).toHaveText("1 / 2");
+  }
+  await expect(sounds).toHaveCount(1);
+});
+
+test("Alt+End and Alt+Home move a sound between its bookmarks", async ({
+  page,
+}) => {
+  const pres = deck([{ effect: "none" }]);
+  addLoopingSound(P.getSlides(pres)[0], {
+    start: "whenClicked",
+    bookmarks: [
+      { name: "One", time: 300 },
+      { name: "Two", time: 700 },
+    ],
+  });
+  await load(page, pres);
+  const sound = page.locator(".presenter-frame audio");
+  const at = () => sound.evaluate((a) => a.currentTime);
+  // The first press starts the sound at its first bookmark.
+  await page.keyboard.press("Alt+End");
+  await expect.poll(at).toBeGreaterThanOrEqual(0.3);
+  await sound.evaluate((a) => a.pause());
+  await page.keyboard.press("Alt+End");
+  await expect.poll(at).toBeCloseTo(0.7, 2);
+  await page.keyboard.press("Alt+Home");
+  await expect.poll(at).toBeCloseTo(0.3, 2);
+  // Neither moves the show.
+  await expect(counter(page)).toHaveText("1 / 1");
+  await expect(page.locator(".presenter-end")).toBeHidden();
+});
+
 test("a zoom still growing when the show ends opens nothing", async ({
   page,
 }) => {

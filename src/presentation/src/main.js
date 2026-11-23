@@ -40,6 +40,7 @@ import {
   visibleSlideShapes,
   groupParents,
   slideBounds,
+  slidePosition,
   tableLayout,
   setSlideBounds,
   slideRotation,
@@ -62,6 +63,7 @@ import {
   displayTableCellText,
   shapeTextFields,
   tableTextFields,
+  storedTableCellEdits,
   retainTextFields,
   fieldFormattingRange,
   firstTextElement,
@@ -100,6 +102,7 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createFormatTools } from "./format/index.js";
+import { htmlParagraphs } from "./format/arrange.js";
 import {
   formatFrame,
   preferTab,
@@ -498,9 +501,7 @@ function setAppearance(value) {
 setAppearance(appearance);
 function fail(error) {
   // Puter's SDK sometimes rejects with `{ msg }` objects instead of Errors.
-  toast(
-    error?.message || error?.msg || "Something went wrong. Please try again.",
-  );
+  toast(cloud.errorMessage(error) || "Something went wrong. Please try again.");
 }
 function run(fn) {
   return async (e) => {
@@ -664,6 +665,15 @@ function sdkUserMenu() {
     onSignIn: () => cloud.user().then(adoptAccount).catch(fail),
     onSignedOut: accountSignedOut,
   });
+}
+// An SDK that arrived after the first screen brings <puter-user-menu> with
+// it: the element takes the place of the app's own Apps and account buttons
+// in the header on screen.
+function adoptLateUserMenu() {
+  const current = document.querySelector(".account-button");
+  if (!current || !hasUserMenu()) return;
+  current.parentElement?.querySelector(".apps-btn")?.remove();
+  current.replaceWith(...[accountButton(), sdkUserMenu()].filter(Boolean));
 }
 // The element signed out by itself: the header and the library follow.
 function accountSignedOut() {
@@ -1609,6 +1619,7 @@ function libraryFileMenu(e, f) {
                 "Rename presentation",
                 fileTitle(f),
                 returnFocus,
+                { check: (name) => cloud.renameProblem(f.path, name) },
               );
               if (nameChanged(name, fileTitle(f))) {
                 await saveQueue.run(async () => {
@@ -2091,6 +2102,9 @@ async function openCloud(file, { offerDraft = true } = {}) {
           // a slow read could describe a newer file than the one read, and
           // the first save would then write over that newer file unasked.
           pending.remote = await locateFile(pending, file.uid);
+          // A file too large to open is refused before it is downloaded.
+          const size = cloud.sizeOf(pending.remote);
+          if (size != null) validateImportSize(size);
           bytes = await cloud.readFile(pending.path, { importing: true });
           break;
         } catch (error) {
@@ -2465,7 +2479,9 @@ function mutate(
           P.getSlides(active.pres).forEach((s) => P.syncSlideTextBuilds(s));
         syncTextBuilds();
         const sizeBefore = packageSize(previous);
+        const placeBefore = editPlace();
         if ((await fn()) === SKIP_MUTATION) return false;
+        const placeAfter = editPlace();
         checkPackageSize(packageSize(active.pres), sizeBefore);
         syncTextBuilds();
         // Formatting given to a master's or layout's placeholder text
@@ -2498,8 +2514,19 @@ function mutate(
         const before = history.bytes;
         if (takesBack && history.bytes === takesBack && history.past.length)
           history.drop(doc.pres);
-        else if (merge) await history.amend(doc.pres, theme);
-        else await history.capture(doc.pres, theme);
+        else if (merge) {
+          await history.amend(doc.pres, theme);
+          editPlaces.set(history.bytes, {
+            before: editPlaces.get(before)?.before ?? placeBefore,
+            after: placeAfter,
+          });
+        } else {
+          await history.capture(doc.pres, theme);
+          editPlaces.set(history.bytes, {
+            before: placeBefore,
+            after: placeAfter,
+          });
+        }
         onApplied?.(before, history.bytes);
         lastCoalesce = coalesce ? { key: coalesce, time: Date.now() } : null;
         revision++;
@@ -2707,8 +2734,7 @@ async function saveCloud(
       // again; one that lasts is not helped by sending the whole file every
       // few seconds, so the pauses grow.
       target.saveError = {
-        message:
-          error?.message || error?.msg || "Puter could not save the file.",
+        message: cloud.errorMessage(error) || "Puter could not save the file.",
         offline: navigator.onLine === false,
       };
       if (doc === target && target.path && account) {
@@ -2966,9 +2992,11 @@ async function copyOf(target, useDialog) {
 }
 // The tab and, inside the Puter desktop, the window are titled after the
 // open presentation, and after the app in the library.
+let windowTitle = "Presentation";
 function setTitle(name) {
   document.title = name ? `${name} | Presentation` : "Presentation";
-  cloud.setWindowTitle(name || "Presentation");
+  windowTitle = name || "Presentation";
+  cloud.setWindowTitle(windowTitle);
 }
 // The header's title button is named by the name it shows, and says on
 // hover what a press does; the window's title follows the name too.
@@ -3030,7 +3058,7 @@ function updateSaveStatus() {
         : problem === "offline"
           ? "You are offline. Changes save to Puter when you reconnect."
           : problem === "error"
-            ? `Puter could not save: ${doc.saveError.message} Trying again shortly.`
+            ? `Puter could not save: ${sentence(doc.saveError.message)} Trying again shortly.`
             : doc.path ||
               "Save to Puter to access this presentation on other devices.";
   if (
@@ -3043,6 +3071,8 @@ function updateSaveStatus() {
   status.title = hint;
   status.replaceChildren(icon(glyph, 14), el("span", {}, label));
 }
+// Words that end a sentence, ready for another to follow.
+const sentence = (text) => (/[.!?…]["”’)]*$/.test(text) ? text : `${text}.`);
 async function downloadDeck() {
   const target = doc;
   await settled();
@@ -3251,7 +3281,10 @@ async function exportImages(all) {
 }
 async function renameDoc() {
   const target = doc;
-  const name = await promptName("Rename presentation", target.name);
+  const name = await promptName("Rename presentation", target.name, null, {
+    check: (name) =>
+      target.path ? cloud.renameProblem(target.path, name) : "",
+  });
   if (!nameChanged(name, target.name)) return;
   await mutationTail;
   return saveQueue.run(async () => {
@@ -3551,7 +3584,7 @@ function renderEditor() {
           ),
           // Slide Sorter and Notes Page take the place of the panes, and of
           // their main landmark (hidden with them).
-          el("main", { id: "view-host", class: "view-host" }),
+          el("main", { id: "view-host", class: "view-host", tabindex: -1 }),
           el("aside", {
             class: "inspector",
             id: "inspector",
@@ -3778,8 +3811,11 @@ function commandSearch() {
         icon: item.icon ? `o:${item.icon}` : null,
         disabled: !enabled,
       };
-      if (item.menu && !item.split) entry.items = item.menu();
-      else
+      // A command that is off offers no menu: its menu reads the selection
+      // it is off for (Text Direction with nothing chosen).
+      if (item.menu && !item.split) {
+        if (enabled) entry.items = item.menu();
+      } else
         entry.onSelect = () => {
           ribbon.select(tab.id);
           item.run?.();
@@ -4025,6 +4061,7 @@ const review = createReview({
   SKIP: SKIP_MUTATION,
   size: () => currentSize(),
   slideBounds: (shape) => slideBounds(doc.pres, shape),
+  slidePosition: (shape) => slidePosition(doc.pres, shape),
   account: () => account,
   isTable: (shape) => isTable(shape),
   replaceInShape: (shape, re, value, only) =>
@@ -4765,6 +4802,8 @@ function updateZoomUi() {
   const level = document.querySelector(".zoom-level span");
   if (level) level.textContent = `${Math.round(factor * 100)}%`;
   const slider = document.querySelector(".zoom-slider");
+  // A screen reader hears the zoom, not the slider's own scale.
+  slider?.setAttribute("aria-valuetext", `${Math.round(factor * 100)}%`);
   if (slider && document.activeElement !== slider)
     slider.value = String(
       Math.round(
@@ -5095,6 +5134,14 @@ function toggleSelectionPane() {
     class: "task-pane selection-pane",
     "aria-label": "Selection",
     tabindex: -1,
+    // Escape closes it, as it does the other task panes. A name being typed
+    // keeps Escape for itself.
+    onkeydown: (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelectionPane();
+    },
   });
   document.querySelector(".editor-body")?.append(selectionPane);
   renderSelectionPane();
@@ -7129,7 +7176,20 @@ function disableControl(node, disabled, fallback) {
   node.disabled = disabled;
   if (disabled && focused) fallback()?.focus({ preventScroll: true });
 }
-const workspace = () => document.querySelector("#main");
+// The skip link goes to the main region on show, which in Slide Sorter and
+// Notes Page is the view, not the hidden slide area its address names.
+document.querySelector(".skip-link")?.addEventListener("click", (e) => {
+  const target = view === "editor" ? workspace() : null;
+  if (!target || target.id === "main") return;
+  e.preventDefault();
+  target.focus();
+});
+// The main region on show: the slide with its panes, or Slide Sorter or
+// Notes Page in their place.
+const workspace = () => {
+  const host = document.querySelector("#view-host");
+  return host?.getClientRects().length ? host : document.querySelector("#main");
+};
 // The ribbon shows the selected object's text format and enables what
 // applies to the selection; it follows every change of either.
 let ribbonSync = 0;
@@ -8200,6 +8260,17 @@ function updateHistoryButtons() {
   disableControl(r, !history.future.length, workspace);
   assistant?.historyChanged();
 }
+// Where each history step was made: the slide, and the objects selected
+// before and after it. Undo shows the slide a step changed with the objects
+// selected as they were before it; redo, as they were after it.
+const editPlaces = new WeakMap();
+function editPlace() {
+  try {
+    return { part: P.getSlidePartName(slide()), ids: [...selectionIds()] };
+  } catch {
+    return null;
+  }
+}
 function undo() {
   return restoreHistory("undo");
 }
@@ -8216,12 +8287,18 @@ function restoreHistory(direction, steps = 1) {
     .then(async () => {
       if (!active || doc !== active || readOnlyDocument()) return;
       const part = P.getSlidePartName(slide());
-      let pres = null;
+      let pres = null,
+        place = null;
       // Several steps go back as one: the slide shows only where they end.
       for (let i = 0; i < steps; i++) {
+        const undone = editPlaces.get(history.bytes)?.before;
         const next = await history[direction]();
         if (!next) break;
         pres = next;
+        place =
+          (direction === "undo"
+            ? undone
+            : editPlaces.get(history.bytes)?.after) ?? null;
       }
       if (pres) {
         const previous = active.pres;
@@ -8233,12 +8310,24 @@ function restoreHistory(direction, steps = 1) {
         lastCoalesce = null;
         doc.pres = pres;
         disposeDocumentFonts(previous);
-        const position = P.getSlides(pres).findIndex(
-          (s) => P.getSlidePartName(s) === part,
-        );
-        if (position >= 0) index = position;
+        const position = (wanted) =>
+          P.getSlides(pres).findIndex((s) => P.getSlidePartName(s) === wanted);
+        // A step that changed what is on another slide shows that slide; one
+        // that added, removed or moved slides shows in the navigator, and
+        // the slide in view stays.
+        const order = (deck) =>
+          P.getSlides(deck).map(P.getSlidePartName).join();
+        const shown =
+          !masterView.active &&
+          place &&
+          position(place.part) >= 0 &&
+          order(pres) === order(previous)
+            ? place.part
+            : part;
+        if (position(shown) >= 0) index = position(shown);
+        if (shown !== part) slideExtras.clear();
         theme = history.state;
-        await afterHistory();
+        await afterHistory(place);
       }
     })
     .catch(fail)
@@ -8268,9 +8357,10 @@ async function undoAssistantTurn(first, count) {
     clearSelection();
   });
 }
-async function afterHistory() {
+async function afterHistory(place = null) {
   index = Math.min(index, P.getSlides(doc.pres).length - 1);
   clearSelection();
+  if (place && P.getSlidePartName(slide()) === place.part) selectIds(place.ids);
   revision++;
   // The step shows first; the draft follows it, as an edit's does.
   refreshMatches();
@@ -8342,7 +8432,17 @@ function renderThumbnail(img) {
   if (!pending || !img.isConnected || doc?.pres !== pending.pres) return;
   const entry = doc.previews.get(pending.part);
   if (!entry) return;
-  img.src = cachedPreview(doc.previews, doc.pres, pending.slide);
+  showThumbnail(img, cachedPreview(doc.previews, doc.pres, pending.slide));
+}
+// The render each navigator thumbnail was last given. Renders are long data
+// URLs, and reading one back from the image copies it, which across a large
+// deck cost more on each edit than the edit; the string given last compares
+// at once.
+const thumbnailSources = new WeakMap();
+function showThumbnail(img, src) {
+  if (thumbnailSources.get(img) === src) return;
+  thumbnailSources.set(img, src);
+  if (img.getAttribute("src") !== src) img.src = src;
 }
 function scheduleThumbnails() {
   if (thumbnailWork || !thumbnailQueue.length) return;
@@ -8424,7 +8524,7 @@ function slidePreview(s) {
     const img = document.querySelector(
       `#slide-list [data-slide-part="${CSS.escape(part)}"] img`,
     );
-    if (img && img.getAttribute("src") !== src) img.src = src;
+    if (img) showThumbnail(img, src);
   }
   return src;
 }
@@ -8526,15 +8626,31 @@ function renderSlideArea(refreshNavigator = true) {
       let row = rows.get(part);
       rows.delete(part);
       if (!row) row = slideRow(part);
-      row.className = `slide-item ${i === index ? "active" : ""} ${hidden ? "hidden-slide" : ""} ${chosen ? "selected" : ""}`;
-      // A slide with animations is marked beside its number.
-      if (P.slideHasAnimations(s)) row.classList.add("has-animations");
-      row.querySelector(".slide-number").textContent = i + 1;
+      // A row is written to only where it changed, so an edit leaves the
+      // browser no other row to restyle or lay out again.
+      const classes = [
+        "slide-item",
+        i === index && "active",
+        hidden && "hidden-slide",
+        chosen && "selected",
+        // A slide with animations is marked beside its number.
+        P.slideHasAnimations(s) && "has-animations",
+      ].filter(Boolean);
+      if (
+        row.classList.length !== classes.length ||
+        !classes.every((name) => row.classList.contains(name))
+      )
+        row.className = classes.join(" ");
+      const number = row.querySelector(".slide-number");
+      if (number.textContent !== String(i + 1)) number.textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
-      thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
+      const label = thumbLabel(s, i, chosen);
+      if (thumb.getAttribute("aria-label") !== label)
+        thumb.setAttribute("aria-label", label);
       review.decorateThumb(thumb, s);
-      if (i === index) thumb.setAttribute("aria-current", "true");
-      else thumb.removeAttribute("aria-current");
+      if (i !== index) thumb.removeAttribute("aria-current");
+      else if (thumb.getAttribute("aria-current") !== "true")
+        thumb.setAttribute("aria-current", "true");
       const badge = thumb.querySelector(".slide-hidden");
       if (hidden && !badge)
         thumb.append(
@@ -8542,14 +8658,13 @@ function renderSlideArea(refreshNavigator = true) {
         );
       else if (!hidden && badge) badge.remove();
       transitionTools.markRow(row, s, i + 1);
-      row
-        .querySelector(":scope > .icon-btn")
-        .setAttribute("aria-label", `Options for slide ${i + 1}`);
+      const options = row.querySelector(":scope > .icon-btn");
+      if (options.getAttribute("aria-label") !== `Options for slide ${i + 1}`)
+        options.setAttribute("aria-label", `Options for slide ${i + 1}`);
       const img = thumb.querySelector("img");
       // A thumbnail waiting for its render keeps showing what it has.
-      if (src) {
-        if (img.getAttribute("src") !== src) img.src = src;
-      } else deferThumbnail(img, s, distance);
+      if (src) showThumbnail(img, src);
+      else deferThumbnail(img, s, distance);
       if (list.children[i] !== row)
         list.insertBefore(row, list.children[i] || null);
     });
@@ -9780,7 +9895,7 @@ function startDrag(e, shape, mode = "move") {
   // A few pixels on a large screen; on a phone the same pixels would span a
   // good part of the slide, so the reach is capped in slide terms.
   const targets =
-    rotation || line || mode === "rotate"
+    (rotation && mode !== "move") || line || mode === "rotate"
       ? null
       : snapTargets(
           obj,
@@ -9862,10 +9977,21 @@ function startDrag(e, shape, mode = "move") {
     // Alt drags freely; otherwise the edges in motion snap to the guides. A
     // resize that keeps the proportions is left alone, since a snapped edge
     // would break them.
-    const snapped =
+    // A turned object moves with the edges the slide shows it with.
+    const shown = turnedBounds(candidate, rotation);
+    let snapped =
       targets && !ev.altKey && (mode === "move" || keepRatio === ev.shiftKey)
-        ? snapBounds(candidate, mode, targets, { dx, dy })
+        ? snapBounds(shown, mode, targets, { dx, dy })
         : null;
+    if (snapped && shown !== candidate)
+      snapped = {
+        ...snapped,
+        bounds: {
+          ...candidate,
+          x: candidate.x + snapped.bounds.x - shown.x,
+          y: candidate.y + snapped.bounds.y - shown.y,
+        },
+      };
     if (snapped) candidate = snapped.bounds;
     showGuides(canvas, snapped?.guides || [], size);
     next = mode === "move" ? withinSlide(candidate) : candidate;
@@ -10004,8 +10130,10 @@ function snapTargets(
     const otherId = P.getShapeId(other);
     if (moving.has(otherId) || !visible.has(otherId) || parents.has(otherId))
       continue;
-    const b = slideBounds(doc.pres, other, parents);
-    if (!b || slideRotation(other)) continue;
+    // A turned object offers the edges the slide shows it with.
+    const bounds = slideBounds(doc.pres, other, parents);
+    if (!bounds) continue;
+    const b = turnedBounds(bounds, slideRotation(other, parents));
     xs.push(b.x, b.x + b.w / 2, b.x + b.w);
     ys.push(b.y, b.y + b.h / 2, b.y + b.h);
   }
@@ -10800,6 +10928,36 @@ async function editDiagramText(target) {
 
 // `inserted` is the history's snapshot of the insert that drew the object,
 // for a text box opened for typing as it is drawn.
+// Text pasted into a text box keeps the bold, italic, underline,
+// strikethrough and color the copy carried as HTML, when that HTML holds
+// the same words as the plain text: [{ text, format }] with "\n" between
+// paragraphs, or null to paste the plain text.
+function formattedPaste(html, plain) {
+  if (!html) return null;
+  let paragraphs;
+  try {
+    paragraphs = htmlParagraphs(html);
+  } catch {
+    return null;
+  }
+  if (!paragraphs.some((p) => p.runs.some((r) => Object.keys(r.format).length)))
+    return null;
+  const words = (text) =>
+    text
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join("\n");
+  const pieces = paragraphs.flatMap((p, i) =>
+    p.runs.map((r, k) => ({
+      text: (i && !k ? "\n" : "") + r.text,
+      format: r.format,
+    })),
+  );
+  return words(pieces.map((p) => p.text).join("")) === words(plain)
+    ? pieces
+    : null;
+}
 function editText(target, event = null, { inserted = null } = {}) {
   if (readOnlyDocument()) return;
   if (review.blocksEdits()) return review.blockedEdit();
@@ -11234,7 +11392,12 @@ function editText(target, event = null, { inserted = null } = {}) {
   }
   // Typed or pasted text continues the run before it; `field` makes the run
   // for a field shown as `value` from that run instead.
+  // `value` may also be a list of formatted pieces, pasted from another
+  // app or another box: each piece keeps its own look on top of the run
+  // before it.
   function replaceRange(start, end, value, field = null) {
+    const pieces = Array.isArray(value) ? value : null;
+    if (pieces) value = pieces.map((piece) => piece.text).join("");
     remember();
     runs = readRuns();
     // Paragraphs removed with the text go; new ones take after the one split.
@@ -11252,7 +11415,14 @@ function editText(target, event = null, { inserted = null } = {}) {
     runs.splice(
       from,
       to - from,
-      field ? field(source) : copyRun(source, value),
+      ...(pieces
+        ? pieces.map((piece) => {
+            const run = copyRun(source, piece.text);
+            Object.assign(run.format, piece.format);
+            Object.assign(run.changes, piece.format);
+            return run;
+          })
+        : [field ? field(source) : copyRun(source, value)]),
     );
     runs = runs.filter((run) => run.text);
     render();
@@ -11716,7 +11886,10 @@ function editText(target, event = null, { inserted = null } = {}) {
       "\n",
     );
     const sel = selectionOffsets();
-    if (value && sel) replaceRange(sel[0], sel[1], value);
+    if (!sel) return;
+    const pieces = formattedPaste(e.clipboardData?.getData("text/html"), value);
+    if (pieces) replaceRange(sel[0], sel[1], pieces);
+    else if (value) replaceRange(sel[0], sel[1], value);
   });
   input.addEventListener("drop", (e) => e.preventDefault());
   input.addEventListener("input", () => syncToolbar());
@@ -14045,12 +14218,27 @@ function replaceInCell(cell, regex, replacement, only = null) {
   if (edits.text === text) return false;
   // The rest of the cell keeps its formatting; a field showing a value other
   // than its own text has the cell's text replaced as a whole.
-  try {
-    P.editTableCellText(cell, ranges, edits.text);
-  } catch {
+  if (!editCellText(cell, ranges, edits.text))
     P.setTableCellText(cell, edits.text, { fields: edits.fields });
-  }
   return true;
+}
+// Applies edits made to a cell's text as shown, keeping the formatting and
+// equations of the text they leave alone. A field showing a value other than
+// its saved text (a date) is counted at its saved length. Whether the edits
+// applied.
+function editCellText(cell, edits, text) {
+  try {
+    P.editTableCellText(cell, edits, text);
+    return true;
+  } catch {}
+  const stored = storedTableCellEdits(doc.pres, cell, edits, text);
+  if (!stored) return false;
+  try {
+    P.editTableCellText(cell, stored.edits, stored.text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function replaceMatch(all) {
@@ -14284,7 +14472,28 @@ function nextCell(obj, from, step) {
 }
 // The in-place editor for one cell. Tab moves on to the next cell and
 // Shift+Tab back, committing on the way.
-function editTableCell(target, row, col) {
+// The cell an arrow key steps to from the cell at row, col (the origin of
+// its merge), passing over the cells a merge covers: null past the table's
+// edge.
+function adjacentCell(obj, from, key) {
+  const dims = P.getTableDimensions(obj);
+  const [dr, dc] = {
+    ArrowUp: [-1, 0],
+    ArrowDown: [1, 0],
+    ArrowLeft: [0, -1],
+    ArrowRight: [0, 1],
+  }[key];
+  let { row, col } = from;
+  for (let guard = dims.rows + dims.cols; guard > 0; guard--) {
+    row += dr;
+    col += dc;
+    if (row < 0 || col < 0 || row >= dims.rows || col >= dims.cols) return null;
+    const origin = mergedInto(obj, row, col);
+    if (origin.row !== from.row || origin.col !== from.col) return origin;
+  }
+  return null;
+}
+function editTableCell(target, row, col, { caret = null } = {}) {
   const i = shapeIndex(target);
   if (i < 0) return;
   const obj = shapes()[i];
@@ -14326,6 +14535,7 @@ function editTableCell(target, row, col) {
   // its formatting.
   const history = trackTextareaEdits(input);
   let move = null,
+    moveCaret = null,
     grow = false;
   const focusTable = () =>
     [...canvas.querySelectorAll(".object-hit")]
@@ -14340,6 +14550,29 @@ function editTableCell(target, row, col) {
     if (e.key.toLowerCase() === "d" && (IS_MAC ? e.metaKey : e.ctrlKey)) {
       e.preventDefault();
       return;
+    }
+    // An arrow at the edge of the cell's text goes on to the cell beside:
+    // Left at the start and Right at the end, Up from the start and Down
+    // from the end.
+    if (
+      ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      input.selectionStart === input.selectionEnd
+    ) {
+      const back = e.key === "ArrowUp" || e.key === "ArrowLeft";
+      const edge = back ? 0 : input.value.length;
+      const next =
+        input.selectionStart === edge && adjacentCell(obj, { row, col }, e.key);
+      if (next) {
+        e.preventDefault();
+        move = next;
+        moveCaret = back ? "end" : "start";
+        input.blur();
+        return;
+      }
     }
     // Tab in the last cell adds a row to go on in; Shift+Tab in the first
     // leaves the table selected.
@@ -14367,19 +14600,16 @@ function editTableCell(target, row, col) {
       if (next !== value)
         mutateShape(obj, (obj) => {
           const cell = P.getTableCell(obj, row, col);
-          try {
-            P.editTableCellText(cell, history.edits(), next);
-          } catch {
-            // Edits that do not fit the cell's own text (a field showing a
-            // value other than its own) replace the text as a whole.
+          if (!editCellText(cell, history.edits(), next))
+            // Edits that reach into a field showing a value other than its
+            // own replace the text as a whole.
             P.setTableCellText(cell, next, {
               fields: fieldEdits?.fields || [],
             });
-          }
         });
       // The next cell opens at once, so typing carries straight on while the
       // last cell's text is still being written.
-      if (move) editTableCell(obj, move.row, move.col);
+      if (move) editTableCell(obj, move.row, move.col, { caret: moveCaret });
       else if (grow) {
         const id = P.getShapeId(obj);
         // The table holds the keyboard until the new row's first cell opens.
@@ -14397,7 +14627,10 @@ function editTableCell(target, row, col) {
   );
   canvas.append(input);
   input.focus();
-  input.select();
+  if (caret === "start") input.setSelectionRange(0, 0);
+  else if (caret === "end")
+    input.setSelectionRange(input.value.length, input.value.length);
+  else input.select();
 }
 function tableAction(fn) {
   const obj = currentShape();
@@ -15220,8 +15453,22 @@ document.addEventListener("paste", (e) => {
   pendingPaste = 0;
   if (!clipboardEventAllowed(e)) return;
   e.preventDefault();
-  pasteData(e.clipboardData).catch(fail);
+  const fromNavigator = navigatorFocused(e.target);
+  pasteData(e.clipboardData)
+    .then(() => fromNavigator && focusPasted())
+    .catch(fail);
 });
+// What a paste from the navigator puts on the slide takes the keyboard, so
+// the next cut, copy, or nudge acts on it.
+function navigatorFocused(target) {
+  return target instanceof Element && !!target.closest("#slide-list");
+}
+function focusPasted() {
+  if (!navigatorFocused(document.activeElement)) return;
+  document
+    .querySelector("#slide-canvas .object-hit.selected")
+    ?.focus({ preventScroll: true });
+}
 // What a paste brings: an object copied here, an image, or text, in that
 // order; an older copy made here stands in when the event carries nothing.
 async function pasteData(data) {
@@ -15744,6 +15991,9 @@ async function present(options = {}) {
     options.audience?.close();
     return;
   }
+  // A preview still playing on the canvas ends as the show starts.
+  transitionTools.stopPreview();
+  animationTools.stopPreview();
   const pres = doc.pres;
   const previews = doc.previews;
   const slides = P.getSlides(pres);
@@ -16011,6 +16261,8 @@ async function present(options = {}) {
     class: "presenter-counter",
     "aria-live": "polite",
   });
+  const counterText = () =>
+    reading ? `Slide ${n + 1} of ${all.length}` : `${n + 1} / ${all.length}`;
   const previous = iconButton("Previous slide", "ChevronLeft", () =>
       showPrevious(),
     ),
@@ -16080,7 +16332,19 @@ async function present(options = {}) {
     previous.disabled = n === 0 && !showTiming.loop && !animator?.step;
     if (previous.disabled && document.activeElement === previous) image.focus();
   }
+  // Moving on or back from a black or white screen, by any control, shows
+  // the slide again, as a key does.
+  function unblank() {
+    if (
+      !stage.classList.contains("blank") &&
+      !stage.classList.contains("blank-white")
+    )
+      return;
+    restoreBlank();
+    setPaused(false);
+  }
   function advance(auto = false) {
+    unblank();
     if (!ended && animator?.next()) {
       syncPrevious();
       session?.stepped(1);
@@ -16138,6 +16402,7 @@ async function present(options = {}) {
     typed = "";
   }
   function showPrevious() {
+    unblank();
     if (!ended && animator?.previous()) {
       syncPrevious();
       session?.stepped(-1);
@@ -16185,9 +16450,11 @@ async function present(options = {}) {
         advanceClock.clear();
         syncPause();
         clearTransition();
-        // The last slide's effects (a repeat, a sound to come) stop with it.
+        // The last slide's effects (a repeat, a sound to come) and its
+        // media stop with it.
         animator?.destroy();
         animator = null;
+        showInserted.ended();
         stage.classList.remove("blank", "blank-white");
         stage.classList.add("ended");
         endMessage.hidden = false;
@@ -16275,9 +16542,7 @@ async function present(options = {}) {
     placeLinks(all[n]);
     showInserted.slideShown(all[n], n);
     placeTriggers();
-    counter.textContent = reading
-      ? `Slide ${n + 1} of ${all.length}`
-      : `${n + 1} / ${all.length}`;
+    counter.textContent = counterText();
     syncPrevious();
     next.disabled = false;
     const text = P.getSlideNotes(all[n]) || "";
@@ -16449,6 +16714,9 @@ async function present(options = {}) {
     },
     paused: () => advanceClock.paused,
     autoAdvance: !pauseButton.hidden,
+    // Whether the show starts over after its last slide: a kiosk always
+    // does, a rehearsal or recording never.
+    loop: showTiming.loop,
     toggleLaser: () => toggleLaser(),
     laserEnabled: () => laser.enabled,
     picture: (s) => cachedPreview(previews, pres, s),
@@ -16498,6 +16766,17 @@ async function present(options = {}) {
         ? fileTools.openPrintDialog()
         : saveCloud()
       ).catch(fail);
+      return;
+    }
+    // Alt+End and Alt+Home move the slide's media between its bookmarks.
+    if (
+      e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      (e.key === "End" || e.key === "Home")
+    ) {
+      e.preventDefault();
+      showInserted.bookmark(e.key === "End" ? 1 : -1);
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -16565,7 +16844,7 @@ async function present(options = {}) {
       clearTimeout(typedTimer);
       typedTimer = setTimeout(() => {
         typed = "";
-        counter.textContent = `${n + 1} / ${all.length}`;
+        counter.textContent = counterText();
         setPaused(typedWasPaused);
       }, 2000);
     } else if (e.key === "Enter" && typed) {
@@ -16683,6 +16962,10 @@ document.addEventListener("keydown", (e) => {
       'select, input[type="color"], input[type="range"], input[type="checkbox"]',
     );
   const mod = e.ctrlKey || e.metaKey;
+  // The slide navigator's keys act on slides; the object selected on the
+  // canvas is out of the way there.
+  const inNavigator =
+    e.target instanceof Element && e.target.closest("#slide-list");
   if (formatTools.onKeydown(e, { typing })) return;
   if (review.keydown(e)) return;
   if (!typing && animationTools.onKey(e)) return;
@@ -16751,6 +17034,7 @@ document.addEventListener("keydown", (e) => {
     !e.altKey &&
     ["KeyL", "KeyE", "KeyR", "KeyJ"].includes(e.code) &&
     (!typing || e.target.closest(".inline-editor")) &&
+    !inNavigator &&
     currentShape() &&
     canEditText(currentShape())
   ) {
@@ -16767,6 +17051,7 @@ document.addEventListener("keydown", (e) => {
     !e.metaKey &&
     e.code === "Space" &&
     (!typing || e.target.closest(".inline-editor")) &&
+    !inNavigator &&
     currentShape() &&
     canEditText(currentShape())
   ) {
@@ -16823,14 +17108,18 @@ document.addEventListener("keydown", (e) => {
     // A box holding the value it applied (a ribbon box, or a number field
     // in the Format pane) has nothing of its own to undo: the shortcut takes
     // back the change it made. Typing not yet applied is the box's to undo.
+    // So does a field of a window that applies its edits as they are
+    // typed (the chart's data sheet, the SmartArt Text Pane), which has
+    // committed what was typed by now.
     const box = e.target;
     const applied =
       box instanceof HTMLInputElement &&
       (box.matches(".ribbon-combo-input, .ribbon-spin-input")
         ? box.value === (box.dataset.value ?? "")
-        : box.type === "number" &&
-          (box.value === box.defaultValue ||
-            box.value === box.dataset.committed));
+        : !!box.closest("[data-applies-edits]") ||
+          (box.type === "number" &&
+            (box.value === box.defaultValue ||
+              box.value === box.dataset.committed)));
     if (typing && !applied) return;
     e.preventDefault();
     // With nothing to redo, Ctrl/⌘+Y repeats the last format command.
@@ -16850,6 +17139,28 @@ document.addEventListener("keydown", (e) => {
   // a copy on one of its buttons must not reach the selected object. Find,
   // zoom, undo, and redo above reach the presentation from there too.
   if (e.target instanceof Element && e.target.closest("#ai-panel")) return;
+  // In the navigator Ctrl+D duplicates the focused slide (with the selection
+  // it is part of), and the shortcuts for the selected object (copy, cut,
+  // bold, order, group, link) do nothing.
+  if (inNavigator && mod && !e.altKey && !e.shiftKey && e.code === "KeyD") {
+    e.preventDefault();
+    const part = e.target.closest(".slide-item")?.dataset.slidePart;
+    const focused = P.getSlides(doc.pres).find(
+      (s) => P.getSlidePartName(s) === part,
+    );
+    if (!masterView.active && !readOnlyDocument())
+      duplicateSlides(actionSlides(focused || slide()));
+    return;
+  }
+  if (
+    inNavigator &&
+    mod &&
+    /^Key[BCGIKUVX]$|^Bracket|^Comma$|^Period$/.test(e.code) &&
+    !(e.code === "KeyV" && !e.shiftKey && !e.altKey)
+  ) {
+    e.preventDefault();
+    return;
+  }
   // Copy and paste formatting, as Format Painter does from the keyboard.
   if (mod && e.shiftKey && !e.altKey && e.code === "KeyC" && currentShape()) {
     e.preventDefault();
@@ -16925,7 +17236,9 @@ document.addEventListener("keydown", (e) => {
     setTimeout(() => {
       if (pendingPaste !== request) return;
       pendingPaste = 0;
-      pasteFromMenu().catch(fail);
+      pasteFromMenu()
+        .then(() => inNavigator && focusPasted())
+        .catch(fail);
     }, 60);
     return;
   }
@@ -17019,8 +17332,6 @@ document.addEventListener("keydown", (e) => {
   }
   // In the navigator, Ctrl+A selects every slide and Delete removes the
   // selected ones.
-  const inNavigator =
-    e.target instanceof Element && e.target.closest("#slide-list");
   if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "a") {
     e.preventDefault();
     if (inNavigator) selectAllSlides();
@@ -17474,11 +17785,43 @@ async function readyToClose() {
 // registered: before the first screen, so that screen can be the file.
 let launchItems = null;
 let booting = true;
-cloud.onLaunch((items) => {
-  if (booting) launchItems = items;
-  else openDriveItems(items);
-});
-cloud.onWindowClose(closeWindow);
+// The first screen waits for Puter's SDK, but not for ever (cloud.sdkReady);
+// one that arrives later is taken up then.
+const sdkOnTime = await cloud.sdkReady();
+function connectCloud({ late = false } = {}) {
+  cloud.onLaunch((items) => {
+    if (booting) launchItems = items;
+    else if (late) openLateLaunch(items).catch(fail);
+    else openDriveItems(items);
+  });
+  cloud.onWindowClose(closeWindow);
+}
+// A file the app was launched with that arrives with a late SDK takes the
+// place of the new presentation only while that is untouched: work begun in
+// the meantime is not put away unasked.
+async function openLateLaunch(items) {
+  const item = items.find(
+    (it) =>
+      it?.path && !cloud.isDirItem(it) && cloud.isPptxName(it.name || it.path),
+  );
+  if (!item || view !== "editor" || !doc || untouchedLanding())
+    return openDriveItems(items);
+  const name = cleanName(item.name || cloud.displayName(item.path));
+  const choice = await dialog({
+    title: `Open “${name}”?`,
+    body: el(
+      "p",
+      { class: "dialog-body" },
+      "It finished loading after you began this new presentation. If you open it, this one stays on this device, under Your presentations.",
+    ),
+    actions: [
+      { label: "Not now", value: null },
+      { label: "Open", value: "open", kind: "primary" },
+    ],
+  });
+  if (choice === "open") openDriveItems(items);
+}
+connectCloud();
 // The app opens into a new presentation without waiting for, or asking for,
 // a sign-in; #/home opens the library instead. The account is looked up
 // alongside and the header follows once it is known.
@@ -17521,3 +17864,14 @@ if (accountRequest === initialAccountRequest) {
 // answer that has already arrived.
 if (view === "home" && loading) await loadLibrary();
 cloud.onAuth(adoptAccount);
+if (!sdkOnTime)
+  cloud.onLateSdk(() => {
+    connectCloud({ late: true });
+    cloud.setWindowTitle(windowTitle);
+    adoptLateUserMenu();
+    cloud.onAuth(adoptAccount);
+    cloud
+      .user()
+      .then(adoptAccount)
+      .catch(() => {});
+  });

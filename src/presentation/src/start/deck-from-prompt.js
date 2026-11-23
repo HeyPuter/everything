@@ -223,13 +223,19 @@ export function themeDeck(theme = "studio") {
   if (themeById(theme) && !LEGACY_IDS.has(theme)) return themedDeck(theme);
   const pres = createDeck("blank", theme);
   const blank = P.getSlides(pres)[0];
-  addDesignedSlide(pres, "title", theme, {
-    kicker: "PRESENTATION",
-    title: "Your title\ngoes here.",
-    body: "Add a subtitle that sets the scene.",
-    footer: " ",
-    number: 1,
-  });
+  addDesignedSlide(
+    pres,
+    "title",
+    theme,
+    {
+      kicker: "PRESENTATION",
+      title: "Your title\ngoes here.",
+      body: "Add a subtitle that sets the scene.",
+      footer: " ",
+      number: 1,
+    },
+    { titled: true },
+  );
   P.removeSlide(pres, blank);
   return pres;
 }

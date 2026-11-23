@@ -39,6 +39,24 @@ describe("animation timeline", () => {
     expect(groups.map((g) => g.auto)).toEqual([true, false, false]);
     expect(groups[1].items.map((i) => i.at)).toEqual([0, 200, 1100]);
   });
+  it("waits for text coming in a letter at a time before the next effect", () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const title = text(slide, "Hello", 1, 1, 4, 1);
+    const box = shape(slide, 1, 3, 2, 1, "#2266cc");
+    const fade = entryFor({ presetClass: "entr", presetId: 10 });
+    P.setSlideAnimations(slide, [
+      newEffect(fade, P.getShapeId(title), {
+        start: "click",
+        durationMs: 500,
+        iterate: { type: "letter", delayPercent: 10 },
+      }),
+      newEffect(fade, P.getShapeId(box), { start: "after", durationMs: 500 }),
+    ]);
+    const { groups } = slideTimeline(slide);
+    // Five letters: the last starts 4 × 10% of 500 ms after the first.
+    expect(groups[0].items.map((i) => i.at)).toEqual([0, 700]);
+  });
   it("counts a paragraph build's steps on the slide", () => {
     const pres = createDeck("blank");
     const slide = P.getSlides(pres)[0];

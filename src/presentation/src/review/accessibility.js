@@ -125,7 +125,8 @@ const isTitlePh = (type) => type === "title" || type === "ctrTitle";
 /**
  * Every issue in the deck: [{ id, kind, severity, index, part, slide,
  * shapeId, label }]. `env` gives isTable, slideBounds(shape), size() and
- * textColors(shape) → { text, background, size, bold } | null.
+ * textColors(shape) → { text, background, size, bold } | null, and may give
+ * slidePosition(shape): slideBounds' x and y, at less cost.
  */
 export function findAccessibilityIssues(pres, env) {
   const issues = [];
@@ -192,14 +193,22 @@ export function findAccessibilityIssues(pres, env) {
         P.getShapeKind(s) === "shape",
     );
     if (!title && !titleSlot) add("missingTitle");
-    else {
+    // Titles still waiting to be typed are not the same title.
+    else if (title) {
       const key = title.toLowerCase().replace(/\s+/g, " ");
       titles.set(key, [...(titles.get(key) || []), { slide, index, part }]);
     }
     // Reading order: objects read in an order unlike the one they show in.
+    // Decorative objects are passed over, so their place does not matter.
+    // Only where each box starts counts here, which a table shows without
+    // laying out its rows.
+    const position = env.slidePosition || env.slideBounds;
     const boxes = shapes
-      .filter((s) => !ownGroupChildren.has(P.getShapeId(s)))
-      .map((s) => ({ id: P.getShapeId(s), ...(env.slideBounds(s) || {}) }))
+      .filter(
+        (s) =>
+          !ownGroupChildren.has(P.getShapeId(s)) && !P.isShapeDecorative(s),
+      )
+      .map((s) => ({ id: P.getShapeId(s), ...(position(s) || {}) }))
       .filter((b) => Number.isFinite(b.x) && b.y > -1e9);
     if (boxes.length >= 2) {
       const size = env.size();
@@ -208,8 +217,14 @@ export function findAccessibilityIssues(pres, env) {
       const titleShape = shapes.find((s) =>
         isTitlePh(P.getShapePlaceholderType?.(s)),
       );
-      const titleFirst = !titleShape || read[0] === P.getShapeId(titleShape);
-      if (!titleFirst || seen.join() !== read.join())
+      // The title is read where it shows, or first wherever it shows (a
+      // kicker line may sit above it).
+      const titleId = titleShape ? P.getShapeId(titleShape) : null;
+      const titleFirst = [
+        titleId,
+        ...seen.filter((id) => id !== titleId),
+      ].join();
+      if (seen.join() !== read.join() && titleFirst !== read.join())
         issues.push({
           id: `readingOrder:${part}:`,
           kind: "readingOrder",

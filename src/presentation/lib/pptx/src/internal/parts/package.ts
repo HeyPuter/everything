@@ -139,9 +139,15 @@ export class OpcPackage {
    *
    * Throws if the archive is not a valid ZIP, or if `[Content_Types].xml` is
    * missing or malformed.
+   *
+   * `snapshot`: the bytes are an archive `save()` wrote and nothing has
+   * changed since (an undo history's step); see `readZip`.
    */
-  static load(bytes: Uint8Array): OpcPackage {
-    const zip = readZip(bytes);
+  static load(
+    bytes: Uint8Array,
+    options: { snapshot?: boolean } = {},
+  ): OpcPackage {
+    const zip = readZip(bytes, options);
     let contentTypes: ContentTypes | null = null;
     const parts: Part[] = [];
 

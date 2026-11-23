@@ -71,6 +71,16 @@ export type ShapeEffectAny =
       readonly blurEmu: number;
       readonly distEmu: number;
       readonly angleDeg: number;
+      /** `rotWithShape="0"`: the offset stays fixed on the page when the
+       *  shape turns or flips. Omitted when the shadow turns with it. */
+      readonly fixedToPage?: true;
+      /** `sx`/`sy` (unit fractions, signed) and `kx`/`ky` (degrees), about
+       *  the `algn` point of the shape's box. Omitted at their defaults. */
+      readonly scaleX?: number;
+      readonly scaleY?: number;
+      readonly skewXDeg?: number;
+      readonly skewYDeg?: number;
+      readonly align?: string;
     }
   | {
       readonly kind: "innerShdw";
@@ -239,13 +249,41 @@ const parseEffectLst = (
         Number.parseInt(getAttrValue(child, qname("", "dir", "")) ?? "0", 10) ||
         0;
       const c = readEffectColor(child);
-      out.push({
-        kind: local,
+      const base = {
         color: c.color,
         blurEmu: blur,
         distEmu: dist,
         angleDeg: dir / 60000,
         ...(c.opacity !== undefined ? { opacity: c.opacity } : {}),
+      };
+      if (local === "innerShdw") {
+        out.push({ kind: local, ...base });
+        continue;
+      }
+      const intAttr = (name: string, fallback: number): number => {
+        const n = Number.parseInt(
+          getAttrValue(child, qname("", name, "")) ?? "",
+          10,
+        );
+        return Number.isFinite(n) ? n : fallback;
+      };
+      const rot = getAttrValue(child, qname("", "rotWithShape", ""));
+      const sx = intAttr("sx", 100000) / 100000,
+        sy = intAttr("sy", 100000) / 100000;
+      const kx = intAttr("kx", 0) / 60000,
+        ky = intAttr("ky", 0) / 60000;
+      const algn = getAttrValue(child, qname("", "algn", ""));
+      out.push({
+        kind: local,
+        ...base,
+        ...(rot === "0" || rot === "false"
+          ? { fixedToPage: true as const }
+          : {}),
+        ...(sx !== 1 ? { scaleX: sx } : {}),
+        ...(sy !== 1 ? { scaleY: sy } : {}),
+        ...(kx ? { skewXDeg: kx } : {}),
+        ...(ky ? { skewYDeg: ky } : {}),
+        ...(algn ? { align: algn } : {}),
       });
     } else if (local === "glow") {
       const rad =

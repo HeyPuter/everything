@@ -571,6 +571,95 @@ test("a failing autosave says so in the status, and leaving asks first", async (
   ).toBeVisible();
 });
 
+test("a Puter file too large to open is refused before it is downloaded", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    seed: { "Presentations/Huge.pptx": story },
+    path: "/#/home",
+  });
+  await page.evaluate(() => {
+    // The drive reports the file's size; its bytes stay small.
+    const stat = puter.fs.stat;
+    puter.fs.stat = async (arg) => ({
+      ...(await stat(arg)),
+      size: 300 * 1024 * 1024,
+    });
+    const read = puter.fs.read;
+    window.__reads = 0;
+    puter.fs.read = (path) => {
+      window.__reads++;
+      return read(path);
+    };
+  });
+  await page
+    .getByRole("button", { name: "Huge PowerPoint presentation" })
+    .click();
+  await expect(page.locator("#toast")).toHaveText(
+    "Please choose a PPTX file smaller than 200 MB.",
+  );
+  expect(await page.evaluate(() => window.__reads)).toBe(0);
+});
+test("a rename onto a name already taken keeps the dialog open to correct it", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    env: "web",
+    seed: {
+      "Presentations/Mine.pptx": story,
+      "Presentations/Taken.pptx": story,
+    },
+    path: "/#/home",
+  });
+  const tryName = async (name) => {
+    const dialog = page.getByRole("dialog", { name: "Rename presentation" });
+    const field = dialog.getByRole("textbox", { name: "Presentation name" });
+    await field.fill(name);
+    await field.press("Enter");
+    return { dialog, field };
+  };
+  const expectTaken = async ({ dialog, field }) => {
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(field).toHaveAccessibleDescription(
+      "A file named “Taken.pptx” is already in that folder. Choose another name.",
+    );
+    await expect(field).toBeFocused();
+    expect(
+      await field.evaluate((i) => [i.selectionStart, i.selectionEnd]),
+    ).toEqual([0, 5]);
+    await expect(dialog).toBeVisible();
+  };
+  // In the library.
+  await page
+    .getByRole("button", { name: "Options for Mine", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+  await expectTaken(await tryName("Taken"));
+  const { dialog, field } = await tryName("Fresh");
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Fresh PowerPoint presentation" }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => window.__fs.paths())).toContain(
+    `${APP_FOLDER}/Fresh.pptx`,
+  );
+  // In the editor.
+  await page
+    .getByRole("button", { name: "Fresh PowerPoint presentation" })
+    .click();
+  await expect(title(page)).toHaveText("Fresh");
+  await title(page).click();
+  await expectTaken(await tryName("Taken"));
+  await field.fill("");
+  await page.keyboard.type("Newer");
+  await expect(field).not.toHaveAttribute("aria-invalid");
+  await field.press("Enter");
+  await expect(dialog).toHaveCount(0);
+  await expect(title(page)).toHaveText("Newer");
+});
+
 test("opening a Puter file offers its unsaved recovery draft", async ({
   page,
 }) => {

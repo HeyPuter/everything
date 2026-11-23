@@ -291,9 +291,19 @@ test("presenter view shows notes, the next slide and a timer, with an audience w
   await audience.keyboard.press("b");
   await expect(audience.locator(".show-audience")).toHaveClass(/blank/);
   await audience.keyboard.press("b");
+  // Escape there puts the laser away before it ends the show.
+  await audience.keyboard.press("l");
+  await expect(audience.locator(".presenter-frame")).toHaveClass(/laser-mode/);
+  await audience.keyboard.press("Escape");
+  await expect(audience.locator(".presenter-frame")).not.toHaveClass(
+    /laser-mode/,
+  );
+  await expect(d).toBeVisible();
+  await expect(d.getByRole("button", { name: "One window" })).toBeVisible();
   // Closing it brings the slide back to this window.
   await audience.close();
   await expect(d.locator(".show-mirror")).toHaveCount(0);
+  await expect(swap).toBeVisible();
   await expect(
     d.locator(".presenter-slide-area .presenter-frame .presenter-slide"),
   ).toBeVisible();
@@ -480,4 +490,121 @@ test("switching to a custom show asks about the ink first", async ({
   await expect(d).toHaveCount(0);
   await prompt.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(d.locator(".presenter-counter")).toHaveText("1 / 2");
+});
+
+test("a trimmed video's control bar covers only the part that is left", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  // A three-second video, recorded from a canvas.
+  const webm = await page.evaluate(async () => {
+    const canvas = Object.assign(document.createElement("canvas"), {
+      width: 64,
+      height: 36,
+    });
+    const g = canvas.getContext("2d");
+    const recorder = new MediaRecorder(canvas.captureStream(30), {
+      mimeType: "video/webm",
+    });
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.start(100);
+    const t0 = performance.now();
+    await new Promise((resolve) => {
+      const draw = () => {
+        g.fillStyle = `hsl(${(performance.now() - t0) / 10}, 80%, 50%)`;
+        g.fillRect(0, 0, 64, 36);
+        if (performance.now() - t0 < 3000) requestAnimationFrame(draw);
+        else resolve();
+      };
+      draw();
+    });
+    recorder.stop();
+    await new Promise((resolve) => (recorder.onstop = resolve));
+    return [...new Uint8Array(await new Blob(chunks).arrayBuffer())];
+  });
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const video = P.addSlideMedia(
+    slide,
+    { kind: "video", data: Uint8Array.from(webm), contentType: "video/webm" },
+    { x: 914400, y: 914400, w: 3657600, h: 2057400 },
+    { start: "automatically", trimStart: 1500, trimEnd: 500 },
+  );
+  P.setShapeObjectData(video, { type: "media", durationMs: 3000 });
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Trimmed.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = show(page);
+  const element = d.locator(".presenter-media video");
+  const time = () => element.evaluate((v) => v.currentTime);
+  // It plays from the trimmed start, and the bar counts from there.
+  await expect.poll(time).toBeGreaterThan(1.5);
+  await element.evaluate((v) => v.pause());
+  await expect(d.locator(".show-media-time")).toHaveText("0:00");
+  const seek = d.getByRole("slider", { name: "Seek" });
+  expect(Number(await seek.inputValue())).toBeLessThan(800);
+  // Its start is the trimmed start, not the start of the file.
+  await seek.evaluate((input) => {
+    input.value = "0";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(await time()).toBeGreaterThanOrEqual(1.49);
+});
+
+test("in a rehearsal of a looping show, Presenter View shows the end coming after the last slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  text(P.getSlides(pres)[0], "One", 1, 1, 8, 2);
+  text(P.addBlankSlide(pres), "Two", 1, 1, 8, 2);
+  P.setSlideShowSetup(pres, { loop: true });
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Looping.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await tab(page, "Slide Show");
+  await (await command(page, "Rehearse Timings", "Set Up")).click();
+  const d = show(page);
+  await d
+    .locator(".presenter-stage")
+    .click({ button: "right", position: { x: 100, y: 100 } });
+  await page.getByRole("menuitem", { name: "Show Presenter View" }).click();
+  await page.keyboard.press("End");
+  await expect(d.locator(".show-console-counter")).toHaveText("Slide 2 of 2");
+  // A rehearsal does not loop.
+  await expect(d.locator(".show-console-next-label")).toHaveText(
+    "End of slide show",
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(d.locator(".show-console-counter")).toHaveText("End of show");
 });

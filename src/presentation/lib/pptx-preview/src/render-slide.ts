@@ -127,6 +127,7 @@ import {
   getShapeTextColumns,
   getShapeTextBodyRotationDeg,
   getShapeTextDirection,
+  getShapeTextUpright,
   getShapeGeometryResolved,
   getShapeImagePaintEffective,
   getShapeKind,
@@ -386,6 +387,51 @@ const imagePixelSize = (bytes: Uint8Array): { w: number; h: number } | null => {
   return null;
 };
 
+// Set Transparent Color (`<a:clrChange>`): pixels of the `from` colour, give
+// or take a step for rounding, are painted in the `to` colour and opacity
+// (usually none). A table per channel marks where a pixel differs from
+// `from`; any difference keeps the pixel.
+const colorChangePrimitives = (change: {
+  from: string;
+  to: string;
+  toOpacity: number;
+}): string[] => {
+  const differs = (target: number) =>
+    Array.from({ length: 256 }, (_, i) =>
+      Math.abs(i - target) <= 1 ? 0 : 1,
+    ).join(" ");
+  const [r, g, b] = hexChannels(change.from);
+  const keep = [
+    `<feComponentTransfer in="SourceGraphic" color-interpolation-filters="sRGB" result="ccDiff"><feFuncR type="discrete" tableValues="${differs(r)}"/><feFuncG type="discrete" tableValues="${differs(g)}"/><feFuncB type="discrete" tableValues="${differs(b)}"/></feComponentTransfer>`,
+    '<feColorMatrix in="ccDiff" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0" result="ccKeep"/>',
+    '<feComposite in="SourceGraphic" in2="ccKeep" operator="in" result="ccKept"/>',
+  ];
+  const opacity = Math.max(0, Math.min(1, change.toOpacity));
+  if (opacity <= 0) return keep;
+  return [
+    ...keep,
+    `<feFlood flood-color="${change.to}" flood-opacity="${PX(opacity)}"/>`,
+    '<feComposite in2="ccKeep" operator="out"/>',
+    '<feComposite in2="SourceAlpha" operator="in" result="ccNew"/>',
+    '<feMerge><feMergeNode in="ccNew"/><feMergeNode in="ccKept"/></feMerge>',
+  ];
+};
+
+// `<a:lum bright contrast>` (fractions in [-1, 1]) as one linear map of each
+// sRGB channel, as the desktop presentation app draws it (measured on grey
+// ramps). Contrast scales colours about the middle grey by 1 + c below zero
+// and 1 / (1 - c) above it; brightness then adds b, scaled by the mean of
+// 1 and that slope. Washout (+70%, -70%) stays a pale picture this way.
+export const luminanceTransfer = (
+  brightness: number,
+  contrast: number,
+): { slope: number; intercept: number } => {
+  const b = Math.max(-1, Math.min(1, brightness || 0));
+  const c = Math.max(-1, Math.min(1, contrast || 0));
+  const m = c < 0 ? 1 + c : 1 / Math.max(0.001, 1 - c);
+  return { slope: m, intercept: 0.5 - 0.5 * m + (b * (1 + m)) / 2 };
+};
+
 // Picture-layer adjustments (saturation, temperature, sharpness and an
 // artistic effect) as SVG filter primitives, applied after the blip's own
 // color effects. The artistic effects are drawn as close relatives of the
@@ -609,11 +655,12 @@ const renderPicture = (
       clipAttr = ` clip-path="url(#${clipId})"`;
     }
     const brightness = imagePaint?.brightness ?? 0;
-    const contrast = imagePaint?.contrast ?? 1;
+    const contrast = imagePaint?.contrast ?? 0;
     const opacity = imagePaint?.opacity ?? 1;
     const grayscale = imagePaint?.grayscale ?? false;
     const biLevel = imagePaint?.biLevelThreshold ?? null;
     const duotone = imagePaint?.duotone ?? null;
+    const colorChange = imagePaint?.colorChange ?? null;
     let filterAttr = "";
     let adjustments: string[] = [];
     try {
@@ -621,9 +668,10 @@ const renderPicture = (
     } catch {}
     if (
       brightness !== 0 ||
-      contrast !== 1 ||
+      contrast !== 0 ||
       grayscale ||
       biLevel !== null ||
+      colorChange ||
       adjustments.length > 0 ||
       (duotone && (duotone.firstColor || duotone.secondColor))
     ) {
@@ -631,10 +679,14 @@ const renderPicture = (
       // grayscale (luminance matrix), then optional biLevel two-tone
       // (discrete table that snaps each channel to 0 or 1 at thresh).
       const fid = mintId();
-      const prims: string[] = [];
-      if (brightness !== 0 || contrast !== 1) {
+      const prims: string[] = colorChange
+        ? colorChangePrimitives(colorChange)
+        : [];
+      if (brightness !== 0 || contrast !== 0) {
+        const { slope, intercept } = luminanceTransfer(brightness, contrast);
+        const fn = `type="linear" slope="${PX(slope)}" intercept="${PX(intercept)}"`;
         prims.push(
-          `<feComponentTransfer><feFuncR type="linear" slope="${contrast}" intercept="${brightness}"/><feFuncG type="linear" slope="${contrast}" intercept="${brightness}"/><feFuncB type="linear" slope="${contrast}" intercept="${brightness}"/></feComponentTransfer>`,
+          `<feComponentTransfer color-interpolation-filters="sRGB"><feFuncR ${fn}/><feFuncG ${fn}/><feFuncB ${fn}/></feComponentTransfer>`,
         );
       }
       if (grayscale) {
@@ -668,21 +720,14 @@ const renderPicture = (
         );
       }
       if (biLevel !== null) {
-        const t = biLevel / 100;
-        // discrete tables snap channels to 0 below `t` and to 1 at/above.
-        const table = `0 1`;
-        // Use a step function: tableValues with 2 entries split at thresh.
-        // feFuncR/G/B with type=discrete + 2-entry table snaps at the midpoint;
-        // for an arbitrary threshold we shift via tableValues with more samples.
-        const steps = 32;
-        const vals: string[] = [];
-        for (let i = 0; i < steps; i++) {
-          vals.push(i / (steps - 1) >= t ? "1" : "0");
-        }
-        void table;
-        const tableStr = vals.join(" ");
+        // Black and white: each pixel is white where its lightness reaches
+        // the threshold and black below it. One steep linear map of the
+        // luminance does it, without banding the threshold into steps.
+        const t = Math.max(0, Math.min(1, biLevel / 100));
+        const k = 1000;
+        const row = `${PX(0.299 * k)} ${PX(0.587 * k)} ${PX(0.114 * k)} 0 ${PX(1 - k * t)}`;
         prims.push(
-          `<feComponentTransfer><feFuncR type="discrete" tableValues="${tableStr}"/><feFuncG type="discrete" tableValues="${tableStr}"/><feFuncB type="discrete" tableValues="${tableStr}"/></feComponentTransfer>`,
+          `<feColorMatrix type="matrix" color-interpolation-filters="sRGB" values="${row} ${row} ${row} 0 0 0 1 0"/>`,
         );
       }
       prims.push(...adjustments);
@@ -696,23 +741,9 @@ const renderPicture = (
       // starting from the alignment corner plus the offsets.
       const tw = Math.max(EMU_PER_PX, natural.w * EMU_PER_PX * fillMode.scaleX);
       const th = Math.max(EMU_PER_PX, natural.h * EMU_PER_PX * fillMode.scaleY);
-      const al = fillMode.align;
-      const ox =
-        x +
-        fillMode.offsetX +
-        (al.endsWith("r")
-          ? w - tw
-          : al === "t" || al === "b" || al === "ctr"
-            ? (w - tw) / 2
-            : 0);
-      const oy =
-        y +
-        fillMode.offsetY +
-        (al.startsWith("b")
-          ? h - th
-          : al === "l" || al === "r" || al === "ctr"
-            ? (h - th) / 2
-            : 0);
+      const [ax, ay] = rectAlignment(fillMode.align);
+      const ox = x + fillMode.offsetX + (w - tw) * ax;
+      const oy = y + fillMode.offsetY + (h - th) * ay;
       const mirrorX = fillMode.mirror === "x" || fillMode.mirror === "xy";
       const mirrorY = fillMode.mirror === "y" || fillMode.mirror === "xy";
       const cell = (fx: boolean, fy: boolean, dx: number, dy: number) =>
@@ -1471,9 +1502,26 @@ interface PaintResult {
   strokeAttrs: string;
   /** Pre-built marker-start / marker-end attributes for arrowheads. */
   markerAttrs: string;
+  /** How far, in px, a straight line stops short of its start and end so
+   *  that it ends inside a closed arrowhead rather than poking out of it. */
+  markerSetback?: readonly [number, number];
   /** A compound outline (`<a:ln cmpd>`): two or three lines in its width. */
   compound?: "dbl" | "thickThin" | "thinThick" | "tri" | undefined;
 }
+
+// A linear gradient that does not turn with its shape (`rotWithShape="0"`)
+// keeps its page angle: the fill is drawn inside the shape's turn and flips,
+// so its angle there undoes them.
+export const pageFixedAngle = (
+  angleDeg: number,
+  shape: SlideShapeData,
+): number => {
+  let a = angleDeg - (getShapeRotation(shape) || 0);
+  const flip = getShapeFlip(shape);
+  if (flip?.horizontal) a = 180 - a;
+  if (flip?.vertical) a = -a;
+  return ((a % 360) + 360) % 360;
+};
 
 // ECMA-376 `<a:prstDash val="…"/>` → SVG `stroke-dasharray` (in stroke widths).
 // The pattern scales with the line width; the multipliers below were
@@ -1492,8 +1540,63 @@ const DASH_PATTERNS: Record<string, string> = {
   sysDashDotDot: "3 1 1 1 1 1",
 };
 
+// Line ends as the desktop presentation app draws them (measured): a head is
+// 2, 3 or 5 line widths across (`w`) and along (`len`) for small, medium and
+// large, and lines thinner than 2 pt take a 2 pt line's head.
 const arrowSize = (size: "sm" | "med" | "lg" | undefined): number =>
-  size === "sm" ? 3 : size === "lg" ? 7 : 5;
+  size === "sm" ? 2 : size === "lg" ? 5 : 3;
+const ARROW_BASE_WIDTH = 25_400;
+// A line ends inside a closed head: halfway into a triangle, diamond or
+// oval, past the notch of a stealth head. An open arrow's line runs to its
+// tip.
+const arrowSetbackPx = (
+  type: string,
+  length: "sm" | "med" | "lg" | undefined,
+  strokeWidthEmu: number,
+): number => {
+  const share =
+    type === "triangle" || type === "diamond" || type === "oval"
+      ? 0.5
+      : type === "stealth"
+        ? 0.65
+        : 0;
+  if (!share || !(strokeWidthEmu > 0)) return 0;
+  return (
+    (share * arrowSize(length) * Math.max(strokeWidthEmu, ARROW_BASE_WIDTH)) /
+    EMU_PER_PX
+  );
+};
+
+// A straight line stops short inside its closed heads, which stay on its
+// ends: a dash covering the line less the setbacks. Round and square caps
+// reach half a line width further, so the dash is that much shorter. Lines
+// already dashed, or shorter than their heads, are left whole.
+const setbackDash = (
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  [start, end]: readonly [number, number],
+  attrs: string,
+  strokeWidthPx: number,
+): string => {
+  if (attrs.includes("stroke-dasharray")) return "";
+  const cap = /stroke-linecap="(round|square)"/.test(attrs)
+    ? strokeWidthPx / 2
+    : 0;
+  const s = start ? start + cap : 0,
+    e = end ? end + cap : 0;
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if (!(len > s + e) || !Number.isFinite(len)) return "";
+  return ` stroke-dasharray="${px(len - s - e)} ${px(len + s + e)}"${s ? ` stroke-dashoffset="${px(-s)}"` : ""}`;
+};
+
+// How far past its geometry an outline reaches: its miter joins, and a large
+// line end on a line at least 2 pt wide.
+const outlineReachPx = (strokeWidthEmu: number, ends: boolean): number =>
+  ends
+    ? (Math.max(strokeWidthEmu, ARROW_BASE_WIDTH) / EMU_PER_PX) * 6
+    : (strokeWidthEmu / EMU_PER_PX) * 2;
 
 const buildArrowMarker = (
   type: string,
@@ -1501,31 +1604,40 @@ const buildArrowMarker = (
   length: "sm" | "med" | "lg" | undefined,
   color: string,
   orient: "auto" | "auto-start-reverse",
+  strokeWidthEmu = ARROW_BASE_WIDTH,
 ): { id: string; def: string } => {
   const id = mintId();
-  const w = arrowSize(width);
-  const h = arrowSize(length);
-  // refX = w so the tip lands on the line's endpoint; refY centers vertically.
+  // In line widths: `l` along the line, `w` across it.
+  const k =
+    strokeWidthEmu > 0 ? Math.max(1, ARROW_BASE_WIDTH / strokeWidthEmu) : 1;
+  const w = PX(arrowSize(width) * k);
+  const l = PX(arrowSize(length) * k);
+  const W = Number(w),
+    L = Number(l);
+  // refX = l so the tip lands on the line's endpoint; refY centers it.
   let body: string;
   switch (type) {
     case "triangle":
+      body = `<path d="M0 0L${l} ${PX(W / 2)}L0 ${w}z" fill="${color}"/>`;
+      break;
     case "arrow":
-      body = `<path d="M0 0L${w} ${h / 2}L0 ${h}z" fill="${color}"/>`;
+      // An open head: two strokes as wide as the line, meeting at the tip.
+      body = `<path d="M0.5 0.5L${l} ${PX(W / 2)}L0.5 ${PX(W - 0.5)}" fill="none" stroke="${color}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`;
       break;
     case "stealth":
-      body = `<path d="M0 0L${w} ${h / 2}L0 ${h}L${w * 0.4} ${h / 2}z" fill="${color}"/>`;
+      body = `<path d="M0 0L${l} ${PX(W / 2)}L0 ${w}L${PX(L * 0.4)} ${PX(W / 2)}z" fill="${color}"/>`;
       break;
     case "diamond":
-      body = `<path d="M0 ${h / 2}L${w / 2} 0L${w} ${h / 2}L${w / 2} ${h}z" fill="${color}"/>`;
+      body = `<path d="M0 ${PX(W / 2)}L${PX(L / 2)} 0L${l} ${PX(W / 2)}L${PX(L / 2)} ${w}z" fill="${color}"/>`;
       break;
     case "oval":
-      body = `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${color}"/>`;
+      body = `<ellipse cx="${PX(L / 2)}" cy="${PX(W / 2)}" rx="${PX(L / 2)}" ry="${PX(W / 2)}" fill="${color}"/>`;
       break;
     case "none":
     default:
       body = "";
   }
-  const def = `<defs><marker id="${id}" viewBox="0 0 ${w} ${h}" refX="${w}" refY="${h / 2}" markerWidth="${w}" markerHeight="${h}" orient="${orient}">${body}</marker></defs>`;
+  const def = `<defs><marker id="${id}" viewBox="0 0 ${l} ${w}" refX="${l}" refY="${PX(W / 2)}" markerWidth="${l}" markerHeight="${w}" orient="${orient}" overflow="visible">${body}</marker></defs>`;
   return { id, def };
 };
 
@@ -1572,7 +1684,15 @@ const paint = (
         : getShapeGradientFill(shape)
       : null;
     if (grad) {
-      const built = gradientDef(grad, theme, bounds, allowCss, fillFrame);
+      const built = gradientDef(
+        grad.fixedToPage && shape && !grad.path
+          ? { ...grad, angleDeg: pageFixedAngle(grad.angleDeg ?? 90, shape) }
+          : grad,
+        theme,
+        bounds,
+        allowCss,
+        fillFrame,
+      );
       defs = built.defs;
       fillColor = built.fillAttr;
       cssGradient = built.cssGradient;
@@ -1613,6 +1733,7 @@ const paint = (
   let compound: PaintResult["compound"];
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
+  let markerSetback: readonly [number, number] | undefined;
   // A gradient line paints its stroke with a gradient; width, dashes, caps,
   // joins and arrows are read as for a solid line.
   let lineGradient: GradientFillOptions | null = null;
@@ -1700,6 +1821,11 @@ const paint = (
       }
       const head = formatting.head;
       const tail = formatting.tail;
+      const setback = [
+        head ? arrowSetbackPx(head.type, head.length, strokeWidth) : 0,
+        tail ? arrowSetbackPx(tail.type, tail.length, strokeWidth) : 0,
+      ] as const;
+      if (setback[0] || setback[1]) markerSetback = setback;
       if (head && head.type !== "none") {
         const m = buildArrowMarker(
           head.type,
@@ -1707,6 +1833,7 @@ const paint = (
           head.length,
           strokeColor,
           "auto-start-reverse",
+          strokeWidth,
         );
         defs += m.def;
         markerAttrs += ` marker-start="url(#${m.id})"`;
@@ -1718,6 +1845,7 @@ const paint = (
           tail.length,
           strokeColor,
           "auto",
+          strokeWidth,
         );
         defs += m.def;
         markerAttrs += ` marker-end="url(#${m.id})"`;
@@ -1735,6 +1863,7 @@ const paint = (
     defs,
     strokeAttrs: strokeAttrParts.join(" "),
     markerAttrs,
+    ...(markerSetback ? { markerSetback } : {}),
     ...(compound ? { compound } : {}),
   };
 };
@@ -2150,6 +2279,15 @@ const underlineStyleOf = (
   if (typeof u === "string" && u.startsWith("wavy")) return "wavy";
   return "single";
 };
+// Dotted and dashed underlines' dashes and gaps, in line widths. Shared
+// arrays, so runs with the same style draw as one.
+const UNDERLINE_DASHES: Readonly<Record<string, readonly number[]>> = {
+  dotted: [1, 1.5],
+  dash: [4, 2.5],
+  dashLong: [8, 3],
+  dotDash: [4, 2, 1, 2],
+  dotDotDash: [4, 2, 1, 2, 1, 2],
+};
 // Underline color, double lines and the text outline, as the SVG text
 // engine draws them.
 const drawnTextDecorations = (
@@ -2160,6 +2298,8 @@ const drawnTextDecorations = (
   const out: {
     underlineHex?: string;
     underlineDouble?: boolean;
+    underlineHeavy?: boolean;
+    underlineDashes?: readonly number[];
     strikeDouble?: boolean;
     strokeHex?: string;
     strokeWidthPx?: number;
@@ -2167,7 +2307,13 @@ const drawnTextDecorations = (
   } = {};
   if (fmt?.underlineColor)
     out.underlineHex = resolveColor(fmt.underlineColor, theme, "#000000");
-  if (fmt?.underline === "dbl") out.underlineDouble = true;
+  const u = fmt?.underline;
+  if (u === "dbl" || u === "wavyDbl") out.underlineDouble = true;
+  if (typeof u === "string") {
+    if (u.endsWith("Heavy") || u === "heavy") out.underlineHeavy = true;
+    const dashes = UNDERLINE_DASHES[u.replace(/Heavy$/, "")];
+    if (dashes) out.underlineDashes = dashes;
+  }
   if (fmt?.strike === "dblStrike") out.strikeDouble = true;
   const outline = fmt?.outline;
   if (outline && outline.widthEmu > 0) {
@@ -2208,6 +2354,10 @@ export interface SvgTextArgs {
   readonly measure: TextMeasurer;
   readonly vert: VerticalLayout;
   /** East Asian vertical text (`eaVert`): its ideographs stand upright. */
+  /** Stacked text whose columns run right to left (`wordArtVertRtl`). */
+  readonly stackRightToLeft?: boolean;
+  /** Turned lines that follow one another left to right (`mongolianVert`). */
+  readonly linesLeftToRight?: boolean;
   readonly uprightEastAsian?: boolean;
   readonly columns: ColumnLayout | null;
   /** Maps an authored font name onto the family the measurer keys off.
@@ -2329,24 +2479,21 @@ const alignOf = (a: string): ParaInput["align"] =>
 // glyphs stay UPRIGHT and stack, not rotated — matching the browser path's
 // `text-orientation:upright` and the native reference renderers.
 //
-// KNOWN DIVERGENCE (overflow only): when an upright run is taller than its box,
-// the browser path wraps the overflow into a second column (CSS writing-mode),
-// while the SVG path stacks it as one column that clips at the box edge. Both
-// agree for text that fits; they differ only past the box, where the deck is
-// already out of spec. Faithful multi-column upright wrapping in the SVG engine
-// is disproportionate to that edge case, so we accept the clip.
+// Each paragraph of stacked text takes a column of its own, and one taller
+// than the box continues in the next column; `wordArtVertRtl` lines the
+// columns up from the right (see placeStacked).
 export const verticalLayoutOf = (
   vert: ReturnType<typeof getShapeTextDirection>,
 ): VerticalLayout => {
   switch (vert) {
     case "vert":
     case "eaVert":
+    case "mongolianVert":
       return "cw90";
     case "wordArtVert":
     case "wordArtVertRtl":
       return "upright";
     case "vert270":
-    case "mongolianVert":
       return "cw270";
     case null:
       return "none";
@@ -2553,6 +2700,8 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
     paragraphs,
     vert: a.vert,
     ...(a.uprightEastAsian ? { uprightEastAsian: true } : {}),
+    ...(a.stackRightToLeft ? { stackRightToLeft: true } : {}),
+    ...(a.linesLeftToRight ? { linesLeftToRight: true } : {}),
     columns: a.columns,
   };
   return input;
@@ -3464,6 +3613,8 @@ const renderTextBody = (
       measure: ctx.measure,
       vert: svgVert,
       ...(authoredVert === "eaVert" ? { uprightEastAsian: true } : {}),
+      ...(authoredVert === "wordArtVertRtl" ? { stackRightToLeft: true } : {}),
+      ...(authoredVert === "mongolianVert" ? { linesLeftToRight: true } : {}),
       ...(effectiveBody.anchorCenter ? { anchorCenter: true } : {}),
       columns: svgColumns,
       resolveFamily: ctx.resolveFamily,
@@ -11885,6 +12036,24 @@ const shapeGeometryToSvg = (
       ma,
       p.patternFill,
     );
+    if (p.markerSetback && ma) {
+      const straight =
+        /^<path d="M(-?[\d.]+),(-?[\d.]+) L(-?[\d.]+),(-?[\d.]+)"([^>]*)\/>$/.exec(
+          geomSvg,
+        );
+      const dash =
+        straight &&
+        setbackDash(
+          Number(straight[1]),
+          Number(straight[2]),
+          Number(straight[3]),
+          Number(straight[4]),
+          p.markerSetback,
+          straight[5]!,
+          p.strokeWidth / EMU_PER_PX,
+        );
+      if (dash) geomSvg = geomSvg.replace(/\/>$/, `${dash}/>`);
+    }
   } else {
     geomSvg = `<rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}" fill="${p.fill}" stroke="${p.stroke}" stroke-width="${E(p.strokeWidth)}"${sa}${ma} data-pptx-preset="${escapeXml(preset)}"><title>${escapeXml(`preset: ${preset}`)}</title></rect>`;
   }
@@ -11935,9 +12104,13 @@ const renderShape = (
   // as well as connectors. Keep their actual extents and evaluate the paths.
   // Area-based objects still require both dimensions; a true point without
   // an independently sized diagram text view remains empty.
+  // A group with no extent still holds children of their own size.
   const pathShape = kind === "shape" || kind === "connector";
   if (
-    (w < 0 || h < 0 || (pathShape ? w === 0 && h === 0 : w === 0 || h === 0)) &&
+    (w < 0 ||
+      h < 0 ||
+      (kind !== "group" &&
+        (pathShape ? w === 0 && h === 0 : w === 0 || h === 0))) &&
     !(
       diagramTextTransform &&
       textBounds &&
@@ -11972,7 +12145,14 @@ const renderShape = (
   // flip.horizontal never needs this — mirroring left-right keeps reading
   // direction (and text-upright-ness) unchanged. Verified against real
   // LibreOffice output across rotation × {none, flipH, flipV, both}.
-  const textRotation = (flip.vertical ? rotation + 180 : rotation) % 360;
+  // "Do not rotate text" (`upright`) keeps the text level however the shape
+  // turns, in the shape's box as it stands on the page: turned nearer a
+  // quarter turn than level, its width runs down the page.
+  const upright =
+    rotation !== 0 && kind === "shape" && getShapeTextUpright(shape);
+  const textRotation = upright
+    ? 0
+    : (flip.vertical ? rotation + 180 : rotation) % 360;
   // Inside a group that mirrors its content, mirror the text back about its
   // own centre, so it reads as in an unflipped shape at the mirrored place.
   const unmirror = (mx: number): string =>
@@ -12015,16 +12195,24 @@ const renderShape = (
           shape,
           activeGroupMap ? { w, h } : undefined,
         );
+  const turn = ((rotation % 360) + 360) % 360;
+  const across = (turn >= 45 && turn < 135) || (turn >= 225 && turn < 315);
   const textOverlay =
     (kind === "shape" || kind === "graphicFrame") && textBounds
       ? renderTextBody(
           pres,
           textShape,
-          diagramTextTransform ? textBounds : { x, y, w, h },
+          diagramTextTransform
+            ? textBounds
+            : upright && across
+              ? { x: cx - h / 2, y: cy - w / 2, w: h, h: w }
+              : { x, y, w, h },
           theme,
           phType,
           ctx,
-          textShape === shape && !diagramTextTransform ? geometry : undefined,
+          textShape === shape && !diagramTextTransform && !(upright && across)
+            ? geometry
+            : undefined,
         )
       : "";
 
@@ -12043,7 +12231,18 @@ const renderShape = (
     );
     const solid = apply3D(
       shape,
-      withPictureEffects(pres, shape, picture, { x, y, w, h }),
+      withPictureEffects(
+        pres,
+        shape,
+        picture,
+        { x, y, w, h },
+        {
+          rotation,
+          flipH: flip.horizontal,
+          flipV: flip.vertical,
+          local: false,
+        },
+      ),
       { x, y, w, h },
     );
     return solid.defs + solid.svg;
@@ -12068,7 +12267,13 @@ const renderShape = (
       stroke,
       theme,
     );
-    const painted = withPictureEffects(pres, shape, picture, { x, y, w, h });
+    const painted = withPictureEffects(
+      pres,
+      shape,
+      picture,
+      { x, y, w, h },
+      { rotation, flipH: flip.horizontal, flipV: flip.vertical, local: false },
+    );
     return textOverlay
       ? `${painted}<g${textTransform}>${textOverlay}</g>`
       : painted;
@@ -12144,17 +12349,35 @@ const renderShape = (
     try {
       connectorEffects = getShapeEffectsEffective(pres, shape, activeColorMap);
     } catch {}
-    const fx = buildEffectsFilter(connectorEffects);
-    const withEffects = (svg: string): string =>
-      fx
-        ? `${fx.defs}<g filter="url(#${fx.id})">${effectsExtent(fx, { x, y, w, h }, (sw / EMU_PER_PX) * (ma ? 7 : 2))}${svg}</g>`
-        : svg;
-    if (
+    const straight =
       (preset === "straightConnector1" || preset === "line") &&
       ordinaryLine &&
-      !p.compound
-    ) {
-      const line = `<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}`;
+      !p.compound;
+    // A straight connector carries its flips in its end points.
+    const fx = buildEffectsFilter(connectorEffects, {
+      rotation,
+      flipH: !straight && flip.horizontal,
+      flipV: !straight && flip.vertical,
+      local: true,
+    });
+    const withEffects = (svg: string): string =>
+      fx
+        ? `${fx.defs}<g filter="url(#${fx.id})">${effectsExtent(fx, { x, y, w, h }, outlineReachPx(sw, !!ma))}${svg}</g>`
+        : svg;
+    if (straight) {
+      const lineAttrs = `x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}`;
+      const dash = p.markerSetback
+        ? setbackDash(
+            x1 / EMU_PER_PX,
+            y1 / EMU_PER_PX,
+            x2 / EMU_PER_PX,
+            y2 / EMU_PER_PX,
+            p.markerSetback,
+            lineAttrs,
+            sw / EMU_PER_PX,
+          )
+        : "";
+      const line = `<line ${lineAttrs}${dash}${ma}${strokeOpacity}`;
       return fx
         ? `${p.defs}<g${connectorTransform}>${withEffects(`${line}/>`)}</g>`
         : `${p.defs}${line}${connectorTransform}/>`;
@@ -12212,8 +12435,13 @@ const renderShape = (
       // Child space onto the frame: x' = tx + x * sx (and likewise for y).
       const ix = xform.inner.x as number;
       const iy = xform.inner.y as number;
-      const sx = outer.w / ((xform.inner.w as number) || 1);
-      const sy = outer.h / ((xform.inner.h as number) || 1);
+      // A zero extent has no scale to give; the group then keeps its
+      // children's size (within any enclosing group's scale), as the editor
+      // places them.
+      const iw = xform.inner.w as number,
+        ih = xform.inner.h as number;
+      const sx = iw && xform.outer.w ? outer.w / iw : (activeGroupMap?.sx ?? 1);
+      const sy = ih && xform.outer.h ? outer.h / ih : (activeGroupMap?.sy ?? 1);
       activeGroupMap = {
         sx,
         sy,
@@ -12481,13 +12709,23 @@ const renderShape = (
   // Effects (`<a:effectLst>`): outerShdw / innerShdw / glow / softEdge
   // / reflection / blur. Build a single SVG <filter> chain so multiple
   // effects compose into one result.
-  const fx = buildEffectsFilter(effects);
+  const frame: EffectFrame = {
+    rotation,
+    flipH: flip.horizontal,
+    flipV: flip.vertical,
+    local: true,
+  };
+  const fx = buildEffectsFilter(effects, frame, true);
   const filterAttr = fx ? ` filter="url(#${fx.id})"` : "";
   let fxDefs = fx ? fx.defs : "";
+  const stretchedShadows = effects.some(isTransformedShadow)
+    ? transformedShadows(effects, geomSvg, { x, y, w, h }, frame)
+    : null;
+  if (stretchedShadows) fxDefs += stretchedShadows.defs;
   // The outline's miter joins and arrowheads reach past the geometry too.
   const outlinePx =
     p.stroke !== "none" && p.strokeWidth > 0
-      ? (p.strokeWidth / EMU_PER_PX) * (p.markerAttrs ? 7 : 2)
+      ? outlineReachPx(p.strokeWidth, !!p.markerAttrs)
       : 0;
   const extent = fx ? effectsExtent(fx, { x, y, w, h }, outlinePx) : "";
   // Reflection can't live in the `<filter>` chain (SVG has no flip-and-fade
@@ -12506,7 +12744,7 @@ const renderShape = (
   );
   // Apply the filter to the geometry only — text overlays use foreignObject
   // and react badly to feGaussianBlur (DOM gets rasterized).
-  geomSvg = `<g${filterAttr}>${extent}${geomSvg}</g>`;
+  geomSvg = `${stretchedShadows?.svg ?? ""}<g${filterAttr}>${extent}${geomSvg}</g>`;
   if (activeLayerPart && !activeLayerPart.body) {
     geomSvg = "";
     fxDefs = "";
@@ -12727,6 +12965,7 @@ const withPictureEffects = (
   shape: SlideShapeData,
   svg: string,
   box: { x: number; y: number; w: number; h: number },
+  frame?: EffectFrame,
 ): string => {
   let effects: readonly ReturnType<typeof getShapeEffects>[number][] = [];
   try {
@@ -12735,7 +12974,7 @@ const withPictureEffects = (
     return svg;
   }
   if (!effects.length) return svg;
-  const fx = buildEffectsFilter(effects);
+  const fx = buildEffectsFilter(effects, frame);
   let out = fx
     ? `<g filter="url(#${fx.id})">${effectsExtent(fx, box)}${svg}</g>`
     : svg;
@@ -12772,7 +13011,7 @@ const buildReflection = (
   // Geometry coords are emitted in px (see `E`), so the transform math
   // works in px too: contact edge at the shape's bottom, gap pushed down.
   const contactPx = (box.y + box.h) / EMU_PER_PX;
-  const distPx = refl.distEmu / EMU_PER_PX;
+  const distPx = effectLength(refl.distEmu, MAX_EFFECT_DISTANCE) / EMU_PER_PX;
   // scale(1,f) about y=contactPx, then translate the whole thing down by dist.
   const transform = `translate(0 ${(distPx + contactPx * (1 - f)).toFixed(2)}) scale(1 ${f})`;
 
@@ -12797,8 +13036,144 @@ const buildReflection = (
   return { svg, defs };
 };
 
+// Effect lengths as far as the effect settings reach (glow 150 pt, blur and
+// soft edges 100 pt, shadow distance 200 pt). A file may store far more,
+// which the browser would spend seconds or longer drawing for no visible
+// difference.
+const MAX_GLOW_RADIUS = 1_905_000;
+const MAX_EFFECT_BLUR = 1_270_000;
+const MAX_EFFECT_DISTANCE = 2_540_000;
+const effectLength = (emu: number, max: number): number =>
+  Number.isFinite(emu) ? Math.max(0, Math.min(max, emu)) : 0;
+
+// Where an ST_RectAlignment point (`tl`, `t`, `tr`, `l`, `ctr`, `r`, `bl`,
+// `b`, `br`) sits across and down a box, as fractions of its size.
+const rectAlignment = (al: string): [number, number] => [
+  al === "tl" || al === "l" || al === "bl"
+    ? 0
+    : al === "tr" || al === "r" || al === "br"
+      ? 1
+      : 0.5,
+  al === "tl" || al === "t" || al === "tr"
+    ? 0
+    : al === "bl" || al === "b" || al === "br"
+      ? 1
+      : 0.5,
+];
+
+// The shape's own turn and flips, and whether the filter paints inside them
+// (`local`, as for shapes) or on the page (as for pictures).
+interface EffectFrame {
+  readonly rotation: number;
+  readonly flipH: boolean;
+  readonly flipV: boolean;
+  readonly local: boolean;
+}
+
+type ShapeEffectItem = ReturnType<typeof getShapeEffects>[number];
+
+// A shadow's offset in px, in the frame its filter paints in. A shadow that
+// turns with the shape (`rotWithShape`, and every inner shadow) is offset in
+// the shape's own frame; one fixed to the page keeps its page direction
+// however the shape is turned or flipped.
+const shadowOffsetPx = (
+  e: Extract<ShapeEffectItem, { kind: "outerShdw" | "innerShdw" }>,
+  frame: EffectFrame | undefined,
+): [number, number] => {
+  const rad = (e.angleDeg * Math.PI) / 180;
+  let dx =
+    (effectLength(e.distEmu, MAX_EFFECT_DISTANCE) * Math.cos(rad)) / EMU_PER_PX;
+  let dy =
+    (effectLength(e.distEmu, MAX_EFFECT_DISTANCE) * Math.sin(rad)) / EMU_PER_PX;
+  if (!frame) return [dx, dy];
+  const fixed = e.kind === "outerShdw" && e.fixedToPage === true;
+  const turn = (deg: number) => {
+    if (!deg) return;
+    const r = (deg * Math.PI) / 180,
+      c = Math.cos(r),
+      s = Math.sin(r);
+    [dx, dy] = [dx * c - dy * s, dx * s + dy * c];
+  };
+  if (frame.local && fixed) {
+    // Page to shape: undo the turn, then the flips.
+    turn(-frame.rotation);
+    if (frame.flipH) dx = -dx;
+    if (frame.flipV) dy = -dy;
+  } else if (!frame.local && !fixed) {
+    if (frame.flipV) dy = -dy;
+    if (frame.flipH) dx = -dx;
+    turn(frame.rotation);
+  }
+  return [dx, dy];
+};
+
+// An outer shadow stretched, shrunk or slanted (`sx`/`sy`/`kx`/`ky`), which a
+// filter's offset cannot draw.
+const isTransformedShadow = (e: ShapeEffectItem): boolean =>
+  e.kind === "outerShdw" &&
+  ((e.scaleX ?? 1) !== 1 ||
+    (e.scaleY ?? 1) !== 1 ||
+    !!e.skewXDeg ||
+    !!e.skewYDeg);
+
+// Draws each transformed outer shadow as a blurred, coloured copy of the
+// geometry, scaled and slanted about its `algn` point of the shape's box and
+// then offset. Painted behind the shape, in the same frame as its filter.
+const transformedShadows = (
+  effects: readonly ShapeEffectItem[],
+  geomSvg: string,
+  box: { x: number; y: number; w: number; h: number },
+  frame: EffectFrame,
+): { defs: string; svg: string } => {
+  let defs = "",
+    svg = "";
+  for (const e of effects) {
+    if (e.kind !== "outerShdw" || !isTransformedShadow(e)) continue;
+    const sx = e.scaleX ?? 1,
+      sy = e.scaleY ?? 1;
+    const tx = Math.tan(((e.skewXDeg ?? 0) * Math.PI) / 180),
+      ty = Math.tan(((e.skewYDeg ?? 0) * Math.PI) / 180);
+    if (![sx, sy, tx, ty].every(Number.isFinite)) continue;
+    const bx = box.x / EMU_PER_PX,
+      by = box.y / EMU_PER_PX,
+      bw = box.w / EMU_PER_PX,
+      bh = box.h / EMU_PER_PX;
+    const al = e.align ?? "b";
+    const [fx, fy] = rectAlignment(al);
+    const ax = bx + bw * fx,
+      ay = by + bh * fy;
+    const [dx, dy] = shadowOffsetPx(e, frame);
+    // x' = a x + c y + ox, y' = b x + d y + oy, about (ax, ay).
+    const a = sx,
+      b = ty * sx,
+      c = tx * sy,
+      d = sy;
+    const ox = ax + dx - (a * ax + c * ay),
+      oy = ay + dy - (b * ax + d * ay);
+    const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
+    const corners = [
+      [bx, by],
+      [bx + bw, by],
+      [bx, by + bh],
+      [bx + bw, by + bh],
+    ].map(([x, y]) => [a * x! + c * y! + ox, b * x! + d * y! + oy]);
+    const pad = 3 * blurPx + 2;
+    const minX = Math.min(...corners.map((q) => q[0]!)) - pad,
+      minY = Math.min(...corners.map((q) => q[1]!)) - pad,
+      maxX = Math.max(...corners.map((q) => q[0]!)) + pad,
+      maxY = Math.max(...corners.map((q) => q[1]!)) + pad;
+    const id = mintId();
+    defs += `<defs><filter id="${id}" filterUnits="userSpaceOnUse" x="${px(minX)}" y="${px(minY)}" width="${px(maxX - minX)}" height="${px(maxY - minY)}"><feFlood flood-color="${e.color || "#000000"}" flood-opacity="${(e.opacity ?? 1).toFixed(3)}"/><feComposite in2="SourceAlpha" operator="in"/><feGaussianBlur stdDeviation="${blurPx.toFixed(2)}"/></filter></defs>`;
+    svg += `<g filter="url(#${id})" data-pptx-shadow="1"><g transform="matrix(${[a, b, c, d, ox, oy].map((n) => PX(n)).join(" ")})">${geomSvg}</g></g>`;
+  }
+  return { defs, svg };
+};
+
 const buildEffectsFilter = (
-  effects: readonly ReturnType<typeof getShapeEffects>[number][],
+  effects: readonly ShapeEffectItem[],
+  frame?: EffectFrame,
+  // Transformed outer shadows are drawn by `transformedShadows` instead.
+  skipTransformed = false,
 ): EffectsResult | null => {
   if (effects.length === 0) return null;
 
@@ -12807,16 +13182,17 @@ const buildEffectsFilter = (
   // Chain primitives by passing each result as `in` to the next merge.
   // The shape's original alpha + RGB live in SourceGraphic / SourceAlpha.
   const layers: string[] = [];
+  // An inner shadow falls on the shape itself, so it paints over the source.
+  const over: string[] = [];
   // A Gaussian blur visibly reaches about three standard deviations.
   let reach = 0;
 
   for (const e of effects) {
     if (e.kind === "outerShdw") {
+      if (skipTransformed && isTransformedShadow(e)) continue;
       // dist + angle → dx, dy in EMU → px.
-      const rad = (e.angleDeg * Math.PI) / 180;
-      const dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
-      const dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
-      const blurPx = e.blurEmu / EMU_PER_PX / 2;
+      const [dx, dy] = shadowOffsetPx(e, frame);
+      const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
       reach = Math.max(
         reach,
         Math.max(Math.abs(dx), Math.abs(dy)) + 3 * blurPx,
@@ -12833,28 +13209,28 @@ const buildEffectsFilter = (
       // SVG has no innerShadow primitive — synthesize via:
       //   inset = (sourceAlpha offset, blurred) - sourceAlpha (inverted)
       // and re-flood with the shadow color.
-      const rad = (e.angleDeg * Math.PI) / 180;
-      const dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
-      const dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
-      const blurPx = e.blurEmu / EMU_PER_PX / 2;
+      const [dx, dy] = shadowOffsetPx(e, frame);
+      const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
       const color = e.color || "#000000";
       const opacity = e.opacity ?? 1;
       const i = primitives.length;
       primitives.push(
         `<feGaussianBlur in="SourceAlpha" stdDeviation="${blurPx.toFixed(2)}" result="innerBlur${i}"/>`,
-        `<feOffset in="innerBlur${i}" dx="${dx.toFixed(2)}" dy="${dy.toFixed(2)}" result="innerOff${i}"/>`,
+        // The shadow falls on the far side: offset 45° it lines the bottom
+        // and right edges, so the shape's own alpha moves the other way.
+        `<feOffset in="innerBlur${i}" dx="${(-dx).toFixed(2)}" dy="${(-dy).toFixed(2)}" result="innerOff${i}"/>`,
         `<feComposite in="innerOff${i}" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="innerMask${i}"/>`,
         `<feFlood flood-color="${color}" flood-opacity="${opacity.toFixed(3)}" result="innerCol${i}"/>`,
         `<feComposite in="innerCol${i}" in2="innerMask${i}" operator="in" result="innerOut${i}"/>`,
       );
-      layers.push(`innerOut${i}`);
+      over.push(`innerOut${i}`);
     } else if (e.kind === "glow") {
       // Native reference renderers keep the glow color near-opaque for most of
       // the `rad` reach and feather only at the outer edge. Compositing flood
       // 'in' a single wide Gaussian caps peak alpha at ~0.5 and over-diffuses,
       // so decouple the saturated band (a large dilation) from the feather (a
       // small blur): dilate by half the full reach, then blur lightly.
-      const radiusPx = e.radiusEmu / EMU_PER_PX;
+      const radiusPx = effectLength(e.radiusEmu, MAX_GLOW_RADIUS) / EMU_PER_PX;
       const dilatePx = radiusPx * 0.5;
       const featherPx = radiusPx * 0.3;
       reach = Math.max(reach, dilatePx + 3 * featherPx);
@@ -12869,26 +13245,30 @@ const buildEffectsFilter = (
       );
       layers.push(`glowOut${i}`);
     } else if (e.kind === "softEdge") {
-      const blurPx = e.radiusEmu / EMU_PER_PX / 2;
-      reach = Math.max(reach, 3 * blurPx);
-      // Soft-edge feathers the shape's mask. Replace the source by a
-      // blurred version of itself.
+      // A soft edge fades the shape out over `rad` inward from its outline,
+      // and nothing outside it: the outline's blurred alpha, which is one
+      // half on the outline, stretched so it runs from none there to full
+      // inside. The picture or fill itself stays sharp.
+      const radiusPx = effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX;
       const i = primitives.length;
       primitives.push(
-        `<feGaussianBlur in="SourceGraphic" stdDeviation="${blurPx.toFixed(2)}" result="softOut${i}"/>`,
+        `<feGaussianBlur in="SourceAlpha" stdDeviation="${(radiusPx / 2.5).toFixed(2)}" result="softBlur${i}"/>`,
+        `<feComponentTransfer in="softBlur${i}" result="softMask${i}"><feFuncA type="linear" slope="2" intercept="-1"/></feComponentTransfer>`,
+        `<feComposite in="SourceGraphic" in2="softMask${i}" operator="in" result="softOut${i}"/>`,
       );
-      // softEdge replaces the source; we drop earlier layers and the
-      // unmodified source is no longer painted on top.
-      layers.length = 0;
+      // The faded shape replaces the source; glows and shadows stay
+      // behind it.
+      over.length = 0;
       layers.push(`softOut${i}`);
     } else if (e.kind === "blur") {
-      const blurPx = e.radiusEmu / EMU_PER_PX / 2;
+      const blurPx =
+        effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
       reach = Math.max(reach, 3 * blurPx);
       const i = primitives.length;
       primitives.push(
         `<feGaussianBlur in="SourceGraphic" stdDeviation="${blurPx.toFixed(2)}" result="blurOut${i}"/>`,
       );
-      layers.length = 0;
+      layers.length = over.length = 0;
       layers.push(`blurOut${i}`);
     }
     // Reflection is handled outside the filter chain (see buildReflection):
@@ -12896,19 +13276,21 @@ const buildEffectsFilter = (
   }
 
   // Compose: paint each effect layer plus the original SourceGraphic.
-  // Shadows want to sit behind the source; glow behind too; innerShdw
-  // and softEdge already replace bits of the source. Doing the merge
-  // in order produces reasonable layering for the common cases.
-  if (layers.length === 0) return null;
+  // Shadows and glows sit behind the source, inner shadows on top of it;
+  // softEdge and blur replace the source. Doing the merge in order produces
+  // reasonable layering for the common cases.
+  if (layers.length === 0 && over.length === 0) return null;
 
   // Always paint the original source last so it sits on top of shadows /
   // glows. softEdge/blur replaced the source so we don't double-paint.
   const replacedSource = effects.some(
     (e) => e.kind === "softEdge" || e.kind === "blur",
   );
-  const mergeChildren = layers.map((l) => `<feMergeNode in="${l}"/>`).join("");
-  const sourceMerge = replacedSource ? "" : '<feMergeNode in="SourceGraphic"/>';
-  primitives.push(`<feMerge>${mergeChildren}${sourceMerge}</feMerge>`);
+  const node = (l: string) => `<feMergeNode in="${l}"/>`;
+  const sourceMerge = replacedSource ? "" : node("SourceGraphic");
+  primitives.push(
+    `<feMerge>${layers.map(node).join("")}${sourceMerge}${over.map(node).join("")}</feMerge>`,
+  );
 
   const defs = `<defs><filter id="${id}" x="-25%" y="-25%" width="150%" height="150%">${primitives.join("")}</filter></defs>`;
   return { id, defs, reach };

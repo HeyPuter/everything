@@ -436,3 +436,24 @@ test("the end screen shows nothing of an animated last slide", async ({
   await expect.poll(() => visibleLayers(page)).toEqual([true]);
   await expect(page.locator(".presenter-end")).toBeHidden();
 });
+
+test("the Next and Previous buttons bring back a black or white screen's slide as they step", async ({
+  page,
+}) => {
+  await load(page, animatedDeck());
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const stage = page.locator(".presenter-stage");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+  await page.keyboard.press("b");
+  await expect(stage).toHaveClass(/\bblank\b/);
+  await page.getByRole("button", { name: "Next slide", exact: true }).click();
+  await expect(stage).not.toHaveClass(/\bblank\b/);
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false, false]);
+  await page.keyboard.press("w");
+  await expect(stage).toHaveClass(/blank-white/);
+  await page
+    .getByRole("button", { name: "Previous slide", exact: true })
+    .click();
+  await expect(stage).not.toHaveClass(/blank-white/);
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+});

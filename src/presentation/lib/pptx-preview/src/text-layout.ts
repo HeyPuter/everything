@@ -216,6 +216,10 @@ export interface PieceInput {
   readonly underlineHex?: string;
   /** A double underline (`dbl`), drawn as two lines. */
   readonly underlineDouble?: boolean;
+  /** A thick (`…Heavy`) underline, drawn twice as heavy. */
+  readonly underlineHeavy?: boolean;
+  /** Dots and dashes of a dotted or dashed underline, in line widths. */
+  readonly underlineDashes?: readonly number[];
   /** A double strikethrough (`dblStrike`), drawn as two lines. */
   readonly strikeDouble?: boolean;
   /** Text outline (`<a:ln>` on the run). */
@@ -316,6 +320,12 @@ export interface TextBodyInput {
    *  like `cw90`, but ideographs, kana and hangul stand upright in their
    *  columns while Latin text and brackets lie along them. */
   readonly uprightEastAsian?: boolean;
+  /** Stacked text (`upright`) whose columns run right to left
+   *  (`wordArtVertRtl`); otherwise they run left to right. */
+  readonly stackRightToLeft?: boolean;
+  /** Turned text (`cw90`) whose lines follow one another left to right
+   *  (`mongolianVert`) rather than right to left. */
+  readonly linesLeftToRight?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,15 +1017,28 @@ export const layoutCore = (
   const columns = vert === "none" ? (input.columns ?? null) : null;
 
   const { placements, requiredH } =
-    columns && columns.count >= 2
-      ? placeColumns(
-          frame,
-          columns,
-          input.anchor,
-          buildLines,
-          !!input.includeOuterSpacing,
-        )
-      : placeSingle(frame, input.anchor, buildLines);
+    vert === "upright"
+      ? placeStacked(frame, input.anchor, buildLines, !!input.stackRightToLeft)
+      : columns && columns.count >= 2
+        ? placeColumns(
+            frame,
+            columns,
+            input.anchor,
+            buildLines,
+            !!input.includeOuterSpacing,
+          )
+        : placeSingle(frame, input.anchor, buildLines);
+
+  // Lines turned a quarter turn clockwise follow one another right to left;
+  // Mongolian's run left to right, so they are mirrored across the frame
+  // before it turns.
+  if (vert === "cw90" && input.linesLeftToRight)
+    for (const placement of placements) {
+      const top = placement.baselineY - placement.line.baselineOffset;
+      const mirrored = 2 * frame.y + frame.h - (top + placement.line.advance);
+      (placement as { baselineY: number }).baselineY =
+        mirrored + placement.line.baselineOffset;
+    }
 
   if (input.anchorCenter && !(columns && columns.count >= 2)) {
     // The text's own box: from its leftmost to its rightmost drawn line.
@@ -1164,6 +1187,49 @@ const placeSingle = (
       dx: 0,
     })),
     requiredH: blockH,
+  };
+};
+
+// Stacked text (`wordArtVert`): its letters stand one above another, each
+// paragraph in a column of its own, the columns side by side from the left
+// (or from the right). A paragraph taller than the box continues in the next
+// column. Columns are as wide as the tallest line's advance.
+const placeStacked = (
+  frame: Frame,
+  anchor: "top" | "center" | "bottom",
+  buildLines: LineBuilder,
+  rightToLeft: boolean,
+): { placements: Placement[]; requiredH: number } => {
+  const probe = buildLines(frame.x, frame.x + frame.w).lines;
+  if (probe.length === 0) return placeSingle(frame, anchor, buildLines);
+  const pitch = Math.max(1, ...probe.map((line) => line.advance));
+  const { lines } = buildLines(frame.x, frame.x + Math.min(frame.w, pitch));
+  let col = 0,
+    colTop = lines[0]!.topY,
+    tallest = 0;
+  const placed: { line: Line; localTopY: number; col: number }[] = [];
+  for (const line of lines) {
+    const previous = placed.at(-1);
+    if (
+      previous &&
+      (line.paraIndex !== previous.line.paraIndex ||
+        line.topY - colTop + line.extent > frame.h)
+    ) {
+      col++;
+      colTop = line.topY;
+    }
+    const localTopY = line.topY - colTop;
+    placed.push({ line, localTopY, col });
+    tallest = Math.max(tallest, localTopY + line.extent);
+  }
+  const offsetY = anchorOffsetY(frame.y, frame.h, tallest, anchor);
+  return {
+    placements: placed.map(({ line, localTopY, col: c }) => ({
+      line,
+      baselineY: offsetY + localTopY + line.baselineOffset,
+      dx: rightToLeft ? frame.w - (c + 1) * pitch : c * pitch,
+    })),
+    requiredH: tallest,
   };
 };
 
@@ -1406,7 +1472,11 @@ const emitHighlights = (
 };
 
 const explicitUnderline = (p: PieceInput): boolean =>
-  p.underline === "single" && (!!p.underlineHex || !!p.underlineDouble);
+  p.underline === "single" &&
+  (!!p.underlineHex ||
+    !!p.underlineDouble ||
+    !!p.underlineHeavy ||
+    !!p.underlineDashes);
 
 // Colored and double underlines and double strikethroughs have no SVG
 // decoration of their own; they are drawn as lines under or through the run.
@@ -1432,12 +1502,16 @@ const emitDrawnDecorations = (
       const size = renderedSizePxOf(p);
       const y0 = baselineY - baselineShiftPxOf(p);
       const width = Math.max(0.6, size * 0.055);
-      const line = (y: number, color: string) =>
-        `<path d="M${fmt(cursor)} ${fmt(y)}H${fmt(cursor + g.width)}" stroke="${color}" stroke-width="${fmt(width)}" fill="none"/>`;
+      const line = (y: number, color: string, w = width, dash = "") =>
+        `<path d="M${fmt(cursor)} ${fmt(y)}H${fmt(cursor + g.width)}" stroke="${color}" stroke-width="${fmt(w)}"${dash} fill="none"/>`;
       if (explicitUnderline(p)) {
         const color = p.underlineHex ?? p.fillHex;
         const y = y0 + size * 0.11;
-        parts.push(line(y, color));
+        const w = p.underlineHeavy ? width * 2 : width;
+        const dash = p.underlineDashes
+          ? ` stroke-dasharray="${p.underlineDashes.map((d) => fmt(d * w)).join(" ")}"`
+          : "";
+        parts.push(line(y, color, w, dash));
         if (p.underlineDouble) parts.push(line(y + width * 2.2, color));
       }
       if (p.strike && p.strikeDouble) {
@@ -1532,6 +1606,16 @@ const emitWavyUnderlines = (
       // super/subscript run's wave tracks its raised/lowered glyphs.
       const y = baselineY - baselineShiftPxOf(g.piece);
       parts.push(wavyPath(cursor, cursor + g.width, y, g.piece));
+      // `wavyDbl`: a second wave below the first.
+      if (g.piece.underlineDouble)
+        parts.push(
+          wavyPath(
+            cursor,
+            cursor + g.width,
+            y + renderedSizePxOf(g.piece) * WAVY_AMPLITUDE_RATIO * 3,
+            g.piece,
+          ),
+        );
     }
     cursor += g.width;
   }
@@ -1572,10 +1656,9 @@ const wavyPath = (
     cx = midX;
     up = !up;
   }
-  const strokeWidth = Math.max(
-    WAVY_STROKE_WIDTH_MIN_PX,
-    size * WAVY_STROKE_WIDTH_RATIO,
-  );
+  const strokeWidth =
+    Math.max(WAVY_STROKE_WIDTH_MIN_PX, size * WAVY_STROKE_WIDTH_RATIO) *
+    (piece.underlineHeavy ? 2 : 1);
   return `<path d="${d}" stroke="${piece.fillHex}"${piece.fillOpacity !== undefined && piece.fillOpacity !== 1 ? ` stroke-opacity="${piece.fillOpacity}"` : ""} stroke-width="${fmt(strokeWidth)}" fill="none"/>`;
 };
 
@@ -1592,6 +1675,8 @@ const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   a.strike === b.strike &&
   a.underlineHex === b.underlineHex &&
   a.underlineDouble === b.underlineDouble &&
+  a.underlineHeavy === b.underlineHeavy &&
+  a.underlineDashes === b.underlineDashes &&
   a.strikeDouble === b.strikeDouble &&
   a.strokeHex === b.strokeHex &&
   a.strokeWidthPx === b.strokeWidthPx &&

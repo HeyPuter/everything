@@ -235,12 +235,32 @@ export function stylePaletteMaster(pres, theme = "studio") {
     P.syncPlaceholderListStyles(view);
   }
 }
+// A starter slide for screen readers: its heading is the slide's title, and
+// the panels behind the text, which say nothing, are marked decorative so
+// they are passed over. The stacking, and so the picture, stays as it was.
+function markForReading(slide, title) {
+  for (const s of P.getSlideShapes(slide))
+    if (P.getShapeKind(s) === "shape" && !(P.getShapeText(s) || "").trim())
+      P.setShapeDecorative(s, true);
+  if (!title) return;
+  const id = P.getShapeId(title);
+  P.setShapeAsTitlePlaceholder(title);
+  title = P.findShapeById(slide, id);
+  // A title would take its layout's title style for what the box left
+  // unsaid: centred, anchored lower and set tighter. The heading keeps its
+  // own.
+  P.setShapeTextAnchor(title, "top");
+  for (let i = 0; i < P.getShapeParagraphCount(title); i++) {
+    P.setParagraphAlignment(title, i, "left");
+    P.setParagraphLineSpacing(title, i, { kind: "pct", value: 1 });
+  }
+}
 export function addDesignedSlide(
   pres,
   layout = "title",
   theme = "studio",
   content = {},
-  { onLayout = false } = {},
+  { onLayout = false, titled = false } = {},
 ) {
   const t = THEMES[theme] || THEMES.studio;
   const slide = designedSlideBase(pres, layout, onLayout);
@@ -249,16 +269,31 @@ export function addDesignedSlide(
   if (layout === "blank") return slide;
   textFont = designed ? "+mn-lt" : "Arial";
   try {
-    return dressDesignedSlide(pres, slide, layout, theme, content, t, designed);
+    return dressDesignedSlide(pres, slide, layout, theme, content, t, {
+      designed,
+      titled,
+    });
   } finally {
     textFont = "Arial";
   }
 }
-function dressDesignedSlide(pres, slide, layout, theme, content, t, designed) {
-  // Titles take the heading font of a designed theme.
+function dressDesignedSlide(
+  pres,
+  slide,
+  layout,
+  theme,
+  content,
+  t,
+  { designed, titled },
+) {
+  // Titles take the heading font of a designed theme. On a starter slide
+  // (`titled`) the heading is the slide's title, for screen readers and the
+  // outline.
+  let title = null;
   const heading = (...args) => {
     const s = text(...args);
     if (designed) P.setShapeTextFormat(s, { font: "+mj-lt" });
+    title = s;
     return s;
   };
   text(
@@ -393,6 +428,7 @@ function dressDesignedSlide(pres, slide, layout, theme, content, t, designed) {
     9,
     footerColor,
   );
+  if (titled) markForReading(slide, title);
   // Template geometry follows the imported deck's aspect ratio.
   const size = P.getSlideSize(pres);
   const sx = size.width / 12192000,
@@ -440,6 +476,7 @@ export function createDeck(template = "blank", theme = "studio") {
       // compositions sit on the Blank layout, over the master's artwork.
       addDesignedSlide(pres, layout, theme, content, {
         onLayout: !designedTheme(theme),
+        titled: true,
       });
     const pitch = template === "pitch";
     designed(
@@ -639,6 +676,19 @@ export function slideBounds(
   for (const group of enclosingGroups(shape, parents).reverse())
     bounds = throughGroup(bounds, group);
   return bounds;
+}
+// Where a shape's box starts on the slide, for checks that use only its x
+// and y. A table's laid-out rows change its width and height but not where
+// it starts, so a table outside any group skips the layout; inside a group,
+// whose turn or mirroring moves the box by its size, it is laid out.
+export function slidePosition(
+  pres,
+  shape,
+  parents = groupParents(P.getShapeSlide(shape)),
+) {
+  if (P.isTableShape(shape) && !parents.has(P.getShapeId(shape)))
+    return P.getShapeBoundsResolved(pres, shape);
+  return slideBounds(pres, shape, parents);
 }
 // Geometry can place text away from the shape centre or beyond its
 // outline. Use the renderer's inset rectangle, then carry it onto the slide
@@ -1687,6 +1737,44 @@ export function tableTextFields(pres, cell, { normalizeNewlines = true } = {}) {
   });
   return fields;
 }
+// Edits made to a cell's text as shown, carried over to the text the cell
+// stores, where a field that shows another value than its own (a date
+// saved on another day) holds its saved text: { edits, text }, the edits
+// and the text they end at. Null when an edit reaches into such a field.
+export function storedTableCellEdits(pres, cell, edits, text) {
+  const raw = P.getTableCellParagraphs(cell);
+  const shown = tableTextFields(pres, cell);
+  let k = 0;
+  const fields = [];
+  raw.forEach((p) =>
+    p.elements.forEach((e) => {
+      if (e.kind !== "fld") return;
+      const field = shown[k++];
+      const stored = (e.text || "").replace(/\r\n?/g, "\n");
+      if (field) fields.push({ ...field, stored });
+    }),
+  );
+  const mapped = [];
+  for (const { start, end, text: typed } of edits) {
+    // Words typed at either edge of a field stay outside it.
+    if (fields.some((f) => start < f.end && end > f.start)) return null;
+    if (fields.some((f) => start > f.start && start < f.end)) return null;
+    const offset = fields
+      .filter((f) => f.end <= start)
+      .reduce((n, f) => n + f.stored.length - (f.end - f.start), 0);
+    mapped.push({ start: start + offset, end: end + offset, text: typed });
+    const grow = typed.length - (end - start);
+    for (const f of fields)
+      if (f.start >= end) {
+        f.start += grow;
+        f.end += grow;
+      }
+  }
+  let stored = text;
+  for (const f of [...fields].reverse())
+    stored = stored.slice(0, f.start) + f.stored + stored.slice(f.end);
+  return { edits: mapped, text: stored };
+}
 export function retainTextFields(paragraphs, fields, source = []) {
   if (!fields.length) return paragraphs;
   // A pending formatting write may have completed while the control stayed
@@ -2288,7 +2376,9 @@ export class History {
   async undo() {
     if (!this.past.length) return null;
     // These snapshots come from our own serializer, rather than file imports.
-    const pres = await P.loadPresentation(this.past.at(-1));
+    const pres = await P.loadPresentation(this.past.at(-1), {
+      snapshot: true,
+    });
     P.refreshPresentationFields(
       pres,
       P.getPresentationFieldDate(this.presentation),
@@ -2300,7 +2390,9 @@ export class History {
   }
   async redo() {
     if (!this.future.length) return null;
-    const pres = await P.loadPresentation(this.future.at(-1));
+    const pres = await P.loadPresentation(this.future.at(-1), {
+      snapshot: true,
+    });
     P.refreshPresentationFields(
       pres,
       P.getPresentationFieldDate(this.presentation),

@@ -336,19 +336,77 @@ const popoverOpen = (node) => {
     return false;
   }
 };
+// A message stays long enough to read: five seconds, and a second more for
+// every fifteen characters past the first sixty, up to twenty seconds.
+export function toastDuration(message) {
+  const length = String(message ?? "").length;
+  return Math.min(20000, 5000 + Math.max(0, length - 60) * 67);
+}
+let toastEnds = 0;
+let toastHeld = 0;
+let toastBefore = null;
+function hideToast() {
+  clearTimeout(toastTimer);
+  const node = document.querySelector("#toast");
+  if (!node) return;
+  const within = node.contains(document.activeElement);
+  node.classList.remove("visible");
+  popover(node, "hidePopover");
+  // Dismissed from the keyboard, the focus goes back where it was.
+  if (within && toastBefore?.isConnected)
+    toastBefore.focus({ preventScroll: true });
+}
+function scheduleToast(ms) {
+  clearTimeout(toastTimer);
+  toastEnds = Date.now() + ms;
+  toastTimer = setTimeout(hideToast, ms);
+}
+// The message's text, and a button that dismisses it. While the pointer or
+// the keyboard is on it, it stays until let go.
+function toastText(node) {
+  const found = node.querySelector(".toast-text");
+  if (found) return found;
+  const text = el("span", { class: "toast-text" });
+  node.replaceChildren(
+    text,
+    iconButton("Dismiss message", "X", hideToast, {
+      class: "btn icon-btn toast-close",
+    }),
+  );
+  const hold = () => {
+    if (!toastHeld) toastHeld = Math.max(1500, toastEnds - Date.now());
+    clearTimeout(toastTimer);
+  };
+  const release = () => {
+    if (
+      !toastHeld ||
+      node.matches(":hover") ||
+      node.contains(document.activeElement)
+    )
+      return;
+    scheduleToast(toastHeld);
+    toastHeld = 0;
+  };
+  node.addEventListener("pointerenter", hold);
+  node.addEventListener("pointerleave", () => setTimeout(release));
+  node.addEventListener("focusin", (e) => {
+    if (!node.contains(e.relatedTarget)) toastBefore = e.relatedTarget;
+    hold();
+  });
+  node.addEventListener("focusout", () => setTimeout(release));
+  return text;
+}
 export function toast(message) {
   const node = document.querySelector("#toast");
-  node.textContent = message;
+  const text = toastText(node);
+  toastHeld = 0;
+  text.textContent = message;
   node.classList.add("visible");
   // Re-entering the top layer puts the message above a dialog or slideshow
   // opened since it last showed.
   if (popoverOpen(node)) popover(node, "hidePopover");
   popover(node, "showPopover");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    node.classList.remove("visible");
-    popover(node, "hidePopover");
-  }, 5000);
+  scheduleToast(toastDuration(message));
 }
 // `actions`, when given, replaces the cancel and confirm buttons with a
 // choice of several: [{ label, value, kind }] where kind is "primary",
@@ -362,6 +420,7 @@ export async function dialog({
   danger = false,
   returnFocus,
   actions = null,
+  validate = null,
 }) {
   return new Promise((resolve) => {
     const before = document.activeElement;
@@ -370,6 +429,19 @@ export async function dialog({
       "aria-labelledby": "dialog-title",
     });
     const dismissed = actions ? null : false;
+    // `validate` may keep the dialog open, to show what to correct: it
+    // answers true to let the confirmation through.
+    let checking = false;
+    const confirmed = async () => {
+      if (!validate) return finish(true);
+      if (checking) return;
+      checking = true;
+      try {
+        if (await validate()) finish(true);
+      } finally {
+        checking = false;
+      }
+    };
     const finish = (result) => {
       d.close();
       d.remove();
@@ -398,7 +470,7 @@ export async function dialog({
                 button(
                   confirm,
                   null,
-                  () => finish(true),
+                  () => confirmed(),
                   danger ? "danger" : "primary",
                 ),
             ]),
@@ -410,7 +482,7 @@ export async function dialog({
     });
     d.addEventListener("submit", (e) => {
       e.preventDefault();
-      if (confirm && !actions) finish(true);
+      if (confirm && !actions) confirmed();
     });
     // Enter in a field confirms the dialog. A form with more than one text or
     // number field submits on Enter only through a submit button, and the
@@ -428,11 +500,14 @@ export async function dialog({
     d.showModal();
   });
 }
+// `check(name)` answers a problem the person can correct (a name already
+// taken) in words, shown beside the field with the name selected, or nothing
+// to go ahead.
 export async function promptName(
   title,
   value,
   returnFocus,
-  { keep = false, confirm = "Save" } = {},
+  { keep = false, confirm = "Save", check = null } = {},
 ) {
   const input = el("input", {
     class: "input",
@@ -441,11 +516,49 @@ export async function promptName(
     maxlength: 180,
     "aria-label": "Presentation name",
   });
+  const error = el("p", {
+    class: "dialog-field-error",
+    id: "prompt-name-error",
+    hidden: true,
+  });
+  const showError = (message) => {
+    error.textContent = message || "";
+    error.hidden = !message;
+    if (message) {
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", error.id);
+    } else {
+      input.removeAttribute("aria-invalid");
+      input.removeAttribute("aria-describedby");
+    }
+  };
+  input.addEventListener("input", () => showError(""));
   const response = dialog({
     title,
-    body: el("form", { class: "dialog-body" }, el("label", {}, "Name", input)),
+    body: el(
+      "form",
+      { class: "dialog-body" },
+      el("label", {}, "Name", input),
+      error,
+    ),
     confirm,
     returnFocus,
+    validate:
+      check &&
+      (async () => {
+        const name = input.value.trim();
+        if (!name || (!keep && name === value)) return true;
+        let problem = "";
+        try {
+          problem = (await check(name)) || "";
+        } catch {}
+        if (!input.isConnected) return false;
+        showError(problem);
+        if (!problem) return true;
+        input.focus();
+        input.select();
+        return false;
+      }),
   });
   input.select();
   const ok = await response;

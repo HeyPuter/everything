@@ -85,6 +85,27 @@ describe("zip", () => {
       expect(writeZip(list)).toEqual(reference(list));
     });
 
+    // Checksums are worked out eight bytes at a time, with the bytes left
+    // over one at a time; every length agrees with the ZIP library.
+    it("checksum parts of every length as the ZIP library does", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 10, 22, 13, 37, 42));
+      let seed = 7;
+      const bytes = (n: number) =>
+        new Uint8Array(n).map(
+          () => (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24,
+        );
+      const list = [...Array(41).keys(), 100_003, 262_144].map((n) => ({
+        name: `ppt/media/image${n}.png`,
+        data: bytes(n),
+      }));
+      list.push({
+        name: "ppt/media/ones.png",
+        data: new Uint8Array(77).fill(255),
+      });
+      expect(writeZip(list)).toEqual(reference(list));
+    });
+
     // A part's bytes are compressed once: a later save of an unchanged part
     // reuses them, and a part given new bytes is written anew.
     it("stay right when a save reuses an unchanged part's compression", () => {
@@ -113,6 +134,48 @@ describe("zip", () => {
           ) as never,
         ),
       );
+    });
+
+    // An undo reads a snapshot written here back into fresh part bytes; its
+    // next save compresses only what changed since, and writes the same
+    // archive a save from scratch would.
+    it("reuse the compression of an archive written here when read back", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 10, 22, 13, 37, 42));
+      const archive = writeZip(entries());
+      const read = readZip(archive, { snapshot: true }).entries;
+      deflated.mockClear();
+      expect(writeZip(read)).toEqual(archive);
+      expect(deflated).not.toHaveBeenCalled();
+      read[1] = { name: read[1]!.name, data: utf8("<p:sld>edited</p:sld>") };
+      const next = writeZip(read);
+      expect(deflated).toHaveBeenCalledTimes(1);
+      expect(next).toEqual(reference(read));
+      // An archive from elsewhere, though byte for byte the same, or one
+      // not read as an unchanged snapshot, gives nothing to reuse.
+      for (const copy of [
+        readZip(archive.slice(), { snapshot: true }).entries,
+        readZip(archive).entries,
+      ]) {
+        deflated.mockClear();
+        expect(writeZip(copy)).toEqual(archive);
+        expect(deflated).toHaveBeenCalledTimes(
+          copy.filter((e) => !shouldStore(e.name)).length,
+        );
+      }
+    });
+
+    // Parts the deck in memory still holds are taken as they are, not
+    // unpacked into copies; the entries and their order are as unpacked.
+    it("take back the bytes still in memory when read back", () => {
+      const list = entries();
+      const archive = writeZip(list);
+      const read = readZip(archive, { snapshot: true }).entries;
+      const unpacked = readZip(archive).entries;
+      expect(read.map((e) => e.name)).toEqual(unpacked.map((e) => e.name));
+      expect(read).toEqual(unpacked);
+      read.forEach((e, i) => expect(e.data).toBe(list[i]!.data));
+      unpacked.forEach((e, i) => expect(e.data).not.toBe(list[i]!.data));
     });
 
     // Media added without its picture leaves a part with no bytes; the save

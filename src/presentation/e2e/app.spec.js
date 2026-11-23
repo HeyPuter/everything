@@ -1747,9 +1747,13 @@ test("create, edit, undo, recover, and download a real PPTX", async ({
     }),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Object text" })).toHaveCount(
-    0,
-  );
+  // The text box stays selected with the text it had before.
+  await expect(
+    page.getByRole("button", {
+      name: "A better way to present. Select to edit",
+    }),
+  ).toHaveCount(0);
+  await expect(page.locator(".object-hit.selected")).toHaveCount(1);
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(
     page.getByRole("button", {
@@ -5858,6 +5862,33 @@ for (const action of ["Undo", "Redo"]) {
   });
 }
 
+test("undo shows the slide it changes and selects the objects again", async ({
+  page,
+}) => {
+  await story(page);
+  await page.locator('[data-object="1"]').click();
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await page.getByRole("button", { name: /^Slide 3:/ }).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
+  await expect(page.locator(".object-hit.selected")).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
+  await expect(page.locator(".object-hit.selected")).toHaveAttribute(
+    "data-object",
+    "1",
+  );
+  await page.getByRole("button", { name: /^Slide 2:/ }).click();
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
+  await expect(page.locator(".object-hit.selected")).toHaveAttribute(
+    "data-object",
+    "1",
+  );
+});
+
 test("canvas typing survives completion of a delayed cloud rename", async ({
   page,
 }) => {
@@ -8533,8 +8564,9 @@ test("the canvas shows the same render as the active slide thumbnail", async ({
   );
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
   expect(await same()).toBe(true);
+  // Undo shows the slide it changes.
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
   expect(await same()).toBe(true);
 });
 
@@ -9195,7 +9227,7 @@ test("hidden slides are marked in the navigator and can be shown or hidden again
   await expect(rows.nth(0)).toHaveClass(/hidden-slide/);
   await expect(rows.nth(0).locator(".slide-hidden")).toHaveText("Hidden");
   await expect(rows.nth(0).locator(".slide-thumb")).toHaveAccessibleName(
-    /^Slide 1 \(hidden\): YOUR NEXT CHAPTER/,
+    /^Slide 1 \(hidden\): Make room for\s+big ideas/,
   );
   await expect(rows.nth(1)).not.toHaveClass(/hidden-slide/);
   await expect(page.locator(".slide-hidden")).toHaveCount(1);
@@ -9208,7 +9240,7 @@ test("hidden slides are marked in the navigator and can be shown or hidden again
   await expect(page.locator(".slide-hidden")).toHaveCount(0);
   await expect(page.locator("#slide-label")).toHaveText("SLIDE 01");
   await expect(rows.nth(0).locator(".slide-thumb")).toHaveAccessibleName(
-    /^Slide 1: YOUR NEXT CHAPTER/,
+    /^Slide 1: Make room for\s+big ideas/,
   );
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await expect(page.locator(".presenter-controls")).toContainText("1 / 5");
@@ -11287,7 +11319,7 @@ test("slides are reordered by dragging their thumbnails along the navigator", as
   await story(page);
   const thumbs = page.locator(".slide-thumb");
   // Thumbnails are named for the first line of their slide's text.
-  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: YOUR NEXT/);
+  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: Make room/);
   const first = await thumbs.nth(0).boundingBox();
   const third = await thumbs.nth(2).boundingBox();
   const horizontal = third.x > first.x + first.width / 2;
@@ -11311,16 +11343,16 @@ test("slides are reordered by dragging their thumbnails along the navigator", as
   );
   await page.mouse.up();
   await expect(page.locator(".slide-drop")).toHaveCount(0);
-  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: Make room/);
   await expect(thumbs.nth(0)).toHaveAccessibleName(
-    /^Slide 1: 01 \/ THE CONTEXT/,
+    /^Slide 1: Where we are today/,
   );
   // The moved slide stays the current one, and undo restores the order.
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
   await page.keyboard.press("Control+z");
-  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: YOUR NEXT/);
+  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: Make room/);
   await page.keyboard.press("Control+y");
-  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: Make room/);
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
   await page
@@ -11947,11 +11979,13 @@ test("several slides are selected with Shift and Ctrl clicks and act together", 
   await expect(count).toHaveText("3 of 8 selected");
   await expect(position).toHaveText("Slide 6 of 8");
   await expect(thumbs.nth(5)).toHaveAccessibleName(
-    /^Slide 6 \(selected\): YOUR NEXT/,
+    /^Slide 6 \(selected\): Make room/,
   );
-  await expect(thumbs.nth(6)).toHaveAccessibleName(/^Slide 7 \(selected\): 02/);
+  await expect(thumbs.nth(6)).toHaveAccessibleName(
+    /^Slide 7 \(selected\): See the bigger picture/,
+  );
   await expect(thumbs.nth(7)).toHaveAccessibleName(
-    /^Slide 8 \(selected\): LET/,
+    /^Slide 8 \(selected\): The next chapter/,
   );
   // Escape lets the extra slides go.
   await page.keyboard.press("Escape");
@@ -12033,11 +12067,15 @@ test("selected slides move together when one of them is dragged or moved", async
   );
   await expect(page.locator(".slide-item.dragging")).toHaveCount(2);
   await page.mouse.up();
-  await expect(thumbs.nth(1)).toHaveAccessibleName(/^Slide 2: 03 \/ THE PLAN/);
-  await expect(thumbs.nth(2)).toHaveAccessibleName(
-    /^Slide 3 \(selected\): 01 \/ THE CONTEXT/,
+  await expect(thumbs.nth(1)).toHaveAccessibleName(
+    /^Slide 2: From idea to impact/,
   );
-  await expect(thumbs.nth(3)).toHaveAccessibleName(/^Slide 4 \(selected\): 02/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(
+    /^Slide 3 \(selected\): Where we are today/,
+  );
+  await expect(thumbs.nth(3)).toHaveAccessibleName(
+    /^Slide 4 \(selected\): See the bigger picture/,
+  );
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
   await expect(count).toHaveText("2 of 5 selected");
   // Move up from a selected slide's options takes the pair up together. At
@@ -12048,7 +12086,7 @@ test("selected slides move together when one of them is dragged or moved", async
     .click();
   await page.getByRole("menuitem", { name: "Move up", exact: true }).click();
   await expect(thumbs.nth(1)).toHaveAccessibleName(
-    /^Slide 2 \(selected\): 01 \/ THE CONTEXT/,
+    /^Slide 2 \(selected\): Where we are today/,
   );
   await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 5");
   for (const n of [3, 4]) {
@@ -12059,7 +12097,9 @@ test("selected slides move together when one of them is dragged or moved", async
       .getByRole("menuitem", { name: "Move down", exact: true })
       .click();
   }
-  await expect(thumbs.nth(4)).toHaveAccessibleName(/^Slide 5 \(selected\): 02/);
+  await expect(thumbs.nth(4)).toHaveAccessibleName(
+    /^Slide 5 \(selected\): See the bigger picture/,
+  );
   await expect(page.locator("#slide-position")).toHaveText("Slide 4 of 5");
   await page
     .getByRole("button", { name: "Options for slide 5", exact: true })
@@ -12141,8 +12181,12 @@ test("shapes take a drop shadow from the format panel or the Format menu and kee
   // Undo lifts all eight at once; without a selection the menu item is off.
   await page.keyboard.press("Control+z");
   await expect.poll(shadows).toBe(0);
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".object-hit.selected")).toHaveCount(0);
+  // Undo selects the eight again; Escape lets them go (after closing the
+  // format panel first, where it covers the slide).
+  const selected = page.locator(".object-hit.selected");
+  for (let i = 0; i < 3 && (await selected.count()); i++)
+    await page.keyboard.press("Escape");
+  await expect(selected).toHaveCount(0);
   await openBarMenu(page, "Format");
   await expect(item).toBeDisabled();
   await page.keyboard.press("Escape");
@@ -13529,16 +13573,19 @@ test("a table grows with its rows and shares its width among its columns", async
 test("Delete in the navigator removes the focused slide", async ({ page }) => {
   await story(page);
   const thumbs = page.locator(".slide-thumb");
-  await expect(thumbs.nth(2)).toHaveAttribute("aria-label", /THE APPROACH/);
+  await expect(thumbs.nth(2)).toHaveAttribute(
+    "aria-label",
+    /See the bigger picture/,
+  );
   await thumbs.nth(2).focus();
   await page.keyboard.press("Delete");
   await expect(page.locator("#slide-count")).toHaveText("4");
   await expect(thumbs.first()).toHaveAttribute(
     "aria-label",
-    /YOUR NEXT CHAPTER/,
+    /Make room for\s+big ideas/,
   );
   await expect(
-    page.locator('.slide-thumb[aria-label*="THE APPROACH"]'),
+    page.locator('.slide-thumb[aria-label*="See the bigger picture"]'),
   ).toHaveCount(0);
 });
 
@@ -13563,10 +13610,13 @@ test("the keyboard follows a slide added from the navigator", async ({
   await expect(page.locator("#slide-count")).toHaveText("6");
   await expect(thumbs.first()).toHaveAttribute(
     "aria-label",
-    /YOUR NEXT CHAPTER/,
+    /Make room for\s+big ideas/,
   );
   await expect(thumbs.nth(1)).toHaveAttribute("aria-label", /^Slide 2: Blank/);
-  await expect(thumbs.nth(2)).toHaveAttribute("aria-label", /THE CONTEXT/);
+  await expect(thumbs.nth(2)).toHaveAttribute(
+    "aria-label",
+    /Where we are today/,
+  );
 });
 
 // The link region sat where the unrotated object would be.
@@ -14058,7 +14108,7 @@ test("a press released outside a thumbnail before dragging arms no drag", async 
   await thumbs.first().click();
   await expect(thumbs.first()).toHaveAttribute(
     "aria-label",
-    /YOUR NEXT CHAPTER/,
+    /Make room for\s+big ideas/,
   );
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
 });
@@ -14082,7 +14132,7 @@ test("a slide flicked along the navigator in one movement still moves", async ({
   );
   await page.mouse.up();
   await expect(page.locator(".slide-drop")).toHaveCount(0);
-  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: Make room/);
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
 });
 
@@ -14962,16 +15012,22 @@ test("keyboard focus stays in the editor when the control under it is used up", 
   await page.keyboard.press("Enter");
   await expect(undo).toBeDisabled();
   await expect(page.locator("#redo")).toBeEnabled();
-  // A text control left without a selection hands it to the workspace.
-  await title.click();
+  // A text control left without a selection hands it to the workspace: a
+  // text box added on a new slide, where nothing was selected, and undone.
+  await menuCommand(page, "Insert", "New slide", "Blank");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 6");
+  await addText(page);
+  await page.locator(".object-hit").click();
   const font = ribbonControl(page, "font-name");
-  await setRibbonFont(page, "Georgia");
+  await expect(font).toBeEnabled();
   await font.focus();
   await page.keyboard.press("Control+z");
+  await expect(page.locator(".object-hit")).toHaveCount(0);
   await expect(font).toBeDisabled();
   await expect(page.locator("#main")).toBeFocused();
   // A panel button that removes itself, or can no longer be used, hands it
   // to the panel.
+  await page.locator(".slide-thumb").first().click();
   await title.click();
   await page.keyboard.press("Control+k");
   await page.getByRole("textbox", { name: "Web address" }).fill("puter.com");
@@ -15187,6 +15243,71 @@ test("a newly inserted or pasted object is selected on its own", async ({
   await expect(page.locator(".selection-box.multi")).toHaveCount(0);
 });
 
+// Text pasted into a text box from another app or another box keeps its
+// bold, italic and color; a copy whose HTML holds other words than its plain
+// text (a table's cells) is pasted as the plain text.
+test("text pasted into a text box keeps its formatting", async ({ page }) => {
+  await start(page);
+  await page
+    .getByRole("button", { name: "New presentation", exact: true })
+    .click();
+  await addText(page);
+  await page.locator(".object-hit").last().dblclick();
+  const input = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(input).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+a");
+  const paste = (html, plain) =>
+    page.evaluate(
+      ([html, plain]) => {
+        const transfer = new DataTransfer();
+        transfer.setData("text/plain", plain);
+        transfer.setData("text/html", html);
+        document.activeElement.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: transfer,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      },
+      [html, plain],
+    );
+  await paste(
+    '<p>Hello <b>bold</b> and <i>italic</i></p><p>A <span style="color:#ff0000">red</span> word</p>',
+    "Hello bold and italic\n\nA red word",
+  );
+  await paste("<table><tr><td>a</td><td><b>b</b></td></tr></table>", "\ta\tb");
+  await input.press("Escape");
+  await expect(input).toHaveCount(0);
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const loaded = await parseDeck(
+    new Uint8Array(await readFile(await (await downloaded).path())),
+  );
+  const box = P.getSlideShapes(P.getSlides(loaded)[0]).at(-1);
+  const runs = (p) =>
+    P.getShapeParagraphElements(box, p)
+      .filter((e) => e.kind === "r")
+      .map((e) => ({
+        text: e.text,
+        bold: !!e.format?.bold,
+        italic: !!e.format?.italic,
+        color: e.format?.color || null,
+      }));
+  expect(P.getShapeText(box)).toBe("Hello bold and italic\nA red word\ta\tb");
+  expect(runs(0).find((r) => r.text === "bold")?.bold).toBe(true);
+  expect(runs(0).find((r) => r.text === "Hello ")?.bold).toBe(false);
+  expect(runs(0).find((r) => r.text === "italic")?.italic).toBe(true);
+  expect(runs(1).find((r) => r.text === "red")?.color).toMatch(/^#?FF0000$/i);
+  expect(runs(1).some((r) => r.text.includes("b") && r.bold)).toBe(false);
+});
+
 // A picture chosen for the slide that could not be decoded was refused with
 // the browser's own words ("The source image could not be decoded."), unlike
 // a background picture, which was refused in the app's.
@@ -15286,6 +15407,78 @@ test("arrow keys move several selected objects together, or not at all", async (
 // While several objects were dragged together, the one under the pointer
 // snapped to the edges and centers of the others, which were moving along
 // with it, and a guide line marked a meeting that never happened.
+// A turned object offered no edges to snap to, and a turned object being
+// dragged snapped to nothing: both now use the edges the slide shows.
+test("dragged objects snap to and with turned objects", async ({ page }) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const s = P.getSlides(pres)[0];
+  const turned = P.addSlideShape(s, {
+    preset: "rightArrow",
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(2),
+    h: P.inches(1),
+    text: "A",
+  });
+  P.setShapeRotation(turned, 30);
+  P.setShapeFlip(turned, { horizontal: true, vertical: false });
+  P.addSlideShape(s, {
+    preset: "rect",
+    x: P.inches(5),
+    y: P.inches(3),
+    w: P.inches(1),
+    h: P.inches(1),
+    text: "B",
+  });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Turned.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const objects = page.locator(".object-hit");
+  await expect(objects).toHaveCount(2);
+  const canvas = await page.locator("#slide-canvas").boundingBox();
+  const pixelsPerInch = canvas.width / 13.333;
+  // The arrow's turned outline spans 2 in ± 1.116 in across.
+  const half = (2 * Math.cos(Math.PI / 6) + 0.5) / 2;
+  const drag = async (target, inches) => {
+    const box = await target.boundingBox();
+    const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + inches * pixelsPerInch, cy + 2, { steps: 6 });
+    const guides = await page.locator(".snap-guide.vertical").count();
+    await page.mouse.up();
+    return guides;
+  };
+  const download = async () => {
+    await openFileMenu(page);
+    const saved = page.waitForEvent("download");
+    await page
+      .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+      .click();
+    const deck = await parseDeck(
+      new Uint8Array(await readFile(await (await saved).path())),
+    );
+    return P.getSlideShapes(P.getSlides(deck)[0]).map(
+      (shape) => P.getShapeBounds(shape).x / 914400,
+    );
+  };
+  // The square's left edge heads for the arrow's turned right edge.
+  expect(await drag(objects.last(), 2 + half - 5 + 0.03)).toBe(1);
+  expect((await download())[1]).toBeCloseTo(2 + half, 3);
+  await page.keyboard.press("Escape");
+  // The arrow's turned left edge heads for the slide's.
+  expect(await drag(objects.first(), -(2 - half) + 0.03)).toBe(1);
+  expect((await download())[0] + 1 - half).toBeCloseTo(0, 3);
+});
+
 test("objects dragged together do not snap to each other", async ({ page }) => {
   await start(page);
   await page
@@ -17218,6 +17411,83 @@ test("Tab steps past the cells a merge covers", async ({ page }) => {
   await page.keyboard.press("Shift+Tab");
   await expect(cell).toHaveCount(0);
   await expect(page.locator(".object-hit")).toBeFocused();
+});
+
+// The arrow keys at the edge of a cell's text go on to the cell beside it,
+// passing over the cells a merge covers; inside the text they move the
+// caret as usual.
+test("arrow keys at the edge of a cell's text move to the next cell", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const table = P.addSlideTable(P.getSlides(pres)[0], {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(1.5),
+    rows: [
+      ["ab", "c"],
+      ["d", "e"],
+      ["wide", "hidden"],
+    ],
+  });
+  P.mergeTableCells(table, { row: 2, col: 0, rowSpan: 1, colSpan: 2 });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Arrows.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const cell = page.getByRole("textbox", { name: /^Edit cell/ });
+  await page.locator(".object-hit").dblclick({ position: { x: 20, y: 10 } });
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 1");
+  // Inside the text, the arrows move the caret.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 1");
+  await page.keyboard.press("ArrowRight");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 2");
+  await page.keyboard.type("C");
+  await page.keyboard.press("ArrowLeft");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 2");
+  // Down goes to the end of the text first, then on.
+  await page.keyboard.press("ArrowDown");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 2");
+  await page.keyboard.press("ArrowDown");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 2");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 3, column 1");
+  // From the merged cell, Up goes to the cell above its left edge; the
+  // caret comes in at the end of the text it arrives in.
+  await page.keyboard.press("ArrowUp");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 1");
+  await page.keyboard.type("!");
+  await page.keyboard.press("Escape");
+  await expect(cell).toHaveCount(0);
+  await openFileMenu(page);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const saved = await parseDeck(
+    new Uint8Array(await readFile(await (await download).path())),
+  );
+  const shape = P.getSlideShapes(P.getSlides(saved)[0])[0];
+  expect(
+    P.getTableCells(shape)
+      .slice(0, 2)
+      .map((row) => row.map(P.getTableCellText)),
+  ).toEqual([
+    ["ab", "Cc"],
+    ["d!", "e"],
+  ]);
 });
 
 // Tab in a table's last cell let go of the keyboard altogether: the cell

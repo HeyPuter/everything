@@ -256,6 +256,33 @@ describe("undo history", () => {
     expect(fresh.past).toHaveLength(1);
     expect(fillOf(await fresh.undo()).toLowerCase()).toBe("#333333");
   });
+  // An undo shares with the deck being edited the parts the edit left alone,
+  // rather than unpacking copies, and saves to what it saved before.
+  it("shares the parts an undone edit left alone", async () => {
+    const pres = createDeck("story");
+    const parts = (deck) =>
+      new Map(P._internalPackageOf(deck).parts.map((p) => [p.name, p.data]));
+    const h = new History();
+    await h.reset(pres);
+    const before = h.bytes;
+    P.setShapeText(P.getSlideShapes(P.getSlides(pres)[0])[1], "Edited");
+    await h.capture(pres);
+    const edited = parts(pres);
+    const undone = await h.undo();
+    const back = parts(undone);
+    const shared = [...back].filter(
+      ([name, data]) => edited.get(name) === data,
+    );
+    const slide = P.getSlidePartName(P.getSlides(pres)[0]);
+    expect(back.get(slide)).not.toBe(edited.get(slide));
+    expect(shared.length).toBeGreaterThan(back.size / 2);
+    expect(unzipSync(await P.savePresentation(undone))).toEqual(
+      unzipSync(before),
+    );
+    const redone = await h.redo();
+    expect(P.getSlideText(P.getSlides(redone)[0])).toContain("Edited");
+    expect(parts(redone).get(slide)).toBe(edited.get(slide));
+  });
   it("drops the latest snapshot as though its edit had not been made", async () => {
     const pres = createDeck("story");
     const s = () => P.getSlideShapes(P.getSlides(pres)[0])[1];

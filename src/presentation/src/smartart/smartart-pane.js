@@ -3,7 +3,7 @@
 // a level, Backspace at the start of an item joins it to the one before, and
 // the graphic follows as you type.
 import { el, icon } from "../ui.js";
-import { fitToViewport } from "../charts/chart-sheet.js";
+import { fitToViewport, isUndoKey } from "../charts/chart-sheet.js";
 import {
   indentLine,
   joinWithPrevious,
@@ -49,6 +49,8 @@ export function openTextPane({
       "aria-modal": "false",
       "aria-labelledby": "smartart-pane-title",
       tabindex: -1,
+      // Ctrl/⌘+Z and Y undo and redo the graphic, as the toolbar does.
+      "data-applies-edits": "",
     },
     el(
       "div",
@@ -83,6 +85,8 @@ export function openTextPane({
       e.stopPropagation();
       close();
     }
+    // The editor's undo takes the typing back once it is on the graphic.
+    if (isUndoKey(e) && timer) commitNow();
   });
   dragBy(panel.querySelector(".chart-sheet-head"), panel);
 
@@ -107,14 +111,15 @@ export function openTextPane({
               current = i;
               onCurrent?.(i);
             },
-            // A click places the caret after the focus arrives.
-            onclick: (e) => {
+            // A click on the sample text chooses all of it, even in the
+            // item that already has the keyboard, where the browser would
+            // otherwise put the caret after it once the click is over.
+            onmousedown: (e) => {
               const input = e.currentTarget;
-              if (
-                input.value === SAMPLE &&
-                input.selectionStart === input.selectionEnd
-              )
-                input.select();
+              if (e.button !== 0 || input.value !== SAMPLE) return;
+              e.preventDefault();
+              input.focus();
+              input.select();
             },
             oninput: (e) => {
               items[i] = { ...items[i], text: e.target.value };
@@ -178,6 +183,24 @@ export function openTextPane({
     ) {
       e.preventDefault();
       change(joinWithPrevious(items, i));
+    } else if (
+      e.key === "Backspace" &&
+      i === 0 &&
+      !input.value &&
+      items.length > 1
+    ) {
+      // An empty first item goes, as any other empty item does.
+      e.preventDefault();
+      change({ items: items.slice(1), index: 0, caret: 0 });
+    } else if (
+      e.key === "Delete" &&
+      caret === input.value.length &&
+      input.selectionEnd === caret &&
+      i < items.length - 1
+    ) {
+      // Delete at the end of an item brings the next one up to join it.
+      e.preventDefault();
+      change(joinWithPrevious(items, i + 1));
     } else if (e.key === "ArrowUp" && i > 0) {
       e.preventDefault();
       focusItem(i - 1);

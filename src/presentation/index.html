@@ -29,7 +29,21 @@
         document.documentElement.dataset.theme = "system";
       }
     </script>
-    <script src="https://js.puter.com/v2/" defer></script>
+    <!-- Puter's SDK loads beside the app rather than ahead of it: the app
+         waits for it a while before its first screen (sdkReady in
+         src/cloud.js), so a request that never answers cannot leave the page
+         blank. -->
+    <script>
+      window.__puterSettled = new Promise(function (resolve) {
+        window.__settlePuter = resolve;
+      });
+    </script>
+    <script
+      src="https://js.puter.com/v2/"
+      async
+      onload="__settlePuter(true)"
+      onerror="__settlePuter(false)"
+    ></script>
     <!-- Privacy-friendly analytics by Plausible -->
     <script async src="https://plausible.io/js/pa-T9YpnHpHKVuD4Z_s5Av4d.js"></script>
     <script>

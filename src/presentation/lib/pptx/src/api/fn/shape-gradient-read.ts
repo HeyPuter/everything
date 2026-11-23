@@ -186,10 +186,14 @@ export const parseGradFill = (
       };
     }
   }
+  const rotWithShape = getAttrValue(gradFill, qname("", "rotWithShape", ""));
   return {
     stops,
     angleDeg,
     ...tile,
+    ...(rotWithShape === "0" || rotWithShape === "false"
+      ? { fixedToPage: true as const }
+      : {}),
     ...(["1", "true"].includes(
       lin ? (getAttrValue(lin, qname("", "scaled", "")) ?? "") : "",
     )

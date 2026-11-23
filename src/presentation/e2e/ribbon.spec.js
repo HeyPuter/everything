@@ -684,6 +684,50 @@ test("a command run from a folded group keeps the keyboard on the ribbon", async
   await expect(fold).toBeFocused();
 });
 
+test("a folded group's drop-down works from the keyboard like a menu", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await start(page);
+  await textBox(page, "Fold");
+  await tab(page, "Home");
+  const fold = page.locator(
+    '.ribbon-panel:not([hidden]) .ribbon-fold[title="Paragraph"]',
+  );
+  const panel = page.locator(".ribbon-fold-panel");
+  const controls = panel.locator("button:not(:disabled)");
+  const open = async () => {
+    await fold.focus();
+    await page.keyboard.press("Enter");
+    await expect(panel).toBeVisible();
+    await expect(controls.first()).toBeFocused();
+  };
+  await open();
+  // The arrows, Home and End move between the commands.
+  await page.keyboard.press("ArrowRight");
+  await expect(controls.nth(1)).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(controls.first()).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(controls.last()).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(controls.first()).toBeFocused();
+  // Escape closes it, back on its button.
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(fold).toBeFocused();
+  // Tab past the last command, or back past the first, closes it too.
+  await open();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Tab");
+  await expect(panel).toHaveCount(0);
+  await expect(fold).toBeFocused();
+  await open();
+  await page.keyboard.press("Shift+Tab");
+  await expect(panel).toHaveCount(0);
+  await expect(fold).toBeFocused();
+});
+
 test("no ribbon command shows the stand-in for a missing icon", async ({
   page,
 }) => {

@@ -453,7 +453,11 @@ export function createEquationFeatures(ctx) {
         h: Math.round(pic.h * scale),
       });
       P.setShapeObjectData(target, { ...data, type: "equation", w: pic.w });
-      P.setShapeDescription(target, `Equation: ${data.source}`);
+      // Alt text written for the equation stays; only the text made from
+      // its source follows the new source.
+      const alt = (P.getShapeDescription(target) || "").trim();
+      if (!alt || alt === `Equation: ${old?.source ?? ""}`.trim())
+        P.setShapeDescription(target, `Equation: ${data.source}`);
       ctx.pruneMedia(slide);
     });
   }

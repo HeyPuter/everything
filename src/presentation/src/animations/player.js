@@ -64,24 +64,63 @@ function expandItems(slide, effects) {
             part: p.part,
             start: p.start,
             delay: p.delay,
+            span: spanOf(slide, effect, p.part),
           }),
         );
         return;
       }
     }
+    const part = effect.paragraphs
+      ? rangeOf(effect.paragraphs)
+      : effect.background
+        ? "bg"
+        : null;
     items.push({
       ...base,
       sub: 0,
-      part: effect.paragraphs
-        ? rangeOf(effect.paragraphs)
-        : effect.background
-          ? "bg"
-          : null,
+      part,
       start: effect.start,
       delay: effect.delayMs,
+      span: spanOf(slide, effect, part),
     });
   });
   return items;
+}
+/** How long an effect plays on its slide, for timelines. */
+export const effectSpan = (slide, effect) =>
+  spanOf(
+    slide,
+    effect,
+    effect.paragraphs
+      ? rangeOf(effect.paragraphs)
+      : effect.background
+        ? "bg"
+        : null,
+  );
+// How long an item plays. Text that comes in a word or letter at a time
+// lasts until its last word or letter is in (see planItem), and an effect
+// after it waits for that.
+function spanOf(slide, effect, part) {
+  const total = totalDuration(effect);
+  const type = effect.iterate?.type;
+  if (type !== "word" && type !== "letter") return total;
+  let lines = [];
+  try {
+    lines = P.getShapeText(
+      P.findShapeById(slide, Number(effect.shapeId)),
+    ).split("\n");
+  } catch {
+    return total;
+  }
+  const texts =
+    part === null
+      ? [lines.join(" ")]
+      : Array.isArray(part)
+        ? part.map((n) => lines[n] || "")
+        : [];
+  const count = Math.max(0, ...texts.map((t) => textUnits(t, type)));
+  if (count < 2) return total;
+  return total * (1 + ((count - 1) * (effect.iterate.delayPercent || 0)) / 100);
 }
 const rangeOf = (g) => {
   const out = [];
@@ -114,7 +153,7 @@ export function buildSequence(items, { main = true } = {}) {
     } else if (start === "after") subOffset = subEnd;
     const at = subOffset + item.delay;
     group.items.push({ ...item, at });
-    subEnd = Math.max(subEnd, at + totalDuration(item.effect));
+    subEnd = Math.max(subEnd, at + (item.span ?? totalDuration(item.effect)));
   }
   return groups;
 }

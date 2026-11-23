@@ -28,7 +28,7 @@ describe("effective image paint", () => {
       });
       const output = svg(p);
       expect(output).toContain('opacity="0.250"');
-      expect(output).toContain('slope="0.8" intercept="0.1"');
+      expect(output).toContain('slope="5" intercept="-1.7"');
       expect(output).not.toContain('data-pptx-fallback="image"');
       // Reads neither materialize the inherited fill nor rewrite relationships.
       const saved = unzipSync(await P.savePresentation(p)),

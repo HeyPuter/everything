@@ -7,6 +7,30 @@ const sdk = () => {
     );
   return globalThis.puter;
 };
+// Puter's SDK loads beside the app (index.html), which waits for it before
+// its first screen: inside the Puter desktop that screen can be a file the
+// app was launched with. A request that never answers would leave the page
+// blank, so the wait ends after `timeoutMs` and the app starts without the
+// cloud. True when the SDK is there.
+export const SDK_WAIT_MS = 8000;
+export function sdkReady(timeoutMs = SDK_WAIT_MS) {
+  const settled = globalThis.__puterSettled;
+  if (globalThis.puter || !settled?.then)
+    return Promise.resolve(!!globalThis.puter);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    settled.then(() => {
+      clearTimeout(timer);
+      resolve(!!globalThis.puter);
+    });
+  });
+}
+// Runs `handler` once an SDK that missed the wait arrives after all.
+export function onLateSdk(handler) {
+  globalThis.__puterSettled?.then?.(() => {
+    if (globalThis.puter) handler();
+  });
+}
 export const isApp = () => globalThis.puter?.env === "app";
 export const canSignOut = () => !isApp();
 export async function user() {
@@ -64,6 +88,30 @@ export async function listFiles() {
     if (isNotFound(e)) return [];
     throw e;
   }
+}
+// What went wrong with a request to Puter, in words a person can act on:
+// the browser's own words for a dropped connection ("Failed to fetch") and
+// the SDK's plain `{ error: { message } }` objects included. Empty when the
+// error says nothing.
+export function errorMessage(error) {
+  const code = String(error?.code || error?.error?.code || "");
+  const message = String(
+    error?.message ||
+      error?.msg ||
+      error?.error?.message ||
+      (typeof error?.error === "string" ? error.error : "") ||
+      (typeof error === "string" ? error : ""),
+  ).trim();
+  if (/storage_limit|quota/i.test(code))
+    return "Your Puter storage is full. Free up some space, or download a copy to keep your work.";
+  if (
+    error instanceof TypeError &&
+    /failed to fetch|networkerror|load failed|network request failed/i.test(
+      message,
+    )
+  )
+    return "The connection to Puter was lost.";
+  return message;
 }
 // The SDK reports a missing file through a code, or only through its words.
 export function isNotFound(error) {
@@ -154,21 +202,21 @@ export async function saveFile(bytes, name, path = null) {
 }
 // A rename never replaces another file: the drive would refuse it, in words
 // meant for developers, or worse, take it.
-export async function renameFile(path, name) {
+// What stops renaming the file at `path` to `name` that a different name
+// would not: another file by that name in its folder. Empty when nothing.
+export async function renameProblem(path, name) {
   const fileName = `${cleanName(name)}.pptx`;
   const target = path.slice(0, path.lastIndexOf("/") + 1) + fileName;
-  if (
-    canStat() &&
+  return canStat() &&
     target.toLowerCase() !== path.toLowerCase() &&
     (await stat(target))
-  )
-    throw Object.assign(
-      new Error(
-        `A file named “${fileName}” is already in that folder. Choose another name.`,
-      ),
-      { code: "exists" },
-    );
-  return sdk().fs.rename(path, fileName);
+    ? `A file named “${fileName}” is already in that folder. Choose another name.`
+    : "";
+}
+export async function renameFile(path, name) {
+  const problem = await renameProblem(path, name);
+  if (problem) throw Object.assign(new Error(problem), { code: "exists" });
+  return sdk().fs.rename(path, `${cleanName(name)}.pptx`);
 }
 export async function deleteFile(path) {
   return sdk().fs.delete(path);

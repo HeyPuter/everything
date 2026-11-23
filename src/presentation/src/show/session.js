@@ -23,6 +23,7 @@ import { createRehearsal } from "./rehearse.js";
 import { createRecordingStudio } from "./recorder.js";
 
 const CTRL = IS_MAC ? "Control" : "Ctrl";
+const ALT = IS_MAC ? "Option" : "Alt";
 const IDLE_CURSOR_MS = 3000;
 const ZOOM_STEPS = [1, 2, 3, 4];
 
@@ -37,6 +38,7 @@ export const SHOW_SHORTCUTS = [
   ["Black screen, or back", "B or ."],
   ["White screen, or back", "W or ,"],
   ["Pause or resume automatic advance", "S"],
+  ["Next or previous media bookmark", `${ALT}+End, ${ALT}+Home`],
   ["Laser pointer", `L or ${CTRL}+L`],
   ["Pen", `${CTRL}+P`],
   ["Highlighter", `${CTRL}+I`],
@@ -760,7 +762,7 @@ export function createShowSession(ctx, show) {
         ? null
         : n + 1 < all.length
           ? all[n + 1]
-          : setup.loop
+          : show.loop
             ? all[0]
             : null;
       if (coming) {
@@ -797,8 +799,17 @@ export function createShowSession(ctx, show) {
       dispose: () => disposers.forEach((f) => f()),
     };
   }
+  // Its label says what a press does, also once the audience's window has
+  // been closed from that window.
+  let audienceButton = null;
+  function syncAudienceButton() {
+    if (audienceButton)
+      audienceButton.firstChild.textContent = audience
+        ? "One window"
+        : "Audience window";
+  }
   function audienceToggle() {
-    const b = el(
+    audienceButton = el(
       "button",
       {
         type: "button",
@@ -818,14 +829,12 @@ export function createShowSession(ctx, show) {
                 "The browser blocked the audience window. Allow pop-ups for this site to use a second screen.",
               );
           }
-          b.firstChild.textContent = audience
-            ? "One window"
-            : "Audience window";
         },
       },
-      el("span", {}, options.audience ? "One window" : "Audience window"),
+      el("span", {}),
     );
-    return b;
+    syncAudienceButton();
+    return audienceButton;
   }
 
   // The slide moves to the audience's window; the presenter keeps a copy.
@@ -854,9 +863,11 @@ export function createShowSession(ctx, show) {
     win.addEventListener("resize", fit);
     const onKey = (e) => {
       if (handleKey(e)) return;
+      // As in the presenter's window, Escape first puts the laser away.
       if (e.key === "Escape") {
         e.preventDefault();
-        show.close();
+        if (show.laserEnabled()) toggleLaser();
+        else show.close();
         return;
       }
       const copy = new KeyboardEvent("keydown", {
@@ -888,6 +899,7 @@ export function createShowSession(ctx, show) {
     };
     requestAnimationFrame(fit);
     setTimeout(fit, 100);
+    syncAudienceButton();
   }
   function detachAudience({ closing = false } = {}) {
     if (!audience) return;
@@ -899,6 +911,7 @@ export function createShowSession(ctx, show) {
     stage.prepend(slideArea);
     subtitles.moveTo(stage);
     if (!closing) current.dispose();
+    syncAudienceButton();
     applyZoom();
     show.fit();
     requestAnimationFrame(() => show.fit());
@@ -1024,14 +1037,19 @@ export function createShowSession(ctx, show) {
       const bar = el("div", { class: "show-media-bar" }, play, seek, time);
       const fmt = (s) =>
         `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, "0")}`;
+      // A trimmed video's bar spans only what is left of it.
+      const start = () => Number(node.dataset.start) || 0;
+      const length = () =>
+        (Number(node.dataset.end) || video.duration) - start();
       const sync = () => {
         play.replaceChildren(lineIcon(video.paused ? "Play" : "Pause", 14));
         play.setAttribute("aria-label", video.paused ? "Play" : "Pause");
-        if (Number.isFinite(video.duration) && video.duration > 0)
+        const at = Math.max(0, video.currentTime - start());
+        if (Number.isFinite(length()) && length() > 0)
           seek.value = String(
-            Math.round((video.currentTime / video.duration) * 1000),
+            Math.min(1000, Math.round((at / length()) * 1000)),
           );
-        time.textContent = fmt(video.currentTime);
+        time.textContent = fmt(at);
       };
       for (const type of ["play", "pause", "timeupdate", "loadedmetadata"])
         video.addEventListener(type, sync);
@@ -1042,8 +1060,8 @@ export function createShowSession(ctx, show) {
       });
       seek.addEventListener("input", (e) => {
         e.stopPropagation();
-        if (Number.isFinite(video.duration))
-          video.currentTime = (Number(seek.value) / 1000) * video.duration;
+        if (Number.isFinite(length()) && length() > 0)
+          video.currentTime = start() + (Number(seek.value) / 1000) * length();
       });
       bar.addEventListener("click", (e) => e.stopPropagation());
       bar.addEventListener("keydown", (e) => e.stopPropagation());
