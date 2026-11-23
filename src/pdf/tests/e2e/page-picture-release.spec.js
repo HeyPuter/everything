@@ -103,3 +103,34 @@ test('pages scrolled past before their pictures were done let go of them', async
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 2000)));
   await expect.poll(() => held(page, 30)).toBe(0);
 });
+
+test('Organize pages lets go of the pictures of pages scrolled past before they were drawn', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: await scanBytes(150) });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 150');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await slowMiddlePictures(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(page.getByRole('option', { name: 'Page 1', exact: true })).toBeVisible();
+  for (let step = 1; step <= 30; step++) {
+    await grid.evaluate((node, step) => (node.scrollTop = step * node.clientHeight), step);
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 30)));
+  }
+  await expect(page.getByRole('option', { name: 'Page 150', exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => window.slowPictures)).toBeGreaterThan(3);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 2000)));
+  // Page 1, behind the grid, is the page being worked on.
+  await expect.poll(() => held(page, 1)).toBe(0);
+});

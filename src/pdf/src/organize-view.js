@@ -543,8 +543,9 @@ export function createOrganizeView({
           drawn.add(entry.target);
           const index = Number(entry.target.dataset.index);
           const canvas = entry.target.querySelector('canvas');
+          let page = null;
           try {
-            const page = await pdf.getPage(index + 1);
+            page = await pdf.getPage(index + 1);
             if (getPdf() !== pdf || getRevision() !== revision || !canvas.isConnected) return;
             if (!drawn.has(entry.target)) return;
             const natural = page.getViewport({ scale: 1 });
@@ -567,9 +568,12 @@ export function createOrganizeView({
             } finally {
               if (renders.get(entry.target) === task) renders.delete(entry.target);
             }
-            if (index !== currentIndex()) page.cleanup();
           } catch {
             /* A page that cannot be drawn keeps its blank tile. */
+          } finally {
+            // PDF.js keeps a page's decoded pictures until told otherwise, also from a picture
+            // given up part way (scrolled far past); the page being worked on keeps them.
+            if (page && getPdf() === pdf && index !== currentIndex()) page.cleanup();
           }
         }),
       { root: grid, rootMargin: '200px' },
