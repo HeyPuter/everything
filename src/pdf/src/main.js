@@ -1328,15 +1328,25 @@ window.addEventListener('dragleave', () => {
   }
 });
 window.addEventListener('drop', (e) => {
-  const files = [...(e.dataTransfer?.files || [])];
+  // A folder arrives as a file without a type that cannot be read; it is named for what it is.
+  const folders = new Set(
+    [...(e.dataTransfer?.items || [])]
+      .map((item) => item.kind === 'file' && item.webkitGetAsEntry?.())
+      .filter((entry) => entry?.isDirectory)
+      .map((entry) => entry.name),
+  );
+  const dropped = [...(e.dataTransfer?.files || [])];
+  const files = dropped.filter((file) => !(folders.has(file.name) && !file.type));
   // Only file drops belong to the app. Text dragged into a field keeps its native insertion,
   // which cancelling the event here would silently discard.
-  if (!files.length && !document.body.classList.contains('dropping')) return;
+  if (!dropped.length && !document.body.classList.contains('dropping')) return;
   // The drop is always cancelled, even when it is ignored: the browser would otherwise leave
   // the app and show the file itself.
   e.preventDefault();
   dragDepth = 0;
   document.body.classList.remove('dropping');
+  if (!files.length && dropped.length)
+    return toast('Folders cannot be opened. Open a PDF from the folder.', { error: true });
   if (!files.length) return;
   // The message lands in the open dialog, which is where the reader is looking.
   if (dialogOpen()) return toast('Close this dialog to open a dropped file.', { error: true });
