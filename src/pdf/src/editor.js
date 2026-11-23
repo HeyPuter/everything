@@ -5948,6 +5948,8 @@ export function createEditor({
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
+        // A move still being saved (arrow keys just pressed) must not select the text again.
+        cancelTextSelection();
         leaveTextEdit(overlay);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();

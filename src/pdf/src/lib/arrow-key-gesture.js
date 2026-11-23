@@ -24,7 +24,9 @@ export function arrowKeyGesture(handle, { update, completed }) {
       ArrowDown: [0, 1],
     }[e.key];
     if (!direction || e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) {
-      if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) flush();
+      // Delete takes the moved text away as it is (the pending save then finds it gone);
+      // saving the move first would leave the key to the saved text's locked controls.
+      if (!['Shift', 'Control', 'Alt', 'Meta', 'Delete', 'Backspace'].includes(e.key)) flush();
       return;
     }
     e.preventDefault();
