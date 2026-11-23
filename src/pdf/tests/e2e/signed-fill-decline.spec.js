@@ -45,6 +45,7 @@ test('declining to edit a signed PDF keeps the typed words as a draft', async ({
   await ids.getByLabel('Create a new digital ID').check();
   await ids.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await ids.getByLabel('Password for the ID file').fill('secret-123');
+  await ids.getByLabel('Confirm password').fill('secret-123');
   await ids.getByRole('button', { name: 'Continue' }).click();
   const details = page.getByRole('dialog', { name: 'Certify document' });
   await details

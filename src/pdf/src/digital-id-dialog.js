@@ -111,6 +111,12 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       class: 'input',
       autocomplete: 'new-password',
     });
+    // Typed twice: a slip of the finger would lock the downloaded ID file away for good.
+    const confirmPassword = el('input', {
+      type: 'password',
+      class: 'input',
+      autocomplete: 'new-password',
+    });
     const sections = {
       existing: el('div', { class: 'stack' }),
       file: el(
@@ -132,6 +138,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
           newPassword,
           'The new ID is downloaded as a .p12 file protected by this password, so you can sign with it again. Others see it as self-signed until they trust it.',
         ),
+        field('id-password-confirm', 'Confirm password', confirmPassword),
       ),
     };
     const form = el(
@@ -190,6 +197,8 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
             return fail('Enter a valid email address, or leave it empty.', email);
           if (newPassword.value.length < 6)
             return fail('Use a password of at least 6 characters for the ID file.', newPassword);
+          if (confirmPassword.value !== newPassword.value)
+            return fail('The passwords do not match.', confirmPassword);
           const identity = await createSelfSignedId({
             name: name.value.trim(),
             email: email.value.trim(),

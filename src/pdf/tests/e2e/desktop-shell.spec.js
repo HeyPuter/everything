@@ -1150,6 +1150,7 @@ test('a certificate signature is added, validated, and protected from silent edi
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await chooser.getByLabel('Email').fill('ada@example.com');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   const idFile = page.waitForEvent('download');
   await chooser.getByRole('button', { name: 'Continue' }).click();
   expect((await idFile).suggestedFilename()).toMatch(/\.p12$/);
@@ -1220,6 +1221,7 @@ async function signWithNewId(page) {
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await chooser.getByLabel('Email').fill('ada@example.com');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   await chooser.getByRole('button', { name: 'Continue' }).click();
   await page
     .getByRole('dialog', { name: 'Sign with a certificate' })

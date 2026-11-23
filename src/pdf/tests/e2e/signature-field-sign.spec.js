@@ -50,6 +50,7 @@ async function finishSigning(page) {
   await chooser.getByLabel('Create a new digital ID').check();
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   await chooser.getByRole('button', { name: 'Continue' }).click();
   const details = page.getByRole('dialog', { name: 'Sign with a certificate' });
   await details.getByRole('button', { name: 'Sign', exact: true }).click();

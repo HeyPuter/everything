@@ -28,6 +28,7 @@ test('pressing Enter twice creates one digital ID, not two', async ({ page }) =>
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   const password = chooser.getByLabel('Password for the ID file');
   await password.fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   const files = [];
   page.on('download', (download) => files.push(download.suggestedFilename()));
   await password.press('Enter');
@@ -72,6 +73,7 @@ test('cancelling while a new digital ID is made neither downloads nor uses it', 
   await chooser.getByLabel('Create a new digital ID').check();
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   const files = [];
   page.on('download', (download) => files.push(download.suggestedFilename()));
   await chooser.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -141,6 +143,7 @@ test('a new digital ID refuses an email address that is not one', async ({ page 
   const email = chooser.getByLabel(/^Email/);
   await email.fill('ada at example');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   const files = [];
   page.on('download', (download) => files.push(download.suggestedFilename()));
   await chooser.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -210,6 +213,7 @@ test('the Signatures panel names a certification as one', async ({ page }) => {
   await chooser.getByLabel('Create a new digital ID').check();
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   await chooser.getByRole('button', { name: 'Continue' }).click();
   await page
     .getByRole('dialog', { name: 'Certify document' })
@@ -221,4 +225,25 @@ test('the Signatures panel names a certification as one', async ({ page }) => {
   await expect(
     page.getByRole('tabpanel', { name: 'Signatures' }).locator('.signature-title'),
   ).toHaveText('Rev. 2: Certified by Ada Lovelace');
+});
+
+// The ID file's password was typed once: a slip of the finger locked the downloaded file away
+// for good, which only showed the next time it was opened.
+test('a new digital ID asks for its password twice', async ({ page }) => {
+  const chooser = await openChooser(page);
+  await chooser.getByLabel('Create a new digital ID').check();
+  await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
+  await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  const confirm = chooser.getByLabel('Confirm password');
+  await confirm.fill('secret-132');
+  const files = [];
+  page.on('download', (download) => files.push(download.suggestedFilename()));
+  await confirm.press('Enter');
+  await expect(chooser.getByRole('alert')).toHaveText('The passwords do not match.');
+  await expect(confirm).toBeFocused();
+  expect(files).toEqual([]);
+  await confirm.fill('secret-123');
+  await confirm.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Certify document' })).toBeVisible();
+  expect(files).toEqual(['Ada Lovelace digital ID.p12']);
 });
