@@ -1,6 +1,21 @@
-/** Group a held arrow (including repeats) into one completed geometry action. */
+/** How long arrow keys rest before their nudges complete as one action, in milliseconds. */
+const REST = 180;
+
+/**
+ * Group a held arrow (including repeats), and presses in quick succession, into one completed
+ * geometry action. Completing saves the document and replaces the control, so completing
+ * after every press lost the presses that came while it saved.
+ */
 export function arrowKeyGesture(handle, { update, completed }) {
   const held = new Set();
+  let resting = 0;
+  /** Complete the nudges at once: another key, or the focus leaving, acts on them as saved. */
+  const flush = () => {
+    if (!resting) return;
+    clearTimeout(resting);
+    resting = 0;
+    completed();
+  };
   handle.addEventListener('keydown', (e) => {
     const direction = {
       ArrowLeft: [-1, 0],
@@ -8,22 +23,36 @@ export function arrowKeyGesture(handle, { update, completed }) {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
     }[e.key];
-    if (!direction || e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey)
+    if (!direction || e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) {
+      if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) flush();
       return;
+    }
     e.preventDefault();
     e.stopPropagation();
-    if (update(direction, e.shiftKey ? 10 : 1) !== false) held.add(e.key);
+    if (update(direction, e.shiftKey ? 10 : 1) !== false) {
+      held.add(e.key);
+      clearTimeout(resting);
+      resting = 0;
+    }
   });
   handle.addEventListener('keyup', (e) => {
     if (!held.delete(e.key)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!held.size) completed();
+    if (held.size) return;
+    clearTimeout(resting);
+    resting = setTimeout(() => {
+      resting = 0;
+      completed();
+    }, REST);
   });
   // A key released outside the control must not leave the action pending indefinitely.
   handle.addEventListener('blur', () => {
-    if (!held.size) return;
-    held.clear();
-    completed();
+    if (held.size) {
+      held.clear();
+      clearTimeout(resting);
+      resting = 0;
+      completed();
+    } else flush();
   });
 }
