@@ -64,6 +64,8 @@ import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestS
 import { refreshPageReferences } from './page-reference-refresh.js';
 import { positionedImageBounds, drawingOwnRotation } from './positioned-images.js';
 import { createImageInteraction } from './image-interaction.js';
+import { diagramDescriptionAfterTextEdit } from './diagram-builder.js';
+import { xmlEscape } from './inserted-drawings.js';
 import { paintDecodedImage, imageInfo, decodeImage, decodeImages, validateImageAssets, imageCropRect, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, EMU_PER_PX, isPositionedImage } from './images.js';
 import { sectionColumnIntervals } from './section-columns.js';
 let nextAsset = 0;
@@ -589,8 +591,11 @@ export class CanvasEditor {
       if (this.destroyed || signal?.aborted) { preview.close(); return false; }
       if (revision !== this.session.revision || this.model !== model || model.selectedImage !== image) throw new Error('The document changed while the drawing text was being prepared.');
       model.assets[id] = prepared.asset; this.images.set(id, preview);
+      // A diagram keeps its outline as its description (wp:docPr descr): it follows the text typed into its shapes.
+      const alt = diagramDescriptionAfterTextEdit(image.alt, prepared.shell);
+      const shell = alt ? prepared.shell.replace(/(<wp:docPr\b[^>]*?)\sdescr="[^"]*"/, '$1').replace(/<wp:docPr\b/, `$& descr="${xmlEscape(alt)}"`) : prepared.shell;
       let failure;
-      if (!this.execute(() => model.replaceDrawingText(image, id, prepared.shell), error => { failure = error; })) throw failure || new Error('The drawing text could not be applied.');
+      if (!this.execute(() => model.replaceDrawingText(image, id, shell, alt), error => { failure = error; })) throw failure || new Error('The drawing text could not be applied.');
       return true;
     } catch (error) {
       this.images.delete(id); delete model.assets[id]; preview.close(); throw error;

@@ -2160,11 +2160,13 @@ export class TextDocument {
     for (const p of this.paragraphs) for (const run of p.runs) if (run.image === image) run.image = updated;
     this.didChange(); return true;
   }
-  replaceDrawingText(expected, assetId, shell) {
+  replaceDrawingText(expected, assetId, shell, alt = null) {
     const image = this.selectedImage;
     if (image !== expected || !image?.retainedDrawing || !this.assets[assetId]?.scene || typeof shell !== 'string' || !shell) throw new Error('The selected drawing changed before its text could be applied.');
     this.checkpoint();
-    for (const p of this.paragraphs) for (const run of p.runs) if (run.image === image) run.image = { ...image, assetId, shell };
+    // `alt`: a description that follows the text (a diagram's outline), written into the shell's wp:docPr too.
+    const next = typeof alt === 'string' ? { ...image, assetId, shell, alt } : { ...image, assetId, shell };
+    for (const p of this.paragraphs) for (const run of p.runs) if (run.image === image) run.image = next;
     this.didChange(); return true;
   }
   get bold() { return this.runFormatting.bold === true; }

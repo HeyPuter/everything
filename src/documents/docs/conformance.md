@@ -24163,7 +24163,10 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   Venn circles and rotated arrows (`a:xfrm rot`). The outline that generated the diagram is stored as
   the drawing's alternative text (`wp:docPr descr`, §20.4.2.5) in the form
   `Diagram: <layout> (<colors>)` followed by the indented outline; Edit Diagram reads it back and
-  replaces the group in one undo step. Diagrams edited in another application keep their XML but
+  replaces the group in one undo step. Text typed into the shapes (Edit drawing text) is read back
+  into that outline in the same undo step: a shape's first line is its item and further lines its
+  sub-items where the layout lists them, so the description and Edit Diagram follow what the shapes
+  show (`tests/diagram-text-readback.test.js`). Diagrams edited in another application keep their XML but
   regenerate from their description when edited here.
   Gaps between items shrink as items crowd in (together at most a third of the frame), so a list,
   process, pyramid or organization chart of 15–30 items keeps every shape visible rather than
