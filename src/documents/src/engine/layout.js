@@ -1427,8 +1427,20 @@ export function nearestStop(line, x, y) {
     const stop = nearestStop(line.cellText.line, local.x);
     return { ...stop, ...cellTextPoint(line.cellText.matrix, stop.x, line.cellText.line.baseline) };
   }
-  return line.stops.reduce((best, s) => Math.abs(s.x - x) < Math.abs(best.x - x) || s.hanging && s.x === best.x ? s : best, line.stops[0]);
+  return line.stops.reduce((best, s) => {
+    const d = Math.abs(s.x - x), bestD = Math.abs(best.x - x);
+    if (s.hanging && s.x === best.x) return s;
+    // Where text changes direction, two offsets share one place: the one ending the run the pointer
+    // is over is that letter's own edge. Typing there continues that word, not the run beyond it.
+    if (Math.abs(d - bestD) <= 1e-6 && (s.bidiSide || best.bidiSide)) {
+      const over = stop => stop.bidiSide && stop.bidiSide === pointerSide(stop, x);
+      if (over(s) !== over(best)) return over(s) ? s : best;
+    }
+    return d < bestD ? s : best;
+  }, line.stops[0]);
 }
+// The side of its run a stop must be on for the pointer at `x` to be over that run.
+const pointerSide = (stop, x) => x < stop.x ? 'right' : x > stop.x ? 'left' : null;
 // `rotationOf(image)`: a drawing's own rotation that its image does not carry (drawingOwnRotation), so a
 // turned shape is found where it shows.
 export function imageAtPoint(layout, page, x, y, { includeBehindText = false, rotationOf = null } = {}) {
