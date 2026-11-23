@@ -313,6 +313,12 @@ export function createTransitionTools({
     });
     return playback;
   }
+  /** Ends a preview still playing on the canvas, and its sound. */
+  function stopPreview() {
+    previewing?.cancel();
+    previewing = null;
+    stopSound();
+  }
 
   /* ---------- Ribbon, menus, navigator ---------- */
   const choices = () =>
@@ -428,6 +434,7 @@ export function createTransitionTools({
     choose,
     applyToAll,
     previewTransition,
+    stopPreview,
     playArrivalSound,
     stopSound,
     play,

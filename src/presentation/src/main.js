@@ -15903,6 +15903,9 @@ async function present(options = {}) {
     options.audience?.close();
     return;
   }
+  // A preview still playing on the canvas ends as the show starts.
+  transitionTools.stopPreview();
+  animationTools.stopPreview();
   const pres = doc.pres;
   const previews = doc.previews;
   const slides = P.getSlides(pres);

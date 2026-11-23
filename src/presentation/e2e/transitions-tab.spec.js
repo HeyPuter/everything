@@ -230,6 +230,29 @@ test("a chosen transition plays in the slide show, previews on the canvas and ma
   });
 });
 
+test("a preview still playing on the canvas ends when the show starts", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  P.setSlideTransition(P.addBlankSlide(pres), {
+    effect: "fade",
+    durationMs: 5000,
+  });
+  await load(page, pres);
+  await page.locator("#slide-list .slide-thumb").nth(1).click();
+  const mark = page
+    .locator("#slide-list .slide-item")
+    .nth(1)
+    .locator(".slide-transition-mark");
+  await mark.click();
+  await expect(page.locator("#slide-canvas .slide-transition")).toHaveCount(1);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Presentation mode" }),
+  ).toBeVisible();
+  await expect(page.locator("#slide-canvas .slide-transition")).toHaveCount(0);
+});
+
 test("morph plays between slides with the same objects", async ({ page }) => {
   const pres = createDeck("blank");
   const first = P.getSlides(pres)[0];
