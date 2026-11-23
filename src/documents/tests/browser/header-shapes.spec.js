@@ -35,9 +35,11 @@ test('a shape and a text box inserted while editing a header belong to the heade
   await onTab(page, 'insert');
   await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Text Box', exact: true }).click();
   await page.getByRole('menuitem', { name: /^Simple Text Box/ }).click();
-  const draft = page.getByRole('dialog').filter({ hasText: 'Edit drawing text' });
-  await page.keyboard.type('Draft'); await draft.getByRole('button', { name: 'Apply', exact: true }).click();
-  await expect(draft).toBeHidden();
+  const hint = page.getByText('Edit this text frame, then apply your changes to the drawing.');
+  await expect(hint).toBeVisible();
+  await page.keyboard.type('Draft');
+  await page.getByRole('dialog').filter({ has: hint }).last().getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(hint).toBeHidden();
   await expect.poll(() => drawings('text-box.docx')).toEqual({ body: [], headers: ['Oval 1', 'Text Box 2'] });
   await header.focus(); await header.press('ControlOrMeta+z'); await header.press('ControlOrMeta+z');
   await expect.poll(() => drawings('undone.docx')).toEqual({ body: [], headers: ['Oval 1'] });

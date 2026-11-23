@@ -128,6 +128,10 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   // A shape, text box or WordArt drawn or inserted while a header or footer is being edited belongs to it, as its
   // pictures do: the place drawn on is a position in that story, and in the body it would land on another page.
   const editingPageStory = () => ['header', 'footer'].includes(activeKind(ready()));
+  // A footnote or endnote holds no floating drawings, as in Word (which greys out these commands there): shapes,
+  // text boxes, WordArt, signature lines, diagrams and charts are unavailable, and pictures go in line.
+  const editingNote = () => ['footnote', 'endnote'].includes(activeKind(ready()));
+  const NOTE_HINT = 'Not available in footnotes and endnotes';
   // The width a new drawing fits at the caret: its section's text column, or its table cell's.
   const textWidth = engine => {
     const model = engine.model, context = model.tableContext;
@@ -157,6 +161,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   /** Insert a drawing fragment built for the current body model; `build(engine, id, order)` returns the fragment. */
   async function insertDrawing(build, { body = true, replace = null, edit = false } = {}) {
     const engine = ready(); if (!engine) return false;
+    // Never into the body from a note: the new drawing would land on another page.
+    if (body && !replace && editingNote()) { fail(new Error('Shapes, text boxes, WordArt, signature lines, diagrams and charts can’t go in a footnote or endnote. Pictures can.')); return false; }
     try {
       // A drawing being replaced (Edit Diagram, Edit Chart Data) is edited where it is: in a header,
       // footer or note too. New drawings go in the body.
@@ -808,7 +814,18 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const symbol = menuButton('Symbol', 'symbol', symbolItems, { size: 'small', text: 'Symbol' });
     noSteal(blankPage, shapes, icons, chart, signature, dateTime, equationMain, ...(screenshotButton ? [screenshotButton] : []));
     when(coverPage, can); when(blankPage, () => can() && !ready()?.model.selectedParagraphs[0]?.cellId); if (!kit.pageBreak) when(pageBreak, () => can() && !ready()?.model.selectedParagraphs[0]?.cellId);
-    for (const control of [pictures, shapes, icons, diagram, chart, header, footer, pageNumber, textBox, quickParts, wordArt, dropCap, signature, dateTime, object, equationMain, equation.arrow, symbol, ...(screenshotButton ? [screenshotButton] : [])]) when(control, can);
+    const floating = [shapes, diagram, chart, textBox, wordArt, signature];
+    for (const control of [pictures, icons, header, footer, pageNumber, quickParts, dropCap, dateTime, object, equationMain, equation.arrow, symbol, ...(screenshotButton ? [screenshotButton] : [])]) when(control, can);
+    for (const control of floating) {
+      const title = control.getAttribute('title') || '';
+      when(control, () => {
+        const note = !!ready() && editingNote();
+        // The tooltip says why the command is unavailable while the caret is in a note.
+        const next = note ? `${title.split(' — ')[0]} — ${NOTE_HINT}` : title;
+        if (control.getAttribute('title') !== next) control.setAttribute('title', next);
+        return can() && !note;
+      });
+    }
     return {
       pages: [rows([coverPage], [blankPage], [pageBreak])],
       illustrations: [pictures, shapes, rows([icons], [diagram], [chart])],
@@ -821,11 +838,13 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   /* ---- Menu bar and context menu ---- */
   function extendMenu(menuId) {
     const engine = ready(), disabled = !engine;
+    // Floating drawings are unavailable in a footnote or endnote, as on the ribbon.
+    const note = !disabled && editingNote(), floating = { disabled: disabled || note, ...(note ? { hint: NOTE_HINT } : {}) };
     if (menuId === 'insert') return [
       { label: 'Pictures', icon: 'pictures', disabled, items: pictureItems() },
-      { label: 'Shapes…', icon: 'shapes', disabled, onSelect: () => openShapes(document.querySelector('#ribbon-panel-insert [aria-label="Shapes"]') || document.activeElement) },
-      { label: 'Diagram…', icon: 'smartArt', disabled, onSelect: () => insertDiagram() },
-      { label: 'Chart…', icon: 'chart', disabled: disabled || !commands.insertChart, onSelect: () => commands.insertChart?.() },
+      { label: 'Shapes…', icon: 'shapes', ...floating, onSelect: () => openShapes(document.querySelector('#ribbon-panel-insert [aria-label="Shapes"]') || document.activeElement) },
+      { label: 'Diagram…', icon: 'smartArt', ...floating, onSelect: () => insertDiagram() },
+      { label: 'Chart…', icon: 'chart', ...floating, disabled: floating.disabled || !commands.insertChart, onSelect: () => commands.insertChart?.() },
       { label: 'Icons…', icon: 'icons', disabled, onSelect: insertIcons },
       ...(canCapture() ? [{ label: 'Screenshot…', icon: 'screenshot', disabled, onSelect: screenshot }] : []),
       { separator: true },
@@ -834,12 +853,12 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       { label: 'Footer', icon: 'footer', disabled, items: headerItems('footer') },
       { label: 'Page Numbers', icon: 'pageNumber', disabled, items: pageNumberItems() },
       { separator: true },
-      { label: 'Text Box', icon: 'textBox', disabled, items: textBoxItems() },
+      { label: 'Text Box', icon: 'textBox', ...floating, items: textBoxItems() },
       { label: 'AutoText', disabled, items: quickPartsItems()[0].items },
       { label: 'Date and Time…', icon: 'dateTime', disabled, onSelect: insertDateTime },
       { label: 'Field…', icon: 'field', disabled, onSelect: insertField },
-      { label: 'WordArt', icon: 'wordArt', disabled, items: wordArtItems() },
-      { label: 'Signature Line…', icon: 'signatureLine', disabled, onSelect: insertSignatureLine },
+      { label: 'WordArt', icon: 'wordArt', ...floating, items: wordArtItems() },
+      { label: 'Signature Line…', icon: 'signatureLine', ...floating, onSelect: insertSignatureLine },
       { label: 'Text from File…', icon: 'object', disabled, onSelect: () => textFileInput.click() },
       { separator: true },
       { label: 'Link…', icon: 'link', shortcut: `${MOD_KEY}+K`, disabled, onSelect: () => base.link?.() },
