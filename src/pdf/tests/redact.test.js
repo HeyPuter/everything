@@ -1250,6 +1250,21 @@ describe('find text & redact', () => {
     expect([...other.matchAll(regex)].map((m) => m[0]).filter(validate)).toEqual([]);
   });
 
+  it('finds dates written year first with slashes or dots, and day-month-year with dashes', async () => {
+    // 2024/01/05 and 2024.01.05 are how much of East Asia and Europe write dates, and
+    // 05-Jan-2024 is common in forms and spreadsheets; none of them was found.
+    const { regex, validate } = REDACTION_PATTERNS.date;
+    const dates = (text) => [...text.matchAll(regex)].map((m) => m[0]).filter(validate);
+    expect(dates('Born 2024/01/05, seen 2024.12.31, due 05-Jan-2024 or 5-jan-24.')).toEqual([
+      '2024/01/05',
+      '2024.12.31',
+      '05-Jan-2024',
+      '5-jan-24',
+    ]);
+    // Version numbers, addresses, and impossible dates are not dates.
+    expect(dates('v1.2.3 and 10.0.0.1 and 2024/13/40 and 2024.1.2.3')).toEqual([]);
+  });
+
   it('places exact rects on the matched glyphs from the page content itself', async () => {
     const bytes = await makePdf([
       {

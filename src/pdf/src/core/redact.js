@@ -881,10 +881,14 @@ export const REDACTION_PATTERNS = {
     label: 'Dates',
     regex: new RegExp(
       [
-        `\\b\\d{4}[${DASH}]\\d{1,2}[${DASH}]\\d{1,2}\\b`,
+        // Year first, with one separator throughout (2024-01-05, 2024/01/05, 2024.01.05), not
+        // the start of a longer dotted number.
+        `(?<![\\d./])\\b\\d{4}([/.${DASH}])\\d{1,2}\\1\\d{1,2}\\b(?![/.${DASH}]\\d)`,
         `\\b\\d{1,2}[/.${DASH}]\\d{1,2}[/.${DASH}](?:\\d{4}|\\d{2})\\b`,
         `\\b${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}\\b`,
         `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH}\\.?,?\\s+\\d{4}\\b`,
+        // Forms and spreadsheets: 05-Jan-2024, 5-Jan-24.
+        `\\b\\d{1,2}[${DASH}]${MONTH}[${DASH}](?:\\d{4}|\\d{2})\\b`,
       ].join('|'),
       'gi',
     ),
