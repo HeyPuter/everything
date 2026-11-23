@@ -774,6 +774,17 @@ function refocusView(selector) {
   if (document.activeElement === document.body || !document.activeElement?.isConnected)
     root.querySelector(selector)?.focus({ preventScroll: true });
 }
+/**
+ * Text as the library search compares it: without case or the accents of Latin, Greek and
+ * Cyrillic letters. Other marks stay (Japanese voicing marks tell different syllables apart),
+ * and the text is composed again so a Korean syllable is not matched by its first sounds.
+ */
+const fold = (text) =>
+  text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC')
+    .toLowerCase();
 /** The app's name, and the library view's own heading. */
 function brand() {
   return el('h1', { class: 'brand' }, appIcon(), el('span', {}, 'PDF Editor'));
@@ -808,7 +819,7 @@ function showHome({ accountRefresh = false } = {}) {
     'aria-label': 'Search PDFs',
     oninput: (e) => {
       // Spaces around the words (a pasted name, a stray space) do not hide every file.
-      filter = e.target.value.trim().toLowerCase();
+      filter = fold(e.target.value.trim());
       renderFiles();
     },
   });
@@ -851,7 +862,7 @@ function showHome({ accountRefresh = false } = {}) {
       return;
     }
     const shown = files
-      .filter((f) => f.name.toLowerCase().includes(filter))
+      .filter((f) => foldedName(f).includes(filter))
       .sort((a, b) =>
         sort === 'name'
           ? byName.compare(a.name, b.name)
@@ -906,6 +917,14 @@ function showHome({ accountRefresh = false } = {}) {
   // rows, rather than rebuilding (and re-formatting the date of) every one on each keystroke,
   // which took about 100 ms per key in a library of 2,000 PDFs.
   const rows = new WeakMap();
+  // Accents and case are left out of the comparison, as the Name order already does, so
+  // "resume" finds Résumé.pdf. Each name is folded once per listing.
+  const folded = new WeakMap();
+  const foldedName = (file) => {
+    let name = folded.get(file);
+    if (name === undefined) folded.set(file, (name = fold(file.name)));
+    return name;
+  };
   // One collator for every comparison: localeCompare with options sets one up each time, which
   // made a name-sorted search of 2,000 PDFs spend 5 to 10 ms a key on sorting alone.
   const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
