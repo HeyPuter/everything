@@ -514,15 +514,47 @@ function addPath(args, state, view, rules, fills, vectors) {
   }
 }
 
+/** The quarter turn (0, 90, 180 or 270) in which most of a page's text reads upright. */
+export function readingRotation(page, content) {
+  const own = page.rotate;
+  const upright = (rotation) => {
+    const { transform } = page.getViewport({ scale: 1, rotation });
+    let count = 0;
+    for (const item of content.items) {
+      if (typeof item.str !== 'string' || !item.str.trim() || !item.transform) continue;
+      const m = mul(transform, item.transform);
+      const scale = Math.hypot(m[0], m[1]);
+      if (Math.abs(m[1]) < 0.02 * scale && m[0] > 0 && m[3] < 0) count += item.str.trim().length;
+    }
+    return count;
+  };
+  const shown = upright(own);
+  let best = own,
+    most = shown;
+  for (const rotation of [0, 90, 180, 270]) {
+    if (rotation === own) continue;
+    const count = upright(rotation);
+    if (count > most) {
+      best = rotation;
+      most = count;
+    }
+  }
+  // Only when the page as shown has little upright text and another turn has much more.
+  return most >= 2 * shown + 20 ? best : own;
+}
+
 /**
  * Everything the exporter needs from one page: text spans with styles, ruling lines, filled
  * boxes and image placements (with their pictures).
  */
 export async function readPage(pdf, page, { images, signal, layers } = {}) {
-  const viewport = page.getViewport({ scale: 1 });
-  const view = viewport.transform;
   const content = await page.getTextContent();
   signal?.throwIfAborted();
+  // A page turned so that its text runs sideways (a portrait page shown on its side) is read
+  // the way its text is written, as one would turn the paper to read it: line by line from
+  // the top, rather than across the lines.
+  const viewport = page.getViewport({ scale: 1, rotation: readingRotation(page, content) });
+  const view = viewport.transform;
   // Web links stay links in the exported text; links within the PDF and scripts do not.
   let links = [];
   try {
@@ -685,6 +717,7 @@ export async function readPage(pdf, page, { images, signal, layers } = {}) {
   }
   return {
     index: page._pageIndex ?? page.pageNumber - 1,
+    rotation: viewport.rotation,
     width: viewport.width,
     height: viewport.height,
     spans: spans.flat(),
@@ -2328,6 +2361,7 @@ function layoutPage(scan, context) {
   const contentBottom = elements.length ? Math.max(...elements.map((e) => e.bottom)) : height - 72;
   return {
     index: scan.index,
+    rotation: scan.rotation,
     width,
     height,
     margins: {

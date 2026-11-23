@@ -11,7 +11,8 @@
  *     pages        zero-based page indices to export (default: every page)
  *     onProgress   (done, total) => void, called as pages are read and when the file is written
  *     signal       AbortSignal; aborting rejects with the signal's reason
- *     renderPage   async (index, scale, { text, areas }) => Uint8Array (PNG). Optional and
+ *     renderPage   async (index, scale, { text, areas, rotation }) => Uint8Array (PNG): the
+ *                  page turned to `rotation` when given (as the export reads it). Optional and
  *                  browser-only: pages drawn only with vector art (no text, no pictures) are
  *                  exported as a picture of the page, and charts and diagrams on text pages as
  *                  pictures of their areas: given `areas` ([{ x, y, w, h }] in points from the
@@ -119,7 +120,7 @@ export async function analyzeDocument(
       (scan.vectors.length || scan.fills.length || scan.rules.length)
     ) {
       try {
-        const png = await renderPage(index, 2);
+        const png = await renderPage(index, 2, { rotation: scan.rotation });
         signal?.throwIfAborted();
         if (png?.length)
           scan.images.push({
@@ -148,7 +149,10 @@ export async function analyzeDocument(
       if (areas.length) {
         const job = Promise.resolve()
           .then(() =>
-            renderPage(index, 2, { areas: areas.map(({ x, y, w, h }) => ({ x, y, w, h })) }),
+            renderPage(index, 2, {
+              areas: areas.map(({ x, y, w, h }) => ({ x, y, w, h })),
+              rotation: scan.rotation,
+            }),
           )
           .then(
             (pngs) => () => placeFigures(scan, areas, pngs),
@@ -256,7 +260,7 @@ export async function exportDocument(pdf, bytes, format, options = {}) {
       for (const page of model.pages) {
         signal?.throwIfAborted();
         try {
-          const png = await renderPage(page.index, 2, { text: false });
+          const png = await renderPage(page.index, 2, { text: false, rotation: page.rotation });
           if (png?.length) rendered.set(page.index, png);
         } catch (error) {
           if (signal?.aborted) throw error;

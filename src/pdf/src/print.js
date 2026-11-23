@@ -55,12 +55,23 @@ async function withResolution(blob, dpi) {
 export async function pageImage(
   pdf,
   index,
-  { dpi = 144, type = 'image/png', quality = 0.9, signal, annotations = true, layers, areas } = {},
+  {
+    dpi = 144,
+    type = 'image/png',
+    quality = 0.9,
+    signal,
+    annotations = true,
+    layers,
+    areas,
+    rotation,
+  } = {},
 ) {
   signal?.throwIfAborted();
   const page = await waitFor(() => pdf.getPage(index + 1), signal);
   signal?.throwIfAborted();
-  const natural = page.getViewport({ scale: 1 });
+  // Turned to `rotation` when given, as an export reads a page whose text runs sideways.
+  const turn = rotation == null ? {} : { rotation };
+  const natural = page.getViewport({ scale: 1, ...turn });
   const scale = Math.min(
     dpi / 72,
     8192 / natural.width,
@@ -77,8 +88,8 @@ export async function pageImage(
       }
     : null;
   const viewport = bounds
-    ? page.getViewport({ scale, offsetX: -bounds.x * scale, offsetY: -bounds.y * scale })
-    : page.getViewport({ scale });
+    ? page.getViewport({ scale, offsetX: -bounds.x * scale, offsetY: -bounds.y * scale, ...turn })
+    : page.getViewport({ scale, ...turn });
   const canvas = el('canvas', {
     width: Math.max(1, Math.ceil(bounds ? (bounds.x1 - bounds.x) * scale : viewport.width)),
     height: Math.max(1, Math.ceil(bounds ? (bounds.y1 - bounds.y) * scale : viewport.height)),

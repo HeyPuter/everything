@@ -13742,10 +13742,11 @@ export function createEditor({
                 ? `Drawing slide ${finished - count + 1} of ${count}…`
                 : 'Writing the file…';
         },
-        renderPage: async (index, scale = 2, { text = true, areas } = {}) => {
+        renderPage: async (index, scale = 2, { text = true, areas, rotation } = {}) => {
           const free = text ? null : await textFreePdf(source);
           const picture = await pageImage(free?.doc || thisPdf, index, {
             areas,
+            rotation,
             dpi: 72 * scale,
             type: 'image/png',
             signal: controller.signal,

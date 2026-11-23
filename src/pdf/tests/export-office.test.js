@@ -901,12 +901,14 @@ it('lays out rotated pages in their displayed orientation', async () => {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([612, 792]);
   page.setRotation(degrees(90));
-  page.drawText('Sideways heading', { x: 100, y: 700, size: 20, font });
+  // Written to read upright as the page is shown, as landscape pages usually are.
+  page.drawText('Sideways heading', { x: 100, y: 100, size: 20, font, rotate: degrees(90) });
   page.drawText('Body text below the heading on a rotated page.', {
-    x: 100,
-    y: 670,
+    x: 130,
+    y: 100,
     size: 11,
     font,
+    rotate: degrees(90),
   });
   const bytes = await doc.save();
   const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
@@ -948,7 +950,14 @@ it('turns pictures the way their page shows them', async () => {
     width: 400,
     height: 200,
   });
-  page.drawText('Caption text under the picture here.', { x: 100, y: 250, size: 11, font });
+  // The caption reads upright as the page is shown, as the scan's own text does.
+  page.drawText('Caption text under the picture here.', {
+    x: 520,
+    y: 300,
+    size: 11,
+    font,
+    rotate: degrees(90),
+  });
   const bytes = await doc.save();
   const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
   try {
@@ -1542,5 +1551,38 @@ it('keeps the PDF’s web links as links in web pages, Word, rich text, Excel an
     );
   } finally {
     await loading.destroy();
+  }
+});
+
+it('reads a page turned on its side the way its text is written', async () => {
+  // A page turned a quarter or a half turn showed its lines last first, each a paragraph.
+  for (const angle of [90, 180, 270]) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    for (let i = 0; i < 4; i++)
+      page.drawText(`This is line ${i + 1} of a paragraph about the turned page.`, {
+        x: 72,
+        y: 700 - i * 14,
+        size: 11,
+        font,
+      });
+    page.setRotation(degrees(angle));
+    const bytes = await doc.save();
+    const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const pdf = await loading.promise;
+    try {
+      const out = new TextDecoder().decode((await exportDocument(pdf, bytes, 'txt')).bytes);
+      expect(out.trim()).toBe(
+        [1, 2, 3, 4]
+          .map((n) => `This is line ${n} of a paragraph about the turned page.`)
+          .join(' '),
+      );
+      // Read upright, the page is the portrait sheet the text was written on.
+      const model = await analyzeDocument(pdf, bytes);
+      expect([model.pages[0].width, model.pages[0].height]).toEqual([612, 792]);
+    } finally {
+      await loading.destroy();
+    }
   }
 });
