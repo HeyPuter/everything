@@ -111,4 +111,39 @@ describe('comments in a PDF/A file', () => {
       expect(normal.getContents().length).toBe(0);
     }
   });
+
+  // Replies and statuses are written hidden, which PDF/A does not allow: a reply added to a
+  // PDF/A file made it fail its check. In a PDF/A file they are written to print, drawing
+  // nothing, as Acrobat writes them; elsewhere they stay hidden from readers that draw them.
+  it('a reply and a review status added to a PDF/A file keep it PDF/A', async () => {
+    const doc = await PDFDocument.load(await pdfa(), { updateMetadata: false });
+    const box = addShapeAnnotation(doc, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 80, height: 40 },
+      text: 'Check the totals',
+    });
+    addReply(doc, 0, box, { text: 'Done', author: 'Grace' });
+    setReviewState(doc, 0, box, { state: 'Completed', author: 'Ada' });
+    const saved = await reopen(doc);
+    expect(errors(preflightPdfA(saved, { part: 2, conformance: 'b' }))).toEqual([]);
+    const [kept, ...rest] = listAnnotations(saved, 0);
+    expect(rest).toEqual([]);
+    expect(kept.state).toBe('Completed');
+    expect(kept.replies.map((reply) => reply.contents)).toEqual(['Done']);
+
+    const plain = await PDFDocument.create();
+    plain.addPage([400, 400]);
+    const other = addShapeAnnotation(plain, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 80, height: 40 },
+    });
+    addReply(plain, 0, other, { text: 'Hidden as before' });
+    const reply = plain
+      .getPage(0)
+      .node.lookup(name('Annots'))
+      .asArray()
+      .map((ref) => plain.context.lookup(ref))
+      .find((dict) => dict.has(name('IRT')));
+    expect(reply.lookup(name('F')).asNumber() & 2).toBe(2);
+  });
 });

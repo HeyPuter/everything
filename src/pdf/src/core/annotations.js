@@ -9,7 +9,17 @@
  * unrotated page; rectangles are { x, y, width, height }. IDs are the annotation's reference
  * ("12 0 R"), as for notes; an edit can change an ID when a shared annotation is split off.
  */
-import { PDFDict, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
+import {
+  PDFDict,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFRawStream,
+  PDFRef,
+  PDFStream,
+  PDFString,
+  decodePDFRawStream,
+} from 'pdf-lib';
 import {
   annotationForEdit,
   annotationKey,
@@ -1062,15 +1072,34 @@ export function deleteAnnotation(doc, page, id) {
  * A hidden Text annotation that points at `parentId`: Acrobat's form for replies and state
  * changes alike. Readers list it in the parent's thread instead of drawing an icon of its own.
  */
+/** Whether the document claims PDF/A conformance in its XMP metadata. */
+function claimsPdfA(doc) {
+  try {
+    const stream = doc.catalog.lookup(name('Metadata'));
+    if (!(stream instanceof PDFStream)) return false;
+    const bytes =
+      stream instanceof PDFRawStream ? decodePDFRawStream(stream).decode() : stream.getContents();
+    // The PDF/A part, as an attribute or an element (see pdfaClaimOf in initial-view.js).
+    return /pdfaid:part\s*=\s*["']\s*[1-9]|<pdfaid:part>\s*[1-9]/i.test(
+      new TextDecoder().decode(bytes),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function threadAnnotation(doc, page, parentId, { contents, author, extra = {} }) {
   const located = locate(doc, page, parentId);
   const { dict: parent } = located;
   const ref = referenceTo(doc, page, located);
   const rect = rectOf(parent) || [0, 0, REPLY_SIZE, REPLY_SIZE];
+  // Hidden, so readers that draw every note's icon do not draw the thread's over its comment.
+  // PDF/A allows no hidden annotation: in a PDF/A file the thread is shown and draws nothing
+  // (its appearance is empty), as Acrobat writes replies; readers list it with its comment.
   const dict = baseDict(doc, page, 'Text', {
     author,
     contents,
-    flags: FLAGS.hidden | FLAGS.print | FLAGS.nozoom | FLAGS.norotate,
+    flags: (claimsPdfA(doc) ? 0 : FLAGS.hidden) | FLAGS.print | FLAGS.nozoom | FLAGS.norotate,
   });
   dict.set(
     name('Rect'),
