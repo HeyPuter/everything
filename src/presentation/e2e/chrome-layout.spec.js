@@ -249,3 +249,30 @@ test("Notes Page leaves the title bar at the top of the screen", async ({
     ).toBe(0);
   }
 });
+
+// Screen tips: a status bar button's tip opens above it, inside the window,
+// and the keyboard brings up the tip of the command it reaches, as the
+// pointer does.
+test("screen tips stay in the window and follow the keyboard", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "pointer and keyboard");
+  await mockPuter(page);
+  await story(page);
+  const tip = page.getByRole("tooltip");
+  await page.locator('[data-tip-title^="Fit slide to current window"]').hover();
+  await expect(tip).toContainText("Fit slide to current window");
+  const box = await tip.boundingBox();
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize().height);
+  await page.mouse.move(700, 500);
+  await expect(tip).toHaveCount(0);
+  await page.locator('[data-command="paste"]').first().focus();
+  await page.keyboard.press("Tab");
+  const focused = await page.evaluate(
+    () => document.activeElement.closest("[data-tip-title]")?.dataset.tipTitle,
+  );
+  expect(focused).toBeTruthy();
+  await expect(tip).toHaveText(focused);
+  await page.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+});
