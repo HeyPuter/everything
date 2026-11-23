@@ -78,6 +78,19 @@ describe('table of contents', () => {
     expect(d.paragraphs[0].format.tabs).toEqual([]);
   });
 
+  // A heading moved to the next page with Ctrl+Enter starts with the page break. Its entry started at the break,
+  // on the page before, so rebuilding the table gave it that page's number; updating page numbers only gave the right one.
+  it('numbers a heading that starts with a page break with the page it is on', async () => {
+    const { pkg, d } = await headingDocument();
+    d.select(d.text.indexOf('Chapter two')); d.setParagraphFormat({ pageBreakBefore: false });
+    d.select(d.text.indexOf('Chapter two')); d.insertPageBreak();
+    d.select(0);
+    insertTableOfContents(d);
+    refreshPageReferences(d, layoutOf(pkg), pkg.pageStories, { checkpoint: false });
+    expect(d.text.split('\n').slice(1, 4)).toEqual(['Chapter one\t1', 'Chapter two\t2', 'Section two point one\t2']);
+    expect(d.bookmarks.map(b => d.text.slice(b.start, b.end))).toEqual(['Chapter one', 'Chapter two', 'Section two point one']);
+  });
+
   // With Track Changes on, Remove Table of Contents removed the table untracked: no change to reject.
   it('removes the table as a tracked deletion that can be accepted or rejected', async () => {
     const { pkg, d } = await headingDocument();

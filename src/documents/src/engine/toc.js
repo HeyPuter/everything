@@ -141,6 +141,9 @@ export function tocEntries(doc, options) {
     const size = length(p), text = clean(p.runs.map(r => r.image ? '' : r.text).join(''));
     if (text && !inside(at) && inScope(at)) {
       let level = null;
+      // A paragraph moved on with Ctrl+Enter starts with its page (or column) break, which ends the page before: the
+      // entry, and the bookmark its page number refers to, start after it.
+      const start = at + /^[\f\u000e]*/.exec(p.runs.map(r => r.text).join(''))[0].length;
       if (sequences) {
         const seq = sequences.get(p.id);
         if (seq) {
@@ -151,7 +154,7 @@ export function tocEntries(doc, options) {
             const tail = p.runs.map(r => r.text).join('').slice(seq.end - at);
             shown = clean(tail.replace(/^\s*[:.\-–—]?\s*/, '')) || text;
           }
-          entries.push({ level, text: shown, start: at, end: at + size, paragraphId: p.id });
+          entries.push({ level, text: shown, start, end: at + size, paragraphId: p.id });
         }
       } else {
         const outline = p.format?.outlineLevel ?? 9;
@@ -162,7 +165,7 @@ export function tocEntries(doc, options) {
           if (outline + 1 >= low && outline + 1 <= high) level = outline + 1;
         }
         // A numbered heading's entry starts with its number, as Word's tables show it.
-        if (level) entries.push({ level, text, start: at, end: at + size, paragraphId: p.id, number: p.list ? (numbers ??= entryNumbers(doc))(index) : null });
+        if (level) entries.push({ level, text, start, end: at + size, paragraphId: p.id, number: p.list ? (numbers ??= entryNumbers(doc))(index) : null });
       }
     }
     at += size + 1;
