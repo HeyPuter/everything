@@ -307,6 +307,36 @@ test("rehearsed click times play each step when it was clicked", async ({
     .toEqual([true, true]);
 });
 
+test("Presenter View pictures the next build when the next click is one", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name === "mobile",
+    "Presenter View in the show's window is a desktop flow",
+  );
+  await load(page, twoClickDeck().pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = page.getByRole("dialog", { name: "Presentation mode" });
+  await d
+    .locator(".presenter-stage")
+    .click({ button: "right", position: { x: 20, y: 20 } });
+  await page.getByRole("menuitem", { name: "Show Presenter View" }).click();
+  const label = d.locator(".show-console-next-label");
+  const next = d.locator(".show-console-next");
+  const src = () => next.getAttribute("src");
+  await expect(label).toContainText("animation 1 of 2");
+  await expect.poll(src).toBeTruthy();
+  const first = await src();
+  await page.keyboard.press("ArrowRight");
+  await expect(label).toContainText("animation 2 of 2");
+  await expect.poll(src).not.toBe(first);
+  const second = await src();
+  await page.keyboard.press("ArrowRight");
+  await expect(label).toHaveText("Slide 2");
+  await expect.poll(src).not.toBe(second);
+  expect(await src()).not.toBe(first);
+});
+
 test("a rehearsal keeps when each click came", async ({ page }) => {
   await load(page, twoClickDeck().pres);
   await page.getByRole("tab", { name: "Slide Show", exact: true }).click();

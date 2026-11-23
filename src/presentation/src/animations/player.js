@@ -1264,6 +1264,33 @@ export function createAnimationPlayer({
     stopEffectSounds();
   };
 
+  // One picture of the slide with the pieces `shown(piece)` says are
+  // showing (positions aside).
+  function picture(render, shown) {
+    const parts = new Map();
+    const add = (id, part) => {
+      if (part === false) return;
+      const had = parts.get(id);
+      if (part === true || had === true) return parts.set(id, true);
+      parts.set(id, {
+        body: !!had?.body || part.body,
+        paragraphs: new Set([
+          ...(had?.paragraphs ?? []),
+          ...(part.paragraphs ?? []),
+        ]),
+      });
+    };
+    for (const run of runs)
+      if (run.kind === "static")
+        for (const [id, part] of run.shapes) add(id, part);
+    for (const piece of pieces)
+      if (shown(piece)) add(piece.shapeId, piece.layer);
+    return render({
+      background: true,
+      shape: (s) => parts.get(String(P.getShapeId(s))) ?? false,
+    });
+  }
+
   const autoStart = groups[0]?.auto ? 1 : 0;
   let played = Promise.resolve();
   const api = {
@@ -1362,32 +1389,31 @@ export function createAnimationPlayer({
           await playGroup(group);
         }
     },
+    /** A picture of the slide once `n` click steps have played (positions
+     * aside), worked out without playing anything. */
+    pictureAfter(n, render) {
+      const size = frameSize();
+      const states = new Map(pieces.map((p) => [p, { ...p.initial }]));
+      const upto = Math.max(0, Math.min(n, api.steps)) + autoStart;
+      for (let i = 0; i < upto; i++) {
+        for (const item of groups[i - 1]?.items ?? [])
+          if (item.effect.after?.kind === "hideOnClick" && !item.effect.rewind)
+            for (const piece of piecesFor(item))
+              states.set(piece, { ...states.get(piece), visible: false });
+        for (const item of [...groups[i].items].sort((a, b) => a.at - b.at))
+          for (const piece of piecesFor(item))
+            states.set(
+              piece,
+              planItem(item, states.get(piece), piece, size, reducedMotion).end,
+            );
+      }
+      return picture(render, (piece) => states.get(piece).visible);
+    },
     /** The stage element the player draws into. */
     element: root,
     /** One picture of the slide as it stands (positions aside). */
     snapshot(render) {
-      const parts = new Map();
-      const add = (id, part) => {
-        if (part === false) return;
-        const had = parts.get(id);
-        if (part === true || had === true) return parts.set(id, true);
-        parts.set(id, {
-          body: !!had?.body || part.body,
-          paragraphs: new Set([
-            ...(had?.paragraphs ?? []),
-            ...(part.paragraphs ?? []),
-          ]),
-        });
-      };
-      for (const run of runs)
-        if (run.kind === "static")
-          for (const [id, part] of run.shapes) add(id, part);
-      for (const piece of pieces)
-        if (piece.state.visible) add(piece.shapeId, piece.layer);
-      return render({
-        background: true,
-        shape: (s) => parts.get(String(P.getShapeId(s))) ?? false,
-      });
+      return picture(render, (piece) => piece.state.visible);
     },
     destroy() {
       alive = false;

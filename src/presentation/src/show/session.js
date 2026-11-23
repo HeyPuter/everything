@@ -789,6 +789,7 @@ export function createShowSession(ctx, show) {
       bar.remove();
     });
     syncTimer();
+    let nextTurn = 0;
     function update() {
       const n = show.current();
       const ended = show.isEnded();
@@ -802,20 +803,33 @@ export function createShowSession(ctx, show) {
           : show.loop
             ? all[0]
             : null;
-      if (coming) {
+      // The next click builds this slide further: its picture as that step
+      // leaves it, worked out once the step playing now has settled.
+      const steps = ended ? 0 : (show.animationSteps?.() ?? 0);
+      const building = step < steps;
+      const turn = ++nextTurn;
+      const comingLabel = coming
+        ? `Slide ${all.indexOf(coming) + 1}${show.title(coming) ? `: ${show.title(coming)}` : ""}`
+        : "";
+      if (building) {
+        nextImage.hidden = false;
+        Promise.resolve(show.animationPlayed?.()).then(() => {
+          if (turn !== nextTurn) return;
+          const src = show.nextStepPicture?.();
+          if (src) nextImage.src = src;
+        });
+      } else if (coming) {
         nextImage.src = show.picture(coming);
         nextImage.hidden = false;
-        const at = all.indexOf(coming);
-        nextLabel.textContent = `Slide ${at + 1}${show.title(coming) ? `: ${show.title(coming)}` : ""}`;
+        nextLabel.textContent = comingLabel;
       } else {
         nextImage.removeAttribute("src");
         nextImage.hidden = true;
         nextLabel.textContent = "End of slide show";
       }
       // The last slide's builds come before the end, too.
-      const steps = ended ? 0 : (show.animationSteps?.() ?? 0);
-      if (step < steps)
-        nextLabel.textContent = `Next click: animation ${step + 1} of ${steps} on this slide, then ${coming ? nextLabel.textContent : "the end of the slide show"}`;
+      if (building)
+        nextLabel.textContent = `Next click: animation ${step + 1} of ${steps} on this slide, then ${coming ? comingLabel : "the end of the slide show"}`;
       const notes = ended ? "" : P.getSlideNotes(all[n]) || "";
       notesText.textContent = notes || "No notes for this slide.";
       notesText.classList.toggle("empty", !notes);

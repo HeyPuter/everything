@@ -17055,6 +17055,8 @@ async function present(options = {}) {
     currentPicture: () =>
       animator?.snapshot() ?? cachedPreview(previews, pres, all[n]),
     animationPlayed: () => animator?.played,
+    // The slide as its next click step leaves it, while one is left.
+    nextStepPicture: () => animator?.nextPicture?.() ?? null,
     title: (s) => slideTitle(s, pres),
     // Click steps of the slide's animations, and whether it opened on its
     // last one (reached by going back, or shown without animation).

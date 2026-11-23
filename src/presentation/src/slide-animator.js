@@ -19,6 +19,8 @@
 //   played         settles when the step last started by next() ends
 //   playing        whether effects (other than endless repeats) are running
 //   snapshot()     a picture of the slide as it now stands
+//   nextPicture()  a picture of the slide once its next click step has
+//                  played (null when none is left)
 //   previous()     returns to the state before the last step; false at the
 //                  first step, so the show goes back a slide
 //   finish()       shows the slide's final state at once, as a slide reached
@@ -46,6 +48,7 @@ const NONE = {
   played: Promise.resolve(),
   playing: false,
   snapshot: () => null,
+  nextPicture: () => null,
   finish() {},
   playTrigger: () => false,
   destroy() {},
@@ -95,6 +98,8 @@ export function createSlideAnimator({
   // The opening picture: what the stage shows before anything plays.
   if (image) image.src = player.snapshot(preview.bind(null, pres, slide));
   let active = false;
+  const nextPictures = new Map(); // click steps played -> picture
+
   const activate = () => {
     if (active) return;
     active = true;
@@ -123,6 +128,17 @@ export function createSlideAnimator({
     },
     snapshot() {
       return player.snapshot(preview.bind(null, pres, slide));
+    },
+    nextPicture() {
+      const n = player.step + 1;
+      if (n > player.steps) return null;
+      let src = nextPictures.get(n);
+      if (!src)
+        nextPictures.set(
+          n,
+          (src = player.pictureAfter(n, preview.bind(null, pres, slide))),
+        );
+      return src;
     },
     previous() {
       activate();
