@@ -115,6 +115,31 @@ describe("zip", () => {
       );
     });
 
+    // An undo reads a snapshot written here back into fresh part bytes; its
+    // next save compresses only what changed since, and writes the same
+    // archive a save from scratch would.
+    it("reuse the compression of an archive written here when read back", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 10, 22, 13, 37, 42));
+      const archive = writeZip(entries());
+      const read = readZip(archive).entries;
+      deflated.mockClear();
+      expect(writeZip(read)).toEqual(archive);
+      expect(deflated).not.toHaveBeenCalled();
+      read[1] = { name: read[1]!.name, data: utf8("<p:sld>edited</p:sld>") };
+      const next = writeZip(read);
+      expect(deflated).toHaveBeenCalledTimes(1);
+      expect(next).toEqual(reference(read));
+      // An archive from elsewhere, though byte for byte the same, gives
+      // nothing to reuse: its compression is not known to be ours.
+      const copy = readZip(archive.slice()).entries;
+      deflated.mockClear();
+      expect(writeZip(copy)).toEqual(archive);
+      expect(deflated).toHaveBeenCalledTimes(
+        copy.filter((e) => !shouldStore(e.name)).length,
+      );
+    });
+
     // Media added without its picture leaves a part with no bytes; the save
     // goes ahead without it instead of failing.
     it("leave out a part that has no bytes", () => {

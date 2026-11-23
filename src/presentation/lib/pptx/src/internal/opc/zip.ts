@@ -85,6 +85,7 @@ export const shouldStore = (name: string): boolean =>
  * central-directory order. Throws if `input` is not a valid ZIP.
  */
 export const readZip = (input: Uint8Array): ZipReadResult => {
+  const known = archives.get(input);
   const paths = new Map<string, string>();
   const partNames = new Set<string>();
   const obj = unzipSync(input, {
@@ -105,6 +106,10 @@ export const readZip = (input: Uint8Array): ZipReadResult => {
   for (const name of Object.keys(obj)) {
     const data = obj[name];
     if (data === undefined) continue;
+    // An archive written here (an undo step's snapshot) gives back bytes it
+    // has already compressed; the next save reuses that work.
+    const entry = known?.get(name);
+    if (entry && !written.has(data)) written.set(data, entry);
     entries.push({ name: paths.get(name)!, data });
   }
   return { entries };
@@ -130,6 +135,12 @@ interface Written {
   compressed: Uint8Array | null;
 }
 const written = new WeakMap<Uint8Array, Written>();
+// What each archive written here holds, by entry name, for as long as the
+// archive is kept: a package read back from it (the undo history keeps its
+// snapshots as archives) starts with every part's compressed bytes known,
+// so the first edit after an undo compresses only what it changed rather
+// than every part of the deck.
+const archives = new WeakMap<Uint8Array, Map<string, Written>>();
 
 let crcTable: Int32Array | null = null;
 const crc32 = (data: Uint8Array): number => {
@@ -210,9 +221,12 @@ export const writeZip = (
   }[] = [];
   let offset = 0;
   let central = 0;
+  const contents = new Map<string, Written>();
   for (const [name, data] of byName) {
     const level: CompressionLevel = shouldStore(name) ? 0 : defaultLevel;
-    const { crc, compressed } = entryBytes(data, level);
+    const entry = entryBytes(data, level);
+    const { crc, compressed } = entry;
+    contents.set(name, entry);
     const encoded = ENCODER.encode(name);
     if (encoded.length > 65535) throw new Error("filename too long");
     const body = compressed ?? data;
@@ -268,5 +282,6 @@ export const writeZip = (
   put16(out, at + 10, files.length);
   put32(out, at + 12, central);
   put32(out, at + 16, offset);
+  archives.set(out, contents);
   return out;
 };
