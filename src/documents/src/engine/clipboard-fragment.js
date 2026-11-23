@@ -164,17 +164,24 @@ export function fragmentHtml(fragment) {
     const depth = kind ? Math.max(0, Math.min(8, Number.isInteger(p.list.level) ? p.list.level : 0)) + 1 : 0;
     closeTo(depth);
     if (kind && open.length === depth && open[depth - 1].tag !== kind) closeTo(depth - 1);
-    while (open.length < depth) { open.push({ tag: open.length + 1 === depth ? kind : open.at(-1)?.tag || kind, item: false }); html += `<${open.at(-1).tag}>`; }
+    // A list opened by a right-to-left item is right-to-left: its numbers stand in its indent at the right. Within
+    // it, a left-to-right item or list says so, or it would take the list's direction.
+    const rtl = p.bidi === true, dir = within => rtl ? ' dir="rtl"' : within ? ' dir="ltr"' : '';
+    while (open.length < depth) {
+      const within = !!open.at(-1)?.itemRtl;
+      open.push({ tag: open.length + 1 === depth ? kind : open.at(-1)?.tag || kind, item: false, rtl });
+      html += `<${open.at(-1).tag}${rtl !== within ? dir(within) : ''}>`;
+    }
     if (kind && open[depth - 1].item) html += '</li>';
-    if (kind) open[depth - 1].item = true;
+    if (kind) Object.assign(open[depth - 1], { item: true, itemRtl: rtl });
     const heading = /^Heading([1-6])$/.exec(p.styleId || '')?.[1] || (p.styleId === 'Title' ? '1' : null);
     const tag = kind ? 'li' : heading ? `h${heading}` : 'p';
     // Tabs and runs of spaces are the text's own, which HTML collapses into one space unless told otherwise.
     // A right-to-left paragraph says so, and names the physical side where it is not its own start.
-    const rtl = p.bidi === true, side = physicalAlignment(p.alignment ?? 'left', rtl);
+    const side = physicalAlignment(p.alignment ?? 'left', rtl);
     const align = rtl && side === 'left' ? ';text-align:left' : rtl && side === 'right' ? '' : Object.hasOwn(HTML_ALIGNMENTS, side) ? `;text-align:${HTML_ALIGNMENTS[side]}` : '';
     // A list item stays open for a deeper list after it.
-    html += `<${tag}${rtl ? ' dir="rtl"' : ''} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}${kind ? '' : `</${tag}>`}`;
+    html += `<${tag}${dir(kind && open[depth - 1].rtl)} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}${kind ? '' : `</${tag}>`}`;
   }
   closeTo(0);
   return `<div ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}">${html}</div>`;

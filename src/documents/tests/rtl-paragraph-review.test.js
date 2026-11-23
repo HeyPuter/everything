@@ -1,8 +1,15 @@
-import { it, expect } from 'vitest';
+import { it, expect, beforeAll, afterAll } from 'vitest';
+import { JSDOM } from 'jsdom';
 import { TextDocument, paragraph, paragraphFormat } from '../src/engine/model.js';
 import { setCellAlignment } from '../src/engine/table-editing.js';
 import { directedRuns } from '../src/engine/script-input.js';
+import { copyFragment, fragmentHtml, htmlFragment } from '../src/engine/clipboard-fragment.js';
+import { documentHtml } from '../src/lib/document-export.js';
 import { layoutDocument, hitTest, hitTestStop, selectionRects } from '../src/engine/layout.js';
+
+let dom;
+beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; });
+afterAll(() => { dom.window.close(); delete globalThis.DOMParser; });
 
 // Right-to-left paragraphs (ECMA-376 Part 1 §17.3.1.6 bidi) where other commands meet them.
 
@@ -48,4 +55,25 @@ it('a click on a letter at a direction change puts the caret beside that letter'
   const p = paragraph('שלום abc', { format: { bidi: true } }); p.runs = directedRuns(p.runs, 0, 8);
   const layout = layoutDocument([p], measure, { width: 1000, height: 400, margin: 20 }), [c] = selectionRects(layout, 7, 8);
   expect(hitTestStop(layout, 0, c.x + c.width * .75, c.y + 5)).toMatchObject({ offset: 8, x: c.x + c.width });
+});
+
+// HTML lists are laid out in their own direction: in a left-to-right <ol>, a right-to-left item's number stood
+// past the page's right edge. The list takes its first item's direction; an item of the other direction says so.
+it('writes a right-to-left list as a right-to-left HTML list, for the page and the clipboard', () => {
+  const doc = new TextDocument([paragraph('אחד'), paragraph('שתיים'), paragraph('three'), paragraph('after')]);
+  doc.select(0, doc.text.indexOf('after')); doc.toggleList('number');
+  doc.select(0, doc.text.indexOf('three')); doc.setParagraphDirection(true);
+  const page = documentHtml(doc), body = page.slice(page.indexOf('<body>') + 6, page.indexOf('</body>')).trim();
+  expect(body).toBe('<ol dir="rtl"><li dir="rtl">אחד</li><li dir="rtl">שתיים</li><li dir="ltr">three</li></ol><p>after</p>');
+  doc.select(0, doc.text.length);
+  const html = fragmentHtml(copyFragment(doc));
+  const tags = html.replace(/^<div [^>]*>/, '').replace(/<span[^>]*>|<\/span>/g, '').replace(/ style="[^"]*"/g, '');
+  expect(tags).toBe('<ol dir="rtl"><li dir="rtl">אחד</li><li dir="rtl">שתיים</li><li dir="ltr">three</li></ol><p>after</p></div>');
+  // A left-to-right list says nothing, as before; one nested in a right-to-left item says it is left-to-right.
+  const ltr = new TextDocument([paragraph('one'), paragraph('two')]);
+  ltr.select(0, ltr.text.length); ltr.toggleList('number');
+  expect(documentHtml(ltr)).toContain('<ol><li>one</li><li>two</li></ol>');
+  // Read back as HTML from elsewhere, each paragraph keeps its direction.
+  const foreign = htmlFragment(html.replace(/^<div [^>]*>/, '<div>'), { copied: false });
+  expect(foreign.paragraphs.map(p => p.bidi)).toEqual([true, true, false, undefined]);
 });
