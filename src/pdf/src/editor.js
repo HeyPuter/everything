@@ -11527,7 +11527,8 @@ export function createEditor({
       if (!file) return;
       // Reading a file that cannot be imported anyway would only hold up the tab.
       if (file.size > MAX_XFDF_SIZE) throw new Error('This comments file is too large to import.');
-      const xfdf = await file.text();
+      // As bytes: the file names its own encoding, which may not be UTF-8.
+      const xfdf = new Uint8Array(await file.arrayBuffer());
       let result = null;
       await mutate(
         async (doc) => {

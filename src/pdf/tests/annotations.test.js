@@ -1374,6 +1374,37 @@ describe('comment exchange', () => {
     await expect(importXfdf(doc, '<!DOCTYPE x><xfdf/>')).rejects.toThrow('could not be read');
   });
 
+  it('reads an XFDF file in the encoding it declares', async () => {
+    const square = (nm, words) =>
+      `<xfdf xmlns="http://ns.adobe.com/xfdf/"><annots><square name="${nm}" page="0" rect="100,100,200,180" width="1"><contents>${words}</contents></square></annots></xfdf>`;
+    const declared = (encoding) => `<?xml version="1.0" encoding="${encoding}"?>`;
+    const files = [
+      Buffer.from(declared('ISO-8859-1') + square('latin', 'Café crème'), 'latin1'),
+      // windows-1252 puts curly quotes at 0x93 and 0x94, where Latin-1 has control codes.
+      Buffer.from(declared('windows-1252') + square('cp', 'Smart \x93\x94'), 'latin1'),
+      Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from(declared('UTF-16') + square('le', 'Ünïcode'), 'utf16le'),
+      ]),
+      Buffer.from('\ufeff' + declared('UTF-8') + square('bom', 'Grüße')),
+      // A declaration that is wrong about the bytes being UTF-16 is not believed.
+      Buffer.from(declared('UTF-16') + square('liar', 'Ναι')),
+      Buffer.from(square('plain', '日本語')),
+      Buffer.from(declared('x-unknown') + square('unknown', 'Ça va')),
+    ];
+    const doc = await blank();
+    for (const bytes of files) await importXfdf(doc, new Uint8Array(bytes));
+    expect(listAnnotations(doc, 0).map((a) => a.contents)).toEqual([
+      'Café crème',
+      'Smart \u201c\u201d',
+      'Ünïcode',
+      'Grüße',
+      'Ναι',
+      '日本語',
+      'Ça va',
+    ]);
+  });
+
   it('writes and reads text alignment by the names XFDF gives it', async () => {
     const source = await blank();
     for (const [align, y] of [

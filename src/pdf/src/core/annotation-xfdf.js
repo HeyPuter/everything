@@ -524,13 +524,43 @@ function dictFromElement(doc, page, element, subtype) {
 }
 
 /**
- * Add the comments in an XFDF file to their pages, drawing each one's appearance. Comments
- * whose name a page already has are skipped, so importing the same file twice adds nothing;
- * replies follow their parents, which may be comments already in the document. Returns
- * { imported, comments, replies, statuses, skipped, duplicates }.
+ * The text of an XFDF file's bytes. XML says its own encoding: a byte order mark, or the
+ * encoding its declaration names (older tools write ISO-8859-1 or windows-1252). UTF-8 is the
+ * default, as for any XML file.
+ */
+export function decodeXfdf(bytes) {
+  const [a, b, c] = bytes;
+  let label = 'utf-8';
+  if (a === 0xef && b === 0xbb && c === 0xbf) label = 'utf-8';
+  else if (a === 0xfe && b === 0xff) label = 'utf-16be';
+  else if (a === 0xff && b === 0xfe) label = 'utf-16le';
+  // UTF-16 without a mark still begins with "<?" (XML 1.0, appendix F).
+  else if (a === 0x00 && b === 0x3c) label = 'utf-16be';
+  else if (a === 0x3c && b === 0x00) label = 'utf-16le';
+  else {
+    const head = new TextDecoder('latin1').decode(bytes.subarray(0, 200));
+    const declared = /^\s*<\?xml[^>]*?\sencoding\s*=\s*["']([A-Za-z0-9._:-]+)["']/.exec(head)?.[1];
+    // A file that begins in single bytes is not UTF-16, whatever its declaration says.
+    if (declared && !/^utf-?16/i.test(declared)) label = declared;
+  }
+  try {
+    return new TextDecoder(label).decode(bytes);
+  } catch {
+    // An encoding no browser knows is read as UTF-8, the XML default.
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+}
+
+/**
+ * Add the comments in an XFDF file (its text, or its bytes) to their pages, drawing each one's
+ * appearance. Comments whose name a page already has are skipped, so importing the same file
+ * twice adds nothing; replies follow their parents, which may be comments already in the
+ * document. Returns { imported, comments, replies, statuses, skipped, duplicates }.
  */
 export async function importXfdf(doc, xfdf) {
-  const source = String(xfdf ?? '');
+  if (xfdf instanceof Uint8Array && xfdf.length > MAX_XFDF_SIZE)
+    throw new Error('This comments file is too large to import.');
+  const source = xfdf instanceof Uint8Array ? decodeXfdf(xfdf) : String(xfdf ?? '');
   if (source.length > MAX_XFDF_SIZE) throw new Error('This comments file is too large to import.');
   const unreadable = () => new Error('This comments file could not be read.');
   let xml;
