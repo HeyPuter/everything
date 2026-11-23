@@ -53,6 +53,8 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
   // The document's first save, a rename or a copy gives it another file, with that file's history.
   const onPath = () => { if (pane.isOpen) load(); };
   doc.addEventListener?.('path', onPath);
+  // A version written while the pane is open (the snapshot a save leaves once it is done) joins the list.
+  doc.addEventListener?.('versions', onPath);
 
   async function load() {
     status.textContent = '';
@@ -201,6 +203,6 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     restore,
     get isOpen() { return pane.isOpen; },
     refresh() { if (preview?.engine) fit(preview.engine); },
-    destroy() { doc.removeEventListener?.('path', onPath); closePreview(); pane.destroy(); },
+    destroy() { doc.removeEventListener?.('path', onPath); doc.removeEventListener?.('versions', onPath); closePreview(); pane.destroy(); },
   };
 }

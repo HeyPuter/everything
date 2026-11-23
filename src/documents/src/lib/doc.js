@@ -530,11 +530,19 @@ export class Doc extends EventTarget {
     return stat && await holds(sent.path, stat, sent.blob) ? sent.path : null;
   }
 
+  /**
+   * The document's version history has a new entry. A snapshot is written after the save that called for it has
+   * finished, so a history list shown meanwhile (the File view's, the Version History pane's) reads it again.
+   */
+  _versionsChanged() {
+    this.dispatchEvent(new CustomEvent('versions'));
+  }
+
   /** Leave a version snapshot when one is due. Never affects the save status. */
   _snapshot(blob, { fresh = false } = {}) {
     if (!versioning.enabled || !this.path || this._snapshotting) return;
     this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.(), uid: this.uid, fresh })
-      .then((t) => { this.lastVersionAt = t; })
+      .then((t) => { const taken = t != null && t !== this.lastVersionAt; this.lastVersionAt = t; if (taken) this._versionsChanged(); })
       .catch((e) => { console.warn('[documents] version snapshot failed', e); })
       .finally(() => { this._snapshotting = null; });
   }
@@ -546,7 +554,7 @@ export class Doc extends EventTarget {
       if (!this.path) return null;
       if (this._snapshotting) await this._snapshotting;
       const v = await saveVersion(this.path, await this.toBlob(), { meta: { ...this.versionMeta?.(), ...meta }, uid: this.uid });
-      if (v) this.lastVersionAt = v.time;
+      if (v) { this.lastVersionAt = v.time; this._versionsChanged(); }
       return v;
     });
   }
@@ -560,7 +568,7 @@ export class Doc extends EventTarget {
     return this._withFileLock(async () => {
       if (!versioning.enabled || !this.path || this._deleted) return null;
       const v = await saveVersion(this.path, await P.readFile(this.path), { meta: { ...this.versionMeta?.(), ...meta }, uid: this.uid });
-      if (v) this.lastVersionAt = v.time;
+      if (v) { this.lastVersionAt = v.time; this._versionsChanged(); }
       return v;
     });
   }

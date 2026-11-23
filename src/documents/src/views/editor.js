@@ -1873,6 +1873,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     showDocumentTitle();
   };
   doc.addEventListener('path', onPath);
+  const onVersions = () => backstage?.refreshVersions?.();
+  doc.addEventListener('versions', onVersions);
   const onSession = () => { account?.refresh(); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true, fresh: true }).catch(error); };
   if (!local) session.addEventListener('change', onSession);
   updateStatus();
@@ -2230,6 +2232,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       doc.removeEventListener('savefailed', onSaveFailed);
       doc.removeEventListener('status', onSaved);
       doc.removeEventListener('path', onPath);
+      doc.removeEventListener('versions', onVersions);
       session.removeEventListener('change', onSession);
       doc.destroy(); engine?.destroy();
     },
