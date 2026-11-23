@@ -395,7 +395,9 @@ export function evaluateField(code, ctx) {
     flat += `\u0001${nested.length - 1}\u0001`;
   }
   const valueOf = i => { if (!values.has(i)) values.set(i, evaluateField(nested[i], ctx) ?? ''); return values.get(i); };
-  const resolve = t => t.value.includes('\u0001') ? { ...t, value: t.value.replace(/\u0001(\d+)\u0001/g, (_, i) => valueOf(Number(i))) } : t;
+  // A nested field's result is a value, never an operator or a switch: a recipient's "a=b" or "x<y" was split into a
+  // comparison of its own, so IF chose the wrong text and SKIPIF left out recipients it should have kept.
+  const resolve = t => t.value.includes('\u0001') ? { ...t, quoted: true, value: t.value.replace(/\u0001(\d+)\u0001/g, (_, i) => valueOf(Number(i))) } : t;
   const raw = tokenizeInstruction(flat);
   if (keyword === 'IF' && !ctx.placeholders) return evaluateIf(raw.slice(1), resolve);
   const tokens = raw.map(resolve);
@@ -419,8 +421,8 @@ export function evaluateField(code, ctx) {
     case 'MERGEREC': return ctx.exhausted ? '' : String(record(ctx)?.number ?? '');
     case 'MERGESEQ': return String(ctx.sequence);
     case 'NEXT': advance(ctx); return '';
-    case 'NEXTIF': { if (!ctx.exhausted && condition(rest).result) advance(ctx); return ''; }
-    case 'SKIPIF': { if (!ctx.exhausted && condition(rest).result) ctx.skipped = true; return ''; }
+    case 'NEXTIF': { if (!ctx.exhausted && condition(splitOperators(raw.slice(1)).map(resolve)).result) advance(ctx); return ''; }
+    case 'SKIPIF': { if (!ctx.exhausted && condition(splitOperators(raw.slice(1)).map(resolve)).result) ctx.skipped = true; return ''; }
     case 'SET': { if (args[0]) ctx.variables.set(args[0], args[1] ?? ''); return ''; }
     case 'ASK': {
       const name = args[0];
