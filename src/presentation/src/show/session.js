@@ -861,9 +861,11 @@ export function createShowSession(ctx, show) {
     win.addEventListener("resize", fit);
     const onKey = (e) => {
       if (handleKey(e)) return;
+      // As in the presenter's window, Escape first puts the laser away.
       if (e.key === "Escape") {
         e.preventDefault();
-        show.close();
+        if (show.laserEnabled()) toggleLaser();
+        else show.close();
         return;
       }
       const copy = new KeyboardEvent("keydown", {

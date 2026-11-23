@@ -291,6 +291,14 @@ test("presenter view shows notes, the next slide and a timer, with an audience w
   await audience.keyboard.press("b");
   await expect(audience.locator(".show-audience")).toHaveClass(/blank/);
   await audience.keyboard.press("b");
+  // Escape there puts the laser away before it ends the show.
+  await audience.keyboard.press("l");
+  await expect(audience.locator(".presenter-frame")).toHaveClass(/laser-mode/);
+  await audience.keyboard.press("Escape");
+  await expect(audience.locator(".presenter-frame")).not.toHaveClass(
+    /laser-mode/,
+  );
+  await expect(d).toBeVisible();
   await expect(d.getByRole("button", { name: "One window" })).toBeVisible();
   // Closing it brings the slide back to this window.
   await audience.close();
