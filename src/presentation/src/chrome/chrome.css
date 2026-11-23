@@ -387,6 +387,30 @@
     padding: 8px 12px;
   }
 }
+/* A phone on its side (or a window zoomed until it is phone-sized) has width
+   to spare but little height: a strip under the slide would leave the slide
+   a sliver, so the thumbnails go back to a narrow column beside it. */
+@media (max-width: 760px) and (max-height: 500px) and (orientation: landscape) {
+  .editor .editor-body {
+    flex-direction: row;
+  }
+  .editor .slide-sidebar {
+    width: 128px;
+    min-width: 128px;
+    height: auto;
+    order: 0;
+    border-right: 1px solid var(--chrome-rule);
+    border-bottom: 0;
+  }
+  .editor .slide-list {
+    display: block;
+    padding: 4px 8px 8px 2px;
+  }
+  .editor .slide-item {
+    width: auto;
+    min-width: 0;
+  }
+}
 .editor .slide-item {
   padding: 4px 0 10px;
   gap: 4px;
