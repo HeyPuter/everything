@@ -597,17 +597,24 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     el('option', { value: 'mixed', disabled: true }, 'Mixed levels'), el('option', { value: 'inherit' }, 'Use style level'),
     ...Array.from({ length: 9 }, (_, i) => el('option', { value: i }, `Level ${i + 1}`)), el('option', { value: 9 }, 'Body text'));
   let styleOptionsSignature = '';
+  // A new or renamed style may not take another style's name (the Styles pane's dialogs say the same).
+  const checkStyleName = (patch, id = null) => {
+    const name = typeof patch.name === 'string' ? patch.name.trim() : '';
+    if (name && Object.values(engine.model.styles.definitions).some(s => s.id !== id && String(s.name).trim().toLowerCase() === name.toLowerCase())) throw new Error(`A style named “${name}” already exists. Choose another name.`);
+  };
   const editStyle = tool('Edit paragraph style', 'pencil', () => {
     if (!engine) return; engine.finishComposition();
     const id = engine.model.paragraphStyle, style = engine.model.styles.definitions[id];
     if (!style) return;
     styleModal = openStyleEditor(style, engine.model.paragraphStyles, patch => {
+      checkStyleName(patch, id);
       const ok = engine.editParagraphStyle(id, patch); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     });
   });
   const newStyle = tool('New paragraph style', 'plus', () => {
     if (!engine) return; engine.finishComposition();
     styleModal = openStyleEditor({ basedOn: engine.model.paragraphStyle }, engine.model.paragraphStyles, patch => {
+      checkStyleName(patch);
       const ok = engine.createParagraphStyle(patch.name, patch.basedOn); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     });
   });
@@ -618,12 +625,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const id = engine.model.characterStyle, style = engine.model.styles.definitions[id];
     if (!style || style.type !== 'character') return;
     styleModal = openStyleEditor(style, engine.model.characterStyles, patch => {
+      checkStyleName(patch, id);
       const ok = engine.editCharacterStyle(id, patch); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     }, engine.model.styles.defaults.run);
   });
   const newCharacterStyle = tool('New character style', 'plus', () => {
     if (!engine) return; engine.finishComposition();
     styleModal = openStyleEditor({ type: 'character', basedOn: engine.model.characterStyle }, engine.model.characterStyles, patch => {
+      checkStyleName(patch);
       const ok = engine.createCharacterStyle(patch.name, patch.basedOn); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     });
   });
