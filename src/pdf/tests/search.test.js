@@ -235,3 +235,24 @@ it('finds a word hyphenated at a line end with or without its hyphen', () => {
   expect(findMatches(soft, searchQuery('exam-ple'))).toEqual([]);
   expect(findMatches(soft, searchQuery('example'))).toEqual([[0, 7]]);
 });
+
+it('finds a Thai or Lao phrase that wraps onto the next line', () => {
+  // Thai and Lao put no space between words, so a line break may fall inside a phrase.
+  const index = indexPageText([
+    { str: 'ภาษาไทยเป็น', hasEOL: true },
+    { str: 'ภาษาราชการ ພາສາ', hasEOL: true },
+    { str: 'ລາວ' },
+  ]);
+  const spans = (query) => findMatches(index, searchQuery(query));
+  expect(spans('เป็นภาษา')).toHaveLength(1);
+  expect(spans('ພາສາລາວ')).toHaveLength(1);
+  // A space typed where the line breaks still finds it, as the break may be a word break.
+  expect(spans('เป็น ภาษา')).toHaveLength(1);
+  // The match covers the characters on both lines.
+  const [[from, to]] = spans('เป็นภาษา');
+  expect(index.text.slice(from, to)).toBe('เป็น ภาษา');
+  // Latin text keeps its line breaks as word breaks.
+  const latin = indexPageText([{ str: 'top', hasEOL: true }, { str: 'hat' }]);
+  expect(findMatches(latin, searchQuery('tophat'))).toEqual([]);
+  expect(findMatches(latin, searchQuery('top hat'))).toEqual([[0, 7]]);
+});

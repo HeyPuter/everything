@@ -13,6 +13,11 @@ const UNSPACED =
   '[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\u3000-\\u303f\\uff00-\\uffef]';
 const ENDS_UNSPACED = new RegExp(`${UNSPACED}$`, 'u'),
   STARTS_UNSPACED = new RegExp(`^${UNSPACED}`, 'u');
+// Scripts that put no space between words but do between phrases: a line break in them may
+// fall inside a phrase or at a space.
+const PHRASED = '[\\p{Script=Thai}\\p{Script=Lao}\\p{Script=Khmer}\\p{Script=Myanmar}]';
+const ENDS_PHRASED = new RegExp(`${PHRASED}$`, 'u'),
+  STARTS_PHRASED = new RegExp(`^${PHRASED}`, 'u');
 // Lowercasing is context-sensitive for Greek sigma, so fold the final form to match prefixes.
 // Accents are ignored, as PDF readers ignore them by default: "cafe" finds "café".
 const fold = (value) =>
@@ -120,6 +125,9 @@ export function indexPageText(items) {
     };
     const unspaced = () => ENDS_UNSPACED.test(tail) && STARTS_UNSPACED.test(nextText());
     if (item.hasEOL && !trailingSpace && !hyphenated && !unspaced()) {
+      // Thai and Lao wrap inside phrases as well as at spaces: found with the space or without.
+      if (ENDS_PHRASED.test(tail) && STARTS_PHRASED.test(nextText()))
+        joins.push({ at: length, skip: true });
       chunks.push(' ');
       length++;
       trailingSpace = true;
