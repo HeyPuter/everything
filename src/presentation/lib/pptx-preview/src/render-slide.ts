@@ -181,6 +181,7 @@ import {
   getTableCellAnchor,
   getTableCellMargins,
   getTableCellSpan,
+  getTableCellTextDirection,
   getTableCells,
   getTableStyleResolver,
   getTableColumnWidths,
@@ -224,6 +225,7 @@ import {
   layoutCore,
   layoutTextSvg,
   measureTextBodyHeight,
+  measureTextBodyWidth,
   substituteFamily,
   type BulletInput,
   type ColumnLayout,
@@ -10946,6 +10948,7 @@ const renderTableCellText = (
     top: number | null;
     bottom: number | null;
   },
+  vert: VerticalLayout = "none",
 ): string => {
   const { paraData, hasText } = cellParaData(paragraphs, ctx);
   if (!hasText) return "";
@@ -10956,10 +10959,19 @@ const renderTableCellText = (
   const padR = (margins.right ?? DEFAULT_INSET_X) / EMU_PER_PX;
   const padT = (margins.top ?? DEFAULT_INSET_Y) / EMU_PER_PX;
   const padB = (margins.bottom ?? DEFAULT_INSET_Y) / EMU_PER_PX;
-  const innerX = cx + padL;
-  const innerY = cy + padT;
-  const innerW = Math.max(0, cw - padL - padR);
-  const innerH = Math.max(0, ch - padT - padB);
+  let innerX = cx + padL;
+  let innerY = cy + padT;
+  let innerW = Math.max(0, cw - padL - padR);
+  let innerH = Math.max(0, ch - padT - padB);
+  // Turned text (a cell's text direction) turns its insets with it, as in
+  // a text box: the left and right insets run along its lines.
+  const turned = ctx.mode === "svg" && (vert === "cw90" || vert === "cw270");
+  if (turned) {
+    innerX = cx + padT;
+    innerY = cy + padL;
+    innerW = Math.max(0, cw - padT - padB);
+    innerH = Math.max(0, ch - padL - padR);
+  }
   if (innerW <= 0 || innerH <= 0) return "";
 
   // Pure-SVG path: hand the layout model to the same engine shape text uses so
@@ -10988,9 +11000,9 @@ const renderTableCellText = (
     innerW: innerW * EMU_PER_PX,
     innerH: innerH * EMU_PER_PX,
     measure: ctx.measure,
-    // Cell-level vertical text (<a:tcPr vert>) isn't modeled yet; cells lay
-    // out horizontally, single-column.
-    vert: "none",
+    // The cell's text direction (<a:tcPr vert>); the browser path below
+    // still lays cells out horizontally.
+    vert: ctx.mode === "svg" ? vert : "none",
     columns: null,
     resolveFamily: ctx.resolveFamily,
     resolveKerning: ctx.resolveKerning,
@@ -11126,6 +11138,8 @@ const measureTableLayout = (
       const bottom = margins.bottom ?? DEFAULT_INSET_Y;
       const paragraphs = style.paragraphs(cell, style.cell(cell).textFormat);
       const { paraData } = cellParaData(paragraphs, ctx);
+      const vert = verticalLayoutOf(getTableCellTextDirection(cell));
+      const turned = vert === "cw90" || vert === "cw270";
       const input = buildSvgTextInput({
         pres,
         shape,
@@ -11143,16 +11157,19 @@ const measureTableLayout = (
         includeOuterSpacing: false,
         innerX: 0,
         innerY: 0,
-        innerW: Math.max(0, width - left - right),
+        innerW: turned ? 0 : Math.max(0, width - left - right),
         innerH: 0,
         measure: ctx.measure,
-        vert: "none",
+        vert: vert === "upright" ? vert : "none",
         columns: null,
         resolveFamily: ctx.resolveFamily,
         resolveKerning: ctx.resolveKerning,
       });
-      const height =
-        measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
+      // Turned text runs along the row: the row grows to hold its longest
+      // line (unwrapped), between the cell's left and right insets.
+      const height = turned
+        ? measureTextBodyWidth(input, ctx.measure) * EMU_PER_PX + left + right
+        : measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
       if (end === r + 1) rowHeights[r] = Math.max(rowHeights[r] ?? 0, height);
       else spans.push({ start: r, end, height });
     }
@@ -11397,6 +11414,7 @@ const renderTable = (
           ctx,
           vAnchor,
           cellMargins,
+          verticalLayoutOf(getTableCellTextDirection(typedCell)),
         ),
       );
     }

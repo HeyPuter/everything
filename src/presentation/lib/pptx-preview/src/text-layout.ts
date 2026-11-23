@@ -1038,6 +1038,39 @@ export const measureTextBodyHeight = (
   measure: TextMeasurer,
 ): number => layoutCore(input, measure).requiredH;
 
+/** Width the body needs to set each paragraph's lines without wrapping:
+ *  its longest line, with its indents and bullet. */
+export const measureTextBodyWidth = (
+  input: TextBodyInput,
+  measure: TextMeasurer,
+): number => {
+  const { placements } = layoutCore(
+    {
+      ...input,
+      wrap: false,
+      vert: "none",
+      columns: null,
+      paragraphs: input.paragraphs.map((p) => ({ ...p, align: "left" })),
+    },
+    measure,
+  );
+  let width = 0;
+  for (const { line } of placements) {
+    let end = line.tokens.length;
+    while (
+      end > 0 &&
+      (line.tokens[end - 1]!.isSpace || line.tokens[end - 1]!.isBreak)
+    )
+      end--;
+    let content = 0;
+    for (let i = 0; i < end; i++)
+      if (!line.tokens[i]!.isBreak) content += line.tokens[i]!.width;
+    const marR = input.paragraphs[line.paraIndex]?.marRpx ?? 0;
+    width = Math.max(width, line.anchorX - input.boxXpx + content + marR);
+  }
+  return width;
+};
+
 // Anchor the measured text block, independently of its baseline placement.
 const anchorOffsetY = (
   frameY: number,
