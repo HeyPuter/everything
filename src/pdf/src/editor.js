@@ -1630,6 +1630,7 @@ export function createEditor({
     touchScreen?.matches
       ? text
           .replace(/double-click/g, 'double-tap')
+          .replace(/Double-click/g, 'Double-tap')
           .replace(/\bClick\b/g, 'Tap')
           .replace(/\bclick\b/g, 'tap')
       : text;
@@ -8268,8 +8269,9 @@ export function createEditor({
         featured: true,
         permission: 'edit',
         keywords: 'form fields fillable acroform text field checkbox radio dropdown',
-        description:
+        description: forPointer(
           'Add fillable fields: choose a field type, then drag a box on the page or click to place one. Double-click a field for its properties.',
+        ),
         enter: () => setPreparing(true),
         leave: () => {
           setPreparing(false);
