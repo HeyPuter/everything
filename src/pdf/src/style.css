@@ -1125,8 +1125,11 @@ puter-user-menu::part(apps-panel) {
 .text-object-selected {
   pointer-events: none;
 }
+/* A finger moves the selected text; on any other it scrolls or zooms the page. */
 .select-text-objects .text-target {
   cursor: move;
+}
+.select-text-objects .text-target.text-movable {
   touch-action: none;
 }
 .text-targets.select-text-objects {

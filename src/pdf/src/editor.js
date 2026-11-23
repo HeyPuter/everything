@@ -346,6 +346,10 @@ export function createEditor({
   let committingDrawing = false;
   let editDocument,
     textEdit = null,
+    // The text a finger is tapping, and the target a finger drags (see syncTextTouch).
+    touchedText = null,
+    textTap = null,
+    movableTextTarget = null,
     finishingText = null,
     textCheckpoint = null,
     textPointer = null,
@@ -2571,6 +2575,7 @@ export function createEditor({
     if (node.textContent !== text) node.textContent = text;
   };
   function updateStatus() {
+    syncTextTouch();
     if (destroyed) return;
     // A brief refresh must still block duplicate actions, without flashing every control
     // gray. Keep each button's resting appearance until the new page is ready; buttons
@@ -5289,6 +5294,7 @@ export function createEditor({
     else edit.input.contentEditable = String(editing);
     edit.input.setAttribute('aria-readonly', String(!editing));
     edit.input.tabIndex = editing ? 0 : -1;
+    syncTextTouch();
     layoutTextEdit();
     if (focus && editing) {
       edit.input.focus({ preventScroll: true });
@@ -5426,6 +5432,17 @@ export function createEditor({
   }
   // Each run's target, so the keyboard can return to the text it was editing.
   let textTargetOf = new WeakMap();
+  // A finger on text not yet selected scrolls or zooms the page, as it does anywhere else on
+  // it; a tap selects the text (the run is kept here for the click), and a finger then moves
+  // it. Only the selected text's target takes a finger's drag (see .text-movable).
+  function syncTextTouch() {
+    const target =
+      tool === 'select' && textEdit && !textEdit.editing ? textTargetOf.get(textEdit.run) : null;
+    if (target === movableTextTarget) return;
+    movableTextTarget?.classList.remove('text-movable');
+    target?.classList.add('text-movable');
+    movableTextTarget = target;
+  }
   /**
    * Cancel the text draft from the keyboard. Like a picture or shape, the text hands the
    * keyboard back to its own target, so Tab and Enter carry on from there; new text, or text
@@ -5448,6 +5465,7 @@ export function createEditor({
   function renderTextTargets() {
     textTargets.replaceChildren();
     textTargetOf = new WeakMap();
+    movableTextTarget = null;
     textTargets.hidden = !['text', 'select'].includes(tool) || !access().edit;
     textTargets.classList.toggle('select-text-objects', tool === 'select');
     if (!access().edit) return;
@@ -5461,6 +5479,23 @@ export function createEditor({
         'aria-label': `Edit text: ${readingOrder(run.text)?.text ?? run.text}`,
         title: 'Edit text',
         onclick: safe(async (e) => {
+          const tapped = touchedText === run;
+          touchedText = null;
+          if (tool === 'select' && tapped) {
+            // The second tap of a double tap types in the text, even while the first one is
+            // still saving the text selected before.
+            if (textTap?.run === run && e.detail > 1) textTap.editing = e;
+            if (e.detail !== 1) return;
+            const request = (textTap = { run, editing: null });
+            try {
+              const edit = await textDialog(null, run, { editing: false, reveal: false });
+              if (edit && request.editing && textTap === request)
+                setTextEditing(edit, true, request.editing);
+            } finally {
+              if (textTap === request) textTap = null;
+            }
+            return;
+          }
           if (tool !== 'text' && e.detail) return;
           const point = e.detail ? textPointerPoint(e) : null;
           const edit = await textDialog(null, run, {
@@ -5475,7 +5510,14 @@ export function createEditor({
         }),
       });
       textTargetOf.set(run, target);
-      target.addEventListener('pointerdown', (e) => beginTextSelection(e, run));
+      target.addEventListener('pointerdown', (e) => {
+        touchedText = null;
+        if (e.pointerType === 'touch' && tool === 'select' && target !== movableTextTarget) {
+          if (e.isPrimary && e.button === 0) touchedText = run;
+          return;
+        }
+        beginTextSelection(e, run);
+      });
       Object.assign(target.style, {
         left: `${box.x}px`,
         top: `${box.y}px`,
@@ -5485,6 +5527,7 @@ export function createEditor({
       });
       textTargets.append(target);
     }
+    syncTextTouch();
   }
   let finishingForms;
   /** Saves the words typed into the selected comment's Comment field, which saves on change. */
