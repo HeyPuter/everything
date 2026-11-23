@@ -257,9 +257,13 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     if (current === mode) return false;
     const place = !image.anchor ? inlinePlace(engine, image) : null;
     const anchor = image.anchor;
-    // Wrapped drawings measure from the column and paragraph; keep the drawing where it is on the page.
+    // A wrapped drawing whose position the new wrapping cannot hold is measured from its column and paragraph
+    // instead, where it is on the page. Square, tight and through wrapping hold page and margin positions and
+    // alignment (a Position preset's), so those keep them; top-and-bottom wrapping measures down from the paragraph.
+    const sided = ['square', 'tight', 'through'].includes(mode);
+    const heldBySide = anchor && ['column', 'page', 'margin'].includes(anchor.horizontal) && ['paragraph', 'page', 'margin', 'topMargin', 'bottomMargin'].includes(anchor.vertical) && !(anchor.yAlign && anchor.vertical === 'paragraph') && anchor.xPercentage === undefined && anchor.yPercentage === undefined;
     let position = null;
-    if (mode !== 'inline' && anchor && ['square', 'tight', 'through', 'topAndBottom'].includes(mode) && (anchor.horizontal !== 'column' || anchor.vertical !== 'paragraph' || anchor.xAlign || anchor.yAlign || anchor.xPercentage !== undefined || anchor.yPercentage !== undefined)) {
+    if (mode !== 'inline' && anchor && (sided || mode === 'topAndBottom') && !(sided && heldBySide) && (anchor.horizontal !== 'column' || anchor.vertical !== 'paragraph' || anchor.xAlign || anchor.yAlign || anchor.xPercentage !== undefined || anchor.yPercentage !== undefined)) {
       const f = frameOf(engine, image);
       if (f) {
         const zero = offsetsFor(engine, { ...f, image: { ...image, anchor: { ...anchor, horizontal: 'column', vertical: 'paragraph' } } }, f.x, f.y);

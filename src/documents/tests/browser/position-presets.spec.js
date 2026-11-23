@@ -76,3 +76,19 @@ test('Bottom Left and Middle Center are placed inside the margins', async ({ pag
   expect(Math.round(f.left + f.right)).toBe(816);
   expect(errors).toEqual([]);
 });
+
+test('another side wrapping keeps a preset picture in its corner', async ({ page }) => {
+  const { errors } = await start(page);
+  const ribbon = page.locator('#ribbon-panel-picture');
+  await ribbon.getByRole('button', { name: 'Position', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Position in Top Right with Square Text Wrapping' }).click();
+  await expect.poll(async () => Math.round((await frameOnPage(page)).top)).toBe(96);
+  for (const wrap of ['Tight', 'Through', 'Square']) {
+    await ribbon.getByRole('button', { name: 'Wrap Text', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: wrap }).click();
+    await expect(ribbon.getByRole('button', { name: 'Wrap Text', exact: true })).toBeEnabled();
+    await expect.poll(async () => Math.round((await frameOnPage(page)).top)).toBe(96);
+    expect(Math.round((await frameOnPage(page)).right)).toBe(816 - 96);
+  }
+  expect(errors).toEqual([]);
+});
