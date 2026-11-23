@@ -1732,36 +1732,62 @@ const CALCULATIONS = {
  * after a value changes. Values are read with `read(field)` and results handed to
  * `write(field, value)`; returns the fields whose values changed.
  */
-function calculate(doc, fields, read, write) {
+function calculate(
+  doc,
+  fields,
+  read,
+  write,
+  names = new Map(fields.map((field) => [field, formFieldName(field)])),
+  scripts = new Map(),
+) {
   const order = doc.getForm().acroForm.dict.lookup(PDFName.of('CO'));
   if (!(order instanceof PDFArray)) return [];
-  const names = new Map(fields.map((field) => [field, formFieldName(field)]));
+  // Fields by reference, dictionary, name and the groups above them, found in one step each:
+  // a large form's totals were otherwise looked up field by field on every key typed.
+  const byObject = new Map();
+  const byName = new Map();
+  const under = new Map();
+  fields.forEach((field) => {
+    for (const key of [field.ref, field.acroField.dict])
+      if (!byObject.has(key)) byObject.set(key, field);
+    const name = names.get(field);
+    if (!byName.has(name)) byName.set(name, field);
+    const parts = name.split('.');
+    for (let i = 1; i <= parts.length; i++) {
+      const group = parts.slice(0, i).join('.');
+      if (!under.has(group)) under.set(group, []);
+      under.get(group).push(field);
+    }
+  });
+  const position = new Map(fields.map((field, i) => [field, i]));
   const changed = [];
   for (const entry of order.asArray()) {
-    const target = doc.context.lookup(entry);
-    const field = fields.find((f) => f.ref === entry || f.acroField.dict === target);
+    const field = byObject.get(entry) ?? byObject.get(doc.context.lookup(entry));
     if (!(field instanceof PDFTextField)) continue;
     try {
       let value;
-      const calculation = simpleCalculation(field);
-      const formula = calculation ? null : formulaCalculation(field);
+      // A document only read (the preview) keeps its fields' scripts read once.
+      if (!scripts.has(field)) {
+        const simple = simpleCalculation(field);
+        scripts.set(field, { simple, formula: simple ? null : formulaCalculation(field) });
+      }
+      const { simple: calculation, formula } = scripts.get(field);
       // A value that is not a number counts as zero, as in Acrobat.
       const number = (source) => typedNumber(read(source)) ?? 0;
       if (calculation) {
-        const sources = fields.filter((other) =>
-          calculation.names.some(
-            (name) =>
-              other !== field &&
-              (names.get(other) === name || names.get(other).startsWith(`${name}.`)),
-          ),
-        );
+        // The fields named, and those under a group named, in the form's order.
+        const sources = [...new Set(calculation.names.flatMap((name) => under.get(name) ?? []))]
+          .filter((other) => other !== field)
+          .sort((a, b) => position.get(a) - position.get(b));
         if (!sources.length) continue;
         value = String(CALCULATIONS[calculation.operation](sources.map(number)));
       } else if (formula) {
         // A formula (Qty * Price) reads each field it names; one the form lacks stops it.
         const values = new Map();
         for (const name of formula.names) {
-          const source = fields.find((other) => other !== field && names.get(other) === name);
+          let source = byName.get(name);
+          if (source === field)
+            source = fields.find((other) => other !== field && names.get(other) === name);
           if (!source) break;
           values.set(name, number(source));
         }
@@ -1793,12 +1819,20 @@ const previewFields = new WeakMap();
  */
 export function previewCalculations(doc, values) {
   // The document is only read here, so its fields are read once.
-  if (!previewFields.has(doc)) previewFields.set(doc, formFields(doc));
-  const fields = previewFields.get(doc);
+  if (!previewFields.has(doc)) {
+    const fields = formFields(doc);
+    previewFields.set(doc, {
+      fields,
+      names: new Map(fields?.map((field) => [field, formFieldName(field)])),
+      scripts: new Map(),
+      saved: new Map(),
+    });
+  }
+  const { fields, names, scripts, saved } = previewFields.get(doc);
   if (!fields) return new Map();
   const typed = new Map();
   for (const field of fields) {
-    const value = values[formFieldName(field)];
+    const value = values[names.get(field)];
     if (value !== undefined)
       typed.set(
         field,
@@ -1806,9 +1840,14 @@ export function previewCalculations(doc, values) {
       );
   }
   const results = new Map();
-  const read = (field) => (typed.has(field) ? typed.get(field) : calculationInput(field));
-  for (const field of calculate(doc, fields, read, (field, value) => typed.set(field, value)))
-    results.set(formFieldName(field), typed.get(field));
+  const read = (field) => {
+    if (typed.has(field)) return typed.get(field);
+    if (!saved.has(field)) saved.set(field, calculationInput(field));
+    return saved.get(field);
+  };
+  const write = (field, value) => typed.set(field, value);
+  for (const field of calculate(doc, fields, read, write, names, scripts))
+    results.set(names.get(field), typed.get(field));
   return results;
 }
 /**
