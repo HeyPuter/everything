@@ -1063,13 +1063,33 @@ export function createEditor({
           : 'This PDF has no certificate signatures.',
       );
   }
-  /** Editing a signed PDF rewrites it, which invalidates its signatures; ask once first. */
-  async function confirmSignedEdit() {
-    if (signedEditAccepted || !signatureReports.some((report) => report.byteRange)) return true;
+  /**
+   * Editing a signed PDF rewrites it, which invalidates its signatures; ask once first. Filling
+   * in `fields` (their names) is added to the file after what was signed, which keeps the
+   * signatures valid, unless one allows no changes or locks one of those fields.
+   */
+  async function confirmSignedEdit(fields) {
+    const signed = signatureReports.filter((report) => report.byteRange);
+    if (signedEditAccepted || !signed.length) return true;
+    const locks = (lock, name) =>
+      !!lock &&
+      (lock.action === 'All' ||
+        (lock.action === 'Include') ===
+          lock.fields.some((locked) => name === locked || name.startsWith(`${locked}.`)));
+    if (
+      fields &&
+      !signed.some(
+        (report) =>
+          report.certification?.level === 1 || fields.some((name) => locks(report.fieldLock, name)),
+      )
+    )
+      return true;
     const count = signatureReports.length;
     const ok = await confirmAction(
       'Edit a signed PDF?',
-      `This PDF has ${count === 1 ? 'a certificate signature' : `${count} certificate signatures`}. Editing it here saves a new copy of the file, and every signature in it will show as invalid. Sign again after editing if the document needs a valid signature.`,
+      fields
+        ? `${count === 1 ? 'The signature in this PDF does' : 'A signature in this PDF does'} not allow ${fields.length === 1 ? 'this field' : 'these fields'} to change. If you fill ${fields.length === 1 ? 'it' : 'them'} in, the signature will show that the document was changed after it was signed.`
+        : `This PDF has ${count === 1 ? 'a certificate signature' : `${count} certificate signatures`}. Editing it here saves a new copy of the file, and every signature in it will show as invalid. Sign again after editing if the document needs a valid signature.`,
       'Edit anyway',
     );
     if (ok) signedEditAccepted = true;
@@ -3816,11 +3836,12 @@ export function createEditor({
     operation,
     message,
     permission = 'edit',
-    { signal, canCommit, onCommit, retainScale = false } = {},
+    { signal, canCommit, onCommit, retainScale = false, fields } = {},
   ) {
     if (busy || destroyed) return;
     requireAccess(...(Array.isArray(permission) ? permission : [permission]));
-    if (!(await confirmSignedEdit()) || busy || destroyed) return;
+    // `fields`: the edit fills in these fields and nothing else.
+    if (!(await confirmSignedEdit(fields)) || busy || destroyed) return;
     const retainedScale = retainScale
       ? { page: pageIndex, mode: scaleMode, request: pendingZoom }
       : null;
@@ -3837,6 +3858,7 @@ export function createEditor({
             canCommit,
             streamProtection: protection?.original,
             saveOptions: pdfaClaim?.part === 1 ? { useObjectStreams: false } : undefined,
+            incremental: !!fields,
           })) === false
         )
           return;
@@ -3860,7 +3882,7 @@ export function createEditor({
     }
   }
   /** Keep a dialog edit local until it succeeds; closing the dialog abandons pending work. */
-  async function mutateDialog(dialog, operation, message, permission = 'edit') {
+  async function mutateDialog(dialog, operation, message, permission = 'edit', { fields } = {}) {
     if (busy || destroyed || !dialog.open) return false;
     let committed = false;
     const controller = new AbortController();
@@ -3879,6 +3901,7 @@ export function createEditor({
     dialog.setAttribute('aria-busy', 'true');
     try {
       await mutate(operation, message, permission, {
+        fields,
         signal: controller.signal,
         // Native close events are queued; the open flag changes synchronously.
         canCommit: () => dialog.open && !destroyed,
@@ -5784,12 +5807,14 @@ export function createEditor({
       try {
         // Declining to edit a signed PDF leaves the values typed as a draft: not in the PDF,
         // and not taken for saved either (Undo would then undo the signing instead).
-        if (!(await confirmSignedEdit())) {
+        if (!(await confirmSignedEdit(Object.keys(values)))) {
           pageForms.restore(snapshot);
           updateStatus();
           return;
         }
-        await mutate((doc) => fillFields(doc, values), null, 'fill');
+        await mutate((doc) => fillFields(doc, values), null, 'fill', {
+          fields: Object.keys(values),
+        });
         pageForms.clearError();
       } catch (error) {
         pageForms.restore(snapshot);
@@ -7361,7 +7386,9 @@ export function createEditor({
         else values[key] = control.value;
       });
       try {
-        await mutateDialog(d, (doc) => fillFields(doc, values), 'Form saved.', 'fill');
+        await mutateDialog(d, (doc) => fillFields(doc, values), 'Form saved.', 'fill', {
+          fields: Object.keys(values),
+        });
       } catch (error) {
         // A value refused for its field: the message shows, then the field takes the focus.
         const refused = d.open && controls.get(error?.field)?.control;

@@ -262,6 +262,24 @@ function pageGeometry(doc) {
 const pageObjects = (doc) =>
   doc.getPages().map(({ ref }) => `${ref.objectNumber} ${ref.generationNumber}`);
 
+/** Whether a field of the form holds a signature (a dictionary with the bytes it covers). */
+function hasSignatures(doc) {
+  const form = doc.catalog.lookup(PDFName.of('AcroForm'));
+  const fields = form instanceof PDFDict ? form.lookup(PDFName.of('Fields')) : null;
+  const pending = fields instanceof PDFArray ? [...fields.asArray()] : [];
+  const seen = new Set();
+  while (pending.length && seen.size < 100000) {
+    const field = doc.context.lookup(pending.pop());
+    if (!(field instanceof PDFDict) || seen.has(field)) continue;
+    seen.add(field);
+    const value = field.lookup(PDFName.of('V'));
+    if (value instanceof PDFDict && value.has(PDFName.of('ByteRange'))) return true;
+    const kids = field.lookup(PDFName.of('Kids'));
+    if (kids instanceof PDFArray) pending.push(...kids.asArray());
+  }
+  return false;
+}
+
 /** Transactions retain original bytes, commit only on success, and bound undo memory. */
 export class PdfSession {
   constructor(bytes) {
@@ -286,13 +304,28 @@ export class PdfSession {
   markSaved(revision = this.revision) {
     this.savedRevision = revision;
   }
-  async change(operation, { signal, canCommit, streamProtection, saveOptions } = {}) {
+  /**
+   * `incremental`: an edit that only fills in fields. A signed PDF then keeps its bytes, the
+   * values appended as a revision of their own, as Acrobat saves them: rewritten whole, the
+   * file no longer matched what its signatures cover, and every signature showed as invalid.
+   */
+  async change(
+    operation,
+    { signal, canCommit, streamProtection, saveOptions, incremental = false } = {},
+  ) {
     // Reconciliation must see the original Info timestamps, not pdf-lib's load time.
     const doc = await waitFor(() => loadPdfDocument(this.bytes, { updateMetadata: false }), signal);
     signal?.throwIfAborted();
     // The pages as they were, read from the document the edit loads anyway, so the revision
     // kept for Undo knows them too.
     this.pages ??= pageObjects(doc);
+    const revision =
+      incremental && hasSignatures(doc)
+        ? (await waitFor(() => import('./pdf-incremental.js'), signal)).trackRevision(
+            this.bytes,
+            doc,
+          )
+        : null;
     // Read before the repairs, which can move or resize pages as much as the operation can.
     const geometry = pageGeometry(doc);
     repairDocument(doc);
@@ -301,7 +334,8 @@ export class PdfSession {
     const changed = await waitFor(() => operation(doc), signal);
     signal?.throwIfAborted();
     if (changed === false) return false;
-    dropUsageRights(doc);
+    // Usage rights stay valid over values appended to the file.
+    if (!revision) dropUsageRights(doc);
     if (!doc.getPageCount() || doc.getPageCount() > MAX_PAGES)
       throw new Error('Keep between 1 and 1,000 pages in the PDF.');
     // Load XML support only for documents that actually carry an XMP packet.
@@ -310,6 +344,13 @@ export class PdfSession {
       (await waitFor(() => import('./details.js'), signal)).synchronizeDocumentMetadata(doc);
     signal?.throwIfAborted();
     if (!synchronized) doc.setModificationDate(new Date());
+    if (revision) {
+      const bytes = await waitFor(() => revision.finish(), signal);
+      signal?.throwIfAborted();
+      if (!bytes || (canCommit && !canCommit())) return false;
+      this.adopt(bytes, { sameGeometry: true, pages: pageObjects(doc) });
+      return;
+    }
     // pdf-lib writes every object it holds, referenced or not. Without this sweep each edit left
     // the content it replaced in the file, so files grew with every change and deleted pages or
     // replaced text stayed recoverable from the saved PDF.
@@ -2030,7 +2071,12 @@ export async function fillFields(doc, values) {
           { field: name },
         );
       prepareFieldAppearance(field, form);
+      const flags = field.acroField.dict.get(PDFName.of('Ff'));
       field.setText(value);
+      // pdf-lib clears the rich-text flag, writing flags a field without them did not have:
+      // a change to the field's definition to a signature over the form.
+      if (!flags && field.acroField.dict.get(PDFName.of('Ff'))?.asNumber?.() === 0)
+        field.acroField.dict.delete(PDFName.of('Ff'));
       // An explicit empty value overrides inherited/default values; deleting /V does not.
       if (value === '') field.acroField.setValue(PDFHexString.fromText(''));
       // A rich-text field also carries its value as RV, which viewers show in preference; a
