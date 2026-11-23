@@ -259,6 +259,8 @@ export function formWidgets(
         options: editableChoice ? choiceInputOptions(options) : options,
         buttonValue,
         buttonLabel: type === 'radio' ? a.buttonValue : undefined,
+        // Radio buttons in unison: those sharing an export value are on together.
+        unison: type === 'radio' && !!(a.fieldFlags & (1 << 25)),
         exportValue: a.checkBox ? a.exportValue : undefined,
         editableChoice,
         // The format script, read as data: the value shows formatted while another field has

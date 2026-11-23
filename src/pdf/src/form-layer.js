@@ -36,6 +36,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   const shownValues = new WeakMap();
   let calculatedValues = new Map();
   let widgets = [],
+    radioGroups = new Set(),
     controls = new Map(),
     key,
     pendingFocus = null,
@@ -178,7 +179,14 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       });
       control.addEventListener('click', () => onAction?.(widget.action));
     } else if (widget.type === 'checkbox' || widget.type === 'radio') {
-      control = el('input', { ...attrs, type: widget.type, name: `page-widget-${widget.id}` });
+      // A radio group's buttons share a name, so Tab stops at the group once and screen
+      // readers count its buttons (2 of 3).
+      const group = radioGroups.has(widget.name) ? `page-group-${widget.name}` : null;
+      control = el('input', {
+        ...attrs,
+        type: widget.type,
+        name: group ?? `page-widget-${widget.id}`,
+      });
       control.addEventListener('change', () =>
         changed(
           widget,
@@ -278,8 +286,13 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       } else if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
         const stops = [...root.querySelectorAll('.form-control')].filter((c) => !c.disabled);
         const direction = event.shiftKey ? -1 : 1;
-        if (control === (event.shiftKey ? stops[0] : stops.at(-1)) && onTabOut?.(direction))
-          event.preventDefault();
+        // The other buttons of a radio group are no stops of their own.
+        const here = stops.indexOf(control);
+        const beyond = (direction > 0 ? stops.slice(here + 1) : stops.slice(0, here)).filter(
+          (other) =>
+            !(control.type === 'radio' && other.type === 'radio' && other.name === control.name),
+        );
+        if (here >= 0 && !beyond.length && onTabOut?.(direction)) event.preventDefault();
       }
     });
     return control;
@@ -310,6 +323,22 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       structureOrder,
     );
     draft.register(widgets.filter(hasValue));
+    // Buttons sharing a name are on one at a time; groups whose buttons can be on together
+    // (in unison, or two buttons for one choice) keep a name per button.
+    const choices = new Map();
+    for (const widget of widgets.filter((w) => w.type === 'radio')) {
+      if (!choices.has(widget.name)) choices.set(widget.name, []);
+      choices.get(widget.name).push(widget);
+    }
+    radioGroups = new Set(
+      [...choices]
+        .filter(
+          ([, group]) =>
+            !group.some((w) => w.unison) &&
+            new Set(group.map((w) => w.buttonValue)).size === group.length,
+        )
+        .map(([name]) => name),
+    );
     calculatedValues = new Map();
     controls = new Map();
     const fragment = document.createDocumentFragment();
