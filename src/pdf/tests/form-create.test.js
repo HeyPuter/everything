@@ -555,6 +555,45 @@ it('shows number and percent fields as their formats do, keeping the value typed
     expect(text).toContain(shown);
 });
 
+it('takes ZIP Codes, phone and Social Security numbers, and shows them as their formats do', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  const formats = { Zip: 'zip', Zip4: 'zip4', Phone: 'phone', Local: 'phone', SSN: 'ssn' };
+  for (const [i, [fieldName, format]] of Object.entries(formats).entries())
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+      format,
+      ...(fieldName === 'SSN' && { tooltip: 'Your SSN' }),
+    });
+  await expect(fillFields(doc, { SSN: '12345678' })).rejects.toThrow(
+    'Enter a Social Security number in Your SSN, such as 123-45-6789.',
+  );
+  await expect(fillFields(doc, { Phone: 'call me' })).rejects.toThrow(
+    'Enter a phone number in Phone, such as (555) 123-4567.',
+  );
+  await expect(fillFields(doc, { Zip: '1234' })).rejects.toThrow('Enter a ZIP Code in Zip');
+  await expect(fillFields(doc, { Zip4: '12345' })).rejects.toThrow('Enter a ZIP+4 code in Zip4');
+  const values = {
+    Zip: '02139',
+    Zip4: '021394307',
+    Phone: '555.123.4567',
+    Local: '5551234',
+    SSN: '123456789',
+  };
+  await fillFields(doc, values);
+  // The value keeps what was typed; the page shows it formatted.
+  expect(listFields(doc).map((field) => field.value)).toEqual(Object.values(values));
+  await fillFields(doc, { SSN: '' });
+  await fillFields(doc, { SSN: '123-45-6789' });
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  expect(text).toEqual(['02139', '02139-4307', '(555) 123-4567', '555-1234', '123-45-6789']);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>

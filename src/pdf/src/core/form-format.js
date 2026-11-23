@@ -63,6 +63,50 @@ export function numberFormat(field) {
 }
 
 /**
+ * Acrobat's special formats (AFSpecial_Format): the digits each takes, the pattern its value
+ * shows in (9 stands for a digit), and an example for people.
+ */
+const SPECIAL = [
+  { name: 'a ZIP Code', digits: [5], example: '12345' },
+  { name: 'a ZIP+4 code', digits: [9], example: '12345-6789' },
+  { name: 'a phone number', digits: [10, 7], example: '(555) 123-4567' },
+  { name: 'a Social Security number', digits: [9], example: '123-45-6789' },
+];
+const SPECIAL_PATTERNS = {
+  5: ['99999'],
+  9: ['99999-9999', '999-99-9999'],
+  10: ['(999) 999-9999'],
+  7: ['999-9999'],
+};
+
+/** The field's special format (ZIP Code, ZIP+4, phone, or Social Security number), or null. */
+export function specialFormat(field) {
+  const match = actionScript(field).match(/AFSpecial_Format\(\s*([0-3])\s*\)/);
+  return match ? { ...SPECIAL[match[1]], style: Number(match[1]) } : null;
+}
+
+/** The digits of a value in a special format, or null when it is not one: 123-45-6789. */
+export function specialDigits(text, format) {
+  const value = String(text).trim();
+  if (!/^[\d\s().-]*$/.test(value)) return null;
+  const digits = value.replace(/\D/g, '');
+  return format.digits.includes(digits.length) ? digits : null;
+}
+
+/** The value as its special format shows it, (555) 123-4567; other text shows as it is. */
+export function formattedSpecial(text, format) {
+  const digits = format && specialDigits(text, format);
+  if (!digits) return text;
+  const pattern = SPECIAL_PATTERNS[digits.length][format.style === 3 ? 1 : 0];
+  let next = 0;
+  return pattern.replace(/9/g, () => digits[next++]);
+}
+
+/** The value as the field's number or special format shows it. */
+export const formattedValue = (text, field) =>
+  formattedSpecial(formattedNumber(text, numberFormat(field)), specialFormat(field));
+
+/**
  * The field's calculation when it is one of Acrobat's own ("Value is the sum of the following
  * fields", AFSimple_Calculate): the operation and the names of the fields, or null.
  */

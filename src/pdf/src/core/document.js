@@ -61,7 +61,14 @@ import {
 } from './image-orientation.js';
 import { reorientNotes } from './notes.js';
 import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatten.js';
-import { decimalMark, numberFormat, simpleCalculation, typedNumber } from './form-format.js';
+import {
+  decimalMark,
+  numberFormat,
+  simpleCalculation,
+  specialDigits,
+  specialFormat,
+  typedNumber,
+} from './form-format.js';
 import {
   choiceAppearanceProvider,
   prepareFieldAppearance,
@@ -1747,6 +1754,15 @@ export async function fillFields(doc, values) {
             `Enter a number in ${fieldTooltip(field) || name}, such as 1234${decimalMark(format)}5.`,
           ),
           // The field it is about, for the page to point at it.
+          { field: name },
+        );
+      // A ZIP Code, phone, or Social Security number field takes its digits, as in Acrobat.
+      const special = specialFormat(field);
+      if (String(value).trim() && special && specialDigits(value, special) === null)
+        throw Object.assign(
+          new Error(
+            `Enter ${special.name} in ${fieldTooltip(field) || name}, such as ${special.example}.`,
+          ),
           { field: name },
         );
       prepareFieldAppearance(field, form);
