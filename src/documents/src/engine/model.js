@@ -2749,8 +2749,13 @@ export class TextDocument {
           if (next) target[key] = next; else delete target[key];
           // Deleted text hides a formatting change made to it before. Rejecting a selection or all changes brings
           // the text back and rejects that change too, instead of leaving it behind as a change of its own.
-          const hidden = !accept && r.type === 'del' && start !== end && !mark && !run.revision && runFormatChange(run);
-          if (hidden && only(hidden)) { if (rejectFormatChange(run)) acceptFormatChange(run, 'run'); else this.formatRejectSkipped = true; if (this.stylesEnabled) resolveStyledParagraph(paragraph, this.styles, this.numbering); }
+          // Inserted text likewise hides another reviewer's formatting of it (w:rPrChange inside w:ins): accepting a
+          // selection or all changes accepts that change too, instead of leaving it behind after Accept All.
+          const hidden = (accept ? r.type === 'ins' : r.type === 'del') && start !== end && !mark && !run.revision && runFormatChange(run);
+          if (hidden && only(hidden)) {
+            if (accept) acceptFormatChange(run, 'run');
+            else { if (rejectFormatChange(run)) acceptFormatChange(run, 'run'); else this.formatRejectSkipped = true; if (this.stylesEnabled) resolveStyledParagraph(paragraph, this.styles, this.numbering); }
+          }
         });
         else {
           const index = indexAt(r.start), p = this.paragraphs[index], from = r.start - starts[index], to = r.end - starts[index];

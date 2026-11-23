@@ -293,6 +293,28 @@ describe('tracked change edge cases', () => {
     expect(summary(model)).toEqual([['ins', 'Ada', 'one '], ['del', 'Grace', 'two '], ['ins', 'Ada', 'three']]);
   });
 
+  it('accepts another reviewer\'s formatting of an insertion with Accept All', async () => {
+    // Ada inserted "bold"; Grace then made it bold (w:rPrChange inside w:ins), as Word records it.
+    const files = unzipSync(trackedDocx({ track: false }));
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">A </w:t></w:r><w:ins w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:rPr><w:b/><w:rPrChange w:id="2" w:author="Grace" w:date="2026-01-02T00:00:00Z"><w:rPr/></w:rPrChange></w:rPr><w:t>bold</w:t></w:r></w:ins><w:r><w:t xml:space="preserve"> B</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    const source = zipSync(files);
+    // Accept All left Grace's change behind: the document still held a change, and the file a w:rPrChange.
+    let { pkg, model } = await open(source);
+    model.resolveRevisions(true);
+    expect(model.revisions).toEqual([]);
+    expect(model.paragraphs[0].runs.find(r => r.text.includes('bold')).bold).toBe(true);
+    const xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    expect(xml).not.toMatch(/<w:(ins|rPrChange) /);
+    expect(xml).toMatch(/<w:b\/>/);
+    // Accepting only Ada's changes, or the insertion alone, leaves Grace's formatting a change of its own.
+    ({ model } = await open(source));
+    model.resolveRevisions(true, undefined, undefined, { only: change => change.author === 'Ada' });
+    expect(summary(model)).toEqual([['format', 'Grace', 'bold']]);
+    ({ model } = await open(source));
+    model.resolveRevisions(true, 3, 3);
+    expect(summary(model)).toEqual([['format', 'Grace', 'bold']]);
+  });
+
   it('accepts a deleted paragraph mark that cannot join the table after it', async () => {
     const cell = t => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:rPr><w:del w:id="5" w:author="Ada" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;
     const files = unzipSync(trackedDocx({ track: false }));
