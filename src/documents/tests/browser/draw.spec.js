@@ -142,6 +142,26 @@ test('stroke and point erasers, erase all, and lasso move and delete', async ({ 
   expect(errors).toEqual([]);
 });
 
+test('an eraser sweep made while the pen strokes are being gathered into one drawing still erases', async ({ page }) => {
+  const { input, errors, ribbon, box } = await start(page);
+  await ribbon.locator('.draw-pen').first().click();
+  await draw(page, box, [[140, 360], [400, 360]]);
+  await draw(page, box, [[140, 460], [400, 460]]);
+  await expect.poll(() => objects(input)).toBe(2);
+  // Picking up the eraser gathers the strokes; the sweep across the upper line comes before that is done.
+  const pageBox = await page.locator('canvas.canvas-page').first().evaluate(c => { const r = c.getBoundingClientRect(); return { x: r.x, y: r.y }; });
+  await page.evaluate(({ x, y }) => {
+    document.querySelector('#ribbon-panel-draw button[aria-label="Eraser"]').click();
+    const canvas = document.querySelector('canvas.canvas-page');
+    const fire = (type, py, buttons) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons, clientX: x + 270, clientY: y + py }));
+    fire('pointerdown', 330, 1); fire('pointermove', 360, 1); fire('pointermove', 390, 1); fire('pointerup', 390, 0);
+  }, pageBox);
+  await expect.poll(() => inkAt(page, 300, 360, 3)).toBe(0);
+  expect(await inkAt(page, 300, 460, 3)).toBeGreaterThan(0);
+  await expect.poll(() => objects(input)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test('ink to shape turns drawn strokes into preset shapes', async ({ page }, info) => {
   test.setTimeout(120000);
   const { input, errors, ribbon, box } = await start(page);

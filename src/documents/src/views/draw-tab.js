@@ -51,7 +51,7 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
     strokeStyle: () => { const pen = activePen(); return { tool: pen.tool, color: pen.color, width: penWidthPx(pen) }; },
     strokeStart: () => { if (inkHidden) toggleInk(false); },
     strokeEnd: (page, stroke) => commitStroke(page, stroke),
-    eraseStart: (page, point) => { erasing = { page, frames: inkFrames(editor(), page).filter(f => !hidden.has(f.image)), edited: new Map() }; eraseAlong(point, point); },
+    eraseStart: (page, point) => { erasing = { page, frames: inkFrames(editor(), page).filter(f => !hidden.has(f.image)), edited: new Map(), sweeps: [], mode: prefs.eraser, radius: ERASER_SIZES[prefs.eraserSize] || 7 }; eraseAlong(point, point); },
     eraseMove: (page, a, b) => eraseAlong(a, b),
     eraseEnd: () => finishErase(),
     lassoStart: () => setSelection(null),
@@ -132,28 +132,45 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
 
   /* ---- Eraser ---- */
   let erasing = null;
-  function eraseAlong(a, b) {
-    if (!erasing) return;
-    const r = ERASER_SIZES[prefs.eraserSize] || 7;
+  /** Sweep the eraser from `a` to `b` over `frames`, recording each drawing's strokes left in `edited`. */
+  function sweepFrames(job, frames, edited, a, b) {
     let changed = false;
-    for (const f of erasing.frames) {
-      const before = erasing.edited.get(f.image) || f.strokes;
+    for (const f of frames) {
+      const before = edited.get(f.image) || f.strokes;
       let after;
-      if (prefs.eraser === 'stroke') after = before.filter(s => !sweepHits(s, a, b, r));
+      if (job.mode === 'stroke') after = before.filter(s => !sweepHits(s, a, b, job.radius));
       else {
         after = before;
-        const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (r / 2)));
-        for (let i = 0; i <= steps; i++) { const p = { x: a.x + (b.x - a.x) * i / steps, y: a.y + (b.y - a.y) * i / steps }; after = after.flatMap(s => eraseFromStroke(s, p, r)); }
+        const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (job.radius / 2)));
+        for (let i = 0; i <= steps; i++) { const p = { x: a.x + (b.x - a.x) * i / steps, y: a.y + (b.y - a.y) * i / steps }; after = after.flatMap(s => eraseFromStroke(s, p, job.radius)); }
       }
-      if (after.length !== before.length || after.some((s, i) => s !== before[i])) { erasing.edited.set(f.image, after); hidden.add(f.image); changed = true; }
+      if (after.length !== before.length || after.some((s, i) => s !== before[i])) { edited.set(f.image, after); changed = true; }
     }
-    if (changed) { surface.setScene(erasing.page, [...erasing.edited.values()].flat()); repaint(); }
+    return changed;
+  }
+  function eraseAlong(a, b) {
+    if (!erasing) return;
+    erasing.sweeps.push([a, b]);
+    if (!sweepFrames(erasing, erasing.frames, erasing.edited, a, b)) return;
+    for (const image of erasing.edited.keys()) hidden.add(image);
+    surface.setScene(erasing.page, [...erasing.edited.values()].flat()); repaint();
   }
   async function finishErase() {
     const job = erasing; erasing = null;
     if (!job?.edited.size) return;
-    const ops = [...job.edited].map(([image, strokes]) => (strokes.length ? { replace: image, strokes } : emptied(image)));
-    await committer.commit(ops);
+    // The change is worked out when its turn comes. Strokes the pen drew just before are gathered into one drawing
+    // when the eraser is picked up; a sweep made while that was under way erased drawings that are gone by now, so it
+    // is swept again over the ink as it is then.
+    await committer.commit(() => {
+      const engine = editor(), current = engine ? inkFrames(engine, job.page) : [];
+      let edited = job.edited;
+      if ([...edited.keys()].some(image => !current.some(f => f.image === image))) {
+        edited = new Map();
+        const frames = current.filter(f => !hidden.has(f.image) || job.edited.has(f.image));
+        for (const [a, b] of job.sweeps) sweepFrames(job, frames, edited, a, b);
+      }
+      return [...edited].map(([image, strokes]) => (strokes.length ? { replace: image, strokes } : emptied(image)));
+    });
     for (const image of job.edited.keys()) hidden.delete(image);
     surface.setScene(job.page, null); repaint();
   }
