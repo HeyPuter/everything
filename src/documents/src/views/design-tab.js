@@ -5,7 +5,7 @@
  * in place (see editor.js changePackage), so Undo steps back to the package before the change; spacing,
  * colors and borders of the page go through the editor's transactions.
  */
-import { el } from '../ui/dom.js';
+import { el, collapsedUntilOpened } from '../ui/dom.js';
 import { openMenu, closeMenu } from '../ui/menu.js';
 import { promptDialog, confirmDialog } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
@@ -363,7 +363,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
     const effects = menuButton('Theme Effects', 'effects', effectItems, { size: 'small', text: 'Effects' });
     const setDefault = command('Set as Default', 'setDefault', setAsDefault, { text: 'Set as Default' });
     const more = command('More Style Sets', 'more', e => openMenu({ anchor: more, label: 'Style Sets', minWidth: 300, pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: kit.inDocument(styleSetItems()) }));
-    more.classList.add('ribbon-gallery-more'); more.setAttribute('aria-haspopup', 'menu');
+    more.classList.add('ribbon-gallery-more'); collapsedUntilOpened(more, 'menu');
     more.addEventListener('mousedown', e => e.preventDefault());
     for (const control of [themes, colors, fonts, effects]) when(control, () => engineReady() && editable());
     when(spacing, () => engineReady() && !!base.paragraphSpacingItems);

@@ -28,7 +28,24 @@ export function el(spec, attrs = {}, ...children) {
     }
   }
 
+  collapsedUntilOpened(node);
+
   append(node, children);
+  return node;
+}
+
+/**
+ * A button that opens a menu or a list says it is collapsed from the start: openMenu (menu.js) and the ribbon's
+ * flyouts set aria-expanded true while theirs is open and back to false, and until the first opening screen readers
+ * heard no state at all. el() applies it to what it builds; `kind` marks a button built elsewhere as opening one.
+ */
+export function collapsedUntilOpened(node, kind = null) {
+  if (kind) node.setAttribute('aria-haspopup', kind);
+  const popup = node.getAttribute('aria-haspopup');
+  if (popup && popup !== 'false' && popup !== 'dialog' && !node.hasAttribute('aria-expanded')
+    && (node.localName === 'button' || /^(button|combobox|menuitem)$/.test(node.getAttribute('role') || ''))) {
+    node.setAttribute('aria-expanded', 'false');
+  }
   return node;
 }
 

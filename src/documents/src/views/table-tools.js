@@ -4,7 +4,7 @@
 // table-styles.js, table-formula.js) as one undoable transaction each.
 import '../styles/tables.css';
 import { clipText } from '../core/text.js';
-import { el, MOD_KEY, isComposing, amountInRange } from '../ui/dom.js';
+import { el, MOD_KEY, isComposing, amountInRange, collapsedUntilOpened } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { announce } from '../ui/toast.js';
 import { openColorPalette } from '../ui/color-palette.js';
@@ -318,7 +318,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
 
     /* Table Design */
     const more = command('More Table Styles', 'more', e => openMenu({ anchor: more, label: 'Table Styles', minWidth: 300, pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, className: 'table-style-menu', items: inDocument(styleMenuItems()) }));
-    more.classList.add('ribbon-gallery-more'); more.setAttribute('aria-haspopup', 'menu'); noSteal(more); enabled(more);
+    more.classList.add('ribbon-gallery-more'); collapsedUntilOpened(more, 'menu'); noSteal(more); enabled(more);
     large(c.cellShading, { label: 'Shading', icon: 'cellShading' });
     const shading = split(c.cellShading, { label: 'Shading colors', size: 'large', open: (anchor, e) => shadingPalette(anchor, e) });
     enabled(shading.arrow);
