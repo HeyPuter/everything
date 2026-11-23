@@ -1069,9 +1069,12 @@ it('keeps a paragraph whole across a line that ends in a hyphenated word', async
         `BT /F 12 Tf 15 TL 40 330 Td (This first line of the paragraph is quite wide indeed) Tj T* (and here is a short exam${hyphen}) Tj T* (ple of the text that follows on.) Tj ET`,
       ),
     );
+    const blocks = groupTextParagraphs(r.groups);
     expect(
-      groupTextParagraphs(r.groups).map((b) => b.text.slice(0, 20)),
+      blocks.map((b) => b.text.slice(0, 20)),
       hyphen,
     ).toEqual(['This first line of t']);
+    // The word is edited whole: no space opens inside it where the line broke.
+    expect(blocks[0].text, hyphen).toContain('a short exam-ple of');
   }
 });

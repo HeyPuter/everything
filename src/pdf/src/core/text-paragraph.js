@@ -192,7 +192,9 @@ export function groupTextParagraphs(lines) {
     data.upper = Math.min(data.upper, width(previous) + height(previous) * 0.28 + wordWidth(line));
     const offset = paragraph.parts.length;
     const last = paragraph.segments.at(-1);
-    last.text = last.text.trimEnd() + ' ';
+    // A word hyphenated where the line broke goes on after its hyphen, with no space inside it.
+    last.text = last.text.trimEnd();
+    if (!/\p{L}[-\u00ad\u2010]$/u.test(paragraph.text.trimEnd())) last.text += ' ';
     // A paragraph boundary is ordinary editable whitespace, not an explicit hard line break.
     delete last.gap;
     const next = (line.segments || [{ text: line.text, part: 0 }]).map((s) => ({
