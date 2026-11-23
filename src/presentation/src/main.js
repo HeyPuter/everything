@@ -14459,7 +14459,28 @@ function nextCell(obj, from, step) {
 }
 // The in-place editor for one cell. Tab moves on to the next cell and
 // Shift+Tab back, committing on the way.
-function editTableCell(target, row, col) {
+// The cell an arrow key steps to from the cell at row, col (the origin of
+// its merge), passing over the cells a merge covers: null past the table's
+// edge.
+function adjacentCell(obj, from, key) {
+  const dims = P.getTableDimensions(obj);
+  const [dr, dc] = {
+    ArrowUp: [-1, 0],
+    ArrowDown: [1, 0],
+    ArrowLeft: [0, -1],
+    ArrowRight: [0, 1],
+  }[key];
+  let { row, col } = from;
+  for (let guard = dims.rows + dims.cols; guard > 0; guard--) {
+    row += dr;
+    col += dc;
+    if (row < 0 || col < 0 || row >= dims.rows || col >= dims.cols) return null;
+    const origin = mergedInto(obj, row, col);
+    if (origin.row !== from.row || origin.col !== from.col) return origin;
+  }
+  return null;
+}
+function editTableCell(target, row, col, { caret = null } = {}) {
   const i = shapeIndex(target);
   if (i < 0) return;
   const obj = shapes()[i];
@@ -14501,6 +14522,7 @@ function editTableCell(target, row, col) {
   // its formatting.
   const history = trackTextareaEdits(input);
   let move = null,
+    moveCaret = null,
     grow = false;
   const focusTable = () =>
     [...canvas.querySelectorAll(".object-hit")]
@@ -14515,6 +14537,29 @@ function editTableCell(target, row, col) {
     if (e.key.toLowerCase() === "d" && (IS_MAC ? e.metaKey : e.ctrlKey)) {
       e.preventDefault();
       return;
+    }
+    // An arrow at the edge of the cell's text goes on to the cell beside:
+    // Left at the start and Right at the end, Up from the start and Down
+    // from the end.
+    if (
+      ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      input.selectionStart === input.selectionEnd
+    ) {
+      const back = e.key === "ArrowUp" || e.key === "ArrowLeft";
+      const edge = back ? 0 : input.value.length;
+      const next =
+        input.selectionStart === edge && adjacentCell(obj, { row, col }, e.key);
+      if (next) {
+        e.preventDefault();
+        move = next;
+        moveCaret = back ? "end" : "start";
+        input.blur();
+        return;
+      }
     }
     // Tab in the last cell adds a row to go on in; Shift+Tab in the first
     // leaves the table selected.
@@ -14551,7 +14596,7 @@ function editTableCell(target, row, col) {
         });
       // The next cell opens at once, so typing carries straight on while the
       // last cell's text is still being written.
-      if (move) editTableCell(obj, move.row, move.col);
+      if (move) editTableCell(obj, move.row, move.col, { caret: moveCaret });
       else if (grow) {
         const id = P.getShapeId(obj);
         // The table holds the keyboard until the new row's first cell opens.
@@ -14569,7 +14614,10 @@ function editTableCell(target, row, col) {
   );
   canvas.append(input);
   input.focus();
-  input.select();
+  if (caret === "start") input.setSelectionRange(0, 0);
+  else if (caret === "end")
+    input.setSelectionRange(input.value.length, input.value.length);
+  else input.select();
 }
 function tableAction(fn) {
   const obj = currentShape();

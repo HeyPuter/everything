@@ -17341,6 +17341,83 @@ test("Tab steps past the cells a merge covers", async ({ page }) => {
   await expect(page.locator(".object-hit")).toBeFocused();
 });
 
+// The arrow keys at the edge of a cell's text go on to the cell beside it,
+// passing over the cells a merge covers; inside the text they move the
+// caret as usual.
+test("arrow keys at the edge of a cell's text move to the next cell", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const table = P.addSlideTable(P.getSlides(pres)[0], {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(1.5),
+    rows: [
+      ["ab", "c"],
+      ["d", "e"],
+      ["wide", "hidden"],
+    ],
+  });
+  P.mergeTableCells(table, { row: 2, col: 0, rowSpan: 1, colSpan: 2 });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Arrows.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const cell = page.getByRole("textbox", { name: /^Edit cell/ });
+  await page.locator(".object-hit").dblclick({ position: { x: 20, y: 10 } });
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 1");
+  // Inside the text, the arrows move the caret.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 1");
+  await page.keyboard.press("ArrowRight");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 2");
+  await page.keyboard.type("C");
+  await page.keyboard.press("ArrowLeft");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 2");
+  // Down goes to the end of the text first, then on.
+  await page.keyboard.press("ArrowDown");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 2");
+  await page.keyboard.press("ArrowDown");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 2");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 3, column 1");
+  // From the merged cell, Up goes to the cell above its left edge; the
+  // caret comes in at the end of the text it arrives in.
+  await page.keyboard.press("ArrowUp");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 1");
+  await page.keyboard.type("!");
+  await page.keyboard.press("Escape");
+  await expect(cell).toHaveCount(0);
+  await openFileMenu(page);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const saved = await parseDeck(
+    new Uint8Array(await readFile(await (await download).path())),
+  );
+  const shape = P.getSlideShapes(P.getSlides(saved)[0])[0];
+  expect(
+    P.getTableCells(shape)
+      .slice(0, 2)
+      .map((row) => row.map(P.getTableCellText)),
+  ).toEqual([
+    ["ab", "Cc"],
+    ["d!", "e"],
+  ]);
+});
+
 // Tab in a table's last cell let go of the keyboard altogether: the cell
 // closed, the focus fell to the page, and what was typed next went nowhere.
 test("Tab in a table's last cell adds a row and goes on in it", async ({
