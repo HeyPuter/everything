@@ -9931,7 +9931,8 @@ export function createEditor({
   /** Find words or patterns on every page and mark the chosen matches for redaction. */
   async function findRedactDialog() {
     requireAccess('edit');
-    const { REDACTION_PATTERNS, findTextRects, addRedactionMarks } = await loadRedaction();
+    const { REDACTION_PATTERNS, findTextRects, findAnnotationTextRects, addRedactionMarks } =
+      await loadRedaction();
     const query = el('input', { class: 'input', autocomplete: 'off', maxlength: 200 });
     const whole = el('input', { type: 'checkbox', id: 'redact-whole' });
     const patternBoxes = Object.entries(REDACTION_PATTERNS).map(([key, pattern]) => ({
@@ -9968,11 +9969,11 @@ export function createEditor({
           // Every search of the page reads its glyphs once.
           const cache = new Map();
           for (const q of queries)
-            for (const match of await findTextRects(doc, page, q, {
-              wholeWord: whole.checked,
-              report,
-              cache,
-            })) {
+            for (const match of [
+              ...(await findTextRects(doc, page, q, { wholeWord: whole.checked, report, cache })),
+              // What was typed into form fields and comments is not in the page's own text.
+              ...findAnnotationTextRects(doc, page, q, { wholeWord: whole.checked }),
+            ]) {
               const key = JSON.stringify(match.rects);
               if (seen.has(key)) continue;
               seen.add(key);

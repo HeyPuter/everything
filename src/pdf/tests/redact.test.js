@@ -25,6 +25,7 @@ import {
   addRedactionMarks,
   applyRedactions,
   findRedactionMatches,
+  findAnnotationTextRects,
   findTextRects,
   listRedactionMarks,
   overlayTextUnsupported,
@@ -1687,4 +1688,37 @@ it('finds slanted words without taking the letters of the words beside them', as
     ') here',
     's B',
   ]);
+});
+
+// A filled form or a comment holds what was typed in it outside the page's own text: Find text
+// and redact said "No matches found" for a social security number typed into a field.
+it('finds patterns typed into form fields and comments, and redacts the field or comment', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([400, 400]);
+  page.drawText('Applicant', { x: 40, y: 300, size: 12, font });
+  const field = doc.getForm().createTextField('ssn');
+  field.setText('123-45-6789');
+  field.addToPage(page, { x: 40, y: 200, width: 200, height: 24 });
+  const note = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Text',
+      Rect: [300, 300, 320, 320],
+      Contents: PDFString.of('Her number is 234-56-7891'),
+    }),
+  );
+  page.node.lookup(n('Annots')).push(note);
+  const bytes = await doc.save();
+  const loaded = await PDFDocument.load(bytes);
+  const matches = findAnnotationTextRects(loaded, 0, REDACTION_PATTERNS.ssn);
+  expect(matches.map((m) => m.text)).toEqual(['123-45-6789', '234-56-7891']);
+  expect(matches[0].rects).toEqual([[39.5, 199.5, 240.5, 224.5]]);
+  expect(findAnnotationTextRects(loaded, 0, 'number IS')).toHaveLength(1);
+  expect(findAnnotationTextRects(loaded, 0, 'Applicant')).toEqual([]);
+  const { bytes: out } = await redact(bytes, [[0, matches.flatMap((m) => m.rects)]]);
+  const corpus = await recoverable(out);
+  expectGone(corpus, '123-45-6789');
+  expectGone(corpus, '234-56-7891');
+  expect((await PDFDocument.load(out)).getForm().getFields()).toHaveLength(0);
 });
