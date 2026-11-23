@@ -181,6 +181,17 @@ describe("media", () => {
     expect(P.getShapeMedia(shape).options.playAcrossSlides).toBe(true);
     const ids = [...xml.matchAll(/<p:cTn id="(\d+)"/g)].map((m) => m[1]);
     expect(new Set(ids).size).toBe(ids.length);
+    // A count of slides to play across is kept through edits.
+    P.setShapeMediaOptions(shape, {
+      ...P.getShapeMedia(shape).options,
+      acrossSlideCount: 3,
+    });
+    P.setShapeMediaOptions(shape, {
+      ...P.getShapeMedia(shape).options,
+      volume: 0.5,
+    });
+    expect(P.getSlideXmlString(slide)).toContain('numSld="3"');
+    expect(P.getShapeMedia(shape).options.acrossSlideCount).toBe(3);
   });
 });
 

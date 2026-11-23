@@ -275,6 +275,8 @@ export function createShowExtras(ctx, show) {
       kind: media.kind,
       options: o,
       across: media.kind === "audio" && o.playAcrossSlides,
+      // Slides still to play across, its own included.
+      slidesLeft: o.acrossSlideCount ?? Infinity,
       started: false,
       play() {
         player.started = true;
@@ -355,7 +357,7 @@ export function createShowExtras(ctx, show) {
   // playing across slides goes on.
   function leaveMedia() {
     for (const p of new Set([...playing, ...slideMedia.values()]))
-      if (!(p.across && playing.has(p))) p.stop();
+      if (!(p.across && playing.has(p)) || --p.slidesLeft <= 0) p.stop();
     pendingMedia = [];
     slideMedia = new Map();
   }

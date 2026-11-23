@@ -577,6 +577,39 @@ test("a slide set to stop the previous sound stops a sound playing across slides
   expect(await sounding()).toBe(0);
 });
 
+test("a sound set to play across some slides stops after them", async ({
+  page,
+}) => {
+  const pres = deck([
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none" },
+  ]);
+  addLoopingSound(P.getSlides(pres)[0], { playAcrossSlides: true });
+  // As a file written elsewhere says it: across two slides.
+  const part = pres[INTERNAL_PACKAGE].getPart(
+    partName("/ppt/slides/slide1.xml"),
+  );
+  const xml = new TextDecoder().decode(part.data);
+  expect(xml).toContain('numSld="999"');
+  part.data = new TextEncoder().encode(
+    xml.replace('numSld="999"', 'numSld="2"'),
+  );
+  const sounding = await trackMedia(page);
+  await load(page, pres);
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("2 / 4");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("3 / 4");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+});
+
 test("a looping show plays a slide's media from one copy of its bytes", async ({
   page,
 }) => {
