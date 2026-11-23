@@ -45,3 +45,32 @@ test('the everyday names of formats and tasks offer their tools', async ({ page 
     await expect(option(page, tool)).toBeVisible();
   }
 });
+
+// A command the tools pane holds was not found by its own name: "shape" or "underline" found
+// nothing although Add comments offers them, and "draw" found only Measure.
+test("a tool's own commands find it, after the tools named for the words", async ({ page }) => {
+  const find = page.getByRole('combobox', { name: 'Find in PDF', exact: true });
+  const options = page.getByRole('listbox', { name: 'Matching tools' }).getByRole('option');
+  for (const [words, tool] of [
+    ['shape', 'Add comments'],
+    ['arrow', 'Add comments'],
+    ['underline', 'Add comments'],
+    ['strikethrough', 'Add comments'],
+    ['pencil', 'Add comments'],
+    ['callout', 'Add comments'],
+    ['blank page', 'Organize pages'],
+    ['remove page', 'Organize pages'],
+    ['detect fields', 'Prepare a form'],
+    ['lock', 'Protect a PDF'],
+  ]) {
+    await find.fill(words);
+    await expect(option(page, tool)).toBeVisible();
+  }
+  await find.fill('draw');
+  await expect(options.first()).toHaveAccessibleName('Open tool: Add comments');
+  // Tools named for the words still come first.
+  await find.fill('delete page');
+  await expect(options.first()).toHaveAccessibleName('Open tool: Organize pages');
+  await find.fill('rotate');
+  await expect(options.first()).toHaveAccessibleName('Open tool: Organize pages');
+});

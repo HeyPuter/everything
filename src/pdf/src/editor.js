@@ -2192,6 +2192,34 @@ export function createEditor({
   }
   const activeToolOption = () =>
     suggestedTools().findIndex((option) => option.classList.contains('active'));
+  /** The names and hints of a tool's commands, as the tools pane shows them. */
+  function commandWords(entry) {
+    let sections;
+    try {
+      sections = entry.sections?.() || [];
+    } catch {
+      return '';
+    }
+    return sections
+      .flatMap((section) => (section && section.search !== false && section.items) || [])
+      .map((item) => (item ? `${item.label || ''} ${item.hint || ''}` : ''))
+      .join(' ');
+  }
+  /**
+   * The tools every word is found in, those named for it first, then those holding a command of
+   * that name: "shape", "underline" or "blank page" found nothing, though Add comments and
+   * Organize pages offer them.
+   */
+  function matchingTools(words) {
+    const found = (text) => words.every((word) => word.test(text.toLowerCase()));
+    const named = (entry) => `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`;
+    const tools = toolCatalog().filter((entry) => !entry.hidden);
+    const byName = tools.filter((entry) => found(named(entry)));
+    const byCommand = tools.filter(
+      (entry) => !byName.includes(entry) && found(`${named(entry)} ${commandWords(entry)}`),
+    );
+    return [...byName, ...byCommand];
+  }
   function suggestTools() {
     const query = searchInput.value.trim().toLowerCase();
     // Words are matched from their start, as typed: "rot" finds the tool that rotates pages,
@@ -2203,17 +2231,7 @@ export function createEditor({
         (word) =>
           new RegExp(`(?:^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'u'),
       );
-    const matches =
-      query.length < 2
-        ? []
-        : toolCatalog()
-            .filter((entry) => {
-              if (entry.hidden) return false;
-              const text =
-                `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`.toLowerCase();
-              return words.every((word) => word.test(text));
-            })
-            .slice(0, 5);
+    const matches = query.length < 2 ? [] : matchingTools(words).slice(0, 5);
     toolList.replaceChildren(
       ...matches.map((entry, i) =>
         el(
@@ -8069,7 +8087,8 @@ export function createEditor({
         label: 'Organize pages',
         group: 'Create & Edit',
         featured: true,
-        keywords: 'rotate delete move reorder insert extract duplicate split pages',
+        keywords:
+          'rotate delete remove move reorder rearrange insert extract duplicate split pages',
         description:
           'Select pages in the grid, then rotate, move, insert, extract, or delete them. Drag pages to reorder.',
         enter: () => openOrganizer(),
@@ -8193,6 +8212,7 @@ export function createEditor({
         group: 'Review',
         featured: true,
         description: 'Leave notes, highlight text, and mark up pages.',
+        keywords: 'annotate markup draw drawing ink freehand strikethrough',
         permission: 'annotate',
         enter: () => {
           showSidebarTab('comments');
@@ -8425,6 +8445,8 @@ export function createEditor({
               ],
             },
             {
+              // The PDF's own field names are not the tool's commands, for Find text or tools.
+              search: false,
               title: onPage.length
                 ? `Fields on page ${pageIndex + 1} (${formFields.length} in all)`
                 : `No fields on page ${pageIndex + 1}`,
@@ -8538,7 +8560,7 @@ export function createEditor({
         group: 'Protect & Standardize',
         featured: true,
         description: 'Require a password to open the PDF, or limit what others can do with it.',
-        keywords: 'encrypt encryption unlock remove password permissions restrict secure',
+        keywords: 'encrypt encryption lock unlock remove password permissions restrict secure',
         sections: () => [
           {
             title: 'Password',
