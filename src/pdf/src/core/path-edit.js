@@ -1,6 +1,6 @@
 import { PDFArray, PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
 import { parseContent, matrix, decode, pageSource, uniqueName } from './text-edit.js';
-import { inverse, invertible, imageCorners, rewriteOccurrence } from './image-edit.js';
+import { inverse, invertible, imageCorners, rewriteOccurrence, quadClip } from './image-edit.js';
 
 const identity = [1, 0, 0, 1, 0, 0];
 const get = (dict, key) => dict?.lookup(PDFName.of(key));
@@ -129,7 +129,19 @@ export function inspectPaths(doc, index) {
                   inverse: inverse(startState.ctm),
                 },
               ];
-            } else state.unsafe = true;
+            } else {
+              // A four-sided outline, as Word clips a turned picture or shape.
+              const clip =
+                commands[0].op === 'm' &&
+                commands.slice(1).every((c) => c.op === 'l' || c.op === 'h') &&
+                commands.every((c) => c.args.every((t) => Number.isFinite(t.value))) &&
+                quadClip(
+                  commands.filter((c) => c.op !== 'h').map((c) => c.args.map((t) => t.value)),
+                  startState.ctm,
+                );
+              if (clip) state.clips = [...state.clips, clip];
+              else state.unsafe = true;
+            }
           }
           commands = [];
           pendingClip = false;

@@ -25,6 +25,27 @@ export const point = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] *
 /** Whether a matrix can be undone: finite, and not squashed flat. */
 export const invertible = (m) =>
   m.every(Number.isFinite) && Math.abs(m[0] * m[3] - m[1] * m[2]) >= 1e-12;
+/**
+ * A clip drawn as a four-sided outline rather than a rectangle (as Word clips a turned picture):
+ * when it is a parallelogram, as a unit square in its own frame; null for any other shape.
+ */
+export function quadClip(points, ctm) {
+  let corners = points;
+  const [first, last] = [corners[0], corners.at(-1)];
+  if (corners.length === 5 && first[0] === last[0] && first[1] === last[1])
+    corners = corners.slice(0, 4);
+  if (corners.length !== 4) return null;
+  const [a, b, c, d] = corners;
+  // A parallelogram's diagonals share their middle.
+  const tolerance = 1e-6 * (1 + Math.hypot(c[0] - a[0], c[1] - a[1], d[0] - b[0], d[1] - b[1]));
+  if (
+    Math.abs(a[0] + c[0] - b[0] - d[0]) > tolerance ||
+    Math.abs(a[1] + c[1] - b[1] - d[1]) > tolerance
+  )
+    return null;
+  const frame = matrix(ctm, [b[0] - a[0], b[1] - a[1], d[0] - a[0], d[1] - a[1], a[0], a[1]]);
+  return invertible(frame) ? { rect: [0, 0, 1, 1], inverse: inverse(frame) } : null;
+}
 export function inverse(m) {
   const det = m[0] * m[3] - m[1] * m[2];
   if (!m.every(Number.isFinite) || Math.abs(det) < 1e-12) throw error();
@@ -177,6 +198,10 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
             break;
           case 'm':
           case 'l':
+            currentPath.push(
+              a.length === 2 && a.every(Number.isFinite) ? { [command.op]: a } : null,
+            );
+            break;
           case 'c':
           case 'v':
           case 'y':
@@ -197,8 +222,16 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
           case 'b':
           case 'b*':
             if (pendingClip) {
-              if (currentPath.length === 1 && currentPath[0])
-                s.clips = [...s.clips, currentPath[0]];
+              const clip =
+                currentPath.length === 1 && currentPath[0]?.rect
+                  ? currentPath[0]
+                  : currentPath[0]?.m && currentPath.slice(1).every((part) => part?.l)
+                    ? quadClip(
+                        currentPath.map((part) => part.m || part.l),
+                        s.ctm,
+                      )
+                    : null;
+              if (clip) s.clips = [...s.clips, clip];
               else s.unsafe = true;
             }
             currentPath = [];

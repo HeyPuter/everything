@@ -636,3 +636,21 @@ it('frames a straight line by its stroke, not by miter joins it does not have', 
   reopened.transform.forEach((n, k) => expect(n).toBeCloseTo(moved[k], 8));
   expect(reopened.editable).toBe(true);
 });
+it('edits a shape clipped to a four-sided outline, as Word clips a turned shape', async () => {
+  const doc = await raw(
+    'q 200 100 m 300 200 l 350 150 l 250 50 l h W n 0 0 1 rg 260 110 m 290 140 l 300 130 l 270 100 l h f Q ' +
+      'q 250 250 m 330 250 l 330 330 l 260 320 l h W n 0 0 1 rg 270 270 30 30 re f Q',
+  );
+  const [turned, odd] = inspectPaths(doc, 0);
+  expect([turned.editable, odd.editable]).toEqual([true, false]);
+  // It moves within its outline, and no further.
+  const along = [...turned.transform];
+  along[4] += 10;
+  along[5] += 10;
+  editPath(doc, 0, turned, { transform: along });
+  const moved = inspectPaths(await PDFDocument.load(await doc.save()), 0)[0];
+  moved.transform.forEach((n, i) => expect(n).toBeCloseTo(along[i], 8));
+  const outside = [...moved.transform];
+  outside[4] += 100;
+  expect(() => editPath(doc, 0, moved, { transform: outside })).toThrow('frame');
+});

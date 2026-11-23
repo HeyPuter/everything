@@ -641,3 +641,44 @@ it('moves, deletes and replaces a translucent picture that Chrome wraps in a for
   expect(inspectImages(doc, 0)).toHaveLength(1);
   expect((await raster(await doc.save(), 1)).pixels).toEqual(other.pixels);
 });
+
+it('moves a turned picture that Word clips to a four-sided outline instead of a rectangle', async () => {
+  const doc = await fixture(),
+    image = inspectImages(doc, 0)[0].object,
+    page = doc.getPage(0);
+  page.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({ XObject: { Im: doc.context.getObjectRef(image) } }),
+  );
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      doc.context.flateStream(
+        '0.8 0.9 0.7 rg 0 0 400 400 re f ' +
+          // A quarter turn, its outline closed by repeating its first corner.
+          'q 40 300 m 100 300 l 100 220 l 40 220 l 40 300 l h W* n 0 -80 60 0 40 300 cm /Im Do Q ' +
+          // An eighth of a turn, inside a turned frame wider than the picture.
+          'q 200 100 m 300 200 l 350 150 l 250 50 l h W n q 40 40 -20 20 265 95 cm /Im Do Q Q ' +
+          // A four-sided outline that is no parallelogram stays a reason to leave it alone.
+          'q 250 250 m 330 250 l 330 330 l 260 320 l h W n 60 0 0 60 260 260 cm /Im Do Q',
+      ),
+    ),
+  );
+  const [turned, framed, odd] = inspectImages(doc, 0);
+  expect([turned.editable, framed.editable, odd.editable]).toEqual([true, true, false]);
+  // The outline enclosing only the turned picture moves with it.
+  expect(turned.clips).toEqual([]);
+  expect(constrainImage(turned, [0, -80, 60, 0, 200, 390])).toEqual([0, -80, 60, 0, 200, 390]);
+  // A frame wider than its picture, alone in its group, is the picture's own and goes with it.
+  const moved = [...framed.transform];
+  moved[4] += 60;
+  moved[5] -= 60;
+  expect(constrainImage(framed, moved)).toEqual(moved);
+  const before = await raster(await doc.save());
+  editImage(doc, 0, turned, { transform: [0, -80, 60, 0, 200, 390] });
+  const after = await raster(await doc.save());
+  const at = (r, x, y) => [...r.pixels.slice((y * 400 + x) * 4, (y * 400 + x) * 4 + 3)];
+  // The picture shows where it went, and its old place shows the page behind it.
+  expect(at(after, 230, 50)).toEqual(at(before, 70, 140));
+  expect(at(after, 70, 140)).toEqual(at(before, 10, 10));
+});
