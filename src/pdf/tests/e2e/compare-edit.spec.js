@@ -474,3 +474,46 @@ test('the comparison progress bar only moves forward', async ({ page }) => {
   values.forEach((value, i) => expect(value).toBeGreaterThanOrEqual(values[i - 1] ?? 0));
   expect(values.at(-1)).toBe(1);
 });
+
+test('Find text or tools during a comparison opens the Find bar where it can be seen', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Alpha') });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Beta') });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.getByRole('listbox', { name: 'Changes' }).getByRole('option')).toHaveCount(12);
+  // The shortcut is left to the browser's own Find over the comparison, which stays open.
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await page.getByRole('listbox', { name: 'Changes' }).getByRole('option').first().focus();
+  await page.keyboard.press('ControlOrMeta+f');
+  await expect(page.locator('.compare-view')).toBeVisible();
+  await expect(find).toBeHidden();
+  // The Find bar belongs to the page view; it used to open hidden under the comparison. Asked
+  // for in so many words, it closes the comparison, and says so.
+  await page.getByRole('button', { name: 'Find text or tools' }).click();
+  await expect(find).toBeVisible();
+  await expect(find).toBeFocused();
+  await expect(page.locator('.compare-view')).toHaveCount(0);
+  await expect(page.locator('#toast')).toHaveText(
+    'Comparison closed. Choose Compare files to compare again.',
+  );
+  await page.keyboard.type('Alpha');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');
+});

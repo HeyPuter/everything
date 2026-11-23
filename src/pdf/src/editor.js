@@ -14119,11 +14119,17 @@ export function createEditor({
     );
   }
   function openSearch() {
-    // The Find bar belongs to the page view, which Organize pages stands in for.
+    // The Find bar belongs to the page view, which Organize pages and Compare files stand in
+    // for; opened under either, it could not be seen, and took the typing out of sight. A
+    // comparison, which may have taken a while, is closed only by asking for Find in so many
+    // words, and says so.
     closeOrganizer();
+    const compared = !!comparison;
+    closeComparison();
     searchBar.hidden = false;
     searchInput.focus();
     searchInput.select();
+    if (compared) toast('Comparison closed. Choose Compare files to compare again.');
   }
   function resetSearch() {
     clearTimeout(searchTimer);
@@ -14498,6 +14504,9 @@ export function createEditor({
       if (e.shiftKey) safe(P.launchedByPuter() ? saveAs : downloadPdf)();
       else safe(() => save())();
     } else if (modifier && key === 'f') {
+      // While comparing, the browser's own Find searches the comparison and its list of
+      // changes; the comparison stays open.
+      if (comparison) return;
       e.preventDefault();
       openSearch();
     } else if (!claimed && ((modifier && !e.altKey && key === 'g') || e.key === 'F3')) {
