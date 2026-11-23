@@ -16170,6 +16170,8 @@ async function present(options = {}) {
     class: "presenter-counter",
     "aria-live": "polite",
   });
+  const counterText = () =>
+    reading ? `Slide ${n + 1} of ${all.length}` : `${n + 1} / ${all.length}`;
   const previous = iconButton("Previous slide", "ChevronLeft", () =>
       showPrevious(),
     ),
@@ -16436,9 +16438,7 @@ async function present(options = {}) {
     placeLinks(all[n]);
     showInserted.slideShown(all[n], n);
     placeTriggers();
-    counter.textContent = reading
-      ? `Slide ${n + 1} of ${all.length}`
-      : `${n + 1} / ${all.length}`;
+    counter.textContent = counterText();
     syncPrevious();
     next.disabled = false;
     const text = P.getSlideNotes(all[n]) || "";
@@ -16726,7 +16726,7 @@ async function present(options = {}) {
       clearTimeout(typedTimer);
       typedTimer = setTimeout(() => {
         typed = "";
-        counter.textContent = `${n + 1} / ${all.length}`;
+        counter.textContent = counterText();
         setPaused(typedWasPaused);
       }, 2000);
     } else if (e.key === "Enter" && typed) {

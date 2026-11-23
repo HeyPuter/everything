@@ -403,6 +403,25 @@ test("Reading View plays in the window and returns with Escape", async ({
   await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 3");
 });
 
+test("Reading View's counter comes back in its own words after a typed number", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await start(page);
+  await addSlides(page, 2);
+  await page.locator(".slide-item .slide-thumb").first().click();
+  await view(page, "reading");
+  const counter = page
+    .getByRole("dialog", { name: "Reading View" })
+    .locator(".reading-counter");
+  await expect(counter).toHaveText("Slide 1 of 3");
+  await page.keyboard.press("3");
+  await expect(counter).toHaveText("Go to 3…");
+  // No Enter: the number is dropped after a pause.
+  await page.clock.fastForward(2100);
+  await expect(counter).toHaveText("Slide 1 of 3");
+});
+
 test("grid and guides: dialog, snapping, dragging guides, Zoom dialog", async ({
   page,
 }) => {
