@@ -345,6 +345,18 @@ test("equations are pictures that keep their source and reopen for editing", asy
     .toContain("Equation: \\frac{a}{b}");
 });
 
+// A long equation's picture was drawn wider than a canvas can be, and the
+// equation was refused: "The picture could not be drawn."
+test("a long equation goes in", async ({ page }) => {
+  await start(page);
+  await command(page, "equation");
+  const dialog = page.getByRole("dialog", { name: "Equation" });
+  const source = Array.from({ length: 300 }, (_, i) => `a_{${i}}`).join("+");
+  await dialog.getByLabel("Equation (TeX-style)").fill(source);
+  await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+});
+
 test("editing an equation keeps alt text written for it", async ({ page }) => {
   await start(page);
   await command(page, "equation");

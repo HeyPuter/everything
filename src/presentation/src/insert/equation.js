@@ -179,6 +179,7 @@ export const BUILT_IN_EQUATIONS = [
 ];
 
 const PX = 64; // pixels per em in the stored drawing
+const MAX_PNG_SIDE = 16384;
 const DEFAULT_PT = 28;
 
 export function createEquationFeatures(ctx) {
@@ -363,7 +364,10 @@ export function createEquationFeatures(ctx) {
 
   async function pictureFor(source, color, pt) {
     const { svg, width, height } = render(source, color);
-    const png = await svgToPng(svg, width * 2, height * 2);
+    // The fallback picture at twice the size, or less for a long equation:
+    // a canvas wider or taller than the browser allows draws nothing.
+    const scale = Math.min(2, MAX_PNG_SIDE / Math.max(width, height, 1));
+    const png = await svgToPng(svg, width * scale, height * scale);
     // An em of the drawing is the equation's font size on the slide.
     const emu = (px) => Math.round((px / PX) * (pt / 72) * 914400);
     return {
