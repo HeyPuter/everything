@@ -726,12 +726,16 @@ export function autofitTable(model, mode) {
 export function eachSelectedCell(model, fn) {
   const block = model.cellBlock, selection = { ...model.selection }, cells = model.selectedTableCells;
   let changed = false;
-  for (const cell of cells) {
-    const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
-    if (first < 0) continue;
-    model.select(model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length);
-    if (fn(cell)) changed = true;
-  }
+  // Each cell's whole content, an empty last paragraph included (TextDocument.selectedParagraphs).
+  model.inBlockCellPass = true;
+  try {
+    for (const cell of cells) {
+      const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
+      if (first < 0) continue;
+      model.select(model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length);
+      if (fn(cell)) changed = true;
+    }
+  } finally { model.inBlockCellPass = false; }
   if (block) model.setCellBlock(block); else model.select(selection.anchor, selection.focus);
   return changed;
 }

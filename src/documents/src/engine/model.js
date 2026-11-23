@@ -521,8 +521,9 @@ export class TextDocument {
     const [start, end] = this.range;
     const first = this.locate(start).index;
     const located = this.locate(end), last = located.index;
-    // A selection ending at the next paragraph's start does not format that paragraph.
-    const stop = end > start && located.offset === 0 ? last - 1 : last;
+    // A selection ending at the next paragraph's start does not format that paragraph. A block of cells (and each
+    // cell of one in turn) runs to the end of its last cell, an empty last paragraph there included.
+    const stop = end > start && located.offset === 0 && !this.cellBlock && !this.inBlockCellPass ? last - 1 : last;
     return this.paragraphs.slice(first, Math.max(first, stop) + 1);
   }
   /**

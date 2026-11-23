@@ -631,6 +631,22 @@ describe('table commands', () => {
     expect(cellAt(doc, 20, 1).borders?.top).toBeUndefined();
   });
 
+  it('formats an empty last cell of selected rows, and a cell\'s empty last paragraph, with the others', () => {
+    // A text range that ends at the start of a paragraph leaves that paragraph out; a block of cells runs to its end.
+    const { doc } = tableDocument(2, 2), table = doc.tables[0];
+    doc.selectCell(cellAt(doc, 1, 1).id); doc.select(doc.range[0], doc.range[0] + 2); doc.replace('');
+    block(doc, 0, 0, 1, 2);
+    expect(doc.setParagraphFormat({ alignment: 'center' })).toBe(true);
+    const alignments = () => doc.paragraphs.filter(p => p.cellId).map(p => p.format?.alignment);
+    expect(alignments()).toEqual(['center', 'center', 'center', 'center']);
+    // A cell whose text ends in an empty paragraph: Align Right reaches that paragraph too.
+    doc.selectCell(cellAt(doc, 0, 1).id); doc.select(doc.range[0] + 2); doc.insertParagraph();
+    doc.selectCell(cellAt(doc, 0, 1).id);
+    expect(T.setCellAlignment(doc, { horizontal: 'right' })).toBe(true);
+    expect(doc.paragraphs.filter(p => p.cellId === cellAt(doc, 0, 1).id).map(p => [paragraphText(p), p.format?.alignment])).toEqual([['a1', 'right'], ['', 'right']]);
+    expect(table.rows).toHaveLength(2);
+  });
+
   it('draws diagonal borders across the selected cells and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 1, 1, 1, 3);
