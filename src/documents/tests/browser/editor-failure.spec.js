@@ -94,3 +94,19 @@ test('Save As of a read-only macro-enabled document keeps its .docm extension', 
   expect(Object.keys(drive)).toEqual(['Documents/Budget kept.docm']);
   expect(Buffer.from(drive['Documents/Budget kept.docm'], 'base64').equals(buffer)).toBe(true);
 });
+
+// A package picked under "All files" that is not a Word document (an OpenDocument text, here) cannot open, and its
+// original was offered as Minutes.docx: the file it is keeps its own name.
+test('the original of a file that cannot open keeps its own name', async ({ page }) => {
+  const odt = Buffer.from(zipSync({ mimetype: [strToU8('application/vnd.oasis.opendocument.text'), { level: 0 }], 'content.xml': strToU8('<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"/>') }));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('input[type=file][aria-label="Open DOCX file"]').setInputFiles({ name: 'Minutes.odt', mimeType: 'application/vnd.oasis.opendocument.text', buffer: odt });
+  const message = page.locator('.canvas-message.editor-error');
+  await expect(message).toBeVisible();
+  const downloading = page.waitForEvent('download');
+  await message.getByRole('button', { name: 'Download original', exact: true }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe('Minutes.odt');
+  expect(readFileSync(await download.path()).equals(odt)).toBe(true);
+});

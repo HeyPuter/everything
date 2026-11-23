@@ -351,8 +351,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   } });
   const error = e => toast(e?.message || String(e), { icon: 'alert', duration: 8000 });
   // A document open read-only, or not at all, downloads as the file it was: a template or macro-enabled package keeps
-  // its extension (pkg.fileExtension, else the file's name), since Word refuses one named .docx.
-  const originalName = () => `${P.documentStem(doc.name) || 'Untitled document'}${pkg?.fileExtension || /\.(dotx|docm|dotm)$/i.exec(doc.path || doc.blob?.name || '')?.[0].toLowerCase() || '.docx'}`;
+  // its extension (pkg.fileExtension), since Word refuses one named .docx. A file that did not open keeps the name it
+  // came with: one picked under "All files" (an OpenDocument file, say) is no .docx either.
+  const originalName = () => {
+    const stem = P.documentStem(doc.name) || 'Untitled document';
+    if (pkg) return `${stem}${pkg.fileExtension}`;
+    const own = P.sanitizeName(doc.blob?.name || (doc.path ? P.displayName(doc.path) : ''));
+    return /\.[^.]+$/.test(own) && P.stripExtension(own) ? own : `${stem}.docx`;
+  };
   const download = async () => {
     try {
       await ready;
