@@ -11822,6 +11822,42 @@ function editText(target, event = null, { inserted = null } = {}) {
     setSelection(sel[0], sel[1]);
     syncToolbar();
   }
+  // Change Case: `convert` rewrites the selected text, or the word at the
+  // caret, run by run, so each part keeps its formatting. Fields keep their
+  // own text.
+  function transform(convert) {
+    const sel = selection() || [0, text().length];
+    let [start, end] = sel;
+    if (start === end) {
+      const value = textOf(read().runs);
+      const word = value && wordAround(start, value);
+      if (!word) return refocusSoon(sel);
+      [start, end] = word;
+    }
+    const list = read().runs;
+    const original = textOf(list).slice(start, end);
+    const converted = convert(original);
+    if (converted === original) return refocusSoon(sel);
+    remember();
+    runs = readRuns();
+    const changed = runs.slice(splitAt(start), splitAt(end));
+    // The whole selection converts at once, so a sentence or a word that
+    // runs across runs is seen whole; a conversion that changes the length
+    // (ß to SS) goes run by run instead.
+    let pos = 0;
+    for (const run of changed) {
+      const length = run.text.length;
+      if (!run.fld)
+        run.text =
+          converted.length === original.length
+            ? converted.slice(pos, pos + length)
+            : convert(run.text);
+      pos += length;
+    }
+    runs = runs.filter((run) => run.text);
+    render();
+    refocusSoon([start, start + textOf(changed).length]);
+  }
   function toggle(key) {
     const sel = selection() || [0, text().length];
     let [start, end] = sel;
@@ -12329,6 +12365,7 @@ function editText(target, event = null, { inserted = null } = {}) {
       setSelection(from, to);
       apply({ baseline: 30000 }, { refocus: false });
     },
+    transform,
   };
   review.attachEditor(richEditor);
   input.focus();

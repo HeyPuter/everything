@@ -1,7 +1,7 @@
 // Editing text on the canvas: what the keys do to the runs and paragraphs
 // of the text being edited.
 import { test, expect } from "@playwright/test";
-import { installMenuNow } from "./editor-commands.js";
+import { installMenuNow, ribbonButton } from "./editor-commands.js";
 
 const slideSvg = async (page) =>
   decodeURIComponent(
@@ -119,4 +119,41 @@ test("an input method typing over paragraphs keeps the formatting after it", asy
     "font-style",
     "normal",
   );
+});
+
+test("Change Case while editing changes the selected text, keeping its runs", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "One two three");
+  const press = (key, times) => pressKey(page, key, times);
+  // Bold "wo th", then select "two three".
+  await press("ArrowLeft", 3);
+  await press("Shift+ArrowLeft", 5);
+  await page.keyboard.press("ControlOrMeta+b");
+  await press("ArrowRight", 4);
+  await press("Shift+ArrowLeft", 9);
+  await (await ribbonButton(page, "Home", "change-case")).click();
+  await page.getByRole("menuitem", { name: "UPPERCASE" }).click();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveText("One TWO THREE");
+  await expect(editor.locator("[data-run]", { hasText: "WO TH" })).toHaveCSS(
+    "font-weight",
+    "700",
+  );
+  // The text stays selected, and undo in the editor takes the change back.
+  expect(await page.evaluate(() => getSelection().toString())).toBe(
+    "TWO THREE",
+  );
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(editor).toHaveText("One two three");
+  // With no selection, the word at the caret changes.
+  await press("ArrowLeft");
+  await press("ArrowRight", 2);
+  await (await ribbonButton(page, "Home", "change-case")).click();
+  await page.getByRole("menuitem", { name: "Capitalize Each Word" }).click();
+  await expect(editor).toHaveText("One Two three");
+  await page.keyboard.press("Escape");
+  const svg = await slideSvg(page);
+  expect(svg).toMatch(/font-weight="700"[^>]*>wo th</);
+  expect(svg.replace(/<[^>]+>/g, "")).toContain("One Two three");
 });
