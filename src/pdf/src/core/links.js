@@ -3,7 +3,7 @@
  * links are invisible rectangles, as most editors make them; readers show the pointer over them.
  */
 import { PDFDict, PDFName, PDFRef, PDFString } from 'pdf-lib';
-import { annotationForEdit, annotationList, annotationsOf } from './structure.js';
+import { annotationForEdit, annotationKey, annotationList, annotationsOf } from './structure.js';
 
 const name = PDFName.of;
 export const MAX_URL_LENGTH = 2048;
@@ -11,9 +11,17 @@ function requireEditableLink(dict) {
   const flags = dict.lookup(name('F'))?.asNumber?.() || 0;
   if (flags & (64 | 128)) throw new Error('This link is read-only or locked.');
 }
-/** PDF.js names annotations by object number and, when not zero, generation: "12R", "12R1". */
-export const annotationId = (ref) =>
-  ref instanceof PDFRef ? `${ref.objectNumber}R${ref.generationNumber || ''}` : String(ref);
+/**
+ * PDF.js names annotations by object number and, when not zero, generation: "12R", "12R1". A
+ * link written into Annots directly is named by its `position` there, as the editor pairs it
+ * with PDF.js's own ID for it (see directAnnotationIds).
+ */
+export const annotationId = (ref, position) =>
+  ref instanceof PDFRef
+    ? `${ref.objectNumber}R${ref.generationNumber || ''}`
+    : position === undefined
+      ? String(ref)
+      : annotationKey(ref, position);
 
 /** The address schemes a link in a PDF may open. PDF.js allows the same set, plus ftp. */
 const OPEN_PROTOCOLS = ['http:', 'https:', 'ftp:', 'mailto:', 'tel:'];
@@ -118,10 +126,10 @@ export function addLink(doc, index, { rect, url, page } = {}) {
 /** Change this page's link destination, preserving its appearance and bounds. */
 export function updateLink(doc, index, id, destination) {
   const annots = annotationsOf(doc.getPage(index));
-  for (const ref of annots?.asArray() ?? []) {
+  for (const [position, ref] of (annots?.asArray() ?? []).entries()) {
     const dict = doc.context.lookup(ref);
     if (
-      annotationId(ref) !== id ||
+      annotationId(ref, position) !== id ||
       !(dict instanceof PDFDict) ||
       dict.lookup(name('Subtype')) !== name('Link')
     )
@@ -142,7 +150,7 @@ export function listLinks(doc, index) {
   const annots = annotationsOf(doc.getPage(index));
   if (!annots) return [];
   const links = [];
-  for (const ref of annots.asArray()) {
+  for (const [position, ref] of annots.asArray().entries()) {
     const dict = doc.context.lookup(ref);
     if (!(dict instanceof PDFDict) || dict.lookup(name('Subtype')) !== name('Link')) continue;
     const action = dict.lookup(name('A'));
@@ -151,7 +159,7 @@ export function listLinks(doc, index) {
         ? action.lookup(name('URI'))
         : null;
     links.push({
-      id: annotationId(ref),
+      id: annotationId(ref, position),
       rect:
         dict
           .lookup(name('Rect'))
@@ -171,7 +179,7 @@ export function removeLink(doc, index, id) {
     const ref = annots.get(i);
     const dict = doc.context.lookup(ref);
     if (
-      annotationId(ref) === id &&
+      annotationId(ref, i) === id &&
       dict instanceof PDFDict &&
       dict.lookup(name('Subtype')) === name('Link')
     ) {

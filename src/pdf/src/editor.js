@@ -2906,7 +2906,8 @@ export function createEditor({
       ]);
       if (token !== pageRenderGeneration || destroyed) return;
       directIds = new Map();
-      if (annotations.some((a) => COMMENT_KINDS[a.subtype] && !/^\d+R\d*$/.test(a.id))) {
+      const pairs = (a) => COMMENT_KINDS[a.subtype] || a.subtype === 'Link';
+      if (annotations.some((a) => pairs(a) && !/^\d+R\d*$/.test(a.id))) {
         const doc =
           editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
@@ -2970,7 +2971,7 @@ export function createEditor({
           const url = a.url || safeLinkUrl(a.unsafeUrl);
           const action = !url && !a.dest && namedPage(a.action, 0) != null ? a.action : null;
           return {
-            id: a.id,
+            id: directIds.get(a.id) ?? a.id,
             rect: a.rect,
             url,
             address: a.unsafeUrl || a.url || '',
