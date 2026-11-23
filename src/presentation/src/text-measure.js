@@ -189,3 +189,5 @@ export function fontInstalled(family) {
   installed.set(family, answer);
   return answer;
 }
+// A document's own fonts can supply a typeface once they load.
+fontInstalled.clear = () => installed.clear();

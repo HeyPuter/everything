@@ -2156,7 +2156,10 @@ export function preview(pres, slide, layer = null, { prompts = false } = {}) {
   );
 }
 export async function prepareDeckFonts(pres, options) {
-  if (await preparePresentationFonts(pres, options)) measureText.clear();
+  if (await preparePresentationFonts(pres, options)) {
+    measureText.clear();
+    fontInstalled.clear();
+  }
 }
 // A presentation is held to the 200 MB its archive may unpack to, so one
 // made here with photos or a video (each up to 150 MB) opens again once
