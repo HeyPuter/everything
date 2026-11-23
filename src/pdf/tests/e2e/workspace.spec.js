@@ -153,7 +153,8 @@ test('applying a text draft hands the focus to the page instead of the body', as
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
-  await expect(page.locator('.drawing-overlay')).toBeFocused();
+  // Saved from the keyboard, the new text's own target takes the focus.
+  await expect(page.getByRole('button', { name: 'Edit text: hello', exact: true })).toBeFocused();
   await page.getByRole('button', { name: 'Place at page center', exact: true }).click();
   await page.getByRole('textbox', { name: 'Text to add', exact: true }).fill('again');
   await clickAway(page);

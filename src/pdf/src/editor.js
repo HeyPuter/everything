@@ -5690,6 +5690,41 @@ export function createEditor({
     } else if (focus) edit.positionControl.handle.focus({ preventScroll: true });
     syncStyleButtons();
   }
+  /**
+   * Finds `edit`'s text once it is saved and the page indexed again: the editable run with its
+   * words (spaces aside, as wrapping moves them) nearest where it was.
+   */
+  function savedTextRun(edit) {
+    const text = drawnText(edit, edit.input.value).replace(/\s/g, '');
+    const anchor = edit.run
+      ? [edit.run.transform[4] + edit.offset[0], edit.run.transform[5] + edit.offset[1]]
+      : [edit.point.x, edit.point.y];
+    return () => {
+      const candidates = textRuns.filter(
+        (run) => run.editable && run.text.replace(/\s/g, '') === text,
+      );
+      candidates.sort(
+        (a, b) =>
+          Math.hypot(a.transform[4] - anchor[0], a.transform[5] - anchor[1]) -
+          Math.hypot(b.transform[4] - anchor[0], b.transform[5] - anchor[1]),
+      );
+      return candidates[0];
+    };
+  }
+  /**
+   * Save the text from the keyboard (Ctrl/⌘ Enter). The keyboard carries on from the saved
+   * text's own target, as it does when the edit is cancelled, rather than from the page's start.
+   */
+  async function finishTextFromKeyboard() {
+    const edit = textEdit;
+    if (!edit) return;
+    const saved = savedTextRun(edit);
+    await finishTextEdit();
+    if (destroyed || textEdit || ![document.body, overlay].includes(document.activeElement)) return;
+    const run = saved();
+    const target = run && textTargetOf.get(run);
+    if (target?.isConnected) target.focus({ preventScroll: true });
+  }
   async function checkpointText(edit) {
     // Typing remains one native undo session. Object drags are individual document edits.
     if (textEdit !== edit || edit.editing || !pendingTextEdit()) return;
@@ -5699,10 +5734,7 @@ export function createEditor({
     const focusedHandle = edit.handles.contains(document.activeElement)
       ? document.activeElement.getAttribute('aria-label')
       : null;
-    const text = drawnText(edit, edit.input.value).replace(/\s/g, '');
-    const anchor = edit.run
-      ? [edit.run.transform[4] + edit.offset[0], edit.run.transform[5] + edit.offset[1]]
-      : [edit.point.x, edit.point.y];
+    const saved = savedTextRun(edit);
     textCheckpoint = edit;
     try {
       await finishTextEdit();
@@ -5715,18 +5747,11 @@ export function createEditor({
         tool !== selectedTool
       )
         return;
-      const candidates = textRuns.filter(
-        (run) => run.editable && run.text.replace(/\s/g, '') === text,
-      );
-      candidates.sort(
-        (a, b) =>
-          Math.hypot(a.transform[4] - anchor[0], a.transform[5] - anchor[1]) -
-          Math.hypot(b.transform[4] - anchor[0], b.transform[5] - anchor[1]),
-      );
-      if (candidates[0]) {
+      const run = saved();
+      if (run) {
         const focus =
           document.activeElement === document.body || document.activeElement === overlay;
-        const restored = await textDialog(null, candidates[0], {
+        const restored = await textDialog(null, run, {
           editing: false,
           reveal: false,
           focus,
@@ -6221,7 +6246,7 @@ export function createEditor({
         leaveTextEdit(overlay);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        safe(() => finishTextEdit())();
+        safe(finishTextFromKeyboard)();
       }
     });
     const error = el('p', { class: 'text-edit-error', role: 'alert', hidden: true });
@@ -6328,7 +6353,7 @@ export function createEditor({
         leaveTextEdit(overlay);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        safe(() => finishTextEdit())();
+        safe(finishTextFromKeyboard)();
       } else if (
         e.target === edit.positionControl.handle &&
         (e.key === 'Enter' || e.key === 'F2')

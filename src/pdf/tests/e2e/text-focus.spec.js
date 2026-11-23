@@ -89,7 +89,8 @@ for (const action of ['keyboard', 'download', 'save', 'tool'])
                   : action === 'tool'
                     ? // The tool pressed keeps the focus, as it does with no draft open.
                       page.getByRole('button', { name: 'Select', exact: true })
-                    : page.locator('.drawing-overlay'),
+                    : // Saved from the keyboard, the text's own target takes the focus.
+                      page.getByRole('button', { name: 'Edit text: Keep this draft', exact: true }),
         ).toBeFocused();
         if (fails) {
           await expect(input).toHaveValue('Keep this draft');
@@ -122,3 +123,41 @@ for (const action of ['keyboard', 'download', 'save', 'tool'])
         await page.getByRole('button', { name: 'Redo', exact: true }).click();
         await expect(target).toBeVisible();
       });
+
+test('text saved from the keyboard hands the focus to its own target, so Tab carries on from it', async ({
+  page,
+  browserName,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  for (const [i, words] of ['First line', 'Second line', 'Third line'].entries())
+    sheet.drawText(words, { x: 40, y: 400 - i * 60, size: 16 });
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'lines.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit text: Second line', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
+  await expect(input).toBeFocused();
+  await input.fill('Second line, revised');
+  await input.press('ControlOrMeta+Enter');
+  await expect(input).toHaveCount(0);
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(
+    page.getByRole('button', { name: 'Edit text: Second line, revised', exact: true }),
+  ).toBeFocused();
+  // Safari moves Tab between text fields only, unless asked to with Option.
+  await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+  await expect(
+    page.getByRole('button', { name: 'Edit text: Third line', exact: true }),
+  ).toBeFocused();
+});
