@@ -573,6 +573,38 @@ describe('sanitizeDocument', () => {
     expect(contains(corpus, 'Shown words')).toBe(true);
   });
 
+  it('keeps a PDF/A file’s identification, and nothing else, when it removes metadata', async () => {
+    const { convertToPdfA, pdfaIdentification, pdfaSaveOptions, preflightPdfA } =
+      await import('../src/core/pdfa.js');
+    const { readFileSync } = await import('node:fs');
+    const assets = new URL('../node_modules/pdfjs-dist/', import.meta.url);
+    const doc = await PDFDocument.create();
+    doc.setTitle('Merger plan');
+    doc.setAuthor('Secret Author');
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([300, 300]).drawText('Archived', { x: 20, y: 200, size: 12, font });
+    const session = new PdfSession(await doc.save());
+    await session.change(
+      (current) =>
+        convertToPdfA(current, {
+          part: 2,
+          conformance: 'b',
+          loadAsset: async (path) => new Uint8Array(readFileSync(new URL(path, assets))),
+        }),
+      { saveOptions: pdfaSaveOptions(2) },
+    );
+    await session.change(async (current) => {
+      await sanitizeDocument(current);
+    });
+    const cleaned = await PDFDocument.load(session.bytes, { updateMetadata: false });
+    expect(pdfaIdentification(cleaned)).toEqual({ part: 2, conformance: 'b' });
+    const issues = preflightPdfA(cleaned, { part: 2, conformance: 'b', bytes: session.bytes });
+    expect(issues.issues.filter((issue) => issue.severity === 'error')).toEqual([]);
+    const corpus = await recoverable(session.bytes);
+    for (const secret of ['Secret Author', 'Merger plan'])
+      expect(contains(corpus, secret), secret).toBe(false);
+  });
+
   it('counts nothing when the chosen kinds are absent', async () => {
     const doc = await PDFDocument.create();
     doc.addPage([400, 400]);
