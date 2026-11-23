@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { PDFDocument } from 'pdf-lib';
 
 // A message of two lines sat over the top edge of the page controls floating at the foot of
 // the page view, and an error message stays there until the next press or key.
@@ -27,4 +28,33 @@ test('a long message stays clear of the page controls', async ({ page }) => {
     message.y < controls.y + controls.height &&
     controls.y < message.y + message.height;
   expect(overlap).toBe(false);
+});
+
+// A file name without spaces (underscores, a camera's numbering) ran out of the message box and
+// past the edge of a phone's screen, where the end of it could not be read.
+test('a message naming a long file keeps the name inside its box', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  await page.goto('/');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const doc = await PDFDocument.create();
+  doc.addPage();
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles([
+    {
+      name: 'Quarterly_financial_statement_consolidated_balance_sheet_2026_final_v12.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await doc.save()),
+    },
+    { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('notes') },
+  ]);
+  const toast = page.locator('#toast');
+  await expect(toast).toHaveText(/One PDF opens at a time/);
+  const { scrollWidth, clientWidth } = await toast.evaluate((node) => ({
+    scrollWidth: node.scrollWidth,
+    clientWidth: node.clientWidth,
+  }));
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 });

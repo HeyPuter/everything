@@ -2356,6 +2356,8 @@ kbd {
   font-size: 13px;
   text-align: center;
   line-height: 1.5;
+  /* A file name without spaces breaks rather than running past the edge of a phone. */
+  overflow-wrap: anywhere;
   /* It holds no controls, and on a phone it can sit over the selection dock for a few
      seconds: taps go through to whatever it covers. */
   pointer-events: none;
