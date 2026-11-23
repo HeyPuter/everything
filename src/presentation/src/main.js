@@ -7189,6 +7189,15 @@ function ribbonApi() {
       mutateShape(obj, (obj) => {
         P.setShapeImageOpacity(obj, 1);
         P.setShapeImageBrightness(obj, 0);
+        // Every correction, color change and artistic effect goes too.
+        P.setShapeImageContrast(obj, null);
+        P.setShapePictureRecolor(obj, { kind: "none" });
+        P.setShapePictureAdjustments(obj, {
+          saturation: null,
+          temperature: null,
+          sharpness: null,
+          artistic: null,
+        });
         P.setShapeImageCrop?.(obj, { left: 0, top: 0, right: 0, bottom: 0 });
         P.setShapeFlip?.(obj, { horizontal: false, vertical: false });
       });
