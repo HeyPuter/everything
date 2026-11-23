@@ -2054,6 +2054,12 @@ dialog.leave-save-dialog {
 .dialog-body .stack > .btn {
   justify-content: flex-start;
 }
+/* A job's progress (recognizing text, exporting, comparing) spans the dialog in the app's own
+   color, rather than a short bar in the browser's. */
+.dialog-body progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
 .dialog-body label {
   display: block;
   font-size: 12px;
