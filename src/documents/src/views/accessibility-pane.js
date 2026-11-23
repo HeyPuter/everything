@@ -11,7 +11,7 @@ const KEEP_RUNNING = preference('documents:accessibility-live', true);
 const SEVERITY = { error: 'Errors', warning: 'Warnings', tip: 'Tips' };
 const FIX_LABEL = { altText: 'Add description…', headerRow: 'Use first row as header', autoColor: 'Use automatic color', clearHighlight: 'Remove highlight', removeEmpty: 'Remove empty paragraphs', collapseBlanks: 'Use a single space', deleteRow: 'Delete row' };
 
-export function createAccessibilityPane({ editor, pkg, error, onState = () => {} }) {
+export function createAccessibilityPane({ editor, pkg, error, onState = () => {}, editAltText = null }) {
   // The body last checked and its edit count then: a package reopened in place (a design change) has a new body,
   // whose count starts again.
   let issues = [], checkedBody = null, checkedRevision = -1, timer = null;
@@ -52,7 +52,7 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
           el('p.rv-why', {}, RULES[rule].why),
           ...items.map(issue => el('div.rv-item.rv-issue', { dataset: { rule } },
             el('button.rv-issue-target', { type: 'button', onclick: () => reveal(editor(), issue.start, issue.end) }, issue.detail),
-            issue.fix && fixesShown ? button(FIX_LABEL[issue.fix.kind] || 'Fix', () => fix(issue)) : null)))));
+            issue.fix && fixesShown && (!issue.fix.pane || editAltText) ? button(FIX_LABEL[issue.fix.kind] || 'Fix', () => fix(issue)) : null)))));
     }).filter(Boolean));
   }
   function schedule() {
@@ -82,7 +82,12 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
     const at = (start, end = start) => engine.model.select(start, end);
     const tableCell = cellId => { const index = engine.model.paragraphs.findIndex(p => p.cellId === cellId); let offset = 0; for (let i = 0; i < index; i++) offset += engine.model.paragraphs[i].runs.reduce((n, r) => n + r.text.length, 0) + 1; return offset; };
     try {
-      if (kind === 'altText') {
+      if (kind === 'altText' && issue.fix.pane) {
+        // A shape, chart or other drawing kept whole takes its description in the Alt Text pane, which writes it
+        // into the drawing (and can mark it decorative instead).
+        reveal(engine, issue.start, issue.end);
+        if (engine.model.selectedImage) { editAltText?.(); return; }
+      } else if (kind === 'altText') {
         const text = await promptDialog({ title: 'Picture description', label: 'Description', multiline: true, confirmLabel: 'Apply', hint: 'Describe what the picture shows and why it matters, in a sentence or two.' });
         if (!text || editor() !== engine || !(issue = current(issue))) return;
         engine.execute(() => { at(issue.start, issue.end); engine.model.setImageProperties({ alt: text }); });

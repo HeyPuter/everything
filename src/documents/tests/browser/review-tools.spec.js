@@ -200,6 +200,31 @@ test('Check Accessibility finds problems and applies quick fixes', async ({ page
   expect(errors).toEqual([]);
 });
 
+test('a shape without alternative text gets its description in the Alt Text pane from the Accessibility pane', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'A page with a shape.');
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Shapes', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Oval', exact: true }).press('Enter');
+  await expect(page.locator('#ribbon-tab-shapeFormat')).toBeVisible();
+  await input.focus(); await select(input, 0);
+  await onTab(page, 'review');
+  await (await reviewButton(page, 'Check Accessibility', 'Accessibility')).click();
+  const pane = page.getByRole('complementary', { name: 'Accessibility pane' });
+  const issue = pane.locator('.rv-issue', { hasText: 'Oval' });
+  // A drawing kept whole has its description written into it by the Alt Text pane, so the fix opens that pane on it.
+  await issue.getByRole('button', { name: 'Add description…' }).click();
+  const description = page.getByRole('complementary', { name: 'Alt Text pane' }).getByRole('textbox', { name: 'Description' });
+  await expect(description).toBeFocused();
+  await page.keyboard.type('A blue oval');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(pane).not.toContainText('Missing alternative text');
+  const { parts } = await exported(page, info, 'shape-alt-text.docx');
+  expect(strFromU8(parts['word/document.xml'])).toMatch(/<wp:docPr [^>]*descr="A blue oval"/);
+  expect(errors).toEqual([]);
+});
+
 test('an accessibility quick fix applies where its issue is now after an edit before it', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const input = await newDocument(page, 'Hello    world and text');
