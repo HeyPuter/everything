@@ -12,6 +12,8 @@ import {
   slideTitle,
   shapeLabel,
   removeSlides,
+  removeAnyShape,
+  detachShapeComments,
 } from "../model.js";
 
 // ---- Matching ---------------------------------------------------------------
@@ -307,7 +309,11 @@ export function acceptChange(mine, theirs, item) {
     case "objectDeleted": {
       const shape = a && P.findShapeById(a, item.shapeId);
       if (!shape) return false;
-      P.removeShape(shape);
+      // Its animations go, and its comments stay on the slide: the next
+      // object added is given its id.
+      const detach = detachShapeComments(mine, a, [item.shapeId]);
+      removeAnyShape(a, shape);
+      detach();
       return true;
     }
     case "textChanged":
