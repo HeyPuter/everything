@@ -55,6 +55,7 @@ import {
   followConnectors,
   groupFrames,
   fitGroups,
+  connectorFollowers,
   hasSlideJump,
   slideTitle,
   slideDescription,
@@ -10231,12 +10232,46 @@ function settleDragLayers(image) {
       if (dragLayers === layers) clearDragLayers();
     });
 }
+// The CSS transform that takes a following connector's layer from its ends
+// as drawn to where they go: the ends that ride with the drag move by its
+// offset (dx, dy, in EMU), and the line turns and stretches between them
+// while keeping its thickness. `scale` is canvas pixels per EMU.
+function followerTransform({ drawn, target, rides }, dx, dy, scale) {
+  const goal = (key) => ({
+    x: (target[key].x + (rides[key] ? dx : 0)) * scale,
+    y: (target[key].y + (rides[key] ? dy : 0)) * scale,
+  });
+  const S = { x: drawn.start.x * scale, y: drawn.start.y * scale },
+    E = { x: drawn.end.x * scale, y: drawn.end.y * scale };
+  const S2 = goal("start"),
+    E2 = goal("end");
+  const from = Math.hypot(E.x - S.x, E.y - S.y),
+    to = Math.hypot(E2.x - S2.x, E2.y - S2.y);
+  if (from < 1 || to < 1) return `translate(${S2.x - S.x}px, ${S2.y - S.y}px)`;
+  const t1 = Math.atan2(E.y - S.y, E.x - S.x),
+    t2 = Math.atan2(E2.y - S2.y, E2.x - S2.x);
+  const k = to / from;
+  const c1 = Math.cos(t1),
+    s1 = Math.sin(t1),
+    c2 = Math.cos(t2),
+    s2 = Math.sin(t2);
+  // Turn the line onto the x axis, stretch it along there, turn it back.
+  const a = c2 * k * c1 + s2 * s1,
+    c = c2 * k * s1 - s2 * c1,
+    b = s2 * k * c1 - c2 * s1,
+    d = s2 * k * s1 + c2 * c1;
+  const e = S2.x - (a * S.x + c * S.y),
+    f = S2.y - (b * S.x + d * S.y);
+  return `matrix(${a}, ${b}, ${c}, ${d}, ${e}, ${f})`;
+}
 // `ids` are top-level objects that move together. Returns the drag's handle
 // on its layers: place(transform, origin) moves them, land(applied) hands over to
 // the slide's own picture once the edit (a mutate promise, or null for none)
 // has drawn it. Null when an object in motion lies inside a group that stays
 // put: the slide cannot be split there, and the outline moves alone.
-function liftDragLayers(canvas, s, ids) {
+// `following` are top-level connectors that each take a layer of their
+// own, which follow(id, transform) reshapes as their ends move.
+function liftDragLayers(canvas, s, ids, following = new Set()) {
   clearDragLayers();
   const parents = groupParents(s);
   const top = P.getSlideShapes(s).filter(
@@ -10247,14 +10282,25 @@ function liftDragLayers(canvas, s, ids) {
     return null;
   const runs = [];
   for (const shape of top) {
-    const moving = ids.has(key(shape));
+    const id = key(shape);
+    const kind = ids.has(id)
+      ? "moving"
+      : following.has(id)
+        ? `follow:${id}`
+        : "still";
     const last = runs.at(-1);
-    if (last?.moving === moving) last.ids.add(key(shape));
-    else runs.push({ moving, ids: new Set([key(shape)]) });
+    if (last?.kind === kind && kind !== `follow:${id}`) last.ids.add(id);
+    else
+      runs.push({
+        kind,
+        moving: kind === "moving",
+        follows: kind === "still" || kind === "moving" ? null : id,
+        ids: new Set([id]),
+      });
   }
   // The background stays put under everything.
-  if (runs[0]?.moving !== false)
-    runs.unshift({ moving: false, ids: new Set() });
+  if (runs[0]?.kind !== "still")
+    runs.unshift({ kind: "still", moving: false, ids: new Set() });
   const prompts = canvasPrompts(s);
   const images = runs.map((run, i) =>
     el("img", {
@@ -10270,6 +10316,10 @@ function liftDragLayers(canvas, s, ids) {
     }),
   );
   const moving = images.filter((_, i) => runs[i].moving);
+  const followers = new Map(
+    runs.map((run, i) => [run.follows, images[i]]).filter(([id]) => id != null),
+  );
+  const shapes = new Map();
   const layers = { canvas, images, dragging: true };
   let transform = "",
     origin = "",
@@ -10278,6 +10328,10 @@ function liftDragLayers(canvas, s, ids) {
     for (const image of moving) {
       image.style.transform = transform;
       image.style.transformOrigin = origin;
+    }
+    for (const [id, image] of followers) {
+      image.style.transform = shapes.get(id) || "";
+      image.style.transformOrigin = "0 0";
     }
   };
   // Shown once every layer can be painted; until then the outline leads.
@@ -10297,6 +10351,14 @@ function liftDragLayers(canvas, s, ids) {
       transform = nextTransform;
       origin = nextOrigin;
       if (dragLayers === layers) place();
+    },
+    follow(id, nextTransform) {
+      shapes.set(id, nextTransform);
+      const image = followers.get(id);
+      if (image && dragLayers === layers) {
+        image.style.transform = nextTransform;
+        image.style.transformOrigin = "0 0";
+      }
     },
     land(applied) {
       landed = true;
@@ -10436,21 +10498,30 @@ function startDrag(e, shape, mode = "move") {
   // moves on the group's layer. A resize keeps to the outline, since a
   // stretched picture would show text and lines distorted.
   let lift;
+  // Connectors glued to what moves are reshaped along with it.
+  let followers = [];
   const lifted = () => {
-    if (lift === undefined)
+    if (lift === undefined) {
+      const ids = [
+        ...(carried ? [] : [P.getShapeId(obj)]),
+        ...companions.map((c) => c.id),
+      ];
+      if (mode === "move") {
+        const parents = groupParents(slide());
+        followers = connectorFollowers(doc.pres, slide(), new Set(ids)).filter(
+          (f) => !parents.has(f.id),
+        );
+      }
       lift =
         mode === "move" || mode === "rotate"
           ? liftDragLayers(
               canvas,
               slide(),
-              new Set(
-                [
-                  ...(carried ? [] : [P.getShapeId(obj)]),
-                  ...companions.map((c) => c.id),
-                ].map(String),
-              ),
+              new Set(ids.map(String)),
+              new Set(followers.map((f) => String(f.id))),
             )
           : null;
+    }
     return lift;
   };
   const pct = (v, total) => `${(v / total) * 100}%`;
@@ -10517,10 +10588,17 @@ function startDrag(e, shape, mode = "move") {
     if (snapped) candidate = snapped.bounds;
     showGuides(canvas, snapped?.guides || [], size);
     next = mode === "move" ? withinSlide(candidate) : candidate;
-    if (mode === "move")
+    if (mode === "move") {
       lifted()?.place(
         `translate(${pct(next.x - b.x, size.cx)}, ${pct(next.y - b.y, size.cy)})`,
       );
+      const scale = rect.width / size.cx;
+      for (const f of followers)
+        lift?.follow(
+          String(f.id),
+          followerTransform(f, next.x - b.x, next.y - b.y, scale),
+        );
+    }
     placeHit(overlay, normalized(next), size, rotation);
     if (box) placeSelection(box, normalized(next), size, rotation);
     for (const c of companions)

@@ -2207,6 +2207,47 @@ export function followConnectors(pres, slide, glue) {
     });
   }
 }
+// While objects are dragged: the glued connectors that follow them, with the
+// ends as drawn and where each end goes before the drag's own offset (on
+// its shape's site), and which ends ride with the drag. `moving` holds the
+// ids of the objects in motion; what their groups hold moves with them.
+export function connectorFollowers(pres, slide, moving) {
+  const parents = groupParents(slide);
+  const carried = (id) => {
+    const seen = new Set();
+    for (let at = id; at != null && !seen.has(at);) {
+      if (moving.has(at)) return true;
+      seen.add(at);
+      const group = parents.get(at);
+      at = group ? P.getShapeId(group) : null;
+    }
+    return false;
+  };
+  const out = [];
+  for (const shape of P.getSlideShapes(slide)) {
+    if (P.getShapeKind(shape) !== "connector") continue;
+    const id = P.getShapeId(shape);
+    if (carried(id)) continue;
+    const glue = P.getConnectorConnections(shape);
+    const rides = {
+      start: !!glue.start && carried(glue.start.id),
+      end: !!glue.end && carried(glue.end.id),
+    };
+    if (!rides.start && !rides.end) continue;
+    const place = shownPlace(pres, shape, parents);
+    if (!place) continue;
+    const [start, end] = connectorEnds(place);
+    const drawn = { start, end };
+    const target = { start, end };
+    for (const key of ["start", "end"]) {
+      const target_ = glue[key] && P.findShapeById(slide, glue[key].id);
+      const at = target_ && siteOnSlide(pres, target_, glue[key].site, parents);
+      if (at) target[key] = at;
+    }
+    out.push({ id, drawn, target, rides });
+  }
+  return out;
+}
 // Whether a shape's click action jumps to a slide, read from its own XML: on
 // a slide copied out of its presentation the slide is gone and the library
 // reports no action at all.
