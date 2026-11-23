@@ -1700,11 +1700,12 @@ const CALCULATIONS = {
   MAX: (numbers) => Math.max(...numbers),
 };
 /**
- * Work out the form's own simple calculations (sums, products, averages, minimums, and
- * maximums of other fields) in its calculation order, as Acrobat does after a value changes.
- * Returns the fields whose values changed.
+ * Work out the form's own calculations (sums, products, averages, minimums, and maximums of
+ * other fields, and formulas such as Qty * Price) in its calculation order, as Acrobat does
+ * after a value changes. Values are read with `read(field)` and results handed to
+ * `write(field, value)`; returns the fields whose values changed.
  */
-function recalculate(doc, fields) {
+function calculate(doc, fields, read, write) {
   const order = doc.getForm().acroForm.dict.lookup(PDFName.of('CO'));
   if (!(order instanceof PDFArray)) return [];
   const names = new Map(fields.map((field) => [field, formFieldName(field)]));
@@ -1718,7 +1719,7 @@ function recalculate(doc, fields) {
       const calculation = simpleCalculation(field);
       const formula = calculation ? null : formulaCalculation(field);
       // A value that is not a number counts as zero, as in Acrobat.
-      const number = (source) => typedNumber(calculationInput(source)) ?? 0;
+      const number = (source) => typedNumber(read(source)) ?? 0;
       if (calculation) {
         const sources = fields.filter((other) =>
           calculation.names.some(
@@ -1742,15 +1743,46 @@ function recalculate(doc, fields) {
         // Dividing by an empty field leaves nothing to show.
         value = Number.isFinite(result) ? String(result) : '';
       } else continue;
-      if (textValue(field) === value) continue;
-      prepareFieldAppearance(field, doc.getForm());
-      field.setText(value);
+      if (read(field) === value) continue;
+      write(field, value);
       changed.push(field);
     } catch {
       // A calculation that cannot be worked out leaves its field as it is.
     }
   }
   return changed;
+}
+function recalculate(doc, fields) {
+  return calculate(doc, fields, calculationInput, (field, value) => {
+    prepareFieldAppearance(field, doc.getForm());
+    field.setText(value);
+  });
+}
+const previewFields = new WeakMap();
+/**
+ * The values the form's calculations would give with `values` (field name to value, as the
+ * page drafts them) filled in, without changing the document: field name to value, for the
+ * calculated fields whose values would change.
+ */
+export function previewCalculations(doc, values) {
+  // The document is only read here, so its fields are read once.
+  if (!previewFields.has(doc)) previewFields.set(doc, formFields(doc));
+  const fields = previewFields.get(doc);
+  if (!fields) return new Map();
+  const typed = new Map();
+  for (const field of fields) {
+    const value = values[formFieldName(field)];
+    if (value !== undefined)
+      typed.set(
+        field,
+        Array.isArray(value) ? String(value[0] ?? '').split(CHOICE_STATE)[0] : String(value),
+      );
+  }
+  const results = new Map();
+  const read = (field) => (typed.has(field) ? typed.get(field) : calculationInput(field));
+  for (const field of calculate(doc, fields, read, (field, value) => typed.set(field, value)))
+    results.set(formFieldName(field), typed.get(field));
+  return results;
 }
 /**
  * Reset form fields to their default values (DV), or empty them, as a form's Reset button does

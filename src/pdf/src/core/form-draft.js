@@ -254,6 +254,8 @@ export function formWidgets(
         // The format script, read as data: the value shows formatted while another field has
         // the focus.
         format: type === 'text' ? actionScripts(a, 'Format') || undefined : undefined,
+        // Its value is worked out from other fields (a total).
+        calculated: type === 'text' && !!actionScripts(a, 'Calculate'),
         // A date or time field shows its pattern while empty: mm/dd/yyyy.
         placeholder:
           type === 'text' ? datePattern(actionScripts(a, 'Format')) || undefined : undefined,

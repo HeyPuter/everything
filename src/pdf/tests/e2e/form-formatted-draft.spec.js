@@ -45,3 +45,57 @@ test('a filled-in amount shows formatted while another field has the focus', asy
   await input.press('Tab');
   await expect(shown).toBeHidden();
 });
+
+test('a total shows what the fields filled in so far work out to, before the form is saved', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 400]);
+  const form = doc.getForm();
+  form.createTextField('Qty').addToPage(sheet, { x: 40, y: 300, width: 200, height: 24 });
+  form.createTextField('Price').addToPage(sheet, { x: 40, y: 260, width: 200, height: 24 });
+  const total = form.createTextField('Total');
+  total.addToPage(sheet, { x: 40, y: 220, width: 200, height: 24 });
+  total.enableReadOnly();
+  const js = (script) => ({ S: 'JavaScript', JS: PDFString.of(script) });
+  total.acroField.dict.set(
+    PDFName.of('AA'),
+    doc.context.obj({
+      C: js('/*** BVCALC Qty * Price EVCALC ***/ event.value = 0;'),
+      F: js('AFNumber_Format(2, 0, 0, 0, "$", true);'),
+    }),
+  );
+  form.acroForm.dict.set(PDFName.of('CO'), doc.context.obj([total.ref]));
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'invoice.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const shown = page
+    .getByRole('textbox', { name: 'Total (on page) (read only)', exact: true })
+    .locator('..')
+    .locator('.form-shown');
+  await page.getByRole('textbox', { name: 'Qty (on page)', exact: true }).fill('3');
+  await expect(shown).toHaveText('$0.00');
+  await page.getByRole('textbox', { name: 'Price (on page)', exact: true }).fill('12.5');
+  await expect(shown).toBeVisible();
+  await expect(shown).toHaveText('$37.50');
+  // Escape takes the price back out, and the total with it.
+  await page.keyboard.press('Escape');
+  await expect(shown).toHaveText('$0.00');
+  await page.getByRole('textbox', { name: 'Price (on page)', exact: true }).fill('2');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Saved, the page draws the total itself.
+  await expect(shown).toBeHidden();
+  await expect(
+    page.getByRole('textbox', { name: 'Total (on page) (read only)', exact: true }),
+  ).toHaveValue('6');
+});

@@ -23,8 +23,10 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   });
   // Comb controls realign their boxes when their value changes.
   const combs = new WeakMap();
-  // A formatted field's value as its format shows it, while another field has the focus.
+  // A formatted field's value as its format shows it, while another field has the focus; or a
+  // calculated field's value as the fields filled in so far work it out.
   const shownValues = new WeakMap();
+  let calculatedValues = new Map();
   let widgets = [],
     controls = new Map(),
     key,
@@ -101,9 +103,16 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       }
       const shown = shownValues.get(control);
       if (shown) {
-        const text = formattedText(value, widget.format);
+        const text = formattedText(value, widget.format ?? '');
         shown.textContent = text === value ? '' : text;
         shown.parentElement.classList.toggle('is-formatted', text !== value);
+        // A total the fields filled in so far change, until the form is saved and works it out.
+        const calculated =
+          calculatedValues.has(widget.name) && !draft.changes.has(widget.name)
+            ? calculatedValues.get(widget.name)
+            : null;
+        if (calculated !== null) shown.textContent = formattedText(calculated, widget.format ?? '');
+        shown.parentElement.classList.toggle('is-calculated', calculated !== null);
       }
       control.closest('.form-widget').classList.toggle('has-draft', draft.changes.has(widget.name));
       control.setAttribute('aria-invalid', String(!error.hidden && isInvalid(widget)));
@@ -292,6 +301,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       structureOrder,
     );
     draft.register(widgets.filter(hasValue));
+    calculatedValues = new Map();
     controls = new Map();
     const fragment = document.createDocumentFragment();
     for (const widget of widgets) {
@@ -339,7 +349,12 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
         control.addEventListener('input', align);
         combs.set(control, align);
       }
-      if (widget.format && !widget.comb && !widget.multiline && !widget.password) {
+      if (
+        (widget.format || widget.calculated) &&
+        !widget.comb &&
+        !widget.multiline &&
+        !widget.password
+      ) {
         const shown = el('span', { class: 'form-shown', 'aria-hidden': 'true' });
         shown.style.justifyContent =
           { center: 'center', right: 'flex-end' }[widget.alignment] ?? '';
@@ -391,6 +406,15 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
     undo,
     redo,
     owns: (element) => root.contains(element),
+    /** Whether the page has fields worked out from others, for showCalculated. */
+    get calculates() {
+      return widgets.some((widget) => widget.calculated);
+    },
+    /** Show calculated fields' values as the drafts work them out (field name to value). */
+    showCalculated(values) {
+      calculatedValues = values;
+      sync();
+    },
     /** Focus the page's first field (`last`: its last one); false when it has none to fill. */
     focusEdge(last = false) {
       const stops = [...root.querySelectorAll('.form-control')].filter((c) => !c.disabled);

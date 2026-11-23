@@ -149,6 +149,7 @@ import {
   radioButtonChoices,
   sharedChoiceSelections,
   fillFields,
+  previewCalculations,
   resetFields,
   flattenFonts,
   MAX_FILE_SIZE,
@@ -1227,7 +1228,10 @@ export function createEditor({
   // The area drawn in crop mode stays until it is applied, redrawn, or dropped.
   let cropDraft = null;
   const pageForms = createFormLayer({
-    onChange: () => updateStatus(),
+    onChange: () => {
+      updateStatus();
+      previewFormCalculations();
+    },
     onCommit: safe(() => finishDrafts()),
     onTabOut: (direction) => tabToFormPage(direction),
     // The form's own Print and Reset buttons.
@@ -1251,6 +1255,18 @@ export function createEditor({
         })();
     },
   });
+  /**
+   * Totals and other calculated fields on the page show what the fields filled in so far work
+   * out to, as they will once saved. The document the page was drawn from is read for it.
+   */
+  function previewFormCalculations() {
+    if (!pageForms.calculates || !editDocument) return;
+    try {
+      pageForms.showCalculated(previewCalculations(editDocument, pageForms.draft.values));
+    } catch {
+      // A form that cannot be worked out shows its saved values.
+    }
+  }
   // The pages with fields to fill, read from the PDF once the fields are first used.
   const fillablePages = new WeakMap();
   pageForms.root.addEventListener('focusin', () => {
