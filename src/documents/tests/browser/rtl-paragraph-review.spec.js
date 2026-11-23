@@ -89,3 +89,34 @@ test('sets the font, bold and italic that right-to-left text shows from the Font
   await expect(dialog.getByRole('combobox', { name: 'Complex script font', exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+/** Whether a text element shows its last character left of its first, as right-to-left text does. */
+const readsRightToLeft = locator => locator.evaluate(el => {
+  const text = el.firstChild, at = i => { const r = document.createRange(); r.setStart(text, i); r.setEnd(text, i + 1); return r.getBoundingClientRect().left; };
+  return at(text.length - 1) < at(0);
+});
+
+test('shows right-to-left headings and paragraphs right-to-left in the Navigation pane and Outline view', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('מה חדש?\nגוף הטקסט.\nWhat is new?');
+  await input.evaluate(el => { el.setSelectionRange(0, el.value.indexOf('What')); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await (await onTab(page, 'home')).getByRole('button', { name: 'Right-to-Left Text Direction', exact: true }).click();
+  for (const text of ['מה חדש?', 'What is new?']) {
+    await choose(input, text); await input.press('Control+Alt+1');
+  }
+  await (await onTab(page, 'view')).locator('.ribbon-card').getByRole('button', { name: 'Navigation Pane' }).click();
+  const tree = page.getByRole('complementary', { name: 'Navigation' }).getByRole('tree', { name: 'Headings' });
+  await expect(tree.getByRole('treeitem')).toHaveText(['מה חדש?', 'What is new?']);
+  // The question mark ends the Hebrew heading at its left, as the page shows it.
+  expect(await readsRightToLeft(tree.getByRole('treeitem').first().locator('span'))).toBe(true);
+  expect(await readsRightToLeft(tree.getByRole('treeitem').nth(1).locator('span'))).toBe(false);
+  await (await onTab(page, 'view')).locator('.ribbon-card').getByRole('button', { name: 'Outline', exact: true }).click();
+  const row = text => page.locator('.outline-row', { hasText: text }).locator('.outline-text');
+  await expect(row('גוף הטקסט.')).toHaveAttribute('dir', 'rtl');
+  expect(await readsRightToLeft(row('גוף הטקסט.'))).toBe(true);
+  await expect(row('What is new?')).not.toHaveAttribute('dir', 'rtl');
+  expect(errors).toEqual([]);
+});

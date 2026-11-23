@@ -141,7 +141,8 @@ export function createNavigationPane(api) {
               while (entries[target] && (entries[target].level > entry.level || entries[target].inTable)) target += step;
               if (entries[target]) { actions().move(entry.id, entries[target].id, step < 0 ? 'before' : 'after'); refocus(entry.id); }
             }
-          } }, el('span', {}, entry.text));
+          // A Hebrew or Arabic heading reads right-to-left, its closing punctuation at its left end.
+          } }, el('span', { dir: 'auto' }, entry.text));
         const row = el('div.nav-heading-row', { style: { paddingInlineStart: `${4 + (entry.level - 1) * 14}px` } }, toggle, heading);
         if (editable() && !entry.inTable) dragHeading(row, heading, entry);
         rows.push(el('li', { role: 'none' }, row));
@@ -289,7 +290,7 @@ export function createNavigationPane(api) {
       }
       // The row chooses the match at its place in the list when clicked, so a kept row chooses the moved match.
       const next = el('li', { dataset: { key } }, el('button.nav-result', { type: 'button', 'aria-current': i === current ? 'true' : null, onclick: () => { current = i; api.selectMatch(matches[i]); status.textContent = `Result ${i + 1} of ${matches.length}`; renderResults(); } },
-        parts[0], el('mark', {}, parts[1]), parts[2]));
+        el('span', { dir: 'auto' }, parts[0], el('mark', {}, parts[1]), parts[2])));
       if (row) row.replaceWith(next); else resultList.append(next);
     });
     while (resultList.children.length > shown.length) resultList.lastChild.remove();
