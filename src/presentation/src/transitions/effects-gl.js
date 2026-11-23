@@ -65,7 +65,9 @@ function slab(g, a, b, inside, light = true) {
   const aspect = g.gl.aspect;
   const e = easeInOut(g.q);
   const horizontal = o.direction === "l" || o.direction === "r";
-  const sign = o.direction === "l" || o.direction === "u" ? 1 : -1;
+  // The arriving face turns in from the side the option names: "l" and
+  // "d" are From Right and From Top.
+  const sign = o.direction === "l" || o.direction === "d" ? 1 : -1;
   const half = horizontal ? aspect : 1;
   const center = inside ? half : -half;
   const pull = -Math.sin(e * PI) * (inside ? 2.4 : 0.9);
