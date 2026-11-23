@@ -13,6 +13,7 @@ import {
   promptText,
   toast,
   dismissToast,
+  dismissErrorToast,
   fieldEditingKey,
   download,
   applyTheme,
@@ -777,6 +778,7 @@ async function openDocument(
       ),
     });
     editor = nextEditor;
+    dismissErrorToast();
     if (hadFocus) refocusView('.workspace');
     if (location.hash === LIBRARY_HASH)
       history.replaceState(null, '', location.pathname + location.search);

@@ -307,7 +307,8 @@ export function iconButton(label, glyph, onClick, attrs = {}) {
 }
 let toastTimer,
   toastDismiss,
-  toastSequence = 0;
+  toastSequence = 0,
+  toastError = false;
 /**
  * Show a message for a few seconds; an error stays until the next press or key. `persist` keeps
  * a progress message ("Opening…") up until dismissToast() takes it down. Returns its number.
@@ -317,6 +318,7 @@ export function toast(message, { error = false, persist = false } = {}) {
   clearTimeout(toastTimer);
   toastDismiss?.abort();
   const sequence = ++toastSequence;
+  toastError = error;
   if (error) {
     const dialog = [...document.querySelectorAll('dialog[open]')].at(-1);
     const feedback = dialog?.querySelector('.dialog-error');
@@ -363,6 +365,14 @@ export function toast(message, { error = false, persist = false } = {}) {
       window.addEventListener(type, hide, { capture: true, signal: dismiss.signal });
   }, 5500);
   return sequence;
+}
+/**
+ * Take down an error message still on screen. A view that replaces the one it was about (a PDF
+ * that opens after another could not) does so: dropped from the desktop, the new file brings no
+ * press or key to the page, and "This PDF could not be opened" stayed over the PDF that had.
+ */
+export function dismissErrorToast() {
+  if (toastError) dismissToast(toastSequence);
 }
 /** Take down the message `toast()` numbered, unless another has replaced it since. */
 export function dismissToast(sequence) {
