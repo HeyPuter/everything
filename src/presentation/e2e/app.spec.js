@@ -15407,6 +15407,78 @@ test("arrow keys move several selected objects together, or not at all", async (
 // While several objects were dragged together, the one under the pointer
 // snapped to the edges and centers of the others, which were moving along
 // with it, and a guide line marked a meeting that never happened.
+// A turned object offered no edges to snap to, and a turned object being
+// dragged snapped to nothing: both now use the edges the slide shows.
+test("dragged objects snap to and with turned objects", async ({ page }) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const s = P.getSlides(pres)[0];
+  const turned = P.addSlideShape(s, {
+    preset: "rightArrow",
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(2),
+    h: P.inches(1),
+    text: "A",
+  });
+  P.setShapeRotation(turned, 30);
+  P.setShapeFlip(turned, { horizontal: true, vertical: false });
+  P.addSlideShape(s, {
+    preset: "rect",
+    x: P.inches(5),
+    y: P.inches(3),
+    w: P.inches(1),
+    h: P.inches(1),
+    text: "B",
+  });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Turned.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const objects = page.locator(".object-hit");
+  await expect(objects).toHaveCount(2);
+  const canvas = await page.locator("#slide-canvas").boundingBox();
+  const pixelsPerInch = canvas.width / 13.333;
+  // The arrow's turned outline spans 2 in ± 1.116 in across.
+  const half = (2 * Math.cos(Math.PI / 6) + 0.5) / 2;
+  const drag = async (target, inches) => {
+    const box = await target.boundingBox();
+    const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + inches * pixelsPerInch, cy + 2, { steps: 6 });
+    const guides = await page.locator(".snap-guide.vertical").count();
+    await page.mouse.up();
+    return guides;
+  };
+  const download = async () => {
+    await openFileMenu(page);
+    const saved = page.waitForEvent("download");
+    await page
+      .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+      .click();
+    const deck = await parseDeck(
+      new Uint8Array(await readFile(await (await saved).path())),
+    );
+    return P.getSlideShapes(P.getSlides(deck)[0]).map(
+      (shape) => P.getShapeBounds(shape).x / 914400,
+    );
+  };
+  // The square's left edge heads for the arrow's turned right edge.
+  expect(await drag(objects.last(), 2 + half - 5 + 0.03)).toBe(1);
+  expect((await download())[1]).toBeCloseTo(2 + half, 3);
+  await page.keyboard.press("Escape");
+  // The arrow's turned left edge heads for the slide's.
+  expect(await drag(objects.first(), -(2 - half) + 0.03)).toBe(1);
+  expect((await download())[0] + 1 - half).toBeCloseTo(0, 3);
+});
+
 test("objects dragged together do not snap to each other", async ({ page }) => {
   await start(page);
   await page

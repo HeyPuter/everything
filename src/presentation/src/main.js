@@ -9895,7 +9895,7 @@ function startDrag(e, shape, mode = "move") {
   // A few pixels on a large screen; on a phone the same pixels would span a
   // good part of the slide, so the reach is capped in slide terms.
   const targets =
-    rotation || line || mode === "rotate"
+    (rotation && mode !== "move") || line || mode === "rotate"
       ? null
       : snapTargets(
           obj,
@@ -9977,10 +9977,21 @@ function startDrag(e, shape, mode = "move") {
     // Alt drags freely; otherwise the edges in motion snap to the guides. A
     // resize that keeps the proportions is left alone, since a snapped edge
     // would break them.
-    const snapped =
+    // A turned object moves with the edges the slide shows it with.
+    const shown = turnedBounds(candidate, rotation);
+    let snapped =
       targets && !ev.altKey && (mode === "move" || keepRatio === ev.shiftKey)
-        ? snapBounds(candidate, mode, targets, { dx, dy })
+        ? snapBounds(shown, mode, targets, { dx, dy })
         : null;
+    if (snapped && shown !== candidate)
+      snapped = {
+        ...snapped,
+        bounds: {
+          ...candidate,
+          x: candidate.x + snapped.bounds.x - shown.x,
+          y: candidate.y + snapped.bounds.y - shown.y,
+        },
+      };
     if (snapped) candidate = snapped.bounds;
     showGuides(canvas, snapped?.guides || [], size);
     next = mode === "move" ? withinSlide(candidate) : candidate;
@@ -10119,8 +10130,10 @@ function snapTargets(
     const otherId = P.getShapeId(other);
     if (moving.has(otherId) || !visible.has(otherId) || parents.has(otherId))
       continue;
-    const b = slideBounds(doc.pres, other, parents);
-    if (!b || slideRotation(other)) continue;
+    // A turned object offers the edges the slide shows it with.
+    const bounds = slideBounds(doc.pres, other, parents);
+    if (!bounds) continue;
+    const b = turnedBounds(bounds, slideRotation(other, parents));
     xs.push(b.x, b.x + b.w / 2, b.x + b.w);
     ys.push(b.y, b.y + b.h / 2, b.y + b.h);
   }
