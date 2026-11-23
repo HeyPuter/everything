@@ -926,6 +926,9 @@ let activeDefinitionIds = sharedDefinitionIds;
 let activeLayerPart: SlideShapeLayerPart | null = null;
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
+// True inside an odd number of groups that mirror their content (flipped
+// along one axis): text drawn there is mirrored back so it still reads.
+let activeMirroringGroups = false;
 // The slide background as a paint server for shapes that fill with it.
 let activeBackgroundFill: { id: string; used: boolean } | null = null;
 
@@ -11767,10 +11770,17 @@ const renderShape = (
   // direction (and text-upright-ness) unchanged. Verified against real
   // LibreOffice output across rotation × {none, flipH, flipV, both}.
   const textRotation = (flip.vertical ? rotation + 180 : rotation) % 360;
-  let textTransform =
-    textRotation !== 0
-      ? ` transform="rotate(${textRotation} ${E(cx)} ${E(cy)})"`
-      : "";
+  // Inside a group that mirrors its content, mirror the text back about its
+  // own centre, so it reads as in an unflipped shape at the mirrored place.
+  const unmirror = (mx: number): string =>
+    activeMirroringGroups ? `translate(${E(2 * mx)} 0) scale(-1 1)` : "";
+  const textParts = [
+    textRotation !== 0 ? `rotate(${textRotation} ${E(cx)} ${E(cy)})` : "",
+    unmirror(cx),
+  ].filter(Boolean);
+  let textTransform = textParts.length
+    ? ` transform="${textParts.join(" ")}"`
+    : "";
   if (diagramTextTransform && textBounds) {
     // MS-ODRAWXML CT_Shape stores txXfrm relative to the shape orientation:
     // a hexagon rotated +90 degrees can carry a -90 degree text transform.
@@ -11788,6 +11798,7 @@ const renderShape = (
       textTransforms.push(`translate(${E(2 * txCx)} 0) scale(-1 1)`);
     if (txFlip?.vertical)
       textTransforms.push(`translate(0 ${E(2 * txCy)}) scale(1 -1)`);
+    if (activeMirroringGroups) textTransforms.push(unmirror(txCx));
     textTransform = textTransforms.length
       ? ` transform="${textTransforms.join(" ")}"`
       : "";
@@ -11834,6 +11845,8 @@ const renderShape = (
   // this way rather
   // than as top-level `<p:pic>`.
   if (kind === "shape" && fill.kind === "image") {
+    // The text follows the shape's rotation but not its flips, as on any
+    // other shape: a flipped picture-filled shape keeps its text readable.
     const picture = renderPicture(
       shape,
       pres,
@@ -11842,12 +11855,12 @@ const renderShape = (
       w,
       h,
       transform,
-      diagramTextTransform ? "" : textOverlay,
+      "",
       stroke,
       theme,
     );
     const painted = withPictureEffects(pres, shape, picture, { x, y, w, h });
-    return diagramTextTransform
+    return textOverlay
       ? `${painted}<g${textTransform}>${textOverlay}</g>`
       : painted;
   }
@@ -11945,16 +11958,10 @@ const renderShape = (
     // outer-rect center. Compose those transforms first, then the
     // translate+scale that maps internal coords onto slide coords.
     //
-    // KNOWN GAP: unlike the per-shape flip.vertical fix above, a group-level
-    // vertical flip has no text-upright compensation — `renderShape(child)`
-    // already emits each child's geometry AND text as one combined string, so
-    // the flip scale() below re-mirrors that child's already-correct text
-    // along with its geometry. Fixing this needs the group path to carry an
-    // ancestor flip-parity count down through the recursion so descendant
-    // text can add its own compensating rotation, mirroring how the per-shape
-    // fix works — out of scope here since there's no public API to author a
-    // flipped group (only getGroupChildren/getGroupTransform, read-only), so
-    // this only affects re-rendering a template that already has one.
+    // Text keeps reading the right way round in a group flipped along one
+    // axis, as in a flipped shape: each shape's text is mirrored back about
+    // its own centre (see `activeMirroringGroups`). A group flipped both ways
+    // is turned a half turn, which turns its text with it.
     if (xform && rotation !== 0) {
       const cxG =
         ((xform.outer.x as number) + (xform.outer.w as number) / 2) /
@@ -11996,9 +12003,17 @@ const renderShape = (
     }
     const groupTransform =
       tParts.length > 0 ? ` transform="${tParts.join(" ")}"` : "";
-    const childrenSvg = children
-      .map((c) => renderShape(c, pres, theme, ctx, diagram))
-      .join("");
+    const previousMirroring = activeMirroringGroups;
+    if (xform && flip.horizontal !== flip.vertical)
+      activeMirroringGroups = !activeMirroringGroups;
+    let childrenSvg: string;
+    try {
+      childrenSvg = children
+        .map((c) => renderShape(c, pres, theme, ctx, diagram))
+        .join("");
+    } finally {
+      activeMirroringGroups = previousMirroring;
+    }
     return `<g${groupTransform}>${childrenSvg}</g>`;
   }
 
@@ -12741,7 +12756,9 @@ export const renderSlideSvg = (
   const previousColorMap = activeColorMap;
   const previousTextColor = activeDeckTextColor;
   const previousLayerPart = activeLayerPart;
+  const previousMirroring = activeMirroringGroups;
   activeLayerPart = null;
+  activeMirroringGroups = false;
   activeDefinitionIds = opts.stableDefinitionIds
     ? { next: 0 }
     : sharedDefinitionIds;
@@ -12752,6 +12769,7 @@ export const renderSlideSvg = (
     activeColorMap = previousColorMap;
     activeDeckTextColor = previousTextColor;
     activeLayerPart = previousLayerPart;
+    activeMirroringGroups = previousMirroring;
   }
 };
 
