@@ -13067,7 +13067,9 @@ const buildEffectsFilter = (
       const i = primitives.length;
       primitives.push(
         `<feGaussianBlur in="SourceAlpha" stdDeviation="${blurPx.toFixed(2)}" result="innerBlur${i}"/>`,
-        `<feOffset in="innerBlur${i}" dx="${dx.toFixed(2)}" dy="${dy.toFixed(2)}" result="innerOff${i}"/>`,
+        // The shadow falls on the far side: offset 45° it lines the bottom
+        // and right edges, so the shape's own alpha moves the other way.
+        `<feOffset in="innerBlur${i}" dx="${(-dx).toFixed(2)}" dy="${(-dy).toFixed(2)}" result="innerOff${i}"/>`,
         `<feComposite in="innerOff${i}" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="innerMask${i}"/>`,
         `<feFlood flood-color="${color}" flood-opacity="${opacity.toFixed(3)}" result="innerCol${i}"/>`,
         `<feComposite in="innerCol${i}" in2="innerMask${i}" operator="in" result="innerOut${i}"/>`,

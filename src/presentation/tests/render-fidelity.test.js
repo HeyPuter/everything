@@ -114,6 +114,14 @@ describe("shadows", () => {
     const order = [...merge.matchAll(/in="([^"]+)"/g)].map((m) => m[1]);
     expect(order[0]).toBe("SourceGraphic");
     expect(order[1]).toMatch(/^innerOut/);
+    // Cast at 45°, it lines the bottom and right edges, as the desktop app
+    // draws it: the shape's own alpha moves up and left to leave that band.
+    const [dx, dy] = /<feOffset in="innerBlur\d+" dx="([-\d.]+)" dy="([-\d.]+)"/
+      .exec(svg)
+      .slice(1)
+      .map(Number);
+    expect(dx).toBeLessThan(0);
+    expect(dy).toBeLessThan(0);
   });
 
   it("paints an outer shadow behind the shape", () => {
