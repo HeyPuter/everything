@@ -40,7 +40,10 @@ export function convertCase(text, mode, sentenceStart = true, { before = '', aft
   const chars = [...text];
   // A period, question or exclamation mark (or an ellipsis) ends a sentence once white space follows it, closing
   // quotes and brackets allowed between: "index.html" and "3.14" go on in lowercase.
-  let start = sentenceStart, wordStart = true, ended = false;
+  // A selection that starts inside a word goes on with that word: Capitalize Each Word capitalizes the letters that
+  // start words in the document, not the selection's first letter ("plain" stays "plain", not "plAin").
+  const previous = [...before].at(-1);
+  let start = sentenceStart, wordStart = !previous || !/[\p{L}\p{N}\p{M}'’]/u.test(previous), ended = false;
   return chars.map((ch, index) => {
     const letter = /\p{L}/u.test(ch);
     let out = ch;
