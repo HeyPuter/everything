@@ -2507,8 +2507,11 @@ kbd {
   .find-bar .input {
     font-size: 12px;
   }
+  /* The count takes only the room its words need, which the find box (and on the smallest
+     phones the Close button, pushed past the edge) needs more. */
   .search-count {
     font-size: 10px;
+    min-width: 0;
   }
   /* Until there is a count to show, its room goes to the find box, whose prompt was cut short. */
   .search-count:empty {
