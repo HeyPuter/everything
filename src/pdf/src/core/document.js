@@ -54,6 +54,7 @@ import { addHighlight, rectQuad } from './highlight.js';
 import { checkedFontData } from './font-data.js';
 import { CjkFace, cjkRegions, cjkScriptName, hasCjkText, hasKoreanText } from './cjk-fonts.js';
 import { normalizeJpegPadding } from './jpeg.js';
+import { closeOpenStates } from './page-state.js';
 import {
   prepareImageOrientation,
   imageOrientationMatrix,
@@ -1376,6 +1377,7 @@ export function drawOrientedImage(page, embedded, { x, y, width, height, rotatio
 export async function addImage(doc, index, bytes) {
   const image = await embedOrientedImage(doc, bytes);
   const page = doc.getPage(index);
+  closeOpenStates(page);
   const box = visibleBox(page);
   const rotation = pageRotation(page);
   const sideways = rotation === 90 || rotation === 270;

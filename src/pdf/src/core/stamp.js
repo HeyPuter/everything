@@ -15,6 +15,7 @@ import {
 import { color } from './document.js';
 import { checkedFontData } from './font-data.js';
 import { fitSignature, markPath, pathOperators, turnOperators, typedOutline } from './signature.js';
+import { closeOpenStates } from './page-state.js';
 
 export const MAX_STAMP_TEXT = 30;
 export const STAMP_PRESETS = [
@@ -146,20 +147,20 @@ export async function drawStamp(
   ];
   const { turn, unturn } = turnOperators(target, rotation);
   const paint = color(hex);
-  doc
-    .getPage(index)
-    .pushOperators(
-      ...turn,
-      pushGraphicsState(),
-      setFillingColor(paint),
-      setStrokingColor(paint),
-      setLineWidth(Math.max(0.3, stroke * placed.scale)),
-      setLineJoin(1),
-      markPath(doc, 'Stamp'),
-      ...pathOperators(commands, map),
-      fillAndStroke(),
-      PDFOperator.of('EMC'),
-      popGraphicsState(),
-      ...unturn,
-    );
+  const page = doc.getPage(index);
+  closeOpenStates(page);
+  page.pushOperators(
+    ...turn,
+    pushGraphicsState(),
+    setFillingColor(paint),
+    setStrokingColor(paint),
+    setLineWidth(Math.max(0.3, stroke * placed.scale)),
+    setLineJoin(1),
+    markPath(doc, 'Stamp'),
+    ...pathOperators(commands, map),
+    fillAndStroke(),
+    PDFOperator.of('EMC'),
+    popGraphicsState(),
+    ...unturn,
+  );
 }
