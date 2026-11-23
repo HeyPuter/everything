@@ -242,7 +242,7 @@ export function createFileTools(ctx) {
   }
 
   async function templateBlob() {
-    const bytes = await P.savePresentation(ctx.doc().pres);
+    const bytes = await ctx.fileBytes(ctx.doc().pres);
     const copy = await P.loadPresentation(bytes);
     P.setPresentationKind(copy, "template");
     return new Blob([await P.savePresentation(copy)], {
@@ -757,7 +757,7 @@ export function createFileTools(ctx) {
         );
       if (format === "pptx")
         return ctx.download(
-          new Blob([await P.savePresentation(ctx.doc().pres)], {
+          new Blob([await ctx.fileBytes(ctx.doc().pres)], {
             type: P.PRESENTATION_FILE_TYPES.presentation,
           }),
           `${fileBase}.pptx`,

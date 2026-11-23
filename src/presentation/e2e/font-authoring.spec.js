@@ -103,9 +103,12 @@ const faces = (page) =>
         weight: face.weight,
       })),
   );
+// Every part but the file properties, which each download stamps with the
+// time it was written.
 const graph = (p) =>
   P._internalPackageOf(p)
-    .parts.map((part) => [part.name, part.contentType, [...part.data]])
+    .parts.filter((part) => part.name !== "/docProps/core.xml")
+    .map((part) => [part.name, part.contentType, [...part.data]])
     .sort((a, b) => a[0].localeCompare(b[0]));
 const encoded = (p) =>
   P.getEmbeddedFonts(p).map((font) => ({

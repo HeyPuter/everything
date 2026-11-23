@@ -459,6 +459,28 @@ test("prints letter-size handouts at the paper's size", async ({ page }) => {
   expect(pages[0][1]).toBeCloseTo(792, 0);
 });
 
+test("a downloaded file says when it was last saved", async ({ page }) => {
+  const deck = storyDeck();
+  P.setCoreProperties(deck, {
+    created: "2020-01-02T03:04:05Z",
+    modified: "2020-01-02T03:04:05Z",
+  });
+  await start(page, deck);
+  const before = Date.now() - 2000;
+  const { bytes } = await downloadVia(page, "Download PowerPoint (.pptx)");
+  const core = P.getCoreProperties(await parseDeck(bytes));
+  expect(new Date(core.created).toISOString()).toBe("2020-01-02T03:04:05.000Z");
+  expect(new Date(core.modified).getTime()).toBeGreaterThan(before);
+  // As File > Properties shows.
+  await fileMenu(page, "Properties");
+  const dialog = page.getByRole("dialog", { name: "Properties" });
+  const modified = dialog
+    .locator("dt", { hasText: /^Modified$/ })
+    .locator("xpath=following-sibling::dd[1]");
+  await expect(modified).toContainText(String(new Date().getFullYear()));
+  await expect(modified).not.toContainText("2020");
+});
+
 test("saves document properties and statistics in the file", async ({
   page,
 }) => {

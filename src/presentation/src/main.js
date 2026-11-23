@@ -2579,6 +2579,16 @@ async function settled() {
   commitText();
   await mutationTail;
 }
+// A presentation's bytes as a file written out, to Puter or downloaded: its
+// properties say when it was last saved, as File > Properties shows.
+function fileBytes(pres) {
+  try {
+    P.setCoreProperties(pres, {
+      modified: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    });
+  } catch {}
+  return P.savePresentation(pres);
+}
 // Resolves to whether the open presentation's latest revision is in Puter.
 // `force` writes over a file that changed elsewhere (the person chose to);
 // `quiet` leaves a conflict for the caller to put to the person. `chosen` is
@@ -2603,7 +2613,7 @@ async function saveCloud(
     if (!explicit) return false;
     return cloud.oneDialog(`first:${target.id}`, async () => {
       const rev = revision;
-      const bytes = await P.savePresentation(target.pres);
+      const bytes = await fileBytes(target.pres);
       if (doc !== target) return false;
       const file = await cloud.saveFileAs(
         new Blob([bytes], { type: MIME }),
@@ -2636,7 +2646,7 @@ async function saveCloud(
           return false;
         }
       }
-      const bytes = chosen?.bytes ?? (await P.savePresentation(target.pres));
+      const bytes = chosen?.bytes ?? (await fileBytes(target.pres));
       const file =
         chosen?.file ?? (await cloud.saveFile(bytes, target.name, target.path));
       target.path = file.path || target.path;
@@ -2915,7 +2925,7 @@ async function copyOf(target, useDialog) {
   const rev = revision;
   const file = await saveQueue.run(async () => {
     if (doc !== target) return null;
-    const bytes = await P.savePresentation(target.pres);
+    const bytes = await fileBytes(target.pres);
     // Puter's dialog writes the file itself and never settles when it is
     // closed, so it is not kept in the queue that later saves wait on.
     if (useDialog) return { forDialog: bytes };
@@ -3038,7 +3048,7 @@ async function downloadDeck() {
   await settled();
   if (!target) return;
   const name = target.name;
-  await cloud.download(await P.savePresentation(target.pres), name);
+  await cloud.download(await fileBytes(target.pres), name);
   toast("PowerPoint file downloaded.");
 }
 /* ---------- Slide size ---------- */
@@ -3806,6 +3816,7 @@ function commandSearch() {
 const fileTools = createFileTools({
   P,
   doc: () => doc,
+  fileBytes: (pres) => fileBytes(pres),
   // Recorded narrations go into exported videos (src/show/narration.js).
   narrationOf: (s) => showFeatures.narrationOf(s),
   settled,
