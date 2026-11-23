@@ -2226,6 +2226,14 @@ dialog.signature-dialog {
   /* The pad is white paper in both themes, so the hint keeps the light theme's gray. */
   color: #62615c;
 }
+.signature-type-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+.signature-type-status:empty {
+  display: none;
+}
 .signature-preview {
   display: block;
   width: 100%;

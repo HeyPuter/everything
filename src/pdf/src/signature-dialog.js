@@ -284,7 +284,11 @@ export function signatureDialog({ signal } = {}) {
       'aria-label': 'Signature text',
       maxlength: MAX_SIGNATURE_TEXT,
       autocomplete: 'name',
-      oninput: () => repaint(),
+      'aria-describedby': 'signature-type-status',
+      oninput: () => {
+        repaint();
+        checkTyped();
+      },
       // Enter places the typed signature, as Enter confirms a name typed in other dialogs.
       onkeydown: (e) => {
         if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
@@ -292,6 +296,36 @@ export function signatureDialog({ signal } = {}) {
         place();
       },
     });
+    // A letter the script font lacks would show in the browser's own font in the preview and
+    // then be refused on placing; it is named as it is typed instead.
+    const typeStatus = el('p', {
+      class: 'signature-type-status',
+      id: 'signature-type-status',
+      role: 'status',
+    });
+    let typedCheck = 0;
+    async function checkTyped() {
+      const check = ++typedCheck,
+        text = nameInput.value.trim();
+      let message = '';
+      if (text) {
+        let tools;
+        try {
+          tools = await Promise.all([import('@pdf-lib/fontkit'), loadScriptFont()]);
+        } catch {
+          // The font is fetched again on placing, which reports a failure itself.
+        }
+        if (check !== typedCheck || !dialog.open) return;
+        try {
+          if (tools) typedOutline(tools[0].default, tools[1], text);
+        } catch (error) {
+          message = error.message;
+        }
+      }
+      typeStatus.textContent = message;
+      if (message) nameInput.setAttribute('aria-invalid', 'true');
+      else nameInput.removeAttribute('aria-invalid');
+    }
     const typePreview = el('canvas', {
       class: 'signature-preview',
       role: 'img',
@@ -433,6 +467,7 @@ export function signatureDialog({ signal } = {}) {
           hidden: true,
         },
         nameInput,
+        typeStatus,
         typePreview,
         typeRow,
       ),
@@ -569,6 +604,7 @@ export function signatureDialog({ signal } = {}) {
           // Older saved signatures can contain text the PDF font cannot draw either.
           nameInput.value = signature.text;
           selectTab('type', { focus: false });
+          checkTyped();
           toast(error.message, { error: true });
           return;
         } finally {
