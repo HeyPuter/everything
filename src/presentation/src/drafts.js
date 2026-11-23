@@ -66,18 +66,38 @@ async function transact(mode, fn) {
     db.close();
   }
 }
-export const saveDraft = (draft) =>
+const putDraft = (draft, asBlob) =>
   transact("readwrite", (s, summaries) => {
     const record = { ...draft, updated: Date.now() };
+    if (asBlob) record.bytes = new Blob([record.bytes]);
     summaries.put(metadata(record));
     return s.put(record);
   });
+// A draft's file is stored as a Blob: the database copies a Blob's bytes
+// away from the page, where it copies an array's bytes on the page, the
+// whole file for each edit. A browser that cannot store a Blob there is
+// given the bytes. Drafts are read back as bytes either way.
+export const saveDraft = async (draft) => {
+  if (!(draft.bytes instanceof Uint8Array) || typeof Blob === "undefined")
+    return putDraft(draft, false);
+  try {
+    return await putDraft(draft, true);
+  } catch (error) {
+    if (error?.name !== "DataCloneError") throw error;
+    return putDraft(draft, false);
+  }
+};
 export const deleteDraft = (id) =>
   transact("readwrite", (s, summaries) => {
     summaries.delete(id);
     return s.delete(id);
   });
-export const getDraft = (id) => transact("readonly", (s) => s.get(id));
+export const getDraft = async (id) => {
+  const record = await transact("readonly", (s) => s.get(id));
+  if (typeof Blob !== "undefined" && record?.bytes instanceof Blob)
+    record.bytes = new Uint8Array(await record.bytes.arrayBuffer());
+  return record;
+};
 export const linkCloudFile = (id, owner, path, name, baseline = {}) =>
   transact("readwrite", (s, summaries) => {
     const request = s.get(id);
