@@ -466,8 +466,13 @@ export class Doc extends EventTarget {
     const conflict = (message) => Object.assign(new Error(message), { conflict: true });
     if (stat === null && await this._followMove(path)) return null;
     if (stat === null) return conflict('This file was moved or deleted in another window. Use Save a copy to keep your changes');
-    if (stat.modified != null && String(stat.modified) !== String(this._remoteModified) && await this._ownLostWrite(path, stat)) return null;
-    if (stat.modified != null && String(stat.modified) !== String(this._remoteModified)) return conflict('This document was changed in another window. Use Save a copy to keep your changes, or reopen it to see theirs');
+    // The drive's time stamps count whole seconds: another window's write in the same second as this window's last
+    // one leaves the time stamp as it was, and was written over. Its size, which the stat already gives, tells most
+    // such writes apart from the file this window last read or wrote.
+    const changed = stat.modified != null && (String(stat.modified) !== String(this._remoteModified)
+      || stat.size != null && this._written?.size != null && stat.size !== this._written.size);
+    if (changed && await this._ownLostWrite(path, stat)) return null;
+    if (changed) return conflict('This document was changed in another window. Use Save a copy to keep your changes, or reopen it to see theirs');
     return null;
   }
 
