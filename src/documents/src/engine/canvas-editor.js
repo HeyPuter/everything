@@ -2819,8 +2819,8 @@ export class CanvasEditor {
     // An equation copied here comes back as the equation, not its linear text.
     const equation = htmlEquation(html);
     if (equation) { this.execute(() => this.model.insertMathRun(pastedEquation(this.model, equation))); return; }
-    // Whole table rows copied in this application come back as a table, outside tables.
-    const rows = !this.readOnly && !this.viewOnly && !this.model.tableContext ? htmlTableFragment(html) : null;
+    // Whole table rows copied in this application come back as a table outside tables, and as rows in a table of their columns.
+    const rows = !this.readOnly && !this.viewOnly ? htmlTableFragment(html) : null;
     let pastedRows = false;
     if (rows) this.execute(() => (pastedRows = pasteTableRows(this.model, rows, { token: this.clipboardToken })), () => {}, undefined, true);
     if (pastedRows) return;

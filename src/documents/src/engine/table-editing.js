@@ -1521,9 +1521,10 @@ export function copyTableRows(model, block = model.activeCellBlock, { token = nu
  * splits it, with an empty paragraph after a table just above. One undo step with the caller's transaction.
  */
 export function pasteTableRows(model, fragment, { token = null } = {}) {
-  if (!fragment?.table?.rows?.length || !Array.isArray(fragment.paragraphs) || model.tableContext) return false;
+  if (!fragment?.table?.rows?.length || !Array.isArray(fragment.paragraphs)) return false;
   // A pasted table would not be a tracked change: with Track Changes on the rows paste as text.
   if (model.trackChanges && !model.trackingInternal) return false;
+  if (model.tableContext) return pasteRowsIntoTable(model, fragment, { token });
   const same = !!token && fragment.token === token;
   const table = copy(fragment.table), cellIds = new Map();
   table.id = tableId('t');
@@ -1553,5 +1554,44 @@ export function pasteTableRows(model, fragment, { token = null } = {}) {
   M.refreshTableStyles(model, table);
   validate(model);
   model.selectCell(content[0].cellId);
+  model.didChange(); return true;
+}
+
+/**
+ * Rows pasted with the caret in a table go in above the caret's row, as Word inserts copied rows, when they have the
+ * table's columns (the same grid, to within 20 twips a column) and no merged cell crosses into that row from above.
+ * They take the table's style and its look; other rows (another grid) paste as text, and so does a block of cells.
+ */
+function pasteRowsIntoTable(model, fragment, { token = null } = {}) {
+  const block = requireBlock(model), table = block.table, grid = fragment.table.grid || [];
+  if (model.range[0] !== model.range[1] || model.activeCellBlock) return false;
+  if (grid.length !== table.grid.length || grid.some((w, i) => !(w > 0) || !(table.grid[i] > 0) || Math.abs(w - table.grid[i]) > 20)) return false;
+  const at = block.top, row = table.rows[at];
+  if (row.cells.some(cell => cell.vMerge === 'continue') || fragment.table.rows.some(r => r.gridBefore || r.gridAfter) || row.gridBefore || row.gridAfter) return false;
+  if (table.rows.length + fragment.table.rows.length > 1000) throw new Error('A table can have up to 1,000 rows.');
+  const same = !!token && fragment.token === token, state = M.tableContent(model, table), cellIds = new Map();
+  const rows = copy(fragment.table.rows).map(r => {
+    r.id = tableId('row'); if (r.header) { r.header = false; r.headerChanged = true; }
+    for (const cell of r.cells) { const id = tableId('cell'); cellIds.set(cell.id, id); cell.id = id; }
+    return r;
+  });
+  const content = new Map();
+  for (const p of fragment.paragraphs) {
+    const q = { ...copy(p), id: paragraph().id, cellId: cellIds.get(p.cellId), tableStyleId: table.styleId };
+    delete q.tableStyleRegions;
+    if (!same) { delete q.list; if (q.styleId && !model.styles.definitions[q.styleId]) q.styleId = null; }
+    if (!q.cellId) return false;
+    if (!content.has(q.cellId)) content.set(q.cellId, []);
+    content.get(q.cellId).push(resolveStyledParagraph(q, model.styles, model.numbering));
+  }
+  if (!rows.every(r => r.cells.every(cell => content.has(cell.id) || cell.vMerge === 'continue'))) return false;
+  checkLength(model, fragment.paragraphs.reduce((n, p) => n + paragraphText(p).length + 1, 0));
+  model.checkpoint();
+  for (const [id, paragraphs] of content) state.byCell.set(id, paragraphs);
+  table.rows.splice(at, 0, ...rows);
+  M.applyTableContent(model, table, state);
+  M.refreshTableStyles(model, table);
+  validate(model);
+  model.selectCell(rows[0].cells.find(cell => content.has(cell.id)).id);
   model.didChange(); return true;
 }

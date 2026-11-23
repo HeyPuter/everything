@@ -68,8 +68,6 @@ describe('copying and pasting whole tables', () => {
     // Rows starting inside a merge, part of a row, and a block in a table with Track Changes on: no table copy.
     expect(T.copyTableRows(doc, { tableId: table.id, top: 2, bottom: 2, left: 0, right: 3, table })).toBe(null);
     expect(T.copyTableRows(doc, { tableId: table.id, top: 0, bottom: 0, left: 0, right: 2, table })).toBe(null);
-    doc.selectCell(tableCells(table)[1].id);
-    expect(T.pasteTableRows(doc, rows, { token: 'here' })).toBe(false);
     doc.select(0); doc.trackChanges = true;
     expect(T.pasteTableRows(doc, rows, { token: 'here' })).toBe(false);
     doc.trackChanges = false;
@@ -77,5 +75,30 @@ describe('copying and pasting whole tables', () => {
     expect(T.pasteTableRows(doc, rows, { token: 'here' })).toBe(true);
     expect(doc.paragraphs[0].cellId).toBeTruthy();
     expect(paragraphText(doc.paragraphs.find(p => !p.cellId))).toBe('Intro');
+  });
+
+  it('pastes copied rows into a table of the same columns above the caret’s row, and others as text', async () => {
+    const { pkg, doc: body, table } = sample();
+    const session = new StorySession(body);
+    let doc = session.model;
+    const rows = T.copyTableRows(doc, { table, tableId: table.id, top: 0, bottom: 0, left: 0, right: 3 }, { token: 'here' });
+    // The caret in the last row (below the merge): the copied first row goes in above it.
+    const target = doc.tables[0];
+    doc.selectCell(rowGrid(target.rows[2])[1].cell.id);
+    expect(T.pasteTableRows(doc, rows, { token: 'here' })).toBe(false); // the merged cell crosses into that row
+    doc.selectCell(rowGrid(target.rows[1])[0].cell.id);
+    session.run(() => T.pasteTableRows(doc, rows, { token: 'here' }));
+    doc = session.model;
+    const texts = doc.tables[0].rows.map(row => row.cells.map(cell => doc.paragraphs.filter(p => p.cellId === cell.id).map(paragraphText).join('/')));
+    expect(texts).toEqual([['c0', 'c1', 'c2'], ['c0', 'c1', 'c2'], ['c3/c6', 'c4', 'c5'], ['', 'c7', 'c8']]);
+    expect(doc.tables).toHaveLength(1);
+    documentBlocks(doc.paragraphs, doc.tables); verticalMerges(doc.tables[0]);
+    const reopened = open(await DocxPackage.open(await save(pkg, doc)));
+    expect(look(reopened, reopened.tables[0])).toEqual(look(doc, doc.tables[0]));
+    session.undo(); doc = session.model;
+    expect(doc.tables[0].rows).toHaveLength(3);
+    // A table of other columns takes the rows as text.
+    doc.select(doc.text.length); doc.insertTable(1, 2, 9000);
+    expect(T.pasteTableRows(doc, rows, { token: 'here' })).toBe(false);
   });
 });
