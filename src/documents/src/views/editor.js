@@ -2051,7 +2051,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // A new document starts from the page and Design defaults the user set, if any.
     // A host that already opened the file (the local playground validates it first) hands it over once.
     const handed = doc.opened; doc.opened = null;
-    const opened = handed || (doc.blob ? await openCanvasDocument(doc.blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) }) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
+    // An empty file (one made empty on the drive, as a desktop's New > Word Document does) opens as a blank document
+    // that saves into it, as a word processor opens one. It failed as an unreadable archive.
+    const bytes = doc.blob?.size === 0 ? null : doc.blob;
+    const opened = handed || (bytes ? await openCanvasDocument(bytes, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) }) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
     pkg = opened.pkg; openedAssets.set(pkg, Object.keys(pkg.assets || {}));
     // Save As copies a read-only document's own bytes, under the extension they go by.
     if (pkg.readOnly) doc.originalExtension = pkg.fileExtension;
