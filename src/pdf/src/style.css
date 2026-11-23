@@ -2413,6 +2413,13 @@ kbd {
   .file-table-head > span:nth-child(2) {
     display: none;
   }
+  /* A finger has no tooltip to show a shortened name, and names that differ only at the end
+     (Report 2025 Q1, Report 2025 Q2) looked the same: the whole name shows, over several lines
+     if need be. */
+  .file-open span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .editor-topbar {
     height: 58px;
     min-height: 58px;
