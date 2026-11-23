@@ -1709,6 +1709,26 @@ puter-user-menu::part(apps-panel) {
   outline-offset: 1px;
   background: color-mix(in srgb, var(--brand) 8%, transparent);
 }
+/* A link over wrapped words: only its parts, one for each line, take the pointer and show. */
+.link-target.is-parted {
+  pointer-events: none;
+}
+.link-target.is-parted:hover,
+.link-target.is-parted:focus-visible {
+  outline: none;
+  background: transparent;
+}
+.link-part {
+  position: absolute;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+.link-target.is-parted:hover .link-part,
+.link-target.is-parted:focus-visible .link-part {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+}
 .crop-panel {
   display: flex;
   flex-wrap: wrap;

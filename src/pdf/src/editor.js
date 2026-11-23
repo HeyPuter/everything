@@ -3043,6 +3043,8 @@ export function createEditor({
           return {
             id: directIds.get(a.id) ?? a.id,
             rect: a.rect,
+            // A link over words that wrap onto another line (QuadPoints) covers only those words.
+            quads: a.quadPoints?.length >= 8 ? Array.from(a.quadPoints) : null,
             url,
             address: a.unsafeUrl || a.url || '',
             dest: a.dest,
@@ -4985,12 +4987,36 @@ export function createEditor({
           y: e.clientY,
         });
       });
+      const left = Math.min(a[0], b[0]),
+        top = Math.min(a[1], b[1]);
       Object.assign(target.style, {
-        left: `${Math.min(a[0], b[0])}px`,
-        top: `${Math.min(a[1], b[1])}px`,
+        left: `${left}px`,
+        top: `${top}px`,
         width: `${width}px`,
         height: `${height}px`,
       });
+      // A link over words that wrap (QuadPoints, a box for each line) takes the pointer only
+      // over those words: its rectangle spans the lines, and with them other words and links.
+      if (link.quads) {
+        target.classList.add('is-parted');
+        for (let i = 0; i + 8 <= link.quads.length; i += 8) {
+          const xs = [],
+            ys = [];
+          for (let j = i; j < i + 8; j += 2) {
+            const [x, y] = viewport.convertToViewportPoint(link.quads[j], link.quads[j + 1]);
+            xs.push(x);
+            ys.push(y);
+          }
+          const part = el('span', { class: 'link-part', 'aria-hidden': 'true' });
+          Object.assign(part.style, {
+            left: `${Math.min(...xs) - left}px`,
+            top: `${Math.min(...ys) - top}px`,
+            width: `${Math.max(...xs) - Math.min(...xs)}px`,
+            height: `${Math.max(...ys) - Math.min(...ys)}px`,
+          });
+          target.append(part);
+        }
+      }
       linkTargets.append(target);
     }
   }
