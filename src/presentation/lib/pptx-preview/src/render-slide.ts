@@ -12066,7 +12066,18 @@ const renderShape = (
     );
     const solid = apply3D(
       shape,
-      withPictureEffects(pres, shape, picture, { x, y, w, h }),
+      withPictureEffects(
+        pres,
+        shape,
+        picture,
+        { x, y, w, h },
+        {
+          rotation,
+          flipH: flip.horizontal,
+          flipV: flip.vertical,
+          local: false,
+        },
+      ),
       { x, y, w, h },
     );
     return solid.defs + solid.svg;
@@ -12091,7 +12102,13 @@ const renderShape = (
       stroke,
       theme,
     );
-    const painted = withPictureEffects(pres, shape, picture, { x, y, w, h });
+    const painted = withPictureEffects(
+      pres,
+      shape,
+      picture,
+      { x, y, w, h },
+      { rotation, flipH: flip.horizontal, flipV: flip.vertical, local: false },
+    );
     return textOverlay
       ? `${painted}<g${textTransform}>${textOverlay}</g>`
       : painted;
@@ -12167,16 +12184,22 @@ const renderShape = (
     try {
       connectorEffects = getShapeEffectsEffective(pres, shape, activeColorMap);
     } catch {}
-    const fx = buildEffectsFilter(connectorEffects);
+    const straight =
+      (preset === "straightConnector1" || preset === "line") &&
+      ordinaryLine &&
+      !p.compound;
+    // A straight connector carries its flips in its end points.
+    const fx = buildEffectsFilter(connectorEffects, {
+      rotation,
+      flipH: !straight && flip.horizontal,
+      flipV: !straight && flip.vertical,
+      local: true,
+    });
     const withEffects = (svg: string): string =>
       fx
         ? `${fx.defs}<g filter="url(#${fx.id})">${effectsExtent(fx, { x, y, w, h }, (sw / EMU_PER_PX) * (ma ? 7 : 2))}${svg}</g>`
         : svg;
-    if (
-      (preset === "straightConnector1" || preset === "line") &&
-      ordinaryLine &&
-      !p.compound
-    ) {
+    if (straight) {
       const line = `<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}`;
       return fx
         ? `${p.defs}<g${connectorTransform}>${withEffects(`${line}/>`)}</g>`
@@ -12509,9 +12532,19 @@ const renderShape = (
   // Effects (`<a:effectLst>`): outerShdw / innerShdw / glow / softEdge
   // / reflection / blur. Build a single SVG <filter> chain so multiple
   // effects compose into one result.
-  const fx = buildEffectsFilter(effects);
+  const frame: EffectFrame = {
+    rotation,
+    flipH: flip.horizontal,
+    flipV: flip.vertical,
+    local: true,
+  };
+  const fx = buildEffectsFilter(effects, frame, true);
   const filterAttr = fx ? ` filter="url(#${fx.id})"` : "";
   let fxDefs = fx ? fx.defs : "";
+  const stretchedShadows = effects.some(isTransformedShadow)
+    ? transformedShadows(effects, geomSvg, { x, y, w, h }, frame)
+    : null;
+  if (stretchedShadows) fxDefs += stretchedShadows.defs;
   // The outline's miter joins and arrowheads reach past the geometry too.
   const outlinePx =
     p.stroke !== "none" && p.strokeWidth > 0
@@ -12534,7 +12567,7 @@ const renderShape = (
   );
   // Apply the filter to the geometry only — text overlays use foreignObject
   // and react badly to feGaussianBlur (DOM gets rasterized).
-  geomSvg = `<g${filterAttr}>${extent}${geomSvg}</g>`;
+  geomSvg = `${stretchedShadows?.svg ?? ""}<g${filterAttr}>${extent}${geomSvg}</g>`;
   if (activeLayerPart && !activeLayerPart.body) {
     geomSvg = "";
     fxDefs = "";
@@ -12755,6 +12788,7 @@ const withPictureEffects = (
   shape: SlideShapeData,
   svg: string,
   box: { x: number; y: number; w: number; h: number },
+  frame?: EffectFrame,
 ): string => {
   let effects: readonly ReturnType<typeof getShapeEffects>[number][] = [];
   try {
@@ -12763,7 +12797,7 @@ const withPictureEffects = (
     return svg;
   }
   if (!effects.length) return svg;
-  const fx = buildEffectsFilter(effects);
+  const fx = buildEffectsFilter(effects, frame);
   let out = fx
     ? `<g filter="url(#${fx.id})">${effectsExtent(fx, box)}${svg}</g>`
     : svg;
@@ -12825,8 +12859,132 @@ const buildReflection = (
   return { svg, defs };
 };
 
+// Where an ST_RectAlignment point (`tl`, `t`, `tr`, `l`, `ctr`, `r`, `bl`,
+// `b`, `br`) sits across and down a box, as fractions of its size.
+const rectAlignment = (al: string): [number, number] => [
+  al === "tl" || al === "l" || al === "bl"
+    ? 0
+    : al === "tr" || al === "r" || al === "br"
+      ? 1
+      : 0.5,
+  al === "tl" || al === "t" || al === "tr"
+    ? 0
+    : al === "bl" || al === "b" || al === "br"
+      ? 1
+      : 0.5,
+];
+
+// The shape's own turn and flips, and whether the filter paints inside them
+// (`local`, as for shapes) or on the page (as for pictures).
+interface EffectFrame {
+  readonly rotation: number;
+  readonly flipH: boolean;
+  readonly flipV: boolean;
+  readonly local: boolean;
+}
+
+type ShapeEffectItem = ReturnType<typeof getShapeEffects>[number];
+
+// A shadow's offset in px, in the frame its filter paints in. A shadow that
+// turns with the shape (`rotWithShape`, and every inner shadow) is offset in
+// the shape's own frame; one fixed to the page keeps its page direction
+// however the shape is turned or flipped.
+const shadowOffsetPx = (
+  e: Extract<ShapeEffectItem, { kind: "outerShdw" | "innerShdw" }>,
+  frame: EffectFrame | undefined,
+): [number, number] => {
+  const rad = (e.angleDeg * Math.PI) / 180;
+  let dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
+  let dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
+  if (!frame) return [dx, dy];
+  const fixed = e.kind === "outerShdw" && e.fixedToPage === true;
+  const turn = (deg: number) => {
+    if (!deg) return;
+    const r = (deg * Math.PI) / 180,
+      c = Math.cos(r),
+      s = Math.sin(r);
+    [dx, dy] = [dx * c - dy * s, dx * s + dy * c];
+  };
+  if (frame.local && fixed) {
+    // Page to shape: undo the turn, then the flips.
+    turn(-frame.rotation);
+    if (frame.flipH) dx = -dx;
+    if (frame.flipV) dy = -dy;
+  } else if (!frame.local && !fixed) {
+    if (frame.flipV) dy = -dy;
+    if (frame.flipH) dx = -dx;
+    turn(frame.rotation);
+  }
+  return [dx, dy];
+};
+
+// An outer shadow stretched, shrunk or slanted (`sx`/`sy`/`kx`/`ky`), which a
+// filter's offset cannot draw.
+const isTransformedShadow = (e: ShapeEffectItem): boolean =>
+  e.kind === "outerShdw" &&
+  ((e.scaleX ?? 1) !== 1 ||
+    (e.scaleY ?? 1) !== 1 ||
+    !!e.skewXDeg ||
+    !!e.skewYDeg);
+
+// Draws each transformed outer shadow as a blurred, coloured copy of the
+// geometry, scaled and slanted about its `algn` point of the shape's box and
+// then offset. Painted behind the shape, in the same frame as its filter.
+const transformedShadows = (
+  effects: readonly ShapeEffectItem[],
+  geomSvg: string,
+  box: { x: number; y: number; w: number; h: number },
+  frame: EffectFrame,
+): { defs: string; svg: string } => {
+  let defs = "",
+    svg = "";
+  for (const e of effects) {
+    if (e.kind !== "outerShdw" || !isTransformedShadow(e)) continue;
+    const sx = e.scaleX ?? 1,
+      sy = e.scaleY ?? 1;
+    const tx = Math.tan(((e.skewXDeg ?? 0) * Math.PI) / 180),
+      ty = Math.tan(((e.skewYDeg ?? 0) * Math.PI) / 180);
+    if (![sx, sy, tx, ty].every(Number.isFinite)) continue;
+    const bx = box.x / EMU_PER_PX,
+      by = box.y / EMU_PER_PX,
+      bw = box.w / EMU_PER_PX,
+      bh = box.h / EMU_PER_PX;
+    const al = e.align ?? "b";
+    const [fx, fy] = rectAlignment(al);
+    const ax = bx + bw * fx,
+      ay = by + bh * fy;
+    const [dx, dy] = shadowOffsetPx(e, frame);
+    // x' = a x + c y + ox, y' = b x + d y + oy, about (ax, ay).
+    const a = sx,
+      b = ty * sx,
+      c = tx * sy,
+      d = sy;
+    const ox = ax + dx - (a * ax + c * ay),
+      oy = ay + dy - (b * ax + d * ay);
+    const blurPx = e.blurEmu / EMU_PER_PX / 2;
+    const corners = [
+      [bx, by],
+      [bx + bw, by],
+      [bx, by + bh],
+      [bx + bw, by + bh],
+    ].map(([x, y]) => [a * x! + c * y! + ox, b * x! + d * y! + oy]);
+    const pad = 3 * blurPx + 2;
+    const minX = Math.min(...corners.map((q) => q[0]!)) - pad,
+      minY = Math.min(...corners.map((q) => q[1]!)) - pad,
+      maxX = Math.max(...corners.map((q) => q[0]!)) + pad,
+      maxY = Math.max(...corners.map((q) => q[1]!)) + pad;
+    const id = mintId();
+    defs += `<defs><filter id="${id}" filterUnits="userSpaceOnUse" x="${px(minX)}" y="${px(minY)}" width="${px(maxX - minX)}" height="${px(maxY - minY)}"><feFlood flood-color="${e.color || "#000000"}" flood-opacity="${(e.opacity ?? 1).toFixed(3)}"/><feComposite in2="SourceAlpha" operator="in"/><feGaussianBlur stdDeviation="${blurPx.toFixed(2)}"/></filter></defs>`;
+    svg += `<g filter="url(#${id})" data-pptx-shadow="1"><g transform="matrix(${[a, b, c, d, ox, oy].map((n) => PX(n)).join(" ")})">${geomSvg}</g></g>`;
+  }
+  return { defs, svg };
+};
+
 const buildEffectsFilter = (
-  effects: readonly ReturnType<typeof getShapeEffects>[number][],
+  effects: readonly ShapeEffectItem[],
+  frame?: EffectFrame,
+  // Transformed outer shadows are drawn by `transformedShadows` instead.
+  skipTransformed = false,
 ): EffectsResult | null => {
   if (effects.length === 0) return null;
 
@@ -12842,10 +13000,9 @@ const buildEffectsFilter = (
 
   for (const e of effects) {
     if (e.kind === "outerShdw") {
+      if (skipTransformed && isTransformedShadow(e)) continue;
       // dist + angle → dx, dy in EMU → px.
-      const rad = (e.angleDeg * Math.PI) / 180;
-      const dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
-      const dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
+      const [dx, dy] = shadowOffsetPx(e, frame);
       const blurPx = e.blurEmu / EMU_PER_PX / 2;
       reach = Math.max(
         reach,
@@ -12863,9 +13020,7 @@ const buildEffectsFilter = (
       // SVG has no innerShadow primitive — synthesize via:
       //   inset = (sourceAlpha offset, blurred) - sourceAlpha (inverted)
       // and re-flood with the shadow color.
-      const rad = (e.angleDeg * Math.PI) / 180;
-      const dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
-      const dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
+      const [dx, dy] = shadowOffsetPx(e, frame);
       const blurPx = e.blurEmu / EMU_PER_PX / 2;
       const color = e.color || "#000000";
       const opacity = e.opacity ?? 1;
