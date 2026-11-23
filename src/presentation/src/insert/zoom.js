@@ -219,6 +219,7 @@ export function createZoomFeatures(ctx) {
     const nextPart = slides[at + 1] && P.getSlidePartName(slides[at + 1]);
     const rest = sections.map((sec) => ({
       name: sec.name,
+      id: sec.id,
       slides: sec.slides.filter((s) => P.getSlidePartName(s) !== part),
     }));
     const before = rest.findIndex((sec) =>

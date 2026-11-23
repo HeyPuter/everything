@@ -37,11 +37,25 @@ import { getSlides } from "./slide-query.ts";
 // We expose it as a flat array of `SlideSection` objects, each
 // carrying the section name and the slides in display order.
 
-/** One section in the deck. `slides` is a snapshot at read time. */
+/** One section in the deck. `slides` is a snapshot at read time; `id` is
+ * the section's GUID (`p14:section@id`), which `setSlideSections` keeps when
+ * it is handed back. */
 export interface SlideSection {
   readonly name: string;
   readonly slides: ReadonlyArray<SlideData>;
+  readonly id?: string | null;
 }
+
+const SECTION_ID =
+  /^\{[\dA-F]{8}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{12}\}$/i;
+const newSectionId = (): string => {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `{${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}}`.toUpperCase();
+};
 
 const NS_P14 = "http://schemas.microsoft.com/office/powerpoint/2010/main";
 const SECTION_LST_EXT_URI = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}";
@@ -223,7 +237,7 @@ export const getSlideSections = (
         }
       }
     }
-    out.push({ name, slides });
+    out.push({ name, slides, id: getAttrValue(sec, ATTR_ID_SEC) });
   }
   return out;
 };
@@ -239,7 +253,11 @@ export const getSlideSections = (
  */
 export const setSlideSections = (
   pres: PresentationData,
-  sections: ReadonlyArray<{ name: string; slides: ReadonlyArray<SlideData> }>,
+  sections: ReadonlyArray<{
+    name: string;
+    slides: ReadonlyArray<SlideData>;
+    id?: string | null;
+  }>,
 ): void => {
   const pkg = pres[INTERNAL_PACKAGE];
   const presPart = pkg.getPart(PRES_PART_NAME);
@@ -300,10 +318,15 @@ export const setSlideSections = (
   }
 
   const sectionLst = ensureSectionLst(doc.root);
-  sectionLst.children = sections.map((section, i) => {
-    // Synthesize a GUID-shaped id from index + timestamp.
-    const ts = Date.now().toString(16).padStart(8, "0").slice(-8).toUpperCase();
-    const id = `{${ts.slice(0, 8)}-${String(i).padStart(4, "0")}-4000-8000-000000000000}`;
+  // A section handed back with its id keeps it, so what refers to the
+  // section (a section zoom, an editor's folded sections) still finds it;
+  // a new one is given a fresh GUID.
+  const used = new Set<string>();
+  sectionLst.children = sections.map((section) => {
+    const own = section.id?.toUpperCase();
+    const id =
+      own && SECTION_ID.test(own) && !used.has(own) ? own : newSectionId();
+    used.add(id);
     const sldIds: XmlElement[] = [];
     for (const slide of section.slides) {
       const sldId = sldIdFor(slide);

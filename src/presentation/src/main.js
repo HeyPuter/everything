@@ -6299,6 +6299,7 @@ function sectionList() {
   try {
     return (P.getSlideSections(doc.pres) || []).map((sec) => ({
       name: sec.name,
+      id: sec.id ?? null,
       slides: sec.slides.map(P.getSlidePartName),
     }));
   } catch {
@@ -6322,6 +6323,7 @@ function writeSections(list) {
       doc.pres,
       list.map((sec) => ({
         name: sec.name,
+        id: sec.id ?? null,
         slides: sec.slides.map((p) => byPart.get(p)).filter(Boolean),
       })),
     );

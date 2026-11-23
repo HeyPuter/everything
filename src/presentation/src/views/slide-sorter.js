@@ -50,13 +50,16 @@ export function createSlideSorter(ctx) {
     try {
       return P.getSlideSections(pres()).map((sec) => ({
         name: sec.name,
+        id: sec.id ?? null,
         slides: sec.slides.map(P.getSlidePartName),
       }));
     } catch {
       return [];
     }
   };
-  const sectionKey = (sec, i) => `${i}:${sec.name}`;
+  // A section folds by its id, so it stays folded when sections move or one
+  // is added before it; a file without ids falls back on place and name.
+  const sectionKey = (sec, i) => sec.id || `${i}:${sec.name}`;
 
   function paint(part) {
     const card = cards.get(part);
@@ -473,6 +476,7 @@ export function createSlideSorter(ctx) {
           p,
           plan.sections.map((sec) => ({
             name: sec.name,
+            id: sec.id ?? null,
             slides: sec.slides.map((x) => byPart.get(x)).filter(Boolean),
           })),
         );

@@ -531,3 +531,55 @@ test("the status bar switches views and the view menu lists them", async ({
   await page.keyboard.press(`${mod}+Digit2`);
   await expect(page.locator(".editor")).toHaveAttribute("data-view", "sorter");
 });
+
+// A folded section was known by its place and name: moving it up, or adding
+// a section before it, unfolded it.
+test("a folded section in the Slide Sorter stays folded when it moves or is renamed", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const pres = P.createPresentation();
+  const slides = [1, 2, 3, 4].map(() => P.addBlankSlide(pres));
+  P.setSlideSections(pres, [
+    { name: "Alpha", slides: slides.slice(0, 2) },
+    { name: "Beta", slides: slides.slice(2) },
+  ]);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Sections.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 4");
+  await view(page, "sorter");
+  const section = (name) =>
+    page.locator(`.sorter-section[aria-label="${name}"]`);
+  await section("Beta").locator(".sorter-toggle").click();
+  await expect(section("Beta")).toHaveClass(/collapsed/);
+  await section("Beta").locator(".sorter-section-menu").click();
+  await page.getByRole("menuitem", { name: "Move Section Up" }).click();
+  await expect(page.locator(".sorter-section").first()).toHaveAttribute(
+    "aria-label",
+    "Beta",
+  );
+  await expect(section("Beta")).toHaveClass(/collapsed/);
+  await expect(section("Alpha")).not.toHaveClass(/collapsed/);
+  await section("Beta").locator(".sorter-section-menu").click();
+  await page.getByRole("menuitem", { name: /^Rename Section/ }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("Gamma");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Rename" })
+    .click();
+  await expect(section("Gamma")).toHaveClass(/collapsed/);
+});
