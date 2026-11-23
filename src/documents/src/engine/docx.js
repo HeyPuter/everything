@@ -2562,6 +2562,10 @@ export class DocxPackage {
         const background = doc.createElementNS(W, 'w:background');
         background.setAttributeNS(W, 'w:color', pageSettings.background);
         doc.documentElement.prepend(background);
+        // Word shows the page color in Print Layout only with displayBackgroundShape (§17.15.1.25) on, as it
+        // writes it when a page color is chosen; without it, the color chosen here did not show there.
+        const { settings, related, path } = openSettings(parts);
+        if (writeSettingsFlag(settings, 'displayBackgroundShape', true)) saveSettings(parts, settings, related, path);
       }
     }
     const writeImage = imageWriter(parts, paragraphs, assets, doc);

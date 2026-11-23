@@ -25024,3 +25024,14 @@ picture pasted back keeps its position. Before, the paste came back as an inline
 in another document, or in a table cell, is still an inline picture at the copied size; pictures with both axes
 aligned paste on top of the original. Tests: `tests/browser/paste-picture.spec.js` (export: two `wrapSquare`
 pictures and three distinct `docPr` ids).
+
+## Page color shown in Word's Print Layout (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §17.2.1 `background`, §17.15.1.25 `displayBackgroundShape`.
+
+A solid page color written from Design > Page Color now also turns on `w:displayBackgroundShape` in the settings
+part (added in schema order; a document without a settings part gets one, with its relationship and content
+type), as Word writes it when a page color is chosen. Without it Word does not show the background in Print
+Layout, so the color chosen here appeared only in this editor. Removing the color leaves the settings as they
+are; an unchanged color writes nothing. Tests: `tests/canvas-page-background.test.js` (new package, existing
+settings part, removal); exports pass `tools/check-docx-schema.py`.

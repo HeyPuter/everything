@@ -22,6 +22,22 @@ it('serializes backgrounds in new packages and validates color edits',async()=>{
  const p=createDocx([paragraph('New')],{background:'112233'}),d=model(p);expect((await DocxPackage.open(await save(p,d))).pageSettings.background).toBe('112233');
  for(const value of [null,1,'#112233','red','12345'])expect(()=>validatePageSettings({background:value})).toThrow();
 });
+it('turns on displayBackgroundShape when a page color is written, so Word shows it in Print Layout',async()=>{
+ // A new package has no settings part: one is added with the setting (§17.15.1.25).
+ const p=createDocx([paragraph('New')]),d=model(p);d.setPageSettings({background:'E2EFD9'});
+ const parts=unzipSync(await save(p,d));expect(strFromU8(parts['word/settings.xml'])).toContain('<w:displayBackgroundShape/>');
+ expect(strFromU8(parts['word/_rels/document.xml.rels'])).toMatch(/relationships\/settings" Target="settings.xml"/);
+ expect((await DocxPackage.open(zipSync(parts))).pageSettings.background).toBe('E2EFD9');
+ // An existing settings part keeps the rest of its settings and gets the setting in schema order.
+ const opened=await DocxPackage.open(readFileSync('public/fixtures/page-settings.docx')),edit=model(opened);edit.setPageSettings({background:'abcdef'});
+ const settings=strFromU8(unzipSync(await save(opened,edit))['word/settings.xml']);
+ expect(settings.match(/<w:displayBackgroundShape\/>/g)).toHaveLength(1);expect(settings).toMatch(/<w:zoom [^>]*\/><w:displayBackgroundShape\/><w:proofState /);
+ const before=strFromU8(opened.parts['word/settings.xml']).replace(/<w:displayBackgroundShape\/>/,'').replace(/<\?xml[^>]*>/,'').match(/<w:\w+/g);
+ expect(settings.replace(/<w:displayBackgroundShape\/>/,'').replace(/<\?xml[^>]*>/,'').match(/<w:\w+/g)).toEqual(before);
+ // Taking the color off leaves the settings as they are.
+ const plain=createDocx([paragraph('New')]),none=model(plain);none.setPageSettings({background:'auto'});
+ expect(unzipSync(await save(plain,none))['word/settings.xml']).toBeUndefined();
+});
 it('resolves theme background tint and preserves its declaration',async()=>{
  const base=readFileSync('public/fixtures/text-colors.docx');const bytes=revise(xml=>xml.replace(/<w:body>/,'<w:background w:color="FF0000" w:themeColor="accent1" w:themeTint="99"/><w:body>'),base);
  const p=await DocxPackage.open(bytes),d=model(p);expect(p.pageSettings.background).toBe('D99594');d.select(0);d.replace('X');const xml=strFromU8(unzipSync(await save(p,d))['word/document.xml']);expect(xml).toContain('w:themeColor="accent1"');expect(xml).toContain('w:themeTint="99"');
