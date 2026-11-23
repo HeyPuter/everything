@@ -7,6 +7,30 @@ const sdk = () => {
     );
   return globalThis.puter;
 };
+// Puter's SDK loads beside the app (index.html), which waits for it before
+// its first screen: inside the Puter desktop that screen can be a file the
+// app was launched with. A request that never answers would leave the page
+// blank, so the wait ends after `timeoutMs` and the app starts without the
+// cloud. True when the SDK is there.
+export const SDK_WAIT_MS = 8000;
+export function sdkReady(timeoutMs = SDK_WAIT_MS) {
+  const settled = globalThis.__puterSettled;
+  if (globalThis.puter || !settled?.then)
+    return Promise.resolve(!!globalThis.puter);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    settled.then(() => {
+      clearTimeout(timer);
+      resolve(!!globalThis.puter);
+    });
+  });
+}
+// Runs `handler` once an SDK that missed the wait arrives after all.
+export function onLateSdk(handler) {
+  globalThis.__puterSettled?.then?.(() => {
+    if (globalThis.puter) handler();
+  });
+}
 export const isApp = () => globalThis.puter?.env === "app";
 export const canSignOut = () => !isApp();
 export async function user() {

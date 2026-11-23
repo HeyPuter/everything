@@ -22,6 +22,8 @@ import {
   oneDialog,
   onWindowClose,
   onLaunch,
+  sdkReady,
+  onLateSdk,
 } from "../src/cloud.js";
 afterEach(() => vi.unstubAllGlobals());
 describe("Puter storage boundary", () => {
@@ -319,5 +321,48 @@ describe("Puter storage boundary", () => {
     });
     onLaunch(handler);
     expect(handler).toHaveBeenCalledWith([{ path: "/u/Photos", is_dir: true }]);
+  });
+  it("starts without the SDK when its script never answers, and takes it up when it arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      let settle;
+      vi.stubGlobal(
+        "__puterSettled",
+        new Promise((resolve) => (settle = resolve)),
+      );
+      let ready = null;
+      sdkReady(8000).then((value) => (ready = value));
+      await vi.advanceTimersByTimeAsync(7999);
+      expect(ready).toBe(null);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(ready).toBe(false);
+      const late = vi.fn();
+      onLateSdk(late);
+      vi.stubGlobal("puter", { env: "web" });
+      settle(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(late).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("waits for an SDK that answers in time, and not for one that failed", async () => {
+    let settle;
+    vi.stubGlobal(
+      "__puterSettled",
+      new Promise((resolve) => (settle = resolve)),
+    );
+    const ready = sdkReady(60000);
+    vi.stubGlobal("puter", { env: "web" });
+    settle(true);
+    await expect(ready).resolves.toBe(true);
+    vi.unstubAllGlobals();
+    vi.stubGlobal("__puterSettled", Promise.resolve(false));
+    await expect(sdkReady(60000)).resolves.toBe(false);
+    const late = vi.fn();
+    onLateSdk(late);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(late).not.toHaveBeenCalled();
   });
 });

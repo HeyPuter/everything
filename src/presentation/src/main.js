@@ -667,6 +667,15 @@ function sdkUserMenu() {
     onSignedOut: accountSignedOut,
   });
 }
+// An SDK that arrived after the first screen brings <puter-user-menu> with
+// it: the element takes the place of the app's own Apps and account buttons
+// in the header on screen.
+function adoptLateUserMenu() {
+  const current = document.querySelector(".account-button");
+  if (!current || !hasUserMenu()) return;
+  current.parentElement?.querySelector(".apps-btn")?.remove();
+  current.replaceWith(...[accountButton(), sdkUserMenu()].filter(Boolean));
+}
 // The element signed out by itself: the header and the library follow.
 function accountSignedOut() {
   if (!account || signingOut) return;
@@ -2981,9 +2990,11 @@ async function copyOf(target, useDialog) {
 }
 // The tab and, inside the Puter desktop, the window are titled after the
 // open presentation, and after the app in the library.
+let windowTitle = "Presentation";
 function setTitle(name) {
   document.title = name ? `${name} | Presentation` : "Presentation";
-  cloud.setWindowTitle(name || "Presentation");
+  windowTitle = name || "Presentation";
+  cloud.setWindowTitle(windowTitle);
 }
 // The header's title button is named by the name it shows, and says on
 // hover what a press does; the window's title follows the name too.
@@ -17644,11 +17655,43 @@ async function readyToClose() {
 // registered: before the first screen, so that screen can be the file.
 let launchItems = null;
 let booting = true;
-cloud.onLaunch((items) => {
-  if (booting) launchItems = items;
-  else openDriveItems(items);
-});
-cloud.onWindowClose(closeWindow);
+// The first screen waits for Puter's SDK, but not for ever (cloud.sdkReady);
+// one that arrives later is taken up then.
+const sdkOnTime = await cloud.sdkReady();
+function connectCloud({ late = false } = {}) {
+  cloud.onLaunch((items) => {
+    if (booting) launchItems = items;
+    else if (late) openLateLaunch(items).catch(fail);
+    else openDriveItems(items);
+  });
+  cloud.onWindowClose(closeWindow);
+}
+// A file the app was launched with that arrives with a late SDK takes the
+// place of the new presentation only while that is untouched: work begun in
+// the meantime is not put away unasked.
+async function openLateLaunch(items) {
+  const item = items.find(
+    (it) =>
+      it?.path && !cloud.isDirItem(it) && cloud.isPptxName(it.name || it.path),
+  );
+  if (!item || view !== "editor" || !doc || untouchedLanding())
+    return openDriveItems(items);
+  const name = cleanName(item.name || cloud.displayName(item.path));
+  const choice = await dialog({
+    title: `Open “${name}”?`,
+    body: el(
+      "p",
+      { class: "dialog-body" },
+      "It finished loading after you began this new presentation. If you open it, this one stays on this device, under Your presentations.",
+    ),
+    actions: [
+      { label: "Not now", value: null },
+      { label: "Open", value: "open", kind: "primary" },
+    ],
+  });
+  if (choice === "open") openDriveItems(items);
+}
+connectCloud();
 // The app opens into a new presentation without waiting for, or asking for,
 // a sign-in; #/home opens the library instead. The account is looked up
 // alongside and the header follows once it is known.
@@ -17691,3 +17734,14 @@ if (accountRequest === initialAccountRequest) {
 // answer that has already arrived.
 if (view === "home" && loading) await loadLibrary();
 cloud.onAuth(adoptAccount);
+if (!sdkOnTime)
+  cloud.onLateSdk(() => {
+    connectCloud({ late: true });
+    cloud.setWindowTitle(windowTitle);
+    adoptLateUserMenu();
+    cloud.onAuth(adoptAccount);
+    cloud
+      .user()
+      .then(adoptAccount)
+      .catch(() => {});
+  });
