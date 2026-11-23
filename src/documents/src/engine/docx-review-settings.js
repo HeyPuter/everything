@@ -7,6 +7,7 @@
 import { strToU8 } from 'fflate';
 import { languageProperty } from './font-families.js';
 import { parseXml, declareContentType } from './docx-xml.js';
+import { hasPart } from './package-part-paths.js';
 import { relatedPartPath } from './docx-relationships.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -74,7 +75,7 @@ function setProtectionElement(doc, name, record, write) {
 function openSettingsPart(parts) {
   const related = relatedPartPath(parts, 'settings');
   let path = related || 'word/settings.xml';
-  if (!related) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/settings${i}.xml`;
+  if (!related) for (let i = 1; hasPart(parts, path); i++) path = `word/settings${i}.xml`;
   return { doc: related ? parseXml(parts[related]) : parseXml(strToU8(`<w:settings xmlns:w="${W}"/>`)), related, path };
 }
 function storeSettingsPart(parts, { doc, related, path }) {

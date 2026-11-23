@@ -92,7 +92,7 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES, hasPart } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
@@ -568,7 +568,7 @@ function writeDefaultTabStop(parts, distance, initial, fresh) {
   if (distance === initial && (!fresh || distance === 720)) return;
   const related = relatedPartPath(parts, 'settings');
   let path = related || 'word/settings.xml';
-  if (!related) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/settings${i}.xml`;
+  if (!related) for (let i = 1; hasPart(parts, path); i++) path = `word/settings${i}.xml`;
   const settings = related ? readSettings(parts) : xml(`<w:settings xmlns:w="${W}"/>`);
   const root = settings.documentElement;
   let stop = child(root, 'defaultTabStop');
@@ -582,7 +582,7 @@ function writeDefaultTabStop(parts, distance, initial, fresh) {
 function openSettings(parts) {
   const related = relatedPartPath(parts, 'settings');
   let path = related || 'word/settings.xml';
-  if (!related) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/settings${i}.xml`;
+  if (!related) for (let i = 1; hasPart(parts, path); i++) path = `word/settings${i}.xml`;
   return { settings: related ? readSettings(parts) : xml(`<w:settings xmlns:w="${W}"/>`), related, path };
 }
 /** Turn Track Changes on or off for the document (§17.15.1.90). */
@@ -716,7 +716,7 @@ function writeStyles(parts, styles) {
   const existingPath = stylesPath(parts);
   let path = existingPath || 'word/styles.xml';
   // Preserve any unrelated/orphan part occupying the conventional name.
-  if (!existingPath) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/styles${i}.xml`;
+  if (!existingPath) for (let i = 1; hasPart(parts, path); i++) path = `word/styles${i}.xml`;
   const doc = existingPath ? xml(parts[path]) : xml(`<w:styles xmlns:w="${W}"/>`), root = doc.documentElement;
   const make = name => doc.createElementNS(W, `w:${name}`);
   // Deleted styles leave the part; every other definition keeps its XML.

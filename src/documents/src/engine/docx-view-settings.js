@@ -4,6 +4,7 @@
 // rest of the package, is kept byte for byte.
 import { strToU8 } from 'fflate';
 import { parseXml, declareContentType } from './docx-xml.js';
+import { hasPart } from './package-part-paths.js';
 import { relatedPartPath } from './docx-relationships.js';
 import { viewFromSetting, settingFromView } from './document-views.js';
 
@@ -42,7 +43,7 @@ export function writeDocumentView(parts, kind) {
   else {
     if (value === 'print') return false;
     path = 'word/settings.xml';
-    for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/settings${i}.xml`;
+    for (let i = 1; hasPart(parts, path); i++) path = `word/settings${i}.xml`;
     doc = parseXml(`<w:settings xmlns:w="${W}"/>`);
     addSettingsPart(parts, path);
   }

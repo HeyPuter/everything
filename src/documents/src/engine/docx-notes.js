@@ -5,6 +5,7 @@
 // separator notes (§17.11.15, §17.11.23).
 import { strToU8 } from 'fflate';
 import { parseXml, setContentTypeOverride } from './docx-xml.js';
+import { hasPart } from './package-part-paths.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -77,7 +78,7 @@ export function separatorIds(parts, path, kind) {
 export function createNotesPart(parts, kind) {
   const plural = `${kind}s`;
   let path = `word/${plural}.xml`, n = 1;
-  while (Object.hasOwn(parts, path)) path = `word/${plural}${n++}.xml`;
+  while (hasPart(parts, path)) path = `word/${plural}${n++}.xml`;
   const separator = (type, id, mark) => `<w:${kind} w:type="${type}" w:id="${id}"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:${mark}/></w:r></w:p></w:${kind}>`;
   parts[path] = strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:${plural} xmlns:w="${W}" xmlns:r="${R}">${separator('separator', -1, 'separator')}${separator('continuationSeparator', 0, 'continuationSeparator')}</w:${plural}>`);
   const relPath = 'word/_rels/document.xml.rels';

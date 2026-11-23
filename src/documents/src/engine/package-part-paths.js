@@ -66,6 +66,18 @@ export function packagePartName(parts, name) {
 }
 
 /**
+ * Whether the package holds part `name`, or another whose name equals it ignoring ASCII case. A new part's name
+ * must be free in this sense: a package may not hold two equivalent part names (ECMA-376 Part 2, §9.1.1.1), so a
+ * header added as word/header1.xml beside an existing word/Header1.xml made a file Word refuses, and that opens
+ * here read-only.
+ */
+export function hasPart(parts, name) {
+  if (Object.hasOwn(parts, name)) return true;
+  const lower = text => text.replace(/[A-Z]+/g, c => c.toLowerCase()), key = lower(name);
+  return Object.keys(parts).some(item => lower(item) === key);
+}
+
+/**
  * The largest DOCX file the editor opens, and the most its parts may expand to. A session holds up to 50 MB
  * of pictures (validateImageAssets), which are stored as they are; at 20 MB, a document saved with them could
  * not be opened again. These admit that, with the document's own XML, and still refuse archive bombs.
