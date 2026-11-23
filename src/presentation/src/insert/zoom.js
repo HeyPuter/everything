@@ -192,7 +192,7 @@ export function createZoomFeatures(ctx) {
         const slide = P.getSlides(pres)[Math.max(0, at)];
         ctx.titleText(slide, "Summary", size);
         summaryIndex = Math.max(0, at);
-        // The summary slide belongs to the section of the slide it precedes.
+        placeInOwnSection(pres, slide);
         return slide;
       },
       area: {
@@ -203,6 +203,31 @@ export function createZoomFeatures(ctx) {
       },
     });
     ctx.goToSlide(summaryIndex);
+  }
+
+  // In a deck with sections, the summary slide starts a section of its own
+  // before the first section it summarizes. Left to join a neighbour, it
+  // ended the section before (or began the first one), so zooming into that
+  // section played the summary slide as part of it.
+  function placeInOwnSection(pres, slide) {
+    const sections = P.getSlideSections(pres) || [];
+    if (!sections.length) return;
+    const part = P.getSlidePartName(slide);
+    const slides = P.getSlides(pres);
+    const at = slides.findIndex((s) => P.getSlidePartName(s) === part);
+    const nextPart = slides[at + 1] && P.getSlidePartName(slides[at + 1]);
+    const rest = sections.map((sec) => ({
+      name: sec.name,
+      slides: sec.slides.filter((s) => P.getSlidePartName(s) !== part),
+    }));
+    const before = rest.findIndex((sec) =>
+      sec.slides.some((s) => P.getSlidePartName(s) === nextPart),
+    );
+    rest.splice(before < 0 ? rest.length : before, 0, {
+      name: "Summary Section",
+      slides: [slide],
+    });
+    P.setSlideSections(pres, rest);
   }
 
   const setData = (change) =>

@@ -633,6 +633,41 @@ test("a summary zoom jumps to its slide and returns", async ({ page }) => {
   await expect(page.locator(".presenter-counter")).toHaveText("1 / 4");
 });
 
+// In a deck with sections, the summary slide joined the section before it,
+// so zooming into that section played the summary slide as part of it.
+test("a summary zoom of a later section starts a section of its own", async ({
+  page,
+}) => {
+  await start(page);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Meta+Shift+N");
+  await expect(page.locator(".slide-item")).toHaveCount(4);
+  await page.locator(".slide-item").nth(2).locator(".slide-thumb").click();
+  await tab(page, "Home");
+  await command(page, "section");
+  await page.getByRole("menuitem", { name: "Add Section" }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("Later");
+  await page.getByRole("dialog").getByRole("button").last().click();
+  await tab(page, "Insert");
+  await command(page, "insert-zoom");
+  await page.getByRole("menuitem", { name: "Summary Zoom…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Insert Summary Zoom" });
+  await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+  await dialog.getByRole("checkbox").first().uncheck();
+  await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+  await expect(page.locator(".slide-item")).toHaveCount(5);
+  const { files } = await download(page);
+  const pres = strFromU8(files["ppt/presentation.xml"]);
+  const sections = [
+    ...pres.matchAll(/<p14:section name="([^"]*)"[^>]*>(.*?)<\/p14:section>/g),
+  ].map(([, name, body]) => [name, (body.match(/<p14:sldId /g) || []).length]);
+  expect(sections.map(([name]) => name)).toEqual([
+    expect.any(String),
+    "Summary Section",
+    "Later",
+  ]);
+  expect(sections.map(([, n]) => n)).toEqual([2, 1, 2]);
+});
+
 test("action buttons get a default action and action settings", async ({
   page,
 }) => {
