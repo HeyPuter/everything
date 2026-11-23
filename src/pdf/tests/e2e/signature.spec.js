@@ -1478,3 +1478,44 @@ for (const format of ['png', 'jpeg'])
     // The transparent background stays transparent.
     expect(!!image.object.dict.lookup(PDFName.of('SMask'))).toBe(format === 'png');
   });
+
+// Eight signatures are remembered on the device; within a session the list grew past them, so
+// it showed a ninth that was gone after a reload.
+test('the saved signatures listed are the ones a reload remembers', async ({ page }) => {
+  const names = Array.from({ length: 8 }, (_, i) => `Name ${i + 1}`);
+  await page.addInitScript(
+    (items) => {
+      if (!sessionStorage.getItem('seeded')) {
+        sessionStorage.setItem('seeded', '1');
+        localStorage.setItem('pdf-editor:signatures', JSON.stringify({ items }));
+      }
+    },
+    names.map((text) => ({ type: 'type', text })),
+  );
+  await mockPuter(page);
+  await page.goto('/');
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  const saved = dialog.getByRole('button', { name: /^Use saved signature/ });
+  await expect(saved).toHaveCount(8);
+  await dialog.getByRole('tab', { name: 'Type', exact: true }).click();
+  await dialog.getByLabel('Signature text', { exact: true }).fill('Name 9');
+  await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const listed = async () => {
+    await page.getByRole('button', { name: 'Sign', exact: true }).click();
+    await expect(dialog).toBeVisible();
+    const labels = await saved.evaluateAll((buttons) =>
+      buttons.map((b) => b.getAttribute('aria-label').replace(/^Use saved signature \d+: /, '')),
+    );
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    return labels;
+  };
+  const expected = [...names.slice(1), 'Name 9'];
+  expect(await listed()).toEqual(expected);
+  await page.reload();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  expect(await listed()).toEqual(expected);
+});

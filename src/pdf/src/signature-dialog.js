@@ -13,6 +13,8 @@ import { MAX_IMAGE_SIZE, isPng, isJpeg } from './core/document.js';
 import { normalizeJpegPadding } from './core/jpeg.js';
 
 const STORAGE_KEY = 'pdf-editor:signatures';
+/** How many drawn and typed signatures are kept, on the device and in the list alike. */
+const MAX_SAVED = 8;
 const FONT_FAMILY = 'Great Vibes';
 /** Signatures made in this session; kept on the device only when the person asks. */
 let saved = null;
@@ -39,6 +41,8 @@ function loadSaved() {
             item.strokes.some((stroke) => stroke.length)) ||
           (item?.type === 'type' && typeof item.text === 'string'),
       );
+    // A list from before the limit keeps its newest few.
+    saved = saved.slice(-MAX_SAVED);
   } catch {
     /* Remembered signatures are optional. */
   }
@@ -57,7 +61,7 @@ function persist(remember) {
     else
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ items: saved.filter((item) => item.type !== 'image').slice(-8) }),
+        JSON.stringify({ items: saved.filter((item) => item.type !== 'image').slice(-MAX_SAVED) }),
       );
   } catch {
     /* Storage can be full or blocked; the session copy still works. */
@@ -664,8 +668,11 @@ export function signatureDialog({ signal } = {}) {
         !items.some(
           (item) => JSON.stringify({ ...item, image: undefined, bytes: undefined }) === key,
         )
-      )
+      ) {
         items.push(signature);
+        // The list holds what a reload brings back: the newest few.
+        items.splice(0, Math.max(0, items.length - MAX_SAVED));
+      }
       persist(keep);
       result = { signature, hex, outline };
       dialog.close();
