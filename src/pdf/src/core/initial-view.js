@@ -17,6 +17,7 @@ import { explicitDest } from './pages.js';
  * initial view: { layout: 'single' | 'continuous' | 'two' | 'two-continuous',
  *                 panel: 'none' | 'bookmarks' | 'pages' | 'attachments' | 'layers',
  *                 page (0-based), zoom: 'default' | 'fit' | 'page' | number (1 = 100%),
+ *                 left, top (the PDF point at the view's top left, or null),
  *                 fullScreen, displayTitle }
  */
 const name = PDFName.of;
@@ -76,6 +77,29 @@ function destinationZoom(dest) {
   return 'default';
 }
 
+/**
+ * The place a destination array brings to the top left of the view, in PDF coordinates:
+ * `{ left, top }`, each null where the destination leaves it to the reader.
+ */
+function destinationPlace(dest) {
+  const at = (i) => {
+    const value = dest.lookup(i);
+    return value instanceof PDFNumber && Number.isFinite(value.asNumber())
+      ? value.asNumber()
+      : null;
+  };
+  const [left, top] =
+    {
+      XYZ: () => [at(2), at(3)],
+      FitH: () => [null, at(2)],
+      FitBH: () => [null, at(2)],
+      FitV: () => [at(2), null],
+      FitBV: () => [at(2), null],
+      FitR: () => [at(2), at(5)],
+    }[nameOf(dest.get(1))]?.() || [];
+  return { left: left ?? null, top: top ?? null };
+}
+
 export function readInitialView(doc) {
   const catalog = doc.catalog;
   const mode = nameOf(catalog.lookup(name('PageMode')));
@@ -94,6 +118,9 @@ export function readInitialView(doc) {
     fullScreen: mode === 'FullScreen',
     page: destinationPage(doc, dest instanceof PDFArray ? dest : null) ?? 0,
     zoom: dest instanceof PDFArray ? destinationZoom(dest) : 'default',
+    ...(dest instanceof PDFArray && dest.size() > 1
+      ? destinationPlace(dest)
+      : { left: null, top: null }),
     displayTitle: prefs?.lookup(name('DisplayDocTitle')) === PDFBool.True,
   };
 }

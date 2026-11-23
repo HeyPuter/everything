@@ -11,6 +11,8 @@ it('reads the defaults of a PDF that does not say how to open', async () => {
     fullScreen: false,
     page: 0,
     zoom: 'default',
+    left: null,
+    top: null,
     displayTitle: false,
   });
 });
@@ -32,6 +34,8 @@ it('writes the layout, panel, open page, zoom, and title display and reads them 
     fullScreen: false,
     page: 2,
     zoom: 'page',
+    left: null,
+    top: null,
     displayTitle: true,
   });
   writeInitialView(reopened, { zoom: 1.5 });
@@ -96,4 +100,35 @@ it('reads the open page of a PDF that names it by a named destination', async ()
   doc.catalog.set(PDFName.of('Dests'), doc.context.obj({ start: { D: target } }));
   doc.catalog.set(PDFName.of('OpenAction'), doc.context.obj({ S: 'GoTo', D: PDFName.of('start') }));
   expect(readInitialView(doc)).toMatchObject({ page: 2, zoom: 'page' });
+});
+
+it('reads the place on the open page an XYZ or FitH destination brings to the top', async () => {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage([600, 800]);
+  const page = doc.getPage(1).ref;
+  doc.catalog.set(PDFName.of('OpenAction'), doc.context.obj([page, PDFName.of('XYZ'), 40, 300, 2]));
+  expect(readInitialView(doc)).toMatchObject({ page: 1, zoom: 2, left: 40, top: 300 });
+  doc.catalog.set(
+    PDFName.of('OpenAction'),
+    doc.context.obj([page, PDFName.of('XYZ'), null, 300, null]),
+  );
+  expect(readInitialView(doc)).toMatchObject({ zoom: 'default', left: null, top: 300 });
+  doc.catalog.set(PDFName.of('OpenAction'), doc.context.obj([page, PDFName.of('FitH'), 500]));
+  expect(readInitialView(doc)).toMatchObject({ zoom: 'fit', left: null, top: 500 });
+  // Named destinations, too.
+  doc.catalog.set(
+    PDFName.of('Names'),
+    doc.context.obj({
+      Dests: doc.context.obj({
+        Names: [PDFString.of('middle'), doc.context.obj([page, PDFName.of('XYZ'), 0, 420, 0])],
+      }),
+    }),
+  );
+  doc.catalog.set(
+    PDFName.of('OpenAction'),
+    doc.context.obj({ S: 'GoTo', D: PDFString.of('middle') }),
+  );
+  expect(readInitialView(doc)).toMatchObject({ page: 1, zoom: 'default', left: 0, top: 420 });
+  doc.catalog.set(PDFName.of('OpenAction'), doc.context.obj([page, PDFName.of('Fit')]));
+  expect(readInitialView(doc)).toMatchObject({ zoom: 'page', left: null, top: null });
 });

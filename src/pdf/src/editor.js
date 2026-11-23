@@ -13933,6 +13933,9 @@ export function createEditor({
         ? Math.min(ZOOM_LEVELS.at(-1), Math.max(ZOOM_LEVELS[0], view.zoom))
         : view.zoom;
     if (asked !== 'default') await setZoom(String(asked));
+    // As for a bookmark, a place on the page (an XYZ destination's top) comes to the view's top.
+    if ((view.left != null || view.top != null) && view.page < pageCount && !destroyed)
+      await showDestination({ page: view.page, left: view.left, top: view.top });
     updateStatus();
   }
   return {
