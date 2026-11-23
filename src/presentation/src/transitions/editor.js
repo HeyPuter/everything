@@ -230,8 +230,10 @@ export function createTransitionTools({
     ];
   }
 
-  /** Plays (or stops) the sound of the slide arriving in a show. */
-  function playArrivalSound(target) {
+  /** Plays (or stops) the sound of the slide arriving in a show. A preview
+   * plays it once, even one set to loop until the next sound, which in the
+   * editor would never come. */
+  function playArrivalSound(target, { preview = false } = {}) {
     const sound = details(target)?.sound;
     if (!sound) return;
     if (sound.kind === "stop") {
@@ -244,7 +246,8 @@ export function createTransitionTools({
     } catch {
       data = null;
     }
-    if (data) playSound(data.bytes, { loop: data.loop }).catch(() => {});
+    if (data)
+      playSound(data.bytes, { loop: data.loop && !preview }).catch(() => {});
   }
 
   /* ---------- Playing ---------- */
@@ -312,7 +315,7 @@ export function createTransitionTools({
     const slides = P.getSlides(pres());
     const at = slides.indexOf(target);
     const previous = at > 0 ? slides[at - 1] : null;
-    playArrivalSound(target);
+    playArrivalSound(target, { preview: true });
     if (prefersReducedMotion()) return null;
     // As in the show: the previous slide as its animations left it, and
     // this one as it opens, without the objects that enter later.

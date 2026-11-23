@@ -286,3 +286,59 @@ test("morph plays between slides with the same objects", async ({ page }) => {
   await expect(page.locator(".presenter .slide-transition")).toHaveCount(0);
   await expect(page.locator(".presenter-counter")).toHaveText("2 / 2");
 });
+
+test("Preview plays a sound set to loop until the next sound only once", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== "desktop",
+    "narrower layouts fold the Transitions tab's Preview into a menu",
+  );
+  await page.addInitScript(() => {
+    window.sources = [];
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      window.sources.push(this);
+      return start.apply(this, args);
+    };
+  });
+  // A quarter of a second of tone, as a WAV file.
+  const rate = 8000,
+    count = 2000;
+  const wav = new Uint8Array(44 + count * 2);
+  const view = new DataView(wav.buffer);
+  const word = (at, text) =>
+    [...text].forEach((c, i) => (wav[at + i] = c.charCodeAt(0)));
+  word(0, "RIFF");
+  view.setUint32(4, 36 + count * 2, true);
+  word(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  word(36, "data");
+  view.setUint32(40, count * 2, true);
+  for (let i = 0; i < count; i++)
+    view.setInt16(44 + i * 2, Math.sin(i / 5) * 8000, true);
+  const pres = deck(2);
+  const second = P.getSlides(pres)[1];
+  const relId = P.addSlideTransitionSound(second, wav, "Tone.wav");
+  P.setSlideTransition(second, {
+    effect: "fade",
+    durationMs: 500,
+    sound: { kind: "start", relId, name: "Tone.wav", loop: true },
+  });
+  await load(page, pres);
+  await page.locator("#slide-list .slide-thumb").nth(1).click();
+  await page.getByRole("tab", { name: "Transitions", exact: true }).click();
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.sources.length))
+    .toBeGreaterThan(0);
+  expect(
+    await page.evaluate(() => window.sources.map((source) => source.loop)),
+  ).toEqual([false]);
+});
