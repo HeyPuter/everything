@@ -148,9 +148,15 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     const visible = node => node && node.getClientRects().length && !node.closest('[hidden]');
     function badge(target, code, disabled) {
       const box = target.getBoundingClientRect();
+      // In a row that scrolls sideways (the tabs beside contextual ones, a phone's commands) the badge goes on the part
+      // in view: centred on the whole of a half-hidden tab it fell outside the window. Wholly out of view, none.
+      const clip = target.closest('.ribbon-tabs, .ribbon-panel')?.getBoundingClientRect();
+      const width = document.documentElement.clientWidth;
+      const left = Math.max(box.left, clip?.left ?? 0, 0), right = Math.min(box.right, clip?.right ?? width, width);
+      if (right < left) return null;
       const tip = el('span.ed-keytip', { 'aria-hidden': 'true' }, code);
       if (disabled) tip.classList.add('is-disabled');
-      tip.style.left = `${Math.round(box.left + box.width / 2)}px`;
+      tip.style.left = `${Math.round(Math.min(Math.max((left + right) / 2, 12), width - 12))}px`;
       tip.style.top = `${Math.round(box.bottom - 6)}px`;
       return tip;
     }
@@ -158,7 +164,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       layer?.remove();
       codes = targets;
       layer = el('div.ed-keytips', { role: 'status', 'aria-live': 'polite' }, el('span.visually-hidden', {}, 'KeyTips shown. Type a letter to choose, Escape to go back.'),
-        ...targets.filter(t => visible(t.node)).map(t => badge(t.node, t.code, t.disabled)));
+        ...targets.filter(t => visible(t.node)).map(t => badge(t.node, t.code, t.disabled)).filter(Boolean));
       document.body.append(layer);
     }
     function top() {

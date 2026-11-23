@@ -812,3 +812,31 @@ test('quick access commands that do not fit leave the title bar and are listed i
     return Math.max(...shown.map(n => n.getBoundingClientRect().right)) <= name.left && name.width >= 40 && document.documentElement.scrollWidth <= 390;
   })).toBe(true);
 });
+
+test('a tab half out of view in a narrow window keeps its KeyTip in the window', async ({ page }) => {
+  await openEditor(page, 760);
+  await text(page).fill('Cells');
+  await page.evaluate(() => window.__docs.current.view.engine.insertTable(3, 3));
+  const layoutTab = page.getByRole('tab', { name: 'Table Layout' });
+  await expect(layoutTab).toBeAttached();
+  // The tab names' widths vary with the platform's fonts: the window's edge is put through the middle of the tab.
+  const at = await layoutTab.boundingBox();
+  const width = Math.round(at.x + at.width / 2);
+  await page.setViewportSize({ width, height: 900 });
+  await expect.poll(async () => { const now = await layoutTab.boundingBox(); return now.x < width && now.x + now.width > width; }).toBe(true);
+  await text(page).focus();
+  await page.keyboard.press('Alt');
+  // Centred under the whole tab, the badge sat past the window's right edge, where nothing showed it.
+  const tip = page.locator('.ed-keytip', { hasText: /^JL$/ });
+  await expect(tip).toBeVisible();
+  const [box, tab, row] = await Promise.all([tip.boundingBox(), layoutTab.boundingBox(), page.locator('.ribbon-tabs').boundingBox()]);
+  expect(box.x + box.width).toBeLessThanOrEqual(width);
+  expect(box.x + box.width / 2).toBeGreaterThanOrEqual(tab.x);
+  expect(box.x + box.width / 2).toBeLessThanOrEqual(row.x + row.width);
+  await page.keyboard.press('j');
+  await page.keyboard.press('l');
+  await expect(layoutTab).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+});
