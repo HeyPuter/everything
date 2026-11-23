@@ -691,7 +691,22 @@ export async function filterContent(doc, options) {
   if (!edits.length && !own) return { source, resources, changed: false, mcids, open, underflow };
   edits.sort((x, y) => y.start - x.start);
   let out = source;
-  for (const edit of edits) out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
+  // Edits that stand apart, as they do unless two touch one command, are joined in one pass.
+  // Splicing them one at a time copied the rest of the stream for each: a redaction across a
+  // page of thousands of shapes cut hundreds of them out of megabytes of commands.
+  const apart = edits.every(
+    (edit, i) => !i || (edit.end <= edits[i - 1].start && edit.start < edits[i - 1].start),
+  );
+  if (apart) {
+    const pieces = [];
+    let at = 0;
+    for (let i = edits.length - 1; i >= 0; i--) {
+      pieces.push(source.slice(at, edits[i].start), edits[i].text);
+      at = edits[i].end;
+    }
+    pieces.push(source.slice(at));
+    out = pieces.join('');
+  } else for (const edit of edits) out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
   if (own)
     for (const category of ['XObject', 'Properties', 'ExtGState', 'Pattern']) {
       const dict = get(own, category);
