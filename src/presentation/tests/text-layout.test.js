@@ -1335,3 +1335,33 @@ describe("distributed paragraphs", () => {
     ).toEqual([5.71, 160]);
   });
 });
+
+describe("decimal tab stops", () => {
+  // Digits are 20 px wide and the decimal point 5 px, at any size.
+  const narrowPoint = (text, spec) => ({
+    widthPx: [...text].reduce((sum, c) => sum + (c === "." ? 5 : 20), 0),
+    ascentPx: spec.sizePx * 0.9,
+    descentPx: spec.sizePx * 0.2,
+    lineGapPx: 0,
+  });
+  it("puts each number's decimal point on the stop", () => {
+    const svg = layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 400,
+        paragraphs: ["\t1.25", "\t1234.5"].map((text) =>
+          para({
+            pieces: [piece(text, 40)],
+            tabStops: [{ posPx: 200, align: "dec" }],
+          }),
+        ),
+      }),
+      narrowPoint,
+    );
+    // The tab is drawn as the gap before the number: 200 px less the
+    // digits before the point (one, then four).
+    expect(
+      [...svg.matchAll(/<tspan dx="([^"]+)"/g)].map((m) => Number(m[1])),
+    ).toEqual([180, 120]);
+  });
+});

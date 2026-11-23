@@ -657,6 +657,7 @@ const placeTabs = (
   lineLeft: number,
   origin: number,
   para: ParaInput,
+  measureWidth: (text: string, piece: PieceInput) => number,
 ): void => {
   const stops = [...(para.tabStops ?? [])].sort((a, b) => a.posPx - b.posPx);
   const step =
@@ -687,7 +688,12 @@ const placeTabs = (
           const point = next.text.search(/[.,]/);
           if (point >= 0) {
             pointSeen = true;
-            beforePoint += (next.width * point) / Math.max(1, next.text.length);
+            // The decimal point itself sits at the stop: measure the text
+            // before it, as glyph widths differ ("1" and "." are narrow).
+            beforePoint +=
+              point > 0
+                ? measureWidth(next.text.slice(0, point), next.piece)
+                : 0;
           } else beforePoint += next.width;
         }
       }
@@ -821,7 +827,9 @@ export const layoutCore = (
           : (isFirst ? firstLeft : wrapLeft) + bulletLead;
         const availableW = wrapRight - lineLeft;
         if (toks.some((t) => t.text === "\t"))
-          placeTabs(toks, lineLeft, contentLeft, para);
+          placeTabs(toks, lineLeft, contentLeft, para, (text, piece) =>
+            mWidth(text, specOf(piece)),
+          );
         let unbreakableOverflowW = 0;
         let ascent = 0;
         let descent = 0;
