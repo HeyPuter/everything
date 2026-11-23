@@ -455,3 +455,31 @@ test('typing in a table that AutoFits to the window keeps its columns’ proport
   // The columns share the window in percent (w:tcW pct).
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.tables[0].rows[0].cells.map(c => c.width.type))).toEqual(['pct', 'pct', 'pct']);
 });
+
+test('a whole table copied and pasted outside tables comes back as a table; Undo takes it away', async ({ page }) => {
+  await newTable(page, 3, 2, ['Name', 'Qty', 'Cost', 'Pens', '2', '4']);
+  await input(page).press('ControlOrMeta+End'); await page.keyboard.type('After');
+  await goToCell(page, 0, 0);
+  const layout = await onTab(page, 'tableLayout');
+  await layout.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Select Table' }).click();
+  const copied = await input(page).evaluate(el => {
+    const data = new DataTransfer();
+    el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+    return { text: data.getData('text/plain'), html: data.getData('text/html') };
+  });
+  expect(copied.text).toBe('Name\tQty\tCost\nPens\t2\t4');
+  // Other applications get an HTML table.
+  expect(copied.html).toMatch(/^<table[^>]*style="border-collapse:collapse"/);
+  await input(page).press('ControlOrMeta+End');
+  await input(page).evaluate((el, { text, html }) => {
+    const data = new DataTransfer(); data.setData('text/plain', text); data.setData('text/html', html);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, copied);
+  const after = await model(page);
+  expect(after.tables).toHaveLength(2);
+  expect(after.tables[1].rows.map(r => r.cells.map(c => c.text))).toEqual([['Name', 'Qty', 'Cost'], ['Pens', '2', '4']]);
+  expect(after.tables[1].grid).toEqual(after.tables[0].grid);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect((await model(page)).tables).toHaveLength(1);
+});

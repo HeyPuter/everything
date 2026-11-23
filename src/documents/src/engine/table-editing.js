@@ -1483,3 +1483,75 @@ export function setTablePositioning(model, patch) {
   if (overlap !== table.overlap) { table.overlap = overlap; table.overlapChanged = true; }
   model.didChange(); return true;
 }
+
+/* ---- Copying and pasting whole rows ---- */
+
+// Text the clipboard can carry in a copied table: no object, field, note, control or marked change.
+const clipboardRun = run => !run.image && !run.math && !run.vml && !run.bodySymbol && !run.noteMark && !run.contentControl && !run.field
+  && !run.revision && !run.formatRevision && !run.positionalTab && !/[\u000e￼]/.test(run.text);
+
+/**
+ * The selected whole rows (Select Table, Select Row) as a table for the clipboard: the table's properties, style and
+ * grid with those rows, their cells and the cells' paragraphs, so a paste makes the table again, as in Word. Null for
+ * a block of cells that is not whole rows, and for rows holding what the copy cannot carry yet (nested tables,
+ * pictures, fields, notes, bookmarks, comments, content controls or tracked changes), which copy as text. `token`
+ * names the open document: pasted in another, the cells' list numbering is left out.
+ */
+export function copyTableRows(model, block = model.activeCellBlock, { token = null } = {}) {
+  if (!block || !model.tables.includes(block.table) || !wholeRows(block.table, block)) return null;
+  const table = block.table, { top, bottom } = blockRowRange(block), rows = table.rows.slice(top, bottom + 1);
+  const ids = new Set(rows.flatMap(row => row.cells.map(cell => cell.id)));
+  if (!rows.length || model.tables.some(t => ids.has(t.parentCellId))) return null;
+  // A merge continuing into the first row from above would have nothing to continue.
+  if (rows[0].cells.some(cell => cell.vMerge === 'continue')) return null;
+  const paragraphs = model.paragraphs.filter(p => ids.has(p.cellId));
+  if (paragraphs.some(p => p.bookmarks?.length || p.fieldMarkers?.length || p.blockControls?.length || p.markRevision || !p.runs.every(clipboardRun))) return null;
+  const copied = { ...copy({ ...table, rows: [] }), rows: copy(rows) };
+  for (const key of ['parentCellId', 'floating', 'floatingChanged', 'floatingCreated', 'floatingRemoved', 'floatingRewrite', 'design']) delete copied[key];
+  // Only rows at the top of the copy repeat as header rows.
+  let leading = true;
+  for (const row of copied.rows) { if (!row.header) leading = false; else if (!leading) { row.header = false; row.headerChanged = true; } }
+  const style = table.styleId && model.styles.definitions[table.styleId] ? copy(model.styles.definitions[table.styleId]) : null;
+  return { token, table: copied, paragraphs: copy(paragraphs), style };
+}
+
+/**
+ * Paste rows copied with copyTableRows as a new table at the caret (outside tables: pasting rows into a table is not
+ * supported yet and returns false). The table goes before the caret's paragraph, which splits there as Insert Table
+ * splits it, with an empty paragraph after a table just above. One undo step with the caller's transaction.
+ */
+export function pasteTableRows(model, fragment, { token = null } = {}) {
+  if (!fragment?.table?.rows?.length || !Array.isArray(fragment.paragraphs) || model.tableContext) return false;
+  // A pasted table would not be a tracked change: with Track Changes on the rows paste as text.
+  if (model.trackChanges && !model.trackingInternal) return false;
+  const same = !!token && fragment.token === token;
+  const table = copy(fragment.table), cellIds = new Map();
+  table.id = tableId('t');
+  for (const row of table.rows) {
+    row.id = tableId('row');
+    for (const cell of row.cells) { const id = tableId('cell'); cellIds.set(cell.id, id); cell.id = id; }
+  }
+  let styles = model.styles;
+  if (table.styleId && !styles.definitions[table.styleId]) {
+    if (fragment.style?.type === 'table') { styles = copy(styles); styles.definitions[table.styleId] = { ...copy(fragment.style), id: table.styleId }; }
+    else table.styleId = null;
+  }
+  const content = fragment.paragraphs.map(p => {
+    const q = { ...copy(p), id: paragraph().id, cellId: cellIds.get(p.cellId), tableStyleId: table.styleId };
+    if (!same) { delete q.list; if (q.styleId && !styles.definitions[q.styleId]) q.styleId = null; }
+    return q;
+  });
+  if (content.some(p => !p.cellId) || !table.rows.every(row => row.cells.every(cell => content.some(p => p.cellId === cell.id) || cell.vMerge === 'continue'))) return false;
+  checkLength(model, content.reduce((n, p) => n + paragraphText(p).length + 1, 0));
+  model.checkpoint();
+  if (model.range[0] !== model.range[1]) model.replace('', { checkpoint: false });
+  let here = locate(model.paragraphs, model.range[0]);
+  if (here.offset > 0 || tableJustBefore(model, here.index, null)) { model.replace('\n', { checkpoint: false }); here = locate(model.paragraphs, model.range[0]); }
+  model.styles = styles; model.stylesEnabled = true;
+  model.paragraphs.splice(here.index, 0, ...content.map(p => resolveStyledParagraph(p, styles, model.numbering)));
+  model.tables.push(table);
+  M.refreshTableStyles(model, table);
+  validate(model);
+  model.selectCell(content[0].cellId);
+  model.didChange(); return true;
+}

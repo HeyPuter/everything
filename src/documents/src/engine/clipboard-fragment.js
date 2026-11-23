@@ -16,6 +16,7 @@ import { commentAnchors, addCommentMarkers, removeCommentMarkers } from './comme
 // pictures, notes) keep the plain-text path.
 
 export const FRAGMENT_ATTRIBUTE = 'data-documents-fragment';
+export const TABLE_ATTRIBUTE = 'data-documents-table';
 const RUN_KEYS = ['bold', 'italic', 'underlineStyle', 'strikethrough', 'color', 'highlight', 'fontSize', 'fontAscii', 'verticalAlign', 'capitalization'];
 const MAX_RUNS = 2000;
 
@@ -187,6 +188,55 @@ export function fragmentHtml(fragment) {
   }
   closeTo(0);
   return `<div ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}">${html}</div>`;
+}
+
+/* ---------- A table ---------- */
+
+const CSS_BORDERS = { single: 'solid', thick: 'solid', double: 'double', dotted: 'dotted', dashed: 'dashed', dashSmallGap: 'dashed', dotDash: 'dashed', dotDotDash: 'dotted', triple: 'double' };
+function borderCss(border) {
+  if (!border || ['nil', 'none'].includes(border.style)) return 'none';
+  const color = hexColor(border.color) ? `#${border.color}` : '#000000', width = Math.max(0.25, (Number(border.size) || 4) / 8);
+  return `${width}pt ${CSS_BORDERS[border.style] || 'solid'} ${color}`;
+}
+/**
+ * Whole table rows copied here (copyTableRows) as an HTML table other applications paste as a table: column widths,
+ * merged cells (colspan, rowspan), borders, shading and the cells' formatted text. The rows themselves ride along
+ * in TABLE_ATTRIBUTE for a paste in this application, which makes the same table again.
+ */
+export function tableFragmentHtml(fragment) {
+  const { table, paragraphs } = fragment, grid = table.grid || [];
+  const byCell = new Map();
+  for (const p of paragraphs) { if (!byCell.has(p.cellId)) byCell.set(p.cellId, []); byCell.get(p.cellId).push(p); }
+  // The columns each row's cells start at, to count how many rows a vertical merge spans.
+  const starts = table.rows.map(row => { let column = row.gridBefore || 0; return row.cells.map(cell => { const at = column; column += cell.span ?? 1; return at; }); });
+  const rowSpan = (r, column) => { let n = 1; while (table.rows[r + n]?.cells.some((cell, i) => cell.vMerge === 'continue' && starts[r + n][i] === column)) n++; return n; };
+  const twipsPt = twips => Math.max(0, Math.round((Number(twips) || 0) / 2) / 10);
+  const cols = grid.some(w => w > 0) ? `<colgroup>${grid.map(w => `<col style="width:${twipsPt(w)}pt">`).join('')}</colgroup>` : '';
+  const rows = table.rows.map((row, r) => `<tr>${row.cells.map((cell, i) => {
+    if (cell.vMerge === 'continue') return '';
+    const span = cell.span ?? 1, down = cell.vMerge === 'restart' ? rowSpan(r, starts[r][i]) : 1, fill = hexColor(cell.shading) || hexColor(cell.fill?.replace?.(/^#/, ''));
+    const style = ['top', 'right', 'bottom', 'left'].map(side => `border-${side}:${borderCss(cell.borders?.[side])}`);
+    if (fill) style.push(`background-color:#${fill}`);
+    if (['center', 'bottom'].includes(cell.vertical)) style.push(`vertical-align:${cell.vertical === 'center' ? 'middle' : 'bottom'}`);
+    const width = grid.slice(starts[r][i], starts[r][i] + span).reduce((a, b) => a + (Number(b) || 0), 0);
+    if (width) style.push(`width:${twipsPt(width)}pt`);
+    const text = (byCell.get(cell.id) || []).map(p => {
+      const runs = p.runs.map(run => ({ text: run.text, format: Object.fromEntries(RUN_KEYS.map(key => [key, runFormat(run)[key]])) }));
+      const align = Object.hasOwn(HTML_ALIGNMENTS, p.format?.alignment) ? `;text-align:${HTML_ALIGNMENTS[p.format.alignment]}` : '';
+      return `<p style="margin:0;white-space:pre-wrap${align}">${runs.map(runHtml).join('') || '<br>'}</p>`;
+    }).join('');
+    return `<td${span > 1 ? ` colspan="${span}"` : ''}${down > 1 ? ` rowspan="${down}"` : ''} style="${style.join(';')}">${text}</td>`;
+  }).join('')}</tr>`).join('');
+  return `<table ${TABLE_ATTRIBUTE}="${escape(JSON.stringify(fragment))}" style="border-collapse:collapse">${cols}<tbody>${rows}</tbody></table>`;
+}
+/** The rows a copy here carried (tableFragmentHtml), or null for any other HTML. */
+export function htmlTableFragment(html) {
+  if (typeof DOMParser === 'undefined' || !html || !html.includes(TABLE_ATTRIBUTE)) return null;
+  const node = new DOMParser().parseFromString(html, 'text/html').querySelector(`[${TABLE_ATTRIBUTE}]`);
+  try {
+    const fragment = JSON.parse(node?.getAttribute(TABLE_ATTRIBUTE) || 'null');
+    return fragment?.table && Array.isArray(fragment.table.rows) && Array.isArray(fragment.paragraphs) && fragment.paragraphs.every(p => Array.isArray(p.runs) && p.runs.every(r => typeof r.text === 'string')) ? fragment : null;
+  } catch { return null; }
 }
 
 /* ---------- A picture ---------- */

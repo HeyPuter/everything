@@ -3,7 +3,7 @@ import { pageBackingSize } from './canvas-backing.js';
 import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
-import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture, pastedFragment, withoutPastedControls, FRAGMENT_ATTRIBUTE } from './clipboard-fragment.js';
+import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture, pastedFragment, withoutPastedControls, FRAGMENT_ATTRIBUTE, tableFragmentHtml, htmlTableFragment } from './clipboard-fragment.js';
 import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing, equationHtml, htmlEquation, pastedEquation, uncopiedHtml, copiedUncopied, UNCOPIED_MESSAGE, UNCUT_MESSAGE } from './drawing-clipboard.js';
 import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
@@ -50,7 +50,7 @@ import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext, rowGrid, verticalMerges } from './tables.js';
 import { cellBlockRects, cellBlockPlacements, wholeRows, wholeColumns, blockBetween } from './table-selection.js';
-import { clearCells, deleteColumns, deleteRows, deleteTable, splitTable, insertTablePageBreak, joinTables } from './table-editing.js';
+import { clearCells, deleteColumns, deleteRows, deleteTable, splitTable, insertTablePageBreak, joinTables, copyTableRows, pasteTableRows } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -2767,7 +2767,9 @@ export class CanvasEditor {
         if (!rows.has(rowIndex)) rows.set(rowIndex, []);
         rows.get(rowIndex).push(text);
       }
-      return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
+      // Whole rows (a whole table) also copy as a table, which a paste outside tables makes again.
+      const rowsCopy = copyTableRows(model, block, { token: this.clipboardToken });
+      return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: rowsCopy ? tableFragmentHtml(rowsCopy) : '' };
     }
     const text = this.model.clipboardText(noteText, undefined, hiddenRun);
     // A floating picture also carries itself whole, for a paste in this document that keeps its wrapping and position.
@@ -2817,6 +2819,11 @@ export class CanvasEditor {
     // An equation copied here comes back as the equation, not its linear text.
     const equation = htmlEquation(html);
     if (equation) { this.execute(() => this.model.insertMathRun(pastedEquation(this.model, equation))); return; }
+    // Whole table rows copied in this application come back as a table, outside tables.
+    const rows = !this.readOnly && !this.viewOnly && !this.model.tableContext ? htmlTableFragment(html) : null;
+    let pastedRows = false;
+    if (rows) this.execute(() => (pastedRows = pasteTableRows(this.model, rows, { token: this.clipboardToken })), () => {}, undefined, true);
+    if (pastedRows) return;
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? pastedFragment(htmlFragment(html)) : null;
     if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment, { token: this.clipboardToken, story: this.session.path }), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
