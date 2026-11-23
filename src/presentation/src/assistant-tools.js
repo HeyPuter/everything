@@ -41,6 +41,7 @@ import {
   ownRotation,
   slideRotation,
   removeAnyShape,
+  detachShapeComments,
   pruneUnusedMedia,
   removeSlides,
   canHoldText,
@@ -1602,10 +1603,12 @@ async function deleteObjects(pres, args, env) {
   const ids = idList(args.ids);
   const { part, number } = await onSlide(pres, args, env, (slide, pres) => {
     for (const id of ids) shapeIn(slide, id, pres);
+    const detach = detachShapeComments(pres, slide, ids);
     for (const id of ids) {
       const s = P.findShapeById(slide, id);
       if (s) removeAnyShape(slide, s);
     }
+    detach();
     pruneUnusedMedia(pres, slide);
   });
   return {

@@ -43,6 +43,7 @@ import {
   slidePosition,
   tableLayout,
   setSlideBounds,
+  detachShapeComments,
   slideRotation,
   ownRotation,
   carriedByGroup,
@@ -13849,41 +13850,12 @@ function deleteObject() {
       selectIds(keep);
   });
 }
-// Comments on objects being deleted stay where their markers were, on the
-// slide itself: the next object added could be given a deleted one's id.
-// Read before the objects go; the returned step writes the comments after.
+// Comments on objects being deleted stay on the slide (model.js); the
+// returned step writes them after the objects go.
 function detachComments(target, ids) {
-  let threads;
-  try {
-    threads = P.getSlideCommentThreads(target);
-  } catch {
-    return () => {};
-  }
-  const gone = new Map();
-  const visit = (shape) => {
-    gone.set(String(P.getShapeId(shape)), shape);
-    if (P.getShapeKind(shape) === "group")
-      P.getGroupChildren(shape).forEach(visit);
-  };
-  for (const id of ids) {
-    const shape = P.findShapeById(target, id);
-    if (shape) visit(shape);
-  }
-  if (!threads.some((t) => t.shapeId && gone.has(String(t.shapeId))))
-    return () => {};
-  const next = threads.map((t) => {
-    const shape = t.shapeId && gone.get(String(t.shapeId));
-    if (!shape) return t;
-    const b = !t.pos && slideBounds(doc.pres, shape);
-    return {
-      ...t,
-      shapeId: null,
-      pos:
-        t.pos || (b ? { x: Math.round(b.x + b.w), y: Math.round(b.y) } : null),
-    };
-  });
+  const write = detachShapeComments(doc.pres, target, ids);
   return () => {
-    P.setSlideCommentThreads(target, next);
+    write();
     // The slide redraws before this edit is counted; comments read afresh.
     review.comments.invalidate();
   };

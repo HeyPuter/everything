@@ -1545,6 +1545,41 @@ const SHAPE_LOCAL_NAMES = new Set([
   "cxnSp",
   "graphicFrame",
 ]);
+// Comments on objects being deleted stay where their markers were, on the
+// slide itself: the next object added could be given a deleted one's id.
+// Read before the objects go; the returned step writes the comments after.
+export function detachShapeComments(pres, target, ids) {
+  let threads;
+  try {
+    threads = P.getSlideCommentThreads(target);
+  } catch {
+    return () => {};
+  }
+  const gone = new Map();
+  const visit = (shape) => {
+    gone.set(String(P.getShapeId(shape)), shape);
+    if (P.getShapeKind(shape) === "group")
+      P.getGroupChildren(shape).forEach(visit);
+  };
+  for (const id of ids) {
+    const shape = P.findShapeById(target, id);
+    if (shape) visit(shape);
+  }
+  if (!threads.some((t) => t.shapeId && gone.has(String(t.shapeId))))
+    return () => {};
+  const next = threads.map((t) => {
+    const shape = t.shapeId && gone.get(String(t.shapeId));
+    if (!shape) return t;
+    const b = !t.pos && slideBounds(pres, shape);
+    return {
+      ...t,
+      shapeId: null,
+      pos:
+        t.pos || (b ? { x: Math.round(b.x + b.w), y: Math.round(b.y) } : null),
+    };
+  });
+  return () => P.setSlideCommentThreads(target, next);
+}
 // Removing a shape also removes its animations, which would otherwise point
 // at a shape the file no longer has.
 export function removeAnyShape(slide, shape) {
