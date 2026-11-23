@@ -2557,6 +2557,42 @@ kbd {
     padding-inline: 18px;
   }
 }
+/* iOS Safari zooms into a focused field whose text is under 16px, and leaves the page zoomed in
+   once the field is done with. On touch phones, upright or sideways, the app's fields take 16px
+   text, as the system's own fields do. Fields on the page itself (a PDF's form) keep the size
+   the page gives them. */
+@media (pointer: coarse) and (max-width: 760px), (pointer: coarse) and (max-height: 500px) {
+  :is(
+    input:not(
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='button'],
+      [type='submit'],
+      [type='reset'],
+      [type='image']
+    ),
+    select,
+    textarea
+  ):not(.workspace *) {
+    font-size: 16px !important;
+  }
+}
+/* The larger text still leaves the whole "Search PDFs" in view beside the sort order. */
+@media (pointer: coarse) and (max-width: 380px) {
+  .library-tools {
+    gap: 6px;
+  }
+  .sort-select {
+    padding-inline: 0 4px;
+  }
+  .search-input {
+    padding-left: 32px;
+    padding-right: 8px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,
