@@ -12,6 +12,9 @@ import {
 
 /** Screen pixels: two touch-size corner handles across. */
 const SMALL_OBJECT = 48;
+/** A stored measure as a property field shows it: to two decimals, or to two significant
+ * digits for a width under 1 pt, so a thin line never reads as zero. */
+const fieldNumber = (n) => Number(Math.abs(n) >= 1 ? n.toFixed(2) : n.toPrecision(2));
 const same = (a, b) => a.every((n, i) => Math.abs(n - b[i]) < 1e-7);
 const minimumPathTarget = (node) => {
   node.setAttribute('stroke-width', '8');
@@ -643,7 +646,7 @@ export function createImageLayer({
           min: 0,
           max: 10000,
           step: 'any',
-          value: Number((selected.state.width * scale).toFixed(4)),
+          value: fieldNumber(selected.state.width * scale),
           required: true,
           'aria-label': `${title()} stroke width in points`,
           title:

@@ -174,3 +174,24 @@ test('arrow keys on a corner handle resize the picture from that corner', async 
   // The opposite corner stays where it was.
   expect(image.transform.map((n) => Number(n.toFixed(3)))).toEqual([100, 0, 0, 70, 40, 200]);
 });
+
+test('a stroke width shows rounded, and stays exact until it is edited', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 400]);
+  sheet.drawRectangle({ x: 40, y: 200, width: 80, height: 60, borderWidth: 0.7089 });
+  sheet.drawRectangle({ x: 200, y: 200, width: 80, height: 60, borderWidth: 0.004 });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select shape 1', exact: true }).press('Enter');
+  const width = page.getByLabel('Shape stroke width in points', { exact: true });
+  await expect(width).toHaveValue('0.71');
+  // Another change to the shape keeps its exact width.
+  await page.getByRole('button', { name: 'Move selected shape', exact: true }).press('ArrowRight');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(width).toHaveValue('0.71');
+  // A hairline-thin width does not read as zero, which would mean a hairline.
+  await page.getByRole('button', { name: 'Select shape 2', exact: true }).press('Enter');
+  await expect(width).toHaveValue('0.004');
+  const [first] = inspectPaths(await download(page), 0);
+  expect(first.state.width).toBeCloseTo(0.7089, 6);
+});
