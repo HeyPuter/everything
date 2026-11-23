@@ -54,6 +54,10 @@ test("command search finds the menu bar's commands", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "the search is in wide windows");
   await start(page);
   const search = page.getByRole("searchbox", { name: "Search for commands" });
+  // The menus are read while the page is idle after the box takes the
+  // keyboard (a letter typed at once reads them then, as below).
+  await search.focus();
+  await page.waitForTimeout(400);
   await search.fill("print");
   await expect(results(page).filter({ hasText: "Print…" })).toHaveText([
     /^Print…\s*File/,

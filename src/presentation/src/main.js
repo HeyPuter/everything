@@ -3909,11 +3909,32 @@ function commandSearch() {
       }
     },
     oninput: () => showMatches(false),
-    // The menu bar's commands are read once a search starts, as they stand
-    // for the selection the search started from.
-    onblur: () => (menuCommands = null),
+    // The menu bar's commands are read once the box has the keyboard, while
+    // the page is idle, as they stand for the selection the search starts
+    // from; a letter typed sooner reads them then.
+    onfocus: () => {
+      cancelIdle(menuWork);
+      menuWork = idle(() => {
+        menuWork = 0;
+        if (document.activeElement === input)
+          menuCommands ??= menuBarCommands();
+      });
+    },
+    onblur: () => {
+      cancelIdle(menuWork);
+      menuWork = 0;
+      menuCommands = null;
+    },
   });
   let menuCommands = null;
+  let menuWork = 0;
+  const idle = (fn) =>
+    window.requestIdleCallback
+      ? requestIdleCallback(fn, { timeout: 300 })
+      : setTimeout(fn, 50);
+  const cancelIdle = (id) =>
+    id &&
+    (window.cancelIdleCallback ? cancelIdleCallback(id) : clearTimeout(id));
   // The menu bar's commands that are not on the ribbon (Print, Export, Undo,
   // Keyboard shortcuts...), each with the menu it is in.
   function menuBarCommands() {
