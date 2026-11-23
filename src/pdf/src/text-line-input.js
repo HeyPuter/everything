@@ -116,6 +116,10 @@ export function textLineInput(group) {
         color: hex !== group.fillColor ? hex : run.fillColor,
         letterSpacing: `${(run.state.charSpacing / run.state.size) * ratio * size}px`,
         wordSpacing: `${!face && run.widths.get(' ')?.space ? (run.state.wordSpacing / run.state.size) * ratio * size : 0}px`,
+        // A space in another font, as Word ends a paragraph with its mark's, shows nothing:
+        // its taller font must not push its line further down than the paragraph's leading.
+        // A blank line keeps its font's height.
+        lineHeight: /^[^\S\n]+$/.test(span.textContent) ? '0' : '',
       });
       const gap =
         span.dataset.gap && span.textContent === ' ' ? JSON.parse(span.dataset.gap) : null;
