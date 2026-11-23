@@ -63,6 +63,8 @@ export function createImageLayer({
   const heldArrows = new Set();
   // Arrow keys pressed while a nudge was being saved, to apply once it is.
   const queuedArrows = [];
+  // Delete or Backspace pressed while a nudge was being saved, to remove the object once it is.
+  let queuedDelete = false;
   // The object target a finger last went down on, to tell its tap from a keyboard click.
   let touched = null;
   let renderKey, pageKey;
@@ -127,7 +129,10 @@ export function createImageLayer({
   function cancel(preserveSelection = false, preservePreview = false, preserveControls = false) {
     heldArrows.clear();
     // A save redraws the page and so closes the selection; arrows held for after it stay.
-    if (!committing) queuedArrows.length = 0;
+    if (!committing) {
+      queuedArrows.length = 0;
+      queuedDelete = false;
+    }
     if (!preserveSelection) {
       selectionGeneration++;
       choosing = null;
@@ -347,8 +352,12 @@ export function createImageLayer({
           // user moved to. Restore it only if focus has not moved somewhere else.
           priorFocus.focus({ preventScroll: true });
         }
-        const queued = queuedArrows.splice(0);
-        if (queued.length && !failed && !remove && selected && enabled && !busy) {
+        const queued = queuedArrows.splice(0),
+          removal = queuedDelete;
+        queuedDelete = false;
+        if (removal && !failed && !remove && selected && enabled && !busy)
+          setTimeout(safe(() => finish(true)));
+        else if (queued.length && !failed && !remove && selected && enabled && !busy) {
           for (const { key, shift, corner } of queued) nudge(key, shift, corner);
           clearTimeout(keyboardTimer);
           keyboardTimer = setTimeout(
@@ -1063,6 +1072,18 @@ export function createImageLayer({
         e.preventDefault();
         if (committing && !gesture && !selecting)
           queuedArrows.push({ key: e.key, shift: e.shiftKey, corner: cornerOf(e.target) });
+      }
+      // So is Delete: it removes the object once the move is saved, rather than going unheard.
+      if (
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        e.target.tagName !== 'INPUT' &&
+        committing &&
+        keepCommitProperties &&
+        !gesture &&
+        !selecting
+      ) {
+        e.preventDefault();
+        queuedDelete = true;
       }
       return;
     }
