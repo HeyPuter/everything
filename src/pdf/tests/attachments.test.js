@@ -89,3 +89,30 @@ it('leaves nothing of a removed attachment in the saved file', async () => {
   const spec = saved.context.lookup(associated.get(0));
   expect(spec.lookup(PDFName.of('EF')).get(PDFName.of('F'))).toBe(files[0]);
 });
+
+it('attaches files whose names hold parentheses, backslashes or other scripts', async () => {
+  const names = ['smile :).txt', 'open (1.txt', 'back\\slash.txt', 'Résumé 日本.txt'];
+  let doc = await PDFDocument.create();
+  doc.addPage();
+  for (const name of names) await addAttachment(doc, { name, bytes: bytesOf(`in ${name}`) });
+  const bytes = await doc.save();
+  doc = await PDFDocument.load(bytes, { throwOnInvalidObject: true });
+  expect(listAttachments(doc).map((entry) => [entry.key, entry.name])).toEqual(
+    names.map((name) => [name, name]),
+  );
+  for (const name of names)
+    expect(new TextDecoder().decode(attachmentBytes(doc, name))).toBe(`in ${name}`);
+  // Other readers find each file under its own name; PDF.js reads a backslash as a folder's.
+  const task = pdfjs.getDocument({ data: bytes.slice() });
+  try {
+    const found = await (await task.promise).getAttachments();
+    expect([...found.values()].map((file) => file.filename)).toEqual([
+      'smile :).txt',
+      'open (1.txt',
+      'slash.txt',
+      'Résumé 日本.txt',
+    ]);
+  } finally {
+    await task.destroy();
+  }
+});

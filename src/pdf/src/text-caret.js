@@ -60,3 +60,71 @@ export function placeTextCaret(input, { clientX, clientY }) {
   selection.removeAllRanges();
   selection.addRange(range);
 }
+
+/**
+ * A soft-wrapping textarea's value with its wrapped rows as line breaks, read from an
+ * identically styled copy: a space the text wrapped at becomes the break.
+ */
+export function wrappedTextareaValue(input) {
+  const style = getComputedStyle(input);
+  const mirror = document.createElement('div');
+  // Longhands: turning kerning off can leave the computed `font` shorthand empty.
+  for (const name of [
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'fontStyle',
+    'fontStretch',
+    'fontKerning',
+    'fontVariantLigatures',
+    'letterSpacing',
+    'wordSpacing',
+    'lineHeight',
+    'whiteSpace',
+    'overflowWrap',
+    'wordBreak',
+    'tabSize',
+    'direction',
+  ])
+    mirror.style[name] = style[name];
+  Object.assign(mirror.style, {
+    position: 'fixed',
+    left: '-10000px',
+    top: '0',
+    width: `${input.clientWidth}px`,
+    padding: style.padding,
+    boxSizing: 'content-box',
+    visibility: 'hidden',
+  });
+  mirror.setAttribute('aria-hidden', 'true');
+  const node = document.createTextNode(input.value);
+  mirror.append(node);
+  document.body.append(mirror);
+  try {
+    const range = document.createRange();
+    const value = input.value;
+    let output = '',
+      top = null;
+    for (let i = 0; i < value.length; i++) {
+      const char = value[i];
+      if (char === '\n') {
+        output += char;
+        top = null;
+        continue;
+      }
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const rect = range.getClientRects()[0];
+      if (rect && top !== null && rect.top - top > rect.height / 2) {
+        // A space hanging at the end of the wrapped row is the break itself.
+        if (output.endsWith(' ')) output = output.trimEnd();
+        output += '\n';
+      }
+      if (rect) top = rect.top;
+      output += char;
+    }
+    return output;
+  } finally {
+    mirror.remove();
+  }
+}

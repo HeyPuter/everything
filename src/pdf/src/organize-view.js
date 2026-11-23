@@ -11,13 +11,16 @@ import { openMenu } from './lib/menu.js';
  *            insertBlank(after), insertFile(after), insertPictures(after), move(indices, to),
  *            reorder(order, moved), open(index), close() } — each may return a promise; the view
  *            redraws on refresh().
- * onSelectionChange(indices) hears of each change to the chosen pages.
+ * onSelectionChange(indices) hears of each change to the chosen pages. getPageIds(revision)
+ * names each page's object of a revision, in order, when known, so the choice follows its pages
+ * through edits.
  */
 const SIZES = [110, 150, 200, 260];
 
 export function createOrganizeView({
   getPdf,
   getRevision,
+  getPageIds = () => null,
   getLayers = () => undefined,
   currentIndex,
   can,
@@ -39,6 +42,8 @@ export function createOrganizeView({
   let tiles = [];
   let observer = null;
   let dragging = null;
+  // The revision the grid last showed.
+  let shownRevision = null;
   const status = el('span', { class: 'organize-status', role: 'status' });
   const sizeInput = el('input', {
     type: 'range',
@@ -47,13 +52,17 @@ export function createOrganizeView({
     step: 1,
     value: size,
     'aria-label': 'Page tile size',
-    oninput: () => {
-      sizePicked = true;
-      size = Number(sizeInput.value);
-      grid.style.setProperty('--tile', `${SIZES[size]}px`);
-      rebuild();
-    },
+    oninput: () => setSize(Number(sizeInput.value)),
   });
+  function setSize(next) {
+    sizePicked = true;
+    next = Math.max(0, Math.min(SIZES.length - 1, next));
+    sizeInput.value = next;
+    if (next === size) return;
+    size = next;
+    grid.style.setProperty('--tile', `${SIZES[size]}px`);
+    rebuild();
+  }
   const grid = el('div', {
     class: 'organize-grid',
     role: 'listbox',
@@ -85,14 +94,17 @@ export function createOrganizeView({
   };
   async function duplicateChosen() {
     const list = target();
+    const chosen = selected.size > 0;
+    const from = anchor;
     const revision = getRevision();
     await actions.duplicate(list);
-    if (getRevision() === revision || !selected.size) return;
+    if (getRevision() === revision || !chosen) return;
     // Each copy lands right after its page, pushing later selected pages along; keep the
-    // selection on the pages that were chosen rather than on whatever took their places.
+    // selection on the pages that were chosen rather than on whatever took their places, or
+    // on the copies.
     const moved = (i) => i + list.filter((k) => k < i).length;
-    selected = new Set(indices().map(moved));
-    if (anchor != null) anchor = moved(anchor);
+    selected = new Set(list.map(moved));
+    if (from != null) anchor = moved(from);
     updateState();
   }
   async function removeChosen() {
@@ -102,9 +114,10 @@ export function createOrganizeView({
    * Delete pages. The deleted pages' places now hold other pages, which were not chosen; but
    * when the keyboard is in the grid, the tile it lands on is chosen, as arrow keys choose the
    * tile they reach. With nothing chosen, Delete would act on the current page behind the
-   * grid instead of the page with the focus.
+   * grid instead of the page with the focus. A tile's own Delete button (`from`, its page) goes
+   * with its tile, so the focus goes to the tile now in its place rather than off the grid.
    */
-  async function removePages(list) {
+  async function removePages(list, from = null) {
     const revision = getRevision();
     if ((await actions.remove(list)) === false || getRevision() === revision) return;
     const focused = visible
@@ -115,6 +128,12 @@ export function createOrganizeView({
       anchor = focused;
     } else selected.clear();
     updateState();
+    if (
+      from != null &&
+      visible &&
+      (!document.activeElement || document.activeElement === document.body)
+    )
+      focusTile(Math.min(from, tiles.length - 1));
   }
   /**
    * The page order with each chosen page one place earlier (-1) or later (1), past the next
@@ -263,6 +282,14 @@ export function createOrganizeView({
           e.preventDefault();
           e.stopPropagation();
           actions.close();
+          return;
+        }
+        // Zooming in and out sizes the tiles, as a pinch does, rather than the page the grid
+        // hides, whose new zoom would show only once the grid closes.
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && ['=', '+', '-', '_'].includes(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSize(size + (e.key === '-' || e.key === '_' ? -1 : 1));
           return;
         }
         // The editor's shortcuts to rotate or delete a page act on the current page, which the
@@ -483,7 +510,7 @@ export function createOrganizeView({
           iconButton(
             `Delete page ${i + 1}`,
             'Trash2',
-            run(() => removePages([i])),
+            run(() => removePages([i], i)),
             { 'data-permission': 'assemble', tabindex: -1, class: 'icon-btn organize-tile-delete' },
           ),
         ),
@@ -492,6 +519,51 @@ export function createOrganizeView({
     );
     return node;
   }
+
+  // A pinch (Ctrl + wheel, as a trackpad sends it, or two fingers) resizes the tiles as the
+  // slider does. The browser's own magnified the whole application instead, pushing the
+  // toolbar off screen.
+  let wheelDistance = 0,
+    pinch = null;
+  grid.addEventListener(
+    'wheel',
+    (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      wheelDistance += e.deltaMode === 0 ? e.deltaY : e.deltaY * 24;
+      // Pinches arrive as many small deltas; a notch of a mouse wheel as one large one.
+      if (Math.abs(wheelDistance) < 24) return;
+      const direction = wheelDistance < 0 ? 1 : -1;
+      wheelDistance = 0;
+      setSize(size + direction);
+    },
+    { passive: false },
+  );
+  const touchSpan = ([a, b]) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  grid.addEventListener(
+    'touchstart',
+    (e) => {
+      pinch = e.touches.length === 2 ? { span: touchSpan(e.touches) || 1, scale: 1 } : null;
+    },
+    { passive: true },
+  );
+  grid.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      if (e.cancelable) e.preventDefault();
+      pinch.scale = touchSpan(e.touches) / pinch.span;
+    },
+    { passive: false },
+  );
+  grid.addEventListener('touchend', (e) => {
+    if (!pinch || e.touches.length >= 2) return;
+    // One size per step of the slider the fingers spread or closed by (each about a third).
+    const steps = Math.round(Math.log(pinch.scale) / Math.log(1.33));
+    pinch = null;
+    if (steps) setSize(size + steps);
+  });
+  grid.addEventListener('touchcancel', () => (pinch = null));
 
   // The grid is one tab stop, on the tile last focused however it got there (a click too), so
   // Tab leaves the grid and Shift+Tab comes back to the same tile.
@@ -529,13 +601,42 @@ export function createOrganizeView({
     })();
   });
 
-  function rebuild() {
+  /**
+   * The choice goes with its pages when pages are added, removed or moved (by this grid, the
+   * tools pane, or Undo and Redo), rather than staying on places now holding other pages; pages
+   * added become the choice, as in desktop editors. Returns where a page at `index` went.
+   */
+  function followPages(count, { adopt = true } = {}) {
+    const revision = getRevision();
+    const ids = getPageIds(revision);
+    const known = ids?.length === count ? ids : null;
+    // An edit reads the pages it starts from, so those of the revision shown are known now.
+    const before = shownRevision == null ? null : getPageIds(shownRevision);
+    shownRevision = revision;
+    if (!known || !before || known === before) return (index) => index;
+    const where = new Map(known.map((id, i) => [id, i]));
+    const follow = (index) => (index == null ? index : where.get(before[index]));
+    const old = new Set(before);
+    const added = known.flatMap((id, i) => (old.has(id) ? [] : [i]));
+    if (adopt && added.length && known.length > before.length) {
+      selected = new Set(added);
+      anchor = added[0];
+      autoChosen = false;
+    } else {
+      selected = new Set([...selected].map(follow).filter((i) => i != null));
+      anchor = follow(anchor) ?? null;
+    }
+    return (index) => follow(index) ?? index;
+  }
+  function rebuild({ opening = false } = {}) {
     observer?.disconnect();
     const pdf = getPdf();
     if (!pdf || !visible) return;
     const focusAt = root.contains(document.activeElement)
       ? Number(document.activeElement.closest?.('.organize-tile')?.dataset.index)
       : null;
+    // Pages added while the grid was closed are not taken as a choice made in it.
+    const follow = followPages(pdf.numPages, { adopt: !opening });
     selected = new Set([...selected].filter((i) => i < pdf.numPages));
     // The tile holding the grid's tab stop must still exist once pages have gone.
     if (anchor != null) anchor = Math.min(anchor, pdf.numPages - 1);
@@ -612,7 +713,7 @@ export function createOrganizeView({
       keep.observe(t);
     });
     updateState();
-    if (Number.isInteger(focusAt)) focusTile(Math.min(focusAt, tiles.length - 1));
+    if (Number.isInteger(focusAt)) focusTile(Math.min(follow(focusAt), tiles.length - 1));
   }
 
   return {
@@ -643,8 +744,10 @@ export function createOrganizeView({
         selected = new Set([currentIndex()]);
         anchor = currentIndex();
         autoChosen = true;
+        // A choice made now names the pages as they are, not as the grid last showed them.
+        shownRevision = null;
       }
-      rebuild();
+      rebuild({ opening: true });
       tiles[anchor ?? currentIndex()]?.scrollIntoView({ block: 'nearest' });
       focusTile(anchor ?? currentIndex());
     },

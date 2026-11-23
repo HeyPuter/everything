@@ -44,7 +44,8 @@ for (const fails of [false, true])
       }, fails);
       await input.press('Enter');
       await expect.poll(() => page.evaluate(() => !!window.releaseForm)).toBe(true);
-      await expect(input).toBeDisabled();
+      // The box stays usable while its value is saved (form-typing-while-saving.spec.js).
+      await expect(input).toBeEnabled();
       const settings = page.getByRole('button', { name: 'Settings', exact: true });
       if (moved) await settings.focus();
       await page.evaluate(() => window.releaseForm());

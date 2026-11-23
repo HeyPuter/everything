@@ -1,6 +1,6 @@
-import { PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
+import { PDFArray, PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
 import { parseContent, matrix, decode, pageSource, uniqueName } from './text-edit.js';
-import { inverse, invertible, imageCorners, rewriteOccurrence } from './image-edit.js';
+import { inverse, invertible, imageCorners, rewriteOccurrence, quadClip } from './image-edit.js';
 
 const identity = [1, 0, 0, 1, 0, 0];
 const get = (dict, key) => dict?.lookup(PDFName.of(key));
@@ -51,6 +51,27 @@ function pathHint(args) {
     kind: PATH_KINDS[data.Kind.value],
     fillRule: data.Rule.value === 'EvenOdd' ? 'evenodd' : 'nonzero',
   };
+}
+
+const DEVICE_OPERATORS = ['g', '', 'rg', 'k'];
+const deviceOperator = (n, key) =>
+  key === 'fill' ? DEVICE_OPERATORS[n - 1] : DEVICE_OPERATORS[n - 1].toUpperCase();
+const DEVICE_SPACES = { DeviceGray: 1, DeviceRGB: 3, DeviceCMYK: 4 };
+const CALIBRATED_SPACES = { CalGray: 1, CalRGB: 3 };
+/** How many components a colour space named in a content stream takes, when its colours are
+ * plain gray, RGB or CMYK values (device, calibrated or ICC-based); 0 for any other space. */
+function colorComponents(resources, name) {
+  if (Object.hasOwn(DEVICE_SPACES, name)) return DEVICE_SPACES[name];
+  const space = get(get(resources, 'ColorSpace'), name);
+  if (space instanceof PDFName) return colorComponents(null, space.decodeText());
+  if (!(space instanceof PDFArray)) return 0;
+  const family = space.lookup(0);
+  if (!(family instanceof PDFName)) return 0;
+  const kind = family.decodeText();
+  if (Object.hasOwn(CALIBRATED_SPACES, kind)) return CALIBRATED_SPACES[kind];
+  if (kind !== 'ICCBased') return 0;
+  const n = get(space.lookup(1)?.dict, 'N')?.asNumber?.();
+  return [1, 3, 4].includes(n) ? n : 0;
 }
 
 /** Index complete paths, including retained unpainted paths, without crossing state changes. */
@@ -108,7 +129,19 @@ export function inspectPaths(doc, index) {
                   inverse: inverse(startState.ctm),
                 },
               ];
-            } else state.unsafe = true;
+            } else {
+              // A four-sided outline, as Word clips a turned picture or shape.
+              const clip =
+                commands[0].op === 'm' &&
+                commands.slice(1).every((c) => c.op === 'l' || c.op === 'h') &&
+                commands.every((c) => c.args.every((t) => Number.isFinite(t.value))) &&
+                quadClip(
+                  commands.filter((c) => c.op !== 'h').map((c) => c.args.map((t) => t.value)),
+                  startState.ctm,
+                );
+              if (clip) state.clips = [...state.clips, clip];
+              else state.unsafe = true;
+            }
           }
           commands = [];
           pendingClip = false;
@@ -127,12 +160,30 @@ export function inspectPaths(doc, index) {
         else if (op === 'j') state.join = a[0];
         else if (op === 'M') state.miter = a[0];
         else if (op === 'd') state.dash = source.slice(command.start, command.end);
-        else if (['G', 'RG', 'K'].includes(op))
+        else if (['G', 'RG', 'K'].includes(op)) {
           state.stroke = source.slice(command.start, command.end);
-        else if (['g', 'rg', 'k'].includes(op))
+          state.strokeComponents = DEVICE_OPERATORS.indexOf(op.toLowerCase()) + 1;
+        } else if (['g', 'rg', 'k'].includes(op)) {
           state.fill = source.slice(command.start, command.end);
-        else if (['CS', 'cs', 'SC', 'sc', 'SCN', 'scn'].includes(op)) state.unsafe = true;
-        else if (op === 'Tr') state.textClip = a[0] >= 4;
+          state.fillComponents = DEVICE_OPERATORS.indexOf(op) + 1;
+        } else if (op === 'CS' || op === 'cs') {
+          // Colours chosen in a colour space of plain gray, RGB or CMYK components (as macOS
+          // writes every colour, through an ICC profile) stay editable; patterns, spot colours
+          // and indexed or Lab colours do not.
+          const n = colorComponents(resources, a[0]);
+          const key = op === 'cs' ? 'fill' : 'stroke';
+          if (!n) state.unsafe = true;
+          else
+            state[key] =
+              `${n === 4 ? '0 0 0 1' : n === 3 ? '0 0 0' : '0'} ${deviceOperator(n, key)}`;
+          state[`${key}Components`] = n;
+        } else if (['SC', 'sc', 'SCN', 'scn'].includes(op)) {
+          const key = op[0] === 's' ? 'fill' : 'stroke',
+            n = state[`${key}Components`];
+          if (n && a.length === n && a.every(Number.isFinite))
+            state[key] = `${a.map(num).join(' ')} ${deviceOperator(n, key)}`;
+          else state.unsafe = true;
+        } else if (op === 'Tr') state.textClip = a[0] >= 4;
         else if (op === 'ET' && state.textClip) state.unsafe = true;
         else if (op === 'BDC' || op === 'BMC') {
           marked.push({
@@ -214,6 +265,8 @@ export function inspectPaths(doc, index) {
     dash: '[] 0 d',
     stroke: '0 G',
     fill: '0 g',
+    strokeComponents: 1,
+    fillComponents: 1,
     alpha: 1,
     strokeAlpha: 1,
     blend: 'Normal',
@@ -230,7 +283,13 @@ function describePath(commands, end, state, resources, source, ancestry) {
     minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
-    maxY = -Infinity;
+    maxY = -Infinity,
+    // Whether any two segments meet (where a miter join can reach out), the straight segments,
+    // and whether any are curves, for how far the stroke reaches past the points.
+    joins = false,
+    curved = false,
+    segments = 0;
+  const lines = [];
   // Calculate bounds while reading geometry. Only a rectangle's first four
   // corners need retaining; large paths need no second coordinate collection.
   const includePoint = (x, y) => {
@@ -250,10 +309,16 @@ function describePath(commands, end, state, resources, source, ancestry) {
       includePoint(x + w, y + h);
       svg.push(`M ${x} ${y} h ${w} v ${h} h ${-w} Z`);
       current = first = [x, y];
+      joins = true;
     } else if (command.op === 'h') {
       svg.push('Z');
       current = first;
+      joins = true;
     } else {
+      if (command.op === 'm') segments = 0;
+      else if (++segments > 1) joins = true;
+      if (command.op === 'l') lines.push([...current, ...a]);
+      else if (command.op !== 'm') curved = true;
       let coords = a;
       if (command.op === 'v') coords = [...current, ...a];
       if (command.op === 'y') coords = [...a, ...a.slice(-2)];
@@ -275,11 +340,30 @@ function describePath(commands, end, state, resources, source, ancestry) {
         const next = points[(i + 1) % 4];
         return p[0] === next[0] || p[1] === next[1];
       }));
-  const pad = stroked
-    ? Math.max(0.25, state.width / 2) *
-      (state.join === 0 && !rectangle ? Math.max(1, state.miter) : 1)
-    : 0;
-  const bounds = [minX - pad, minY - pad, maxX + pad, maxY + pad];
+  if (['s', 'b', 'b*'].includes(end.op)) joins = true;
+  const half = Math.max(0.25, state.width / 2);
+  let padX = 0,
+    padY = 0;
+  if (stroked && (joins || curved || !lines.length)) {
+    padX = padY = half * (joins && state.join === 0 && !rectangle ? Math.max(1, state.miter) : 1);
+  } else if (stroked) {
+    // Lines that meet nowhere reach half the stroke to each side, and past their ends only
+    // with round or square caps: a 10 pt rule is 10 pt tall, not as tall as a miter could be.
+    for (const [x0, y0, x1, y1] of lines) {
+      const length = Math.hypot(x1 - x0, y1 - y0);
+      if (!length || state.cap === 1) {
+        padX = Math.max(padX, half);
+        padY = Math.max(padY, half);
+        continue;
+      }
+      const along = state.cap === 2 ? half : 0,
+        ux = Math.abs(x1 - x0) / length,
+        uy = Math.abs(y1 - y0) / length;
+      padX = Math.max(padX, uy * half + ux * along);
+      padY = Math.max(padY, ux * half + uy * along);
+    }
+  }
+  const bounds = [minX - padX, minY - padY, maxX + padX, maxY + padY];
   const degenerate = minX === maxX || minY === maxY;
   if (state.ownPath) {
     for (const axis of [0, 1])

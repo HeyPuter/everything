@@ -563,7 +563,11 @@ test('a zoom ends a field drag, leaving the field where it was', async ({ page }
   await page.keyboard.press('ControlOrMeta+=');
   await expect(page.getByLabel('Zoom', { exact: true })).not.toHaveValue('fit');
   await settled(page);
-  const bottom = await designer(page, 'Bottom#0').boundingBox();
+  // The zoom redraws the page's fields, which have no box until they are back.
+  let bottom = null;
+  await expect
+    .poll(async () => (bottom = await designer(page, 'Bottom#0').boundingBox())?.width ?? 0)
+    .toBeGreaterThan(0);
   await page.mouse.move(bottom.x + 20, bottom.y + 10, { steps: 4 });
   await page.mouse.up();
   await settled(page);

@@ -5,6 +5,13 @@ import { addNote } from '../src/core/notes.js';
 import { addHighlight, rectQuad } from '../src/core/highlight.js';
 import { addLink } from '../src/core/links.js';
 import { collectComments, MAX_COMMENTS } from '../src/core/comments.js';
+import {
+  addReply,
+  addShapeAnnotation,
+  groupAnnotation,
+  setMarkedState,
+  setReviewState,
+} from '../src/core/annotations.js';
 
 async function withPdf(bytes, fn) {
   const task = pdfjs.getDocument({ data: bytes.slice() });
@@ -196,5 +203,43 @@ describe('collecting comments', () => {
       'Perimeter',
       'Rectangle',
     ]);
+  });
+  it('gives each comment its review status and how many replies it has', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([300, 300]);
+    const note = addNote(doc, 0, { x: 50, y: 250, text: 'Check this', author: 'Ada' });
+    const box = addShapeAnnotation(doc, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 50, height: 50 },
+    });
+    const plain = addShapeAnnotation(doc, 0, {
+      kind: 'circle',
+      rect: { x: 200, y: 100, width: 50, height: 50 },
+    });
+    const answer = addReply(doc, 0, note, { text: 'Done', author: 'Grace' });
+    addReply(doc, 0, answer, { text: 'Thanks', author: 'Ada' });
+    setReviewState(doc, 0, note, { state: 'Accepted', author: 'Grace' });
+    setReviewState(doc, 0, note, { state: 'Completed', author: 'Ada' });
+    // A checkmark is not a review status, and a group member is drawn as part of its comment.
+    setMarkedState(doc, 0, note, { state: 'Marked', author: 'Ada' });
+    const member = addShapeAnnotation(doc, 0, {
+      kind: 'line',
+      points: [
+        { x: 10, y: 10 },
+        { x: 20, y: 20 },
+      ],
+    });
+    groupAnnotation(doc, 0, member, box);
+    // A status set back to None is no status.
+    setReviewState(doc, 0, box, { state: 'Rejected', author: 'Grace' });
+    setReviewState(doc, 0, box, { state: 'None', author: 'Grace' });
+    addReply(doc, 0, box, { text: 'Why?', author: 'Ada' });
+    const comments = await withPdf(await doc.save(), (pdf) => collectComments(pdf));
+    expect(comments.map((c) => [c.kind, c.status, c.replies])).toEqual([
+      ['Note', 'Completed', 2],
+      ['Rectangle', null, 1],
+      ['Ellipse', null, 0],
+    ]);
+    expect(plain).toBeTruthy();
   });
 });

@@ -15,6 +15,9 @@ const MOVE_STRIP = 12;
 /** A stored measure as a property field shows it: to two decimals, or to two significant
  * digits for a width under 1 pt, so a thin line never reads as zero. */
 const fieldNumber = (n) => Number(Math.abs(n) >= 1 ? n.toFixed(2) : n.toPrecision(2));
+/** An angle as the Angle field shows it: to hundredths of a degree, so a picture another program
+ * turned by 30 degrees (stored as a matrix rounded to a few digits) reads 30, not 30.0007. */
+const shownAngle = (degrees) => Number(degrees.toFixed(2)) % 360;
 const same = (a, b) => a.every((n, i) => Math.abs(n - b[i]) < 1e-7);
 const minimumPathTarget = (node) => {
   node.setAttribute('stroke-width', '8');
@@ -718,7 +721,7 @@ export function createImageLayer({
       if (!angle.value.trim() || !angle.reportValidity()) return;
       const value = Number(angle.value),
         previous = rotation();
-      if (value === Number(previous.toFixed(4)) % 360) return;
+      if (value === shownAngle(previous)) return;
       return rotate(value - previous);
     };
     const rotations = el(
@@ -786,7 +789,7 @@ export function createImageLayer({
     }
     const angle = panel.querySelector(`[aria-label="${title()} rotation in degrees"]`);
     if (angle && (syncInputs || document.activeElement !== angle))
-      angle.value = angle.defaultValue = String(Number(rotation().toFixed(4)) % 360);
+      angle.value = angle.defaultValue = String(shownAngle(rotation()));
     preview.hidden = !dirty() || !bitmap;
     if (bitmap && background) {
       background.style.width = `${viewport.width}px`;

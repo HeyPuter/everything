@@ -112,11 +112,45 @@ test('a reply keeps its line breaks and wraps a long link', async ({ page }) => 
     .getByRole('list', { name: 'Replies' })
     .locator(':scope > li');
   await expect(replies).toHaveCount(2);
-  const lines = replies.nth(0).locator(':scope > span').nth(1);
+  const lines = replies.nth(0).locator(':scope > .reply-text');
   await expect(lines).toHaveText('First line\nSecond line');
   expect(await lines.evaluate((node) => node.innerText)).toBe('First line\nSecond line');
   // The link wraps within the panel instead of running past its edge.
-  const link = replies.nth(1).locator(':scope > span').nth(1);
+  const link = replies.nth(1).locator(':scope > .reply-text');
   const [scroll, client] = await link.evaluate((node) => [node.scrollWidth, node.clientWidth]);
   expect(scroll).toBeLessThanOrEqual(client);
+});
+
+// The Comments panel listed each comment's author and date only: a reviewer had to open each
+// one to learn its status, or that someone had answered it.
+test('the Comments panel shows each comment’s status and replies', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  const id = addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 200, width: 80, height: 60 },
+    text: 'Reviewed',
+    author: 'Ada',
+  });
+  setReviewState(doc, 0, id, { state: 'Accepted', author: 'Grace' });
+  addReply(doc, 0, addReply(doc, 0, id, { text: 'Done', author: 'Grace' }), { text: 'Thanks' });
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'comment-panel-status.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  if (!(await page.locator('#page-sidebar').isVisible()))
+    await page.getByRole('button', { name: 'Toggle pages panel', exact: true }).click();
+  await page.getByRole('tab', { name: /Comments/ }).click();
+  const item = page.getByRole('button', { name: 'Rectangle on page 1: Reviewed' });
+  await expect(item).toHaveAccessibleDescription(/^Ada · .+ · Accepted · 2 replies$/);
+  await expect(item).toContainText('Accepted · 2 replies');
 });

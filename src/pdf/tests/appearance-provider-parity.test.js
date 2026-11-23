@@ -34,27 +34,34 @@ for (const kind of Object.keys(providers))
       ['field', '0.1 0.4 0.2 0.1 k /Helvetica 8 Tf'],
       ['widget', '0 g /Helvetica 10 Tf 0 0 1 rg /Helvetica 14 Tf'],
     ])
-      it(`keeps upstream drawing for ${kind} (${rotation}, ${location}, ${appearance})`, async () => {
-        const { doc, field } = await malformedAppearancePdf({
-          kind,
-          rotation,
-          location,
-          appearance,
-        });
-        const widget = field.acroField.getWidgets()[0],
-          font = doc.getForm().getDefaultFont();
-        if (kind === 'button')
-          widget.getAppearanceCharacteristics().setCaptions({ normal: 'Submit', down: 'Sending' });
-        const saved = [field.acroField.dict, widget.dict].map((dict) => [
-          dict,
-          dict.get(PDFName.of('DA')),
-        ]);
-        const [name, original] = providers[kind];
-        const expected = drawing(original(field, widget, font));
-        for (const [dict, value] of saved)
-          value === undefined ? dict.delete(PDFName.of('DA')) : dict.set(PDFName.of('DA'), value);
-        expect(drawing(safe[name](field, widget, font))).toEqual(expected);
-      });
+      // An automatic size draws multi-line text at 12 pt at most, where pdf-lib grows it
+      // (multiline-wrap-appearance.test.js).
+      (kind === 'multiline' && / 0 Tf/.test(appearance) ? it.skip : it)(
+        `keeps upstream drawing for ${kind} (${rotation}, ${location}, ${appearance})`,
+        async () => {
+          const { doc, field } = await malformedAppearancePdf({
+            kind,
+            rotation,
+            location,
+            appearance,
+          });
+          const widget = field.acroField.getWidgets()[0],
+            font = doc.getForm().getDefaultFont();
+          if (kind === 'button')
+            widget
+              .getAppearanceCharacteristics()
+              .setCaptions({ normal: 'Submit', down: 'Sending' });
+          const saved = [field.acroField.dict, widget.dict].map((dict) => [
+            dict,
+            dict.get(PDFName.of('DA')),
+          ]);
+          const [name, original] = providers[kind];
+          const expected = drawing(original(field, widget, font));
+          for (const [dict, value] of saved)
+            value === undefined ? dict.delete(PDFName.of('DA')) : dict.set(PDFName.of('DA'), value);
+          expect(drawing(safe[name](field, widget, font))).toEqual(expected);
+        },
+      );
 
 it('ignores operators inside comments and strings and refreshes changed defaults', async () => {
   const { field } = await malformedAppearancePdf({

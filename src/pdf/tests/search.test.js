@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { indexPageText, searchQuery } from '../src/core/search.js';
+import { findMatches, indexPageText, searchQuery } from '../src/core/search.js';
 
 it('keeps words continuous across text styles while retaining item offsets', () => {
   expect(
@@ -206,4 +206,53 @@ it('finds Chinese and Japanese phrases that wrap onto the next line', () => {
   expect(index.text.includes(searchQuery('カタカナ'))).toBe(true);
   // Korean spaces its words, so its line breaks stay word breaks.
   expect(indexPageText([{ str: '한국', hasEOL: true }, { str: '어' }]).text).toBe('한국 어');
+});
+
+it('finds a word hyphenated at a line end with or without its hyphen', () => {
+  const index = indexPageText([
+    { str: 'A forward-', hasEOL: true },
+    { str: 'thinking plan, a forward-thinking one, a forwardthinking typo' },
+  ]);
+  expect(index.text).toBe('a forwardthinking plan, a forward-thinking one, a forwardthinking typo');
+  const spans = (query) => findMatches(index, searchQuery(query));
+  // The word broken by a line is found as typed with its hyphen; the match leaves it out.
+  expect(spans('forward-thinking')).toEqual([
+    [2, 17],
+    [26, 42],
+  ]);
+  expect(spans('forwardthinking')).toEqual([
+    [2, 17],
+    [50, 65],
+  ]);
+  expect(spans('a forward-thinking plan')).toEqual([[0, 22]]);
+  // The page shows the hyphen at the end of the line.
+  expect(spans('forward-')).toEqual([
+    [2, 9],
+    [26, 34],
+  ]);
+  // A soft hyphen only marks where a word may break; it is no hyphen in the word.
+  const soft = indexPageText([{ str: 'exam­', hasEOL: true }, { str: 'ple' }]);
+  expect(findMatches(soft, searchQuery('exam-ple'))).toEqual([]);
+  expect(findMatches(soft, searchQuery('example'))).toEqual([[0, 7]]);
+});
+
+it('finds a Thai or Lao phrase that wraps onto the next line', () => {
+  // Thai and Lao put no space between words, so a line break may fall inside a phrase.
+  const index = indexPageText([
+    { str: 'ภาษาไทยเป็น', hasEOL: true },
+    { str: 'ภาษาราชการ ພາສາ', hasEOL: true },
+    { str: 'ລາວ' },
+  ]);
+  const spans = (query) => findMatches(index, searchQuery(query));
+  expect(spans('เป็นภาษา')).toHaveLength(1);
+  expect(spans('ພາສາລາວ')).toHaveLength(1);
+  // A space typed where the line breaks still finds it, as the break may be a word break.
+  expect(spans('เป็น ภาษา')).toHaveLength(1);
+  // The match covers the characters on both lines.
+  const [[from, to]] = spans('เป็นภาษา');
+  expect(index.text.slice(from, to)).toBe('เป็น ภาษา');
+  // Latin text keeps its line breaks as word breaks.
+  const latin = indexPageText([{ str: 'top', hasEOL: true }, { str: 'hat' }]);
+  expect(findMatches(latin, searchQuery('tophat'))).toEqual([]);
+  expect(findMatches(latin, searchQuery('top hat'))).toEqual([[0, 7]]);
 });

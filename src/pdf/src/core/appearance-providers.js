@@ -46,6 +46,100 @@ import {
 import { readAppearanceDefaults } from './form-style.js';
 const getDefaultColor = (field) => readAppearanceDefaults(field).color;
 const getDefaultFontSize = (field) => readAppearanceDefaults(field).fontSize;
+/** Text broken with no space before it: CJK ideographs, kana, Hangul and their punctuation. */
+const CJK = /[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/u;
+/**
+ * Lines of `paragraph` that fit `width` at `size`: broken after spaces, between CJK
+ * characters, and inside a word only when the word alone is wider than the field.
+ */
+function wrapParagraph(paragraph, font, size, width) {
+  const measure = (text) => font.widthOfTextAtSize(text, size);
+  const units = paragraph.match(/\s+|\S/gu) ?? [];
+  // Words: runs of characters that are not spaces and not CJK.
+  const tokens = [];
+  for (const unit of units) {
+    const last = tokens.at(-1);
+    if (last && !/\s/u.test(unit) && !CJK.test(unit) && !/\s/u.test(last) && !CJK.test(last))
+      tokens[tokens.length - 1] += unit;
+    else tokens.push(unit);
+  }
+  const lines = [];
+  let line = '';
+  const push = () => {
+    lines.push(line.trimEnd());
+    line = '';
+  };
+  for (const token of tokens) {
+    if (/^\s+$/u.test(token)) {
+      if (line) line += token;
+      continue;
+    }
+    if (measure((line + token).trimEnd()) <= width) {
+      line += token;
+      continue;
+    }
+    if (line.trim()) push();
+    else line = '';
+    if (measure(token) <= width) {
+      line = token;
+      continue;
+    }
+    // A word wider than the field is broken where it reaches the edge.
+    for (const char of token) {
+      if (line && measure(line + char) > width) push();
+      line += char;
+    }
+  }
+  if (line || !lines.length) lines.push(line.trimEnd());
+  return lines;
+}
+const AUTO_MULTILINE_SIZE = 12;
+/**
+ * pdf-lib's multiline layout, unless a line of it would run past the field: pdf-lib breaks
+ * lines at spaces only, so a long word or a CJK sentence put all the rest of its paragraph
+ * on one line, cut off at the field's edge; and with an automatic size it grew the text
+ * until that one line was taller than the field. Such text is wrapped where it reaches the
+ * edge instead, at the largest size that shows it all (4 to 12 pt).
+ */
+function layoutMultilineFitted(text, { alignment, fontSize, font, bounds }) {
+  const upstream = layoutMultilineText(text, { alignment, fontSize, font, bounds });
+  // An automatic size fits the text in at most 12 pt, as Acrobat, PDF.js and the page's own
+  // box draw it; pdf-lib grows a few words until they fill the field.
+  if (!fontSize && upstream.fontSize > AUTO_MULTILINE_SIZE)
+    return layoutMultilineFitted(text, { alignment, fontSize: AUTO_MULTILINE_SIZE, font, bounds });
+  if (upstream.lines.every((line) => line.width <= bounds.width + 1e-6)) return upstream;
+  // As pdf-lib cleans and splits the text.
+  const paragraphs = text
+    .replace(/\t|\u0085|\u2028|\u2029/g, '    ')
+    .replace(/[\b\v]/g, '')
+    .split(/\r\n|\r|\n|\f/);
+  const lineHeight = (size) => font.heightAtSize(size) * 1.2;
+  const wrap = (size) =>
+    paragraphs.flatMap((paragraph) => wrapParagraph(paragraph, font, size, bounds.width));
+  let size = fontSize;
+  if (!size) {
+    size = 4;
+    while (
+      size < AUTO_MULTILINE_SIZE &&
+      wrap(size + 1).length * lineHeight(size + 1) <= Math.abs(bounds.height)
+    )
+      size++;
+  }
+  const height = font.heightAtSize(size);
+  let y = bounds.y + bounds.height;
+  const lines = wrap(size).map((line) => {
+    const width = font.widthOfTextAtSize(line, size);
+    y -= height * 1.2;
+    const x =
+      alignment === TextAlignment.Center
+        ? bounds.x + bounds.width / 2 - width / 2
+        : alignment === TextAlignment.Right
+          ? bounds.x + bounds.width - width
+          : bounds.x;
+    return { text: line, encoded: font.encodeText(line), width, height, x, y };
+  });
+  return { fontSize: size, lineHeight: height * 1.2, lines };
+}
 const updateDefaultAppearance = (field, color, font, fontSize = 0) => {
   const da = [
     setFillingColor(color).toString(),
@@ -339,7 +433,7 @@ export const defaultTextFieldAppearanceProvider = (
     height: height - (borderWidth + padding) * 2,
   };
   if (textField.isMultiline()) {
-    const layout = layoutMultilineText(text, {
+    const layout = layoutMultilineFitted(text, {
       alignment: textField.getAlignment(),
       fontSize: widgetFontSize ?? fieldFontSize,
       font,

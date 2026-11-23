@@ -239,6 +239,16 @@ test('a word hyphenated at the end of a line is found whole', async ({ page }) =
   await expect(page.locator('.search-hit-current')).toHaveText(['exam', 'ple']);
 });
 
+test('a hyphenated word broken at the end of a line is found with its hyphen', async ({ page }) => {
+  const input = await openSearchDocument(page, ['A forward-\nthinking plan, forward-thinking']);
+  await input.fill('forward-thinking');
+  await expect(page.locator('.search-count')).toHaveText('1 of 2');
+  await expect(page.locator('.search-hit-current')).toHaveText(['forward', 'thinking']);
+  await input.press('Enter');
+  await expect(page.locator('.search-count')).toHaveText('2 of 2');
+  await expect(page.locator('.search-hit-current')).toHaveText('forward-thinking');
+});
+
 test('a word is found whole when its line-end hyphen is set in another font', async ({ page }) => {
   const input = await openSearchDocument(page, [], async (doc) => {
     const regular = await doc.embedFont(StandardFonts.Helvetica);

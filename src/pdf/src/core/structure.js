@@ -28,8 +28,22 @@ import {
   PDFTextField,
   PDFRadioGroup,
   PDFSignature,
+  PDFDocument,
 } from 'pdf-lib';
 import { updateFormAppearances } from './form-appearance.js';
+
+/**
+ * pdf-lib's getForm() deletes the form's XFA, which it cannot fill in: once a hybrid form's
+ * fields are filled here, the XFA copy of their values is out of date. An XFA form with no
+ * fields of its own, though, is nothing but its XFA (its page only says "Please wait..."), and
+ * any page edit reads the form: deleting a page or adding one wiped the form out.
+ */
+PDFDocument.prototype.getForm = function getForm() {
+  const form = this.formCache.access();
+  const fields = form.acroForm.dict.lookup(PDFName.of('Fields'));
+  if (form.hasXFA() && fields instanceof PDFArray && fields.size() > 0) form.deleteXFA();
+  return form;
+};
 
 /** Count actual page occurrences before pdf-lib expands them into its page cache. */
 export function boundedPageCount(doc, limit) {

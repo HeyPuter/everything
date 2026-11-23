@@ -49,9 +49,49 @@ const toHex = (color) =>
       Array.from(color.subarray(0, 3), (c) => Math.round(c).toString(16).padStart(2, '0')).join('')
     : null;
 
+const REVIEW = new Set(['Accepted', 'Rejected', 'Cancelled', 'Completed', 'None']);
+/**
+ * A page's threads, from what PDF.js reports: for a comment, its review status (the newest one
+ * set, as its panel shows it; none when that is None) and how many replies it has, replies to
+ * replies included. Review states and members of a comment's group are not replies.
+ */
+function pageThreads(annotations) {
+  const children = new Map();
+  annotations.forEach((a, position) => {
+    if (!a.inReplyTo) return;
+    if (!children.has(a.inReplyTo)) children.set(a.inReplyTo, []);
+    children.get(a.inReplyTo).push({ a, position });
+  });
+  const isState = (a) => a.stateModel != null || (a.state != null && a.subtype === 'Text');
+  const when = (a) =>
+    (parsePdfDate(a.modificationDate) || parsePdfDate(a.creationDate))?.getTime() ?? 0;
+  return {
+    of(id) {
+      const own = children.get(id) || [];
+      const review = own
+        .filter(({ a }) => isState(a) && (a.stateModel ?? 'Review') === 'Review')
+        .filter(({ a }) => REVIEW.has(a.state))
+        .sort((x, y) => when(x.a) - when(y.a) || x.position - y.position);
+      const status = review.at(-1)?.a.state;
+      let replies = 0;
+      const seen = new Set([id]);
+      const count = (parent) => {
+        for (const { a } of children.get(parent) || []) {
+          if (seen.has(a.id) || isState(a) || a.replyType === 'Group') continue;
+          seen.add(a.id);
+          replies++;
+          count(a.id);
+        }
+      };
+      count(id);
+      return { status: status && status !== 'None' ? status : null, replies };
+    },
+  };
+}
+
 /**
  * Every comment on every page, in page order: page index, PDF.js id, kind, text, author, date,
- * color, and rectangle. One comment past MAX_COMMENTS is collected and no more, so a caller can
+ * color, rectangle, review status and number of replies. One comment past MAX_COMMENTS is collected and no more, so a caller can
  * tell a full list from one that was cut rather than report a total that is short; `isCurrent`
  * can cancel a stale run between pages.
  */
@@ -68,6 +108,7 @@ export async function collectComments(pdf, { isCurrent = () => true } = {}) {
     }
     if (!isCurrent()) return null;
     const ids = new Set(annotations.map((a) => a.id));
+    const threads = pageThreads(annotations);
     for (const a of annotations) {
       const kind = COMMENT_KINDS[a.subtype];
       // A reply is listed in its comment's thread; one to a note no longer on the page (another
@@ -88,6 +129,7 @@ export async function collectComments(pdf, { isCurrent = () => true } = {}) {
         date: parsePdfDate(a.modificationDate) || parsePdfDate(a.creationDate),
         hex: toHex(a.color),
         rect: a.rect ? Array.from(a.rect) : null,
+        ...threads.of(a.id),
       });
       if (comments.length >= limit) break;
     }

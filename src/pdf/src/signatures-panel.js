@@ -29,9 +29,16 @@ const when = (date) =>
 /** One sentence for the bar above the document, from all of its signatures. */
 export function signatureSummary(reports) {
   if (!reports.length) return null;
-  const count = reports.length === 1 ? 'The signature' : `All ${reports.length} signatures`;
+  // A PDF with nothing but document timestamps is timestamped, not signed by anyone.
+  const stamped = reports.every((r) => r.kind === 'timestamp');
+  const noun = stamped ? 'timestamp' : 'signature';
+  const count = reports.length === 1 ? `The ${noun}` : `All ${reports.length} ${noun}s`;
   // A certification signature (the author's) makes the whole document certified.
-  const signed = reports.some((r) => r.certification) ? 'Certified' : 'Signed';
+  const signed = reports.some((r) => r.certification)
+    ? 'Certified'
+    : stamped
+      ? 'Timestamped'
+      : 'Signed';
   if (reports.some((r) => r.status === 'invalid'))
     return { tone: 'bad', text: 'At least one signature is invalid.' };
   if (reports.some((r) => r.status === 'modified'))
@@ -46,9 +53,19 @@ export function signatureSummary(reports) {
       tone: 'good',
       text: `${signed}, and ${count.toLowerCase()} ${reports.length === 1 ? 'is' : 'are'} valid.`,
     };
+  // Several signatures name as many identities as are untrusted, not one signer.
+  const untrusted = reports.filter((r) => r.status === 'valid-unknown-identity').length;
+  const identities =
+    reports.length === 1
+      ? 'the signer’s identity is'
+      : untrusted === reports.length
+        ? 'the signers’ identities are'
+        : untrusted === 1
+          ? 'one signer’s identity is'
+          : `${untrusted} signers’ identities are`;
   return {
     tone: 'unknown',
-    text: `${signed}. ${count} ${reports.length === 1 ? 'is' : 'are'} valid, but the signer’s identity is not trusted on this device.`,
+    text: `${signed}. ${count} ${reports.length === 1 ? 'is' : 'are'} valid, but ${identities} not trusted on this device.`,
   };
 }
 

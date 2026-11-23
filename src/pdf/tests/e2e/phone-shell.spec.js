@@ -322,3 +322,31 @@ test('the find box shows its whole prompt until there is a count beside it', asy
   await expect(page.locator('.search-count')).toHaveText('1 of 2');
   await expect(page.locator('.search-count')).toBeVisible();
 });
+
+test('a small phone turned sideways keeps the tools and page controls on one row', async ({
+  page,
+}) => {
+  // An iPhone SE or 8 on its side: the tools and the page controls need a few pixels more than
+  // the row has. The tools used to wrap onto a second line, taking a sixth of the page's height.
+  await page.setViewportSize({ width: 667, height: 375 });
+  await openPdf(page, await pages(2));
+  const toolbar = page.getByRole('toolbar', { name: 'PDF tools' });
+  const box = async (locator) => (await locator.boundingBox()) ?? { y: 0, height: 0 };
+  const [tools, controls, first, last] = await Promise.all([
+    box(toolbar),
+    box(page.locator('.page-controls')),
+    box(toolbar.getByRole('button', { name: 'Select', exact: true })),
+    box(toolbar.getByRole('button', { name: 'Fill forms', exact: true })),
+  ]);
+  expect(Math.abs(controls.y - tools.y)).toBeLessThanOrEqual(1);
+  // One line of tools, no taller than the controls beside it.
+  expect(Math.abs(last.y - first.y)).toBeLessThanOrEqual(1);
+  expect(tools.height).toBeLessThanOrEqual(first.height + 12);
+  // The tools that do not fit scroll into view, and keep working.
+  const fill = toolbar.getByRole('button', { name: 'Fill forms', exact: true });
+  await fill.scrollIntoViewIfNeeded();
+  await expect(fill).toBeInViewport({ ratio: 0.95 });
+  await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+});

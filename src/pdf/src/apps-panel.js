@@ -240,6 +240,14 @@ function listen() {
     },
     true,
   );
+  // So does the keyboard leaving it, as from any popover: the panel lies at the end of the page,
+  // away from its button, and Tab or Shift+Tab out of it left it open over the page. The embed
+  // itself counts as inside; the button toggles it itself.
+  document.addEventListener('focusin', (e) => {
+    if (!isOpen || !(e.target instanceof Node)) return;
+    if (panel?.contains(e.target) || e.target.closest?.('.apps-btn')) return;
+    closeAppsPanel();
+  });
   window.addEventListener('resize', position);
   // Full screen shows one element alone, which never holds the panel.
   document.addEventListener('fullscreenchange', () => closeAppsPanel());

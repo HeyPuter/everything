@@ -2,14 +2,14 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'virtual:pdf-worker-url';
 import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { loadPdfDocument, savePdf } from './core/version.js';
-import { indexPageText, searchQuery } from './core/search.js';
+import { findMatches, indexPageText, searchQuery } from './core/search.js';
 import { inspectText, matrix, textColor } from './core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from './core/text-group.js';
 import { draftText, needsDraftText, textLineInput } from './text-line-input.js';
 import { groupTextParagraphs } from './core/text-paragraph.js';
 import { readingOrder, reorderSegments, reorderText } from './core/bidi.js';
 import { textPositionControls } from './text-position.js';
-import { placeTextCaret } from './text-caret.js';
+import { placeTextCaret, wrappedTextareaValue } from './text-caret.js';
 import { textWidthControls } from './text-width.js';
 import { createFormLayer } from './form-layer.js';
 import { choiceInputOptions, structureAnnotations } from './core/form-draft.js';
@@ -38,10 +38,16 @@ import { userMenuSlot } from './user-menu.js';
 import { createAttachmentsPanel, createLayersPanel } from './side-panels.js';
 import { createSignaturesPanel, createSignatureBar } from './signatures-panel.js';
 import { chooseDigitalId, signatureDetailsDialog } from './digital-id-dialog.js';
-import { addAttachment, attachmentBytes, removeAttachment } from './core/attachments.js';
+import {
+  MAX_ATTACHMENT_SIZE,
+  addAttachment,
+  attachmentBytes,
+  removeAttachment,
+} from './core/attachments.js';
 import {
   listFonts,
   readInitialView,
+  pdfaClaimOf,
   readPdfaClaim,
   writeInitialView,
 } from './core/initial-view.js';
@@ -69,7 +75,7 @@ import {
   REVIEW_STATES,
 } from './core/annotations.js';
 import { COMMENT_KINDS } from './core/comments.js';
-import { ensureStyledFontFaces, cjkDraftFace } from './text-fonts.js';
+import { ensureStyledFontFaces, cjkDraftFace, fallbackDraftFace } from './text-fonts.js';
 import {
   documentAccess,
   requireDocumentAccess,
@@ -121,6 +127,7 @@ import {
   copyText,
   formatBytes,
   contrastInk,
+  fieldEditingKey,
 } from './lib/ui.js';
 import * as P from './lib/puter.js';
 import { waitFor } from './lib/abort.js';
@@ -930,6 +937,9 @@ export function createEditor({
     input.onchange = safe(async () => {
       const file = input.files?.[0];
       if (!file || destroyed) return;
+      // A file too large to attach is turned down before it is read: a video of several
+      // gigabytes would otherwise be held in memory first, and could take the tab down.
+      if (file.size > MAX_ATTACHMENT_SIZE) throw new Error('Attach files of up to 20 MB.');
       const bytes = new Uint8Array(await file.arrayBuffer());
       await mutate(
         (doc) => addAttachment(doc, { name: file.name, bytes, mimeType: file.type || undefined }),
@@ -1195,7 +1205,13 @@ export function createEditor({
   }
   async function selectComment(pending) {
     const id = editorAnnotationId(pending.id);
-    if (pending.kind === 'annotation') return annotationLayer.focus(id);
+    if (pending.kind === 'annotation') {
+      annotationChoice = null;
+      annotationLayer.focus(id);
+      // On a phone its settings open below the page and take part of its view: the comment
+      // is brought into view once they are shown, not into the space they take.
+      return annotationChoice;
+    }
     const entry =
       pending.kind === 'note'
         ? notes.find((note) => note.id === id) || notes[pending.noteOrdinal]
@@ -1334,12 +1350,17 @@ export function createEditor({
   }
   const properties = createPropertiesPanel();
   // Comments drawn as annotations, selectable in Select.
+  // The settings of the comment being chosen, once they are shown (see onSelect below).
+  let annotationChoice = null;
   const annotationLayer = createAnnotationLayer({
     onSelect: (entry, { refresh = false } = {}) => {
       if (!entry || refresh) return showAnnotationProperties(entry);
       // Choosing a comment finishes drafts and lets go of a picture, shape, or markup, as
       // choosing any other object does. A draft that cannot be saved keeps the selection.
-      safe(() =>
+      const keep = keepChosenInView(() =>
+        annotationLayer.root.querySelector('.annotation-target.is-selected'),
+      );
+      annotationChoice = safe(() =>
         selectionProperties(async () => {
           cancelTextSelection();
           try {
@@ -1356,7 +1377,7 @@ export function createEditor({
           const chosen = annotationLayer.selected;
           if (chosen) showAnnotationProperties(chosen);
         }),
-      )();
+      )().then(keep);
     },
     // Pressing the comment saves its Comment field first; the move or deletion waits for that.
     onMove: (entry, rect) =>
@@ -1364,6 +1385,13 @@ export function createEditor({
         await annotationTextDraft?.();
         const move = (doc) => editAnnotation(doc, pageIndex, entry.id, { rect });
         await mutate(move, null, 'annotate', { retainScale: true });
+      })(),
+    // A corner dragged resizes the comment, or a callout's text box, its point staying put.
+    onResize: (entry, key, rect) =>
+      safe(async () => {
+        await annotationTextDraft?.();
+        const resize = (doc) => editAnnotation(doc, pageIndex, entry.id, { [key]: rect });
+        await mutate(resize, null, 'annotate', { retainScale: true });
       })(),
     onDelete: (entry) => {
       // Without permission to comment, the Delete button is disabled; the key matches it.
@@ -1546,6 +1574,7 @@ export function createEditor({
   const organizer = createOrganizeView({
     getPdf: () => pdf,
     getRevision: () => session.revision,
+    getPageIds: (revision) => session.pagesAt(revision),
     getLayers: () => documentLayers || undefined,
     currentIndex: () => pageIndex,
     can: (permission) => !!access()[permission],
@@ -1601,6 +1630,7 @@ export function createEditor({
     touchScreen?.matches
       ? text
           .replace(/double-click/g, 'double-tap')
+          .replace(/Double-click/g, 'Double-tap')
           .replace(/\bClick\b/g, 'Tap')
           .replace(/\bclick\b/g, 'tap')
       : text;
@@ -1686,12 +1716,14 @@ export function createEditor({
     );
     if (cjk) return cjk;
     if (edit.run && !styleChanged(edit))
-      return {
-        weight: edit.run?.fontWeight || 'normal',
-        style: edit.run?.fontStyle || 'normal',
-        family: edit.run?.fontFamily || null,
-        ligatures: edit.run?.fontVariantLigatures || 'normal',
-      };
+      return (
+        (!edit.run.parts && fallbackDraftFace(edit.run, edit.input.value)) || {
+          weight: edit.run?.fontWeight || 'normal',
+          style: edit.run?.fontStyle || 'normal',
+          family: edit.run?.fontFamily || null,
+          ligatures: edit.run?.fontVariantLigatures || 'normal',
+        }
+      );
     return {
       weight: bold ? 'bold' : 'normal',
       style: italic ? 'italic' : 'normal',
@@ -1712,6 +1744,19 @@ export function createEditor({
       }),
     );
     return Promise.all([...weights].map((weight) => ensureStyledFontFaces(weight, text)));
+  }
+  /**
+   * Load the Noto Sans faces a draft previews in for characters its own font lacks, and lay it
+   * out again once each has loaded: until then the browser measures a stand-in face.
+   */
+  function loadFallbackFaces(edit, variants) {
+    for (const variant of new Set(variants)) {
+      if (edit.fallbackFaces?.has(variant)) continue;
+      (edit.fallbackFaces ||= new Set()).add(variant);
+      ensureStyledFontFaces(variant).then((loaded) => {
+        if (loaded && textEdit === edit) layoutTextEdit();
+      });
+    }
   }
   function applyDraftStyle(edit) {
     if (hasCjkText(edit.input.value))
@@ -2109,22 +2154,24 @@ export function createEditor({
   function suggestTools() {
     const query = searchInput.value.trim().toLowerCase();
     // Words are matched from their start, as typed: "rot" finds the tool that rotates pages,
-    // not Protect a PDF, which merely contains the letters.
-    const words = new RegExp(
-      `(?:^|[^\\p{L}\\p{N}])${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-      'u',
-    );
+    // not Protect a PDF, which merely contains the letters. Each word is looked for on its own,
+    // so "delete page" or "edit text" finds a tool whose words are not side by side.
+    const words = query
+      .split(/\s+/)
+      .map(
+        (word) =>
+          new RegExp(`(?:^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'u'),
+      );
     const matches =
       query.length < 2
         ? []
         : toolCatalog()
-            .filter(
-              (entry) =>
-                !entry.hidden &&
-                words.test(
-                  `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`.toLowerCase(),
-                ),
-            )
+            .filter((entry) => {
+              if (entry.hidden) return false;
+              const text =
+                `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`.toLowerCase();
+              return words.every((word) => word.test(text));
+            })
             .slice(0, 5);
     toolList.replaceChildren(
       ...matches.map((entry, i) =>
@@ -2627,7 +2674,7 @@ export function createEditor({
     nameButton.setAttribute('aria-label', `Rename ${name}`);
     // The name is clipped on narrow screens, so the tooltip carries it in full.
     nameButton.title = name;
-    pageForms.setBusy(busy || !pageReady || !access().fill);
+    pageForms.setBusy(busy || !pageReady, { locked: !access().fill });
     pageImages.setBusy(busy || !pageReady || !access().edit);
     const pendingText =
       pendingTextEdit() || pendingNoteEdit() || pageForms.draft.dirty || pageImages.dirty;
@@ -2705,7 +2752,7 @@ export function createEditor({
     }
     const destination = clampPageIndex(pendingNavigation?.index ?? pageIndex);
     // Side by side, the buttons turn pairs: the other page of the pair on view is in sight.
-    const turn = (index) => (stack.twoUp ? Math.floor(index / 2) : index);
+    const turn = (index) => (stack.twoUp ? stack.pairOf(index) : index);
     setStepOff(prevButton, !pageCount || turn(destination) === 0);
     setStepOff(nextButton, !pageCount || turn(destination) >= turn(pageCount - 1));
     editorRoot.setAttribute('aria-busy', String(busy));
@@ -2767,10 +2814,17 @@ export function createEditor({
       pdf = next;
       // A PDF that asks to be shown by its title is named by the title it has now: details,
       // an accessibility fix, removing hidden information, or undo can each change it.
+      // Undo, redo, or an edit can add or take away the PDF/A claim too; opening reads it
+      // from the file itself (see applyInitialView).
+      const changed = !initializing;
       Promise.all([next.getViewerPreferences(), next.getMetadata()])
-        .then(([prefs, { info }]) => {
+        .then(([prefs, { info, metadata }]) => {
           if (destroyed || pdf !== next) return;
           shownTitle = (prefs?.get('DisplayDocTitle') && String(info?.Title ?? '').trim()) || null;
+          if (changed) {
+            pdfaClaim = pdfaClaimOf(metadata?.getRaw?.());
+            showStandardsBar();
+          }
           updateStatus();
         })
         .catch(() => {});
@@ -3003,6 +3057,8 @@ export function createEditor({
           return {
             id: directIds.get(a.id) ?? a.id,
             rect: a.rect,
+            // A link over words that wrap onto another line (QuadPoints) covers only those words.
+            quads: a.quadPoints?.length >= 8 ? Array.from(a.quadPoints) : null,
             url,
             address: a.unsafeUrl || a.url || '',
             dest: a.dest,
@@ -3110,7 +3166,7 @@ export function createEditor({
         tabs,
         structureOrder,
       );
-      pageForms.setBusy(busy || !pageReady || !access().fill);
+      pageForms.setBusy(busy || !pageReady, { locked: !access().fill });
       pageForms.setEnabled(tool === 'select' && !preparing);
       highlights = [];
       if (
@@ -3259,7 +3315,20 @@ export function createEditor({
   /** Keep the current page's thumbnail inside the panel's scroll viewport. */
   function revealThumbnail() {
     if (editorRoot.classList.contains('hide-pages')) return;
-    thumbnails.children[pageIndex]?.scrollIntoView({ block: 'nearest' });
+    const item = thumbnails.children[pageIndex];
+    // The list scrolls itself rather than through scrollIntoView, which also moved the browser's
+    // starting point for Tab: a keyboard's first Tab in a PDF just opened went to the thumbnails,
+    // past the skip link, the menus and the tools.
+    if (item) {
+      const list = thumbnails.getBoundingClientRect(),
+        box = item.getBoundingClientRect();
+      if (box.top < list.top) thumbnails.scrollTop -= list.top - box.top;
+      else if (box.bottom > list.bottom)
+        thumbnails.scrollTop += Math.min(box.bottom - list.bottom, box.top - list.top);
+      if (box.left < list.left) thumbnails.scrollLeft -= list.left - box.left;
+      else if (box.right > list.right)
+        thumbnails.scrollLeft += Math.min(box.right - list.right, box.left - list.left);
+    }
     revealedThumbnail = pageIndex;
   }
   function renderThumbnails() {
@@ -3273,7 +3342,22 @@ export function createEditor({
         }
       : null;
     if (restore && movedThumbnail?.from === restore.index) restore.index = movedThumbnail.to;
+    // A drawn thumbnail stands in until its page is drawn again: the picture of the same page
+    // object, which a page moved, or with pages added or removed before it, keeps. Taken by
+    // place, a deleted page's picture showed in the next page's place until that was redrawn.
     const canvases = [...thumbnails.querySelectorAll('.thumb-paper canvas')];
+    const pageRefs = session.pages?.length === pdf.numPages ? session.pages : null;
+    const drawn = new Map();
+    if (pageRefs)
+      for (const canvas of canvases)
+        if (canvas.dataset.page && !drawn.has(canvas.dataset.page))
+          drawn.set(canvas.dataset.page, canvas);
+    const standIn = (i) => {
+      if (!pageRefs) return canvases.length === pdf.numPages ? canvases[i] : null;
+      const canvas = drawn.get(pageRefs[i]);
+      drawn.delete(pageRefs[i]);
+      return canvas;
+    };
     thumbnails.replaceChildren();
     const stop = Number.isInteger(restore?.index)
       ? Math.min(restore.index, pdf.numPages - 1)
@@ -3316,6 +3400,7 @@ export function createEditor({
                 }).promise;
                 if (destroyed || pdf !== thisPdf || !c.isConnected) return;
                 paintCanvas(c, rendered, v);
+                if (page.ref) c.dataset.page = `${page.ref.num} ${page.ref.gen}`;
               } finally {
                 rendered.width = rendered.height = 0;
               }
@@ -3344,7 +3429,7 @@ export function createEditor({
             navigate(i);
           },
         },
-        el('div', { class: 'thumb-paper' }, canvases[i] || el('canvas', { 'aria-hidden': 'true' })),
+        el('div', { class: 'thumb-paper' }, standIn(i) || el('canvas', { 'aria-hidden': 'true' })),
         el('span', {}, String(i + 1)),
       );
       // Each page has its own menu, on a button beside it and on a right click.
@@ -3414,11 +3499,27 @@ export function createEditor({
   );
   thumbnails.addEventListener('keydown', (e) => {
     const target = e.target.closest?.('.thumbnail, .thumb-menu');
-    if (!target || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (!target || e.altKey || e.ctrlKey || e.metaKey) return;
     const item = target.closest('.thumb-item'),
       items = thumbnails.children,
       index = Number(item.dataset.index),
       menu = target.classList.contains('thumb-menu');
+    if (e.shiftKey && e.key === 'F10' && !menu) {
+      // The keyboard's way to the page's menu, as a right click opens it: macOS browsers send
+      // no context menu event for Shift+F10, and Mac keyboards have no menu key.
+      e.preventDefault();
+      const box = target.getBoundingClientRect();
+      openMenu({
+        anchor: item.querySelector('.thumb-menu'),
+        items: pageItems(index),
+        label: `Page ${index + 1}`,
+        x: box.left + 16,
+        y: box.bottom,
+        minWidth: 230,
+      });
+      return;
+    }
+    if (e.shiftKey) return;
     let next;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp')
       next = items[index + (e.key === 'ArrowDown' ? 1 : -1)]?.querySelector(
@@ -3446,9 +3547,9 @@ export function createEditor({
     // other page of the pair on view is already in sight.
     if (stack.twoUp) {
       // From the first or last pair there is none to turn to.
-      const pair = Math.floor(from / 2) + direction;
-      if (pair < 0 || pair > Math.floor((pageCount - 1) / 2)) return false;
-      return navigate(pair * 2);
+      const pair = stack.pairOf(from) + direction;
+      if (pair < 0 || pair > stack.pairOf(pageCount - 1)) return false;
+      return navigate(stack.firstOfPair(pair));
     }
     return navigate(from + direction);
   }
@@ -3585,9 +3686,27 @@ export function createEditor({
       stack.refresh();
     }
   }
+  const COVER_PAGE_KEY = 'pdf-editor:cover-page';
+  function setCoverPage(on, { remember = true } = {}) {
+    stack.setCover(on);
+    if (remember)
+      try {
+        if (on) localStorage.setItem(COVER_PAGE_KEY, 'on');
+        else localStorage.removeItem(COVER_PAGE_KEY);
+      } catch {
+        /* The preference is optional. */
+      }
+    if (pdf && stack.twoUp) {
+      safe(() => renderPage())();
+      stack.scrollTo(pageIndex);
+      stack.refresh();
+      updateStatus();
+    }
+  }
   try {
     const stored = localStorage.getItem(PAGE_DISPLAY_KEY);
     if (PAGE_DISPLAYS[stored]) setPageDisplay(stored, { remember: false });
+    if (localStorage.getItem(COVER_PAGE_KEY)) setCoverPage(true, { remember: false });
   } catch {
     /* The preference is optional. */
   }
@@ -4157,9 +4276,17 @@ export function createEditor({
           'aria-label': `${editable ? 'Edit' : 'Read'} ${label}${entry.text ? ': ' + entry.text.slice(0, 80) : ''}${i ? ` (part ${i + 1})` : ''}`,
           'aria-pressed': selectedHighlight?.id === entry.id,
           'data-highlight-id': entry.id,
+          // One Tab stop for each markup: one across many lines was a stop for every line.
+          ...(i > 0 && { tabindex: -1 }),
           onkeydown: deleteHighlightKey(entry),
-          onclick: safe(() =>
-            selectionProperties(async () => {
+          onclick: safe(async () => {
+            const keep = keepChosenInView(
+              () =>
+                highlightTargets.querySelectorAll(`[data-highlight-id="${CSS.escape(entry.id)}"]`)[
+                  i
+                ],
+            );
+            await selectionProperties(async () => {
               if (busy || !pageReady) return;
               const focusFrom = document.activeElement;
               cancelTextSelection();
@@ -4174,8 +4301,9 @@ export function createEditor({
                 properties.root
                   .querySelector('.highlight-edit-panel input')
                   ?.focus({ preventScroll: true });
-            }),
-          ),
+            });
+            keep();
+          }),
         });
         Object.assign(target.style, {
           left: `${x}px`,
@@ -4895,12 +5023,36 @@ export function createEditor({
           y: e.clientY,
         });
       });
+      const left = Math.min(a[0], b[0]),
+        top = Math.min(a[1], b[1]);
       Object.assign(target.style, {
-        left: `${Math.min(a[0], b[0])}px`,
-        top: `${Math.min(a[1], b[1])}px`,
+        left: `${left}px`,
+        top: `${top}px`,
         width: `${width}px`,
         height: `${height}px`,
       });
+      // A link over words that wrap (QuadPoints, a box for each line) takes the pointer only
+      // over those words: its rectangle spans the lines, and with them other words and links.
+      if (link.quads) {
+        target.classList.add('is-parted');
+        for (let i = 0; i + 8 <= link.quads.length; i += 8) {
+          const xs = [],
+            ys = [];
+          for (let j = i; j < i + 8; j += 2) {
+            const [x, y] = viewport.convertToViewportPoint(link.quads[j], link.quads[j + 1]);
+            xs.push(x);
+            ys.push(y);
+          }
+          const part = el('span', { class: 'link-part', 'aria-hidden': 'true' });
+          Object.assign(part.style, {
+            left: `${Math.min(...xs) - left}px`,
+            top: `${Math.min(...ys) - top}px`,
+            width: `${Math.max(...xs) - Math.min(...xs)}px`,
+            height: `${Math.max(...ys) - Math.min(...ys)}px`,
+          });
+          target.append(part);
+        }
+      }
       linkTargets.append(target);
     }
   }
@@ -4950,6 +5102,12 @@ export function createEditor({
       operation.closed = linkDialog(initial, link, (dialog) => (operation.dialog = dialog));
       const choice = await operation.closed;
       if (!choice || destroyed) return;
+      if (choice.remove) {
+        await mutate((doc) => removeLink(doc, sourcePage, link.id), 'Link removed.', 'annotate');
+        if (!destroyed && document.activeElement === document.body)
+          overlay.focus({ preventScroll: true });
+        return;
+      }
       // Opening, cancelling, or saving an unchanged link must not create history or
       // replace an existing page destination's precise position and zoom.
       if (choice.page != null ? choice.page === initial.page : choice.url === initial.url) return;
@@ -5054,6 +5212,20 @@ export function createEditor({
               dialog.close();
               return followLink(link);
             }),
+          ),
+        );
+      // Also here, not only in the link's right-click menu: a phone or a keyboard on a Mac
+      // has no way to open that menu, and the link could not be removed.
+      if (link)
+        actions.unshift(
+          button(
+            'Remove link',
+            'Unlink',
+            () => {
+              result = { remove: true };
+              dialog.close();
+            },
+            'btn danger',
           ),
         );
       const dialog = modal(initial ? 'Edit link' : 'Add link', form, actions);
@@ -5610,6 +5782,13 @@ export function createEditor({
     pageForms.draft.base = new Map([...snapshot.base, ...snapshot.changes]);
     finishingForms = (async () => {
       try {
+        // Declining to edit a signed PDF leaves the values typed as a draft: not in the PDF,
+        // and not taken for saved either (Undo would then undo the signing instead).
+        if (!(await confirmSignedEdit())) {
+          pageForms.restore(snapshot);
+          updateStatus();
+          return;
+        }
         await mutate((doc) => fillFields(doc, values), null, 'fill');
         pageForms.clearError();
       } catch (error) {
@@ -5655,7 +5834,11 @@ export function createEditor({
         layoutTextEdit();
       }
     }
-    let value = drawnText(edit, edit.input.value);
+    // New text is saved line by line as it wrapped at the page edge.
+    let value = drawnText(
+      edit,
+      edit.run || !apply ? edit.input.value : wrappedTextareaValue(edit.input),
+    );
     let segments = drawnSegments(edit, edit.input.segments?.());
     const paragraphChanged =
       edit.run?.paragraph &&
@@ -5715,6 +5898,8 @@ export function createEditor({
                       width: edit.width / edit.physicalScale / edit.widthScale,
                       leading: edit.run.paragraph.leading,
                       softBreaks: flow.softBreaks,
+                      indent: edit.run.paragraph.indent,
+                      align: edit.run.paragraph.align,
                     }
                   : undefined,
                 size: edit.size,
@@ -5830,7 +6015,8 @@ export function createEditor({
           'aria-label': run ? 'Edit text' : 'Text to add',
           placeholder: run ? '' : 'Type your text',
           spellcheck: true,
-          wrap: 'off',
+          // New text wraps at the page edge rather than running off the page.
+          wrap: run ? 'off' : 'soft',
         });
     if (reading) {
       // Lay the line out in its own direction, still starting where the PDF's glyphs start.
@@ -6099,6 +6285,9 @@ export function createEditor({
       ),
     );
     const paragraphWidth = edit.run?.paragraph && (edit.width / edit.widthScale) * zoom;
+    // An indented paragraph's first line starts further in than its others.
+    if (edit.run?.paragraph?.indent)
+      edit.input.style.textIndent = `${edit.run.paragraph.indent * edit.physicalScale * zoom}px`;
     edit.widthControl?.sync(Math.max(24, (availableWidth / zoom) * edit.widthScale));
     const characterWidths = new Map();
     const characterWidth = (char) => {
@@ -6135,11 +6324,16 @@ export function createEditor({
           .join(' ') || 'none',
       transform: box.transform,
     });
-    edit.input.updateStyle?.(
-      edit.hex,
-      box.size,
-      styleChanged(edit) ? (run) => draftFace(edit, run) : undefined,
-    );
+    // New text wrapped at the page edge grows a row for each line it wraps onto.
+    if (!edit.run && edit.input.scrollHeight > edit.input.clientHeight)
+      edit.input.style.height = `${edit.input.scrollHeight}px`;
+    const fallbacks =
+      edit.input.updateStyle?.(
+        edit.hex,
+        box.size,
+        styleChanged(edit) ? (run) => draftFace(edit, run) : undefined,
+      ) || [];
+    loadFallbackFaces(edit, face.variant ? [...fallbacks, face.variant] : fallbacks);
     const richLayout = edit.input.measureLayout?.();
     if (richLayout) {
       const shift = box.size * edit.run.ascent - richLayout.baseline;
@@ -6619,8 +6813,11 @@ export function createEditor({
         title: entry.text.slice(0, 200),
         'aria-pressed': noteEdit?.entry?.id === entry.id,
         'data-note-id': entry.id,
-        onclick: safe(() =>
-          selectionProperties(async () => {
+        onclick: safe(async () => {
+          const keep = keepChosenInView(() =>
+            noteTargets.querySelector(`[data-note-id="${CSS.escape(entry.id)}"]`),
+          );
+          await selectionProperties(async () => {
             if (busy || !pageReady || noteDragged) return;
             if (noteEdit?.entry?.id === entry.id) return;
             const focusFrom = document.activeElement;
@@ -6635,8 +6832,9 @@ export function createEditor({
               entry: notes.find((note) => note.id === entry.id) || notes[ordinal],
               canFocus: () => canFocusSelection(focusFrom),
             });
-          }),
-        ),
+          });
+          keep();
+        }),
       });
       Object.assign(target.style, {
         left: `${left}px`,
@@ -6871,6 +7069,21 @@ export function createEditor({
     if (!remove) toolColors.note = hex;
     returnFocus();
   }
+  /**
+   * A new signature's or stamp's box in PDF units: `share` of the page across, kept between
+   * `least` and `most` points but always well inside a small page, `ratio` as tall as wide.
+   */
+  function placedMarkSize(share, least, most, ratio) {
+    const across = viewport.width / zoom,
+      down = viewport.height / zoom;
+    const width = Math.min(
+      most,
+      Math.max(least, across * share),
+      across * 0.9,
+      (down * 0.9) / ratio,
+    );
+    return { width: width / viewport.userUnit, height: (width * ratio) / viewport.userUnit };
+  }
   /** Ask for a signature and place it in the middle of the page, selected and ready to drag. */
   async function insertSignature() {
     const version = beginDialogRequest();
@@ -6882,9 +7095,7 @@ export function createEditor({
     if (!choice || destroyed || busy || !pageReady) return;
     const { signature, hex, outline } = choice;
     // About a third of the page across, in the middle, upright however the page is rotated.
-    const pointsAcross = viewport.width / (zoom * viewport.userUnit);
-    const width = Math.min(320, Math.max(120, pointsAcross * 0.35)),
-      height = width * 0.4;
+    const { width, height } = placedMarkSize(0.35, 120, 320, 0.4);
     const center = pdfPoint({ x: viewport.width / 2, y: viewport.height / 2 });
     const target = { x: center.x - width / 2, y: center.y - height / 2, width, height };
     const rotation = viewport.rotation,
@@ -6951,9 +7162,7 @@ export function createEditor({
     if (busy || !pageReady) return;
     await finishDrafts();
     if (!canOpenDialog(version) || busy || !pageReady) return;
-    const pointsAcross = viewport.width / (zoom * viewport.userUnit);
-    const width = Math.min(260, Math.max(110, pointsAcross * 0.32)),
-      height = width * 0.45;
+    const { width, height } = placedMarkSize(0.32, 110, 260, 0.45);
     const choice = await stampDialog({ ...dialogOptions, size: { width, height } });
     if (!choice || destroyed || busy || !pageReady) return;
     const center = pdfPoint({ x: viewport.width / 2, y: viewport.height / 2 });
@@ -7577,6 +7786,8 @@ export function createEditor({
         group: 'Create & Edit',
         featured: true,
         description: 'Save the PDF, or its pages, in another format.',
+        keywords:
+          'convert word docx excel xlsx spreadsheet powerpoint pptx slides rtf html txt png jpeg jpg',
         sections: () => [
           {
             title: 'Export to',
@@ -7625,6 +7836,7 @@ export function createEditor({
         group: 'Create & Edit',
         featured: true,
         description: 'Change text and images, or add new content to the pages.',
+        keywords: 'link hyperlink url',
         permission: 'edit',
         sections: () => [
           {
@@ -8073,8 +8285,9 @@ export function createEditor({
         featured: true,
         permission: 'edit',
         keywords: 'form fields fillable acroform text field checkbox radio dropdown',
-        description:
+        description: forPointer(
           'Add fillable fields: choose a field type, then drag a box on the page or click to place one. Double-click a field for its properties.',
+        ),
         enter: () => setPreparing(true),
         leave: () => {
           setPreparing(false);
@@ -8248,6 +8461,7 @@ export function createEditor({
         group: 'Protect & Standardize',
         featured: true,
         description: 'Require a password to open the PDF, or limit what others can do with it.',
+        keywords: 'encrypt encryption unlock remove password permissions restrict secure',
         sections: () => [
           {
             title: 'Password',
@@ -8370,6 +8584,7 @@ export function createEditor({
         featured: true,
         permission: 'edit',
         description: 'Make the file smaller by shrinking its pictures.',
+        keywords: 'reduce file size optimize',
         run: () => pageDialog(reduceSizeDialog)(),
       },
       {
@@ -8567,6 +8782,7 @@ export function createEditor({
         id: 'document-properties',
         label: 'Document properties',
         group: 'Protect & Standardize',
+        keywords: 'metadata title author subject info details',
         run: () => pageDialog(detailsDialog)(),
       },
     ];
@@ -8783,11 +8999,23 @@ export function createEditor({
           ['single', 'Single page'],
           ['two-continuous', 'Two-page scrolling'],
           ['two', 'Two-page'],
-        ].map(([display, label]) => ({
-          label,
-          checked: pageDisplay() === display,
-          onSelect: () => setPageDisplay(display),
-        })),
+        ]
+          .map(([display, label]) => ({
+            label,
+            checked: pageDisplay() === display,
+            onSelect: () => setPageDisplay(display),
+          }))
+          .concat([
+            { separator: true },
+            {
+              // Side by side, page 1 alone, as a book's cover, so the pages after it face as
+              // printed: 2 and 3, 4 and 5.
+              label: 'Show cover page',
+              checked: stack.cover,
+              disabled: !stack.twoUp,
+              onSelect: () => setCoverPage(!stack.cover),
+            },
+          ]),
       },
       { label: 'Read out loud', icon: 'Volume2', items: readingItems() },
       {
@@ -9229,6 +9457,11 @@ export function createEditor({
         'Remove the password before signing with a certificate. Encrypting the file again would invalidate the signature.',
       );
     await finishDrafts();
+    // What signing would refuse is refused before a digital ID and the details are asked for.
+    if (certify && signatureReports.length)
+      throw new Error('A document can be certified only before anyone has signed it.');
+    if (signatureReports.some((report) => report.certification?.level === 1))
+      throw new Error('This document is certified and allows no changes, so it cannot be signed.');
     const chosen = await chooseDigitalId(digitalIds, dialogOptions);
     if (!chosen || destroyed) return;
     if (!digitalIds.includes(chosen)) digitalIds.unshift(chosen);
@@ -11171,9 +11404,30 @@ export function createEditor({
           'li',
           {},
           el(
-            'span',
-            { class: 'reply-meta muted' },
-            [item.author, when(item.modified)].filter(Boolean).join(' · '),
+            'div',
+            { class: 'reply-head' },
+            el(
+              'span',
+              { class: 'reply-meta muted' },
+              [item.author, when(item.modified)].filter(Boolean).join(' · '),
+            ),
+            // A reply sent by mistake, or no longer wanted, can be taken back as in other
+            // PDF editors; replies to it go with it.
+            iconButton(
+              item.author ? `Delete reply from ${item.author}` : 'Delete reply',
+              'Trash2',
+              safe(() =>
+                run(
+                  (doc) => deleteAnnotation(doc, pageIndex, item.id),
+                  'Reply deleted.',
+                  'Reply text',
+                ),
+              ),
+              {
+                class: 'icon-btn reply-delete',
+                disabled: !access().annotate || item.locked || item.readOnly,
+              },
+            ),
           ),
           el('span', { class: 'reply-text', dir: 'auto' }, item.contents || ''),
           item.replies?.length > 0 &&
@@ -11431,7 +11685,8 @@ export function createEditor({
       if (!file) return;
       // Reading a file that cannot be imported anyway would only hold up the tab.
       if (file.size > MAX_XFDF_SIZE) throw new Error('This comments file is too large to import.');
-      const xfdf = await file.text();
+      // As bytes: the file names its own encoding, which may not be UTF-8.
+      const xfdf = new Uint8Array(await file.arrayBuffer());
       let result = null;
       await mutate(
         async (doc) => {
@@ -11879,7 +12134,13 @@ export function createEditor({
     try {
       const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
       if (destroyed) return;
-      accessibilityReport.show(checkAccessibility(doc, { access: access() }));
+      const report = checkAccessibility(doc, { access: access() });
+      // Every fix but changing the protection edits the PDF; a PDF that does not allow
+      // editing gets no button that would only end in a refusal (or lose typed alt text).
+      if (!access().edit)
+        for (const rule of report.categories.flatMap((category) => category.rules))
+          if (rule.fix !== 'protection') delete rule.fix;
+      accessibilityReport.show(report);
       accessibilityChecked = true;
       sidebarTabs.querySelector('[data-tab="accessibility"]').hidden = false;
       if (open) {
@@ -11944,6 +12205,7 @@ export function createEditor({
         await run(
           (d) => autotagDocument(d, { lang: navigator.language || undefined }),
           'Tags added. Review the reading order and alternate text.',
+          'Autotag found nothing left to tag.',
         );
         break;
       case 'tag-annotations':
@@ -12993,18 +13255,17 @@ export function createEditor({
                 ? `Drawing slide ${finished - count + 1} of ${count}…`
                 : 'Writing the file…';
         },
-        renderPage: async (index, scale = 2, { text = true } = {}) => {
+        renderPage: async (index, scale = 2, { text = true, areas } = {}) => {
           const free = text ? null : await textFreePdf(source);
-          return new Uint8Array(
-            await (
-              await pageImage(free?.doc || thisPdf, index, {
-                dpi: 72 * scale,
-                type: 'image/png',
-                signal: controller.signal,
-                layers: free ? free.layers : documentLayers || undefined,
-              })
-            ).arrayBuffer(),
-          );
+          const picture = await pageImage(free?.doc || thisPdf, index, {
+            areas,
+            dpi: 72 * scale,
+            type: 'image/png',
+            signal: controller.signal,
+            layers: free ? free.layers : documentLayers || undefined,
+          });
+          const bytes = async (blob) => blob && new Uint8Array(await blob.arrayBuffer());
+          return areas ? Promise.all(picture.map(bytes)) : bytes(picture);
         },
       });
       controller.signal.throwIfAborted();
@@ -13432,10 +13693,11 @@ export function createEditor({
           if (!isCurrent()) return;
           const text = await page.getTextContent();
           if (!isCurrent()) return;
-          haystack = indexPageText(text.items).text;
+          const { text: pageText, joins } = indexPageText(text.items);
+          haystack = { text: pageText, joins };
           searchTextCache.set(i, haystack);
         }
-        const count = countMatches(haystack, query);
+        const count = findMatches(haystack, query).length;
         if (count) results.push({ page: i, count });
       }
       if (!isCurrent()) return;
@@ -13460,17 +13722,6 @@ export function createEditor({
         searchCount.textContent = 'Search unavailable';
       }
     }
-  }
-  /** Non-overlapping occurrences of `query` in folded page text, as markSearch finds them. */
-  function countMatches(haystack, query) {
-    let count = 0;
-    for (
-      let at = haystack.indexOf(query);
-      at !== -1;
-      at = haystack.indexOf(query, at + query.length)
-    )
-      count++;
-    return count;
   }
   const totalMatches = () => searchResults.reduce((sum, result) => sum + result.count, 0);
   /** The page holding match `index` across the document, and its ordinal on that page. */
@@ -13515,11 +13766,8 @@ export function createEditor({
   function markSearch() {
     if (!pageReady || !pageTextIndex) return;
     const q = matchedQuery;
-    const { text, ranges, origins } = pageTextIndex;
-    const matches = [];
-    if (q)
-      for (let at = text.indexOf(q); at !== -1; at = text.indexOf(q, at + q.length))
-        matches.push([at, at + q.length]);
+    const { ranges, origins } = pageTextIndex;
+    const matches = findMatches(pageTextIndex, q);
     const current = locateMatch(activeMatch);
     const currentOrdinal = current?.page === pageIndex ? current.ordinal : -1;
     let next = 0;
@@ -13547,6 +13795,27 @@ export function createEditor({
     // The scroll is Find's, not the reader's: a match near the top of the page, centered,
     // can leave the page above under the middle of the view, and that page is not chosen.
     stack.quiet();
+  }
+  /**
+   * On a phone, a chosen comment's settings open below the page and take the lower part of its
+   * view. Whether the comment (the target `find` gives, which a redraw can replace) is in full
+   * view is noted now; the function returned keeps it in view above the settings once they are
+   * shown. Elsewhere the view keeps its size and nothing moves.
+   */
+  function keepChosenInView(find) {
+    const box = find()?.getBoundingClientRect();
+    const view = workspace.getBoundingClientRect();
+    const shown = !!box && box.top >= view.top && box.bottom <= view.bottom;
+    return () => {
+      const now = shown && !destroyed && find()?.getBoundingClientRect();
+      const visible = workspace.getBoundingClientRect();
+      if (!now || now.bottom <= visible.bottom) return;
+      workspace.scrollTop += Math.max(
+        0,
+        Math.min(now.bottom - visible.bottom + 8, now.top - visible.top - 8),
+      );
+      stack.quiet();
+    };
   }
   /** Scroll the workspace to center a box (client coordinates) that is not fully in view. */
   function revealBox(box) {
@@ -13619,6 +13888,9 @@ export function createEditor({
     if (e.isComposing || document.querySelector('dialog[open]')) return;
     // So does puter.js's user menu: keys from its shadow root arrive as the element's.
     if (e.target.closest?.('puter-user-menu')) return;
+    // On a Mac ⌃D, ⌃F, ⌃P and the like edit the text in a field (ui.js); they used to open
+    // Document details, the Find bar, and Print over it.
+    if (fieldEditingKey(e)) return;
     if (e.key === 'Escape' && closeOverlaidPanel(e.target)) {
       e.preventDefault();
       return;
@@ -14038,6 +14310,8 @@ export function createEditor({
       if (title) shownTitle = title;
     }
     if (view.layout !== 'default') setPageDisplay(view.layout, { remember: false });
+    // TwoPageRight and TwoColumnRight put page 1 alone, as a cover.
+    if (view.cover != null && stack.twoUp) setCoverPage(view.cover, { remember: false });
     const panel = {
       bookmarks: 'outline',
       pages: 'pages',

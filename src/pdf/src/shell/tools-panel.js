@@ -205,6 +205,9 @@ export function createToolsPanel({ catalog, can = () => true, onClose, onChange,
     if (current) find(current)?.leave?.();
     current = null;
     waitingFocus = null;
+    // A tool opened from the find box can be one the short list leaves out; the full list
+    // holds it, so the keyboard lands on it there rather than at the top.
+    if (focus && left && !expanded && !find(left)?.featured && !find(left)?.hidden) expanded = true;
     render();
     onChange?.(null);
     // Back lands on the tool it came from, so the keyboard carries on from there in the list.

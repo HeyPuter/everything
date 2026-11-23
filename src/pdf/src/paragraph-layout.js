@@ -51,8 +51,10 @@ export function paragraphLayout(input, read, group) {
           font = nextFont;
           measure.font = font;
         }
+        // A raised or lowered span (a superscript) is measured from the line's own baseline.
         ascent =
-          measure.measureText('Mg').fontBoundingBoxAscent ?? parseFloat(style.fontSize) * 0.9;
+          (measure.measureText('Mg').fontBoundingBoxAscent ?? parseFloat(style.fontSize) * 0.9) +
+          (parseFloat(style.verticalAlign) || 0);
         range = document.createRange();
       }
       let offset = 0;

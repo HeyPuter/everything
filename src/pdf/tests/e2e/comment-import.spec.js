@@ -78,12 +78,14 @@ test('importing comments says how many could not be added', async ({ page }) => 
 test('a comments file too large to import is not read first', async ({ page }, testInfo) => {
   await page.route('https://js.puter.com/**', (route) => route.abort());
   await page.addInitScript(() => {
-    const read = Blob.prototype.text;
     window.__textReads = 0;
-    Blob.prototype.text = function () {
-      window.__textReads++;
-      return read.call(this);
-    };
+    for (const method of ['text', 'arrayBuffer']) {
+      const read = Blob.prototype[method];
+      Blob.prototype[method] = function () {
+        window.__textReads++;
+        return read.call(this);
+      };
+    }
   });
   const doc = await PDFDocument.create();
   doc.addPage([400, 500]);
@@ -111,4 +113,42 @@ test('a comments file too large to import is not read first', async ({ page }, t
   await (await picker).setFiles(path);
   await expect(page.locator('#toast')).toHaveText('This comments file is too large to import.');
   expect(await page.evaluate(() => window.__textReads)).toBe(before);
+});
+
+// Older tools write XFDF in ISO-8859-1 and say so in the XML declaration.
+test('a comments file is read in the encoding it declares', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'import.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Comment', exact: true }).click();
+  const picker = page.waitForEvent('filechooser');
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Import comments…' })
+    .click();
+  const text = xfdf(comment(0, 'Café crème')).replace('UTF-8', 'ISO-8859-1');
+  await (
+    await picker
+  ).setFiles({
+    name: 'latin.xfdf',
+    mimeType: 'application/vnd.adobe.xfdf',
+    buffer: Buffer.from(text, 'latin1'),
+  });
+  await expect(page.locator('#toast')).toHaveText('1 comment imported.');
+  await settled(page);
+  await page.keyboard.press('Escape');
+  await page.getByRole('tab', { name: /Comments/ }).click();
+  await expect(page.locator('.comment-item .comment-text')).toHaveText(['Café crème']);
 });

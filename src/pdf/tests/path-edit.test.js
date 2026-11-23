@@ -566,3 +566,91 @@ it('finds the paths of a page whose content ends with a stray Q, as readers draw
   const doc = await raw('q 1 0 0 rg 10 10 50 50 re f Q Q');
   expect(inspectPaths(doc, 0)).toHaveLength(1);
 });
+it('edits paths colored through gray, RGB or CMYK color spaces, as macOS writes them', async () => {
+  // Quartz names an ICC profile for every color: /Cs1 cs 0.2 0.4 0.6 sc.
+  const doc = await raw(
+    'q /Cs1 cs 0.2 0.4 0.6 sc /Cs1 CS 1 0 0 SC 2 w 40 220 80 60 re B ' +
+      '/Cs2 cs 0 1 1 0 sc 160 220 40 40 re f /Cal cs 0.5 sc 220 220 40 40 re f ' +
+      '/DeviceRGB cs 0 1 0 sc 280 220 40 40 re f Q ' +
+      'q /Pattern cs /P0 scn 40 40 40 40 re f Q q /Spot cs 1 sc 100 40 40 40 re f Q ' +
+      'q /Cs1 cs 0.5 sc 160 40 40 40 re f Q',
+  );
+  const icc = (n) => doc.context.register(doc.context.flateStream('', { N: n }));
+  const page = doc.getPage(0);
+  page.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({
+      ColorSpace: {
+        Cs1: ['ICCBased', icc(3)],
+        Cs2: ['ICCBased', icc(4)],
+        Cal: ['CalGray', { WhitePoint: [0.9505, 1, 1.089] }],
+        Spot: ['Separation', 'Gold', 'DeviceCMYK', icc(4)],
+      },
+    }),
+  );
+  const paths = inspectPaths(doc, 0);
+  expect(paths.map((p) => p.editable)).toEqual([true, true, true, true, false, false, false]);
+  expect(paths.slice(0, 4).map((p) => pathColorHex(p.state.fill))).toEqual([
+    '#336699',
+    '#ff0000',
+    '#808080',
+    '#00ff00',
+  ]);
+  expect(pathColorHex(paths[0].state.stroke)).toBe('#ff0000');
+  // A move keeps the profile's color; a new color is written as RGB, for that path alone.
+  const moved = [...paths[0].transform];
+  moved[4] += 20;
+  editPath(doc, 0, paths[0], { transform: moved });
+  editPath(doc, 0, inspectPaths(doc, 0)[1], { style: { fill: '#00ff00' } });
+  const reopened = inspectPaths(await PDFDocument.load(await doc.save()), 0);
+  expect(reopened[0].transform[4]).toBeCloseTo(moved[4], 6);
+  expect(reopened[0].source).toBe(paths[0].source);
+  expect(pathColorHex(reopened[0].state.fill)).toBe('#336699');
+  expect(pathColorHex(reopened[1].state.fill)).toBe('#00ff00');
+  expect(pathColorHex(reopened[2].state.fill)).toBe('#808080');
+});
+it('frames a straight line by its stroke, not by miter joins it does not have', async () => {
+  // pdf-lib draws lines with miter joins and butt caps; a 10 pt line is 10 pt tall.
+  const doc = await raw(
+    '0 0 1 RG 10 w 50 200 m 50 200 m 350 200 l S ' +
+      '4 w 2 J 50 100 m 350 150 l S ' +
+      '4 w 0 J 50 300 m 150 300 l 150 340 l S ' +
+      // A rule from edge to edge of a frame, as Chrome draws an SVG line.
+      'q 0 0 200 60 re W n 4 M 2 w 0 50 m 200 50 l S Q',
+  );
+  const [thick, square, corner, rule] = inspectPaths(doc, 0);
+  expect(thick.bounds).toEqual([50, 195, 350, 205]);
+  const length = Math.hypot(300, 50),
+    across = (2 * 300) / length + (2 * 50) / length;
+  square.bounds.forEach((n, i) =>
+    expect(n).toBeCloseTo([50 - across, 100 - across, 350 + across, 150 + across][i], 8),
+  );
+  // A corner is a miter join, which can reach out as far as the miter limit allows.
+  expect(corner.bounds).toEqual([30, 280, 170, 360]);
+  expect(rule.bounds).toEqual([0, 49, 200, 51]);
+  expect(rule.editable).toBe(true);
+  const moved = [...rule.transform];
+  moved[5] -= 20;
+  editPath(doc, 0, rule, { transform: moved });
+  const reopened = inspectPaths(await PDFDocument.load(await doc.save()), 0)[3];
+  reopened.transform.forEach((n, k) => expect(n).toBeCloseTo(moved[k], 8));
+  expect(reopened.editable).toBe(true);
+});
+it('edits a shape clipped to a four-sided outline, as Word clips a turned shape', async () => {
+  const doc = await raw(
+    'q 200 100 m 300 200 l 350 150 l 250 50 l h W n 0 0 1 rg 260 110 m 290 140 l 300 130 l 270 100 l h f Q ' +
+      'q 250 250 m 330 250 l 330 330 l 260 320 l h W n 0 0 1 rg 270 270 30 30 re f Q',
+  );
+  const [turned, odd] = inspectPaths(doc, 0);
+  expect([turned.editable, odd.editable]).toEqual([true, false]);
+  // It moves within its outline, and no further.
+  const along = [...turned.transform];
+  along[4] += 10;
+  along[5] += 10;
+  editPath(doc, 0, turned, { transform: along });
+  const moved = inspectPaths(await PDFDocument.load(await doc.save()), 0)[0];
+  moved.transform.forEach((n, i) => expect(n).toBeCloseTo(along[i], 8));
+  const outside = [...moved.transform];
+  outside[4] += 100;
+  expect(() => editPath(doc, 0, moved, { transform: outside })).toThrow('frame');
+});

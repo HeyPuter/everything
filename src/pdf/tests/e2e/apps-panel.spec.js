@@ -169,3 +169,23 @@ test('on a phone the panel is an edge-to-edge sheet', async ({ page, isMobile })
   const close = await panel(page).getByRole('button', { name: 'Close', exact: true }).boundingBox();
   expect(close.width).toBeGreaterThanOrEqual(40);
 });
+
+// The panel lies at the end of the page, away from its button: Tab or Shift+Tab out of it left
+// it open over the page while the keyboard went on elsewhere.
+test('the Apps panel closes when the keyboard leaves it', async ({ page }) => {
+  await setup(page);
+  await settled(page);
+  await appsButton(page).focus();
+  await page.keyboard.press('Enter');
+  const dialog = panel(page);
+  await expect(dialog).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog).toBeHidden();
+  await expect(appsButton(page)).toHaveAttribute('aria-expanded', 'false');
+  // Within the panel the keyboard moves freely.
+  await appsButton(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(dialog).toBeVisible();
+});

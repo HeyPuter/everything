@@ -12,6 +12,8 @@ import {
   confirmAction,
   promptText,
   toast,
+  dismissToast,
+  fieldEditingKey,
   download,
   applyTheme,
   themeValue,
@@ -29,6 +31,7 @@ import {
   blankPdf,
   samplePdf,
   MAX_FILE_SIZE,
+  MAX_IMAGE_SIZE,
 } from './core/document.js';
 
 const root = document.querySelector('#app');
@@ -339,6 +342,8 @@ function shortcuts() {
         ],
         ['Undo', 'Ctrl / ⌘ Z'],
         ['Redo', 'Ctrl / ⌘ Shift Z or Ctrl Y'],
+        ['Select all the text on the page', 'Ctrl / ⌘ A'],
+        ['Bold, italic, underline while editing text', 'Ctrl / ⌘ B, I, U'],
         ['Find in PDF', 'Ctrl / ⌘ F'],
         ['Find next / previous', 'Ctrl / ⌘ G, with Shift; F3'],
         ['Print', 'Ctrl / ⌘ P'],
@@ -495,8 +500,12 @@ async function canLeave(signal) {
   if (choice !== 'sign-in') return choice === 'leave';
   try {
     await ensureSignedIn();
-  } catch {
-    return false; // The sign-in was dismissed; the PDF stays open.
+  } catch (error) {
+    // The PDF stays open. A dismissed sign-in needs no word; one that could not start (Puter
+    // unreachable, its window blocked) says why, or the button would seem to do nothing.
+    if (!P.isSignInCancelled(error) && isCurrent())
+      toast(error?.message || 'Puter could not sign you in. Please try again.', { error: true });
+    return false;
   }
   if (!isCurrent()) return false;
   await leavingEditor.save();
@@ -540,10 +549,30 @@ async function openFiles(files) {
         import('./image-codec.js'),
       ]);
       signal.throwIfAborted();
-      const images = await normalizeImageFiles(pictures, { lazy: true, signal });
+      // A picture too large among several is named; the size check below would not say which.
+      const large = pictures.length > 1 && pictures.find((file) => file.size > MAX_IMAGE_SIZE);
+      if (large)
+        throw new Error(
+          `${large.name} is larger than 20 MB. Leave it out, or make it smaller, and try again.`,
+        );
+      const readers = await normalizeImageFiles(pictures, { lazy: true, signal });
       // An obsolete batch must not decode and embed pictures after its file reads finish.
       signal.throwIfAborted();
-      return imagesToPdf(images, { paper: defaultPaper(), signal });
+      // Among several pictures, one that cannot be read is named: "Choose a valid PNG or JPEG
+      // image" alone left the reader to guess which of them it was.
+      let current = 0;
+      const images = readers.map((read, i) => () => {
+        current = i;
+        return read();
+      });
+      try {
+        return await imagesToPdf(images, { paper: defaultPaper(), signal });
+      } catch (error) {
+        if (error?.code !== 'invalid-image' || pictures.length < 2) throw error;
+        throw new Error(
+          `${pictures[current].name} is not a PNG or JPEG picture that can be read. Leave it out and try again.`,
+        );
+      }
     },
     `${name}.pdf`,
     null,
@@ -661,6 +690,20 @@ async function openDocument(
     }
   };
   sourceSignal?.addEventListener('abort', abortSource, { once: true });
+  // A read that takes a while (a large file, a cloud file on a slow connection) says the PDF is
+  // on its way; the choice otherwise seemed to do nothing until the PDF appeared. Not as the
+  // app starts, which has nothing on screen to keep waiting over.
+  let notice = 0;
+  const slow =
+    root.childElementCount &&
+    setTimeout(() => {
+      if (token === openGeneration) notice = toast(`Opening ${safeName(name)}…`, { persist: true });
+    }, 600);
+  const opened = () => {
+    clearTimeout(slow);
+    if (notice) dismissToast(notice);
+    notice = 0;
+  };
   let nextEditor;
   try {
     let bytes = await readBytes(controller.signal);
@@ -672,6 +715,7 @@ async function openDocument(
     } catch (error) {
       if (token !== openGeneration) return;
       if (error.code !== 'encrypted') throw error;
+      opened();
       // A protected file opens once its password is known; the working copy is then plain.
       const { promptUnlock } = await import('./unlock-dialog.js');
       if (token !== openGeneration) return;
@@ -691,6 +735,8 @@ async function openDocument(
       protection = unlocked.protection;
       bytes = await preparePdfForEditing(bytes);
     }
+    // The PDF is read; what follows asks (Leave this PDF?) or shows it.
+    opened();
     if (
       token !== openGeneration ||
       !(await waitForAppDialogsToClose({ signal: controller.signal }))
@@ -742,6 +788,7 @@ async function openDocument(
     if (nextEditor && editor === nextEditor) showHome();
     throw error;
   } finally {
+    opened();
     sourceSignal?.removeEventListener('abort', abortSource);
     if (token === openGeneration) loading = false;
     if (openController === controller) openController = null;
@@ -760,6 +807,17 @@ function refocusView(selector) {
   if (document.activeElement === document.body || !document.activeElement?.isConnected)
     root.querySelector(selector)?.focus({ preventScroll: true });
 }
+/**
+ * Text as the library search compares it: without case or the accents of Latin, Greek and
+ * Cyrillic letters. Other marks stay (Japanese voicing marks tell different syllables apart),
+ * and the text is composed again so a Korean syllable is not matched by its first sounds.
+ */
+const fold = (text) =>
+  text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC')
+    .toLowerCase();
 /** The app's name, and the library view's own heading. */
 function brand() {
   return el('h1', { class: 'brand' }, appIcon(), el('span', {}, 'PDF Editor'));
@@ -794,7 +852,7 @@ function showHome({ accountRefresh = false } = {}) {
     'aria-label': 'Search PDFs',
     oninput: (e) => {
       // Spaces around the words (a pasted name, a stray space) do not hide every file.
-      filter = e.target.value.trim().toLowerCase();
+      filter = fold(e.target.value.trim());
       renderFiles();
     },
   });
@@ -837,7 +895,7 @@ function showHome({ accountRefresh = false } = {}) {
       return;
     }
     const shown = files
-      .filter((f) => f.name.toLowerCase().includes(filter))
+      .filter((f) => foldedName(f).includes(filter))
       .sort((a, b) =>
         sort === 'name'
           ? byName.compare(a.name, b.name)
@@ -892,6 +950,14 @@ function showHome({ accountRefresh = false } = {}) {
   // rows, rather than rebuilding (and re-formatting the date of) every one on each keystroke,
   // which took about 100 ms per key in a library of 2,000 PDFs.
   const rows = new WeakMap();
+  // Accents and case are left out of the comparison, as the Name order already does, so
+  // "resume" finds Résumé.pdf. Each name is folded once per listing.
+  const folded = new WeakMap();
+  const foldedName = (file) => {
+    let name = folded.get(file);
+    if (name === undefined) folded.set(file, (name = fold(file.name)));
+    return name;
+  };
   // One collator for every comparison: localeCompare with options sets one up each time, which
   // made a name-sorted search of 2,000 PDFs spend 5 to 10 ms a key on sorting alone.
   const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
@@ -911,7 +977,13 @@ function showHome({ accountRefresh = false } = {}) {
       button(
         file.name,
         'FileText',
-        run(() => openCloudItem(file)),
+        run(async () => {
+          try {
+            await openCloudItem(file);
+          } catch (error) {
+            throw gone(file, error);
+          }
+        }),
         'file-open',
       ),
       el('span', { class: 'file-date muted' }, date),
@@ -925,6 +997,13 @@ function showHome({ accountRefresh = false } = {}) {
     rows.set(file, row);
     return row;
   };
+  // A PDF deleted elsewhere (another tab, another device) since the listing: the reader learns
+  // so in plain words, and the list catches up rather than offering the row again.
+  function gone(file, error) {
+    if (!P.isNotFound(error)) return error;
+    refreshAfterAction();
+    return new Error(`${file.name} is no longer in your Puter cloud.`);
+  }
   function refreshAfterAction() {
     load();
     // Replacing the rows can remove the focused action button. Recover focus in that
@@ -948,7 +1027,7 @@ function showHome({ accountRefresh = false } = {}) {
           await fn();
         } catch (error) {
           // A previous account's cloud failure must not appear in a newer workflow.
-          if (!signal.aborted) throw error;
+          if (!signal.aborted) throw gone(file, error);
         } finally {
           working = false;
           buttons.forEach((b) => (b.disabled = false));
@@ -982,17 +1061,35 @@ function showHome({ accountRefresh = false } = {}) {
           'Pencil',
           action(async () => {
             d.close();
-            const name = await promptText(
-              'Rename PDF',
-              'File name',
-              file.name.replace(/\.pdf$/i, ''),
-              { signal },
-            );
-            await settleAccount(signal);
-            // An unchanged name is no rename: Puter would refuse it as a name already taken.
-            if (name && safeName(name) !== file.name && !signal.aborted) {
-              await P.renameFile(file.path, name);
+            // A name Puter refuses (one already taken, say) brings the question back with what
+            // was typed and the reason, rather than ending on a message and an empty start.
+            let value = file.name.replace(/\.pdf$/i, ''),
+              refusal = null;
+            for (;;) {
+              const asked = promptText('Rename PDF', 'File name', value, { signal });
+              if (refusal) toast(refusal, { error: true });
+              const name = await asked;
+              await settleAccount(signal);
+              // An unchanged name is no rename: Puter would refuse it as a name already taken.
+              if (!name || safeName(name) === file.name || signal.aborted) return;
+              try {
+                await P.renameFile(file.path, name);
+              } catch (error) {
+                // Someone who has moved on to another dialog meanwhile gets the message alone,
+                // rather than the question taking over the dialog they are in.
+                if (
+                  signal.aborted ||
+                  P.isNotFound(error) ||
+                  P.isConnectionFailure(error) ||
+                  document.querySelector('dialog[open]')
+                )
+                  throw error;
+                value = name;
+                refusal = error?.message || error?.error?.message || 'This name could not be used.';
+                continue;
+              }
               if (!signal.aborted) refreshAfterAction();
+              return;
             }
           }),
         ),
@@ -1172,7 +1269,7 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 window.addEventListener('keydown', (e) => {
-  if (document.querySelector('dialog[open]')) return;
+  if (document.querySelector('dialog[open]') || fieldEditingKey(e)) return;
   // Also by the key's place, for layouts whose letters are not Latin (Ctrl+O arrives as "щ").
   const o =
     e.key.toLowerCase() === 'o' || (e.code === 'KeyO' && !e.altKey && !/[\x00-\x7f]/.test(e.key));

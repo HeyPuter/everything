@@ -19,50 +19,99 @@ const get = (dict, key) => dict?.lookup(PDFName.of(key));
 const num = (n) => PDFNumber.of(n).toString();
 const pathKey = (r) => r.path.map((p) => p.start).join(':');
 
+/**
+ * Where `run` sits after `previous` on a line: its distance past the previous run's end along
+ * the baseline, and across it, in the line's height; null when the two cannot share a line.
+ * Given the line's first run, a smaller run raised or lowered from its baseline (a superscript
+ * or subscript) and the text back on the baseline after it share the line too, and `rise` is
+ * how far the run sits above that baseline.
+ */
+function spacing(previous, run, line) {
+  if (
+    !previous?.groupable ||
+    !run.groupable ||
+    previous.barrier !== run.barrier ||
+    previous.paragraphData !== run.paragraphData ||
+    pathKey(previous) !== pathKey(run)
+  )
+    return null;
+  const a = previous.transform,
+    b = run.transform,
+    scale = Math.hypot(a[0], a[1]),
+    height = Math.hypot(a[2], a[3]);
+  const ratio = Math.hypot(b[2], b[3]) / height;
+  const matching = a.slice(0, 4).every((n, i) => Math.abs(b[i] / ratio - n) < height * 0.005);
+  const end = [
+    a[4] + (a[0] * previous.advance) / previous.state.size,
+    a[5] + (a[1] * previous.advance) / previous.state.size,
+  ];
+  const dx = b[4] - end[0],
+    dy = b[5] - end[1],
+    across = (dx * a[0] + dy * a[1]) / scale,
+    vertical = (dy * a[0] - dx * a[1]) / scale;
+  let rise = 0;
+  if (line && (previous.rise || Math.abs(vertical) >= height * 0.04)) {
+    const t = line.transform,
+      size = Math.hypot(t[2], t[3]);
+    rise = ((b[5] - t[5]) * t[0] - (b[4] - t[4]) * t[1]) / Math.hypot(t[0], t[1]);
+    if (Math.abs(rise) < size * 0.04) rise = 0;
+    else if (Math.hypot(b[2], b[3]) / size > 0.85 || Math.abs(rise) > size * 0.5) return null;
+  } else if (Math.abs(vertical) >= height * 0.04) return null;
+  return matching &&
+    ratio > 0.5 &&
+    ratio < 2 &&
+    // Kerning can pull a letter back by up to about a sixth of the size (A-V, W-o), and some
+    // renderers start a new text command there; a jump back past a space is a tab leader or
+    // overprinting instead.
+    across >= -height * (/\s$/.test(previous.text) || /^\s/.test(run.text) ? 0.08 : 0.16) &&
+    across <= height * 0.65
+    ? { dx, dy, across, height, rise }
+    : null;
+}
+// A jump past a space that is already there: a tab, or a justified line's stretched spacing.
+const spaceJump = (place, before, after) =>
+  place && place.across > place.height * 0.12 && (/\s$/.test(before) || /^\s/.test(after));
+
 /** Join nearby, compatible baselines without crossing graphic/marked-content boundaries. */
 export function groupTextRuns(runs) {
   const groups = [];
-  for (const run of runs) {
-    if (!run.text && !(run.paragraphData && run.op === 'Tj')) continue;
+  const kept = runs.filter((run) => run.text || (run.paragraphData && run.op === 'Tj'));
+  // A justified line drawn word by word stretches every space on it by the same amount, where a
+  // tab jumps once: for each run, the next such jump further along its line.
+  const places = kept.map((run, i) => spacing(kept[i - 1], run));
+  const following = new Array(kept.length).fill(null);
+  for (let i = kept.length - 2; i >= 0; i--) {
+    const place = places[i + 1];
+    if (!place) continue;
+    following[i] = spaceJump(place, kept[i].text, kept[i + 1].text)
+      ? place.across / place.height
+      : following[i + 1];
+  }
+  for (const [index, run] of kept.entries()) {
     const last = groups.at(-1),
       parts = last?.parts || (last ? [last] : []),
       previous = parts.at(-1);
-    let gap;
-    if (
-      previous?.groupable &&
-      run.groupable &&
-      previous.barrier === run.barrier &&
-      previous.paragraphData === run.paragraphData &&
-      pathKey(previous) === pathKey(run)
-    ) {
-      const a = previous.transform,
-        b = run.transform,
-        scale = Math.hypot(a[0], a[1]),
-        height = Math.hypot(a[2], a[3]);
-      const ratio = Math.hypot(b[2], b[3]) / height;
-      const matching = a.slice(0, 4).every((n, i) => Math.abs(b[i] / ratio - n) < height * 0.005);
-      const end = [
-        a[4] + (a[0] * previous.advance) / previous.state.size,
-        a[5] + (a[1] * previous.advance) / previous.state.size,
-      ];
-      const dx = b[4] - end[0],
-        dy = b[5] - end[1],
-        across = (dx * a[0] + dy * a[1]) / scale,
-        vertical = (dy * a[0] - dx * a[1]) / scale;
+    const line = parts[0];
+    const place =
+      (previous === kept[index - 1] && !previous?.rise && places[index]) ||
+      spacing(previous, run, line);
+    let gap,
+      stretch = null;
+    if (place && last.text.length + run.text.length < 5000) {
+      const jump = spaceJump(place, last.text, run.text) ? place.across / place.height : null;
+      // A jump beyond a space that is already there is a tab (Word's "1.<tab>Item"): a
+      // rewrite would collapse it to the space, so the two sides stay separate. A line
+      // justified word by word jumps as far after each of its spaces.
       if (
-        matching &&
-        ratio > 0.5 &&
-        ratio < 2 &&
-        Math.abs(vertical) < height * 0.04 &&
-        across >= -height * 0.08 &&
-        across <= height * 0.65 &&
-        // A jump beyond a space that is already there is a tab (Word's "1.<tab>Item"): a
-        // rewrite would collapse it to the space, so the two sides stay separate.
-        !(across > height * 0.12 && (/\s$/.test(last.text) || /^\s/.test(run.text))) &&
-        last.text.length + run.text.length < 5000
-      )
-        gap = [dx, dy, across, height];
+        jump === null ||
+        [last.stretch, following[index]].some((n) => n != null && Math.abs(n - jump) < 0.03)
+      ) {
+        gap = [place.dx, place.dy, place.across, place.height];
+        stretch = jump;
+      }
     }
+    // How far a superscript or subscript sits from its line's baseline, kept when rewritten.
+    run.rise = gap ? place.rise : 0;
     if (!gap) {
       groups.push(run);
       continue;
@@ -72,6 +121,7 @@ export function groupTextRuns(runs) {
       groups[groups.length - 1] = group;
     }
     const group = groups.at(-1);
+    if (stretch !== null) group.stretch = stretch;
     if (gap[2] > gap[3] * 0.12 && !/\s$/.test(group.text) && !/^\s/.test(run.text))
       group.segments.push({ text: ' ', part: group.parts.length - 1, gap: [gap[0], gap[1]] });
     group.segments.push({ text: run.text, part: group.parts.length });
@@ -88,12 +138,12 @@ export function groupTextRuns(runs) {
       group.state.size;
     group.ascent = Math.max(
       group.ascent,
-      (run.ascent * Math.hypot(run.transform[2], run.transform[3])) /
+      (run.ascent * Math.hypot(run.transform[2], run.transform[3]) + run.rise) /
         Math.hypot(first[2], first[3]),
     );
     group.descent = Math.min(
       group.descent,
-      (run.descent * Math.hypot(run.transform[2], run.transform[3])) /
+      (run.descent * Math.hypot(run.transform[2], run.transform[3]) + run.rise) /
         Math.hypot(first[2], first[3]),
     );
   }
@@ -207,6 +257,8 @@ export async function replaceTextGroup(
       width: group.paragraph.width,
       leading: group.paragraph.leading,
       softBreaks: [],
+      indent: group.paragraph.indent,
+      align: group.paragraph.align,
     },
     variant,
     fontStyle,
@@ -318,38 +370,143 @@ export async function replaceTextGroup(
       encoded: ['<>'],
       font: variantFor(run) ? await embedFont(doc, variantFor(run), text) : null,
     });
-    const prepared =
-      paragraph && text.replaceAll('\n', '') ? [await formatting(group.parts[0], 2)] : [];
-    let position = 0;
+    // A justified paragraph spreads the words of each line that wraps across its width.
+    const justify = paragraph?.align === 'justify';
+    // Word spacing is how many PDFs justify their lines; a justified paragraph spaces its words
+    // itself, so the spacing a line had does not carry over to the lines it now wraps into.
+    const runs = justify
+      ? group.parts.map((run) => ({ ...run, state: { ...run.state, wordSpacing: 0 } }))
+      : group.parts;
+    const prepared = paragraph && text.replaceAll('\n', '') ? [await formatting(runs[0], 2)] : [];
+    const wrapped = new Set();
+    if (justify)
+      text.split('\n').reduce((end, line, row) => {
+        if (softBreaks.has(end + line.length)) wrapped.add(row);
+        return end + line.length + 1;
+      }, 0);
+    // Words and the spaces between them, each encoded on its own so the spaces can stretch.
+    const words = async (run, line) => {
+      const tokens = line.match(/\S+|\s+/g);
+      const data = await prepareText(doc, run, tokens.join('\n'), variantFor(run), text);
+      const size = run.state.size * factor;
+      const parts = tokens.map((token, k) => ({
+        text: token,
+        encoded: data.encoded[k],
+        width: advance(run, token, size, data.font, data.encoded[k]),
+      }));
+      return {
+        original: false,
+        font: data.font,
+        // Each part is one hex string; unstretched, they are shown as one.
+        encoded: [`<${parts.map((part) => part.encoded.slice(1, -1)).join('')}>`],
+        words: parts,
+        width: parts.reduce((sum, part) => sum + part.width, 0),
+      };
+    };
+    let position = 0,
+      row = 0;
     for (const fragment of fragments) {
-      const run = group.parts[fragment.part];
+      const run = runs[fragment.part];
       for (const [i, line] of fragment.text.split('\n').entries()) {
         if (i) {
           const soft = softBreaks.has(position);
           if (paragraph && !soft) prepared.push(await formatting(run, 0));
           prepared.push({ newline: true, soft });
           position++;
+          row++;
         }
         position += line.length;
         if (!line) continue;
         if (fragment.gap && line === ' ') {
-          prepared.push({ gap: fragment.gap.map((n) => n * factor) });
+          prepared.push({ gap: fragment.gap.map((n) => n * factor), row });
           continue;
         }
-        const original = line === run.text && !variantFor(run);
+        const original =
+          line === run.text &&
+          !variantFor(run) &&
+          !(justify && group.parts[fragment.part].state.wordSpacing);
+        const item = { run, text: line, size: run.state.size * factor, row };
+        if (wrapped.has(row) && !original) {
+          prepared.push({ ...item, ...(await words(run, line)) });
+          continue;
+        }
         const data = original
           ? { encoded: [run.source], font: null }
           : await prepareText(doc, run, line, variantFor(run), text);
         prepared.push({
-          run,
-          text: line,
-          size: run.state.size * factor,
+          ...item,
           original,
           ...data,
           width: original
             ? run.advance * factor
             : advance(run, line, run.state.size * factor, data.font, data.encoded[0]),
         });
+      }
+    }
+    if (justify) await spread();
+    /**
+     * Widen the spaces of each wrapped line until it reaches the paragraph's right edge. A
+     * line kept in its original glyphs is left as drawn when it already ends there.
+     */
+    async function spread() {
+      const along = (run) => Math.hypot(run.transform[0], run.transform[1]) / run.state.size;
+      const column = along(group) * paragraph.width;
+      const rows = new Map();
+      for (const item of prepared)
+        if (item.row !== undefined && wrapped.has(item.row))
+          rows.set(item.row, [...(rows.get(item.row) || []), item]);
+      for (const [row, items] of rows) {
+        const room = column - (row === 0 ? along(group) * (paragraph.indent || 0) : 0);
+        const spare = () => {
+          let total = 0,
+            trailing = 0;
+          for (const item of items) {
+            if (item.gap) {
+              total += Math.hypot(...item.gap);
+              trailing = 0;
+              continue;
+            }
+            total += item.width * along(item.run);
+            const tail = item.text.match(/\s*$/)[0];
+            if (tail.length === item.text.length) trailing += item.width * along(item.run);
+            else if (!tail) trailing = 0;
+            else if (item.words) trailing = item.words.at(-1).width * along(item.run);
+            else {
+              try {
+                trailing = advance(item.run, tail, item.size, null) * along(item.run);
+              } catch {
+                trailing = 0;
+              }
+            }
+          }
+          return room - (total - trailing);
+        };
+        let extra = spare();
+        if (Math.abs(extra) < 0.25) continue;
+        // Original glyphs that do not reach the edge are spaced again from their characters.
+        for (const [k, item] of items.entries())
+          if (item.original && originalGlyphs(item.run.map, item.text)) {
+            const next = { ...item, ...(await words(item.run, item.text)) };
+            items[k] = next;
+            prepared[prepared.indexOf(item)] = next;
+          }
+        extra = spare();
+        if (extra < 0.25) continue;
+        const spaces = [];
+        let after = false;
+        for (const item of [...items].reverse()) {
+          for (const word of [...(item.words || [{ text: item.text }])].reverse()) {
+            if (/\S/.test(word.text)) after = true;
+            else if (after && item.words) spaces.push([item, word]);
+          }
+          if (item.gap) after = true;
+        }
+        const count = spaces.reduce((sum, [, word]) => sum + word.text.length, 0);
+        for (const [item, word] of spaces) {
+          word.stretch = (extra * word.text.length) / count / along(item.run);
+          item.width += word.stretch;
+          item.stretch = true;
+        }
       }
     }
     if (!wrapper) await deleteRuns(doc, index, group.parts.slice(1));
@@ -359,7 +516,10 @@ export async function replaceTextGroup(
       added = [];
     const used = fonts.clone(doc.context);
     const baseline = [group.transform[4] + offset[0], group.transform[5] + offset[1]],
-      pen = [...baseline];
+      indent = group.transform
+        .slice(0, 2)
+        .map((n) => (n * (paragraph?.indent || 0)) / group.state.size),
+      pen = baseline.map((n, i) => n + indent[i]);
     let line = 0;
     const inverseCtm = inverse(first.state.ctm),
       commands = ['q', ...(wrapper?.textObject ? ['BT'] : [])];
@@ -394,12 +554,16 @@ export async function replaceTextGroup(
         added.push([fontName, item.font.ref]);
       }
       const t = run.transform;
+      // A superscript or subscript keeps its distance from the line's baseline.
+      const up = group.transform.slice(2, 4),
+        lift = run.rise ? (run.rise * factor) / Math.hypot(...up) : 0;
+      const at = [pen[0] + up[0] * lift, pen[1] + up[1] * lift];
       const tm = matrix(inverseCtm, [
         t[0] / (s.size * s.hScale),
         t[1] / (s.size * s.hScale),
         t[2] / s.size,
         t[3] / s.size,
-        ...pen,
+        ...at,
       ]);
       const ink = color
         ? `${[1, 3, 5].map((i) => num(parseInt(color.slice(i, i + 2), 16) / 255)).join(' ')} rg`
@@ -410,6 +574,12 @@ export async function replaceTextGroup(
         .map((value) => num(parseInt(value, 16) / 255))
         .join(' ');
       let show = item.encoded[0] + ' Tj';
+      if (item.words && item.stretch)
+        show = `[${item.words
+          .map((word) =>
+            word.stretch ? `${word.encoded} ${num((-word.stretch * 1000) / size)}` : word.encoded,
+          )
+          .join(' ')}] TJ`;
       if (item.original) {
         if (run.op === 'Tj' || run.op === 'TJ') show = run.source;
         else {
@@ -430,7 +600,7 @@ export async function replaceTextGroup(
       );
       if (width && (underline || strikethrough)) {
         const quads = textDecorationQuads(
-          pen,
+          at,
           [(t[0] / s.size) * width, (t[1] / s.size) * width],
           [(t[2] / s.size) * size, (t[3] / s.size) * size],
           { underline, strikethrough },
@@ -484,7 +654,10 @@ export async function replaceTextGroup(
         writeParagraphData(
           [...origin, ...width, ...spacing],
           items,
-          styled ? { underline, strikethrough, line: !paragraph } : undefined,
+          styled || justify ? { underline, strikethrough, line: !paragraph, justify } : undefined,
+          paragraph?.indent > 0 && paragraph.width > 0
+            ? Math.min(paragraph.indent / paragraph.width, 0.95)
+            : 0,
         ),
       );
       if (decorations.length)

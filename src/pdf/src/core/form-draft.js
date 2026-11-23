@@ -66,16 +66,26 @@ export class FormDraft {
     return true;
   }
   undo() {
-    const edit = this.past.pop();
+    // Past the bounded history, one more undo takes the draft back to the saved values: Undo
+    // stays on while the draft differs from them, and must not do nothing.
+    const edit =
+      this.past.pop() ??
+      (this.dirty && {
+        edits: [...this.changes].map(([name, after]) => ({
+          name,
+          before: clone(this.base.get(name)),
+          after: clone(after),
+        })),
+      });
     if (!edit) return false;
-    this.assign(edit.name, edit.before);
+    for (const { name, before } of edit.edits ?? [edit]) this.assign(name, before);
     this.future.push(edit);
     return true;
   }
   redo() {
     const edit = this.future.pop();
     if (!edit) return false;
-    this.assign(edit.name, edit.after);
+    for (const { name, after } of edit.edits ?? [edit]) this.assign(name, after);
     this.past.push(edit);
     return true;
   }
@@ -249,6 +259,8 @@ export function formWidgets(
         options: editableChoice ? choiceInputOptions(options) : options,
         buttonValue,
         buttonLabel: type === 'radio' ? a.buttonValue : undefined,
+        // Radio buttons in unison: those sharing an export value are on together.
+        unison: type === 'radio' && !!(a.fieldFlags & (1 << 25)),
         exportValue: a.checkBox ? a.exportValue : undefined,
         editableChoice,
         // The format script, read as data: the value shows formatted while another field has

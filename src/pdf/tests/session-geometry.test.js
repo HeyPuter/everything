@@ -65,3 +65,41 @@ describe('page geometry across revisions', () => {
     expect(session.geometry).not.toBe(opened);
   });
 });
+
+describe('page objects across revisions', () => {
+  it('follows each page through moves, deletions and copies, and their undo and redo', async () => {
+    const { movePage, duplicatePages } = await import('../src/core/document.js');
+    const session = new PdfSession(
+      await pdf([
+        [612, 792],
+        [600, 800],
+        [500, 700],
+      ]),
+    );
+    // Unknown until an edit reads them from the document it loads anyway.
+    expect(session.pages).toBe(null);
+    const opened = (await PDFDocument.load(session.bytes))
+      .getPages()
+      .map(({ ref }) => `${ref.objectNumber} ${ref.generationNumber}`);
+    await session.change((doc) => movePage(doc, 0, 2));
+    expect(session.pages).toEqual([opened[1], opened[2], opened[0]]);
+    // The saved file's pages are the objects the session names.
+    const saved = (await PDFDocument.load(session.bytes))
+      .getPages()
+      .map(({ ref }) => `${ref.objectNumber} ${ref.generationNumber}`);
+    expect(saved).toEqual(session.pages);
+    await session.change((doc) => deletePage(doc, 0));
+    expect(session.pages).toEqual([opened[2], opened[0]]);
+    await session.change((doc) => duplicatePages(doc, [0]));
+    expect(session.pages).toHaveLength(3);
+    expect(session.pages[0]).toBe(opened[2]);
+    expect(opened).not.toContain(session.pages[1]);
+    session.undo();
+    expect(session.pages).toEqual([opened[2], opened[0]]);
+    session.undo();
+    session.undo();
+    expect(session.pages).toEqual(opened);
+    session.redo();
+    expect(session.pages).toEqual([opened[1], opened[2], opened[0]]);
+  });
+});

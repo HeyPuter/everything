@@ -2,7 +2,7 @@ import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream 
 import { decode, pageSource, setPageSource } from './text-edit.js';
 import { annotationList, annotationsOf } from './structure.js';
 import { contentReport, filterContent, tokenize } from './content-filter.js';
-import { removeStructReferences } from './redact.js';
+import { clearStructText, removeStructReferences } from './redact.js';
 
 /**
  * "Sanitize document", after Acrobat: remove information a reader does not see but a recipient
@@ -11,7 +11,8 @@ import { removeStructReferences } from './redact.js';
  *
  *  - metadata: the Info dictionary and XMP, for the document and for individual objects, the
  *    information article threads keep, and what JPEG pictures carry of their own (EXIF with
- *    camera, time and GPS location, XMP, IPTC, comments)
+ *    camera, time and GPS location, XMP, IPTC, comments); a PDF/A file keeps only the XMP that
+ *    identifies it as PDF/A
  *  - privateData: application data (PieceInfo) and its LastModified stamps
  *  - javascript: document scripts, JavaScript actions anywhere (links, bookmarks, fields, open
  *    action, action chains), every additional-action (AA) trigger, and XFA scripting
@@ -85,6 +86,42 @@ const EXTERNAL_ACTIONS = new Set([
   'RichMediaExecute',
   'SetOCGState',
 ]);
+
+/**
+ * An XMP packet holding only the PDF/A identification (part, conformance, amendment, revision)
+ * of `stream`, the document's metadata, or null when it claims no PDF/A part.
+ */
+function pdfaIdentification(stream) {
+  if (!(stream instanceof PDFStream)) return null;
+  let xml;
+  try {
+    xml = decode(stream);
+  } catch {
+    return null;
+  }
+  const value = (key) => {
+    const match = new RegExp(
+      `pdfaid:${key}\\s*=\\s*["']\\s*([A-Za-z0-9.]+)\\s*["']|<pdfaid:${key}>\\s*([A-Za-z0-9.]+)\\s*<`,
+    ).exec(xml);
+    return match?.[1] ?? match?.[2];
+  };
+  if (!/^[1-9]$/.test(value('part') ?? '')) return null;
+  const properties = ['part', 'conformance', 'amd', 'corr', 'rev']
+    .map((key) => [key, value(key)])
+    .filter(([, text]) => text)
+    .map(
+      ([key, text]) =>
+        `<pdfaid:${key}>${key === 'conformance' ? text.toUpperCase() : text}</pdfaid:${key}>`,
+    )
+    .join('');
+  return (
+    '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/">' +
+    '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+    `<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">${properties}</rdf:Description>` +
+    '</rdf:RDF></x:xmpmeta><?xpacket end="w"?>'
+  );
+}
 
 /** Every dictionary reachable from the document root (stream dictionaries included). */
 function reachableDicts(doc) {
@@ -527,7 +564,19 @@ export async function sanitizeDocument(doc, options = {}) {
     report.bookmarks++;
   }
   if (o.metadata && catalog.has(name('Metadata'))) {
-    catalog.delete(name('Metadata'));
+    const identification = pdfaIdentification(get(catalog, 'Metadata'));
+    // A PDF/A file must identify itself in XMP; it keeps that and nothing else.
+    if (identification)
+      catalog.set(
+        name('Metadata'),
+        context.register(
+          context.stream(new TextEncoder().encode(identification), {
+            Type: 'Metadata',
+            Subtype: 'XML',
+          }),
+        ),
+      );
+    else catalog.delete(name('Metadata'));
     report.metadata++;
   }
   // Article threads keep an information dictionary of their own (title, author, subject,
@@ -596,7 +645,8 @@ export async function sanitizeDocument(doc, options = {}) {
           }
       }
     }
-    if (o.metadata && dict.has(name('Metadata'))) {
+    // The document's own metadata was dealt with above.
+    if (o.metadata && dict !== catalog && dict.has(name('Metadata'))) {
       dict.delete(name('Metadata'));
       report.metadata++;
     }
@@ -723,6 +773,8 @@ export async function sanitizeDocument(doc, options = {}) {
       if (!result.changed) continue;
       page.node.set(name('Resources'), result.resources);
       setPageSource(doc, page, result.source);
+      // The tags' replacement and alternate text would still read out what went.
+      clearStructText(doc, page.ref, result.mcids);
     }
     report.hiddenText = invisibleGlyphs;
     if (o.hiddenLayers)

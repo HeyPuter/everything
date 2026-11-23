@@ -1239,6 +1239,71 @@ describe('find text & redact', () => {
     expect(await found('date')).toEqual(['2024\u201103\u201105', '05\u201303\u20132024']);
   });
 
+  it('finds words broken at a line end, and Thai and Chinese phrases that wrap', async () => {
+    // Find matches these as a reader types them; Find text and redact left them unmarked.
+    const toUnicode = (map) =>
+      [
+        '/CIDInit /ProcSet findresource begin 12 dict begin begincmap',
+        '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def',
+        '/CMapName /Test def 1 begincodespacerange <00> <FF> endcodespacerange',
+        `${map.length} beginbfchar`,
+        ...map.map(([code, unicode]) => `<${code}> <${unicode}>`),
+        'endbfchar endcmap CMapName currentdict /CMap defineresource pop end end',
+      ].join('\n');
+    const bytes = await makePdf([
+      {
+        content: [
+          'BT /F 12 Tf 30 350 Td (Call the John-) Tj 0 -14 Td (son office now) Tj ET',
+          'BT /F 12 Tf 30 300 Td (a forward-) Tj 0 -14 Td (thinking plan) Tj ET',
+          'BT /T 12 Tf 30 250 Td (AB) Tj 0 -14 Td (CD) Tj ET',
+          'BT /T 12 Tf 30 200 Td (EF) Tj 0 -14 Td (GH) Tj ET',
+        ].join('\n'),
+        resources: (doc) => ({
+          Font: {
+            F: doc.context.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica' }),
+            T: doc.context.obj({
+              Type: 'Font',
+              Subtype: 'Type1',
+              BaseFont: 'Helvetica',
+              ToUnicode: doc.context.register(
+                doc.context.stream(
+                  toUnicode([
+                    ['41', '0E01'],
+                    ['42', '0E02'],
+                    ['43', '0E04'],
+                    ['44', '0E07'],
+                    ['45', '4E2D'],
+                    ['46', '6587'],
+                    ['47', '5B57'],
+                    ['48', '7B26'],
+                  ]),
+                ),
+              ),
+            }),
+          },
+        }),
+      },
+    ]);
+    const doc = await PDFDocument.load(bytes);
+    const cache = new Map();
+    const found = async (query) => {
+      const matches = await findTextRects(doc, 0, query, { cache });
+      return matches.map((match) => match.rects.length);
+    };
+    // One rect on each line: the hyphen goes with the first half.
+    expect(await found('Johnson')).toEqual([2]);
+    expect(await found('forward-thinking')).toEqual([2]);
+    expect(await found('\u0e01\u0e02\u0e04\u0e07')).toEqual([2]);
+    expect(await found('\u0e01\u0e02 \u0e04\u0e07')).toEqual([2]);
+    expect(await found('\u4e2d\u6587\u5b57\u7b26')).toEqual([2]);
+    // A word broken at a line end is still found in part, and as written.
+    expect(await found('John')).toEqual([1]);
+    expect(await found('John- son')).toEqual([2]);
+    const [johnson] = await findTextRects(doc, 0, 'Johnson', { cache });
+    const [john] = await findTextRects(doc, 0, 'John-', { cache });
+    expect(johnson.rects[0][2]).toBeCloseTo(john.rects[0][2], 1);
+  });
+
   it('finds whole phone numbers in international and trunk-prefixed formats', async () => {
     // French numbers are five pairs, often after +33 and a one-digit area code; US numbers are
     // often written with the leading 1; UK numbers put the trunk 0 in brackets. These were

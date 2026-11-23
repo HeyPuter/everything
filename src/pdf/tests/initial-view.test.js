@@ -7,6 +7,7 @@ it('reads the defaults of a PDF that does not say how to open', async () => {
   doc.addPage();
   expect(readInitialView(doc)).toEqual({
     layout: 'default',
+    cover: null,
     panel: 'none',
     fullScreen: false,
     page: 0,
@@ -30,6 +31,7 @@ it('writes the layout, panel, open page, zoom, and title display and reads them 
   const reopened = await PDFDocument.load(await doc.save());
   expect(readInitialView(reopened)).toEqual({
     layout: 'two-continuous',
+    cover: false,
     panel: 'bookmarks',
     fullScreen: false,
     page: 2,
@@ -51,6 +53,22 @@ it('names the two-page layouts as this app shows them, page 1 beside page 2', as
   writeInitialView(doc, { layout: 'two-continuous' });
   expect(layout()).toBe('TwoColumnLeft');
   expect(readInitialView(doc).layout).toBe('two-continuous');
+});
+
+it('reads the Right layouts as spreads after a cover page, and keeps the cover', async () => {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage();
+  const layout = () => doc.catalog.lookup(PDFName.of('PageLayout'))?.decodeText();
+  doc.catalog.set(PDFName.of('PageLayout'), PDFName.of('TwoColumnRight'));
+  expect(readInitialView(doc)).toMatchObject({ layout: 'two-continuous', cover: true });
+  doc.catalog.set(PDFName.of('PageLayout'), PDFName.of('TwoPageRight'));
+  expect(readInitialView(doc)).toMatchObject({ layout: 'two', cover: true });
+  // Changing how the spreads show keeps the cover alone; a single page has no spreads.
+  writeInitialView(doc, { layout: 'two-continuous' });
+  expect(layout()).toBe('TwoColumnRight');
+  writeInitialView(doc, { layout: 'continuous' });
+  expect(layout()).toBe('OneColumn');
+  expect(readInitialView(doc).cover).toBe(null);
 });
 
 it('lists the fonts the pages use, with whether each is embedded', async () => {

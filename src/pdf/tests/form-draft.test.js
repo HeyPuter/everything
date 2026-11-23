@@ -110,6 +110,29 @@ it('bounds form history and ignores unknown fields', () => {
   expect(draft.past).toHaveLength(25);
 });
 
+it('undoes a draft longer than its history back to the saved values, and redoes it', () => {
+  const draft = new FormDraft();
+  draft.register([
+    { name: 'Name', value: '' },
+    { name: 'City', value: 'Paris' },
+  ]);
+  draft.set('City', 'Rome');
+  for (let i = 1; i <= 30; i++) draft.set('Name', 'x'.repeat(i));
+  for (let i = 0; i < 25; i++) expect(draft.undo()).toBe(true);
+  expect(draft.value('Name')).toBe('xxxxx');
+  // The edits that fell out of the history are undone together.
+  expect(draft.undo()).toBe(true);
+  expect(draft.value('Name')).toBe('');
+  expect(draft.value('City')).toBe('Paris');
+  expect(draft.dirty).toBe(false);
+  expect(draft.undo()).toBe(false);
+  expect(draft.redo()).toBe(true);
+  expect(draft.value('Name')).toBe('xxxxx');
+  expect(draft.value('City')).toBe('Rome');
+  expect(draft.redo()).toBe(true);
+  expect(draft.value('Name')).toBe('xxxxxx');
+});
+
 it('uses export values for choices and radio groups and excludes hidden or unsupported widgets', () => {
   const base = { fieldName: 'Field', id: '1R', rect: [10, 20, 110, 50] };
   const widgets = formWidgets([

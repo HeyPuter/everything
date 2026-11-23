@@ -977,15 +977,33 @@ export function checkAccessibility(doc, { textContents, access } = {}) {
   {
     const untagged = [],
       unreadable = [];
+    let autotaggable = false;
     // Marked content counts as tagged only when an element of the tag tree claims it; a copied
     // page keeps its MCIDs but no element points at them, so readers skip its content.
     const claimed = new Set();
     for (const element of structure?.elements || [])
       for (const { page, mcid, stream } of element.mcids)
         if (!stream) claimed.add(`${page ?? '*'}:${mcid}`);
+    // Marked content whose parent-tree entry is an Artifact element (as Word writes decorative
+    // shapes: the element names its parent but no element lists it) is an artifact, not content
+    // left out of the tree.
+    let parentTree;
+    const declaredArtifact = (index, mcid) => {
+      if (!structure) return false;
+      parentTree ??= readNumberTree(doc, structure.root.get(N('ParentTree')));
+      const key = numberOf(pages[index].node.lookup(N('StructParents')));
+      const owners = lookup(doc, parentTree.get(key));
+      const owner = owners instanceof PDFArray ? lookup(doc, owners.get(mcid)) : null;
+      return (
+        owner instanceof PDFDict && structure.role(nameOf(owner.lookup(N('S')))) === 'Artifact'
+      );
+    };
     // A tag tree too large to read whole cannot say what it leaves out.
     const unclaimed = (index, mcid) =>
-      !structure?.truncated && !claimed.has(`${index}:${mcid}`) && !claimed.has(`*:${mcid}`);
+      !structure?.truncated &&
+      !claimed.has(`${index}:${mcid}`) &&
+      !claimed.has(`*:${mcid}`) &&
+      !declaredArtifact(index, mcid);
     scans.forEach((scan, index) => {
       if (scan.error) {
         unreadable.push({
@@ -994,10 +1012,14 @@ export function checkAccessibility(doc, { textContents, access } = {}) {
         });
         return;
       }
-      const count = scan.items.filter(
+      const left = scan.items.filter(
         (item) =>
           !item.artifact && (item.mcid === undefined ? !item.tagged : unclaimed(index, item.mcid)),
-      ).length;
+      );
+      const count = left.length;
+      // Autotag tags content outside any marks, and gives orphaned marks elements, in a tagged
+      // document too.
+      if (!scan.irregular && count) autotaggable = true;
       if (count)
         untagged.push({
           page: index,
@@ -1015,7 +1037,7 @@ export function checkAccessibility(doc, { textContents, access } = {}) {
             ? 'Some pages could not be read; check them in the Tags panel of another tool.'
             : 'All content is tagged or marked as an artifact.',
         [...untagged, ...unreadable],
-        untagged.length ? (tagged ? undefined : 'tags') : undefined,
+        untagged.length && (!tagged || autotaggable) ? 'tags' : undefined,
       ),
     );
   }

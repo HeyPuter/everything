@@ -234,6 +234,12 @@ test('keys the comparison answers itself leave the document behind it alone', as
   // F3 steps through the changes; it does not open the document's Find bar behind the view.
   await page.keyboard.press('F3');
   await expect(options.last()).toHaveAttribute('aria-selected', 'true');
+  // The keyboard goes with the chosen change, rather than staying on the one it left.
+  await expect(options.last()).toBeFocused();
+  await page.keyboard.press('Shift+F3');
+  await expect(options.nth(10)).toHaveAttribute('aria-selected', 'true');
+  await expect(options.nth(10)).toBeFocused();
+  await expect(page.locator('.compare-item:focus')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Close compare' }).click();
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');

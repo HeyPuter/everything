@@ -18,6 +18,7 @@ import { flattenFields, requireFlattenedPages } from './flatten.js';
 import { copyPagesWithLayers } from './optional-content.js';
 import { mapPageDestinations } from './page-actions.js';
 import { tokenize } from './content-filter.js';
+import { appendOutline } from './outline-edit.js';
 
 /**
  * Parse a print-style page list such as "1-3, 5" into zero-based indices for a PDF with
@@ -544,6 +545,8 @@ export async function copyPagesFrom(source, indices, details) {
     pruneCopiedResources(out, pages);
     const indexToRef = new Map(indices.map((index, position) => [index, pages[position].ref]));
     relinkCopiedPages(out, pages, indexToRef);
+    // The bookmarks to the pages taken come with them, as they do with pages inserted.
+    appendOutline(out, source, indexToRef, { webLinks: false });
   } finally {
     sourcePages.forEach((page) => page.node.delete(COPY_INDEX));
   }

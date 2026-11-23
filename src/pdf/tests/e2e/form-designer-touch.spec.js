@@ -55,3 +55,27 @@ test('a field’s resize handle is big enough to take with a finger', async ({ p
   const rect = saved.getForm().getTextField('Note').acroField.getWidgets()[0].getRectangle();
   expect(rect.width).toBeGreaterThan(start.width + 10);
 });
+
+test('Prepare a form tells a phone to tap and double-tap, not to click', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'form.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await settled(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Prepare a form', exact: true }).click();
+  await expect(pane).toContainText('or tap to place one. Double-tap a field for its properties.');
+  await expect(pane).not.toContainText(/click/i);
+});

@@ -291,42 +291,65 @@ let helveticaMetrics;
 /** Helvetica's metrics and WinAnsi encoding, loaded on first use. */
 const helvetica = () => (helveticaMetrics ||= StandardFontEmbedder.for(StandardFonts.Helvetica));
 const encodable = new Map();
-/** Replace characters Helvetica's WinAnsi encoding lacks with "?". */
-function winAnsi(text) {
-  let out = '';
-  for (const ch of String(text)) {
-    let ok = encodable.get(ch);
-    if (ok === undefined) {
-      try {
-        helvetica().encodeText(ch);
-        ok = true;
-      } catch {
-        ok = false;
-      }
-      encodable.set(ch, ok);
+/** Whether Helvetica's WinAnsi encoding has the character. */
+function inWinAnsi(ch) {
+  let ok = encodable.get(ch);
+  if (ok === undefined) {
+    try {
+      helvetica().encodeText(ch);
+      ok = true;
+    } catch {
+      ok = false;
     }
-    out += ok ? ch : '?';
+    encodable.set(ch, ok);
   }
-  return out;
+  return ok;
+}
+/** Replace characters Helvetica's WinAnsi encoding lacks with "?". */
+const winAnsi = (text) => [...String(text)].map((ch) => (inWinAnsi(ch) ? ch : '?')).join('');
+const HELVETICA_FACE = { metrics: () => helvetica(), font: null, write: winAnsi };
+/**
+ * The face the appearance's words are written in: Helvetica, or when it cannot write them (a
+ * name in Polish, Greek, Chinese...) the bundled face the app writes such text with. What no
+ * face has shows as "?", as it does when the bundled face cannot be loaded.
+ */
+async function appearanceFace(doc, lines) {
+  if (lines.every((line) => [...line].every(inWinAnsi))) return HELVETICA_FACE;
+  try {
+    const { embedFont, assertSupportedText } = await import('./document.js');
+    const font = await embedFont(doc, 'regular', lines.join(' '));
+    const writes = (ch) => {
+      try {
+        return !!assertSupportedText(font, ch);
+      } catch {
+        return false;
+      }
+    };
+    const write = (line) =>
+      [...String(line).normalize('NFC')].map((ch) => (writes(ch) ? ch : '?')).join('');
+    return { metrics: () => font, font, write };
+  } catch {
+    return HELVETICA_FACE;
+  }
 }
 const num = (n) => {
   const fixed = Number(n).toFixed(3);
   return fixed.replace(/\.?0+$/, '') || '0';
 };
-function textLine(text, size, x, y) {
-  return `BT /Helv ${num(size)} Tf ${num(x)} ${num(y)} Td ${helvetica().encodeText(text).toString()} Tj ET`;
+function textLine(face, text, size, x, y) {
+  return `BT /Helv ${num(size)} Tf ${num(x)} ${num(y)} Td ${face.metrics().encodeText(text).toString()} Tj ET`;
 }
 /** Fit lines into a box: one font size for all, top-aligned. */
-function textBlock(lines, box, maxSize = 14) {
+function textBlock(face, lines, box, maxSize = 14) {
   if (!lines.length) return [];
-  const widest = Math.max(...lines.map((line) => helvetica().widthOfTextAtSize(line, 1)), 0.01);
+  const widest = Math.max(...lines.map((line) => face.metrics().widthOfTextAtSize(line, 1)), 0.01);
   const size = Math.max(2, Math.min(maxSize, box.w / widest, box.h / (lines.length * 1.18)));
   const ops = [];
   let y = box.y + box.h - size * 0.93;
   const blockHeight = lines.length * size * 1.18;
   if (blockHeight < box.h) y -= (box.h - blockHeight) / 2;
   for (const line of lines) {
-    ops.push(textLine(line, size, box.x, y));
+    ops.push(textLine(face, line, size, box.x, y));
     y -= size * 1.18;
   }
   return ops;
@@ -336,7 +359,7 @@ function textBlock(lines, box, maxSize = 14) {
  * The content of a signature appearance: on the left the signer's name in large type (or an
  * image), on the right the detail lines (who, when, why), like Acrobat's default.
  */
-function appearanceContent({ width, height, lines, bigName, image }) {
+function appearanceContent({ width, height, lines, bigName, image, face = HELVETICA_FACE }) {
   const pad = Math.max(1, Math.min(width, height) * 0.05);
   const ops = ['0 g'];
   const twoColumns = (image || bigName) && width >= height * 1.6;
@@ -357,7 +380,7 @@ function appearanceContent({ width, height, lines, bigName, image }) {
       ops.push(
         `q ${num(w)} 0 0 ${num(h)} ${num(left.x + (left.w - w) / 2)} ${num(left.y + (left.h - h) / 2)} cm /Img Do Q`,
       );
-    } else ops.push(...textBlock([bigName], left, 48));
+    } else ops.push(...textBlock(face, [bigName], left, 48));
   } else if (image) {
     // Narrow boxes: the image behind the text.
     const scale = Math.min(detail.w / image.width, detail.h / image.height);
@@ -367,7 +390,7 @@ function appearanceContent({ width, height, lines, bigName, image }) {
       `q ${num(w)} 0 0 ${num(h)} ${num(detail.x + (detail.w - w) / 2)} ${num(detail.y + (detail.h - h) / 2)} cm /Img Do Q`,
     );
   } else if (bigName) lines = [bigName, ...lines];
-  ops.push(...textBlock(lines, detail));
+  ops.push(...textBlock(face, lines, detail));
   return ops.join('\n');
 }
 
@@ -610,29 +633,33 @@ export async function preparePdfSignature(input, options = {}) {
     const turned = rotation === 90 || rotation === 270;
     const boxWidth = turned ? height : width;
     const boxHeight = turned ? width : height;
-    const lines = (
+    const words = (
       appearance.lines || [
         `Digitally signed by ${displayName}`,
         `Date: ${displayDate(signingTime)}`,
         reason ? `Reason: ${reason}` : '',
         location ? `Location: ${location}` : '',
       ]
-    )
-      .filter((line) => line != null && line !== '')
-      .map(winAnsi);
-    const bigName =
-      appearance.lines && !appearance.name ? '' : winAnsi(appearance.name ?? displayName);
+    ).filter((line) => line != null && line !== '');
+    const shownName =
+      appearance.lines && !appearance.name ? '' : String(appearance.name ?? displayName);
+    const face = await appearanceFace(doc, [shownName, ...words]);
+    const lines = words.map(face.write);
+    const bigName = face.write(shownName);
     const image = appearance.image ? await embedAppearanceImage(context, appearance.image) : null;
-    const fontRef = context.nextRef();
-    markChanged(
-      fontRef,
-      context.obj({
-        Type: 'Font',
-        Subtype: 'Type1',
-        BaseFont: 'Helvetica',
-        Encoding: 'WinAnsiEncoding',
-      }),
-    );
+    let fontRef = face.font?.ref;
+    if (!fontRef) {
+      fontRef = context.nextRef();
+      markChanged(
+        fontRef,
+        context.obj({
+          Type: 'Font',
+          Subtype: 'Type1',
+          BaseFont: 'Helvetica',
+          Encoding: 'WinAnsiEncoding',
+        }),
+      );
+    }
     const resources = { Font: { Helv: fontRef } };
     if (image) resources.XObject = { Img: image.ref };
     const radians = (rotation * Math.PI) / 180;
@@ -657,7 +684,10 @@ export async function preparePdfSignature(input, options = {}) {
       lines,
       bigName,
       image,
+      face,
     });
+    // The bundled face is written once its glyphs for these words are known.
+    await face.font?.embed();
     const apRef = context.nextRef();
     markChanged(apRef, context.stream(content, streamDict));
     widgetDict.set(name('AP'), context.obj({ N: apRef }));
