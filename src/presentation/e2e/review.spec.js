@@ -474,6 +474,51 @@ test("spelling pane: change a word, ignore another", async ({ page }) => {
   expect(texts).toContain("The quick brown fox");
 });
 
+// The check passed over the words of SmartArt graphics: a misspelling
+// there was never found, and Change All left it as it was.
+test("spelling pane: finds and changes words in a SmartArt graphic", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = textDeck(["The quick fox"]);
+  P.addSlideSmartArt(P.getSlides(pres)[0], {
+    model: {
+      layout: P.SMARTART_LAYOUTS[0].id,
+      items: [
+        { text: "Plan the budjet", level: 0 },
+        { text: "Ship", level: 0 },
+        { text: "Review the budjet", level: 0 },
+      ],
+      colors: P.DEFAULT_SMARTART_COLORS,
+      style: P.DEFAULT_SMARTART_STYLE,
+    },
+    x: 914400,
+    y: 914400 * 3,
+    w: 914400 * 6,
+    h: 914400 * 3,
+  });
+  await open(page, pres);
+  await page.keyboard.press("F7");
+  const pane = page.locator("#review-pane");
+  await expect(pane.locator(".spell-word")).toHaveText("budjet", {
+    timeout: 20_000,
+  });
+  await pane.getByRole("option", { name: "budget" }).click();
+  await press(pane.getByRole("button", { name: "Change", exact: true }));
+  await expect(pane.locator(".spell-word")).toHaveText("budjet");
+  await press(pane.getByRole("button", { name: "Change All" }));
+  await expect(pane).toContainText("Spelling check complete");
+  const { pres: saved } = await download(page);
+  const graphic = P.getSlideShapes(P.getSlides(saved)[0]).find((s) =>
+    P.isDiagramShape(s),
+  );
+  expect(P.getShapeSmartArt(graphic).items.map((i) => i.text)).toEqual([
+    "Plan the budget",
+    "Ship",
+    "Review the budget",
+  ]);
+});
+
 // Changing a misspelled word in the speaker notes wrote the notes back in
 // their first run's format, taking a bold word's bold and a bulleted line's
 // bullet with it.

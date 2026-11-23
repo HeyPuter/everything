@@ -4119,6 +4119,8 @@ const review = createReview({
     replaceInShape(shape, re, value, only),
   replaceInCell: (cell, re, value, only) =>
     replaceInCell(cell, re, value, only),
+  replaceInSmartArt: (shape, re, value, only) =>
+    replaceInSmartArt(shape, re, value, only),
   editor: () => richEditor,
   editShapeText: (part, id) => {
     if (P.getSlidePartName(slide()) !== part) return;
