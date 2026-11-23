@@ -155,21 +155,29 @@ test("a phone on its side keeps the thumbnails beside the slide", async ({
   const slide = page.locator("#slide-canvas");
   const area = page.locator("#canvas-area");
   const thumbs = page.locator(".slide-sidebar");
-  await expect
-    .poll(async () => {
-      const [s, a, t] = await Promise.all([
-        slide.boundingBox(),
-        area.boundingBox(),
-        thumbs.boundingBox(),
-      ]);
-      if (!s || !a || !t) return "not laid out";
-      if (t.x + t.width > a.x + 1) return "thumbnails not beside the slide";
-      // Most of the slide shows without scrolling.
-      const shown = Math.min(s.y + s.height, a.y + a.height) - s.y;
-      return shown >= s.height * 0.85 || `${shown} of ${s.height}px shown`;
-    })
-    .toBe(true);
-  await expectFits(page, "the editor on its side");
+  // The narrow phone's size, then a wider one's (iPhone 13 in a browser).
+  for (const size of [
+    { width: 750, height: 342 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize(size);
+    await expect
+      .poll(async () => {
+        const [s, a, t] = await Promise.all([
+          slide.boundingBox(),
+          area.boundingBox(),
+          thumbs.boundingBox(),
+        ]);
+        if (!s || !a || !t) return "not laid out";
+        if (t.x + t.width > a.x + 1) return "thumbnails not beside the slide";
+        // The whole slide shows without scrolling.
+        if (s.y < a.y - 1 || s.y + s.height > a.y + a.height + 1)
+          return `slide ${s.y}-${s.y + s.height} in ${a.y}-${a.y + a.height}`;
+        return true;
+      })
+      .toBe(true);
+    await expectFits(page, `the editor on its side at ${size.width}px`);
+  }
   // Turned upright again, the thumbnails are a strip under the slide.
   await page.setViewportSize({ width: 390, height: 664 });
   await expect

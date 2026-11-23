@@ -7530,6 +7530,10 @@ const sidePanelsExclusive = () => matchMedia("(max-width: 1150px)").matches;
 function editorFontSize(points, canvas) {
   return `${Math.max(14, (points * canvas.clientWidth) / (currentSize().cx / 914400) / 72)}px`;
 }
+// The layout of a phone on its side (src/chrome/chrome.css).
+const PHONE_SIDEWAYS = matchMedia(
+  "(max-width: 760px) and (max-height: 500px) and (orientation: landscape)",
+);
 function fitCanvas() {
   const area = document.querySelector("#canvas-area");
   const canvas = document.querySelector("#slide-canvas");
@@ -7550,10 +7554,11 @@ function fitCanvas() {
     parseFloat(getComputedStyle(label).marginBottom);
   const size = currentSize();
   // Very short windows scroll rather than shrinking the slide past half width
-  // (a portrait notes or handout page, past a quarter).
+  // (a portrait notes or handout page, past a quarter). A phone on its side
+  // always shows the whole slide: the thumbnails beside it take the width.
   const fitWidth = Math.floor(
     Math.max(
-      availableWidth / (size.cy > size.cx ? 4 : 2),
+      PHONE_SIDEWAYS.matches ? 0 : availableWidth / (size.cy > size.cx ? 4 : 2),
       Math.min(availableWidth, (availableHeight * size.cx) / size.cy),
     ),
   );

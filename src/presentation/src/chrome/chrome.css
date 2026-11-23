@@ -496,6 +496,13 @@
 .editor .canvas-area {
   padding: 26px 34px;
 }
+/* A short screen gives the slide's area most of its padding back (as
+   style.css means it to, under this rule). */
+@media (max-height: 500px) {
+  .editor .canvas-area {
+    padding: 8px 16px;
+  }
+}
 .editor .canvas-label {
   display: none;
   margin: 0;
