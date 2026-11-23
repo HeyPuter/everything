@@ -154,11 +154,11 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
     const flow = () => notes
       ? layoutWithFootnotes(notes, noteReserve => layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...storyScope, ...counts, storyHeights, storyHeightCache, paragraphKeys, noteReserve }), measureBase, numbering, { ...storyOptions, ...storyScope }, flowContext())
       : layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...storyScope, ...counts, storyHeights, storyHeightCache, paragraphKeys });
-    placed = flow();
+    placed = withBorders(flow());
     // Footnotes numbered per page (§17.11.19 eachPage) need their pages first; renumber once and lay out again.
     if (notes?.restart === 'eachPage') {
       const renumbered = pageRestartedNumbers(notes, source, placed);
-      if ([...renumbered].some(([id, display]) => notes.numbers.get(id) !== display)) { notes.numbers = renumbered; paragraphs = numberNotes(); placed = flow(); }
+      if ([...renumbered].some(([id, display]) => notes.numbers.get(id) !== display)) { notes.numbers = renumbered; paragraphs = numberNotes(); placed = withBorders(flow()); }
     }
     if (endnotes) placed = placeEndnotes(endnotes, placed, measureBase, numbering, { ...storyOptions, ...storyScope });
     const aligned = () => {
@@ -811,10 +811,18 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   }
   resolveDrawingCollisions(placed.floatingObjects, placed.pages);
   placed.floatingObjects.sort((a, b) => a.image.anchor.order - b.image.anchor.order);
-  const paragraphBorders = layoutParagraphBorders(placed);
   let offset = 0;
   const pageOffsets = placed.pages.map(p => { const start = offset; offset += p.height; return start; });
-  return { ...placed, page, pageOffsets, tableWidths, paragraphBorders, tableBorders: layoutTableBorders(placed.cells), ...(hasRotatedCells ? { hasRotatedCells: true } : {}), ...(flowNames ? { flowSignature: flowNames.join(' ') } : {}), ...(storyOptions.noteReserve ? { noteBottoms } : {}) };
+  // Border ink is placed once the layout is settled (withBorders): settling footnotes lays a long document out
+  // several times, and only the last pass is shown.
+  return { ...placed, page, pageOffsets, tableWidths, paragraphBorders: undefined, tableBorders: undefined, ...(hasRotatedCells ? { hasRotatedCells: true } : {}), ...(flowNames ? { flowSignature: flowNames.join(' ') } : {}), ...(storyOptions.noteReserve ? { noteBottoms } : {}) };
+}
+
+/** `placed` (a settled layoutPass result) with the ink of its paragraph and table borders. */
+function withBorders(placed) {
+  placed.paragraphBorders = layoutParagraphBorders(placed);
+  placed.tableBorders = layoutTableBorders(placed.cells);
+  return placed;
 }
 
 // Give pagination all rows connected by vertical spans, without keeping them on a page.
