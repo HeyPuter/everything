@@ -33,7 +33,16 @@ it('preserves retained transformed drawings through edits, reopen and exact undo
  const drawings=b=>[...new DOMParser().parseFromString(strFromU8(unzipSync(b)['word/document.xml']),'application/xml').getElementsByTagNameNS(W,'drawing')].map(n=>new XMLSerializer().serializeToString(n));
  expect(drawings(bytes)).toEqual(drawings(source));doc.undo();same(await save());
 });
-it.each([['u','single'],['strike','1'],['highlight','yellow'],['vertAlign','wrong'],['position','401'],['w','0']])('still rejects unsupported or malformed shape run %s=%s',async(tag,value)=>{
+// Underline, strikethrough and highlight are painted as in body text (tests/decorated-text-box.test.js).
+it.each([['u','single','underline'],['strike','1','strikethrough'],['highlight','yellow','highlight']])('reads shape run %s=%s',async(tag,value,key)=>{
+ const parts=unzipSync(source),xml=new DOMParser().parseFromString(strFromU8(parts['word/document.xml']),'application/xml');
+ const text=xml.getElementsByTagNameNS(W,'txbxContent')[0],rp=text.getElementsByTagNameNS(W,'rPr')[0],n=xml.createElementNS(W,'w:'+tag);n.setAttributeNS(W,'w:val',value);rp.append(n);
+ parts['word/document.xml']=strToU8(new XMLSerializer().serializeToString(xml));const pkg=await DocxPackage.open(zipSync(parts));
+ const image=pkg.paragraphs.flatMap(p=>p.runs).find(r=>r.image).image,runs=[];
+ const walk=node=>{if(node.text)runs.push(...node.text.paragraphs.flatMap(p=>p.runs));node.children?.forEach(walk);};walk(pkg.assets[image.assetId].scene);
+ expect(runs.some(r=>r[key]&&r[key]!=='none')).toBe(true);
+});
+it.each([['u','notAStyle'],['vertAlign','wrong'],['position','401'],['w','0']])('still rejects unsupported or malformed shape run %s=%s',async(tag,value)=>{
  const parts=unzipSync(source),xml=new DOMParser().parseFromString(strFromU8(parts['word/document.xml']),'application/xml');
  const text=xml.getElementsByTagNameNS(W,'txbxContent')[0],rp=text.getElementsByTagNameNS(W,'rPr')[0],n=xml.createElementNS(W,'w:'+tag);n.setAttributeNS(W,'w:val',value);rp.append(n);
  parts['word/document.xml']=strToU8(new XMLSerializer().serializeToString(xml));await expect(DocxPackage.open(zipSync(parts))).rejects.toThrow();

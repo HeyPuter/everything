@@ -172,7 +172,7 @@ it.each([
   ['hidden shape', x => node(x, WPS, 'cNvPr').setAttribute('hidden', '1')],
   ['vertical body', x => node(x, WPS, 'bodyPr').setAttribute('vert', 'vert270')],
   ['linked text box', x => node(x, WPS, 'txbx').setAttribute('id', '1')],
-  ['complex text formatting', x => node(node(x, WPS, 'txbx'), W, 'rPr').append(x.createElementNS(W, 'w:strike'))],
+  ['decorated text box paragraphs', x => { const shd = x.createElementNS(W, 'w:shd'); shd.setAttributeNS(W, 'w:val', 'clear'); shd.setAttributeNS(W, 'w:fill', 'FFFF00'); const p = node(node(x, WPS, 'txbx'), W, 'p'); let pPr = node(p, W, 'pPr'); if (!pPr) { pPr = x.createElementNS(W, 'w:pPr'); p.prepend(pPr); } pPr.append(shd); }],
   ['next-column sections', x => { const s = [...x.getElementsByTagNameNS(W, 'sectPr')].at(-1); for (const old of [...s.getElementsByTagNameNS(W, 'type')]) old.remove(); const n = x.createElementNS(W, 'w:type'); n.setAttributeNS(W, 'w:val', 'nextColumn'); s.prepend(n); }],
   ['invalid paper sizes', x => node(x, W, 'pgSz').setAttributeNS(W, 'w:w', '0')],
 ])('rejects %s before returning an editable package', async (_, alter) => {

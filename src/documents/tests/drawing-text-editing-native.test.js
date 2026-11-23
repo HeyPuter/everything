@@ -71,8 +71,11 @@ it('keeps new paragraphs and mixed formatting without flattening the text frame'
   const last=edit.asset.scene.text.paragraphs[2];expect(last.runs.find(r=>r.text==='Third').italic).toBe(true);
   expect(last.runs.find(r=>r.text.includes('paragraph')).italic).toBe(false);
   expect(pkg.prepareDrawingTextEdit(image,0,pkg.drawingTextFrames(image)[0].paragraphs)).toBeNull();
+  // Underlined text is laid out and painted as body text is (decorated-text-box fixture).
   draft.select(0,5);draft.setRunFormat({underline:true});
-  expect(()=>pkg.prepareDrawingTextEdit(image,0,draft.paragraphs)).toThrow('decorated text box runs');
+  const underlined=pkg.prepareDrawingTextEdit(image,0,draft.paragraphs);
+  expect(underlined.asset.scene.text.paragraphs[0].runs[0].underline).toBeTruthy();
+  expect(underlined.shell).toContain('<w:u w:val="single" w:color="auto"/></w:rPr><w:t xml:space="preserve">Stand</w:t>');
 },30000);
 it('retains a supported controlled frame and leaves its plain grouped sibling editable',async()=>{
   const parts=unzipSync(read('control.docx'));

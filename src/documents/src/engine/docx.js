@@ -2205,6 +2205,8 @@ export class DocxPackage {
   }
   drawingTextDraft(image, asset, frame) {
     const display = { paragraphs: frame.node.text.paragraphs, tables: frame.node.text.tables || [], reason: frame.reason };
+    // A link in a text box is shown and saved as it is; editing the frame would have to rewrite it.
+    if (!display.reason && display.paragraphs.some(p => p.runs.some(r => r.link))) return { ...display, reason: 'Editing notes, links or bookmarks inside drawing text is not supported yet.' };
     if (frame.reason || !frame.content.getElementsByTagNameNS(W, 'sdt').length && !display.tables.length) return display;
     this.drawingTextDraftCache ||= new WeakMap();
     let cache = this.drawingTextDraftCache.get(asset);

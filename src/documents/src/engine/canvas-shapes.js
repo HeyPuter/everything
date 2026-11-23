@@ -20,6 +20,8 @@ import { bezierExtrema } from './bezier-bounds.js';
 import { decodePicture3d } from './canvas-picture-3d.js';
 import { shapeHasFields } from './shape-page-fields.js';
 import { paintText, paintTextShadows } from './canvas-paint-text.js';
+import { paintUnderline } from './canvas-underlines.js';
+import { runBackground, runBackgroundRect, foregroundBackground } from './backgrounds.js';
 import { compoundOutlinePainter, compoundContours } from './compound-outlines.js';
 import { pictureOutlineContours } from './picture-outline-offset.js';
 import { paintPictureShadow } from './canvas-picture-shadow.js';
@@ -617,6 +619,16 @@ function rasterShape(asset, bitmaps, fontAlternatives, fieldContext, patternPlac
         }
         // Table guides belong to editable cells, not a retained drawing's ink.
         for (const stroke of layout.tableBorders) if (!stroke.guide) paintTableBorder(ctx, stroke);
+        // Without a fontRef color, automatic shape text contrasts with
+        // an opaque solid fill. Other fills retain the existing backdrop.
+        const textBackground = typeof node.fill === 'string' && /^#[\da-f]{6}$/i.test(node.fill) ? node.fill : '#ffffff';
+        // Run highlight and shading (w:highlight, w:shd) behind the text, as in body text.
+        for (const line of layout.lines) if (line.backgrounds?.length) {
+          ctx.save();
+          if (line.cellClip) { const c = line.cellClip, x = c.left ?? clip.left - left, right = c.right ?? clip.left + clip.width - left; ctx.beginPath(); ctx.rect(x, c.top, right - x, c.bottom - c.top); ctx.clip(); }
+          for (const span of line.backgrounds) { const band = runBackgroundRect(line, span); ctx.fillStyle = runBackground(span, textBackground); ctx.fillRect(band.x, band.y, band.width, band.height); }
+          ctx.restore();
+        }
         // Text boxes allow exact-spaced lines to overlap; only the frame
         // clips their ink (unlike exact-spaced body paragraphs).
         for (const line of layout.lines) for (const fragment of line.fragments) {
@@ -652,10 +664,7 @@ function rasterShape(asset, bitmaps, fontAlternatives, fieldContext, patternPlac
           const colors = fragment.colors || [{ value: fragment.color }];
           for (let i = 0; i < colors.length; i++) {
             const span = colors[i]; ctx.save();
-            // Without a fontRef color, automatic shape text contrasts with
-            // an opaque solid fill. Other fills retain the existing backdrop.
-            const background = typeof node.fill === 'string' && /^#[\da-f]{6}$/i.test(node.fill) ? node.fill : '#ffffff';
-            ctx.fillStyle = paintColor(span.value, background);
+            ctx.fillStyle = paintColor(span.value, foregroundBackground(span, textBackground));
             if (colors.length > 1) {
               const start = i === 0 ? clip.left - left : fragment.x + span.x;
               const end = i === colors.length - 1 ? clip.left + clip.width - left : fragment.x + span.x + span.width;
@@ -664,6 +673,14 @@ function rasterShape(asset, bitmaps, fontAlternatives, fieldContext, patternPlac
             paintText(ctx, Object.hasOwn(span, 'textOutline') ? { ...fragment, textOutline: span.textOutline, textFill: span.textFill ?? null, text3d: span.text3d ?? null, textScene: span.textScene ?? null } : fragment, line.baseline);
             ctx.restore();
           }
+          ctx.restore();
+        }
+        // Underlines and strikethrough (w:u, w:strike, w:dstrike) over the text, as in body text.
+        for (const line of layout.lines) if (line.underlines?.length || line.strikes?.length) {
+          ctx.save();
+          if (line.cellClip) { const c = line.cellClip, x = c.left ?? clip.left - left, right = c.right ?? clip.left + clip.width - left; ctx.beginPath(); ctx.rect(x, c.top, right - x, c.bottom - c.top); ctx.clip(); }
+          for (const u of line.underlines || []) { ctx.fillStyle = paintColor(u.color, foregroundBackground(u, textBackground)); paintUnderline(ctx, u, line.baseline); }
+          for (const u of line.strikes || []) { ctx.fillStyle = paintColor(u.color, foregroundBackground(u, textBackground)); ctx.fillRect(u.x, line.baseline + u.offset, u.width, u.thickness); }
           ctx.restore();
         }
       }
