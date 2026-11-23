@@ -4935,6 +4935,77 @@ test("queued formatting toggles apply every activation", async ({ page }) => {
   expect(Boolean(format.italic)).toBe(false);
 });
 
+// Bold pressed at the caret with nothing selected made the whole box bold,
+// the text before the caret as well as the text typed next.
+test("formatting chosen at the caret goes to the text typed next, or to the word it is in", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  text(P.getSlides(pres)[0], "Hello", 1, 1, 8, 2, 24, "#000000");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Caret.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await page.locator(".object-hit").dblclick();
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(editor).toBeFocused();
+  const caret = (offset) =>
+    editor.evaluate((node, offset) => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      let left = offset;
+      for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+        if (left <= t.data.length) {
+          getSelection().collapse(t, left);
+          return;
+        }
+        left -= t.data.length;
+      }
+    }, offset);
+  await caret(5);
+  await page.keyboard.type(" ");
+  await page.keyboard.press("Control+b");
+  await expect(
+    page.locator('.ribbon-panel:not([hidden]) [data-command="bold"]').first(),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.type("bold");
+  await page.keyboard.press("Control+b");
+  await page.keyboard.type(" plain");
+  // Inside a word, the word takes it.
+  await caret(2);
+  await page.keyboard.press("Control+i");
+  await page.keyboard.press("Escape");
+  await expect(editor).toHaveCount(0);
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const shape = P.getSlideShapes(
+    P.getSlides(
+      await parseDeck(
+        new Uint8Array(await readFile(await (await downloaded).path())),
+      ),
+    )[0],
+  )[0];
+  const runs = Array.from({ length: P.getShapeRunCount(shape, 0) }, (_, r) => {
+    const format = P.getShapeRunFormat(shape, 0, r);
+    return [P.getShapeRunText(shape, 0, r), !!format.bold, !!format.italic];
+  });
+  expect(runs).toEqual([
+    ["Hello", false, true],
+    [" ", false, false],
+    ["bold", true, false],
+    [" plain", false, false],
+  ]);
+});
+
 for (const action of ["formatting", "movement"]) {
   test(`object ${action} queued immediately after undo edits the restored object`, async ({
     page,

@@ -11258,13 +11258,57 @@ function editText(target, event = null, { inserted = null } = {}) {
     undo();
   }
   const redoWithin = () => stepHistory(redoSteps, undoSteps);
-  // Formatting applies to the selected text, or to the whole box when
-  // nothing is selected.
+  // Formatting chosen at a caret, with nothing selected, waits for the text
+  // typed there next, as in a word processor; it lasts while the caret and
+  // the text stay as they were.
+  let caretFormat = null;
+  const caretFormatAt = (sel, value) =>
+    caretFormat &&
+    sel &&
+    sel[0] === sel[1] &&
+    sel[0] === caretFormat.at &&
+    value === caretFormat.text
+      ? caretFormat.change
+      : null;
+  const WORD_CHARACTER = /[\p{L}\p{M}\p{N}_'’]/u;
+  // The word a caret stands inside, as [start, end], if any.
+  function wordAround(offset, value) {
+    const inWord = (i) => WORD_CHARACTER.test(value[i] || "");
+    if (!inWord(offset - 1) || !inWord(offset)) return null;
+    let start = offset,
+      end = offset;
+    while (start > 0 && inWord(start - 1)) start--;
+    while (end < value.length && inWord(end)) end++;
+    return [start, end];
+  }
+  // Formatting applies to the selected text. At a caret it applies to the
+  // word the caret is in, or else to the text typed there next; in an empty
+  // box, to the text typed first.
   function apply(change, { refocus = true } = {}) {
+    const sel = selection() || [0, text().length];
+    let [start, end] = sel;
+    if (start === end) {
+      const value = textOf(read().runs);
+      const word = value && wordAround(start, value);
+      if (word) [start, end] = word;
+      else if (value) {
+        caretFormat = {
+          at: start,
+          text: value,
+          change: { ...caretFormatAt(sel, value), ...change },
+        };
+        saved = sel;
+        if (refocus) {
+          suspended = false;
+          input.focus();
+        }
+        setSelection(sel[0], sel[1]);
+        syncToolbar();
+        return;
+      }
+    }
     remember(`apply:${Object.keys(change).join()}`);
     runs = readRuns();
-    const sel = selection() || [0, text().length];
-    const [start, end] = sel[0] === sel[1] ? [0, text().length] : sel;
     const [from, to] = fieldFormattingRange(runs, start, end);
     const list = runs.slice(splitAt(from), splitAt(to));
     // With no text left, the change goes to the run the text typed next
@@ -11285,8 +11329,18 @@ function editText(target, event = null, { inserted = null } = {}) {
   }
   function toggle(key) {
     const sel = selection() || [0, text().length];
-    const [start, end] = sel[0] === sel[1] ? [0, text().length] : sel;
-    const list = runsBetween(read().runs, start, end);
+    let [start, end] = sel;
+    const current = read().runs;
+    if (start === end) {
+      const value = textOf(current);
+      const waiting = caretFormatAt(sel, value);
+      if (waiting && key in waiting)
+        return apply({ [key]: !isOn({ format: waiting }, key) });
+      const word = value && wordAround(start, value);
+      if (word) [start, end] = word;
+    }
+    // A caret stands for the run it ends.
+    const list = runsBetween(current, start, end);
     // With no text left, the run the text typed next takes after decides.
     const on = list.length
       ? list.every((run) => isOn(run, key))
@@ -11407,14 +11461,56 @@ function editText(target, event = null, { inserted = null } = {}) {
   // What the toolbar shows for the selection: on when every run in it is.
   function selectionFormat() {
     const sel = selection() || [0, 0];
-    const list = runsBetween(read().runs, sel[0], sel[1]);
+    const current = read().runs;
+    const list = runsBetween(current, sel[0], sel[1]);
     const result = { ...(list[0] || base).format };
     for (const key of ["bold", "italic", "underline", "strike"])
       result[key] = list.length
         ? list.every((run) => isOn(run, key))
         : isOn(base, key);
+    // Formatting waiting at the caret shows as the text typed will have it.
+    const waiting = caretFormat && caretFormatAt(sel, textOf(current));
+    if (waiting)
+      for (const [key, value] of Object.entries(waiting))
+        result[key] = ["bold", "italic", "underline", "strike"].includes(key)
+          ? isOn({ format: waiting }, key)
+          : value;
     return result;
   }
+  // Text typed where formatting waits at the caret takes it, in a run of its
+  // own that the typing after it continues.
+  function typeFormatted(at, value, change) {
+    caretFormat = null;
+    remember("insert");
+    runs = readRuns();
+    const from = splitAt(at);
+    const run = copyRun(runs[from - 1] || runs[from] || base, value);
+    Object.assign(run.format, change);
+    Object.assign(run.changes, change);
+    runs.splice(from, 0, run);
+    render();
+    setSelection(at + value.length, at + value.length);
+    syncToolbar();
+  }
+  // An input method's text can't be typed in for it; it takes the waiting
+  // formatting once composed.
+  let composing = null;
+  input.addEventListener("compositionstart", () => {
+    const sel = selectionOffsets();
+    const change = caretFormat && caretFormatAt(sel, textOf(read().runs));
+    composing = change ? { at: sel[0], change } : null;
+    caretFormat = null;
+  });
+  input.addEventListener("compositionend", () => {
+    const pending = composing;
+    composing = null;
+    const sel = pending && selectionOffsets();
+    if (!sel || sel[0] !== sel[1] || sel[0] <= pending.at) return;
+    setSelection(pending.at, sel[0]);
+    apply(pending.change, { refocus: false });
+    setSelection(sel[0], sel[0]);
+    syncToolbar();
+  });
   let cancelled = false,
     keepEmpty = false;
   const finish = (cancel) => {
@@ -11525,6 +11621,17 @@ function editText(target, event = null, { inserted = null } = {}) {
       ["insertFromDrop", "insertLink", "insertFromPaste"].includes(e.inputType)
     )
       e.preventDefault();
+    else if (caretFormat && e.inputType === "insertText" && e.data) {
+      const sel = selectionOffsets();
+      const change = caretFormatAt(sel, textOf(read().runs));
+      if (change) {
+        e.preventDefault();
+        typeFormatted(sel[0], e.data, change);
+      } else {
+        caretFormat = null;
+        remember("insert");
+      }
+    }
     // Anything else the browser types or deletes itself.
     else remember(e.inputType.startsWith("delete") ? "delete" : "insert");
   });
