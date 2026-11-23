@@ -1640,6 +1640,17 @@ puter-user-menu::part(apps-panel) {
   z-index: 3;
   pointer-events: none;
 }
+/*
+ * Comments and links outside a cropped page are not shown, and their targets must not run on
+ * past it and give the workspace room to scroll; the margin leaves focus rings at the edges.
+ */
+.highlight-targets,
+.note-targets,
+.link-targets,
+.annotation-targets {
+  overflow: clip;
+  overflow-clip-margin: 4px;
+}
 .highlight-target {
   position: absolute;
   border: 0;
