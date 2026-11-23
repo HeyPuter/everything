@@ -2190,14 +2190,30 @@ export async function parseDeck(bytes, options = {}) {
   return restoreDeck(bytes, options);
 }
 // Local drafts are produced by our serializer; external files use parseDeck.
+// A presentation saved as Strict Open XML names its parts' relationships in
+// namespaces of its own, which this editor does not read.
+const STRICT_RELATIONSHIPS = "http://purl.oclc.org/ooxml/officeDocument/";
+function isStrictPackage(pres) {
+  return !!P._internalPackageOf(pres)
+    .rootRels()
+    ?.items.some((rel) => rel.type.startsWith(STRICT_RELATIONSHIPS));
+}
 export async function restoreDeck(bytes, { prepareFonts = true } = {}) {
   let pres;
   try {
     pres = await P.loadPresentation(bytes);
+    if (isStrictPackage(pres))
+      throw Object.assign(
+        new Error(
+          "This presentation is saved in the Strict Open XML format, which can't be opened here. Save it again as a standard .pptx presentation and try again.",
+        ),
+        { strict: true },
+      );
     // Packages without slides or layouts, such as a renamed Word document,
     // cannot receive the placeholder slide and are reported as unsupported.
     if (!P.getSlides(pres).length) P.addBlankSlide(pres);
   } catch (error) {
+    if (error?.strict) throw error;
     if (error?.code === 13)
       throw new Error(
         "This PPTX file is damaged. Choose another copy of the presentation.",

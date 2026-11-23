@@ -348,6 +348,30 @@ describe("file validation", () => {
       parseDeck(zipSync({ "[Content_Types].xml": strToU8("<<<") })),
     ).rejects.toThrow("could not be opened as a PowerPoint presentation");
   });
+  it("explains a presentation saved as Strict Open XML", async () => {
+    const entries = unzipSync(await P.savePresentation(createDeck("story")));
+    // Strict files name their relationships, and their XML, in namespaces of
+    // their own.
+    for (const name of Object.keys(entries)) {
+      if (!/\.(xml|rels)$/.test(name) || name === "[Content_Types].xml")
+        continue;
+      entries[name] = strToU8(
+        new TextDecoder()
+          .decode(entries[name])
+          .replaceAll(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            "http://purl.oclc.org/ooxml/officeDocument/relationships",
+          )
+          .replaceAll(
+            "http://schemas.openxmlformats.org/presentationml/2006/main",
+            "http://purl.oclc.org/ooxml/presentationml/main",
+          ),
+      );
+    }
+    await expect(parseDeck(zipSync(entries))).rejects.toThrow(
+      "saved in the Strict Open XML format",
+    );
+  });
   it("opens decks that carry [trash] leftovers and drops them on save", async () => {
     const pres = createDeck("story");
     const entries = unzipSync(await P.savePresentation(pres));
