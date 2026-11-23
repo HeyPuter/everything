@@ -220,3 +220,19 @@ test('the Styles pane offers no Delete for a style that cannot be deleted', asyn
   await expect(page.getByRole('menuitem', { name: 'Delete Aside…' })).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+test('Format › Style… offers no Delete for a style that cannot be deleted', async ({ page }) => {
+  const { input, errors } = await blank(page, 'Chapter one\nBody text here');
+  await select(input, 'Chapter one');
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'Format', exact: true }).click();
+  await page.getByRole('menu', { name: 'Format', exact: true }).getByRole('menuitem', { name: /^Style…/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Style' });
+  const list = dialog.getByRole('listbox', { name: 'Styles' });
+  await expect(list.getByRole('option', { name: /^Normal/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+  await list.getByRole('option', { name: /^Heading 1/ }).click();
+  await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+  // Modify stays.
+  await expect(dialog.getByRole('button', { name: 'Modify…' })).toBeEnabled();
+  expect(errors).toEqual([]);
+});

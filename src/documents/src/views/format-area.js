@@ -310,7 +310,8 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     track(openStyleDialog({ current: engine.model.paragraphStyle || '', onClose: later,
       styles: () => { const m = editor()?.model; return m ? Object.values(m.styles.definitions).filter(s => ['paragraph', 'character'].includes(s.type)) : []; },
       describe: id => describeStyle(editor().model.styles, id), usage: () => styleUsage(editor().model),
-      actions: { readOnly, apply: id => { if (!applyStyle(id)) throw new Error('This document is read only.'); return true; }, modify: modifyStyle, create: newStyle, remove: removeStyle } }));
+      actions: { readOnly, apply: id => { if (!applyStyle(id)) throw new Error('This document is read only.'); return true; }, modify: modifyStyle, create: newStyle, remove: removeStyle,
+        canRemove: id => { const m = editor()?.model; return !!m && !styleDeletionBlocker(m, id); } } }));
   }
   function stylesPane(view = 'styles') {
     if (pane.visible && pane.view === view) { pane.close(); refreshChrome(); focus(); return; }
