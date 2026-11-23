@@ -1385,6 +1385,13 @@ export function createEditor({
         const move = (doc) => editAnnotation(doc, pageIndex, entry.id, { rect });
         await mutate(move, null, 'annotate', { retainScale: true });
       })(),
+    // A corner dragged resizes the comment, or a callout's text box, its point staying put.
+    onResize: (entry, key, rect) =>
+      safe(async () => {
+        await annotationTextDraft?.();
+        const resize = (doc) => editAnnotation(doc, pageIndex, entry.id, { [key]: rect });
+        await mutate(resize, null, 'annotate', { retainScale: true });
+      })(),
     onDelete: (entry) => {
       // Without permission to comment, the Delete button is disabled; the key matches it.
       if (access().annotate)

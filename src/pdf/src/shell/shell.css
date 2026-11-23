@@ -1916,6 +1916,35 @@
   outline: 2px solid var(--select);
   outline-offset: 2px;
 }
+/* The chosen comment's corners: dragging one resizes it. */
+.annotation-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1.5px solid var(--select);
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+}
+@media (pointer: coarse) {
+  .annotation-handle {
+    width: 22px;
+    height: 22px;
+  }
+}
+/* While a corner is dragged, the frame shows the new size. */
+.annotation-target.is-resizing .annotation-handle {
+  opacity: 0;
+}
+/* A callout's text box as it is resized. */
+.annotation-resize-box {
+  position: absolute;
+  border: 1.5px dashed var(--select);
+  pointer-events: none;
+}
 .annotation-props {
   display: flex;
   flex-direction: column;
