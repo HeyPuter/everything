@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument, PDFName, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, StandardFonts, degrees } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
@@ -271,6 +271,34 @@ describe('replacing and removing the layer', () => {
     const reopened = await PDFDocument.load(await doc.save());
     await addOcrTextLayer(reopened, 0, result);
     expect(await strings(reopened)).toEqual(['Visible', 'Only', 'once']);
+  });
+
+  it('recognized again on purpose, a page drops another program’s invisible text layer', async () => {
+    // Another program's OCR layer: invisible text (render mode 3). Text that clips stays.
+    const withOldLayer = async () => {
+      const doc = await PDFDocument.create();
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const page = doc.addPage([612, 792]);
+      page.drawText('Visible', { x: 300, y: 300, size: 12, font });
+      const name = page.node.Resources().lookup(PDFName.of('Font')).keys()[0].decodeText();
+      page.node.addContentStream(
+        doc.context.register(
+          doc.context.flateStream(
+            `BT /${name} 12 Tf 3 Tr 100 600 Td (Older words) Tj ET ` +
+              `BT /${name} 12 Tf 7 Tr 100 500 Td (Clip) Tj ET`,
+          ),
+        ),
+      );
+      return doc;
+    };
+    const doc = await withOldLayer();
+    expect(await strings(doc)).toEqual(['Visible', 'Older words', 'Clip']);
+    await addOcrTextLayer(doc, 0, result, { replaceInvisible: true });
+    expect(await strings(doc)).toEqual(['Visible', 'Clip', 'Only', 'once']);
+    // Unless asked, another program's layer is left alone.
+    const kept = await withOldLayer();
+    await addOcrTextLayer(kept, 0, result);
+    expect(await strings(kept)).toEqual(['Visible', 'Older words', 'Clip', 'Only', 'once']);
   });
 
   it('tags text recognized again with marked-content IDs the old tags do not hold', async () => {

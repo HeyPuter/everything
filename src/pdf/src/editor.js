@@ -13582,7 +13582,9 @@ export function createEditor({
       busy = false;
       await mutate(
         async (doc) => {
-          for (const { index, result } of results) await addOcrTextLayer(doc, index, result);
+          // Recognized again on purpose, a page keeps one text layer: the new one.
+          for (const { index, result } of results)
+            await addOcrTextLayer(doc, index, result, { replaceInvisible: !skipText });
         },
         `Recognized ${words.toLocaleString()} ${words === 1 ? 'word' : 'words'} on ${results.length} ${results.length === 1 ? 'page' : 'pages'}. The text can now be searched and selected.`,
       );

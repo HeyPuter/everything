@@ -13,6 +13,7 @@ import { PDFArray, PDFDict, PDFName, PDFStream } from 'pdf-lib';
 import { assertSupportedText, embedFont, visibleBox } from './document.js';
 import { pageRotation, pageUserUnit } from './structure.js';
 import { pageSource, parseContent, setPageSource } from './text-edit.js';
+import { contentReport, filterContent } from './content-filter.js';
 
 /** Marked-content tag and stream-dictionary key that identify a layer this app wrote. */
 export const OCR_TAG = 'PuterOCR';
@@ -168,7 +169,9 @@ const num = (n) => {
  * Write `result` (see the module comment) onto page `pageIndex` as an invisible, searchable
  * text layer. `imageWidth`/`imageHeight` (default `result.width`/`result.height`) are the size
  * of the image OCR ran on, or give `renderScale`, the PDF.js viewport scale it was rendered at.
- * An earlier layer from this app is removed first unless `replaceExisting` is false.
+ * An earlier layer from this app is removed first unless `replaceExisting` is false; with
+ * `replaceInvisible`, so is any other invisible text on the page, such as another program's
+ * OCR layer, which recognizing the page again would otherwise leave beside the new one.
  * Returns the number of words and lines written.
  */
 export async function addOcrTextLayer(
@@ -180,11 +183,13 @@ export async function addOcrTextLayer(
     imageHeight = result?.height,
     renderScale,
     replaceExisting = true,
+    replaceInvisible = false,
   } = {},
 ) {
   const page = doc.getPage(pageIndex);
   const frame = imageFrame(page, { imageWidth, imageHeight, renderScale });
   if (replaceExisting) removeOcrTextLayer(doc, pageIndex);
+  if (replaceInvisible) await removeInvisibleText(doc, page);
   const font = await embedFont(doc);
   const space = metrics(font, ' ').advance;
   const [ax, ay] = frame.along,
@@ -364,4 +369,32 @@ export function removeOcrTextLayer(doc, pageIndex) {
     for (const key of fonts.keys())
       if (key.asString().startsWith(`/${OCR_TAG}-`)) fonts.delete(key);
   return removed;
+}
+
+/**
+ * Take the text drawn in render mode 3 (invisible: written to be searched, not seen) off a
+ * page, as another program's OCR layer is. Text that clips (modes 4 to 7) stays. Returns
+ * whether anything went; a page whose content cannot be read keeps it.
+ */
+async function removeInvisibleText(doc, page) {
+  let result;
+  try {
+    result = await filterContent(doc, {
+      source: pageSource(page),
+      resources: page.node.Resources(),
+      policy: {
+        glyph: (quad, { mode }) => mode === 3,
+        form: () => 'descend',
+        formFailed: () => 'keep',
+      },
+      report: contentReport(),
+      memo: new Map(),
+    });
+  } catch {
+    return false;
+  }
+  if (!result.changed) return false;
+  if (result.resources) page.node.set(RESOURCES, result.resources);
+  setPageSource(doc, page, result.source);
+  return true;
 }
