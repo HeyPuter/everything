@@ -17,6 +17,8 @@
 
 import {
   type ContentTypes,
+  contentTypeForFormat,
+  detectImageFormat,
   type PartName,
   type Relationships,
   type ZipEntry,
@@ -134,6 +136,14 @@ export class OpcPackage {
       if (entry.name.endsWith("/")) continue;
       // Readers ignore deleted parts stored without content types here.
       if (/^\/?\[trash\]\//i.test(entry.name)) continue;
+      // A package unpacked and zipped again on a desktop picks up the
+      // system's own files (macOS resource forks and folder settings,
+      // Windows thumbnail caches). They are not parts of the presentation.
+      if (
+        /^__MACOSX\//i.test(entry.name) ||
+        /(?:^|\/)(?:\.DS_Store|Thumbs\.db|desktop\.ini)$/i.test(entry.name)
+      )
+        continue;
       const name = fromZipPath(entry.name);
       parts.push({
         name,
@@ -147,11 +157,14 @@ export class OpcPackage {
     }
 
     for (const part of parts) {
-      const ct = lookupContentType(contentTypes, part.name);
+      let ct = lookupContentType(contentTypes, part.name);
       if (ct === null) {
-        throw new Error(
-          `part "${part.name}" has no content type registered in [Content_Types].xml`,
-        );
+        // A part the map does not cover (a picture saved as `.jfif`, say)
+        // is kept, as readers repair such packages, under the type its bytes
+        // show, and the map written back covers it.
+        const format = detectImageFormat(part.data);
+        ct = format ? contentTypeForFormat(format) : "application/octet-stream";
+        contentTypes.overrides.push({ partName: part.name, contentType: ct });
       }
       part.contentType = ct;
     }

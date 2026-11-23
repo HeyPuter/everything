@@ -37,6 +37,12 @@ import {
   listOf,
   SOFT_BREAK,
 } from "../src/model.js";
+const PNG_PIXEL = new Uint8Array(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+    "base64",
+  ),
+);
 describe(".pptx interoperability", () => {
   it("keeps text pasted with control characters, as a file that opens", async () => {
     const pres = createDeck("blank");
@@ -354,12 +360,71 @@ describe("file validation", () => {
         /trash/i.test(name),
       ),
     ).toBe(false);
-    // Any other part without a content type is still a damaged package.
-    delete entries["[trash]/0000.dat"];
-    entries["extra/0000.dat"] = new Uint8Array(8);
-    await expect(parseDeck(zipSync(entries))).rejects.toThrow(
-      "could not be opened as a PowerPoint presentation",
+  });
+  it("opens decks zipped again on a desktop, leaving the system's files out", async () => {
+    const pres = createDeck("story");
+    const entries = unzipSync(await P.savePresentation(pres));
+    entries[".DS_Store"] = new Uint8Array([0, 0, 0, 1, 66, 117, 100, 49]);
+    entries["ppt/.DS_Store"] = new Uint8Array(16);
+    entries["__MACOSX/ppt/slides/._slide1.xml"] = new Uint8Array([0, 5, 22, 7]);
+    entries["ppt/media/Thumbs.db"] = new Uint8Array(8);
+    const loaded = await parseDeck(zipSync(entries));
+    expect(P.getSlides(loaded).map(P.getSlideText)).toEqual(
+      P.getSlides(pres).map(P.getSlideText),
     );
+    const saved = Object.keys(unzipSync(await P.savePresentation(loaded)));
+    expect(saved.filter((name) => /DS_Store|MACOSX|Thumbs/.test(name))).toEqual(
+      [],
+    );
+  });
+  it("keeps a part its content types do not cover, and covers it on save", async () => {
+    const pres = createDeck("story");
+    const slide = P.getSlides(pres)[0];
+    P.addSlideImage(slide, PNG_PIXEL, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(1),
+      h: P.inches(1),
+    });
+    const entries = unzipSync(await P.savePresentation(pres));
+    // A picture saved under an extension the map has no default for.
+    const media = Object.keys(entries).find((n) => n.startsWith("ppt/media/"));
+    const renamed = media.replace(/\.png$/, ".jfif");
+    entries[renamed] = entries[media];
+    delete entries[media];
+    const relsName = "ppt/slides/_rels/slide1.xml.rels";
+    const leaf = media.split("/").pop();
+    entries[relsName] = strToU8(
+      new TextDecoder()
+        .decode(entries[relsName])
+        .replace(leaf, renamed.split("/").pop()),
+    );
+    entries["[Content_Types].xml"] = strToU8(
+      new TextDecoder()
+        .decode(entries["[Content_Types].xml"])
+        .replace(/<Default Extension="png"[^>]*\/>/, ""),
+    );
+    entries["extra/0000.dat"] = new Uint8Array(8).fill(3);
+    const loaded = await parseDeck(zipSync(entries));
+    const picture = P.getSlideShapes(P.getSlides(loaded)[0]).find(
+      (shape) => P.getShapeKind(shape) === "picture",
+    );
+    expect(Buffer.from(P.getShapeImageBytes(picture))).toEqual(
+      Buffer.from(PNG_PIXEL),
+    );
+    const saved = unzipSync(await P.savePresentation(loaded));
+    expect(saved[renamed]).toEqual(entries[renamed]);
+    expect(saved["extra/0000.dat"]).toEqual(entries["extra/0000.dat"]);
+    const types = new TextDecoder().decode(saved["[Content_Types].xml"]);
+    expect(types).toContain(
+      `<Override PartName="/${renamed}" ContentType="image/png"/>`,
+    );
+    expect(types).toContain(
+      '<Override PartName="/extra/0000.dat" ContentType="application/octet-stream"/>',
+    );
+    // The file written opens again as it is.
+    const again = await parseDeck(zipSync(saved));
+    expect(P.getSlides(again)).toHaveLength(P.getSlides(pres).length);
   });
   it("preserves large deflated parts whose declared sizes are correct", async () => {
     const pres = createDeck();
