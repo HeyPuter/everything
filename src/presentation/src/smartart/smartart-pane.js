@@ -8,6 +8,7 @@ import {
   indentLine,
   joinWithPrevious,
   normalize,
+  pasteLines,
   splitItem,
 } from "./outline.js";
 
@@ -120,6 +121,21 @@ export function openTextPane({
               schedule();
             },
             onkeydown: (e) => key(e, i),
+            // Lines pasted from a list become items of their own: the
+            // field alone would run them together on one line.
+            onpaste: (e) => {
+              const input = e.currentTarget;
+              const result = pasteLines(
+                items,
+                i,
+                input.selectionStart ?? input.value.length,
+                input.selectionEnd ?? input.value.length,
+                e.clipboardData?.getData("text/plain"),
+              );
+              if (!result) return;
+              e.preventDefault();
+              change(result);
+            },
           }),
         ),
       ),

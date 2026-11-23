@@ -156,6 +156,45 @@ export function indentLine(items, i, delta) {
   return { items: normalize(out), index: i };
 }
 
+// Pasting several lines into an item: the first line goes in at the caret
+// (over the selection, from `start` to `end`) and each further line becomes
+// an item of its own, the last one taking the text that followed the caret.
+// Lines indented by tabs or spaces sit that many levels deeper than the
+// first; blank lines and leading bullet marks are left out. Null when the
+// text holds no line break.
+export function pasteLines(items, i, start, end, text) {
+  const lines = String(text ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  if (lines.length < 2 || !items[i]) return null;
+  const kept = lines.filter((l) => l.trim() !== "");
+  if (!kept.length) kept.push("");
+  const lead = (l) => /^[\t ]*/.exec(l)[0];
+  const spaces = kept
+    .map((l) => lead(l).replace(/\t/g, "").length)
+    .filter((n) => n > 0);
+  const unit = spaces.length ? Math.min(...spaces) : 4;
+  const depth = (l) => {
+    const ws = lead(l);
+    const tabs = ws.length - ws.replace(/\t/g, "").length;
+    return tabs + Math.round((ws.length - tabs) / unit);
+  };
+  const clean = (l) => l.trim().replace(/^(?:[•◦▪‣·]|[-*–](?=\s))\s*/u, "");
+  const item = items[i];
+  const base = depth(kept[0]);
+  const added = kept.map((l) => ({
+    text: clean(l),
+    level: Math.max(0, item.level + depth(l) - base),
+  }));
+  const last = added.length - 1;
+  added[0].text = item.text.slice(0, start) + added[0].text;
+  const caret = added[last].text.length;
+  added[last].text += item.text.slice(end);
+  const out = copy(items);
+  out.splice(i, 1, ...added);
+  return { items: normalize(out), index: i + last, caret };
+}
+
 // Paragraphs of a bulleted text box, as outline items.
 export function itemsFromParagraphs(paragraphs) {
   return normalize(
