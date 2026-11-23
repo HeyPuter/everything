@@ -5,6 +5,8 @@ import {
   addShapeAnnotation,
   deleteAnnotation,
   editAnnotation,
+  exportXfdf,
+  importXfdf,
   listAnnotations,
 } from '../src/core/annotations.js';
 import { addNote, editNote, listNotes } from '../src/core/notes.js';
@@ -82,4 +84,17 @@ it('deletes direct comments by ID, and by the dictionary as redaction names them
   expect(listHighlights(doc, 0)).toEqual([]);
   editNote(doc, 0, 'direct:0', { remove: true });
   expect(page.node.Annots().size()).toBe(0);
+});
+
+it('takes a direct comment as already there when its comments file is imported again', async () => {
+  const doc = await directPdf();
+  const xfdf = exportXfdf(doc);
+  const nm = /<square [^>]*name="([^"]+)"/.exec(xfdf)[1];
+  // A reply to it from another reviewer's file finds it.
+  const reply = `<text page="0" rect="0,0,20,20" name="reply-1" inreplyto="${nm}"><contents>Agreed</contents></text>`;
+  const result = await importXfdf(doc, xfdf.replace('</annots>', `${reply}</annots>`));
+  expect(result).toMatchObject({ imported: 1, replies: 1, duplicates: 3 });
+  const entry = box(doc);
+  expect(entry.replies.map((item) => item.contents)).toEqual(['Agreed']);
+  expect(listAnnotations(doc, 0)).toHaveLength(3);
 });
