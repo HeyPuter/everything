@@ -17525,6 +17525,7 @@ async function present(options = {}) {
         "aria-label": `Play the effects of ${name}`,
         onclick: (e) => {
           e.stopPropagation();
+          settle();
           animator?.playTrigger(shapeId);
         },
       });
@@ -17637,6 +17638,7 @@ async function present(options = {}) {
   }
   function advance(auto = false) {
     unblank();
+    settle();
     if (!ended && animator?.next()) {
       syncPrevious();
       session?.stepped(1);
@@ -17711,6 +17713,7 @@ async function present(options = {}) {
   }
   function showPrevious() {
     unblank();
+    settle();
     if (!ended && animator?.previous()) {
       syncPrevious();
       session?.stepped(-1);
@@ -17734,6 +17737,15 @@ async function present(options = {}) {
   function clearTransition() {
     playing?.cancel();
     playing = null;
+  }
+  // Starts the slide's animations once its transition is over.
+  let beginSlide = null;
+  // A click or a trigger during the transition ends it at once, and the
+  // slide begins, so the click plays its step rather than being lost.
+  function settle() {
+    if (!beginSlide) return;
+    clearTransition();
+    beginSlide();
   }
   // `step` marks a plain advance ("click", or "auto" from the timer), as
   // opposed to a jump to a slide.
@@ -17860,13 +17872,17 @@ async function present(options = {}) {
     }
     if (!atEnd) {
       const playing = animator;
-      Promise.resolve(readiness).then(() => {
+      const begin = () => {
+        if (beginSlide !== begin) return;
+        beginSlide = null;
         if (animator !== playing) return;
         playing.start();
         session?.stepped(0);
         armStep();
-      });
-    }
+      };
+      beginSlide = begin;
+      Promise.resolve(readiness).then(begin);
+    } else beginSlide = null;
     placeLinks(all[n]);
     showInserted.slideShown(all[n], n);
     placeTriggers();

@@ -708,3 +708,41 @@ test("a morph leaves out objects still to come on the slide", async ({
   });
   expect(color).toBe("plain");
 });
+
+test("a click during a transition ends it and plays the slide's next step", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const second = P.addBlankSlide(pres);
+  const effects = [
+    shape(second, 5, 3, 3, 2, "#cc2222"),
+    shape(second, 1, 1, 2, 1, "#2222cc"),
+  ].map((box) => ({
+    shapeId: String(P.getShapeId(box)),
+    presetClass: "entr",
+    presetId: 10,
+    presetSubtype: 0,
+    start: "click",
+    delayMs: 0,
+    durationMs: 100,
+  }));
+  P.setSlideAnimations(second, effects);
+  P.setSlideTransition(second, { effect: "fade", durationMs: 5000 });
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 2");
+  const overlay = page.locator(".presenter .slide-transition");
+  await expect(overlay).toHaveCount(1);
+  await page.keyboard.press("ArrowRight");
+  // The transition ends at once and the first box comes in, to stay.
+  await expect(overlay).toHaveCount(0);
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false]);
+  await page.waitForTimeout(500);
+  expect(await visibleLayers(page)).toEqual([true, false]);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, true]);
+  await expect(counter).toHaveText("2 / 2");
+});
