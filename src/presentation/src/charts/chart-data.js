@@ -780,7 +780,7 @@ export function gridToSpec(grid, spec) {
     );
     const series = [];
     for (let c = 0; c < count; c++) {
-      const prior = spec.series[c] || {};
+      const prior = spec.series[c] || plotOf(spec.series.at(-1));
       series.push({
         ...prior,
         name: names[c] || `Series ${c + 1}`,
@@ -1055,13 +1055,21 @@ export function deleteColumn(grid, at) {
 // the definition returned with the grid lines the other series' formatting
 // up with their columns again, as gridToSpec pairs them by position.
 const seriesStep = (spec) => (gridLayout(spec) === "bubble" ? 2 : 1);
+// A series added to a combination chart is plotted as the series beside it
+// is (its kind and axis). The file keeps each kind's series together, so a
+// column series typed in after the line series would read back before it,
+// and the data sheet's columns would swap under the typing.
+const plotOf = (series) => ({
+  ...(series?.chartKind ? { chartKind: series.chartKind } : {}),
+  ...(series?.secondaryAxis ? { secondaryAxis: true } : {}),
+});
 export function insertSeriesColumn(grid, spec, at) {
   const step = seriesStep(spec);
   const index = Math.floor((Math.max(1, at) - 1) / step);
   let out = grid;
   for (let k = 0; k < step; k++) out = insertColumn(out, 1 + index * step);
   const series = [...spec.series];
-  if (index < series.length) series.splice(index, 0, {});
+  if (index < series.length) series.splice(index, 0, plotOf(series[index]));
   return { grid: out, spec: { ...spec, series } };
 }
 export function deleteSeriesColumn(grid, spec, at) {

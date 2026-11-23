@@ -149,6 +149,40 @@ describe("data sheet grid", () => {
     expect(next.series[2].values).toEqual(spec.series[1].values);
   });
 
+  it("keeps a combination chart's data sheet columns in place when a series is added", async () => {
+    const spec = sampleSpec("combo-column-line");
+    // A series typed in after the line series.
+    const typed = specToGrid(spec).map((row, r) => [
+      ...row,
+      r === 0 ? "New" : String(r),
+    ]);
+    let next = gridToSpec(typed, spec);
+    expect(specToGrid(await roundTrip(next))).toEqual(specToGrid(next));
+    expect(specToGrid(await roundTrip(next))[0]).toEqual([
+      "",
+      "Series 1",
+      "Series 2",
+      "Series 3",
+      "New",
+    ]);
+    // A column inserted among the line series.
+    const wide = comboSpec(spec, [
+      { kind: "column" },
+      { kind: "line" },
+      { kind: "line", secondary: true },
+    ]);
+    const { grid, spec: prior } = insertSeriesColumn(specToGrid(wide), wide, 3);
+    grid[0][3] = "Inserted";
+    next = gridToSpec(grid, prior);
+    expect(specToGrid(await roundTrip(next))[0]).toEqual([
+      "",
+      "Series 1",
+      "Series 2",
+      "Inserted",
+      "Series 3",
+    ]);
+  });
+
   it("adds and deletes a bubble series with its size column", () => {
     const spec = sampleSpec("bubble");
     let { grid, spec: prior } = insertSeriesColumn(specToGrid(spec), spec, 2);
