@@ -49,6 +49,19 @@ const relativeTarget = (from: PartName, to: PartName): string => {
   return [...a.slice(i).map(() => ".."), ...b.slice(i)].join("/");
 };
 
+// A part name with its percent-encoded characters spelled out, in lower
+// case: the two spellings of one name compare equal.
+const spelling = (name: string): string =>
+  name
+    .replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+      try {
+        return decodeURIComponent(run);
+      } catch {
+        return run;
+      }
+    })
+    .toLowerCase();
+
 const targetOf = (from: PartName | "/", target: string): PartName | null => {
   try {
     return resolveTarget(from, target);
@@ -97,7 +110,10 @@ const repairRootRels = (pkg: OpcPackage): boolean => {
  * relationships, a theme, a slide layout. A missing theme becomes the
  * default theme; a missing layout a master lists becomes a blank one under
  * that master; a slide whose layout is missing and listed by no master uses
- * its master's first layout. True when anything was repaired.
+ * its master's first layout. A relationship that spells a part's name
+ * percent-encoded where the archive spells it out, or the other way round,
+ * leads to the part as the archive spells it. True when anything was
+ * repaired.
  */
 export const repairPackage = (pres: PresentationData): boolean => {
   const pkg = pres[INTERNAL_PACKAGE];
@@ -117,6 +133,30 @@ export const repairPackage = (pres: PresentationData): boolean => {
     const name = targetOf(owner, target);
     return name && !pkg.getPart(name) ? name : null;
   };
+  // A name outside ASCII can be spelled out ("图.png") or percent-encoded
+  // ("%E5%9B%BE.png"), and the two name the same part. A relationship that
+  // spells it the other way from the archive leads to the part as it is
+  // spelled there.
+  const spelled = new Map<string, PartName>();
+  for (const p of pkg.parts)
+    if (/[^\x00-\x7f]|%[89a-f]/i.test(p.name))
+      spelled.set(spelling(p.name), p.name);
+  if (spelled.size)
+    for (const { owner, rels } of owners) {
+      let fixed = false;
+      for (const rel of rels.items) {
+        if (rel.targetMode === "External") continue;
+        const name = missing(owner, rel.target);
+        const actual = name && spelled.get(spelling(name));
+        if (!actual) continue;
+        rel.target = relativeTarget(owner, actual);
+        fixed = true;
+      }
+      if (fixed) {
+        pkg.setRels(owner, rels);
+        changed = true;
+      }
+    }
   // Themes, and the layouts a master lists.
   for (const { owner, rels } of owners) {
     for (const rel of rels.items) {

@@ -872,6 +872,66 @@ describe("file validation", () => {
     // A whole presentation is left as it is.
     expect(P.repairPackage(createDeck("story"))).toBe(false);
   });
+  it.each([
+    [false, true],
+    [true, false],
+  ])(
+    "shows a picture whose name the file spells two ways (archive encoded: %s)",
+    async (archiveEncoded, targetEncoded) => {
+      const png = new Uint8Array(
+        Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+          "base64",
+        ),
+      );
+      const pres = createDeck("story");
+      P.addSlideImage(P.getSlides(pres)[0], png, {
+        x: 0,
+        y: 0,
+        w: P.inches(1),
+        h: P.inches(1),
+      });
+      const entries = unzipSync(await P.savePresentation(pres));
+      const old = Object.keys(entries).find((n) => n.startsWith("ppt/media/"));
+      const raw = "图片 é.png";
+      const spell = (encoded) => (encoded ? encodeURIComponent(raw) : raw);
+      entries[`ppt/media/${spell(archiveEncoded)}`] = entries[old];
+      delete entries[old];
+      const rels = "ppt/slides/_rels/slide1.xml.rels";
+      entries[rels] = strToU8(
+        new TextDecoder()
+          .decode(entries[rels])
+          .replace(`../${old.slice(4)}`, `../media/${spell(targetEncoded)}`),
+      );
+      const types = "[Content_Types].xml";
+      entries[types] = strToU8(
+        new TextDecoder()
+          .decode(entries[types])
+          .replace(/<Override PartName="\/ppt\/media\/[^"]*"[^>]*\/>/g, "")
+          .replace(
+            "</Types>",
+            '<Default Extension="png" ContentType="image/png"/></Types>',
+          ),
+      );
+      const picture = async (bytes) =>
+        P.getShapeImageBytes(
+          P.getSlideShapes(P.getSlides(await parseDeck(bytes))[0]).find(
+            (s) => P.getShapeKind(s) === "picture",
+          ),
+        );
+      const opened = await parseDeck(zipSync(entries));
+      expect(
+        P.getShapeImageBytes(
+          P.getSlideShapes(P.getSlides(opened)[0]).find(
+            (s) => P.getShapeKind(s) === "picture",
+          ),
+        ),
+      ).toEqual(png);
+      // Deleting another slide does not take the picture for unused.
+      removeSlides(opened, [P.getSlides(opened)[1]]);
+      expect(await picture(await P.savePresentation(opened))).toEqual(png);
+    },
+  );
   it("normalizes file names without allowing path traversal", () => {
     expect(cleanName("../a\\b\u0000.pptx")).toBe(".. a b");
     expect(cleanName("")).toBe("Untitled presentation");
