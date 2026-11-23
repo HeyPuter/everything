@@ -4,7 +4,7 @@
 // rehearsed timings and recordings.
 import "./show.css";
 import "./icons.js";
-import { el, dialog, toast } from "../ui.js";
+import { el, dialog, toast, ALT_KEY } from "../ui.js";
 import {
   showPrefs,
   SPOKEN_LANGUAGES,
@@ -570,7 +570,7 @@ export function createShowFeatures(ctx) {
       {
         label: "Presenter View",
         icon: "o:presenterView",
-        shortcut: "Alt+F5",
+        shortcut: `${ALT_KEY}+F5`,
         onSelect: run(presenterView),
       },
       {

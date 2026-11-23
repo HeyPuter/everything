@@ -1358,7 +1358,7 @@ export function buildTabs(api) {
             id: "presenter-view",
             label: "Presenter\nView",
             icon: "presenterView",
-            title: "Presenter View (Alt+F5)",
+            title: `Presenter View (${api.modKey === "⌘" ? "⌥" : "Alt"}+F5)`,
             description:
               "Present with your notes, the next slide, a timer and tools on your screen while the audience sees only the slide.",
             visible: () => !!api.presenterView,

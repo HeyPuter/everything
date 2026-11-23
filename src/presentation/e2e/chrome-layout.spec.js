@@ -201,7 +201,14 @@ test("menu shortcuts are written one way on a Mac", async ({ page }, info) => {
   expect(await page.evaluate(() => navigator.platform)).toMatch(/Mac/);
   await page.locator("#slide-canvas .object-hit").first().click();
   const shortcuts = [];
-  for (const name of ["Edit", "View", "Format", "Arrange", "Tools"]) {
+  for (const name of [
+    "Edit",
+    "View",
+    "Format",
+    "Arrange",
+    "Tools",
+    "Slide Show",
+  ]) {
     await page
       .getByRole("menubar")
       .getByRole("menuitem", { name, exact: true })
@@ -213,6 +220,7 @@ test("menu shortcuts are written one way on a Mac", async ({ page }, info) => {
   }
   expect(shortcuts).toContain("⌘+⌥+G");
   expect(shortcuts).toContain("⌘+T");
+  expect(shortcuts).toContain("⌥+F5");
   expect(shortcuts.filter((s) => /Alt|[⌘⌥⌃⇧](?!\+)/.test(s))).toEqual([]);
 });
 
