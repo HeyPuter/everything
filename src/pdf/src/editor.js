@@ -1720,6 +1720,7 @@ export function createEditor({
         textSize = Number(e.target.value);
         if (textEdit) {
           textEdit.size = textSize / textEdit.physicalScale;
+          textEdit.sizeControl?.sync();
           layoutTextEdit();
           updateStatus();
         }
@@ -2761,6 +2762,7 @@ export function createEditor({
       textEdit &&
       (textEdit.positionControl?.pending ||
         textEdit.widthControl?.pending ||
+        textEdit.sizeControl?.pending ||
         drawnText(textEdit, textEdit.input.value) !== (textEdit.run?.text || '') ||
         (textEdit.run?.parts &&
           JSON.stringify(drawnSegments(textEdit, textEdit.input.segments())) !==
@@ -5730,6 +5732,67 @@ export function createEditor({
     const target = run && textTargetOf.get(run);
     if (target?.isConnected) target.focus({ preventScroll: true });
   }
+  /**
+   * Show `size` (points) in the Text size list. The list offers the usual sizes and this one: the
+   * odd sizes of text selected before (9.26 pt, 13.55 pt…) leave it rather than pile up.
+   */
+  function showTextSize(size) {
+    for (const option of sizeInput.querySelectorAll('option[data-text-size]'))
+      if (Number(option.value) !== size) option.remove();
+    if (![...sizeInput.options].some((option) => Number(option.value) === size)) {
+      const larger = [...sizeInput.options].find((option) => Number(option.value) > size);
+      sizeInput.insertBefore(
+        el('option', { value: size, 'data-text-size': '' }, `${size} pt`),
+        larger || null,
+      );
+    }
+    sizeInput.value = String(size);
+  }
+  /**
+   * A field in the text's properties that takes any size typed, such as 14 pt, where the Text
+   * size list offers only the usual ones. Both show the size the text has.
+   */
+  function textSizeControl(edit) {
+    const current = () => Number((edit.size * edit.physicalScale).toFixed(2));
+    const field = el('input', {
+      type: 'number',
+      step: 'any',
+      required: true,
+      // Text smaller or larger than the usual range still opens as it is.
+      min: String(Math.min(1, current())),
+      max: String(Math.max(1000, current())),
+      'aria-label': 'Font size in points',
+      title: 'Type any size in points, such as 14.',
+    });
+    let shown;
+    const sync = () => {
+      if (document.activeElement === field) return;
+      shown = String(current());
+      field.value = shown;
+    };
+    field.oninput = updateStatus;
+    field.onchange = () => {
+      if (!field.checkValidity() || textEdit !== edit) return;
+      textSize = Number(field.value);
+      edit.size = textSize / edit.physicalScale;
+      showTextSize(textSize);
+      shown = field.value;
+      layoutTextEdit();
+      updateStatus();
+    };
+    sync();
+    return {
+      root: el('div', { class: 'text-position-controls' }, el('label', {}, 'Size', field, 'pt')),
+      sync,
+      get pending() {
+        return field.value !== shown;
+      },
+      validate: () => {
+        if (!field.reportValidity())
+          throw new Error(`Choose a text size from ${field.min} to ${field.max} pt.`);
+      },
+    };
+  }
   async function checkpointText(edit) {
     // Typing remains one native undo session. Object drags are individual document edits.
     if (textEdit !== edit || edit.editing || !pendingTextEdit()) return;
@@ -6022,6 +6085,7 @@ export function createEditor({
       if (edit.panel.contains(field) && field.matches('input')) field.blur();
       edit.positionControl.validate();
       edit.widthControl?.validate();
+      edit.sizeControl?.validate();
       if (hasCjkText(edit.input.value)) {
         await loadDraftCjkFaces(edit);
         if (textEdit !== edit) return;
@@ -6303,6 +6367,8 @@ export function createEditor({
     const edit = textEdit;
     applyDraftStyle(edit);
     syncStyleButtons();
+    edit.sizeControl = textSizeControl(edit);
+    panel.prepend(edit.sizeControl.root);
     if (run?.paragraph) {
       edit.widthScale =
         Math.hypot(run.transform[0], run.transform[1]) /
@@ -6394,18 +6460,7 @@ export function createEditor({
     startTextPreview(edit);
     if (run) {
       const physicalSize = Number((textEdit.size * textEdit.physicalScale).toFixed(2));
-      // The list offers the usual sizes and this text's own: the odd sizes of text selected
-      // before (9.26 pt, 13.55 pt…) leave it rather than pile up.
-      for (const option of sizeInput.querySelectorAll('option[data-text-size]'))
-        if (Number(option.value) !== physicalSize) option.remove();
-      if (![...sizeInput.options].some((option) => Number(option.value) === physicalSize)) {
-        const larger = [...sizeInput.options].find((option) => Number(option.value) > physicalSize);
-        sizeInput.insertBefore(
-          el('option', { value: physicalSize, 'data-text-size': '' }, `${physicalSize} pt`),
-          larger || null,
-        );
-      }
-      sizeInput.value = String(physicalSize);
+      showTextSize(physicalSize);
       textSize = physicalSize;
       colorInput.value = /^#[0-9a-f]{6}$/i.test(textEdit.hex) ? textEdit.hex : '#111111';
       color = colorInput.value;

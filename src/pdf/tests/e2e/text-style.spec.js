@@ -358,3 +358,57 @@ test('the Text size list offers the usual sizes and only the selected text’s o
   await expect(sizes).toHaveValue('9.5');
   expect(await offered()).toBe('9.5 10 12 16 20 24 32 48');
 });
+
+test('a typed text size such as 14 pt sets existing and new text, and the list follows it', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([400, 400]).drawText('Sized text', { x: 40, y: 300, size: 9.5, font });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit text: Sized text', exact: true }).click();
+  const field = page.getByLabel('Font size in points', { exact: true });
+  const list = page.getByLabel('Text size', { exact: true });
+  await expect(field).toHaveValue('9.5');
+  await field.fill('14');
+  await field.press('Tab');
+  await expect(list).toHaveValue('14');
+  await clickAway(page);
+  await settled(page);
+  await page.getByRole('button', { name: 'Edit text: Sized text', exact: true }).click();
+  await expect(field).toHaveValue('14');
+  // A size chosen from the list shows in the field too.
+  await list.selectOption('20');
+  await expect(field).toHaveValue('20');
+  await page.keyboard.press('Escape');
+  await settled(page);
+  // New text takes a typed size as well.
+  await page.getByRole('button', { name: 'Place at page center', exact: true }).click();
+  await field.fill('11');
+  await field.press('Tab');
+  await page.getByLabel('Text to add', { exact: true }).fill('Eleven');
+  await clickAway(page);
+  await settled(page);
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(await readFile(await (await pending).path())),
+    standardFontDataUrl: new URL('../../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)
+      .pathname,
+  });
+  try {
+    const items = (await (await (await task.promise).getPage(1)).getTextContent()).items;
+    const size = (text) => {
+      const item = items.find((i) => i.str === text);
+      return Math.hypot(item.transform[2], item.transform[3]);
+    };
+    expect(size('Sized text')).toBeCloseTo(14, 1);
+    expect(size('Eleven')).toBeCloseTo(11, 1);
+  } finally {
+    await task.destroy();
+  }
+});
