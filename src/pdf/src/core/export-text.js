@@ -6,6 +6,7 @@
  *   writeRtf(model) -> string   paragraphs, headings, tables, pictures and per-page sections
  */
 import { xml } from './ooxml-zip.js';
+import { linkStretches } from './export-layout.js';
 
 const plain = (runs) => runs.map((r) => (r.tab ? '\t' : r.text)).join('');
 
@@ -106,6 +107,16 @@ const base64 = (bytes) => {
 };
 
 function htmlRuns(runs, body) {
+  // Web links of the PDF stay links.
+  return linkStretches(runs)
+    .map(({ link, runs }) => {
+      const content = htmlRunList(runs, body);
+      return link && content ? `<a href="${xml(link)}">${content}</a>` : content;
+    })
+    .join('');
+}
+
+function htmlRunList(runs, body) {
   return runs
     .map((run) => {
       if (run.tab) return '<span class="tab">\t</span>';
@@ -279,6 +290,16 @@ export function writeRtf(model) {
   };
   const tw = (pt) => Math.round(pt * 20);
   const runs = (list) =>
+    linkStretches(list)
+      .map(({ link, runs: stretch }) => {
+        const content = plainRuns(stretch);
+        // A web link of the PDF is a HYPERLINK field, as Word writes one.
+        return link && content
+          ? `{\\field{\\*\\fldinst{HYPERLINK "${rtfText(link).replace(/"/g, '%22')}"}}{\\fldrslt{${content}}}}`
+          : content;
+      })
+      .join('');
+  const plainRuns = (list) =>
     list
       .map((r) => {
         if (r.tab) return '\\tab ';

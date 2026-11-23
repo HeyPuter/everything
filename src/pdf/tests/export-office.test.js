@@ -1480,3 +1480,49 @@ it('lets go of each exported page’s decoded pictures once the page is read', a
     await loading.destroy();
   }
 });
+
+it('keeps the PDF’s web links as links in web pages, Word documents and rich text', async () => {
+  // Links were dropped: "example.com" came out as plain words that could not be followed.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([400, 300]);
+  const before = 'Read the guide at ',
+    linked = 'example.com',
+    after = ' for details.';
+  page.drawText(before + linked + after, { x: 40, y: 200, size: 12, font });
+  const x0 = 40 + font.widthOfTextAtSize(before, 12),
+    x1 = x0 + font.widthOfTextAtSize(linked, 12);
+  page.drawText('A line without a link.', { x: 40, y: 150, size: 12, font });
+  const link = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [x0, 196, x1, 212],
+      Border: [0, 0, 0],
+      A: { S: 'URI', URI: PDFString.of('https://example.com/guide?a=1&b=2') },
+    }),
+  );
+  page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  try {
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    expect(html).toContain(
+      'Read the guide at <a href="https://example.com/guide?a=1&amp;b=2">example.com</a> for details.',
+    );
+    expect(html.match(/<a /g)).toHaveLength(1);
+    const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+    const body = new TextDecoder().decode(files['word/document.xml']);
+    const rels = new TextDecoder().decode(files['word/_rels/document.xml.rels']);
+    const id = /<w:hyperlink r:id="(rId\d+)"[^>]*>(.*?)<\/w:hyperlink>/.exec(body);
+    expect(id[2]).toContain('>example.com<');
+    expect(rels).toContain(
+      `Id="${id[1]}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/guide?a=1&amp;b=2" TargetMode="External"`,
+    );
+    const rtf = new TextDecoder().decode((await exportDocument(pdf, bytes, 'rtf')).bytes);
+    expect(rtf).toMatch(/HYPERLINK "https:\/\/example\.com\/guide\?a=1&b=2".*example\.com/);
+  } finally {
+    await loading.destroy();
+  }
+});
