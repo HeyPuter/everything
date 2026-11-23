@@ -554,6 +554,29 @@ test("a sound playing across slides carries on when a loop comes back to its sli
   expect(await sounding()).toBe(0);
 });
 
+test("a slide set to stop the previous sound stops a sound playing across slides", async ({
+  page,
+}) => {
+  const pres = deck([
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none", sound: { kind: "stop" } },
+  ]);
+  addLoopingSound(P.getSlides(pres)[0], { playAcrossSlides: true });
+  const sounding = await trackMedia(page);
+  await load(page, pres);
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("2 / 3");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("3 / 3");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+});
+
 test("a looping show plays a slide's media from one copy of its bytes", async ({
   page,
 }) => {

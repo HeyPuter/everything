@@ -16838,8 +16838,11 @@ async function present(options = {}) {
       });
       readiness = playing.finished;
     }
-    if (shown && !backward && (n !== from || wrapped))
+    if (shown && !backward && (n !== from || wrapped)) {
       transitionTools.playArrivalSound(all[n]);
+      if (P.getEffectiveSlideTransition(all[n])?.sound?.kind === "stop")
+        showInserted.stopSounds();
+    }
     shown = true;
     // The navigator already rendered nearby slides from this same state;
     // distant ones render once here and are kept for the navigator.

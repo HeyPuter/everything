@@ -104,11 +104,18 @@ export function createShowExtras(ctx, show) {
     return !!a.hover || ownAction(a.click);
   }
 
-  function playSound(action) {
-    if (!action?.sound) return;
+  // "Stop previous sound" (a slide's transition or an action) also ends
+  // sounds playing across slides, which wait for just that.
+  function stopSounds() {
     sound?.pause();
     sound = null;
-    if (action.sound === "stop") return;
+    for (const p of [...playing]) if (p.across) p.stop();
+  }
+  function playSound(action) {
+    if (!action?.sound) return;
+    if (action.sound === "stop") return stopSounds();
+    sound?.pause();
+    sound = null;
     sound = new Audio(url(action.sound.data, "audio/wav"));
     sound.play().catch(() => {});
   }
@@ -534,6 +541,7 @@ export function createShowExtras(ctx, show) {
     bookmark,
     navigate,
     claims,
+    stopSounds,
     dispose,
   };
 }
