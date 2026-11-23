@@ -57,6 +57,7 @@ import {
 } from './structure.js';
 import { parseContent } from './text-edit.js';
 export { detectFormFields } from './form-detect.js';
+export { cleanName as cleanFieldName };
 
 const name = PDFName.of;
 const KIDS = name('Kids'),

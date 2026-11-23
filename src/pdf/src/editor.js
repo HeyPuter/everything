@@ -11840,7 +11840,8 @@ export function createEditor({
   }
   /** Name, tooltip, flags, and the settings of the field's type. */
   async function fieldPropertiesDialog(field, { created = false } = {}) {
-    const { BUTTON_STYLES, listFormFields, moveFormWidget, updateFormField } = await loadForms();
+    const { BUTTON_STYLES, cleanFieldName, listFormFields, moveFormWidget, updateFormField } =
+      await loadForms();
     const props = field.props || {};
     const checkbox = (id, label, checked) => {
       const box = el('input', { type: 'checkbox', id, checked: !!checked });
@@ -11999,10 +12000,14 @@ export function createEditor({
       // Nothing changed: no edit to record, and the document stays as it was saved.
       if (!resized && Object.keys(next).every((key) => key === 'widgetIndex')) return d.close();
       const rect = resized ? designer.resizedRect(field, sizeOf()) : null;
-      await mutateDialog(
+      // A name another field has is made unique (Name_2); the field took another name unsaid.
+      let otherName = null;
+      const saved = await mutateDialog(
         d,
         async (doc) => {
           const renamed = await updateFormField(doc, field.name, next);
+          otherName =
+            next.name !== undefined && renamed !== cleanFieldName(next.name) ? renamed : null;
           let widgetIndex = field.widgetIndex;
           if (renamed !== field.name) {
             // A radio button named after another group joined it, after that group's buttons.
@@ -12026,6 +12031,10 @@ export function createEditor({
         null,
         'edit',
       );
+      if (saved && otherName && !destroyed)
+        toast(
+          `Another field is named “${cleanFieldName(next.name)}”, so this one is named “${otherName}”.`,
+        );
     });
     const remove = safe(async () => {
       designer.deleting(field);
