@@ -75,6 +75,28 @@ test('Page Down scrolls through a tall page before turning to the next one', asy
   await expect.poll(() => workspace.evaluate((node) => node.scrollTop)).toBe(0);
 });
 
+test('Page Up turns back to the end of a tall page, not its top', async ({ page }) => {
+  await openPdf(page, 2, [400, 2400]);
+  await display(page, 'Single page');
+  await settled(page);
+  const workspace = page.locator('.workspace');
+  await workspace.focus();
+  await page.keyboard.press('End');
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
+  await settled(page);
+  await expect.poll(() => workspace.evaluate((node) => node.scrollTop)).toBe(0);
+  // Read backwards, the bottom of page 1 comes next; its top used to, skipping the rest.
+  await page.keyboard.press('PageUp');
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 2');
+  await settled(page);
+  await expect
+    .poll(() =>
+      workspace.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
+    )
+    .toBeLessThan(2);
+  expect(await workspace.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+});
+
 test('Page Down turns a pair of pages in two-page display', async ({ page }) => {
   await openPdf(page, 5, [300, 300]);
   await display(page, 'Two-page');

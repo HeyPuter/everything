@@ -14572,7 +14572,13 @@ export function createEditor({
       const { scrollTop, scrollHeight, clientHeight } = workspace;
       if (down ? scrollTop + clientHeight < scrollHeight - 1 : scrollTop > 0) return;
       e.preventDefault();
-      navigateBy(down ? 1 : -1);
+      // Paging back shows the end of the page before, as paging on showed its start, so no
+      // part of a page taller than the view is passed over either way.
+      Promise.resolve(navigateBy(down ? 1 : -1)).then((moved) => {
+        if (!moved || down || destroyed || stack.continuous) return;
+        workspace.scrollTop = workspace.scrollHeight;
+        stack.quiet();
+      });
     } else if (!modifier && !e.altKey && !typing && (e.key === 'Home' || e.key === 'End')) {
       // In Compare files they scroll the comparison to its first or last pages instead.
       if (!pdf || claimed || e.target.closest?.('.page-sidebar, .tools-pane, .menu, .compare-view'))
