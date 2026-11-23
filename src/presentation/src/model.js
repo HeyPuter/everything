@@ -85,6 +85,11 @@ export const cleanName = (
     .slice(0, maxLength)
     .replace(/[\uD800-\uDBFF]$/, "")
     .trimEnd() || "Untitled presentation";
+// A name as the start of a file's name. The browser drops dots and spaces at
+// either end of a download's name, so a name made only of them ("...")
+// would leave the extension as the whole name ("pdf.pdf").
+export const fileStem = (name) =>
+  String(name ?? "").replace(/^[.\s]+|[.\s]+$/g, "") || "Untitled presentation";
 // A name for a file inside a ZIP archive the app makes: unzipped on Windows,
 // a name holding any of these characters cannot be written, and the
 // archive fails to extract.

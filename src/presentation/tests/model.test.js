@@ -12,6 +12,7 @@ import {
   preview,
   cleanName,
   validateZip,
+  fileStem,
   packageSize,
   checkPackageSize,
   THEMES,
@@ -830,6 +831,13 @@ describe("file validation", () => {
       P.getShapeImageBytes(P.getSlideShapes(P.getSlides(loaded)[0])[0]),
     ).toEqual(png);
     expect(() => validateZip(bytes)).toThrow();
+  });
+  it("gives downloads a name even when the presentation's is only dots or spaces", () => {
+    expect(fileStem("...")).toBe("Untitled presentation");
+    expect(fileStem(". . .")).toBe("Untitled presentation");
+    expect(fileStem("Plan.  ")).toBe("Plan");
+    expect(fileStem(".hidden plan")).toBe("hidden plan");
+    expect(fileStem("Q3: plan")).toBe("Q3: plan");
   });
   it("normalizes file names without allowing path traversal", () => {
     expect(cleanName("../a\\b\u0000.pptx")).toBe(".. a b");

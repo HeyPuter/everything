@@ -1,4 +1,4 @@
-import { cleanName, MIME, validateImportSize } from "./model.js";
+import { cleanName, fileStem, MIME, validateImportSize } from "./model.js";
 export const FOLDER = "Presentations";
 const sdk = () => {
   if (!globalThis.puter)
@@ -322,7 +322,7 @@ export function exitApp() {
 export async function download(bytes, name) {
   return downloadBlob(
     new Blob([bytes], { type: MIME }),
-    `${cleanName(name, { stripExtension: false, maxLength: Infinity })}.pptx`,
+    `${fileStem(cleanName(name, { stripExtension: false, maxLength: Infinity }))}.pptx`,
   );
 }
 // A file the app exports is downloaded to this device, inside the Puter

@@ -91,6 +91,7 @@ import {
   restoreDeck,
   History,
   cleanName,
+  fileStem,
   archiveEntryName,
 } from "./model.js";
 import * as cloud from "./cloud.js";
@@ -3337,7 +3338,7 @@ async function exportImages(all) {
     toast("There are no visible slides to export.");
     return;
   }
-  const name = cleanName(target.name, { maxLength: Infinity });
+  const name = fileStem(cleanName(target.name, { maxLength: Infinity }));
   if (!all) {
     const blob = await rasterizeSlide(target.pres, slides[0], target.previews);
     if (doc !== target) return;
