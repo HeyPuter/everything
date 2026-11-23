@@ -1243,3 +1243,33 @@ describe("shaped spans across line-break opportunities", () => {
     );
   });
 });
+
+describe("justified paragraphs", () => {
+  // 20 px per character: "aa bb cc dd" wraps after "cc" in 200 px.
+  const justified = (pieces) =>
+    layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 200,
+        wrap: true,
+        paragraphs: [para({ align: "justify", pieces })],
+      }),
+      measure,
+    );
+  it("widens the word spaces of each wrapped line to fill it", () => {
+    const svg = justified([piece("aa bb cc dd", 40)]);
+    const lines = [...svg.matchAll(/<text\b[^>]*>/g)].map((m) => m[0]);
+    expect(lines).toHaveLength(2);
+    // "aa bb cc" is 160 px wide, leaving 40 px for its two spaces.
+    expect(lines[0]).toContain('word-spacing="20"');
+    expect(lines[1]).not.toContain("word-spacing");
+  });
+  it("leaves a line that ends at a line break at the start", () => {
+    const svg = justified([
+      piece("aa bb", 40),
+      { ...piece("", 40), isBreak: true },
+      piece("cc", 40),
+    ]);
+    expect(svg).not.toContain("word-spacing");
+  });
+});

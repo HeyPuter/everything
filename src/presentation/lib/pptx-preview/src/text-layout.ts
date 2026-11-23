@@ -341,6 +341,10 @@ export interface Line {
   textAnchor: "start" | "middle" | "end";
   /** The paragraph's base direction is right-to-left. */
   rtl?: boolean;
+  /** Width a justified line is spread to: set on each line of a justified
+   *  paragraph that ends where the text wrapped (not on its last line, nor
+   *  on one that ends at a line break). */
+  justifyWidth?: number;
   bullet: { x: number; baselineDy: number; b: BulletInput } | null;
 }
 
@@ -922,6 +926,8 @@ export const layoutCore = (
             ? Math.max(0.75 * line.advance, line.advance - descent)
             : 0.75 * line.advance;
         line.extent = line.baselineOffset + descent;
+        if (para.align === "justify" && paraLines[li + 1]?.automaticStart)
+          line.justifyWidth = availableW;
         cursorY += line.advance;
         lines.push(line);
       }
@@ -1164,6 +1170,25 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
   const content = toks.filter((t) => !t.isBreak);
   if (content.length === 0) return "";
   const groups = groupTokens(content);
+  // A justified line widens its word spaces until it fills the line.
+  // `word-spacing` adds to each space the browser draws; the drawn
+  // decorations below take the same widths.
+  let wordSpacing = 0;
+  if (line.justifyWidth !== undefined) {
+    let used = 0,
+      spaces = 0;
+    for (const g of groups) {
+      used += g.width;
+      if (!/^\t+$/.test(g.text)) spaces += countWordSeparators(g.text);
+    }
+    const slack = line.justifyWidth - used;
+    if (spaces > 0 && slack > 0.01) {
+      wordSpacing = slack / spaces;
+      for (const g of groups)
+        if (!/^\t+$/.test(g.text))
+          g.width += wordSpacing * countWordSeparators(g.text);
+    }
+  }
   let pendingDx = 0;
   const tspans = groups
     .map((g) => {
@@ -1187,12 +1212,23 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
       : line.textAnchor === "end"
         ? "start"
         : "middle";
-  const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${anchor}"${line.rtl ? ' direction="rtl"' : ""} xml:space="preserve">${tspans}</text>`;
+  const spacing = wordSpacing ? ` word-spacing="${fmt(wordSpacing)}"` : "";
+  const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${anchor}"${line.rtl ? ' direction="rtl"' : ""}${spacing} xml:space="preserve">${tspans}</text>`;
   return (
     text +
     emitWavyUnderlines(groups, line.textAnchor, x0, baselineY) +
     emitDrawnDecorations(groups, line.textAnchor, x0, baselineY)
   );
+};
+
+// The characters CSS word-spacing widens (the common ones).
+const countWordSeparators = (text: string): number => {
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x20 || c === 0xa0) n++;
+  }
+  return n;
 };
 
 const explicitUnderline = (p: PieceInput): boolean =>
