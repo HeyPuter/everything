@@ -156,6 +156,9 @@ export function createReadAloud({ editor, onState = () => {} }) {
       engine.syncInput?.(); engine.paint(); engine.revealCaret?.();
     };
     said.onend = () => { if (said.cancelled || utterance !== said) return; next(); };
+    // A paragraph the voice cannot say (too long for it, a language it lacks) ends with an error and no end: reading
+    // stopped there with the player still showing Pause. It goes on with the next paragraph.
+    said.onerror = e => { if (said.cancelled || utterance !== said || ['interrupted', 'canceled'].includes(e?.error)) return; next(); };
     synth.speak(said);
   }
   /** The paragraphs as they are now, and which of them `current` is (or the first after where it was). */
