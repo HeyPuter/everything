@@ -1659,7 +1659,9 @@ const wavyPath = (
   const strokeWidth =
     Math.max(WAVY_STROKE_WIDTH_MIN_PX, size * WAVY_STROKE_WIDTH_RATIO) *
     (piece.underlineHeavy ? 2 : 1);
-  return `<path d="${d}" stroke="${piece.fillHex}"${piece.fillOpacity !== undefined && piece.fillOpacity !== 1 ? ` stroke-opacity="${piece.fillOpacity}"` : ""} stroke-width="${fmt(strokeWidth)}" fill="none"/>`;
+  // An underline colour of its own (`uFill`) replaces the text's.
+  const opacity = piece.underlineHex ? undefined : piece.fillOpacity;
+  return `<path d="${d}" stroke="${piece.underlineHex ?? piece.fillHex}"${opacity !== undefined && opacity !== 1 ? ` stroke-opacity="${opacity}"` : ""} stroke-width="${fmt(strokeWidth)}" fill="none"/>`;
 };
 
 const samePiece = (a: PieceInput, b: PieceInput): boolean =>
