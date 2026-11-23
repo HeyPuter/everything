@@ -1028,6 +1028,8 @@ const gradientDef = (
   bounds: { w: number; h: number } = { w: 1, h: 1 },
   allowCss = false,
   frame?: { x: number; y: number; w: number; h: number },
+  /** The paint fills a rectangle, whose outline a `shape` path follows. */
+  rectangular = false,
 ): { defs: string; fillAttr: string; cssGradient?: string } => {
   const id = mintId();
   // DrawingML lists may be authored out of order. SVG instead clamps each
@@ -1075,12 +1077,14 @@ const gradientDef = (
     stops: typeof orderedStops,
     mirroredAttributes?: string,
     power = gradientPowerTransfer(stops),
+    // A further transform of the gradient in the unit square.
+    transform = "",
   ): { defs: string; fillAttr: string } => {
     // A shape's fill spans its extents, shared by every geometry path. SVG's
     // default objectBoundingBox would restart the gradient on each face.
     const units = frame
-      ? `gradientUnits="userSpaceOnUse" gradientTransform="translate(${E(frame.x)} ${E(frame.y)}) scale(${E(frame.w)} ${E(frame.h)})"`
-      : 'gradientUnits="objectBoundingBox"';
+      ? `gradientUnits="userSpaceOnUse" gradientTransform="translate(${E(frame.x)} ${E(frame.y)}) scale(${E(frame.w)} ${E(frame.h)})${transform ? ` ${transform}` : ""}"`
+      : `gradientUnits="objectBoundingBox"${transform ? ` gradientTransform="${transform}"` : ""}`;
     const patternUnits = frame
       ? `patternUnits="userSpaceOnUse" patternContentUnits="userSpaceOnUse" width="${E(frame.w)}" height="${E(frame.h)}" patternTransform="translate(${E(frame.x)} ${E(frame.y)})"`
       : 'patternUnits="objectBoundingBox" patternContentUnits="objectBoundingBox" width="1" height="1"';
@@ -1090,8 +1094,8 @@ const gradientDef = (
       ? `width="${E(frame.w)}" height="${E(frame.h)}"`
       : 'width="1" height="1"';
     const patternGradientUnits = frame
-      ? `gradientUnits="userSpaceOnUse" gradientTransform="scale(${E(frame.w)} ${E(frame.h)})"`
-      : 'gradientUnits="objectBoundingBox"';
+      ? `gradientUnits="userSpaceOnUse" gradientTransform="scale(${E(frame.w)} ${E(frame.h)})${transform ? ` ${transform}` : ""}"`
+      : `gradientUnits="objectBoundingBox"${transform ? ` gradientTransform="${transform}"` : ""}`;
     const stopOffset = (value: number): string => {
       const rounded = value.toFixed(4);
       // DrawingML positions have 100,000 subdivisions. Retain their full
@@ -1177,10 +1181,92 @@ const gradientDef = (
       fillAttr: `url(#${id})`,
     };
   };
+  // A rectangular path: from the focus rectangle out to each edge, in four
+  // wedges cut by the lines from the focus rectangle's corners to the box's.
+  // Each wedge shades linearly towards its edge, so the contours are
+  // rectangles, with creases along the diagonals.
+  const rectPathGradient = (
+    left: number,
+    top: number,
+    right: number,
+    bottom: number,
+  ): { defs: string; fillAttr: string } => {
+    const fmt = (n: number) => String(Number(n.toFixed(6)));
+    const stopsSvg = paintStops
+      .map(
+        (stop) =>
+          `<stop offset="${String(Number(stop.offset.toFixed(6)))}" stop-color="${stop.color}"${stop.opacity !== undefined && stop.opacity !== 1 ? ` stop-opacity="${stop.opacity}"` : ""}/>`,
+      )
+      .join("");
+    let gradients = "",
+      shapes = "";
+    const wedge = (
+      points: ReadonlyArray<readonly [number, number]>,
+      from: readonly [number, number],
+      to: readonly [number, number],
+    ) => {
+      if (from[0] === to[0] && from[1] === to[1]) return;
+      const gid = mintId();
+      gradients += `<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="${fmt(from[0])}" y1="${fmt(from[1])}" x2="${fmt(to[0])}" y2="${fmt(to[1])}">${stopsSvg}</linearGradient>`;
+      // The wedges meet with equal colours along the creases; crisp edges
+      // keep anti-aliasing from showing seams there.
+      shapes += `<polygon points="${points.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ")}" fill="url(#${gid})" shape-rendering="crispEdges"/>`;
+    };
+    wedge(
+      [
+        [0, 0],
+        [1, 0],
+        [right, top],
+        [left, top],
+      ],
+      [0, top],
+      [0, 0],
+    );
+    wedge(
+      [
+        [1, 0],
+        [1, 1],
+        [right, bottom],
+        [right, top],
+      ],
+      [right, 0],
+      [1, 0],
+    );
+    wedge(
+      [
+        [1, 1],
+        [0, 1],
+        [left, bottom],
+        [right, bottom],
+      ],
+      [0, bottom],
+      [0, 1],
+    );
+    wedge(
+      [
+        [0, 1],
+        [0, 0],
+        [left, top],
+        [left, bottom],
+      ],
+      [left, 0],
+      [0, 0],
+    );
+    const first = paintStops[0];
+    if (first && right > left && bottom > top)
+      shapes += `<rect x="${fmt(left)}" y="${fmt(top)}" width="${fmt(right - left)}" height="${fmt(bottom - top)}" fill="${first.color}"${first.opacity !== undefined && first.opacity !== 1 ? ` fill-opacity="${first.opacity}"` : ""}/>`;
+    const content = frame
+      ? `<g transform="scale(${E(frame.w)} ${E(frame.h)})">${shapes}</g>`
+      : shapes;
+    const patternUnits = frame
+      ? `patternUnits="userSpaceOnUse" patternContentUnits="userSpaceOnUse" width="${E(frame.w)}" height="${E(frame.h)}" patternTransform="translate(${E(frame.x)} ${E(frame.y)})"`
+      : 'patternUnits="objectBoundingBox" patternContentUnits="objectBoundingBox" width="1" height="1"';
+    return {
+      defs: `<defs>${gradients}<pattern id="${id}" ${patternUnits}>${content}</pattern></defs>`,
+      fillAttr: `url(#${id})`,
+    };
+  };
   if (grad.path === "circle" || grad.path === "rect" || grad.path === "shape") {
-    // SVG only ships a true radial gradient; ECMA-376's `rect` and
-    // `shape` paths are close enough that we project them onto a
-    // radial fill centered on the focus rectangle.
     const focus = grad.focus ?? {
       left: 0.5,
       top: 0.5,
@@ -1189,11 +1275,46 @@ const gradientDef = (
     };
     // `<a:fillToRect>` gives insets from each edge, so the focus rectangle
     // runs from left to 1 - right and from top to 1 - bottom.
-    const cx = (focus.left + 1 - focus.right) / 2;
-    const cy = (focus.top + 1 - focus.bottom) / 2;
+    const unit = (n: number) => (Number.isFinite(n) ? n : 0);
+    const left = unit(focus.left),
+      top = unit(focus.top),
+      right = Math.max(left, 1 - unit(focus.right)),
+      bottom = Math.max(top, 1 - unit(focus.bottom));
+    const cx = (left + right) / 2;
+    const cy = (top + bottom) / 2;
+    const w = bounds.w > 0 && Number.isFinite(bounds.w) ? bounds.w : 1;
+    const h = bounds.h > 0 && Number.isFinite(bounds.h) ? bounds.h : 1;
     // ECMA-376 stops paint outward from the focus: the first stop sits at
     // the focus and the last at the edge (as desktop editors draw it), which
     // is also how SVG's radial gradient runs from cx/cy out to r.
+    if (grad.path === "rect" || (grad.path === "shape" && rectangular))
+      return rectPathGradient(left, top, right, bottom);
+    if (grad.path === "circle") {
+      // A true circle about the focus, reaching the farthest corner, as the
+      // desktop app draws it; the unit square is stretched back to the
+      // shape's proportions.
+      const reach = Math.max(
+        ...[
+          [0, 0],
+          [1, 0],
+          [0, 1],
+          [1, 1],
+        ].map(([x, y]) => Math.hypot((x! - cx) * w, (y! - cy) * h)),
+      );
+      const fmt = (n: number) => String(Number(n.toFixed(6)));
+      return finish(
+        "radialGradient",
+        `cx="${cx.toFixed(4)}" cy="${cy.toFixed(4)}" r="${(reach / w).toFixed(4)}"`,
+        paintStops,
+        undefined,
+        undefined,
+        w === h
+          ? ""
+          : `translate(${fmt(cx)} ${fmt(cy)}) scale(1 ${fmt(w / h)}) translate(${fmt(-cx)} ${fmt(-cy)})`,
+      );
+    }
+    // Another shape's own outline is projected onto an ellipse fitted to
+    // the box, which is exact for ellipses.
     return finish(
       "radialGradient",
       `cx="${cx.toFixed(4)}" cy="${cy.toFixed(4)}" r="${Math.max(0.5, Math.max(cx, cy, 1 - cx, 1 - cy)).toFixed(4)}"`,
@@ -1712,6 +1833,7 @@ const paint = (
         bounds,
         allowCss,
         fillFrame,
+        !!shape && getShapePreset(shape) === "rect",
       );
       defs = built.defs;
       fillColor = built.fillAttr;
@@ -11489,6 +11611,8 @@ const renderTable = (
             theme,
             { w: width, h: height },
             ctx.gradientRendering === "css",
+            undefined,
+            true,
           )
         : patternDef(fill);
     return { ...built, opacity: "" };
@@ -13637,6 +13761,8 @@ const renderSlideSvgInContext = (
         theme,
         { w: W, h: H },
         opts.gradientRendering === "css",
+        undefined,
+        true,
       );
       bgGradientDefs = built.defs;
       bgGradient = renderPaintRect(0, 0, W / EMU_PER_PX, H / EMU_PER_PX, built);

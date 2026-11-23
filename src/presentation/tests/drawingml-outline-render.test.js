@@ -1,5 +1,5 @@
-// How shape outlines draw what DrawingML describes, checked against the
-// desktop presentation app's output for the same files.
+// How shapes' outlines, effects and fills draw what DrawingML describes,
+// checked against the desktop presentation app's output for the same files.
 import { describe, expect, it } from "vitest";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { P, createDeck, parseDeck } from "../src/model.js";
@@ -137,5 +137,48 @@ describe("inset outlines", () => {
         await render(outlined("in", "rect", '<a:tailEnd type="triangle"/>')),
       ),
     ).toBeNull();
+  });
+});
+
+describe("path gradients", () => {
+  // A 3 x 1.5 inch shape (288 x 144 px).
+  const filled = (path, prst = "rect", focus = "") =>
+    shape(
+      `<a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FF0000"/></a:gs><a:gs pos="100000"><a:srgbClr val="0000FF"/></a:gs></a:gsLst><a:path path="${path}"><a:fillToRect ${focus || 'l="50000" t="50000" r="50000" b="50000"'}/></a:path></a:gradFill>`,
+      prst,
+    );
+
+  it("draws a circle reaching the farthest corner", async () => {
+    const svg = await render(filled("circle"));
+    const radial = /<radialGradient [^>]*>/.exec(svg)[0];
+    // Half the diagonal, as a share of the width, made round again by
+    // stretching the unit square back to the shape's proportions.
+    const r = Math.hypot(1.5, 0.75) / 3;
+    expect(radial).toContain(`r="${r.toFixed(4)}"`);
+    expect(radial).toContain("scale(1 2)");
+  });
+
+  it("measures a circle from an off-centre focus", async () => {
+    const svg = await render(
+      filled("circle", "rect", 'l="0" t="0" r="100000" b="100000"'),
+    );
+    const radial = /<radialGradient [^>]*>/.exec(svg)[0];
+    expect(radial).toContain('cx="0.0000" cy="0.0000"');
+    expect(radial).toContain(`r="${(Math.hypot(3, 1.5) / 3).toFixed(4)}"`);
+  });
+
+  it("shades a rectangular path in four wedges", async () => {
+    const svg = await render(filled("rect"));
+    expect(svg).not.toContain("<radialGradient");
+    expect(svg.match(/<polygon [^>]*fill="url\(#/g)).toHaveLength(4);
+    // The top wedge shades from the focus up to the top edge.
+    expect(svg).toMatch(/<linearGradient [^>]*x1="0" y1="0\.5" x2="0" y2="0">/);
+  });
+
+  it("follows a rectangle's outline for a shape path", async () => {
+    expect(await render(filled("shape"))).not.toContain("<radialGradient");
+    expect(await render(filled("shape", "ellipse"))).toContain(
+      "<radialGradient",
+    );
   });
 });
