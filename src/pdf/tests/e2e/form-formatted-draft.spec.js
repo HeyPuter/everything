@@ -78,18 +78,22 @@ test('a total shows what the fields filled in so far work out to, before the for
     buffer: Buffer.from(await doc.save()),
   });
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
-  const shown = page
-    .getByRole('textbox', { name: 'Total (on page) (read only)', exact: true })
-    .locator('..')
-    .locator('.form-shown');
+  const totalField = page.getByRole('textbox', {
+    name: 'Total (on page) (read only)',
+    exact: true,
+  });
+  const shown = totalField.locator('..').locator('.form-shown');
   await page.getByRole('textbox', { name: 'Qty (on page)', exact: true }).fill('3');
   await expect(shown).toHaveText('$0.00');
   await page.getByRole('textbox', { name: 'Price (on page)', exact: true }).fill('12.5');
   await expect(shown).toBeVisible();
   await expect(shown).toHaveText('$37.50');
+  // The field holds the total shown, for a screen reader to read, as it will once saved.
+  await expect(totalField).toHaveValue('37.5');
   // Escape takes the price back out, and the total with it.
   await page.keyboard.press('Escape');
   await expect(shown).toHaveText('$0.00');
+  await expect(totalField).toHaveValue('0');
   await page.getByRole('textbox', { name: 'Price (on page)', exact: true }).fill('2');
   await page.keyboard.press('Enter');
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');

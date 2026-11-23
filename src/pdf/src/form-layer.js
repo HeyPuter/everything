@@ -134,7 +134,12 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
           calculatedValues.has(widget.name) && !draft.changes.has(widget.name)
             ? calculatedValues.get(widget.name)
             : null;
-        if (calculated !== null) shown.textContent = formattedText(calculated, widget.format ?? '');
+        if (calculated !== null) {
+          shown.textContent = formattedText(calculated, widget.format ?? '');
+          // The field holds that total too, as it will once saved: a screen reader read the
+          // old one (often nothing) under the total on screen.
+          if (control !== editingControl) control.value = calculated;
+        }
         shown.parentElement.classList.toggle('is-calculated', calculated !== null);
       }
       control.closest('.form-widget').classList.toggle('has-draft', draft.changes.has(widget.name));
