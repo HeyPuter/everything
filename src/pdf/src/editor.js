@@ -11443,6 +11443,14 @@ export function createEditor({
     });
     const when = (date) =>
       date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    const replySnippet = (item) => {
+      const words = [
+        ...String(item.contents || '')
+          .trim()
+          .replace(/\s+/g, ' '),
+      ];
+      return words.length ? `: ${words.slice(0, 40).join('')}${words.length > 40 ? '…' : ''}` : '';
+    };
     // Replies to a reply sit beneath it, as in the thread they belong to.
     const replyItems = (items) =>
       items.map((item) =>
@@ -11458,9 +11466,10 @@ export function createEditor({
               [item.author, when(item.modified)].filter(Boolean).join(' · '),
             ),
             // A reply sent by mistake, or no longer wanted, can be taken back as in other
-            // PDF editors; replies to it go with it.
+            // PDF editors; replies to it go with it. Named with its first words too: one
+            // reviewer's replies all read "Delete reply from Grace" to a screen reader.
             iconButton(
-              item.author ? `Delete reply from ${item.author}` : 'Delete reply',
+              `Delete reply${item.author ? ` from ${item.author}` : ''}${replySnippet(item)}`,
               'Trash2',
               safe(() =>
                 run(
