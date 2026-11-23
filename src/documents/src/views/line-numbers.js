@@ -79,8 +79,9 @@ export function createLineNumbers({ editor, pkg, error, onChange = () => {}, com
       engine.finishComposition();
       let ok = false;
       try {
-        const value = checkedLineNumbers(lineNumbers);
-        ok = base.applySectionSettings ? base.applySectionSettings({ lineNumbers: value }, { scope }) : engine.setPageSettings({ lineNumbers: value });
+        // A function gives each section its numbering from its own (`own => …`), as the menu's choices do.
+        const patch = typeof lineNumbers === 'function' ? s => ({ lineNumbers: checkedLineNumbers(lineNumbers(s.lineNumbers ?? null)) }) : { lineNumbers: checkedLineNumbers(lineNumbers) };
+        ok = base.applySectionSettings ? base.applySectionSettings(patch, { scope }) : engine.setPageSettings(patch);
       } catch (e) { error(e); return false; }
       engine.focus(); onChange();
       return ok;
@@ -93,7 +94,8 @@ export function createLineNumbers({ editor, pkg, error, onChange = () => {}, com
     },
     lineNumberItems() {
       const engine = editor(), editable = !!ready(), value = current();
-      const choose = restart => commands.setLineNumbers(restart ? { ...(value || { countBy: 1, start: 0, distance: null }), restart } : null);
+      // Each selected section keeps its own count, start and distance; only how numbering restarts is chosen.
+      const choose = restart => commands.setLineNumbers(restart ? own => ({ ...(own || { countBy: 1, start: 0, distance: null }), restart }) : null);
       const suppressed = engine?.model.paragraphFormatting.suppressLineNumbers;
       return [
         { label: 'None', radio: true, checked: !value, disabled: !editable, onSelect: () => choose(null) },
