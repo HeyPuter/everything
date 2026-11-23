@@ -16988,14 +16988,18 @@ document.addEventListener("keydown", (e) => {
     // A box holding the value it applied (a ribbon box, or a number field
     // in the Format pane) has nothing of its own to undo: the shortcut takes
     // back the change it made. Typing not yet applied is the box's to undo.
+    // So does a field of a window that applies its edits as they are
+    // typed (the chart's data sheet, the SmartArt Text Pane), which has
+    // committed what was typed by now.
     const box = e.target;
     const applied =
       box instanceof HTMLInputElement &&
       (box.matches(".ribbon-combo-input, .ribbon-spin-input")
         ? box.value === (box.dataset.value ?? "")
-        : box.type === "number" &&
-          (box.value === box.defaultValue ||
-            box.value === box.dataset.committed));
+        : !!box.closest("[data-applies-edits]") ||
+          (box.type === "number" &&
+            (box.value === box.defaultValue ||
+              box.value === box.dataset.committed)));
     if (typing && !applied) return;
     e.preventDefault();
     // With nothing to redo, Ctrl/⌘+Y repeats the last format command.

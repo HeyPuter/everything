@@ -167,6 +167,37 @@ test("Backspace takes away an empty first item, and Delete joins the next item o
   expect(model.items).toHaveLength(count - 2);
 });
 
+test("Ctrl+Z and Ctrl+Y in the Text Pane undo and redo its edits, Enter and Tab included", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  const inputs = page.locator(".smartart-outline-input");
+  const outline = () =>
+    inputs.evaluateAll((list) =>
+      list.map((i) => `${i.closest("li").dataset.level}:${i.value}`),
+    );
+  const before = await outline();
+  await expect(inputs.first()).toBeFocused();
+  await page.keyboard.type("Plan");
+  // Each change lands as its own step once the last has settled.
+  await page.waitForTimeout(1300);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(1300);
+  await page.keyboard.type("Scope");
+  await page.keyboard.press("Tab");
+  await expect(inputs.nth(1)).toHaveValue("Scope");
+  await expect.poll(outline).toContain("1:Scope");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(outline).not.toContain("1:Scope");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(outline).toEqual(["0:Plan", ...before.slice(1)]);
+  await expect(page.locator(".smartart-pane input:focus")).toHaveCount(1);
+  await page.keyboard.press("ControlOrMeta+y");
+  await expect.poll(outline).not.toEqual(["0:Plan", ...before.slice(1)]);
+  await expect(page.locator(".smartart-pane input:focus")).toHaveCount(1);
+});
+
 test("SmartArt Design adds and moves shapes, and changes layout, colors and style", async ({
   page,
 }) => {

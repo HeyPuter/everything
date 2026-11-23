@@ -3,7 +3,7 @@
 // a level, Backspace at the start of an item joins it to the one before, and
 // the graphic follows as you type.
 import { el, icon } from "../ui.js";
-import { fitToViewport } from "../charts/chart-sheet.js";
+import { fitToViewport, isUndoKey } from "../charts/chart-sheet.js";
 import {
   indentLine,
   joinWithPrevious,
@@ -49,6 +49,8 @@ export function openTextPane({
       "aria-modal": "false",
       "aria-labelledby": "smartart-pane-title",
       tabindex: -1,
+      // Ctrl/⌘+Z and Y undo and redo the graphic, as the toolbar does.
+      "data-applies-edits": "",
     },
     el(
       "div",
@@ -83,6 +85,8 @@ export function openTextPane({
       e.stopPropagation();
       close();
     }
+    // The editor's undo takes the typing back once it is on the graphic.
+    if (isUndoKey(e) && timer) commitNow();
   });
   dragBy(panel.querySelector(".chart-sheet-head"), panel);
 

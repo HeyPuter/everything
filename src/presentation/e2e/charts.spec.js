@@ -218,6 +218,35 @@ test("a chart changed to a pie and back gets its other series again", async ({
   expect(spec.series[2].values).toEqual([1.8, 2.1, 3.2, 4.8]);
 });
 
+test("Ctrl+Z and Ctrl+Y in the data sheet undo and redo the chart's data", async ({
+  page,
+}) => {
+  await start(page);
+  await insertChart(page, "Column", "Clustered Column");
+  const cell = (r, c) =>
+    page.locator(`.chart-sheet input[data-row="${r}"][data-col="${c}"]`);
+  await expect(cell(1, 1)).toBeFocused();
+  await page.keyboard.type("10");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => (await download(page)).spec.series[0].values[0])
+    .toBe(10);
+  await cell(2, 1).click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(cell(1, 1)).toHaveValue("4.1");
+  await expect(page.locator(".chart-sheet input:focus")).toHaveCount(1);
+  expect((await download(page)).spec.series[0].values[0]).toBe(4.1);
+  await cell(2, 1).click();
+  await page.keyboard.press("ControlOrMeta+y");
+  await expect(cell(1, 1)).toHaveValue("10");
+  // Typing not yet on the chart goes on it first, then comes off with Undo.
+  await cell(3, 2).click();
+  await page.keyboard.type("77");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(cell(3, 2)).toHaveValue("1.9");
+  await expect(cell(1, 1)).toHaveValue("10");
+});
+
 test("the Format pane formats the chart element chosen on the Format tab", async ({
   page,
 }) => {

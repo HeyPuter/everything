@@ -144,6 +144,8 @@ export function openChartSheet({
       "aria-modal": "false",
       "aria-labelledby": "chart-sheet-title",
       tabindex: -1,
+      // Ctrl/⌘+Z and Y undo and redo the chart, as the toolbar does.
+      "data-applies-edits": "",
     },
     head,
     el("div", { class: "chart-sheet-scroll" }, table),
@@ -159,6 +161,8 @@ export function openChartSheet({
       e.stopPropagation();
       close();
     }
+    // The editor's undo takes the typing back once it is on the chart.
+    if (isUndoKey(e) && timer) commitNow();
   });
   dragBy(head, panel);
 
@@ -412,6 +416,11 @@ export function openChartSheet({
   };
 }
 
+// Ctrl/⌘+Z or Y (Shift+Z redoes): the editor's undo and redo.
+export const isUndoKey = (e) =>
+  (e.ctrlKey || e.metaKey) &&
+  !e.altKey &&
+  ["z", "y"].includes(e.key.toLowerCase());
 // A phone's layout can be wider than its screen; keep the window on screen.
 export function fitToViewport(panel) {
   const width = document.documentElement.clientWidth;
