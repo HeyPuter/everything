@@ -763,6 +763,10 @@ puter-user-menu::part(apps-panel) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Never scrolled, not even by a view bringing its current page into
+     view: a phone's larger touch targets reach a few pixels past the status
+     bar, and scrolling to them lifted the title bar off the top. */
+  overflow: clip;
 }
 /* The editor's top bar has two rows: the title row holds the back button,
    the mark, the title with its save status, and the presentation's actions;

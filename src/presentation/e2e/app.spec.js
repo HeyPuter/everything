@@ -14415,7 +14415,13 @@ test("dismissing the slide's context menu with a Shift-click still selects", asy
     .locator("#slide-canvas")
     .click({ button: "right", position: { x: 5, y: 5 } });
   await expect(page.getByRole("menu")).toBeVisible();
-  await page.locator('[data-object="1"]').click({ modifiers: ["Shift"] });
+  // On a phone the menu covers the object's left part: press its right end.
+  const object = page.locator('[data-object="1"]');
+  const { width, height } = await object.boundingBox();
+  await object.click({
+    modifiers: ["Shift"],
+    position: { x: width - 8, y: height / 2 },
+  });
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(page.locator('[data-object="1"]')).toHaveAttribute(
     "aria-pressed",
@@ -17718,7 +17724,9 @@ test("a group and a table are not offered a link", async ({ page }) => {
   await expect(
     page.getByRole("menuitem", { name: "Link", exact: true }),
   ).toBeDisabled();
-  await page.keyboard.press("Escape");
+  // Escape closes one menu at a time: on a phone Insert is inside File.
+  while (await page.getByRole("menu").count())
+    await page.keyboard.press("Escape");
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog", { name: "Add link" })).toHaveCount(0);
   const close = panel(page).getByRole("button", { name: "Close format panel" });

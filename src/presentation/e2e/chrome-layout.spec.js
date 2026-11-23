@@ -215,3 +215,37 @@ test("menu shortcuts are written one way on a Mac", async ({ page }, info) => {
   expect(shortcuts).toContain("⌘+T");
   expect(shortcuts.filter((s) => /Alt|[⌘⌥⌃⇧](?!\+)/.test(s))).toEqual([]);
 });
+
+// Bringing the current page into view in Notes Page must not scroll the
+// editor itself: on a phone that lifted the title bar off the top of the
+// screen, and it stayed lifted back in Normal view.
+test("Notes Page leaves the title bar at the top of the screen", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await story(page);
+  const header = page.locator(".editor-header");
+  for (const label of ["Notes Page", "Normal"]) {
+    const bar = page
+      .getByRole("menubar")
+      .getByRole("menuitem", { name: "View", exact: true });
+    if (await bar.isVisible()) await bar.click();
+    else {
+      await page.getByRole("button", { name: "File options" }).click();
+      await page.getByRole("menuitem", { name: "View", exact: true }).click();
+    }
+    await page
+      .getByRole("menuitemcheckbox", { name: new RegExp(`^${label}`) })
+      .click();
+    await expect(page.locator(".editor")).toHaveAttribute(
+      "data-view",
+      label === "Normal" ? "normal" : "notesPage",
+    );
+    expect(
+      await header.evaluate((node) => node.getBoundingClientRect().top),
+    ).toBe(0);
+    expect(
+      await page.locator(".editor").evaluate((node) => node.scrollTop),
+    ).toBe(0);
+  }
+});
