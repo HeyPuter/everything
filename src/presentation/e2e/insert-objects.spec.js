@@ -633,6 +633,40 @@ test("media playing on the canvas stops when the slide show starts", async ({
   expect(await sounding()).toBe(0);
 });
 
+test("media set to loop keeps playing on the canvas", async ({ page }) => {
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    window.played = [];
+    HTMLMediaElement.prototype.play = function () {
+      window.played.push(this);
+      return play.call(this);
+    };
+  });
+  const sounding = () =>
+    page.evaluate(
+      () => [...new Set(window.played)].filter((m) => !m.paused).length,
+    );
+  await start(page);
+  await choose(
+    page,
+    async () => {
+      await commandMenu(page, "audio", "Audio sources");
+      await page.getByRole("menuitem", { name: "Audio from File…" }).click();
+    },
+    { name: "tone.wav", mimeType: "audio/wav", buffer: wav(0.5) },
+  );
+  await tab(page, "Playback");
+  await command(page, "playback-loop");
+  await expect(
+    page.locator('[data-command="playback-loop"]').first(),
+  ).toBeChecked();
+  await command(page, "playback-play");
+  await expect.poll(sounding).toBe(1);
+  // Well past the end of the half-second sound, it is still playing.
+  await page.waitForTimeout(1500);
+  expect(await sounding()).toBe(1);
+});
+
 test("header and footer apply to every slide", async ({ page }) => {
   await start(page);
   await command(page, "insert-new-slide");
