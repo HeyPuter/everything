@@ -256,3 +256,40 @@ describe("soft edges", () => {
     );
   });
 });
+
+describe("3-D shapes", () => {
+  const solid = (sp3d, camera = "isometricOffAxis1Right") =>
+    shape(
+      `<a:solidFill><a:srgbClr val="4472C4"/></a:solidFill><a:scene3d><a:camera prst="${camera}"/><a:lightRig rig="threePt" dir="t"/></a:scene3d>${sp3d}`,
+    );
+
+  it("shows an extruded shape's depth in its extrusion colour", async () => {
+    const svg = await render(
+      solid(
+        '<a:sp3d extrusionH="254000"><a:extrusionClr><a:srgbClr val="1F3864"/></a:extrusionClr></a:sp3d>',
+      ),
+    );
+    const filter =
+      /<filter id="([^"]+)"[^>]*><feFlood flood-color="#1F3864"/.exec(svg);
+    expect(filter).not.toBeNull();
+    // The face swept back up and to the left, behind the face.
+    const sweep = new RegExp(
+      `<g filter="url\\(#${filter[1]}\\)"><g transform="translate\\((-?[\\d.]+) (-?[\\d.]+)\\)">`,
+    ).exec(svg);
+    expect(Number(sweep[1])).toBeLessThan(0);
+    expect(Number(sweep[2])).toBeLessThan(0);
+  });
+
+  it("draws a shape with no depth flat", async () => {
+    const svg = await render(solid("<a:sp3d/>"));
+    expect(svg).not.toContain("feFlood");
+  });
+
+  it("tilts a moderately relaxed perspective back", async () => {
+    const svg = await render(
+      solid("<a:sp3d/>", "perspectiveRelaxedModerately"),
+    );
+    const m = /matrix\(([^)]+)\)/.exec(svg)[1].split(" ").map(Number);
+    expect(m[3]).toBeCloseTo(Math.cos((324 * Math.PI) / 180), 3);
+  });
+});

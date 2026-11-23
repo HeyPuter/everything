@@ -12767,6 +12767,7 @@ const renderShape = (
         },
       ),
       { x, y, w, h },
+      theme,
     );
     return solid.defs + solid.svg;
   }
@@ -13287,7 +13288,7 @@ const renderShape = (
     geomSvg = reflection.svg + geomSvg;
     fxDefs += reflection.defs;
   }
-  const solid = apply3D(shape, geomSvg, { x, y, w, h });
+  const solid = apply3D(shape, geomSvg, { x, y, w, h }, theme);
   geomSvg = solid.svg;
   fxDefs += solid.defs;
 
@@ -13417,6 +13418,7 @@ const CAMERA_ANGLES: Record<string, [number, number]> = {
   perspectiveAbove: [0, 340],
   perspectiveBelow: [0, 20],
   perspectiveRelaxed: [0, 309],
+  perspectiveRelaxedModerately: [0, 324],
   perspectiveHeroicExtremeLeftFacing: [34, 8],
   perspectiveHeroicExtremeRightFacing: [326, 8],
 };
@@ -13461,6 +13463,7 @@ const apply3D = (
   shape: SlideShapeData,
   svg: string,
   box: { x: number; y: number; w: number; h: number },
+  theme: PresentationTheme | null = null,
 ): { svg: string; defs: string; projection: string | null } => {
   let t: ReturnType<typeof getShape3D>;
   try {
@@ -13487,7 +13490,38 @@ const apply3D = (
     const cx = E(box.x + box.w / 2),
       cy = E(box.y + box.h / 2);
     projection = `translate(${cx} ${cy}) matrix(${m.map((n) => n.toFixed(4)).join(" ")} 0 0) translate(-${cx} -${cy})`;
-    out = `<g transform="${projection}">${out}</g>`;
+    const face = `<g transform="${projection}">${out}</g>`;
+    out = face;
+    // An extruded shape turned in 3-D shows its depth: the face swept back
+    // along the camera's depth direction in the extrusion colour (or the
+    // shape's own, darkened), drawn behind the face.
+    const preset = CAMERA_ANGLES[t.camera];
+    const depthPx = t.depthEmu / EMU_PER_PX;
+    if (preset && depthPx > 0 && Number.isFinite(depthPx)) {
+      const ax = ((preset[0] + t.rotX) * Math.PI) / 180,
+        ay = ((preset[1] + t.rotY) * Math.PI) / 180,
+        az = (t.rotZ * Math.PI) / 180;
+      const zx = Math.sin(ax),
+        zy = -Math.cos(ax) * Math.sin(ay);
+      const vx = depthPx * (zx * Math.cos(az) - zy * Math.sin(az)),
+        vy = depthPx * (zx * Math.sin(az) + zy * Math.cos(az));
+      const steps = Math.min(48, Math.ceil(Math.hypot(vx, vy)));
+      if (steps > 0) {
+        const id = mintId();
+        const color = t.depthColor
+          ? resolveColor(t.depthColor, theme, "#000000")
+          : null;
+        defs += `<defs><filter id="${id}" color-interpolation-filters="sRGB">${
+          color
+            ? `<feFlood flood-color="${color}"/><feComposite in2="SourceAlpha" operator="in"/>`
+            : '<feColorMatrix type="matrix" values="0.55 0 0 0 0 0 0.55 0 0 0 0 0 0.55 0 0 0 0 0 1 0"/>'
+        }</filter></defs>`;
+        let sweep = "";
+        for (let k = steps; k >= 1; k--)
+          sweep += `<g transform="translate(${PX((vx * k) / steps)} ${PX((vy * k) / steps)})">${face}</g>`;
+        out = `<g filter="url(#${id})">${sweep}</g>${face}`;
+      }
+    }
   }
   return { svg: out, defs, projection };
 };
