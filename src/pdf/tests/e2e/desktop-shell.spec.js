@@ -2218,3 +2218,62 @@ test("the first tool's keyboard focus ring shows whole in the tools pane", async
   });
   expect(cut).toBe(false);
 });
+
+test('pages in view keep their pictures while a deleted page redraws the view', async ({
+  page,
+}) => {
+  // Wide, short pages, several in view, each with enough on it to take a moment to draw.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 8; i++) {
+    const sheet = doc.addPage([612, 300]);
+    for (let k = 0; k < 24; k++)
+      sheet.drawText(`Page ${i + 1}, line ${k + 1} of the words on this wide and short page`, {
+        x: 20,
+        y: 285 - k * 11,
+        size: 9,
+        font,
+      });
+  }
+  await openPdf(page, doc);
+  const blank = () =>
+    page.evaluate(() => {
+      const view = document.querySelector('.workspace').getBoundingClientRect();
+      let count = 0;
+      for (const slot of document.querySelectorAll('.page-slot:not(:has(.paper))')) {
+        const box = slot.getBoundingClientRect();
+        if (!(box.bottom > view.top && box.top < view.bottom)) continue;
+        const canvas = slot.querySelector('.page-image');
+        const [, , , alpha] = canvas.width
+          ? canvas.getContext('2d').getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data
+          : [0, 0, 0, 0];
+        if (!alpha) count++;
+      }
+      return count;
+    });
+  await expect.poll(blank).toBe(0);
+  await page.evaluate(() => {
+    window.blankFrames = 0;
+    window.watching = true;
+    const check = () => {
+      const view = document.querySelector('.workspace').getBoundingClientRect();
+      for (const slot of document.querySelectorAll('.page-slot:not(:has(.paper))')) {
+        const box = slot.getBoundingClientRect();
+        if (!(box.bottom > view.top && box.top < view.bottom)) continue;
+        const canvas = slot.querySelector('.page-image');
+        const [, , , alpha] = canvas.width
+          ? canvas.getContext('2d').getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data
+          : [0, 0, 0, 0];
+        if (!alpha) window.blankFrames++;
+      }
+      if (window.watching) requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  });
+  await page.keyboard.press('ControlOrMeta+Shift+D');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 7');
+  await settled(page);
+  await expect.poll(blank).toBe(0);
+  expect(await page.evaluate(() => ((window.watching = false), window.blankFrames))).toBe(0);
+});

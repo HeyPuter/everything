@@ -1566,6 +1566,7 @@ export function createEditor({
     getPdf: () => pdf,
     getZoom: () => zoom,
     getRevision: () => session.revision,
+    getPageIds: (revision) => session.pagesAt(revision),
     getLayers: () => documentLayers || undefined,
     currentIndex: () => pageIndex,
     canFollowScroll: () =>
