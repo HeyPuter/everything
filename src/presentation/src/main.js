@@ -14396,8 +14396,22 @@ function findRegExp(flags = "") {
     `${flags}${find.caseSensitive ? "" : "i"}`,
   );
 }
+// The speaker notes Find reads, each slide's read once per revision of the
+// presentation rather than on every key typed in the find bar.
+let notesForFind = { pres: null, revision: -1, text: new Map() };
+function findNotes(target) {
+  if (notesForFind.pres !== doc.pres || notesForFind.revision !== revision)
+    notesForFind = { pres: doc.pres, revision, text: new Map() };
+  const part = P.getSlidePartName(target);
+  let text = notesForFind.text.get(part);
+  if (text == null) {
+    text = P.getSlideNotes(target) || "";
+    notesForFind.text.set(part, text);
+  }
+  return text;
+}
 // Every place the text appears, in slide order: text shapes by run and
-// table cells by cell.
+// table cells by cell, then the slide's speaker notes.
 function collectMatches() {
   const matches = [];
   if (!find.query) return matches;
@@ -14431,6 +14445,9 @@ function collectMatches() {
         for (let k = 0; k < n; k++) matches.push({ part, id, k });
       }
     }
+    // The slide's speaker notes, after its objects.
+    const n = countIn(findNotes(s));
+    for (let k = 0; k < n; k++) matches.push({ part, notes: true, k });
   }
   return matches;
 }
@@ -14443,7 +14460,11 @@ function search({ keep = false } = {}) {
   find.at = find.matches.length ? 0 : -1;
   if (keep && before) {
     const same = find.matches.findIndex(
-      (m) => m.part === before.part && m.id === before.id && m.k === before.k,
+      (m) =>
+        m.part === before.part &&
+        m.id === before.id &&
+        !!m.notes === !!before.notes &&
+        m.k === before.k,
     );
     if (same >= 0) find.at = same;
   }
@@ -14472,6 +14493,7 @@ function refreshMatches() {
         (m) =>
           m.part === before.part &&
           m.id === before.id &&
+          !!m.notes === !!before.notes &&
           m.k === before.k &&
           m.cell?.row === before.cell?.row &&
           m.cell?.col === before.cell?.col,
@@ -14513,6 +14535,7 @@ async function revealMatch(match) {
   );
   if (!target) return;
   if (P.getSlidePartName(slide()) !== match.part) await chooseSlide(target);
+  if (match.notes) return revealNotesMatch(match);
   const index = shapes().findIndex((s) => P.getShapeId(s) === match.id);
   if (index < 0) return;
   selectOnly(index);
@@ -14522,6 +14545,47 @@ async function revealMatch(match) {
   document
     .querySelector(`.object-hit[data-shape-id="${match.id}"]`)
     ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+// A match in the speaker notes is selected there, with the notes scrolled
+// to it; the keyboard stays in the find bar.
+function revealNotesMatch(match) {
+  selectIds([]);
+  renderSelection();
+  renderInspector();
+  const notes = document.querySelector("#speaker-notes");
+  if (!notes) return;
+  const hit = [...notes.value.matchAll(findRegExp("g"))][match.k];
+  if (!hit) return;
+  notes.setSelectionRange(hit.index, hit.index + hit[0].length);
+  // The line of the match comes into the notes' view.
+  const lines = notes.value.slice(0, hit.index).split("\n").length - 1;
+  const lineHeight = parseFloat(getComputedStyle(notes).lineHeight) || 18;
+  notes.scrollTop = Math.max(0, lines * lineHeight - notes.clientHeight / 2);
+  notes.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+// Replaces in a slide's speaker notes, keeping the formatting of the notes
+// around the matches.
+function replaceInNotes(target, regex, replacement, only = null) {
+  const text = P.getSlideNotes(target) || "";
+  const hits = [...text.matchAll(regex)].filter(
+    (_, i) => only == null || i === only,
+  );
+  if (!hits.length) return false;
+  let value = text;
+  // From the last match back, so each edit's offsets hold for the text the
+  // edits before it left.
+  const edits = hits.reverse().map((hit) => {
+    const edit = {
+      start: hit.index,
+      end: hit.index + hit[0].length,
+      text: replacement,
+    };
+    value = value.slice(0, edit.start) + replacement + value.slice(edit.end);
+    return edit;
+  });
+  if (value === text) return false;
+  commitNotes(target, value, text, edits);
+  return true;
 }
 // A shape's text as Find reads it: each paragraph's runs joined up to a
 // line break or a field, so text whose formatting changes part-way through
@@ -14648,12 +14712,19 @@ function replaceMatch(all) {
     let changed = false;
     const done = new Set();
     for (const match of targets) {
-      const key = `${match.part}:${match.id}:${match.cell ? `${match.cell.row},${match.cell.col}` : ""}`;
+      const key = `${match.part}:${match.notes ? "notes" : match.id}:${match.cell ? `${match.cell.row},${match.cell.col}` : ""}`;
       if (all && done.has(key)) continue;
       done.add(key);
       const target = P.getSlides(doc.pres).find(
         (s) => P.getSlidePartName(s) === match.part,
       );
+      if (match.notes) {
+        if (target)
+          changed =
+            replaceInNotes(target, regex, replacement, all ? null : match.k) ||
+            changed;
+        continue;
+      }
       const shape = target && P.findShapeById(target, match.id);
       if (!shape) continue;
       if (match.cell)

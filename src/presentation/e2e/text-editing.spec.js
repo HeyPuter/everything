@@ -319,3 +319,38 @@ test("Format Painter carries the formatting of selected text to other text", asy
   await page.keyboard.press("Escape");
   expect(await slideSvg(page)).toMatch(/font-weight="700"[^>]*>two</);
 });
+
+test("Find and Replace reach the speaker notes", async ({ page }) => {
+  const editor = await typedBox(page, "Say hello");
+  await page.keyboard.press("Escape");
+  await expect(editor).toHaveCount(0);
+  const notes = page.locator("#speaker-notes");
+  test.skip(!(await notes.isVisible()), "the phone layout hides the notes");
+  await notes.fill("First hello\nThen HELLO again");
+  await notes.blur();
+  await page.keyboard.press("ControlOrMeta+f");
+  const bar = page.getByRole("search", { name: "Find and replace" });
+  const query = bar.getByRole("searchbox", { name: "Find" });
+  await query.fill("hello");
+  const count = bar.locator(".find-count");
+  await expect(count).toHaveText("1 of 3");
+  // The next match is in the notes, where it is selected.
+  await bar.getByRole("button", { name: "Next match" }).click();
+  await expect(count).toHaveText("2 of 3");
+  await expect(page.locator(".object-hit.selected")).toHaveCount(0);
+  expect(
+    await notes.evaluate((n) =>
+      n.value.slice(n.selectionStart, n.selectionEnd),
+    ),
+  ).toBe("hello");
+  // Replace all reaches them too, as one undo step.
+  await bar.getByRole("textbox", { name: "Replace with" }).fill("hi");
+  await bar.getByRole("button", { name: "Replace all" }).click();
+  await expect(count).toHaveText("No matches");
+  await expect(notes).toHaveValue("First hi\nThen hi again");
+  expect(await slideSvg(page)).toContain(">Say hi<");
+  await page.locator("#slide-canvas").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(notes).toHaveValue("First hello\nThen HELLO again");
+  expect(await slideSvg(page)).toContain(">Say hello<");
+});
