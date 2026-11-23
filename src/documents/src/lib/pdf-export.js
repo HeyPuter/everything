@@ -9,6 +9,7 @@
 import { selectionRects } from '../engine/layout.js';
 import { bidiEmbeddingLevels, bidiMirroredCharacter, bidiVisualOrder } from '../engine/bidi-text.js';
 import { bookmarkEntries, bookmarksByName, bookmarkNamed } from '../engine/bookmarks.js';
+import { outlineEntries } from '../engine/outline.js';
 
 const encoder = new TextEncoder();
 const PT_PER_PX = 0.75;
@@ -107,7 +108,7 @@ end`;
  * Build a PDF from pages: [{ widthPx, heightPx, jpeg: Uint8Array, imageWidth, imageHeight, fragments }].
  * Returns a Uint8Array.
  */
-export function buildPdf(pages, { title = 'Document', author = '' } = {}) {
+export function buildPdf(pages, { title = 'Document', author = '', outline = [] } = {}) {
   const chunks = [], offsets = [];
   let length = 0;
   const push = data => { const bytes = typeof data === 'string' ? encoder.encode(data) : data; chunks.push(bytes); length += bytes.length; };
@@ -153,7 +154,31 @@ export function buildPdf(pages, { title = 'Document', author = '' } = {}) {
   // Written once every page's text has met its characters beyond the BMP.
   define(toUnicode, { stream: encoder.encode(toUnicodeMap(astral)) });
   define(pagesId, `<< /Type /Pages /Kids [${kids.map(k => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`);
-  define(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  // The document's headings as the PDF's bookmarks (§12.3.3 document outline), nested by level, each going to its page.
+  const headings = outline.filter(h => pages[h.page]);
+  let outlines = null;
+  if (headings.length) {
+    outlines = reserve();
+    const items = headings.map(h => ({ ...h, id: reserve(), children: [] })), top = [], stack = [];
+    for (const item of items) {
+      while (stack.length && stack.at(-1).level >= item.level) stack.pop();
+      item.parent = stack.at(-1) || null;
+      (item.parent ? item.parent.children : top).push(item);
+      stack.push(item);
+    }
+    const descendants = item => item.children.reduce((n, c) => n + 1 + descendants(c), 0);
+    const link = (list, parentId) => list.forEach((item, i) => {
+      const fields = [`/Title ${pdfString(item.title)}`, `/Parent ${parentId} 0 R`, `/Dest [${kids[item.page]} 0 R /XYZ null ${pt(pages[item.page].heightPx - item.y)} null]`];
+      if (i > 0) fields.push(`/Prev ${list[i - 1].id} 0 R`);
+      if (i < list.length - 1) fields.push(`/Next ${list[i + 1].id} 0 R`);
+      if (item.children.length) fields.push(`/First ${item.children[0].id} 0 R /Last ${item.children.at(-1).id} 0 R /Count ${descendants(item)}`);
+      define(item.id, `<< ${fields.join(' ')} >>`);
+      link(item.children, item.id);
+    });
+    link(top, outlines);
+    define(outlines, `<< /Type /Outlines /First ${top[0].id} 0 R /Last ${top.at(-1).id} 0 R /Count ${items.length} >>`);
+  }
+  define(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${outlines ? ` /Outlines ${outlines} 0 R` : ''} >>`);
 
   push(new Uint8Array([...encoder.encode('%PDF-1.7\n%'), 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
   for (let i = 0; i < objects.length; i++) {
@@ -229,6 +254,20 @@ export function pageLinks(paragraphs, layout) {
   return out;
 }
 
+/**
+ * The document's headings where the layout places them, for the PDF's bookmarks: [{ title, level, page, y }] in
+ * page pixels. A heading inside a table, or one with no text, is left out, as the navigation pane names those.
+ */
+export function pageOutline(paragraphs, layout) {
+  const out = [];
+  for (const entry of outlineEntries(paragraphs)) {
+    if (entry.inTable || entry.text === '(Empty heading)') continue;
+    const [r] = selectionRects(layout, entry.start, Math.max(entry.start + 1, entry.end));
+    if (r) out.push({ title: entry.text, level: entry.level, page: r.page ?? 0, y: r.y });
+  }
+  return out;
+}
+
 const jpegOf = canvas => new Promise((resolve, reject) => canvas.toBlob(blob => blob ? blob.arrayBuffer().then(b => resolve(new Uint8Array(b)), reject) : reject(new Error('The page could not be encoded.')), 'image/jpeg', 0.92));
 
 /**
@@ -246,7 +285,9 @@ export async function exportPdf(engine, { title, batch = PDF_BATCH_PAGES } = {})
     const { layout, storyLayout } = engine.printedLayout || engine;
     let links = [];
     try { links = pageLinks(engine.model.paragraphs, layout); } catch (e) { console.warn('[documents] the PDF\'s links could not be placed', e); }
-    return { layout, lines: [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])], links };
+    let outline = [];
+    try { outline = pageOutline(engine.model.paragraphs, layout); } catch (e) { console.warn('[documents] the PDF\'s bookmarks could not be placed', e); }
+    return { layout, lines: [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])], links, outline };
   };
   const release = sheets => { for (const canvas of sheets) if (canvas) canvas.width = canvas.height = 0; };
   const encode = async (sheets, { layout, lines, links }, pages) => {
@@ -274,7 +315,8 @@ export async function exportPdf(engine, { title, batch = PDF_BATCH_PAGES } = {})
   if (whole) {
     pages = [];
     const sheets = engine.printSheets();
-    await encode(sheets, printed(), pages);
+    first = printed();
+    await encode(sheets, first, pages);
   }
-  return new Blob([buildPdf(pages, { title })], { type: 'application/pdf' });
+  return new Blob([buildPdf(pages, { title, outline: first?.outline || [] })], { type: 'application/pdf' });
 }
