@@ -139,6 +139,48 @@ describe("applying themes", () => {
     expect(box.x).toBe(Math.round(0.08 * 12192000));
   });
 
+  // A chart's text is made in the body color of its slide; it stayed black
+  // when a dark theme turned the slide dark.
+  it("gives charts' text the body color of a new theme or variant", () => {
+    const pres = sampleDeck();
+    E.applyTheme(pres, "paper");
+    const slide = P.getSlides(pres)[1];
+    P.addSlideChart(slide, {
+      spec: {
+        kind: "column",
+        categories: ["A", "B"],
+        series: [{ name: "S", values: [1, 2], color: "#123456" }],
+        title: "Sales",
+        legend: { position: "b" },
+      },
+      x: 0,
+      y: 0,
+      w: P.inches(4),
+      h: P.inches(3),
+    });
+    const textColors = () => {
+      const spec = P.getSlideCharts(P.getSlides(pres)[1])[0].spec;
+      return {
+        title: spec.titleStyle?.color,
+        axis: spec.valueAxisLabelStyle?.color,
+        legend: spec.legend?.textStyle?.color,
+        series: spec.series[0].color,
+      };
+    };
+    const light = textColors();
+    expect(light.title).toBe(P.resolveDeckBodyTextColor(slide));
+    E.applyTheme(pres, "midnight");
+    const body = P.resolveDeckBodyTextColor(P.getSlides(pres)[1]);
+    expect(body).not.toBe(light.title);
+    expect(textColors()).toEqual({
+      title: body,
+      axis: body,
+      legend: body,
+      series: "#123456",
+    });
+    expect(errors(pres)).toEqual([]);
+  });
+
   it("applies a theme to selected slides with a second master", () => {
     const pres = sampleDeck();
     E.applyTheme(pres, "atlas");

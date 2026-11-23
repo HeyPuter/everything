@@ -163,7 +163,7 @@ export function createThemeTools(host) {
       const targets = selected ? host.selectedSlides() : slides();
       const before = E.mastersOf(pres(), targets);
       if (before.length === 1 && before[0] === master) return host.skip;
-      for (const s of targets) E.moveSlideToMaster(pres(), s, master);
+      E.moveSlidesToMaster(pres(), targets, master);
       if (!selected) E.dropUnusedMasters(pres(), before);
     });
   }
