@@ -1101,6 +1101,23 @@ export const fallbackVariant = ({ fontName = '', fontWeight = '', fontStyle = ''
     fontStyle === 'italic' || /italic|oblique/i.test(fontName),
   );
 /**
+ * The Noto Sans face (a textVariant) prepareText sets `text` in because the run's own font
+ * cannot spell it, or null when it keeps that font or the standard face matching it.
+ */
+export function fallbackFace(run, text) {
+  const map = run?.map;
+  if (!map) return null;
+  // Most drafts are spelled one character per glyph: check that before matching ligatures.
+  let plain = true;
+  for (const char of text)
+    if (char !== '\n' && !map.has(char)) {
+      plain = false;
+      break;
+    }
+  if (plain || text.split('\n').every((line) => originalGlyphs(map, line))) return null;
+  return standardFont(run.fontName || '') ? null : fallbackVariant(run);
+}
+/**
  * Glyph codes for `text` in the run's own font when it has them, else in a standard or Noto
  * Sans font; `variant` (a Noto Sans face) forces that face, as a bold or italic change does.
  * With no forced face, the Noto fallback matches the run's own weight and slant so an edit to

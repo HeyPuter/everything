@@ -69,7 +69,7 @@ import {
   REVIEW_STATES,
 } from './core/annotations.js';
 import { COMMENT_KINDS } from './core/comments.js';
-import { ensureStyledFontFaces, cjkDraftFace } from './text-fonts.js';
+import { ensureStyledFontFaces, cjkDraftFace, fallbackDraftFace } from './text-fonts.js';
 import {
   documentAccess,
   requireDocumentAccess,
@@ -1687,12 +1687,14 @@ export function createEditor({
     );
     if (cjk) return cjk;
     if (edit.run && !styleChanged(edit))
-      return {
-        weight: edit.run?.fontWeight || 'normal',
-        style: edit.run?.fontStyle || 'normal',
-        family: edit.run?.fontFamily || null,
-        ligatures: edit.run?.fontVariantLigatures || 'normal',
-      };
+      return (
+        (!edit.run.parts && fallbackDraftFace(edit.run, edit.input.value)) || {
+          weight: edit.run?.fontWeight || 'normal',
+          style: edit.run?.fontStyle || 'normal',
+          family: edit.run?.fontFamily || null,
+          ligatures: edit.run?.fontVariantLigatures || 'normal',
+        }
+      );
     return {
       weight: bold ? 'bold' : 'normal',
       style: italic ? 'italic' : 'normal',
@@ -1713,6 +1715,19 @@ export function createEditor({
       }),
     );
     return Promise.all([...weights].map((weight) => ensureStyledFontFaces(weight, text)));
+  }
+  /**
+   * Load the Noto Sans faces a draft previews in for characters its own font lacks, and lay it
+   * out again once each has loaded: until then the browser measures a stand-in face.
+   */
+  function loadFallbackFaces(edit, variants) {
+    for (const variant of new Set(variants)) {
+      if (edit.fallbackFaces?.has(variant)) continue;
+      (edit.fallbackFaces ||= new Set()).add(variant);
+      ensureStyledFontFaces(variant).then((loaded) => {
+        if (loaded && textEdit === edit) layoutTextEdit();
+      });
+    }
   }
   function applyDraftStyle(edit) {
     if (hasCjkText(edit.input.value))
@@ -6186,11 +6201,13 @@ export function createEditor({
           .join(' ') || 'none',
       transform: box.transform,
     });
-    edit.input.updateStyle?.(
-      edit.hex,
-      box.size,
-      styleChanged(edit) ? (run) => draftFace(edit, run) : undefined,
-    );
+    const fallbacks =
+      edit.input.updateStyle?.(
+        edit.hex,
+        box.size,
+        styleChanged(edit) ? (run) => draftFace(edit, run) : undefined,
+      ) || [];
+    loadFallbackFaces(edit, face.variant ? [...fallbacks, face.variant] : fallbacks);
     const richLayout = edit.input.measureLayout?.();
     if (richLayout) {
       const shift = box.size * edit.run.ascent - richLayout.baseline;

@@ -43,7 +43,11 @@ test('an embedded-font draft keeps the same glyph metrics until the committed pa
   await openPage(page, true);
   await page.getByRole('button', { name: 'Edit text: Original words', exact: true }).click();
   await expect(page.locator('.text-draft-background')).toBeVisible();
-  await page.getByRole('textbox', { name: 'Edit text', exact: true }).fill('Revised words');
+  await page.getByRole('textbox', { name: 'Edit text', exact: true }).fill(
+    // Only letters the embedded subset holds, so the draft keeps the source face (a missing
+    // letter would preview in the face it will be saved in).
+    'Original swords',
+  );
   await page.evaluate(() => {
     const input = document.querySelector('.page-text-input'),
       context = document.createElement('canvas').getContext('2d');
@@ -65,7 +69,7 @@ test('an embedded-font draft keeps the same glyph metrics until the committed pa
   });
   await clickAway(page);
   await expect(
-    page.getByRole('button', { name: 'Edit text: Revised words', exact: true }),
+    page.getByRole('button', { name: 'Edit text: Original swords', exact: true }),
   ).toBeEnabled();
   const { expected, widths } = await page.evaluate(() => window.draftMetrics);
   expect(widths.length).toBeGreaterThan(1);

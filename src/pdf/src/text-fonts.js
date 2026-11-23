@@ -1,6 +1,6 @@
 import { cjkWeight, hasCjkText, textFontFile } from './core/document.js';
 import { CjkFace, cjkRegions } from './core/cjk-fonts.js';
-import { fallbackVariant, originalGlyphs } from './core/text-edit.js';
+import { fallbackFace, fallbackVariant, originalGlyphs } from './core/text-edit.js';
 
 /** The family a draft of CJK text is previewed in: the face its regions will be embedded with. */
 const cjkFamily = (text) => `Puter CJK ${cjkRegions(text)[0].toUpperCase()}`;
@@ -19,6 +19,22 @@ export function cjkDraftFace(run, text, variant, context = text) {
     weight: style.startsWith('bold') ? 'bold' : 'normal',
     style: 'normal',
     ligatures: 'normal',
+  };
+}
+
+/**
+ * The face a draft is previewed in when the source subset cannot spell it and it will be saved
+ * in Noto Sans: previewed in the source font, a paragraph wrapped narrower than it is written.
+ */
+export function fallbackDraftFace(run, text) {
+  const variant = !hasCjkText(text) && fallbackFace(run, text);
+  if (!variant) return null;
+  return {
+    family: "'Noto Sans Styled'",
+    weight: variant.startsWith('bold') ? 'bold' : 'normal',
+    style: variant.toLowerCase().includes('italic') ? 'italic' : 'normal',
+    ligatures: 'normal',
+    variant,
   };
 }
 

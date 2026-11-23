@@ -1,6 +1,6 @@
 import { paragraphLayout } from './paragraph-layout.js';
 import { groupLineHeight } from './core/text-group.js';
-import { cjkDraftFace } from './text-fonts.js';
+import { cjkDraftFace, fallbackDraftFace } from './text-fonts.js';
 import { caretAt } from './text-caret.js';
 
 /**
@@ -99,14 +99,20 @@ export function textLineInput(group) {
     input.style.minWidth = '0';
     input.exportLayout = () => paragraphLayout(input, segments, group);
   }
+  /** Style each fragment; returns the Noto Sans faces previewing glyphs its font lacks. */
   input.updateStyle = (hex, size, face) => {
+    const fallbacks = [];
     if (group.paragraph) input.style.lineHeight = `${group.paragraph.leading * size}px`;
     for (const span of input.querySelectorAll('[data-part]')) {
       const run = group.parts[Number(span.dataset.part)];
       const ratio =
         Math.hypot(run.transform[2], run.transform[3]) /
         Math.hypot(group.transform[2], group.transform[3]);
-      const fallback = face?.(run) || cjkDraftFace(run, span.textContent, undefined, input.value);
+      const fallback =
+        face?.(run) ||
+        cjkDraftFace(run, span.textContent, undefined, input.value) ||
+        fallbackDraftFace(run, span.textContent);
+      if (fallback?.variant) fallbacks.push(fallback.variant);
       Object.assign(span.style, {
         fontFamily: fallback?.family ? `${fallback.family}, sans-serif` : run.fontFamily,
         fontWeight: fallback?.weight || run.fontWeight,
@@ -116,10 +122,11 @@ export function textLineInput(group) {
         color: hex !== group.fillColor ? hex : run.fillColor,
         letterSpacing: `${(run.state.charSpacing / run.state.size) * ratio * size}px`,
         wordSpacing: `${!face && run.widths.get(' ')?.space ? (run.state.wordSpacing / run.state.size) * ratio * size : 0}px`,
-        // A space in another font, as Word ends a paragraph with its mark's, shows nothing:
-        // its taller font must not push its line further down than the paragraph's leading.
-        // A blank line keeps its font's height.
-        lineHeight: /^[^\S\n]+$/.test(span.textContent) ? '0' : '',
+        // A space in another font, as Word ends a paragraph with its mark's, shows nothing,
+        // and a stand-in face takes the place of the source font: neither's taller font may
+        // push its line further down than the paragraph's leading. A blank line keeps its
+        // font's height.
+        lineHeight: /^[^\S\n]+$/.test(span.textContent) || fallback?.variant ? '0' : '',
       });
       const gap =
         span.dataset.gap && span.textContent === ' ' ? JSON.parse(span.dataset.gap) : null;
@@ -131,6 +138,7 @@ export function textLineInput(group) {
           : '',
       });
     }
+    return fallbacks;
   };
   input.measureLayout = () => {
     if (group.paragraph) return input.exportLayout();
