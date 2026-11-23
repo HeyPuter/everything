@@ -28,6 +28,8 @@ describe('readability', () => {
     const s = textStatistics('One two three.\n\nFour five.');
     expect(s).toMatchObject({ words: 5, paragraphs: 2, characters: 24, charactersNoSpaces: 21 });
     expect(s.averages.wordsPerSentence).toBe(2.5);
+    // A page, column or line break is not a character, with or without spaces; a tab is one with spaces.
+    expect(textStatistics('One\ftwo\u000ethree\vfour\tfive')).toMatchObject({ words: 5, characters: 20, charactersNoSpaces: 19 });
     expect(textStatistics('').readability).toEqual({ fleschReadingEase: 0, fleschKincaidGrade: 0, passivePercent: 0 });
   });
 
