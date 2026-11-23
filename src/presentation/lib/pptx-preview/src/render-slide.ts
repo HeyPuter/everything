@@ -514,7 +514,11 @@ const renderPicture = (
     // Apply <a:srcRect> crop, brightness (lumOff), contrast (lumMod),
     // and opacity (alphaModFix) so authored picture corrections show up in
     // what the playground paints.
-    const geometry = getShapeGeometryResolved(pres, shape);
+    const geometry = getShapeGeometryResolved(
+      pres,
+      shape,
+      activeGroupMap ? { w, h } : undefined,
+    );
     const usesPathFills =
       geometry?.geometry &&
       (geometry.geometry.paths.length > 1 ||
@@ -927,6 +931,35 @@ let activeDefinitionIds = sharedDefinitionIds;
 let activeLayerPart: SlideShapeLayerPart | null = null;
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
+// How the group being drawn places its children: their boxes, in its child
+// space, scaled and offset into its frame on the slide (EMU). Null outside
+// groups. A child is drawn at its mapped size rather than scaled, so a
+// resized group keeps its text at its point size and its outlines at their
+// width, re-wrapping text in the new box (as on the slide's own shapes).
+let activeGroupMap: {
+  readonly sx: number;
+  readonly sy: number;
+  readonly tx: number;
+  readonly ty: number;
+} | null = null;
+// A box turned nearer a quarter turn than upright shows its width across the
+// group's height, so it takes the group's scales the other way round.
+const throughActiveGroup = <
+  T extends { x: number; y: number; w: number; h: number },
+>(
+  b: T,
+  rotation = 0,
+): T => {
+  const m = activeGroupMap;
+  if (!m) return b;
+  const turn = ((rotation % 360) + 360) % 360;
+  const across = (turn >= 45 && turn < 135) || (turn >= 225 && turn < 315);
+  const w = b.w * (across ? m.sy : m.sx),
+    h = b.h * (across ? m.sx : m.sy);
+  const cx = m.tx + (b.x + b.w / 2) * m.sx,
+    cy = m.ty + (b.y + b.h / 2) * m.sy;
+  return { ...b, x: cx - w / 2, y: cy - h / 2, w, h };
+};
 // True inside an odd number of groups that mirror their content (flipped
 // along one axis): text drawn there is mirrored back so it still reads.
 let activeMirroringGroups = false;
@@ -11709,7 +11742,9 @@ const renderShape = (
   // `getShapeBounds` returns null for them and the preview would hide
   // every title / body / footer slot.
   if (isShapeHidden(shape)) return "";
-  const bounds = getShapeBoundsResolved(pres, shape);
+  const ownBounds = getShapeBoundsResolved(pres, shape);
+  const bounds =
+    ownBounds && throughActiveGroup(ownBounds, getShapeRotation(shape));
   if (!bounds && diagram && getShapeKind(shape) === "group")
     return getGroupChildren(shape)
       .map((child) => renderShape(child, pres, theme, ctx, diagram))
@@ -11728,7 +11763,10 @@ const renderShape = (
     ? diagramTextShape(shape, diagramTextTransform)
     : shape;
   const textBounds = diagramTextTransform
-    ? getShapeBoundsResolved(pres, textShape)
+    ? (() => {
+        const own = getShapeBoundsResolved(pres, textShape);
+        return own && throughActiveGroup(own, getShapeRotation(shape));
+      })()
     : bounds;
   // Path shapes can paint a stroke with no area: ordinary DrawingML shapes,
   // including SmartArt drawing children, use zero-height/width line geometry
@@ -11808,7 +11846,13 @@ const renderShape = (
   }
 
   const geometry =
-    kind === "graphicFrame" ? null : getShapeGeometryResolved(pres, shape);
+    kind === "graphicFrame"
+      ? null
+      : getShapeGeometryResolved(
+          pres,
+          shape,
+          activeGroupMap ? { w, h } : undefined,
+        );
   const textOverlay =
     (kind === "shape" || kind === "graphicFrame") && textBounds
       ? renderTextBody(
@@ -11965,50 +12009,40 @@ const renderShape = (
     // axis, as in a flipped shape: each shape's text is mirrored back about
     // its own centre (see `activeMirroringGroups`). A group flipped both ways
     // is turned a half turn, which turns its text with it.
-    if (xform && rotation !== 0) {
-      const cxG =
-        ((xform.outer.x as number) + (xform.outer.w as number) / 2) /
-        EMU_PER_PX;
-      const cyG =
-        ((xform.outer.y as number) + (xform.outer.h as number) / 2) /
-        EMU_PER_PX;
+    // The group's frame, where its enclosing groups place it.
+    const outer = xform ? throughActiveGroup(xform.outer, rotation) : null;
+    if (outer && rotation !== 0) {
+      const cxG = (outer.x + outer.w / 2) / EMU_PER_PX;
+      const cyG = (outer.y + outer.h / 2) / EMU_PER_PX;
       tParts.push(`rotate(${rotation} ${cxG.toFixed(2)} ${cyG.toFixed(2)})`);
     }
-    if (xform && flip.horizontal) {
-      const cxG =
-        ((xform.outer.x as number) + (xform.outer.w as number) / 2) /
-        EMU_PER_PX;
+    if (outer && flip.horizontal) {
+      const cxG = (outer.x + outer.w / 2) / EMU_PER_PX;
       tParts.push(`translate(${(2 * cxG).toFixed(2)} 0) scale(-1 1)`);
     }
-    if (xform && flip.vertical) {
-      const cyG =
-        ((xform.outer.y as number) + (xform.outer.h as number) / 2) /
-        EMU_PER_PX;
+    if (outer && flip.vertical) {
+      const cyG = (outer.y + outer.h / 2) / EMU_PER_PX;
       tParts.push(`translate(0 ${(2 * cyG).toFixed(2)}) scale(1 -1)`);
-    }
-    if (xform) {
-      const ox = xform.outer.x as number;
-      const oy = xform.outer.y as number;
-      const ow = xform.outer.w as number;
-      const oh = xform.outer.h as number;
-      const ix = xform.inner.x as number;
-      const iy = xform.inner.y as number;
-      const iw = (xform.inner.w as number) || 1;
-      const ih = (xform.inner.h as number) || 1;
-      const sx = (ow / iw).toFixed(6);
-      const sy = (oh / ih).toFixed(6);
-      // translate first, then scale, so the child's natural coords
-      // (px) project: ox/EMU_PER_PX + (cx - ix) * sx / EMU_PER_PX,
-      // which factors as translate(ox/EMU - ix*sx/EMU) scale(sx).
-      const tx = ((ox - ix * (ow / iw)) / EMU_PER_PX).toFixed(2);
-      const ty = ((oy - iy * (oh / ih)) / EMU_PER_PX).toFixed(2);
-      tParts.push(`translate(${tx} ${ty})`, `scale(${sx} ${sy})`);
     }
     const groupTransform =
       tParts.length > 0 ? ` transform="${tParts.join(" ")}"` : "";
     const previousMirroring = activeMirroringGroups;
+    const previousGroupMap = activeGroupMap;
     if (xform && flip.horizontal !== flip.vertical)
       activeMirroringGroups = !activeMirroringGroups;
+    if (outer && xform) {
+      // Child space onto the frame: x' = tx + x * sx (and likewise for y).
+      const ix = xform.inner.x as number;
+      const iy = xform.inner.y as number;
+      const sx = outer.w / ((xform.inner.w as number) || 1);
+      const sy = outer.h / ((xform.inner.h as number) || 1);
+      activeGroupMap = {
+        sx,
+        sy,
+        tx: outer.x - ix * sx,
+        ty: outer.y - iy * sy,
+      };
+    }
     let childrenSvg: string;
     try {
       childrenSvg = children
@@ -12016,6 +12050,7 @@ const renderShape = (
         .join("");
     } finally {
       activeMirroringGroups = previousMirroring;
+      activeGroupMap = previousGroupMap;
     }
     return `<g${groupTransform}>${childrenSvg}</g>`;
   }
@@ -12760,8 +12795,10 @@ export const renderSlideSvg = (
   const previousTextColor = activeDeckTextColor;
   const previousLayerPart = activeLayerPart;
   const previousMirroring = activeMirroringGroups;
+  const previousGroupMap = activeGroupMap;
   activeLayerPart = null;
   activeMirroringGroups = false;
+  activeGroupMap = null;
   activeDefinitionIds = opts.stableDefinitionIds
     ? { next: 0 }
     : sharedDefinitionIds;
@@ -12773,6 +12810,7 @@ export const renderSlideSvg = (
     activeDeckTextColor = previousTextColor;
     activeLayerPart = previousLayerPart;
     activeMirroringGroups = previousMirroring;
+    activeGroupMap = previousGroupMap;
   }
 };
 

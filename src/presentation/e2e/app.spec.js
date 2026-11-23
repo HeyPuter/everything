@@ -9649,9 +9649,9 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
     expect.closeTo((4 / 13.333) * 100, 1),
     expect.closeTo((2 / 7.5) * 100, 1),
   ]);
-  // Its text edits at the size the doubled group shows it: 18 pt inside a
-  // twice-scaled group reads like 36 pt. (On phones the panel covers the
-  // canvas, so it closes first.)
+  // Its text edits at the size the slide shows it: a resized group keeps
+  // its text at 18 pt, re-wrapped in its doubled box. (On phones the panel
+  // covers the canvas, so it closes first.)
   const closePanel = page.getByRole("button", { name: "Close format panel" });
   if (await closePanel.isVisible()) await closePanel.click();
   await child.dblclick();
@@ -9662,7 +9662,7 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
     .evaluate((node) => node.clientWidth);
   expect(
     parseFloat(await editor.evaluate((node) => node.style.fontSize)),
-  ).toBeCloseTo(Math.max(14, (36 / 72 / (12192000 / 914400)) * canvasWidth), 0);
+  ).toBeCloseTo(Math.max(14, (18 / 72 / (12192000 / 914400)) * canvasWidth), 0);
   await editor.press("Escape");
   await expect(editor).toHaveCount(0);
   await paneTab(page, "Size & Properties");

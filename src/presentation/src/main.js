@@ -10843,9 +10843,6 @@ function editText(target, event = null, { inserted = null } = {}) {
     b = slideBounds(doc.pres, obj);
   if (!b) return;
   const format = textFormat(obj);
-  // A resized group scales its text along with its shapes.
-  const own = P.getShapeBoundsResolved(doc.pres, obj);
-  const groupScale = own?.h && b.h ? b.h / own.h : 1;
   // The text as runs, with paragraph breaks as newlines inside them. The
   // editor shows one span per run and reads them back after every edit, so
   // typing lands in the run it touches and keeps that run's formatting.
@@ -10940,7 +10937,8 @@ function editText(target, event = null, { inserted = null } = {}) {
     contrast(luminance(color), luminance(surface)) >= 3;
   const readable = legible(format.color);
   const baseSize = format.size || 24;
-  input.dataset.points = baseSize * groupScale;
+  // A resized group keeps its text at its point size, as the slide shows it.
+  input.dataset.points = baseSize;
   const resolveFont = slideFontResolver(slide(), doc.pres);
   const decoration = (f) =>
     [
@@ -10956,7 +10954,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     top: `${(editorRect.y / size.cy) * 100}%`,
     width: `${(editorRect.w / size.cx) * 100}%`,
     height: `${(editorRect.h / size.cy) * 100}%`,
-    fontSize: editorFontSize(baseSize * groupScale, canvas),
+    fontSize: editorFontSize(baseSize, canvas),
     fontFamily: format.font ? resolveFont(format.font) : "",
     fontWeight: format.bold ? "700" : "400",
     fontStyle: format.italic ? "italic" : "normal",
