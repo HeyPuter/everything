@@ -1006,3 +1006,50 @@ test("a cancelled Open dialog leaves things as they were", async ({ page }) => {
   await page.keyboard.press("Control+o");
   await expect(title(page)).toHaveText("Pick");
 });
+
+test("a slide show or template in Puter opens as a new presentation that saves as .pptx", async ({
+  page,
+}) => {
+  const show = createDeck("story");
+  P.setPresentationKind(show, "slideshow");
+  const template = createDeck("story");
+  P.setPresentationKind(template, "template");
+  await mockDrive(page, {
+    env: "web",
+    seed: {
+      "~/Desktop/Keynote.ppsx": await base64(show),
+      "~/Desktop/Brand.potx": await base64(template),
+    },
+    launch: [{ name: "Keynote.ppsx", path: "~/Desktop/Keynote.ppsx" }],
+  });
+  // Launched from the desktop: it keeps its name, but not its file, which a
+  // presentation (.pptx) cannot be saved into.
+  await expect(title(page)).toHaveText("Keynote");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
+  await expect(status(page)).not.toHaveAttribute("title", /Keynote\.ppsx/);
+  await addText(page);
+  await page.keyboard.press("Control+s");
+  await expect(status(page)).toHaveText("Saved to Puter");
+  expect((await writes(page)).map((w) => w.path)).toEqual([
+    `${APP_FOLDER}/Keynote.pptx`,
+  ]);
+  const kept = await page.evaluate(async () => {
+    const { P } = await import("/src/model.js");
+    const read = async (path) =>
+      P.getPresentationKind(
+        await P.loadPresentation(
+          new Uint8Array(await (await puter.fs.read(path)).arrayBuffer()),
+        ),
+      );
+    return [
+      await read("~/Desktop/Keynote.ppsx"),
+      await read("Presentations/Keynote.pptx"),
+    ];
+  });
+  expect(kept).toEqual(["slideshow", "presentation"]);
+  // Puter's Open dialog offers them, and a template starts an untitled one.
+  await page.evaluate(() => (window.__ui.pick = "/test/Desktop/Brand.potx"));
+  await page.keyboard.press("Control+o");
+  await expect(title(page)).toHaveText("Untitled presentation");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
+});

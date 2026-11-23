@@ -2069,6 +2069,7 @@ async function recover(draft) {
 // draft holding unsaved changes to the file is offered first, unless
 // `offerDraft` is false.
 async function openCloud(file, { offerDraft = true } = {}) {
+  if (cloud.opensAsCopy(file.path || file.name)) return openCloudCopy(file);
   if (offerDraft) {
     const request = documentRequest;
     const draft = await unsavedDraftOf(file);
@@ -2132,6 +2133,30 @@ async function openCloud(file, { offerDraft = true } = {}) {
   } finally {
     pendingCloudOpens.delete(pending);
   }
+}
+// A slide show or template in Puter opens as a new presentation, as one
+// imported from this device does: its first save puts a presentation (.pptx)
+// where a new one goes, and the file itself stays as it was.
+async function openCloudCopy(file) {
+  const fileName = file.name || cloud.displayName(file.path);
+  return openDocument(async () => {
+    let bytes;
+    try {
+      const size = cloud.sizeOf(
+        await cloud.stat(file.path).catch(() => undefined),
+      );
+      if (size != null) validateImportSize(size);
+      bytes = await cloud.readFile(file.path, { importing: true });
+    } catch (error) {
+      throw openError(error, file);
+    }
+    return {
+      pres: await parseDeck(bytes, { prepareFonts: false }),
+      // A template starts an untitled presentation; a slide show keeps its
+      // name.
+      name: /\.potx$/i.test(fileName) ? null : fileName.replace(/\.ppsx$/i, ""),
+    };
+  });
 }
 // The newest recovery draft, other than the open presentation's, with
 // changes to `file` not saved to Puter.
@@ -17673,7 +17698,7 @@ function openDriveItems(items) {
     return;
   }
   const name = item.name || cloud.displayName(item.path);
-  if (cloud.isPptxName(name)) {
+  if (cloud.isOpenableName(name)) {
     openCloud({ path: item.path, name, uid: item.uid }).catch(fail);
     return;
   }
@@ -17700,7 +17725,9 @@ function openDriveItems(items) {
 async function openLaunched(items) {
   const item = items.find(
     (it) =>
-      it?.path && !cloud.isDirItem(it) && cloud.isPptxName(it.name || it.path),
+      it?.path &&
+      !cloud.isDirItem(it) &&
+      cloud.isOpenableName(it.name || it.path),
   );
   if (!item) {
     openDriveItems(items);
@@ -17811,7 +17838,9 @@ function connectCloud({ late = false } = {}) {
 async function openLateLaunch(items) {
   const item = items.find(
     (it) =>
-      it?.path && !cloud.isDirItem(it) && cloud.isPptxName(it.name || it.path),
+      it?.path &&
+      !cloud.isDirItem(it) &&
+      cloud.isOpenableName(it.name || it.path),
   );
   if (!item || view !== "editor" || !doc || untouchedLanding())
     return openDriveItems(items);

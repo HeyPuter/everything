@@ -132,6 +132,12 @@ export const displayName = (path) =>
     .split("/")
     .pop();
 export const isPptxName = (name) => /\.pptx$/i.test(String(name || ""));
+// A slide show (.ppsx) or template (.potx) opens too, as a new presentation:
+// saving one is saving a presentation (.pptx), which its own file can't hold.
+export const OPENS_AS_COPY = [".ppsx", ".potx"];
+export const opensAsCopy = (name) =>
+  /\.(?:ppsx|potx)$/i.test(String(name || ""));
+export const isOpenableName = (name) => isPptxName(name) || opensAsCopy(name);
 // The desktop keeps a deleted file in ~/Trash (or /<user>/Trash) under its id.
 export const inTrash = (path) =>
   typeof path === "string" && /^(?:\/[^/]+|~)\/Trash(?:\/|$)/.test(path);
@@ -230,7 +236,7 @@ export const canSaveFiles = () =>
 // original to wait.
 const settleOnCancel = (pending) => pending?.undefinedOnCancel ?? pending;
 // Puter's Open dialog: the chosen file, or null when it was cancelled.
-export async function pickFile({ accept = [".pptx"] } = {}) {
+export async function pickFile({ accept = [".pptx", ...OPENS_AS_COPY] } = {}) {
   const item = await settleOnCancel(
     sdk().ui.showOpenFilePicker({ multiple: false, accept }),
   );
