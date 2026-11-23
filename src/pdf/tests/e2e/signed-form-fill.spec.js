@@ -144,3 +144,18 @@ test('the form’s Clear button keeps the signature valid', async ({ page }) => 
   await expect(page.locator('.signature-bar')).toContainText('valid');
   await expect(page.locator('.signature-bar')).not.toContainText('invalid');
 });
+
+test('a signed form filled in through Fill forms keeps the signature valid', async ({ page }) => {
+  const signed = await signedForm();
+  await open(page, signed);
+  await page.getByRole('button', { name: 'Fill forms', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fill forms' });
+  await dialog.getByLabel('Note').fill('Reviewed');
+  await dialog.getByRole('button', { name: 'Save form' }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(page.getByRole('dialog', { name: 'Edit a signed PDF?' })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Note (on page)' })).toHaveValue('Reviewed');
+  await expect(page.locator('.signature-bar')).toContainText('valid');
+  await expect(page.locator('.signature-bar')).not.toContainText('invalid');
+});
