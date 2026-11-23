@@ -24,6 +24,7 @@ import {
   onLaunch,
   sdkReady,
   onLateSdk,
+  errorMessage,
 } from "../src/cloud.js";
 afterEach(() => vi.unstubAllGlobals());
 describe("Puter storage boundary", () => {
@@ -364,5 +365,44 @@ describe("Puter storage boundary", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(late).not.toHaveBeenCalled();
+  });
+  it("says what a failed request means, whatever shape the failure takes", () => {
+    expect(errorMessage(new TypeError("Failed to fetch"))).toBe(
+      "The connection to Puter was lost.",
+    );
+    expect(
+      errorMessage(
+        new TypeError("NetworkError when attempting to fetch resource."),
+      ),
+    ).toBe("The connection to Puter was lost.");
+    expect(errorMessage(new TypeError("Load failed"))).toBe(
+      "The connection to Puter was lost.",
+    );
+    const full =
+      "Your Puter storage is full. Free up some space, or download a copy to keep your work.";
+    expect(
+      errorMessage({
+        code: "storage_limit_reached",
+        message: "Storage capacity limit reached.",
+      }),
+    ).toBe(full);
+    expect(
+      errorMessage({
+        success: false,
+        error: { code: "storage_limit_reached" },
+      }),
+    ).toBe(full);
+    expect(errorMessage({ error: { message: "Permission denied" } })).toBe(
+      "Permission denied",
+    );
+    expect(errorMessage({ msg: "Try later" })).toBe("Try later");
+    expect(errorMessage(new Error("Cloud save failed."))).toBe(
+      "Cloud save failed.",
+    );
+    // A TypeError from the app's own code keeps its words.
+    expect(errorMessage(new TypeError("x is not a function"))).toBe(
+      "x is not a function",
+    );
+    expect(errorMessage(null)).toBe("");
   });
 });

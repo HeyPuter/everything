@@ -500,9 +500,7 @@ function setAppearance(value) {
 setAppearance(appearance);
 function fail(error) {
   // Puter's SDK sometimes rejects with `{ msg }` objects instead of Errors.
-  toast(
-    error?.message || error?.msg || "Something went wrong. Please try again.",
-  );
+  toast(cloud.errorMessage(error) || "Something went wrong. Please try again.");
 }
 function run(fn) {
   return async (e) => {
@@ -2734,8 +2732,7 @@ async function saveCloud(
       // again; one that lasts is not helped by sending the whole file every
       // few seconds, so the pauses grow.
       target.saveError = {
-        message:
-          error?.message || error?.msg || "Puter could not save the file.",
+        message: cloud.errorMessage(error) || "Puter could not save the file.",
         offline: navigator.onLine === false,
       };
       if (doc === target && target.path && account) {
@@ -3059,7 +3056,7 @@ function updateSaveStatus() {
         : problem === "offline"
           ? "You are offline. Changes save to Puter when you reconnect."
           : problem === "error"
-            ? `Puter could not save: ${doc.saveError.message} Trying again shortly.`
+            ? `Puter could not save: ${sentence(doc.saveError.message)} Trying again shortly.`
             : doc.path ||
               "Save to Puter to access this presentation on other devices.";
   if (
@@ -3072,6 +3069,8 @@ function updateSaveStatus() {
   status.title = hint;
   status.replaceChildren(icon(glyph, 14), el("span", {}, label));
 }
+// Words that end a sentence, ready for another to follow.
+const sentence = (text) => (/[.!?…]["”’)]*$/.test(text) ? text : `${text}.`);
 async function downloadDeck() {
   const target = doc;
   await settled();

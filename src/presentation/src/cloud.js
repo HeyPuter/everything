@@ -89,6 +89,30 @@ export async function listFiles() {
     throw e;
   }
 }
+// What went wrong with a request to Puter, in words a person can act on:
+// the browser's own words for a dropped connection ("Failed to fetch") and
+// the SDK's plain `{ error: { message } }` objects included. Empty when the
+// error says nothing.
+export function errorMessage(error) {
+  const code = String(error?.code || error?.error?.code || "");
+  const message = String(
+    error?.message ||
+      error?.msg ||
+      error?.error?.message ||
+      (typeof error?.error === "string" ? error.error : "") ||
+      (typeof error === "string" ? error : ""),
+  ).trim();
+  if (/storage_limit|quota/i.test(code))
+    return "Your Puter storage is full. Free up some space, or download a copy to keep your work.";
+  if (
+    error instanceof TypeError &&
+    /failed to fetch|networkerror|load failed|network request failed/i.test(
+      message,
+    )
+  )
+    return "The connection to Puter was lost.";
+  return message;
+}
 // The SDK reports a missing file through a code, or only through its words.
 export function isNotFound(error) {
   const code = error?.code || error?.error?.code || "";
