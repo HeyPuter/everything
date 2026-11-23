@@ -16244,7 +16244,19 @@ async function present(options = {}) {
     previous.disabled = n === 0 && !showTiming.loop && !animator?.step;
     if (previous.disabled && document.activeElement === previous) image.focus();
   }
+  // Moving on or back from a black or white screen, by any control, shows
+  // the slide again, as a key does.
+  function unblank() {
+    if (
+      !stage.classList.contains("blank") &&
+      !stage.classList.contains("blank-white")
+    )
+      return;
+    restoreBlank();
+    setPaused(false);
+  }
   function advance(auto = false) {
+    unblank();
     if (!ended && animator?.next()) {
       syncPrevious();
       session?.stepped(1);
@@ -16302,6 +16314,7 @@ async function present(options = {}) {
     typed = "";
   }
   function showPrevious() {
+    unblank();
     if (!ended && animator?.previous()) {
       syncPrevious();
       session?.stepped(-1);
