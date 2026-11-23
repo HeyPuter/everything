@@ -73,6 +73,12 @@ let nextAsset = 0;
 const EAGER_PAGES = 8;
 // Pages off screen are painted once changes have paused this long (schedulePaint).
 const QUIET_PAINT_MS = 600;
+// A page canvas holds its pixels for as long as it exists: about 14 MB a page on a 2x display, so
+// every page of a 160-page document held over 2 GB. In a document longer than RETAINED_PAGES only
+// the pages within RETAIN_SCREENS screens of the view keep theirs; the others give them up
+// (releasePages) and are painted again when they come near, as a page changed while away is.
+const RETAINED_PAGES = 16;
+const RETAIN_SCREENS = 3;
 // How long a finger rests on the text before it opens the context menu.
 const LONG_PRESS_MS = 500;
 
@@ -264,6 +270,8 @@ export class CanvasEditor {
     watchResolution();
     // Pages left unpainted by the last paint are painted before they are shown.
     this.stalePages = new Set();
+    // Pages far from the view whose canvases gave up their pixels (releasePages); each is also stale.
+    this.releasedPages = new Set();
     document.addEventListener('scroll', () => this.paintShownPages(), { capture: true, passive: true, signal: this.abort.signal });
     window.addEventListener('resize', () => this.paintShownPages(), { signal: this.abort.signal });
     // The view also grows without the window: a pane closes, the ribbon folds, Focus starts.
@@ -822,6 +830,7 @@ export class CanvasEditor {
       this.pages.append(canvas);
     }
     this.canvases = [...this.pages.children];
+    for (const index of this.releasedPages) if (index >= this.canvases.length) this.releasedPages.delete(index);
     this.resizeCanvases();
     // Font and style edits can introduce an effect face absent at import time.
     // Prepare outlines without delaying input; repaint only the latest layout.
@@ -847,21 +856,27 @@ export class CanvasEditor {
     this.approximateScriptFonts = scriptFonts;
     if (scriptNoticeChanged) this.onSelection();
   }
+  /** Page `index`'s size on screen in CSS pixels, and its canvas's backing store size. */
+  backingSize(index) {
+    const geometry = this.layout.pages[index] || this.layout.page;
+    // Shown at exactly its backing store's size: the browser draws a canvas at a whole number of
+    // CSS pixels, so a fractional page size (A4, fit-width and slider zooms, or any odd number of
+    // device pixels on a 2x display) would otherwise be resampled, which blurs every page.
+    const cssWidth = Math.max(1, Math.round(geometry.width * this.zoom)), cssHeight = Math.max(1, Math.round(geometry.height * this.zoom));
+    // A page too large for the browser's canvas limit gets fewer device pixels (canvas-backing.js).
+    return { cssWidth, cssHeight, ...pageBackingSize(cssWidth, cssHeight, window.devicePixelRatio || 1) };
+  }
   resizeCanvases() {
     this.canvases.forEach((canvas, index) => {
-      const geometry = this.layout.pages[index] || this.layout.page;
       canvas.dataset.page = index;
-      const ratio = window.devicePixelRatio || 1;
-      // Shown at exactly its backing store's size: the browser draws a canvas at a whole number of
-      // CSS pixels, so a fractional page size (A4, fit-width and slider zooms, or any odd number of
-      // device pixels on a 2x display) would otherwise be resampled, which blurs every page.
-      const cssWidth = Math.max(1, Math.round(geometry.width * this.zoom)), cssHeight = Math.max(1, Math.round(geometry.height * this.zoom));
-      // A page too large for the browser's canvas limit gets fewer device pixels (canvas-backing.js).
-      const { width, height } = pageBackingSize(cssWidth, cssHeight, ratio);
+      const { cssWidth, cssHeight, width, height } = this.backingSize(index);
       // Assigning a dimension clears and reallocates the canvas even when unchanged, and pages
       // off screen are repainted only later: keep the backing store of pages that kept their size.
-      if (canvas.width !== width) canvas.width = width;
-      if (canvas.height !== height) canvas.height = height;
+      // A released page gets its backing store when it is painted next.
+      if (!this.releasedPages.has(index)) {
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
+      }
       canvas.style.width = `${cssWidth}px`;
       canvas.style.height = `${cssHeight}px`;
     });
@@ -944,21 +959,47 @@ export class CanvasEditor {
   }
   /** Indices of the page canvases on screen, with a screenful of margin; every page in a short document. */
   shownPages() {
-    const all = this.canvases.map((_, index) => index);
-    if (all.length <= EAGER_PAGES) return all;
+    if (this.canvases.length <= EAGER_PAGES) return this.canvases.map((_, index) => index);
+    return this.pagesWithin(1) ?? [];
+  }
+  /** Indices of the page canvases within `screens` screens of the view, or null while the view has no size. */
+  pagesWithin(screens) {
     const host = this.host.getBoundingClientRect();
     const top = Math.max(host.top, 0), bottom = Math.min(host.bottom, window.innerHeight);
     const left = Math.max(host.left, 0), right = Math.min(host.right, window.innerWidth);
     const height = Math.max(0, bottom - top), width = Math.max(0, right - left);
-    return all.filter(index => {
-      const r = this.canvases[index].getBoundingClientRect();
-      return r.bottom > top - height && r.top < bottom + height && r.right > left - width && r.left < right + width;
+    if (!height || !width) return null;
+    const result = [];
+    this.canvases.forEach((canvas, index) => {
+      const r = canvas.getBoundingClientRect();
+      if (r.bottom > top - height * screens && r.top < bottom + height * screens && r.right > left - width * screens && r.left < right + width * screens) result.push(index);
+    });
+    return result;
+  }
+  /**
+   * The pages that keep their pixels (RETAINED_PAGES), or null for every page. The host's `keepsEveryPage()` says
+   * when something draws every page (page thumbnails), which then keep theirs, painted while the browser is idle.
+   */
+  retainedPages() {
+    if (this.canvases.length <= RETAINED_PAGES || this.keepsEveryPage?.()) return null;
+    const near = this.pagesWithin(RETAIN_SCREENS);
+    // The host's `pagesShownElsewhere()` names pages another view shows (the split view's second pane).
+    return near && new Set([...near, ...(this.pagesShownElsewhere?.() || [])]);
+  }
+  /** Far pages give up their canvases' pixels, and are painted again before they are shown or read. */
+  releasePages(retained = this.retainedPages()) {
+    if (!retained) return;
+    this.canvases.forEach((canvas, index) => {
+      if (retained.has(index) || this.releasedPages.has(index)) return;
+      canvas.width = 0; canvas.height = 0;
+      this.releasedPages.add(index); this.stalePages.add(index);
     });
   }
   paintShownPages() {
     if (this.destroyed || !this.stalePages.size) return;
     const pages = this.shownPages().filter(index => this.stalePages.has(index));
-    if (pages.length) this.paint({ pages });
+    // Pages left far behind are released while the browser is idle (schedulePaint), not during the scroll.
+    if (pages.length) this.paint({ pages }); else this.schedulePaint();
   }
   /** Paint every page left for later, for callers that read the page canvases' pixels. */
   flushPaint() {
@@ -980,10 +1021,14 @@ export class CanvasEditor {
       if (this.destroyed || !this.stalePages.size) return;
       // A change since this was scheduled starts the wait again.
       if ((this.changedAt ?? -Infinity) + QUIET_PAINT_MS > performance.now()) { this.schedulePaint(); return; }
+      // Pages far from the view are released rather than painted (RETAINED_PAGES).
+      const retained = this.retainedPages();
+      this.releasePages(retained);
       // Nearest pages first, a couple at a time while the browser has idle time, so typing and
       // scrolling stay responsive.
       const shown = this.shownPages(), anchor = shown.length ? shown[0] : 0;
-      const order = [...this.stalePages].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor));
+      const order = [...this.stalePages].filter(index => !retained || retained.has(index)).sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor));
+      if (!order.length) return;
       do this.paint({ pages: order.splice(0, 2) });
       while (order.length && deadline && !deadline.didTimeout && deadline.timeRemaining() > 4);
       this.schedulePaint();
@@ -1023,6 +1068,8 @@ export class CanvasEditor {
     const composing = printing ? null : this.compositionRange();
     const composedRects = composing ? selectionRects(this.selectionLayout, ...composing) : [];
     for (const index of indices || canvases.keys()) {
+      // A released page gets its backing store back (releasePages).
+      if (canvases === this.canvases && this.releasedPages.delete(index)) { const { width, height } = this.backingSize(index); canvases[index].width = width; canvases[index].height = height; }
       const canvas = canvases[index], ctx = canvas.getContext('2d'), geometry = this.layout.pages[index] || this.layout.page;
       // A canvas keeps its pixels and drawing state between paints (resizeCanvases keeps unchanged sizes).
       ctx.reset?.();

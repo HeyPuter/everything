@@ -15,6 +15,8 @@ for(const ref of refs)test(`matches native section and explicit page spacing: ${
  await expect(input).toHaveValue(/^StartS00/);await expect(canvases).toHaveCount(18);
  const positions=()=>page.evaluate(()=>{
   const canvases=[...document.querySelectorAll('canvas.canvas-page')],values=new Map();
+  // Pages far from the view are painted when something asks for them, not all at idle: ask for each.
+  for(const canvas of canvases)canvas.getContext('2d');
   for(const p of window.spacingPaint)if(canvases.includes(p.canvas)&&/^(Start|Body)S\d+$/.test(p.text))values.set(p.text,{text:p.text,page:canvases.indexOf(p.canvas)+1,baseline:p.y*.75});
   return [...values.values()];
  });

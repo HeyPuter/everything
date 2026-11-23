@@ -251,9 +251,10 @@ export function createNavigationPane(api) {
         item.setAttribute('aria-label', `Page ${i + 1}`);
         item.lastChild.textContent = String(i + 1);
         if (i === currentPage) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
-        const thumb = item.firstChild, ratio = source.height / source.width || 1.294, scale = window.devicePixelRatio || 1;
+        // A page's shape from its size on screen: a page far from the view has given up its pixels (releasePages).
+        const thumb = item.firstChild, ratio = parseFloat(source.style.height) / parseFloat(source.style.width) || source.height / source.width || 1.294, scale = window.devicePixelRatio || 1;
         const width = Math.round(THUMB_WIDTH * scale), height = Math.round(THUMB_WIDTH * ratio * scale);
-        if (!all && thumb.source === source && thumb.width === width && thumb.height === height && !paintedPages.has(i)) return;
+        if (!all && thumb.source === source && (thumb.width === width && thumb.height === height && !paintedPages.has(i) || !source.width)) return;
         thumb.source = source;
         thumb.width = width; thumb.height = height;
         thumb.style.width = `${THUMB_WIDTH}px`; thumb.style.height = `${Math.round(THUMB_WIDTH * ratio)}px`;
@@ -331,6 +332,8 @@ export function createNavigationPane(api) {
     /** The text searched for last, for Find Next. */
     get query() { return search.value; },
     get tab() { return tab; },
+    /** Whether the pane shows page thumbnails, which draw every page. */
+    get showsPages() { return !node.hidden && tab === 'pages'; },
     select,
   };
 }

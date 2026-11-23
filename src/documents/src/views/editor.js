@@ -1859,6 +1859,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       preparePicture: pictureFile,
     });
     created.onPagesPainted = pages => { if (engine === created) outlinePanel.pagesPainted(pages); };
+    // Page thumbnails draw every page: while they show, pages far from the view keep their pixels (releasePages).
+    created.keepsEveryPage = () => outlinePanel.showsPages || views.thumbnailsShown;
+    // The split view's second pane shows pages of its own, which stay painted as the editor's do.
+    created.pagesShownElsewhere = () => views.mirrorShownPages();
     // Double-clicking a chart, diagram or text box edits it (insert-tab.js).
     created.onOpenDrawing = () => { if (!pkg.readOnly) editorCommands.openSelectedDrawing?.(); };
     // A key pressed in the document is a new command of its own: a ribbon or menu command noted just before, which
