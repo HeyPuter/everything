@@ -16,6 +16,8 @@ const number = (value) => PDFNumber.of(value).toString();
 const numbers = (array) => array?.asArray?.().map((_, i) => array.lookup(i)?.asNumber?.());
 /** Sticky notes are drawn at this size in PDF points; readers keep them from zooming. */
 export const NOTE_SIZE = 20;
+/** How large PDF.js draws a note that has no appearance of its own, in page units. */
+const READER_ICON_SIZE = 22;
 export const MAX_NOTE_LENGTH = 5000;
 
 function hexToRgb(hex) {
@@ -250,6 +252,13 @@ export function listNotes(doc, index) {
       contentsLocked = !!(flags & 512);
     const rect = numbers(dict.lookup(name('Rect')));
     if (rect?.length !== 4 || !rect.every(Number.isFinite)) return [];
+    const hasAppearance = !!dict.get(name('AP'));
+    let width = Math.abs(rect[2] - rect[0]),
+      height = Math.abs(rect[3] - rect[1]);
+    // Readers draw a note without an appearance as their own icon from its top-left corner.
+    // One with an empty Rect (only that corner) takes the size PDF.js gives that icon; it
+    // was otherwise nothing on the page to see or to click.
+    if (!hasAppearance && !(width > 0 && height > 0)) width = height = READER_ICON_SIZE;
     const color = numbers(dict.lookup(name('C'))) || [1, 0.85, 0.3];
     const rgb =
       color.length === 1
@@ -264,8 +273,8 @@ export function listNotes(doc, index) {
         id: annotationKey(ref, position),
         x: Math.min(rect[0], rect[2]),
         y: Math.max(rect[1], rect[3]),
-        width: Math.abs(rect[2] - rect[0]),
-        height: Math.abs(rect[3] - rect[1]),
+        width,
+        height,
         // The editor saves trimmed text; trimming here too keeps an untouched note from
         // other writers (which may end in a newline) from reading as an edit. Its line breaks
         // are read as a text box gives them back: Acrobat writes CR, and CR LF is common too.
@@ -279,7 +288,7 @@ export function listNotes(doc, index) {
         propertiesLocked,
         contentsLocked,
         // Notes from editors that rely on the reader's own icons have no appearance stream.
-        hasAppearance: !!dict.get(name('AP')),
+        hasAppearance,
       },
     ];
   });

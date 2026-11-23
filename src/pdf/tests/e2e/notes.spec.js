@@ -539,3 +539,46 @@ test('a note can be dragged or nudged to another spot, and Undo puts it back', a
   await settled(page);
   expect(near(await exportedNotes(page))[1]).toEqual(['Stay put', 250, 300]);
 });
+
+// Some writers give a note only its corner (an empty Rect) and leave the icon to the reader,
+// which draws it at its usual size there. The page showed nothing to see or to click.
+test('a note from another editor with an empty rectangle shows an icon that opens it', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const pdfPage = doc.addPage([400, 400]);
+  pdfPage.node.addAnnot(
+    doc.context.register(
+      doc.context.obj({
+        Type: 'Annot',
+        Subtype: 'Text',
+        Rect: [50, 350, 50, 350],
+        Contents: PDFHexString.fromText('Cornered'),
+        C: [1, 0, 0],
+        F: 28,
+      }),
+    ),
+  );
+  await openPdf(page, doc);
+  const target = page.getByRole('button', { name: 'Edit note: Cornered', exact: true });
+  await expect(target.locator('svg')).toBeVisible();
+  const box = await target.boundingBox();
+  const sheet = await page.locator('.drawing-overlay').boundingBox();
+  // The size PDF.js draws it at, from its top-left corner.
+  expect(box.width).toBeCloseTo((22 * sheet.width) / 400, 0);
+  expect(box.height).toBeCloseTo(box.width, 0);
+  expect(box.x).toBeCloseTo(sheet.x + (50 * sheet.width) / 400, 0);
+  await target.click();
+  const edit = page.getByRole('group', { name: 'Edit note' });
+  await edit.getByLabel('Note text').fill('Answered');
+  await clickAway(page);
+  await settled(page);
+  expect(await exportedNotes(page)).toEqual([
+    { text: 'Answered', hex: '#ff0000', author: '', x: 50, y: 350 },
+  ]);
+  await expect(
+    page.getByRole('button', { name: 'Edit note: Answered', exact: true }),
+  ).toBeVisible();
+});
