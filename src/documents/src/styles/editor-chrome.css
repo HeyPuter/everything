@@ -271,6 +271,17 @@
 .ed-status-right { margin-left: auto; flex: none; }
 /* Between phone and desktop widths the language gives way, so the zoom controls stay whole. */
 .ed-status-left { flex: 0 1 auto; overflow: hidden; }
+/* Editing a header or footer adds the editing area, which wrapped the status bar to a second row on a desktop and
+   moved the pages up and down. From 1024px the bar keeps one row: the language, the accessibility summary and Track
+   Changes shorten first, then the word count, each keeping its full words as its accessible name; the page count
+   and the editing area stay whole. Narrower windows still give the right half a row of its own when they must. */
+@media (min-width: 1024px) {
+  .ed-statusbar.canvas-statusbar:has(.canvas-story-area:not([hidden])) { flex-wrap: nowrap; }
+  .ed-status-left > * { flex: none; }
+  .ed-status-left > :is(.ed-status-language, .ed-status-accessibility, .ed-status-track) { flex: 0 100 auto; min-width: 34px; overflow: hidden; }
+  .ed-status-left > .ed-word-count { flex: 0 1 auto; min-width: 40px; overflow: hidden; }
+  .ed-status-left > :is(.ed-status-language, .ed-status-accessibility, .ed-status-track, .ed-word-count) > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
 /* The narrowest phones (and a desktop window zoomed to 400%) have no room for both halves on one line: the
    right half goes under the left rather than cutting the page and word counts off. */
 @media (max-width: 420px) {
