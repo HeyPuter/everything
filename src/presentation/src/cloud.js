@@ -304,9 +304,10 @@ export const canAI = () => !!globalThis.puter?.ai?.chat;
 // Two parts tell of a reply that did not finish: { type: "cut" } when it
 // reached the output limit (a call being written then comes with empty
 // arguments), and an error when the account's credits ran out during it.
+// `signal` aborts the request and ends the stream (Stop).
 export async function* aiChatStream(
   messages,
-  { model, tools, maxTokens, cache = false } = {},
+  { model, tools, maxTokens, cache = false, signal } = {},
 ) {
   const ai = globalThis.puter?.ai;
   if (!ai?.chat) throw new Error("AI is not available here.");
@@ -321,6 +322,7 @@ export async function* aiChatStream(
     // three slides took three requests, each sending the whole conversation.
     ...(tools?.length ? { tools, parallelToolCalls: true } : {}),
     ...(maxTokens ? { max_tokens: maxTokens } : {}),
+    ...(signal ? { signal } : {}),
   };
   let res;
   try {
@@ -332,6 +334,11 @@ export async function* aiChatStream(
     throw aiError(e);
   }
   if (res && typeof res[Symbol.asyncIterator] === "function") {
+    // A stream's return() waits for the part it is waiting on, which can be
+    // a while: an abort ends it directly.
+    const end = () => Promise.resolve(res.return?.()).catch(() => {});
+    if (signal?.aborted) end();
+    else signal?.addEventListener("abort", end, { once: true });
     try {
       for await (const part of res) {
         if (!part) continue;
@@ -368,6 +375,8 @@ export async function* aiChatStream(
       }
     } catch (e) {
       throw aiError(e);
+    } finally {
+      signal?.removeEventListener("abort", end);
     }
     return;
   }

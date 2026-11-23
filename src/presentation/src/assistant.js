@@ -270,11 +270,15 @@ export function createAgent({
     const stopSignal = new Promise((resolve) => {
       stopResolve = resolve;
     });
+    // Stop aborts the request under way, so the service stops writing (and
+    // charging for) a reply nobody will read.
+    let abort = null;
     const run = {
       stopped: false,
       stop() {
         if (!this.stopped) {
           this.stopped = true;
+          abort?.abort();
           stopResolve(STOP);
         }
       },
@@ -290,9 +294,11 @@ export function createAgent({
         // call then: that call came with empty arguments.
         let cut = false,
           endedInCall = false;
+        abort = new AbortController();
         const iterable = chat(requestMessages(transcript), {
           model: AI_MODEL,
           tools: TOOLS,
+          signal: abort.signal,
         });
         const iter = iterable[Symbol.asyncIterator]();
         for (;;) {

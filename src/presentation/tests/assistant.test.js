@@ -557,6 +557,27 @@ describe("assistant conversation", () => {
     });
   });
 
+  it("aborts the request under way when stopped", async () => {
+    let signal = null;
+    const agent = createAgent({
+      chat: (messages, options) => {
+        signal = options.signal;
+        return (async function* () {
+          yield { type: "text", text: "Thinking" };
+          await new Promise(() => {});
+        })();
+      },
+      runTool: async () => ({ ok: true, content: "" }),
+      describe: () => ({ label: "x" }),
+      approve: () => true,
+    });
+    const done = agent.send("Hello", (e) => {
+      if (e.type === "text") agent.stop();
+    });
+    expect(await done).toMatchObject({ stopped: true });
+    expect(signal.aborted).toBe(true);
+  });
+
   it("asks before deleting and reports a decline to the model", async () => {
     const pres = deck();
     const env = envFor(pres);
@@ -967,6 +988,15 @@ describe("Puter AI streaming", () => {
     const quiet = [];
     for await (const p of aiChatStream([])) quiet.push(p);
     expect(quiet).toEqual([]);
+  });
+
+  // Stop aborts the request itself: the SDK cancels it on the signal.
+  it("hands the SDK the signal that aborts the request", async () => {
+    const chat = vi.fn().mockResolvedValue((async function* () {})());
+    vi.stubGlobal("puter", { ai: { chat } });
+    const abort = new AbortController();
+    for await (const p of aiChatStream([], { signal: abort.signal })) void p;
+    expect(chat.mock.calls[0][1].signal).toBe(abort.signal);
   });
 
   it("reads a whole reply with tool calls, and throws the service's error", async () => {
