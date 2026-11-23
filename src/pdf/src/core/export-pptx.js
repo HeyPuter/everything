@@ -21,6 +21,7 @@ import {
   CORE_TYPES,
 } from './ooxml-zip.js';
 import { pictureSize } from './export-images.js';
+import { linkStretches } from './export-layout.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -32,7 +33,7 @@ const GROUP =
 
 const clampSlide = (v) => Math.max(914400, Math.min(51206400, Math.round(v)));
 
-function runXml(run, scale, lang) {
+function runXml(run, scale, lang, link) {
   const size = Math.max(100, Math.min(400000, Math.round(run.size * scale * 100)));
   const attrs = [`lang="${lang}"`, `sz="${size}"`];
   if (run.bold) attrs.push('b="1"');
@@ -45,12 +46,26 @@ function runXml(run, scale, lang) {
     ? `<a:latin typeface="${xml(run.font)}"/><a:cs typeface="${xml(run.font)}"/>`
     : '';
   const fill = `<a:solidFill><a:srgbClr val="${run.color || '000000'}"/></a:solidFill>`;
-  return `<a:r><a:rPr ${attrs.join(' ')}>${fill}${font}</a:rPr><a:t>${xml(run.text)}</a:t></a:r>`;
+  // A web link of the PDF stays a link, through the slide's relationship for its address.
+  const click = run.link && link ? `<a:hlinkClick r:id="${link(run.link)}"/>` : '';
+  return `<a:r><a:rPr ${attrs.join(' ')}>${fill}${font}${click}</a:rPr><a:t>${xml(run.text)}</a:t></a:r>`;
 }
 
 function paragraphXml(
   runs,
-  { align, scale, leading, bullet, indent = 0, hanging = 0, size, tabs = [], breaks = false, lang },
+  {
+    align,
+    scale,
+    leading,
+    bullet,
+    indent = 0,
+    hanging = 0,
+    size,
+    tabs = [],
+    breaks = false,
+    lang,
+    link,
+  },
 ) {
   const algn = { center: 'ctr', right: 'r', justify: breaks ? 'l' : 'just' }[align] || 'l';
   let pPr = `<a:pPr algn="${algn}"${bullet ? ` marL="${Math.round(indent * E * scale)}" indent="${-Math.round(hanging * E * scale)}"` : ''}>`;
@@ -82,7 +97,9 @@ function paragraphXml(
       .join('')}</a:tabLst>`;
   pPr += '</a:pPr>';
   // Keep the PDF's own line breaks when asked, so lines end where they did on the page.
-  const list = runs.filter((r) => r.text).map((r) => ({ ...r }));
+  const list = linkStretches(runs)
+    .flatMap((stretch) => stretch.runs.map((r) => ({ ...r, link: stretch.link })))
+    .filter((r) => r.text);
   let body = '';
   list.forEach((run, k) => {
     if (breaks && run.brk && k > 0) {
@@ -92,7 +109,7 @@ function paragraphXml(
       if (run.hyphen) body = body.replace(/(<\/a:t><\/a:r>)$/, '-$1');
       body += `<a:br><a:rPr lang="${lang}" sz="${Math.max(100, Math.round(run.size * scale * 100))}" dirty="0"/></a:br>`;
     }
-    body += runXml(run.tab ? { ...run, text: '\t' } : run, scale, lang);
+    body += runXml(run.tab ? { ...run, text: '\t' } : run, scale, lang, link);
   });
   const end = `<a:endParaRPr lang="${lang}" sz="${Math.max(100, Math.round((size || 11) * scale * 100))}" dirty="0"/>`;
   return `<a:p>${pPr}${body}${end}</a:p>`;
@@ -115,6 +132,15 @@ class SlideWriter {
     ];
     this.ids = ids;
     this.lang = lang;
+  }
+  /** The relationship id of a web address the slide links to. */
+  link(url) {
+    let rel = this.rels.find((r) => r.type === 'hyperlink' && r.target === url);
+    if (!rel) {
+      rel = { id: `rId${this.rels.length + 1}`, type: 'hyperlink', target: url, external: true };
+      this.rels.push(rel);
+    }
+    return rel.id;
   }
   box(x, y, w, h) {
     const s = this.scale;
@@ -166,6 +192,7 @@ class SlideWriter {
       tabs: (block.tabs || []).map((t) => ({ ...t, pos: column + t.pos - x })),
       breaks: true,
       lang: this.lang,
+      link: (url) => this.link(url),
     });
     this.shapes.push(
       `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="TextBox ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>` +
@@ -208,6 +235,7 @@ class SlideWriter {
                     scale: s,
                     size: p.runs[0]?.size,
                     lang: this.lang,
+                    link: (url) => this.link(url),
                   }),
                 )
                 .join('')

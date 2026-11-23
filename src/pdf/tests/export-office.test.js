@@ -1481,7 +1481,7 @@ it('lets go of each exported page’s decoded pictures once the page is read', a
   }
 });
 
-it('keeps the PDF’s web links as links in web pages, Word documents and rich text', async () => {
+it('keeps the PDF’s web links as links in web pages, Word, rich text and PowerPoint', async () => {
   // Links were dropped: "example.com" came out as plain words that could not be followed.
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -1522,6 +1522,15 @@ it('keeps the PDF’s web links as links in web pages, Word documents and rich t
     );
     const rtf = new TextDecoder().decode((await exportDocument(pdf, bytes, 'rtf')).bytes);
     expect(rtf).toMatch(/HYPERLINK "https:\/\/example\.com\/guide\?a=1&b=2".*example\.com/);
+    const slides = await unzip((await exportDocument(pdf, bytes, 'pptx')).bytes);
+    const slide = new TextDecoder().decode(slides['ppt/slides/slide1.xml']);
+    const slideRels = new TextDecoder().decode(slides['ppt/slides/_rels/slide1.xml.rels']);
+    const click = /<a:hlinkClick r:id="(rId\d+)"\/><\/a:rPr><a:t>([^<]*)</.exec(slide);
+    expect(click[2]).toBe('example.com');
+    expect(slide.match(/<a:hlinkClick /g)).toHaveLength(1);
+    expect(slideRels).toContain(
+      `Id="${click[1]}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/guide?a=1&amp;b=2" TargetMode="External"`,
+    );
   } finally {
     await loading.destroy();
   }
