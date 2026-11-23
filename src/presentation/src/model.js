@@ -11,7 +11,7 @@ import {
 } from "../lib/pptx-preview/src/render-slide.ts";
 import { layoutCore } from "../lib/pptx-preview/src/text-layout.ts";
 import { slideFontResolver } from "./fonts.js";
-import { createTextMeasurer } from "./text-measure.js";
+import { createTextMeasurer, fontInstalled } from "./text-measure.js";
 import {
   preparePresentationFonts,
   embeddedFontStyles,
@@ -2131,6 +2131,7 @@ export function preview(pres, slide, layer = null, { prompts = false } = {}) {
     resolveFontKerning,
     gradientRendering: "css",
     placeholderPrompts: prompts,
+    hasFont: fontInstalled,
     measureText: !embedFonts
       ? measureText
       : (value, spec) => {

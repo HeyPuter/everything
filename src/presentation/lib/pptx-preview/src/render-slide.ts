@@ -1788,6 +1788,34 @@ const placeholderDefaultPt = (phType: string | null): number => {
 const bulletChar = (level: number): string =>
   level <= 0 ? "•" : level === 1 ? "◦" : "▪";
 
+// What the bullet characters of the common symbol typefaces show, for a
+// device without the typeface (phones and tablets usually lack them). Files
+// store the character as itself or in the private-use row U+F0xx.
+const SYMBOL_BULLETS: Record<string, Record<number, string>> = {
+  wingdings: {
+    0x6c: "●",
+    0x6e: "■",
+    0x6f: "□",
+    0x71: "❑",
+    0x72: "❒",
+    0x75: "◆",
+    0x76: "❖",
+    0x9f: "•",
+    0xa7: "▪",
+    0xd8: "➢",
+    0xfc: "✔",
+  },
+  symbol: { 0xb7: "•", 0xa7: "♣", 0xa8: "♦", 0xa9: "♥", 0xaa: "♠" },
+};
+// Whether the typeface being drawn with is installed (RenderSlideOptions).
+let activeHasFont: ((family: string) => boolean) | null = null;
+const symbolBullet = (char: string, font: string | null): string | null => {
+  const table = font ? SYMBOL_BULLETS[font.trim().toLowerCase()] : undefined;
+  if (!table || !activeHasFont || activeHasFont(font!.trim())) return null;
+  const code = char.codePointAt(0) ?? 0;
+  return table[code >= 0xf000 && code <= 0xf0ff ? code - 0xf000 : code] ?? null;
+};
+
 // Maps a `BulletStyle` value to the underlying `ST_TextAutoNumberScheme`
 // token (or `null` when the paragraph isn't auto-numbered). `'number'`
 // is the shorthand for arabicPeriod that setShapeBullets uses.
@@ -2600,9 +2628,13 @@ const buildBullet = (
   if (!showBullet) return null;
   // Picture bullet with resolved bytes → render the image; otherwise the
   // "■" glyph stands in (bytes unavailable, e.g. inherited buBlip).
+  const symbol =
+    explicitChar !== null && numberLabel === null && !para.bulletIsPicture
+      ? symbolBullet(explicitChar, para.bulletDetail.font)
+      : null;
   const char = para.bulletIsPicture
     ? "■"
-    : (numberLabel ?? explicitChar ?? bulletChar(para.level));
+    : (symbol ?? numberLabel ?? explicitChar ?? bulletChar(para.level));
   // An un-sized bullet (no buSzPct/buSzPts in the cascade) is 100% of the
   // paragraph's FIRST RUN size, not the placeholder default — a 32pt run gets a
   // 32pt bullet even on an 18pt-default body. Fall back to defaultPt only for an
@@ -2619,7 +2651,15 @@ const buildBullet = (
         : baseSizePx;
   return {
     text: char,
-    family: resolveFamily(bulletFont(para, numberLabel, a.themeFace)),
+    family: resolveFamily(
+      symbol !== null
+        ? bulletFont(
+            { ...para, bulletDetail: { ...para.bulletDetail, font: null } },
+            null,
+            a.themeFace,
+          )
+        : bulletFont(para, numberLabel, a.themeFace),
+    ),
     sizePx,
     ...bulletColor(para, a.theme, a.defaultColor),
     ...(para.bulletImageHref ? { imageHref: para.bulletImageHref } : {}),
@@ -12814,6 +12854,8 @@ export const renderSlideSvg = (
   const previousLayerPart = activeLayerPart;
   const previousMirroring = activeMirroringGroups;
   const previousGroupMap = activeGroupMap;
+  const previousHasFont = activeHasFont;
+  activeHasFont = opts.hasFont ?? null;
   activeLayerPart = null;
   activeMirroringGroups = false;
   activeGroupMap = null;
@@ -12829,6 +12871,7 @@ export const renderSlideSvg = (
     activeLayerPart = previousLayerPart;
     activeMirroringGroups = previousMirroring;
     activeGroupMap = previousGroupMap;
+    activeHasFont = previousHasFont;
   }
 };
 

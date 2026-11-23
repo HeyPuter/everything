@@ -77,6 +77,11 @@ export interface RenderSlideOptions {
   /** Which text path to use. Defaults to 'foreignObject' (the browser path)
    *  so existing callers are unaffected; the harness opts into 'svg'. */
   readonly textLayout?: TextLayoutMode;
+  /** Whether a typeface is installed where the slide is drawn. A bullet in a
+   *  symbol typeface that is missing (Wingdings, Symbol) is drawn as the
+   *  Unicode character it shows, in the text's typeface, rather than as the
+   *  letter that stands for it. Omitted, every typeface counts as installed. */
+  readonly hasFont?: (family: string) => boolean;
   /** Resolves authored typefaces for SVG text and measurement. */
   readonly resolveFontFamily?: (
     family: string | null | undefined,
