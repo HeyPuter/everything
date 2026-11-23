@@ -171,3 +171,33 @@ test('a comment’s width and height, and a line’s length and angle, sit in pa
     await name.evaluate((node) => node.getClientRects().length === 1 && node.offsetHeight < 24),
   ).toBe(true);
 });
+
+// The new fields were the browser's own, grey in dark mode, beside the panel's own controls and
+// unlike the number fields of text and objects.
+test('a comment’s number fields are drawn as the panel’s others in dark mode', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 500, width: 120, height: 60 },
+    text: 'Box',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Rectangle: Box' }).focus();
+  const width = page
+    .getByRole('complementary', { name: 'Selection properties' })
+    .getByLabel('Rectangle width in points');
+  const [field, surface] = await width.evaluate((node) => {
+    const probe = document.createElement('div');
+    probe.style.background = 'var(--surface)';
+    node.parentElement.append(probe);
+    const colors = [
+      getComputedStyle(node).backgroundColor,
+      getComputedStyle(probe).backgroundColor,
+    ];
+    probe.remove();
+    return colors;
+  });
+  expect(field).toBe(surface);
+});

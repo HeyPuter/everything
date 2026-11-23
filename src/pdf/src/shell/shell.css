@@ -2050,10 +2050,16 @@
 .annotation-style select {
   min-width: 0;
 }
-/* Wide enough for a length such as 206.16 to show whole. */
+/* Wide enough for a length such as 206.16 to show whole, and drawn as the text's and objects'
+   number fields are, not as the browser's own (grey in dark mode). */
 .annotation-style input[type='number'] {
   width: 64px;
   min-width: 0;
+  padding: 4px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
 .annotation-replies {
   list-style: none;
