@@ -6,7 +6,7 @@
  * and whose ToUnicode map returns the original characters.
  */
 
-import { selectionRects } from '../engine/layout.js';
+import { selectionRectFinder } from '../engine/layout.js';
 import { bidiEmbeddingLevels, bidiMirroredCharacter, bidiVisualOrder } from '../engine/bidi-text.js';
 import { bookmarkEntries, bookmarksByName, bookmarkNamed } from '../engine/bookmarks.js';
 import { outlineEntries } from '../engine/outline.js';
@@ -238,18 +238,19 @@ export function pageLinks(paragraphs, layout) {
     }
     at++;
   }
-  const out = [];
+  // One look-up structure for all the ranges: a long document has many links and lines.
+  const out = [], selectionRects = selectionRectFinder(layout);
   for (const { start, end, target, anchor } of ranges) {
     let dest;
     if (!target) {
       const to = position(anchor);
       if (to === null) continue;
       // The line the bookmark starts on: the character after it, or before it at the end of a paragraph.
-      const [r] = [...selectionRects(layout, to, to + 1), ...(to > 0 ? selectionRects(layout, to - 1, to) : [])];
+      const [r] = [...selectionRects(to, to + 1), ...(to > 0 ? selectionRects(to - 1, to) : [])];
       if (!r) continue;
       dest = { page: r.page ?? 0, y: r.y };
     }
-    for (const r of selectionRects(layout, start, end)) if (r.width > 0 && r.height > 0) out.push({ page: r.page ?? 0, x: r.x, y: r.y, width: r.width, height: r.height, ...(target ? { target } : { dest }) });
+    for (const r of selectionRects(start, end)) if (r.width > 0 && r.height > 0) out.push({ page: r.page ?? 0, x: r.x, y: r.y, width: r.width, height: r.height, ...(target ? { target } : { dest }) });
   }
   return out;
 }
@@ -259,10 +260,10 @@ export function pageLinks(paragraphs, layout) {
  * page pixels. A heading inside a table, or one with no text, is left out, as the navigation pane names those.
  */
 export function pageOutline(paragraphs, layout) {
-  const out = [];
+  const out = [], selectionRects = selectionRectFinder(layout);
   for (const entry of outlineEntries(paragraphs)) {
     if (entry.inTable || entry.text === '(Empty heading)') continue;
-    const [r] = selectionRects(layout, entry.start, Math.max(entry.start + 1, entry.end));
+    const [r] = selectionRects(entry.start, Math.max(entry.start + 1, entry.end));
     if (r) out.push({ title: entry.text, level: entry.level, page: r.page ?? 0, y: r.y });
   }
   return out;
