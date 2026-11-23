@@ -2154,11 +2154,85 @@ const toAlpha = (n: number): string => {
   return out;
 };
 
-// Format an auto-number per ECMA-376 §17.18.96 `ST_TextAutoNumberScheme`.
-// Only the most common variants are implemented; unknown tokens fall back
-// to arabicPeriod-style formatting.
+// Each digit of n in another script's digits (zero first).
+const digitsIn = (n: number, zero: number): string =>
+  String(n).replace(/\d/g, (d) => String.fromCodePoint(zero + Number(d)));
+// Letters in order, cycling with the letter repeated: the 29th of 28 is the
+// first doubled.
+const repeatedLetter = (n: number, letters: readonly string[]): string =>
+  letters[(n - 1) % letters.length]!.repeat(
+    Math.floor((n - 1) / letters.length) + 1,
+  );
+const CJK_DIGITS = "〇一二三四五六七八九";
+// Chinese numerals as the desktop app writes them: digit by digit (one zero
+// two for 102), or counted in tens (二十三) below `tensBelow`.
+const cjkNumber = (n: number, tensFrom = 10, tensBelow = 10): string => {
+  if (n >= tensFrom && n < tensBelow) {
+    const tens = Math.floor(n / 10),
+      units = n % 10;
+    return `${tens > 1 ? CJK_DIGITS[tens] : ""}十${units ? CJK_DIGITS[units] : ""}`;
+  }
+  return String(n).replace(/\d/g, (d) => CJK_DIGITS[Number(d)]!);
+};
+const ARABIC_LETTERS = [..."أبتثجحخدذرزسشصضطظعغفقكلمنهوي"];
+const ABJAD_LETTERS = [..."أبجدهوزحطيكلمنسعفصقرشتثخذضظغ"];
+const HEBREW_LETTERS = [..."אבגדהוזחטיכלמנסעפצקרשת"];
+const THAI_LETTERS = [..."กขคงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ"];
+// Hebrew counts on past its last letter with that letter, once for each
+// round, before the remainder's.
+const hebrewNumber = (n: number): string => {
+  const rounds = Math.floor((n - 1) / HEBREW_LETTERS.length);
+  return "ת".repeat(rounds) + HEBREW_LETTERS[(n - 1) % HEBREW_LETTERS.length];
+};
+
+// Format an auto-number per ECMA-376 §17.18.96 `ST_TextAutoNumberScheme`,
+// as the desktop app draws each scheme. Unknown tokens, and numbers a
+// scheme cannot write, fall back to arabicPeriod-style formatting.
 const formatAutoNum = (token: string, n: number): string => {
   const arabic = String(n);
+  if (n >= 1 && Number.isSafeInteger(n))
+    switch (token) {
+      case "arabicDbPeriod":
+        return `${digitsIn(n, 0xff10)}．`;
+      case "arabicDbPlain":
+        return digitsIn(n, 0xff10);
+      case "ea1ChsPeriod":
+        return `${cjkNumber(n, 10, 100)}.`;
+      case "ea1ChsPlain":
+        return cjkNumber(n, 10, 100);
+      case "ea1ChtPeriod":
+        return `${cjkNumber(n, 10, 20)}.`;
+      case "ea1ChtPlain":
+        return cjkNumber(n, 10, 20);
+      case "ea1JpnChsDbPeriod":
+        return `${cjkNumber(n)}．`;
+      case "ea1JpnKorPeriod":
+        return `${cjkNumber(n)}.`;
+      case "ea1JpnKorPlain":
+        return cjkNumber(n);
+      case "arabic1Minus":
+        return `${repeatedLetter(n, ARABIC_LETTERS)}-`;
+      case "arabic2Minus":
+        return `${repeatedLetter(n, ABJAD_LETTERS)}-`;
+      case "hebrew2Minus":
+        return `${hebrewNumber(n)}-`;
+      case "thaiAlphaPeriod":
+        return `${repeatedLetter(n, THAI_LETTERS)}.`;
+      case "thaiAlphaParenR":
+        return `${repeatedLetter(n, THAI_LETTERS)})`;
+      case "thaiAlphaParenBoth":
+        return `(${repeatedLetter(n, THAI_LETTERS)})`;
+      case "thaiNumPeriod":
+        return `${digitsIn(n, 0xe50)}.`;
+      case "thaiNumParenR":
+        return `${digitsIn(n, 0xe50)})`;
+      case "thaiNumParenBoth":
+        return `(${digitsIn(n, 0xe50)})`;
+      case "hindiNumPeriod":
+        return `${digitsIn(n, 0x966)}.`;
+      case "hindiNumParenR":
+        return `${digitsIn(n, 0x966)})`;
+    }
   switch (token) {
     case "arabicPlain":
       return arabic;

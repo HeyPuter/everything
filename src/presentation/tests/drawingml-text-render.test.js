@@ -89,3 +89,36 @@ describe("text shadow and glow", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("numbering schemes", () => {
+  // The labels a scheme gives items 1, 2, 10, 11, 20, 23 and 100, as the
+  // desktop app writes them.
+  const labels = async (scheme) => {
+    const items = [1, 2, 10, 11, 20, 23, 100]
+      .map(
+        (n) =>
+          `<a:p><a:pPr marL="0" indent="0"><a:buAutoNum type="${scheme}" startAt="${n}"/></a:pPr><a:r><a:rPr lang="en-US" sz="1000"/><a:t>x</a:t></a:r></a:p>`,
+      )
+      .join("");
+    const svg = await render(textBox(items));
+    return [...svg.matchAll(/xml:space="preserve">([^<]+)<\/text>/g)].map(
+      (m) => m[1],
+    );
+  };
+
+  it.each([
+    ["arabicDbPeriod", "１． ２． １０． １１． ２０． ２３． １００．"],
+    ["ea1ChsPlain", "一 二 十 十一 二十 二十三 一〇〇"],
+    ["ea1ChtPeriod", "一. 二. 十. 十一. 二〇. 二三. 一〇〇."],
+    ["ea1JpnChsDbPeriod", "一． 二． 一〇． 一一． 二〇． 二三． 一〇〇．"],
+    ["ea1JpnKorPlain", "一 二 一〇 一一 二〇 二三 一〇〇"],
+    ["arabic1Minus", "أ- ب- ر- ز- ف- ل- طططط-"],
+    ["arabic2Minus", "أ- ب- ي- ك- ر- ث- عععع-"],
+    ["hebrew2Minus", "א- ב- י- כ- ר- תא- תתתתל-"],
+    ["thaiAlphaParenBoth", "(ก) (ข) (ญ) (ฎ) (ท) (บ) (ตตต)"],
+    ["thaiNumPeriod", "๑. ๒. ๑๐. ๑๑. ๒๐. ๒๓. ๑๐๐."],
+    ["hindiNumParenR", "१) २) १०) ११) २०) २३) १००)"],
+  ])("writes %s numbers in its own script", async (scheme, expected) => {
+    expect((await labels(scheme)).join(" ")).toBe(expected);
+  });
+});
