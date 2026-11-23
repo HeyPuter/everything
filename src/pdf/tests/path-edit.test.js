@@ -566,3 +566,46 @@ it('finds the paths of a page whose content ends with a stray Q, as readers draw
   const doc = await raw('q 1 0 0 rg 10 10 50 50 re f Q Q');
   expect(inspectPaths(doc, 0)).toHaveLength(1);
 });
+it('edits paths colored through gray, RGB or CMYK color spaces, as macOS writes them', async () => {
+  // Quartz names an ICC profile for every color: /Cs1 cs 0.2 0.4 0.6 sc.
+  const doc = await raw(
+    'q /Cs1 cs 0.2 0.4 0.6 sc /Cs1 CS 1 0 0 SC 2 w 40 220 80 60 re B ' +
+      '/Cs2 cs 0 1 1 0 sc 160 220 40 40 re f /Cal cs 0.5 sc 220 220 40 40 re f ' +
+      '/DeviceRGB cs 0 1 0 sc 280 220 40 40 re f Q ' +
+      'q /Pattern cs /P0 scn 40 40 40 40 re f Q q /Spot cs 1 sc 100 40 40 40 re f Q ' +
+      'q /Cs1 cs 0.5 sc 160 40 40 40 re f Q',
+  );
+  const icc = (n) => doc.context.register(doc.context.flateStream('', { N: n }));
+  const page = doc.getPage(0);
+  page.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({
+      ColorSpace: {
+        Cs1: ['ICCBased', icc(3)],
+        Cs2: ['ICCBased', icc(4)],
+        Cal: ['CalGray', { WhitePoint: [0.9505, 1, 1.089] }],
+        Spot: ['Separation', 'Gold', 'DeviceCMYK', icc(4)],
+      },
+    }),
+  );
+  const paths = inspectPaths(doc, 0);
+  expect(paths.map((p) => p.editable)).toEqual([true, true, true, true, false, false, false]);
+  expect(paths.slice(0, 4).map((p) => pathColorHex(p.state.fill))).toEqual([
+    '#336699',
+    '#ff0000',
+    '#808080',
+    '#00ff00',
+  ]);
+  expect(pathColorHex(paths[0].state.stroke)).toBe('#ff0000');
+  // A move keeps the profile's color; a new color is written as RGB, for that path alone.
+  const moved = [...paths[0].transform];
+  moved[4] += 20;
+  editPath(doc, 0, paths[0], { transform: moved });
+  editPath(doc, 0, inspectPaths(doc, 0)[1], { style: { fill: '#00ff00' } });
+  const reopened = inspectPaths(await PDFDocument.load(await doc.save()), 0);
+  expect(reopened[0].transform[4]).toBeCloseTo(moved[4], 6);
+  expect(reopened[0].source).toBe(paths[0].source);
+  expect(pathColorHex(reopened[0].state.fill)).toBe('#336699');
+  expect(pathColorHex(reopened[1].state.fill)).toBe('#00ff00');
+  expect(pathColorHex(reopened[2].state.fill)).toBe('#808080');
+});

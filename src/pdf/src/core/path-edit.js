@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
+import { PDFArray, PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
 import { parseContent, matrix, decode, pageSource, uniqueName } from './text-edit.js';
 import { inverse, invertible, imageCorners, rewriteOccurrence } from './image-edit.js';
 
@@ -51,6 +51,27 @@ function pathHint(args) {
     kind: PATH_KINDS[data.Kind.value],
     fillRule: data.Rule.value === 'EvenOdd' ? 'evenodd' : 'nonzero',
   };
+}
+
+const DEVICE_OPERATORS = ['g', '', 'rg', 'k'];
+const deviceOperator = (n, key) =>
+  key === 'fill' ? DEVICE_OPERATORS[n - 1] : DEVICE_OPERATORS[n - 1].toUpperCase();
+const DEVICE_SPACES = { DeviceGray: 1, DeviceRGB: 3, DeviceCMYK: 4 };
+const CALIBRATED_SPACES = { CalGray: 1, CalRGB: 3 };
+/** How many components a colour space named in a content stream takes, when its colours are
+ * plain gray, RGB or CMYK values (device, calibrated or ICC-based); 0 for any other space. */
+function colorComponents(resources, name) {
+  if (Object.hasOwn(DEVICE_SPACES, name)) return DEVICE_SPACES[name];
+  const space = get(get(resources, 'ColorSpace'), name);
+  if (space instanceof PDFName) return colorComponents(null, space.decodeText());
+  if (!(space instanceof PDFArray)) return 0;
+  const family = space.lookup(0);
+  if (!(family instanceof PDFName)) return 0;
+  const kind = family.decodeText();
+  if (Object.hasOwn(CALIBRATED_SPACES, kind)) return CALIBRATED_SPACES[kind];
+  if (kind !== 'ICCBased') return 0;
+  const n = get(space.lookup(1)?.dict, 'N')?.asNumber?.();
+  return [1, 3, 4].includes(n) ? n : 0;
 }
 
 /** Index complete paths, including retained unpainted paths, without crossing state changes. */
@@ -127,12 +148,30 @@ export function inspectPaths(doc, index) {
         else if (op === 'j') state.join = a[0];
         else if (op === 'M') state.miter = a[0];
         else if (op === 'd') state.dash = source.slice(command.start, command.end);
-        else if (['G', 'RG', 'K'].includes(op))
+        else if (['G', 'RG', 'K'].includes(op)) {
           state.stroke = source.slice(command.start, command.end);
-        else if (['g', 'rg', 'k'].includes(op))
+          state.strokeComponents = DEVICE_OPERATORS.indexOf(op.toLowerCase()) + 1;
+        } else if (['g', 'rg', 'k'].includes(op)) {
           state.fill = source.slice(command.start, command.end);
-        else if (['CS', 'cs', 'SC', 'sc', 'SCN', 'scn'].includes(op)) state.unsafe = true;
-        else if (op === 'Tr') state.textClip = a[0] >= 4;
+          state.fillComponents = DEVICE_OPERATORS.indexOf(op) + 1;
+        } else if (op === 'CS' || op === 'cs') {
+          // Colours chosen in a colour space of plain gray, RGB or CMYK components (as macOS
+          // writes every colour, through an ICC profile) stay editable; patterns, spot colours
+          // and indexed or Lab colours do not.
+          const n = colorComponents(resources, a[0]);
+          const key = op === 'cs' ? 'fill' : 'stroke';
+          if (!n) state.unsafe = true;
+          else
+            state[key] =
+              `${n === 4 ? '0 0 0 1' : n === 3 ? '0 0 0' : '0'} ${deviceOperator(n, key)}`;
+          state[`${key}Components`] = n;
+        } else if (['SC', 'sc', 'SCN', 'scn'].includes(op)) {
+          const key = op[0] === 's' ? 'fill' : 'stroke',
+            n = state[`${key}Components`];
+          if (n && a.length === n && a.every(Number.isFinite))
+            state[key] = `${a.map(num).join(' ')} ${deviceOperator(n, key)}`;
+          else state.unsafe = true;
+        } else if (op === 'Tr') state.textClip = a[0] >= 4;
         else if (op === 'ET' && state.textClip) state.unsafe = true;
         else if (op === 'BDC' || op === 'BMC') {
           marked.push({
@@ -214,6 +253,8 @@ export function inspectPaths(doc, index) {
     dash: '[] 0 d',
     stroke: '0 G',
     fill: '0 g',
+    strokeComponents: 1,
+    fillComponents: 1,
     alpha: 1,
     strokeAlpha: 1,
     blend: 'Normal',
