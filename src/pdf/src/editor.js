@@ -266,6 +266,9 @@ export function createEditor({
     tool = 'select',
     destroyed = false,
     busy = true,
+    // Busy with a job that only reads the PDF (printing, pictures, an Office file): leaving
+    // then loses no changes, and the job stops with the editor.
+    readingOnly = false,
     initializing = true,
     saving = false,
     generation = 0,
@@ -10834,14 +10837,17 @@ export function createEditor({
     // The Print button is disabled while the pages are prepared, which drops its focus; it
     // takes the focus back afterwards, as Undo does, unless the focus has moved on.
     const opener = document.activeElement;
-    busy = true;
+    busy = readingOnly = true;
     updateStatus();
     const controller = new AbortController();
     let handing = false;
     const progress = el('p', { class: 'muted', role: 'status' }, 'Preparing pages…');
-    const d = modal('Printing', el('div', { class: 'stack' }, progress), [
-      button('Cancel', null, () => controller.abort()),
-    ]);
+    const d = modal(
+      'Printing',
+      el('div', { class: 'stack' }, progress),
+      [button('Cancel', null, () => controller.abort())],
+      dialogOptions,
+    );
     // Escape and the close button cancel too; the dialog also closes on its own right before
     // the browser's print dialog takes over.
     d.addEventListener('close', () => {
@@ -10865,7 +10871,7 @@ export function createEditor({
       if (!['AbortError', 'RenderingCancelledException'].includes(error?.name)) throw error;
     } finally {
       if (d.open) d.close();
-      busy = false;
+      busy = readingOnly = false;
       updateStatus();
       if (
         opener?.isConnected &&
@@ -11137,13 +11143,16 @@ export function createEditor({
     // Overlapping ranges describe the same picture. Render each page once, retaining
     // the requested order and avoiding duplicate filenames inside the archive.
     indices = [...new Set(indices)];
-    busy = true;
+    busy = readingOnly = true;
     updateStatus();
     const controller = new AbortController();
     const progress = el('p', { class: 'muted', role: 'status' }, 'Preparing pages…');
-    const d = modal('Downloading pages as images', el('div', { class: 'stack' }, progress), [
-      button('Cancel', null, () => controller.abort()),
-    ]);
+    const d = modal(
+      'Downloading pages as images',
+      el('div', { class: 'stack' }, progress),
+      [button('Cancel', null, () => controller.abort())],
+      dialogOptions,
+    );
     // Escape and the close button cancel too; the dialog closes on its own when done.
     let done = false;
     d.addEventListener('close', () => {
@@ -11187,7 +11196,7 @@ export function createEditor({
     } finally {
       done = true;
       if (d.open) d.close();
-      busy = false;
+      busy = readingOnly = false;
       updateStatus();
     }
   }
@@ -13470,14 +13479,17 @@ export function createEditor({
   async function runOfficeExport(format, pages, { slideBackgrounds, singleSheet, label }) {
     requireAccess('copy');
     if (busy || destroyed || !pdf) return;
-    busy = true;
+    busy = readingOnly = true;
     updateStatus();
     const controller = new AbortController();
     const bar = el('progress', { max: 1, value: 0, 'aria-label': 'Export progress' });
     const progress = el('p', { class: 'muted', role: 'status' }, 'Reading the pages…');
-    const d = modal(`Exporting to ${label}`, el('div', { class: 'stack' }, progress, bar), [
-      button('Cancel', null, () => controller.abort()),
-    ]);
+    const d = modal(
+      `Exporting to ${label}`,
+      el('div', { class: 'stack' }, progress, bar),
+      [button('Cancel', null, () => controller.abort())],
+      dialogOptions,
+    );
     let done = false;
     d.addEventListener('close', () => {
       if (!done) controller.abort();
@@ -13560,7 +13572,7 @@ export function createEditor({
       done = true;
       textFreeTask?.destroy().catch(() => {});
       if (d.open) d.close();
-      busy = false;
+      busy = readingOnly = false;
       updateStatus();
     }
   }
@@ -14617,7 +14629,7 @@ export function createEditor({
         session.dirty ||
         protectionDirty ||
         saving ||
-        (busy && !initializing) ||
+        (busy && !initializing && !readingOnly) ||
         pendingTextEdit() ||
         pendingNoteEdit() ||
         pageForms.draft.dirty ||
