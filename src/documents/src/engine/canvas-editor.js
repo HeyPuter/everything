@@ -3,7 +3,7 @@ import { pageBackingSize } from './canvas-backing.js';
 import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
-import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture, pastedFragment, withoutPastedControls } from './clipboard-fragment.js';
+import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture, pastedFragment, withoutPastedControls, FRAGMENT_ATTRIBUTE } from './clipboard-fragment.js';
 import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing, equationHtml, htmlEquation, pastedEquation, uncopiedHtml, copiedUncopied, UNCOPIED_MESSAGE, UNCUT_MESSAGE } from './drawing-clipboard.js';
 import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
@@ -2603,7 +2603,9 @@ export class CanvasEditor {
       return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
     }
     const text = this.model.clipboardText(noteText, undefined, hiddenRun);
-    const picture = pictureHtml(this.model) || drawingHtml(this, text) || equationHtml(this.model);
+    // A floating picture also carries itself whole, for a paste in this document that keeps its wrapping and position.
+    const floating = this.model.selectedImage?.anchor && copiesPicture(this.model) ? copyFragment(this.model, { hidden: hiddenRun, objects: { token: this.clipboardToken, story: this.session.path } }) : null;
+    const picture = pictureHtml(this.model, { fragment: floating }) || drawingHtml(this, text) || equationHtml(this.model);
     // A chart, diagram or drawing the clipboard cannot carry copies as its text stand-in for other applications;
     // pasted here, that stand-in ("[Image]", its title) would only be stray text, so the paste says why it can't.
     if (!picture && this.model.selectedImage) return { text, html: uncopiedHtml(text), uncopied: true };
@@ -2626,7 +2628,21 @@ export class CanvasEditor {
     if (!this.readOnly && !this.viewOnly && this.selectedFloatingDrawing) { this.model.select(this.model.range[1]); this.syncInput(); }
     // A picture copied here comes back as the picture, not as its plain-text stand-in.
     const picture = htmlPicture(html);
-    if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }
+    if (picture) {
+      if (this.readOnly || this.viewOnly) return;
+      // A floating picture copied in this document and story comes back whole, wrapped and positioned as it was.
+      const whole = html.includes(FRAGMENT_ATTRIBUTE) && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
+      const own = whole?.objects && whole.objects.token === this.clipboardToken && (whole.objects.story ?? null) === this.session.path;
+      const pasteWhole = () => {
+        if (!pasteFragment(this.model, whole, { token: this.clipboardToken, story: this.session.path })) return false;
+        // The copy ends up selected, as a pasted picture is.
+        const end = this.model.selection.focus; this.model.select(end - 1, end);
+        if (!this.model.selectedImage) this.model.select(end);
+        return true;
+      };
+      if (own && this.execute(pasteWhole, () => {}, undefined, true)) return;
+      this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return;
+    }
     // A shape, text box or group copied here comes back as the drawing.
     const drawing = htmlDrawing(html);
     if (drawing) { if (!this.readOnly && !this.viewOnly) pasteDrawing(this, drawing).catch(error => this.onError(error)); return; }

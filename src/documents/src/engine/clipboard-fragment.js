@@ -201,8 +201,11 @@ export function copiesPicture(model) {
   return !!image && !image.kind && asset?.bytes instanceof Uint8Array && PICTURE_MIME.test(asset.mime || '');
 }
 
-/** The HTML `copiesPicture` describes, or '' when the selection is not such a picture. */
-export function pictureHtml(model) {
+/**
+ * The HTML `copiesPicture` describes, or '' when the selection is not such a picture. `fragment` (a floating
+ * picture's copyFragment) goes with it for a paste in the same document, which keeps its wrapping and position.
+ */
+export function pictureHtml(model, { fragment = null } = {}) {
   if (!copiesPicture(model)) return '';
   const image = model.selectedImage, asset = model.assets[image.assetId];
   // A paste here keeps the frame, crop, flips and rotation. Other applications get the whole image: a cropped
@@ -211,7 +214,8 @@ export function pictureHtml(model) {
   const data = { alt: image.alt || '', width: image.width, height: image.height, ...(cropped ? { crop: image.crop } : {}),
     ...(image.flipH ? { flipH: true } : {}), ...(image.flipV ? { flipV: true } : {}), ...(image.rotation ? { rotation: image.rotation } : {}) };
   const size = cropped ? '' : ` width="${Math.round(image.width / EMU_PER_PX)}" height="${Math.round(image.height / EMU_PER_PX)}"`;
-  return `<img src="data:${asset.mime};base64,${base64(asset.bytes)}" alt="${escape(data.alt)}"${size} ${PICTURE_ATTRIBUTE}="${escape(JSON.stringify(data))}">`;
+  const whole = fragment?.objects ? ` ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}"` : '';
+  return `<img src="data:${asset.mime};base64,${base64(asset.bytes)}" alt="${escape(data.alt)}"${size} ${PICTURE_ATTRIBUTE}="${escape(JSON.stringify(data))}"${whole}>`;
 }
 
 /** The picture a copy from this editor carries in its HTML, as a file with its size and alternative text, or null. */
@@ -593,13 +597,34 @@ function placeObjects(model, fragment, start) {
         const image = { ...object.image, id: nextDrawingId(model.paragraphs) };
         // Identifiers that are unique in a document (paragraphs in a text box, a drawing's edit marks) are left off the copy.
         if (typeof image.shell === 'string') image.shell = image.shell.replace(/\s(?:w14:paraId|w14:textId|wp14:anchorId|wp14:editId)="[^"]*"/g, '');
-        if (image.anchor) image.anchor = { ...image.anchor, order: ++order };
+        if (image.anchor) image.anchor = { ...pastedPosition(model, at, image.anchor), order: ++order };
         placed = model.replace(OBJECT, { checkpoint: false, insertedImage: validateImage(image) });
       }
     } catch { placed = false; }
     if (!placed) { model.select(at, at + 1); if (model.text[at] === OBJECT_STAND_IN) model.replace('', { checkpoint: false }); }
   }
   model.select(Math.min(after, model.text.length));
+}
+
+/**
+ * Where a pasted floating object goes: where it was, unless that covers a drawing already there exactly (its copy
+ * pasted beside it, as a paste over a selected floating picture is): then a quarter inch down and to the right, and
+ * again past each copy pasted before, as copies of a drawing fan out. An axis aligned to its base (centred, say)
+ * stays aligned. A position from the paragraph or line compares with the drawings anchored in that paragraph.
+ */
+const PASTE_STEP = 228600, PASTE_STEPS = 40;
+function pastedPosition(model, at, anchor) {
+  const keys = ['horizontal', 'vertical', 'x', 'y', 'xAlign', 'yAlign', 'xPercentage', 'yPercentage'];
+  const fixed = axis => !!anchor[`${axis}Align`] || anchor[`${axis}Percentage`] !== undefined;
+  if (fixed('x') && fixed('y')) return anchor;
+  const local = ['paragraph', 'line'].includes(anchor.vertical) || anchor.horizontal === 'character';
+  const paragraphs = local ? [model.paragraphs[locate(model.paragraphs, at).index]] : model.paragraphs;
+  const others = paragraphs.flatMap(p => p.runs.map(r => r.image?.anchor).filter(Boolean));
+  let position = anchor;
+  for (let step = 0; step < PASTE_STEPS && others.some(other => keys.every(key => other[key] === position[key])); step++) {
+    position = { ...position, ...(fixed('x') ? {} : { x: (position.x || 0) + PASTE_STEP }), ...(fixed('y') ? {} : { y: (position.y || 0) + PASTE_STEP }) };
+  }
+  return position;
 }
 
 // Another application's run with only plain values (not bold, black) leaves the destination's formatting.

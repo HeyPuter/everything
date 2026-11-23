@@ -25007,3 +25007,20 @@ Evidence: `tests/page-story-labels.test.js` (variants of the independently gener
 Evidence: `tests/selected-sections-page-setup.test.js` (margins across sections, the caret's section, a named
 section, per-section turning and undo) and `tests/browser/selected-sections-orientation.spec.js` (Letter and
 A4 sections turned together from Layout > Orientation, saved, and undone in one step).
+
+## Copy and Paste of a floating picture (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §20.4.2.3 `anchor` (`relativeHeight`), §20.4.2.10 `positionH` / §20.4.2.11
+`positionV` with §20.4.3.3 `posOffset`, §20.4.2.17 `wrapSquare` (and the other wrap elements), §20.4.2.5
+`docPr` (its `id` is unique in the document).
+
+A selected floating (anchored) picture still copies as its image for other applications; the copy also carries
+the picture whole (its frame, wrapping, position, crop and retained drawing XML, referring to the same image
+part) for a paste in the same document and story. Pasted there, it floats with the same wrapping, a new `docPr`
+id and the front-most `relativeHeight`, and is selected. Where it would cover a picture anchored at exactly the
+same position (a paste over the selected original), its `posOffset` values move 0.25 in (228600 EMU) right and
+down, past each earlier copy; an axis aligned with `wp:align` (or a percentage offset) stays aligned. A cut
+picture pasted back keeps its position. Before, the paste came back as an inline picture. Gaps: a copy pasted
+in another document, or in a table cell, is still an inline picture at the copied size; pictures with both axes
+aligned paste on top of the original. Tests: `tests/browser/paste-picture.spec.js` (export: two `wrapSquare`
+pictures and three distinct `docPr` ids).
