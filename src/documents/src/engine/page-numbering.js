@@ -1,4 +1,5 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { IMPORTED_NUMBER_FORMATS, importedNumeral } from './list-numerals.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 
@@ -24,8 +25,6 @@ export function formatPageNumber(value, format = 'decimal') {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid page number.');
   if (format === 'decimal') return String(value);
   if (format === 'decimalZero') return String(value).padStart(2, '0');
-  // "- 1 -", one of the page number formats Word's Page Number Format dialog offers (§17.18.59 numberInDash).
-  if (format === 'numberInDash') return `- ${value} -`;
   if (['lowerLetter', 'upperLetter'].includes(format)) {
     if (!value) return ' ';
     const count = Math.floor((value - 1) / 26) + 1;
@@ -49,6 +48,10 @@ export function formatPageNumber(value, format = 'decimal') {
     if (count > 128) throw new Error('This symbol number exceeds the preview limit.');
     return ['*', '\u2020', '\u2021', '\u00a7'][(value - 1) % 4].repeat(count);
   }
+  // The other ST_NumberFormat values (§17.18.59) a document can number its pages or notes in, as lists show them:
+  // "- 1 -" (numberInDash, which Word's Page Number Format dialog offers), full-width and circled digits, words,
+  // CJK, Hebrew, Arabic and Thai numerals.
+  if (IMPORTED_NUMBER_FORMATS.includes(format)) return importedNumeral(value, format);
   throw new Error(`Unsupported page number format: ${format}.`);
 }
 

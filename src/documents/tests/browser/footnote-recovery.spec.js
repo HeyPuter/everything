@@ -2,18 +2,25 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { openReadOnlyPreview } from './helpers/preview.js';
 import { downloadDocx } from './helpers/editor-tools.js';
-import { unzipSync } from 'fflate';
+import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 
 const approximations = {
-  ordinal: ['note numbers displayed as decimal'],
+  hex: ['note numbers displayed as decimal'],
 };
-// Restarting and symbol numbering are supported: these open editable with their own numbers.
-const supported = ['eachPage', 'eachSect', 'chicago', 'chicago-eachPage'];
+// Restarting, symbol and ordinal numbering are supported: these open editable with their own numbers.
+const supported = ['eachPage', 'eachSect', 'chicago', 'chicago-eachPage', 'ordinal'];
+/** A fixture's bytes; `hex` is the ordinal one numbered in a format notes cannot show here. */
+function fixture(name) {
+  if (name !== 'hex') return readFileSync(`tests/fixtures/footnote-recovery/${name}.docx`);
+  const parts = unzipSync(readFileSync('tests/fixtures/footnote-recovery/ordinal.docx'));
+  parts['word/settings.xml'] = strToU8(strFromU8(parts['word/settings.xml']).replace('w:val="ordinal"', 'w:val="hex"'));
+  return Buffer.from(zipSync(parts));
+}
 
 for (const zoom of [1, .75]) test(`footnote numbering preview retains mixed content at zoom ${zoom}`, async ({ page }) => {
   test.setTimeout(120000);
   await page.goto('/playground.html', { waitUntil: 'domcontentloaded' });
-  const inputs = Object.fromEntries(['continuous', ...Object.keys(approximations), ...supported].map(name => [name, [...readFileSync(`tests/fixtures/footnote-recovery/${name}.docx`)]]));
+  const inputs = Object.fromEntries(['continuous', ...Object.keys(approximations), ...supported].map(name => [name, [...fixture(name)]]));
   const results = await page.evaluate(async ({ inputs, zoom }) => {
     const { openCanvasDocument } = await import('/src/engine/open-document.js');
     const { CanvasEditor } = await import('/src/engine/canvas-editor.js');
@@ -53,7 +60,7 @@ for (const zoom of [1, .75]) test(`footnote numbering preview retains mixed cont
     expect(current.text).toEqual(control.text);
     expect(current.geometry).toEqual(control.geometry);
     expect(current.pixels).toEqual(control.pixels);
-    await openReadOnlyPreview(page, `tests/fixtures/footnote-recovery/${name}.docx`);
+    await openReadOnlyPreview(page, { name: `${name}.docx`, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: fixture(name) });
     await page.locator('.canvas-message summary').click();
     for (const warning of warnings) await expect(page.locator('.canvas-message li').filter({ hasText: warning })).toHaveCount(1);
   }

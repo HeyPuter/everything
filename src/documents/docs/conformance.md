@@ -25068,6 +25068,19 @@ Clauses: ECMA-376 Part 1 §17.6.12 `pgNumType` (`w:fmt`), §17.18.59 ST_NumberFo
 
 Page numbers in the `numberInDash` format show as "- 1 -", in headers, footers, page references and Go To, and
 Insert > Page Number > Format Page Numbers offers the format ("- 1 -, - 2 -, - 3 -, …", as Word's dialog does).
-Before, a document numbered this way opened read-only with its numbers shown as plain digits. Other
-ST_NumberFormat values (ordinal, cardinalText, hex, the East Asian formats…) still open the document read-only.
+Before, a document numbered this way opened read-only with its numbers shown as plain digits.
 Tests: `tests/page-number-dash-format.test.js`.
+
+## Page and note numbers in other formats (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §17.6.12 `pgNumType`, §17.11.17 `numFmt` (footnote and endnote properties), §17.18.59
+ST_NumberFormat.
+
+Page numbers and footnote and endnote numbers in the ST_NumberFormat values lists already show (full-width and
+circled digits, ordinal, cardinalText and ordinalText words, Chinese, Japanese and Korean counting numerals and
+digits, aiueo and iroha, Hebrew, Arabic abjad and alphabet, Thai and Devanagari digits, numberInDash) are shown
+the way list numbers are (`list-numerals.js`), so documents numbered that way open for editing; before, they
+opened read-only with decimal numbers. The dialogs show such a format as its first numbers ("①, ②, ③, …") and
+keep it. Formats lists do not show either (hex, bahtText, dollarText, the Russian and Vietnamese ones) still open
+the document read-only. Tests: `tests/footnotes.test.js` (ordinal, full-width and circled footnotes kept
+editable and unchanged on export; hex read-only), `tests/section-page-numbers.test.js`.

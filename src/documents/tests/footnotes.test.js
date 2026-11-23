@@ -44,6 +44,7 @@ describe('footnotes', () => {
     ['decimal', ['3', '4']], ['decimalZero', ['03', '04']],
     ['lowerRoman', ['iii', 'iv']], ['upperRoman', ['III', 'IV']],
     ['lowerLetter', ['c', 'd']], ['upperLetter', ['C', 'D']], ['chicago', ['‡', '§']],
+    ['ordinal', ['3rd', '4th']], ['decimalFullWidth', ['３', '４']], ['decimalEnclosedCircle', ['③', '④']],
   ])('keeps supported %s numbering editable and unchanged on export', async (format, expected) => {
     const source = noteSettings(notedDocx(), `<w:numFmt w:val="${format}"/><w:numStart w:val="3"/>`);
     const { pkg, model } = await open(source);
@@ -53,7 +54,7 @@ describe('footnotes', () => {
     expect(unzipSync(saved)).toEqual(unzipSync(source));
   });
 
-  it.each(['ordinal'])('opens unsupported %s footnote numbering as a structured preview', async format => {
+  it.each(['hex'])('opens unsupported %s footnote numbering as a structured preview', async format => {
     const source = noteSettings(notedDocx(), `<w:numFmt w:val="${format}"/><w:numStart w:val="3"/>`);
     const preview = await DocxPackage.open(source, { bestEffort: true });
     await expect(DocxPackage.open(source)).rejects.toThrow(/footnote numbering format/);

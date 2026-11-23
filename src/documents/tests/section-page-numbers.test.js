@@ -75,7 +75,7 @@ it('guards duplicate numbering declarations and bounded numeral expansion',()=>{
 
 it('retains cached unsupported PAGE formats without hiding ordinary story text or count fields',()=>{
   const p=paragraph('body'),settings=DEFAULT_PAGE_SETTINGS;
-  const definition={sections:[{header:{},footer:{default:'f'},pageNumbering:{format:'ordinal'}}],stories:{f:{paragraphs:[paragraph('',{runs:[{text:'Page '},{text:'?',field:{type:'PAGE',cachedText:'first'}},{text:' of '},{text:'?',field:{type:'NUMPAGES',cachedText:'99'}}]})]}}};
+  const definition={sections:[{header:{},footer:{default:'f'},pageNumbering:{format:'hex'}}],stories:{f:{paragraphs:[paragraph('',{runs:[{text:'Page '},{text:'?',field:{type:'PAGE',cachedText:'first'}},{text:' of '},{text:'?',field:{type:'NUMPAGES',cachedText:'99'}}]})]}}};
   const body=layoutDocument([p],measure,pageGeometry(settings));
   const result=layoutPageStories(body,definition,[settings],measure,undefined,{bestEffort:true});
   expect(result.lines[0].fragments.map(f=>f.text).join('')).toBe('Page first of 1');
