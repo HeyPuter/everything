@@ -177,3 +177,32 @@ test('a change made in a dialog is named after the command that opened it, howev
   await expect(dialog).toBeHidden();
   expect(await undoItem(page)).toMatch(/^Undo Paragraph Settings/);
 });
+
+test('Repeat runs the last change only: after a key the editor takes itself (Cmd+B) or typing there is nothing to repeat', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('one two three four five');
+  const select = (a, b) => input(page).evaluate((el, [a, b]) => { el.focus(); el.setSelectionRange(a, b); el.dispatchEvent(new Event('select')); }, [a, b]);
+  // Each word with how it is formatted: b bold, i italic.
+  const words = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.flatMap(r => r.text.trim() ? r.text.trim().split(' ').map(w => `${w}${r.bold ? ' b' : ''}${r.italic ? ' i' : ''}`) : []));
+  const repeatLabel = () => page.evaluate(() => window.__docs.current.view.commands.repeatLabel?.() ?? null);
+  // A ribbon command Repeat runs again, more than once.
+  await select(0, 3);
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Italic', exact: true }).click();
+  await select(4, 7); await input(page).press('F4');
+  await select(8, 13); await input(page).press('F4');
+  expect(await words()).toEqual(['One i', 'two i', 'three i', 'four', 'five']);
+  expect(await repeatLabel()).toBe('Italic');
+  // Bold from the keyboard is the last change: F4 no longer italicizes another word.
+  await select(14, 18); await input(page).press('ControlOrMeta+b');
+  await expect.poll(repeatLabel).toBe(null);
+  await select(19, 23); await input(page).press('F4');
+  expect(await words()).toEqual(['One i', 'two i', 'three i', 'four b', 'five']);
+  // Nor after typing.
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Italic', exact: true }).click();
+  expect(await repeatLabel()).toBe('Italic');
+  await input(page).press('End'); await page.keyboard.type(' six');
+  await expect.poll(repeatLabel).toBe(null);
+});

@@ -938,7 +938,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.extendMenu = (id, kit) => [...(chromeExtendMenu?.(id, kit) || [])];
   const chromeContextMenuItems = editorCommands.contextMenuItems;
   editorCommands.contextMenuItems = (context, kit) => [...(chromeContextMenuItems?.(context, kit) || [])];
-  const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update(), redoable: () => redoable() });
+  const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update(), redoable: () => redoable(), noteCommand: (label, run) => editorCommands.noteCommand?.(label, run) });
   Object.assign(editorCommands, editCommands);
   // Undo steps are named (their `label`) after the command that made them, a name the step keeps through Undo and Redo
   // (StorySession.travel); a command that changed the document is the one Repeat runs. A shared document's steps are
@@ -952,18 +952,25 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (label && !run && pendingCommand?.label === label && Date.now() - pendingCommand.at < 3000) return;
     pendingCommand = label ? { label: String(label).replace(/…$/, ''), run, at: Date.now() } : null;
   };
+  let recordedSteps = null;
   function labelHistory() {
     if (!engine) return;
     const top = engine.session.history.at(-1), length = engine.model.text.length;
+    // Whether this change made a new undo step (not Undo, Redo or typing on in the step before).
+    const recorded = { session: engine.session, count: engine.session.recorded || 0 };
+    const fresh = recordedSteps?.session === recorded.session && recordedSteps.count !== recorded.count;
+    recordedSteps = recorded;
     // A step the editor named itself (typing, AutoCorrect) is that: a command noted just before changed nothing, and is
     // neither its name nor what Repeat runs.
-    if (top?.label) pendingCommand = null;
+    if (top?.label) { pendingCommand = null; if (fresh) editCommands.forgetRepeat(); }
     else if (top && !labelOf(top)) {
       // A command is remembered for a few seconds, and while a dialog it opened then is open (or just closing).
       const fromDialog = command => [...document.querySelectorAll('.modal-root')].some(node => { const opened = Number(node.dataset.opened); return opened >= command.at && opened - command.at < 3000; });
       const recent = pendingCommand && (Date.now() - pendingCommand.at < 3000 || fromDialog(pendingCommand)) ? pendingCommand : null, label = recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting');
       if (Object.isFrozen(top)) sharedLabels.set(top, label); else top.label = label;
       if (recent?.run) editCommands.recordRepeat(recent.label, recent.run);
+      // Made by no command Repeat can run (a key the editor takes itself, as Cmd+B): Repeat no longer runs an older one.
+      else if (fresh) editCommands.forgetRepeat();
       pendingCommand = null;
     }
     lastTextLength = length;
