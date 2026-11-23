@@ -388,6 +388,14 @@ export function mergeDocuments(base, other, { mode = 'compare', author = 'Author
         if (markAll || !pair.other || !otherCell || !otherCell.content.length) { for (const entry of cell.content) entry.type === 'table' ? walkTable(entry, null, markAll || (otherIsNew ? 'del' : 'ins')) : emitBaseOnly({ type: 'paragraph', paragraph: entry.paragraph }); return; }
         walkScope(asBlocks(cell.content), asBlocks(otherCell.content), cell.id);
       });
+      // Cells only the other row has (a column added or removed) have no cell here: their text goes at the end of the
+      // row's last cell, marked, as rows only the other table has follow the table. Left out, a removed column's
+      // text vanished from a comparison that then reported no change.
+      const last = [...pair.base.cells].reverse().find(cell => cell.content.length);
+      if (!markAll && last && pair.other && pair.other.cells.length > pair.base.cells.length) {
+        const template = flatten({ rows: [{ cells: [last] }] }).at(-1);
+        for (const cell of pair.other.cells.slice(pair.base.cells.length)) for (const entry of cell.content) emitOtherOnly(entry.type === 'table' ? entry : { type: 'paragraph', paragraph: entry.paragraph }, last.id, template);
+      }
     }
     return orphans;
   };

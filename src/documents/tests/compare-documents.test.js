@@ -154,6 +154,19 @@ describe('compare documents', () => {
     expect(changes(model)).toEqual([['del', 'C\nD\n']]);
   });
 
+  // A column the revised table no longer has vanished from the comparison, which then reported no change at all.
+  it('keeps the text of a column only the original has, as deleted text in the row\'s last cell', async () => {
+    const { model, result } = await compare(p('x') + table([['a', 'b', 'c'], ['d', 'e', 'f']]) + p('y'), p('x') + table([['a', 'b'], ['d', 'e']]) + p('y'));
+    expect(model.text).toBe('x\na\nb\nc\nd\ne\nf\ny');
+    expect(changes(model)).toEqual([['del', '\nc'], ['del', '\nf']]);
+    expect(result.tables[0].rows.map(row => row.cells.length)).toEqual([2, 2]);
+    const cells = new Map(); for (const q of model.paragraphs.filter(x => x.cellId)) cells.set(q.cellId, [...(cells.get(q.cellId) || []), q.runs.map(r => r.text).join('')]);
+    expect([...cells.values()]).toEqual([['a'], ['b', 'c'], ['d'], ['e', 'f']]);
+    const accepted = new TextDocument(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets);
+    accepted.resolveRevisions(true);
+    expect(accepted.text).toBe('x\na\nb\nd\ne\ny');
+  });
+
   it('accepts to the revised text and rejects to the original when the last paragraphs change', async () => {
     const cases = [[['Intro', 'Middle part', 'Old ending'], ['Intro text']], [['Intro', 'First old', 'Second old'], ['Intro', 'Brand new closing words']],
       [['Intro'], ['Intro', 'New one', 'New two']], [['Intro', 'Old one', 'Old two'], ['Intro']], [['Intro', 'Old'], ['Intro', 'New one', 'New two']]];
