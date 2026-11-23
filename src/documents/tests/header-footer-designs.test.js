@@ -48,6 +48,30 @@ it('page number designs and removal', async () => {
   }
 });
 
+// Remove Page Numbers took the whole paragraph, so a footer "Acme Corp<tab>Page 1 of 3" lost the company name too.
+it('removes only the page number from a paragraph that also holds other text', async () => {
+  const { body } = await opened();
+  const cases = [
+    [['Acme Corp', '\t', 'Page ', { field: 'PAGE' }, ' of ', { field: 'NUMPAGES' }], 'Acme Corp\t'],
+    [['Annual Plan', '\t', { field: 'PAGE' }], 'Annual Plan\t'],
+    [['Draft – ', { field: 'PAGE' }, ' – confidential'], 'Draft  confidential'],
+    [[{ field: 'PAGE' }, ' | Page', '\tReport'], '\tReport'],
+  ];
+  for (const [parts, left] of cases) {
+    const model = story(body);
+    writeStoryLines(model, [{ paragraph: {}, run: {}, parts }]);
+    expect(removePageNumberParagraphs(model)).toBe(true);
+    expect(model.paragraphs.map(paragraphText)).toEqual([left]);
+    expect(model.paragraphs[0].runs.some(r => r.field)).toBe(false);
+  }
+  // Header designs that put the title beside the number keep the title.
+  const model = story(body);
+  writeStoryLines(model, HEADER_DESIGNS.find(d => d.lines({ title: 'T', date: 'D', width: 9360, kind: 'header' }).some(l => l.parts[0] === 'T' && l.parts.some(p => p.field === 'PAGE')))
+    .lines({ title: 'T', date: 'D', width: 9360, kind: 'header' }));
+  removePageNumberParagraphs(model);
+  expect(model.paragraphs.map(paragraphText)).toEqual(['T\t']);
+});
+
 it('writes page number format and start (pgNumType) that reopen and number pages', async () => {
   const { pkg, body } = await opened();
   pkg.setPageNumbering(0, { format: 'lowerRoman', start: 3 });

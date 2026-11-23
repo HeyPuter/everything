@@ -24186,7 +24186,9 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   `w:chapSep`) are not written and remain unsupported in layout. The setting is applied to the
   section with the caret and is not part of undo history.
 - Remove Page Numbers deletes paragraphs holding a PAGE field from the current section's existing
-  header and footer stories.
+  header and footer stories when they hold nothing else but "Page", "of" and the dashes, bars or brackets around
+  the number; from a paragraph with other text (a title, a company name) only the PAGE field and the words and
+  NUMPAGES/SECTIONPAGES field that read it ("Page 1 of 3") are removed (2026-11-23).
 
 ### Fields (§17.16)
 

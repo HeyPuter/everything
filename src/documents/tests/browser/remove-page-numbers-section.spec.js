@@ -34,5 +34,6 @@ test('Remove Page Numbers from a footer removes that section\'s page numbers', a
   await onTab(page, 'insert');
   await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Page Number', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Remove Page Numbers', exact: true }).click();
-  await expect.poll(footers).toEqual({ 'word/footer-one.xml': 'First section page ￼', 'word/footer-two.xml': '' });
+  // Only the number and the word that reads it go: the footer's other text stays.
+  await expect.poll(footers).toEqual({ 'word/footer-one.xml': 'First section page ￼', 'word/footer-two.xml': 'Second section ' });
 });
