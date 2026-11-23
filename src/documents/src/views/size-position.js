@@ -52,12 +52,15 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
   /* ---- Position ---- */
   const h = frame.horizontal || { relativeFrom: 'column', offset: 0 }, v = frame.vertical || { relativeFrom: 'paragraph', offset: 0 };
   const hGroup = `pic-h-${++ids}`, vGroup = `pic-v-${++ids}`;
-  // Aligned axes show their current place as an offset too, so switching keeps the object where it is.
+  // Aligned axes show their current place as an offset too, so switching keeps the object where it is. That
+  // offset is shown from the column or paragraph (the choice offered below for an aligned axis), so it is
+  // measured from there rather than from the frame the alignment uses.
   const offsetOf = axis => {
     const value = axis === 'x' ? h : v;
     if (value.offset !== undefined) return value.offset;
     if (!laidOut) return 0;
-    const at = offsetsFor(laidOut, laidOut.x, laidOut.y);
+    const from = !value.align ? {} : axis === 'x' ? { horizontal: 'column' } : { vertical: 'paragraph' };
+    const at = offsetsFor({ ...laidOut, image: { ...laidOut.image, anchor: { ...laidOut.image.anchor, ...from } } }, laidOut.x, laidOut.y);
     return axis === 'x' ? at.x : at.y;
   };
   const inlinePlace = frame.inline ? place?.() || { x: 0, y: 0 } : null;
