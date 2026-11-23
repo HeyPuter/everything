@@ -15225,8 +15225,22 @@ document.addEventListener("paste", (e) => {
   pendingPaste = 0;
   if (!clipboardEventAllowed(e)) return;
   e.preventDefault();
-  pasteData(e.clipboardData).catch(fail);
+  const fromNavigator = navigatorFocused(e.target);
+  pasteData(e.clipboardData)
+    .then(() => fromNavigator && focusPasted())
+    .catch(fail);
 });
+// What a paste from the navigator puts on the slide takes the keyboard, so
+// the next cut, copy, or nudge acts on it.
+function navigatorFocused(target) {
+  return target instanceof Element && !!target.closest("#slide-list");
+}
+function focusPasted() {
+  if (!navigatorFocused(document.activeElement)) return;
+  document
+    .querySelector("#slide-canvas .object-hit.selected")
+    ?.focus({ preventScroll: true });
+}
 // What a paste brings: an object copied here, an image, or text, in that
 // order; an older copy made here stands in when the event carries nothing.
 async function pasteData(data) {
@@ -16688,6 +16702,10 @@ document.addEventListener("keydown", (e) => {
       'select, input[type="color"], input[type="range"], input[type="checkbox"]',
     );
   const mod = e.ctrlKey || e.metaKey;
+  // The slide navigator's keys act on slides; the object selected on the
+  // canvas is out of the way there.
+  const inNavigator =
+    e.target instanceof Element && e.target.closest("#slide-list");
   if (formatTools.onKeydown(e, { typing })) return;
   if (review.keydown(e)) return;
   if (!typing && animationTools.onKey(e)) return;
@@ -16756,6 +16774,7 @@ document.addEventListener("keydown", (e) => {
     !e.altKey &&
     ["KeyL", "KeyE", "KeyR", "KeyJ"].includes(e.code) &&
     (!typing || e.target.closest(".inline-editor")) &&
+    !inNavigator &&
     currentShape() &&
     canEditText(currentShape())
   ) {
@@ -16772,6 +16791,7 @@ document.addEventListener("keydown", (e) => {
     !e.metaKey &&
     e.code === "Space" &&
     (!typing || e.target.closest(".inline-editor")) &&
+    !inNavigator &&
     currentShape() &&
     canEditText(currentShape())
   ) {
@@ -16855,6 +16875,28 @@ document.addEventListener("keydown", (e) => {
   // a copy on one of its buttons must not reach the selected object. Find,
   // zoom, undo, and redo above reach the presentation from there too.
   if (e.target instanceof Element && e.target.closest("#ai-panel")) return;
+  // In the navigator Ctrl+D duplicates the focused slide (with the selection
+  // it is part of), and the shortcuts for the selected object (copy, cut,
+  // bold, order, group, link) do nothing.
+  if (inNavigator && mod && !e.altKey && !e.shiftKey && e.code === "KeyD") {
+    e.preventDefault();
+    const part = e.target.closest(".slide-item")?.dataset.slidePart;
+    const focused = P.getSlides(doc.pres).find(
+      (s) => P.getSlidePartName(s) === part,
+    );
+    if (!masterView.active && !readOnlyDocument())
+      duplicateSlides(actionSlides(focused || slide()));
+    return;
+  }
+  if (
+    inNavigator &&
+    mod &&
+    /^Key[BCGIKUVX]$|^Bracket|^Comma$|^Period$/.test(e.code) &&
+    !(e.code === "KeyV" && !e.shiftKey && !e.altKey)
+  ) {
+    e.preventDefault();
+    return;
+  }
   // Copy and paste formatting, as Format Painter does from the keyboard.
   if (mod && e.shiftKey && !e.altKey && e.code === "KeyC" && currentShape()) {
     e.preventDefault();
@@ -16930,7 +16972,9 @@ document.addEventListener("keydown", (e) => {
     setTimeout(() => {
       if (pendingPaste !== request) return;
       pendingPaste = 0;
-      pasteFromMenu().catch(fail);
+      pasteFromMenu()
+        .then(() => inNavigator && focusPasted())
+        .catch(fail);
     }, 60);
     return;
   }
@@ -17024,8 +17068,6 @@ document.addEventListener("keydown", (e) => {
   }
   // In the navigator, Ctrl+A selects every slide and Delete removes the
   // selected ones.
-  const inNavigator =
-    e.target instanceof Element && e.target.closest("#slide-list");
   if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "a") {
     e.preventDefault();
     if (inNavigator) selectAllSlides();
