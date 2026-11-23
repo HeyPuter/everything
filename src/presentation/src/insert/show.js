@@ -343,6 +343,13 @@ export function createShowExtras(ctx, show) {
     pendingMedia = [];
     slideMedia = new Map();
   }
+  /** The show reached its end screen: the last slide's media stops there,
+   * as it would on the way to another slide. */
+  function ended() {
+    leaveMedia();
+    layer?.remove();
+    layer = null;
+  }
   function slideShown(slide, i) {
     index = i;
     if (viewed[viewed.length - 1] !== i) viewed.push(i);
@@ -481,6 +488,7 @@ export function createShowExtras(ctx, show) {
     prepare,
     imageFor,
     slideShown,
+    ended,
     mediaStep,
     navigate,
     claims,
