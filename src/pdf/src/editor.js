@@ -1748,20 +1748,24 @@ export function createEditor({
     edit.run
       ? edit.bold !== edit.original.bold || edit.italic !== edit.original.italic
       : edit.bold || edit.italic;
-  /** The face a draft is previewed and measured with; the text's own unless the style changed. */
-  function draftFace(edit, run = edit.run) {
+  /**
+   * The face a draft is previewed and measured with; the text's own unless the style changed.
+   * `value`, the draft's text, is passed when faces are chosen for each of its runs: reading it
+   * walks every run, and text drawn glyph by glyph has thousands.
+   */
+  function draftFace(edit, run = edit.run, value = edit.input.value) {
     const bold = edit.run && edit.bold === edit.original.bold ? isBoldRun(run) : edit.bold;
     const italic =
       edit.run && edit.italic === edit.original.italic ? isItalicRun(run) : edit.italic;
     const cjk = cjkDraftFace(
       run,
-      edit.input.value,
+      value,
       !edit.run || styleChanged(edit) ? textVariant(bold, italic) : undefined,
     );
     if (cjk) return cjk;
     if (edit.run && !styleChanged(edit))
       return (
-        (!edit.run.parts && fallbackDraftFace(edit.run, edit.input.value)) || {
+        (!edit.run.parts && fallbackDraftFace(edit.run, value)) || {
           weight: edit.run?.fontWeight || 'normal',
           style: edit.run?.fontStyle || 'normal',
           family: edit.run?.fontFamily || null,
@@ -1803,18 +1807,19 @@ export function createEditor({
     }
   }
   function applyDraftStyle(edit) {
-    if (hasCjkText(edit.input.value))
+    const value = edit.input.value;
+    if (hasCjkText(value))
       loadDraftCjkFaces(edit).then(() => {
         if (textEdit === edit) layoutTextEdit();
       });
-    const face = draftFace(edit);
+    const face = draftFace(edit, edit.run, value);
     if (!edit.run || styleChanged(edit))
       Promise.all(
         (edit.run?.parts || [edit.run]).map((run) => {
-          const face = draftFace(edit, run);
+          const face = draftFace(edit, run, value);
           return ensureStyledFontFaces(
             textVariant(face.weight === 'bold', face.style === 'italic'),
-            edit.input.value,
+            value,
           );
         }),
       ).then(() => {
@@ -6520,11 +6525,12 @@ export function createEditor({
     // New text wrapped at the page edge grows a row for each line it wraps onto.
     if (!edit.run && edit.input.scrollHeight > edit.input.clientHeight)
       edit.input.style.height = `${edit.input.scrollHeight}px`;
+    const value = styleChanged(edit) ? edit.input.value : null;
     const fallbacks =
       edit.input.updateStyle?.(
         edit.hex,
         box.size,
-        styleChanged(edit) ? (run) => draftFace(edit, run) : undefined,
+        styleChanged(edit) ? (run) => draftFace(edit, run, value) : undefined,
       ) || [];
     loadFallbackFaces(edit, face.variant ? [...fallbacks, face.variant] : fallbacks);
     const richLayout = edit.input.measureLayout?.();
