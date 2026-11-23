@@ -282,6 +282,25 @@ test("Ink to Text and Ink to Math ask the AI to read the ink", async ({
   await page.keyboard.press("Escape");
 });
 
+test("Ink to Text puts the words where the ink was in the stack", async ({
+  page,
+}) => {
+  await start(page, { reply: "Hello there" });
+  await page.locator('[data-command="draw-pen1"]').click();
+  await stroke(page, wave(100, 150));
+  await page.keyboard.press("Escape");
+  await addText(page);
+  await page.keyboard.press("Escape");
+  await expect(hits(page)).toHaveCount(2);
+  await page.getByRole("tab", { name: "Draw" }).click();
+  await command(page, "draw-ink-to-text");
+  await expect(page.locator("#toast")).toContainText("Ink converted to text");
+  const { shapes } = await download(page);
+  // The words are behind the text box added after the ink, as it was.
+  expect(shapes).toHaveLength(2);
+  expect(P.getShapeText(shapes[0])).toBe("Hello there");
+});
+
 test("Ink to Text puts the words on the ink's slide when another is shown meanwhile", async ({
   page,
 }) => {

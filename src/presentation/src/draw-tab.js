@@ -560,12 +560,23 @@ export function createDrawTools({
         : null;
     let made = null;
     await mutateSlide(target, (s) => {
+      // The words take the place in the stack of the ink's topmost stroke.
+      const zs = ids
+        .map((id) => P.findShapeById(s, id))
+        .filter(Boolean)
+        .map((shape) => P.getShapeZIndex(shape));
+      const top = Math.max(-1, ...zs);
+      const z = top - zs.filter((v) => v >= 0 && v < top).length;
       for (const id of ids) {
         const shape = P.findShapeById(s, id);
         if (shape) P.removeShape(shape);
       }
+      const restack = () => {
+        if (made && top >= 0) P.setShapeZIndex(made, z);
+      };
       if (prepared) {
         made = equations.place(s, prepared, { x: box.x, y: box.y });
+        restack();
         return;
       }
       const width = Math.max(box.w, (size * PT * value.length) / lines / 1.9);
@@ -589,6 +600,7 @@ export function createDrawTools({
       P.setShapeTextAutoFit(made, "shape");
       if (mode === "math")
         P.setShapeDescription(made, `Equation (LaTeX): ${value}`);
+      restack();
     });
     if (
       made &&
