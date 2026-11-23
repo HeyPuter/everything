@@ -1198,6 +1198,8 @@ function renderHome() {
             ),
           ),
           el("div", { id: "file-list" }),
+          // What a search found, for those who cannot see the list change.
+          el("p", { id: "library-status", class: "sr-only", role: "status" }),
         ),
       ),
       el(
@@ -1385,6 +1387,15 @@ function renderFileList() {
     )
     // Pinned presentations lead the list.
     .sort((a, b) => b.pinned - a.pinned);
+  const status = document.querySelector("#library-status");
+  const found = !query.trim()
+    ? ""
+    : rows.length === 1
+      ? "1 presentation found"
+      : rows.length
+        ? `${rows.length} presentations found`
+        : "No matching presentations";
+  if (status && status.textContent !== found) status.textContent = found;
   if (!rows.length) {
     // A failed load already explains itself and offers a retry; do not also
     // claim the library is empty.

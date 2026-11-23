@@ -1551,17 +1551,23 @@ test("library search matches equivalent Unicode names in imported drafts and clo
   const names = page.locator(".file-open strong");
   const search = page.getByRole("searchbox", { name: "Search presentations" });
   await expect(names).toHaveCount(2);
+  // What the search found is told to assistive technology as well.
+  const found = page.locator("#library-status");
+  await expect(found).toHaveAttribute("role", "status");
   for (const query of ["CAFÉ", "cafe\u0301"]) {
     await search.fill(query);
     await expect(names).toHaveCount(2);
+    await expect(found).toHaveText("2 presentations found");
   }
   await search.fill("No matching name");
   await expect(names).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "No matching presentations" }),
   ).toBeVisible();
+  await expect(found).toHaveText("No matching presentations");
   await search.fill("");
   await expect(names).toHaveCount(2);
+  await expect(found).toHaveText("");
 });
 
 test("library dates refresh over time without replacing focused controls", async ({
