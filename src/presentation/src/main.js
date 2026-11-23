@@ -11991,7 +11991,13 @@ function editText(target, event = null, { inserted = null } = {}) {
   // formatting once composed.
   let composing = null;
   input.addEventListener("compositionstart", () => {
-    const sel = selectionOffsets();
+    let sel = selectionOffsets();
+    // A selection across paragraphs goes before the input method types over
+    // it, as typed text's does, so the paragraph joined keeps its runs.
+    if (sel && textOf(read().runs).slice(sel[0], sel[1]).includes("\n")) {
+      replaceRange(sel[0], sel[1], "");
+      sel = selectionOffsets();
+    }
     const change = caretFormat && caretFormatAt(sel, textOf(read().runs));
     composing = change ? { at: sel[0], change } : null;
     caretFormat = null;

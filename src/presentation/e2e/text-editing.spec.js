@@ -90,3 +90,33 @@ test("typing over a selection across paragraphs keeps the formatting after it", 
   await expect(editor.locator(".para")).toHaveCount(2);
   await expect(editor).toHaveText("FirstSecond");
 });
+
+test("an input method typing over paragraphs keeps the formatting after it", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "First");
+  const press = (key, times) => pressKey(page, key, times);
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Second");
+  await press("Shift+ArrowLeft", 6);
+  await page.keyboard.press("ControlOrMeta+i");
+  await press("ArrowRight");
+  await press("ArrowLeft", 10);
+  await press("Shift+ArrowRight", 7);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.imeSetComposition", {
+    text: "に",
+    selectionStart: 1,
+    selectionEnd: 1,
+  });
+  await cdp.send("Input.insertText", { text: "日本" });
+  await expect(editor).toHaveText("Fi日本ond");
+  await expect(editor.locator("[data-run]").last()).toHaveCSS(
+    "font-style",
+    "italic",
+  );
+  await expect(editor.locator("[data-run]").first()).toHaveCSS(
+    "font-style",
+    "normal",
+  );
+});
