@@ -157,6 +157,14 @@
   box-shadow: 0 0 0 3px var(--ribbon-accent);
   border-color: var(--ribbon-accent);
 }
+/* Forced colors leave out the shadow that marks the chosen slides. */
+@media (forced-colors: active) {
+  .sorter-card.selected .sorter-thumb,
+  .sorter-card.current .sorter-thumb {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+  }
+}
 .sorter-card:focus-visible .sorter-thumb {
   outline: 2px solid var(--ribbon-focus);
   outline-offset: 4px;

@@ -454,6 +454,18 @@
   bottom: 14px;
   right: 8px;
 }
+/* With the system's colors forced, the frame round the current slide is the
+   one in the highlight color; the others go without. */
+@media (forced-colors: active) {
+  .editor .slide-thumb,
+  .editor .slide-item:not(.active) .slide-thumb:hover {
+    border-color: Canvas;
+  }
+  .editor .slide-item.selected .slide-thumb,
+  .editor .slide-item.active .slide-thumb {
+    border-color: Highlight;
+  }
+}
 .pane-resize {
   position: absolute;
   z-index: 4;

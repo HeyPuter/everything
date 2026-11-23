@@ -364,3 +364,26 @@ test("Shift+F10 opens the shortcut menu of the focused object or slide", async (
     page.getByRole("menu").getByRole("menuitem").first(),
   ).toBeFocused();
 });
+
+// With the system's colors forced, the current slide is still told apart in
+// the navigator and in Slide Sorter.
+test("forced colors mark the current slide", async ({ page }, info) => {
+  await page.emulateMedia({ forcedColors: "active" });
+  await mockPuter(page);
+  await story(page);
+  const border = (selector) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((node) => getComputedStyle(node).borderTopColor);
+  const current = await border(".slide-item.active .slide-thumb");
+  expect(current).not.toBe(
+    await border(".slide-item:not(.active) .slide-thumb"),
+  );
+  test.skip(info.project.name === "mobile", "Slide Sorter is in View");
+  await page.keyboard.press("ControlOrMeta+2");
+  await expect(page.locator(".sorter-card.current")).toBeVisible();
+  expect(await border(".sorter-card.current .sorter-thumb")).not.toBe(
+    await border(".sorter-card:not(.current) .sorter-thumb"),
+  );
+});
