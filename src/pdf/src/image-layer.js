@@ -63,8 +63,10 @@ export function createImageLayer({
   const heldArrows = new Set();
   // Arrow keys pressed while a nudge was being saved, to apply once it is.
   const queuedArrows = [];
-  // Delete or Backspace pressed while a nudge was being saved, to remove the object once it is.
-  let queuedDelete = false;
+  // Delete or Backspace pressed while a nudge was being saved, to remove the object once it is;
+  // Escape, to let go of it.
+  let queuedDelete = false,
+    queuedClose = false;
   // The object target a finger last went down on, to tell its tap from a keyboard click.
   let touched = null;
   let renderKey, pageKey;
@@ -131,7 +133,7 @@ export function createImageLayer({
     // A save redraws the page and so closes the selection; arrows held for after it stay.
     if (!committing) {
       queuedArrows.length = 0;
-      queuedDelete = false;
+      queuedDelete = queuedClose = false;
     }
     if (!preserveSelection) {
       selectionGeneration++;
@@ -353,11 +355,18 @@ export function createImageLayer({
           priorFocus.focus({ preventScroll: true });
         }
         const queued = queuedArrows.splice(0),
-          removal = queuedDelete;
-        queuedDelete = false;
+          removal = queuedDelete,
+          letGo = queuedClose;
+        queuedDelete = queuedClose = false;
         if (removal && !failed && !remove && selected && enabled && !busy)
           setTimeout(safe(() => finish(true)));
-        else if (queued.length && !failed && !remove && selected && enabled && !busy) {
+        else if (letGo && !remove && selected) {
+          const ordinal = selected.ordinal,
+            frameFocused = controls.contains(document.activeElement);
+          close();
+          if (frameFocused || document.activeElement === document.body)
+            targets.querySelector(`[data-ordinal="${ordinal}"]`)?.focus({ preventScroll: true });
+        } else if (queued.length && !failed && !remove && selected && enabled && !busy) {
           for (const { key, shift, corner } of queued) nudge(key, shift, corner);
           clearTimeout(keyboardTimer);
           keyboardTimer = setTimeout(
@@ -1087,6 +1096,11 @@ export function createImageLayer({
       ) {
         e.preventDefault();
         queuedDelete = true;
+      }
+      if (e.key === 'Escape' && committing && keepCommitProperties && !gesture && !selecting) {
+        e.preventDefault();
+        e.stopPropagation();
+        queuedClose = true;
       }
       return;
     }
