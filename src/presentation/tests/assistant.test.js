@@ -23,7 +23,11 @@ import {
   TOOLS,
   NO_CHANGE,
 } from "../src/assistant-tools.js";
-import { aiChatStream, withCacheBreakpoints } from "../src/cloud.js";
+import {
+  aiChatStream,
+  withCacheBreakpoints,
+  wellFormed,
+} from "../src/cloud.js";
 import { addInkStroke } from "../src/draw/ink-model.js";
 import { fixture } from "./slide-transition-fixture.js";
 import { solidPaintInheritanceFixture } from "./solid-paint-inheritance-fixture.js";
@@ -870,6 +874,25 @@ describe("Puter AI streaming", () => {
     for await (const p of aiChatStream(turn2)) void p;
     expect(chat.mock.calls[0][0]).toEqual(next);
     expect(chat.mock.calls[1][0]).toBe(turn2);
+  });
+
+  // A title cut to length in the snapshot can end in half an emoji; a
+  // request holding one is refused, and the transcript keeps it.
+  it("mends half characters before a conversation is sent", async () => {
+    const cut = "Launch 🚀".slice(0, 8);
+    expect(cut.isWellFormed()).toBe(false);
+    const messages = [
+      { role: "user", content: `Slides:\n1. ${cut}` },
+      { role: "user", content: [{ type: "text", text: "fine" }] },
+    ];
+    const chat = vi.fn().mockResolvedValue((async function* () {})());
+    vi.stubGlobal("puter", { ai: { chat } });
+    for await (const p of aiChatStream(messages)) void p;
+    const sent = chat.mock.calls[0][0];
+    expect(sent[0].content).toBe("Slides:\n1. Launch \uFFFD");
+    expect(sent[1]).toBe(messages[1]);
+    expect(messages[0].content.endsWith(cut)).toBe(true);
+    expect(wellFormed("ok")).toBe("ok");
   });
 
   it("reads a whole reply with tool calls, and throws the service's error", async () => {

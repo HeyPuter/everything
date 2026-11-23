@@ -321,7 +321,7 @@ export async function* aiChatStream(
   let res;
   try {
     res = await ai.chat(
-      cache ? withCacheBreakpoints(messages) : messages,
+      wellFormed(cache ? withCacheBreakpoints(messages) : messages),
       options,
     );
   } catch (e) {
@@ -375,6 +375,39 @@ export async function* aiChatStream(
     }
     yield { type: "tool", id: call.id, name: call.function?.name, input };
   }
+}
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const LONE_SURROGATES = new RegExp(LONE_SURROGATE.source, "g");
+/**
+ * The value with half characters replaced by U+FFFD. Text cut to a length
+ * (the snapshot's titles, earlier tool results) can end in half of an
+ * emoji, and a request holding one is refused as invalid; the cut text stays
+ * in the conversation, so every later request would be refused too.
+ * Unchanged parts are returned as they are.
+ */
+export function wellFormed(value) {
+  if (typeof value === "string")
+    return LONE_SURROGATE.test(value)
+      ? value.replace(LONE_SURROGATES, "\uFFFD")
+      : value;
+  if (Array.isArray(value)) {
+    let out = null;
+    value.forEach((v, i) => {
+      const w = wellFormed(v);
+      if (w !== v) (out ??= [...value])[i] = w;
+    });
+    return out ?? value;
+  }
+  if (value && typeof value === "object") {
+    let out = null;
+    for (const [k, v] of Object.entries(value)) {
+      const w = wellFormed(v);
+      if (w !== v) (out ??= { ...value })[k] = w;
+    }
+    return out ?? value;
+  }
+  return value;
 }
 // Content as blocks with a cache breakpoint on the last one (an empty text
 // block cannot take one).
