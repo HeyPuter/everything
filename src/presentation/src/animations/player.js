@@ -890,6 +890,8 @@ function planItem(item, state, piece, frame, reduced) {
         duration: effect.durationMs,
       });
   }
+  // Played forward and then back, an effect ends where it began.
+  if (effect.autoReverse) Object.assign(next, state);
   if (effect.after) {
     if (effect.after.kind === "hide") next.visible = false;
     else if (effect.after.kind === "dim") next.dim = `#${effect.after.color}`;

@@ -746,3 +746,41 @@ test("a click during a transition ends it and plays the slide's next step", asyn
   await expect.poll(() => visibleLayers(page)).toEqual([true, true]);
   await expect(counter).toHaveText("2 / 2");
 });
+
+test("an effect set to auto-reverse ends as the object began", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const box = shape(slide, 5, 3, 3, 2, "#cc2222");
+  // Grow/Shrink, played forward and back.
+  P.setSlideAnimations(slide, [
+    {
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "emph",
+      presetId: 6,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 300,
+      autoReverse: true,
+    },
+  ]);
+  P.addBlankSlide(pres);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(page.locator(".presenter-counter")).toHaveText("1 / 2");
+  const width = () =>
+    page.evaluate(() =>
+      Math.max(
+        ...[...document.querySelectorAll(".presenter .anim-fx *")].map(
+          (node) => node.getBoundingClientRect().width,
+        ),
+      ),
+    );
+  await expect(page.locator(".presenter .anim-fx")).toHaveCount(1);
+  const before = await width();
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(1200);
+  expect(Math.abs((await width()) - before)).toBeLessThan(2);
+});
