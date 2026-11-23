@@ -758,13 +758,19 @@ export function specToGrid(spec) {
 }
 // A cell's number: blank is a gap; anything that isn't a number is too.
 export function parseNumber(text) {
-  const t = String(text ?? "")
-    .trim()
+  let t = String(text ?? "").trim();
+  // Amounts copied from a spreadsheet keep their currency sign, and an
+  // accounting format shows negatives in brackets: ($1,200.00).
+  const bracketed = /^\((.*)\)$/.exec(t);
+  if (bracketed) t = bracketed[1].trim();
+  t = t
+    .replace(/^([-+]?)\s*\p{Sc}\s*/u, "$1")
+    .replace(/\s*\p{Sc}$/u, "")
     .replace(/[\s,](?=\d{3}\b)/g, "")
     .replace(/%$/, "");
-  if (t === "") return null;
+  if (t === "" || (bracketed && /^[-+]/.test(t))) return null;
   const n = Number(t);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) ? (bracketed ? -n : n) : null;
 }
 // The chart definition with the grid's data. Series keep their formatting
 // by position; new series take the automatic colours.

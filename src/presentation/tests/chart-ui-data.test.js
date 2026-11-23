@@ -13,6 +13,7 @@ import {
   insertColumn,
   insertRow,
   insertSeriesColumn,
+  parseNumber,
   parseTsv,
   pasteBlock,
   sampleSpec,
@@ -183,6 +184,35 @@ describe("data sheet grid", () => {
       "Inserted",
       "Series 3",
     ]);
+  });
+
+  // Cells copied from a spreadsheet come as they are shown there: amounts
+  // with their currency, and negatives in brackets, left the chart blank.
+  it("reads pasted amounts with a currency sign or in brackets", () => {
+    expect(
+      ["$1,234.50", "€12", "-£3", "£-3", "(1,200)", "($5.25)", "12 ¥"].map(
+        parseNumber,
+      ),
+    ).toEqual([1234.5, 12, -3, -3, -1200, -5.25, 12]);
+    // Text stays blank, as do signs on their own.
+    expect(["$", "()", "abc", "$abc", "(-5)", "--5"].map(parseNumber)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    const spec = sampleSpec("column-clustered");
+    const grid = pasteBlock(
+      specToGrid(spec),
+      1,
+      0,
+      parseTsv("Q1\t$1,000.00\t(250)\nQ2\t$2,500.00\t$75\n"),
+    );
+    const next = gridToSpec(grid, spec);
+    expect(next.series[0].values.slice(0, 2)).toEqual([1000, 2500]);
+    expect(next.series[1].values.slice(0, 2)).toEqual([-250, 75]);
   });
 
   it("keeps a pie's unplotted series through a save, for a change back", async () => {
