@@ -1139,3 +1139,47 @@ describe('Enter at the start of a table that begins the document', () => {
     expect(doc.paragraphs.filter(p => p.cellId === cells[0].id)).toHaveLength(2);
   });
 });
+
+describe('the paragraph after a table', () => {
+  it('Backspace in an empty paragraph after a table removes it, keeping the one the table needs', async () => {
+    const { pkg, doc } = tableDocument(2, 2, ['Top']);
+    // Top, the table, an empty paragraph, then text.
+    doc.select(doc.text.length); doc.replace('\nBelow');
+    const kinds = () => doc.paragraphs.map(p => p.cellId ? 'cell' : paragraphText(p));
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '', 'Below']);
+    const empty = 5;
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(-1)).toBe(true);
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', 'Below']);
+    // The caret is at the end of the last cell.
+    const last = doc.paragraphs[4];
+    expect(doc.range).toEqual([doc.paragraphOffset(4) + paragraphText(last).length, doc.paragraphOffset(4) + paragraphText(last).length]);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(reopened.text).toBe(doc.text);
+    doc.undo();
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '', 'Below']);
+    // The last paragraph of the document stays, as does one keeping two tables apart, and with Track Changes on.
+    doc.select(doc.paragraphOffset(6)); doc.replace('', {}); doc.select(doc.paragraphOffset(5), doc.text.length); doc.replace('');
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '']);
+    doc.select(doc.text.length);
+    expect(doc.delete(-1)).toBe(false);
+    doc.insertTable(1, 2, 9000);
+    const between = doc.paragraphs.findIndex((p, i) => !p.cellId && doc.paragraphs[i - 1]?.cellId && doc.paragraphs[i + 1]?.cellId);
+    doc.select(doc.paragraphOffset(between));
+    expect(doc.delete(-1)).toBe(false);
+    expect(doc.tables).toHaveLength(2);
+    valid(doc);
+  });
+
+  it('Backspace keeps an empty paragraph after a table with Track Changes on or a section break', () => {
+    const { doc } = tableDocument(2, 2, ['Top']);
+    doc.select(doc.text.length); doc.replace('\nBelow');
+    doc.trackChanges = true;
+    doc.select(doc.paragraphOffset(5));
+    expect(doc.delete(-1)).toBe(false);
+    doc.trackChanges = false;
+    doc.paragraphs[5].sectionEnd = structuredClone(doc.pageSettings);
+    expect(doc.delete(-1)).toBe(false);
+    expect(doc.paragraphs).toHaveLength(7);
+  });
+});

@@ -1562,6 +1562,23 @@ export class TextDocument {
     this.checkpoint(); this.paragraphs.splice(index, 1);
     this.select(this.paragraphOffset(index)); this.didChange(); return true;
   }
+  /**
+   * Backspace in an empty paragraph just after a table removes that paragraph, as in Word, the caret going to the end
+   * of the table's last cell. The paragraph a table needs after it stays: the last one of the document or cell, one
+   * before another table at its level (the two would join), and one holding a section break, bookmark, comment, field
+   * or control. With Track Changes on nothing changes.
+   */
+  removeParagraphAfterTable(index) {
+    const p = this.paragraphs[index], next = this.paragraphs[index + 1], before = this.paragraphs[index - 1], level = p.cellId || null;
+    if (!before?.cellId || before.cellId === p.cellId || !next || (next.cellId || null) !== level) return false;
+    if (p.sectionEnd || p.bookmarks?.length || p.fieldMarkers?.length || p.blockControls?.length || p.markRevision || p.list) return false;
+    if (this.trackChanges && !this.trackingInternal) return false;
+    const tableAt = cellId => { for (let at = cellId && cellContext(this.tables, cellId); at; at = at.table.parentCellId && cellContext(this.tables, at.table.parentCellId)) if ((at.table.parentCellId || null) === level) return at.table; return null; };
+    if (!tableAt(before.cellId)) return false;
+    try { documentBlocks(this.paragraphs.filter(other => other !== p), this.tables); } catch { return false; }
+    this.checkpoint(); this.paragraphs.splice(index, 1);
+    this.select(this.paragraphOffset(index) - 1); this.didChange(); return true;
+  }
   insertTableParagraph(after = true) {
     const context = this.tableContext; if (!context) return false;
     if (documentLength(this.paragraphs) >= MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
@@ -3236,7 +3253,7 @@ export class TextDocument {
         return changed;
       } catch (error) { this.selection = selection; throw error; }
     }
-    if (direction > 0 && !paragraphLength(p) && this.removeParagraphBeforeTable(location.index)) return true;
+    if (!paragraphLength(p) && (direction > 0 ? this.removeParagraphBeforeTable(location.index) : this.removeParagraphAfterTable(location.index))) return true;
     const sectionBeforeTable = direction > 0 && !p.cellId && p.sectionEnd && other.cellId;
     if ((p.cellId || '') !== (other.cellId || '') && !sectionBeforeTable) return false;
     if (this.hasPictureControls) checkPictureControlEdit(this.paragraphs, [Math.min(start, target), Math.max(start, target)]);
