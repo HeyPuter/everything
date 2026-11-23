@@ -774,6 +774,8 @@ function showHome({ accountRefresh = false } = {}) {
   if (location.hash !== LIBRARY_HASH) history.replaceState(null, '', LIBRARY_HASH);
   const generation = ++homeGeneration;
   const list = el('div', { class: 'file-list' });
+  // What a search found, for screen readers, which otherwise hear nothing as the rows change.
+  const searchStatus = el('p', { class: 'sr-only', role: 'status' });
   let files = [],
     loadGeneration = 0,
     filter = '',
@@ -812,6 +814,7 @@ function showHome({ accountRefresh = false } = {}) {
   };
   const drawFiles = () => {
     list.replaceChildren();
+    searchStatus.textContent = '';
     if (libraryState === 'loading') {
       list.append(el('div', { class: 'empty-library' }, 'Loading your PDFs…'));
       return;
@@ -834,6 +837,10 @@ function showHome({ accountRefresh = false } = {}) {
           ? byName.compare(a.name, b.name)
           : (b[sort] || 0) - (a[sort] || 0),
       );
+    if (filter)
+      searchStatus.textContent = !shown.length
+        ? 'No matching PDFs'
+        : `${shown.length} matching ${shown.length === 1 ? 'PDF' : 'PDFs'}`;
     if (!shown.length) {
       list.append(
         el(
@@ -1127,6 +1134,7 @@ function showHome({ accountRefresh = false } = {}) {
               el('div', { class: 'search-wrap' }, icon('Search', 16), search),
             ),
           ),
+          searchStatus,
           list,
         ),
         el(
