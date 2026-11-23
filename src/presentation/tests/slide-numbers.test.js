@@ -11,6 +11,7 @@ import {
   setRichText,
   slideNumberRun,
   splitFieldEdges,
+  matchHeaderFooter,
 } from "../src/model.js";
 import { renderSlideToSvg } from "../lib/pptx-preview/src/index.ts";
 import { slideNumberStamp } from "../src/slide-fields.js";
@@ -233,5 +234,24 @@ describe("live slide-number fields", () => {
     expect(splitFieldEdges([{ ...field, text: "7" }])[0].text).toBe("7");
     runs[0].format.bold = true;
     expect(runs[1].format.bold).toBeUndefined();
+  });
+
+  // A new slide's number placeholder was written with its position, 2, in
+  // a deck whose slides start at 40: other apps showing the saved text, and
+  // the editor, disagreed with the slide.
+  it("writes the number a new slide shows in a deck starting at 40", async () => {
+    const p = await parseDeck(await createNumberedDeck({ count: 1 }));
+    const [first] = P.getSlides(p);
+    P.applySlideHeaderFooter(
+      first,
+      { date: null, footer: null, slideNumber: true },
+      P.getSlideNumber(p, first),
+    );
+    const added = P.addBlankSlide(p);
+    matchHeaderFooter(p, added, first, 2);
+    expect(P.getSlideNumber(p, added)).toBe(41);
+    expect(P.getSlideXmlString(added)).toMatch(
+      /type="slidenum"[^>]*>(?:<a:rPr[^>]*\/>)?<a:t>41<\/a:t>/,
+    );
   });
 });

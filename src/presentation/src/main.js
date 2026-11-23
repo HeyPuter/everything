@@ -6212,7 +6212,8 @@ function dateTimeMenu() {
 function insertSlideNumber() {
   const obj = currentShape();
   if (!obj) return;
-  const value = String(index + 1);
+  // The number the slide shows, which a deck may start at other than 1.
+  const value = String(P.getSlideNumber(doc.pres, slide()) ?? index + 1);
   const field = (source) => slideNumberRun(source, value);
   const editor = editorFor(obj);
   if (editor) return editor.insertField(value, field);

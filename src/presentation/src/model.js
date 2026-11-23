@@ -2164,7 +2164,11 @@ export function matchHeaderFooter(pres, slide, previous, number) {
   if (!source) return;
   const settings = P.getSlideHeaderFooter(source);
   if (settings.date || settings.footer !== null || settings.slideNumber)
-    P.applySlideHeaderFooter(slide, settings, number);
+    P.applySlideHeaderFooter(
+      slide,
+      settings,
+      P.getSlideNumber(pres, slide) ?? number,
+    );
 }
 // Removes the parts in `reached` (lowercase names) that nothing in the
 // presentation leads to any more, with their relationships.
