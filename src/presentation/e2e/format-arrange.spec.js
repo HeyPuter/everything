@@ -336,7 +336,10 @@ test("Replace Fonts, Paste Special as a picture, Repeat, and Format Object", asy
   await paste.getByRole("button", { name: "Paste" }).click();
   await expect(objects(page)).toHaveCount(3);
   ({ shapes } = await download(page));
-  expect(shapes.filter((s) => P.getShapeKind(s) === "picture")).toHaveLength(1);
+  const pictures = shapes.filter((s) => P.getShapeKind(s) === "picture");
+  expect(pictures).toHaveLength(1);
+  // Not described as "Pasted objects.png": the check asks for words instead.
+  expect(P.getShapeDescription(pictures[0])).toBeNull();
 
   // Repeat: Change Shape on one shape, then Ctrl/⌘+Y on another.
   await selectAll(page);

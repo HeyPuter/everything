@@ -4370,8 +4370,8 @@ const formatTools = createFormatTools({
         }
       });
     }),
-  insertImageFile: (file, placement) =>
-    insertImageFile(file, placement ? { box: placement } : null),
+  insertImageFile: (file, placement, options) =>
+    insertImageFile(file, placement ? { box: placement } : null, options),
   clipboardInfo: () => clipboard,
   adoptSharedCopy: (wanted) => adoptSharedCopy(wanted),
   pasteClipboard: (options) => pasteClipboard(options),

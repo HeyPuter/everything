@@ -1088,6 +1088,9 @@ export function createFormatTools(ctx) {
         w: union.x1 - union.x0,
         h: union.y1 - union.y0,
       },
+      // Its file name says nothing worth reading out; the accessibility
+      // check asks for a description instead.
+      { describe: false },
     );
   }
   async function pasteAndMatch(value) {
