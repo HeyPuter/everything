@@ -38,3 +38,28 @@ it('shows who has access as of the latest change when two role changes overlap',
   expect(role('ada').value).toBe('viewer');
   expect(role('bob').value).toBe('commenter');
 });
+
+// One invitation that failed (an unknown username) stopped the rest, and the dialog said nothing of those already
+// invited: everyone is invited on their own, the dialog says who was and was not, and those not invited stay to retry.
+it('says who was and was not invited when one invitation fails, and keeps the failed ones to try again', async () => {
+  const invitedUsers = [];
+  const session = {
+    local: false, canManage: true, people: () => [], members: async () => ({ members: [] }),
+    inviteUser: async name => { if (name === 'ghost') throw new Error('No Puter user is called ghost.'); invitedUsers.push(name); },
+    inviteLink: async () => 'https://example.com/link',
+  };
+  const api = { local: false, live: () => session, documentName: () => 'Plan', ensureShared: async () => {},
+    emailInvitation: async address => (address === 'bad@example.com' ? { ok: false, message: 'refused' } : { ok: true }) };
+  vi.stubGlobal('navigator', { clipboard: { writeText: async () => {} } });
+  openShareDialog(api);
+  const field = document.querySelector('[aria-label="People to invite"]');
+  field.value = 'ada, ghost, bob, bad@example.com, cy@example.com';
+  [...document.querySelectorAll('button')].find(b => b.textContent === 'Invite').click();
+  for (let i = 0; i < 10; i++) await settle();
+  expect(invitedUsers).toEqual(['ada', 'bob']);
+  const status = document.querySelector('.sh-status').textContent;
+  expect(status).toContain('ada, bob can open the document');
+  expect(status).toContain('Invitation sent to cy@example.com.');
+  expect(status).toContain('Not invited: ghost: No Puter user is called ghost.; bad@example.com: refused');
+  expect(field.value).toBe('ghost, bad@example.com');
+});

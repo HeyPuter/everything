@@ -48,22 +48,28 @@ export function openShareDialog(api) {
     const bad = names.filter(n => !EMAIL.test(n) && !/^@?[A-Za-z0-9._-]{1,64}$/.test(n));
     if (bad.length) { say(`“${bad[0]}” is neither a Puter username nor an email address.`, true); return; }
     await api.ensureShared(text => say(text));
-    const emailed = [], invited = [], failed = [];
+    // Each person is invited on their own: one that fails (an unknown username, an address the mail service refuses)
+    // no longer stops the rest unreported. Those not invited stay in the field to try again.
+    const emailed = [], invited = [], failed = [], retry = [];
     for (const name of names) {
-      if (EMAIL.test(name)) {
-        const result = await api.emailInvitation(name, inviteRole, note.value.trim());
-        (result.ok ? emailed : failed).push(result.ok ? name : `${name}: ${result.message}`);
-      } else {
-        await live().inviteUser(name.replace(/^@/, ''), inviteRole);
-        invited.push(name.replace(/^@/, ''));
-      }
+      try {
+        if (EMAIL.test(name)) {
+          const result = await api.emailInvitation(name, inviteRole, note.value.trim());
+          if (result?.ok) emailed.push(name); else { failed.push(`${name}: ${result?.message || 'the invitation could not be sent.'}`); retry.push(name); }
+        } else {
+          await live().inviteUser(name.replace(/^@/, ''), inviteRole);
+          invited.push(name.replace(/^@/, ''));
+        }
+      } catch (e) { failed.push(`${name}: ${e?.message || String(e)}`); retry.push(name); }
     }
-    people.value = ''; note.value = '';
+    people.value = retry.join(', ');
+    if (!retry.length) note.value = '';
     const parts = [];
     if (invited.length) parts.push(`${invited.join(', ')} can open the document from its link once signed in to Puter.`);
     if (emailed.length) parts.push(`Invitation sent to ${emailed.join(', ')}.`);
-    if (failed.length) parts.push(`Not sent: ${failed.join('; ')}`);
+    if (failed.length) parts.push(`Not invited: ${failed.join('; ')}`);
     say(parts.join(' '), !!failed.length);
+    if (retry.length) people.focus();
     if (invited.length) await copyInviteLink(inviteRole, { quiet: true });
     renderAccess();
   }) }, 'Invite');
