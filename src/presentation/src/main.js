@@ -15503,10 +15503,8 @@ async function present(options = {}) {
       return slide;
     });
   } else {
-    if (selection.kind === "range" && selection.end > slides.length)
-      throw Error(
-        "The slide show range exceeds the presentation's slide count.",
-      );
+    // A range reaching past the last slide (slides deleted since it was
+    // set) shows the slides it still covers.
     all = (
       selection.kind === "range"
         ? slides.slice(selection.start - 1, selection.end)
