@@ -1204,7 +1204,13 @@ export function createEditor({
   }
   async function selectComment(pending) {
     const id = editorAnnotationId(pending.id);
-    if (pending.kind === 'annotation') return annotationLayer.focus(id);
+    if (pending.kind === 'annotation') {
+      annotationChoice = null;
+      annotationLayer.focus(id);
+      // On a phone its settings open below the page and take part of its view: the comment
+      // is brought into view once they are shown, not into the space they take.
+      return annotationChoice;
+    }
     const entry =
       pending.kind === 'note'
         ? notes.find((note) => note.id === id) || notes[pending.noteOrdinal]
@@ -1343,12 +1349,14 @@ export function createEditor({
   }
   const properties = createPropertiesPanel();
   // Comments drawn as annotations, selectable in Select.
+  // The settings of the comment being chosen, once they are shown (see onSelect below).
+  let annotationChoice = null;
   const annotationLayer = createAnnotationLayer({
     onSelect: (entry, { refresh = false } = {}) => {
       if (!entry || refresh) return showAnnotationProperties(entry);
       // Choosing a comment finishes drafts and lets go of a picture, shape, or markup, as
       // choosing any other object does. A draft that cannot be saved keeps the selection.
-      safe(() =>
+      annotationChoice = safe(() =>
         selectionProperties(async () => {
           cancelTextSelection();
           try {
