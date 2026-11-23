@@ -108,3 +108,36 @@ test('full screen chosen from the View menu reads on with the keyboard', async (
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menu')).toHaveCount(0);
 });
+
+// Full screen shows one element alone, and the outline saying where to drop a file belonged to
+// the page body behind it: a file dragged over the pages there showed nothing.
+test('a file dragged over the pages in full screen shows where to drop it', async ({ page }) => {
+  await openLinkedPdf(page);
+  await enterFullScreen(page);
+  const outline = () =>
+    page.evaluate(() => {
+      const shown = document.fullscreenElement;
+      const style = getComputedStyle(shown, '::after');
+      const box = shown.getBoundingClientRect();
+      return { content: style.content, width: parseFloat(style.width), full: box.width };
+    });
+  expect((await outline()).content).toBe('none');
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([], 'pending.pdf', { type: 'application/pdf' }));
+    document
+      .querySelector('.workspace')
+      .dispatchEvent(
+        new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+  });
+  const shown = await outline();
+  expect(shown.content).toContain('Drop a PDF');
+  expect(shown.width).toBeGreaterThan(shown.full / 2);
+  await page.evaluate(() =>
+    document
+      .querySelector('.workspace')
+      .dispatchEvent(new DragEvent('dragleave', { bubbles: true })),
+  );
+  expect((await outline()).content).toBe('none');
+});

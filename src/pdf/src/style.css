@@ -572,7 +572,9 @@ puter-user-menu::part(apps-panel) {
 .home-footer .text-btn {
   font-size: 11px;
 }
-.dropping:after {
+/* Full screen shows one element alone, so the outline is drawn in it too. */
+.dropping:after,
+.dropping :fullscreen:after {
   content: 'Drop a PDF, or pictures, to open them';
   position: fixed;
   inset: 12px;
