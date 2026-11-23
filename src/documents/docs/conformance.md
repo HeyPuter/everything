@@ -24995,3 +24995,13 @@ Evidence: `tests/page-story-labels.test.js` (variants of the independently gener
 **Remaining gaps:** the status bar's editing-area list still says Header or Footer with the page number
 (longer names do not fit the bar at 1280 px); there is no Link to Previous, so a section's tag does not say
 "Same as Previous".
+
+### Page setup for selected sections (2026-11-22)
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Margins, Orientation and Size with a selection across sections | ECMA-376 Part 1 §§17.6.17 `sectPr`, 17.6.13 `pgSz`, 17.6.11 `pgMar` | Without a section named, page settings go to every section the selection reaches (Word's "Selected sections"), not only the first; with a caret alone, to its section as before. Orientation turns each section's own paper and margins, and Size keeps each section's orientation (`setPageSettings` takes a patch made from each section's settings). One undo step. The Page Setup dialog, which names its section, is unchanged. |
+
+Evidence: `tests/selected-sections-page-setup.test.js` (margins across sections, the caret's section, a named
+section, per-section turning and undo) and `tests/browser/selected-sections-orientation.spec.js` (Letter and
+A4 sections turned together from Layout > Orientation, saved, and undone in one step).

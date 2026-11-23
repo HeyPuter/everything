@@ -881,9 +881,13 @@ export class TextDocument {
    * caret's section, or `section`), 'forward' (from the caret on: a section break of `breakType` starts
    * a new section there unless the caret already starts one) or 'selection' (the selected text becomes
    * its own section between two breaks). Document-wide settings always apply to every section. With one
-   * section the default scope is the document; with several, the caret's section.
+   * section the default scope is the document; with several, the caret's section, or every section the
+   * selection reaches (Word's "Selected sections"). `patch` can be a function of a section's settings giving
+   * that section's own patch (Orientation turns each section's page); it sets section settings only.
    */
   setPageSettings(patch, { scope, section, breakType = 'nextPage' } = {}) {
+    const ownPatch = typeof patch === 'function' ? patch : null;
+    if (ownPatch) patch = {};
     for (const key of ['compatibilityMode', 'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing']) if (key in patch && patch[key] !== this.pageSettings[key]) throw new Error('Page compatibility settings are retained from the document.');
     if ('backgroundPicture' in patch && patch.backgroundPicture !== null && JSON.stringify(patch.backgroundPicture) !== JSON.stringify(this.pageSettings.backgroundPicture)) throw new Error('Creating a picture page background is not supported.');
     scope ??= this.sectionCount > 1 ? 'section' : 'document';
@@ -894,23 +898,34 @@ export class TextDocument {
     // Columns of their own widths keep their proportions when the writing width changes (another paper size,
     // orientation or margins), as in Word; kept as they were, they ran past the page's edge.
     const writingWidth = s => readingPageSize(s)[0] - s.left - s.right - (s.gutterAtTop ? 0 : s.gutter || 0);
-    const fitted = (before, after) => {
-      if (!after.columns || after.columns.equalWidth || 'columns' in patch) return after;
+    const sectionPatchOf = settings => {
+      if (!ownPatch) return sectionPatch;
+      const own = ownPatch(settings) || {};
+      if (Object.keys(own).some(key => DOCUMENT_PAGE_KEYS.includes(key))) throw new Error('A section\'s own page settings cannot change the whole document\'s.');
+      return own;
+    };
+    const fitted = (before, after, own) => {
+      if (!after.columns || after.columns.equalWidth || 'columns' in own) return after;
       const from = writingWidth(before), to = writingWidth(after);
       if (!(from > 0) || !(to > 0) || from === to) return after;
       const entries = after.columns.entries.map(e => ({ ...e, width: Math.max(1, Math.round(e.width * to / from)), ...(e.space !== undefined ? { space: Math.round(e.space * to / from) } : {}) }));
       return { ...after, columns: { ...after.columns, entries } };
     };
-    const plan = (first, last) => this.sectionSettings.map((settings, i) => validatePageSettings(fitted(settings, { ...settings, ...documentPatch, ...(i >= first && i <= last ? sectionPatch : {}) })));
+    const plan = (first, last) => this.sectionSettings.map((settings, i) => {
+      const own = i >= first && i <= last ? sectionPatchOf(settings) : {};
+      return validatePageSettings(fitted(settings, { ...settings, ...documentPatch, ...own }, own));
+    });
     const apply = next => {
       const ends = this.paragraphs.filter(p => p.sectionEnd);
       next.forEach((settings, i) => { if (i < ends.length) ends[i].sectionEnd = settings; else this.pageSettings = settings; });
     };
     const changed = next => next.some((settings, i) => Object.keys(settings).some(key => JSON.stringify(settings[key]) !== JSON.stringify(this.sectionSettings[i][key])));
     if (scope === 'document' || scope === 'section') {
-      const at = scope === 'document' ? 0 : section ?? this.sectionIndexAt(this.range[0]);
+      const [start, end] = this.range;
+      const at = scope === 'document' ? 0 : section ?? this.sectionIndexAt(start);
       if (!Number.isInteger(at) || at < 0 || at >= this.sectionCount) throw new Error('There is no such section.');
-      const next = plan(at, scope === 'document' ? this.sectionCount - 1 : at);
+      const last = scope === 'document' ? this.sectionCount - 1 : section ?? this.sectionIndexAt(Math.max(start, end - 1));
+      const next = plan(at, last);
       if (!changed(next)) return false;
       this.checkpoint(); apply(next); this.didChange(); return true;
     }
