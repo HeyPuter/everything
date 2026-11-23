@@ -8,6 +8,7 @@ import {
   PDFRef,
   decodePDFRawStream,
 } from 'pdf-lib';
+import { explicitDest } from './pages.js';
 
 /**
  * How a PDF asks to be shown when it opens (a desktop editor's Document Properties > Initial
@@ -80,11 +81,12 @@ export function readInitialView(doc) {
   const mode = nameOf(catalog.lookup(name('PageMode')));
   const prefs = catalog.lookupMaybe(name('ViewerPreferences'), PDFDict);
   const open = catalog.lookup(name('OpenAction'));
+  // A GoTo action may name its destination, from the name tree or the old Dests dictionary.
   const dest =
     open instanceof PDFArray
       ? open
       : open instanceof PDFDict && nameOf(open.lookup(name('S'))) === 'GoTo'
-        ? open.lookup(name('D'))
+        ? explicitDest(doc, open.get(name('D')))
         : null;
   return {
     layout: LAYOUTS[nameOf(catalog.lookup(name('PageLayout')))] || 'default',

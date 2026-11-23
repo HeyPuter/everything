@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, StandardFonts } from 'pdf-lib';
 import { listFonts, readInitialView, writeInitialView } from '../src/core/initial-view.js';
 
 it('reads the defaults of a PDF that does not say how to open', async () => {
@@ -77,4 +77,23 @@ it('reads the PDF/A level a file claims in its XMP metadata', async () => {
   );
   const reopened = await PDFDocument.load(await doc.save());
   expect(readPdfaClaim(reopened)).toEqual({ part: 2, conformance: 'u' });
+});
+
+it('reads the open page of a PDF that names it by a named destination', async () => {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 4; i++) doc.addPage();
+  const target = doc.context.obj([doc.getPage(2).ref, PDFName.of('Fit')]);
+  doc.catalog.set(
+    PDFName.of('Names'),
+    doc.context.obj({ Dests: doc.context.obj({ Names: [PDFString.of('chapter-3'), target] }) }),
+  );
+  doc.catalog.set(
+    PDFName.of('OpenAction'),
+    doc.context.obj({ S: 'GoTo', D: PDFString.of('chapter-3') }),
+  );
+  expect(readInitialView(doc)).toMatchObject({ page: 2, zoom: 'page' });
+  // The old catalog dictionary of names, keyed by a name rather than a string, too.
+  doc.catalog.set(PDFName.of('Dests'), doc.context.obj({ start: { D: target } }));
+  doc.catalog.set(PDFName.of('OpenAction'), doc.context.obj({ S: 'GoTo', D: PDFName.of('start') }));
+  expect(readInitialView(doc)).toMatchObject({ page: 2, zoom: 'page' });
 });
