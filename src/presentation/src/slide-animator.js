@@ -171,3 +171,49 @@ export function createSlideAnimator({
     },
   };
 }
+
+/**
+ * How a slide stands as it opens (objects that enter later are hidden) and
+ * once all its animations have played: `{ opening, ending }`, each
+ * `{ picture, parts }` (parts as shownParts()), or null for a slide without
+ * animations. Used where a slide is shown arriving or leaving outside a
+ * show, as a transition's preview does.
+ */
+export function slideStates(pres, slide) {
+  let effects;
+  try {
+    effects = P.getSlideAnimations(slide).filter(
+      (e) => e.presetClass !== "mediacall",
+    );
+  } catch {
+    effects = [];
+  }
+  if (!effects.length) return null;
+  const render = preview.bind(null, pres, slide);
+  let player;
+  try {
+    player = createAnimationPlayer({
+      pres,
+      slide,
+      frame: document.createElement("div"),
+      effects,
+      reducedMotion: true,
+      sounds: false,
+      renderLayer: (layer) => preview(pres, slide, layer),
+    });
+    const opening = {
+      picture: player.snapshot(render),
+      parts: player.shownParts(),
+    };
+    player.finish();
+    const ending = {
+      picture: player.snapshot(render),
+      parts: player.shownParts(),
+    };
+    return { opening, ending };
+  } catch {
+    return null;
+  } finally {
+    player?.destroy();
+  }
+}

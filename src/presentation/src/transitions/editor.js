@@ -40,6 +40,9 @@ const AUDIO_TYPES = ".wav,.mp3,.m4a,.aif,.aiff,.ogg,audio/*";
  *   render(slide, layer) a picture URL of part of a slide
  *                  (RenderSlideOptions.layer: { background, shape })
  *   canvas()       the editing canvas element (for Preview)
+ *   states(slide)  how a slide stands as it opens and once its animations
+ *                  have played ({ opening, ending } of { picture, parts }),
+ *                  or null when it has none
  *   chooseFile(accept) → Promise<File | null>
  *   report(error)  shows an error
  */
@@ -52,6 +55,7 @@ export function createTransitionTools({
   picture,
   render,
   canvas,
+  states = () => null,
   chooseFile,
   report = (error) => console.error(error),
 }) {
@@ -310,11 +314,19 @@ export function createTransitionTools({
     const previous = at > 0 ? slides[at - 1] : null;
     playArrivalSound(target);
     if (prefersReducedMotion()) return null;
+    // As in the show: the previous slide as its animations left it, and
+    // this one as it opens, without the objects that enter later.
+    const leaving = previous ? states(previous)?.ending : null;
+    const arriving = states(target)?.opening;
     const playback = play({
       host,
       fromSlide: previous,
       toSlide: target,
       transition: t,
+      from: leaving?.picture,
+      to: arriving?.picture,
+      fromParts: leaving?.parts ?? null,
+      toParts: arriving?.parts ?? null,
     });
     previewing = playback;
     playback.finished.then(() => {

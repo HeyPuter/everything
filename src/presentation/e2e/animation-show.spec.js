@@ -784,3 +784,50 @@ test("an effect set to auto-reverse ends as the object began", async ({
   await page.waitForTimeout(1200);
   expect(Math.abs((await width()) - before)).toBeLessThan(2);
 });
+
+test("a transition's preview on the canvas leaves out objects still to come", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== "desktop",
+    "narrower layouts fold the Transitions tab's Preview into a menu; the preview plays the same way",
+  );
+  const pres = createDeck("blank");
+  const second = P.addBlankSlide(pres);
+  const red = shape(second, 5, 3, 3, 2, "#cc2222");
+  P.setSlideAnimations(second, [
+    {
+      shapeId: String(P.getShapeId(red)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 100,
+    },
+  ]);
+  P.setSlideTransition(second, { effect: "fade", durationMs: 4000 });
+  await load(page, pres);
+  await page.locator("#slide-list .slide-thumb").nth(1).click();
+  await page.getByRole("tab", { name: "Transitions" }).click();
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  const overlay = page.locator("#slide-canvas .slide-transition canvas");
+  await expect(overlay).toBeAttached();
+  // Late in the fade, where the slide is nearly in.
+  await page.waitForTimeout(3000);
+  const color = await page.evaluate(() => {
+    const canvas = document.querySelector(
+      "#slide-canvas .slide-transition canvas",
+    );
+    const [r, , b] = canvas
+      .getContext("2d")
+      .getImageData(
+        Math.round((6.5 / 13.333) * canvas.width),
+        Math.round((4 / 7.5) * canvas.height),
+        1,
+        1,
+      ).data;
+    return r - b > 40 ? "red" : "plain";
+  });
+  expect(color).toBe("plain");
+});

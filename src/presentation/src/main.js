@@ -2,7 +2,7 @@ import { textEditHistory, trackTextareaEdits } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
-import { createSlideAnimator } from "./slide-animator.js";
+import { createSlideAnimator, slideStates } from "./slide-animator.js";
 import { selectionHandleLayout } from "./selection-handles.js";
 import { reflowShapeDiagram } from "../lib/pptx/src/api/fn/diagram-reflow.ts";
 import { buildDiagramDrawing } from "../lib/pptx/src/api/fn/diagram-build.ts";
@@ -4703,6 +4703,7 @@ const transitionTools = createTransitionTools({
   picture: (s) => cachedPreview(doc.previews, doc.pres, s),
   render: (s, layer) => preview(doc.pres, s, layer),
   canvas: () => document.querySelector("#slide-canvas"),
+  states: (s) => slideStates(doc.pres, s),
   chooseFile: (accept) =>
     new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
   report: (error) => fail(error),
