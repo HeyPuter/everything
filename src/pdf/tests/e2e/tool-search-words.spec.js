@@ -74,3 +74,41 @@ test("a tool's own commands find it, after the tools named for the words", async
   await find.fill('rotate');
   await expect(options.first()).toHaveAccessibleName('Open tool: Organize pages');
 });
+
+// Commands the menus hold but no tool does (Download, Full screen, Go to page) were not found
+// at all: the find box offered only tools.
+test('the find box offers menu commands after the tools', async ({ page }) => {
+  const find = page.getByRole('combobox', { name: 'Find in PDF', exact: true });
+  const list = page.getByRole('listbox', { name: 'Matching tools' });
+  for (const [words, command] of [
+    ['download', 'Download'],
+    ['full screen', 'Full screen mode'],
+    ['read aloud', 'Read this page'],
+    ['dark pages', 'Dark page colors'],
+    ['go to page', 'Go to page…'],
+    ['bookmarks', 'Outline panel'],
+    ['attachments', 'Attachments panel'],
+  ]) {
+    await find.fill(words);
+    await expect(list.getByRole('option', { name: command, exact: true })).toBeVisible();
+  }
+  // Tools still come first.
+  await find.fill('compress');
+  await expect(list.getByRole('option').first()).toHaveAccessibleName('Open tool: Compress a PDF');
+  // Choosing a command runs it, as the menu would.
+  await find.fill('dark pages');
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    list.getByRole('option', { name: 'Dark page colors', selected: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(find).toBeHidden();
+  await expect(page.locator('.editor')).toHaveClass(/dark-pages/);
+  await page.keyboard.press('ControlOrMeta+f');
+  await find.fill('attachments');
+  await list.getByRole('option', { name: 'Attachments panel', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Attachments', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});

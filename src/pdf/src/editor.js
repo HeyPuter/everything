@@ -2223,6 +2223,50 @@ export function createEditor({
     );
     return [...byName, ...byCommand];
   }
+  /** Other words for menu commands, as people ask for them. */
+  const COMMAND_WORDS = {
+    Download: 'save device copy',
+    'Full screen mode': 'fullscreen presentation',
+    'Dark page colors': 'dark pages night invert',
+    'Read this page': 'read aloud speak speech listen',
+    'Read to end of document': 'read aloud speak speech listen',
+    'Outline panel': 'bookmarks table of contents',
+    'Go to page…': 'jump page number',
+  };
+  /**
+   * Menu commands every word is found in, for Find text or tools: Download, Full screen or Go
+   * to page found nothing there, though the menus have them. The side panel's own panels
+   * (attachments, layers) are offered too.
+   */
+  function matchingCommands(words) {
+    const found = (text) => words.every((word) => word.test(text.toLowerCase()));
+    const panel = (id, label, glyph, extra) => {
+      const tab = sidebarTabs.querySelector(`[data-tab="${id}"]`);
+      return (
+        tab &&
+        !tab.hidden && {
+          label,
+          glyph,
+          words: extra,
+          onSelect: safe(async () => {
+            showSidebarTab(id);
+            if (editorRoot.classList.contains('hide-pages')) await toggleSidebar(true);
+          }),
+        }
+      );
+    };
+    const seen = new Set();
+    return [
+      ...menuCommands([...fileItems(), ...editItems(), ...viewItems(), ...pageItems()]),
+      panel('attachments', 'Attachments panel', 'Paperclip', 'attached files paperclip'),
+      panel('layers', 'Layers panel', 'Layers', 'optional content'),
+    ].filter((command) => {
+      if (!command?.onSelect || command.label === 'Find in PDF' || seen.has(command.label))
+        return false;
+      seen.add(command.label);
+      return found(`${command.label} ${command.words || COMMAND_WORDS[command.label] || ''}`);
+    });
+  }
   function suggestTools() {
     const query = searchInput.value.trim().toLowerCase();
     // Words are matched from their start, as typed: "rot" finds the tool that rotates pages,
@@ -2235,6 +2279,8 @@ export function createEditor({
           new RegExp(`(?:^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'u'),
       );
     const matches = query.length < 2 ? [] : matchingTools(words).slice(0, 5);
+    const commands =
+      query.length < 2 ? [] : matchingCommands(words).slice(0, Math.max(2, 7 - matches.length));
     toolList.replaceChildren(
       ...matches.map((entry, i) =>
         el(
@@ -2264,9 +2310,34 @@ export function createEditor({
           el('span', {}, entry.label),
         ),
       ),
+      commands.length
+        ? el('div', { class: 'find-tool-heading', 'aria-hidden': 'true' }, 'Commands')
+        : null,
+      ...commands.map((command, i) =>
+        el(
+          'button',
+          {
+            type: 'button',
+            class: 'find-tool-item',
+            id: `find-tool-option-${matches.length + i}`,
+            role: 'option',
+            'aria-selected': 'false',
+            'aria-label': command.label,
+            disabled: !!command.disabled,
+            onclick: () => {
+              closeSearch();
+              command.onSelect();
+            },
+          },
+          icon(command.glyph || 'ChevronRight', 18),
+          el('span', {}, command.label),
+        ),
+      ),
     );
+    // The Tools heading stands over tools alone.
+    toolSuggestions.querySelector('.find-tool-heading').hidden = !matches.length;
     activateToolOption(-1);
-    showToolSuggestions(matches.length > 0);
+    showToolSuggestions(matches.length + commands.length > 0);
   }
   // Reached with Tab, the suggestions take the arrow keys too; Escape goes back to the words.
   toolList.addEventListener('keydown', (e) => {
