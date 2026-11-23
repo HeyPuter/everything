@@ -2449,7 +2449,14 @@ function mutate(
       if (doc !== active || readOnlyDocument()) return false;
       const previous = active.pres;
       try {
+        // Text built paragraph by paragraph keeps to the paragraphs the
+        // edit leaves it, in the file as on the slide: the builds are read
+        // before the edit, and written again after it where they changed.
+        const syncTextBuilds = () =>
+          P.getSlides(active.pres).forEach((s) => P.syncSlideTextBuilds(s));
+        syncTextBuilds();
         if ((await fn()) === SKIP_MUTATION) return false;
+        syncTextBuilds();
         // Formatting given to a master's or layout's placeholder text
         // becomes the style slides inherit.
         if (masterView.active) masterView.afterEdit();

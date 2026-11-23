@@ -8,6 +8,7 @@ import {
   type SlideAnimation,
   paragraphGroups,
   readTiming,
+  sourceFitsEffect,
   writeTiming,
 } from "../../internal/presentationml/animation-timing.ts";
 import { NS, type XmlElement, type XmlNode } from "../../internal/xml/index.ts";
@@ -202,6 +203,51 @@ export const pruneSlideAnimations = (slide: SlideData): boolean => {
     return false;
   setSlideAnimations(slide, kept);
   return true;
+};
+
+const hasParagraphBuild = (timing: XmlElement) =>
+  elements(timing).some(
+    (list) =>
+      isEl(list, NS.pml, "bldLst") &&
+      elements(list).some(
+        (b) =>
+          isEl(b, NS.pml, "bldP") &&
+          b.attrs.some(
+            (a) =>
+              a.name.namespaceURI === "" &&
+              a.name.localName === "build" &&
+              a.value === "p",
+          ),
+      ),
+  );
+
+/**
+ * Writes again the slide's paragraph builds (text animated paragraph by
+ * paragraph) whose shape's paragraphs changed since they were written, so
+ * the file names only paragraphs its text has. Returns whether any was.
+ */
+export const syncSlideTextBuilds = (slide: SlideData): boolean => {
+  // The slide's markup holds both its text and its timing: a slide whose
+  // part is as it was last looked at needs nothing.
+  const part = slide[INTERNAL_PACKAGE].getPart(slide[SLIDE_PART_NAME]);
+  if (part && synced.get(part) === part.data) return false;
+  const changed = textBuildsStale(slide);
+  if (changed) setSlideAnimations(slide, getSlideAnimations(slide));
+  if (part) synced.set(part, part.data);
+  return changed;
+};
+const synced = new WeakMap<object, Uint8Array>();
+const textBuildsStale = (slide: SlideData): boolean => {
+  const timing = findTiming(slide);
+  if (!timing || !hasParagraphBuild(timing)) return false;
+  const read = readSlide(slide);
+  if (!read.effects.some((e) => e.text)) return false;
+  const lookup = shapeLookup(slide);
+  return read.effects.some((e) => {
+    const source = e.text && e.source ? read.sources.get(e.source) : undefined;
+    const info = lookup(e.shapeId);
+    return !!source && !!info && !sourceFitsEffect(e, source, info);
+  });
 };
 
 /** The paragraph groups (inclusive index ranges) a text build steps through. */

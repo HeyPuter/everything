@@ -294,6 +294,7 @@ export {
   addSlideAnimationSound,
   getSlideAnimationSoundData,
   pruneSlideAnimations,
+  syncSlideTextBuilds,
   getShapeBuildParagraphs,
   motionPathFor,
   getShapeAt,
