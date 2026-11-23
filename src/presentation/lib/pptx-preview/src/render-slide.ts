@@ -417,11 +417,10 @@ const colorChangePrimitives = (change: {
 };
 
 // `<a:lum bright contrast>` (fractions in [-1, 1]) as one linear map of each
-// sRGB channel. Contrast "scales all colors to be either closer or further
-// apart", about the middle grey: -100% leaves flat grey, +100% a hard
-// threshold. Brightness then "linearly shifts all colors closer to white or
-// black": +100% is white, -100% black. Washout (+70%, -70%) stays a pale
-// picture this way.
+// sRGB channel, as the desktop presentation app draws it (measured on grey
+// ramps). Contrast scales colours about the middle grey by 1 + c below zero
+// and 1 / (1 - c) above it; brightness then adds b, scaled by the mean of
+// 1 and that slope. Washout (+70%, -70%) stays a pale picture this way.
 export const luminanceTransfer = (
   brightness: number,
   contrast: number,
@@ -429,8 +428,7 @@ export const luminanceTransfer = (
   const b = Math.max(-1, Math.min(1, brightness || 0));
   const c = Math.max(-1, Math.min(1, contrast || 0));
   const m = c < 0 ? 1 + c : 1 / Math.max(0.001, 1 - c);
-  const k = b < 0 ? 1 + b : 1 - b;
-  return { slope: m * k, intercept: (0.5 - 0.5 * m) * k + Math.max(0, b) };
+  return { slope: m, intercept: 0.5 - 0.5 * m + (b * (1 + m)) / 2 };
 };
 
 // Picture-layer adjustments (saturation, temperature, sharpness and an

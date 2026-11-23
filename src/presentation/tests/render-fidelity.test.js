@@ -35,28 +35,33 @@ describe("picture brightness and contrast", () => {
     expect(luminanceTransfer(0, 0)).toEqual({ slope: 1, intercept: 0 });
   });
 
-  it("moves colours toward white or black with brightness", () => {
-    expect(apply(1, 0)(0)).toBeCloseTo(1);
-    expect(apply(-1, 0)(1)).toBeCloseTo(0);
+  it("adds brightness to every colour", () => {
     expect(apply(0.4, 0)(0)).toBeCloseTo(0.4);
-    expect(apply(0.4, 0)(1)).toBeCloseTo(1);
+    expect(apply(0.4, 0)(0.5)).toBeCloseTo(0.9);
     expect(apply(-0.4, 0)(1)).toBeCloseTo(0.6);
+    expect(apply(1, 0)(0)).toBeCloseTo(1);
   });
 
   it("spreads or gathers colours about the middle grey with contrast", () => {
     for (const c of [-0.6, -0.2, 0.2, 0.6])
       expect(apply(0, c)(0.5)).toBeCloseTo(0.5);
-    // More contrast pushes a dark grey darker; less pulls it toward grey.
-    expect(apply(0, 0.4)(0.3)).toBeLessThan(0.3);
-    expect(apply(0, -0.4)(0.3)).toBeGreaterThan(0.3);
+    expect(luminanceTransfer(0, 0.4).slope).toBeCloseTo(1 / 0.6);
+    expect(luminanceTransfer(0, -0.4).slope).toBeCloseTo(0.6);
     expect(apply(0, -1)(0.1)).toBeCloseTo(0.5);
   });
 
-  it("keeps a washed-out picture pale but visible", () => {
-    const f = apply(0.7, -0.7);
-    expect(f(0)).toBeGreaterThan(0.75);
-    expect(f(1)).toBeLessThan(0.95);
-    expect(f(1)).toBeGreaterThan(f(0));
+  // Grey levels (of 255) the desktop app draws for a 0..255 ramp.
+  it.each([
+    [0.2, -0.4, 0, 92],
+    [0.2, -0.4, 1, 244],
+    [0.4, 0.4, 0.4, 223],
+    [-0.2, -0.4, 0.5, 87],
+    [-0.4, 0.4, 0.8, 118],
+    [0.3, -0.7, 0.5, 177],
+    [0.7, -0.3, 0, 191],
+    [0.7, -0.7, 0, 206],
+  ])("brightness %s, contrast %s at %s draws %s", (b, c, v, grey) => {
+    expect(Math.abs(apply(b, c)(v) * 255 - grey)).toBeLessThan(4);
   });
 
   it("draws a contrast change without turning the picture grey", () => {
@@ -69,7 +74,7 @@ describe("picture brightness and contrast", () => {
   it("draws brightness alone in the picture's own colours", () => {
     const svg = pictureDeck((pic) => P.setShapeImageBrightness(pic, 0.3));
     const [, slope, intercept] = transfer(svg);
-    expect(slope).toBe("0.7");
+    expect(slope).toBe("1");
     expect(intercept).toBe("0.3");
   });
 });
