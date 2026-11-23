@@ -22,8 +22,11 @@ const pathKey = (r) => r.path.map((p) => p.start).join(':');
 /**
  * Where `run` sits after `previous` on a line: its distance past the previous run's end along
  * the baseline, and across it, in the line's height; null when the two cannot share a line.
+ * Given the line's first run, a smaller run raised or lowered from its baseline (a superscript
+ * or subscript) and the text back on the baseline after it share the line too, and `rise` is
+ * how far the run sits above that baseline.
  */
-function spacing(previous, run) {
+function spacing(previous, run, line) {
   if (
     !previous?.groupable ||
     !run.groupable ||
@@ -46,16 +49,23 @@ function spacing(previous, run) {
     dy = b[5] - end[1],
     across = (dx * a[0] + dy * a[1]) / scale,
     vertical = (dy * a[0] - dx * a[1]) / scale;
+  let rise = 0;
+  if (line && (previous.rise || Math.abs(vertical) >= height * 0.04)) {
+    const t = line.transform,
+      size = Math.hypot(t[2], t[3]);
+    rise = ((b[5] - t[5]) * t[0] - (b[4] - t[4]) * t[1]) / Math.hypot(t[0], t[1]);
+    if (Math.abs(rise) < size * 0.04) rise = 0;
+    else if (Math.hypot(b[2], b[3]) / size > 0.85 || Math.abs(rise) > size * 0.5) return null;
+  } else if (Math.abs(vertical) >= height * 0.04) return null;
   return matching &&
     ratio > 0.5 &&
     ratio < 2 &&
-    Math.abs(vertical) < height * 0.04 &&
     // Kerning can pull a letter back by up to about a sixth of the size (A-V, W-o), and some
     // renderers start a new text command there; a jump back past a space is a tab leader or
     // overprinting instead.
     across >= -height * (/\s$/.test(previous.text) || /^\s/.test(run.text) ? 0.08 : 0.16) &&
     across <= height * 0.65
-    ? { dx, dy, across, height }
+    ? { dx, dy, across, height, rise }
     : null;
 }
 // A jump past a space that is already there: a tab, or a justified line's stretched spacing.
@@ -81,7 +91,10 @@ export function groupTextRuns(runs) {
     const last = groups.at(-1),
       parts = last?.parts || (last ? [last] : []),
       previous = parts.at(-1);
-    const place = previous === kept[index - 1] ? places[index] : spacing(previous, run);
+    const line = parts[0];
+    const place =
+      (previous === kept[index - 1] && !previous?.rise && places[index]) ||
+      spacing(previous, run, line);
     let gap,
       stretch = null;
     if (place && last.text.length + run.text.length < 5000) {
@@ -97,6 +110,8 @@ export function groupTextRuns(runs) {
         stretch = jump;
       }
     }
+    // How far a superscript or subscript sits from its line's baseline, kept when rewritten.
+    run.rise = gap ? place.rise : 0;
     if (!gap) {
       groups.push(run);
       continue;
@@ -123,12 +138,12 @@ export function groupTextRuns(runs) {
       group.state.size;
     group.ascent = Math.max(
       group.ascent,
-      (run.ascent * Math.hypot(run.transform[2], run.transform[3])) /
+      (run.ascent * Math.hypot(run.transform[2], run.transform[3]) + run.rise) /
         Math.hypot(first[2], first[3]),
     );
     group.descent = Math.min(
       group.descent,
-      (run.descent * Math.hypot(run.transform[2], run.transform[3])) /
+      (run.descent * Math.hypot(run.transform[2], run.transform[3]) + run.rise) /
         Math.hypot(first[2], first[3]),
     );
   }
@@ -539,12 +554,16 @@ export async function replaceTextGroup(
         added.push([fontName, item.font.ref]);
       }
       const t = run.transform;
+      // A superscript or subscript keeps its distance from the line's baseline.
+      const up = group.transform.slice(2, 4),
+        lift = run.rise ? (run.rise * factor) / Math.hypot(...up) : 0;
+      const at = [pen[0] + up[0] * lift, pen[1] + up[1] * lift];
       const tm = matrix(inverseCtm, [
         t[0] / (s.size * s.hScale),
         t[1] / (s.size * s.hScale),
         t[2] / s.size,
         t[3] / s.size,
-        ...pen,
+        ...at,
       ]);
       const ink = color
         ? `${[1, 3, 5].map((i) => num(parseInt(color.slice(i, i + 2), 16) / 255)).join(' ')} rg`
@@ -581,7 +600,7 @@ export async function replaceTextGroup(
       );
       if (width && (underline || strikethrough)) {
         const quads = textDecorationQuads(
-          pen,
+          at,
           [(t[0] / s.size) * width, (t[1] / s.size) * width],
           [(t[2] / s.size) * size, (t[3] / s.size) * size],
           { underline, strikethrough },

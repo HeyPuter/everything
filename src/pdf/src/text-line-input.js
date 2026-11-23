@@ -123,6 +123,10 @@ export function textLineInput(group) {
         fontStyle: fallback?.style || run.fontStyle,
         fontVariantLigatures: fallback?.ligatures || run.fontVariantLigatures || 'normal',
         fontSize: `${ratio * size}px`,
+        // A superscript or subscript sits above or below the line, as the PDF draws it.
+        verticalAlign: run.rise
+          ? `${(run.rise / Math.hypot(group.transform[2], group.transform[3])) * size}px`
+          : '',
         color: hex !== group.fillColor ? hex : run.fillColor,
         letterSpacing: `${(run.state.charSpacing / run.state.size) * ratio * size}px`,
         wordSpacing: `${!face && run.widths.get(' ')?.space && group.paragraph?.align !== 'justify' ? (run.state.wordSpacing / run.state.size) * ratio * size : 0}px`,

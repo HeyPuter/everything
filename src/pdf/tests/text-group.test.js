@@ -1309,3 +1309,51 @@ it('joins a word that a renderer split at a tightly kerned pair', async () => {
     ).toEqual(joined ? [head + tail] : [head, tail]);
   }
 });
+
+it('edits a line with a superscript and a subscript as one, keeping them raised and lowered', async () => {
+  const doc = await PDFDocument.create(),
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  const w = (text, size) => [...text].reduce((sum, c) => sum + font.widthOfTextAtSize(c, size), 0);
+  // As browsers and word processors draw them: smaller text on its own raised or lowered baseline.
+  let x = 40;
+  const draw = (text, size, y) => {
+    const op = `/F ${size} Tf 1 0 0 1 ${x} ${y} Tm (${text}) Tj `;
+    x += w(text, size);
+    return op;
+  };
+  const source =
+    draw('The result was significant', 12, 400) +
+    draw('1', 8, 404.5) +
+    draw(' and water is H', 12, 400) +
+    draw('2', 8, 397) +
+    draw('O in every sample.', 12, 400);
+  const r = await read(
+    await fixture(`BT ${source} ET BT /F 12 Tf 1 0 0 1 40 300 Tm (Apart) Tj ET`),
+  );
+  expect(r.groups.map((g) => g.text)).toEqual([
+    'The result was significant1 and water is H2O in every sample.',
+    'Apart',
+  ]);
+  const [line] = r.groups;
+  const segments = line.segments.map((s, i) =>
+    i ? s : { ...s, text: 'This result was significant' },
+  );
+  await replaceTextGroup(r.doc, 0, line, segments.map((s) => s.text).join(''), { segments });
+  const runs = visible(await read(await r.doc.save()));
+  expect(runs.map((run) => run.text)).toEqual([
+    'This result was significant',
+    '1',
+    ' and water is H',
+    '2',
+    'O in every sample.',
+    'Apart',
+  ]);
+  expect(runs.map((run) => run.transform[5])).toEqual([
+    400,
+    expect.closeTo(404.5, 5),
+    400,
+    expect.closeTo(397, 5),
+    400,
+    300,
+  ]);
+});
