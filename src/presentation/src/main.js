@@ -2629,6 +2629,7 @@ function mutate(
         await persistDraft().catch(warnStorage);
         updateHistoryButtons();
         scheduleSave();
+        scheduleZoomRefresh();
         return true;
       } catch (e) {
         onError(e);
@@ -2639,6 +2640,28 @@ function mutate(
     .finally(() => pendingMutations--);
   mutationTail = action;
   return action;
+}
+// Zoom pictures whose target slides an edit changed are drawn again at the
+// next idle moment, into that edit's undo step (insert/zoom.js). Text being
+// typed is waited for, as the redraw draws the slide again.
+let zoomRefresh = 0;
+function scheduleZoomRefresh() {
+  const active = doc;
+  const amends = history.bytes;
+  const idle =
+    window.requestIdleCallback ||
+    ((fn) => setTimeout(() => fn({ timeRemaining: () => 12 }), 16));
+  (window.cancelIdleCallback || clearTimeout)(zoomRefresh);
+  zoomRefresh = idle(
+    () => {
+      zoomRefresh = 0;
+      if (doc !== active || readOnlyDocument() || history.bytes !== amends)
+        return;
+      if (assistantTyping()) return scheduleZoomRefresh();
+      insertFeatures?.refreshZooms(amends).catch(() => {});
+    },
+    { timeout: 1000 },
+  );
 }
 // An edit that fails part-way leaves the presentation between two states:
 // what it had done is neither shown, nor in the history, nor in the draft,
@@ -4531,7 +4554,8 @@ const insertFeatures = createInsertFeatures({
   selectedSlideParts: () => selectedSlideParts(),
   commitText: () => commitText(),
   fail: (e) => fail(e),
-  mutate: (fn) => mutate(fn),
+  mutate: (fn, options) => mutate(fn, options),
+  skip: SKIP_MUTATION,
   mutateSlide: (target, fn) => mutateSlide(target, fn),
   mutateShape: (obj, fn) => mutateShape(obj, fn),
   currentSize: () => currentSize(),
@@ -8834,6 +8858,9 @@ const SLIDE_PART_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
 function renderSlideArea(refreshNavigator = true) {
   if (view !== "editor") return;
+  // A deck first shown, opened or brought back by undo: its zoom targets
+  // are noted as drawn (insert/zoom.js).
+  insertFeatures?.seedZooms();
   const focusSelection = document.activeElement?.matches(
     ".object-hit.selected",
   );

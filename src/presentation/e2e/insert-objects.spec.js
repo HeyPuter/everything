@@ -1028,3 +1028,42 @@ test("screenshots insert a capture, or a clipped region of it", async ({
   const saved = await download(page);
   expect(saved.slide().match(/<p:pic>/g)).toHaveLength(2);
 });
+
+// A zoom kept the picture of its target slide as it was when inserted.
+test("a slide zoom's picture follows its target slide, in the same undo step", async ({
+  page,
+}) => {
+  await start(page);
+  await command(page, "insert-new-slide");
+  await command(page, "insert-new-slide");
+  await page.locator(".slide-item").first().locator(".slide-thumb").click();
+  await command(page, "insert-zoom");
+  await page.getByRole("menuitem", { name: "Slide Zoom…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Insert Slide Zoom" });
+  await dialog.getByRole("checkbox").nth(2).check();
+  await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+  await expect(page.locator('.object-hit[aria-label*="Zoom"]')).toHaveCount(1);
+  // The zoom's picture on slide 1, as saved.
+  const picture = async () => {
+    const saved = await download(page);
+    const id = /<a:blip r:embed="(rId\d+)"/.exec(
+      saved.slide(1).split("Slide Zoom 1")[1],
+    )[1];
+    const target = new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`).exec(
+      saved.rels(1),
+    )[1];
+    return Buffer.from(
+      saved.files[`ppt/${target.replace(/^(\.\.\/|\/ppt\/)/, "")}`],
+    ).toString("base64");
+  };
+  const before = await picture();
+  // The target slide gets a dark background.
+  await page.locator(".slide-item").nth(2).locator(".slide-thumb").click();
+  await page.getByRole("tab", { name: "Design", exact: true }).click();
+  await command(page, "background-styles");
+  await page.getByRole("menuitem", { name: "Style 12" }).click();
+  await expect.poll(picture, { timeout: 15_000 }).not.toBe(before);
+  // One undo takes the background and the new picture back.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(picture, { timeout: 15_000 }).toBe(before);
+});
