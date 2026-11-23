@@ -1299,7 +1299,14 @@ export function createEditor({
       updateStatus();
       previewFormCalculations();
     },
-    onCommit: safe(() => finishDrafts()),
+    // A value a field refuses is said above the page, at the field it names; a message over
+    // the page said it again, read out twice and covering the fields on a phone.
+    onCommit: () =>
+      finishDrafts().catch((error) => {
+        if (destroyed || (!pageForms.error.hidden && pageForms.error.textContent === error.message))
+          return;
+        toast(error.message || 'This action could not be completed.', { error: true });
+      }),
     onTabOut: (direction) => tabToFormPage(direction),
     // The form's own Print and Reset buttons.
     onAction: (action) => {
