@@ -862,6 +862,32 @@ it.each([
   expect(doc.commentList.map(c => [c.text, doc.text.slice(c.start, c.end)])).toEqual([['about before', 'Before'], ['about b1', 'b1'], ['reply', 'b1']]);
 });
 
+// A comment from text before the table into a deleted row lost its end marker: saved with its start alone and no
+// reference, it did not show in Word. Its end now closes up where the removed cells were, and likewise its start.
+it.each([
+  ['Delete Rows', doc => T.deleteRows(doc)], ['Delete Columns', doc => T.deleteColumns(doc)], ['Delete Table', doc => T.deleteTable(doc)],
+  ['deleteTablePart row', doc => doc.deleteTablePart('row')], ['deleteTablePart column', doc => doc.deleteTablePart('column')], ['deleteTablePart table', doc => doc.deleteTablePart('table')],
+])('a comment running into the cells %s removes keeps both ends', async (name, command) => {
+  const { pkg, doc } = tableDocument(2, 2, ['Before']);
+  doc.select(doc.text.length); doc.replace('After');
+  const b1 = doc.text.indexOf('b1'), a0 = doc.text.indexOf('a0'), after = doc.text.indexOf('After');
+  doc.addComment({ author: 'C', text: 'into the table', range: [doc.text.indexOf('fore'), b1 + 2] });
+  doc.addComment({ author: 'C', text: 'out of the table', range: [a0, after + 3] });
+  doc.select(b1 + 1);
+  expect(command(doc)).toBe(true);
+  const markers = doc.paragraphs.flatMap(p => (p.bookmarks || []).filter(m => m.comment).map(m => `${m.commentId}:${m.edge}`));
+  expect(markers.filter(m => m.startsWith('0:')).sort()).toEqual(['0:end', '0:start']);
+  const list = doc.commentList.map(c => [c.text, doc.text.slice(c.start, c.end)]);
+  expect(list.find(([text]) => text === 'into the table')[1]).toMatch(/^fore/);
+  if (doc.comments.some(c => c.text === 'out of the table')) expect(list.find(([text]) => text === 'out of the table')[1]).toMatch(/Aft$/);
+  const xml = strFromU8(unzipSync(new Uint8Array(await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets, undefined, doc.comments).arrayBuffer()))['word/document.xml']);
+  for (const c of doc.comments) {
+    expect(xml).toContain(`<w:commentRangeStart w:id="${c.id}"/>`);
+    expect(xml).toContain(`<w:commentRangeEnd w:id="${c.id}"/>`);
+    expect(xml).toContain(`<w:commentReference w:id="${c.id}"/>`);
+  }
+});
+
 describe('deleting a selection around tables', () => {
   const tableBetween = () => {
     const { pkg, doc } = tableDocument(2, 2, ['Before']);

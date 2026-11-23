@@ -150,13 +150,19 @@ function tableContent(doc, table) {
     byCell.get(owner).push(p); count++;
   }
   const selection = Object.fromEntries(Object.entries(doc.selection).map(([key, value]) => { const at = locate(doc.paragraphs, value); return [key, { id: doc.paragraphs[at.index].id, offset: at.offset }]; }));
-  const comments = doc.comments?.length ? new Set(commentAnchors(doc.paragraphs).map(a => a.id)) : null;
-  return { start, count, byCell, selection, bookmarks: bookmarkStructureState(doc.paragraphs, doc.tables), comments };
+  return { start, count, byCell, selection, bookmarks: bookmarkStructureState(doc.paragraphs, doc.tables), comments: doc.comments?.length ? commentEdges(doc.paragraphs) : null };
 }
-/**
- * A comment anchored only in cells a table edit removed goes with them (and its replies), as in Word: left
- * without an anchor it could not be reached and was written to the file again on every save.
- */
+/** Where each comment's markers are: { edges: id → { start, end } as { index, marker }, order: the paragraphs' ids }. */
+function commentEdges(paragraphs) {
+  const edges = new Map();
+  paragraphs.forEach((p, index) => {
+    for (const marker of p.bookmarks || []) if (marker.comment) {
+      if (!edges.has(marker.commentId)) edges.set(marker.commentId, {});
+      edges.get(marker.commentId)[marker.edge] = { index, marker };
+    }
+  });
+  return { edges, order: paragraphs.map(p => p.id) };
+}
 /**
  * Make room for an object character inserted at `offset` of paragraph `p`: markers after it move on. A
  * field that starts there (empty or not) starts after the object, which goes before it rather than into
@@ -169,10 +175,38 @@ function shiftMarkersPastObject(p, offset, { commentEnds = false } = {}) {
   const starting = new Set(p.fieldMarkers.filter(m => m.type === 'start' && m.offset === offset).map(m => m.field.id));
   for (const marker of p.fieldMarkers) if (marker.offset > offset || marker.offset === offset && starting.has(marker.field.id)) marker.offset++;
 }
+/**
+ * A comment anchored only in cells a table edit removed goes with them (and its replies), as in Word: left
+ * without an anchor it could not be reached and was written to the file again on every save. `anchored` is
+ * commentEdges() from before the edit. A comment that lost only one end (it ran from text outside the table
+ * into a deleted row or column) keeps the rest of its range: the end goes to the end of the last paragraph
+ * before the removed content that is still there, the start to the beginning of the first one after it. With
+ * one marker it was saved without its reference, and Word showed no comment.
+ */
 function removeUnanchoredComments(doc, anchored) {
-  if (!anchored?.size || !doc.comments) return;
-  const kept = new Set(commentAnchors(doc.paragraphs).map(a => a.id)), gone = new Set([...anchored].filter(id => !kept.has(id)));
+  if (!anchored?.edges.size || !doc.comments) return;
+  const now = new Map();
+  for (const p of doc.paragraphs) for (const marker of p.bookmarks || []) if (marker.comment) {
+    if (!now.has(marker.commentId)) now.set(marker.commentId, {});
+    now.get(marker.commentId)[marker.edge] = true;
+  }
+  const gone = new Set([...anchored.edges.keys()].filter(id => !now.has(id)));
   if (gone.size) doc.comments = doc.comments.filter(c => !gone.has(c.id) && !gone.has(c.parentId));
+  let indices = null;
+  for (const [id, was] of anchored.edges) {
+    const has = now.get(id);
+    if (!has) continue;
+    for (const edge of ['start', 'end']) {
+      if (has[edge] || !was[edge]) continue;
+      indices ||= new Map(doc.paragraphs.map((p, i) => [p.id, i]));
+      const step = edge === 'end' ? -1 : 1;
+      let target;
+      for (let i = was[edge].index; target === undefined && i >= 0 && i < anchored.order.length; i += step) target = indices.get(anchored.order[i]);
+      if (target === undefined) continue;
+      const p = doc.paragraphs[target];
+      (p.bookmarks ||= []).push({ ...was[edge].marker, offset: edge === 'end' ? paragraphLength(p) : 0 });
+    }
+  }
 }
 function removeOrphanedTables(doc) {
   for (;;) {
