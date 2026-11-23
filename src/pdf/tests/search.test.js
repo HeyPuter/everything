@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { indexPageText, searchQuery } from '../src/core/search.js';
+import { findMatches, indexPageText, searchQuery } from '../src/core/search.js';
 
 it('keeps words continuous across text styles while retaining item offsets', () => {
   expect(
@@ -206,4 +206,32 @@ it('finds Chinese and Japanese phrases that wrap onto the next line', () => {
   expect(index.text.includes(searchQuery('カタカナ'))).toBe(true);
   // Korean spaces its words, so its line breaks stay word breaks.
   expect(indexPageText([{ str: '한국', hasEOL: true }, { str: '어' }]).text).toBe('한국 어');
+});
+
+it('finds a word hyphenated at a line end with or without its hyphen', () => {
+  const index = indexPageText([
+    { str: 'A forward-', hasEOL: true },
+    { str: 'thinking plan, a forward-thinking one, a forwardthinking typo' },
+  ]);
+  expect(index.text).toBe('a forwardthinking plan, a forward-thinking one, a forwardthinking typo');
+  const spans = (query) => findMatches(index, searchQuery(query));
+  // The word broken by a line is found as typed with its hyphen; the match leaves it out.
+  expect(spans('forward-thinking')).toEqual([
+    [2, 17],
+    [26, 42],
+  ]);
+  expect(spans('forwardthinking')).toEqual([
+    [2, 17],
+    [50, 65],
+  ]);
+  expect(spans('a forward-thinking plan')).toEqual([[0, 22]]);
+  // The page shows the hyphen at the end of the line.
+  expect(spans('forward-')).toEqual([
+    [2, 9],
+    [26, 34],
+  ]);
+  // A soft hyphen only marks where a word may break; it is no hyphen in the word.
+  const soft = indexPageText([{ str: 'exam­', hasEOL: true }, { str: 'ple' }]);
+  expect(findMatches(soft, searchQuery('exam-ple'))).toEqual([]);
+  expect(findMatches(soft, searchQuery('example'))).toEqual([[0, 7]]);
 });

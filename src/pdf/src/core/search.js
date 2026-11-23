@@ -48,6 +48,9 @@ export function indexPageText(items) {
   const chunks = [];
   const ranges = [];
   const origins = [];
+  // Places a query may differ from the text where a line breaks: `{ at, insert: '-' }` is a
+  // hyphen taken out of a word broken there, `{ at, skip: true }` a space that may not be one.
+  const joins = [];
   let length = 0;
   let trailingSpace = false,
     tail = '',
@@ -102,6 +105,7 @@ export function indexPageText(items) {
     origins.push(origin);
     length += chunk.length;
     ranges.push({ start, end: length });
+    if (hyphenated && /[-\u2010]/.test(lastChar)) joins.push({ at: length, insert: '-' });
     if (chunk) {
       trailingSpace = chunk.endsWith(' ');
       tail = (tail + chunk).slice(-2);
@@ -109,12 +113,12 @@ export function indexPageText(items) {
     }
     // Chinese and Japanese put no space between words, so a line break inside a phrase is
     // not one either: "中" ending a line and "文" starting the next are found as "中文".
-    const unspaced = () => {
-      if (!ENDS_UNSPACED.test(tail)) return false;
+    const nextText = () => {
       let next = i + 1;
       while (next < strings.length && !strings[next].str) next++;
-      return STARTS_UNSPACED.test(strings[next]?.str || '');
+      return strings[next]?.str || '';
     };
+    const unspaced = () => ENDS_UNSPACED.test(tail) && STARTS_UNSPACED.test(nextText());
     if (item.hasEOL && !trailingSpace && !hyphenated && !unspaced()) {
       chunks.push(' ');
       length++;
@@ -124,5 +128,33 @@ export function indexPageText(items) {
       held = null;
     }
   });
-  return { text: chunks.join(''), ranges, origins };
+  return { text: chunks.join(''), ranges, origins, joins };
+}
+
+/**
+ * The non-overlapping matches of a folded `query` in an index from indexPageText, as
+ * `[start, end]` offsets in its text: the query as written, and across a line break as a
+ * reader types it (a hyphenated word with its hyphen, a Thai phrase without the break).
+ */
+export function findMatches({ text, joins = [] }, query) {
+  const found = [];
+  if (!query) return found;
+  for (let at = text.indexOf(query); at !== -1; at = text.indexOf(query, at + query.length))
+    found.push([at, at + query.length]);
+  let joined = false;
+  for (const { at, insert, skip } of joins)
+    for (let k = 1; k < query.length && k <= at; k++) {
+      if (!text.startsWith(query.slice(0, k), at - k)) continue;
+      if (insert && query[k] === insert && text.startsWith(query.slice(k + 1), at)) {
+        found.push([at - k, at + query.length - k - 1]);
+        joined = true;
+      } else if (skip && query[k] !== ' ' && text.startsWith(query.slice(k), at + 1)) {
+        found.push([at - k, at + 1 + query.length - k]);
+        joined = true;
+      }
+    }
+  if (!joined) return found;
+  found.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  let end = -1;
+  return found.filter(([from, to]) => from >= end && ((end = to), true));
 }

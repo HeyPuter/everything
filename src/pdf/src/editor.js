@@ -2,7 +2,7 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'virtual:pdf-worker-url';
 import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { loadPdfDocument, savePdf } from './core/version.js';
-import { indexPageText, searchQuery } from './core/search.js';
+import { findMatches, indexPageText, searchQuery } from './core/search.js';
 import { inspectText, matrix, textColor } from './core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from './core/text-group.js';
 import { draftText, needsDraftText, textLineInput } from './text-line-input.js';
@@ -13494,10 +13494,11 @@ export function createEditor({
           if (!isCurrent()) return;
           const text = await page.getTextContent();
           if (!isCurrent()) return;
-          haystack = indexPageText(text.items).text;
+          const { text: pageText, joins } = indexPageText(text.items);
+          haystack = { text: pageText, joins };
           searchTextCache.set(i, haystack);
         }
-        const count = countMatches(haystack, query);
+        const count = findMatches(haystack, query).length;
         if (count) results.push({ page: i, count });
       }
       if (!isCurrent()) return;
@@ -13522,17 +13523,6 @@ export function createEditor({
         searchCount.textContent = 'Search unavailable';
       }
     }
-  }
-  /** Non-overlapping occurrences of `query` in folded page text, as markSearch finds them. */
-  function countMatches(haystack, query) {
-    let count = 0;
-    for (
-      let at = haystack.indexOf(query);
-      at !== -1;
-      at = haystack.indexOf(query, at + query.length)
-    )
-      count++;
-    return count;
   }
   const totalMatches = () => searchResults.reduce((sum, result) => sum + result.count, 0);
   /** The page holding match `index` across the document, and its ordinal on that page. */
@@ -13577,11 +13567,8 @@ export function createEditor({
   function markSearch() {
     if (!pageReady || !pageTextIndex) return;
     const q = matchedQuery;
-    const { text, ranges, origins } = pageTextIndex;
-    const matches = [];
-    if (q)
-      for (let at = text.indexOf(q); at !== -1; at = text.indexOf(q, at + q.length))
-        matches.push([at, at + q.length]);
+    const { ranges, origins } = pageTextIndex;
+    const matches = findMatches(pageTextIndex, q);
     const current = locateMatch(activeMatch);
     const currentOrdinal = current?.page === pageIndex ? current.ordinal : -1;
     let next = 0;
