@@ -759,8 +759,10 @@ export class TextDocument {
       if (cells) cells.numId = numId;
     }
     for (const p of targets) {
-      // A direct numId=0 overrides inherited numbering when removing a list.
-      p.list = remove ? null : { numId, level: listKind(this.numbering, p.list) === kind ? p.list.level : 0, direct: true };
+      // A direct numId=0 overrides inherited numbering when removing a list. An item of another list keeps its level
+      // where the list it joins has one: bullets made numbers (or numbers bullets) stay nested as they were.
+      const level = p.list && hasListLevel(this.numbering, { numId, level: p.list.level }) ? p.list.level : 0;
+      p.list = remove ? null : { numId, level, direct: true };
       p.listChanged = true;
     }
     this.didChange(); return true;
