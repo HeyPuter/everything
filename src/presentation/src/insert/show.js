@@ -2,7 +2,7 @@
 // playback settings say, zooms jump to their slide or section and come
 // back, and action settings follow clicks and pointer-overs with jumps,
 // sounds and highlights.
-import { el } from "../ui.js";
+import { el, toast } from "../ui.js";
 import {
   groupParents,
   slideBounds,
@@ -134,8 +134,10 @@ export function createShowExtras(ctx, show) {
       case "endShow":
         return show.close();
       case "slide": {
+        // As a link to it does: a slide left out of the show says so.
         const i = indexOfPart(partOf(j.slide));
-        return i >= 0 ? go(i) : undefined;
+        if (i >= 0) return go(i);
+        return toast("That slide is hidden or was removed.");
       }
       case "url":
         if (/^(https?:|mailto:)/i.test(j.url))

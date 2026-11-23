@@ -513,6 +513,52 @@ test("the screen stays on during a show, and is let go when it ends", async ({
     });
 });
 
+test("an action button that jumps to a hidden slide says so", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const first = P.getSlides(pres)[0];
+  const button = text(first, "Backup", 1, 1, 3, 1);
+  text(P.addBlankSlide(pres), "Two", 1, 1, 8, 2);
+  const hidden = P.addBlankSlide(pres);
+  text(hidden, "Hidden", 1, 1, 8, 2);
+  P.setSlideHidden(hidden, true);
+  P.setShapeActionSettings(button, {
+    click: {
+      jump: { kind: "slide", slide: hidden },
+      sound: null,
+      highlight: true,
+    },
+    hover: null,
+  });
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Hidden.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = show(page);
+  await expect(d.locator(".presenter-counter")).toHaveText("1 / 2");
+  await d.locator(".presenter-action-button").click();
+  await expect(page.locator("#toast")).toHaveText(
+    "That slide is hidden or was removed.",
+  );
+  await expect(d.locator(".presenter-counter")).toHaveText("1 / 2");
+});
+
 test("ending a show before the browser hands over the camera lets it go", async ({
   page,
 }) => {
