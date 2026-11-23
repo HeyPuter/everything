@@ -309,6 +309,17 @@ test("a graphic turned into text and back keeps its place behind other objects",
     h: P.inches(3),
     name: "Cover",
   });
+  // A comment on the graphic goes with it to what it becomes; it was left
+  // on a deleted object.
+  P.setSlideCommentThreads(slide, [
+    {
+      author: { name: "Grace" },
+      text: "Add a step",
+      shapeId: String(P.getShapeId(P.getSlideShapes(slide)[0])),
+    },
+  ]);
+  const commentOn = (shapes) =>
+    P.getSlideCommentThreads(P.getShapeSlide(shapes[0]))[0].shapeId;
   await start(page);
   await page.goto("/#/home");
   const choose = page.waitForEvent("filechooser");
@@ -333,6 +344,7 @@ test("a graphic turned into text and back keeps its place behind other objects",
     expect.stringMatching(/^TextBox/),
     "Cover",
   ]);
+  expect(commentOn(shapes)).toBe(String(P.getShapeId(shapes[0])));
   // The text box is selected; Convert to SmartArt turns it back.
   await ribbonCommand(page, "Home", "convert-smartart");
   await page.locator(".chart-menu-choice").first().click();
@@ -343,6 +355,13 @@ test("a graphic turned into text and back keeps its place behind other objects",
     expect.stringMatching(/^SmartArt/),
     "Cover",
   ]);
+  expect(commentOn(shapes)).toBe(String(P.getShapeId(shapes[0])));
+  await ribbonCommand(page, "SmartArt Design", "smartart-convert");
+  await page.getByRole("menuitem", { name: "Convert to Shapes" }).click();
+  await page.waitForTimeout(300);
+  ({ shapes } = await download(page));
+  expect(P.getShapeKind(shapes[0])).toBe("group");
+  expect(commentOn(shapes)).toBe(String(P.getShapeId(shapes[0])));
 });
 
 test("Find and Replace reach a graphic's text, Replace All in one step", async ({
