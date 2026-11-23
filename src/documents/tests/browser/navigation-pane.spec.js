@@ -70,7 +70,8 @@ test('choosing a search result keeps keyboard focus on it, and the count follows
   expect(await input.evaluate(el => el.selectionStart)).toBe(await input.evaluate(el => el.value.indexOf('plan', el.value.indexOf('plan') + 1)));
   await expect(results.nth(1)).toBeFocused();
   await expect(results.nth(1)).toHaveAttribute('aria-current', 'true');
-  await page.keyboard.press('Tab');
+  // The results are one Tab stop: Down goes on to the next.
+  await page.keyboard.press('ArrowDown');
   await expect(results.nth(2)).toBeFocused();
   await expect(pane.getByRole('status')).toHaveText('Result 2 of 3');
   // Another match typed into the document updates the count.
@@ -188,4 +189,45 @@ test('the search\'s matches stay tinted in the document while typing', async ({ 
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 150))));
   expect(await tinted()).toEqual([7, 30, 54]);
   expect(errors).toEqual([]);
+});
+
+// Every page thumbnail and every search result was a Tab stop of its own: leaving the pane from a long document
+// took a press for each. Each list is one stop now, as the headings are, and the arrows move along it.
+test('the Navigation pane\'s pages and results are each one Tab stop that the arrows move along', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toBeEditable();
+  await input.fill(`Intro apple.\n${'Long filler words here. '.repeat(400)}\nMiddle apple.\nEnd apple.`);
+  await (await onTab(page, 'view')).locator('.ribbon-card').getByRole('button', { name: 'Navigation Pane' }).click();
+  const pane = page.getByRole('complementary', { name: 'Navigation' });
+  await pane.getByRole('searchbox', { name: 'Search document' }).fill('apple');
+  const results = pane.locator('.nav-result');
+  await expect(results).toHaveCount(3);
+  await results.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(results.nth(1)).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(results.nth(2)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(results.nth(0)).toBeFocused();
+  // Tab leaves the list from any result.
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !document.activeElement.closest('.nav-results'))).toBe(true);
+  await pane.getByRole('tab', { name: 'Pages' }).click();
+  const pages = pane.locator('.nav-page');
+  await expect.poll(() => pages.count()).toBeGreaterThan(2);
+  await expect(pages.nth(1)).toHaveAttribute('tabindex', '-1');
+  await pages.first().focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(pages.nth(1)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(pages.nth(2)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(pages.nth(1)).toBeFocused();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !document.activeElement.closest('.nav-pages'))).toBe(true);
+  // Back with Shift+Tab, to the page last used.
+  await page.keyboard.press('Shift+Tab');
+  await expect(pages.nth(1)).toBeFocused();
 });
