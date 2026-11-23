@@ -117,6 +117,30 @@ test("the Selection Pane keeps the keyboard on the row it reorders, renames or h
   await expect(pane.getByRole("button", { name: "Show Peak" })).toBeFocused();
 });
 
+// Hiding the selected object kept it selected: the Format pane went on
+// showing it, and Delete removed the object no one could see.
+test("hiding the selected object in the Selection Pane deselects it", async ({
+  page,
+}) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  await addShape(page, "Circle");
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  const circle = pane.getByRole("button", { name: /^Circle/ });
+  await expect(circle).toHaveAttribute("aria-pressed", "true");
+  await pane.getByRole("button", { name: /^Hide Circle/ }).click();
+  await expect(pane.locator("li.hidden-object")).toHaveCount(1);
+  await expect(circle).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".object-hit.selected")).toHaveCount(0);
+  await page.locator("#main").focus();
+  await page.keyboard.press("Delete");
+  const { shapes } = await download(page);
+  expect(shapes).toHaveLength(2);
+  expect(shapes.filter((s) => P.isShapeHidden(s))).toHaveLength(1);
+});
+
 test("rotate, the Size and Rotation dialog, Regroup and aligning to the slide", async ({
   page,
 }) => {

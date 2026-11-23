@@ -9738,7 +9738,7 @@ function renderSelection() {
   const size = currentSize();
   const visibleIds = new Set(visibleSlideShapes(slide()).map(P.getShapeId));
   const parents = groupParents(slide());
-  pruneSelection();
+  pruneSelection(visibleIds);
   const ids = selectionIds();
   const activePart = P.getSlidePartName(slide());
   const minimum = hitMinimum(size);
@@ -9870,12 +9870,20 @@ function fillSlot(target, place, id) {
   if (filled) P.adoptPlaceholderSlot(filled, holder);
   removeAnyShape(target, P.findShapeById(target, place.id));
 }
-// Ids of objects that have gone stay out of the selection.
-function pruneSelection() {
-  const present = new Set(shapes().map(P.getShapeId));
+// Objects that have gone, or been hidden, leave the selection; when the one
+// with the handles goes, another selected object takes them.
+function pruneSelection(
+  visible = new Set(visibleSlideShapes(slide()).map(P.getShapeId)),
+) {
   const primary = currentShape();
+  if (primary && !visible.has(P.getShapeId(primary))) {
+    const next = [...extras].find((id) => visible.has(id));
+    selected =
+      next == null ? null : shapes().findIndex((s) => P.getShapeId(s) === next);
+  }
+  const kept = currentShape();
   for (const id of extras)
-    if (!present.has(id) || (primary && P.getShapeId(primary) === id))
+    if (!visible.has(id) || (kept && P.getShapeId(kept) === id))
       extras.delete(id);
 }
 // Several selected objects share one dashed outline around them all, a
