@@ -8,6 +8,33 @@ import { MAX_COMMENTS, collectComments } from './core/comments.js';
 let metaIds = 0;
 export function createCommentsPanel({ onSelect }) {
   const list = el('div', { class: 'comments', role: 'group', 'aria-label': 'Comments' });
+  // One Tab stop for the whole list, as for any list of choices: a long review would otherwise
+  // take a Tab press for every comment to get past. The arrow keys, Home and End go through it.
+  const items = () => [...list.querySelectorAll('.comment-item')];
+  // The comment last moved to keeps the Tab stop when the list is drawn again.
+  let stop = null;
+  const rove = (current) => {
+    if (current) stop = `${current.dataset.commentPage}:${current.dataset.commentId}`;
+    for (const item of items()) item.tabIndex = item === current ? 0 : -1;
+  };
+  list.addEventListener('focusin', (e) => {
+    if (e.target.classList?.contains('comment-item')) rove(e.target);
+  });
+  list.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const all = items();
+    const at = all.indexOf(document.activeElement);
+    if (at < 0) return;
+    const to = {
+      ArrowDown: Math.min(at + 1, all.length - 1),
+      ArrowUp: Math.max(at - 1, 0),
+      Home: 0,
+      End: all.length - 1,
+    }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    all[to].focus();
+  });
   const root = el('div', { class: 'comments-panel', tabindex: -1 }, list);
   let generation = 0,
     count = 0,
@@ -88,6 +115,11 @@ export function createCommentsPanel({ onSelect }) {
         ),
       );
     }
+    const all = items();
+    rove(
+      all.find((item) => `${item.dataset.commentPage}:${item.dataset.commentId}` === stop) ||
+        all[0],
+    );
     // A PDF with more comments than the list holds says so rather than stopping in silence.
     if (capped)
       list.append(
