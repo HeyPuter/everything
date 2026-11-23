@@ -716,6 +716,39 @@ it('refuses numbers outside a field’s range and text that is no email address'
   ]);
 });
 
+it('reads the formats of fields whose scripts are compressed', async () => {
+  const doc = await blank();
+  const scripts = {
+    When: 'AFDate_FormatEx("dd.mm.yyyy");',
+    Amount: 'AFNumber_Format(1, 0, 0, 0, "", true);',
+  };
+  for (const [i, [fieldName, script]] of Object.entries(scripts).entries()) {
+    const field = doc.getForm().createTextField(fieldName);
+    field.addToPage(doc.getPage(0), { x: 50, y: 600 - 60 * i, width: 200, height: 24 });
+    const js = doc.context.register(doc.context.flateStream(script));
+    field.acroField.dict.set(name('AA'), doc.context.obj({ F: { S: 'JavaScript', JS: js } }));
+  }
+  const reopened = await PDFDocument.load(await doc.save());
+  expect(
+    listFormFields(reopened).map(({ name: fieldName, type, props }) => ({
+      fieldName,
+      type,
+      format: props.format,
+      dateFormat: props.dateFormat,
+      decimals: props.decimals,
+    })),
+  ).toEqual([
+    {
+      fieldName: 'When',
+      type: 'date',
+      format: 'date',
+      dateFormat: 'dd.mm.yyyy',
+      decimals: undefined,
+    },
+    { fieldName: 'Amount', type: 'text', format: 'number', dateFormat: undefined, decimals: 1 },
+  ]);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>

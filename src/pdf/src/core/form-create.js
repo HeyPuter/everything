@@ -20,6 +20,7 @@ import {
   PDFNumber,
   PDFOptionList,
   PDFRadioGroup,
+  PDFRawStream,
   PDFRef,
   PDFSignature,
   PDFStream,
@@ -28,6 +29,7 @@ import {
   StandardFontEmbedder,
   beginText,
   componentsToColor,
+  decodePDFRawStream,
   drawEllipse,
   drawRectangle,
   endText,
@@ -711,7 +713,12 @@ function actionScript(dict, key) {
   const script = action instanceof PDFDict ? action.lookup(name('JS')) : undefined;
   if (script instanceof PDFStream) {
     try {
-      return new TextDecoder().decode(script.getContents?.() ?? new Uint8Array());
+      // Scripts are often compressed, as page content is.
+      return new TextDecoder().decode(
+        script instanceof PDFRawStream
+          ? decodePDFRawStream(script).decode()
+          : (script.getContents?.() ?? new Uint8Array()),
+      );
     } catch {
       return undefined;
     }
