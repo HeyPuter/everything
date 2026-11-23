@@ -389,8 +389,8 @@ test("forced colors mark the current slide", async ({ page }, info) => {
 });
 
 // On a screen too narrow for every tab, a contextual tab arriving with the
-// selection scrolls into view rather than appearing out of sight, and the
-// row fades out at the edge with more tabs beyond it.
+// selection scrolls into view as far as the chosen tab's name stays in view,
+// and the row fades out at the edge with more tabs beyond it.
 test("a contextual tab comes into view on a narrow screen", async ({
   page,
 }, info) => {
@@ -399,19 +399,30 @@ test("a contextual tab comes into view on a narrow screen", async ({
   await story(page);
   const tabs = page.getByRole("tablist", { name: "Ribbon tabs" });
   await expect(tabs).toHaveClass(/more-after/);
-  await page.locator("#slide-canvas .object-hit").first().click();
-  const tab = page.getByRole("tab", { name: "Shape Format" });
-  await expect(tab).toBeVisible();
-  await expect
-    .poll(async () => {
-      const [t, row] = await Promise.all([
-        tab.boundingBox(),
-        tabs.boundingBox(),
-      ]);
-      return (
-        !!t && !!row && t.x >= row.x && t.x + t.width <= row.x + row.width + 1
-      );
-    })
-    .toBe(true);
+  const shown = (tab) =>
+    Promise.all([tab.boundingBox(), tabs.boundingBox()]).then(
+      ([t, row]) =>
+        !!t &&
+        !!row &&
+        t.x >= row.x - 1 &&
+        t.x + t.width <= row.x + row.width + 1,
+    );
+  const home = page.getByRole("tab", { name: "Home" });
+  const review = page.getByRole("tab", { name: "Review" });
+  const shapeFormat = page.getByRole("tab", { name: "Shape Format" });
+  const object = page.locator("#slide-canvas .object-hit").first();
+  // Home and Shape Format do not fit together: Home stays in view.
+  await object.click();
+  await expect(shapeFormat).toBeAttached();
+  await expect(home).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => shown(home)).toBe(true);
+  await expect(tabs).toHaveClass(/more-after/);
+  // From Review, both fit, and the row scrolls to show them.
+  await page.keyboard.press("Escape");
+  await expect(shapeFormat).toBeHidden();
+  await review.click();
+  await object.click();
+  await expect.poll(() => shown(shapeFormat)).toBe(true);
+  await expect.poll(() => shown(review)).toBe(true);
   await expect(tabs).toHaveClass(/more-before/);
 });
