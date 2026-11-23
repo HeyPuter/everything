@@ -8,6 +8,7 @@ import {
   buildSvgTextInput,
   verticalLayoutOf,
   resolveTextRectangle,
+  resolveNumberLabels,
 } from "../lib/pptx-preview/src/render-slide.ts";
 import { layoutCore } from "../lib/pptx-preview/src/text-layout.ts";
 import { slideFontResolver } from "./fonts.js";
@@ -1036,6 +1037,7 @@ export function textRuns(pres, shape) {
       bulleted,
       align: PARAGRAPH_ALIGNMENTS[effective?.align] || "left",
       list: listOf(bullet),
+      bullet,
       // A multiple of single spacing, as the library reports it: 1.5 is 150%.
       lineSpacing:
         lines?.kind === "pct" ? Math.round(lines.value * 100) / 100 : 1,
@@ -1313,6 +1315,21 @@ export function fitTextToShape(pres, shape) {
   }
   commitAndRefresh(shape);
   return true;
+}
+// The marker each paragraph of a list shows, as the slide draws it: its
+// bullet character, or its number counted the way the slide counts it; null
+// for a paragraph outside a list. Each paragraph gives its `level` and
+// `bullet` (a paragraph's bullet as textRuns reads it).
+export function listMarkers(paragraphs) {
+  const numbers = resolveNumberLabels(
+    paragraphs.map((p) => ({ level: p.level || 0, bulletStyle: p.bullet })),
+  );
+  return paragraphs.map((p, i) => {
+    if (numbers[i] != null) return numbers[i];
+    const bullet = p.bullet;
+    if (bullet && typeof bullet === "object" && bullet.char) return bullet.char;
+    return bullet && bullet !== "none" ? "•" : null;
+  });
 }
 const PARAGRAPH_ALIGNMENTS = {
   l: "left",

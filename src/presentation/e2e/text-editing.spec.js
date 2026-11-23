@@ -3,6 +3,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
+import { P } from "../src/model.js";
 import {
   installMenuNow,
   ribbonButton,
@@ -393,4 +394,49 @@ test("raised text shows raised while it is edited", async ({ page }) => {
     loc.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
   const base = await size(editor.locator("[data-run]").first());
   expect(await size(raised)).toBeLessThan(base * 0.7);
+});
+
+test("list paragraphs show the numbers and bullets the slide shows while edited", async ({
+  page,
+}) => {
+  const pres = P.createPresentation();
+  const box = P.addSlideTextBox(P.addBlankSlide(pres), {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(8),
+    h: P.inches(3),
+    text: "Third\nFourth\nAside\nFifth",
+  });
+  for (const i of [0, 1, 3])
+    P.setParagraphBullet(box, i, { autoNum: "romanUcPeriod", startAt: 3 });
+  P.setParagraphLevel(box, 2, 1);
+  P.setParagraphBullet(box, 2, { char: "–" });
+  await page.goto("/#/home");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Lists.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await page.locator(".object-hit").dblclick();
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(editor).toBeFocused();
+  const markers = () =>
+    editor
+      .locator(".para")
+      .evaluateAll((list) => list.map((p) => p.dataset.marker ?? null));
+  // The deeper bullet leaves the count going.
+  expect(await markers()).toEqual(["III.", "IV.", "–", "V."]);
+  // A paragraph added after the first takes the next number.
+  // The editor opens with everything selected: to the start, then past
+  // "Third".
+  await page.keyboard.press("ArrowLeft");
+  await pressKey(page, "ArrowRight", 5);
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("New");
+  await expect.poll(markers).toEqual(["III.", "IV.", "V.", "–", "VI."]);
 });

@@ -1666,18 +1666,10 @@ puter-user-menu::part(apps-panel) {
 .inline-editor .para {
   min-height: 1.2em;
 }
-/* List paragraphs show their marker while edited; numbers count up. */
-.inline-editor {
-  counter-reset: item;
-}
-.inline-editor .para[data-list="bullet"]::before {
-  content: "•\00a0";
-}
-.inline-editor .para[data-list="number"] {
-  counter-increment: item;
-}
-.inline-editor .para[data-list="number"]::before {
-  content: counter(item) ".\00a0";
+/* List paragraphs show their marker while edited: the bullet, or the
+   number, the slide shows. */
+.inline-editor .para[data-marker]::before {
+  content: attr(data-marker) "\00a0";
 }
 .notes-area {
   background: var(--page);

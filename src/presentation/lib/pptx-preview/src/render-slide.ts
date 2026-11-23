@@ -2426,7 +2426,7 @@ type RunData = {
  * rule was independently exercised in a native reference build (bug 173712):
  * https://mid.mail-archive.com/libreoffice-bugs%40lists.freedesktop.org/msg1175617.html
  */
-const resolveNumberLabels = (
+export const resolveNumberLabels = (
   paragraphs: readonly Pick<ParaData, "level" | "bulletStyle">[],
 ): (string | null)[] => {
   const counters = new Map<

@@ -73,6 +73,7 @@ import {
   firstTextElement,
   setRichText,
   fitTextToShape,
+  listMarkers,
   textAutofit,
   AUTOFIT_STEPS,
   slideNumberRun,
@@ -11333,6 +11334,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     ppr: paragraph.ppr,
     align: paragraph.align || "left",
     list: paragraph.list || "none",
+    bullet: paragraph.bullet ?? null,
     lineSpacing: paragraph.lineSpacing || 1,
     spaceBefore: paragraph.spaceBefore || 0,
     spaceAfter: paragraph.spaceAfter || 0,
@@ -11480,6 +11482,17 @@ function editText(target, event = null, { inserted = null } = {}) {
     );
     const blocks = [];
     let block = null;
+    // Each list paragraph shows its bullet, or its number as the slide
+    // counts it.
+    const markers = listMarkers(
+      runParagraphs(runs).map((_, k) => {
+        const para = paras[k] || blank();
+        return {
+          level: para.level || 0,
+          bullet: listBullet(para),
+        };
+      }),
+    );
     const open = () => {
       const k = blocks.length;
       const para = paras[k] || blank();
@@ -11490,6 +11503,7 @@ function editText(target, event = null, { inserted = null } = {}) {
         "data-level": String(level),
         "data-list": para.list || "none",
       });
+      if (markers[k]) block.dataset.marker = markers[k];
       block.style.paddingLeft = level ? `${level * 1.5}em` : "";
       block.style.textAlign = para.align || "";
       block.style.lineHeight =
@@ -11530,6 +11544,13 @@ function editText(target, event = null, { inserted = null } = {}) {
     input.replaceChildren(...blocks);
     fitEditor();
   }
+  // A paragraph's bullet as read, or the list style chosen for it here.
+  const listBullet = (para) =>
+    para.list === "none"
+      ? null
+      : listOf(para.bullet) === para.list
+        ? para.bullet
+        : para.list;
   const isBlock = (node) => ["DIV", "P", "LI"].includes(node.nodeName);
   const isBreak = (node) =>
     node instanceof Element && node.matches("br[data-break]");
