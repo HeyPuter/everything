@@ -178,6 +178,19 @@ describe("accessibility checks", () => {
       ),
     ).toHaveLength(1);
   });
+  it("does not call slides whose titles are still empty duplicates", () => {
+    const pres = createDeck("title");
+    P.duplicateSlide(pres, P.getSlides(pres)[0]);
+    const env = {
+      isTable: () => false,
+      slideBounds: (s) => P.getShapeBounds(s),
+      size: () => ({ cx: 12192000, cy: 6858000 }),
+      textColors: () => null,
+    };
+    const kinds = findAccessibilityIssues(pres, env).map((i) => i.kind);
+    expect(kinds).not.toContain("duplicateTitle");
+    expect(kinds).not.toContain("missingTitle");
+  });
   it("finds duplicate titles and treats decorative objects as described", () => {
     const pres = createDeck("blank");
     const [a] = P.getSlides(pres);

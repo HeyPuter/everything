@@ -192,7 +192,8 @@ export function findAccessibilityIssues(pres, env) {
         P.getShapeKind(s) === "shape",
     );
     if (!title && !titleSlot) add("missingTitle");
-    else {
+    // Titles still waiting to be typed are not the same title.
+    else if (title) {
       const key = title.toLowerCase().replace(/\s+/g, " ");
       titles.set(key, [...(titles.get(key) || []), { slide, index, part }]);
     }
