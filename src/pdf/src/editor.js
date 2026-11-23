@@ -505,6 +505,9 @@ export function createEditor({
     min: 1,
     value: 1,
     class: 'page-input',
+    // Only page numbers (not labels like "iv") go here: phones offer the number pad.
+    inputmode: 'numeric',
+    enterkeyhint: 'go',
     'aria-label': 'Page number',
     oninput: () => {
       pageInputDirty = true;
@@ -9969,6 +9972,7 @@ export function createEditor({
       type: 'number',
       class: 'input',
       id: 'go-to-page',
+      inputmode: 'numeric',
       min: 1,
       max: pdf.numPages,
       value: pageIndex + 1,

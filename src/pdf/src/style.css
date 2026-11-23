@@ -66,6 +66,11 @@
 * {
   box-sizing: border-box;
 }
+html {
+  /* Phones keep the app's type sizes in landscape instead of enlarging them. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 body {
   margin: 0;
   background: var(--page);
