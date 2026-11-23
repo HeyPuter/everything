@@ -102,6 +102,46 @@ test("an effect with a sound plays it and hides on the next click", async ({
   await expect.poll(visible).toEqual([true, false]);
 });
 
+test("an effect ended early by the next click makes no sound later", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const a = shape(slide, 1, 1, 2, 1.5, "#2266cc");
+  const b = shape(slide, 5, 1, 2, 1.5, "#cc6622");
+  const relId = P.addSlideAnimationSound(
+    slide,
+    synthesizeSound("pop"),
+    "Pop.wav",
+  );
+  P.setSlideAnimations(slide, [
+    fade(P.getShapeId(a)),
+    // Comes, with its sound, well after the first shape.
+    fade(P.getShapeId(b), {
+      start: "after",
+      delayMs: 1500,
+      sound: { relId, name: "Pop.wav" },
+    }),
+    fade(P.getShapeId(a), { presetClass: "exit" }),
+  ]);
+  await page.clock.install();
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const visible = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".presenter .anim-fx")].map(
+        (fx) => getComputedStyle(fx).visibility === "visible",
+      ),
+    );
+  await expect.poll(visible).toEqual([false, false]);
+  // The second click comes before the second shape began: it shows at once.
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(visible).toEqual([false, true]);
+  await page.clock.runFor(3000);
+  expect(await page.evaluate(() => window.__soundsStarted)).toBe(0);
+});
+
 test("Effect Options adds a sound and an after-effect that are saved", async ({
   page,
 }, info) => {
