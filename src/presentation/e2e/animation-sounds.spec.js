@@ -200,3 +200,52 @@ test("Effect Options adds a sound and an after-effect that are saved", async ({
   ).toHaveValue("hideOnClick");
   await dialog.getByRole("button", { name: "Cancel" }).click();
 });
+
+test("the Animation Painter carries an effect's sound to another slide", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name === "mobile",
+    "The Animations tab is a desktop and tablet flow",
+  );
+  const pres = createDeck("blank");
+  const first = P.getSlides(pres)[0];
+  const a = shape(first, 1, 1, 2, 1.5, "#2266cc");
+  const relId = P.addSlideAnimationSound(
+    first,
+    synthesizeSound("pop"),
+    "Pop.wav",
+  );
+  P.setSlideAnimations(first, [
+    fade(P.getShapeId(a), { sound: { relId, name: "Pop.wav" } }),
+  ]);
+  shape(P.addBlankSlide(pres), 5, 1, 2, 1.5, "#cc6622");
+  await load(page, pres);
+  const tab = page.getByRole("tab", { name: "Animations", exact: true });
+  if (!(await tab.isVisible())) test.skip(true, "The ribbon is folded away");
+  await tab.click();
+  await page.locator("#slide-canvas .object-hit").first().click();
+  const painter = page
+    .locator(".ribbon-body")
+    .getByRole("button", { name: "Animation Painter" });
+  if (await painter.isVisible()) await painter.click();
+  else {
+    await page
+      .locator(
+        '#ribbon-panel-animations .ribbon-fold[title="Advanced Animation"]',
+      )
+      .click();
+    await page
+      .locator(".ribbon-fold-panel")
+      .getByRole("button", { name: "Animation Painter" })
+      .click();
+  }
+  await page.locator(".slide-thumb").nth(1).click();
+  await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 2");
+  await page.locator("#slide-canvas .object-hit").first().click();
+  const saved = P.getSlides(await download(page))[1];
+  const [effect] = P.getSlideAnimations(saved);
+  expect(effect?.sound?.name).toBe("Pop.wav");
+  const data = P.getSlideAnimationSoundData(saved, effect.sound.relId);
+  expect(data?.contentType).toBe("audio/wav");
+});
