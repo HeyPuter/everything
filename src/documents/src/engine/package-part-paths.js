@@ -116,12 +116,15 @@ export const MAX_PACKAGE_ITEMS = 20000;
  * inflating it, so a small file declaring gigabytes (a "zip bomb") made the tab allocate and decode them.
  * `onItem(entry)` sees each item first, as unzipSync's filter does.
  */
-export function unzipBounded(bytes, { maxBytes = 50 * 1024 * 1024, maxItems = 2000, message = 'The archive expands past the editor limit.', itemsMessage = message, onItem } = {}) {
+export function unzipBounded(bytes, { maxBytes = 50 * 1024 * 1024, maxItems = 2000, message = 'The archive expands past the editor limit.', itemsMessage = message, compressionMessage = 'The archive stores its contents with a kind of compression this editor does not read.', onItem } = {}) {
   let total = 0, count = 0;
   return unzipSync(bytes, { filter: entry => {
     total += entry.originalSize;
     if (++count > maxItems) throw new Error(itemsMessage);
     if (total > maxBytes) throw new Error(message);
+    // Items are stored or deflated (ECMA-376 Part 2, Annex C); any other method (bzip2, LZMA) was refused as
+    // "unknown compression type 12".
+    if (entry.compression !== 0 && entry.compression !== 8) throw new Error(compressionMessage);
     onItem?.(entry);
     return true;
   } });

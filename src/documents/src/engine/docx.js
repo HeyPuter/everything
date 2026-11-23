@@ -1251,6 +1251,7 @@ const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
 const ARCHIVE_LIMITS = {
   maxBytes: MAX_EXPANDED_PACKAGE_BYTES, maxItems: MAX_PACKAGE_ITEMS, message: EXPANDED_LIMIT,
   itemsMessage: `This document is made of more than ${MAX_PACKAGE_ITEMS.toLocaleString('en-US')} pictures and other parts, more than this editor opens.`,
+  compressionMessage: 'This file stores its contents with a kind of compression Word documents do not use, so it cannot be opened. Save it again as a Word Document (.docx) in the app that made it.',
 };
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
@@ -1305,7 +1306,7 @@ export class DocxPackage {
         const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
         if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
       } });
-    } catch (e) { throw new Error(e.message === ARCHIVE_LIMITS.itemsMessage ? e.message : `Could not read this DOCX archive: ${e.message}`); }
+    } catch (e) { throw new Error([ARCHIVE_LIMITS.itemsMessage, ARCHIVE_LIMITS.compressionMessage].includes(e.message) ? e.message : `Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);
     if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error(otherPackageProblem(parts) || 'This file is not a supported DOCX document.');
