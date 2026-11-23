@@ -329,7 +329,10 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       if (drag.kind === 'column') { if (drag.ruler) return; moveColumn(at.x); refreshRuler(); }
       else if (drag.kind === 'row') {
         drag.height = Math.max(0, Math.round(drag.base + (at.y - drag.startY) * 15)); drag.moved = drag.moved || Math.abs(at.y - drag.startY) > 1;
-        drag.guide = { y: (f.rows.get(drag.row)?.top ?? f.top) + drag.height / 15, left: f.left, right: f.right, text: `Height ${inches(drag.height)}` };
+        // The guide follows the border being dragged: a row that breaks across pages is taller than its part on
+        // this page, so its full height from this part's top would put the line further down, or off the page.
+        const part = f.rows.get(drag.row);
+        drag.guide = { y: part ? Math.max(part.top, part.bottom + (drag.height - drag.base) / 15) : at.y, left: f.left, right: f.right, text: `Height ${inches(drag.height)}` };
       } else if (drag.kind === 'resize') {
         const sx = Math.max(0.2, (f.right - f.left + at.x - drag.start.x) / (f.right - f.left)), sy = Math.max(0.2, (f.bottom - f.top + at.y - drag.start.y) / Math.max(1, f.bottom - f.top));
         drag.widths = drag.base.map(w => Math.max(T.MIN_COLUMN_WIDTH, Math.round(w * sx)));

@@ -82,6 +82,41 @@ test('a row of exact height stays exact when its border is dragged or its height
   expect(rows[1]).toMatchObject({ rule: 'atLeast', height: 1152 });
 });
 
+test('dragging the border of a row that breaks across pages draws its guide at the pointer on each page', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1300 });
+  await newTable(page, 2, 2);
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, t = e.model.tables[0];
+    e.execute(() => { e.model.selectCell(t.rows[0].cells[0].id); e.model.replace(Array.from({ length: 70 }, (_, i) => `Line ${i}`).join('\n')); });
+  });
+  // The client rectangle of the first row's part on a page, scrolled into view.
+  const part = p => page.evaluate(p => {
+    const e = window.__docs.current.view.engine, row = e.model.tables[0].rows[0];
+    e.canvases[p].scrollIntoView({ block: 'center' });
+    const box = e.selectionLayout.cells.find(c => c.rowId === row.id && c.page === p), r = e.canvases[p].getBoundingClientRect();
+    return { x: r.left + box.x * e.zoom, y: r.top + box.y * e.zoom, w: box.width * e.zoom, h: box.height * e.zoom };
+  }, p);
+  // The client y of each line of the page's canvas that the dashed accent-blue guide crosses.
+  const guide = p => page.evaluate(p => {
+    const c = window.__docs.current.view.engine.canvases[p], r = c.getBoundingClientRect(), data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, found = [];
+    for (let y = 0; y < c.height; y++) {
+      let blue = 0; for (let x = 0; x < c.width; x++) { const i = (y * c.width + x) * 4; if (data[i + 2] - data[i] > 50) blue++; }
+      if (blue > 100) found.push(Math.round(r.top + y * r.height / c.height));
+    }
+    return found;
+  }, p);
+  expect(await page.evaluate(() => new Set(window.__docs.current.view.engine.selectionLayout.cells.filter(c => c.rowId === window.__docs.current.view.engine.model.tables[0].rows[0].id).map(c => c.page)).size)).toBeGreaterThan(1);
+  for (const p of [0, 1]) {
+    await part(p); await page.waitForTimeout(100);
+    const box = await part(p), border = { x: box.x + box.w / 2, y: box.y + box.h };
+    await page.mouse.move(border.x, border.y - 30); await page.mouse.move(border.x, border.y);
+    await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'row-resize');
+    await page.mouse.down(); await page.mouse.move(border.x, border.y - 20, { steps: 4 });
+    await expect.poll(() => guide(p)).toEqual([Math.round(border.y - 20)]);
+    await page.keyboard.press('Escape'); await page.mouse.up();
+  }
+});
+
 test('the + marks insert rows and columns; the move handle selects the table; keys follow desktop conventions', async ({ page }) => {
   await newTable(page, 2, 2);
   let box = await cells(page);
