@@ -12,6 +12,7 @@ import {
   confirmAction,
   promptText,
   toast,
+  dismissToast,
   download,
   applyTheme,
   themeValue,
@@ -686,6 +687,20 @@ async function openDocument(
     }
   };
   sourceSignal?.addEventListener('abort', abortSource, { once: true });
+  // A read that takes a while (a large file, a cloud file on a slow connection) says the PDF is
+  // on its way; the choice otherwise seemed to do nothing until the PDF appeared. Not as the
+  // app starts, which has nothing on screen to keep waiting over.
+  let notice = 0;
+  const slow =
+    root.childElementCount &&
+    setTimeout(() => {
+      if (token === openGeneration) notice = toast(`Opening ${safeName(name)}…`, { persist: true });
+    }, 600);
+  const opened = () => {
+    clearTimeout(slow);
+    if (notice) dismissToast(notice);
+    notice = 0;
+  };
   let nextEditor;
   try {
     let bytes = await readBytes(controller.signal);
@@ -697,6 +712,7 @@ async function openDocument(
     } catch (error) {
       if (token !== openGeneration) return;
       if (error.code !== 'encrypted') throw error;
+      opened();
       // A protected file opens once its password is known; the working copy is then plain.
       const { promptUnlock } = await import('./unlock-dialog.js');
       if (token !== openGeneration) return;
@@ -716,6 +732,8 @@ async function openDocument(
       protection = unlocked.protection;
       bytes = await preparePdfForEditing(bytes);
     }
+    // The PDF is read; what follows asks (Leave this PDF?) or shows it.
+    opened();
     if (
       token !== openGeneration ||
       !(await waitForAppDialogsToClose({ signal: controller.signal }))
@@ -767,6 +785,7 @@ async function openDocument(
     if (nextEditor && editor === nextEditor) showHome();
     throw error;
   } finally {
+    opened();
     sourceSignal?.removeEventListener('abort', abortSource);
     if (token === openGeneration) loading = false;
     if (openController === controller) openController = null;
