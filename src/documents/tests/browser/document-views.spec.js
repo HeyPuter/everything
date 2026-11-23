@@ -207,7 +207,9 @@ test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift
     await page.keyboard.press('Tab');
     reached.push(await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent.trim()));
   }
-  for (const name of ['Tools', 'View', 'Edit Document', 'Next screen']) expect(reached, name).toContain(name);
+  // The toolbar is one Tab stop (its arrows move within it); the page buttons are stops of their own.
+  for (const name of ['Tools', 'Next screen']) expect(reached, name).toContain(name);
+  for (const name of ['View', 'Edit Document']) expect(reached, name).not.toContain(name);
   // Back from the toolbar to the pages, where the arrows still turn them.
   await toolbar.getByRole('button', { name: 'Tools' }).focus();
   await page.keyboard.press('Shift+Tab');
@@ -218,6 +220,44 @@ test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift
   await expect(toolbar).toBeHidden();
   // Editing again, Tab is the document's own key once more.
   await expect(input).toBeFocused();
+});
+
+test('the Read Mode toolbar\'s arrows move between its buttons and leave the pages where they are', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/Every page/);
+  await caret(input, 0);
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Read Mode' });
+  const counter = page.locator('.read-counter');
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  const tools = toolbar.getByRole('button', { name: 'Tools' }), view = toolbar.getByRole('button', { name: 'View' }), edit = toolbar.getByRole('button', { name: 'Edit Document' });
+  await tools.focus();
+  // The arrows turned the page and left the keyboard where it was.
+  await page.keyboard.press('ArrowRight');
+  await expect(view).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(edit).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(tools).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(edit).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(tools).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(edit).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(edit).toBeFocused();
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  // The toolbar is entered at the button last used.
+  await expect(edit).toHaveAttribute('tabindex', '0');
+  await expect(tools).toHaveAttribute('tabindex', '-1');
+  // On the pages the arrows still turn them.
+  await page.locator('.canvas-host').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(counter).not.toHaveText(/^Pages? 1\b/);
 });
 
 test('Enter and Space press the Read Mode tools and page buttons instead of turning pages, and Escape comes back to them', async ({ page }) => {
