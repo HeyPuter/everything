@@ -245,3 +245,87 @@ describe("bullets at outline levels", () => {
     ]);
   });
 });
+
+describe("East Asian and complex-script typefaces", () => {
+  // A deck whose theme names typefaces for Japanese, Korean, simplified
+  // Chinese and Hebrew text, a different one for Japanese headings, and
+  // leaves its East Asian and complex-script slots empty.
+  const deck = async (shapes) => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    files[name] = strToU8(
+      strFromU8(files[name]).replace("<p:grpSpPr/>", `<p:grpSpPr/>${shapes}`),
+    );
+    const theme = "ppt/theme/theme1.xml";
+    files[theme] = strToU8(
+      strFromU8(files[theme])
+        .replace(
+          /(<a:minorFont>[\s\S]*?<a:cs typeface="[^"]*"\/>)/,
+          '$1<a:font script="Jpan" typeface="Yu Gothic"/><a:font script="Hang" typeface="Malgun Gothic"/><a:font script="Hans" typeface="DengXian"/><a:font script="Hebr" typeface="David"/>',
+        )
+        .replace(
+          /(<a:majorFont>[\s\S]*?<a:cs typeface="[^"]*"\/>)/,
+          '$1<a:font script="Jpan" typeface="Yu Mincho"/>',
+        ),
+    );
+    return parseDeck(zipSync(files));
+  };
+  const run = (text, attrs = "", inner = "") =>
+    `<a:r><a:rPr ${attrs} sz="2000">${inner}</a:rPr><a:t>${text}</a:t></a:r>`;
+  // The family each piece of text is drawn in, as the measurer saw it.
+  const faces = async (paragraphs, ph = "") => {
+    const pres = await deck(
+      ph
+        ? `<p:sp><p:nvSpPr><p:cNvPr id="9" name="T"/><p:cNvSpPr/><p:nvPr><p:ph ${ph}/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="6400800" cy="1828800"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${paragraphs}</p:txBody></p:sp>`
+        : textBox(paragraphs).replace('cx="4572000"', 'cx="9144000"'),
+    );
+    const seen = new Map();
+    renderSlideToSvg(pres, P.getSlides(pres)[0], {
+      textLayout: "svg",
+      resolveFontFamily: (family) => family ?? "",
+      measureText: (text, spec) => {
+        if (text.trim()) seen.set(text, spec.family);
+        return {
+          widthPx: [...text].length * spec.sizePx * 0.6,
+          ascentPx: spec.sizePx * 0.8,
+          descentPx: spec.sizePx * 0.2,
+          lineGapPx: 0,
+        };
+      },
+    });
+    return seen;
+  };
+
+  it("draws each script in the theme's typeface for it", async () => {
+    const seen = await faces(
+      `<a:p>${run("日本語", 'lang="ja-JP"')}</a:p><a:p>${run("한국어", 'lang="ko-KR"')}</a:p><a:p>${run("中文", 'lang="zh-CN"')}</a:p><a:p>${run("עברית", 'lang="he-IL"')}</a:p><a:p>${run("Latin", 'lang="en-US"')}</a:p>`,
+    );
+    expect(seen.get("日本語")).toBe("Yu Gothic");
+    expect(seen.get("한국어")).toBe("Malgun Gothic");
+    expect(seen.get("中文")).toBe("DengXian");
+    expect(seen.get("עברית")).toBe("David");
+    expect(seen.get("Latin")).toBe("Calibri");
+  });
+
+  it("splits a run mixing scripts and names kana Japanese in any language", async () => {
+    const seen = await faces(
+      `<a:p>${run("Hello ひらがな", 'lang="en-US"')}</a:p>`,
+    );
+    expect(seen.get("Hello ")).toBe("Calibri");
+    expect(seen.get("ひらがな")).toBe("Yu Gothic");
+  });
+
+  it("takes a heading's typeface for a title and the run's own first", async () => {
+    const title = await faces(
+      `<a:p>${run("見出し", 'lang="ja-JP"')}</a:p>`,
+      'type="title"',
+    );
+    expect(title.get("見出し")).toBe("Yu Mincho");
+    const own = await faces(
+      `<a:p>${run("日本語", 'lang="ja-JP"', '<a:ea typeface="Meiryo"/>')}</a:p>`,
+    );
+    expect(own.get("日本語")).toBe("Meiryo");
+  });
+});

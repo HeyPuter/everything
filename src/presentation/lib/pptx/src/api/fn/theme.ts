@@ -245,6 +245,49 @@ export const fontsFromThemeRoot = (
   };
 };
 
+/**
+ * The theme's per-script typefaces (`<a:majorFont>`/`<a:minorFont>`
+ * `<a:font script="Jpan" typeface="…"/>`), keyed by ISO 15924 script code.
+ * Text in a script whose `ea`/`cs` slot is empty takes these.
+ */
+export interface ThemeScriptFonts {
+  readonly major: Readonly<Record<string, string>>;
+  readonly minor: Readonly<Record<string, string>>;
+}
+const scriptFontCache = new WeakMap<XmlElement, ThemeScriptFonts | null>();
+export const themeScriptFonts = (
+  root: XmlElement | null | undefined,
+): ThemeScriptFonts | null => {
+  if (!root) return null;
+  const cached = scriptFontCache.get(root);
+  if (cached !== undefined) return cached;
+  const elements = firstChildElement(root, NAME_THEME_ELEMENTS);
+  const scheme =
+    elements && firstChildElement(elements, qname("a", "fontScheme", NS.dml));
+  const read = (local: string): Record<string, string> => {
+    const out: Record<string, string> = {};
+    const parent =
+      scheme && firstChildElement(scheme, qname("a", local, NS.dml));
+    for (const c of parent?.children ?? []) {
+      if (
+        c.kind !== "element" ||
+        c.name.namespaceURI !== NS.dml ||
+        c.name.localName !== "font"
+      )
+        continue;
+      const script = getAttrValue(c, qname("", "script", ""));
+      const face = getAttrValue(c, qname("", "typeface", ""));
+      if (script && face) out[script] = face;
+    }
+    return out;
+  };
+  const result = scheme
+    ? { major: read("majorFont"), minor: read("minorFont") }
+    : null;
+  scriptFontCache.set(root, result);
+  return result;
+};
+
 type ThemePartView = {
   readonly partName: PartName;
   readonly data: Uint8Array;

@@ -94,6 +94,11 @@ export interface TextFormat {
    * and CJK text and needs a consistent look across the whole run.
    */
   fontEastAsian?: string;
+  /**
+   * Complex-script font family (`<a:cs>`), for Arabic, Hebrew, Thai,
+   * Devanagari and other complex-script text. Read only.
+   */
+  fontComplexScript?: string;
   /** Font size in points; fractional values allowed (`12`, `12.5`). */
   size?: number;
   /**

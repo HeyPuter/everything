@@ -88,6 +88,11 @@ const mergeRPrLayer = (
   if (base.fontEastAsian === undefined && layer.fontEastAsian !== undefined) {
     base.fontEastAsian = layer.fontEastAsian;
   }
+  if (
+    base.fontComplexScript === undefined &&
+    layer.fontComplexScript !== undefined
+  )
+    base.fontComplexScript = layer.fontComplexScript;
   if (base.size === undefined && layer.size !== undefined)
     base.size = layer.size;
   // A run's fill is one choice: the nearest solid color or gradient wins.
@@ -332,6 +337,20 @@ const resolveRunFormat = (
       const useMajor = phType === "title" || phType === "ctrTitle";
       const fallback = useMajor ? fonts.majorEastAsian : fonts.minorEastAsian;
       if (fallback) result.fontEastAsian = fallback;
+    }
+    if (
+      typeof result.fontComplexScript === "string" &&
+      result.fontComplexScript.startsWith("+")
+    ) {
+      const resolved = resolveThemeTypeface(result.fontComplexScript, fonts);
+      if (resolved) result.fontComplexScript = resolved;
+    }
+    if (result.fontComplexScript === undefined) {
+      const useMajor = phType === "title" || phType === "ctrTitle";
+      const fallback = useMajor
+        ? fonts.majorComplexScript
+        : fonts.minorComplexScript;
+      if (fallback) result.fontComplexScript = fallback;
     }
   }
 

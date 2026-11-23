@@ -16,6 +16,7 @@ import {
 import {
   type PresentationFonts,
   resolveThemeTypeface,
+  themeScriptFonts,
 } from "../../pptx/src/api/fn/theme.ts";
 import { themeForChart } from "../../pptx/src/api/fn/chart-copy.ts";
 import { chartRenderingView } from "../../pptx/src/api/fn/charts.ts";
@@ -2771,6 +2772,104 @@ export const verticalLayoutOf = (
   }
 };
 
+// Text in East Asian or complex scripts takes the run's East Asian (`ea`)
+// or complex-script (`cs`) typeface, or the theme's typeface for its script
+// (`<a:font script="Jpan">`), as the desktop app draws and measures it.
+const NON_LATIN_TEXT =
+  /[\u0590-\u08ff\u0900-\u0fff\u1000-\u109f\u1100-\u11ff\u1780-\u17ff\u2e80-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua960-\ua97f\uac00-\ud7ff\uf900-\ufaff\ufb1d-\ufdff\ufe30-\ufe4f\ufe70-\ufeff\uff00-\uffef]|[\u{20000}-\u{3134f}]/u;
+// ISO 15924 code of a complex-script character's script.
+const COMPLEX_SCRIPTS: ReadonlyArray<readonly [number, number, string]> = [
+  [0x0590, 0x05ff, "Hebr"],
+  [0x0600, 0x06ff, "Arab"],
+  [0x0700, 0x074f, "Syrc"],
+  [0x0750, 0x077f, "Arab"],
+  [0x0780, 0x07bf, "Thaa"],
+  [0x08a0, 0x08ff, "Arab"],
+  [0x0900, 0x097f, "Deva"],
+  [0x0980, 0x09ff, "Beng"],
+  [0x0a00, 0x0a7f, "Guru"],
+  [0x0a80, 0x0aff, "Gujr"],
+  [0x0b00, 0x0b7f, "Orya"],
+  [0x0b80, 0x0bff, "Taml"],
+  [0x0c00, 0x0c7f, "Telu"],
+  [0x0c80, 0x0cff, "Knda"],
+  [0x0d00, 0x0d7f, "Mlym"],
+  [0x0d80, 0x0dff, "Sinh"],
+  [0x0e00, 0x0e7f, "Thai"],
+  [0x0e80, 0x0eff, "Laoo"],
+  [0x0f00, 0x0fff, "Tibt"],
+  [0x1000, 0x109f, "Mymr"],
+  [0x1780, 0x17ff, "Khmr"],
+  [0xfb1d, 0xfb4f, "Hebr"],
+  [0xfb50, 0xfdff, "Arab"],
+  [0xfe70, 0xfeff, "Arab"],
+];
+type ScriptClass = "lt" | "ea" | "cs" | "neutral";
+// A character's script slot, and for complex scripts its script code; East
+// Asian characters say whether they are kana or Hangul, which name the
+// script whatever the run's language.
+const scriptOf = (cp: number): [ScriptClass, string | null] => {
+  if (
+    cp <= 0x40 ||
+    (cp >= 0x5b && cp <= 0x60) ||
+    (cp >= 0x7b && cp <= 0xbf) ||
+    (cp >= 0x2000 && cp <= 0x206f)
+  )
+    return ["neutral", null];
+  if (cp < 0x0590) return ["lt", null];
+  for (const [from, to, code] of COMPLEX_SCRIPTS)
+    if (cp >= from && cp <= to) return ["cs", code];
+  if (cp >= 0x3040 && cp <= 0x30ff) return ["ea", "Jpan"];
+  if (
+    (cp >= 0x1100 && cp <= 0x11ff) ||
+    (cp >= 0x3130 && cp <= 0x318f) ||
+    (cp >= 0xa960 && cp <= 0xa97f) ||
+    (cp >= 0xac00 && cp <= 0xd7ff)
+  )
+    return ["ea", "Hang"];
+  if (
+    (cp >= 0x2e80 && cp <= 0x33ff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe30 && cp <= 0xfe4f) ||
+    (cp >= 0xff00 && cp <= 0xffef) ||
+    (cp >= 0x20000 && cp <= 0x3134f)
+  )
+    return ["ea", null];
+  return ["lt", null];
+};
+// The East Asian script a run's language names.
+const eastAsianScriptOf = (language: string | null | undefined) => {
+  const lang = language?.toLowerCase() ?? "";
+  if (lang.startsWith("ja")) return "Jpan";
+  if (lang.startsWith("ko")) return "Hang";
+  if (/^zh-(tw|hk|mo|hant)/.test(lang)) return "Hant";
+  if (lang.startsWith("zh")) return "Hans";
+  return null;
+};
+// Splits text into stretches of one script slot; spaces, digits and
+// punctuation stay with the stretch around them.
+const scriptStretches = (
+  text: string,
+): Array<{ text: string; slot: ScriptClass; script: string | null }> => {
+  const out: Array<{ text: string; slot: ScriptClass; script: string | null }> =
+    [];
+  for (const ch of text) {
+    const [slot, script] = scriptOf(ch.codePointAt(0)!);
+    const last = out[out.length - 1];
+    if (last && (slot === "neutral" || slot === last.slot)) {
+      last.text += ch;
+      if (!last.script && script) last.script = script;
+    } else if (last && last.slot === "neutral") {
+      last.text += ch;
+      last.slot = slot;
+      last.script = script;
+    } else out.push({ text: ch, slot, script });
+  }
+  return out;
+};
+
 // Build the px-native engine input from the resolved paraData (at a.autoFitScale).
 export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
   const scale = a.autoFitScale;
@@ -2782,6 +2881,31 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
   const withKerning = <T extends FontSpec>(font: T): T => {
     const kerning = a.resolveKerning?.(font);
     return kerning && kerning !== font.kerning ? { ...font, kerning } : font;
+  };
+  // The typeface for a stretch of East Asian or complex-script text, or
+  // null to keep the run's own.
+  let scriptFonts: ReturnType<typeof themeScriptFonts> | undefined;
+  let titleText: boolean | undefined;
+  const scriptFace = (
+    fmt: TextFormat | null | undefined,
+    slot: "ea" | "cs",
+    script: string | null,
+  ): string | null => {
+    const own = slot === "ea" ? fmt?.fontEastAsian : fmt?.fontComplexScript;
+    if (own && !own.startsWith("+")) return own;
+    titleText ??= ["title", "ctrTitle"].includes(
+      getShapePlaceholderType(a.shape) ?? "",
+    );
+    const major = own ? own.startsWith("+mj") : titleText;
+    const code =
+      slot === "cs"
+        ? script
+        : (script ??
+          eastAsianScriptOf(fmt?.language) ??
+          eastAsianScriptOf(fmt?.alternateLanguage));
+    if (!code) return null;
+    scriptFonts ??= themeScriptFonts(themeForShape(a.shape)?.root);
+    return (major ? scriptFonts?.major : scriptFonts?.minor)?.[code] ?? null;
   };
   const lineFont = (format: Readonly<TextFormat>): FontSpec =>
     withKerning({
@@ -2885,6 +3009,29 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
               isBreak: false,
             });
           }
+        } else if (
+          NON_LATIN_TEXT.test(segText) &&
+          (() => {
+            const parts = scriptStretches(segText).map((part) => ({
+              text: part.text,
+              face:
+                part.slot === "ea" || part.slot === "cs"
+                  ? scriptFace(fmt, part.slot, part.script)
+                  : null,
+            }));
+            if (!parts.some((part) => part.face)) return false;
+            for (const part of parts)
+              pieces.push({
+                ...(part.face
+                  ? withKerning({ ...base, family: resolveFamily(part.face) })
+                  : base),
+                text: part.text,
+                isBreak: false,
+              });
+            return true;
+          })()
+        ) {
+          // Drawn stretch by stretch in each script's typeface.
         } else {
           pieces.push({ ...base, text: segText, isBreak: false });
         }
