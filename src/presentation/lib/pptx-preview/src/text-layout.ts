@@ -218,6 +218,8 @@ export interface PieceInput {
   readonly strokeWidthPx?: number;
   readonly strokeOpacity?: number;
   readonly superSub: 0 | 1 | -1; // 1 superscript, -1 subscript
+  /** Text highlight color (`<a:highlight>`), painted behind the run. */
+  readonly highlightHex?: string;
   readonly href: string | null;
   readonly isBreak: boolean; // <a:br>
 }
@@ -1215,6 +1217,7 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
   const spacing = wordSpacing ? ` word-spacing="${fmt(wordSpacing)}"` : "";
   const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${anchor}"${line.rtl ? ' direction="rtl"' : ""}${spacing} xml:space="preserve">${tspans}</text>`;
   return (
+    emitHighlights(groups, line, x0, baselineY) +
     text +
     emitWavyUnderlines(groups, line.textAnchor, x0, baselineY) +
     emitDrawnDecorations(groups, line.textAnchor, x0, baselineY)
@@ -1229,6 +1232,39 @@ const countWordSeparators = (text: string): number => {
     if (c === 0x20 || c === 0xa0) n++;
   }
   return n;
+};
+
+// Highlighted runs sit on a band of their color as tall as the line's text,
+// drawn behind it. Right-to-left lines run their first run from the right.
+const emitHighlights = (
+  groups: readonly Group[],
+  line: Line,
+  x0: number,
+  baselineY: number,
+): string => {
+  if (!groups.some((g) => g.piece.highlightHex)) return "";
+  const total = groups.reduce((sum, g) => sum + g.width, 0);
+  const left =
+    line.textAnchor === "middle"
+      ? x0 - total / 2
+      : line.textAnchor === "end"
+        ? x0 - total
+        : x0;
+  const top = baselineY - line.ascent,
+    height = line.ascent + line.descent;
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const g of groups) {
+    const color = g.piece.highlightHex;
+    if (color && g.width > 0) {
+      const x = line.rtl ? left + total - cursor - g.width : left + cursor;
+      parts.push(
+        `<rect x="${fmt(x)}" y="${fmt(top)}" width="${fmt(g.width)}" height="${fmt(height)}" fill="${color}"/>`,
+      );
+    }
+    cursor += g.width;
+  }
+  return parts.join("");
 };
 
 const explicitUnderline = (p: PieceInput): boolean =>
@@ -1421,6 +1457,7 @@ const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   a.strokeWidthPx === b.strokeWidthPx &&
   a.strokeOpacity === b.strokeOpacity &&
   a.superSub === b.superSub &&
+  a.highlightHex === b.highlightHex &&
   a.href === b.href;
 
 const tspan = (g: Group, dx = 0): string => {

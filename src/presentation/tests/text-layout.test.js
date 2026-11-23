@@ -1273,3 +1273,44 @@ describe("justified paragraphs", () => {
     expect(svg).not.toContain("word-spacing");
   });
 });
+
+describe("highlighted runs", () => {
+  const highlighted = (options = {}) =>
+    layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 400,
+        paragraphs: [
+          para({
+            pieces: [
+              piece("ab ", 40),
+              { ...piece("cd", 40), highlightHex: "#FFFF00" },
+              piece(" ef", 40),
+            ],
+            ...options,
+          }),
+        ],
+      }),
+      measure,
+    );
+  it("paints the highlight behind the run, as tall as the line's text", () => {
+    const svg = highlighted();
+    const band = svg.match(
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="#FFFF00"\/>/,
+    );
+    expect(band).not.toBeNull();
+    // "ab " is 60 px at 20 px per character; "cd" is 40 px.
+    expect(Number(band[1])).toBe(60);
+    expect(Number(band[3])).toBe(40);
+    expect(svg.indexOf("<rect")).toBeLessThan(svg.indexOf("<text"));
+    // A highlighted run is a span of its own.
+    expect(svg).toContain(">cd</tspan>");
+  });
+  it("runs a right-to-left line's first run from the right", () => {
+    const band = highlighted({ rtl: true }).match(
+      /<rect x="([^"]+)"[^>]*fill="#FFFF00"/,
+    );
+    // 160 px of text from x = 0: "cd" sits 60 px in from the right.
+    expect(Number(band[1])).toBe(160 - 60 - 40);
+  });
+});

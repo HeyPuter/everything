@@ -2389,6 +2389,9 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         strike: hasStrikeFmt(fmt),
         ...drawnTextDecorations(fmt, a.theme, sizePx),
         superSub,
+        ...(fmt?.highlight
+          ? { highlightHex: resolveColor(fmt.highlight, a.theme, "#FFFF00") }
+          : {}),
         href: run.href ?? null,
       });
       // A run's text can carry embedded '\n' only via <a:br>, already split
