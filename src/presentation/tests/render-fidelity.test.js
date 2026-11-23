@@ -72,3 +72,50 @@ describe("picture brightness and contrast", () => {
     expect(intercept).toBe("0.3");
   });
 });
+
+const shapeDeck = (setup, options = {}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const shape = P.addSlideShape(slide, {
+    preset: "rect",
+    x: IN(1),
+    y: IN(1),
+    w: IN(2),
+    h: IN(1),
+    ...options,
+  });
+  setup(pres, shape);
+  return renderSlideToSvg(pres, slide, { textLayout: "svg" });
+};
+const shadow = (type, extra = {}) => ({
+  shadow: {
+    type,
+    color: "#000000",
+    opacity: 0.5,
+    blurEmu: 50800,
+    distEmu: 76200,
+    angleDeg: 45,
+    ...extra,
+  },
+});
+
+describe("shadows", () => {
+  it("paints an inner shadow over the shape it falls on", () => {
+    const svg = shapeDeck((pres, s) =>
+      P.setShapeEffectSpec(pres, s, shadow("inner")),
+    );
+    const merge = /<feMerge>(.*?)<\/feMerge>/.exec(svg)[1];
+    const order = [...merge.matchAll(/in="([^"]+)"/g)].map((m) => m[1]);
+    expect(order[0]).toBe("SourceGraphic");
+    expect(order[1]).toMatch(/^innerOut/);
+  });
+
+  it("paints an outer shadow behind the shape", () => {
+    const svg = shapeDeck((pres, s) =>
+      P.setShapeEffectSpec(pres, s, shadow("outer")),
+    );
+    const merge = /<feMerge>(.*?)<\/feMerge>/.exec(svg)[1];
+    const order = [...merge.matchAll(/in="([^"]+)"/g)].map((m) => m[1]);
+    expect(order.at(-1)).toBe("SourceGraphic");
+  });
+});

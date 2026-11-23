@@ -12826,6 +12826,8 @@ const buildEffectsFilter = (
   // Chain primitives by passing each result as `in` to the next merge.
   // The shape's original alpha + RGB live in SourceGraphic / SourceAlpha.
   const layers: string[] = [];
+  // An inner shadow falls on the shape itself, so it paints over the source.
+  const over: string[] = [];
   // A Gaussian blur visibly reaches about three standard deviations.
   let reach = 0;
 
@@ -12866,7 +12868,7 @@ const buildEffectsFilter = (
         `<feFlood flood-color="${color}" flood-opacity="${opacity.toFixed(3)}" result="innerCol${i}"/>`,
         `<feComposite in="innerCol${i}" in2="innerMask${i}" operator="in" result="innerOut${i}"/>`,
       );
-      layers.push(`innerOut${i}`);
+      over.push(`innerOut${i}`);
     } else if (e.kind === "glow") {
       // Native reference renderers keep the glow color near-opaque for most of
       // the `rad` reach and feather only at the outer edge. Compositing flood
@@ -12898,7 +12900,7 @@ const buildEffectsFilter = (
       );
       // softEdge replaces the source; we drop earlier layers and the
       // unmodified source is no longer painted on top.
-      layers.length = 0;
+      layers.length = over.length = 0;
       layers.push(`softOut${i}`);
     } else if (e.kind === "blur") {
       const blurPx = e.radiusEmu / EMU_PER_PX / 2;
@@ -12907,7 +12909,7 @@ const buildEffectsFilter = (
       primitives.push(
         `<feGaussianBlur in="SourceGraphic" stdDeviation="${blurPx.toFixed(2)}" result="blurOut${i}"/>`,
       );
-      layers.length = 0;
+      layers.length = over.length = 0;
       layers.push(`blurOut${i}`);
     }
     // Reflection is handled outside the filter chain (see buildReflection):
@@ -12915,19 +12917,21 @@ const buildEffectsFilter = (
   }
 
   // Compose: paint each effect layer plus the original SourceGraphic.
-  // Shadows want to sit behind the source; glow behind too; innerShdw
-  // and softEdge already replace bits of the source. Doing the merge
-  // in order produces reasonable layering for the common cases.
-  if (layers.length === 0) return null;
+  // Shadows and glows sit behind the source, inner shadows on top of it;
+  // softEdge and blur replace the source. Doing the merge in order produces
+  // reasonable layering for the common cases.
+  if (layers.length === 0 && over.length === 0) return null;
 
   // Always paint the original source last so it sits on top of shadows /
   // glows. softEdge/blur replaced the source so we don't double-paint.
   const replacedSource = effects.some(
     (e) => e.kind === "softEdge" || e.kind === "blur",
   );
-  const mergeChildren = layers.map((l) => `<feMergeNode in="${l}"/>`).join("");
-  const sourceMerge = replacedSource ? "" : '<feMergeNode in="SourceGraphic"/>';
-  primitives.push(`<feMerge>${mergeChildren}${sourceMerge}</feMerge>`);
+  const node = (l: string) => `<feMergeNode in="${l}"/>`;
+  const sourceMerge = replacedSource ? "" : node("SourceGraphic");
+  primitives.push(
+    `<feMerge>${layers.map(node).join("")}${sourceMerge}${over.map(node).join("")}</feMerge>`,
+  );
 
   const defs = `<defs><filter id="${id}" x="-25%" y="-25%" width="150%" height="150%">${primitives.join("")}</filter></defs>`;
   return { id, defs, reach };
