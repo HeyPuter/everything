@@ -11607,7 +11607,14 @@ const renderTableCellText = (
     resolveFamily: ctx.resolveFamily,
     resolveKerning: ctx.resolveKerning,
   };
-  if (ctx.mode === "svg") return buildAndLayoutSvgText(textArgs);
+  // A cell's runs cast their own shadows and glows, as a text box's do.
+  if (ctx.mode === "svg")
+    return wrapTextEffects(buildAndLayoutSvgText(textArgs), paraData, theme, {
+      x: innerX,
+      y: innerY,
+      w: innerW,
+      h: innerH,
+    });
   const percentSpacing = measureParagraphPercentSpacing(textArgs);
 
   // foreignObject path (browser preview): one <p> per paragraph, each run

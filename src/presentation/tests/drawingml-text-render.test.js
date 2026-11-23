@@ -329,3 +329,21 @@ describe("East Asian and complex-script typefaces", () => {
     expect(own.get("日本語")).toBe("Meiryo");
   });
 });
+
+describe("text effects in table cells", () => {
+  it("draws a cell's text shadow and glow", async () => {
+    const cell = (text, effect) =>
+      `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="3200"><a:solidFill><a:srgbClr val="000000"/></a:solidFill>${effect}</a:rPr><a:t>${text}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>`;
+    const svg = await render(
+      `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="T"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="914400" y="914400"/><a:ext cx="5486400" cy="914400"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr/><a:tblGrid><a:gridCol w="2743200"/><a:gridCol w="2743200"/></a:tblGrid><a:tr h="914400">${cell("Shadow", '<a:effectLst><a:outerShdw blurRad="38100" dist="76200" dir="2700000"><a:srgbClr val="FF0000"/></a:outerShdw></a:effectLst>')}${cell("Plain", "")}</a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>`,
+    );
+    const filter = /<filter id="([^"]+)"[^>]*>.*?flood-color="#FF0000"/.exec(
+      svg,
+    );
+    expect(filter).not.toBeNull();
+    const cast = new RegExp(
+      `<g filter="url\\(#${filter[1]}\\)">(.*?)</g>`,
+    ).exec(svg)[1];
+    expect(cast).toMatch(/<tspan (?![^>]*visibility="hidden")[^>]*>Shadow</);
+  });
+});
