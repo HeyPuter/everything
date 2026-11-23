@@ -14,7 +14,9 @@ import {
   addCameraShape,
   cameraShapeKind,
   createCameraSource,
+  deviceProblem,
   isCameraShape,
+  placeCameras,
 } from "../src/show/camera.js";
 import { showTimeline } from "../src/export/transition-frames.js";
 import { SPOKEN_LANGUAGES, spokenLanguage } from "../src/show/prefs.js";
@@ -156,6 +158,77 @@ describe("the show's camera", () => {
     expect(await asked).toBe(null);
     expect(track.stop).toHaveBeenCalled();
     expect(source.stream).toBe(null);
+  });
+
+  it("does not ask for a camera the browser does not list", async () => {
+    const getUserMedia = vi.fn();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia,
+        enumerateDevices: async () => [{ kind: "audioinput" }],
+      },
+    });
+    const source = createCameraSource();
+    expect(await source.camera()).toBe(null);
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(deviceProblem(source.failure)).toBe("No camera was found.");
+  });
+
+  it("says once per slide why a live camera is not showing", async () => {
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: async () => {
+          throw Object.assign(new Error("denied"), {
+            name: "NotAllowedError",
+          });
+        },
+      },
+    });
+    const pres = deck(1);
+    const slide = P.getSlides(pres)[0];
+    for (let i = 0; i < 2; i++)
+      addCameraShape(P, slide, { png: PNG, svg: null, size: SIZE });
+    // Just enough of a page for the camera boxes.
+    const node = () => ({
+      style: {},
+      classList: { add() {} },
+      isConnected: true,
+      append() {},
+      setAttribute() {},
+      remove() {},
+    });
+    const layer = { ownerDocument: { createElement: node }, append() {} };
+    const told = [];
+    placeCameras({
+      P,
+      slide,
+      layer,
+      size: { width: SIZE.cx, height: SIZE.cy },
+      source: createCameraSource(),
+      bounds: () => ({ x: 0, y: 0, w: 10, h: 10 }),
+      onFailure: (message) => told.push(message),
+    });
+    await vi.waitFor(() => expect(told.length).toBe(1));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(told).toEqual([
+      "The camera is blocked. Allow it in the browser's site settings.",
+    ]);
+  });
+
+  it("names the devices a recording could not use", () => {
+    const blocked = { name: "NotAllowedError" };
+    expect(deviceProblem(blocked, { video: true, audio: true })).toBe(
+      "The camera and microphone are blocked. Allow them in the browser's site settings.",
+    );
+    expect(
+      deviceProblem({ name: "NotFoundError" }, { video: true, audio: true }),
+    ).toBe("No camera or microphone was found.");
+    expect(
+      deviceProblem(
+        { name: "NotReadableError" },
+        { video: false, audio: true },
+      ),
+    ).toBe("The microphone is in use by another app or could not start.");
   });
 });
 

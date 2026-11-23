@@ -52,6 +52,47 @@ export function addCameraShape(
   return picture;
 }
 
+/** Whether the browser lists any camera and any microphone, or null when it
+ * cannot say. Listing needs no permission, so a device that is missing is
+ * not asked for. */
+export async function deviceKinds(media = globalThis.navigator?.mediaDevices) {
+  try {
+    const list = await media?.enumerateDevices?.();
+    if (!Array.isArray(list)) return null;
+    return {
+      video: list.some((d) => d.kind === "videoinput"),
+      audio: list.some((d) => d.kind === "audioinput"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Why the camera and/or microphone could not start, in a sentence. */
+export function deviceProblem(error, { video = true, audio = false } = {}) {
+  const and = [video && "camera", audio && "microphone"].filter(Boolean);
+  switch (error?.name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return `The ${and.join(" and ")} ${and.length > 1 ? "are" : "is"} blocked. Allow ${and.length > 1 ? "them" : "it"} in the browser's site settings.`;
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return `No ${and.join(" or ")} was found.`;
+    case "NotReadableError":
+    case "AbortError":
+      return `The ${and.join(" or ")} is in use by another app or could not start.`;
+    default:
+      return error?.message || `The ${and.join(" and ")} could not start.`;
+  }
+}
+
+const notFound = () =>
+  typeof DOMException === "function"
+    ? new DOMException("No device was found.", "NotFoundError")
+    : Object.assign(new Error("No device was found."), {
+        name: "NotFoundError",
+      });
+
 /** One camera (and microphone) stream for the whole show, asked for once. */
 export function createCameraSource() {
   let stream = null;
@@ -70,6 +111,12 @@ export function createCameraSource() {
     const media = globalThis.navigator?.mediaDevices;
     if (!media?.getUserMedia)
       throw new Error("This browser cannot use a camera or microphone.");
+    // A device the browser does not list is not asked for.
+    if (media.enumerateDevices) {
+      const kinds = await deviceKinds(media);
+      if (kinds && ((video && !kinds.video) || (audio && !kinds.audio)))
+        throw notFound();
+    }
     return media.getUserMedia(want);
   }
   return {
@@ -111,9 +158,19 @@ export function createCameraSource() {
   };
 }
 
-/** Lays live video over every camera object of the slide on `layer`. */
-export function placeCameras({ P, slide, layer, size, source, bounds }) {
+/** Lays live video over every camera object of the slide on `layer`.
+ * `onFailure(message)` hears why the camera could not start. */
+export function placeCameras({
+  P,
+  slide,
+  layer,
+  size,
+  source,
+  bounds,
+  onFailure,
+}) {
   const nodes = [];
+  let told = false;
   for (const shape of P.getSlideShapes(slide)) {
     if (!isCameraShape(P, shape)) continue;
     const b = bounds(shape);
@@ -136,7 +193,14 @@ export function placeCameras({ P, slide, layer, size, source, bounds }) {
     layer.append(box);
     nodes.push(box);
     source.camera().then((stream) => {
-      if (!stream || !box.isConnected) return;
+      if (!box.isConnected) return;
+      if (!stream) {
+        if (source.failure && !told) {
+          told = true;
+          onFailure?.(deviceProblem(source.failure));
+        }
+        return;
+      }
       video.srcObject = stream;
       video.play().catch(() => {});
       box.classList.add("live");

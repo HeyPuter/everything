@@ -1255,6 +1255,7 @@ export function createShowSession(ctx, show) {
         size,
         source: cameras,
         bounds: (shape) => ctx.slideBounds(pres, shape),
+        onFailure: (message) => status(`Live camera: ${message}`),
       });
       setTimeout(addMediaControls, 80);
       kioskActivity();
