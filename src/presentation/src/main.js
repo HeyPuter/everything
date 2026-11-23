@@ -8582,6 +8582,19 @@ function slidePreview(s) {
   }
   return src;
 }
+// A slide's XML, as the navigator compares it with the render it holds.
+// Edits write a slide's XML to new bytes for its part, so while the slide
+// and its part's bytes are the ones last read, its XML is too: an edit
+// serializes the slides it changed rather than every slide of the deck.
+const navigatorXml = new WeakMap();
+function navigatorSlideXml(pkg, s, part) {
+  const data = pkg.getPart(part)?.data;
+  const hit = navigatorXml.get(s);
+  if (hit && data && hit.data === data) return hit.xml;
+  const xml = P.getSlideXmlString(s);
+  if (data) navigatorXml.set(s, { data, xml });
+  return xml;
+}
 function renderSlideArea(refreshNavigator = true) {
   if (view !== "editor") return;
   const focusSelection = document.activeElement?.matches(
@@ -8651,9 +8664,10 @@ function renderSlideArea(refreshNavigator = true) {
         row,
       ]),
     );
+    const pkg = P._internalPackageOf(doc.pres);
     all.forEach((s, i) => {
       const part = P.getSlidePartName(s);
-      const xml = P.getSlideXmlString(s);
+      const xml = navigatorSlideXml(pkg, s, part);
       const cached = previous.get(part);
       const distance = Math.abs(i - index);
       const fields = slideFieldStamp(doc.pres, s);
