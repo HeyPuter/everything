@@ -278,18 +278,24 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   // The zoom the wheel is heading to before rounding to whole percents, while the zoom is still the
   // one it last set: a pinch's events are each too small to change the rounded zoom on their own.
   let wheelZoom = null;
+  // Read Mode zooms its text, as Word's does: its screens are laid out again for the new size (the zoom it came with
+  // returns when editing again). Smaller than half size, its columns would hold lines too long to read.
+  const READ_MIN_ZOOM = 0.5;
+  function zoomReading(to) { w.setZoom?.(to); read.set({}); }
   host.addEventListener('wheel', e => {
     const engine = editor(); if (!engine) return;
     if (e.ctrlKey || e.metaKey) {
-      if (mode === 'read' || mode === 'outline') return;
+      // Outline view is a list of its own over hidden pages: the pages' zoom does not reach it.
+      if (mode === 'outline') return;
       e.preventDefault();
       const from = wheelZoom?.shown === engine.zoom ? wheelZoom.exact : engine.zoom;
-      const exact = Math.max(0.1, Math.min(2, from * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0025))));
+      const exact = Math.max(mode === 'read' ? READ_MIN_ZOOM : 0.1, Math.min(2, from * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0025))));
       const to = Math.round(exact * 100) / 100;
       // Rounding must not move a fractional zoom (Page width) against the direction of the wheel.
       if (to !== engine.zoom && Math.sign(to - engine.zoom) === Math.sign(exact - engine.zoom)) {
-        // Keep the point under the pointer where it is.
-        w.setZoom?.(to, { clientX: e.clientX, clientY: e.clientY });
+        // Keep the point under the pointer where it is; Read Mode makes its screens again at the new size.
+        if (mode === 'read') zoomReading(to);
+        else w.setZoom?.(to, { clientX: e.clientX, clientY: e.clientY });
       }
       wheelZoom = { exact, shown: engine.zoom };
     } else if (sideToSide && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
@@ -300,7 +306,11 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   // Safari's pinch gesture.
   let gestureZoom = null;
   host.addEventListener('gesturestart', e => { e.preventDefault(); gestureZoom = editor()?.zoom ?? 1; });
-  host.addEventListener('gesturechange', e => { e.preventDefault(); if (gestureZoom && !pinch && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)), { clientX: e.clientX, clientY: e.clientY }); });
+  host.addEventListener('gesturechange', e => {
+    e.preventDefault();
+    if (gestureZoom && mode === 'read') { const to = Math.max(READ_MIN_ZOOM, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)); if (to !== editor()?.zoom) zoomReading(to); return; }
+    if (gestureZoom && !pinch && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)), { clientX: e.clientX, clientY: e.clientY });
+  });
 
   // Two fingers on a touch screen pinch the zoom about the point between them and carry the pages in any direction.
   // One finger scrolls up and down and a sideways drag selects text, so this is also how a page zoomed wider than

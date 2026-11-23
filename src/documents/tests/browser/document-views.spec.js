@@ -709,3 +709,37 @@ test('Focus shows the page alone, without the rulers, and Escape brings them bac
   await expect(page.locator('.ed-workspace')).not.toHaveClass(/ed-focus/);
   await expect(ruler).toBeVisible();
 });
+
+// Ctrl/Cmd + wheel (and a trackpad pinch, which arrives as one) was left to the browser in Read Mode, which zoomed the
+// whole window, toolbars and all. It zooms the reading text now, as in Word, and editing returns at the zoom it had.
+test('Ctrl + wheel in Read Mode zooms the text, which is laid out again, and editing keeps its own zoom', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toBeEditable();
+  await input.fill('Reading words go on here. '.repeat(600));
+  await caret(input, 0);
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  await expect(page.getByRole('toolbar', { name: 'Read Mode' })).toBeVisible();
+  const state = () => page.evaluate(() => { const e = window.__docs.current.view.engine; return { zoom: e.zoom, width: e.view?.width, pages: e.canvases.length }; });
+  const before = await state();
+  await page.evaluate(() => { window.__wheels = []; addEventListener('wheel', e => window.__wheels.push(e.defaultPrevented)); });
+  await page.mouse.move(500, 300);
+  await page.keyboard.down('Control');
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await expect.poll(async () => (await state()).zoom).toBeGreaterThan(1.5);
+  const after = await state();
+  // Larger text in a column as wide on screen: narrower in the document's measure, so more screens.
+  expect(after.width).toBeLessThan(before.width);
+  expect(after.pages).toBeGreaterThan(before.pages);
+  expect(await page.evaluate(() => window.__wheels.every(Boolean))).toBe(true);
+  // Smaller, but not below half size.
+  await page.keyboard.down('Control');
+  for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 200);
+  await page.keyboard.up('Control');
+  await expect.poll(async () => (await state()).zoom).toBe(0.5);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('toolbar', { name: 'Read Mode' })).toBeHidden();
+  expect((await state()).zoom).toBe(before.zoom);
+});
