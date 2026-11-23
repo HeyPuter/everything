@@ -336,19 +336,77 @@ const popoverOpen = (node) => {
     return false;
   }
 };
+// A message stays long enough to read: five seconds, and a second more for
+// every fifteen characters past the first sixty, up to twenty seconds.
+export function toastDuration(message) {
+  const length = String(message ?? "").length;
+  return Math.min(20000, 5000 + Math.max(0, length - 60) * 67);
+}
+let toastEnds = 0;
+let toastHeld = 0;
+let toastBefore = null;
+function hideToast() {
+  clearTimeout(toastTimer);
+  const node = document.querySelector("#toast");
+  if (!node) return;
+  const within = node.contains(document.activeElement);
+  node.classList.remove("visible");
+  popover(node, "hidePopover");
+  // Dismissed from the keyboard, the focus goes back where it was.
+  if (within && toastBefore?.isConnected)
+    toastBefore.focus({ preventScroll: true });
+}
+function scheduleToast(ms) {
+  clearTimeout(toastTimer);
+  toastEnds = Date.now() + ms;
+  toastTimer = setTimeout(hideToast, ms);
+}
+// The message's text, and a button that dismisses it. While the pointer or
+// the keyboard is on it, it stays until let go.
+function toastText(node) {
+  const found = node.querySelector(".toast-text");
+  if (found) return found;
+  const text = el("span", { class: "toast-text" });
+  node.replaceChildren(
+    text,
+    iconButton("Dismiss message", "X", hideToast, {
+      class: "btn icon-btn toast-close",
+    }),
+  );
+  const hold = () => {
+    if (!toastHeld) toastHeld = Math.max(1500, toastEnds - Date.now());
+    clearTimeout(toastTimer);
+  };
+  const release = () => {
+    if (
+      !toastHeld ||
+      node.matches(":hover") ||
+      node.contains(document.activeElement)
+    )
+      return;
+    scheduleToast(toastHeld);
+    toastHeld = 0;
+  };
+  node.addEventListener("pointerenter", hold);
+  node.addEventListener("pointerleave", () => setTimeout(release));
+  node.addEventListener("focusin", (e) => {
+    if (!node.contains(e.relatedTarget)) toastBefore = e.relatedTarget;
+    hold();
+  });
+  node.addEventListener("focusout", () => setTimeout(release));
+  return text;
+}
 export function toast(message) {
   const node = document.querySelector("#toast");
-  node.textContent = message;
+  const text = toastText(node);
+  toastHeld = 0;
+  text.textContent = message;
   node.classList.add("visible");
   // Re-entering the top layer puts the message above a dialog or slideshow
   // opened since it last showed.
   if (popoverOpen(node)) popover(node, "hidePopover");
   popover(node, "showPopover");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    node.classList.remove("visible");
-    popover(node, "hidePopover");
-  }, 5000);
+  scheduleToast(toastDuration(message));
 }
 // `actions`, when given, replaces the cancel and confirm buttons with a
 // choice of several: [{ label, value, kind }] where kind is "primary",

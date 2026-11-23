@@ -2437,6 +2437,24 @@ body:has(.presenter[open]) #toast {
 #toast.visible {
   opacity: 1;
 }
+/* The message lets taps and drags through to what it covers (the navigator,
+   on phones); its button takes them, and holds the message while pointed at. */
+#toast.visible .toast-close {
+  pointer-events: auto;
+}
+#toast .toast-close {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  margin: -4px -9px -4px 8px;
+  padding: 0;
+  vertical-align: middle;
+  color: inherit;
+}
+#toast .toast-close:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
 #print-slides {
   display: none;
 }
