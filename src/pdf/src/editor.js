@@ -2152,22 +2152,24 @@ export function createEditor({
   function suggestTools() {
     const query = searchInput.value.trim().toLowerCase();
     // Words are matched from their start, as typed: "rot" finds the tool that rotates pages,
-    // not Protect a PDF, which merely contains the letters.
-    const words = new RegExp(
-      `(?:^|[^\\p{L}\\p{N}])${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-      'u',
-    );
+    // not Protect a PDF, which merely contains the letters. Each word is looked for on its own,
+    // so "delete page" or "edit text" finds a tool whose words are not side by side.
+    const words = query
+      .split(/\s+/)
+      .map(
+        (word) =>
+          new RegExp(`(?:^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'u'),
+      );
     const matches =
       query.length < 2
         ? []
         : toolCatalog()
-            .filter(
-              (entry) =>
-                !entry.hidden &&
-                words.test(
-                  `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`.toLowerCase(),
-                ),
-            )
+            .filter((entry) => {
+              if (entry.hidden) return false;
+              const text =
+                `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`.toLowerCase();
+              return words.every((word) => word.test(text));
+            })
             .slice(0, 5);
     toolList.replaceChildren(
       ...matches.map((entry, i) =>
