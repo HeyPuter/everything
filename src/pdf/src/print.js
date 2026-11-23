@@ -47,13 +47,15 @@ async function withResolution(blob, dpi) {
 /**
  * Render one page to a PNG or JPEG at `dpi`, with its annotations unless `annotations` is
  * false, for saving as a picture. `layers` is an optional PDF.js optional content
- * configuration (or a promise of one), such as the Layers panel's choices. Rejects with an
- * AbortError when `signal` aborts before the picture is ready.
+ * configuration (or a promise of one), such as the Layers panel's choices. With `areas`
+ * ([{ x, y, w, h }] in points from the top left of the page as shown), resolves instead to a
+ * picture of each area, cut from one drawing of the page. Rejects with an AbortError when
+ * `signal` aborts before the picture is ready.
  */
 export async function pageImage(
   pdf,
   index,
-  { dpi = 144, type = 'image/png', quality = 0.9, signal, annotations = true, layers } = {},
+  { dpi = 144, type = 'image/png', quality = 0.9, signal, annotations = true, layers, areas } = {},
 ) {
   signal?.throwIfAborted();
   const page = await waitFor(() => pdf.getPage(index + 1), signal);
@@ -65,10 +67,21 @@ export async function pageImage(
     8192 / natural.height,
     Math.sqrt(16000000 / (natural.width * natural.height)),
   );
-  const viewport = page.getViewport({ scale });
+  // Areas draw only the part of the page that holds them.
+  const bounds = areas?.length
+    ? {
+        x: Math.min(...areas.map((a) => a.x)),
+        y: Math.min(...areas.map((a) => a.y)),
+        x1: Math.max(...areas.map((a) => a.x + a.w)),
+        y1: Math.max(...areas.map((a) => a.y + a.h)),
+      }
+    : null;
+  const viewport = bounds
+    ? page.getViewport({ scale, offsetX: -bounds.x * scale, offsetY: -bounds.y * scale })
+    : page.getViewport({ scale });
   const canvas = el('canvas', {
-    width: Math.max(1, Math.ceil(viewport.width)),
-    height: Math.max(1, Math.ceil(viewport.height)),
+    width: Math.max(1, Math.ceil(bounds ? (bounds.x1 - bounds.x) * scale : viewport.width)),
+    height: Math.max(1, Math.ceil(bounds ? (bounds.y1 - bounds.y) * scale : viewport.height)),
   });
   try {
     const task = page.render({
@@ -96,6 +109,39 @@ export async function pageImage(
       context.fillStyle = '#fff';
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.restore();
+    }
+    if (areas) {
+      const pictures = [];
+      for (const { x, y, w, h } of areas) {
+        const part = el('canvas', {
+          width: Math.max(1, Math.ceil(w * scale)),
+          height: Math.max(1, Math.ceil(h * scale)),
+        });
+        try {
+          part
+            .getContext('2d')
+            .drawImage(
+              canvas,
+              (x - bounds.x) * scale,
+              (y - bounds.y) * scale,
+              part.width,
+              part.height,
+              0,
+              0,
+              part.width,
+              part.height,
+            );
+          const blob = await waitFor(
+            () => new Promise((resolve) => part.toBlob(resolve, type, quality)),
+            signal,
+          );
+          signal?.throwIfAborted();
+          pictures.push(blob && (await waitFor(() => withResolution(blob, scale * 72), signal)));
+        } finally {
+          part.width = part.height = 0;
+        }
+      }
+      return pictures;
     }
     const blob = await waitFor(
       () => new Promise((resolve) => canvas.toBlob(resolve, type, quality)),

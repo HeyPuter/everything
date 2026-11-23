@@ -11,9 +11,12 @@
  *     pages        zero-based page indices to export (default: every page)
  *     onProgress   (done, total) => void, called as pages are read and when the file is written
  *     signal       AbortSignal; aborting rejects with the signal's reason
- *     renderPage   async (index, scale, { text }) => Uint8Array (PNG). Optional and
+ *     renderPage   async (index, scale, { text, areas }) => Uint8Array (PNG). Optional and
  *                  browser-only: pages drawn only with vector art (no text, no pictures) are
- *                  exported as a picture of the page, and PowerPoint slides can use it as their
+ *                  exported as a picture of the page, and charts and diagrams on text pages as
+ *                  pictures of their areas: given `areas` ([{ x, y, w, h }] in points from the
+ *                  top left of the page as shown), it resolves to one PNG per area.
+ *                  PowerPoint slides can use the page picture as their
  *                  background, drawn with `text: false`: without the page text, which the slide
  *                  shows in its own editable text boxes.
  *     slideBackgrounds  PPTX: put each rendered page behind the slide's text (needs renderPage)
@@ -28,7 +31,7 @@
  * Everything runs in a browser or in Node (no canvas needed): layout analysis is in
  * export-layout.js, pictures in export-images.js, and one writer module per format.
  */
-import { readPage, buildDocument } from './export-layout.js';
+import { readPage, buildDocument, figureRegions } from './export-layout.js';
 import { createImageSource, pictureBytes } from './export-images.js';
 import { writeDocx } from './export-docx.js';
 import { writeXlsx } from './export-xlsx.js';
@@ -68,7 +71,7 @@ export const EXPORT_FORMATS = {
 export async function analyzeDocument(
   pdf,
   bytes,
-  { pages, onProgress, signal, renderPage, total, layers } = {},
+  { pages, onProgress, signal, renderPage, total, layers, figures = true } = {},
 ) {
   signal?.throwIfAborted();
   const indices = (
@@ -96,7 +99,8 @@ export async function analyzeDocument(
     },
   };
   let inlineCount = 0;
-  const scans = [];
+  const scans = [],
+    drawing = [];
   const count = total ?? indices.length + 1;
   for (const [n, index] of indices.entries()) {
     signal?.throwIfAborted();
@@ -133,11 +137,70 @@ export async function analyzeDocument(
         if (signal?.aborted) throw error;
       }
     }
+    // Charts and diagrams drawn among the text keep their look as pictures of their areas,
+    // with their labels; the writers have no vector drawing of their own. A few pages draw
+    // while the next ones are read: each drawing waits for a frame, mostly idle.
+    if (renderPage && figures && scan.spans.length) {
+      const areas = figureRegions(scan);
+      if (areas.length) {
+        const job = Promise.resolve()
+          .then(() =>
+            renderPage(index, 2, { areas: areas.map(({ x, y, w, h }) => ({ x, y, w, h })) }),
+          )
+          .then(
+            (pngs) => () => placeFigures(scan, areas, pngs),
+            (error) => {
+              if (signal?.aborted) throw error;
+              return () => {};
+            },
+          );
+        job.catch(() => {});
+        drawing.push(job);
+        if (drawing.length > 3) (await drawing.shift())();
+      }
+    }
     scans.push(scan);
     onProgress?.(n + 1, count);
   }
+  while (drawing.length) (await drawing.shift())();
   signal?.throwIfAborted();
   return buildDocument(scans);
+}
+
+/** Put the pictures of a page's drawn areas in place of what they show. */
+function placeFigures(scan, areas, pngs) {
+  areas.forEach((area, k) => {
+    const png = pngs?.[k];
+    if (!png?.length) return;
+    const taken = new Set(area.spans);
+    const within = (b) =>
+      b.x >= area.x - 1 &&
+      b.y >= area.y - 1 &&
+      b.x + b.w <= area.x + area.w + 1 &&
+      b.y + b.h <= area.y + area.h + 1;
+    scan.spans = scan.spans.filter((s) => !taken.has(s));
+    scan.vectors = scan.vectors.filter((v) => !within(v));
+    scan.fills = scan.fills.filter((f) => !within(f));
+    scan.rules = scan.rules.filter((r) =>
+      r.horizontal
+        ? !within({ x: r.x0, y: r.y, w: r.x1 - r.x0, h: 0 })
+        : !within({ x: r.x, y: r.y0, w: 0, h: r.y1 - r.y0 }),
+    );
+    scan.images.push({
+      x: area.x,
+      y: area.y,
+      w: area.w,
+      h: area.h,
+      picture: {
+        key: `figure:${scan.index}:${k}`,
+        mime: 'image/png',
+        extension: 'png',
+        bytes: png,
+        width: Math.round(area.w * 2),
+        height: Math.round(area.h * 2),
+      },
+    });
+  });
 }
 
 async function documentTitle(pdf) {
@@ -167,7 +230,10 @@ export async function exportDocument(pdf, bytes, format, options = {}) {
   const pageCount = options.pages?.length || pdf.numPages;
   const backgrounds = format === 'pptx' && options.slideBackgrounds && renderPage;
   const total = pageCount + 1 + (backgrounds ? pageCount : 0);
-  const model = await analyzeDocument(pdf, bytes, { ...options, total });
+  // Plain text and spreadsheets have no pictures; slides drawn over their page pictures
+  // already show the drawings.
+  const figures = format !== 'txt' && format !== 'xlsx' && !backgrounds;
+  const model = await analyzeDocument(pdf, bytes, { ...options, total, figures });
   const title = options.title ?? (await documentTitle(pdf));
   let done = pageCount;
   let output;

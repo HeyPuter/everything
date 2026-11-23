@@ -498,6 +498,16 @@ function addPath(args, state, view, rules, fills, vectors) {
           stroke: state.stroke,
           outline: true,
         });
+      // Straight lines that run neither across nor down (a chart's data line, an arrow) are
+      // drawing.
+      if (
+        (box.w > 3 || box.h > 3) &&
+        pts.some(
+          (p, k) =>
+            k > 0 && Math.abs(p[0] - pts[k - 1][0]) >= 0.5 && Math.abs(p[1] - pts[k - 1][1]) >= 0.5,
+        )
+      )
+        vectors.push(box);
     } else if (stroked && path.curved && box.w > 3 && box.h > 3) vectors.push(box);
   }
 }
@@ -655,6 +665,133 @@ export async function readPage(pdf, page, { images, signal, layers } = {}) {
     vectors: graphics.vectors,
     images: placements,
   };
+}
+
+/**
+ * Areas of a text page drawn with vector art (charts, diagrams, drawn logos) that an editable
+ * document can only keep as pictures. Each area takes the boxes and lines its drawing touches
+ * and the short labels set against it; an area holding lines of prose, or larger type than the
+ * page's labels (a banner behind a heading), is left as it was: its text stays editable.
+ * Returns [{ x, y, w, h, spans }] in page coordinates, `spans` being the text inside the area.
+ */
+export function figureRegions(scan) {
+  const { vectors = [], rules = [], fills = [], spans = [], width, height } = scan;
+  if (!vectors.length || !spans.length || spans.every((s) => s.invisible)) return [];
+  const pageArea = width * height;
+  const visible = spans.filter((s) => !s.invisible);
+  const sizes = visible.map((s) => s.size).sort((a, b) => a - b);
+  const bodySize = sizes[Math.floor(sizes.length / 2)] || 10;
+  // Shapes the size of the page are frames or backgrounds, not figures.
+  const seeds = vectors.filter((v) => v.w < width * 0.6 || v.h < height * 0.4);
+  const boxes = [
+    ...seeds.map((v) => ({ x0: v.x, y0: v.y, x1: v.x + v.w, y1: v.y + v.h, seed: true })),
+    ...fills
+      .filter((f) => f.w * f.h < pageArea * 0.25)
+      .map((f) => ({ x0: f.x, y0: f.y, x1: f.x + f.w, y1: f.y + f.h })),
+    ...rules.map((r) =>
+      r.horizontal
+        ? { x0: r.x0, x1: r.x1, y0: r.y - r.weight / 2, y1: r.y + r.weight / 2 }
+        : { x0: r.x - r.weight / 2, x1: r.x + r.weight / 2, y0: r.y0, y1: r.y1 },
+    ),
+  ];
+  if (boxes.length > 5000) return [];
+  // Join everything that touches, starting from the drawing's own shapes.
+  const near = (a, b, gap) =>
+    a.x0 - gap <= b.x1 && b.x0 - gap <= a.x1 && a.y0 - gap <= b.y1 && b.y0 - gap <= a.y1;
+  const used = new Array(boxes.length).fill(false);
+  const regions = [];
+  for (let i = 0; i < boxes.length; i++) {
+    if (used[i] || !boxes[i].seed) continue;
+    used[i] = true;
+    const region = { ...boxes[i] };
+    for (let grew = true; grew;) {
+      grew = false;
+      for (let k = 0; k < boxes.length; k++) {
+        if (used[k] || !near(region, boxes[k], 2)) continue;
+        used[k] = true;
+        grew = true;
+        region.x0 = Math.min(region.x0, boxes[k].x0);
+        region.y0 = Math.min(region.y0, boxes[k].y0);
+        region.x1 = Math.max(region.x1, boxes[k].x1);
+        region.y1 = Math.max(region.y1, boxes[k].y1);
+      }
+    }
+    regions.push(region);
+  }
+  const inside = (r, s) => {
+    const cx = (s.x0 + s.x1) / 2,
+      cy = (s.top + s.bottom) / 2;
+    return cx >= r.x0 && cx <= r.x1 && cy >= r.y0 && cy <= r.y1;
+  };
+  const candidates = [];
+  for (const region of regions) {
+    if (region.x1 - region.x0 < 36 || region.y1 - region.y0 < 36) continue;
+    // Labels just outside the drawing (axis values, legends) belong to it, unless they are
+    // part of a line or a paragraph of text that reaches beyond it.
+    const area = { ...region },
+      labels = new Set();
+    // A label set against another (a column of axis values) belongs too.
+    for (let pass = 0, grew = true; grew && pass < 4; pass++) {
+      grew = false;
+      for (const s of visible) {
+        if (labels.has(s) || inside(region, s) || s.text.trim().length > 24) continue;
+        const pad = Math.min(12, s.size * 1.25);
+        const box = { x0: s.x0, x1: s.x1, y0: s.top, y1: s.bottom };
+        if (!near(area, box, pad)) continue;
+        const prose = visible.some(
+          (o) =>
+            o !== s &&
+            !inside(region, o) &&
+            !near(region, { x0: o.x0, x1: o.x1, y0: o.top, y1: o.bottom }, pad) &&
+            (Math.abs(o.baseline - s.baseline) < s.size * 0.3 ||
+              (o.x0 < s.x1 &&
+                s.x0 < o.x1 &&
+                Math.min(Math.abs(o.top - s.bottom), Math.abs(s.top - o.bottom)) < s.size * 0.8)),
+        );
+        if (prose) continue;
+        labels.add(s);
+        grew = true;
+        area.x0 = Math.min(area.x0, s.x0);
+        area.x1 = Math.max(area.x1, s.x1);
+        area.y0 = Math.min(area.y0, s.top);
+        area.y1 = Math.max(area.y1, s.bottom);
+      }
+    }
+    // Labels that would take in other text with them are not the drawing's.
+    if (visible.some((s) => inside(area, s) && !inside(region, s) && !labels.has(s)))
+      Object.assign(area, region);
+    candidates.push(area);
+  }
+  // Drawings whose areas overlap make one picture, so that no part shows twice.
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < candidates.length; i++)
+      for (let k = candidates.length - 1; k > i; k--) {
+        const a = candidates[i],
+          b = candidates[k];
+        if (!near(a, b, -0.5)) continue;
+        a.x0 = Math.min(a.x0, b.x0);
+        a.y0 = Math.min(a.y0, b.y0);
+        a.x1 = Math.max(a.x1, b.x1);
+        a.y1 = Math.max(a.y1, b.y1);
+        candidates.splice(k, 1);
+        merged = true;
+      }
+  }
+  const out = [];
+  for (const area of candidates) {
+    if ((area.x1 - area.x0) * (area.y1 - area.y0) > pageArea * 0.6) continue;
+    const within = spans.filter((s) => inside(area, s));
+    const shown = within.filter((s) => !s.invisible);
+    const ink = shown.reduce((sum, s) => sum + (s.x1 - s.x0) * (s.bottom - s.top), 0);
+    const w = area.x1 - area.x0,
+      h = area.y1 - area.y0;
+    // Lines of prose make it a box of text, not a figure.
+    if (ink > w * h * 0.15 || shown.some((s) => s.text.trim().length > 40)) continue;
+    if (shown.some((s) => s.size > bodySize * 1.25 && s.size > 12)) continue;
+    out.push({ x: area.x0, y: area.y0, w, h, spans: within });
+  }
+  return out;
 }
 
 /**

@@ -12993,18 +12993,17 @@ export function createEditor({
                 ? `Drawing slide ${finished - count + 1} of ${count}…`
                 : 'Writing the file…';
         },
-        renderPage: async (index, scale = 2, { text = true } = {}) => {
+        renderPage: async (index, scale = 2, { text = true, areas } = {}) => {
           const free = text ? null : await textFreePdf(source);
-          return new Uint8Array(
-            await (
-              await pageImage(free?.doc || thisPdf, index, {
-                dpi: 72 * scale,
-                type: 'image/png',
-                signal: controller.signal,
-                layers: free ? free.layers : documentLayers || undefined,
-              })
-            ).arrayBuffer(),
-          );
+          const picture = await pageImage(free?.doc || thisPdf, index, {
+            areas,
+            dpi: 72 * scale,
+            type: 'image/png',
+            signal: controller.signal,
+            layers: free ? free.layers : documentLayers || undefined,
+          });
+          const bytes = async (blob) => blob && new Uint8Array(await blob.arrayBuffer());
+          return areas ? Promise.all(picture.map(bytes)) : bytes(picture);
         },
       });
       controller.signal.throwIfAborted();

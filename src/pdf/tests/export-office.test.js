@@ -1334,3 +1334,115 @@ it('keeps slanted (synthetic italic) text on its line, in italics', async () => 
     await loading.destroy();
   }
 });
+
+it('keeps a chart drawn among the text as a picture of its area, with its labels', async () => {
+  // Word, web pages and slides have no vector drawing: a line chart between paragraphs was
+  // dropped, leaving its axis values as stray paragraphs.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const page = doc.addPage([612, 792]);
+  // A banner shape behind a heading: the heading stays text.
+  page.drawSvgPath('M 0 0 L 400 0 Q 460 30 400 60 L 0 60 Z', {
+    x: 60,
+    y: 780,
+    color: rgb(0.9, 0.9, 1),
+  });
+  page.drawText('Annual results', { x: 72, y: 740, size: 24, font: bold });
+  page.drawText('Sales grew in every region during the year, led by demand for the new line.', {
+    x: 72,
+    y: 690,
+    size: 11,
+    font,
+  });
+  page.drawLine({ start: { x: 100, y: 450 }, end: { x: 400, y: 450 }, thickness: 1 });
+  page.drawLine({ start: { x: 100, y: 450 }, end: { x: 100, y: 650 }, thickness: 1 });
+  page.drawSvgPath('M 0 0 L 60 -40 L 120 -20 L 180 -120 L 240 -90 L 300 -170', {
+    x: 100,
+    y: 450,
+    borderColor: rgb(0.1, 0.3, 0.8),
+    borderWidth: 2,
+  });
+  ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].forEach((m, i) =>
+    page.drawText(m, { x: 142 + i * 50, y: 436, size: 8, font }),
+  );
+  ['0', '50', '100'].forEach((v, i) => page.drawText(v, { x: 80, y: 447 + i * 90, size: 8, font }));
+  // A rounded box around a paragraph is not a figure: its text stays editable.
+  page.drawSvgPath(
+    'M 10 0 L 290 0 Q 300 0 300 10 L 300 70 Q 300 80 290 80 L 10 80 Q 0 80 0 70 L 0 10 Q 0 0 10 0 Z',
+    { x: 72, y: 400, borderColor: rgb(0, 0, 0), borderWidth: 1 },
+  );
+  [
+    'Note: this box holds a paragraph of body text that',
+    'should stay editable when the page is exported.',
+  ].forEach((t, i) => page.drawText(t, { x: 80, y: 380 - i * 14, size: 9, font }));
+  page.drawText('The report continues with ordinary body text after the chart.', {
+    x: 72,
+    y: 290,
+    size: 11,
+    font,
+  });
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  try {
+    const png = await pngPicture();
+    const areas = [];
+    const renderPage = async (index, scale, options) => {
+      areas.push(...(options?.areas || []));
+      return options?.areas ? options.areas.map(() => png) : png;
+    };
+    const model = await analyzeDocument(pdf, bytes, { renderPage });
+    // The chart's axes, line and labels, in points from the top left of the page.
+    expect(areas).toHaveLength(1);
+    const { x, y, w, h } = areas[0];
+    expect(x).toBeCloseTo(80, 0);
+    expect(y).toBeCloseTo(142, 0);
+    expect(x + w).toBeGreaterThan(400);
+    expect(y + h).toBeGreaterThan(355);
+    expect(y + h).toBeLessThan(362);
+    const blocks = model.pages[0].blocks;
+    const image = blocks.find((b) => b.type === 'image');
+    expect(image).toMatchObject({ x, y, w, h });
+    const text = blocks.map((b) => b.runs?.map((r) => r.text).join('') || '').join('\n');
+    inOrder(text, ['Annual results', 'Sales grew', 'Note: this box', 'The report continues']);
+    for (const label of ['Jan', 'Feb', 'Jun', '50', '100']) expect(text).not.toContain(label);
+
+    const docx = await exportDocument(pdf, bytes, 'docx', { renderPage });
+    const files = await unzip(docx.bytes);
+    checkPackage(files);
+    expect(Object.keys(files).filter((n) => n.startsWith('word/media/'))).toHaveLength(1);
+    // Pages draw a few at a time while the next ones are read, and every one is placed.
+    const many = await PDFDocument.create();
+    for (const copy of await many.copyPages(await PDFDocument.load(bytes), Array(8).fill(0)))
+      many.addPage(copy);
+    const manyBytes = await many.save();
+    const manyTask = pdfjs.getDocument({ data: manyBytes.slice(), verbosity: 0 });
+    try {
+      let running = 0,
+        most = 0;
+      const slow = async (index, scale, options) => {
+        most = Math.max(most, ++running);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running--;
+        return options.areas.map(() => png);
+      };
+      const eight = await analyzeDocument(await manyTask.promise, manyBytes, { renderPage: slow });
+      expect(most).toBeGreaterThan(1);
+      expect(most).toBeLessThanOrEqual(4);
+      for (const page of eight.pages)
+        expect(page.blocks.filter((b) => b.type === 'image')).toHaveLength(1);
+    } finally {
+      await manyTask.destroy();
+    }
+    // Plain text has no pictures: the labels stay, and nothing is drawn.
+    areas.length = 0;
+    const txt = new TextDecoder().decode(
+      (await exportDocument(pdf, bytes, 'txt', { renderPage })).bytes,
+    );
+    expect(areas).toEqual([]);
+    expect(txt).toContain('Jun');
+  } finally {
+    await loading.destroy();
+  }
+});
