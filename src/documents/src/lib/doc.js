@@ -20,7 +20,7 @@
 
 import * as P from './puter.js';
 import { session } from './session.js';
-import { snapshotIfDue, saveVersion, renameVersions, deleteVersions } from './versions.js';
+import { snapshotIfDue, saveVersion, renameVersions, deleteVersions, clearStaleVersions } from './versions.js';
 import { movePublication, unpublishAt } from './publish.js';
 import { moveStar } from './starred.js';
 import { forgetRoom, moveRoom } from '../collab/room-memory.js';
@@ -402,9 +402,11 @@ export class Doc extends EventTarget {
         this._unconfirmed = null;
       }
       this._written = fingerprint(blob);
+      // This save made the file: a history under its name is another document's (clearStaleVersions).
+      const made = target !== this.path;
       // A failed export or write must not advertise a file that does not exist,
       // or make a clean document's next save short-circuit as already saved.
-      if (target !== this.path) {
+      if (made) {
         // A template or other non-docx source stays where it was: the new file is a copy of it.
         const copy = !!this.path;
         this.path = target;
@@ -415,7 +417,7 @@ export class Doc extends EventTarget {
       this.size = blob?.size ?? this.size;
       this.lastSaved = Date.now();
       this._lastSaveMs = this.lastSaved - started;
-      this._snapshot(blob);
+      this._snapshot(blob, { fresh: made });
       // Edits that landed while the write was in flight keep the doc dirty, unless saving passed to another tab
       // of a shared document meanwhile (setSaving): its edits reach the file from there.
       this.savedVersion = this.writes === false ? this.version : version;
@@ -529,9 +531,9 @@ export class Doc extends EventTarget {
   }
 
   /** Leave a version snapshot when one is due. Never affects the save status. */
-  _snapshot(blob) {
+  _snapshot(blob, { fresh = false } = {}) {
     if (!versioning.enabled || !this.path || this._snapshotting) return;
-    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.(), uid: this.uid })
+    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.(), uid: this.uid, fresh })
       .then((t) => { this.lastVersionAt = t; })
       .catch((e) => { console.warn('[documents] version snapshot failed', e); })
       .finally(() => { this._snapshotting = null; });
@@ -836,6 +838,8 @@ export class Doc extends EventTarget {
       this._fileUid = written?.uid || written?.id || null;
       this._written = fingerprint(blob);
       await forgetRoom(target);
+      // No file had the name: a history under it is another document's.
+      if (versioning.enabled) await clearStaleVersions(target);
       this.size = blob?.size ?? this.size;
       this.path = target;
       this.uid = null;

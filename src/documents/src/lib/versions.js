@@ -148,11 +148,28 @@ async function writeSnapshot(folder, blob, now, keep, meta = null) {
 }
 
 /**
+ * A file just made in the app folder, under a name no file had: a history already kept under that name belongs to a
+ * document that is gone (deleted, or moved away, outside this app, where its history could not go with it). Left
+ * there, the new document listed that document's versions as its own, offered to restore them over its text, and took
+ * no first version of its own. The history goes (best effort), as a rename onto the name removes it.
+ */
+export async function clearStaleVersions(path) {
+  try {
+    const folder = await appFolderHistory(path);
+    if (folder) await P.deleteFolder(folder);
+  } catch (e) {
+    if (!P.isNotFound(e)) console.warn('[documents] could not remove an earlier history under this name', e);
+  }
+}
+
+/**
  * After a save: snapshot when due. `lastTime` is the last snapshot's time,
  * null for none, or undefined when not yet known (the folder is read once).
- * Resolves the time of the newest snapshot afterwards.
+ * `fresh`: the save made the file (clearStaleVersions). Resolves the time of
+ * the newest snapshot afterwards.
  */
-export async function snapshotIfDue(path, blob, lastTime, { now = Date.now(), meta = null, uid = null } = {}) {
+export async function snapshotIfDue(path, blob, lastTime, { now = Date.now(), meta = null, uid = null, fresh = false } = {}) {
+  if (fresh) { await clearStaleVersions(path); lastTime = null; }
   if (lastTime != null && !shouldSnapshot(lastTime, now)) return lastTime;
   const folder = await resolveVersionsFolder(path, uid);
   if (!folder) return lastTime ?? null;
