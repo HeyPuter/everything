@@ -308,7 +308,7 @@
 .ed-zoom-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 
 /* ---- Narrow windows and phones ---- */
-@media (max-width: 900px) {
+@media (max-width: 1320px) {
   .ed-search span { display: none; }
   .ed-search { min-width: 0; padding: 0 6px; }
 }

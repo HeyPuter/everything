@@ -43,6 +43,22 @@ test("the editor's title bar shows Upgrade as an icon until there is room for it
   await expect(upgrade(page)).toBeHidden();
 });
 
+test("beside Upgrade's icon the document's name and the menus stay whole from 902px up, and nothing overflows", async ({ page }) => {
+  await withUserMenu(page);
+  for (const width of [1280, 1300, 1366, 1440, 1461, 1600, 1700, 1024, 920, 902]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto('/mock.html#/new');
+    await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+    await expect(upgrade(page), `${width}px`).toBeVisible();
+    expect(await nameShowsWhole(page), `${width}px`).toBe(true);
+    expect(await page.locator('.ed-header .ed-menubar').evaluate(bar => {
+      const right = bar.getBoundingClientRect().right;
+      return [...bar.querySelectorAll('.menu-btn')].every(b => b.getBoundingClientRect().right <= right + 0.5);
+    }), `${width}px`).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}px`).toBe(true);
+  }
+});
+
 test('the icon\'s tooltip follows the words the element gives it', async ({ page }) => {
   await withUserMenu(page);
   await page.goto('/mock.html#/new');

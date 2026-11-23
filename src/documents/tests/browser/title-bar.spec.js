@@ -223,3 +223,17 @@ test('signed out, "Sign in to save" shortens to its cloud before the document\'s
     else await expect(status.locator('svg')).toBeVisible();
   }
 });
+
+test('the document\'s name shows whole and no menu is cut off just above each of the title bar\'s steps', async ({ page }) => {
+  // Each width sits just above where the title bar used to drop something: the name lost letters at all of them,
+  // and Window and Help were cut out of the menu bar at 1101 to 1200px.
+  for (const width of [1536, 1366, 1200, 1120, 834, 768]) {
+    await openEditor(page, width);
+    expect(await title(page).evaluate(el => el.scrollWidth <= el.clientWidth), `${width}px`).toBe(true);
+    expect(await page.locator('.ed-header .ed-menubar').evaluate(bar => {
+      if (!bar.offsetWidth) return true;
+      const right = bar.getBoundingClientRect().right;
+      return [...bar.querySelectorAll('.menu-btn')].every(b => b.getBoundingClientRect().right <= right + 0.5);
+    }), `${width}px`).toBe(true);
+  }
+});
