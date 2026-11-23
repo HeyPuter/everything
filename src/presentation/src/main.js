@@ -17809,22 +17809,6 @@ async function present(options = {}) {
     // The show opens with its first slide's transition, from black, as the
     // canvas preview shows it.
     const opening = !shown;
-    if (
-      (opening || n !== from || wrapped) &&
-      effect !== "none" &&
-      !prefersReducedMotion()
-    ) {
-      playing = transitionTools.play({
-        host: frame,
-        fromSlide: opening ? null : all[from],
-        toSlide: all[n],
-        from: leaving,
-        to: arriving,
-        transition: playbackTransition,
-        backward,
-      });
-      readiness = playing.finished;
-    }
     if (opening || (!backward && (n !== from || wrapped))) {
       transitionTools.playArrivalSound(all[n]);
       if (P.getEffectiveSlideTransition(all[n])?.sound?.kind === "stop")
@@ -17849,8 +17833,28 @@ async function present(options = {}) {
         ? P.getSlideClickTimings(all[n])
         : [];
     // Set Up Show can show every slide without its animations.
-    if (backward || !plan.setup.showAnimation) animator.finish();
-    else {
+    const atEnd = backward || !plan.setup.showAnimation;
+    if (atEnd) animator.finish();
+    if (
+      (opening || n !== from || wrapped) &&
+      effect !== "none" &&
+      !prefersReducedMotion()
+    ) {
+      // The transition arrives at the slide as it will stand: objects that
+      // enter later are not in it yet.
+      playing = transitionTools.play({
+        host: frame,
+        fromSlide: opening ? null : all[from],
+        toSlide: all[n],
+        from: leaving,
+        to:
+          (atEnd ? animator.snapshot() : image.getAttribute("src")) || arriving,
+        transition: playbackTransition,
+        backward,
+      });
+      readiness = playing.finished;
+    }
+    if (!atEnd) {
       const playing = animator;
       Promise.resolve(readiness).then(() => {
         if (animator !== playing) return;

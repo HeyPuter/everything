@@ -588,3 +588,75 @@ test("the Next and Previous buttons bring back a black or white screen's slide a
   await expect(stage).not.toHaveClass(/blank-white/);
   await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
 });
+
+test("a transition shows the slide as it opens, and as it ends going back", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const second = P.addBlankSlide(pres);
+  // The red box comes in on the first click; the blue one leaves after it.
+  const red = shape(second, 1, 1, 3, 2, "#cc2222");
+  const blue = shape(second, 8, 4, 3, 2, "#2222cc");
+  const id = (s) => String(P.getShapeId(s));
+  const fade = (shapeId, presetClass, start) => ({
+    shapeId,
+    presetClass,
+    presetId: 10,
+    presetSubtype: 0,
+    start,
+    delayMs: 0,
+    durationMs: 100,
+  });
+  P.setSlideAnimations(second, [
+    fade(id(red), "entr", "click"),
+    fade(id(blue), "exit", "after"),
+  ]);
+  const third = P.addBlankSlide(pres);
+  for (const s of [second, third])
+    P.setSlideTransition(s, { effect: "fade", durationMs: 4000 });
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 3");
+  // The colour halfway through the transition at a point of the slide
+  // (fractions of its width and height).
+  const midway = async (points) => {
+    const overlay = page.locator(".presenter .slide-transition canvas");
+    await expect(overlay).toBeAttached();
+    await page.waitForTimeout(2200);
+    return page.evaluate((points) => {
+      const canvas = document.querySelector(
+        ".presenter .slide-transition canvas",
+      );
+      const ctx = canvas.getContext("2d");
+      return points.map(([x, y]) => {
+        const [r, g, b] = ctx.getImageData(
+          Math.round(x * canvas.width),
+          Math.round(y * canvas.height),
+          1,
+          1,
+        ).data;
+        return r - b > 40 ? "red" : b - r > 40 ? "blue" : "plain";
+      });
+    }, points);
+  };
+  const redAt = [2.5 / 13.333, 2 / 7.5],
+    blueAt = [9.5 / 13.333, 5 / 7.5];
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 3");
+  // The red box is still to come; the blue one is there.
+  expect(await midway([redAt, blueAt])).toEqual(["plain", "blue"]);
+  await expect(page.locator(".presenter .slide-transition")).toHaveCount(0, {
+    timeout: 8000,
+  });
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("3 / 3");
+  await expect(page.locator(".presenter .slide-transition")).toHaveCount(0, {
+    timeout: 8000,
+  });
+  // Back to the slide as it ended: the red box in, the blue one gone.
+  await page.keyboard.press("ArrowLeft");
+  await expect(counter).toHaveText("2 / 3");
+  expect(await midway([redAt, blueAt])).toEqual(["red", "plain"]);
+});
