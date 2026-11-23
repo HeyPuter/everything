@@ -13856,10 +13856,20 @@ function replaceInCell(cell, regex, replacement, only = null) {
   const matches = [...text.matchAll(regex)].filter(
     (_, i) => only == null || i === only,
   );
-  for (const hit of matches.reverse())
-    edits.replace(hit.index, hit.index + hit[0].length, replacement);
+  const ranges = matches.reverse().map((hit) => ({
+    start: hit.index,
+    end: hit.index + hit[0].length,
+    text: replacement,
+  }));
+  for (const range of ranges) edits.replace(range.start, range.end, range.text);
   if (edits.text === text) return false;
-  P.setTableCellText(cell, edits.text, { fields: edits.fields });
+  // The rest of the cell keeps its formatting; a field showing a value other
+  // than its own text has the cell's text replaced as a whole.
+  try {
+    P.editTableCellText(cell, ranges, edits.text);
+  } catch {
+    P.setTableCellText(cell, edits.text, { fields: edits.fields });
+  }
   return true;
 }
 
@@ -14131,8 +14141,32 @@ function editTableCell(target, row, col) {
   });
   const fields = tableTextFields(doc.pres, cell);
   const fieldEdits = fields.length ? trackTextFields(input, fields) : null;
+  // The edits as typed, so the commit changes only the text they touched:
+  // a bold word, a link or a centered paragraph elsewhere in the cell keeps
+  // its formatting.
+  const history = textEditHistory(value);
+  let pending = null,
+    line = false;
+  input.addEventListener("beforeinput", (e) => {
+    pending = {
+      start: input.selectionStart,
+      end: input.selectionEnd,
+      type: e.inputType,
+      line,
+    };
+  });
+  input.addEventListener("input", (e) => {
+    history.input(input.value, {
+      ...pending,
+      type: e.inputType || pending?.type,
+      afterStart: input.selectionStart,
+    });
+    pending = null;
+    line = false;
+  });
   let move = null;
   input.addEventListener("keydown", (e) => {
+    line = e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.metaKey;
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
       return;
     if (e.isComposing || !sharedEditorKey(e)) e.stopPropagation();
@@ -14164,11 +14198,18 @@ function editTableCell(target, row, col) {
       const next = input.value;
       input.remove();
       if (next !== value)
-        mutateShape(obj, (obj) =>
-          P.setTableCellText(P.getTableCell(obj, row, col), next, {
-            fields: fieldEdits?.fields || [],
-          }),
-        );
+        mutateShape(obj, (obj) => {
+          const cell = P.getTableCell(obj, row, col);
+          try {
+            P.editTableCellText(cell, history.edits(), next);
+          } catch {
+            // Edits that do not fit the cell's own text (a field showing a
+            // value other than its own) replace the text as a whole.
+            P.setTableCellText(cell, next, {
+              fields: fieldEdits?.fields || [],
+            });
+          }
+        });
       // The next cell opens at once, so typing carries straight on while the
       // last cell's text is still being written.
       if (move) editTableCell(obj, move.row, move.col);

@@ -17039,6 +17039,93 @@ test("Tab steps past the cells a merge covers", async ({ page }) => {
 
 // Escape in a table cell threw away what had been typed there, though in a
 // text box it keeps the typing and the shortcut list calls it finishing.
+// Committing a cell wrote its whole text back in the first run's format, so
+// one character typed anywhere took a bold word's bold, an italic run's
+// italic and a paragraph's centering out of the rest of the cell.
+test("typing in a table cell keeps the formatting of the text around it", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const table = P.addSlideTable(P.getSlides(pres)[0], {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(2),
+    rows: [
+      ["", "b"],
+      ["c", "d"],
+    ],
+  });
+  const tc = P.getTableCell(table, 0, 0)[
+    Symbol.for("@office-kit/pptx.cell.element")
+  ];
+  tc.children[tc.children.findIndex((c) => c.name?.localName === "txBody")] =
+    parseXml(
+      `<a:txBody xmlns:a="${NS.dml}"><a:bodyPr/><a:lstStyle/>` +
+        `<a:p><a:r><a:rPr lang="en-US"/><a:t>Revenue: </a:t></a:r>` +
+        `<a:r><a:rPr lang="en-US" b="1"/><a:t>$5M</a:t></a:r></a:p>` +
+        `<a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" i="1"/><a:t>up 10%</a:t></a:r></a:p>` +
+        `</a:txBody>`,
+    ).root;
+  // Another cell's change writes the slide with the rich cell in it.
+  P.setTableCellAlignment(P.getTableCell(table, 1, 1), "left");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Rich cell.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const cell = page.getByRole("textbox", { name: /^Edit cell/ });
+  await page.locator(".object-hit").dblclick({ position: { x: 20, y: 10 } });
+  await expect(cell).toHaveValue("Revenue: $5M\nup 10%");
+  await cell.evaluate((t) =>
+    t.setSelectionRange(t.value.length, t.value.length),
+  );
+  await page.keyboard.type("!");
+  await page.keyboard.press("Escape");
+  await expect(cell).toHaveCount(0);
+  await openFileMenu(page);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const saved = await parseDeck(
+    new Uint8Array(await readFile(await (await download).path())),
+  );
+  const paragraphs = P.getTableCellParagraphs(
+    P.getTableCell(P.getSlideShapes(P.getSlides(saved)[0])[0], 0, 0),
+  );
+  expect(
+    paragraphs.map((p) => ({
+      align: p.align,
+      runs: p.elements.map((e) => [
+        e.text,
+        !!e.format?.bold,
+        !!e.format?.italic,
+      ]),
+    })),
+  ).toEqual([
+    {
+      align: null,
+      runs: [
+        ["Revenue: ", false, false],
+        ["$5M", true, false],
+      ],
+    },
+    {
+      align: "center",
+      runs: [
+        ["up 10%", false, true],
+        ["!", false, true],
+      ],
+    },
+  ]);
+});
 test("Escape in a table cell keeps what was typed", async ({ page }) => {
   await start(page);
   const pres = createDeck("blank");

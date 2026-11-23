@@ -10,6 +10,7 @@ import {
   clearFill as clearFillImpl,
   setSolidFill,
   setTextBody,
+  textBodyText,
   type TextFormat,
   type ParagraphAlignment,
 } from "../../internal/drawingml/index.ts";
@@ -51,6 +52,10 @@ import {
   normalizeGuid,
 } from "../../internal/bounds.ts";
 import { commitSlideData, refreshSlideData } from "./_helpers.ts";
+import {
+  editTextBodyRange,
+  type TextBodyEdit,
+} from "../../internal/drawingml/text-body-edit.ts";
 import {
   type ShapeParagraphElement,
   readParagraphElements,
@@ -553,6 +558,43 @@ export const setTableCellText = (
 ): void => {
   const txBody = ensureCellTxBody(cell);
   setTextBody(txBody, text, options.fields);
+  commitTableCell(cell);
+};
+
+/** Applies sequential range edits in the cell's visible text (as an editing
+ * history records them, see `TextBodyEdit`), keeping the runs, fields and
+ * paragraph properties outside the edited ranges. `text` is the text the
+ * edits end at. Throws, leaving the cell as it was, when the edits do not
+ * start from the cell's own text or do not end at `text`. */
+export const editTableCellText = (
+  cell: TableCellData,
+  edits: readonly TextBodyEdit[],
+  text: string,
+): void => {
+  const tc = cell[CELL_ELEMENT];
+  const existing = firstChildElement(tc, NAME_A_TX_BODY_TBL);
+  const body = existing
+    ? structuredClone(existing)
+    : elem(NAME_A_TX_BODY_TBL, {
+        children: [
+          elem(qname("a", "bodyPr", NS.dml)),
+          elem(qname("a", "lstStyle", NS.dml)),
+        ],
+      });
+  for (const edit of edits) editTextBodyRange(body, edit);
+  if (textBodyText(body) !== text)
+    throw new Error("table cell edits do not match the cell's text");
+  if (existing) tc.children[tc.children.indexOf(existing)] = body;
+  else {
+    // Before <a:tcPr>, per the schema.
+    const at = tc.children.findIndex(
+      (c) =>
+        c.kind === "element" &&
+        c.name.namespaceURI === NS.dml &&
+        c.name.localName === "tcPr",
+    );
+    tc.children.splice(at < 0 ? tc.children.length : at, 0, body);
+  }
   commitTableCell(cell);
 };
 

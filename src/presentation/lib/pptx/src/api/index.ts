@@ -493,6 +493,7 @@ export {
   getTableCellPosition,
   getTableCellSpan,
   getTableCellText,
+  editTableCellText,
   getTableCellTextDirection,
   hasShapeImage,
   getTableCells,
