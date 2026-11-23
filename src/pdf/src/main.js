@@ -533,7 +533,7 @@ async function openFiles(files) {
   if (!pictures.length) throw new Error('Choose a PDF, or PNG and JPEG pictures.');
   const name = pictures[0].name.replace(/\.[^.]+$/, '') || 'Pictures';
   // The new PDF exists nowhere else yet, as a combined one does, so it starts out unsaved.
-  await openDocument(
+  const opened = await openDocument(
     async (signal) => {
       const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
         import('./core/image-pages.js'),
@@ -549,6 +549,12 @@ async function openFiles(files) {
     null,
     { unsaved: true },
   );
+  // Files that are neither (a GIF, a document) were left out; the reader learns which.
+  const skipped = files.filter((file) => !isPictureFile(file));
+  if (opened && skipped.length)
+    toast(
+      `${skipped.length === 1 ? `${skipped[0].name} was` : `${skipped.length} files were`} left out. Only PNG and JPEG pictures become pages.`,
+    );
 }
 /** A new PDF is a sheet of the paper the region prints on, as pictures turned into pages are. */
 async function newBlankPdf() {
@@ -774,6 +780,8 @@ function showHome({ accountRefresh = false } = {}) {
   if (location.hash !== LIBRARY_HASH) history.replaceState(null, '', LIBRARY_HASH);
   const generation = ++homeGeneration;
   const list = el('div', { class: 'file-list' });
+  // What a search found, for screen readers, which otherwise hear nothing as the rows change.
+  const searchStatus = el('p', { class: 'sr-only', role: 'status' });
   let files = [],
     loadGeneration = 0,
     filter = '',
@@ -812,6 +820,7 @@ function showHome({ accountRefresh = false } = {}) {
   };
   const drawFiles = () => {
     list.replaceChildren();
+    searchStatus.textContent = '';
     if (libraryState === 'loading') {
       list.append(el('div', { class: 'empty-library' }, 'Loading your PDFs…'));
       return;
@@ -831,9 +840,13 @@ function showHome({ accountRefresh = false } = {}) {
       .filter((f) => f.name.toLowerCase().includes(filter))
       .sort((a, b) =>
         sort === 'name'
-          ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+          ? byName.compare(a.name, b.name)
           : (b[sort] || 0) - (a[sort] || 0),
       );
+    if (filter)
+      searchStatus.textContent = !shown.length
+        ? 'No matching PDFs'
+        : `${shown.length} matching ${shown.length === 1 ? 'PDF' : 'PDFs'}`;
     if (!shown.length) {
       list.append(
         el(
@@ -873,35 +886,44 @@ function showHome({ accountRefresh = false } = {}) {
         el('span'),
       ),
     );
-    shown.forEach((file) => {
-      const timestamp = file.modified;
-      const date = timestamp
-        ? new Date(timestamp).toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-          })
-        : 'Unknown';
-      list.append(
-        el(
-          'div',
-          { class: 'file-row' },
-          button(
-            file.name,
-            'FileText',
-            run(() => openCloudItem(file)),
-            'file-open',
-          ),
-          el('span', { class: 'file-date muted' }, date),
-          el('span', { class: 'file-size muted' }, formatBytes(file.size || 0)),
-          iconButton(`Options for ${file.name}`, 'MoreHorizontal', (e) => {
-            // Safari does not focus clicked buttons; give the dialog a real return target.
-            e.currentTarget.focus({ preventScroll: true });
-            fileOptions(file);
-          }),
-        ),
-      );
-    });
+    list.append(...shown.map(fileRow));
+  };
+  // Each listing builds a file's row once. Typing in Search PDFs then only chooses and orders
+  // rows, rather than rebuilding (and re-formatting the date of) every one on each keystroke,
+  // which took about 100 ms per key in a library of 2,000 PDFs.
+  const rows = new WeakMap();
+  // One collator for every comparison: localeCompare with options sets one up each time, which
+  // made a name-sorted search of 2,000 PDFs spend 5 to 10 ms a key on sorting alone.
+  const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const dateFormat = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const fileRow = (file) => {
+    let row = rows.get(file);
+    if (row) return row;
+    const timestamp = file.modified;
+    const date = timestamp ? dateFormat.format(new Date(timestamp)) : 'Unknown';
+    row = el(
+      'div',
+      { class: 'file-row' },
+      button(
+        file.name,
+        'FileText',
+        run(() => openCloudItem(file)),
+        'file-open',
+      ),
+      el('span', { class: 'file-date muted' }, date),
+      el('span', { class: 'file-size muted' }, formatBytes(file.size || 0)),
+      iconButton(`Options for ${file.name}`, 'MoreHorizontal', (e) => {
+        // Safari does not focus clicked buttons; give the dialog a real return target.
+        e.currentTarget.focus({ preventScroll: true });
+        fileOptions(file);
+      }),
+    );
+    rows.set(file, row);
+    return row;
   };
   function refreshAfterAction() {
     load();
@@ -1118,6 +1140,7 @@ function showHome({ accountRefresh = false } = {}) {
               el('div', { class: 'search-wrap' }, icon('Search', 16), search),
             ),
           ),
+          searchStatus,
           list,
         ),
         el(

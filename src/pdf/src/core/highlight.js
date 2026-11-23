@@ -1,7 +1,9 @@
 import { PDFDict, PDFName, PDFNumber, PDFHexString, PDFString } from 'pdf-lib';
 import {
   annotationForEdit,
+  annotationKey,
   annotationList,
+  annotationPosition,
   annotationsOf,
   removeAnnotationThread,
 } from './structure.js';
@@ -173,7 +175,7 @@ export function addHighlight(
 
 /** Every editable text markup on the page: highlights, underlines, and strikethroughs. */
 export function listHighlights(doc, index) {
-  return (annotationsOf(doc.getPage(index))?.asArray() || []).flatMap((ref) => {
+  return (annotationsOf(doc.getPage(index))?.asArray() || []).flatMap((ref, position) => {
     const dict = doc.context.lookup(ref);
     if (!(dict instanceof PDFDict)) return [];
     const kind = kindOf(dict.lookup(name('Subtype'))?.decodeText?.());
@@ -204,7 +206,7 @@ export function listHighlights(doc, index) {
     for (let i = 0; i < points.length; i += 8) quads.push(orderedQuad(points.slice(i, i + 8)));
     return [
       {
-        id: ref.toString(),
+        id: annotationKey(ref, position),
         kind,
         quads,
         hex,
@@ -222,7 +224,7 @@ export function editHighlight(doc, index, id, { hex, remove = false } = {}) {
   const entry = listHighlights(doc, index).find((h) => h.id === id);
   if (!entry || entry.readOnly) throw new Error('This markup cannot be edited.');
   const annots = annotationsOf(doc.getPage(index));
-  const position = annots.asArray().findIndex((ref) => ref.toString() === id);
+  const position = annotationPosition(annots, id);
   if (remove) {
     removeAnnotationThread(doc.getPage(index), id);
     return;
@@ -235,7 +237,7 @@ export function editHighlight(doc, index, id, { hex, remove = false } = {}) {
   appearance(doc, dict, entry.quads, hex, entry.kind, opacity);
   // When it was last changed, as every other edit to a comment records.
   dict.set(name('M'), PDFString.of(pdfDate()));
-  return annotationsOf(doc.getPage(index)).get(position).toString();
+  return annotationKey(annotationsOf(doc.getPage(index)).get(position), position);
 }
 
 export function rectQuad({ x, y, width, height }) {

@@ -299,7 +299,13 @@ export const defaultButtonAppearanceProvider = (button, widget, font) => {
   };
 };
 
-export const defaultTextFieldAppearanceProvider = (textField, widget, font) => {
+/** `textColor` draws the text in another color, leaving the field's own (its /DA) as it is. */
+export const defaultTextFieldAppearanceProvider = (
+  textField,
+  widget,
+  font,
+  { textColor: shown } = {},
+) => {
   // The `/DA` entry can be at the widget or field level - so we handle both
   const widgetColor = getDefaultColor(widget);
   const fieldColor = getDefaultColor(textField.acroField);
@@ -378,7 +384,7 @@ export const defaultTextFieldAppearanceProvider = (textField, widget, font) => {
     height: height - borderWidth,
     borderWidth: borderWidth ?? 0,
     borderColor,
-    textColor,
+    textColor: shown ?? textColor,
     font: font.name,
     fontSize,
     color: normalBackgroundColor,

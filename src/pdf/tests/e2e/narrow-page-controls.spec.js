@@ -36,3 +36,31 @@ for (const count of [12, 400])
     }
     await expect(page.locator('.page-controls')).toContainText(`/ ${count}`);
   });
+
+test('the page number box asks phones for the number pad and keeps text sizes', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage([400, 500]);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'pages.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+  const box = page.getByLabel('Page number', { exact: true });
+  await expect(box).toHaveAttribute('inputmode', 'numeric');
+  await expect(box).toHaveAttribute('enterkeyhint', 'go');
+  // iOS would otherwise enlarge the text when the phone turns to landscape.
+  const adjust = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return style.textSizeAdjust || style.webkitTextSizeAdjust;
+  });
+  expect(adjust).toBe('100%');
+});

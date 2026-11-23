@@ -420,3 +420,19 @@ it('still writes the report when its text face cannot be loaded', async () => {
     vi.restoreAllMocks();
   }
 });
+
+it('says a page was turned, not resized, when only its rotation changed', async () => {
+  const draw = async (rotation, width = 612) => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([width, 792]);
+    page.drawText('The same words on both versions', { x: 72, y: 700, size: 12, font });
+    page.setRotation(degrees(rotation));
+    return open(await doc.save());
+  };
+  const turned = await compareDocuments(await draw(0), await draw(90));
+  expect(turned.pages[0].notes).toEqual(['Page rotation changed']);
+  // A page both turned and resized has changed size.
+  const resized = await compareDocuments(await draw(0), await draw(90, 700));
+  expect(resized.pages[0].notes).toEqual(['Page size changed']);
+});

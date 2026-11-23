@@ -557,6 +557,55 @@ test('redaction marks without an appearance are outlined on the page', async ({ 
   expect(await pixel(180.5, 60)).toEqual([255, 255, 255]);
 });
 
+// Some writers put annotation dictionaries straight into a page's /Annots array. PDF.js names
+// those by IDs of its own, so such a mark without an appearance was never outlined.
+test('a redaction mark written straight into the annotation list is outlined', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([300, 300]);
+  const mark = () =>
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Redact',
+      Rect: [40, 150, 140, 220],
+      C: [0, 0, 1],
+    });
+  // Two identical marks, so that one cannot be told from the other by its dictionary.
+  sheet.node.set(PDFName.of('Annots'), doc.context.obj([mark(), mark()]));
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'direct.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  const pixel = (x, y) =>
+    page
+      .locator('.paper > canvas')
+      .first()
+      .evaluate(
+        (canvas, [x, y]) => {
+          const scale = canvas.width / 300;
+          return Array.from(
+            canvas
+              .getContext('2d')
+              .getImageData(Math.floor(x * scale), Math.floor((300 - y) * scale), 1, 1).data,
+          ).slice(0, 3);
+        },
+        [x, y],
+      );
+  const blue = ([r, g, b]) => b > 180 && r < 120 && g < 120;
+  await expect.poll(async () => blue(await pixel(40.5, 190))).toBe(true);
+  expect(await pixel(90, 190)).toEqual([255, 255, 255]);
+});
+
 test('Find text and redact lists each match once when Enter is pressed again while it searches', async ({
   page,
 }) => {

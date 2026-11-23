@@ -66,6 +66,11 @@
 * {
   box-sizing: border-box;
 }
+html {
+  /* Phones keep the app's type sizes in landscape instead of enlarging them. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 body {
   margin: 0;
   background: var(--page);
@@ -510,6 +515,12 @@ puter-user-menu::part(apps-panel) {
 }
 .file-row + .file-row {
   border-top: 1px solid var(--border);
+}
+/* A long library lays out only the rows on screen, so searching it stays quick. The size
+   stands in for a row's content (its padding and border are added), until it is first shown. */
+.file-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 38px;
 }
 .file-row:hover {
   background: var(--page);
@@ -1114,8 +1125,11 @@ puter-user-menu::part(apps-panel) {
 .text-object-selected {
   pointer-events: none;
 }
+/* A finger moves the selected text; on any other it scrolls or zooms the page. */
 .select-text-objects .text-target {
   cursor: move;
+}
+.select-text-objects .text-target.text-movable {
   touch-action: none;
 }
 .text-targets.select-text-objects {
@@ -1506,6 +1520,10 @@ puter-user-menu::part(apps-panel) {
   touch-action: none;
   cursor: crosshair;
 }
+/* Text and notes are added with a tap; a finger scrolls or zooms the page meanwhile. */
+.drawing-overlay.active.tap-to-place {
+  touch-action: auto;
+}
 .page-caption {
   font-size: 10px;
   color: var(--muted);
@@ -1633,6 +1651,17 @@ puter-user-menu::part(apps-panel) {
   inset: 0;
   z-index: 3;
   pointer-events: none;
+}
+/*
+ * Comments and links outside a cropped page are not shown, and their targets must not run on
+ * past it and give the workspace room to scroll; the margin leaves focus rings at the edges.
+ */
+.highlight-targets,
+.note-targets,
+.link-targets,
+.annotation-targets {
+  overflow: clip;
+  overflow-clip-margin: 4px;
 }
 .highlight-target {
   position: absolute;
@@ -2407,6 +2436,13 @@ kbd {
   .file-table-head > span:nth-child(2) {
     display: none;
   }
+  /* A finger has no tooltip to show a shortened name, and names that differ only at the end
+     (Report 2025 Q1, Report 2025 Q2) looked the same: the whole name shows, over several lines
+     if need be. */
+  .file-open span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .editor-topbar {
     height: 58px;
     min-height: 58px;
@@ -2494,8 +2530,11 @@ kbd {
   .find-bar .input {
     font-size: 12px;
   }
+  /* The count takes only the room its words need, which the find box (and on the smallest
+     phones the Close button, pushed past the edge) needs more. */
   .search-count {
     font-size: 10px;
+    min-width: 0;
   }
   /* Until there is a count to show, its room goes to the find box, whose prompt was cut short. */
   .search-count:empty {
@@ -2510,6 +2549,11 @@ kbd {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* A long account name gives way on the smallest phones, rather than pushing Settings off the
+     edge of the screen. */
+  .header-right {
+    min-width: 0;
   }
   .editor-topbar .icon-btn {
     min-width: 30px;
@@ -2549,6 +2593,42 @@ kbd {
   }
   .home-main {
     padding-inline: 18px;
+  }
+}
+/* iOS Safari zooms into a focused field whose text is under 16px, and leaves the page zoomed in
+   once the field is done with. On touch phones, upright or sideways, the app's fields take 16px
+   text, as the system's own fields do. Fields on the page itself (a PDF's form) keep the size
+   the page gives them. */
+@media (pointer: coarse) and (max-width: 760px), (pointer: coarse) and (max-height: 500px) {
+  :is(
+    input:not(
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='button'],
+      [type='submit'],
+      [type='reset'],
+      [type='image']
+    ),
+    select,
+    textarea
+  ):not(.workspace *) {
+    font-size: 16px !important;
+  }
+}
+/* The larger text still leaves the whole "Search PDFs" in view beside the sort order. */
+@media (pointer: coarse) and (max-width: 380px) {
+  .library-tools {
+    gap: 6px;
+  }
+  .sort-select {
+    padding-inline: 0 4px;
+  }
+  .search-input {
+    padding-left: 32px;
+    padding-right: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2742,6 +2822,41 @@ kbd {
 .form-widget.has-draft {
   outline-color: var(--brand);
 }
+/* A filled-in field with a format (an amount, a date) shows its value formatted, as the page
+   will draw it, while another field has the focus. */
+.form-shown {
+  display: none;
+}
+.form-widget.has-draft.is-formatted:not(:focus-within) .form-control {
+  color: transparent;
+}
+.form-widget.has-draft.is-formatted:not(:focus-within) .form-shown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 1px 2px;
+  overflow: hidden;
+  font: var(--field-font-size) / 1.2 sans-serif;
+  white-space: pre;
+  color: var(--field-ink);
+  pointer-events: none;
+}
+/* A total shows what the fields filled in so far work out to, over the page's old value and
+   inside the field's border. */
+.form-widget.is-calculated .form-shown {
+  position: absolute;
+  inset: 1px;
+  display: flex;
+  align-items: center;
+  padding: 0 1px;
+  overflow: hidden;
+  font: var(--field-font-size) / 1.2 sans-serif;
+  white-space: pre;
+  color: var(--field-ink);
+  background: var(--field-background);
+  pointer-events: none;
+}
 /* The field an error above the page is about. */
 .form-widget:has(.form-control[aria-invalid='true']),
 .form-widget:has(.form-control[aria-invalid='true']):focus-within {
@@ -2762,6 +2877,13 @@ kbd {
   opacity: 1;
   color: var(--field-ink);
   background: var(--field-background);
+}
+/* A form's Print or Reset button, or a signature field, keeps the PDF's own drawing; the
+   focus outline marks it. */
+.form-widget.form-button .form-control,
+.form-widget.form-signature .form-control {
+  opacity: 0;
+  cursor: pointer;
 }
 .form-checkbox .form-control,
 .form-radio .form-control {

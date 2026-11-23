@@ -841,3 +841,56 @@ test('Delete on every page in Organize pages says why nothing was deleted', asyn
   await expect(grid.getByRole('option')).toHaveCount(3);
   await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
 });
+
+test('a thumbnail chosen while organizing moves the current-page mark in the grid', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await showPanel(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toHaveClass(/is-current/);
+  await showPanel(page);
+  await page.locator('.thumb-item').nth(2).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 3 of 3');
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toHaveClass(/is-current/);
+  await expect(grid.locator('.is-current')).toHaveCount(1);
+});
+
+test('Escape closes Organize pages, as it closes Compare files', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'Phones have no Escape key; the desktop tools pane opens Organize pages');
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+  // An open menu takes Escape first, and the grid stays.
+  await toolbar.getByRole('button', { name: /^Insert/ }).click();
+  await expect(page.getByRole('menu', { name: 'Insert' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu', { name: 'Insert' })).toBeHidden();
+  await expect(grid).toBeVisible();
+  // Then Escape leaves the grid, and the focus goes back to the page.
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(grid).toBeHidden();
+  await expect(page.locator('.editor')).not.toHaveClass(/organizing/);
+  await expect(page.locator('.workspace')).toBeFocused();
+  // The pages chosen in the grid are still chosen when it opens again.
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});

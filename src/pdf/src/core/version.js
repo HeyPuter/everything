@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 
 const VERSION = PDFName.of('Version');
 const parse = (value) => (/^\d+\.\d+$/.test(value) ? value.split('.').map(Number) : [0, 0]);
@@ -36,4 +36,18 @@ export function savePdf(doc, options) {
   const version = pdfVersion(doc);
   if (newer(version, [1, 7])) doc.catalog.set(VERSION, PDFName.of(version.join('.')));
   return doc.save({ objectsPerTick: OBJECTS_PER_TICK, ...options });
+}
+
+/**
+ * A Reader-enabled PDF carries a usage-rights signature (/Perms /UR3, or the older /UR) over
+ * the file as it was. An edit saves the file anew and breaks it, and Adobe Reader then warns
+ * that the document was changed and its extended features are gone, so edits and new
+ * encryption drop it.
+ * A certification (/DocMDP) stays, to be reported as changed.
+ */
+export function dropUsageRights(doc) {
+  const perms = doc.catalog.lookup(PDFName.of('Perms'));
+  if (!(perms instanceof PDFDict)) return;
+  for (const key of ['UR3', 'UR']) perms.delete(PDFName.of(key));
+  if (!perms.keys().length) doc.catalog.delete(PDFName.of('Perms'));
 }

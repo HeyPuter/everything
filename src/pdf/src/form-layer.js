@@ -1,13 +1,18 @@
 import { el } from './lib/ui.js';
 import { FormDraft, formWidgets, formWidgetLayout, tabOrderedWidgets } from './core/form-draft.js';
+import { formattedText } from './core/form-format.js';
 
+/** Buttons and signature fields hold no value to fill in. */
+const hasValue = (widget) => widget.type !== 'button' && widget.type !== 'signature';
 const rgb = (value, fallback) => (value?.length === 3 ? `rgb(${[...value].join(' ')})` : fallback);
 
 /**
  * The page's fields as native controls. `onTabOut(direction)` is asked when Tab or Shift Tab
  * would leave the page's last or first field; it returns true when it takes the focus on.
+ * `onAction(action)` runs the form's own Print and Reset buttons (pushButtonAction), and
+ * signs or shows a signature field ({ kind: 'signature', name }).
  */
-export function createFormLayer({ onChange, onCommit, onTabOut }) {
+export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   const draft = new FormDraft();
   const root = el('div', { class: 'form-layer', role: 'group', 'aria-label': 'Page form fields' });
   const error = el('p', {
@@ -18,6 +23,10 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
   });
   // Comb controls realign their boxes when their value changes.
   const combs = new WeakMap();
+  // A formatted field's value as its format shows it, while another field has the focus; or a
+  // calculated field's value as the fields filled in so far work it out.
+  const shownValues = new WeakMap();
+  let calculatedValues = new Map();
   let widgets = [],
     controls = new Map(),
     key,
@@ -69,7 +78,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
   function sync(editingControl) {
     for (const widget of widgets) {
       const control = controls.get(widget.id);
-      if (!control) continue;
+      if (!control || !hasValue(widget)) continue;
       const value = draft.value(widget.name);
       if (widget.type === 'checkbox') control.checked = value.includes(widget.exportValue);
       else if (widget.type === 'radio') control.checked = value.includes(widget.buttonValue);
@@ -91,6 +100,19 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
           control.value = text;
           combs.get(control)?.();
         }
+      }
+      const shown = shownValues.get(control);
+      if (shown) {
+        const text = formattedText(value, widget.format ?? '');
+        shown.textContent = text === value ? '' : text;
+        shown.parentElement.classList.toggle('is-formatted', text !== value);
+        // A total the fields filled in so far change, until the form is saved and works it out.
+        const calculated =
+          calculatedValues.has(widget.name) && !draft.changes.has(widget.name)
+            ? calculatedValues.get(widget.name)
+            : null;
+        if (calculated !== null) shown.textContent = formattedText(calculated, widget.format ?? '');
+        shown.parentElement.classList.toggle('is-calculated', calculated !== null);
       }
       control.closest('.form-widget').classList.toggle('has-draft', draft.changes.has(widget.name));
       control.setAttribute('aria-invalid', String(!error.hidden && isInvalid(widget)));
@@ -135,7 +157,19 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
       disabled: widget.readOnly,
     };
     let control;
-    if (widget.type === 'checkbox' || widget.type === 'radio') {
+    if (!hasValue(widget)) {
+      // The PDF draws the button or signature; this one takes its clicks and keys.
+      control = el('button', {
+        ...attrs,
+        type: 'button',
+        'aria-required': null,
+        ...(widget.type === 'signature' && {
+          'aria-label': `${label}: signature field (on page)`,
+          title: `${label}: signature field`,
+        }),
+      });
+      control.addEventListener('click', () => onAction?.(widget.action));
+    } else if (widget.type === 'checkbox' || widget.type === 'radio') {
       control = el('input', { ...attrs, type: widget.type, name: `page-widget-${widget.id}` });
       control.addEventListener('change', () =>
         changed(
@@ -190,6 +224,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
         ...attrs,
         type: widget.multiline ? null : widget.password ? 'password' : 'text',
         maxlength: widget.maxLength,
+        placeholder: widget.placeholder,
         autocomplete: 'off',
         spellcheck: String(widget.spellcheck),
       });
@@ -250,6 +285,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
     radioChoices,
     listSelections,
     tabs,
+    structureOrder,
   ) {
     rememberFocus();
     if (key !== pageKey) {
@@ -262,8 +298,10 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
       formWidgets(annotations, layers, buttonSelections, tooltips, radioChoices, listSelections),
       viewport.transform,
       tabs,
+      structureOrder,
     );
-    draft.register(widgets);
+    draft.register(widgets.filter(hasValue));
+    calculatedValues = new Map();
     controls = new Map();
     const fragment = document.createDocumentFragment();
     for (const widget of widgets) {
@@ -311,6 +349,18 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
         control.addEventListener('input', align);
         combs.set(control, align);
       }
+      if (
+        (widget.format || widget.calculated) &&
+        !widget.comb &&
+        !widget.multiline &&
+        !widget.password
+      ) {
+        const shown = el('span', { class: 'form-shown', 'aria-hidden': 'true' });
+        shown.style.justifyContent =
+          { center: 'center', right: 'flex-end' }[widget.alignment] ?? '';
+        container.append(shown);
+        shownValues.set(control, shown);
+      }
       if (widget.type === 'choice' && widget.editableChoice) {
         const id = `form-options-${widget.id}`;
         control.setAttribute('list', id);
@@ -356,6 +406,15 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
     undo,
     redo,
     owns: (element) => root.contains(element),
+    /** Whether the page has fields worked out from others, for showCalculated. */
+    get calculates() {
+      return widgets.some((widget) => widget.calculated);
+    },
+    /** Show calculated fields' values as the drafts work them out (field name to value). */
+    showCalculated(values) {
+      calculatedValues = values;
+      sync();
+    },
     /** Focus the page's first field (`last`: its last one); false when it has none to fill. */
     focusEdge(last = false) {
       const stops = [...root.querySelectorAll('.form-control')].filter((c) => !c.disabled);

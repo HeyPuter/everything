@@ -85,6 +85,49 @@ export function annotationList(page) {
   return array;
 }
 /**
+ * An annotation's ID: its reference, or, for a dictionary some writers put in Annots itself
+ * instead of a reference to one, its place there. The dictionary as written is no ID: it
+ * changed with every edit, and could not be used in a selector.
+ */
+export const annotationKey = (entry, position) =>
+  entry instanceof PDFRef ? entry.toString() : `direct:${position}`;
+/** Where the annotation with ID `id` is in the page's annotation array, or -1. */
+export const annotationPosition = (annots, id) =>
+  annots
+    ? annots.asArray().findIndex((entry, position) => annotationKey(entry, position) === id)
+    : -1;
+/**
+ * The editor's IDs for annotations PDF.js reports that are written into Annots directly. PDF.js
+ * names those after no object, with an ID of its own making; the two are paired by kind and
+ * rectangle, in page order. Empty (and nothing read) when every reported one is an object.
+ */
+export function directAnnotationIds(page, annotations) {
+  const ids = new Map();
+  const loose = annotations.filter((annotation) => !/^\d+R\d*$/.test(annotation.id));
+  const annots = loose.length ? annotationsOf(page) : null;
+  annots?.asArray().forEach((entry, position) => {
+    if (!(entry instanceof PDFDict)) return;
+    const subtype = entry.lookup(PDFName.of('Subtype'))?.decodeText?.();
+    const box = entry.lookup(PDFName.of('Rect'));
+    const values =
+      box instanceof PDFArray ? box.asArray().map((_, i) => box.lookup(i)?.asNumber?.()) : [];
+    if (values.length !== 4 || !values.every(Number.isFinite)) return;
+    const [x0, y0, x1, y1] = values;
+    const rect = [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
+    // A note without an appearance is reported at PDF.js's icon size, from its top-left corner.
+    const sides = subtype === 'Text' ? [0, 3] : [0, 1, 2, 3];
+    const match = loose.find(
+      (annotation) =>
+        !ids.has(annotation.id) &&
+        annotation.subtype === subtype &&
+        annotation.rect?.length === 4 &&
+        sides.every((i) => Math.abs(rect[i] - annotation.rect[i]) < 0.01),
+    );
+    if (match) ids.set(match.id, annotationKey(entry, position));
+  });
+  return ids;
+}
+/**
  * Remove an annotation from its page together with its popups and its replies, which point at
  * it (or at another reply) through /IRT. Replies left behind were still drawn on the page but
  * listed nowhere, since the comment list shows replies only under their thread.
@@ -92,7 +135,16 @@ export function annotationList(page) {
 export function removeAnnotationThread(page, id) {
   const { context } = page.doc;
   const annots = annotationList(page);
-  const entries = annots.asArray().map((ref) => [ref.toString(), context.lookup(ref)]);
+  const entries = annots
+    .asArray()
+    .map((ref, position) => [annotationKey(ref, position), context.lookup(ref)]);
+  // Callers that walk Annots themselves (redaction) name a direct dictionary as written.
+  if (!entries.some(([key]) => key === id)) {
+    const position = annots
+      .asArray()
+      .findIndex((entry) => !(entry instanceof PDFRef) && entry.toString() === id);
+    if (position >= 0) id = entries[position][0];
+  }
   const ids = new Set([id]);
   for (let grown = true; grown;) {
     grown = false;
@@ -104,11 +156,13 @@ export function removeAnnotationThread(page, id) {
       }
     }
   }
+  // Popups and their parents by object, which a direct one has instead of a reference.
+  const removed = new Set(entries.filter(([key]) => ids.has(key)).map(([, dict]) => dict));
   const popups = new Set();
-  for (const [key, dict] of entries)
-    if (ids.has(key) && dict instanceof PDFDict) {
-      const popup = dict.get(PDFName.of('Popup'));
-      if (popup) popups.add(popup.toString());
+  for (const dict of removed)
+    if (dict instanceof PDFDict) {
+      const popup = dict.lookup(PDFName.of('Popup'));
+      if (popup) popups.add(popup);
     }
   for (let i = annots.size() - 1; i >= 0; i--) {
     const [key, dict] = entries[i];
@@ -116,7 +170,7 @@ export function removeAnnotationThread(page, id) {
       ids.has(key) ||
       (dict instanceof PDFDict &&
         dict.lookup(PDFName.of('Subtype')) === PDFName.of('Popup') &&
-        (popups.has(key) || ids.has(dict.get(PDFName.of('Parent'))?.toString())))
+        (popups.has(dict) || removed.has(dict.lookup(PDFName.of('Parent')))))
     )
       annots.remove(i);
   }

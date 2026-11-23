@@ -1,6 +1,7 @@
 import { matrix } from './text-edit.js';
 import { annotationLayerVisible } from './optional-content.js';
 import { choiceKeys } from './form-values.js';
+import { datePattern } from './form-format.js';
 
 const clone = (value) => (Array.isArray(value) ? [...value] : value);
 export const equalFieldValue = (a, b) => {
@@ -116,7 +117,35 @@ function checkBoxGroups(annotations) {
   return groups;
 }
 
-/** Only actual, visible form widgets are interactive. No document actions are executed. */
+/** The scripts an annotation runs for an event (PDF.js lists them in a Map), as one text. */
+const actionScripts = (annotation, event) =>
+  (
+    (annotation.actions instanceof Map
+      ? annotation.actions.get(event)
+      : annotation.actions?.[event]) ?? []
+  ).join('\n');
+
+/**
+ * What a push button does when it is one of the form's own Print or Reset buttons (a Named
+ * Print action, a ResetForm action, or a script that only calls print() or resetForm()), or
+ * null: other actions are not run. Reset names the fields it resets (or leaves alone, when
+ * `include` is false); none named means every field.
+ */
+export function pushButtonAction(annotation) {
+  const script = actionScripts(annotation, 'Action');
+  if (annotation.action === 'Print' || /^\s*(?:this\.)?print\s*\([^()]*\)\s*;?\s*$/.test(script))
+    return { kind: 'print' };
+  if (annotation.resetForm) return { kind: 'reset', ...annotation.resetForm };
+  if (/^\s*(?:this\.)?resetForm\s*\(\s*\)\s*;?\s*$/.test(script))
+    return { kind: 'reset', fields: [], refs: [], include: true };
+  return null;
+}
+
+/**
+ * Only actual, visible form widgets are interactive. No document actions are executed; the
+ * form's own Print and Reset buttons (pushButtonAction) and signature fields are offered as
+ * buttons.
+ */
 export function formWidgets(
   annotations,
   layers,
@@ -158,8 +187,15 @@ export function formWidgets(
     } else if (a.fieldType === 'Btn' && a.radioButton && a.buttonValue != null) {
       type = 'radio';
       value = a.fieldValue === 'Off' || a.fieldValue == null ? [] : [a.fieldValue];
+    } else if (a.fieldType === 'Btn' && a.pushButton && pushButtonAction(a)) {
+      type = 'button';
+      value = null;
+    } else if (a.fieldType === 'Sig') {
+      // Clicked, it is signed with a certificate, or its signature is shown.
+      type = 'signature';
+      value = null;
     } else return [];
-    if (a.fieldType === 'Btn' && buttonSelections?.has(a.fieldName))
+    if (a.fieldType === 'Btn' && type !== 'button' && buttonSelections?.has(a.fieldName))
       value = buttonSelections.get(a.fieldName);
     // Radio buttons sharing an export value are told apart by their own choices.
     const radio = type === 'radio' ? radioChoices?.get(a.fieldName) : undefined;
@@ -215,6 +251,20 @@ export function formWidgets(
         buttonLabel: type === 'radio' ? a.buttonValue : undefined,
         exportValue: a.checkBox ? a.exportValue : undefined,
         editableChoice,
+        // The format script, read as data: the value shows formatted while another field has
+        // the focus.
+        format: type === 'text' ? actionScripts(a, 'Format') || undefined : undefined,
+        // Its value is worked out from other fields (a total).
+        calculated: type === 'text' && !!actionScripts(a, 'Calculate'),
+        // A date or time field shows its pattern while empty: mm/dd/yyyy.
+        placeholder:
+          type === 'text' ? datePattern(actionScripts(a, 'Format')) || undefined : undefined,
+        action:
+          type === 'button'
+            ? pushButtonAction(a)
+            : type === 'signature'
+              ? { kind: 'signature', name: a.fieldName }
+              : undefined,
         alignment: ['left', 'center', 'right'][a.textAlignment] || 'left',
         fontSize: a.defaultAppearanceData?.fontSize || 0,
         fontColor: a.defaultAppearanceData?.fontColor,
@@ -225,12 +275,37 @@ export function formWidgets(
 }
 
 /**
- * The widgets in the page's tab order: by rows (/Tabs /R: left to right, rows top to bottom)
- * or by columns (/C: top to bottom, columns left to right) as the page is shown; any other
- * order is the annotation order they come in. Boxes whose middles fall within the first box of
- * a row or column share it.
+ * The annotations a page's structure tree (PDF.js's getStructTree) tags, by their ids, in the
+ * order the tags read.
  */
-export function tabOrderedWidgets(widgets, viewportTransform, tabs) {
+export function structureAnnotations(tree) {
+  const ids = [];
+  const visit = (node, depth = 0) => {
+    if (!node || depth > 256) return;
+    if (node.type === 'annotation' && typeof node.id === 'string')
+      ids.push(node.id.replace(/^pdfjs_internal_id_/, ''));
+    for (const child of node.children ?? []) visit(child, depth + 1);
+  };
+  visit(tree);
+  return ids;
+}
+
+/**
+ * The widgets in the page's tab order: by rows (/Tabs /R: left to right, rows top to bottom)
+ * or by columns (/C: top to bottom, columns left to right) as the page is shown, or by
+ * structure (/S) in the order the page's tags read them (`structureOrder`, annotation ids),
+ * untagged ones after them; any other order is the annotation order they come in. Boxes whose
+ * middles fall within the first box of a row or column share it.
+ */
+export function tabOrderedWidgets(widgets, viewportTransform, tabs, structureOrder) {
+  if (tabs === 'S' && structureOrder?.length) {
+    const rank = new Map();
+    structureOrder.forEach((id, i) => rank.has(id) || rank.set(id, i));
+    return widgets
+      .map((widget, i) => ({ widget, key: rank.get(widget.id) ?? structureOrder.length + i }))
+      .sort((p, q) => p.key - q.key)
+      .map(({ widget }) => widget);
+  }
   if (tabs !== 'R' && tabs !== 'C') return widgets;
   const [a, b, c, d, e, f] = viewportTransform;
   const along = tabs === 'R' ? 'top' : 'left',

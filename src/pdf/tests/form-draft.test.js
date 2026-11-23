@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { FormDraft, formWidgets, formWidgetLayout } from '../src/core/form-draft.js';
+import {
+  FormDraft,
+  formWidgets,
+  formWidgetLayout,
+  structureAnnotations,
+  tabOrderedWidgets,
+} from '../src/core/form-draft.js';
 
 for (const [allowCustom, multiple] of [
   [true, false],
@@ -130,7 +136,13 @@ it('uses export values for choices and radio groups and excludes hidden or unsup
     { ...base, fieldType: 'Btn', pushButton: true, actions: { A: 'anything' } },
     { ...base, fieldType: 'Sig' },
   ]);
-  expect(widgets).toHaveLength(3);
+  // A signature field is offered to sign (or show its signature); it holds no value to fill.
+  expect(widgets).toHaveLength(4);
+  expect(widgets[3]).toMatchObject({
+    type: 'signature',
+    value: null,
+    action: { kind: 'signature', name: 'Field' },
+  });
   expect(widgets[0]).toMatchObject({
     value: ['code', 'custom'],
     options: [
@@ -259,4 +271,59 @@ it('describes widgets by their own tooltip, or by their field’s', () => {
     tooltips,
   );
   expect(widgets.map((w) => w.tooltip)).toEqual(['Your name', 'From the field', '']);
+});
+
+it('shows a date or time field’s pattern while it is empty', () => {
+  const base = { fieldType: 'Tx', fieldValue: '', rect: [10, 20, 110, 50] };
+  const widgets = formWidgets([
+    {
+      ...base,
+      id: '1R',
+      fieldName: 'Born',
+      actions: { Format: ['AFDate_FormatEx("dd.mm.yyyy");'] },
+    },
+    // As PDF.js lists them.
+    { ...base, id: '2R', fieldName: 'At', actions: new Map([['Format', ['AFTime_Format(1);']]]) },
+    {
+      ...base,
+      id: '3R',
+      fieldName: 'Amount',
+      actions: { Format: ['AFNumber_Format(2, 0, 0, 0, "", true);'] },
+    },
+  ]);
+  expect(widgets.map(({ placeholder }) => placeholder)).toEqual([
+    'dd.mm.yyyy',
+    'h:MM tt',
+    undefined,
+  ]);
+});
+
+it('orders widgets by structure for /Tabs /S, untagged ones after the tagged', () => {
+  const widget = (id) => ({ id, rect: [0, 0, 10, 10] });
+  const widgets = ['1R', '2R', '3R', '4R'].map(widget);
+  const tree = {
+    children: [
+      { role: 'Form', children: [{ type: 'annotation', id: 'pdfjs_internal_id_3R' }] },
+      {
+        role: 'Form',
+        children: [
+          { type: 'annotation', id: 'pdfjs_internal_id_1R' },
+          { type: 'content', id: 'p1_mc0' },
+        ],
+      },
+      { role: 'Form', children: [{ type: 'annotation', id: 'pdfjs_internal_id_3R' }] },
+    ],
+  };
+  const order = structureAnnotations(tree);
+  expect(order).toEqual(['3R', '1R', '3R']);
+  const ids = (tabs) =>
+    tabOrderedWidgets(widgets, [1, 0, 0, 1, 0, 0], tabs, order).map((w) => w.id);
+  expect(ids('S')).toEqual(['3R', '1R', '2R', '4R']);
+  // Without tags, the annotation order.
+  expect(tabOrderedWidgets(widgets, [1, 0, 0, 1, 0, 0], 'S', []).map((w) => w.id)).toEqual([
+    '1R',
+    '2R',
+    '3R',
+    '4R',
+  ]);
 });

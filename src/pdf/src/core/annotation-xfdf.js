@@ -549,19 +549,30 @@ export async function importXfdf(doc, xfdf) {
   if (elements.length > MAX_XFDF_ANNOTATIONS)
     throw new Error('This comments file has too many comments to import.');
   const pages = doc.getPages();
-  // Names already in the document, so replies can find their parents and repeats are skipped.
+  // Names already in the document, so replies can find their parents and repeats are skipped:
+  // each comment's reference, or where a dictionary written into Annots directly is.
   const named = new Map();
+  // A reply must point at an object; a direct parent becomes one when a reply first needs it.
+  const parentRef = (nm) => {
+    const found = named.get(nm);
+    if (found instanceof PDFRef) return found;
+    const ref = doc.context.register(found.dict);
+    annotationList(found.page).set(found.position, ref);
+    named.set(nm, ref);
+    return ref;
+  };
   // Comments without a name went out as annot-<object>-<generation> (see exportXfdf). Such a
   // name is this PDF's comment only while that object is still the same kind of comment, on
   // the same page and in the same place: another PDF's objects can share the numbers.
   const unnamed = new Map();
   pages.forEach((page, index) => {
-    for (const ref of annotationsOf(page)?.asArray() || []) {
+    for (const [position, ref] of (annotationsOf(page)?.asArray() || []).entries()) {
       const dict = doc.context.lookup(ref);
-      if (!(dict instanceof PDFDict) || !(ref instanceof PDFRef)) continue;
+      if (!(dict instanceof PDFDict)) continue;
       const nm = text(dict, 'NM');
-      if (nm && !named.has(nm)) named.set(nm, ref);
-      if (!nm)
+      if (nm && !named.has(nm))
+        named.set(nm, ref instanceof PDFRef ? ref : { page, position, dict });
+      if (!nm && ref instanceof PDFRef)
         unnamed.set(`annot-${ref.objectNumber}-${ref.generationNumber}`, { ref, dict, index });
     }
   });
@@ -610,7 +621,7 @@ export async function importXfdf(doc, xfdf) {
       try {
         dict = page && dictFromElement(doc, page, element, subtype);
         if (dict && parentName) {
-          dict.set(name('IRT'), named.get(parentName));
+          dict.set(name('IRT'), parentRef(parentName));
           const group = element.getAttribute('replyType') === 'group';
           dict.set(name('RT'), name(group ? 'Group' : 'R'));
           // Replies and states live in their parent's thread, never as icons of their own.
@@ -620,7 +631,7 @@ export async function importXfdf(doc, xfdf) {
               PDFNumber.of(FLAGS.hidden | FLAGS.print | FLAGS.nozoom | FLAGS.norotate),
             );
           if (!dict.has(name('Rect'))) {
-            const parent = doc.context.lookup(named.get(parentName));
+            const parent = doc.context.lookup(parentRef(parentName));
             const rect = parent instanceof PDFDict ? numbers(parent.lookup(name('Rect'))) : null;
             dict.set(name('Rect'), doc.context.obj(rect?.length === 4 ? rect : [0, 0, 20, 20]));
           }

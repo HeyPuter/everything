@@ -9,9 +9,9 @@ import { removeStructReferences } from './redact.js';
  * could recover. Every category can be switched off; the defaults follow Acrobat, which removes
  * all of them, except bookmarks, which Acrobat's Sanitize keeps navigable.
  *
- *  - metadata: the Info dictionary and XMP, for the document and for individual objects, and
- *    what JPEG pictures carry of their own (EXIF with camera, time and GPS location, XMP, IPTC,
- *    comments)
+ *  - metadata: the Info dictionary and XMP, for the document and for individual objects, the
+ *    information article threads keep, and what JPEG pictures carry of their own (EXIF with
+ *    camera, time and GPS location, XMP, IPTC, comments)
  *  - privateData: application data (PieceInfo) and its LastModified stamps
  *  - javascript: document scripts, JavaScript actions anywhere (links, bookmarks, fields, open
  *    action, action chains), every additional-action (AA) trigger, and XFA scripting
@@ -530,6 +530,17 @@ export async function sanitizeDocument(doc, options = {}) {
     catalog.delete(name('Metadata'));
     report.metadata++;
   }
+  // Article threads keep an information dictionary of their own (title, author, subject,
+  // keywords, as the document's); the threads themselves stay to guide reading.
+  const threads = get(catalog, 'Threads');
+  if (o.metadata && threads instanceof PDFArray)
+    for (const ref of threads.asArray()) {
+      const thread = context.lookup(ref);
+      if (thread instanceof PDFDict && thread.has(name('I'))) {
+        thread.delete(name('I'));
+        report.metadata++;
+      }
+    }
   const xfaHolder = get(catalog, 'AcroForm');
   if (o.javascript && xfaHolder instanceof PDFDict && xfaHolder.has(name('XFA'))) {
     // XFA forms carry their own scripts; the AcroForm fields remain.

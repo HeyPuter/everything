@@ -11,6 +11,7 @@ import {
   generalizedTime,
   hexOf,
   integer,
+  octetString,
   oid,
   pemBlocks,
   sequence,
@@ -271,6 +272,35 @@ describe('PKCS#12', () => {
       expect(back.friendlyName).toBe('Round Trip');
       await expect(importPkcs12(p12, 'wrong')).rejects.toBeInstanceOf(Pkcs12PasswordError);
     }
+  });
+
+  it('tells a wrong password apart from an unsupported PBMAC1 integrity check', async () => {
+    const { errorText } = await import('../src/digital-id-dialog.js');
+    const id = await createSelfSignedId({ name: 'PBMAC1', keyType: 'P-256' });
+    const p12 = await exportPkcs12(id, 'secret');
+    const wrong = await importPkcs12(p12, 'nope').catch((error) => error);
+    expect(errorText(wrong)).toMatch(/password is not right/);
+    // RFC 9579 PBMAC1 whose PBKDF2 uses a PRF this app does not know.
+    const pfx = decodeDer(p12);
+    const salt = randomBytes(16);
+    const pbmac1 = sequence(
+      oid(OID.pbmac1),
+      sequence(
+        sequence(
+          oid(OID.pbkdf2),
+          sequence(octetString(salt), integer(2048), integer(32), sequence(oid('1.2.3.4.5'))),
+        ),
+        sequence(oid(OID.hmacSHA256)),
+      ),
+    );
+    const crafted = sequence(
+      pfx.child(0).der,
+      pfx.child(1).der,
+      sequence(sequence(pbmac1, octetString(new Uint8Array(32))), octetString(salt), integer(1)),
+    );
+    const unsupported = await importPkcs12(crafted, 'secret').catch((error) => error);
+    expect(unsupported.message).toBe('Unsupported PBMAC1 algorithm.');
+    expect(errorText(unsupported)).toBe('Unsupported PBMAC1 algorithm.');
   });
 
   it('rejects files that are not PKCS#12', async () => {

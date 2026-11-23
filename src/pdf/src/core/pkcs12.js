@@ -38,6 +38,7 @@ import { parseCertificate } from './x509.js';
 export class Pkcs12PasswordError extends Error {
   constructor(message = 'Incorrect password for this digital ID file.') {
     super(message);
+    this.name = 'Pkcs12PasswordError';
     this.code = 'password';
   }
 }

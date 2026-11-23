@@ -205,6 +205,25 @@ describe('redaction marks', () => {
     expect(removeRedactionMark(saved, 0, 'nope')).toBe(false);
   });
 
+  it('names marks written straight into /Annots by their place, as the page does', async () => {
+    const doc = await PDFDocument.load(await makePdf([{ content: '' }]));
+    const mark = (overlay) =>
+      doc.context.obj({
+        Type: 'Annot',
+        Subtype: 'Redact',
+        Rect: [10, 10, 60, 30],
+        OverlayText: PDFString.of(overlay),
+      });
+    doc.getPage(0).node.set(n('Annots'), doc.context.obj([mark('one'), mark('two')]));
+    const marks = listRedactionMarks(doc);
+    expect(marks.map((m) => [m.id, m.overlayText])).toEqual([
+      ['direct:0', 'one'],
+      ['direct:1', 'two'],
+    ]);
+    removeRedactionMark(doc, 0, 'direct:1');
+    expect(listRedactionMarks(doc).map((m) => m.overlayText)).toEqual(['one']);
+  });
+
   it('rejects empty areas and resolves to false when nothing is marked', async () => {
     const doc = await PDFDocument.load(await makePdf([{ content: '' }]));
     expect(() => addRedactionMarks(doc, 0, [[1, 1, 1, 50]])).toThrow('Select an area');
@@ -1218,6 +1237,51 @@ describe('find text & redact', () => {
     expect(await found('ssn')).toEqual(['078\u221205\u22121120']);
     expect(await found('creditCard')).toEqual(['4111\u20111111\u20111111\u20111111']);
     expect(await found('date')).toEqual(['2024\u201103\u201105', '05\u201303\u20132024']);
+  });
+
+  it('finds whole phone numbers in international and trunk-prefixed formats', async () => {
+    // French numbers are five pairs, often after +33 and a one-digit area code; US numbers are
+    // often written with the leading 1; UK numbers put the trunk 0 in brackets. These were
+    // missed or found without their first digits, which then stayed readable beside the mark.
+    const phones = [
+      '+33 1 23 45 67 89',
+      '01 23 45 67 89',
+      '1-800-555-0199',
+      '+44 (0) 20 7946 0958',
+    ];
+    const bytes = await makePdf([
+      {
+        content: phones
+          .map(
+            (phone, i) =>
+              `BT /F 10 Tf 30 ${300 - i * 30} Td (Call ${phone.replace(/[()]/g, '\\$&')} now) Tj ET`,
+          )
+          .join('\n'),
+      },
+    ]);
+    const found = (
+      await findTextRects(await PDFDocument.load(bytes), 0, REDACTION_PATTERNS.phone)
+    ).map((m) => m.text);
+    expect(found).toEqual(phones);
+    // Numbers without separators, and runs too short or too long, are still not phone numbers.
+    const { regex, validate } = REDACTION_PATTERNS.phone;
+    const other = 'Order 5551234567, code 12 34 56 78, id 1234 5678 9012 3456 7890';
+    expect([...other.matchAll(regex)].map((m) => m[0]).filter(validate)).toEqual([]);
+  });
+
+  it('finds dates written year first with slashes or dots, and day-month-year with dashes', async () => {
+    // 2024/01/05 and 2024.01.05 are how much of East Asia and Europe write dates, and
+    // 05-Jan-2024 is common in forms and spreadsheets; none of them was found.
+    const { regex, validate } = REDACTION_PATTERNS.date;
+    const dates = (text) => [...text.matchAll(regex)].map((m) => m[0]).filter(validate);
+    expect(dates('Born 2024/01/05, seen 2024.12.31, due 05-Jan-2024 or 5-jan-24.')).toEqual([
+      '2024/01/05',
+      '2024.12.31',
+      '05-Jan-2024',
+      '5-jan-24',
+    ]);
+    // Version numbers, addresses, and impossible dates are not dates.
+    expect(dates('v1.2.3 and 10.0.0.1 and 2024/13/40 and 2024.1.2.3')).toEqual([]);
   });
 
   it('places exact rects on the matched glyphs from the page content itself', async () => {

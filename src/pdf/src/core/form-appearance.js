@@ -12,6 +12,7 @@ import {
   PDFStream,
   PDFTextField,
   TextAlignment,
+  rgb,
 } from 'pdf-lib';
 import {
   defaultTextFieldAppearanceProvider,
@@ -22,7 +23,7 @@ import {
 } from './appearance-providers.js';
 import { choiceOptions, selectedChoices, textValue } from './form-values.js';
 import { listAppearance } from './list-appearance.js';
-import { formattedNumber, numberFormat } from './form-format.js';
+import { formattedValue, negativeNumber, numberFormat } from './form-format.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
 const preservedAppearances = new WeakMap();
@@ -56,10 +57,11 @@ export function choiceAppearanceProvider(field, options = choiceOptions(field), 
 function textAppearanceProvider(source, widget, font) {
   const display = Object.create(source);
   const value = textValue(source);
-  // A number or percent field shows its value as its format does (1,234.50, 25.0%).
+  // A number, percent, phone, or similar field shows its value as its format does (1,234.50,
+  // 25.0%, (555) 123-4567).
   let text = source.isPassword()
     ? '*'.repeat(Array.from(value).length)
-    : formattedNumber(value, numberFormat(source));
+    : formattedValue(value, source);
   if (source.isCombed()) {
     // pdf-lib fills comb cells from the first one. Centered and right-aligned combs start
     // further along by whole cells, as Acrobat and PDF.js draw them; blank cells stay empty.
@@ -74,7 +76,15 @@ function textAppearanceProvider(source, widget, font) {
     if (skip > 0) text = ' '.repeat(skip) + text;
   }
   display.getText = () => text;
-  return defaultTextFieldAppearanceProvider(display, widget, font);
+  // Acrobat's red styles draw negative amounts in red.
+  const format = numberFormat(source);
+  const red = !source.isPassword() && format?.red && negativeNumber(value, format);
+  return defaultTextFieldAppearanceProvider(
+    display,
+    widget,
+    font,
+    red ? { textColor: rgb(1, 0, 0) } : undefined,
+  );
 }
 
 export function textMaxLength(field) {

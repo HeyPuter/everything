@@ -10,7 +10,9 @@ import {
   fillFields,
   listFields,
   radioButtonChoices,
+  resetFields,
 } from '../src/core/document.js';
+import { formWidgets } from '../src/core/form-draft.js';
 import { flattenCounts, flattenDocument, flattenFields } from '../src/core/flatten.js';
 import { damagedWidgetsPdf } from './fixtures/damaged-widgets.js';
 
@@ -648,6 +650,154 @@ it('works out the form’s own sums and other simple calculations after filling'
   } finally {
     await task.destroy();
   }
+});
+
+it('works out calculations written in simplified field notation', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const field = (fieldName, y, formula) => {
+    const created = form.createTextField(fieldName);
+    created.addToPage(page, { x: 50, y, width: 150, height: 20 });
+    // As Acrobat writes it: the formula in a comment, then the script it stands for.
+    if (formula)
+      created.acroField.dict.set(
+        PDFName.of('AA'),
+        source.context.obj({
+          C: {
+            S: 'JavaScript',
+            JS: PDFHexString.fromText(
+              `/*** BVCALC ${formula} EVCALC ***/ event.value = AFMakeNumber(getField("Qty").value)`,
+            ),
+          },
+        }),
+      );
+    return created;
+  };
+  field('Qty', 700);
+  field('Unit price', 670);
+  field('Discount', 640);
+  const line = field('Line total', 600, 'Qty * Unit\\ price - Discount');
+  const taxed = field('Taxed', 570, '(Line\\ total) * 1.5 + -1');
+  const each = field('Each', 540, 'Line\\ total / Qty');
+  // A formula naming a field the form lacks is not worked out.
+  const missing = field('Missing', 510, 'Qty * Nowhere');
+  form.acroForm.dict.set(
+    PDFName.of('CO'),
+    source.context.obj([line.ref, taxed.ref, each.ref, missing.ref]),
+  );
+  const doc = await PDFDocument.load(await source.save());
+  await fillFields(doc, { Qty: '3', 'Unit price': '12.5', Discount: '2.5' });
+  expect(listFields(doc).map(({ value }) => value)).toEqual([
+    '3',
+    '12.5',
+    '2.5',
+    '35',
+    '51.5',
+    '11.666666666666666',
+    '',
+  ]);
+  // Dividing by an empty quantity leaves the field empty instead of showing Infinity.
+  await fillFields(doc, { Qty: '' });
+  expect(listFields(doc).map(({ value }) => value)).toEqual([
+    '',
+    '12.5',
+    '2.5',
+    '-2.5',
+    '-4.75',
+    '',
+    '',
+  ]);
+});
+
+it('resets fields to their defaults as a Reset button does, and offers Print and Reset buttons', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const name = form.createTextField('Name');
+  name.addToPage(page, { x: 50, y: 700, width: 150, height: 20 });
+  const city = form.createTextField('Address.City');
+  city.addToPage(page, { x: 50, y: 670, width: 150, height: 20 });
+  city.acroField.dict.set(PDFName.of('DV'), PDFHexString.fromText('Springfield'));
+  form.createCheckBox('Agree').addToPage(page, { x: 50, y: 640, width: 12, height: 12 });
+  const size = form.createRadioGroup('Size');
+  for (const [i, option] of ['S', 'M'].entries())
+    size.addOptionToPage(option, page, { x: 50 + 20 * i, y: 610, width: 12, height: 12 });
+  const color = form.createDropdown('Color');
+  color.addOptions(['Red', 'Blue']);
+  color.addToPage(page, { x: 50, y: 580, width: 150, height: 20 });
+  const buttons = {
+    Print: { S: 'Named', N: 'Print' },
+    Clear: { S: 'ResetForm' },
+    // Acrobat's own Print button runs a script that only prints.
+    'Print form': { S: 'JavaScript', JS: PDFHexString.fromText('this.print({bUI: true});') },
+  };
+  for (const [i, [label, action]] of Object.entries(buttons).entries()) {
+    const button = form.createButton(label);
+    button.addToPage(label, page, { x: 300, y: 700 - 40 * i, width: 80, height: 24 });
+    button.acroField.getWidgets()[0].dict.set(PDFName.of('A'), source.context.obj(action));
+  }
+  const doc = await PDFDocument.load(await source.save());
+  const values = (d) =>
+    listFields(d)
+      .filter((field) => field.type !== 'unsupported')
+      .map(({ value }) => value);
+  const filled = { Name: 'Ada', 'Address.City': 'London', Agree: true, Size: 'M', Color: ['Blue'] };
+  await fillFields(doc, filled);
+  // A Reset button naming a group resets the fields under it, and no others.
+  await resetFields(doc, { fields: ['Address'], refs: [], include: true });
+  expect(values(doc)).toEqual(['Ada', 'Springfield', true, 'M', ['Blue']]);
+  // Without a list, every field: the default value, or empty.
+  expect(await resetFields(doc)).not.toBe(false);
+  const reopened = await PDFDocument.load(await doc.save());
+  expect(values(reopened)).toEqual(['', 'Springfield', false, undefined, []]);
+  expect(await resetFields(reopened)).toBe(false);
+  // The page offers the two buttons, each with what it does.
+  const task = pdfjs.getDocument({ data: await doc.save() });
+  try {
+    const annotations = await (await (await task.promise).getPage(1)).getAnnotations();
+    expect(
+      formWidgets(annotations)
+        .filter((widget) => widget.type === 'button')
+        .map(({ name, action }) => [name, action]),
+    ).toEqual([
+      ['Print', { kind: 'print' }],
+      ['Clear', { kind: 'reset', fields: [], refs: [], include: true }],
+      ['Print form', { kind: 'print' }],
+    ]);
+  } finally {
+    await task.destroy();
+  }
+});
+
+it('fills a field whose widget the form’s field list left out, as combining tools leave them', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  form.createTextField('Kept').addToPage(page, { x: 50, y: 700, width: 150, height: 20 });
+  const orphan = form.createTextField('Orphan.Name');
+  orphan.addToPage(page, { x: 50, y: 650, width: 150, height: 20 });
+  // The field list keeps only the first field; the other's widget stays on the page.
+  form.acroForm.dict.set(PDFName.of('Fields'), source.context.obj([form.getTextField('Kept').ref]));
+  const doc = await PDFDocument.load(await source.save({ updateFieldAppearances: false }));
+  expect(listFields(doc).map(({ name }) => name)).toEqual(['Kept']);
+  await fillFields(doc, { 'Orphan.Name': 'Ada' });
+  const reopened = await PDFDocument.load(await doc.save());
+  expect(listFields(reopened).map(({ name, value }) => [name, value])).toEqual([
+    ['Kept', ''],
+    ['Orphan.Name', 'Ada'],
+  ]);
+  // A name no widget has is still refused.
+  await expect(fillFields(reopened, { Nowhere: 'x' })).rejects.toThrow('Nowhere');
 });
 
 it('a number field does not take its thousands separator for a decimal mark', async () => {

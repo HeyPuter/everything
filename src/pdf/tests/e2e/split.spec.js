@@ -615,3 +615,27 @@ test('on a small phone the box for the pages where parts begin is wide enough to
   await box.fill('3');
   await expect(dialog.getByRole('status')).toHaveText('2 PDFs, downloaded together as a ZIP.');
 });
+
+test('page list fields offer a keyboard that can type ranges like 1-3, 5', async ({ page }) => {
+  // An iPhone's number pad has no "-" or ",", so a numeric input mode made "1-3, 5" untypable.
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 5; i++) doc.addPage([100, 100]);
+  await openPdf(page, doc);
+  await menu(page, 'Split PDF…');
+  const split = page.getByRole('dialog', { name: 'Split PDF' });
+  await expect(split.getByLabel('Pages where new parts begin')).not.toHaveAttribute(
+    'inputmode',
+    'numeric',
+  );
+  // A plain count keeps the number pad.
+  await expect(split.getByLabel('Pages per part')).toHaveAttribute('inputmode', 'numeric');
+  await split.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+p');
+  const print = page.getByRole('dialog', { name: 'Print' });
+  await expect(print.getByLabel('Page range', { exact: true })).not.toHaveAttribute(
+    'inputmode',
+    'numeric',
+  );
+});

@@ -131,7 +131,7 @@ function parseDA(da) {
     ) || [1, 0, 0],
   };
 }
-function readMark(doc, index, ref) {
+function readMark(doc, index, ref, position) {
   const dict = doc.context.lookup(ref);
   if (!(dict instanceof PDFDict) || get(dict, 'Subtype') !== name('Redact')) return null;
   const areas = markAreas(dict);
@@ -142,7 +142,8 @@ function readMark(doc, index, ref) {
   const align = get(dict, 'Q')?.asNumber?.();
   return {
     page: index,
-    id: annotationId(ref),
+    // A dictionary written straight into /Annots is named by its place there ("direct:N").
+    id: annotationId(ref, position),
     ref,
     dict,
     rects: areas,
@@ -160,7 +161,7 @@ function readMark(doc, index, ref) {
 function pageMarks(doc, index) {
   const page = doc.getPage(index);
   return (annotationsOf(page)?.asArray() || [])
-    .map((ref) => readMark(doc, index, ref))
+    .map((ref, position) => readMark(doc, index, ref, position))
     .filter(Boolean);
 }
 
@@ -283,7 +284,10 @@ export function listRedactionMarks(doc) {
 export function removeRedactionMark(doc, pageIndex, id) {
   const mark = pageMarks(doc, pageIndex).find((m) => m.id === id);
   if (!mark) return false;
-  removeAnnotationThread(doc.getPage(pageIndex), mark.ref.toString());
+  removeAnnotationThread(
+    doc.getPage(pageIndex),
+    mark.ref instanceof PDFDict ? mark.id : mark.ref.toString(),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -844,8 +848,10 @@ const DASH = '\\u2010-\\u2015\\u2212-';
 export const REDACTION_PATTERNS = {
   phone: {
     label: 'Phone numbers',
+    // The first group can be one digit (+33 1 …, 1-800-…, a bracketed trunk 0), and up to four
+    // groups follow it (French numbers are five pairs); the validator bounds the digit count.
     regex: new RegExp(
-      `(?<![\\w+])(?:\\+\\d{1,3}[\\s.${DASH}]?)?(?:\\(\\d{2,4}\\)|\\d{2,4})(?:[\\s.${DASH}]?\\d{2,4}){1,3}(?![\\w])`,
+      `(?<![\\w+])(?:\\+\\d{1,3}[\\s.${DASH}]?)?(?:\\(\\d{1,4}\\)|\\d{1,4})(?:[\\s.${DASH}]?\\d{2,4}){1,4}(?![\\w])`,
       'g',
     ),
     validate: (text) => {
@@ -879,10 +885,14 @@ export const REDACTION_PATTERNS = {
     label: 'Dates',
     regex: new RegExp(
       [
-        `\\b\\d{4}[${DASH}]\\d{1,2}[${DASH}]\\d{1,2}\\b`,
+        // Year first, with one separator throughout (2024-01-05, 2024/01/05, 2024.01.05), not
+        // the start of a longer dotted number.
+        `(?<![\\d./])\\b\\d{4}([/.${DASH}])\\d{1,2}\\1\\d{1,2}\\b(?![/.${DASH}]\\d)`,
         `\\b\\d{1,2}[/.${DASH}]\\d{1,2}[/.${DASH}](?:\\d{4}|\\d{2})\\b`,
         `\\b${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}\\b`,
         `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH}\\.?,?\\s+\\d{4}\\b`,
+        // Forms and spreadsheets: 05-Jan-2024, 5-Jan-24.
+        `\\b\\d{1,2}[${DASH}]${MONTH}[${DASH}](?:\\d{4}|\\d{2})\\b`,
       ].join('|'),
       'gi',
     ),

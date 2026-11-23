@@ -860,6 +860,39 @@
     margin-right: 2px;
   }
 }
+/* 360px phones, the commonest Android width, keep the quick tools on one line. Narrower ones
+   wrap the second group onto a line of its own, where its divider would only stand at the
+   line's start. */
+@media (max-width: 360px) {
+  .editor .quick-tools {
+    padding-inline: 3px;
+  }
+  .editor .quick-tools .tool-group + .tool-group {
+    margin-left: 2px;
+    padding-left: 4px;
+  }
+}
+@media (max-width: 359.98px) {
+  .editor .quick-tools .tool-group + .tool-group {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+/* With the 16px text fields take on touch phones (style.css), the page number still shows four
+   digits. */
+@media (pointer: coarse) and (max-width: 760px), (pointer: coarse) and (max-height: 500px) {
+  .editor .page-controls .page-input {
+    width: 46px;
+  }
+}
+/* The smallest phones keep the page number and the zoom on one line. */
+@media (pointer: coarse) and (max-width: 360px) {
+  .editor .page-controls .page-input {
+    width: 40px;
+    padding-inline: 1px;
+  }
+}
 /* A phone turned sideways has little height: the quick tools and the page controls share one
    row above the page instead of taking a row each, which left the page under a third of the
    screen. The tools scroll sideways if the row runs short. */

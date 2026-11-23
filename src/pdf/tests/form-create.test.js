@@ -555,6 +555,256 @@ it('shows number and percent fields as their formats do, keeping the value typed
     expect(text).toContain(shown);
 });
 
+it('draws negative amounts in red for Acrobat’s red number styles', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  // Negative styles: 0 minus, 1 red, 2 parentheses, 3 red parentheses.
+  const styles = { Minus: 0, Red: 1, Parens: 2, RedParens: 3, Positive: 1 };
+  for (const [i, [fieldName, style]] of Object.entries(styles).entries()) {
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+    });
+    doc
+      .getForm()
+      .getTextField(fieldName)
+      .acroField.dict.set(
+        name('AA'),
+        doc.context.obj({
+          F: {
+            S: 'JavaScript',
+            JS: PDFHexString.fromText(`AFNumber_Format(2, 0, ${style}, 0, "$", true);`),
+          },
+        }),
+      );
+  }
+  await fillFields(doc, { Minus: '-5', Red: '-5', Parens: '-5', RedParens: '-5', Positive: '5' });
+  const saved = await PDFDocument.load(await doc.save());
+  const drawing = (fieldName) => {
+    const widget = saved.getForm().getTextField(fieldName).acroField.getWidgets()[0];
+    return new TextDecoder().decode(
+      decodePDFRawStream(saved.context.lookup(widget.getNormalAppearance())).decode(),
+    );
+  };
+  const red = /1 0 0 rg/;
+  expect(Object.keys(styles).map((fieldName) => red.test(drawing(fieldName)))).toEqual([
+    false,
+    true,
+    false,
+    true,
+    false,
+  ]);
+  // The field's own color stays black for the values typed next.
+  expect(saved.getForm().getTextField('Red').acroField.getDefaultAppearance()).not.toMatch(red);
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  // In red, a negative amount needs no minus sign, as Acrobat shows it.
+  expect(text).toEqual(['-$5.00', '$5.00', '($5.00)', '($5.00)', '$5.00']);
+});
+
+it('takes ZIP Codes, phone and Social Security numbers, and shows them as their formats do', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  const formats = { Zip: 'zip', Zip4: 'zip4', Phone: 'phone', Local: 'phone', SSN: 'ssn' };
+  for (const [i, [fieldName, format]] of Object.entries(formats).entries())
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+      format,
+      ...(fieldName === 'SSN' && { tooltip: 'Your SSN' }),
+    });
+  await expect(fillFields(doc, { SSN: '12345678' })).rejects.toThrow(
+    'Enter a Social Security number in Your SSN, such as 123-45-6789.',
+  );
+  await expect(fillFields(doc, { Phone: 'call me' })).rejects.toThrow(
+    'Enter a phone number in Phone, such as (555) 123-4567.',
+  );
+  await expect(fillFields(doc, { Zip: '1234' })).rejects.toThrow('Enter a ZIP Code in Zip');
+  await expect(fillFields(doc, { Zip4: '12345' })).rejects.toThrow('Enter a ZIP+4 code in Zip4');
+  const values = {
+    Zip: '02139',
+    Zip4: '021394307',
+    Phone: '555.123.4567',
+    Local: '5551234',
+    SSN: '123456789',
+  };
+  await fillFields(doc, values);
+  // The value keeps what was typed; the page shows it formatted.
+  expect(listFields(doc).map((field) => field.value)).toEqual(Object.values(values));
+  await fillFields(doc, { SSN: '' });
+  await fillFields(doc, { SSN: '123-45-6789' });
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  expect(text).toEqual(['02139', '02139-4307', '(555) 123-4567', '555-1234', '123-45-6789']);
+});
+
+it('takes dates in a date field, and shows them as its pattern writes them', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  await addFormField(doc, 0, { type: 'date', name: 'Born', rect: rect(50, 600, 200, 24) });
+  await addFormField(doc, 0, { type: 'date', name: 'Due', rect: rect(50, 540, 200, 24) });
+  await updateFormField(doc, 'Due', { dateFormat: 'dd-mmm-yyyy' });
+  // Another tool's numbered date format with a time: m/d/yy h:MM tt.
+  await addFormField(doc, 0, { type: 'text', name: 'At', rect: rect(50, 480, 200, 24) });
+  doc
+    .getForm()
+    .getTextField('At')
+    .acroField.dict.set(
+      name('AA'),
+      doc.context.obj({ F: { S: 'JavaScript', JS: PDFHexString.fromText('AFDate_Format(12);') } }),
+    );
+  for (const value of ['hello', '13/01/2026', '2/30/2026', '3/15/2026/7'])
+    await expect(fillFields(doc, { Born: value })).rejects.toThrow(
+      'Enter a date in Born, such as 03/15/2025.',
+    );
+  await expect(fillFields(doc, { Due: '31-Apr-2026' })).rejects.toThrow(
+    'Enter a date in Due, such as 15-Mar-2025.',
+  );
+  await expect(fillFields(doc, { At: '3/15/26 13:00 pm' })).rejects.toThrow('Enter a date in At');
+  // The Fill forms dialog shows each pattern while its field is empty.
+  expect(listFields(doc).map((field) => field.placeholder)).toEqual([
+    'mm/dd/yyyy',
+    'dd-mmm-yyyy',
+    'm/d/yy h:MM tt',
+  ]);
+  await fillFields(doc, { Born: '7/4/76', Due: '2026-03-01', At: '3/15/26 2:05 pm' });
+  // The value keeps what was typed; the page shows it in the field's pattern.
+  expect(listFields(doc).map((field) => field.value)).toEqual([
+    '7/4/76',
+    '2026-03-01',
+    '3/15/26 2:05 pm',
+  ]);
+  await fillFields(doc, { Due: '1 march 26' });
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  expect(text).toEqual(['07/04/1976', '01-Mar-2026', '3/15/26 2:05 pm']);
+});
+
+it('takes times in a time field, and shows them as its pattern writes them', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  const scripts = { Start: 'AFTime_Format(1);', End: 'AFTime_FormatEx("HH:MM");' };
+  for (const [i, [fieldName, script]] of Object.entries(scripts).entries()) {
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+    });
+    doc
+      .getForm()
+      .getTextField(fieldName)
+      .acroField.dict.set(
+        name('AA'),
+        doc.context.obj({ F: { S: 'JavaScript', JS: PDFHexString.fromText(script) } }),
+      );
+  }
+  for (const value of ['soon', '25:00', '9:75', '13:00 pm'])
+    await expect(fillFields(doc, { Start: value })).rejects.toThrow(
+      'Enter a time in Start, such as 2:30 pm.',
+    );
+  await expect(fillFields(doc, { End: 'noon' })).rejects.toThrow(
+    'Enter a time in End, such as 14:30.',
+  );
+  await fillFields(doc, { Start: '9:05am', End: '7:5 pm' });
+  expect(listFields(doc).map((field) => field.value)).toEqual(['9:05am', '7:5 pm']);
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  expect(text).toEqual(['9:05 am', '19:05']);
+});
+
+it('refuses numbers outside a field’s range and text that is no email address', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  const checks = {
+    Percent: 'AFRange_Validate(true, 0, true, 100);',
+    Age: 'AFRange_Validate(true, 18, false, 0);',
+    Count: 'AFRange_Validate(false, 0, true, 9.5);',
+  };
+  for (const [i, [fieldName, script]] of Object.entries(checks).entries()) {
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+    });
+    doc
+      .getForm()
+      .getTextField(fieldName)
+      .acroField.dict.set(
+        name('AA'),
+        doc.context.obj({ V: { S: 'JavaScript', JS: PDFHexString.fromText(script) } }),
+      );
+  }
+  await addFormField(doc, 0, {
+    type: 'text',
+    name: 'Email',
+    rect: rect(50, 400, 200, 24),
+    format: 'email',
+  });
+  await expect(fillFields(doc, { Percent: '100.5' })).rejects.toThrow(
+    'Enter a number from 0 to 100 in Percent.',
+  );
+  await expect(fillFields(doc, { Age: '17' })).rejects.toThrow(
+    'Enter a number of at least 18 in Age.',
+  );
+  await expect(fillFields(doc, { Count: '10' })).rejects.toThrow(
+    'Enter a number of at most 9.5 in Count.',
+  );
+  await expect(fillFields(doc, { Email: 'ada at example' })).rejects.toThrow(
+    'Enter an email address in Email, such as name@example.com.',
+  );
+  // The ends of the range are in it; text that is no number is not a number out of range.
+  await fillFields(doc, { Percent: '100', Age: 'adult', Count: '-3', Email: 'ada@example.com' });
+  expect(listFields(doc).map((field) => field.value)).toEqual([
+    '100',
+    'adult',
+    '-3',
+    'ada@example.com',
+  ]);
+});
+
+it('reads the formats of fields whose scripts are compressed', async () => {
+  const doc = await blank();
+  const scripts = {
+    When: 'AFDate_FormatEx("dd.mm.yyyy");',
+    Amount: 'AFNumber_Format(1, 0, 0, 0, "", true);',
+  };
+  for (const [i, [fieldName, script]] of Object.entries(scripts).entries()) {
+    const field = doc.getForm().createTextField(fieldName);
+    field.addToPage(doc.getPage(0), { x: 50, y: 600 - 60 * i, width: 200, height: 24 });
+    const js = doc.context.register(doc.context.flateStream(script));
+    field.acroField.dict.set(name('AA'), doc.context.obj({ F: { S: 'JavaScript', JS: js } }));
+  }
+  const reopened = await PDFDocument.load(await doc.save());
+  expect(
+    listFormFields(reopened).map(({ name: fieldName, type, props }) => ({
+      fieldName,
+      type,
+      format: props.format,
+      dateFormat: props.dateFormat,
+      decimals: props.decimals,
+    })),
+  ).toEqual([
+    {
+      fieldName: 'When',
+      type: 'date',
+      format: 'date',
+      dateFormat: 'dd.mm.yyyy',
+      decimals: undefined,
+    },
+    { fieldName: 'Amount', type: 'text', format: 'number', dateFormat: undefined, decimals: 1 },
+  ]);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>

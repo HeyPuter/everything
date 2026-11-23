@@ -52,6 +52,7 @@ test('a dropped shape keeps its preview until the updated PDF is painted', async
       frameGaps: 0,
       dimmedCorners: 0,
       cornersLocked: false,
+      cornerDragged: false,
     });
     context.drawImage = function (...args) {
       const result = drawImage.apply(this, args);
@@ -63,7 +64,20 @@ test('a dropped shape keeps its preview until the updated PDF is painted', async
       if (controls.hidden) state.frameGaps++;
       for (const handle of controls.querySelectorAll('.image-resize')) {
         if (Number(getComputedStyle(handle).opacity) < 1) state.dimmedCorners++;
-        if (handle.disabled) state.cornersLocked = true;
+        // Saving marks the corners busy (they keep the keyboard focus, so they are not
+        // disabled); a press on one then starts no resize.
+        if (!handle.disabled && handle.getAttribute('aria-disabled') !== 'true') continue;
+        state.cornersLocked = true;
+        const press = new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          isPrimary: true,
+          button: 0,
+          pointerId: 99,
+          pointerType: 'mouse',
+        });
+        handle.dispatchEvent(press);
+        if (press.defaultPrevented) state.cornerDragged = true;
       }
     });
     observer.observe(preview, { attributes: true, childList: true, subtree: true });
@@ -79,6 +93,7 @@ test('a dropped shape keeps its preview until the updated PDF is painted', async
     frameGaps: 0,
     dimmedCorners: 0,
     cornersLocked: true,
+    cornerDragged: false,
   });
   await page.evaluate(() => window.stopDropObserver());
 });

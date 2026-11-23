@@ -9,6 +9,8 @@ import { parseCellValue } from '../src/core/export-xlsx.js';
 import { encodePng } from '../src/core/export-images.js';
 import { zipPackage } from '../src/core/ooxml-zip.js';
 import { crc32 } from '../src/lib/crc32.js';
+import { jpegOrientation } from '../src/core/image-orientation.js';
+import { jpegExif } from './fixtures/jpeg-padding.js';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -972,6 +974,39 @@ it('turns pictures the way their page shows them', async () => {
   }
 });
 
+it('hands over photos without the camera turn PDF readers ignore', async () => {
+  // A phone photo copied into a PDF keeps its EXIF orientation, which PDF readers ignore but
+  // Word, PowerPoint and browsers apply: the photo came out turned a quarter in the export.
+  const canvas = createCanvas(200, 100),
+    ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ff0000';
+  ctx.fillRect(0, 0, 200, 100);
+  const photo = new Uint8Array(jpegExif(canvas.toBuffer('image/jpeg'), 6));
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]).drawImage(await doc.embedJpg(photo), {
+    x: 100,
+    y: 400,
+    width: 200,
+    height: 100,
+  });
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  try {
+    const pdf = await loading.promise;
+    const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+    const [name] = Object.keys(files).filter((file) => file.startsWith('word/media/'));
+    expect(name).toMatch(/\.jpeg$/);
+    expect(jpegOrientation(files[name])).toBe(1);
+    // Only the turn changes; the picture is otherwise handed over as it is.
+    expect(files[name].length).toBe(photo.length);
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    const [, data] = /src="data:image\/jpeg;base64,([^"]+)"/.exec(html);
+    expect(jpegOrientation(new Uint8Array(Buffer.from(data, 'base64')))).toBe(1);
+  } finally {
+    await loading.destroy();
+  }
+});
+
 it('reads right-to-left words drawn one at a time from the rightmost', async () => {
   // Hebrew set word by word, as many writers do: the first word is drawn rightmost. The font
   // draws Latin glyphs, but its ToUnicode map reads them as Hebrew letters.
@@ -1268,6 +1303,33 @@ it('keeps the running heads of each page in rich text exports', async () => {
       expect(section).toMatch(/\{\\header [^]*Confidential[^]*\\par\n\}/);
       expect(section).toMatch(new RegExp(`\\{\\\\footer [^]*ACME00010${i + 1}[^]*\\\\par\\n\\}`));
     });
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('keeps slanted (synthetic italic) text on its line, in italics', async () => {
+  // Word and other writers slant a font that has no italic face with the text matrix.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  page.drawText('•', { x: 72, y: 700, size: 12, font, ySkew: degrees(18) });
+  page.drawText('First item of the list', { x: 108, y: 700, size: 12, font, ySkew: degrees(18) });
+  page.drawText('Second item of the list', { x: 108, y: 680, size: 12, font });
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const slanted = await loading.promise;
+  try {
+    const out = await exportDocument(slanted, bytes, 'txt');
+    expect(new TextDecoder().decode(out.bytes)).toMatch(/^•\s+First item of the list\n/);
+    const docx = checkPackage(await unzip((await exportDocument(slanted, bytes, 'docx')).bytes));
+    const runs = elements(docx['word/document.xml'], 'w:r');
+    const runOf = (start) => runs.find((r) => r.textContent.startsWith(start));
+    expect(elements(runOf('First'), 'w:i')).toHaveLength(1);
+    expect(elements(runOf('Second'), 'w:i')).toHaveLength(0);
+    // The size is the glyphs' height, not stretched by the slant.
+    const size = (run) => elements(run, 'w:sz')[0]?.getAttribute('w:val');
+    expect(size(runOf('First'))).toBe(size(runOf('Second')));
   } finally {
     await loading.destroy();
   }

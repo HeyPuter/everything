@@ -917,7 +917,9 @@ export async function compareDocuments(oldDoc, newDoc, { signal, onProgress, ren
     const p = oldPages[entry.oldIndex],
       q = newPages[entry.newIndex];
     for (const change of compareImages(p.images, q.images)) add(k, change);
-    const sized = (page) => `${Math.round(page.width)}x${Math.round(page.height)}`;
+    // The page's own size, before its rotation: a page turned a quarter is not resized.
+    const sized = ({ view: [x1, y1, x2, y2] }) =>
+      `${Math.round(Math.abs(x2 - x1))}x${Math.round(Math.abs(y2 - y1))}`;
     if (sized(p) !== sized(q)) entry.notes.push('Page size changed');
     else if ((p.rotate - q.rotate) % 360) entry.notes.push('Page rotation changed');
     if (p.paths !== q.paths || p.pathHash !== q.pathHash)

@@ -243,7 +243,7 @@ test('Escape hands the keyboard back to the text it leaves, as pictures and shap
   await expect(frame).toBeFocused();
 });
 
-test('touch can drag unselected text without starting page scrolling', async ({
+test('touch can drag selected text without starting page scrolling', async ({
   page,
   browserName,
 }) => {
@@ -252,6 +252,12 @@ test('touch can drag unselected text without starting page scrolling', async ({
   const target = page.getByRole('button', { name: 'Edit text: Original text', exact: true });
   const before = await target.boundingBox();
   const cdp = await page.context().newCDPSession(page);
+  // A finger on text not yet selected scrolls the page (text-touch.spec.js); a tap selects it.
+  const tap = { id: 1, x: before.x + before.width / 2, y: before.y + before.height / 2 };
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [tap] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(page.getByRole('button', { name: 'Move text', exact: true })).toBeVisible();
+  await expect(target).toHaveClass(/text-movable/);
   const finger = { id: 1, x: before.x + before.width / 2, y: before.y + before.height / 2 };
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [finger] });
   finger.x += 24;

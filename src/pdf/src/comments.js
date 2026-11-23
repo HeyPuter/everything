@@ -74,7 +74,8 @@ export function createCommentsPanel({ onSelect }) {
             el(
               'span',
               { class: 'comment-body' },
-              el('span', { class: 'comment-text' }, comment.text || comment.kind),
+              // Words in Hebrew or Arabic read right to left, whatever the app's language.
+              el('span', { class: 'comment-text', dir: 'auto' }, comment.text || comment.kind),
               meta && el('span', { class: 'comment-meta', id: metaId }, meta),
             ),
           ),

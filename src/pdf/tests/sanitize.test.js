@@ -375,6 +375,34 @@ describe('sanitizeDocument', () => {
     expect(await recoverable(bytes)).not.toContain('EMBEDDEDCLIP');
   });
 
+  it('removes the title and author an article thread keeps of its own', async () => {
+    // Article threads (reading paths through columns) carry an information dictionary with
+    // the same entries as the document's: the author's name stayed after Metadata was removed.
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 400]);
+    const ctx = doc.context;
+    const bead = ctx.register(ctx.obj({ Type: 'Bead', P: page.ref, R: [0, 0, 100, 100] }));
+    const thread = ctx.register(
+      ctx.obj({
+        Type: 'Thread',
+        F: bead,
+        I: { Title: PDFString.of('THREADTITLE'), Author: PDFString.of('THREADAUTHOR') },
+      }),
+    );
+    for (const key of ['T', 'N', 'V']) ctx.lookup(bead).set(n(key), key === 'T' ? thread : bead);
+    doc.catalog.set(n('Threads'), ctx.obj([thread]));
+    page.node.set(n('B'), ctx.obj([bead]));
+    const off = Object.fromEntries(Object.keys(SANITIZE_DEFAULTS).map((key) => [key, false]));
+    const { bytes, report } = await sanitize(await doc.save(), { ...off, metadata: true });
+    expect(report.metadata).toBeGreaterThanOrEqual(1);
+    const corpus = await recoverable(bytes);
+    expect(corpus).not.toContain('THREADTITLE');
+    expect(corpus).not.toContain('THREADAUTHOR');
+    // The thread itself still guides reading.
+    const kept = await PDFDocument.load(bytes);
+    expect(kept.catalog.lookup(n('Threads'))?.size()).toBe(1);
+  });
+
   it('counts a script removed from a rendition action, so the removal is kept', async () => {
     const doc = await PDFDocument.create();
     const page = doc.addPage([400, 400]);

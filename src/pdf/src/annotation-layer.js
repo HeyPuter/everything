@@ -227,9 +227,18 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     // A drag cannot go on across a redraw (a zoom, say): its target is replaced, and with it
     // the pointer capture. Left behind, it would move whichever comment the pointer passed.
     drag = null;
-    entries = next;
+    const previous = entries;
+    // One whose Rect cannot be read (left out, or the wrong length) has no place on the page.
+    entries = next.filter((entry) => entry.rect);
     viewport = nextViewport;
-    const kept = selected && entries.find((entry) => entry.id === selected);
+    let kept = selected && entries.find((entry) => entry.id === selected);
+    // A comment written into the page's Annots directly becomes an object of its own, with a
+    // new ID, when a reply first points at it; it keeps its place among the page's comments.
+    if (selected?.startsWith('direct:') && !kept && previous.length === entries.length) {
+      const at = previous.findIndex((entry) => entry.id === selected);
+      if (entries[at]?.subtype === previous[at]?.subtype) kept = entries[at];
+      if (kept) selected = kept.id;
+    }
     if (selected && !kept) select(null);
     // An edited comment is redrawn: its settings follow the new version.
     else if (kept) onSelect(kept, { refresh: true });
@@ -375,6 +384,23 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     clear() {
       saveNudge();
       if (selected) select(null);
+    },
+    /**
+     * Keep the nudges not yet saved from saving until the press on Undo or Redo is let go:
+     * saved mid-press, they turned Undo off before its click. The click's Undo saves them
+     * first (see `finish`); a press let go elsewhere saves them once the keys have rested.
+     */
+    hold() {
+      if (!nudge || moving) return;
+      clearTimeout(nudgeTimer);
+      window.addEventListener(
+        'pointerup',
+        () => {
+          clearTimeout(nudgeTimer);
+          if (nudge) nudgeTimer = setTimeout(saveNudge, NUDGE_REST);
+        },
+        { once: true, capture: true },
+      );
     },
     /** Save the nudges not yet saved, as a save or another edit must include them. */
     async finish() {

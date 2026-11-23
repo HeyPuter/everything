@@ -254,9 +254,19 @@ export function createOrganizeView({
       class: 'organize-view',
       'aria-label': 'Organize pages',
       hidden: true,
-      // The editor's shortcuts to rotate or delete a page act on the current page, which the
-      // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
       onkeydown: (e) => {
+        // Escape leaves the grid, as it leaves Compare files, unless something here uses it:
+        // an open menu or a drag takes it first, and a text field keeps it.
+        if (e.key === 'Escape') {
+          if (e.defaultPrevented || e.isComposing || dragging) return;
+          if (e.target.closest?.('textarea, select, input:not([type="range"])')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          actions.close();
+          return;
+        }
+        // The editor's shortcuts to rotate or delete a page act on the current page, which the
+        // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
         const key = e.key.toLowerCase();
         if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || !['r', 'd'].includes(key))
           return;
@@ -271,9 +281,11 @@ export function createOrganizeView({
   );
 
   let shownBusy = null,
-    shownSelection = null;
+    shownSelection = null,
+    shownCurrent = null;
   function updateState() {
     shownBusy = isBusy();
+    shownCurrent = currentIndex();
     // Other controls offering the same commands, as the tools pane does, follow the choice.
     const chosen = indices();
     if (visible && chosen.join() !== shownSelection) {
@@ -543,8 +555,9 @@ export function createOrganizeView({
           drawn.add(entry.target);
           const index = Number(entry.target.dataset.index);
           const canvas = entry.target.querySelector('canvas');
+          let page = null;
           try {
-            const page = await pdf.getPage(index + 1);
+            page = await pdf.getPage(index + 1);
             if (getPdf() !== pdf || getRevision() !== revision || !canvas.isConnected) return;
             if (!drawn.has(entry.target)) return;
             const natural = page.getViewport({ scale: 1 });
@@ -567,9 +580,12 @@ export function createOrganizeView({
             } finally {
               if (renders.get(entry.target) === task) renders.delete(entry.target);
             }
-            if (index !== currentIndex()) page.cleanup();
           } catch {
             /* A page that cannot be drawn keeps its blank tile. */
+          } finally {
+            // PDF.js keeps a page's decoded pictures until told otherwise, also from a picture
+            // given up part way (scrolled far past); the page being worked on keeps them.
+            if (page && getPdf() === pdf && index !== currentIndex()) page.cleanup();
           }
         }),
       { root: grid, rootMargin: '200px' },
@@ -610,6 +626,10 @@ export function createOrganizeView({
     /** The busy state the controls last showed. */
     get busy() {
       return shownBusy;
+    },
+    /** The page the grid last marked as the current one. */
+    get current() {
+      return shownCurrent;
     },
     show() {
       visible = true;

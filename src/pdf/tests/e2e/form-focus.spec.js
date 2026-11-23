@@ -136,3 +136,31 @@ test('a number refused on the page points at its own field, not another one fill
   await expect(value).toHaveAttribute('aria-invalid', 'false');
   expect(await outline(value)).not.toBe(danger);
 });
+
+test('a character no font can write points at the field it was typed in', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  const form = doc.getForm();
+  form.createTextField('Notes').addToPage(sheet, { x: 40, y: 400, width: 200, height: 24 });
+  form.createTextField('Name').addToPage(sheet, { x: 40, y: 340, width: 200, height: 24 });
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'emoji.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  const notes = page.getByLabel('Notes (on page)', { exact: true });
+  const name = page.getByLabel('Name (on page)', { exact: true });
+  await notes.fill('Thanks 🎉');
+  await name.fill('Ada');
+  await name.press('Enter');
+  await expect(page.getByRole('alert')).toHaveText('This font does not support “🎉” in this text.');
+  await expect(notes).toBeFocused();
+  await expect(notes).toHaveAttribute('aria-invalid', 'true');
+  await expect(name).toHaveAttribute('aria-invalid', 'false');
+});

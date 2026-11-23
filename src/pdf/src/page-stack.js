@@ -209,8 +209,9 @@ export function createPageStack({
     let task = null;
     const marker = { cancel: () => task?.cancel() };
     rendering.set(index, marker);
+    let page = null;
     try {
-      const page = await pdf.getPage(index + 1);
+      page = await pdf.getPage(index + 1);
       if (destroyed || rendering.get(index) !== marker || getPdf() !== pdf) return;
       const viewport = page.getViewport({ scale: zoom });
       // Within a pixel budget per picture, as for the page being edited.
@@ -238,11 +239,13 @@ export function createPageStack({
       slot.dataset.revision = revision;
       slot.dataset.zoom = String(zoom);
       delete slot.dataset.stale;
-      page.cleanup();
     } catch {
       /* A cancelled or failed picture leaves the blank page; the next pass retries. */
     } finally {
       if (rendering.get(index) === marker) rendering.delete(index);
+      // PDF.js keeps a page's decoded pictures until told otherwise, also from a picture
+      // abandoned part way (scrolled past, or superseded); the page being worked on keeps them.
+      if (page && getPdf() === pdf && index !== currentIndex()) page.cleanup();
     }
   }
 
