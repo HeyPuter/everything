@@ -817,6 +817,7 @@ async function shortcutsDialog() {
           "Ctrl / ⌘ + Shift + C, then Ctrl / ⌘ + Shift + V",
           "Copy formatting, then paste it onto the selection",
         ],
+        ["Shift + F10", "Open the shortcut menu of the focused item"],
         ["Shift + click", "Add an object to the selection"],
         [
           "Shift + click / Ctrl / ⌘ + click on a thumbnail",
@@ -17002,6 +17003,34 @@ async function present(options = {}) {
     throw error;
   }
 }
+// Shift+F10 opens the focused item's shortcut menu, as the Menu key does.
+// Other systems' browsers do this themselves; on a Mac, which has no Menu
+// key, the browser leaves Shift+F10 alone, so the app does it.
+document.addEventListener("keydown", (e) => {
+  if (
+    !IS_MAC ||
+    e.defaultPrevented ||
+    e.key !== "F10" ||
+    !e.shiftKey ||
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey
+  )
+    return;
+  const target = document.activeElement;
+  if (!(target instanceof HTMLElement) || target === document.body) return;
+  e.preventDefault();
+  const r = target.getBoundingClientRect();
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: r.left + Math.min(24, r.width / 2),
+      clientY: r.top + Math.min(24, r.height / 2),
+    }),
+  );
+});
 document.addEventListener("keydown", (e) => {
   if (
     e.defaultPrevented ||

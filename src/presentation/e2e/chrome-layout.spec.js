@@ -338,3 +338,29 @@ test("the status bar's language follows the selected text", async ({
   await page.keyboard.press("ControlOrMeta+z");
   await expect(language).toHaveText("English (United States)");
 });
+
+// Shift+F10 opens the shortcut menu of what has the keyboard, on a Mac too,
+// where the browser leaves the key alone.
+test("Shift+F10 opens the shortcut menu of the focused object or slide", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await story(page);
+  const object = page.locator("#slide-canvas .object-hit").first();
+  await object.click();
+  await page.keyboard.press("Shift+F10");
+  const objectMenu = page.getByRole("menu", { name: "Object options" });
+  await expect(objectMenu).toBeVisible();
+  await expect(objectMenu.getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(objectMenu).toBeHidden();
+  await expect(object).toBeFocused();
+  // A thumbnail in the navigator.
+  await page.locator(".slide-item .slide-thumb").nth(1).focus();
+  await page.keyboard.press("Shift+F10");
+  await expect(page.getByRole("menu")).toHaveCount(1);
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(
+    page.getByRole("menu").getByRole("menuitem").first(),
+  ).toBeFocused();
+});
