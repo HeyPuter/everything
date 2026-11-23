@@ -10733,10 +10733,19 @@ export function createEditor({
       'medium',
     );
     const colorPick = el('input', { type: 'color', value: '#000000' });
-    const opacity = el('input', { type: 'range', min: 5, max: 100, step: 5, value: 25 });
+    // Said as a percentage, as it is shown: a bare "25" meant nothing to a screen reader.
+    const opacity = el('input', {
+      type: 'range',
+      min: 5,
+      max: 100,
+      step: 5,
+      value: 25,
+      'aria-valuetext': '25%',
+    });
     const opacityValue = el('output', { for: 'watermark-opacity' }, '25%');
     opacity.oninput = () => {
       opacityValue.textContent = `${opacity.value}%`;
+      opacity.setAttribute('aria-valuetext', opacityValue.textContent);
     };
     const choices = pageChoices('watermark-pages', pdf.numPages, { all: true });
     const form = el(
@@ -11869,6 +11878,9 @@ export function createEditor({
       step: 5,
       value: Math.round((entry.opacity ?? 1) * 100),
       'aria-label': 'Opacity',
+      // Said as a percentage: a bare "100" meant nothing to a screen reader.
+      'aria-valuetext': `${Math.round((entry.opacity ?? 1) * 100)}%`,
+      oninput: (e) => e.target.setAttribute('aria-valuetext', `${e.target.value}%`),
       disabled: !accepts('opacity'),
       // Held arrow keys step on until they are let go; a click or drag ends at once.
       onchange: () => !opacityHeld && restOpacity(),

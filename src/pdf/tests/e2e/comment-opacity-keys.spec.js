@@ -43,6 +43,8 @@ test('arrow keys on a comment’s opacity step it once per press, as one edit', 
   for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowLeft');
   await settled(page);
   await expect(opacity).toHaveValue('70');
+  // Said as the percentage it is.
+  await expect(opacity).toHaveAttribute('aria-valuetext', '70%');
   await expect(opacity).toBeFocused();
   const undo = page.getByRole('button', { name: 'Undo', exact: true });
   await undo.click();

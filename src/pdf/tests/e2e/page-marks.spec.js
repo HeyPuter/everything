@@ -144,6 +144,7 @@ test('a watermark is centered on the chosen pages with the typed text, layout, a
   await dialog.getByLabel('Layout').selectOption('horizontal');
   await dialog.getByLabel('Opacity').fill('60');
   await expect(dialog.getByText('60%')).toBeVisible();
+  await expect(dialog.getByLabel('Opacity')).toHaveAttribute('aria-valuetext', '60%');
   await dialog.getByRole('radio', { name: 'Current page (2)' }).check();
   await dialog.getByRole('button', { name: 'Add watermark', exact: true }).click();
   await expect(dialog).toBeHidden();
