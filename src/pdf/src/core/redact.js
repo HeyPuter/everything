@@ -398,7 +398,7 @@ function pruneParentTree(doc, root, keys) {
  * Structure elements describe their content with ActualText, Alt, and E. Clear them on elements
  * (and their ancestors) that own marked content which lost glyphs, so the tags cannot repeat it.
  */
-function clearStructText(doc, pageRef, mcids) {
+export function clearStructText(doc, pageRef, mcids) {
   const root = get(doc.catalog, 'StructTreeRoot');
   if (!(root instanceof PDFDict) || !mcids.size) return;
   const pending = [{ node: root, pg: undefined, chain: [] }];

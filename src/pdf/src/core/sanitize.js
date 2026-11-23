@@ -2,7 +2,7 @@ import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream 
 import { decode, pageSource, setPageSource } from './text-edit.js';
 import { annotationList, annotationsOf } from './structure.js';
 import { contentReport, filterContent, tokenize } from './content-filter.js';
-import { removeStructReferences } from './redact.js';
+import { clearStructText, removeStructReferences } from './redact.js';
 
 /**
  * "Sanitize document", after Acrobat: remove information a reader does not see but a recipient
@@ -723,6 +723,8 @@ export async function sanitizeDocument(doc, options = {}) {
       if (!result.changed) continue;
       page.node.set(name('Resources'), result.resources);
       setPageSource(doc, page, result.source);
+      // The tags' replacement and alternate text would still read out what went.
+      clearStructText(doc, page.ref, result.mcids);
     }
     report.hiddenText = invisibleGlyphs;
     if (o.hiddenLayers)

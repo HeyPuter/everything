@@ -5,6 +5,7 @@ import {
   PDFDocument,
   PDFHexString,
   PDFName,
+  PDFNumber,
   PDFRawStream,
   PDFString,
   StandardFontEmbedder,
@@ -516,6 +517,60 @@ describe('sanitizeDocument', () => {
     expect(jpeg.getData({ width: 64, height: 48, forceRGB: true })).toEqual(
       original.getData({ width: 64, height: 48, forceRGB: true }),
     );
+  });
+
+  it('clears the tags’ replacement and alternate text for the hidden content it removes', async () => {
+    const doc = await PDFDocument.create();
+    const ctx = doc.context;
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([400, 400]);
+    const layer = ctx.register(ctx.obj({ Type: 'OCG', Name: PDFString.of('Drafts') }));
+    doc.catalog.set(n('OCProperties'), ctx.obj({ OCGs: [layer], D: { OFF: [layer] } }));
+    const picture = ctx.register(
+      ctx.flateStream(new Uint8Array(4).fill(90), {
+        Type: 'XObject',
+        Subtype: 'Image',
+        Width: 2,
+        Height: 2,
+        ColorSpace: 'DeviceGray',
+        BitsPerComponent: 8,
+      }),
+    );
+    page.node.set(
+      n('Resources'),
+      ctx.obj({ Font: { F: font.ref }, Properties: { Off: layer }, XObject: { Im: picture } }),
+    );
+    const content = [
+      '/P <</MCID 0>> BDC BT /F 12 Tf 10 300 Td 3 Tr (scanned words) Tj 0 Tr ET EMC',
+      '/OC /Off BDC /P <</MCID 1>> BDC BT /F 12 Tf 10 200 Td (draft words) Tj ET EMC EMC',
+      '/OC /Off BDC /Figure <</MCID 2>> BDC q 20 0 0 20 10 150 cm /Im Do Q EMC EMC',
+      '/P <</MCID 3>> BDC BT /F 12 Tf 10 100 Td (Shown) Tj ET EMC',
+    ].join('\n');
+    page.node.set(n('Contents'), ctx.register(ctx.flateStream(content)));
+    const root = ctx.nextRef();
+    const top = ctx.nextRef();
+    const element = (role, mcid, key, text) =>
+      ctx.register(
+        ctx.obj({ Type: 'StructElem', S: role, P: top, Pg: page.ref, K: mcid, [key]: text }),
+      );
+    const kids = [
+      element('P', 0, 'ActualText', PDFHexString.fromText('OCR layer words')),
+      element('P', 1, 'ActualText', PDFHexString.fromText('Draft clause')),
+      element('Figure', 2, 'Alt', PDFHexString.fromText('Draft floor plan')),
+      element('P', 3, 'ActualText', PDFHexString.fromText('Shown words')),
+    ];
+    ctx.assign(top, ctx.obj({ Type: 'StructElem', S: 'Document', P: root, K: kids }));
+    ctx.assign(
+      root,
+      ctx.obj({ Type: 'StructTreeRoot', K: [top], ParentTree: { Nums: [0, kids] } }),
+    );
+    doc.catalog.set(n('StructTreeRoot'), root);
+    page.node.set(n('StructParents'), PDFNumber.of(0));
+    const { bytes } = await sanitize(await doc.save());
+    const corpus = await recoverable(bytes);
+    for (const secret of ['OCR layer words', 'Draft clause', 'Draft floor plan'])
+      expect(contains(corpus, secret), secret).toBe(false);
+    expect(contains(corpus, 'Shown words')).toBe(true);
   });
 
   it('counts nothing when the chosen kinds are absent', async () => {
