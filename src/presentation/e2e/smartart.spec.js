@@ -127,6 +127,18 @@ test("typing in a new graphic's Text Pane replaces the sample text", async ({
   ]);
 });
 
+test("a click on the sample text in the item being typed in chooses all of it", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  const first = page.locator(".smartart-outline-input").first();
+  await expect(first).toBeFocused();
+  await first.click();
+  await page.keyboard.type("Plan");
+  await expect(first).toHaveValue("Plan");
+});
+
 test("SmartArt Design adds and moves shapes, and changes layout, colors and style", async ({
   page,
 }) => {

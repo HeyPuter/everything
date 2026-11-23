@@ -107,14 +107,15 @@ export function openTextPane({
               current = i;
               onCurrent?.(i);
             },
-            // A click places the caret after the focus arrives.
-            onclick: (e) => {
+            // A click on the sample text chooses all of it, even in the
+            // item that already has the keyboard, where the browser would
+            // otherwise put the caret after it once the click is over.
+            onmousedown: (e) => {
               const input = e.currentTarget;
-              if (
-                input.value === SAMPLE &&
-                input.selectionStart === input.selectionEnd
-              )
-                input.select();
+              if (e.button !== 0 || input.value !== SAMPLE) return;
+              e.preventDefault();
+              input.focus();
+              input.select();
             },
             oninput: (e) => {
               items[i] = { ...items[i], text: e.target.value };
