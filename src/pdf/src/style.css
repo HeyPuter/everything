@@ -2517,6 +2517,11 @@ kbd {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* A long account name gives way on the smallest phones, rather than pushing Settings off the
+     edge of the screen. */
+  .header-right {
+    min-width: 0;
+  }
   .editor-topbar .icon-btn {
     min-width: 30px;
     width: 30px;
