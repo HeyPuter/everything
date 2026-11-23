@@ -447,3 +447,34 @@ export const parseCustomGeometry = (
     throw err;
   }
 };
+
+/**
+ * The connection sites of a geometry (`<a:cxnLst>`, ECMA-376 §20.1.9.9),
+ * evaluated for a shape `shapeW` × `shapeH` EMU: where a connector's end
+ * attaches, in the shape's own unturned, unmirrored box, by site index.
+ * Returns `null` when the geometry cannot be evaluated, and an empty list
+ * when it has no sites.
+ */
+export const parseConnectionSites = (
+  geometry: XmlElement,
+  shapeW: number,
+  shapeH: number,
+  adjustmentOverrides: XmlElement | null = null,
+): GeomPoint[] | null => {
+  try {
+    const guides = builtinGuides(shapeW, shapeH);
+    evalGuideList(firstDmlChild(geometry, NAME_AV_LST), guides);
+    evalGuideList(adjustmentOverrides, guides);
+    evalGuideList(firstDmlChild(geometry, NAME_GD_LST), guides);
+    const list = firstDmlChild(geometry, qname("a", "cxnLst", NS.dml));
+    if (!list) return [];
+    return dmlChildren(list, "cxn").map((cxn) => {
+      const pos = firstDmlChild(cxn, qname("a", "pos", NS.dml));
+      if (!pos) throw new GeomEvalError("<a:cxn> missing <a:pos>");
+      return resolvePt(pos, guides);
+    });
+  } catch (err) {
+    if (err instanceof GeomEvalError) return null;
+    throw err;
+  }
+};

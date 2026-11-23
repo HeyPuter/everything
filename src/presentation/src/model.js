@@ -1656,6 +1656,167 @@ export function groupFlip(
   }
   return flip;
 }
+/* Connectors glued to shapes (decks made elsewhere have them) keep their
+ * ends on the shapes' connection sites when the shapes move, turn, flip or
+ * resize. An end dragged away on its own comes unglued, and so does one
+ * whose shape is deleted. */
+// How a shape shows on the slide: its box, turn and mirroring.
+function shownPlace(pres, shape, parents) {
+  const b = slideBounds(pres, shape, parents);
+  if (!b) return null;
+  const own = P.getShapeFlip(shape) || {};
+  const groups = groupFlip(shape, parents);
+  return {
+    b,
+    rotation: slideRotation(shape, parents),
+    flipH: !!own.horizontal !== groups.horizontal,
+    flipV: !!own.vertical !== groups.vertical,
+  };
+}
+const placeKey = (place) =>
+  place
+    ? [
+        place.b.x,
+        place.b.y,
+        place.b.w,
+        place.b.h,
+        place.rotation,
+        place.flipH,
+        place.flipV,
+      ]
+        .map((v) => (typeof v === "number" ? Math.round(v) : v))
+        .join()
+    : "";
+// A point of a shape's own box (origin at its top left), on the slide.
+function onSlide(place, x, y) {
+  const { b, rotation, flipH, flipV } = place;
+  let lx = x - b.w / 2,
+    ly = y - b.h / 2;
+  if (flipH) lx = -lx;
+  if (flipV) ly = -ly;
+  const rad = (rotation * Math.PI) / 180,
+    cos = Math.cos(rad),
+    sin = Math.sin(rad);
+  return {
+    x: b.x + b.w / 2 + lx * cos - ly * sin,
+    y: b.y + b.h / 2 + lx * sin + ly * cos,
+  };
+}
+// A connector's start and end on the slide.
+function connectorEnds(place) {
+  return [onSlide(place, 0, 0), onSlide(place, place.b.w, place.b.h)];
+}
+function siteOnSlide(pres, shape, site, parents) {
+  const place = shownPlace(pres, shape, parents);
+  const point =
+    place && P.getShapeConnectionSites(shape, place.b.w, place.b.h)?.[site];
+  return point ? onSlide(place, point.x, point.y) : null;
+}
+// The glued connectors on a slide, and where they and the shapes they are
+// glued to stand: read before an edit, so followConnectors can tell what
+// the edit moved. Null when the slide has none.
+export function connectorGlue(pres, slide) {
+  const connectors = [];
+  for (const shape of P.getSlideShapes(slide)) {
+    if (P.getShapeKind(shape) !== "connector") continue;
+    const glue = P.getConnectorConnections(shape);
+    if (glue.start || glue.end)
+      connectors.push({ id: P.getShapeId(shape), ...glue });
+  }
+  if (!connectors.length) return null;
+  const parents = groupParents(slide);
+  const places = new Map();
+  for (const c of connectors)
+    for (const id of [c.id, c.start?.id, c.end?.id])
+      if (id != null && !places.has(id)) {
+        const shape = P.findShapeById(slide, id);
+        places.set(id, shape ? placeKey(shownPlace(pres, shape, parents)) : "");
+      }
+  return { connectors, places };
+}
+// After an edit: each glued connector whose shapes moved is redrawn between
+// their sites, keeping its own turn; an end the edit dragged off its shape,
+// or whose shape is gone, comes unglued.
+export function followConnectors(pres, slide, glue) {
+  if (!glue) return;
+  const parents = groupParents(slide);
+  const now = new Map();
+  const placeOf = (id) => {
+    if (!now.has(id)) {
+      const shape = P.findShapeById(slide, id);
+      now.set(id, shape ? shownPlace(pres, shape, parents) : null);
+    }
+    return now.get(id);
+  };
+  const moved = (id) => placeKey(placeOf(id)) !== glue.places.get(id);
+  for (const { id, start, end } of glue.connectors) {
+    const connector = P.findShapeById(slide, id);
+    const place = connector && placeOf(id);
+    if (!place) continue;
+    const ends = { start, end };
+    const loose = {};
+    // A missing shape lets its end go.
+    for (const key of ["start", "end"])
+      if (ends[key] && !P.findShapeById(slide, ends[key].id)) loose[key] = null;
+    const glued = ["start", "end"].filter(
+      (key) => ends[key] && !(key in loose),
+    );
+    const site = (key) =>
+      siteOnSlide(
+        pres,
+        P.findShapeById(slide, ends[key].id),
+        ends[key].site,
+        parents,
+      );
+    const [s, e] = connectorEnds(place);
+    const points = { start: s, end: e };
+    if (!glued.some((key) => moved(ends[key].id))) {
+      // The connector moved by itself: an end it took off its site comes
+      // unglued.
+      if (moved(id))
+        for (const key of glued) {
+          const at = site(key);
+          if (
+            !at ||
+            Math.hypot(at.x - points[key].x, at.y - points[key].y) > 12700
+          )
+            loose[key] = null;
+        }
+      if (Object.keys(loose).length)
+        P.setConnectorConnections(connector, loose);
+      continue;
+    }
+    if (Object.keys(loose).length) P.setConnectorConnections(connector, loose);
+    for (const key of glued) {
+      const at = site(key);
+      if (at) points[key] = at;
+    }
+    // The connector keeps its turn; its box and mirroring are what take
+    // its ends from one site to the other.
+    const rad = (-place.rotation * Math.PI) / 180,
+      cos = Math.cos(rad),
+      sin = Math.sin(rad);
+    const dx = points.end.x - points.start.x,
+      dy = points.end.y - points.start.y;
+    const lx = dx * cos - dy * sin,
+      ly = dx * sin + dy * cos;
+    const w = Math.abs(lx),
+      h = Math.abs(ly);
+    const cx = (points.start.x + points.end.x) / 2,
+      cy = (points.start.y + points.end.y) / 2;
+    setSlideBounds(
+      pres,
+      connector,
+      { x: cx - w / 2, y: cy - h / 2, w, h },
+      parents,
+    );
+    const groups = groupFlip(connector, parents);
+    P.setShapeFlip(connector, {
+      horizontal: lx < 0 !== groups.horizontal,
+      vertical: ly < 0 !== groups.vertical,
+    });
+  }
+}
 // Whether a shape's click action jumps to a slide, read from its own XML: on
 // a slide copied out of its presentation the slide is gone and the library
 // reports no action at all.

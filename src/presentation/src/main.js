@@ -50,6 +50,8 @@ import {
   carriedByGroup,
   removeAnyShape,
   groupFlip,
+  connectorGlue,
+  followConnectors,
   hasSlideJump,
   slideTitle,
   slideDescription,
@@ -2644,9 +2646,15 @@ async function restoreSnapshot() {
 }
 function mutateSlide(target, fn, options) {
   const part = P.getSlidePartName(target);
-  return mutate(() => {
+  return mutate(async () => {
     const targetSlide = slideByPart(part);
-    return targetSlide ? fn(targetSlide) : SKIP_MUTATION;
+    if (!targetSlide) return SKIP_MUTATION;
+    // Connectors glued to the shapes an edit moves go along with them.
+    const glue = connectorGlue(doc.pres, targetSlide);
+    const result = await fn(targetSlide);
+    const after = glue && result !== SKIP_MUTATION && slideByPart(part);
+    if (after) followConnectors(doc.pres, after, glue);
+    return result;
   }, options);
 }
 function mutateShape(shape, fn, options) {
