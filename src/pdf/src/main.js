@@ -56,7 +56,9 @@ let user = null,
   openGeneration = 0,
   cloudOpenGeneration = 0,
   openController = null,
-  homeGeneration = 0;
+  homeGeneration = 0,
+  // The library on screen lists again once Puter says who is signed in.
+  refreshLibrary = null;
 const run =
   (fn) =>
   async (...args) => {
@@ -1158,7 +1160,9 @@ function showHome({ accountRefresh = false } = {}) {
     // A refresh after renaming, duplicating, or deleting keeps the rows on screen until the new
     // listing arrives, so a long library is not cut to one line and the reader keeps their place.
     if (!user || libraryState !== 'ready' || !files.length) {
-      libraryState = user ? 'loading' : 'ready';
+      // Until Puter has said whether anyone is signed in, the library waits for it rather than
+      // inviting someone who is signed in to sign in.
+      libraryState = user || sessionState === 'unknown' ? 'loading' : 'ready';
       renderFiles();
     }
     if (!user) return;
@@ -1273,6 +1277,9 @@ function showHome({ accountRefresh = false } = {}) {
     ),
   );
   if (hadFocus) refocusView('#main');
+  refreshLibrary = () => {
+    if (generation === homeGeneration) load();
+  };
   load();
 }
 window.addEventListener('beforeunload', (e) => {
@@ -1422,6 +1429,7 @@ const initPuter = async () => {
     accountToken = token;
     sessionState = 'out';
     editor?.updateAccount();
+    refreshLibrary?.();
   }
 };
 if (globalThis.puter) initPuter();
