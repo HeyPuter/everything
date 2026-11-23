@@ -2,6 +2,8 @@ import { el, typesCharacter } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { chordOf, bindable, displayChord, browserReserved } from './keymap.js';
 
+const LIST_LIMIT = 400;
+
 /**
  * Customize Keyboard: give any command — a ribbon button or a menu item — a shortcut of your own, or
  * take one away. Bindings are kept in this browser. Built-in shortcuts are listed; a custom chord that
@@ -14,12 +16,17 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
   const filter = el('input.input', { type: 'search', placeholder: 'Search commands', 'aria-label': 'Search commands' });
   const list = el('div.kb-list', { role: 'listbox', 'aria-label': 'Commands', tabindex: 0 });
   const detail = el('div.kb-detail', { 'aria-live': 'polite' });
+  // The list shows its first commands only: the note says so, and how to reach the rest.
+  const more = el('p.field-hint.kb-more', { hidden: true });
   let chosen = all.find(e => e.id === select) || null;
   let shown = [];
 
   function renderList() {
     const q = filter.value.trim().toLowerCase();
-    shown = all.filter(e => (!category.value || e.path[0] === category.value) && (!q || `${e.label} ${e.path.join(' ')}`.toLowerCase().includes(q))).slice(0, 400);
+    const matching = all.filter(e => (!category.value || e.path[0] === category.value) && (!q || `${e.label} ${e.path.join(' ')}`.toLowerCase().includes(q)));
+    shown = matching.slice(0, LIST_LIMIT);
+    more.hidden = matching.length <= shown.length;
+    more.textContent = more.hidden ? '' : `Showing ${shown.length} of ${matching.length.toLocaleString()} commands. Choose a category or search to find the others.`;
     list.replaceChildren(...shown.map((entry, i) => el('div.kb-item', { role: 'option', id: `kb-item-${i}`, 'aria-selected': String(entry === chosen), onclick: () => pick(entry) },
       el('span.kb-label', {}, entry.label), el('span.kb-path', {}, entry.path.filter(Boolean).join(' › ')),
       el('span.kb-keys', {}, [...new Set([...keymap.chordsFor(entry.id).map(c => displayChord(c)), ...(builtIn(entry) ? [entry.shortcut] : [])])].join(', ')))));
@@ -91,7 +98,7 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
   const resetAll = el('button.btn.btn-ghost', { type: 'button', onclick: () => { keymap.reset(); renderList(); renderDetail(); } }, 'Reset All');
   // A form, as the other dialogs are: Enter presses Done, the default button (the shortcut field takes Enter as a key).
   const modal = openModal({ title: 'Customize Keyboard', wide: true, onClose, content: el('form.kb-dialog', { onsubmit: e => { e.preventDefault(); modal.close(); } },
-    el('div.kb-browse', {}, el('div.kb-filters', {}, category, filter), list),
+    el('div.kb-browse', {}, el('div.kb-filters', {}, category, filter), list, more),
     detail,
     el('div.row.row-end.kb-actions', {}, resetAll, el('button.btn.btn-primary', { type: 'submit' }, 'Done'))) });
   modal.panel.classList.add('kb-panel');
