@@ -127,6 +127,7 @@ import {
   getShapeTextColumns,
   getShapeTextBodyRotationDeg,
   getShapeTextDirection,
+  getShapeTextUpright,
   getShapeGeometryResolved,
   getShapeImagePaintEffective,
   getShapeKind,
@@ -12144,7 +12145,14 @@ const renderShape = (
   // flip.horizontal never needs this — mirroring left-right keeps reading
   // direction (and text-upright-ness) unchanged. Verified against real
   // LibreOffice output across rotation × {none, flipH, flipV, both}.
-  const textRotation = (flip.vertical ? rotation + 180 : rotation) % 360;
+  // "Do not rotate text" (`upright`) keeps the text level however the shape
+  // turns, in the shape's box as it stands on the page: turned nearer a
+  // quarter turn than level, its width runs down the page.
+  const upright =
+    rotation !== 0 && kind === "shape" && getShapeTextUpright(shape);
+  const textRotation = upright
+    ? 0
+    : (flip.vertical ? rotation + 180 : rotation) % 360;
   // Inside a group that mirrors its content, mirror the text back about its
   // own centre, so it reads as in an unflipped shape at the mirrored place.
   const unmirror = (mx: number): string =>
@@ -12187,16 +12195,24 @@ const renderShape = (
           shape,
           activeGroupMap ? { w, h } : undefined,
         );
+  const turn = ((rotation % 360) + 360) % 360;
+  const across = (turn >= 45 && turn < 135) || (turn >= 225 && turn < 315);
   const textOverlay =
     (kind === "shape" || kind === "graphicFrame") && textBounds
       ? renderTextBody(
           pres,
           textShape,
-          diagramTextTransform ? textBounds : { x, y, w, h },
+          diagramTextTransform
+            ? textBounds
+            : upright && across
+              ? { x: cx - h / 2, y: cy - w / 2, w: h, h: w }
+              : { x, y, w, h },
           theme,
           phType,
           ctx,
-          textShape === shape && !diagramTextTransform ? geometry : undefined,
+          textShape === shape && !diagramTextTransform && !(upright && across)
+            ? geometry
+            : undefined,
         )
       : "";
 

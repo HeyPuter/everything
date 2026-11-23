@@ -409,6 +409,7 @@ export {
   getShapeTextBodyRotationDeg,
   getShapeTextColumns,
   getShapeTextDirection,
+  getShapeTextUpright,
   getShapeTextMargins,
   getShapeTextWrap,
   getShapeXmlString,

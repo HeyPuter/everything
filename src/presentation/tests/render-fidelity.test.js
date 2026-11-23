@@ -595,3 +595,45 @@ describe("stacked text", () => {
     expect(mongolian.A[1]).toBeGreaterThan(mongolian.C[1]);
   });
 });
+
+describe("text that does not turn", () => {
+  const turnedText = async (rotation, upright) => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const s = P.addSlideShape(slide, {
+      preset: "rect",
+      x: IN(1),
+      y: IN(1),
+      w: IN(3),
+      h: IN(1),
+      text: "Level",
+    });
+    P.setShapeRotation(s, rotation);
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    if (upright)
+      files[name] = strToU8(
+        strFromU8(files[name]).replace("<a:bodyPr ", '<a:bodyPr upright="1" '),
+      );
+    const loaded = await parseDeck(zipSync(files));
+    return renderSlideToSvg(loaded, P.getSlides(loaded)[0], {
+      textLayout: "svg",
+    });
+  };
+  const textTurn = (svg) =>
+    /<g transform="rotate\(([\d.]+) [^"]*"><text/.exec(svg)?.[1] ?? null;
+
+  it("keeps upright text level on a turned shape", async () => {
+    expect(textTurn(await turnedText(45, false))).toBe("45");
+    expect(textTurn(await turnedText(45, true))).toBeNull();
+  });
+
+  it("lays upright text out down the page on a quarter-turned shape", async () => {
+    const svg = await turnedText(90, true);
+    expect(textTurn(svg)).toBeNull();
+    // The 3in x 1in box stands 1in wide: the word sits within its width
+    // about the centre (240px across).
+    const x = Number(/<text x="([\d.]+)"/.exec(svg)[1]);
+    expect(Math.abs(x - 240)).toBeLessThan(48);
+  });
+});

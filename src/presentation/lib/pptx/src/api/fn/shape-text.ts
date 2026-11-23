@@ -420,6 +420,17 @@ export const setShapeTextBodyRotationDeg = (
  * Returns `null` when the attribute is absent or set to the default
  * `horz`.
  */
+/**
+ * Whether the shape's text stays upright when the shape is turned
+ * (`<a:bodyPr upright="1">`, "Do not rotate text"). Literal value only.
+ */
+export const getShapeTextUpright = (shape: SlideShapeData): boolean => {
+  const txBody = firstChildElement(shape[SHAPE_ELEMENT], NAME_TX_BODY);
+  const bodyPr = txBody && firstChildElement(txBody, NAME_A_BODY_PR);
+  const v = bodyPr && getAttrValue(bodyPr, qname("", "upright", ""));
+  return v === "1" || v === "true";
+};
+
 export const getShapeTextDirection = (
   shape: SlideShapeData,
 ):
