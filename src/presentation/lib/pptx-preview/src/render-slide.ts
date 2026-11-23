@@ -689,9 +689,10 @@ const renderPicture = (
         );
       }
       if (grayscale) {
-        // Luminance-preserving desaturation matrix.
+        // Luminance-preserving desaturation matrix, weighing the sRGB
+        // values as the desktop app does (not linear light).
         prims.push(
-          `<feColorMatrix type="matrix" values="0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0 0 0 1 0"/>`,
+          `<feColorMatrix type="matrix" color-interpolation-filters="sRGB" values="0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0 0 0 1 0"/>`,
         );
       }
       if (duotone && duotone.firstColor && duotone.secondColor) {
