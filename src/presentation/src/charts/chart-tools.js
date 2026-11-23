@@ -345,6 +345,9 @@ export function createChartTools(h) {
     const readCategories = () => {
       if (xy) return;
       const lines = cats.value.split("\n");
+      // A line break after the last label adds no category.
+      const n = Math.max(0, ...spec.series.map((s) => s.values.length));
+      while (lines.length > n && !lines.at(-1).trim()) lines.pop();
       spec = cleanSpec({ ...spec, categories: lines });
     };
     const body = el(
