@@ -64,6 +64,7 @@ import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatt
 import {
   dateFormat,
   decimalMark,
+  formulaCalculation,
   numberFormat,
   printedDate,
   simpleCalculation,
@@ -1706,19 +1707,34 @@ function recalculate(doc, fields) {
     const field = fields.find((f) => f.ref === entry || f.acroField.dict === target);
     if (!(field instanceof PDFTextField)) continue;
     try {
+      let value;
       const calculation = simpleCalculation(field);
-      if (!calculation) continue;
-      const sources = fields.filter((other) =>
-        calculation.names.some(
-          (name) =>
-            other !== field &&
-            (names.get(other) === name || names.get(other).startsWith(`${name}.`)),
-        ),
-      );
-      if (!sources.length) continue;
+      const formula = calculation ? null : formulaCalculation(field);
       // A value that is not a number counts as zero, as in Acrobat.
-      const numbers = sources.map((source) => typedNumber(calculationInput(source)) ?? 0);
-      const value = String(CALCULATIONS[calculation.operation](numbers));
+      const number = (source) => typedNumber(calculationInput(source)) ?? 0;
+      if (calculation) {
+        const sources = fields.filter((other) =>
+          calculation.names.some(
+            (name) =>
+              other !== field &&
+              (names.get(other) === name || names.get(other).startsWith(`${name}.`)),
+          ),
+        );
+        if (!sources.length) continue;
+        value = String(CALCULATIONS[calculation.operation](sources.map(number)));
+      } else if (formula) {
+        // A formula (Qty * Price) reads each field it names; one the form lacks stops it.
+        const values = new Map();
+        for (const name of formula.names) {
+          const source = fields.find((other) => other !== field && names.get(other) === name);
+          if (!source) break;
+          values.set(name, number(source));
+        }
+        if (values.size < formula.names.length) continue;
+        const result = formula.evaluate(values);
+        // Dividing by an empty field leaves nothing to show.
+        value = Number.isFinite(result) ? String(result) : '';
+      } else continue;
       if (textValue(field) === value) continue;
       prepareFieldAppearance(field, doc.getForm());
       field.setText(value);

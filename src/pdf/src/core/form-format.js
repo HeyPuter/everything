@@ -276,6 +276,81 @@ export function simpleCalculation(field) {
   return { operation: call[1], names: names.map((name) => name.trim()).filter(Boolean) };
 }
 
+/**
+ * The field's calculation when it is written in Acrobat's simplified field notation (Qty *
+ * Price, (Subtotal - Discount) * 1.08), which Acrobat keeps between BVCALC and EVCALC in its
+ * script: the names of the fields it reads and a function working it out from their numbers,
+ * or null. Names escape spaces and operators with a backslash, as Acrobat writes them.
+ */
+export function formulaCalculation(field) {
+  const formula = actionScript(field, 'C').match(/\bBVCALC\b([\s\S]*?)\bEVCALC\b/)?.[1];
+  if (formula === undefined) return null;
+  const tokens = [];
+  for (let i = 0; i < formula.length;) {
+    const char = formula[i];
+    const number = formula.slice(i).match(/^(\d+\.?\d*|\.\d+)/)?.[0];
+    if (/\s/.test(char)) i++;
+    else if ('+-*/()'.includes(char)) {
+      tokens.push({ op: char });
+      i++;
+    } else if (number) {
+      tokens.push({ number: Number(number) });
+      i += number.length;
+    } else {
+      // A name runs to the next space or operator; a backslash keeps the next character.
+      let name = '';
+      for (; i < formula.length && !/[\s+\-*/()]/.test(formula[i]); i++)
+        name += formula[i] === '\\' ? (formula[++i] ?? '') : formula[i];
+      tokens.push({ name });
+    }
+  }
+  const names = new Set();
+  let at = 0;
+  const peek = (op) => tokens[at]?.op === op;
+  const expression = () => {
+    let node = term();
+    while (peek('+') || peek('-')) {
+      const [op, left, right] = [tokens[at++].op, node, term()];
+      node = (values) => (op === '+' ? left(values) + right(values) : left(values) - right(values));
+    }
+    return node;
+  };
+  const term = () => {
+    let node = factor();
+    while (peek('*') || peek('/')) {
+      const [op, left, right] = [tokens[at++].op, node, factor()];
+      node = (values) => (op === '*' ? left(values) * right(values) : left(values) / right(values));
+    }
+    return node;
+  };
+  const factor = () => {
+    const token = tokens[at++];
+    if (!token) throw new Error('incomplete');
+    if (token.op === '-' || token.op === '+') {
+      const inner = factor();
+      return token.op === '-' ? (values) => -inner(values) : inner;
+    }
+    if (token.op === '(') {
+      const inner = expression();
+      if (!peek(')')) throw new Error('unclosed');
+      at++;
+      return inner;
+    }
+    if (token.number !== undefined) return () => token.number;
+    if (token.name) {
+      names.add(token.name);
+      return (values) => values.get(token.name);
+    }
+    throw new Error('unexpected');
+  };
+  try {
+    const evaluate = expression();
+    return at === tokens.length && names.size ? { names: [...names], evaluate } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Acrobat's separator styles: thousands groups and decimal mark. */
 const SEPARATORS = [
   [',', '.'],

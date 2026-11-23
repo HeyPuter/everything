@@ -650,6 +650,67 @@ it('works out the form’s own sums and other simple calculations after filling'
   }
 });
 
+it('works out calculations written in simplified field notation', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const field = (fieldName, y, formula) => {
+    const created = form.createTextField(fieldName);
+    created.addToPage(page, { x: 50, y, width: 150, height: 20 });
+    // As Acrobat writes it: the formula in a comment, then the script it stands for.
+    if (formula)
+      created.acroField.dict.set(
+        PDFName.of('AA'),
+        source.context.obj({
+          C: {
+            S: 'JavaScript',
+            JS: PDFHexString.fromText(
+              `/*** BVCALC ${formula} EVCALC ***/ event.value = AFMakeNumber(getField("Qty").value)`,
+            ),
+          },
+        }),
+      );
+    return created;
+  };
+  field('Qty', 700);
+  field('Unit price', 670);
+  field('Discount', 640);
+  const line = field('Line total', 600, 'Qty * Unit\\ price - Discount');
+  const taxed = field('Taxed', 570, '(Line\\ total) * 1.5 + -1');
+  const each = field('Each', 540, 'Line\\ total / Qty');
+  // A formula naming a field the form lacks is not worked out.
+  const missing = field('Missing', 510, 'Qty * Nowhere');
+  form.acroForm.dict.set(
+    PDFName.of('CO'),
+    source.context.obj([line.ref, taxed.ref, each.ref, missing.ref]),
+  );
+  const doc = await PDFDocument.load(await source.save());
+  await fillFields(doc, { Qty: '3', 'Unit price': '12.5', Discount: '2.5' });
+  expect(listFields(doc).map(({ value }) => value)).toEqual([
+    '3',
+    '12.5',
+    '2.5',
+    '35',
+    '51.5',
+    '11.666666666666666',
+    '',
+  ]);
+  // Dividing by an empty quantity leaves the field empty instead of showing Infinity.
+  await fillFields(doc, { Qty: '' });
+  expect(listFields(doc).map(({ value }) => value)).toEqual([
+    '',
+    '12.5',
+    '2.5',
+    '-2.5',
+    '-4.75',
+    '',
+    '',
+  ]);
+});
+
 it('a number field does not take its thousands separator for a decimal mark', async () => {
   const source = await PDFDocument.create();
   const page = source.addPage();
