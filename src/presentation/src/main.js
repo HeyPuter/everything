@@ -4768,6 +4768,8 @@ function updateZoomUi() {
   const level = document.querySelector(".zoom-level span");
   if (level) level.textContent = `${Math.round(factor * 100)}%`;
   const slider = document.querySelector(".zoom-slider");
+  // A screen reader hears the zoom, not the slider's own scale.
+  slider?.setAttribute("aria-valuetext", `${Math.round(factor * 100)}%`);
   if (slider && document.activeElement !== slider)
     slider.value = String(
       Math.round(
