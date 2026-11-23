@@ -71,6 +71,12 @@ const LOST_CONNECTION =
 export const isConnectionFailure = (error) =>
   error?.code === 'connection-failed' ||
   LOST_CONNECTION.test(String(error?.message || error?.error?.message || '').trim());
+/** Whether an SDK error means the drive is full: a new file would be refused as well. */
+export const isStorageFull = (error) =>
+  [error?.code, error?.error?.code].includes('storage_limit_reached') ||
+  /storage (capacity|limit|quota)|quota exceeded/i.test(
+    String(error?.message || error?.error?.message || ''),
+  );
 /** Rethrow a lost connection as a message saying what could not be done, and what to do. */
 const overConnection =
   (done, subject = 'The PDF') =>

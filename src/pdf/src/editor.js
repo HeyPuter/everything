@@ -7720,8 +7720,9 @@ export function createEditor({
       } catch (error) {
         // An existing file that cannot be written (shared to view only, its folder gone) need
         // not cost the changes: offer to keep them as a new file in the app's own folder.
-        // Without a connection a new file could not be written either.
-        if (!targetPath || !current() || P.isConnectionFailure(error)) throw saveFailure(error);
+        // Without a connection, or on a full drive, a new file could not be written either.
+        if (!targetPath || !current() || P.isConnectionFailure(error) || P.isStorageFull(error))
+          throw saveFailure(error);
         if (!(await offerCopy(error)) || !current()) return;
         targetPath = null;
         item = await waitFor(() => P.saveFile(targetName, bytes, null), signal).catch((e) => {
