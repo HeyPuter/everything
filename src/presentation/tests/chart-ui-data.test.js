@@ -19,6 +19,7 @@ import {
   specToGrid,
   switchRowColumn,
   toTsv,
+  withSeriesBack,
 } from "../src/charts/chart-data.js";
 
 const CATEGORY_TYPES = CHART_TYPES.filter((t) => !t.custom);
@@ -181,6 +182,25 @@ describe("data sheet grid", () => {
       "Inserted",
       "Series 3",
     ]);
+  });
+
+  it("gives a pie the series it left out back, to convert from", () => {
+    const column = sampleSpec("column-clustered");
+    const pie = convertChart(column, "pie");
+    expect(pie.series).toHaveLength(1);
+    const back = convertChart(
+      withSeriesBack(pie, column.series.slice(1)),
+      "column-clustered",
+    );
+    expect(back.series.map((s) => [s.name, s.values])).toEqual(
+      column.series.map((s) => [s.name, s.values]),
+    );
+    // Converted to a pie again, it plots one series.
+    expect(
+      convertChart(withSeriesBack(pie, column.series.slice(1)), "pie").series,
+    ).toHaveLength(1);
+    // Only a pie takes them.
+    expect(withSeriesBack(column, column.series)).toBe(column);
   });
 
   it("adds and deletes a bubble series with its size column", () => {

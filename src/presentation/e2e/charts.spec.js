@@ -189,6 +189,35 @@ test("Chart Design changes elements, type, layout and data orientation", async (
   expect(new Set(spec.series.map((s) => s.color)).size).toBe(4);
 });
 
+test("a chart changed to a pie and back gets its other series again", async ({
+  page,
+}) => {
+  await start(page);
+  await insertChart(page, "Column", "Clustered Column");
+  await page.getByRole("button", { name: "Close data sheet" }).click();
+  const change = async (family, type) => {
+    await ribbonCommand(page, "Chart Design", "chart-change-type");
+    const dialog = page.getByRole("dialog", { name: "Change Chart Type" });
+    await dialog.getByRole("tab", { name: family }).click();
+    await dialog.getByRole("radio", { name: type, exact: true }).click();
+    await dialog.getByRole("button", { name: "OK", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  };
+  await change("Pie", "Pie");
+  await expect.poll(async () => (await download(page)).spec.kind).toBe("pie");
+  await change("Column", "Clustered Column");
+  await expect
+    .poll(async () => (await download(page)).spec.kind)
+    .toBe("column");
+  const { spec } = await download(page);
+  expect(spec.series.map((s) => s.name)).toEqual([
+    "Series 1",
+    "Series 2",
+    "Series 3",
+  ]);
+  expect(spec.series[2].values).toEqual([1.8, 2.1, 3.2, 4.8]);
+});
+
 test("the Format pane formats the chart element chosen on the Format tab", async ({
   page,
 }) => {
