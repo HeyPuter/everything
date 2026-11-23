@@ -325,6 +325,64 @@ describe('accessibility check', () => {
     expect(status(report, 'tagged-content').details.map((detail) => detail.page)).toEqual([1]);
   });
 
+  it('counts marked content its parent-tree entry declares an Artifact as an artifact', async () => {
+    // Word marks decorative shapes /P <</MCID n>> BDC and gives MCID n an Artifact element that
+    // names the document element as its parent, which does not list it.
+    const build = async (detachedRole) => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([300, 300]);
+      const context = doc.context;
+      page.node.set(
+        PDFName.of('Contents'),
+        context.register(
+          context.stream(
+            '/Figure <</MCID 0>> BDC 0 0 1 rg 20 200 100 50 re f EMC\n' +
+              '/P <</MCID 1>> BDC 1 0 0 rg 20 20 100 50 re f EMC',
+          ),
+        ),
+      );
+      const rootRef = context.nextRef();
+      const documentRef = context.nextRef();
+      const figure = context.register(
+        context.obj({
+          Type: 'StructElem',
+          S: 'Figure',
+          P: documentRef,
+          Pg: page.ref,
+          Alt: PDFString.of('Blue box'),
+          K: [0],
+        }),
+      );
+      const detached = context.register(
+        context.obj({ Type: 'StructElem', S: detachedRole, P: documentRef, Pg: page.ref, K: 1 }),
+      );
+      context.assign(
+        documentRef,
+        context.obj({ Type: 'StructElem', S: 'Document', P: rootRef, K: [figure] }),
+      );
+      context.assign(
+        rootRef,
+        context.obj({
+          Type: 'StructTreeRoot',
+          K: [documentRef],
+          ParentTree: { Nums: [0, [figure, detached]] },
+          ...(detachedRole === 'Decoration' ? { RoleMap: { Decoration: 'Artifact' } } : {}),
+        }),
+      );
+      doc.catalog.set(PDFName.of('StructTreeRoot'), rootRef);
+      doc.catalog.set(PDFName.of('MarkInfo'), context.obj({ Marked: true }));
+      page.node.set(PDFName.of('StructParents'), PDFNumber.of(0));
+      return reload(doc);
+    };
+    for (const role of ['Artifact', 'Decoration'])
+      expect(status(checkAccessibility(await build(role)), 'tagged-content').status).toBe('passed');
+    // A detached element of real content still leaves its content out of the tree.
+    expect(status(checkAccessibility(await build('P')), 'tagged-content')).toMatchObject({
+      status: 'failed',
+      details: [{ page: 0, text: '1 untagged item' }],
+    });
+  });
+
   it('reports a figure without alternate text and setFigureAltText fixes it', async () => {
     const doc = await taggedPdf([['H1'], ['Figure'], ['P']]);
     const report = checkAccessibility(doc);

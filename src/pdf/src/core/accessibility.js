@@ -983,9 +983,26 @@ export function checkAccessibility(doc, { textContents, access } = {}) {
     for (const element of structure?.elements || [])
       for (const { page, mcid, stream } of element.mcids)
         if (!stream) claimed.add(`${page ?? '*'}:${mcid}`);
+    // Marked content whose parent-tree entry is an Artifact element (as Word writes decorative
+    // shapes: the element names its parent but no element lists it) is an artifact, not content
+    // left out of the tree.
+    let parentTree;
+    const declaredArtifact = (index, mcid) => {
+      if (!structure) return false;
+      parentTree ??= readNumberTree(doc, structure.root.get(N('ParentTree')));
+      const key = numberOf(pages[index].node.lookup(N('StructParents')));
+      const owners = lookup(doc, parentTree.get(key));
+      const owner = owners instanceof PDFArray ? lookup(doc, owners.get(mcid)) : null;
+      return (
+        owner instanceof PDFDict && structure.role(nameOf(owner.lookup(N('S')))) === 'Artifact'
+      );
+    };
     // A tag tree too large to read whole cannot say what it leaves out.
     const unclaimed = (index, mcid) =>
-      !structure?.truncated && !claimed.has(`${index}:${mcid}`) && !claimed.has(`*:${mcid}`);
+      !structure?.truncated &&
+      !claimed.has(`${index}:${mcid}`) &&
+      !claimed.has(`*:${mcid}`) &&
+      !declaredArtifact(index, mcid);
     scans.forEach((scan, index) => {
       if (scan.error) {
         unreadable.push({
