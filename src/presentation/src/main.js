@@ -5966,23 +5966,27 @@ function selectionSize(axis) {
   if (!b) return null;
   return Math.round(((axis === "h" ? b.h : b.w) / 914400) * 100) / 100;
 }
+// Pictures keep their proportions by default, and so does any object whose
+// aspect ratio is locked.
+const keepsProportions = (obj) =>
+  P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj);
+// The bounds with one side or corner coordinate set, in inches: a new width
+// or height scales the other side along when the object keeps proportions.
+function sizedBounds(obj, b, key, inches) {
+  const value = Math.round(inches * 914400);
+  if (key !== "w" && key !== "h") return { ...b, [key]: value };
+  const keep = keepsProportions(obj) && b.w > 0 && b.h > 0;
+  return key === "h"
+    ? { ...b, h: value, w: keep ? Math.round((b.w * value) / b.h) : b.w }
+    : { ...b, w: value, h: keep ? Math.round((b.h * value) / b.w) : b.h };
+}
 function setSelectionSize(axis, inches) {
   const obj = currentShape();
   if (!obj) return;
   mutateShape(obj, (obj) => {
     const b = slideBounds(doc.pres, obj);
     if (!b) return SKIP_MUTATION;
-    const value = Math.round(inches * 914400);
-    // Pictures keep their proportions by default.
-    const keep =
-      (P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj)) &&
-      b.w > 0 &&
-      b.h > 0;
-    const next =
-      axis === "h"
-        ? { ...b, h: value, w: keep ? Math.round((b.w * value) / b.h) : b.w }
-        : { ...b, w: value, h: keep ? Math.round((b.h * value) / b.w) : b.h };
-    setSlideBounds(doc.pres, obj, next);
+    setSlideBounds(doc.pres, obj, sizedBounds(obj, b, axis, inches));
   });
 }
 // The Section command: sections group the slides in the thumbnails pane.
@@ -9959,8 +9963,7 @@ function startDrag(e, shape, mode = "move") {
   const rect = canvas.getBoundingClientRect();
   const startX = e.clientX,
     startY = e.clientY;
-  const keepRatio =
-    P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj);
+  const keepRatio = keepsProportions(obj);
   const line = isLine(obj);
   const rotation = slideRotation(obj);
   const target = e.currentTarget;
@@ -13198,10 +13201,7 @@ function boundsInput(obj, key, label, b, size) {
     Math.round((b[key] / 914400) * 100) / 100,
     (n) =>
       mutateShape(obj, (obj) => {
-        const bounds = {
-          ...slideBounds(doc.pres, obj),
-          [key]: P.inches(n),
-        };
+        const bounds = sizedBounds(obj, slideBounds(doc.pres, obj), key, n);
         setSlideBounds(doc.pres, obj, bounds);
         fitTableGrid(obj, bounds);
       }),
