@@ -97,6 +97,7 @@ import { addLink, normalizeUrl, removeLink, safeLinkUrl, updateLink } from './co
 import { annotationLayerVisible } from './core/optional-content.js';
 import { flattenCounts, flattenDocument } from './core/flatten.js';
 import {
+  MAX_SPLIT_BYTES,
   MAX_SPLIT_FILES,
   parseSplitPoints,
   splitPdf,
@@ -11347,7 +11348,8 @@ export function createEditor({
       base = safeName(name).replace(/\.pdf$/i, '');
     try {
       const files = [];
-      let picture;
+      let picture,
+        total = 0;
       for (const [k, index] of indices.entries()) {
         controller.signal.throwIfAborted();
         progress.textContent = `Rendering page ${k + 1} of ${indices.length}…`;
@@ -11363,7 +11365,17 @@ export function createEditor({
         const fileName = `${base} page ${index + 1}.${extension}`;
         // A single image can download directly; only a ZIP needs a copy of its bytes.
         if (indices.length === 1) picture = { name: fileName, blob };
-        else files.push({ name: fileName, bytes: new Uint8Array(await blob.arrayBuffer()) });
+        else {
+          // The ZIP is held in memory until it downloads. Many large pictures (a long scan at
+          // 300 dpi) stop here, with a way out, rather than once every page has been drawn, or
+          // by running the tab out of memory.
+          total += blob.size;
+          if (total > MAX_SPLIT_BYTES)
+            throw new Error(
+              'These pictures would add up to more than 1 GB. Choose fewer pages, a lower resolution, or JPEG.',
+            );
+          files.push({ name: fileName, bytes: new Uint8Array(await blob.arrayBuffer()) });
+        }
       }
       controller.signal.throwIfAborted();
       done = true;
