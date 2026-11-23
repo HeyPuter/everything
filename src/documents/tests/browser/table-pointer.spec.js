@@ -210,3 +210,19 @@ test('a ruler marker drag the browser cancels leaves the columns as they were an
   expect(new Set(result.grid).size).toBe(1);
   await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'col-resize');
 });
+
+test('Escape while dragging a column border puts the border back', async ({ page }) => {
+  await newTable(page, 3, 2);
+  const before = await tables(page), box = (await cells(page))[0];
+  const border = { x: box[0].x + box[0].w, y: box[0].y + box[0].h / 2 };
+  const text = await input(page).inputValue();
+  await page.mouse.move(border.x, border.y); await page.mouse.down();
+  await page.mouse.move(border.x + 60, border.y, { steps: 6 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(await tables(page)).toEqual(before);
+  await expect(input(page)).toHaveValue(text);
+  // The next drag still resizes.
+  await drag(page, border, { x: border.x + 60, y: border.y });
+  expect((await tables(page))[0].grid[0]).toBeGreaterThan(before[0].grid[0]);
+});

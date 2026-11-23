@@ -363,6 +363,8 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   /* ---- Keys: ending a tool, and Delete/Backspace on a block of cells ---- */
   listen(engine.input, 'keydown', e => {
     if (e.isComposing || engine.composition) return;
+    // Escape during a drag (a border, a handle, a ruler marker) puts everything back, as on the desktop.
+    if (e.key === 'Escape' && drag) { e.preventDefault(); e.stopPropagation(); drag = null; refreshRuler(); repaint(); return; }
     if (e.key === 'Escape' && mode) { e.preventDefault(); e.stopPropagation(); mode = null; setCursor(null); onModeEnd(); repaint(); return; }
     // Command+Control+X deletes the selected rows (the Table menu's shortcut on the Mac).
     if (!readOnly() && e.metaKey && e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyX') {
