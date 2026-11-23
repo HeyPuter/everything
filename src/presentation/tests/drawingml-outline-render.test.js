@@ -56,3 +56,45 @@ describe("dashed outlines with round and square caps", () => {
     expect(dashOf(await render(line("sq", cust)))).toEqual([24, 8, 8, 8]);
   });
 });
+
+describe("preset shadows", () => {
+  const preset = (prst, color = '<a:srgbClr val="404040"/>') =>
+    shape(
+      `<a:solidFill><a:srgbClr val="FFC000"/></a:solidFill><a:effectLst><a:prstShdw prst="${prst}" dist="114300" dir="2700000">${color}</a:prstShdw></a:effectLst>`,
+    );
+  const effects = async (markup) => {
+    const pres = await deckWith(markup);
+    const slide = P.getSlides(pres)[0];
+    return P.getShapeEffects(pres, P.getSlideShapes(slide).at(-1));
+  };
+
+  it("draws a drop shadow at its distance and direction", async () => {
+    const svg = await render(preset("shdw2"));
+    // 9 pt at 45°: 12 px along each axis' diagonal.
+    const d = (114300 / 9525) * Math.SQRT1_2;
+    expect(svg).toContain(
+      `<feDropShadow dx="${d.toFixed(2)}" dy="${d.toFixed(2)}" stdDeviation="0.00" flood-color="#404040"`,
+    );
+  });
+
+  it("lays perspective shadows back from or forward of the bottom edge", async () => {
+    expect(await effects(preset("shdw3"))).toMatchObject([
+      { kind: "outerShdw", scaleY: 0.5, skewXDeg: 60, align: "b" },
+    ]);
+    expect(await effects(preset("shdw8"))).toMatchObject([
+      { kind: "outerShdw", scaleY: -0.5, skewXDeg: 60, align: "b" },
+    ]);
+    const svg = await render(preset("shdw3"));
+    expect(svg).toContain('data-pptx-shadow="1"');
+  });
+
+  it("draws a double shadow with a lighter second copy beneath", async () => {
+    const [first, second] = await effects(preset("shdw13"));
+    expect(first).toMatchObject({ color: "#404040", distEmu: 114300 });
+    expect(second).toMatchObject({ color: "#A5A5A5", distEmu: 228600 });
+  });
+
+  it("keeps a shadow hidden behind its shape off the page", async () => {
+    expect(await effects(preset("shdw9"))).toEqual([]);
+  });
+});
