@@ -159,3 +159,35 @@ test("the Comments pane keeps the keyboard when a comment is resolved or deleted
     pane.getByRole("button", { name: "Filter comments" }),
   ).toBeFocused();
 });
+
+// A ribbon button's tip names the shortcut that does what the button does.
+test("the Bring Forward and Send Backward tips name their own shortcuts", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "keyboard shortcuts");
+  await mockPuter(page);
+  await story(page);
+  const order = () =>
+    page
+      .locator("#slide-canvas .object-hit")
+      .evaluateAll((hits) => hits.map((hit) => hit.dataset.shapeId));
+  const press = async (command) => {
+    const tip = await page
+      .locator(`[data-command="${command}"]`)
+      .first()
+      .getAttribute("data-tip-title");
+    const keys = tip
+      .match(/\((.+)\)$/)[1]
+      .replace("⌘", "Meta")
+      .replace("Ctrl", "Control");
+    await page.keyboard.press(keys);
+  };
+  await page.getByRole("tab", { name: "Home", exact: true }).click();
+  const before = await order();
+  expect(before.length).toBeGreaterThan(2);
+  await page.locator(`#slide-canvas [data-shape-id="${before[0]}"]`).click();
+  await press("bring-forward");
+  await expect.poll(order).toEqual([before[1], before[0], ...before.slice(2)]);
+  await press("send-backward");
+  await expect.poll(order).toEqual(before);
+});
