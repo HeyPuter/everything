@@ -764,3 +764,51 @@ test('contrast themes show which way the AutoSave and Preferences switches are s
   expect(off.knob).not.toBe(off.track);
   expect(off.track).not.toBe(on.track);
 });
+
+test('quick access commands that do not fit leave the title bar and are listed in its Customize menu', async ({ page }) => {
+  await openEditor(page, 1280);
+  // Every command the toolbar offers: they ran over the menu bar (File and Edit under their icons, Help cut off)
+  // and, on a phone, over the account button.
+  await page.evaluate(() => localStorage.setItem('documents:quick-access', JSON.stringify(['home', 'save', 'undo', 'redo', 'print', 'new', 'open', 'find',
+    'spelling', 'pdf', 'marks', 'comment', 'track', 'wordCount', 'readAloud', 'repeat'])));
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const quick = page.getByRole('toolbar', { name: 'Quick access' });
+  const layout = () => page.evaluate(() => {
+    const shown = [...document.querySelectorAll('.ed-quick > *')].filter(n => n.getClientRects().length);
+    const help = document.querySelector('.ed-menubar .menu-btn:last-child').getBoundingClientRect();
+    const bar = document.querySelector('.ed-menubar').getBoundingClientRect();
+    return { shown: shown.length, lastRight: Math.max(...shown.map(n => n.getBoundingClientRect().right)), barLeft: bar.left, helpWhole: help.right <= bar.right + 0.5 };
+  });
+  const wide = await layout();
+  expect(wide.shown).toBeLessThan(16);
+  expect(wide.lastRight).toBeLessThanOrEqual(wide.barLeft);
+  expect(wide.helpWhole).toBe(true);
+  await expect(quick.getByRole('button', { name: 'Repeat' })).toBeHidden();
+  // The menu names widen after the first fit (their font arriving late, as on Linux): commands make way again.
+  await page.addStyleTag({ content: '.ed-header .ed-menubar .menu-btn { letter-spacing: 1px; }' });
+  await expect.poll(async () => { const now = await layout(); return now.lastRight <= now.barLeft && now.helpWhole; }).toBe(true);
+  await page.addStyleTag({ content: '.ed-header .ed-menubar .menu-btn { letter-spacing: 0; }' });
+  // The Customize menu offers the ones left out; Word Count runs from there.
+  await page.getByRole('button', { name: 'Customize Quick Access Toolbar' }).click();
+  const menu = page.getByRole('menu', { name: 'Customize Quick Access Toolbar' });
+  await expect(menu.getByText('No room in the title bar')).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Word Count', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Word Count' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // The arrow keys pass over the hidden ones.
+  await quick.getByRole('button', { name: 'All Documents' }).focus();
+  await page.keyboard.press('End');
+  expect(await page.evaluate(() => document.activeElement.getClientRects().length > 0 && !!document.activeElement.closest('.ed-quick'))).toBe(true);
+  // A wider window shows them all again.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await expect(quick.getByRole('button', { name: 'Repeat' })).toBeVisible();
+  await expect.poll(async () => (await layout()).shown).toBe(16);
+  // A phone keeps its account button and some of the name clear of them.
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect.poll(() => page.evaluate(() => {
+    const shown = [...document.querySelectorAll('.ed-quick > *')].filter(n => n.getClientRects().length);
+    const name = document.querySelector('.ed-header .canvas-title').getBoundingClientRect();
+    return Math.max(...shown.map(n => n.getBoundingClientRect().right)) <= name.left && name.width >= 40 && document.documentElement.scrollWidth <= 390;
+  })).toBe(true);
+});
