@@ -839,6 +839,39 @@ describe("file validation", () => {
     expect(fileStem(".hidden plan")).toBe("hidden plan");
     expect(fileStem("Q3: plan")).toBe("Q3: plan");
   });
+  it.each([
+    ["its package relationships", "_rels/.rels"],
+    ["a layout its master lists", "ppt/slideLayouts/slideLayout1.xml"],
+    ["a layout its slides use", "ppt/slideLayouts/slideLayout2.xml"],
+    ["its theme", "ppt/theme/theme1.xml"],
+  ])("saves a presentation that lost %s whole again", async (_, lost) => {
+    const entries = unzipSync(await P.savePresentation(createDeck("story")));
+    delete entries[lost];
+    const pres = await parseDeck(zipSync(entries));
+    const saved = unzipSync(await P.savePresentation(pres));
+    const names = new Set(Object.keys(saved).map((n) => n.toLowerCase()));
+    // Every relationship leads to a part, starting from the package's own.
+    expect(saved["_rels/.rels"]).toBeDefined();
+    for (const [name, data] of Object.entries(saved)) {
+      if (!name.endsWith(".rels")) continue;
+      const owner =
+        name === "_rels/.rels"
+          ? "/"
+          : "/" + name.replace(/_rels\/(.*)\.rels$/, "$1");
+      for (const [, target] of new TextDecoder()
+        .decode(data)
+        .matchAll(/Target="([^"]+)"(?![^>]*TargetMode="External")/g))
+        expect(
+          names.has(
+            new URL(target, `file://${owner}`).pathname.slice(1).toLowerCase(),
+          ),
+          `${name} -> ${target}`,
+        ).toBe(true);
+    }
+    expect(P.getSlides(await parseDeck(zipSync(saved)))).toHaveLength(5);
+    // A whole presentation is left as it is.
+    expect(P.repairPackage(createDeck("story"))).toBe(false);
+  });
   it("normalizes file names without allowing path traversal", () => {
     expect(cleanName("../a\\b\u0000.pptx")).toBe(".. a b");
     expect(cleanName("")).toBe("Untitled presentation");

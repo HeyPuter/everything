@@ -751,6 +751,8 @@ export {
   type PresentationKind,
 } from "./fn/document-statistics.ts";
 
+export { repairPackage } from "./fn/package-repair.ts";
+
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";
 export * from "./format.ts";

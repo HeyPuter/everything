@@ -2507,7 +2507,12 @@ export function checkPackageSize(size, before = 0) {
 export async function parseDeck(bytes, options = {}) {
   validateImportSize(bytes.byteLength);
   validateZip(bytes);
-  return restoreDeck(bytes, options);
+  const pres = await restoreDeck(bytes, options);
+  // What the file lacks that other apps cannot open it without (its
+  // package relationships, a theme, a layout) is filled in, so the copy
+  // saved here opens there.
+  P.repairPackage(pres);
+  return pres;
 }
 // Local drafts are produced by our serializer; external files use parseDeck.
 // A presentation saved as Strict Open XML names its parts' relationships in
