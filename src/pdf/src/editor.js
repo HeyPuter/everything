@@ -2914,6 +2914,7 @@ export function createEditor({
     textRunCache.clear();
     imageRunCache.clear();
     searchTextCache.clear();
+    const keptMatch = currentMatch();
     resetSearch();
     pageRenderGeneration++;
     pageReady = false;
@@ -3036,7 +3037,7 @@ export function createEditor({
       // Pages added or removed move the others; the current page comes back into view.
       if (rebuilt && !destroyed && pdf === next) stack.scrollTo(pageIndex);
       if (!destroyed && pdf === next) stack.refresh();
-      if (searchInput.value.trim()) scheduleSearch();
+      if (searchInput.value.trim()) scheduleSearch(0, false, keptMatch);
     } finally {
       // The draft is removed by finishTextEdit in this same microtask turn.
       retainedFonts.forEach((face) => document.fonts.delete(face));
@@ -14107,7 +14108,16 @@ export function createEditor({
     updateStatus();
     return navigationGeneration;
   }
-  function scheduleSearch(delay = 0, takeNavigation = false) {
+  /** The match Find is on, by page and place there, while its query is still the one typed. */
+  const currentMatch = () =>
+    activeMatch >= 0 && matchedQuery === searchQuery(searchInput.value)
+      ? locateMatch(activeMatch)
+      : null;
+  /**
+   * `kept` is the match to stay on: a refresh after an edit (a rotated page, a comment, changed
+   * words) keeps the reader on the match they were on rather than the page's first one.
+   */
+  function scheduleSearch(delay = 0, takeNavigation = false, kept = null) {
     resetSearch();
     const query = searchQuery(searchInput.value);
     if (!query || !pdf) return;
@@ -14116,6 +14126,7 @@ export function createEditor({
       query,
       direction: 1,
       navigation: takeNavigation ? claimSearchNavigation() : navigationGeneration,
+      kept,
     };
     // A refresh after committing an edit must not inherit the pending page choice's
     // permission to navigate. An explicit search action can claim it again later.
@@ -14154,7 +14165,23 @@ export function createEditor({
       pendingSearch = null;
       matchedQuery = query;
       searchResults = results;
-      if (totalMatches()) {
+      let kept = -1;
+      if (request.kept) {
+        let offset = 0;
+        for (const { page, count } of results) {
+          if (page === request.kept.page) {
+            if (request.kept.ordinal < count) kept = offset + request.kept.ordinal;
+            break;
+          }
+          offset += count;
+        }
+      }
+      // Only while the refresh still owns navigation: a page or comment chosen since, or Next
+      // pressed while it ran, decides where Find goes instead.
+      if (kept >= 0 && request.navigation === navigationGeneration) {
+        activeMatch = kept;
+        showActiveMatch();
+      } else if (totalMatches()) {
         if (request.navigation === navigationGeneration) jumpMatch(request.direction);
         else {
           // Keep the results available, but a newer page choice owns navigation.
@@ -14187,6 +14214,7 @@ export function createEditor({
     if (pendingSearch) {
       pendingSearch.direction = direction;
       pendingSearch.navigation = claimSearchNavigation();
+      pendingSearch.kept = null;
       if (searchTimer !== null) findText(pendingSearch);
       return;
     }
@@ -14207,7 +14235,11 @@ export function createEditor({
       }
       activeMatch = start;
     } else activeMatch = (activeMatch + direction + total) % total;
-    searchCount.textContent = `${activeMatch + 1} of ${total}`;
+    showActiveMatch();
+  }
+  /** Count, mark and go to the active match. */
+  function showActiveMatch() {
+    searchCount.textContent = `${activeMatch + 1} of ${totalMatches()}`;
     const { page } = locateMatch(activeMatch);
     // A same-page match is still a navigation choice when an older request is pending.
     if (page === pageIndex && !pendingNavigation) markSearch();
