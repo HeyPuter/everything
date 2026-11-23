@@ -142,7 +142,8 @@ export function pushButtonAction(annotation) {
 
 /**
  * Only actual, visible form widgets are interactive. No document actions are executed; the
- * form's own Print and Reset buttons are offered as buttons (pushButtonAction).
+ * form's own Print and Reset buttons (pushButtonAction) and signature fields are offered as
+ * buttons.
  */
 export function formWidgets(
   annotations,
@@ -187,6 +188,10 @@ export function formWidgets(
       value = a.fieldValue === 'Off' || a.fieldValue == null ? [] : [a.fieldValue];
     } else if (a.fieldType === 'Btn' && a.pushButton && pushButtonAction(a)) {
       type = 'button';
+      value = null;
+    } else if (a.fieldType === 'Sig') {
+      // Clicked, it is signed with a certificate, or its signature is shown.
+      type = 'signature';
       value = null;
     } else return [];
     if (a.fieldType === 'Btn' && type !== 'button' && buttonSelections?.has(a.fieldName))
@@ -245,7 +250,12 @@ export function formWidgets(
         buttonLabel: type === 'radio' ? a.buttonValue : undefined,
         exportValue: a.checkBox ? a.exportValue : undefined,
         editableChoice,
-        action: type === 'button' ? pushButtonAction(a) : undefined,
+        action:
+          type === 'button'
+            ? pushButtonAction(a)
+            : type === 'signature'
+              ? { kind: 'signature', name: a.fieldName }
+              : undefined,
         alignment: ['left', 'center', 'right'][a.textAlignment] || 'left',
         fontSize: a.defaultAppearanceData?.fontSize || 0,
         fontColor: a.defaultAppearanceData?.fontColor,

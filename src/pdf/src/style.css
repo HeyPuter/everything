@@ -2763,8 +2763,10 @@ kbd {
   color: var(--field-ink);
   background: var(--field-background);
 }
-/* A form's Print or Reset button keeps the PDF's own drawing; the focus outline marks it. */
-.form-widget.form-button .form-control {
+/* A form's Print or Reset button, or a signature field, keeps the PDF's own drawing; the
+   focus outline marks it. */
+.form-widget.form-button .form-control,
+.form-widget.form-signature .form-control {
   opacity: 0;
   cursor: pointer;
 }

@@ -130,7 +130,13 @@ it('uses export values for choices and radio groups and excludes hidden or unsup
     { ...base, fieldType: 'Btn', pushButton: true, actions: { A: 'anything' } },
     { ...base, fieldType: 'Sig' },
   ]);
-  expect(widgets).toHaveLength(3);
+  // A signature field is offered to sign (or show its signature); it holds no value to fill.
+  expect(widgets).toHaveLength(4);
+  expect(widgets[3]).toMatchObject({
+    type: 'signature',
+    value: null,
+    action: { kind: 'signature', name: 'Field' },
+  });
   expect(widgets[0]).toMatchObject({
     value: ['code', 'custom'],
     options: [

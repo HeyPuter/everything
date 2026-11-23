@@ -1,12 +1,15 @@
 import { el } from './lib/ui.js';
 import { FormDraft, formWidgets, formWidgetLayout, tabOrderedWidgets } from './core/form-draft.js';
 
+/** Buttons and signature fields hold no value to fill in. */
+const hasValue = (widget) => widget.type !== 'button' && widget.type !== 'signature';
 const rgb = (value, fallback) => (value?.length === 3 ? `rgb(${[...value].join(' ')})` : fallback);
 
 /**
  * The page's fields as native controls. `onTabOut(direction)` is asked when Tab or Shift Tab
  * would leave the page's last or first field; it returns true when it takes the focus on.
- * `onAction(action)` runs the form's own Print and Reset buttons (pushButtonAction).
+ * `onAction(action)` runs the form's own Print and Reset buttons (pushButtonAction), and
+ * signs or shows a signature field ({ kind: 'signature', name }).
  */
 export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   const draft = new FormDraft();
@@ -70,7 +73,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   function sync(editingControl) {
     for (const widget of widgets) {
       const control = controls.get(widget.id);
-      if (!control || widget.type === 'button') continue;
+      if (!control || !hasValue(widget)) continue;
       const value = draft.value(widget.name);
       if (widget.type === 'checkbox') control.checked = value.includes(widget.exportValue);
       else if (widget.type === 'radio') control.checked = value.includes(widget.buttonValue);
@@ -136,9 +139,17 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       disabled: widget.readOnly,
     };
     let control;
-    if (widget.type === 'button') {
-      // The PDF draws the button; this one takes its clicks and keys.
-      control = el('button', { ...attrs, type: 'button', 'aria-required': null });
+    if (!hasValue(widget)) {
+      // The PDF draws the button or signature; this one takes its clicks and keys.
+      control = el('button', {
+        ...attrs,
+        type: 'button',
+        'aria-required': null,
+        ...(widget.type === 'signature' && {
+          'aria-label': `${label}: signature field (on page)`,
+          title: `${label}: signature field`,
+        }),
+      });
       control.addEventListener('click', () => onAction?.(widget.action));
     } else if (widget.type === 'checkbox' || widget.type === 'radio') {
       control = el('input', { ...attrs, type: widget.type, name: `page-widget-${widget.id}` });
@@ -268,7 +279,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       viewport.transform,
       tabs,
     );
-    draft.register(widgets.filter((widget) => widget.type !== 'button'));
+    draft.register(widgets.filter(hasValue));
     controls = new Map();
     const fragment = document.createDocumentFragment();
     for (const widget of widgets) {

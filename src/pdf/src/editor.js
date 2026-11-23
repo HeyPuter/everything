@@ -948,12 +948,11 @@ export function createEditor({
   signaturesPanel.el.setAttribute('role', 'tabpanel');
   signaturesPanel.el.setAttribute('aria-labelledby', 'sidebar-tab-signatures');
   signaturesPanel.el.hidden = true;
-  const signatureBar = createSignatureBar({
-    onOpenPanel: safe(async () => {
-      showSidebarTab('signatures');
-      if (editorRoot.classList.contains('hide-pages')) await toggleSidebar(true);
-    }),
-  });
+  async function openSignaturesPanel() {
+    showSidebarTab('signatures');
+    if (editorRoot.classList.contains('hide-pages')) await toggleSidebar(true);
+  }
+  const signatureBar = createSignatureBar({ onOpenPanel: safe(openSignaturesPanel) });
   // The accessibility check's report, in its own panel once a check has run.
   const accessibilityReport = createAccessibilityReport({
     onFix: (fix) => safe(() => fixAccessibility(fix))(),
@@ -1235,6 +1234,16 @@ export function createEditor({
     onAction: (action) => {
       if (busy) return;
       if (action.kind === 'print') pageDialog(printDialog)();
+      else if (action.kind === 'signature')
+        // An empty signature field is signed; a signed one shows its signature in the panel.
+        safe(async () => {
+          const { listSignatureFields } = await import('./core/digital-signature.js');
+          const field = (await listSignatureFields(session.bytes)).find(
+            ({ name }) => name === action.name,
+          );
+          if (field?.signed) await openSignaturesPanel();
+          else await signWithCertificate({ fieldName: action.name, page: pageIndex });
+        })();
       else
         safe(async () => {
           await finishDrafts();
