@@ -13469,10 +13469,13 @@ const transformedShadows = (
     const ax = bx + bw * fx,
       ay = by + bh * fy;
     const [dx, dy] = shadowOffsetPx(e, frame);
-    // x' = a x + c y + ox, y' = b x + d y + oy, about (ax, ay).
+    // x' = a x + c y + ox, y' = b x + d y + oy, about (ax, ay). Each skew
+    // slants the box as it stands, before scaling: a far edge leans by the
+    // box's own height (or width) times the skew's tangent, whatever the
+    // scale, as the desktop app draws it.
     const a = sx,
-      b = ty * sx,
-      c = tx * sy,
+      b = ty,
+      c = tx,
       d = sy;
     const ox = ax + dx - (a * ax + c * ay),
       oy = ay + dy - (b * ax + d * ay);

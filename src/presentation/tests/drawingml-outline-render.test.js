@@ -79,10 +79,15 @@ describe("preset shadows", () => {
 
   it("lays perspective shadows back from or forward of the bottom edge", async () => {
     expect(await effects(preset("shdw3"))).toMatchObject([
-      { kind: "outerShdw", scaleY: 0.5, skewXDeg: 60, align: "b" },
+      { kind: "outerShdw", scaleY: 0.5, skewXDeg: 2453606 / 60000, align: "b" },
     ]);
     expect(await effects(preset("shdw8"))).toMatchObject([
-      { kind: "outerShdw", scaleY: -0.5, skewXDeg: 60, align: "b" },
+      {
+        kind: "outerShdw",
+        scaleY: -0.5,
+        skewXDeg: -2453606 / 60000,
+        align: "b",
+      },
     ]);
     const svg = await render(preset("shdw3"));
     expect(svg).toContain('data-pptx-shadow="1"');
@@ -180,5 +185,24 @@ describe("path gradients", () => {
     expect(await render(filled("shape", "ellipse"))).toContain(
       "<radialGradient",
     );
+  });
+});
+
+describe("slanted shadows", () => {
+  it("slants a shadow by the box's own height, whatever its scale", async () => {
+    // A perspective shadow laid down below the shape: squashed to 19% and
+    // flipped, slanted -20°. Its far edge leans right by tan 20° of the
+    // shape's full height, as the desktop app draws it.
+    const svg = await render(
+      shape(
+        '<a:solidFill><a:srgbClr val="4472C4"/></a:solidFill><a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="2700000" sx="90000" sy="-19000" kx="-1200000" algn="bl" rotWithShape="0"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst>',
+      ),
+    );
+    const m = /data-pptx-shadow="1"><g transform="matrix\(([^)]+)\)"/.exec(svg);
+    const [a, b, c, d] = m[1].split(" ").map(Number);
+    expect(a).toBeCloseTo(0.9, 3);
+    expect(b).toBeCloseTo(0, 3);
+    expect(c).toBeCloseTo(Math.tan((-20 * Math.PI) / 180), 3);
+    expect(d).toBeCloseTo(-0.19, 3);
   });
 });

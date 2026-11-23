@@ -204,6 +204,11 @@ const lighterShadow = (hex: string): string => {
     .toUpperCase()}`;
 };
 
+// The slant of a preset perspective shadow: its far edge leans by 0.866 of
+// the shape's height (the skew the desktop app's own perspective shadows
+// use, 2453606 sixty-thousandths of a degree).
+const PERSPECTIVE_SKEW = 2453606 / 60000;
+
 // A preset shadow (`<a:prstShdw prst="shdwN">`, ECMA-376 §20.1.8.49) as the
 // outer shadows that draw it, offset by its `dist`/`dir`, as the desktop app
 // draws each preset: plain drop shadows, perspective shadows laid back from
@@ -256,16 +261,18 @@ const presetShadows = (
       return [shadow({ scaleY: -1, align: "b" })];
     case "shdw3":
     case "shdw11":
-      return [shadow({ scaleY: 0.5, skewXDeg: 60, align: "b" })];
+      return [shadow({ scaleY: 0.5, skewXDeg: PERSPECTIVE_SKEW, align: "b" })];
     case "shdw4":
     case "shdw12":
-      return [shadow({ scaleY: 0.5, skewXDeg: -60, align: "b" })];
+      return [shadow({ scaleY: 0.5, skewXDeg: -PERSPECTIVE_SKEW, align: "b" })];
     case "shdw7":
     case "shdw15":
-      return [shadow({ scaleY: -0.5, skewXDeg: -60, align: "b" })];
+      return [shadow({ scaleY: -0.5, skewXDeg: PERSPECTIVE_SKEW, align: "b" })];
     case "shdw8":
     case "shdw16":
-      return [shadow({ scaleY: -0.5, skewXDeg: 60, align: "b" })];
+      return [
+        shadow({ scaleY: -0.5, skewXDeg: -PERSPECTIVE_SKEW, align: "b" }),
+      ];
     default:
       return [shadow()];
   }
