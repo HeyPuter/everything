@@ -46,9 +46,19 @@ export function signatureSummary(reports) {
       tone: 'good',
       text: `${signed}, and ${count.toLowerCase()} ${reports.length === 1 ? 'is' : 'are'} valid.`,
     };
+  // Several signatures name as many identities as are untrusted, not one signer.
+  const untrusted = reports.filter((r) => r.status === 'valid-unknown-identity').length;
+  const identities =
+    reports.length === 1
+      ? 'the signer’s identity is'
+      : untrusted === reports.length
+        ? 'the signers’ identities are'
+        : untrusted === 1
+          ? 'one signer’s identity is'
+          : `${untrusted} signers’ identities are`;
   return {
     tone: 'unknown',
-    text: `${signed}. ${count} ${reports.length === 1 ? 'is' : 'are'} valid, but the signer’s identity is not trusted on this device.`,
+    text: `${signed}. ${count} ${reports.length === 1 ? 'is' : 'are'} valid, but ${identities} not trusted on this device.`,
   };
 }
 

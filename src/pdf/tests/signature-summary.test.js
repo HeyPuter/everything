@@ -15,6 +15,19 @@ it('words the signature bar for one valid signature and for several', () => {
   );
 });
 
+it('names as many untrusted identities as there are among several signatures', () => {
+  const unknown = { status: 'valid-unknown-identity' };
+  expect(signatureSummary([unknown, unknown]).text).toBe(
+    'Signed. All 2 signatures are valid, but the signers’ identities are not trusted on this device.',
+  );
+  expect(signatureSummary([{ status: 'valid' }, unknown, { status: 'valid' }]).text).toBe(
+    'Signed. All 3 signatures are valid, but one signer’s identity is not trusted on this device.',
+  );
+  expect(signatureSummary([unknown, { status: 'valid' }, unknown]).text).toBe(
+    'Signed. All 3 signatures are valid, but 2 signers’ identities are not trusted on this device.',
+  );
+});
+
 it('says a certified PDF is certified', () => {
   const certified = { status: 'valid', certification: { level: 2 } };
   expect(signatureSummary([certified]).text).toBe('Certified, and the signature is valid.');
