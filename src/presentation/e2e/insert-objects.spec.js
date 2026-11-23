@@ -5,6 +5,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
+import { P, createDeck } from "../src/model.js";
 
 test.setTimeout(120_000);
 
@@ -216,6 +217,67 @@ test("icons are inserted as SVG pictures, restyled, and converted to shapes", as
   saved = await download(page);
   expect(saved.slide()).toContain("<a:custGeom>");
   expect(saved.slide()).not.toContain("<p:pic>");
+});
+
+test("an icon converted to a shape keeps its turn and its place behind other objects", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  // A 1×1 PNG stands in for the icon's picture.
+  const png = Uint8Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    ),
+    (c) => c.charCodeAt(0),
+  );
+  const svg = new TextEncoder().encode(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2"><path d="M4 4L20 20M4 20L20 4"/></svg>',
+  );
+  const icon = P.addSlideVectorPicture(
+    slide,
+    { png, svg },
+    { x: P.inches(2), y: P.inches(2), w: P.inches(2), h: P.inches(2) },
+  );
+  P.setShapeObjectData(icon, { type: "icon", name: "cross" });
+  P.setShapeRotation(icon, 30);
+  P.setShapeFlip(icon, { horizontal: true });
+  P.addSlideShape(slide, {
+    preset: "rect",
+    x: P.inches(3),
+    y: P.inches(3),
+    w: P.inches(3),
+    h: P.inches(3),
+    name: "Cover",
+  });
+  await start(page);
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Icon.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const hit = page.locator(".object-hit").first();
+  await expect(hit).toBeVisible();
+  const box = await hit.boundingBox();
+  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.3);
+  await expect(
+    page.getByRole("tab", { name: "Graphics Format" }),
+  ).toBeVisible();
+  await tab(page, "Graphics Format");
+  await command(page, "graphics-convert");
+  await expect(page.getByRole("tab", { name: "Graphics Format" })).toBeHidden();
+  const saved = await download(page);
+  const xml = saved.slide();
+  expect(xml).toContain("<a:custGeom>");
+  // The converted shape comes before the cover in the tree, so behind it.
+  expect(xml.indexOf("<a:custGeom>")).toBeLessThan(xml.indexOf('name="Cover"'));
+  expect(xml).toMatch(/<a:xfrm rot="1800000" flipH="1">/);
 });
 
 test("the Icons dialog takes one Tab for its categories and one for its icons", async ({

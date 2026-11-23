@@ -403,7 +403,15 @@ export function createIconFeatures(ctx) {
         P.setShapeStrokeJoin?.(shape, "round");
         const description = P.getShapeDescription?.(obj);
         if (description) P.setShapeDescription(shape, description);
+        // The shape takes the icon's turn, flips and place in the stack:
+        // before, it came out upright and in front of everything.
+        const rotation = P.getShapeRotation(obj);
+        if (rotation) P.setShapeRotation(shape, rotation);
+        const flip = P.getShapeFlip(obj);
+        if (flip?.horizontal || flip?.vertical) P.setShapeFlip(shape, flip);
+        const z = P.getShapeZIndex(obj);
         P.removeShape(obj);
+        if (z >= 0) P.setShapeZIndex(shape, z);
         ids.push(P.getShapeId(shape));
       }
       ctx.pruneMedia(slide);
