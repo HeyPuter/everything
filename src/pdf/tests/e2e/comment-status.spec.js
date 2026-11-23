@@ -112,11 +112,11 @@ test('a reply keeps its line breaks and wraps a long link', async ({ page }) => 
     .getByRole('list', { name: 'Replies' })
     .locator(':scope > li');
   await expect(replies).toHaveCount(2);
-  const lines = replies.nth(0).locator(':scope > span').nth(1);
+  const lines = replies.nth(0).locator(':scope > .reply-text');
   await expect(lines).toHaveText('First line\nSecond line');
   expect(await lines.evaluate((node) => node.innerText)).toBe('First line\nSecond line');
   // The link wraps within the panel instead of running past its edge.
-  const link = replies.nth(1).locator(':scope > span').nth(1);
+  const link = replies.nth(1).locator(':scope > .reply-text');
   const [scroll, client] = await link.evaluate((node) => [node.scrollWidth, node.clientWidth]);
   expect(scroll).toBeLessThanOrEqual(client);
 });

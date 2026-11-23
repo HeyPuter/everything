@@ -1973,8 +1973,21 @@
   display: flex;
   flex-direction: column;
 }
+.reply-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
 .reply-meta {
   font-size: 11px;
+}
+.reply-head .icon-btn {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  flex: none;
+  color: var(--muted);
 }
 /* A reply keeps its line breaks, and a long link wraps instead of running out of the panel. */
 .reply-text {

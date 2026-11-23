@@ -11309,9 +11309,30 @@ export function createEditor({
           'li',
           {},
           el(
-            'span',
-            { class: 'reply-meta muted' },
-            [item.author, when(item.modified)].filter(Boolean).join(' · '),
+            'div',
+            { class: 'reply-head' },
+            el(
+              'span',
+              { class: 'reply-meta muted' },
+              [item.author, when(item.modified)].filter(Boolean).join(' · '),
+            ),
+            // A reply sent by mistake, or no longer wanted, can be taken back as in other
+            // PDF editors; replies to it go with it.
+            iconButton(
+              item.author ? `Delete reply from ${item.author}` : 'Delete reply',
+              'Trash2',
+              safe(() =>
+                run(
+                  (doc) => deleteAnnotation(doc, pageIndex, item.id),
+                  'Reply deleted.',
+                  'Reply text',
+                ),
+              ),
+              {
+                class: 'icon-btn reply-delete',
+                disabled: !access().annotate || item.locked || item.readOnly,
+              },
+            ),
           ),
           el('span', { class: 'reply-text', dir: 'auto' }, item.contents || ''),
           item.replies?.length > 0 &&
