@@ -2027,6 +2027,13 @@ dialog.leave-save-dialog {
 .dialog-actions {
   flex: none;
 }
+/* On a phone, buttons too wide for one row fill the rows they wrap onto, rather than one hanging
+   at the right of a row of its own over the other. */
+@media (max-width: 520px) {
+  .dialog-actions > .btn {
+    flex: 1 1 auto;
+  }
+}
 /* A short window (a phone turned sideways, a zoomed-in laptop) keeps the title and the actions
    close, so the body, which scrolls, keeps more of the little height there is. */
 @media (max-height: 500px) {
