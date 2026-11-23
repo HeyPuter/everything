@@ -583,3 +583,36 @@ test("a folded section in the Slide Sorter stays folded when it moves or is rena
     .click();
   await expect(section("Gamma")).toHaveClass(/collapsed/);
 });
+
+// Removing the last guide brought back the two center guides: an empty
+// guide list was not saved, so the deck read as never having had any.
+test("the last guide removed stays removed, and a guide can be added again", async ({
+  page,
+}) => {
+  await start(page);
+  await barMenu(page, "View");
+  await page.getByRole("menuitem", { name: "Grid and Guides" }).click();
+  await page
+    .getByRole("menuitemcheckbox", { name: "Guides", exact: true })
+    .click();
+  const guides = page.locator("#slide-canvas .guide-line");
+  await expect(guides).toHaveCount(2);
+  for (const left of [1, 0]) {
+    await guides.first().focus();
+    await page.keyboard.press("Delete");
+    await expect(guides).toHaveCount(left);
+  }
+  const { p } = await download(page);
+  expect(P.getViewProperties(p)).toMatchObject({
+    guides: [],
+    guidesRecorded: true,
+  });
+  await barMenu(page, "View");
+  await page.getByRole("menuitem", { name: "Grid and Guides" }).click();
+  await page.getByRole("menuitem", { name: "Add Vertical Guide" }).click();
+  await expect(guides).toHaveCount(1);
+  await expect(guides).toHaveAttribute(
+    "aria-label",
+    "Vertical guide at the center",
+  );
+});

@@ -58,16 +58,24 @@ export function createGridGuides(ctx) {
     try {
       return P.getViewProperties(ctx.doc().pres);
     } catch {
-      return { guides: [], gridSpacing: null, snapToGrid: null };
+      return {
+        guides: [],
+        guidesRecorded: false,
+        gridSpacing: null,
+        snapToGrid: null,
+      };
     }
   };
   const spacing = () => props().gridSpacing?.cx || DEFAULT_SPACING;
   const snapping = () => props().snapToGrid === true;
   const smartGuides = () => chrome.smartGuides !== false;
-  // The deck's guides, or the two center ones until any are placed.
+  // The deck's guides, or the two center ones until any are placed. A deck
+  // whose guides were all removed shows none.
   const guides = () => {
-    const list = props().guides;
-    return list.length ? list : defaultGuides(ctx.currentSize());
+    const { guides: list, guidesRecorded } = props();
+    return list.length || guidesRecorded
+      ? list
+      : defaultGuides(ctx.currentSize());
   };
   const writeGuides = (list) =>
     ctx.mutate(() => P.setViewProperties(ctx.doc().pres, { guides: list }));

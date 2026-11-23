@@ -52,6 +52,10 @@ export interface ViewProperties {
   readonly snapToObjects: boolean;
   readonly showGuides: boolean;
   readonly guides: ReadonlyArray<DrawingGuide>;
+  /** Whether the file records a guide list, even an empty one: a deck
+   * whose guides were all removed has none to show, while one that never
+   * placed any shows an editor's default guides. */
+  readonly guidesRecorded: boolean;
   /** Grid spacing in EMU, or `null` when the file records none. */
   readonly gridSpacing: { readonly cx: number; readonly cy: number } | null;
 }
@@ -245,9 +249,13 @@ export const getViewProperties = (pres: PresentationData): ViewProperties => {
     snapToObjects: false,
     showGuides: false,
     guides: [],
+    guidesRecorded: false,
     gridSpacing: null,
   };
-  if (!root) return { ...empty, guides: readPresentationGuides(pres) };
+  if (!root) {
+    const guides = readPresentationGuides(pres);
+    return { ...empty, guides, guidesRecorded: guides.length > 0 };
+  }
   const last = getAttrValue(root, bare("lastView"));
   const common = commonSlideView(root);
   const guides: DrawingGuide[] = [];
@@ -281,6 +289,7 @@ export const getViewProperties = (pres: PresentationData): ViewProperties => {
       ? bool(getAttrValue(common, bare("showGuides")), false)
       : false,
     guides,
+    guidesRecorded: !!list || guides.length > 0,
     gridSpacing:
       spacing && cx > 0 && cy > 0
         ? { cx: Math.round(cx), cy: Math.round(cy) }
@@ -390,22 +399,18 @@ export const setViewProperties = (
       const at = kept.findIndex(
         (c) => c.kind === "element" && isPml(c, "cViewPr"),
       );
-      if (patch.guides.length) {
-        const list = elem(p("guideLst"), {
-          children: patch.guides.map((g) =>
-            elem(p("guide"), {
-              attrs: [
-                attr(bare("orient"), g.orient),
-                attr(
-                  bare("pos"),
-                  String(Math.round(g.pos / EMU_PER_GUIDE_UNIT)),
-                ),
-              ],
-            }),
-          ),
-        });
-        kept.splice(at + 1, 0, list);
-      }
+      // An empty list is kept too: it records that every guide was removed.
+      const list = elem(p("guideLst"), {
+        children: patch.guides.map((g) =>
+          elem(p("guide"), {
+            attrs: [
+              attr(bare("orient"), g.orient),
+              attr(bare("pos"), String(Math.round(g.pos / EMU_PER_GUIDE_UNIT))),
+            ],
+          }),
+        ),
+      });
+      kept.splice(at + 1, 0, list);
       common.children = kept;
       writePresentationGuides(pres, patch.guides);
     }

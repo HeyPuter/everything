@@ -16,6 +16,7 @@ describe("view properties", () => {
       snapToObjects: false,
       showGuides: false,
       guides: [],
+      guidesRecorded: false,
       gridSpacing: null,
     });
     expect(P.getNotesPageSize(pres)).toEqual({
@@ -51,11 +52,14 @@ describe("view properties", () => {
         { orient: "horz", pos: 3429000 },
         { orient: "vert", pos: 6096000 },
       ],
+      guidesRecorded: true,
       gridSpacing: { cx: 76200, cy: 76200 },
     });
     P.setViewProperties(back, { guides: [], snapToGrid: true });
     const cleared = P.getViewProperties(await reload(back));
     expect(cleared.guides).toEqual([]);
+    // Removing every guide is recorded, so no default guides come back.
+    expect(cleared.guidesRecorded).toBe(true);
     expect(cleared.snapToGrid).toBe(true);
   });
 
