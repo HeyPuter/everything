@@ -16,7 +16,7 @@ async function setup(page, limit) {
     }),
   );
   if (limit)
-    await page.route('**/src/core/document.js', async (route) => {
+    await page.route('**/src/core/file-limits.js', async (route) => {
       const response = await route.fetch();
       const body = await response.text();
       expect(body).toContain('const MAX_FILE_SIZE = 100 * 1024 * 1024;');

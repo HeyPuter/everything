@@ -26,15 +26,13 @@ import * as P from './lib/puter.js';
 import { waitFor } from './lib/abort.js';
 import { appsButton, closeAppsPanel, refreshAppsButtons, setAppsAccount } from './apps-panel.js';
 import { configureUserMenu, hasUserMenu, refreshUserMenus, userMenuSlot } from './user-menu.js';
-import {
-  PdfSession,
-  safeName,
-  preparePdfForEditing,
-  blankPdf,
-  samplePdf,
-  MAX_FILE_SIZE,
-  MAX_IMAGE_SIZE,
-} from './core/document.js';
+import { safeName, MAX_FILE_SIZE, MAX_IMAGE_SIZE } from './core/file-limits.js';
+
+// pdf-lib's half of the app (about 600 KB) loads with the first PDF, not with the library.
+const loadDocument = () => import('./core/document.js');
+// The editor, the largest chunk, starts loading as a PDF starts opening rather than after it is
+// read and checked, so the two downloads overlap.
+const loadEditor = () => import('./editor.js');
 
 const root = document.querySelector('#app');
 /** The library's URL. Opening the app lands in the editor instead. */
@@ -592,8 +590,14 @@ async function openFiles(files) {
 }
 /** A new PDF is a sheet of the paper the region prints on, as pictures turned into pages are. */
 async function newBlankPdf() {
-  const { PAPER_SIZES, defaultPaper } = await import('./core/image-pages.js');
+  const [{ PAPER_SIZES, defaultPaper }, { blankPdf }] = await Promise.all([
+    import('./core/image-pages.js'),
+    loadDocument(),
+  ]);
   return blankPdf(PAPER_SIZES[defaultPaper()]);
+}
+async function samplePdf() {
+  return (await loadDocument()).samplePdf();
 }
 async function openDevice(file) {
   if (file.size > MAX_FILE_SIZE) throw new Error('Choose a PDF smaller than 100 MB.');
@@ -710,8 +714,16 @@ async function openDocument(
     notice = 0;
   };
   let nextEditor;
+  const documentModule = loadDocument();
+  const editorModule = loadEditor();
+  // An open that fails or is replaced first leaves them unused; a failure to load is reported
+  // only where they are awaited.
+  documentModule.catch(() => {});
+  editorModule.catch(() => {});
   try {
     let bytes = await readBytes(controller.signal);
+    if (token !== openGeneration) return;
+    const { PdfSession, preparePdfForEditing } = await documentModule;
     if (token !== openGeneration) return;
     let protection = null,
       encryptedOriginal = null;
@@ -748,7 +760,7 @@ async function openDocument(
     )
       return;
     if (token !== openGeneration || !(await canLeave(controller.signal))) return;
-    const { createEditor } = await import('./editor.js');
+    const { createEditor } = await editorModule;
     if (token !== openGeneration) return;
     const hadFocus = viewHasFocus();
     editor?.destroy();

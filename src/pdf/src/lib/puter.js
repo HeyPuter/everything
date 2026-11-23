@@ -1,4 +1,4 @@
-import { safeName } from '../core/document.js';
+import { safeName } from '../core/file-limits.js';
 export const FOLDER = 'PDF Editor';
 const sdk = () => {
   if (globalThis.puter) return globalThis.puter;
