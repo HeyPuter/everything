@@ -62,3 +62,18 @@ it('still edits a document whose other binary parts are not macros', async () =>
   }));
   expect(pkg.readOnly).toBeFalsy();
 });
+
+// A read-only document's original is downloaded under the extension its main part's content type calls for: Word
+// refuses a macro-enabled or template package named .docx.
+it('names the kind of file a package is by its main part', async () => {
+  const typed = type => withParts((parts, text) => { parts['[Content_Types].xml'] = strToU8(text('[Content_Types].xml').replace('application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml', type)); });
+  const extension = async bytes => (await DocxPackage.open(bytes, { bestEffort: true })).fileExtension;
+  expect(await extension(typed(MACRO_MAIN))).toBe('.docm');
+  expect(await extension(typed('application/vnd.ms-word.template.macroEnabledTemplate.main+xml'))).toBe('.dotm');
+  expect(await extension(typed('application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml'))).toBe('.dotx');
+  expect(await extension(withParts(() => {}))).toBe('.docx');
+  // A read-only macro-enabled document (its VBA project) says the same.
+  const macros = await DocxPackage.open(withParts(cases['a macro-enabled document whose VBA project has another name']), { bestEffort: true });
+  expect(macros.readOnly).toBe(true);
+  expect(macros.fileExtension).toBe('.docm');
+});

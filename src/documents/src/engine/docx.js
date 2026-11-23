@@ -103,6 +103,7 @@ export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordproc
 // A template (.dotx) or macro-enabled file (.docm, .dotm) differs from a document only in its main
 // part's content type, and in the macros (refused for editing below). Saving writes a .docx.
 const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroenabled.main+xml', 'application/vnd.ms-word.template.macroenabledtemplate.main+xml']);
+const FILE_EXTENSIONS = { 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml': '.dotx', 'application/vnd.ms-word.document.macroenabled.main+xml': '.docm', 'application/vnd.ms-word.template.macroenabledtemplate.main+xml': '.dotm' };
 // Macros and signatures are found by what their parts are, not what they are called: part names are the
 // producer's choice (ECMA-376 Part 2, §9.1.1), and a VBA project stored as word/code.bin was kept and saved
 // into a .docx, which Word refuses. Macro parts are the VBA project and its data ([MS-OFFMACRO2]);
@@ -2321,6 +2322,16 @@ export class DocxPackage {
   }
   /** Document properties (Part 2 §11): the file's values with this session's edits over them. */
   get coreProperties() { return { ...readCoreProperties(this.parts), ...(this.coreEdits || {}) }; }
+  /**
+   * The extension the opened file's own bytes go by: .dotx, .docm or .dotm for a template or macro-enabled
+   * package (its main part's content type), else .docx. Word refuses such a package under a .docx name, so a
+   * read-only document's original is downloaded under this one.
+   */
+  get fileExtension() {
+    let type = '';
+    try { type = mainPartType(xml(this.parts['[Content_Types].xml'])); } catch { /* an unreadable stream names no other kind */ }
+    return FILE_EXTENSIONS[type] || '.docx';
+  }
   /** Change title, subject, author, keywords… on the next export. An empty value removes one. */
   setCoreProperties(patch) {
     if (this.readOnly) throw new Error('This document is open read-only.');

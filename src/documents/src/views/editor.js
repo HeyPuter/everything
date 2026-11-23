@@ -350,11 +350,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     importFile(file);
   } });
   const error = e => toast(e?.message || String(e), { icon: 'alert', duration: 8000 });
+  // A document open read-only, or not at all, downloads as the file it was: a template or macro-enabled package keeps
+  // its extension (pkg.fileExtension, else the file's name), since Word refuses one named .docx.
+  const originalName = () => `${P.documentStem(doc.name) || 'Untitled document'}${pkg?.fileExtension || /\.(dotx|docm|dotm)$/i.exec(doc.path || doc.blob?.name || '')?.[0].toLowerCase() || '.docx'}`;
   const download = async () => {
     try {
       await ready;
       if (!engine || failed || destroyed) return;
-      if (pkg.readOnly) { P.downloadBlob(doc.blob, P.ensureDocx(doc.name)); return; }
+      if (pkg.readOnly) { P.downloadBlob(doc.blob, originalName()); return; }
       engine.finishComposition();
       P.downloadBlob(engine.export(pkg), P.ensureDocx(title.value || 'Untitled document'));
       // On this device the download is the save. A copy of a document on Puter leaves its file as it was: the status
@@ -1187,7 +1190,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     await ready; if (!engine || failed) throw new Error('The document is not open.');
     engine.finishComposition();
     const blob = pkg.readOnly ? doc.blob : engine.export(pkg);
-    if (andDownload) P.downloadBlob(blob, P.ensureDocx(title.value || 'Untitled document'));
+    if (andDownload) P.downloadBlob(blob, pkg.readOnly ? originalName() : P.ensureDocx(title.value || 'Untitled document'));
     return blob;
   };
   const exportPdfBlob = async (andDownload = false) => {
@@ -2130,7 +2133,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     status.disabled = true;
     // A failed imported copy still has bytes/text worth recovering. No save handler is attached.
     if (doc.template && !doc.blob && !doc.pendingImport) doc.discardEdits();
-    if (doc.blob) actions.append(button('Download original', () => P.downloadBlob(doc.blob, P.ensureDocx(doc.name)), { className: 'btn btn-outline' }));
+    if (doc.blob) actions.append(button('Download original', () => P.downloadBlob(doc.blob, originalName()), { className: 'btn btn-outline' }));
     throw e;
   });
   ready.catch(() => {});

@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { zipSync, strToU8 } from 'fflate';
 
 const fileButton = page => page.getByRole('button', { name: 'File', exact: true });
 
@@ -44,4 +46,28 @@ test('a damaged file keeps its original available beside the navigation', async 
   await message.getByRole('button', { name: 'Download original', exact: true }).click();
   expect((await download).suggestedFilename()).toBe('broken.docx');
   await expect(fileButton(page)).toBeVisible();
+});
+
+// A macro-enabled document opens read-only, and its download is the file as it was. Named Budget.docx, Word refused
+// it: a package whose main part is macro-enabled must keep the .docm extension (and a template its .dotx).
+test('a read-only macro-enabled document downloads under its own extension', async ({ page }) => {
+  const files = {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/><Override PartName="/word/document.xml" ContentType="application/vnd.ms-word.document.macroEnabled.main+xml"/></Types>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/_rels/document.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rVba" Type="http://schemas.microsoft.com/office/2006/relationships/vbaProject" Target="vbaProject.bin"/></Relationships>',
+    'word/document.xml': '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Macro text</w:t></w:r></w:p><w:sectPr/></w:body></w:document>',
+  };
+  const parts = Object.fromEntries(Object.entries(files).map(([name, text]) => [name, strToU8(text)]));
+  parts['word/vbaProject.bin'] = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0]);
+  const buffer = Buffer.from(zipSync(parts));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  // Saved to this device without a name of its kind (the download of an e-mail attachment, say).
+  await page.locator('input[type=file][aria-label="Open DOCX file"]').setInputFiles({ name: 'Budget', mimeType: 'application/octet-stream', buffer });
+  await expect(page.getByText('Read only').first()).toBeVisible();
+  const downloading = page.waitForEvent('download');
+  await page.keyboard.press('Meta+s');
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe('Budget.docm');
+  expect(readFileSync(await download.path()).equals(buffer)).toBe(true);
 });
