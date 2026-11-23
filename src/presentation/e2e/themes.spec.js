@@ -233,11 +233,16 @@ test("background styles, the Format Background pane and Apply to All", async ({
     expect(P.getSlideXmlString(s)).toContain('showMasterSp="0"');
   }
   expect(P.getSlideBackgroundPictureFill(slides[3]).tile.scaleX).toBe(0.5);
-  // Reset Background puts the slide back on the master's background: the
-  // gradient background style chosen first.
+  // The masters take it too, so a slide added later shows it.
+  for (const m of P.getSlideMasters(p))
+    expect(P.getSlideBackground(P.getTemplateSlide(p, m.partName)).kind).toBe(
+      "image",
+    );
+  // Reset Background puts the slide back on the master's background, which
+  // Apply to All made the texture.
   await pane.getByRole("button", { name: "Reset Background" }).click();
   await expect(
-    pane.getByRole("radio", { name: "Gradient fill" }),
+    pane.getByRole("radio", { name: "Picture or texture fill" }),
   ).toBeChecked();
   ({ p } = await download(page));
   expect(P.getSlideBackground(P.getSlides(p)[0]).kind).toBe("inherit");

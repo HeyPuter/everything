@@ -7,7 +7,7 @@
 // one control merges into one).
 import { el, button } from "../ui.js";
 import { P } from "../model.js";
-import { masterInfo, masterOfSlide } from "./engine.js";
+import { masterInfo, masterOfSlide, mastersOf } from "./engine.js";
 import { TEXTURES, textureBytes, textureSwatch } from "./textures.js";
 import { nativePatternPaths } from "../../lib/pptx-preview/src/pattern-cells.ts";
 
@@ -889,6 +889,14 @@ export function createBackgroundPane(host) {
                 const all = host.slides();
                 const from = all.find((s) => P.getSlidePartName(s) === source);
                 if (!from) return host.skip;
+                // The slides' masters take it too, so a slide added later
+                // shows it, in this file and once it is opened again.
+                if (P.getSlideBackground(from).kind !== "inherit")
+                  for (const master of mastersOf(host.pres(), all))
+                    P.copySlideBackground(
+                      from,
+                      P.getTemplateSlide(host.pres(), master),
+                    );
                 for (const s of all) {
                   if (s === from) continue;
                   P.copySlideBackground(from, s);
