@@ -1133,18 +1133,26 @@ export function assertSupportedText(font, text) {
     })
     .join('');
   if (missing.size) {
-    // Name what to change; a character that shows nothing is named by its code.
-    const names = [...missing].slice(0, 3).map((char) =>
-      /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
-        ? // Isolate a right-to-left letter, or the message reorders around it: “ر” ,“م”.
-          `“${RTL.test(char) ? `\u2068${char}\u2069` : char}”`
-        : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
-    );
-    const list =
-      names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0];
-    throw new Error(`This font does not support ${list} in this text.`);
+    const error = new Error(`This font does not support ${characterList(missing)} in this text.`);
+    error.missing = missing;
+    throw error;
   }
   return spelled;
+}
+/**
+ * Up to three characters named for a message: “Q”, “Z” or “٠”. A character that shows nothing is
+ * named by its code.
+ */
+export function characterList(chars, conjunction = 'or') {
+  const names = [...chars].slice(0, 3).map((char) =>
+    /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
+      ? // Isolate a right-to-left letter, or the message reorders around it: “ر” ,“م”.
+        `“${RTL.test(char) ? `\u2068${char}\u2069` : char}”`
+      : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
+  );
+  return names.length > 1
+    ? `${names.slice(0, -1).join(', ')} ${conjunction} ${names.at(-1)}`
+    : names[0];
 }
 /**
  * The triangle at the tip of an arrow from `from` to `to` drawn with a stroke `width`, in the

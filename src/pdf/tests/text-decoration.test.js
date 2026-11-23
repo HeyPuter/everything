@@ -4,7 +4,7 @@ import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { addText } from '../src/core/document.js';
-import { inspectText, pageSource } from '../src/core/text-edit.js';
+import { inspectText, pageSource, prepareText } from '../src/core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from '../src/core/text-group.js';
 import { groupTextParagraphs } from '../src/core/text-paragraph.js';
 import { inspectPaths } from '../src/core/path-edit.js';
@@ -274,4 +274,23 @@ it('paragraph decorations retain logical text and follow reflow', async () => {
   expect(reflowed.groups[0].text).toBe('One two three four five.');
   expect(reflowed.groups[0].paragraph.width).toBeCloseTo(180);
   expect(inspectPaths(reflowed.doc, 0)).toHaveLength(0);
+});
+
+it('names the letters typed and the ones already there when no one font has both', async () => {
+  serveFonts();
+  const doc = await PDFDocument.create();
+  // A run whose own subset has an Arabic-Indic zero and A, as Word writes a complex-script run.
+  const run = {
+    fontName: 'ABCDEF+ArialMT',
+    map: new Map([
+      ['٠', '\x01'],
+      ['A', '\x02'],
+    ]),
+  };
+  await expect(prepareText(doc, run, 'A٠')).resolves.toMatchObject({ font: undefined });
+  await expect(prepareText(doc, run, 'A٠QZ')).rejects.toThrow(
+    'This text’s font has no “Q” or “Z”, and the font that has them has no “\u2068٠\u2069”. Add “Q” and “Z” as new text instead.',
+  );
+  // Letters neither font has are named as before.
+  await expect(prepareText(doc, run, 'A٠ش')).rejects.toThrow(/^This font does not support/);
 });

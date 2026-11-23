@@ -10,7 +10,13 @@ import {
   StandardFonts,
   decodePDFRawStream,
 } from 'pdf-lib';
-import { assertSupportedText, embedFont, textVariant, visibleBox } from './document.js';
+import {
+  assertSupportedText,
+  characterList,
+  embedFont,
+  textVariant,
+  visibleBox,
+} from './document.js';
 import { readParagraphData } from './paragraph-data.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
@@ -1139,13 +1145,30 @@ export async function prepareText(doc, run, text, variant, context = text) {
     }
     if (!font) {
       font = await embedFont(doc, variant || fallbackVariant(run), text, context);
-      assertSupportedText(font, text);
+      try {
+        assertSupportedText(font, text);
+      } catch (error) {
+        throw mixedScriptError(error, run, text, variant) || error;
+      }
       encoded = lines.map((line) => font.encodeText(line).toString());
     }
   }
   return { encoded, font };
 }
 
+/**
+ * Text that mixes letters only the run's own font has with letters it lacks cannot be set in one
+ * font. Naming only what the stand-in font lacks blamed the letters already there ("٠" in an
+ * Arabic run) for the ones just typed ("Q", "Z"), so the message names both.
+ */
+function mixedScriptError(error, run, text, variant) {
+  if (variant || !run?.map || !error.missing) return null;
+  const typed = new Set([...text].filter((char) => char !== '\n' && !run.map.has(char)));
+  if (!typed.size || [...error.missing].some((char) => !run.map.has(char))) return null;
+  return new Error(
+    `This text’s font has no ${characterList(typed)}, and the font that has them has no ${characterList(error.missing)}. Add ${characterList(typed, 'and')} as new text instead.`,
+  );
+}
 /** Replace actual source glyphs and restore the old text advance, preserving following content. */
 export function replaceText(doc, index, run, text, options = {}) {
   return editRuns(doc, index, [{ run, text, options }]);
