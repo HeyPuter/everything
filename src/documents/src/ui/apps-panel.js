@@ -92,16 +92,36 @@ function build() {
     el('div.apps-panel-loading', { role: 'status', 'aria-label': 'Loading apps' },
       el('span.spin', { html: icon('spinner', 22, 2), 'aria-hidden': 'true' })),
     frame);
+  // The panel hangs at the end of the page, so Tab from its last control (or out of the embed) went on to the browser's
+  // own controls: a stop after the embed closes it and moves on from the Apps button, as from a menu.
+  const end = el('span.apps-panel-end', { tabindex: '0' });
+  end.addEventListener('focus', () => {
+    const next = tabbableAfter(trigger);
+    closeAppsPanel();
+    (next || trigger)?.focus();
+  });
   panel = el('div.apps-panel', { role: 'dialog', 'aria-label': 'Apps', tabindex: '-1', hidden: true },
     el('div.apps-panel-header', {},
       el('span.apps-panel-title', {}, 'Apps'),
       el('div.apps-panel-actions', {}, newTab, close)),
-    body);
+    body, end);
   panel.addEventListener('keydown', (e) => {
+    // Shift+Tab from its start goes back to the Apps button.
+    if (e.key === 'Tab' && e.shiftKey && (e.target === panel || e.target === newTab)) {
+      e.preventDefault();
+      closeAppsPanel({ focus: true });
+      return;
+    }
     if (e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();
     closeAppsPanel({ focus: true });
+  });
+  // Focus that moves on elsewhere (a click into the page, a shortcut) takes the panel with it: left open, it no longer
+  // heard Escape. Into the embed or back to the Apps button it stays.
+  panel.addEventListener('focusout', (e) => {
+    const to = e.relatedTarget;
+    if (isOpen && to && !panel.contains(to) && to !== trigger) closeAppsPanel();
   });
   // Bound before src is set, so a fast (cached) load can't slip past.
   frame.addEventListener('load', () => body.classList.remove('is-loading'), { once: true });
@@ -109,6 +129,14 @@ function build() {
   frame.src = APPS_EMBED_URL;
   builtFor = accountKey();
   document.body.append(panel);
+}
+
+/** The control the keyboard reaches after `node` in the page's order, outside the panel. */
+function tabbableAfter(node) {
+  if (!node?.isConnected) return null;
+  return [...document.querySelectorAll('a[href], button, input, select, textarea, iframe, [tabindex]')].find((n) =>
+    n.tabIndex >= 0 && !n.disabled && !panel?.contains(n) && !node.contains(n) && !n.closest('[inert], [hidden]')
+    && (node.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) && n.getClientRects().length) || null;
 }
 
 function discard() {
@@ -150,6 +178,12 @@ function listen() {
     if (panel?.contains(e.target) || e.target.closest?.('.apps-btn')) return;
     closeAppsPanel();
   }, true);
+  // Escape on the Apps button closes the panel it opened.
+  document.addEventListener('keydown', (e) => {
+    if (!isOpen || e.key !== 'Escape' || e.defaultPrevented || document.activeElement !== trigger) return;
+    e.preventDefault();
+    closeAppsPanel({ focus: true });
+  });
   window.addEventListener('resize', position);
   // Moving between the home screen and a document replaces the button.
   window.addEventListener('hashchange', () => closeAppsPanel());

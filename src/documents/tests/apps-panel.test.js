@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appsButton, closeAppsPanel, isAppsPanelOpen, APPS_EMBED_URL, APPS_NEWTAB_URL } from '../src/ui/apps-panel.js';
+import { el } from '../src/ui/dom.js';
 import { openAppMenu } from '../src/ui/appmenu.js';
 import { session } from '../src/lib/session.js';
 import { closeMenu } from '../src/ui/menu.js';
@@ -178,5 +179,44 @@ describe('the embed', () => {
     btn.click();
     expect(panel()).not.toBe(first);
     expect(shown()).toBe(true);
+  });
+});
+
+describe('the Apps panel and the keyboard', () => {
+  it('moves on from the Apps button when Tab leaves its end, and back to the button on Shift+Tab from its start', () => {
+    const btn = mount();
+    const next = el('button', { type: 'button' }, 'Account');
+    document.body.insertBefore(next, btn.nextSibling);
+    btn.click();
+    expect(shown()).toBe(true);
+    // Past the embed, the panel's last stop: the panel hangs at the end of the page, beyond the account button.
+    panel().querySelector('.apps-panel-end').focus();
+    expect(shown()).toBe(false);
+    expect(document.activeElement).toBe(next);
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+
+    btn.click();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    panel().dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(shown()).toBe(false);
+    expect(document.activeElement).toBe(btn);
+  });
+
+  it('closes when focus moves on elsewhere, and on Escape at its button', () => {
+    const btn = mount();
+    const other = el('button', { type: 'button' }, 'Bold');
+    document.body.append(other);
+    btn.click();
+    panel().querySelector('.apps-panel-close').focus();
+    other.focus();
+    expect(shown()).toBe(false);
+
+    btn.click();
+    btn.focus();
+    expect(shown()).toBe(true);
+    key(btn, 'Escape');
+    expect(shown()).toBe(false);
+    expect(document.activeElement).toBe(btn);
   });
 });

@@ -253,6 +253,8 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .apps-panel-actions { display: flex; align-items: center; gap: 2px; }
 .apps-panel-action { width: 28px; height: 28px; text-decoration: none; }
 
+/* The keyboard's stop after the embed (apps-panel.js) takes no room: reaching it moves on at once. */
+.apps-panel-end { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 /* The iframe fills the rest of the card; the body clips it to the card's bottom corners. */
 .apps-panel-body {
   position: relative;
