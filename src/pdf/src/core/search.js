@@ -18,15 +18,23 @@ const ENDS_UNSPACED = new RegExp(`${UNSPACED}$`, 'u'),
 const PHRASED = '[\\p{Script=Thai}\\p{Script=Lao}\\p{Script=Khmer}\\p{Script=Myanmar}]';
 const ENDS_PHRASED = new RegExp(`${PHRASED}$`, 'u'),
   STARTS_PHRASED = new RegExp(`^${PHRASED}`, 'u');
+// Compatibility forms read as the characters they stand for, as PDF.js and browsers find them:
+// "2024" finds the full-width "２０２４" of Chinese and Japanese text, "x2" finds "x²". A form that
+// stands for a spacing accent ("´") stays as it is rather than turning into a space.
+const compatible = (char) => {
+  const plain = char.normalize('NFKC');
+  return /\s/.test(plain) ? char : plain;
+};
 // Lowercasing is context-sensitive for Greek sigma, so fold the final form to match prefixes.
 // Accents are ignored, as PDF readers ignore them by default: "cafe" finds "café".
 const fold = (value) =>
   value
-    .toLowerCase()
-    .replace(/\u03c2/g, '\u03c3')
     .replace(SINGLE_QUOTES, "'")
     .replace(DOUBLE_QUOTES, '"')
     .replace(HYPHENS, '-')
+    .replace(/[^\s\p{M}]/gu, compatible)
+    .toLowerCase()
+    .replace(/\u03c2/g, '\u03c3')
     .normalize('NFD')
     .replace(DIACRITICS, '')
     .normalize('NFC');
@@ -59,6 +67,8 @@ export function indexPageText(items) {
   let length = 0;
   let trailingSpace = false,
     tail = '',
+    // The end of the text as written: full-width "，" folds to ",", but still joins Chinese.
+    written = '',
     // The last item that added text, and its chunk: a line can end in an empty item after
     // the item holding its hyphen.
     held = null,
@@ -114,6 +124,7 @@ export function indexPageText(items) {
     if (chunk) {
       trailingSpace = chunk.endsWith(' ');
       tail = (tail + chunk).slice(-2);
+      written = (written + item.str).slice(-2);
       held = [i, chunks.length - 1];
     }
     // Chinese and Japanese put no space between words, so a line break inside a phrase is
@@ -123,15 +134,15 @@ export function indexPageText(items) {
       while (next < strings.length && !strings[next].str) next++;
       return strings[next]?.str || '';
     };
-    const unspaced = () => ENDS_UNSPACED.test(tail) && STARTS_UNSPACED.test(nextText());
+    const unspaced = () => ENDS_UNSPACED.test(written) && STARTS_UNSPACED.test(nextText());
     if (item.hasEOL && !trailingSpace && !hyphenated && !unspaced()) {
       // Thai and Lao wrap inside phrases as well as at spaces: found with the space or without.
-      if (ENDS_PHRASED.test(tail) && STARTS_PHRASED.test(nextText()))
+      if (ENDS_PHRASED.test(written) && STARTS_PHRASED.test(nextText()))
         joins.push({ at: length, skip: true });
       chunks.push(' ');
       length++;
       trailingSpace = true;
-      tail = ' ';
+      tail = written = ' ';
       lastChar = ' ';
       held = null;
     }

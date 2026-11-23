@@ -256,3 +256,19 @@ it('finds a Thai or Lao phrase that wraps onto the next line', () => {
   expect(findMatches(latin, searchQuery('tophat'))).toEqual([]);
   expect(findMatches(latin, searchQuery('top hat'))).toEqual([[0, 7]]);
 });
+
+it('finds full-width letters and digits, and other compatibility forms, as typed', () => {
+  // Chinese and Japanese text sets Latin letters and digits full width: "2024" finds "２０２４".
+  const index = indexPageText([{ str: 'ＡＢＣ株式会社は２０２４年に x² の ﬁnal 版を' }]);
+  for (const query of ['abc株式会社', '2024年', '２０２４', 'x2', 'final'])
+    expect(findMatches(index, searchQuery(query)), query).toHaveLength(1);
+  // Each folded character still points at the one shown, so the highlight covers it.
+  const at = index.text.indexOf('2024');
+  expect(index.origins[0].slice(at, at + 4)).toEqual([8, 9, 10, 11]);
+  // A spacing accent stays a character rather than becoming a space between words.
+  expect(indexPageText([{ str: 'Re´sume´' }]).text).toBe('re´sume´');
+  expect(findMatches(indexPageText([{ str: 'a 5″ gap' }]), searchQuery('5"'))).toHaveLength(1);
+  // A full-width comma ending a line is still Chinese punctuation: no space joins the lines.
+  const wrapped = indexPageText([{ str: '中文，', hasEOL: true }, { str: '日本' }]);
+  expect(findMatches(wrapped, searchQuery('中文，日本'))).toHaveLength(1);
+});
