@@ -71,8 +71,13 @@ export function createImageLayer({
     );
   const current = () => draft || selected.transform;
   const rotation = () => {
-    const m = matrix(viewport.transform, current());
-    return ((Math.atan2(m[1], m[0]) * 180) / Math.PI + 360) % 360;
+    const t = current(),
+      m = matrix(viewport.transform, t);
+    // A mirrored picture is flipped left to right and then turned: its angle is where its left
+    // edge, now on the right, points. Read from its own right edge, an upright mirror image
+    // would show 180. A shape's mirrored coordinates (common in top-down PDFs) show nothing.
+    const flip = kind() === 'image' && t[0] * t[3] - t[1] * t[2] < 0 ? -1 : 1;
+    return ((Math.atan2(flip * m[1], flip * m[0]) * 180) / Math.PI + 360) % 360;
   };
   const kind = (entry = selected) => entry?.kind || 'image';
   const title = () => kind()[0].toUpperCase() + kind().slice(1);

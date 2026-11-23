@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, rgb } from 'pdf-lib';
+import {
+  PDFDocument,
+  rgb,
+  pushGraphicsState,
+  popGraphicsState,
+  concatTransformationMatrix,
+  drawObject,
+} from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 import { inspectImages } from '../../src/core/image-edit.js';
 import { inspectPaths } from '../../src/core/path-edit.js';
@@ -194,4 +201,32 @@ test('a stroke width shows rounded, and stays exact until it is edited', async (
   await expect(width).toHaveValue('0.004');
   const [first] = inspectPaths(await download(page), 0);
   expect(first.state.width).toBeCloseTo(0.7089, 6);
+});
+
+test('a mirrored picture reads its angle as upright and turns to a typed angle', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 400]);
+  const image = await doc.embedPng(Buffer.from(PIXEL, 'base64'));
+  // Flipped left to right, as some apps place a mirrored picture.
+  const name = sheet.node.newXObject('Mirror', image.ref);
+  sheet.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(-80, 0, 0, 60, 120, 200),
+    drawObject(name),
+    popGraphicsState(),
+  );
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select image 1', exact: true }).press('Enter');
+  const angle = page.getByLabel('Image rotation in degrees', { exact: true });
+  await expect(angle).toHaveValue('0');
+  await angle.fill('90');
+  await angle.press('Enter');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(angle).toHaveValue('90');
+  const [turned] = inspectImages(await download(page), 0);
+  // A quarter turn clockwise about its center, still mirrored.
+  expect(turned.transform.map((n) => Number(n.toFixed(3)))).toEqual([0, 80, 60, 0, 50, 190]);
 });
