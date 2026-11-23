@@ -185,6 +185,15 @@ describe("serializeXml", () => {
     expect(textContent(parseFragment(xml))).toBe("Page one Page two");
   });
 
+  it("leaves out the noncharacters U+FFFE and U+FFFF, which XML forbids", () => {
+    // A byte order mark read the wrong way round shows up as U+FFFE.
+    const e = elem(qname("", "r", ""), {
+      attrs: [attr(qname("", "v", ""), "\uffffAlt")],
+      children: [text("\ufffeWords \u{1f600}\uffff")],
+    });
+    expect(serializeFragment(e)).toBe('<r v="Alt">Words \u{1f600}</r>');
+  });
+
   it("emits self-closing tags only when there are no children", () => {
     const empty = elem(qname("", "r", ""));
     expect(serializeFragment(empty)).toBe("<r/>");
