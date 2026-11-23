@@ -11584,8 +11584,52 @@ export function createEditor({
       value: Math.round((entry.opacity ?? 1) * 100),
       'aria-label': 'Opacity',
       disabled: !accepts('opacity'),
-      onchange: () => apply({ opacity: Number(opacity.value) / 100 }),
+      // Held arrow keys step on until they are let go; a click or drag ends at once.
+      onchange: () => !opacityHeld && restOpacity(),
+      onkeydown: (e) => {
+        if (!e.key.startsWith('Arrow') && !['Home', 'End', 'PageUp', 'PageDown'].includes(e.key))
+          return;
+        opacityHeld = true;
+        clearTimeout(opacityTimer);
+      },
+      onkeyup: () => {
+        if (!opacityHeld) return;
+        opacityHeld = false;
+        restOpacity();
+      },
+      // Saved once the keys rest, not on leaving: a save started by a press on Download
+      // would turn Download off before its click, and a save takes the opacity along anyway.
+      onblur: () => {
+        if (!opacityHeld) return;
+        opacityHeld = false;
+        restOpacity();
+      },
     });
+    // Each arrow key press steps the opacity. Saved press by press, the panel was drawn again
+    // while the next was pressed, and that press was lost: six presses made one step. The
+    // steps are saved as one change once the keys rest, as a comment's nudges are.
+    let opacityHeld = false,
+      opacityTimer = 0,
+      savedOpacity = Math.round((entry.opacity ?? 1) * 100);
+    const saveOpacity = () => {
+      clearTimeout(opacityTimer);
+      opacityTimer = 0;
+      const value = Number(opacity.value);
+      if (opacity.disabled || !opacity.isConnected || value === savedOpacity) return;
+      // Another edit being applied would turn this one away: it waits for that one.
+      if (busy) return void restOpacity();
+      savedOpacity = value;
+      return apply({ opacity: value / 100 });
+    };
+    const restOpacity = () => {
+      clearTimeout(opacityTimer);
+      opacityTimer = setTimeout(saveOpacity, 250);
+    };
+    // A save or download meanwhile takes the opacity along, as it does the typed comment.
+    annotationTextDraft = async () => {
+      await saveText();
+      await saveOpacity();
+    };
     const fontSize =
       entry.subtype === 'FreeText' &&
       el('input', {
