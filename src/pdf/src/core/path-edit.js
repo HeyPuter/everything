@@ -271,7 +271,13 @@ function describePath(commands, end, state, resources, source, ancestry) {
     minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
-    maxY = -Infinity;
+    maxY = -Infinity,
+    // Whether any two segments meet (where a miter join can reach out), the straight segments,
+    // and whether any are curves, for how far the stroke reaches past the points.
+    joins = false,
+    curved = false,
+    segments = 0;
+  const lines = [];
   // Calculate bounds while reading geometry. Only a rectangle's first four
   // corners need retaining; large paths need no second coordinate collection.
   const includePoint = (x, y) => {
@@ -291,10 +297,16 @@ function describePath(commands, end, state, resources, source, ancestry) {
       includePoint(x + w, y + h);
       svg.push(`M ${x} ${y} h ${w} v ${h} h ${-w} Z`);
       current = first = [x, y];
+      joins = true;
     } else if (command.op === 'h') {
       svg.push('Z');
       current = first;
+      joins = true;
     } else {
+      if (command.op === 'm') segments = 0;
+      else if (++segments > 1) joins = true;
+      if (command.op === 'l') lines.push([...current, ...a]);
+      else if (command.op !== 'm') curved = true;
       let coords = a;
       if (command.op === 'v') coords = [...current, ...a];
       if (command.op === 'y') coords = [...a, ...a.slice(-2)];
@@ -316,11 +328,30 @@ function describePath(commands, end, state, resources, source, ancestry) {
         const next = points[(i + 1) % 4];
         return p[0] === next[0] || p[1] === next[1];
       }));
-  const pad = stroked
-    ? Math.max(0.25, state.width / 2) *
-      (state.join === 0 && !rectangle ? Math.max(1, state.miter) : 1)
-    : 0;
-  const bounds = [minX - pad, minY - pad, maxX + pad, maxY + pad];
+  if (['s', 'b', 'b*'].includes(end.op)) joins = true;
+  const half = Math.max(0.25, state.width / 2);
+  let padX = 0,
+    padY = 0;
+  if (stroked && (joins || curved || !lines.length)) {
+    padX = padY = half * (joins && state.join === 0 && !rectangle ? Math.max(1, state.miter) : 1);
+  } else if (stroked) {
+    // Lines that meet nowhere reach half the stroke to each side, and past their ends only
+    // with round or square caps: a 10 pt rule is 10 pt tall, not as tall as a miter could be.
+    for (const [x0, y0, x1, y1] of lines) {
+      const length = Math.hypot(x1 - x0, y1 - y0);
+      if (!length || state.cap === 1) {
+        padX = Math.max(padX, half);
+        padY = Math.max(padY, half);
+        continue;
+      }
+      const along = state.cap === 2 ? half : 0,
+        ux = Math.abs(x1 - x0) / length,
+        uy = Math.abs(y1 - y0) / length;
+      padX = Math.max(padX, uy * half + ux * along);
+      padY = Math.max(padY, ux * half + uy * along);
+    }
+  }
+  const bounds = [minX - padX, minY - padY, maxX + padX, maxY + padY];
   const degenerate = minX === maxX || minY === maxY;
   if (state.ownPath) {
     for (const axis of [0, 1])

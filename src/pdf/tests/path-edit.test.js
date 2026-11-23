@@ -609,3 +609,30 @@ it('edits paths colored through gray, RGB or CMYK color spaces, as macOS writes 
   expect(pathColorHex(reopened[1].state.fill)).toBe('#00ff00');
   expect(pathColorHex(reopened[2].state.fill)).toBe('#808080');
 });
+it('frames a straight line by its stroke, not by miter joins it does not have', async () => {
+  // pdf-lib draws lines with miter joins and butt caps; a 10 pt line is 10 pt tall.
+  const doc = await raw(
+    '0 0 1 RG 10 w 50 200 m 50 200 m 350 200 l S ' +
+      '4 w 2 J 50 100 m 350 150 l S ' +
+      '4 w 0 J 50 300 m 150 300 l 150 340 l S ' +
+      // A rule from edge to edge of a frame, as Chrome draws an SVG line.
+      'q 0 0 200 60 re W n 4 M 2 w 0 50 m 200 50 l S Q',
+  );
+  const [thick, square, corner, rule] = inspectPaths(doc, 0);
+  expect(thick.bounds).toEqual([50, 195, 350, 205]);
+  const length = Math.hypot(300, 50),
+    across = (2 * 300) / length + (2 * 50) / length;
+  square.bounds.forEach((n, i) =>
+    expect(n).toBeCloseTo([50 - across, 100 - across, 350 + across, 150 + across][i], 8),
+  );
+  // A corner is a miter join, which can reach out as far as the miter limit allows.
+  expect(corner.bounds).toEqual([30, 280, 170, 360]);
+  expect(rule.bounds).toEqual([0, 49, 200, 51]);
+  expect(rule.editable).toBe(true);
+  const moved = [...rule.transform];
+  moved[5] -= 20;
+  editPath(doc, 0, rule, { transform: moved });
+  const reopened = inspectPaths(await PDFDocument.load(await doc.save()), 0)[3];
+  reopened.transform.forEach((n, k) => expect(n).toBeCloseTo(moved[k], 8));
+  expect(reopened.editable).toBe(true);
+});
