@@ -325,7 +325,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     message.hidden = !message.childElementCount;
     if (!message.hidden && !failed) message.prepend(dismissNotices);
   };
-  const host = el('div.canvas-host', { 'aria-label': 'Document pages' });
+  const host = el('div.canvas-host', { role: 'region', 'aria-label': 'Document pages' });
   const surface = el('div.canvas-document-surface', {}, host);
   // Bookmarks are in the body: a link made in a note, header or footer goes to one there.
   const editHyperlink = (anchor = hyperlink, options = {}) => {

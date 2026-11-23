@@ -209,3 +209,12 @@ test('the File view\'s current section keeps its white name readable in both the
     await page.keyboard.press('Escape');
   }
 });
+
+test('screen readers reach the document as a landmark between the title bar and the status bar', async ({ page }) => {
+  await openEditor(page);
+  // Its name was set on a plain container, which has none: landmark navigation went from the banner to the
+  // status bar, past the document.
+  const pages = page.getByRole('region', { name: 'Document pages' });
+  await expect(pages).toBeVisible();
+  await expect(pages.getByRole('textbox', { name: 'Document text' })).toHaveCount(1);
+});
