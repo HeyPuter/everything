@@ -480,10 +480,10 @@ test("Alt Text, the accessibility checker, symbols and command search", async ({
   await page.locator(".object-hit").first().click();
   // Command search is in a wide window's title bar; a narrower one has the
   // ribbon's own Italic.
-  const search = page.getByRole("searchbox", { name: "Search for commands" });
+  const search = page.getByRole("combobox", { name: "Search for commands" });
   if (await search.isVisible()) {
     await search.fill("italic");
-    await page.getByRole("menuitem", { name: /^Italic/ }).click();
+    await page.getByRole("option", { name: /^Italic/ }).click();
   } else {
     await tab(page, "Home");
     await command(page, "italic");

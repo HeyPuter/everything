@@ -279,6 +279,44 @@
 .command-search-input::-webkit-search-cancel-button {
   display: none;
 }
+/* The box round it shows the focus (above), not a second ring inside. */
+.command-search-input:focus-visible {
+  outline: none;
+}
+/* The search's results: a list under the box, the highlighted one marked
+   as a menu's focused item is. */
+.command-results {
+  position: fixed;
+  z-index: 100;
+  max-width: calc(100vw - 16px);
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px #0000001f;
+}
+.command-results[hidden] {
+  display: none;
+}
+.command-results .menu-item {
+  cursor: default;
+}
+.command-results .menu-item.active {
+  background: var(--surface-2);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.command-results .menu-item[aria-disabled="true"] {
+  opacity: 0.45;
+}
+.command-results-empty {
+  padding: 8px 10px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
 @media (max-width: 1350px) {
   .command-search {
     width: 120px;

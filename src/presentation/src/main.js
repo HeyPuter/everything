@@ -3890,25 +3890,57 @@ function editorTopbar() {
     ),
   );
 }
-// Command search: finds any command on the ribbon by name and runs it.
+// Command search: finds any command on the ribbon or in the menu bar by name
+// and runs it. The box is a combobox: the keyboard stays in it while Up and
+// Down move through the results and Enter runs the one highlighted.
 function commandSearch() {
+  const list = el("div", {
+    // Not a .menu: the page reads an open menu from that class.
+    class: "command-results",
+    role: "listbox",
+    id: "command-results",
+    "aria-label": "Commands",
+    hidden: true,
+    // A press on a result leaves the keyboard in the box.
+    onpointerdown: (e) => e.preventDefault(),
+  });
+  // How many commands were found, said once typing pauses.
+  const status = el("span", { class: "sr-only", role: "status" });
+  let statusTimer = 0;
+  let results = [];
+  let highlighted = -1;
   const input = el("input", {
     type: "search",
     class: "command-search-input",
     placeholder: "Search",
+    role: "combobox",
     "aria-label": "Search for commands",
+    "aria-autocomplete": "list",
+    "aria-expanded": "false",
+    "aria-controls": "command-results",
     autocomplete: "off",
     spellcheck: "false",
     onkeydown: (e) => {
-      if (e.key === "Enter" || e.key === "ArrowDown") {
+      if (e.isComposing) return;
+      const open = !list.hidden;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
-        showMatches(true);
+        if (!open) showMatches();
+        move(e.key === "ArrowDown" ? 1 : -1);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (!open) showMatches();
+        choose(highlighted >= 0 ? highlighted : firstEnabled());
       } else if (e.key === "Escape") {
-        input.value = "";
-        workspace()?.focus({ preventScroll: true });
-      }
+        e.preventDefault();
+        if (open) hide();
+        else {
+          input.value = "";
+          workspace()?.focus({ preventScroll: true });
+        }
+      } else if (e.key === "Tab") hide();
     },
-    oninput: () => showMatches(false),
+    oninput: () => showMatches(),
     // The menu bar's commands are read once the box has the keyboard, while
     // the page is idle, as they stand for the selection the search starts
     // from; a letter typed sooner reads them then.
@@ -3924,6 +3956,7 @@ function commandSearch() {
       cancelIdle(menuWork);
       menuWork = 0;
       menuCommands = null;
+      hide();
     },
   });
   let menuCommands = null;
@@ -3967,9 +4000,62 @@ function commandSearch() {
   // "Export…" is "Export".
   const commandKey = (label) =>
     String(label).replace(/…$/, "").replace(/\s+/g, " ").trim().toLowerCase();
-  function showMatches(focus) {
+  const firstEnabled = () => results.findIndex((entry) => !entry.disabled);
+  function hide() {
+    clearTimeout(statusTimer);
+    status.textContent = "";
+    list.hidden = true;
+    list.replaceChildren();
+    results = [];
+    highlighted = -1;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+  function highlight(at) {
+    highlighted = at;
+    list.querySelectorAll('[role="option"]').forEach((node, i) => {
+      node.classList.toggle("active", i === at);
+      node.setAttribute("aria-selected", String(i === at));
+    });
+    const node = at >= 0 ? list.children[at] : null;
+    if (node) {
+      input.setAttribute("aria-activedescendant", node.id);
+      node.scrollIntoView({ block: "nearest" });
+    } else input.removeAttribute("aria-activedescendant");
+  }
+  // Up and Down skip the commands that are off, and wrap round.
+  function move(step) {
+    const n = results.length;
+    for (let i = 1; i <= n; i++) {
+      const at =
+        ((((highlighted < 0 && step < 0 ? 0 : highlighted) + step * i) % n) +
+          n) %
+        n;
+      if (!results[at].disabled) return highlight(at);
+    }
+  }
+  function choose(at) {
+    const entry = results[at];
+    if (!entry || entry.disabled) return;
+    hide();
+    // A command with a menu (Shapes, Text Direction) opens it under the box.
+    if (entry.items)
+      openMenu({
+        anchor: wrap,
+        label: String(entry.label),
+        items: entry.items,
+        align: "end",
+        minWidth: Math.max(280, wrap.offsetWidth),
+      });
+    else entry.onSelect?.();
+  }
+  function announce(text) {
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => (status.textContent = text), 400);
+  }
+  function showMatches() {
     const query = input.value.trim().toLowerCase();
-    if (!query || !ribbon) return closeMenu();
+    if (!query || !ribbon) return hide();
     const words = query.split(/\s+/);
     const seen = new Set();
     const items = [];
@@ -4023,25 +4109,74 @@ function commandSearch() {
         });
         if (items.length >= 12) break;
       }
+    results = items;
+    highlighted = -1;
+    input.removeAttribute("aria-activedescendant");
+    list.replaceChildren(
+      ...items.map((entry, i) =>
+        el(
+          "div",
+          {
+            id: `command-result-${i}`,
+            role: "option",
+            class: "menu-item",
+            "aria-selected": "false",
+            "aria-disabled": entry.disabled ? "true" : null,
+            "aria-checked":
+              entry.checked === undefined ? null : String(!!entry.checked),
+            "aria-haspopup": entry.items ? "menu" : null,
+            onclick: () => choose(i),
+            onpointermove: () => {
+              if (highlighted !== i && !entry.disabled) highlight(i);
+            },
+          },
+          el(
+            "span",
+            { class: "menu-icon", "aria-hidden": "true" },
+            entry.checked
+              ? icon("Check", 16)
+              : entry.icon && icon(entry.icon, 17),
+          ),
+          el(
+            "span",
+            { class: "menu-label" },
+            entry.label,
+            el("span", { class: "menu-hint" }, ` ${entry.hint}`),
+          ),
+        ),
+      ),
+    );
     if (!items.length)
-      items.push({
-        label: `No commands match “${input.value.trim()}”`,
-        disabled: true,
-      });
-    openMenu({
-      anchor: wrap,
-      label: "Commands",
-      items,
-      align: "end",
-      minWidth: Math.max(280, wrap.offsetWidth),
-      focusFirst: focus,
-    });
+      list.append(
+        el(
+          "div",
+          { class: "command-results-empty" },
+          `No commands match “${input.value.trim()}”`,
+        ),
+      );
+    // Under the box, its right edge on the box's.
+    const box = wrap.getBoundingClientRect();
+    list.style.top = `${box.bottom + 4}px`;
+    list.style.right = `${Math.max(8, innerWidth - box.right)}px`;
+    list.style.minWidth = `${Math.max(280, box.width)}px`;
+    list.style.maxHeight = `${Math.max(120, innerHeight - box.bottom - 12)}px`;
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    announce(
+      items.length === 1
+        ? "1 command"
+        : items.length
+          ? `${items.length} commands`
+          : "No commands match",
+    );
   }
   const wrap = el(
     "div",
     { class: "command-search desktop-only", role: "search" },
     icon("o:search", 15),
     input,
+    list,
+    status,
   );
   return wrap;
 }
