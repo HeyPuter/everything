@@ -1585,6 +1585,8 @@ export class CanvasEditor {
     if (this.imageInteraction.end(e)) return;
     const control = this.dragControl, wasDragging = this.dragging;
     this.dragging = false; this.dragControl = null; this.stopAutoScroll();
+    // The words or paragraph a double or triple press (and a drag from it) chose, while nothing else has changed it.
+    if (this.unit?.model === this.model) this.unit.chosen = { anchor: this.model.selection.anchor, focus: this.model.selection.focus, revision: this.session.revision };
     if (!wasDragging || !control || this.readOnly || this.composition ||
       control.model !== this.model || control.revision !== this.session.revision) return;
     const position = this.point(e);
@@ -2148,13 +2150,32 @@ export class CanvasEditor {
       const { index, offset } = locate(this.model.paragraphs, start);
       single = paragraphText(this.model.paragraphs[index])[start !== end || direction > 0 ? offset : offset - 1] ?? '';
     }
+    const word = start !== end && this.doubleClickedWordRange();
     try {
       done = this.execute(() => {
         if (past !== null) this.model.select(past);
+        if (word) this.model.select(...word);
         return this.model.delete(direction);
       }, undefined, { record: !merge, typing: true, label: 'Typing' });
     } finally { this.deleting = false; }
     if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path, single };
+  }
+  /**
+   * A word chosen with a double click (and left as it was), deleted with Backspace or Delete, goes with one of the spaces around it, as
+   * a word processor's smart delete does: deleting "two" from "one two three" left two spaces, and from "one two."
+   * a space before the full stop. Returns the range to delete, or null to delete the selection as it is. Text
+   * tracked as deleted stays in the document beside the spaces, so with Track Changes on the selection is kept.
+   */
+  doubleClickedWordRange() {
+    const [start, end] = this.model.range, unit = this.unit, { anchor, focus } = this.model.selection;
+    if (unit?.presses !== 2 || unit.model !== this.model || unit.path !== this.session.path || this.model.trackChanges || this.model.activeCellBlock) return null;
+    if (unit.chosen?.anchor !== anchor || unit.chosen.focus !== focus || unit.chosen.revision !== this.session.revision) return null;
+    const { index, offset } = locate(this.model.paragraphs, start), text = paragraphText(this.model.paragraphs[index]), to = offset + end - start;
+    if (to > text.length || !/^\S/u.test(text[offset]) || !/\S$/u.test(text[to - 1])) return null;
+    const before = text[offset - 1], after = text[to];
+    if (before === ' ' && (after === undefined || after === ' ' || /^[.,;:!?)\]}”’]$/u.test(after))) return [start - 1, end];
+    if (before === undefined && after === ' ') return [start, end + 1];
+    return null;
   }
   // Corrections and links made as you type (the host decides which, from its
   // settings). Each is its own undo step, so Undo takes back the change alone.

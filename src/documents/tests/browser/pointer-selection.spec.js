@@ -221,3 +221,30 @@ test('a double click on an empty line places the caret there instead of selectin
   await page.mouse.dblclick(box.x + lines[0].x + 100, box.y + lines[0].y);
   expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([5, 5]);
 });
+
+test('Backspace or Delete on a double-clicked word takes one space with it, so no double space is left', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const canvas = page.locator('canvas.canvas-page').first();
+  // The middle of the letter at `offset` on the first line.
+  const letter = offset => page.evaluate(offset => {
+    const e = window.__docs.current.view.engine, line = e.selectionLayout.lines[0], x = o => line.stops.find(s => s.offset === o).x * e.zoom;
+    return { x: (x(offset) + x(offset + 1)) / 2, y: (line.y + line.height / 2) * e.zoom };
+  }, offset);
+  for (const [text, offset, key, left, word] of [['one two three', 5, 'Backspace', 'one three', 'two'], ['one two three', 5, 'Delete', 'one three', 'two'], ['one two.', 5, 'Backspace', 'one.', 'two'], ['one two three', 1, 'Backspace', 'two three', 'one']]) {
+    await input(page).fill(text);
+    await canvas.dblclick({ position: await letter(offset) });
+    await page.keyboard.press(key);
+    await expect(input(page)).toHaveValue(left);
+    // One step: Undo brings back the word and its space, with the word selected again.
+    await input(page).press('ControlOrMeta+z');
+    await expect(input(page)).toHaveValue(text);
+    expect(await selected(page)).toBe(word);
+    await page.waitForTimeout(600);
+  }
+  // A selection made with the keys is deleted as it is.
+  await input(page).fill('one two three');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(4, 7); el.dispatchEvent(new Event('select')); });
+  await page.keyboard.press('Backspace');
+  await expect(input(page)).toHaveValue('one  three');
+});
