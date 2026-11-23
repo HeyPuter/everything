@@ -212,6 +212,32 @@ test("a kiosk's timed loop plays through before an idle restart", async ({
   await expect(counter(page)).toHaveText("1 / 4");
 });
 
+test("a kiosk is not moved on by a swipe", async ({ page }) => {
+  const pres = deck([{ effect: "none" }, { effect: "none" }]);
+  P.setSlideShowSetup(pres, { showType: "kiosk" });
+  await load(page, pres);
+  await expect(counter(page)).toHaveText("1 / 2");
+  await page.evaluate(() => {
+    const target = document.querySelector(".presenter-slide");
+    const finger = (clientX) =>
+      new Touch({ identifier: 1, target, clientX, clientY: 150 });
+    const send = (type, touches, changedTouches) =>
+      target.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          touches,
+          targetTouches: touches,
+          changedTouches,
+        }),
+      );
+    send("touchstart", [finger(250)], [finger(250)]);
+    send("touchmove", [finger(120)], [finger(120)]);
+    send("touchend", [], [finger(120)]);
+  });
+  await page.clock.runFor(500);
+  await expect(counter(page)).toHaveText("1 / 2");
+});
+
 test("the advance clock waits for the actual incoming transition to finish", async ({
   page,
 }) => {

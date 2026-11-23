@@ -1121,6 +1121,9 @@ export function createShowSession(ctx, show) {
     };
     for (const type of ["pointermove", "pointerdown", "keydown"])
       listen(stage, type, restart);
+    // As a click, a swipe does not move a kiosk on: only its links,
+    // action buttons and timings do.
+    listen(stage, "touchend", (e) => e.stopPropagation(), true);
     restart();
     kioskActivity = restart;
     cleanups.push(() => clearTimeout(idle));
