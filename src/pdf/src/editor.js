@@ -149,6 +149,7 @@ import {
   radioButtonChoices,
   sharedChoiceSelections,
   fillFields,
+  resetFields,
   flattenFonts,
   MAX_FILE_SIZE,
   MAX_IMAGE_SIZE,
@@ -1230,6 +1231,16 @@ export function createEditor({
     onChange: () => updateStatus(),
     onCommit: safe(() => finishDrafts()),
     onTabOut: (direction) => tabToFormPage(direction),
+    // The form's own Print and Reset buttons.
+    onAction: (action) => {
+      if (busy) return;
+      if (action.kind === 'print') pageDialog(printDialog)();
+      else
+        safe(async () => {
+          await finishDrafts();
+          await mutate((doc) => resetFields(doc, action), null, 'fill');
+        })();
+    },
   });
   // The pages with fields to fill, read from the PDF once the fields are first used.
   const fillablePages = new WeakMap();

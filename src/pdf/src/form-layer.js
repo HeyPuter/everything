@@ -6,8 +6,9 @@ const rgb = (value, fallback) => (value?.length === 3 ? `rgb(${[...value].join('
 /**
  * The page's fields as native controls. `onTabOut(direction)` is asked when Tab or Shift Tab
  * would leave the page's last or first field; it returns true when it takes the focus on.
+ * `onAction(action)` runs the form's own Print and Reset buttons (pushButtonAction).
  */
-export function createFormLayer({ onChange, onCommit, onTabOut }) {
+export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   const draft = new FormDraft();
   const root = el('div', { class: 'form-layer', role: 'group', 'aria-label': 'Page form fields' });
   const error = el('p', {
@@ -69,7 +70,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
   function sync(editingControl) {
     for (const widget of widgets) {
       const control = controls.get(widget.id);
-      if (!control) continue;
+      if (!control || widget.type === 'button') continue;
       const value = draft.value(widget.name);
       if (widget.type === 'checkbox') control.checked = value.includes(widget.exportValue);
       else if (widget.type === 'radio') control.checked = value.includes(widget.buttonValue);
@@ -135,7 +136,11 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
       disabled: widget.readOnly,
     };
     let control;
-    if (widget.type === 'checkbox' || widget.type === 'radio') {
+    if (widget.type === 'button') {
+      // The PDF draws the button; this one takes its clicks and keys.
+      control = el('button', { ...attrs, type: 'button', 'aria-required': null });
+      control.addEventListener('click', () => onAction?.(widget.action));
+    } else if (widget.type === 'checkbox' || widget.type === 'radio') {
       control = el('input', { ...attrs, type: widget.type, name: `page-widget-${widget.id}` });
       control.addEventListener('change', () =>
         changed(
@@ -263,7 +268,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
       viewport.transform,
       tabs,
     );
-    draft.register(widgets);
+    draft.register(widgets.filter((widget) => widget.type !== 'button'));
     controls = new Map();
     const fragment = document.createDocumentFragment();
     for (const widget of widgets) {

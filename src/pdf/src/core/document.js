@@ -1749,6 +1749,53 @@ function recalculate(doc, fields) {
   }
   return changed;
 }
+/**
+ * Reset form fields to their default values (DV), or empty them, as a form's Reset button does
+ * (a ResetForm action: `fields` names and `refs` object references, PDF.js's "12R", of the
+ * fields to reset, or with `include` false of those to leave; none means every field). A
+ * named group resets the fields under it. Returns false when nothing changed.
+ */
+export async function resetFields(doc, { fields: names = [], refs = [], include = true } = {}) {
+  const fields = formFields(doc);
+  if (!fields) throw new Error(DAMAGED_FORM);
+  const refName = (ref) =>
+    ref instanceof PDFRef
+      ? `${ref.objectNumber}R${ref.generationNumber ? ref.generationNumber : ''}`
+      : null;
+  const listed = (field) => {
+    const fieldName = formFieldName(field);
+    if (names.some((name) => fieldName === name || fieldName.startsWith(`${name}.`))) return true;
+    // The field, or a group above it, by reference.
+    for (let ref = field.ref, seen = 0; ref instanceof PDFRef && seen < 64; seen++) {
+      if (refs.includes(refName(ref))) return true;
+      ref = doc.context.lookup(ref)?.get?.(PDFName.of('Parent'));
+    }
+    return false;
+  };
+  const chosen = fields.filter(
+    (field) => !(names.length || refs.length) || listed(field) === include,
+  );
+  // Each field's value without its own: the default value, or nothing.
+  const keys = [PDFName.of('V'), PDFName.of('I')];
+  const kept = chosen.map((field) =>
+    keys.map((key) => [field, key, field.acroField.dict.get(key)]),
+  );
+  for (const [field, key] of kept.flat()) field.acroField.dict.delete(key);
+  let defaults;
+  try {
+    const wanted = new Set(chosen.map(formFieldName));
+    defaults = listFields(doc).filter(
+      (field) => wanted.has(field.name) && field.type !== 'unsupported' && !field.readOnly,
+    );
+  } finally {
+    for (const [field, key, value] of kept.flat())
+      if (value !== undefined) field.acroField.dict.set(key, value);
+  }
+  return fillFields(
+    doc,
+    Object.fromEntries(defaults.map(({ name, value }) => [name, value ?? []])),
+  );
+}
 /** The date a date field's message shows as an example, in the field's pattern. */
 const EXAMPLE_DATE = new Date(Date.UTC(2025, 2, 15, 14, 30));
 export async function fillFields(doc, values) {

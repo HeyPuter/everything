@@ -10,7 +10,9 @@ import {
   fillFields,
   listFields,
   radioButtonChoices,
+  resetFields,
 } from '../src/core/document.js';
+import { formWidgets } from '../src/core/form-draft.js';
 import { flattenCounts, flattenDocument, flattenFields } from '../src/core/flatten.js';
 import { damagedWidgetsPdf } from './fixtures/damaged-widgets.js';
 
@@ -709,6 +711,69 @@ it('works out calculations written in simplified field notation', async () => {
     '',
     '',
   ]);
+});
+
+it('resets fields to their defaults as a Reset button does, and offers Print and Reset buttons', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const name = form.createTextField('Name');
+  name.addToPage(page, { x: 50, y: 700, width: 150, height: 20 });
+  const city = form.createTextField('Address.City');
+  city.addToPage(page, { x: 50, y: 670, width: 150, height: 20 });
+  city.acroField.dict.set(PDFName.of('DV'), PDFHexString.fromText('Springfield'));
+  form.createCheckBox('Agree').addToPage(page, { x: 50, y: 640, width: 12, height: 12 });
+  const size = form.createRadioGroup('Size');
+  for (const [i, option] of ['S', 'M'].entries())
+    size.addOptionToPage(option, page, { x: 50 + 20 * i, y: 610, width: 12, height: 12 });
+  const color = form.createDropdown('Color');
+  color.addOptions(['Red', 'Blue']);
+  color.addToPage(page, { x: 50, y: 580, width: 150, height: 20 });
+  const buttons = {
+    Print: { S: 'Named', N: 'Print' },
+    Clear: { S: 'ResetForm' },
+    // Acrobat's own Print button runs a script that only prints.
+    'Print form': { S: 'JavaScript', JS: PDFHexString.fromText('this.print({bUI: true});') },
+  };
+  for (const [i, [label, action]] of Object.entries(buttons).entries()) {
+    const button = form.createButton(label);
+    button.addToPage(label, page, { x: 300, y: 700 - 40 * i, width: 80, height: 24 });
+    button.acroField.getWidgets()[0].dict.set(PDFName.of('A'), source.context.obj(action));
+  }
+  const doc = await PDFDocument.load(await source.save());
+  const values = (d) =>
+    listFields(d)
+      .filter((field) => field.type !== 'unsupported')
+      .map(({ value }) => value);
+  const filled = { Name: 'Ada', 'Address.City': 'London', Agree: true, Size: 'M', Color: ['Blue'] };
+  await fillFields(doc, filled);
+  // A Reset button naming a group resets the fields under it, and no others.
+  await resetFields(doc, { fields: ['Address'], refs: [], include: true });
+  expect(values(doc)).toEqual(['Ada', 'Springfield', true, 'M', ['Blue']]);
+  // Without a list, every field: the default value, or empty.
+  expect(await resetFields(doc)).not.toBe(false);
+  const reopened = await PDFDocument.load(await doc.save());
+  expect(values(reopened)).toEqual(['', 'Springfield', false, undefined, []]);
+  expect(await resetFields(reopened)).toBe(false);
+  // The page offers the two buttons, each with what it does.
+  const task = pdfjs.getDocument({ data: await doc.save() });
+  try {
+    const annotations = await (await (await task.promise).getPage(1)).getAnnotations();
+    expect(
+      formWidgets(annotations)
+        .filter((widget) => widget.type === 'button')
+        .map(({ name, action }) => [name, action]),
+    ).toEqual([
+      ['Print', { kind: 'print' }],
+      ['Clear', { kind: 'reset', fields: [], refs: [], include: true }],
+      ['Print form', { kind: 'print' }],
+    ]);
+  } finally {
+    await task.destroy();
+  }
 });
 
 it('a number field does not take its thousands separator for a decimal mark', async () => {

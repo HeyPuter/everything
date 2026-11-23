@@ -2763,6 +2763,11 @@ kbd {
   color: var(--field-ink);
   background: var(--field-background);
 }
+/* A form's Print or Reset button keeps the PDF's own drawing; the focus outline marks it. */
+.form-widget.form-button .form-control {
+  opacity: 0;
+  cursor: pointer;
+}
 .form-checkbox .form-control,
 .form-radio .form-control {
   appearance: none;
