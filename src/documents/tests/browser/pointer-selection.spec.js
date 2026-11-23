@@ -248,3 +248,37 @@ test('Backspace or Delete on a double-clicked word takes one space with it, so n
   await page.keyboard.press('Backspace');
   await expect(input(page)).toHaveValue('one  three');
 });
+
+test('Shift+click after a double click extends by whole words, and after a triple click by paragraphs', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha beta gamma. Delta epsilon zeta.\nSecond para here, with words.\nThird one.');
+  const canvas = page.locator('canvas.canvas-page').first();
+  // The middle of the letter at `offset`, on whichever line holds it.
+  const letter = offset => page.evaluate(offset => {
+    const e = window.__docs.current.view.engine, line = e.selectionLayout.lines.find(l => l.stops.some(s => s.offset === offset) && l.stops.some(s => s.offset === offset + 1));
+    const x = o => line.stops.find(s => s.offset === o).x * e.zoom;
+    return { x: (x(offset) + x(offset + 1)) / 2, y: (line.y + line.height / 2) * e.zoom };
+  }, offset);
+  const range = () => page.evaluate(() => [...window.__docs.current.view.engine.model.range]);
+  await canvas.dblclick({ position: await letter(7) });
+  expect(await selected(page)).toBe('beta');
+  // Into "epsilon", forward, then back into "Alpha": the double-clicked word stays and the far word is taken whole.
+  await canvas.click({ position: await letter(26), modifiers: ['Shift'] });
+  expect(await selected(page)).toBe('beta gamma. Delta epsilon');
+  await canvas.click({ position: await letter(2), modifiers: ['Shift'] });
+  expect(await selected(page)).toBe('Alpha beta');
+  await page.waitForTimeout(600);
+  await canvas.click({ position: await letter(7), clickCount: 3 });
+  expect(await range()).toEqual([0, 37]);
+  await page.waitForTimeout(600);
+  await canvas.click({ position: await letter(45), modifiers: ['Shift'] });
+  expect(await selected(page)).toBe('Alpha beta gamma. Delta epsilon zeta.\nSecond para here, with words.');
+  // After the keys change the selection, Shift+click extends to the letter clicked, as before.
+  await page.waitForTimeout(600);
+  await canvas.dblclick({ position: await letter(7) });
+  await page.keyboard.press('Shift+ArrowRight');
+  const left = await letter(26), right = await letter(25);
+  await canvas.click({ position: { x: (left.x + right.x) / 2, y: left.y }, modifiers: ['Shift'] });
+  expect(await range()).toEqual([6, 26]);
+});

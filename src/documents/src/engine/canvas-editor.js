@@ -1425,6 +1425,7 @@ export class CanvasEditor {
     const presses = last && e.timeStamp - last.time < 500 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 5
       && left === last.left && top === last.top ? last.presses % 3 + 1 : 1;
     this.lastPress = { time: e.timeStamp, x: e.clientX, y: e.clientY, left, top, presses };
+    const previousUnit = this.unit;
     this.unit = null;
     e.preventDefault();
     // Crop mode and Shift+click drawing selection take the press first (image-interaction.js).
@@ -1488,6 +1489,13 @@ export class CanvasEditor {
       // whole words or paragraphs, as native selection does.
       const unit = !e.shiftKey && presses > 1 && !this.model.selection.controlCaret && this.textUnit(e, position, presses);
       if (unit) { this.model.select(unit.start, unit.end); this.unit = { ...unit, presses, model: this.model, path: this.session.path }; }
+      // Shift+click after a double or triple click (the words or paragraph it chose left as they were) extends by
+      // whole words or paragraphs, as a drag from it does.
+      const chosen = e.shiftKey && previousUnit?.model === this.model && previousUnit.path === this.session.path ? previousUnit.chosen : null;
+      if (chosen && chosen.anchor === selection.anchor && chosen.focus === selection.focus && chosen.revision === this.session.revision) {
+        this.unit = { ...previousUnit, chosen: null };
+        this.selectThroughUnit(e, this.unit, position);
+      }
     }
     const dragSelection = this.model.selection;
     const dragRange = !this.readOnly && !e.shiftKey && dragSelection.anchor === dragSelection.focus &&
@@ -1532,13 +1540,17 @@ export class CanvasEditor {
     const word = new Intl.Segmenter(undefined, { granularity: 'word' }).segment(this.model.text).containing(this.pointCharacter(e, position));
     return word && !/[\n\v\f\u000e]/.test(word.segment) ? { start: word.index, end: word.index + word.segment.length } : null;
   }
+  /** Select from the word or paragraph `unit` to the whole word or paragraph at `position`. */
+  selectThroughUnit(e, unit, position) {
+    const other = this.textUnit(e, position, unit.presses) || { start: position, end: position };
+    if (other.start < unit.start) this.model.select(unit.end, Math.min(other.start, position));
+    else this.model.select(unit.start, Math.max(other.end, position, unit.end));
+  }
   /** Extend a pointer selection to a point. */
   dragTo(e) {
     const unit = this.unit?.model === this.model && this.unit;
     if (unit) {
-      const position = this.point(e), other = this.textUnit(e, position, unit.presses) || { start: position, end: position };
-      if (other.start < unit.start) this.model.select(unit.end, Math.min(other.start, position));
-      else this.model.select(unit.start, Math.max(other.end, position, unit.end));
+      this.selectThroughUnit(e, unit, this.point(e));
       this.syncInput(); this.paint(); this.onSelection();
       return;
     }
