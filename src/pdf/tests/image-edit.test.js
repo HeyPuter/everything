@@ -99,7 +99,8 @@ it('isolates one placement inside nested shared Form XObjects and keeps other pa
   const doc = await fixture(),
     image = inspectImages(doc, 0)[0].object;
   const inner = doc.context.register(
-    doc.context.flateStream('q 80 0 0 60 40 140 cm /Picture Do Q', {
+    // A dot beside the picture keeps the form from standing for the picture alone.
+    doc.context.flateStream('0 0 1 1 re f q 80 0 0 60 40 140 cm /Picture Do Q', {
       Type: 'XObject',
       Subtype: 'Form',
       BBox: [0, 0, 400, 400],
@@ -392,7 +393,7 @@ it('replaces only one occurrence through nested shared forms and preserves all p
   const doc = await fixture(),
     image = inspectImages(doc, 0)[0].object;
   const inner = doc.context.register(
-    doc.context.flateStream('80 0 0 60 40 240 cm /Picture Do', {
+    doc.context.flateStream('0 0 1 1 re f 80 0 0 60 40 240 cm /Picture Do', {
       Type: 'XObject',
       Subtype: 'Form',
       BBox: [0, 0, 400, 400],
@@ -571,4 +572,72 @@ it('moves, turns, resizes and replaces a picture together with a clip of its own
   editImage(doc, 0, replaced, { remove: true });
   expect(inspectImages(doc, 0)).toHaveLength(2);
   expect(pageSource(page)).not.toContain('200 40 100 100 re');
+});
+
+it('moves, deletes and replaces a translucent picture that Chrome wraps in a form its own size', async () => {
+  const doc = await fixture(),
+    image = inspectImages(doc, 0)[0].object;
+  const imageRef = doc.context.getObjectRef(image);
+  const form = (content) =>
+    doc.context.register(
+      doc.context.flateStream(content, {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 82, 62],
+        Group: { Type: 'Group', S: 'Transparency', I: true },
+        Resources: {
+          ExtGState: { G3: { Type: 'ExtGState', ca: 0.5 } },
+          XObject: { X7: imageRef },
+        },
+      }),
+    );
+  const translucent = form('q 80 0 0 -60 1 61 cm /G3 gs /X7 Do Q');
+  // Chrome itself makes the group translucent where it is drawn: the second page does so.
+  const opaque = form('q 80 0 0 -60 1 61 cm /X7 Do Q');
+  // A form with more than the picture in it keeps holding the picture within its frame.
+  const busy = form('0 0 1 1 re f q 80 0 0 -60 1 61 cm /X7 Do Q');
+  const page = doc.getPage(0);
+  page.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({ XObject: { X13: translucent, X14: busy } }),
+  );
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      doc.context.flateStream('q 1 0 0 1 40 240 cm /X13 Do Q q 1 0 0 1 240 240 cm /X14 Do Q'),
+    ),
+  );
+  const second = doc.addPage([400, 400]);
+  second.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({
+      XObject: { X13: translucent, X15: opaque },
+      ExtGState: { G1: { Type: 'ExtGState', ca: 0.4 } },
+    }),
+  );
+  second.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(doc.context.flateStream('/X13 Do q /G1 gs /X15 Do Q')),
+  );
+  expect(inspectImages(doc, 1).map((entry) => entry.opacity)).toEqual([0.5, 0.4]);
+  const [picture, held] = inspectImages(doc, 0);
+  expect(picture).toMatchObject({ editable: true, path: [], opacity: 0.5 });
+  expect(picture.transform).toEqual([80, 0, 0, -60, 41, 301]);
+  expect(constrainImage(picture, [80, 0, 0, -60, 141, 201])).toEqual([80, 0, 0, -60, 141, 201]);
+  expect(constrainImage(held, [80, 0, 0, -60, 341, 201])).not.toEqual([80, 0, 0, -60, 341, 201]);
+  const other = await raster(await doc.save(), 1);
+  editImage(doc, 0, picture, { transform: [80, 0, 0, -60, 141, 201] });
+  let moved = inspectImages(await PDFDocument.load(await doc.save()), 0)[0];
+  moved.transform.forEach((n, i) => expect(n).toBeCloseTo([80, 0, 0, -60, 141, 201][i], 8));
+  expect(moved.opacity).toBe(0.5);
+  // The form is shared with the second page, which stays as it was.
+  expect((await raster(await doc.save(), 1)).pixels).toEqual(other.pixels);
+  // A replacement is as translucent as the picture it replaces.
+  await replaceImage(doc, 0, inspectImages(doc, 0)[0], replacementFile());
+  moved = inspectImages(await PDFDocument.load(await doc.save()), 0)[0];
+  expect(moved.object.getContents()).not.toEqual(image.getContents());
+  expect(moved.opacity).toBe(0.5);
+  editImage(doc, 0, inspectImages(doc, 0)[0], { remove: true });
+  expect(inspectImages(doc, 0)).toHaveLength(1);
+  expect((await raster(await doc.save(), 1)).pixels).toEqual(other.pixels);
 });

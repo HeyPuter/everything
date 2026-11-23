@@ -111,7 +111,7 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
     try {
       if (path.length > 20) {
         unmeasuredResources?.add(resources);
-        return;
+        return Infinity;
       }
       let s = { ...initial },
         pendingClip = false,
@@ -126,9 +126,15 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
         group.paints += count;
         group.image = image;
       };
+      // Everything this content paints: an image counts 1, anything else 2.
+      let total = 0;
+      const paint = (count, image = null) => {
+        total += count;
+        painted(count, image);
+      };
       for (const command of parseContent(source, { inlineImages: true })) {
         const a = command.args.map((t) => t.value);
-        if (PAINTS.has(command.op)) painted(2);
+        if (PAINTS.has(command.op)) paint(2);
         switch (command.op) {
           case 'q':
             stack.push({ ...s });
@@ -228,19 +234,28 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
             const object = get(get(resources, 'XObject'), a[0]);
             const subtype = get(object?.dict, 'Subtype')?.toString();
             if (subtype === '/Form') {
-              painted(2);
               if (ancestors.has(object)) throw error();
               const ctm = matrix(s.ctm, numbers(get(object.dict, 'Matrix')) || identity);
               // A form squashed flat shows nothing; there is nothing in it to edit.
-              if (!invertible(ctm)) break;
-              const bbox = numbers(get(object.dict, 'BBox'));
-              walk(
+              if (!invertible(ctm)) {
+                paint(2);
+                break;
+              }
+              const bbox = numbers(get(object.dict, 'BBox')),
+                before = images.length;
+              const formPaints = walk(
                 decode(object),
                 get(object.dict, 'Resources') || resources,
                 {
                   ...s,
                   ctm,
                   optional: s.optional || !!get(object.dict, 'OC'),
+                  // A transparency group starts opaque, and is then painted as translucent as
+                  // the state it is drawn in (as Chrome draws a translucent picture).
+                  ...(get(get(object.dict, 'Group'), 'S')?.toString() === '/Transparency' && {
+                    opacity: 1,
+                    groupOpacity: (s.groupOpacity ?? 1) * s.opacity,
+                  }),
                   clips:
                     bbox?.length === 4
                       ? [...s.clips, { rect: bbox, inverse: inverse(ctm) }]
@@ -257,6 +272,9 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
                 ],
                 new Set([...ancestors, object]),
               );
+              const only = formPaints === 1 && images.length === before + 1 ? images[before] : null;
+              if (only && ownForm(only, command, source, path, s, resources)) paint(1, only);
+              else paint(2);
             } else if (subtype === '/Image') {
               const storedOrientation = get(object.dict, IMAGE_ORIENTATION_KEY)?.asNumber?.();
               const orientation =
@@ -275,7 +293,7 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
                   !s.unsafe &&
                   !s.optional &&
                   !s.softMask &&
-                  s.opacity > 0 &&
+                  s.opacity * (s.groupOpacity ?? 1) > 0 &&
                   !get(object.dict, 'OC') &&
                   get(object.dict, 'ImageMask')?.toString() !== 'true';
               const entry = {
@@ -289,23 +307,49 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
                 clips: s.clips,
                 object,
                 resources,
-                opacity: s.opacity,
+                opacity: s.opacity * (s.groupOpacity ?? 1),
                 blend: s.blend,
                 source: source.slice(command.start, command.end),
                 editable: plain && s.clips.every((clip) => inside(ctm, clip)),
               };
               editableWithin.set(entry, (clips) => plain && clips.every((c) => inside(ctm, c)));
               images.push(entry);
-              painted(1, entry);
-            } else painted(2);
+              paint(1, entry);
+            } else paint(2);
             break;
           }
         }
       }
+      return total;
     } catch {
       images.splice(first);
       unmeasuredResources?.add(resources);
+      return Infinity;
     }
+  }
+  /**
+   * A form that paints one picture and nothing else, within frames that leave it whole (as
+   * Chrome wraps a translucent picture in a form just its size), is that picture: moving or
+   * resizing it moves the whole form, whose frame would otherwise hold the picture in place.
+   */
+  function ownForm(entry, command, source, path, state, resources) {
+    const own = entry.clips.slice(state.clips.length);
+    if (!own.every((clip) => encloses(entry.pixelTransform, clip))) return false;
+    const editable = editableWithin.get(entry)?.(state.clips);
+    if (!editable) return false;
+    Object.assign(entry, {
+      start: command.start,
+      end: command.end,
+      path,
+      id: [...path.map((p) => p.start), command.start].join(':'),
+      source: source.slice(command.start, command.end),
+      clips: state.clips,
+      outer: state.ctm,
+      // Where the form is painted: a replacement picture is named in these resources.
+      formResources: resources,
+      editable,
+    });
+    return true;
   }
   /**
    * A picture alone in a q…Q group with clips of its own, as Word and many other producers
@@ -438,9 +482,19 @@ export async function replaceImage(doc, index, entry, bytes, transform = entry.t
   const fitted = matrix(transform, [sx, 0, 0, sy, (1 - sx) / 2, (1 - sy) / 2]);
   editImage(doc, index, entry); // The caller may have changed this document during decoding.
   const oriented = matrix(fitted, imageOrientationMatrix(image.orientation));
+  const level = entry.formResources || entry.resources;
   const local = matrix(inverse(entry.outer || entry.pixelTransform || entry.transform), oriented),
-    name = uniqueName(get(entry.resources, 'XObject'), 'ReplacementImage');
-  const updateResources = hasImageProtection(entry.object)
+    name = uniqueName(get(level, 'XObject'), 'ReplacementImage');
+  // A picture replaced with its group or form leaves behind the opacity set inside them; the
+  // new picture is drawn as translucent as the old one was.
+  const look =
+    entry.outer && (entry.opacity < 1 || (entry.blend && entry.blend !== 'Normal'))
+      ? { Type: 'ExtGState', ca: entry.opacity, BM: entry.blend || 'Normal' }
+      : null;
+  const stateName = look
+    ? uniqueName(get(level, 'ExtGState') || doc.context.obj({}), 'ReplacementState')
+    : null;
+  const addImage = hasImageProtection(entry.object)
     ? (resources) => {
         const ref = PDFObjectCopier.for(source.context, doc.context).copy(image.image.ref);
         retainImageProtection(doc.context.lookup(ref), entry.object);
@@ -451,11 +505,18 @@ export async function replaceImage(doc, index, entry, bytes, transform = entry.t
           name,
           PDFObjectCopier.for(source.context, doc.context).copy(image.image.ref),
         );
+  const updateResources = (resources) => {
+    addImage(resources);
+    if (!look) return;
+    const states = (get(resources, 'ExtGState') || doc.context.obj({})).clone(doc.context);
+    states.set(stateName, doc.context.obj(look));
+    resources.set(PDFName.of('ExtGState'), states);
+  };
   rewriteOccurrence(
     doc,
     index,
     entry,
-    `q\n${local.map((n) => PDFNumber.of(n).toString()).join(' ')} cm\n${name} Do\nQ`,
+    `q\n${local.map((n) => PDFNumber.of(n).toString()).join(' ')} cm\n${stateName ? `${stateName} gs\n` : ''}${name} Do\nQ`,
     updateResources,
   );
 }
