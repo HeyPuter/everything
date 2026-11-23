@@ -28,6 +28,41 @@ import { readState, writeState, unsupportedReason, checkedSharedState } from './
 export const REMOTE = 'remote';
 const json = value => JSON.stringify(value);
 const HISTORY_ENTRY = Object.freeze({ collab: true });
+// How long a tracked change this person accepted or rejected stays recognisable when it comes back (see repairSpills).
+const SPILL_WINDOW = 60000;
+const revisionKey = r => JSON.stringify([r.type, r.author || '', r.date || '', !!r.move, r.moveName || '']);
+/** Whether a transaction added formatting that marks tracked changes (the items each client added in it). */
+function bringsRevisionMarks(transaction) {
+  const clients = transaction.doc.store.clients;
+  for (const [client, after] of transaction.afterState) {
+    const before = transaction.beforeState.get(client) || 0;
+    if (after <= before) continue;
+    const structs = clients.get(client);
+    for (let i = Y.findIndexSS(structs, before); i < structs.length && structs[i].id.clock < after; i++) {
+      const content = structs[i].content;
+      if (content instanceof Y.ContentFormat && (content.key === 'r:revision' || content.key === 'p:markRevision')) return true;
+    }
+  }
+  return false;
+}
+/**
+ * Whether a formatting item is one an insertion put after its text to carry the formatting there before back over the
+ * text after it (Yjs writes those right after the text, as the next items of the same client): the only kind that can
+ * bring back a change someone else had resolved, its writer not yet knowing.
+ */
+function carriedBack(item, store) {
+  let at = item;
+  for (let step = 0; step < 64; step++) {
+    const origin = at.origin;
+    if (!origin || origin.client !== item.id.client || origin.clock !== at.id.clock - 1) return false;
+    const left = Y.getItem(store, origin);
+    if (!(left.content instanceof Y.ContentFormat)) return left.countable;
+    at = left;
+  }
+  return false;
+}
+/** The tracked insertions and deletions in a model, by key. */
+const revisionKeys = body => new Set(body.revisions.filter(r => r.type === 'ins' || r.type === 'del').map(revisionKey));
 
 /** The editor's model as the shared document stores it. */
 export function editorState(engine) {
@@ -70,6 +105,11 @@ export class CollabBinding extends EventTarget {
     // The shared body's paragraph encodings while only this binding has written to it (see writeBody).
     this.bodyCache = { body: null };
     this.conflict = null;
+    // Tracked changes this person accepted or rejected in full (key → { at: when, known: the shared text's state vector
+    // then }), and the changes the document held after the last local or remote change, to tell which ones a local
+    // change resolved. Writes that undo a spill (repairSpills) have their own origin: they are no change of this
+    // person's to undo.
+    this.resolved = new Map(); this.revisionKeys = null; this.repairOrigin = { collabRepair: true };
     this.undoManager = new Y.UndoManager([this.body, ydoc.getMap('parts'), ydoc.getMap('comments')], { trackedOrigins: new Set([this]), captureTimeout: 600 });
     this.undoManager.on('stack-item-added', e => { e.stackItem.meta.set('selection', this.captureSelection()); });
     // Comments are shared by id, so two people commenting at once must not both take the lowest free one:
@@ -157,6 +197,7 @@ export class CollabBinding extends EventTarget {
       // Tracking "just mine" is this person's own choice: the document's Track Changes setting stays as it is shared.
       if (engine.session.body.trackChangesMode === 'mine') state.trackChanges = this.documentTracking;
       else this.documentTracking = state.trackChanges;
+      this.noteResolved();
       const reason = unsupportedReason(state);
       if (this.mode === 'single' || reason) this.writeSnapshot(state, reason);
       else writeState(this.ydoc, state, this, this.bodyCache);
@@ -277,8 +318,62 @@ export class CollabBinding extends EventTarget {
   observe(transaction) {
     if (transaction.origin === this || this.destroyed) return;
     this.bodyCache.body = null;
+    if (transaction.origin === this.repairOrigin) return;
     if (!transaction.changed.size && !transaction.deleteSet.clients.size) return;
-    this.apply(transaction.origin === this.undoManager ? this.undoSelection : this.remoteSelection);
+    const own = transaction.origin === this.undoManager;
+    this.apply(own ? this.undoSelection : this.remoteSelection, { own, transaction });
+  }
+
+  /** Record the tracked changes a local change resolved in full: gone from the document since the last change. */
+  noteResolved() {
+    // The model's list of changes is kept per revision of it, and the Review tab reads it after every change anyway.
+    const keys = revisionKeys(this.engine.session.body), now = Date.now();
+    let known = null;
+    if (this.revisionKeys) for (const key of this.revisionKeys) if (!keys.has(key)) this.resolved.set(key, { at: now, known: known ||= Y.decodeStateVector(Y.encodeStateVector(this.ydoc)) });
+    for (const key of keys) this.resolved.delete(key);
+    for (const [key, entry] of this.resolved) if (now - entry.at > SPILL_WINDOW) this.resolved.delete(key);
+    this.revisionKeys = keys;
+  }
+
+  /**
+   * Formatting in the shared text is kept as ranges, and text typed carries the formatting it differs from back after
+   * itself. Typed inside a tracked change someone accepts or rejects at the same moment, it carried the change's mark
+   * back over all the text after it, often to the end of the document, where Reject All would then remove it.
+   *
+   * A spill puts the mark of a change this person resolved in full back on text that was already there when they
+   * resolved it: that mark is taken off again, for everyone. Text written since keeps its mark, also when it records
+   * the same author, kind and second as the resolved change (all a tracked change records), and so does the text typed
+   * inside the change. Only an update that brings a tracked change's mark (`transaction`'s new formatting) is looked at.
+   */
+  repairSpills(transaction) {
+    if (!this.resolved.size || this.mode !== 'shared' || this.role === 'viewer' || this.role === 'commenter') return;
+    const now = Date.now();
+    for (const [key, entry] of this.resolved) if (now - entry.at > SPILL_WINDOW) this.resolved.delete(key);
+    if (!this.resolved.size || transaction && !bringsRevisionMarks(transaction)) return;
+    const resolvedBy = new Map();
+    const entryOf = value => {
+      if (!resolvedBy.has(value)) { let entry = null; try { const revision = JSON.parse(value); entry = revision && this.resolved.get(revisionKey(revision)) || null; } catch { /* not a change */ } resolvedBy.set(value, entry); }
+      return resolvedBy.get(value);
+    };
+    // For each mark, the formatting item that set it: only one an insertion carried back is a spill.
+    const fixes = [], marks = { 'r:revision': null, 'p:markRevision': null }, store = this.ydoc.store, carried = new Map();
+    let index = 0;
+    for (let item = this.body._start; item; item = item.right) {
+      if (item.deleted) continue;
+      if (item.content instanceof Y.ContentFormat) { if (item.content.key in marks) marks[item.content.key] = item; continue; }
+      if (!item.countable) continue;
+      for (const key in marks) {
+        const mark = marks[key], entry = mark?.content.value && entryOf(mark.content.value);
+        if (!entry) continue;
+        if (!carried.has(mark)) carried.set(mark, carriedBack(mark, store));
+        if (!carried.get(mark)) continue;
+        // The item's characters that existed when the change was resolved (an item's clocks rise along its text).
+        const old = Math.min(item.length, (entry.known.get(item.id.client) ?? 0) - item.id.clock);
+        if (old > 0) fixes.push([index, old, key]);
+      }
+      index += item.length;
+    }
+    if (fixes.length) this.ydoc.transact(() => { for (const [at, length, key] of fixes) this.body.format(at, length, { [key]: null }); }, this.repairOrigin);
   }
 
   captureSelection() {
@@ -297,10 +392,11 @@ export class CollabBinding extends EventTarget {
   }
 
   /** Rebuild the model from the shared document and show it. */
-  apply(selection = null) {
+  apply(selection = null, { own = false, transaction = null } = {}) {
     const engine = this.engine;
     this.mode = this.meta.get('mode') || 'shared';
     this.enforceViewOnly();
+    if (!own) this.repairSpills(transaction);
     let state;
     try {
       state = checkedSharedState(this.mode === 'single' ? JSON.parse(this.meta.get('snapshot') || 'null') : readState(this.ydoc));
@@ -332,6 +428,9 @@ export class CollabBinding extends EventTarget {
       }
       for (const key of Object.keys(fresh)) if (/^has[A-Z]/.test(key) && typeof fresh[key] === 'boolean') body[key] = fresh[key];
       body.revision++;
+      // An Undo of this person's Accept or Reject brings the change back: it is theirs again, not a spill.
+      if (own) for (const key of revisionKeys(body)) this.resolved.delete(key);
+      this.revisionKeys = revisionKeys(body);
       this.applyStories(state.stories || {});
       session.publish(body, { styles: oldStyles, numbering: oldNumbering });
       if (session.path === null) {

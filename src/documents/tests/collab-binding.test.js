@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
@@ -98,6 +98,79 @@ describe('co-editing binding', () => {
     expect(remote.name).toBe('Person 1');
     expect(ann.binding.resolve(remote)).toEqual({ anchor: 8, focus: 11 });
     expect(ann.engine.model.text.slice(8, 11)).toBe('def');
+  });
+
+  // Typed inside a tracked insertion while someone accepted it, text carried the insertion's mark back after itself
+  // over the rest of the document; Reject All would then have removed it. Rejecting at that moment did the same.
+  for (const accept of [true, false]) it(`keeps a tracked change ${accept ? 'accepted' : 'rejected'} while someone types inside it off the text after it`, async () => {
+    const { hub, people: [ann, bob] } = await room('Alpha beta gamma delta');
+    ann.engine.execute(m => { m.trackChanges = true; m.revisionAuthor = 'Ann'; m.select(5); m.replace(' INSERTED'); m.trackChanges = false; });
+    await settle();
+    ann.binding.undoManager.stopCapturing();
+    hub.pause();
+    ann.engine.execute(m => m.resolveRevisions(accept));
+    bob.engine.execute(m => { m.select(8); m.replace('xx'); });
+    await settle(); hub.resume(); await settle(); await settle();
+    // Rejected, the insertion's text goes and Bob's stays (where the shared text's diff puts the space beside it).
+    const expected = accept ? 'Alpha INxxSERTED beta gamma delta' : 'Alpha xxbeta gamma delta';
+    for (const person of [ann, bob]) {
+      expect(person.engine.model.text).toBe(expected);
+      expect(person.engine.session.body.revisions).toEqual([]);
+    }
+    // Ann's Undo brings her change back as it was.
+    ann.engine.undo();
+    await settle();
+    for (const person of [ann, bob]) expect(person.engine.session.body.revisions.map(r => [r.type, r.author])).toEqual([['ins', 'Ann']]);
+  });
+
+  // The clock stands still, so every change is made in the same second: new tracked text has the very author, kind
+  // and time of the change accepted before it, which is all a tracked change records. It is still not a spill.
+  describe('with every change in the same second', () => {
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-22T12:00:00Z')); });
+    afterEach(() => vi.useRealTimers());
+    const tracked = (person, at, text) => person.engine.execute(m => { m.trackChanges = true; m.revisionAuthor = 'Bob'; m.select(typeof at === 'function' ? at(m) : at); m.replace(text); m.trackChanges = false; });
+    const changes = person => person.engine.session.body.revisions.map(r => [r.type, r.author, person.engine.model.text.slice(r.start, r.end)]);
+
+    it('keeps tracked text typed after an Accept All has arrived', async () => {
+      const { people: [ann, bob] } = await room('Alpha beta.\nSecond paragraph.');
+      tracked(bob, 5, ' NEW');
+      await settle();
+      ann.engine.execute(m => m.resolveRevisions(true));
+      await settle();
+      expect(changes(bob)).toEqual([]);
+      // Right after the accepted text, and elsewhere.
+      tracked(bob, 9, ' more');
+      tracked(bob, m => m.text.length, ' end');
+      await settle(); await settle();
+      for (const person of [ann, bob]) expect(changes(person)).toEqual([['ins', 'Bob', ' more'], ['ins', 'Bob', ' end']]);
+    });
+
+    it('keeps tracked text typed in another paragraph at the moment of an Accept All', async () => {
+      const { hub, people: [ann, bob] } = await room('Alpha beta.\nSecond paragraph.');
+      tracked(bob, 5, ' NEW');
+      await settle();
+      hub.pause();
+      ann.engine.execute(m => m.resolveRevisions(true));
+      tracked(bob, m => m.text.length, ' end');
+      await settle(); hub.resume(); await settle(); await settle();
+      for (const person of [ann, bob]) expect(changes(person)).toEqual([['ins', 'Bob', ' end']]);
+    });
+
+    it('keeps a new paragraph typed inside the accepted text at that moment tracked, and nothing after it', async () => {
+      const { hub, people: [ann, bob] } = await room('Alpha beta.\nSecond paragraph.');
+      tracked(bob, 5, ' NEW');
+      await settle();
+      hub.pause();
+      ann.engine.execute(m => m.resolveRevisions(true));
+      tracked(bob, 7, 'xx\nyy');
+      await settle(); hub.resume(); await settle(); await settle();
+      for (const person of [ann, bob]) {
+        expect(person.engine.model.text).toBe('Alpha Nxx\nyyEW beta.\nSecond paragraph.');
+        // "xx", typed into Bob's own insertion with its mark, is part of what Ann accepted; the new paragraph is not.
+        // Without the repair, "EW beta." and the paragraph after it came back marked too.
+        expect(changes(person)).toEqual([['ins', 'Bob', '\nyy']]);
+      }
+    });
   });
 
   it('shares Track Changes turned on for everyone, but keeps tracking just mine to this person', async () => {
