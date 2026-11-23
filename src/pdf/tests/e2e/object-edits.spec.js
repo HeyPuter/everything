@@ -144,3 +144,33 @@ test('a finger scrolls and zooms a scanned page, and moves a picture only once i
   await expect(undo).toBeEnabled();
   await expect.poll(async () => (await move.boundingBox())?.x ?? 0).toBeGreaterThan(frame.x + 10);
 });
+
+test('arrow keys on a corner handle resize the picture from that corner', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]).drawImage(await doc.embedPng(Buffer.from(PIXEL, 'base64')), {
+    x: 40,
+    y: 200,
+    width: 80,
+    height: 60,
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select image 1', exact: true }).click();
+  await page.getByLabel('Keep image proportions').uncheck();
+  const corner = page.getByRole('button', { name: 'Resize image, corner 2', exact: true });
+  await corner.focus();
+  await corner.press('Shift+ArrowRight');
+  await corner.press('Shift+ArrowRight');
+  const width = page.getByLabel('Image width in points', { exact: true });
+  await expect(width).toHaveValue('100');
+  // The resize is saved as one edit, and the handle keeps the focus for the next key.
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(corner).toBeFocused();
+  await corner.press('Shift+ArrowUp');
+  await expect(page.getByLabel('Image height in points', { exact: true })).toHaveValue('70');
+  await page.waitForTimeout(400);
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const [image] = inspectImages(await download(page), 0);
+  // The opposite corner stays where it was.
+  expect(image.transform.map((n) => Number(n.toFixed(3)))).toEqual([100, 0, 0, 70, 40, 200]);
+});

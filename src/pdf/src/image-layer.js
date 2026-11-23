@@ -311,9 +311,10 @@ export function createImageLayer({
           !remove &&
           (document.activeElement === document.body || ownsFocus(document.activeElement))
         ) {
-          const input = [...properties.querySelectorAll('input, button')].find(
-            (input) => input.getAttribute('aria-label') === focusedLabel,
-          );
+          const input = [
+            ...properties.querySelectorAll('input, button'),
+            ...controls.querySelectorAll('.image-resize'),
+          ].find((input) => input.getAttribute('aria-label') === focusedLabel);
           (input || controls.querySelector('.image-move'))?.focus({ preventScroll: true });
         } else if (document.activeElement === document.body && priorFocus?.isConnected) {
           // A delayed keyboard commit can temporarily disable the toolbar control the
@@ -504,7 +505,7 @@ export function createImageLayer({
         class: 'image-resize busy-enabled',
         'data-corner': i,
         'aria-label': `Resize ${kind()}, corner ${i + 1}`,
-        title: 'Drag to resize',
+        title: 'Drag to resize. Arrow keys move this corner 1 pt; Shift moves 10 pt.',
       });
       handle.addEventListener('pointerdown', (e) => begin(e, selected, i));
       controls.append(handle);
@@ -830,48 +831,51 @@ export function createImageLayer({
       const a = pdfPoint(g.start),
         b = pdfPoint([g.start[0] + dx, g.start[1] + dy]);
       setDraft([...m.slice(0, 4), m[4] + b[0] - a[0], m[5] + b[1] - a[1]]);
-    } else {
-      const local = [
-          [0, 1],
-          [1, 1],
-          [1, 0],
-          [0, 0],
-        ],
-        anchor = local[(g.corner + 2) % 4];
-      const knob = local[g.corner];
-      // Move the corner by the pointer's displacement, preserving where the handle
-      // was grabbed. Using the absolute pointer position snaps the corner to the
-      // pointer on the first sample, particularly with larger touch hit targets.
-      const start = pdfPoint(g.start),
-        current = pdfPoint(position),
-        original = point(m, ...knob),
-        p = original.map((value, i) => value + current[i] - start[i]);
-      const [x, y] = point(inverse(m), ...p);
-      let sx = (x - anchor[0]) / (knob[0] - anchor[0]),
-        sy = (y - anchor[1]) / (knob[1] - anchor[1]);
-      if (keepRatio) {
-        const a = point(m, ...anchor),
-          k = original;
-        const dx = k[0] - a[0],
-          dy = k[1] - a[1];
-        sx = sy = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy);
-      }
-      const minX = 1 / (Math.hypot(m[0], m[1]) * viewport.userUnit),
-        minY = 1 / (Math.hypot(m[2], m[3]) * viewport.userUnit);
-      if (keepRatio) sx = sy = Math.max(minX, minY, Math.min(100, sx));
-      else {
-        sx = Math.max(minX, Math.min(100, sx));
-        sy = Math.max(minY, Math.min(100, sy));
-      }
-      setDraft([
-        m[0] * sx,
-        m[1] * sx,
-        m[2] * sy,
-        m[3] * sy,
-        m[4] + m[0] * anchor[0] * (1 - sx) + m[2] * anchor[1] * (1 - sy),
-        m[5] + m[1] * anchor[0] * (1 - sx) + m[3] * anchor[1] * (1 - sy),
-      ]);
+    } else setDraft(resizedFrom(m, g.corner, g.start, position));
+  }
+  /** The transform with `corner` (0 to 3) moved by the screen displacement `from` to `to`, its
+   * opposite corner fixed, kept in proportion when that is chosen. */
+  function resizedFrom(m, corner, from, to) {
+    const local = [
+        [0, 1],
+        [1, 1],
+        [1, 0],
+        [0, 0],
+      ],
+      anchor = local[(corner + 2) % 4];
+    const knob = local[corner];
+    // Move the corner by the pointer's displacement, preserving where the handle
+    // was grabbed. Using the absolute pointer position snaps the corner to the
+    // pointer on the first sample, particularly with larger touch hit targets.
+    const start = pdfPoint(from),
+      current = pdfPoint(to),
+      original = point(m, ...knob),
+      p = original.map((value, i) => value + current[i] - start[i]);
+    const [x, y] = point(inverse(m), ...p);
+    let sx = (x - anchor[0]) / (knob[0] - anchor[0]),
+      sy = (y - anchor[1]) / (knob[1] - anchor[1]);
+    if (keepRatio) {
+      const a = point(m, ...anchor),
+        k = original;
+      const dx = k[0] - a[0],
+        dy = k[1] - a[1];
+      sx = sy = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy);
     }
+    const minX = 1 / (Math.hypot(m[0], m[1]) * viewport.userUnit),
+      minY = 1 / (Math.hypot(m[2], m[3]) * viewport.userUnit);
+    if (keepRatio) sx = sy = Math.max(minX, minY, Math.min(100, sx));
+    else {
+      sx = Math.max(minX, Math.min(100, sx));
+      sy = Math.max(minY, Math.min(100, sy));
+    }
+    return [
+      m[0] * sx,
+      m[1] * sx,
+      m[2] * sy,
+      m[3] * sy,
+      m[4] + m[0] * anchor[0] * (1 - sx) + m[2] * anchor[1] * (1 - sy),
+      m[5] + m[1] * anchor[0] * (1 - sx) + m[3] * anchor[1] * (1 - sy),
+    ];
   }
   controls.addEventListener('pointermove', (e) => {
     if (selecting?.pointerId === e.pointerId) {
@@ -950,9 +954,17 @@ export function createImageLayer({
     if (gesture || selecting) return;
     const step = (e.shiftKey ? 10 : 1) * viewport.scale,
       m = current(),
-      // Keyboard moves stop where a drag would, so a held arrow cannot push the object out
-      // of sight off the page.
-      { dx, dy } = visibleShift(m, vector[0] * step, vector[1] * step, true),
+      corner = e.target.closest?.('.image-resize')?.dataset.corner;
+    // On a corner handle the arrows move that corner, resizing the object as a drag of it does.
+    if (corner != null) {
+      setDraft(resizedFrom(m, Number(corner), [0, 0], [vector[0] * step, vector[1] * step]));
+      heldArrows.add(e.key);
+      clearTimeout(keyboardTimer);
+      return;
+    }
+    // Keyboard moves stop where a drag would, so a held arrow cannot push the object out of
+    // sight off the page.
+    const { dx, dy } = visibleShift(m, vector[0] * step, vector[1] * step, true),
       a = pdfPoint([0, 0]),
       b = pdfPoint([dx, dy]);
     setDraft([...m.slice(0, 4), m[4] + b[0] - a[0], m[5] + b[1] - a[1]]);
