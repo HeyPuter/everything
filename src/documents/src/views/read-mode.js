@@ -26,8 +26,10 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
   let restoreZoom = null, wheelAt = 0, wheelTotal = 0, textInput = null, textInputTabIndex = null;
   const title = el('span.read-title');
   const counter = el('span.read-counter', { role: 'status', 'aria-live': 'polite' });
+  // A menu opened from the keyboard hands the keyboard back to its button when it closes, as every menu does; a
+  // click's menu leaves it on the pages, where the arrows turn them.
   const menuButton = (label, items) => {
-    const button = el('button.read-tool', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openMenu({ anchor: button, label, items: items(), pointer: !!e.detail, onClose: () => focusSurface() }) }, label, el('span.ribbon-caret', { 'aria-hidden': 'true' }));
+    const button = el('button.read-tool', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openMenu({ anchor: button, label, items: items(), pointer: !!e.detail, onClose: e.detail ? () => focusSurface() : null }) }, label, el('span.ribbon-caret', { 'aria-hidden': 'true' }));
     return button;
   };
   const tools = menuButton('Tools', () => [

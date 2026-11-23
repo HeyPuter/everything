@@ -220,7 +220,7 @@ test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift
   await expect(input).toBeFocused();
 });
 
-test('Enter and Space press the Read Mode tools and page buttons instead of turning pages', async ({ page }) => {
+test('Enter and Space press the Read Mode tools and page buttons instead of turning pages, and Escape comes back to them', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 640 });
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'Across pages', exact: true }).click();
@@ -241,6 +241,9 @@ test('Enter and Space press the Read Mode tools and page buttons instead of turn
     await expect(counter).toHaveText(/^Pages? 1\b/);
     await page.keyboard.press('Escape');
     await expect(menu).toBeHidden();
+    // Escape hands the keyboard back to the button, not to the pages.
+    await expect(toolbar.getByRole('button', { name: 'View' })).toBeFocused();
+    await expect(toolbar).toBeVisible();
   }
   const next = page.getByRole('button', { name: 'Next screen' });
   await next.focus();
