@@ -85,6 +85,27 @@ describe("zip", () => {
       expect(writeZip(list)).toEqual(reference(list));
     });
 
+    // Checksums are worked out eight bytes at a time, with the bytes left
+    // over one at a time; every length agrees with the ZIP library.
+    it("checksum parts of every length as the ZIP library does", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 10, 22, 13, 37, 42));
+      let seed = 7;
+      const bytes = (n: number) =>
+        new Uint8Array(n).map(
+          () => (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24,
+        );
+      const list = [...Array(41).keys(), 100_003, 262_144].map((n) => ({
+        name: `ppt/media/image${n}.png`,
+        data: bytes(n),
+      }));
+      list.push({
+        name: "ppt/media/ones.png",
+        data: new Uint8Array(77).fill(255),
+      });
+      expect(writeZip(list)).toEqual(reference(list));
+    });
+
     // A part's bytes are compressed once: a later save of an unchanged part
     // reuses them, and a part given new bytes is written anew.
     it("stay right when a save reuses an unchanged part's compression", () => {

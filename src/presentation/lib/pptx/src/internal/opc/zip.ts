@@ -162,19 +162,47 @@ const archives = new WeakMap<
   Map<string, { written: Written; data: WeakRef<Uint8Array> }>
 >();
 
-let crcTable: Int32Array | null = null;
+// CRC-32 eight bytes at a time ("slicing by 8"): table k gives a byte's
+// contribution k bytes further on. The same checksum as one byte at a time,
+// several times faster on the megabytes of pictures a deck carries.
+let crcTables: Int32Array | null = null;
 const crc32 = (data: Uint8Array): number => {
-  if (!crcTable) {
-    crcTable = new Int32Array(256);
+  let t = crcTables;
+  if (!t) {
+    t = new Int32Array(8 * 256);
     for (let n = 0; n < 256; n++) {
       let c = n;
       for (let k = 0; k < 8; k++) c = c & 1 ? -306674912 ^ (c >>> 1) : c >>> 1;
-      crcTable[n] = c;
+      t[n] = c;
     }
+    for (let n = 0; n < 256; n++)
+      for (let k = 1; k < 8; k++) {
+        const c = t[(k - 1) * 256 + n]!;
+        t[k * 256 + n] = t[c & 255]! ^ (c >>> 8);
+      }
+    crcTables = t;
   }
   let c = -1;
-  for (let i = 0; i < data.length; i++)
-    c = crcTable[(c ^ data[i]!) & 255]! ^ (c >>> 8);
+  let i = 0;
+  const end = data.length - (data.length % 8);
+  for (; i < end; i += 8) {
+    const a =
+      c ^
+      (data[i]! |
+        (data[i + 1]! << 8) |
+        (data[i + 2]! << 16) |
+        (data[i + 3]! << 24));
+    c =
+      t[1792 + (a & 255)]! ^
+      t[1536 + ((a >>> 8) & 255)]! ^
+      t[1280 + ((a >>> 16) & 255)]! ^
+      t[1024 + (a >>> 24)]! ^
+      t[768 + data[i + 4]!]! ^
+      t[512 + data[i + 5]!]! ^
+      t[256 + data[i + 6]!]! ^
+      t[data[i + 7]!]!;
+  }
+  for (; i < data.length; i++) c = t[(c ^ data[i]!) & 255]! ^ (c >>> 8);
   return ~c >>> 0;
 };
 
