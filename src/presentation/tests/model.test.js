@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as P from "../lib/pptx/src/index.ts";
-import { createLargeDeck, withArchiveComment } from "./fixtures.js";
+import { asZip64, createLargeDeck, withArchiveComment } from "./fixtures.js";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import {
   P,
@@ -670,7 +670,7 @@ describe("file validation", () => {
       "This is not a valid PPTX file.",
     );
   });
-  it("rejects a ZIP64 locator instead of validating the legacy directory", async () => {
+  it("rejects a ZIP64 locator that points at no ZIP64 end record", async () => {
     const original = await P.savePresentation(createDeck());
     const end = original.length - 22;
     const bytes = new Uint8Array(original.length + 20);
@@ -678,6 +678,42 @@ describe("file validation", () => {
     bytes.set(original.subarray(end), end + 20);
     new DataView(bytes.buffer).setUint32(end, 0x07064b50, true);
     expect(() => validateZip(bytes)).toThrow();
+  });
+  it.each([true, false])(
+    "opens a ZIP64 archive (sizes in ZIP64 fields: %s)",
+    async (sizes) => {
+      const original = createDeck("story");
+      const bytes = asZip64(await P.savePresentation(original), { sizes });
+      expect(() => validateZip(bytes)).not.toThrow();
+      const loaded = await parseDeck(bytes);
+      expect(P.getSlides(loaded).map(P.getSlideText)).toEqual(
+        P.getSlides(original).map(P.getSlideText),
+      );
+    },
+  );
+  it("bounds a ZIP64 archive's expanded size from its ZIP64 fields", async () => {
+    const bytes = asZip64(await P.savePresentation(createDeck("story")));
+    const view = new DataView(bytes.buffer);
+    const end = bytes.length - 22;
+    const start = Number(view.getBigUint64(end - 76 + 48, true));
+    // The first entry's uncompressed size, in its ZIP64 extra field.
+    const extra = start + 46 + view.getUint16(start + 28, true);
+    view.setBigUint64(extra + 4, BigInt(250 * 1024 * 1024), true);
+    expect(() => validateZip(bytes)).toThrow("200 MB");
+  });
+  it("rejects a ZIP64 end record that disagrees with itself", async () => {
+    const bytes = asZip64(await P.savePresentation(createDeck("story")));
+    const view = new DataView(bytes.buffer);
+    const record = bytes.length - 22 - 20 - 56;
+    view.setBigUint64(record + 24, 1n, true);
+    expect(() => validateZip(bytes)).toThrow();
+    const moved = asZip64(await P.savePresentation(createDeck("story")));
+    new DataView(moved.buffer).setBigUint64(
+      moved.length - 22 - 20 + 8,
+      BigInt(moved.length),
+      true,
+    );
+    expect(() => validateZip(moved)).toThrow();
   });
   it("rejects directory records extending past their declared boundary", async () => {
     const bytes = await P.savePresentation(createDeck());

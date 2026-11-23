@@ -201,3 +201,77 @@ export async function createTransformedBackgroundDeck({
   }
   return zipSync(files);
 }
+// The archive as a ZIP64 writer lays it out: every central directory entry
+// gives its sizes and offset in a ZIP64 extra field, and the end of the
+// directory is recorded in a ZIP64 end record found through its locator.
+// `sizes` false keeps each entry's 32-bit sizes (as writers that use ZIP64
+// only for the end record do).
+export function asZip64(original, { sizes = true } = {}) {
+  const src = new DataView(
+    original.buffer,
+    original.byteOffset,
+    original.byteLength,
+  );
+  const end = original.length - 22;
+  const count = src.getUint16(end + 10, true);
+  const start = src.getUint32(end + 16, true);
+  const out = [original.subarray(0, start)];
+  let cursor = start;
+  let directory = 0;
+  for (let i = 0; i < count; i++) {
+    const nameLength = src.getUint16(cursor + 28, true);
+    const extraLength = src.getUint16(cursor + 30, true);
+    const commentLength = src.getUint16(cursor + 32, true);
+    const fixed = original.slice(cursor, cursor + 46 + nameLength);
+    const view = new DataView(fixed.buffer);
+    const extra = new Uint8Array(sizes ? 28 : 0);
+    if (sizes) {
+      const x = new DataView(extra.buffer);
+      x.setUint16(0, 1, true);
+      x.setUint16(2, 24, true);
+      x.setBigUint64(4, BigInt(view.getUint32(24, true)), true);
+      x.setBigUint64(12, BigInt(view.getUint32(20, true)), true);
+      x.setBigUint64(20, BigInt(view.getUint32(42, true)), true);
+      view.setUint32(20, 0xffffffff, true);
+      view.setUint32(24, 0xffffffff, true);
+      view.setUint32(42, 0xffffffff, true);
+      view.setUint16(30, extra.length + extraLength, true);
+    }
+    const rest = original.subarray(
+      cursor + 46 + nameLength,
+      cursor + 46 + nameLength + extraLength + commentLength,
+    );
+    out.push(fixed, extra, rest);
+    directory += fixed.length + extra.length + rest.length;
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  const record = new Uint8Array(56);
+  const r = new DataView(record.buffer);
+  r.setUint32(0, 0x06064b50, true);
+  r.setBigUint64(4, 44n, true);
+  r.setUint16(12, 45, true);
+  r.setUint16(14, 45, true);
+  r.setBigUint64(24, BigInt(count), true);
+  r.setBigUint64(32, BigInt(count), true);
+  r.setBigUint64(40, BigInt(directory), true);
+  r.setBigUint64(48, BigInt(start), true);
+  const locator = new Uint8Array(20);
+  const l = new DataView(locator.buffer);
+  l.setUint32(0, 0x07064b50, true);
+  l.setBigUint64(8, BigInt(start + directory), true);
+  l.setUint32(16, 1, true);
+  const tail = original.slice(end);
+  const t = new DataView(tail.buffer);
+  t.setUint16(8, 0xffff, true);
+  t.setUint16(10, 0xffff, true);
+  t.setUint32(12, 0xffffffff, true);
+  t.setUint32(16, 0xffffffff, true);
+  out.push(record, locator, tail);
+  const bytes = new Uint8Array(out.reduce((n, part) => n + part.length, 0));
+  let at = 0;
+  for (const part of out) {
+    bytes.set(part, at);
+    at += part.length;
+  }
+  return bytes;
+}

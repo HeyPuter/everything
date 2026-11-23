@@ -2427,45 +2427,90 @@ export function validateZip(input) {
       );
     throw new Error("This is not a valid PPTX file.");
   }
-  if (
-    (end >= 20 && view.getUint32(end - 20, true) === 0x07064b50) ||
-    view.getUint32(end + 12, true) === 0xffffffff ||
-    view.getUint32(end + 16, true) === 0xffffffff
-  )
-    throw new Error("ZIP64 presentations are not supported.");
-  const count = view.getUint16(end + 10, true);
-  if (
-    view.getUint16(end + 4, true) !== 0 ||
-    view.getUint16(end + 6, true) !== 0 ||
-    view.getUint16(end + 8, true) !== count
-  )
-    throw new Error("The PPTX archive is damaged or spans multiple disks.");
-  let cursor = view.getUint32(end + 16, true),
-    total = 0;
-  const directoryEnd = cursor + view.getUint32(end + 12, true);
-  if (directoryEnd > end) throw new Error("The PPTX archive is damaged.");
-  if (count === 65535 || count > 12000)
-    throw new Error("This presentation contains too many archive entries.");
+  const MAX32 = 0xffffffff;
+  let count = view.getUint16(end + 10, true);
+  let directorySize = view.getUint32(end + 12, true);
+  let cursor = view.getUint32(end + 16, true);
+  // The end of the directory as far as it may reach: the ZIP64 end record,
+  // when there is one, sits between the two.
+  let limit = end;
+  const zip64 = end >= 20 && view.getUint32(end - 20, true) === 0x07064b50;
+  if (zip64) {
+    // A ZIP64 archive keeps the directory's place, size and entry count in
+    // a record of its own, found through the locator before the end record.
+    const damaged = () =>
+      new Error("The PPTX archive is damaged or spans multiple disks.");
+    const at = Number(view.getBigUint64(end - 12, true));
+    if (
+      view.getUint32(end - 16, true) !== 0 ||
+      view.getUint32(end - 4, true) !== 1 ||
+      at + 56 > end - 20 ||
+      view.getUint32(at, true) !== 0x06064b50 ||
+      view.getUint32(at + 16, true) !== 0 ||
+      view.getUint32(at + 20, true) !== 0 ||
+      view.getBigUint64(at + 24, true) !== view.getBigUint64(at + 32, true)
+    )
+      throw damaged();
+    const entries = view.getBigUint64(at + 32, true);
+    if (entries > 12000n)
+      throw new Error("This presentation contains too many archive entries.");
+    count = Number(entries);
+    directorySize = Number(view.getBigUint64(at + 40, true));
+    cursor = Number(view.getBigUint64(at + 48, true));
+    limit = at;
+  } else {
+    if (
+      view.getUint32(end + 12, true) === MAX32 ||
+      view.getUint32(end + 16, true) === MAX32
+    )
+      throw new Error("The PPTX archive is damaged.");
+    if (
+      view.getUint16(end + 4, true) !== 0 ||
+      view.getUint16(end + 6, true) !== 0 ||
+      view.getUint16(end + 8, true) !== count
+    )
+      throw new Error("The PPTX archive is damaged or spans multiple disks.");
+    if (count === 65535 || count > 12000)
+      throw new Error("This presentation contains too many archive entries.");
+  }
+  let total = 0;
+  const directoryEnd = cursor + directorySize;
+  if (directoryEnd > limit) throw new Error("The PPTX archive is damaged.");
   for (let i = 0; i < count; i++) {
     if (
       cursor + 46 > directoryEnd ||
       view.getUint32(cursor, true) !== 0x02014b50
     )
       throw new Error("The PPTX archive is damaged.");
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    let compressed = view.getUint32(cursor + 20, true);
+    let expanded = view.getUint32(cursor + 24, true);
+    // In a ZIP64 archive a size too large for its field is given in the
+    // entry's ZIP64 extra field instead, in this order.
+    if (zip64 && (compressed === MAX32 || expanded === MAX32)) {
+      let extra = cursor + 46 + nameLength;
+      const extraEnd = Math.min(extra + extraLength, directoryEnd);
+      while (extra + 4 <= extraEnd && view.getUint16(extra, true) !== 1)
+        extra += 4 + view.getUint16(extra + 2, true);
+      let field = extra + 4;
+      const next = () => {
+        if (extra + 4 > extraEnd || field + 8 > extraEnd)
+          throw new Error("The PPTX archive is damaged.");
+        const value = Number(view.getBigUint64(field, true));
+        field += 8;
+        return value;
+      };
+      if (expanded === MAX32) expanded = next();
+      if (compressed === MAX32) compressed = next();
+    }
     // The decompressor copies STORE entries using their compressed size.
-    if (
-      view.getUint16(cursor + 10, true) === 0 &&
-      view.getUint32(cursor + 20, true) !== view.getUint32(cursor + 24, true)
-    )
+    if (view.getUint16(cursor + 10, true) === 0 && compressed !== expanded)
       throw new Error("The PPTX archive has inconsistent stored entry sizes.");
-    total += view.getUint32(cursor + 24, true);
+    total += expanded;
     if (total > 200 * 1024 * 1024)
       throw new Error("This presentation expands beyond the 200 MB limit.");
-    cursor +=
-      46 +
-      view.getUint16(cursor + 28, true) +
-      view.getUint16(cursor + 30, true) +
-      view.getUint16(cursor + 32, true);
+    cursor += 46 + nameLength + extraLength + view.getUint16(cursor + 32, true);
   }
   if (cursor !== directoryEnd) throw new Error("The PPTX archive is damaged.");
 }
