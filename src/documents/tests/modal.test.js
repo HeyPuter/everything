@@ -208,6 +208,21 @@ describe('modal keyboard focus', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('returns focus to the control inside a component that opened it, not to the component', () => {
+    // As puter.js's <puter-user-menu>: its Sign out asks first, and the page sees only the element focused.
+    const host = el('div');
+    document.getElementById('app').append(host);
+    const picture = el('button', { type: 'button' }, 'A');
+    host.attachShadow({ mode: 'open' }).append(picture);
+    picture.focus();
+    expect(document.activeElement).toBe(host);
+    const modal = openModal({ title: 'Sign out?', content: el('button', { type: 'button' }, 'Cancel') });
+    expect(host.shadowRoot.activeElement).toBe(null);
+    modal.close();
+    vi.advanceTimersByTime(200);
+    expect(host.shadowRoot.activeElement).toBe(picture);
+  });
+
   it('closes a dialog color palette on Escape without discarding the dialog', () => {
     const input = el('input', { value: 'Unapplied changes' });
     const anchor = el('button', {}, 'Line color');
