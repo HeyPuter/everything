@@ -69,3 +69,26 @@ test('selected text dragged elsewhere moves there as one undo step, copies with 
   await input(page).evaluate(el => { el.setSelectionRange(6, 16); el.dispatchEvent(new Event('select', { bubbles: true })); });
   await page.mouse.click(inside.x + 1, inside.y); expect(await range(page)).toEqual([13, 13]);
 });
+
+test('dragged text held past the bottom of the view scrolls the pages, and drops in the text scrolled in', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await sample(page);
+  const text = await input(page).inputValue(), word = text.indexOf('small');
+  await input(page).evaluate((el, at) => { el.focus(); el.setSelectionRange(at, at + 5); el.dispatchEvent(new Event('select', { bubbles: true })); }, word);
+  const start = await point(page, word + 2);
+  await input(page).evaluate((el, at) => { el.setSelectionRange(at, at + 5); el.dispatchEvent(new Event('select', { bubbles: true })); }, word);
+  const host = page.locator('.canvas-host'), bottom = await host.evaluate(el => el.getBoundingClientRect().bottom);
+  await page.mouse.move(start.x, start.y); await page.mouse.down();
+  await page.mouse.move(start.x, start.y + 40, { steps: 3 }); await page.mouse.move(start.x, bottom + 30, { steps: 4 });
+  await expect.poll(() => host.evaluate(el => el.scrollTop), { timeout: 5000 }).toBeGreaterThan(300);
+  await page.mouse.move(start.x, bottom - 60, { steps: 2 });
+  await page.mouse.up();
+  const value = await input(page).inputValue(), moved = value.indexOf('small');
+  // Moved, not copied: only the spacing around the word may differ (a word dropped inside another gets a space on
+  // each side, and where it lands depends on the fonts' widths).
+  const bare = s => s.replace('small', '').replace(/\s+/g, '');
+  expect(value.split('small').length).toBe(text.split('small').length);
+  expect(bare(value)).toBe(bare(text));
+  expect(moved).toBeGreaterThan(word + 300);
+  expect(await range(page)).toEqual([moved, moved + 5]);
+});

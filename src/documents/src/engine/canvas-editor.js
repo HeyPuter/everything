@@ -1479,7 +1479,7 @@ export class CanvasEditor {
     document.addEventListener('pointerdown', end, { capture: true, signal });
   }
   /** Forget the press in progress (the browser took it for a scroll, or a second finger made it a pinch). */
-  cancelPointer() { if (this.textDrag) { this.textDrag = null; this.paint(); } this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); }
+  cancelPointer() { if (this.textDrag) { this.textDrag = null; this.stopAutoScroll(); this.paint(); } this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); }
   pointerDown(e, tapped = false) {
     // Control+click is a Mac's secondary click: the context menu follows, and the selection it acts on stays.
     if (e.button !== 0 || MAC && e.ctrlKey) return;
@@ -1699,10 +1699,12 @@ export class CanvasEditor {
       const speed = beyond => beyond > 0 ? Math.min(80, 8 + Math.round(beyond / 2)) : 0;
       const dy = point ? speed(point.clientY - (bounds.bottom - edge)) - speed(bounds.top + edge - point.clientY) : 0;
       const dx = point ? speed(point.clientX - (bounds.right - edge)) - speed(bounds.left + edge - point.clientX) : 0;
-      if (!this.dragging || this.destroyed || !dx && !dy) { this.stopAutoScroll(); return; }
+      const textDrag = this.textDrag?.started ? this.textDrag : null;
+      if (!this.dragging && !textDrag || this.destroyed || !dx && !dy) { this.stopAutoScroll(); return; }
       const { scrollTop, scrollLeft } = this.host;
       this.host.scrollTop += dy; this.host.scrollLeft += dx;
-      if (this.host.scrollTop !== scrollTop || this.host.scrollLeft !== scrollLeft) this.dragTo(point);
+      // Dragged text shows where it would land in the text scrolled in; a selection drag takes that text in.
+      if (this.host.scrollTop !== scrollTop || this.host.scrollLeft !== scrollLeft) { if (textDrag) { textDrag.at = this.point(point, false); this.paint(); } else this.dragTo(point); }
     };
     if (!this.scrollTimer) { this.scrollTimer = setInterval(step, 30); step(); }
   }
@@ -1727,6 +1729,9 @@ export class CanvasEditor {
     drag.at = this.point(e, false);
     this.pages.style.cursor = e.altKey ? 'copy' : 'default';
     this.paint();
+    // Near or past the top or bottom of the view, the pages scroll, as they do for a selection drag.
+    this.dragPoint = { clientX: e.clientX, clientY: e.clientY, altKey: e.altKey };
+    this.autoScroll();
   }
   /**
    * Drop the dragged text where the pointer lifted, moved (Option or Alt: copied) as one undo step with its formatting,
@@ -1734,7 +1739,7 @@ export class CanvasEditor {
    */
   endTextDrag(e) {
     const drag = this.textDrag;
-    this.textDrag = null; this.pages.style.cursor = '';
+    this.textDrag = null; this.pages.style.cursor = ''; this.stopAutoScroll();
     try { this.pages.releasePointerCapture(e.pointerId); } catch { /* released */ }
     if (!drag.started) {
       const position = this.point(e), link = this.pointLink;
