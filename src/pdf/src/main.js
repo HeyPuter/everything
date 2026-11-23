@@ -20,6 +20,7 @@ import {
   themeValue,
   syncThemeColor,
   formatBytes,
+  formatShortcut,
 } from './lib/ui.js';
 import * as P from './lib/puter.js';
 import { waitFor } from './lib/abort.js';
@@ -331,38 +332,39 @@ function settings() {
   });
 }
 function shortcuts() {
+  // Written as each platform writes them, as the menus show them: ⌘S on a Mac, Ctrl+S elsewhere.
+  const keys = (...specs) => specs.map(formatShortcut).join(' / ');
+  const apple = formatShortcut('Mod') === '⌘';
   const dialog = modal(
     'Keyboard shortcuts',
     el(
       'div',
       { class: 'shortcut-list' },
       ...[
-        [P.launchedByPuter() ? 'Open from Puter' : 'Open a PDF', 'Ctrl / ⌘ O'],
-        ['Save to Puter', 'Ctrl / ⌘ S'],
-        [
-          P.launchedByPuter() ? 'Save to another Puter folder' : 'Download',
-          'Ctrl / ⌘ Shift S',
-        ],
-        ['Undo', 'Ctrl / ⌘ Z'],
-        ['Redo', 'Ctrl / ⌘ Shift Z or Ctrl Y'],
-        ['Select all the text on the page', 'Ctrl / ⌘ A'],
-        ['Bold, italic, underline while editing text', 'Ctrl / ⌘ B, I, U'],
-        ['Find in PDF', 'Ctrl / ⌘ F'],
-        ['Find next / previous', 'Ctrl / ⌘ G, with Shift; F3'],
-        ['Print', 'Ctrl / ⌘ P'],
-        ['Zoom in / out', 'Ctrl / ⌘ + / −'],
-        ['Fit page', 'Ctrl / ⌘ 0'],
-        ['Actual size', 'Ctrl / ⌘ 1'],
-        ['Fit width', 'Ctrl / ⌘ 2'],
-        ['Previous / next page', 'Alt ← / →'],
+        [P.launchedByPuter() ? 'Open from Puter' : 'Open a PDF', keys('Mod+O')],
+        ['Save to Puter', keys('Mod+S')],
+        [P.launchedByPuter() ? 'Save to another Puter folder' : 'Download', keys('Mod+Shift+S')],
+        ['Undo', keys('Mod+Z')],
+        // Ctrl Y is the Windows and Linux redo; a Mac has ⇧⌘Z alone.
+        ['Redo', apple ? keys('Mod+Shift+Z') : `${keys('Mod+Shift+Z')} or ${keys('Ctrl+Y')}`],
+        ['Select all the text on the page', keys('Mod+A')],
+        ['Bold, italic, underline while editing text', `${keys('Mod+B')}, I, U`],
+        ['Find in PDF', keys('Mod+F')],
+        ['Find next / previous', `${keys('Mod+G')}, with Shift; F3`],
+        ['Print', keys('Mod+P')],
+        ['Zoom in / out', keys('Mod+Plus', 'Mod+Minus')],
+        ['Fit page', keys('Mod+0')],
+        ['Actual size', keys('Mod+1')],
+        ['Fit width', keys('Mod+2')],
+        ['Previous / next page', keys('Alt+←', 'Alt+→')],
         ['First / last page', 'Home / End'],
-        ['Go to page', 'Ctrl / ⌘ Alt G'],
-        ['Rotate the page clockwise', 'Ctrl / ⌘ Shift R'],
-        ['Delete the page', 'Ctrl / ⌘ Shift D'],
-        ['Document properties', 'Ctrl / ⌘ D'],
-        ['Full screen', 'Ctrl / ⌘ L'],
+        ['Go to page', keys('Mod+Alt+G')],
+        ['Rotate the page clockwise', keys('Mod+Shift+R')],
+        ['Delete the page', keys('Mod+Shift+D')],
+        ['Document properties', keys('Mod+D')],
+        ['Full screen', keys('Mod+L')],
         ['Show or hide the side panel', 'F4'],
-        ['Show or hide the tools pane', 'Shift F4'],
+        ['Show or hide the tools pane', keys('Shift+F4')],
         ['Select tool / Hand tool', 'V / H'],
         ['Move the pages while held', 'Space'],
       ].map(([label, key]) => el('div', {}, el('span', {}, label), el('kbd', {}, key))),

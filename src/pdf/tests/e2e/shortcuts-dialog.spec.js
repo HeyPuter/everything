@@ -31,11 +31,13 @@ test('the shortcuts list names select all and the text styles', async ({ page })
   await page.goto('/#library');
   await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts', exact: true });
-  await expect(dialog).toContainText('Select all the text on the pageCtrl / ⌘ A');
-  await expect(dialog).toContainText('Bold, italic, underline while editing textCtrl / ⌘ B, I, U');
+  await expect(dialog).toContainText(/Select all the text on the page(⌘A|Ctrl\+A)/);
+  await expect(dialog).toContainText(
+    /Bold, italic, underline while editing text(⌘B|Ctrl\+B), I, U/,
+  );
 });
 
-// On the smallest phones the longest keys ("Ctrl / ⌘ G, with Shift; F3") ran past the edge of
+// On the smallest phones the longest keys ("Ctrl / ⌘ G, with Shift; F3", as the list then wrote it) ran past the edge of
 // the list and squeezed their names into a word a line.
 test('every shortcut fits the list on the smallest phones', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
@@ -56,4 +58,31 @@ test('every shortcut fits the list on the smallest phones', async ({ page }) => 
       .map((row) => row.textContent),
   );
   expect(overflowing).toEqual([]);
+});
+
+// The list wrote every key as "Ctrl / ⌘ S" for everyone, where the menus write each platform's
+// own: ⌘S on a Mac, Ctrl+S elsewhere. The two now agree.
+test('the shortcuts list writes the keys as the menus do', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  await page.goto('/');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const bar = page.getByRole('menubar', { name: 'PDF menus' });
+  test.skip(!(await bar.isVisible()), 'the menu bar is folded on phones');
+  await bar.getByRole('menuitem', { name: 'File', exact: true }).click();
+  const menuKey = async (name) =>
+    page
+      .getByRole('menu')
+      .getByRole('menuitem', { name, exact: true })
+      .locator('.menu-shortcut')
+      .textContent();
+  const print = await menuKey('Print…');
+  const download = await menuKey('Download');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts', exact: true });
+  const row = (label) => dialog.locator('.shortcut-list > div').filter({ hasText: label });
+  await expect(row('Print').locator('kbd')).toHaveText(print);
+  await expect(row('Download').locator('kbd')).toHaveText(download);
+  await expect(dialog.locator('kbd').filter({ hasText: 'Ctrl / ⌘' })).toHaveCount(0);
 });

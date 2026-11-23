@@ -868,7 +868,10 @@ test('Ctrl+Y redoes outside text fields', async ({ page }) => {
   await expect(redo).toBeDisabled();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Ctrl Y');
+  // A Mac lists its own ⇧⌘Z; other platforms add Ctrl+Y.
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText(
+    /Redo(⇧⌘Z|Ctrl\+Shift\+Z or Ctrl\+Y)/,
+  );
 });
 
 async function paragraphPdf(rotation = 0) {
@@ -1819,7 +1822,7 @@ test('Ctrl or Command with Alt and G opens Go to page', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText(
-    'Go to pageCtrl / ⌘ Alt G',
+    /Go to page(⌥⌘G|Ctrl\+Alt\+G)/,
   );
 });
 
