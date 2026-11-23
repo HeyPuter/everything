@@ -23700,7 +23700,11 @@ shells. Supported authoring subset:
 - Column resizing (border drags, Width spinner, Distribute Columns, Fixed
   Column Width, the resize handle) writes a fixed `w:tblLayout` with matching
   grid and `w:tcW` values; AutoFit Contents/Window writes `w:tblLayout`
-  autofit, `w:tblW` auto or 5000 pct, and automatic cell widths.
+  autofit, `w:tblW` auto or 5000 pct, and automatic cell widths. Dragging the
+  table's right edge (on the page or the ruler) or its resize handle sets
+  `w:tblW` (§17.4.63) to the columns' total in twips, also for a table that was
+  a percentage of the window, as the Width spinner does; a pct width would
+  stretch the columns back to its share and undo the drag.
 
 Diagonal cell borders (`w:tl2br`/`w:tr2bl` in `w:tcBorders`, §17.4.66) are now
 imported, painted corner to corner inside each laid-out cell (screen and print),

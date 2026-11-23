@@ -238,10 +238,10 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     if (d.tap && !d.moved && (d.kind === 'column' || d.kind === 'row')) { repaint(); engine.pointerDown(d.tap, true); engine.release(e); return; }
     const at = point(e) || d.last;
     const table = d.frame?.table;
-    if (d.kind === 'column' && d.moved) { commit(m => T.setColumnWidths(m, table, d.widths, { layout: 'fixed' })); refreshRuler(); }
+    if (d.kind === 'column' && d.moved) { commit(m => T.setColumnWidths(m, table, d.widths, outerDrag(d))); refreshRuler(); }
     else if (d.kind === 'row' && d.moved) commit(m => T.setRowsHeight(m, [table.rows[d.row]], d.height, null));
     else if (d.kind === 'resize' && d.moved) commit(m => {
-      T.setColumnWidths(m, table, d.widths, { layout: 'fixed' });
+      T.setColumnWidths(m, table, d.widths, { layout: 'fixed', absolute: true });
       table.rows.forEach((row, i) => { if (d.heights[i]) T.setRowsHeight(m, [row], d.heights[i], null); });
       return true;
     });
@@ -308,6 +308,9 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     });
   }
 
+  // The table's right edge (and the resize handle) sets its width: a table sized as a share of the window would
+  // stretch its columns back to fill it, so it becomes as wide as its columns, as the ribbon's Width box makes it.
+  const outerDrag = d => ({ layout: 'fixed', absolute: d.index === d.frame.table.grid.length });
   function moveColumn(pointerX) {
     const f = drag.frame, delta = Math.round((pointerX - drag.startX) * 15), i = drag.index, base = drag.base, next = [...base];
     if (i < base.length) {
@@ -487,7 +490,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   listen(rulerLayer, 'pointerup', e => {
     if (!drag?.ruler) return;
     e.preventDefault(); const d = drag; drag = null;
-    if (d.moved) commit(m => T.setColumnWidths(m, d.frame.table, d.widths, { layout: 'fixed' }));
+    if (d.moved) commit(m => T.setColumnWidths(m, d.frame.table, d.widths, outerDrag(d)));
     refreshRuler(); repaint();
   });
   // A drag the browser takes back (a finger that turns into a scroll) leaves the widths as they were, and the

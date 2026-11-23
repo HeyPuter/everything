@@ -316,3 +316,32 @@ test('Escape while dragging a column border puts the border back', async ({ page
   await drag(page, border, { x: border.x + 60, y: border.y });
   expect((await tables(page))[0].grid[0]).toBeGreaterThan(before[0].grid[0]);
 });
+
+test('dragging the right border or the resize handle of a table as wide as the window makes it narrower', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Insert Table' });
+  await dialog.getByLabel('Number of columns').fill('3'); await dialog.getByLabel('Number of rows').fill('2');
+  await dialog.getByLabel('AutoFit to window').check();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  const right = async () => { const row = (await cells(page))[0]; return { x: row[2].x + row[2].w, y: row[2].y + row[2].h / 2, width: row[2].x + row[2].w - row[0].x }; };
+  const before = await right();
+  await page.mouse.move(before.x, before.y);
+  await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'col-resize');
+  await drag(page, before, { x: before.x - 120, y: before.y });
+  // The table ends where the border was dropped, rather than its columns stretching back to the window's width.
+  const dragged = await right();
+  expect(dragged.width).toBeLessThan(before.width - 100);
+  expect(Math.abs(dragged.x - (before.x - 120))).toBeLessThan(6);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect((await right()).width).toBeCloseTo(before.width, 0);
+  // The resize handle below the table's bottom right corner scales it down too.
+  const last = (await cells(page))[1][2], handle = { x: last.x + last.w + 5, y: last.y + last.h + 5 };
+  await page.mouse.move(handle.x - 30, handle.y - 30); await page.mouse.move(handle.x, handle.y);
+  await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'nwse-resize');
+  await drag(page, handle, { x: handle.x - 150, y: handle.y });
+  expect((await right()).width).toBeLessThan(before.width - 120);
+});
