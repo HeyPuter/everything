@@ -12847,7 +12847,7 @@ const buildReflection = (
   // Geometry coords are emitted in px (see `E`), so the transform math
   // works in px too: contact edge at the shape's bottom, gap pushed down.
   const contactPx = (box.y + box.h) / EMU_PER_PX;
-  const distPx = refl.distEmu / EMU_PER_PX;
+  const distPx = effectLength(refl.distEmu, MAX_EFFECT_DISTANCE) / EMU_PER_PX;
   // scale(1,f) about y=contactPx, then translate the whole thing down by dist.
   const transform = `translate(0 ${(distPx + contactPx * (1 - f)).toFixed(2)}) scale(1 ${f})`;
 
@@ -12871,6 +12871,16 @@ const buildReflection = (
   const svg = `<g mask="url(#${maskId})" data-pptx-reflection="1"><g transform="${transform}">${geomRaw}${text}</g></g>`;
   return { svg, defs };
 };
+
+// Effect lengths as far as the effect settings reach (glow 150 pt, blur and
+// soft edges 100 pt, shadow distance 200 pt). A file may store far more,
+// which the browser would spend seconds or longer drawing for no visible
+// difference.
+const MAX_GLOW_RADIUS = 1_905_000;
+const MAX_EFFECT_BLUR = 1_270_000;
+const MAX_EFFECT_DISTANCE = 2_540_000;
+const effectLength = (emu: number, max: number): number =>
+  Number.isFinite(emu) ? Math.max(0, Math.min(max, emu)) : 0;
 
 // Where an ST_RectAlignment point (`tl`, `t`, `tr`, `l`, `ctr`, `r`, `bl`,
 // `b`, `br`) sits across and down a box, as fractions of its size.
@@ -12907,8 +12917,10 @@ const shadowOffsetPx = (
   frame: EffectFrame | undefined,
 ): [number, number] => {
   const rad = (e.angleDeg * Math.PI) / 180;
-  let dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
-  let dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
+  let dx =
+    (effectLength(e.distEmu, MAX_EFFECT_DISTANCE) * Math.cos(rad)) / EMU_PER_PX;
+  let dy =
+    (effectLength(e.distEmu, MAX_EFFECT_DISTANCE) * Math.sin(rad)) / EMU_PER_PX;
   if (!frame) return [dx, dy];
   const fixed = e.kind === "outerShdw" && e.fixedToPage === true;
   const turn = (deg: number) => {
@@ -12974,7 +12986,7 @@ const transformedShadows = (
       d = sy;
     const ox = ax + dx - (a * ax + c * ay),
       oy = ay + dy - (b * ax + d * ay);
-    const blurPx = e.blurEmu / EMU_PER_PX / 2;
+    const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
     const corners = [
       [bx, by],
       [bx + bw, by],
@@ -13016,7 +13028,7 @@ const buildEffectsFilter = (
       if (skipTransformed && isTransformedShadow(e)) continue;
       // dist + angle → dx, dy in EMU → px.
       const [dx, dy] = shadowOffsetPx(e, frame);
-      const blurPx = e.blurEmu / EMU_PER_PX / 2;
+      const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
       reach = Math.max(
         reach,
         Math.max(Math.abs(dx), Math.abs(dy)) + 3 * blurPx,
@@ -13034,7 +13046,7 @@ const buildEffectsFilter = (
       //   inset = (sourceAlpha offset, blurred) - sourceAlpha (inverted)
       // and re-flood with the shadow color.
       const [dx, dy] = shadowOffsetPx(e, frame);
-      const blurPx = e.blurEmu / EMU_PER_PX / 2;
+      const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
       const color = e.color || "#000000";
       const opacity = e.opacity ?? 1;
       const i = primitives.length;
@@ -13052,7 +13064,7 @@ const buildEffectsFilter = (
       // 'in' a single wide Gaussian caps peak alpha at ~0.5 and over-diffuses,
       // so decouple the saturated band (a large dilation) from the feather (a
       // small blur): dilate by half the full reach, then blur lightly.
-      const radiusPx = e.radiusEmu / EMU_PER_PX;
+      const radiusPx = effectLength(e.radiusEmu, MAX_GLOW_RADIUS) / EMU_PER_PX;
       const dilatePx = radiusPx * 0.5;
       const featherPx = radiusPx * 0.3;
       reach = Math.max(reach, dilatePx + 3 * featherPx);
@@ -13067,7 +13079,8 @@ const buildEffectsFilter = (
       );
       layers.push(`glowOut${i}`);
     } else if (e.kind === "softEdge") {
-      const blurPx = e.radiusEmu / EMU_PER_PX / 2;
+      const blurPx =
+        effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
       reach = Math.max(reach, 3 * blurPx);
       // Soft-edge feathers the shape's mask. Replace the source by a
       // blurred version of itself.
@@ -13080,7 +13093,8 @@ const buildEffectsFilter = (
       layers.length = over.length = 0;
       layers.push(`softOut${i}`);
     } else if (e.kind === "blur") {
-      const blurPx = e.radiusEmu / EMU_PER_PX / 2;
+      const blurPx =
+        effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
       reach = Math.max(reach, 3 * blurPx);
       const i = primitives.length;
       primitives.push(

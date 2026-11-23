@@ -295,3 +295,27 @@ describe("picture colour effects", () => {
     expect(svg).not.toContain("feFlood");
   });
 });
+
+describe("effects with out-of-range sizes", () => {
+  it("draws a huge glow, blur or shadow no larger than the settings allow", () => {
+    const svg = shapeDeck((pres, s) => {
+      P.setShapeEffectSpec(pres, s, {
+        ...shadow("outer", { blurEmu: 9e11, distEmu: 9e11 }),
+        glow: { color: "#FF0000", opacity: 1, radiusEmu: 9e11 },
+      });
+    });
+    const num = (re) => Number(re.exec(svg)[1]);
+    // 150pt glow: dilated by half of 200px.
+    expect(num(/operator="dilate" radius="([\d.]+)"/)).toBe(100);
+    // 100pt blur: a standard deviation of half of 133px.
+    expect(num(/<feDropShadow [^>]*stdDeviation="([\d.]+)"/)).toBeCloseTo(
+      66.67,
+      1,
+    );
+    // 200pt away at 45°.
+    expect(num(/<feDropShadow dx="([\d.]+)"/)).toBeCloseTo(
+      266.67 / Math.SQRT2,
+      1,
+    );
+  });
+});
