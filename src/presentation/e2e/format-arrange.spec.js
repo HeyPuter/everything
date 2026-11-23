@@ -187,6 +187,51 @@ test("a turned object aligns and distributes where the slide shows it", async ({
   expect(Math.abs(gaps[0] - gaps[1])).toBeLessThan(2);
 });
 
+// Distribute ignored Align to Slide: it spread the objects between the two
+// at the ends, and stayed off for fewer than three.
+test("Distribute aligned to the slide spreads objects to its edges and centers one", async ({
+  page,
+}) => {
+  await start(page);
+  for (const name of ["Rectangle", "Rectangle", "Rectangle"])
+    await addShape(page, name);
+  const slideWidth = 12192000;
+  await selectAll(page);
+  await tab(page, "Shape Format");
+  await (await command(page, "align")).click();
+  await page.getByRole("menuitemcheckbox", { name: "Align to Slide" }).click();
+  await (await command(page, "align")).click();
+  await page.getByRole("menuitem", { name: "Distribute Horizontally" }).click();
+  let { shapes } = await download(page);
+  const boxes = shapes
+    .map((s) => P.getShapeBounds(s))
+    .sort((a, b) => a.x - b.x);
+  expect(boxes[0].x).toBe(0);
+  expect(Math.abs(boxes[2].x + boxes[2].w - slideWidth)).toBeLessThan(2);
+  const gaps = boxes.slice(1).map((b, i) => b.x - (boxes[i].x + boxes[i].w));
+  expect(Math.abs(gaps[0] - gaps[1])).toBeLessThan(2);
+  // One object, aligned to the slide, is centered across it: the one at
+  // the left edge joins the one already in the middle.
+  const lefts = await objects(page).evaluateAll((hits) =>
+    hits.map((hit) => parseFloat(hit.style.left)),
+  );
+  await objects(page)
+    .nth(lefts.indexOf(Math.min(...lefts)))
+    .click();
+  await expect(page.locator(".object-hit.selected")).toHaveCount(1);
+  await (await command(page, "align")).click();
+  const spread = page.getByRole("menuitem", {
+    name: "Distribute Horizontally",
+  });
+  await expect(spread).toBeEnabled();
+  await spread.click();
+  ({ shapes } = await download(page));
+  const centered = shapes
+    .map((s) => P.getShapeBounds(s))
+    .filter((b) => Math.abs(b.x + b.w / 2 - slideWidth / 2) < 2);
+  expect(centered).toHaveLength(2);
+});
+
 test("Replace Fonts, Paste Special as a picture, Repeat, and Format Object", async ({
   page,
 }) => {

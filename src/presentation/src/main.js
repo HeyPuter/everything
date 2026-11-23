@@ -7057,13 +7057,13 @@ function ribbonApi() {
         {
           label: "Distribute Horizontally",
           icon: "o:distributeH",
-          disabled: count < 3,
+          disabled: count < distributeMinimum(),
           onSelect: () => distributeSelection("x"),
         },
         {
           label: "Distribute Vertically",
           icon: "o:distributeV",
-          disabled: count < 3,
+          disabled: count < distributeMinimum(),
           onSelect: () => distributeSelection("y"),
         },
       ];
@@ -13577,18 +13577,18 @@ function multiModel() {
                       "Distribute horizontally",
                       "AlignHorizontalDistributeCenter",
                       () => distributeSelection("x"),
-                      { disabled: count < 3 },
+                      { disabled: count < distributeMinimum() },
                     ),
                     iconButton(
                       "Distribute vertically",
                       "AlignVerticalDistributeCenter",
                       () => distributeSelection("y"),
-                      { disabled: count < 3 },
+                      { disabled: count < distributeMinimum() },
                     ),
                     el(
                       "span",
                       { class: "helper" },
-                      count < 3
+                      count < distributeMinimum()
                         ? "Select three or more to distribute"
                         : "Distribute evenly",
                     ),
@@ -15182,10 +15182,13 @@ function alignSelection(edge) {
   });
 }
 // Three or more objects spread out with equal gaps between them; the two at
-// the ends stay where they are.
+// the ends stay where they are. Aligned to the slide, the ends go to the
+// slide's edges instead, and a single object is centered on it.
+const distributeMinimum = () => (formatTools.alignToSlide() ? 1 : 3);
 function distributeSelection(axis) {
   const items = selectedApart();
-  if (items.length < 3) return;
+  const toSlide = formatTools.alignToSlide();
+  if (items.length < distributeMinimum()) return;
   const ids = items.map(P.getShapeId);
   mutateSlide(slide(), (target) => {
     const parents = groupParents(target);
@@ -15199,16 +15202,22 @@ function distributeSelection(axis) {
         ...item,
         v: turnedBounds(item.b, slideRotation(item.s, parents)),
       }));
-    if (list.length < 3) return SKIP_MUTATION;
+    if (list.length < (toSlide ? 1 : 3)) return SKIP_MUTATION;
     const pos = axis === "x" ? "x" : "y",
       len = axis === "x" ? "w" : "h";
     list.sort((a, b) => a.v[pos] - b.v[pos]);
     const first = list[0].v,
       last = list.at(-1).v;
-    const span = last[pos] + last[len] - first[pos];
-    const gap =
-      (span - list.reduce((n, item) => n + item.v[len], 0)) / (list.length - 1);
-    let cursor = first[pos];
+    const size = currentSize();
+    const start = toSlide ? 0 : first[pos];
+    const span = toSlide
+      ? axis === "x"
+        ? size.cx
+        : size.cy
+      : last[pos] + last[len] - first[pos];
+    const room = span - list.reduce((n, item) => n + item.v[len], 0);
+    const gap = list.length > 1 ? room / (list.length - 1) : 0;
+    let cursor = list.length > 1 ? start : start + room / 2;
     let changed = false;
     for (const item of list) {
       if (Math.round(cursor) !== Math.round(item.v[pos])) {
@@ -15321,7 +15330,7 @@ function arrangeItems() {
     {
       label: "Distribute",
       icon: "AlignHorizontalDistributeCenter",
-      disabled: count < 3,
+      disabled: count < distributeMinimum(),
       items: [
         {
           label: "Horizontally",
