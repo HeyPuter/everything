@@ -11293,10 +11293,19 @@ function formattedPaste(html, plain) {
   } catch {
     return null;
   }
-  if (!paragraphs.some((p) => p.runs.some((r) => Object.keys(r.format).length)))
+  // Plain text says as much unless the HTML has formatting or line breaks
+  // within its paragraphs.
+  if (
+    !paragraphs.some((p) =>
+      p.runs.some(
+        (r) => Object.keys(r.format).length || r.text.includes(SOFT_BREAK),
+      ),
+    )
+  )
     return null;
   const words = (text) =>
     text
+      .replaceAll(SOFT_BREAK, "\n")
       .split("\n")
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean)

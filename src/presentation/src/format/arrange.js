@@ -185,7 +185,12 @@ export async function pasteSpecialDialog({ available }) {
   return ok ? choice : null;
 }
 
-/** Paragraphs of formatted runs from clipboard HTML: [{ runs: [{ text, format }] }]. */
+/**
+ * Paragraphs of formatted runs from clipboard HTML:
+ * [{ runs: [{ text, format }] }]. A line break inside a paragraph is a soft
+ * break ("\u000B").
+ */
+const SOFT_BREAK = "\u000B";
 export function htmlParagraphs(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const paragraphs = [];
@@ -217,7 +222,13 @@ export function htmlParagraphs(html) {
     if (node.nodeType !== 1) return;
     const tag = node.tagName;
     if (["SCRIPT", "STYLE", "HEAD", "TITLE"].includes(tag)) return;
-    if (tag === "BR") return flush();
+    // A break within a paragraph's text breaks the line; one that ends
+    // the paragraph, or stands alone, is trimmed below.
+    if (tag === "BR") {
+      if (current.runs.some((r) => r.text.trim()))
+        current.runs.push({ text: SOFT_BREAK, format: { ...format } });
+      return;
+    }
     const next = { ...format };
     if (tag === "B" || tag === "STRONG" || /^H\d$/.test(tag)) next.bold = true;
     if (tag === "I" || tag === "EM") next.italic = true;
@@ -240,6 +251,13 @@ export function htmlParagraphs(html) {
   for (const p of paragraphs) {
     p.runs[0].text = p.runs[0].text.replace(/^\s+/, "");
     p.runs.at(-1).text = p.runs.at(-1).text.replace(/\s+$/, "");
+    p.runs = p.runs.filter((r) => r.text);
+    // Spaces around a soft break go with it.
+    p.runs.forEach((r, i) => {
+      if (r.text !== SOFT_BREAK) return;
+      if (p.runs[i - 1]) p.runs[i - 1].text = p.runs[i - 1].text.trimEnd();
+      if (p.runs[i + 1]) p.runs[i + 1].text = p.runs[i + 1].text.trimStart();
+    });
     p.runs = p.runs.filter((r) => r.text);
   }
   return paragraphs.filter((p) => p.runs.length);

@@ -675,3 +675,26 @@ test("each link in a text box opens its own address in a slide show", async ({
   await page.keyboard.press("Tab");
   await expect(blog).toBeFocused();
 });
+
+test("line breaks copied out of the text come back as line breaks", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const editor = await typedBox(page, "Line one");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("Line two");
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("ControlOrMeta+c");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect(editor.locator(".para")).toHaveCount(2);
+  await expect(editor.locator(".para").nth(1)).toHaveText("Line oneLine two");
+  await expect(
+    editor.locator(".para").nth(1).locator("br[data-break]"),
+  ).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  const xml = await downloadedSlide(page);
+  expect(xml.match(/<a:br/g)).toHaveLength(2);
+});
