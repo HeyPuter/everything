@@ -53,7 +53,7 @@ import {
 } from './core/initial-view.js';
 import { createAccessibilityReport } from './accessibility-report.js';
 import { createFormDesigner, fieldTypeLabel } from './form-designer.js';
-import { createAnnotationLayer, ANNOTATION_KINDS } from './annotation-layer.js';
+import { createAnnotationLayer, ANNOTATION_KINDS, resizeBox } from './annotation-layer.js';
 import { measureLabel, MEASURE_UNITS } from './core/measure.js';
 import {
   addTextBox,
@@ -11601,6 +11601,49 @@ export function createEditor({
           if (fontSize.reportValidity()) apply({ fontSize: Number(fontSize.value) / pagePt });
         },
       });
+    // The size as the page shows it, in points: the keyboard's way to resize a comment (or a
+    // callout's text box), as dragging a corner does. The top left corner stays where it is.
+    const sizing = editable && resizeBox(entry);
+    const shownBox = (box) => {
+      const [x1, y1] = viewport.convertToViewportPoint(box.x, box.y),
+        [x2, y2] = viewport.convertToViewportPoint(box.x + box.width, box.y + box.height);
+      const unit = screenUnit() / pagePt;
+      return {
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        size: [Math.abs(x2 - x1) / unit, Math.abs(y2 - y1) / unit],
+      };
+    };
+    const sizeFields = sizing
+      ? [0, 1].map((axis) =>
+          el('input', {
+            type: 'number',
+            min: 1,
+            max: 14400,
+            step: 'any',
+            required: true,
+            value: Number(shownBox(sizing.box).size[axis].toFixed(2)),
+            'aria-label': `${entry.kind} ${axis ? 'height' : 'width'} in points`,
+            onchange: (e) => {
+              if (!e.target.reportValidity()) return;
+              const shown = shownBox(sizing.box);
+              // As a dragged corner stops at the page's edge, the size stops where the comment
+              // would leave the page, as it is shown (turned or not); one already past the edge
+              // may keep its size.
+              const room =
+                ((axis ? viewport.height - shown.y : viewport.width - shown.x) * pagePt) /
+                screenUnit();
+              const limit = Math.max(1, room, shown.size[axis]);
+              if (Number(e.target.value) > limit) e.target.value = Number(limit.toFixed(2));
+              const size = shown.size.map((value, i) =>
+                i === axis ? Math.min(Number(e.target.value), limit) : value,
+              );
+              if (Math.abs(size[axis] - shown.size[axis]) < 0.005) return;
+              apply({ [sizing.key]: readerRect(shown, size[0] / pagePt, size[1] / pagePt) });
+            },
+          }),
+        )
+      : [];
     const when = (date) =>
       date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
     const thread = commentThread(entry, async (operation, message, control) => {
@@ -11635,6 +11678,9 @@ export function createEditor({
           el('label', {}, el('span', {}, 'Width'), width),
         el('label', {}, el('span', {}, 'Opacity'), opacity),
         fontSize && el('label', {}, el('span', {}, 'Font size'), fontSize),
+        ...sizeFields.map((field, axis) =>
+          el('label', {}, el('span', {}, axis ? 'H' : 'W'), field),
+        ),
       ),
       thread.status,
       thread.replies,

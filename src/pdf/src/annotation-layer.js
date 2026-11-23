@@ -32,7 +32,7 @@ const movable = (entry) =>
  * (its point stays where it points), or the whole comment. Lines and stamps keep their size.
  */
 const RESIZABLE = new Set(['Square', 'Circle', 'FreeText', 'Ink', 'Polygon']);
-const resizeBox = (entry) =>
+export const resizeBox = (entry) =>
   movable(entry) && entry.editable && RESIZABLE.has(entry.subtype)
     ? entry.subtype === 'FreeText' && entry.points?.length >= 2
       ? entry.box && { key: 'box', box: entry.box }
