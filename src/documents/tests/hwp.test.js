@@ -430,7 +430,7 @@ describe('table cell budgets', () => {
 });
 
 describe('opening converted Hanword documents', () => {
-  it.each(['ChangeTrack', 'PageFunctions', 'SimpleCompose', 'SimpleEquation'])('opens %s.hwpx for editing, not as a read-only preview', async (name) => {
+  it.each(['ChangeTrack', 'PageFunctions', 'SimpleCompose', 'SimpleEquation', 'SimplePicture'])('opens %s.hwpx for editing, not as a read-only preview', async (name) => {
     globalThis.XMLSerializer ??= new JSDOM('').window.XMLSerializer;
     const { DocxPackage } = await import('../src/engine/docx.js');
     const { blob } = await convertHanword(file(readFileSync(`tests/fixtures/hwpx/${name}.hwpx`), `${name}.hwpx`));

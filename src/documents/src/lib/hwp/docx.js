@@ -455,6 +455,16 @@ export function modelToDocx(model) {
     return { dx, dy, copy: { kind: 'shape', shape: run.kind === 'image' ? 'rect' : run.shape, path: run.path, points: run.points, coordWidth: run.coordWidth, coordHeight: run.coordHeight, roundness: run.roundness,
       rotation: run.rotation, flipH: run.flipH, flipV: run.flipV, width: run.width, height: run.height, fill: typeof color === 'string' ? color : '808080', fillAlpha: 1 - Math.max(0, Math.min(1, shadow.transparency || 0)), line: { style: 'NONE', width: 0 }, blocks: [] } };
   }
+  /**
+   * A picture's drop shadow as its own outer shadow (§20.1.8.49 a:outerShdw), with its blur, beside its glow,
+   * reflection and soft edges: the editor paints those on a picture. As a shadow-colored copy grouped with the picture,
+   * the blur was lost, and the picture's other effects, inside a group, made the file open read-only. A skewed shadow,
+   * which the editor does not paint, keeps the copy. Null when the picture has no such shadow.
+   */
+  function pictureWithShadow(run) {
+    const effect = run.effects?.shadow;
+    return effect && effect.style !== 'INSIDE' && !run.shadow && !effect.skewX && !effect.skewY ? run : null;
+  }
   function shadowed(run, owner) {
     const shadow = shadowOf(run); if (!shadow) return null;
     const { copy, dx, dy } = shadow, base = { ...run, shadow: undefined, effects: run.effects ? { ...run.effects, shadow: undefined } : run.effects, layout: undefined, x: Math.max(0, -dx), y: Math.max(0, -dy) };
@@ -570,7 +580,7 @@ export function modelToDocx(model) {
       if (r.kind === 'bookmark') { const name = uniqueBookmark(r.name); if (!name) return ''; const id = bookmarkId++; return `<w:bookmarkStart w:id="${id}" w:name="${xml(name)}"/><w:bookmarkEnd w:id="${id}"/>`; }
       if (r.kind === 'revisionStart') { check(revisions.length < LIMITS.depth, 'This Hanword document has too many overlapping revisions.'); revisions.push(r); return ''; }
       if (r.kind === 'revisionEnd') { const index = revisions.findLastIndex((v) => v.id === r.id); if (index >= 0) revisions.splice(index, 1); return ''; }
-      if (r.kind === 'image') return wrap(shadowed(r, owner) || picture(r, owner), r);
+      if (r.kind === 'image') { const native = pictureWithShadow(r); return wrap(native ? picture(native, owner) : shadowed(r, owner) || picture(r, owner), r); }
       if (r.kind === 'shape') return wrap(liftedGroup(r, owner) || shadowed(r, owner) || shapeXml(r, owner), r);
       if (r.kind === 'group') return wrap(groupXml(r, owner), r);
       if (r.kind === 'equation') {

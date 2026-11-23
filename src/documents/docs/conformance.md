@@ -25103,4 +25103,6 @@ drawings open for editing); converted fixtures pass `tools/check-docx-schema.py`
 Gaps: multi-column sections keep top-and-bottom wrapping (read-only). `tests/fixtures/hwp/basicsReport.hwp` still
 opens read-only: its text boxes hold a hyperlink and decorated runs, which the editor's text boxes do not take, and
 `tests/fixtures/hwpx/SimplePicture.hwpx` has a grouped picture with glow, reflection and soft edges, which the editor
-reads on ungrouped pictures only.
+reads on ungrouped pictures only. Update: a picture's drop shadow is now written as its own `a:outerShdw` (§20.1.8.49)
+with its blur, beside its glow, reflection and soft edges, rather than a shadow-colored copy grouped with it, so
+`SimplePicture.hwpx` opens for editing; a skewed shadow, which the editor does not paint, keeps the grouped copy.

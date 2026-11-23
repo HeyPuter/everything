@@ -106,9 +106,11 @@ describe('Hanword picture fidelity', () => {
   });
   it('preserves an independently authored Hanword picture fixture', () => {
     const model = parseHwpx(readFileSync('tests/fixtures/hwpx/SimplePicture.hwpx')), d = doc(model);
-    // The shadow is emulated: a shadow-colored rectangle offset by its 600-unit distance sits behind the picture in a group.
-    expect(elements(d, 'pic')).toHaveLength(1); expect(elements(d, 'wgp')).toHaveLength(1); expect(elements(d, 'extent')[0].getAttribute('cx')).toBe(String(3294634 + 76200)); expect(elements(d, 'docPr')[0].getAttribute('descr')).toContain('544pixel');
-    expect(elements(d, 'outerShdw')).toHaveLength(0); expect(elements(d, 'wsp')).toHaveLength(1); expect(elements(d, 'glow')[0].getAttribute('rad')).toBe('63500'); expect(elements(d, 'satMod')[0].getAttribute('val')).toBe('175000');
+    // The shadow is the picture's own outer shadow, 600 units to the left with its blur, beside its other effects: as a
+    // shadow-colored rectangle grouped with the picture, the blur was lost and the file opened read-only.
+    expect(elements(d, 'pic')).toHaveLength(1); expect(elements(d, 'wgp')).toHaveLength(0); expect(elements(d, 'extent')[0].getAttribute('cx')).toBe('3294634'); expect(elements(d, 'docPr')[0].getAttribute('descr')).toContain('544pixel');
+    const shadow = elements(d, 'outerShdw')[0];
+    expect([shadow.getAttribute('dist'), shadow.getAttribute('dir'), shadow.getAttribute('blurRad')]).toEqual(['76200', '10800000', '76200']); expect(elements(d, 'wsp')).toHaveLength(0); expect(elements(d, 'glow')[0].getAttribute('rad')).toBe('63500'); expect(elements(d, 'satMod')[0].getAttribute('val')).toBe('175000');
     expect(elements(d, 'softEdge')[0].getAttribute('rad')).toBe('38100'); expect(elements(d, 'reflection')[0].getAttribute('endA')).toBe('300');
   });
   it('reads binary effect tails before explicit crop dimensions', () => {
