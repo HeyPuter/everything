@@ -11365,6 +11365,9 @@ function editText(target, event = null, { inserted = null } = {}) {
     // A field keeps its element, and goes back as a field for as long as
     // its text is left alone.
     ...(run.fld ? { fld: run.fld } : {}),
+    // A link on the text, and whether the editor set or took it off.
+    ...(run.link ? { link: run.link } : {}),
+    ...(run.linkChanged ? { linkChanged: true } : {}),
   });
   const paragraphs = textRuns(doc.pres, obj);
   let runs = [];
@@ -11410,7 +11413,7 @@ function editText(target, event = null, { inserted = null } = {}) {
   if (!paras.length) paras = [blank()];
   const serialize = (list, blocks) =>
     JSON.stringify([
-      list.map((run) => [run.text, run.changes]),
+      list.map((run) => [run.text, run.changes, run.link || null]),
       blocks.map((b) => [
         b.level,
         b.align,
@@ -11604,6 +11607,11 @@ function editText(target, event = null, { inserted = null } = {}) {
           if (line) span.append(line);
         });
         styleRun(span, run.format);
+        // Linked text shows underlined, with its address on hover.
+        if (run.link) {
+          span.style.textDecoration = "underline";
+          span.title = run.link;
+        }
         block.append(span);
       });
     });
@@ -11966,6 +11974,52 @@ function editText(target, event = null, { inserted = null } = {}) {
     setSelection(sel[0], sel[1]);
     syncToolbar();
   }
+  // The text a link command acts on: the selection, or else the linked
+  // text the caret stands in, with the address it links to (the first run's
+  // in the selection); null with neither.
+  function linkTarget() {
+    const sel = selection();
+    if (!sel) return null;
+    const list = read().runs;
+    let pos = 0;
+    const spans = list.map((run) => {
+      const span = { run, start: pos, end: pos + run.text.length };
+      pos = span.end;
+      return span;
+    });
+    if (sel[0] !== sel[1]) {
+      const first = spans.find((s) => s.end > sel[0] && s.start < sel[1]);
+      return { start: sel[0], end: sel[1], url: first?.run.link || null };
+    }
+    const at = spans.findIndex(
+      (s) => s.run.link && s.start <= sel[0] && sel[0] <= s.end,
+    );
+    if (at < 0) return null;
+    const url = spans[at].run.link;
+    let from = at,
+      to = at;
+    while (from > 0 && spans[from - 1].run.link === url) from--;
+    while (to < spans.length - 1 && spans[to + 1].run.link === url) to++;
+    return { start: spans[from].start, end: spans[to].end, url };
+  }
+  // Links the text between two offsets to `url`, or with null takes its
+  // link off. Fields keep their own.
+  function link(start, end, url) {
+    if (start >= end) return false;
+    remember();
+    runs = readRuns();
+    const [from, to] = fieldFormattingRange(runs, start, end);
+    for (const run of runs.slice(splitAt(from), splitAt(to))) {
+      if (run.fld) continue;
+      if (url) run.link = url;
+      else delete run.link;
+      run.linkChanged = true;
+    }
+    runs = runs.filter((run) => run.text);
+    render();
+    refocusSoon([start, end]);
+    return true;
+  }
   // Change Case: `convert` rewrites the selected text, or the word at the
   // caret, run by run, so each part keeps its formatting. Fields keep their
   // own text.
@@ -12247,6 +12301,18 @@ function editText(target, event = null, { inserted = null } = {}) {
         e.preventDefault();
         return;
       }
+    }
+    // Ctrl/⌘+K links the selected text, or edits the link at the caret.
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      e.code === "KeyK"
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      linkDialog().catch(fail);
+      return;
     }
     // Copy and paste formatting, as Format Painter does, on the text.
     if (
@@ -12583,6 +12649,8 @@ function editText(target, event = null, { inserted = null } = {}) {
       saved = [sel[0], sel[0] + value.length];
       return true;
     },
+    linkTarget,
+    link,
     superscript: (from, to) => {
       setSelection(from, to);
       apply({ baseline: 0.3 }, { refocus: false });
@@ -15539,7 +15607,12 @@ async function linkDialog() {
   const obj = currentShape();
   if (!canLink(obj)) return;
   const target = doc;
-  const current = linkOf(obj);
+  // While text is edited, the selected text, or the linked text at the
+  // caret, takes a web link of its own.
+  const textLink = editorFor(obj)?.linkTarget() || null;
+  const current = textLink
+    ? textLink.url && { kind: "url", url: textLink.url }
+    : linkOf(obj);
   const slides = P.getSlides(doc.pres);
   const kind = el(
     "select",
@@ -15601,6 +15674,7 @@ async function linkDialog() {
       return;
     }
     action = action && { kind: "url", url: action };
+    if (textLink) return linkEditedText(obj, textLink, action?.url ?? null);
   } else if (kind.value.startsWith("slide:")) {
     const part = kind.value.slice("slide:".length);
     const slide = P.getSlides(doc.pres).find(
@@ -15619,8 +15693,25 @@ async function linkDialog() {
     setLink(obj, action);
   });
 }
+// A web link set on, or taken off, part of the text: the dialog closed the
+// editor, which opens again on the same text with the link applied.
+async function linkEditedText(obj, range, url) {
+  const target = doc;
+  await settled();
+  if (doc !== target) return;
+  const shape = currentShape();
+  if (!shape || P.getShapeId(shape) !== P.getShapeId(obj)) return;
+  if (!editorFor(shape)) editText(shape);
+  editorFor(shape)?.link(range.start, range.end, url);
+}
 function removeLink() {
   const obj = currentShape();
+  // While text is edited, the link of the text at the caret comes off.
+  const textLink = editorFor(obj)?.linkTarget();
+  if (textLink?.url) {
+    editorFor(obj).link(textLink.start, textLink.end, null);
+    return;
+  }
   if (!obj || !linkOf(obj)) return;
   mutateShape(obj, (obj) => setLink(obj, null));
 }

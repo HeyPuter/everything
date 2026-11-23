@@ -1000,12 +1000,22 @@ export function textRuns(pres, shape) {
         }
         value.children = [{ kind: "text", data: displayed }];
       }
+      // A run's own link, read only where its properties carry one.
+      let link = null;
+      if (
+        e.kind === "r" &&
+        props?.children.some((c) => c.name?.localName === "hlinkClick")
+      )
+        try {
+          link = P.getShapeRunHyperlink(shape, pi, ri - 1);
+        } catch {}
       runs.push({
         text: displayed,
         format: { ...format },
         rpr: props,
         changes: {},
         ...(fld ? { fld } : {}),
+        ...(link ? { link } : {}),
       });
     });
     let bulleted = false;
@@ -1695,6 +1705,9 @@ export function setRichText(shape, paragraphs) {
       P.setShapeRunText(shape, pi, ri, item.text);
       if (item.run.changes && Object.keys(item.run.changes).length)
         P.setShapeRunFormat(shape, pi, ri, item.run.changes);
+      // A link set on the text, or taken off it, in the editor.
+      if (item.run.linkChanged)
+        P.setShapeRunHyperlink(shape, pi, ri, item.run.link || null);
       ri++;
     }
   }

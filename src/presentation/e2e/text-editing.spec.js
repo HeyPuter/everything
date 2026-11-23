@@ -568,3 +568,66 @@ test("a date or a symbol goes in at the caret of the text being edited", async (
   await page.keyboard.press("Escape");
   expect(await slideSvg(page)).toContain(`>Due ${value}© ok<`);
 });
+
+test("a link added to selected text links that text alone", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "Page ");
+  await (await ribbonButton(page, "Insert", "slide-number")).click();
+  await expect(editor).toBeFocused();
+  await page.keyboard.type(" of deck");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("Read the docs now");
+  // "docs", after the field and the line break.
+  await pressKey(page, "ArrowLeft", 4);
+  await pressKey(page, "Shift+ArrowLeft", 4);
+  const linkTo = async (address) => {
+    await page.keyboard.press("ControlOrMeta+k");
+    const dialog = page.getByRole("dialog");
+    const field = dialog.getByRole("textbox", { name: "Web address" });
+    await field.fill(address);
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await expect(editor).toBeFocused();
+    return dialog;
+  };
+  await linkTo("example.com/docs");
+  expect(await page.evaluate(() => getSelection().toString())).toBe("docs");
+  await expect(editor.locator("[data-run]", { hasText: /^docs$/ })).toHaveCSS(
+    "text-decoration-line",
+    "underline",
+  );
+  await page.keyboard.press("Escape");
+  let xml = await downloadedSlide(page);
+  expect(xml.match(/<a:hlinkClick/g)).toHaveLength(1);
+  expect(xml).toMatch(/<a:hlinkClick[^>]*\/><\/a:rPr><a:t>docs<\/a:t>/);
+  expect(xml).toMatch(/<a:fld [^>]*type="slidenum"/);
+  expect(xml).toContain("<a:br");
+  // Editing: the caret in the link finds it, and the new address replaces it.
+  await page.locator(".object-hit").first().dblclick();
+  await expect(editor).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await pressKey(page, "ArrowRight", 26);
+  await page.keyboard.press("ControlOrMeta+k");
+  const dialog = page.getByRole("dialog", { name: "Edit link" });
+  await expect(
+    dialog.getByRole("textbox", { name: "Web address" }),
+  ).toHaveValue("https://example.com/docs");
+  await dialog
+    .getByRole("textbox", { name: "Web address" })
+    .fill("example.org");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(editor).toBeFocused();
+  expect(await page.evaluate(() => getSelection().toString())).toBe("docs");
+  // Removing: an empty address takes the link off that text.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  await linkTo("");
+  await page.keyboard.press("Escape");
+  xml = await downloadedSlide(page);
+  expect(xml).not.toContain("<a:hlinkClick");
+  expect(xml).toMatch(/<a:fld [^>]*type="slidenum"/);
+  // Undo brings the edited link back.
+  await page.keyboard.press("ControlOrMeta+z");
+  xml = await downloadedSlide(page);
+  expect(xml.match(/<a:hlinkClick/g)).toHaveLength(1);
+});
