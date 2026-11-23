@@ -379,6 +379,40 @@ describe("file validation", () => {
       [],
     );
   });
+  it("opens a file whose XML parts are written in UTF-16", async () => {
+    const pres = createDeck("story");
+    P.setSlideNotes(P.getSlides(pres)[1], "Notes — naïve café ✓");
+    const entries = unzipSync(await P.savePresentation(pres));
+    const utf16 = (name, littleEndian) => {
+      const text = new TextDecoder()
+        .decode(entries[name])
+        .replace(/encoding="UTF-8"/i, 'encoding="UTF-16"');
+      const bytes = Buffer.from(`\ufeff${text}`, "utf16le");
+      if (!littleEndian) bytes.swap16();
+      entries[name] = new Uint8Array(bytes);
+    };
+    utf16("[Content_Types].xml", true);
+    utf16("_rels/.rels", false);
+    utf16("ppt/slides/slide2.xml", true);
+    const notes = Object.keys(entries).find((n) =>
+      /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n),
+    );
+    utf16(notes, false);
+    const loaded = await parseDeck(zipSync(entries));
+    expect(P.getSlides(loaded).map(P.getSlideText)).toEqual(
+      P.getSlides(pres).map(P.getSlideText),
+    );
+    expect(P.getSlideNotes(P.getSlides(loaded)[1])).toBe(
+      "Notes — naïve café ✓",
+    );
+    // Saved as UTF-8, saying so.
+    const saved = unzipSync(await P.savePresentation(loaded));
+    const slide = new TextDecoder().decode(saved["ppt/slides/slide2.xml"]);
+    expect(slide.startsWith("<?xml")).toBe(true);
+    expect(slide).not.toMatch(/UTF-16/i);
+    const again = await parseDeck(zipSync(saved));
+    expect(P.getSlideNotes(P.getSlides(again)[1])).toBe("Notes — naïve café ✓");
+  });
   it("keeps a part its content types do not cover, and covers it on save", async () => {
     const pres = createDeck("story");
     const slide = P.getSlides(pres)[0];
