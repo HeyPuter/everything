@@ -1250,6 +1250,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     compare: original => openCompareDialog({ mode: 'compare', editor: () => engine, pkg: () => pkg, documentName: () => title.value, author: () => session.username, openDocument: file => importFile?.(file),
       currentBytes: async () => new Uint8Array(await exportDocxBlob().then(b => b.arrayBuffer())), error, original }) });
   if (!local) doc.versionMeta = () => ({ author: session.username });
+  // Someone who can only comment on a shared document is under comments-only protection for the Review tab too:
+  // Track Changes, Accept and Reject are refused up front, rather than tried, refused by the room and taken back.
+  const documentProtection = reviewHooks.protection;
+  reviewHooks.protection = () => {
+    const own = documentProtection?.();
+    return collab.live?.role === 'commenter' && !['readOnly', 'forms'].includes(own?.edit) ? { edit: 'comments', enforcement: true } : own;
+  };
   const assistant = createAssistantPane({ editor: () => (failed ? null : engine), pkg: () => pkg, error });
   Object.assign(editorCommands, collab.commands, assistant.commands, { autoSave: ({ enabled } = {}) => editorCommands.setAutosave?.(!!enabled) });
   if (cloud && versioning.enabled) editorCommands.versionHistory = () => versionHistory.open();
