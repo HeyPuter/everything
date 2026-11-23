@@ -10567,7 +10567,13 @@ export function createEditor({
       for (const [k, index] of indices.entries()) {
         controller.signal.throwIfAborted();
         progress.textContent = `Rendering page ${k + 1} of ${indices.length}…`;
-        const blob = await pageImage(thisPdf, index, { dpi, type, signal: controller.signal });
+        // Layers turned off in the Layers panel are left out, as they are on screen.
+        const blob = await pageImage(thisPdf, index, {
+          dpi,
+          type,
+          signal: controller.signal,
+          layers: documentLayers || undefined,
+        });
         if (destroyed) return;
         // Limit the base before adding the page number so long names cannot collide in a ZIP.
         const fileName = `${base} page ${index + 1}.${extension}`;
@@ -12699,6 +12705,7 @@ export function createEditor({
                 dpi: 72 * scale,
                 type: 'image/png',
                 signal: controller.signal,
+                layers: documentLayers || undefined,
               })
             ).arrayBuffer(),
           ),
