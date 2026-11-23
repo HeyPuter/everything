@@ -108,6 +108,9 @@ export async function analyzeDocument(
     signal?.throwIfAborted();
     const scan = await readPage(pdf, page, { images, signal, layers: shown });
     scan.index = index;
+    // Its pictures are in the scan now. PDF.js keeps a page's decoded pictures until told
+    // otherwise, so exporting a long scan held every page's, gigabytes, until the tab ran out.
+    page.cleanup();
     // Pages drawn only with vector art keep their look as a picture, when one can be rendered.
     if (
       renderPage &&

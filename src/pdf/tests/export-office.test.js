@@ -1446,3 +1446,37 @@ it('keeps a chart drawn among the text as a picture of its area, with its labels
     await loading.destroy();
   }
 });
+
+it('lets go of each exported page’s decoded pictures once the page is read', async () => {
+  // PDF.js keeps a page's decoded pictures until told otherwise: exporting a long scan held
+  // every page's (about 25 MB each at 300 dpi) until the tab ran out of memory.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const png = await doc.embedPng(await pngPicture());
+  for (let i = 0; i < 3; i++) {
+    const page = doc.addPage([300, 300]);
+    page.drawImage(png, { x: 40, y: 120, width: 200, height: 100 });
+    page.drawText(`Picture ${i + 1}`, { x: 40, y: 80, size: 12, font });
+  }
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  const cleaned = new Set();
+  const getPage = pdf.getPage.bind(pdf);
+  pdf.getPage = async (number) => {
+    const page = await getPage(number);
+    const cleanup = page.cleanup.bind(page);
+    page.cleanup = (...args) => {
+      cleaned.add(number);
+      return cleanup(...args);
+    };
+    return page;
+  };
+  try {
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    expect(html.match(/<img /g)).toHaveLength(3);
+    expect([...cleaned].sort()).toEqual([1, 2, 3]);
+  } finally {
+    await loading.destroy();
+  }
+});
