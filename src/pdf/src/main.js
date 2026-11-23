@@ -540,10 +540,24 @@ async function openFiles(files) {
         import('./image-codec.js'),
       ]);
       signal.throwIfAborted();
-      const images = await normalizeImageFiles(pictures, { lazy: true, signal });
+      const readers = await normalizeImageFiles(pictures, { lazy: true, signal });
       // An obsolete batch must not decode and embed pictures after its file reads finish.
       signal.throwIfAborted();
-      return imagesToPdf(images, { paper: defaultPaper(), signal });
+      // Among several pictures, one that cannot be read is named: "Choose a valid PNG or JPEG
+      // image" alone left the reader to guess which of them it was.
+      let current = 0;
+      const images = readers.map((read, i) => () => {
+        current = i;
+        return read();
+      });
+      try {
+        return await imagesToPdf(images, { paper: defaultPaper(), signal });
+      } catch (error) {
+        if (error?.code !== 'invalid-image' || pictures.length < 2) throw error;
+        throw new Error(
+          `${pictures[current].name} is not a PNG or JPEG picture that can be read. Leave it out and try again.`,
+        );
+      }
     },
     `${name}.pdf`,
     null,

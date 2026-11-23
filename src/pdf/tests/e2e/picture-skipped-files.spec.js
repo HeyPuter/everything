@@ -55,3 +55,22 @@ test('pictures alone open without a notice', async ({ page }) => {
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('#toast')).toBeHidden();
 });
+
+test('a picture that cannot be read among several is named', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  const buffer = await picture();
+  await (
+    await chooser
+  ).setFiles([
+    { name: 'first.png', mimeType: 'image/png', buffer },
+    { name: 'broken scan.png', mimeType: 'image/png', buffer: Buffer.from('not a picture') },
+    { name: 'third.png', mimeType: 'image/png', buffer },
+  ]);
+  await expect(page.locator('#toast')).toHaveText(
+    'broken scan.png is not a PNG or JPEG picture that can be read. Leave it out and try again.',
+  );
+  await expect(page.locator('.home')).toBeVisible();
+});

@@ -1252,7 +1252,8 @@ export const isJpeg = (bytes) => bytes[0] === 255 && bytes[1] === 216 && bytes[2
 /** Decode a PNG or JPEG into the document, translating parser failures into user-facing errors. */
 export async function embedImage(doc, bytes) {
   if (bytes?.length > MAX_IMAGE_SIZE) throw new Error('Choose an image smaller than 20 MB.');
-  const invalid = () => new Error('Choose a valid PNG or JPEG image.');
+  const invalid = () =>
+    Object.assign(new Error('Choose a valid PNG or JPEG image.'), { code: 'invalid-image' });
   if (!(bytes instanceof Uint8Array) || !bytes.length) throw invalid();
   // A PNG is unpacked in full to be placed, and a small file can hold an enormous picture of
   // one color; its header says the size before any of it is unpacked.
