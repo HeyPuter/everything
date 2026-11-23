@@ -533,7 +533,7 @@ async function openFiles(files) {
   if (!pictures.length) throw new Error('Choose a PDF, or PNG and JPEG pictures.');
   const name = pictures[0].name.replace(/\.[^.]+$/, '') || 'Pictures';
   // The new PDF exists nowhere else yet, as a combined one does, so it starts out unsaved.
-  await openDocument(
+  const opened = await openDocument(
     async (signal) => {
       const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
         import('./core/image-pages.js'),
@@ -549,6 +549,12 @@ async function openFiles(files) {
     null,
     { unsaved: true },
   );
+  // Files that are neither (a GIF, a document) were left out; the reader learns which.
+  const skipped = files.filter((file) => !isPictureFile(file));
+  if (opened && skipped.length)
+    toast(
+      `${skipped.length === 1 ? `${skipped[0].name} was` : `${skipped.length} files were`} left out. Only PNG and JPEG pictures become pages.`,
+    );
 }
 /** A new PDF is a sheet of the paper the region prints on, as pictures turned into pages are. */
 async function newBlankPdf() {
