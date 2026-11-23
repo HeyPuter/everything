@@ -16,6 +16,9 @@ import {
   statByUid,
   renameFile,
   pickFile,
+  isOpenableName,
+  opensAsCopy,
+  copyName,
   saveFileAs,
   downloadBlob,
   asksWhereToSave,
@@ -404,5 +407,28 @@ describe("Puter storage boundary", () => {
       "x is not a function",
     );
     expect(errorMessage(null)).toBe("");
+  });
+});
+
+describe("presentations that open as a copy", () => {
+  it("opens slide shows, templates and macro presentations as new ones", () => {
+    expect(isOpenableName("Deck.pptx")).toBe(true);
+    expect(opensAsCopy("Deck.pptx")).toBe(false);
+    for (const name of [
+      "Show.ppsx",
+      "Brand.POTX",
+      "Macros.pptm",
+      "Show.ppsm",
+      "Brand.potm",
+    ]) {
+      expect(isOpenableName(name)).toBe(true);
+      expect(opensAsCopy(name)).toBe(true);
+    }
+    expect(isOpenableName("Old.ppt")).toBe(false);
+    expect(isOpenableName("notes.txt")).toBe(false);
+    expect(copyName("Show.ppsx")).toBe("Show");
+    expect(copyName("Macros.pptm")).toBe("Macros");
+    expect(copyName("Brand.potm")).toBe(null);
+    expect(copyName("Brand.potx")).toBe(null);
   });
 });

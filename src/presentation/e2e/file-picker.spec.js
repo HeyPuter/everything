@@ -82,7 +82,7 @@ test("a template or slide show opens as a presentation", async ({ page }) => {
       .click();
     const chooser = await pending;
     expect(await chooser.element().getAttribute("accept")).toBe(
-      ".pptx,.potx,.ppsx",
+      ".pptx,.ppsx,.potx,.pptm,.ppsm,.potm",
     );
     await chooser.setFiles({
       name,
@@ -155,15 +155,17 @@ test("a macro deck renamed .pptx opens without its macros and saves as a plain p
   });
   await expect(page.locator(".document-title")).toHaveText("Renamed macros");
   await expect(page.locator("#toast")).toContainText("macros were removed");
+  const draftBytes = () =>
+    page.evaluate(async () => {
+      const drafts = await import("/src/drafts.js");
+      const [summary] = await drafts.listDrafts("guest");
+      const stored = summary && (await drafts.getDraft(summary.id));
+      return stored ? Array.from(stored.bytes) : null;
+    });
   // What a save would write: the recovery draft holds the open revision.
   await expect
     .poll(async () => {
-      const bytes = await page.evaluate(async () => {
-        const drafts = await import("/src/drafts.js");
-        const [summary] = await drafts.listDrafts("guest");
-        const stored = summary && (await drafts.getDraft(summary.id));
-        return stored ? Array.from(stored.bytes) : null;
-      });
+      const bytes = await draftBytes();
       if (!bytes) return null;
       const files = unzipSync(new Uint8Array(bytes));
       return {
@@ -174,4 +176,17 @@ test("a macro deck renamed .pptx opens without its macros and saves as a plain p
       };
     })
     .toEqual({ types: false, parts: [] });
+  // A macro presentation (.pptm) opens the same way, keeping its name.
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  const again = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await again
+  ).setFiles({
+    name: "Quarterly macros.pptm",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from(zipSync(entries)),
+  });
+  await expect(page.locator(".document-title")).toHaveText("Quarterly macros");
+  await expect(page.locator("#toast")).toContainText("macros were removed");
 });

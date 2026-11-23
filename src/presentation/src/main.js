@@ -2169,9 +2169,7 @@ async function openCloudCopy(file) {
     }
     return {
       pres: await parseDeck(bytes, { prepareFonts: false }),
-      // A template starts an untitled presentation; a slide show keeps its
-      // name.
-      name: /\.potx$/i.test(fileName) ? null : fileName.replace(/\.ppsx$/i, ""),
+      name: cloud.copyName(fileName),
     };
   });
 }
@@ -2315,7 +2313,7 @@ function pickLocalFile(accept, handle) {
   }
 }
 function pickLocal() {
-  pickLocalFile(".pptx,.potx,.ppsx", importFile);
+  pickLocalFile(`.pptx,${cloud.OPENS_AS_COPY.join(",")}`, importFile);
 }
 function pickFont() {
   const target = doc;
@@ -2415,8 +2413,8 @@ async function embedLocalFont(file, target, request) {
   }
 }
 async function importFile(file) {
-  const extension = /\.(pptx|potx|ppsx)$/i.exec(file.name)?.[1].toLowerCase();
-  if (!extension) throw new Error("Choose a PowerPoint (.pptx) file.");
+  if (!cloud.isOpenableName(file.name))
+    throw new Error("Choose a PowerPoint (.pptx) file.");
   validateImportSize(file.size);
   if (
     (await openDocument(async () => ({
@@ -2424,8 +2422,8 @@ async function importFile(file) {
         prepareFonts: false,
       }),
       // A template starts a new, untitled presentation, as in PowerPoint; a
-      // slide show keeps its name.
-      name: extension === "potx" ? null : file.name.replace(/\.ppsx$/i, ""),
+      // slide show or macro presentation keeps its name.
+      name: cloud.isPptxName(file.name) ? file.name : cloud.copyName(file.name),
     }))) &&
     !doc?.macrosRemoved
   )
