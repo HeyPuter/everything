@@ -64,3 +64,21 @@ it('Restore in a version\'s preview brings the version\'s pictures, as Restore i
   expect(engine.images.get(drawn).closed).toBe(false);
   history.destroy();
 });
+
+// A document open read-only cannot take a version back: Restore in the list is unavailable, and the preview's own
+// Restore button stayed available and did nothing at all when pressed.
+it('Restore in a version\'s preview is unavailable while the document is open read-only, as in the list', async () => {
+  const current = await DocxPackage.open(docx('Current', ''));
+  current.readOnly = true;
+  const engine = { session: null, images: new Map(), finishComposition() {}, relayout() {}, paint() {}, focus() {} };
+  const history = createVersionHistory({ editor: () => engine, pkg: () => current, doc: { path: 'Documents/Plan.docx' }, error: () => {}, live: () => null, restoreFile: vi.fn() });
+  document.body.replaceChildren(history.pane.el || history.pane.node || document.createElement('div'), history.previewNode);
+  history.open();
+  await vi.waitFor(() => expect(document.querySelector('.vh-item-main')).not.toBeNull());
+  const listRestore = [...document.querySelectorAll('.vh-item-actions button')].find(b => b.textContent === 'Restore');
+  expect(listRestore.disabled).toBe(true);
+  document.querySelector('.vh-item-main').click();
+  await vi.waitFor(() => expect(history.previewNode.hidden).toBe(false));
+  expect([...history.previewNode.querySelectorAll('button')].find(b => b.textContent === 'Restore').disabled).toBe(true);
+  history.destroy();
+});
