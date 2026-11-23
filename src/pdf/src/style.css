@@ -2352,6 +2352,13 @@ kbd {
      seconds: taps go through to whatever it covers. */
   pointer-events: none;
 }
+/* Wider than a phone, the page controls float 16px above the foot of the page view, up to 56px;
+   a message of two lines sat over their top edge, and an error stays until the next press. */
+@media (min-width: 761px) {
+  #toast {
+    bottom: calc(66px + var(--safe-bottom));
+  }
+}
 @media (min-width: 1450px) {
   .home-main {
     padding-top: 80px;
