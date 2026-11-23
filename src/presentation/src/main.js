@@ -5345,40 +5345,51 @@ function formatPainter(sticky = false) {
 function paintFormat(target) {
   if (!painter) return false;
   const { format } = painter;
-  mutateShape(target, (obj) => {
+  mutateShape(target, (target) => {
     const sourceSlide = slideByPart(format.part);
     const source = sourceSlide && P.findShapeById(sourceSlide, format.id);
     let changed = false;
-    if (source && source !== obj) changed = P.copyShapeFormatting(source, obj);
-    if (format.text && canEditText(obj)) {
-      const keys = [
-        "font",
-        "size",
-        "bold",
-        "italic",
-        "underline",
-        "strike",
-        "color",
-        "underlineColor",
-        "cap",
-        "spc",
-        "kern",
-        "baseline",
-        "highlight",
-        "outline",
-        "gradient",
-        "effects",
-        "normalizeHeight",
-      ];
-      formatText(
-        withTextBody(obj),
-        Object.fromEntries(
-          keys
-            .map((key) => [key, format.text[key]])
-            .filter(([, v]) => v != null),
-        ),
-      );
-      changed = true;
+    // A group takes the format on each object it holds.
+    const members = (s) =>
+      P.getShapeKind(s) === "group"
+        ? P.getGroupChildren(s).flatMap(members)
+        : [s];
+    for (const obj of members(target)) {
+      const itself =
+        format.part === P.getSlidePartName(P.getShapeSlide(obj)) &&
+        format.id === P.getShapeId(obj);
+      if (source && !itself)
+        changed = P.copyShapeFormatting(source, obj) || changed;
+      if (format.text && canEditText(obj)) {
+        const keys = [
+          "font",
+          "size",
+          "bold",
+          "italic",
+          "underline",
+          "strike",
+          "color",
+          "underlineColor",
+          "cap",
+          "spc",
+          "kern",
+          "baseline",
+          "highlight",
+          "outline",
+          "gradient",
+          "effects",
+          "normalizeHeight",
+        ];
+        formatText(
+          withTextBody(obj),
+          Object.fromEntries(
+            keys
+              .map((key) => [key, format.text[key]])
+              .filter(([, v]) => v != null),
+          ),
+        );
+        changed = true;
+      }
     }
     if (!changed) return SKIP_MUTATION;
   });

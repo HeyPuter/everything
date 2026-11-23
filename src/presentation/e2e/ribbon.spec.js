@@ -353,6 +353,44 @@ test("Shape Styles, Shape Effects and Format Painter restyle shapes", async ({
   expect(P.getSlideShapes(P.getSlides(p)[0])).toHaveLength(2);
 });
 
+// Format Painter on a group did nothing: the group itself has no fill or
+// line, and the objects in it were passed over.
+test("Format Painter on a group restyles every object in it", async ({
+  page,
+}) => {
+  await start(page);
+  await rectangle(page, [40, 60], [140, 160]);
+  await page.getByRole("button", { name: "More Shape Styles" }).click();
+  await page
+    .getByRole("dialog", { name: "Shape Styles" })
+    .getByRole("option", { name: "Colored Fill - Accent 3", exact: true })
+    .click();
+  await rectangle(page, [200, 60], [260, 110]);
+  await rectangle(page, [320, 150], [380, 200]);
+  const hits = page.locator(".object-hit");
+  await hits.nth(1).click();
+  await hits.nth(2).click({ modifiers: ["Shift"] });
+  await page.keyboard.press(`${mod}+Alt+g`);
+  await expect(page.locator(".object-hit.selected")).toHaveAccessibleName(
+    /^Group/,
+  );
+  await hits.nth(0).click();
+  await tab(page, "Home");
+  await command(page, "format-painter");
+  // The group's own region, between the two rectangles it holds.
+  const group = page.getByRole("button", { name: /^Group/ });
+  const box = await group.boundingBox();
+  await group.click({
+    position: { x: box.width - 4, y: 4 },
+  });
+  await expect(await reveal(page, "format-painter")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  const { slideXml } = await download(page);
+  expect(slideXml().match(/<a:schemeClr val="accent3"\/>/g)?.length).toBe(3);
+});
+
 test("the Selection Pane lists and selects objects; sections reach the file", async ({
   page,
 }) => {
