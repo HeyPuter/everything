@@ -839,10 +839,11 @@ export class TextDocument {
     const counters = listMarkers(this.paragraphs, this.numbering)[this.paragraphs.indexOf(first)].counters;
     const originalList = { ...first.list }, next = copy(this.numbering), numId = restartList(next, first.list, start, counters);
     this.checkpoint(); this.numbering = next;
-    // Restart the contiguous remainder of this list, including nested items.
+    // Restart the remainder of this list, including nested items and those after paragraphs between them that are no
+    // items of it (left in the old list, they went on from its count, and Continue Numbering left them behind).
     for (let i = this.paragraphs.indexOf(first); i < this.paragraphs.length; i++) {
       const p = this.paragraphs[i];
-      if (!p.list || p.list.numId !== originalList.numId) break;
+      if (!p.list || p.list.numId !== originalList.numId) continue;
       if (p !== first && p.list.level < originalList.level) break;
       p.list = { ...p.list, numId, direct: true }; p.listChanged = true;
     }
