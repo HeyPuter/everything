@@ -7400,6 +7400,9 @@ export function createEditor({
         // A value refused for its field: the message shows, then the field takes the focus.
         const refused = d.open && controls.get(error?.field)?.control;
         if (!refused) throw error;
+        // The message goes under the field it names: at the end of a long form it was out of
+        // sight while the field took the focus.
+        refused.closest('.field, .checkbox-row')?.after(d.querySelector('.dialog-error'));
         toast(error.message, { error: true });
         refused.setAttribute('aria-invalid', 'true');
         refused.addEventListener('input', () => refused.removeAttribute('aria-invalid'), {
