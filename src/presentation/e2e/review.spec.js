@@ -424,6 +424,54 @@ test("spelling pane: change a word, ignore another", async ({ page }) => {
   expect(texts).toContain("The quick brown fox");
 });
 
+// Changing a misspelled word in the speaker notes wrote the notes back in
+// their first run's format, taking a bold word's bold and a bulleted line's
+// bullet with it.
+test("spelling pane: a word changed in the notes keeps their formatting", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = textDeck(["Fine"]);
+  const slide = P.getSlides(pres)[0];
+  P.setSlideNotes(slide, "placeholder");
+  const part = slide[Symbol.for("@office-kit/pptx.package")].parts.find((p) =>
+    /notesSlide\d+\.xml$/.test(p.name),
+  );
+  part.data = new TextEncoder().encode(
+    new TextDecoder()
+      .decode(part.data)
+      .replace(
+        /(<p:txBody>[\s\S]*?<a:lstStyle\/>)[\s\S]*?(<\/p:txBody>)/,
+        "$1" +
+          '<a:p><a:r><a:rPr lang="en-US"/><a:t>Say </a:t></a:r>' +
+          '<a:r><a:rPr lang="en-US" b="1"/><a:t>thanks</a:t></a:r></a:p>' +
+          '<a:p><a:pPr lvl="1"><a:buChar char="•"/></a:pPr>' +
+          '<a:r><a:rPr lang="en-US"/><a:t>then pasue</a:t></a:r></a:p>' +
+          "$2",
+      ),
+  );
+  await open(page, pres);
+  await page.keyboard.press("F7");
+  const pane = page.locator("#review-pane");
+  await expect(pane.locator(".spell-word")).toHaveText("pasue", {
+    timeout: 20_000,
+  });
+  await pane.getByRole("option", { name: "pause" }).click();
+  await press(pane.getByRole("button", { name: "Change", exact: true }));
+  await expect(pane).toContainText("Spelling check complete");
+  const { pres: saved, zip } = await download(page);
+  expect(P.getSlideNotes(P.getSlides(saved)[0])).toBe("Say thanks\nthen pause");
+  const xml = new TextDecoder().decode(
+    zip[
+      Object.keys(zip).find((name) =>
+        /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(name),
+      )
+    ],
+  );
+  expect(xml).toContain('<a:rPr lang="en-US" b="1"/><a:t>thanks</a:t>');
+  expect(xml).toContain('<a:pPr lvl="1"><a:buChar char="•"/></a:pPr>');
+});
+
 test("AutoCorrect corrects as you type", async ({ page }) => {
   await stub(page);
   await open(page, textDeck(["x"]));
