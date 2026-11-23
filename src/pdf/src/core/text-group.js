@@ -19,49 +19,80 @@ const get = (dict, key) => dict?.lookup(PDFName.of(key));
 const num = (n) => PDFNumber.of(n).toString();
 const pathKey = (r) => r.path.map((p) => p.start).join(':');
 
+/**
+ * Where `run` sits after `previous` on a line: its distance past the previous run's end along
+ * the baseline, and across it, in the line's height; null when the two cannot share a line.
+ */
+function spacing(previous, run) {
+  if (
+    !previous?.groupable ||
+    !run.groupable ||
+    previous.barrier !== run.barrier ||
+    previous.paragraphData !== run.paragraphData ||
+    pathKey(previous) !== pathKey(run)
+  )
+    return null;
+  const a = previous.transform,
+    b = run.transform,
+    scale = Math.hypot(a[0], a[1]),
+    height = Math.hypot(a[2], a[3]);
+  const ratio = Math.hypot(b[2], b[3]) / height;
+  const matching = a.slice(0, 4).every((n, i) => Math.abs(b[i] / ratio - n) < height * 0.005);
+  const end = [
+    a[4] + (a[0] * previous.advance) / previous.state.size,
+    a[5] + (a[1] * previous.advance) / previous.state.size,
+  ];
+  const dx = b[4] - end[0],
+    dy = b[5] - end[1],
+    across = (dx * a[0] + dy * a[1]) / scale,
+    vertical = (dy * a[0] - dx * a[1]) / scale;
+  return matching &&
+    ratio > 0.5 &&
+    ratio < 2 &&
+    Math.abs(vertical) < height * 0.04 &&
+    across >= -height * 0.08 &&
+    across <= height * 0.65
+    ? { dx, dy, across, height }
+    : null;
+}
+// A jump past a space that is already there: a tab, or a justified line's stretched spacing.
+const spaceJump = (place, before, after) =>
+  place && place.across > place.height * 0.12 && (/\s$/.test(before) || /^\s/.test(after));
+
 /** Join nearby, compatible baselines without crossing graphic/marked-content boundaries. */
 export function groupTextRuns(runs) {
   const groups = [];
-  for (const run of runs) {
-    if (!run.text && !(run.paragraphData && run.op === 'Tj')) continue;
+  const kept = runs.filter((run) => run.text || (run.paragraphData && run.op === 'Tj'));
+  // A justified line drawn word by word stretches every space on it by the same amount, where a
+  // tab jumps once: for each run, the next such jump further along its line.
+  const places = kept.map((run, i) => spacing(kept[i - 1], run));
+  const following = new Array(kept.length).fill(null);
+  for (let i = kept.length - 2; i >= 0; i--) {
+    const place = places[i + 1];
+    if (!place) continue;
+    following[i] = spaceJump(place, kept[i].text, kept[i + 1].text)
+      ? place.across / place.height
+      : following[i + 1];
+  }
+  for (const [index, run] of kept.entries()) {
     const last = groups.at(-1),
       parts = last?.parts || (last ? [last] : []),
       previous = parts.at(-1);
-    let gap;
-    if (
-      previous?.groupable &&
-      run.groupable &&
-      previous.barrier === run.barrier &&
-      previous.paragraphData === run.paragraphData &&
-      pathKey(previous) === pathKey(run)
-    ) {
-      const a = previous.transform,
-        b = run.transform,
-        scale = Math.hypot(a[0], a[1]),
-        height = Math.hypot(a[2], a[3]);
-      const ratio = Math.hypot(b[2], b[3]) / height;
-      const matching = a.slice(0, 4).every((n, i) => Math.abs(b[i] / ratio - n) < height * 0.005);
-      const end = [
-        a[4] + (a[0] * previous.advance) / previous.state.size,
-        a[5] + (a[1] * previous.advance) / previous.state.size,
-      ];
-      const dx = b[4] - end[0],
-        dy = b[5] - end[1],
-        across = (dx * a[0] + dy * a[1]) / scale,
-        vertical = (dy * a[0] - dx * a[1]) / scale;
+    const place = previous === kept[index - 1] ? places[index] : spacing(previous, run);
+    let gap,
+      stretch = null;
+    if (place && last.text.length + run.text.length < 5000) {
+      const jump = spaceJump(place, last.text, run.text) ? place.across / place.height : null;
+      // A jump beyond a space that is already there is a tab (Word's "1.<tab>Item"): a
+      // rewrite would collapse it to the space, so the two sides stay separate. A line
+      // justified word by word jumps as far after each of its spaces.
       if (
-        matching &&
-        ratio > 0.5 &&
-        ratio < 2 &&
-        Math.abs(vertical) < height * 0.04 &&
-        across >= -height * 0.08 &&
-        across <= height * 0.65 &&
-        // A jump beyond a space that is already there is a tab (Word's "1.<tab>Item"): a
-        // rewrite would collapse it to the space, so the two sides stay separate.
-        !(across > height * 0.12 && (/\s$/.test(last.text) || /^\s/.test(run.text))) &&
-        last.text.length + run.text.length < 5000
-      )
-        gap = [dx, dy, across, height];
+        jump === null ||
+        [last.stretch, following[index]].some((n) => n != null && Math.abs(n - jump) < 0.03)
+      ) {
+        gap = [place.dx, place.dy, place.across, place.height];
+        stretch = jump;
+      }
     }
     if (!gap) {
       groups.push(run);
@@ -72,6 +103,7 @@ export function groupTextRuns(runs) {
       groups[groups.length - 1] = group;
     }
     const group = groups.at(-1);
+    if (stretch !== null) group.stretch = stretch;
     if (gap[2] > gap[3] * 0.12 && !/\s$/.test(group.text) && !/^\s/.test(run.text))
       group.segments.push({ text: ' ', part: group.parts.length - 1, gap: [gap[0], gap[1]] });
     group.segments.push({ text: run.text, part: group.parts.length });

@@ -1078,3 +1078,33 @@ it('keeps a paragraph whole across a line that ends in a hyphenated word', async
     expect(blocks[0].text, hyphen).toContain('a short exam-ple of');
   }
 });
+
+it('joins a justified line drawn word by word, where every space stretches alike', async () => {
+  const doc = await PDFDocument.create(),
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  // Chrome and other renderers place each word of a justified line on its own, after the
+  // space that ends the word before it, and stretch each space by the same amount.
+  const words = ['Each ', 'word ', 'of ', 'this ', 'justified ', 'line'];
+  const line = (y, stretch) => {
+    let x = 40,
+      out = '';
+    for (const word of words) {
+      out += `1 0 0 1 ${x} ${y} Tm (${word}) Tj `;
+      x += font.widthOfTextAtSize(word, 18) + stretch;
+    }
+    return out;
+  };
+  const r = await read(
+    await fixture(
+      `BT /F 18 Tf ${line(300, 4)} ET BT /F 18 Tf 1 0 0 1 40 250 Tm (1. ) Tj 1 0 0 1 80 250 Tm (Item) Tj ET`,
+    ),
+  );
+  expect(r.groups.map((g) => g.text)).toEqual(['Each word of this justified line', '1. ', 'Item']);
+  // Spaces that stretch by different amounts are tabs to their stops, and stay apart.
+  const tabs = await read(
+    await fixture(
+      'BT /F 18 Tf 1 0 0 1 40 300 Tm (Name: ) Tj 1 0 0 1 106 300 Tm (Ada ) Tj 1 0 0 1 148 300 Tm (Lovelace) Tj ET',
+    ),
+  );
+  expect(tabs.groups.map((g) => g.text)).toEqual(['Name: ', 'Ada ', 'Lovelace']);
+});
