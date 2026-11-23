@@ -92,3 +92,17 @@ it('types a tab character in a cell with Option+Tab (Alt+Tab), keeping the caret
   editor.undo(); expect(editor.model.paragraphs.find(p => p.cellId === cell).runs.map(r => r.text).join('')).not.toMatch(/\t/);
   expect(calls.errors).toHaveLength(0);
 });
+
+it('keeps a block of cells in the first row of a table that starts the document when Shift+Up has nowhere to go', () => {
+  const host = document.createElement('div'); document.body.append(host);
+  const editor = new CanvasEditor(host, { paragraphs: [paragraph('')] });
+  editor.model.select(0); expect(editor.insertTable(3, 3)).toBe(true);
+  const table = editor.model.tables[0];
+  expect(editor.model.paragraphs[0].cellId).toBe(table.rows[0].cells[0].id);
+  editor.model.setCellBlock({ tableId: table.id, top: 0, bottom: 0, left: 1, right: 3 }); editor.syncInput();
+  const event = new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, cancelable: true });
+  editor.input.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  const block = editor.model.activeCellBlock;
+  expect(block && [block.top, block.bottom, block.left, block.right]).toEqual([0, 0, 1, 3]);
+});

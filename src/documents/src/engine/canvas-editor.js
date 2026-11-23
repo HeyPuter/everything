@@ -2475,8 +2475,9 @@ export class CanvasEditor {
     const rowIndex = dy > 0 ? (merge?.endRow ?? context.rowIndex) + 1 : dy < 0 ? (merge?.rowIndex ?? context.rowIndex) - 1 : context.rowIndex;
     const column = dx > 0 ? context.end : dx < 0 ? context.column - 1 : context.column;
     const row = table.rows[rowIndex];
-    // Up from the first row or Down from the last goes on out of the table, as a text selection.
-    if (!row) return false;
+    // Up from the first row or Down from the last goes on out of the table, as a text selection. Above a table that
+    // starts the document there is nothing to reach: the block stays (the text selection's start is its first cell).
+    if (!row) return dy < 0 && model.paragraphs.findIndex(p => p.cellId && cellContext(model.tables, p.cellId).table === table) === 0;
     const beside = rowGrid(row).find(c => c.column <= column && column < c.end)?.cell;
     // A cell merged down from above is selected through the cell it continues.
     const target = beside && (verticalMerges(table).get(beside.id)?.cell || beside);
