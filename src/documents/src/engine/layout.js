@@ -231,7 +231,18 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   let flowNames = paragraphCache && storyOptions.noteReserve !== undefined ? [] : null;
   // Where each page's footnote area ends: the bottom of its text area before notes (layoutWithFootnotes).
   const noteBottoms = [];
-  const pageKey = geometry => { let key = pageKeys.get(geometry); if (key === undefined) pageKeys.set(geometry, key = paragraphCache.intern(JSON.stringify(geometry))); return key; };
+  // A table cell's page is its table's page with the cell's geometry over it (cellPages): naming it by those
+  // two keeps a table of thousands of cells from serializing the whole page again for each cell on each keystroke.
+  const cellPages = new WeakMap();
+  const pageKey = geometry => {
+    let key = pageKeys.get(geometry);
+    if (key === undefined) {
+      const cell = cellPages.get(geometry);
+      key = paragraphCache.intern(cell ? `${pageKey(cell.page)}+${JSON.stringify(cell.geometry)}` : JSON.stringify(geometry));
+      pageKeys.set(geometry, key);
+    }
+    return key;
+  };
   // A screen view (web, draft, read) lays every section out on its own display geometry.
   const viewPage = storyOptions.viewGeometry || (geometry => geometry);
   page = viewPage(page);
@@ -471,6 +482,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
           const clipOverflow = flexibleCounts[rowIndex] === flexibleCounts[rowIndex + cell.rowSpan];
           const cellGeometry = { tableDepth: box.depth, allowOverflowIndents: true, clipOverflow, left: box.x + margins.left / 15, right: page.width - x + margins.right / 15, top: page.top + margins.top / 15, bottom: page.bottom + margins.bottom / 15 };
           const cellPage = { ...page, ...cellGeometry };
+          if (paragraphCache) cellPages.set(cellPage, { page, geometry: cellGeometry });
           if (flowNames) paragraphCache.cellPage(cellPage, pageKey(page), cellGeometry);
           if (cellPage.left >= page.width - cellPage.right) throw new Error('Cell margins leave no writing space.');
           const nestedFloats = [];

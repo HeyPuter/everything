@@ -202,6 +202,30 @@ it('reuses table cell paragraphs that did not change, with the same layout as a 
   expect(plain(typed)).toEqual(plain(lay(doc, metrics)));
 });
 
+it('names each table cell\'s page by its table\'s page and the cell\'s geometry, not by serializing it again', () => {
+  const doc = new TextDocument([paragraph('Intro'), paragraph('')]);
+  doc.select(6); doc.insertTable(30, 3);
+  doc.paragraphs.filter(p => p.cellId).forEach((p, i) => { p.runs = [{ ...doc.paragraphs[0].runs[0], text: `Cell ${i} ${sentence(i)}` }]; });
+  // A table nested in a cell takes its cells' pages from that cell's page.
+  doc.select(doc.text.indexOf('Cell 4 ')); doc.insertTable(2, 2, 2000);
+  expect(doc.tables.some(table => table.parentCellId)).toBe(true);
+  const { measure, cache } = cachedMeasure();
+  lay(doc, measure);
+  const interned = [], intern = cache.intern.bind(cache);
+  vi.spyOn(cache, 'intern').mockImplementation(text => { interned.push(text); return intern(text); });
+  doc.select(2); doc.replace('typed ');
+  cache.nextGeneration();
+  const edited = lay(doc, measure);
+  expect(interned.length).toBeGreaterThan(0);
+  // Each of the table's 90 cells once held a serialization of the whole page, read again on every layout.
+  expect(interned.filter(text => text.startsWith('{') && text.includes('"tableDepth"'))).toEqual([]);
+  expect(plain(edited)).toEqual(plain(lay(doc, metrics)));
+  // Changing a cell's geometry (its column's width) measures its paragraphs at the new width.
+  doc.tables[0].grid = doc.tables[0].grid.map((width, i) => (i === 1 ? width / 2 : width));
+  cache.nextGeneration();
+  expect(plain(lay(doc, measure))).toEqual(plain(lay(doc, metrics)));
+});
+
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });
 it('measures an AutoFit table\'s cells for its column widths only when they change', () => {
   const doc = new TextDocument([paragraph('Intro'), paragraph('')]);
