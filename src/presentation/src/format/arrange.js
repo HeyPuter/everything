@@ -378,7 +378,9 @@ export function selectionPaneContent(ctx) {
         if (done) return;
         done = true;
         const value = input.value.trim();
+        const focused = document.activeElement === input;
         input.replaceWith(name);
+        if (focused) name.focus({ preventScroll: true });
         if (save && value && value !== item.label) ctx.rename(item.id, value);
       };
       input.addEventListener("keydown", (e) => {

@@ -1549,7 +1549,23 @@ export function createFormatTools(ctx) {
       return;
     }
     paneKey = content.key;
+    // A reorder, a rename or a change of visibility from the keyboard
+    // rebuilds the list; the keyboard stays on the same control of the
+    // same row, so Alt+Up can be pressed again.
+    const active = container.contains(document.activeElement)
+      ? document.activeElement
+      : null;
+    const row = active?.closest("li[data-id]");
+    const control = ["selection-name", "selection-eye"].find((name) =>
+      active?.classList.contains(name),
+    );
     container.replaceChildren(header, ...content.nodes);
+    if (row && control)
+      container
+        .querySelector(
+          `li[data-id="${CSS.escape(row.dataset.id)}"] .${control}`,
+        )
+        ?.focus({ preventScroll: true });
   }
   function selectionPane() {
     const target = ctx.slide();

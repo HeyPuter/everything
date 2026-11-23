@@ -82,6 +82,41 @@ test("the Selection Pane takes the keyboard, marks the selection, and gives the 
   await expect(page.locator("#main")).toBeFocused();
 });
 
+// The pane's list was rebuilt after each change, dropping the keyboard on
+// the page: a second Alt+Down did nothing.
+test("the Selection Pane keeps the keyboard on the row it reorders, renames or hides", async ({
+  page,
+}) => {
+  await start(page);
+  for (const name of ["Rectangle", "Circle", "Triangle"])
+    await addShape(page, name);
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  const names = pane.locator(".selection-name");
+  await expect(names).toHaveText([/^Triangle/, /^Circle/, /^Rectangle/]);
+  const triangle = pane.getByRole("button", { name: /^Triangle/ });
+  await expect(triangle).toBeFocused();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(names).toHaveText([/^Circle/, /^Triangle/, /^Rectangle/]);
+  await expect(triangle).toBeFocused();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(names).toHaveText([/^Circle/, /^Rectangle/, /^Triangle/]);
+  await expect(triangle).toBeFocused();
+  await page.keyboard.press("F2");
+  await pane.getByRole("textbox").fill("Peak");
+  await page.keyboard.press("Enter");
+  await expect(names).toHaveText([/^Circle/, /^Rectangle/, "Peak"]);
+  const peak = pane.getByRole("button", { name: "Peak", exact: true });
+  await expect(peak).toBeFocused();
+  await page.keyboard.press("Tab");
+  const eye = pane.getByRole("button", { name: "Hide Peak" });
+  await expect(eye).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(pane.locator("li.hidden-object")).toHaveCount(1);
+  await expect(pane.getByRole("button", { name: "Show Peak" })).toBeFocused();
+});
+
 test("rotate, the Size and Rotation dialog, Regroup and aligning to the slide", async ({
   page,
 }) => {
