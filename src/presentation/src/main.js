@@ -8727,6 +8727,42 @@ function navigatorSlideXml(pkg, s, part) {
   if (data) navigatorXml.set(s, { data, xml });
   return xml;
 }
+// What each navigator row was last worked out from, by slide: its place,
+// whether it was chosen, and what its name, field, SmartArt and template
+// stamps came to. An edit that changed nothing but some slides' own XML
+// leaves every other row as it was worked out (same slide, same place, the
+// rest of the file and its field date unchanged), so those rows are not
+// worked out again.
+const navigatorRows = new WeakMap();
+let navigatorParts = null;
+// The slide parts changed since the navigator was last drawn from this
+// package, or null when anything else changed (or it is another package).
+function navigatorSlideChanges(pres, pkg) {
+  const last = navigatorParts;
+  const date = P.getPresentationFieldDate(pres).getTime();
+  navigatorParts = {
+    pkg,
+    date,
+    data: new Map(pkg.parts.map((part) => [part.name, part.data])),
+    types: new Map(pkg.parts.map((part) => [part.name, part.contentType])),
+  };
+  if (last?.pkg !== pkg || last.date !== date) return null;
+  if (last.data.size !== pkg.parts.length) return null;
+  const changed = new Set();
+  for (const part of pkg.parts) {
+    if (!last.data.has(part.name)) return null;
+    if (last.data.get(part.name) === part.data) continue;
+    if (
+      part.contentType !== SLIDE_PART_TYPE ||
+      last.types.get(part.name) !== part.contentType
+    )
+      return null;
+    changed.add(part.name);
+  }
+  return changed;
+}
+const SLIDE_PART_TYPE =
+  "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
 function renderSlideArea(refreshNavigator = true) {
   if (view !== "editor") return;
   const focusSelection = document.activeElement?.matches(
@@ -8797,15 +8833,24 @@ function renderSlideArea(refreshNavigator = true) {
       ]),
     );
     const pkg = P._internalPackageOf(doc.pres);
+    const changedSlides = navigatorSlideChanges(doc.pres, pkg);
     all.forEach((s, i) => {
       const part = P.getSlidePartName(s);
       const xml = navigatorSlideXml(pkg, s, part);
       const cached = previous.get(part);
       const distance = Math.abs(i - index);
-      const fields = slideFieldStamp(doc.pres, s);
-      const diagrams = slideDiagramDataStamp(doc.pres, s);
+      const chosen = chosenParts.size > 1 && chosenParts.has(part);
+      const last =
+        changedSlides && !changedSlides.has(part) && rows.has(part)
+          ? navigatorRows.get(s)
+          : null;
+      const same = !!last && last.index === i && last.chosen === chosen;
+      const fields = same ? last.fields : slideFieldStamp(doc.pres, s);
+      const diagrams = same
+        ? last.diagrams
+        : slideDiagramDataStamp(doc.pres, s);
       // A slide also redraws when its layout, master or theme changed.
-      const template = templateStamp(doc.pres, s);
+      const template = same ? last.template : templateStamp(doc.pres, s);
       const src =
         cached?.xml === xml &&
         cached.template === template &&
@@ -8822,7 +8867,6 @@ function renderSlideArea(refreshNavigator = true) {
       // Hidden slides stay editable but are skipped when presenting and
       // printing, so the navigator says so.
       const hidden = P.isSlideHidden(s);
-      const chosen = chosenParts.size > 1 && chosenParts.has(part);
       let row = rows.get(part);
       rows.delete(part);
       if (!row) row = slideRow(part);
@@ -8844,10 +8888,12 @@ function renderSlideArea(refreshNavigator = true) {
       const number = row.querySelector(".slide-number");
       if (number.textContent !== String(i + 1)) number.textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
-      const label = thumbLabel(s, i, chosen);
-      if (thumb.getAttribute("aria-label") !== label)
-        thumb.setAttribute("aria-label", label);
-      review.decorateThumb(thumb, s);
+      if (!same) {
+        const label = thumbLabel(s, i, chosen);
+        if (thumb.getAttribute("aria-label") !== label)
+          thumb.setAttribute("aria-label", label);
+        review.decorateThumb(thumb, s);
+      }
       if (i !== index) thumb.removeAttribute("aria-current");
       else if (thumb.getAttribute("aria-current") !== "true")
         thumb.setAttribute("aria-current", "true");
@@ -8857,7 +8903,8 @@ function renderSlideArea(refreshNavigator = true) {
           el("span", { class: "slide-hidden" }, icon("EyeOff", 11), "Hidden"),
         );
       else if (!hidden && badge) badge.remove();
-      transitionTools.markRow(row, s, i + 1);
+      if (!same) transitionTools.markRow(row, s, i + 1);
+      navigatorRows.set(s, { index: i, chosen, fields, diagrams, template });
       const options = row.querySelector(":scope > .icon-btn");
       if (options.getAttribute("aria-label") !== `Options for slide ${i + 1}`)
         options.setAttribute("aria-label", `Options for slide ${i + 1}`);

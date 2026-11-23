@@ -172,6 +172,36 @@ test("comments: post, mention, reply and resolve, saved as threaded comments", a
 
 // Going to another slide rewrote every thumbnail's label, dropping the
 // comment count the thumbnails pane gives a slide with comments.
+// An edit to one slide leaves the other thumbnails as they were worked
+// out: their names, comment counts and numbers stay right.
+test("an edit on one slide leaves the other thumbnails' names and counts as they were", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = createDeck("pitch");
+  const slides = P.getSlides(pres);
+  P.setSlideCommentThreads(slides[1], [
+    { author: { name: "Grace" }, text: "On two" },
+  ]);
+  await open(page, pres);
+  const thumb = (i) => page.locator(".slide-item .slide-thumb").nth(i);
+  const labels = async () =>
+    page
+      .locator(".slide-item .slide-thumb")
+      .evaluateAll((all) => all.map((t) => t.getAttribute("aria-label")));
+  const before = await labels();
+  expect(before[1]).toMatch(/, 1 comment$/);
+  await page.locator("#slide-canvas .object-hit").first().click();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(
+    page.getByRole("button", { name: "Undo", exact: true }),
+  ).toBeEnabled();
+  await page.waitForTimeout(300);
+  expect((await labels()).slice(1)).toEqual(before.slice(1));
+  await expect(thumb(1)).toHaveAttribute("aria-label", /, 1 comment$/);
+});
+
 test("thumbnails keep their comment count in their names as slides are chosen", async ({
   page,
 }) => {
