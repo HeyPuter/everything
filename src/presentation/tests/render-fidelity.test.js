@@ -535,3 +535,63 @@ describe("soft edges", () => {
     expect(order.at(-1)).toMatch(/^softOut/);
   });
 });
+
+describe("stacked text", () => {
+  const stacked = async (vert) => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    const para = (t) =>
+      `<a:p><a:r><a:rPr lang="en-US" sz="2000"/><a:t>${t}</a:t></a:r></a:p>`;
+    const sp = `<p:sp><p:nvSpPr><p:cNvPr id="9" name="T"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="1828800" cy="3657600"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr vert="${vert}"/><a:lstStyle/>${para("AB")}${para("CD")}</p:txBody></p:sp>`;
+    files[name] = strToU8(
+      strFromU8(files[name]).replace("</p:spTree>", `${sp}</p:spTree>`),
+    );
+    const loaded = await parseDeck(zipSync(files));
+    const svg = renderSlideToSvg(loaded, P.getSlides(loaded)[0], {
+      textLayout: "svg",
+      measureText: (value, spec) => ({
+        widthPx: [...value].length * spec.sizePx * 0.6,
+        ascentPx: spec.sizePx * 0.9,
+        descentPx: spec.sizePx * 0.2,
+        lineGapPx: 0,
+      }),
+    });
+    const at = { turn: /rotate\((\d+) /.exec(svg)?.[1] ?? null };
+    for (const m of svg.matchAll(
+      /<text x="([\d.]+)" y="([\d.]+)"[^>]*>(?:<[^>]+>)*([A-D])/g,
+    ))
+      at[m[3]] = [Number(m[1]), Number(m[2])];
+    return at;
+  };
+
+  it("puts each paragraph in its own column, from the left", async () => {
+    const at = await stacked("wordArtVert");
+    // Letters of a paragraph stand one above another.
+    expect(at.B[0]).toBe(at.A[0]);
+    expect(at.B[1]).toBeGreaterThan(at.A[1]);
+    // The next paragraph starts a column to the right, at the top.
+    expect(at.C[0]).toBeGreaterThan(at.A[0]);
+    expect(at.C[1]).toBe(at.A[1]);
+  });
+
+  it("lines the columns up from the right for right-to-left stacking", async () => {
+    const at = await stacked("wordArtVertRtl");
+    expect(at.C[0]).toBeLessThan(at.A[0]);
+    expect(at.C[1]).toBe(at.A[1]);
+    // The first column sits at the box's right side.
+    expect(at.A[0]).toBeGreaterThan(96 + 96);
+  });
+
+  it("turns Mongolian text clockwise with its lines running left to right", async () => {
+    const vert = await stacked("vert");
+    const mongolian = await stacked("mongolianVert");
+    // Both are drawn turned a quarter turn clockwise ...
+    // ... but where vertical text starts its first line at the right (the
+    // top of the turned frame), Mongolian starts it at the left.
+    expect([vert.turn, mongolian.turn]).toEqual(["90", "90"]);
+    expect(vert.A[1]).toBeLessThan(vert.C[1]);
+    expect(mongolian.A[1]).toBeGreaterThan(mongolian.C[1]);
+  });
+});

@@ -2353,6 +2353,10 @@ export interface SvgTextArgs {
   readonly measure: TextMeasurer;
   readonly vert: VerticalLayout;
   /** East Asian vertical text (`eaVert`): its ideographs stand upright. */
+  /** Stacked text whose columns run right to left (`wordArtVertRtl`). */
+  readonly stackRightToLeft?: boolean;
+  /** Turned lines that follow one another left to right (`mongolianVert`). */
+  readonly linesLeftToRight?: boolean;
   readonly uprightEastAsian?: boolean;
   readonly columns: ColumnLayout | null;
   /** Maps an authored font name onto the family the measurer keys off.
@@ -2474,24 +2478,21 @@ const alignOf = (a: string): ParaInput["align"] =>
 // glyphs stay UPRIGHT and stack, not rotated — matching the browser path's
 // `text-orientation:upright` and the native reference renderers.
 //
-// KNOWN DIVERGENCE (overflow only): when an upright run is taller than its box,
-// the browser path wraps the overflow into a second column (CSS writing-mode),
-// while the SVG path stacks it as one column that clips at the box edge. Both
-// agree for text that fits; they differ only past the box, where the deck is
-// already out of spec. Faithful multi-column upright wrapping in the SVG engine
-// is disproportionate to that edge case, so we accept the clip.
+// Each paragraph of stacked text takes a column of its own, and one taller
+// than the box continues in the next column; `wordArtVertRtl` lines the
+// columns up from the right (see placeStacked).
 export const verticalLayoutOf = (
   vert: ReturnType<typeof getShapeTextDirection>,
 ): VerticalLayout => {
   switch (vert) {
     case "vert":
     case "eaVert":
+    case "mongolianVert":
       return "cw90";
     case "wordArtVert":
     case "wordArtVertRtl":
       return "upright";
     case "vert270":
-    case "mongolianVert":
       return "cw270";
     case null:
       return "none";
@@ -2698,6 +2699,8 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
     paragraphs,
     vert: a.vert,
     ...(a.uprightEastAsian ? { uprightEastAsian: true } : {}),
+    ...(a.stackRightToLeft ? { stackRightToLeft: true } : {}),
+    ...(a.linesLeftToRight ? { linesLeftToRight: true } : {}),
     columns: a.columns,
   };
   return input;
@@ -3609,6 +3612,8 @@ const renderTextBody = (
       measure: ctx.measure,
       vert: svgVert,
       ...(authoredVert === "eaVert" ? { uprightEastAsian: true } : {}),
+      ...(authoredVert === "wordArtVertRtl" ? { stackRightToLeft: true } : {}),
+      ...(authoredVert === "mongolianVert" ? { linesLeftToRight: true } : {}),
       ...(effectiveBody.anchorCenter ? { anchorCenter: true } : {}),
       columns: svgColumns,
       resolveFamily: ctx.resolveFamily,
