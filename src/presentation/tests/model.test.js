@@ -932,6 +932,26 @@ describe("file validation", () => {
       expect(await picture(await P.savePresentation(opened))).toEqual(png);
     },
   );
+  it.each(['cx="abc" cy="6858000"', 'cx="0" cy="0"'])(
+    "gives a presentation whose slide size is no size (%s) the widescreen size",
+    async (attrs) => {
+      const entries = unzipSync(await P.savePresentation(createDeck("story")));
+      const name = "ppt/presentation.xml";
+      entries[name] = strToU8(
+        new TextDecoder()
+          .decode(entries[name])
+          .replace(/<p:sldSz[^>]*\/>/, `<p:sldSz ${attrs}/>`),
+      );
+      const pres = await parseDeck(zipSync(entries));
+      expect(P.getSlideSize(pres)).toMatchObject({
+        width: 12192000,
+        height: 6858000,
+      });
+      expect(decodeURIComponent(preview(pres, P.getSlides(pres)[0]))).toContain(
+        'viewBox="0 0 1280.00 720.00"',
+      );
+    },
+  );
   it("normalizes file names without allowing path traversal", () => {
     expect(cleanName("../a\\b\u0000.pptx")).toBe(".. a b");
     expect(cleanName("")).toBe("Untitled presentation");

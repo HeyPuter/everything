@@ -22,6 +22,7 @@ import {
   type PresentationData,
 } from "../_internal-symbols.ts";
 import { encode } from "./_helpers.ts";
+import { SLIDE_SIZE_16_9, getSlideSize, setSlideSize } from "./slide-size.ts";
 
 const MAIN_TYPE =
   /presentationml\.(?:presentation|template|slideshow)\.main\+xml$|macroEnabled\.main\+xml$/;
@@ -112,8 +113,8 @@ const repairRootRels = (pkg: OpcPackage): boolean => {
  * that master; a slide whose layout is missing and listed by no master uses
  * its master's first layout. A relationship that spells a part's name
  * percent-encoded where the archive spells it out, or the other way round,
- * leads to the part as the archive spells it. True when anything was
- * repaired.
+ * leads to the part as the archive spells it, and a slide size that is no
+ * size at all becomes widescreen. True when anything was repaired.
  */
 export const repairPackage = (pres: PresentationData): boolean => {
   const pkg = pres[INTERNAL_PACKAGE];
@@ -204,6 +205,22 @@ export const repairPackage = (pres: PresentationData): boolean => {
     if (!rel || !missing(owner, rel.target) || !firstLayout) continue;
     rel.target = relativeTarget(owner, firstLayout);
     pkg.setRels(owner, rels);
+    changed = true;
+  }
+  // A slide size that is no size at all ("0", or not a number) left every
+  // slide blank and no slide could be exported; the slides take the usual
+  // widescreen size.
+  const size = getSlideSize(pres);
+  if (
+    size &&
+    !(
+      Number.isFinite(size.width) &&
+      Number.isFinite(size.height) &&
+      size.width > 0 &&
+      size.height > 0
+    )
+  ) {
+    setSlideSize(pres, SLIDE_SIZE_16_9);
     changed = true;
   }
   if (changed) pres._slidesCache = null;
