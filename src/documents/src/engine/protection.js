@@ -59,13 +59,30 @@ const concat = (a, b) => { const out = new Uint8Array(a.length + b.length); out.
  * for n = 0 … spinCount−1. With `legacy` the input is the legacy key text, otherwise the password, both
  * as UTF-16LE. Returns the digest bytes.
  */
-export function iteratedHash(password, { algorithm = 'SHA-512', salt, spinCount = DEFAULT_SPIN_COUNT, legacy = true } = {}) {
+export function iteratedHash(password, options = {}) {
+  const steps = hashSteps(password, options);
+  for (let step = steps.next(); ; step = steps.next()) if (step.done) return step.value;
+}
+/**
+ * iteratedHash, giving the page back every `chunk` rounds: the 100,000 rounds of a password check took about half a
+ * second, during which the page did not respond. The result is the same.
+ */
+export async function iteratedHashYielding(password, options = {}, { chunk = 4000 } = {}) {
+  const steps = hashSteps(password, options, chunk);
+  for (let step = steps.next(); ; step = steps.next()) {
+    if (step.done) return step.value;
+    // scheduler.yield() where there is one: a nested timeout waits at least 4 ms each time.
+    await (typeof globalThis.scheduler?.yield === 'function' ? globalThis.scheduler.yield() : new Promise(resolve => setTimeout(resolve, 0)));
+  }
+}
+function* hashSteps(password, { algorithm = 'SHA-512', salt, spinCount = DEFAULT_SPIN_COUNT, legacy = true } = {}, chunk = Infinity) {
   if (!Object.values(ALGORITHM_SIDS).includes(algorithm)) throw new Error(`Unsupported protection hash algorithm: ${algorithm}.`);
   if (!Number.isInteger(spinCount) || spinCount < 0 || spinCount > 10000000) throw new Error('Invalid protection spin count.');
   const input = utf16le(legacy ? legacyKeyText(legacyPasswordKey(password)) : String(password));
   let hash = digest(algorithm, concat(salt || new Uint8Array(), input));
   const buffer = new Uint8Array(hash.length + 4), view = new DataView(buffer.buffer);
   for (let i = 0; i < spinCount; i++) {
+    if (i && i % chunk === 0) yield;
     buffer.set(hash); view.setUint32(hash.length, i, true);
     hash = digest(algorithm, buffer);
   }
@@ -76,7 +93,7 @@ export function iteratedHash(password, { algorithm = 'SHA-512', salt, spinCount 
 export async function createPasswordVerifier(password, { algorithm = 'SHA-512', spinCount = DEFAULT_SPIN_COUNT, salt } = {}) {
   if (!password) return null;
   salt ||= globalThis.crypto.getRandomValues(new Uint8Array(16));
-  const hash = iteratedHash(password, { algorithm, salt, spinCount, legacy: true });
+  const hash = await iteratedHashYielding(password, { algorithm, salt, spinCount, legacy: true });
   return { algorithmName: algorithm, hashValue: bytesToBase64(hash), saltValue: bytesToBase64(salt), spinCount };
 }
 
@@ -92,7 +109,7 @@ export async function verifyPassword(password, protection) {
   const spinCount = Number(protection.spinCount ?? protection.cryptSpinCount ?? 0);
   const expected = protection.hashValue ?? protection.hash;
   for (const legacy of [true, false]) {
-    if (bytesToBase64(iteratedHash(password, { algorithm, salt, spinCount, legacy })) === String(expected).trim()) return true;
+    if (bytesToBase64(await iteratedHashYielding(password, { algorithm, salt, spinCount, legacy })) === String(expected).trim()) return true;
   }
   return false;
 }
