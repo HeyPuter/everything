@@ -2573,8 +2573,13 @@ export class DocxPackage {
     const sectionSource = p => p.sectionProperties ? { xml: p.sectionProperties, settings: sourceSections.get(p.sectionProperties) || p.sectionEnd } : finalSource;
     if (section) writePageSettings(section, pageSettings, this.initialPageSettings, make, !this.originals.size);
     const writeParagraph = paragraphWriter(doc, styles, numbering, this.originals, writeImage, writeLink, sectionSource);
-    // The final paragraph the reader added to a body without one stays out of the file while it is untouched.
-    blocks = blocks.filter(block => { const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id); return !(original?.added && original.signature === signature(block.paragraph)); });
+    // The final paragraph the reader added to a body without one stays out of the file while it is untouched and
+    // still ends the body after what needed it (nothing, a section break or a table). Once that table is gone or text
+    // follows it, it is a paragraph of the document like any other.
+    blocks = blocks.filter((block, i) => {
+      const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id), before = blocks[i - 1];
+      return !(original?.added && original.signature === signature(block.paragraph) && i === blocks.length - 1 && (!before || before.type === 'table' || before.paragraph?.sectionEnd));
+    });
     appendControlledBlocks(body, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc, null, section || null);
     writeParagraph.finish();
     const sectionParagraphs = paragraphs.filter(p => p.sectionEnd);

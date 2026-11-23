@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createDocx, DocxPackage, W } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { partsBlob } from '../src/engine/package-design.js';
+import { convertTableToText } from '../src/engine/table-editing.js';
 
 let dom;
 beforeAll(() => {
@@ -279,5 +280,18 @@ describe('documents without a final paragraph', () => {
     const body = new DOMParser().parseFromString(strFromU8(unzipSync(await bytes(pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables)))['word/document.xml']), 'application/xml').getElementsByTagNameNS(W, 'body')[0];
     expect([...body.children].map(n => n.localName)).toEqual(['p', 'tbl', 'sectPr']);
     expect(body.textContent).toBe('Annual ReportCell');
+  });
+
+  it('saves the added final paragraph once the table it followed is gone', async () => {
+    const table = '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="5000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>One</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Two</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+    const pkg = await DocxPackage.open(styled(`<w:p><w:r><w:t>Report</w:t></w:r></w:p>${table}`));
+    const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    // The table's rows become paragraphs; the empty paragraph after them stays, as the editor shows it.
+    doc.select(doc.text.indexOf('One'));
+    expect(convertTableToText(doc, { separator: 'tab' })).toBe(true);
+    expect(doc.paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(['Report', 'One', 'Two', '']);
+    const saved = await bytes(pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables));
+    const reopened = await DocxPackage.open(saved);
+    expect(reopened.paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(['Report', 'One', 'Two', '']);
   });
 });
