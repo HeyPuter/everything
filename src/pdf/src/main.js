@@ -1056,6 +1056,8 @@ function showHome({ accountRefresh = false } = {}) {
             await settleAccount(signal);
             download(bytes, file.name);
             d.close();
+            // As the editor's Download says, and as the other actions below say what they did.
+            toast('PDF downloaded.');
           }),
         ),
         button(
@@ -1074,8 +1076,9 @@ function showHome({ accountRefresh = false } = {}) {
               await settleAccount(signal);
               // An unchanged name is no rename: Puter would refuse it as a name already taken.
               if (!name || safeName(name) === file.name || signal.aborted) return;
+              let renamed;
               try {
-                await P.renameFile(file.path, name);
+                renamed = P.fileInfo(await P.renameFile(file.path, name));
               } catch (error) {
                 // Someone who has moved on to another dialog meanwhile gets the message alone,
                 // rather than the question taking over the dialog they are in.
@@ -1090,7 +1093,9 @@ function showHome({ accountRefresh = false } = {}) {
                 refusal = error?.message || error?.error?.message || 'This name could not be used.';
                 continue;
               }
-              if (!signal.aborted) refreshAfterAction();
+              if (signal.aborted) return;
+              refreshAfterAction();
+              toast(`Renamed to ${renamed?.name || safeName(name)}.`);
               return;
             }
           }),
@@ -1110,9 +1115,13 @@ function showHome({ accountRefresh = false } = {}) {
               if (signal.aborted) return;
               throw error;
             }
-            await P.saveFile(file.name.replace(/\.pdf$/i, ' copy'), bytes);
+            const name = file.name.replace(/\.pdf$/i, ' copy');
+            const copy = P.fileInfo(await P.saveFile(name, bytes));
             d.close();
-            if (!signal.aborted) refreshAfterAction();
+            if (signal.aborted) return;
+            refreshAfterAction();
+            // Puter numbers a name already taken, so the copy is named as it was saved.
+            toast(`Saved a copy as ${copy?.name || safeName(name)}.`);
           }),
         ),
         button(
@@ -1131,7 +1140,9 @@ function showHome({ accountRefresh = false } = {}) {
               await settleAccount(signal);
               if (signal.aborted) return;
               await P.deleteFile(file.path);
-              if (!signal.aborted) refreshAfterAction();
+              if (signal.aborted) return;
+              refreshAfterAction();
+              toast(`${file.name} deleted.`);
             }
           }),
           'btn danger',
