@@ -16,7 +16,7 @@ const field = (instruction, cached = '1', lock = false) => `<w:fldSimple w:instr
 const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 /** Independently written: PAGE fields on the first and third pages, numbered in lower-case Roman numerals from ii. */
 function fixture() {
-  const body = `<w:p><w:r><w:t xml:space="preserve">First page </w:t></w:r>${field(' PAGE ')}</w:p>${pageBreak}${pageBreak}`
+  const body = `<w:p><w:r><w:t xml:space="preserve">First page </w:t></w:r>${field(' PAGE ')}<w:r><w:t xml:space="preserve"> of </w:t></w:r>${field(' SECTIONPAGES ')}</w:p>${pageBreak}${pageBreak}`
     + `<w:p><w:r><w:t xml:space="preserve">Third page </w:t></w:r>${field(' PAGE ')}<w:r><w:t xml:space="preserve"> as </w:t></w:r>${field(' PAGE \\* Arabic ')}`
     + `<w:r><w:t xml:space="preserve"> locked </w:t></w:r>${field(' PAGE ', '7', true)}<w:r><w:t xml:space="preserve"> see </w:t></w:r>${field(' PAGEREF Mark ', '9')}</w:p>`
     + `<w:p><w:bookmarkStart w:id="1" w:name="Mark"/><w:r><w:t>Target</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>`
@@ -34,17 +34,17 @@ const save = async (p, d) => new Uint8Array(await p.export(d.paragraphs, d.pageS
 
 // Update Fields (F9) gave a PAGE field in the text the number of the page it was inserted on for good: after text
 // moved it to another page it still showed the old number, while NUMPAGES beside it ("Page 1 of 3") updated.
-it('gives PAGE fields in the text the number of the page they are on when asked, as the section numbers it', async () => {
+it('gives PAGE and SECTIONPAGES fields in the text the numbers of the pages they are on when asked', async () => {
   const p = await DocxPackage.open(fixture()), d = model(p);
-  expect(values(d)).toEqual(['1', '1', '1', '7', '9']);
+  expect(values(d)).toEqual(['1', '1', '1', '1', '7', '9']);
   // Page references alone (inserting a table of contents, a cross-reference) leave PAGE fields as they are.
   refreshPageReferences(d, layoutOf(p), p.pageStories);
-  expect(values(d)).toEqual(['1', '1', '1', '7', 'iv']);
+  expect(values(d)).toEqual(['1', '1', '1', '1', '7', 'iv']);
   const result = refreshPageReferences(d, layoutOf(p), p.pageStories, { pageFields: true });
-  expect(result.changed).toBe(3);
-  // The first page is ii, the third iv; \* Arabic shows 4; a locked field keeps its result.
-  expect(values(d)).toEqual(['ii', 'iv', '4', '7', 'iv']);
+  expect(result.changed).toBe(4);
+  // The first page is ii of the section's 3, the third iv; \* Arabic shows 4; a locked field keeps its result.
+  expect(values(d)).toEqual(['ii', '3', 'iv', '4', '7', 'iv']);
   expect(values(model(await DocxPackage.open(await save(p, d))))).toEqual(values(d));
   d.undo();
-  expect(values(d)).toEqual(['1', '1', '1', '7', 'iv']);
+  expect(values(d)).toEqual(['1', '1', '1', '1', '7', 'iv']);
 });
