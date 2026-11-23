@@ -35,7 +35,7 @@ test('inserts a shape, formats and resizes it, and saves editable DrawingML', as
   await width.fill('2'); await width.press('Enter');
   await expect(width).toHaveValue('2');
   // Dragging a corner handle resizes the shape too.
-  const handle = page.getByRole('button', { name: 'Resize image se' });
+  const handle = page.getByRole('button', { name: 'Resize from bottom-right corner' });
   const box = await handle.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
   await page.mouse.move(box.x + 60, box.y + 40, { steps: 5 }); await page.mouse.up();

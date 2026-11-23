@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, existsSync } from 'node:fs';
+const HANDLE_NAMES = { nw: 'Resize from top-left corner', n: 'Resize from top edge', ne: 'Resize from top-right corner', e: 'Resize from right edge', se: 'Resize from bottom-right corner', s: 'Resize from bottom edge', sw: 'Resize from bottom-left corner', w: 'Resize from left edge' };
 
 // Direct manipulation of drawings: eight resize handles, rotation, guides, nudging, multi-selection,
 // crop mode and the Layout Options button, on an editor holding two floating pictures and an inline one.
@@ -57,16 +58,16 @@ const shot = (page, name) => SHOTS && existsSync(SHOTS) ? page.screenshot({ path
 test('edge handles resize one side; the rotation handle snaps to 15° with Shift', async ({ page }) => {
   await open(page);
   await select(page, 2);
-  for (const handle of ['n', 'e', 's', 'w', 'nw', 'ne', 'sw', 'se']) await expect(host(page).getByRole('button', { name: `Resize image ${handle}`, exact: true })).toBeVisible();
+  for (const handle of ['n', 'e', 's', 'w', 'nw', 'ne', 'sw', 'se']) await expect(host(page).getByRole('button', { name: HANDLE_NAMES[handle], exact: true })).toBeVisible();
   await expect(host(page).getByRole('button', { name: 'Layout Options' })).toBeVisible();
   await shot(page, 'handles-1440');
   const before = await state(page, 2);
-  await drag(page, host(page).getByRole('button', { name: 'Resize image e', exact: true }), 30, 12);
+  await drag(page, host(page).getByRole('button', { name: 'Resize from right edge', exact: true }), 30, 12);
   const wider = await state(page, 2);
   expect(wider.width - before.width).toBeCloseTo(30 * 9525, -3);
   expect(wider.height).toBe(before.height);
   expect(wider.frame.x).toBeCloseTo(before.frame.x, 1);
-  await drag(page, host(page).getByRole('button', { name: 'Resize image n', exact: true }), 5, -20);
+  await drag(page, host(page).getByRole('button', { name: 'Resize from top edge', exact: true }), 5, -20);
   const taller = await state(page, 2);
   expect(taller.width).toBe(wider.width);
   expect(taller.height - wider.height).toBeCloseTo(20 * 9525, -3);
@@ -90,7 +91,7 @@ test('edge handles resize one side; the rotation handle snaps to 15° with Shift
 test('arrow keys on a resize handle move it as dragging would', async ({ page }) => {
   await open(page);
   await select(page, 2);
-  const press = async (handle, key, times = 4) => { const button = host(page).getByRole('button', { name: `Resize image ${handle}`, exact: true }); await button.focus(); for (let i = 0; i < times; i++) await button.press(key); };
+  const press = async (handle, key, times = 4) => { const button = host(page).getByRole('button', { name: HANDLE_NAMES[handle], exact: true }); await button.focus(); for (let i = 0; i < times; i++) await button.press(key); };
   const before = await state(page, 2);
   // Up on the top handle grows the picture upward; its bottom stays put.
   await press('n', 'ArrowUp');
@@ -270,7 +271,7 @@ test('handles at phone width and without a layout-options hook', async ({ page }
   await open(page, { width: 390, layoutOptions: false });
   await page.evaluate(() => window.e.setZoom(0.45));
   await select(page, 2);
-  await expect(host(page).getByRole('button', { name: 'Resize image se', exact: true })).toBeVisible();
+  await expect(host(page).getByRole('button', { name: 'Resize from bottom-right corner', exact: true })).toBeVisible();
   await expect(host(page).getByRole('button', { name: 'Layout Options' })).toBeHidden();
   await shot(page, 'handles-390');
 });

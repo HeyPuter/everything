@@ -1,6 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
+const HANDLE_NAMES = { nw: 'Resize from top-left corner', n: 'Resize from top edge', ne: 'Resize from top-right corner', e: 'Resize from right edge', se: 'Resize from bottom-right corner', s: 'Resize from bottom edge', sw: 'Resize from bottom-left corner', w: 'Resize from left edge' };
 
 const source='tests/fixtures/image-resize/control.docx', bytes=readFileSync(source);
 const cases=JSON.parse(readFileSync('tests/fixtures/image-resize/cases.json','utf8'));
@@ -23,7 +24,7 @@ const cornerPoint=(f,corner,rotation)=>{
   return {x:f.x+f.width/2+x*c-y*s,y:f.y+f.height/2+x*s+y*c};
 };
 async function drag(page,corner,dx,dy,modifier) {
-  const handle=page.getByRole('button',{name:`Resize image ${corner}`,exact:true});
+  const handle=page.getByRole('button',{name:HANDLE_NAMES[corner],exact:true});
   await handle.scrollIntoViewIfNeeded();const b=await handle.boundingBox();
   await page.mouse.move(b.x+b.width/2,b.y+b.height/2);
   if(modifier)await page.keyboard.down(modifier);
@@ -69,7 +70,7 @@ for(const item of cases) test(`${item.name}: corners, export, undo and modifiers
     await drag(page,'se',24,7,'Control');const centered=await snapshot(page);
     if(before.frame) {expect(Math.abs(centered.frame.x+centered.frame.width/2-before.frame.x-before.frame.width/2)).toBeLessThan(.08);expect(Math.abs(centered.frame.y+centered.frame.height/2-before.frame.y-before.frame.height/2)).toBeLessThan(.08);}
     await save(page,info,'center-edited.docx');await page.getByRole('textbox',{name:'Document text'}).last().press('ControlOrMeta+z');
-    const handle=page.getByRole('button',{name:'Resize image se'});await handle.focus();await handle.press('ArrowRight');
+    const handle=page.getByRole('button',{name:'Resize from bottom-right corner'});await handle.focus();await handle.press('ArrowRight');
     const keyed=await snapshot(page);expect([keyed.image.width,keyed.image.height]).not.toEqual([before.image.width,before.image.height]);
     await save(page,info,'keyboard-edited.docx');await page.getByRole('textbox',{name:'Document text'}).last().press('ControlOrMeta+z');
     expect(await save(page,info,'modifiers-undo.docx')).toEqual(unzipSync(bytes));

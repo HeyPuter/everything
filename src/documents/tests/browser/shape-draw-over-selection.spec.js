@@ -5,7 +5,7 @@ import { onTab, downloadDocx } from './helpers/editor-tools.js';
 
 // A shape chosen from the gallery is drawn wherever the drag starts, also on the selected shape's
 // handles, Move button or Layout Options button, which no longer take the drag for themselves.
-for (const control of ['Resize image se', 'Move selected image', 'Layout Options']) {
+for (const control of ['Resize from bottom-right corner', 'Move selected image', 'Layout Options']) {
   test(`a new shape drawn from the selected shape's ${control} button is drawn, and the selected shape keeps its size and place`, async ({ page }, info) => {
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.setViewportSize({ width: 1440, height: 900 });
