@@ -125,6 +125,7 @@ import {
   getShapeHyperlinkTooltip,
   getShapeName,
   getShapeTextColumns,
+  getShapeText,
   getShapeTextBodyRotationDeg,
   getShapeTextDirection,
   getShapeTextUpright,
@@ -962,6 +963,12 @@ let activeDefinitionIds = sharedDefinitionIds;
 // The part of the top-level shape being drawn when a render asks for a layer
 // of the slide (RenderSlideOptions.layer); null draws shapes whole.
 let activeLayerPart: SlideShapeLayerPart | null = null;
+// A slide placeholder with no position of its own and none in its layout
+// or master (its layout lacks one of its kind) is drawn as the desktop app
+// draws it: its text from the slide's top-left corner, unwrapped, in the
+// master's text styles, with no fill or outline. Set while one is drawn.
+let activeUnplaced: { w: number; h: number } | null = null;
+let activeSlideSize: { w: number; h: number } = { w: 0, h: 0 };
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
 // How the group being drawn places its children: their boxes, in its child
@@ -3244,6 +3251,13 @@ export const resolveTextBodyModel = (
   let effectiveBody: ReturnType<typeof getShapeBodyPrEffective>;
   try {
     effectiveBody = getShapeBodyPrEffective(pres, shape);
+    if (activeUnplaced)
+      effectiveBody = {
+        ...effectiveBody,
+        wrap: "none",
+        anchor: "top",
+        anchorCenter: null,
+      };
   } catch {
     effectiveBody = {
       anchor: getShapeTextAnchor(shape),
@@ -12399,7 +12413,26 @@ const renderShape = (
   // `getShapeBounds` returns null for them and the preview would hide
   // every title / body / footer slot.
   if (isShapeHidden(shape)) return "";
-  const ownBounds = getShapeBoundsResolved(pres, shape);
+  const resolvedBounds = activeUnplaced
+    ? { x: 0, y: 0, w: activeUnplaced.w, h: activeUnplaced.h }
+    : getShapeBoundsResolved(pres, shape);
+  if (
+    !resolvedBounds &&
+    !diagram &&
+    activeGroupMap === null &&
+    activeSlideSize.w > 0 &&
+    getShapeKind(shape) === "shape" &&
+    isShapePlaceholder(shape) &&
+    getShapeText(shape).trim() !== ""
+  ) {
+    activeUnplaced = activeSlideSize;
+    try {
+      return renderShape(shape, pres, theme, ctx);
+    } finally {
+      activeUnplaced = null;
+    }
+  }
+  const ownBounds = resolvedBounds as ReturnType<typeof getShapeBoundsResolved>;
   const bounds =
     ownBounds && throughActiveGroup(ownBounds, getShapeRotation(shape));
   if (!bounds && diagram && getShapeKind(shape) === "group")
@@ -12817,6 +12850,16 @@ const renderShape = (
       : undefined,
     { x, y, w, h },
   );
+  if (activeUnplaced)
+    p = {
+      ...p,
+      fill: "none",
+      patternFill: undefined,
+      cssGradient: undefined,
+      stroke: "none",
+      strokeWidth: 0,
+      markerAttrs: "",
+    };
   // A shape filled with the slide background shows the background through
   // it, hiding whatever lies beneath.
   if (
@@ -13839,6 +13882,7 @@ const renderSlideSvgInContext = (
     : (getSlideSize(pres) ?? DEFAULT_SIZE);
   const W = size.width as number;
   const H = size.height as number;
+  activeSlideSize = { w: W, h: H };
   const theme = themeForSlide(slide)?.theme ?? getPresentationTheme(pres);
   activeColorMap = getEffectiveColorMap(slide);
   activeDeckTextColor = resolveDeckBodyTextColor(slide) ?? "#000000";

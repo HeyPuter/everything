@@ -109,6 +109,11 @@ export const getPlaceholderInheritance = (
   const rootKind = slide[SLIDE_DOCUMENT].root.name.localName;
   let layoutName = slide[SLIDE_PART_NAME];
   let layoutShape: SlideShape | null = null;
+  // A slide placeholder whose layout has none with its index: the native
+  // reference takes neither the layout's nor the master's placeholder (so
+  // it has no inherited position) but still gives it the master's text
+  // styles for its type.
+  let unmatched = false;
   if (rootKind === "sld") {
     const layout = getSlideLayout(slide);
     if (!layout) return null;
@@ -124,8 +129,8 @@ export const getPlaceholderInheritance = (
             candidatePh && Number(value(candidatePh, "idx") ?? "0") === idx
           );
         }) ?? null;
-      if (!layoutShape) return null;
-      ph = placeholder(layoutShape.element)!;
+      if (layoutShape) ph = placeholder(layoutShape.element)!;
+      else unmatched = true;
     }
     layoutName = layout[LAYOUT_PART_NAME];
   } else if (rootKind === "sldMaster" || rootKind === "notesMaster") {
@@ -148,6 +153,7 @@ export const getPlaceholderInheritance = (
     );
   const part = rel && pkg.getPart(resolveTarget(layoutName, rel.target));
   const masterRoot = part ? readOnlyPartRoot(part) : null;
-  const master = masterRoot ? masterPlaceholder(masterRoot, masterType) : null;
+  const master =
+    masterRoot && !unmatched ? masterPlaceholder(masterRoot, masterType) : null;
   return { layout: layoutShape, master, masterRoot, masterType };
 };
