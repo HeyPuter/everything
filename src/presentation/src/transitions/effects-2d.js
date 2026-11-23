@@ -426,16 +426,19 @@ export const EFFECTS_2D = {
   glitter(g) {
     const { ctx, q, o } = g;
     const hex = o.pattern === "hexagon";
-    const cols = 22;
+    // Hexagons and diamonds both tile the slide, every other row offset
+    // by half a piece, so nothing of the leaving slide is left at the end.
+    const cols = hex ? 22 : 15;
     const size = g.W / cols;
-    const rows = Math.ceil(g.H / (size * (hex ? 0.86 : 1))) + 1;
+    const pitch = size * (hex ? 0.86 : 0.5);
+    const rows = Math.ceil(g.H / pitch) + 1;
     const [vx, vy] = vector(o.direction);
     draw(g, g.A);
     let n = 0;
     for (let j = -1; j < rows; j++)
       for (let i = -1; i <= cols; i++) {
-        const x = (i + 0.5 + (hex && j % 2 ? 0.5 : 0)) * size;
-        const y = (j + 0.5) * size * (hex ? 0.86 : 1);
+        const x = (i + 0.5 + (j % 2 ? 0.5 : 0)) * size;
+        const y = (j + 0.5) * pitch;
         const along =
           (vx > 0 ? x / g.W : vx < 0 ? 1 - x / g.W : 0) +
           (vy > 0 ? y / g.H : vy < 0 ? 1 - y / g.H : 0);
@@ -446,7 +449,7 @@ export const EFFECTS_2D = {
         ctx.save();
         ctx.beginPath();
         if (hex) polygon(ctx, x, y, size * 0.58, 6, Math.PI / 6);
-        else polygon(ctx, x, y, size * 0.72, 4);
+        else polygon(ctx, x, y, size * 0.52, 4);
         ctx.clip();
         ctx.fillStyle = "#000";
         ctx.fill();
