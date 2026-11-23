@@ -24,9 +24,10 @@ function validityProblem(summary, now = new Date()) {
     return `This digital ID is valid from ${day(summary.validFrom)}. Choose another one to sign with.`;
   return null;
 }
-function errorText(error) {
-  if (error?.name === 'Pkcs12PasswordError' || /password|mac/i.test(error?.message || ''))
-    return WRONG_PASSWORD;
+/** What to tell the person about a failed digital ID: only a wrong password reads as one. */
+export function errorText(error) {
+  // Matched by what failed, not by its wording: "Unsupported PBMAC1 algorithm." is no password.
+  if (error?.code === 'password') return WRONG_PASSWORD;
   return error?.message || 'This digital ID could not be used.';
 }
 
