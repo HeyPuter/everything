@@ -87,3 +87,47 @@ describe("animation sounds and after-effects", () => {
     ]);
   });
 });
+
+describe("sound playback", () => {
+  it("leaves a sound still decoding silent once sounds are stopped", async () => {
+    // A stand-in for the browser's audio, whose decoding finishes on cue.
+    const started = [];
+    const pending = [];
+    class FakeContext {
+      state = "running";
+      destination = {};
+      decodeAudioData() {
+        return new Promise((resolve) => pending.push(() => resolve({})));
+      }
+      createBufferSource() {
+        const source = {
+          connect() {},
+          start: () => started.push(source),
+          stop() {},
+        };
+        return source;
+      }
+    }
+    globalThis.AudioContext = FakeContext;
+    try {
+      const sounds = await import("../src/transitions/sounds.js");
+      const bytes = sounds.synthesizeSound("click");
+      // A slide's looping sound, and the show ending before it is ready.
+      const looping = sounds.playSound(bytes, { loop: true });
+      sounds.stopSound();
+      const effect = sounds.playEffectSound(bytes);
+      sounds.stopEffectSounds();
+      pending.splice(0).forEach((finish) => finish());
+      await Promise.all([looping, effect]);
+      expect(started).toHaveLength(0);
+      // Sounds asked for afterwards still play.
+      const next = sounds.playSound(bytes);
+      const nextEffect = sounds.playEffectSound(bytes);
+      pending.splice(0).forEach((finish) => finish());
+      await Promise.all([next, nextEffect]);
+      expect(started).toHaveLength(2);
+    } finally {
+      delete globalThis.AudioContext;
+    }
+  });
+});
