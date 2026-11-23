@@ -11954,9 +11954,13 @@ const renderShape = (
   // as well as connectors. Keep their actual extents and evaluate the paths.
   // Area-based objects still require both dimensions; a true point without
   // an independently sized diagram text view remains empty.
+  // A group with no extent still holds children of their own size.
   const pathShape = kind === "shape" || kind === "connector";
   if (
-    (w < 0 || h < 0 || (pathShape ? w === 0 && h === 0 : w === 0 || h === 0)) &&
+    (w < 0 ||
+      h < 0 ||
+      (kind !== "group" &&
+        (pathShape ? w === 0 && h === 0 : w === 0 || h === 0))) &&
     !(
       diagramTextTransform &&
       textBounds &&
@@ -12231,8 +12235,13 @@ const renderShape = (
       // Child space onto the frame: x' = tx + x * sx (and likewise for y).
       const ix = xform.inner.x as number;
       const iy = xform.inner.y as number;
-      const sx = outer.w / ((xform.inner.w as number) || 1);
-      const sy = outer.h / ((xform.inner.h as number) || 1);
+      // A zero extent has no scale to give; the group then keeps its
+      // children's size (within any enclosing group's scale), as the editor
+      // places them.
+      const iw = xform.inner.w as number,
+        ih = xform.inner.h as number;
+      const sx = iw && xform.outer.w ? outer.w / iw : (activeGroupMap?.sx ?? 1);
+      const sy = ih && xform.outer.h ? outer.h / ih : (activeGroupMap?.sy ?? 1);
       activeGroupMap = {
         sx,
         sy,

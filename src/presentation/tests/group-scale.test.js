@@ -59,3 +59,18 @@ describe("a resized group", () => {
     expect(y + h / 2).toBeCloseTo(96 + 168, 2);
   });
 });
+
+describe("a group with no child extent", () => {
+  const zeroGroup = (children, ext = "4572000") =>
+    `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="3" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="${ext}" cy="${ext}"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${children}</p:grpSp>`;
+  it("draws its children at their own size, where the editor puts them", async () => {
+    const svg = await render(zeroGroup(shape(12)));
+    expect(rects(svg)).toEqual([[96, 96, 192, 48, 2.67]]);
+  });
+  it("keeps the scale of the group around it", async () => {
+    const svg = await render(group(zeroGroup(shape(13), "0")));
+    const [[x, y, w, h]] = rects(svg);
+    expect([w, h]).toEqual([480, 48]);
+    expect([x, y]).toEqual([96 + 96 * 2.5, 96 + 96]);
+  });
+});
