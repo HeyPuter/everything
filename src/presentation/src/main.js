@@ -9784,7 +9784,14 @@ function renderSelection() {
       "data-object": i,
       "data-shape-id": P.getShapeId(s),
     });
-    placeHit(hit, b, size, slideRotation(s, parents), minimum);
+    placeHit(
+      hit,
+      b,
+      size,
+      slideRotation(s, parents),
+      minimum,
+      straightLine(s, parents),
+    );
     canvas.append(hit);
     if (selected === i && ids.size === 1)
       canvas.append(selectionBox(s, b, size));
@@ -9944,7 +9951,29 @@ function hitBounds(b, minimum) {
     h = Math.max(b.h, minimum);
   return { x: b.x - (w - b.w) / 2, y: b.y - (h - b.h) / 2, w, h };
 }
-function placeHit(hit, b, size, rotation, minimum = hitMinimum(size)) {
+// `line` is a straight line's run ({ rising }): its region is a strip along
+// the line rather than the box it spans, so a slanted line does not take
+// the clicks meant for what lies under its box.
+function placeHit(hit, b, size, rotation, minimum = hitMinimum(size), line) {
+  if (line && b.w > minimum && b.h > minimum) {
+    const length = Math.hypot(b.w, b.h);
+    const slope =
+      ((Math.atan2(b.h, b.w) * 180) / Math.PI) * (line.rising ? -1 : 1);
+    const region = {
+      x: b.x + b.w / 2 - length / 2,
+      y: b.y + b.h / 2 - minimum / 2,
+      w: length,
+      h: minimum,
+    };
+    Object.assign(hit.style, {
+      left: `${(region.x / size.cx) * 100}%`,
+      top: `${(region.y / size.cy) * 100}%`,
+      width: `${(region.w / size.cx) * 100}%`,
+      height: `${(region.h / size.cy) * 100}%`,
+      transform: `rotate(${rotation + slope}deg)`,
+    });
+    return;
+  }
   const region = hitBounds(b, minimum);
   Object.assign(hit.style, {
     left: `${(region.x / size.cx) * 100}%`,
@@ -9953,6 +9982,19 @@ function placeHit(hit, b, size, rotation, minimum = hitMinimum(size)) {
     height: `${(region.h / size.cy) * 100}%`,
     transform: `rotate(${rotation}deg)`,
   });
+}
+// A straight line's run as the slide shows it, or null for anything else
+// (a bent or curved connector fills more of its box).
+function straightLine(shape, parents) {
+  if (!isLine(shape)) return null;
+  const preset = P.getShapePreset(shape);
+  if (preset && !["line", "straightConnector1"].includes(preset)) return null;
+  if (!preset && P.getShapeCustomGeometry(shape)) return null;
+  const own = P.getShapeFlip(shape) || {};
+  const groups = groupFlip(shape, parents);
+  const h = !!own.horizontal !== groups.horizontal,
+    v = !!own.vertical !== groups.vertical;
+  return { rising: h !== v };
 }
 // A drag across empty canvas draws a marquee and selects what it touches;
 // with Shift the objects join the selection. Touch keeps its scrolling.
@@ -10599,7 +10641,16 @@ function startDrag(e, shape, mode = "move") {
           followerTransform(f, next.x - b.x, next.y - b.y, scale),
         );
     }
-    placeHit(overlay, normalized(next), size, rotation);
+    // A line's strip follows it, turning over when an end crosses the other.
+    const strip = line && straightLine(obj);
+    placeHit(
+      overlay,
+      normalized(next),
+      size,
+      rotation,
+      undefined,
+      strip && { rising: (strip.rising !== next.w < 0) !== next.h < 0 },
+    );
     if (box) placeSelection(box, normalized(next), size, rotation);
     for (const c of companions)
       placeHit(
