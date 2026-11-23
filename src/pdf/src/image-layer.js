@@ -10,6 +10,8 @@ import {
   MAX_IMAGE_SIZE,
 } from './core/image-edit.js';
 
+/** Screen pixels: two touch-size corner handles across. */
+const SMALL_OBJECT = 48;
 const same = (a, b) => a.every((n, i) => Math.abs(n - b[i]) < 1e-7);
 const minimumPathTarget = (node) => {
   node.setAttribute('stroke-width', '8');
@@ -702,6 +704,14 @@ export function createImageLayer({
     outline
       .querySelector('polygon')
       .setAttribute('points', corners.map((p) => p.join(',')).join(' '));
+    // On an object smaller than two handles across, the handles centered on its corners would
+    // cover all of it, and a press meant to move it would resize it instead; they stand outside
+    // its corners then.
+    const small =
+      Math.min(
+        Math.hypot(corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]),
+        Math.hypot(corners[2][0] - corners[1][0], corners[2][1] - corners[1][1]),
+      ) < SMALL_OBJECT;
     controls.querySelectorAll('.image-resize').forEach((handle, i) => {
       handle.style.left = `${corners[i][0]}px`;
       handle.style.top = `${corners[i][1]}px`;
@@ -709,6 +719,10 @@ export function createImageLayer({
       const angle = Math.atan2(corners[i][1] - opposite[1], corners[i][0] - opposite[0]);
       const direction = ((Math.round(angle / (Math.PI / 4)) % 4) + 4) % 4;
       handle.style.cursor = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'][direction];
+      const outward = (n) => -50 + 50 * Math.max(-1, Math.min(1, n * Math.SQRT2));
+      handle.style.transform = small
+        ? `translate(${outward(Math.cos(angle))}%, ${outward(Math.sin(angle))}%)`
+        : '';
     });
     const panel = properties.querySelector('.image-edit-panel');
     for (const [i, label] of ['width', 'height'].entries()) {
