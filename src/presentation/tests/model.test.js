@@ -12,6 +12,8 @@ import {
   preview,
   cleanName,
   validateZip,
+  packageSize,
+  checkPackageSize,
   THEMES,
   slideDescription,
   slideTitle,
@@ -426,6 +428,36 @@ describe("file validation", () => {
     const again = await parseDeck(zipSync(saved));
     expect(P.getSlides(again)).toHaveLength(P.getSlides(pres).length);
   });
+  it("refuses only edits that would grow a presentation past what opens again", async () => {
+    const pres = createDeck("blank");
+    const limit = 200 * 1024 * 1024 - 256 * 1024;
+    // A video that brings the presentation to the most an edit may make it.
+    const data = new Uint8Array(limit - packageSize(pres) - 4096);
+    data.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]);
+    P.addSlideMedia(
+      P.getSlides(pres)[0],
+      {
+        kind: "video",
+        data,
+        contentType: "video/mp4",
+        extension: "mp4",
+        poster: PNG_PIXEL,
+      },
+      { x: 0, y: 0, w: P.inches(2), h: P.inches(2) },
+    );
+    const size = packageSize(pres);
+    expect(size).toBeLessThanOrEqual(limit);
+    expect(() => checkPackageSize(size)).not.toThrow();
+    // Saved at that size, it opens again.
+    const reopened = await parseDeck(await P.savePresentation(pres));
+    expect(packageSize(reopened)).toBe(size);
+    expect(() => checkPackageSize(limit + 1, size)).toThrow(
+      "too large to open again",
+    );
+    // A presentation already past it may still be edited without growing.
+    expect(() => checkPackageSize(limit + 1, limit + 1)).not.toThrow();
+    expect(() => checkPackageSize(limit + 1, limit + 2)).not.toThrow();
+  }, 60_000);
   it("preserves large deflated parts whose declared sizes are correct", async () => {
     const pres = createDeck();
     const notes = "A".repeat(1024 * 1024);

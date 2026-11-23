@@ -80,6 +80,8 @@ import {
   prepareDeckFonts,
   parseDeck,
   validateImportSize,
+  packageSize,
+  checkPackageSize,
   restoreDeck,
   History,
   cleanName,
@@ -2456,7 +2458,9 @@ function mutate(
         const syncTextBuilds = () =>
           P.getSlides(active.pres).forEach((s) => P.syncSlideTextBuilds(s));
         syncTextBuilds();
+        const sizeBefore = packageSize(previous);
         if ((await fn()) === SKIP_MUTATION) return false;
+        checkPackageSize(packageSize(active.pres), sizeBefore);
         syncTextBuilds();
         // Formatting given to a master's or layout's placeholder text
         // becomes the style slides inherit.

@@ -2035,6 +2035,24 @@ export function validateImportSize(size, kind = "PPTX") {
   if (size > limit * 1024 * 1024)
     throw new Error(`Please choose a ${kind} file smaller than ${limit} MB.`);
 }
+// What a presentation's archive unpacks to, which opening it is held to; the
+// allowance covers the archive's own type map.
+const PACKAGE_LIMIT = IMPORT_LIMIT_MB.PPTX * 1024 * 1024 - 256 * 1024;
+export function packageSize(pres) {
+  let total = 0;
+  for (const part of P._internalPackageOf(pres).parts)
+    total += part.data.byteLength;
+  return total;
+}
+// An edit that would grow a presentation past what it may unpack to is
+// refused: saved, it would never open again. One that leaves it no larger
+// (a presentation already past it, from an older draft) goes ahead.
+export function checkPackageSize(size, before = 0) {
+  if (size > PACKAGE_LIMIT && size > before)
+    throw new Error(
+      `This would make the presentation larger than ${IMPORT_LIMIT_MB.PPTX} MB, too large to open again once saved. Compress its pictures or use smaller media.`,
+    );
+}
 export async function parseDeck(bytes, options = {}) {
   validateImportSize(bytes.byteLength);
   validateZip(bytes);

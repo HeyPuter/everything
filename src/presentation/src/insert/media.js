@@ -3,6 +3,7 @@
 // volume, how they start in a slide show, looping, poster frames and
 // bookmarks.
 import { el, dialog, toast, icon, iconButton } from "../ui.js";
+import { checkPackageSize, packageSize } from "../model.js";
 import {
   bytesUrl,
   canvasPng,
@@ -144,6 +145,9 @@ export function createMediaFeatures(ctx) {
       throw new Error(
         "Choose a file smaller than 150 MB; large media makes the presentation slow to save and share.",
       );
+    // Said before the file is read, rather than once it is on the slide.
+    const size = packageSize(ctx.pres());
+    checkPackageSize(size + file.size, size);
     const data = await fileBytes(file);
     const url = bytesUrl(data, type.contentType);
     try {
