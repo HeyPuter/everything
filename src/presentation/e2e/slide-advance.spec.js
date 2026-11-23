@@ -212,6 +212,29 @@ test("a kiosk's timed loop plays through before an idle restart", async ({
   await expect(counter(page)).toHaveText("1 / 4");
 });
 
+test("the show opens with the first slide's transition, from black", async ({
+  page,
+}) => {
+  await load(
+    page,
+    deck([
+      { effect: "fade", durationMs: 500, advanceAfterMs: 300 },
+      { effect: "none" },
+    ]),
+  );
+  await expect(transition(page, "fade")).toHaveCount(1);
+  await holdTransition(page);
+  // The first slide's time starts once its transition has played.
+  await page.clock.runFor(2000);
+  await expect(counter(page)).toHaveText("1 / 2");
+  await releaseTransition(page);
+  await expect(anyTransition(page)).toHaveCount(0);
+  await page.clock.runFor(299);
+  await expect(counter(page)).toHaveText("1 / 2");
+  await page.clock.runFor(1);
+  await expect(counter(page)).toHaveText("2 / 2");
+});
+
 test("a kiosk is not moved on by a swipe", async ({ page }) => {
   const pres = deck([{ effect: "none" }, { effect: "none" }]);
   P.setSlideShowSetup(pres, { showType: "kiosk" });

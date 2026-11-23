@@ -16821,15 +16821,17 @@ async function present(options = {}) {
     const leaving = shown ? image.getAttribute("src") : null;
     const arriving =
       showInserted.imageFor(all[n]) ?? cachedPreview(previews, pres, all[n]);
+    // The show opens with its first slide's transition, from black, as the
+    // canvas preview shows it.
+    const opening = !shown;
     if (
-      shown &&
-      (n !== from || wrapped) &&
+      (opening || n !== from || wrapped) &&
       effect !== "none" &&
       !prefersReducedMotion()
     ) {
       playing = transitionTools.play({
         host: frame,
-        fromSlide: all[from],
+        fromSlide: opening ? null : all[from],
         toSlide: all[n],
         from: leaving,
         to: arriving,
@@ -16838,7 +16840,7 @@ async function present(options = {}) {
       });
       readiness = playing.finished;
     }
-    if (shown && !backward && (n !== from || wrapped)) {
+    if (opening || (!backward && (n !== from || wrapped))) {
       transitionTools.playArrivalSound(all[n]);
       if (P.getEffectiveSlideTransition(all[n])?.sound?.kind === "stop")
         showInserted.stopSounds();
