@@ -955,7 +955,13 @@ function showHome({ accountRefresh = false } = {}) {
       button(
         file.name,
         'FileText',
-        run(() => openCloudItem(file)),
+        run(async () => {
+          try {
+            await openCloudItem(file);
+          } catch (error) {
+            throw gone(file, error);
+          }
+        }),
         'file-open',
       ),
       el('span', { class: 'file-date muted' }, date),
@@ -969,6 +975,13 @@ function showHome({ accountRefresh = false } = {}) {
     rows.set(file, row);
     return row;
   };
+  // A PDF deleted elsewhere (another tab, another device) since the listing: the reader learns
+  // so in plain words, and the list catches up rather than offering the row again.
+  function gone(file, error) {
+    if (!P.isNotFound(error)) return error;
+    refreshAfterAction();
+    return new Error(`${file.name} is no longer in your Puter cloud.`);
+  }
   function refreshAfterAction() {
     load();
     // Replacing the rows can remove the focused action button. Recover focus in that
@@ -992,7 +1005,7 @@ function showHome({ accountRefresh = false } = {}) {
           await fn();
         } catch (error) {
           // A previous account's cloud failure must not appear in a newer workflow.
-          if (!signal.aborted) throw error;
+          if (!signal.aborted) throw gone(file, error);
         } finally {
           working = false;
           buttons.forEach((b) => (b.disabled = false));
