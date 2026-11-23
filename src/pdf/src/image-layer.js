@@ -919,8 +919,10 @@ export function createImageLayer({
     } else setDraft(resizedFrom(m, g.corner, g.start, position));
   }
   /** The transform with `corner` (0 to 3) moved by the screen displacement `from` to `to`, its
-   * opposite corner fixed, kept in proportion when that is chosen. */
-  function resizedFrom(m, corner, from, to) {
+   * opposite corner fixed, kept in proportion when that is chosen. A pointer's drag is followed
+   * along the diagonal; an arrow key (`along`) sizes the object by the side it moves, so the
+   * height of a long, low banner grows by the step as well as its width. */
+  function resizedFrom(m, corner, from, to, along = false) {
     const local = [
         [0, 1],
         [1, 1],
@@ -939,7 +941,8 @@ export function createImageLayer({
     const [x, y] = point(inverse(m), ...p);
     let sx = (x - anchor[0]) / (knob[0] - anchor[0]),
       sy = (y - anchor[1]) / (knob[1] - anchor[1]);
-    if (keepRatio) {
+    if (keepRatio && along) sx = sy = Math.abs(sx - 1) >= Math.abs(sy - 1) ? sx : sy;
+    else if (keepRatio) {
       const a = point(m, ...anchor),
         k = original;
       const dx = k[0] - a[0],
@@ -1053,7 +1056,7 @@ export function createImageLayer({
       m = current();
     // On a corner handle the arrows move that corner, resizing the object as a drag of it does.
     if (corner != null) {
-      setDraft(resizedFrom(m, Number(corner), [0, 0], [vector[0] * step, vector[1] * step]));
+      setDraft(resizedFrom(m, Number(corner), [0, 0], [vector[0] * step, vector[1] * step], true));
       return;
     }
     // Keyboard moves stop where a drag would, so a held arrow cannot push the object out of

@@ -230,3 +230,35 @@ test('a mirrored picture reads its angle as upright and turns to a typed angle',
   // A quarter turn clockwise about its center, still mirrored.
   expect(turned.transform.map((n) => Number(n.toFixed(3)))).toEqual([0, 80, 60, 0, 50, 190]);
 });
+
+// With Keep proportions on, an arrow key on a corner handle moved the corner along the object's
+// diagonal: on a long, low banner, Shift+Up added 0.06 pt to its height, and seemed to do nothing.
+test('an arrow key on a corner handle sizes a long picture by the side it moves', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]).drawImage(await doc.embedPng(Buffer.from(PIXEL, 'base64')), {
+    x: 100,
+    y: 400,
+    width: 400,
+    height: 30,
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select image 1', exact: true }).click();
+  const width = page.getByLabel('Image width in points', { exact: true }),
+    height = page.getByLabel('Image height in points', { exact: true });
+  await expect(page.getByLabel('Keep image proportions', { exact: true })).toBeChecked();
+  // The top right corner, up by 10 pt: the picture is 10 pt taller, and as much wider in
+  // proportion.
+  await page
+    .getByRole('button', { name: 'Resize image, corner 2', exact: true })
+    .press('Shift+ArrowUp');
+  await expect(height).toHaveValue('40');
+  await expect(width).toHaveValue('533.33');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // To the right by 10 pt: 10 pt wider.
+  await page
+    .getByRole('button', { name: 'Resize image, corner 2', exact: true })
+    .press('Shift+ArrowRight');
+  await expect(width).toHaveValue('543.33');
+});
