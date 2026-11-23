@@ -4259,6 +4259,8 @@ export function createEditor({
           'aria-label': `${editable ? 'Edit' : 'Read'} ${label}${entry.text ? ': ' + entry.text.slice(0, 80) : ''}${i ? ` (part ${i + 1})` : ''}`,
           'aria-pressed': selectedHighlight?.id === entry.id,
           'data-highlight-id': entry.id,
+          // One Tab stop for each markup: one across many lines was a stop for every line.
+          ...(i > 0 && { tabindex: -1 }),
           onkeydown: deleteHighlightKey(entry),
           onclick: safe(async () => {
             const keep = keepChosenInView(
