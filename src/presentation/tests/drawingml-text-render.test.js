@@ -205,3 +205,43 @@ describe("placeholders their layout lacks", () => {
     expect(title).toMatch(/font-size="58\.6\d*"[^>]*>Title</);
   });
 });
+
+describe("bullets at outline levels", () => {
+  it("draws the master's • bullet at every level", async () => {
+    // A body placeholder on the Title and Content layout: the master's body
+    // style gives "•" to each level, and the desktop app draws "•" at each.
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    const rels = `ppt/slides/_rels/${name.split("/").pop()}.rels`;
+    const content = Object.keys(files).find(
+      (part) =>
+        part.startsWith("ppt/slideLayouts/slideLayout") &&
+        strFromU8(files[part]).includes('name="Title and Content"'),
+    );
+    files[rels] = strToU8(
+      strFromU8(files[rels]).replace(
+        /slideLayouts\/slideLayout\d+\.xml/,
+        content.replace("ppt/", ""),
+      ),
+    );
+    const para = (text, lvl) =>
+      `<a:p><a:pPr lvl="${lvl}"/><a:r><a:rPr lang="en-US"/><a:t>${text}</a:t></a:r></a:p>`;
+    files[name] = strToU8(
+      strFromU8(files[name]).replace(
+        "<p:grpSpPr/>",
+        `<p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="9" name="P"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>${para("One", 0)}${para("Two", 1)}${para("Three", 2)}</p:txBody></p:sp>`,
+      ),
+    );
+    const loaded = await parseDeck(zipSync(files));
+    const svg = renderSlideToSvg(loaded, P.getSlides(loaded)[0], {
+      textLayout: "svg",
+    });
+    expect([...svg.matchAll(/>([•◦▪])<\/text>/g)].map((m) => m[1])).toEqual([
+      "•",
+      "•",
+      "•",
+    ]);
+  });
+});

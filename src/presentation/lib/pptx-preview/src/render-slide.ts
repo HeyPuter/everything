@@ -2076,8 +2076,13 @@ const placeholderDefaultPt = (phType: string | null): number => {
   return DEFAULT_BODY_PT; // 18pt
 };
 
-const bulletChar = (level: number): string =>
-  level <= 0 ? "•" : level === 1 ? "◦" : "▪";
+// A bullet the cascade names only as "•" is that dot at every level, as the
+// desktop app draws it; an implied bullet (an indented paragraph with none
+// in its cascade) takes the outline glyph of its level.
+const bulletChar = (
+  level: number,
+  style: ReturnType<typeof getParagraphBullet> | null,
+): string => (style === "bullet" || level <= 0 ? "•" : level === 1 ? "◦" : "▪");
 
 // What the bullet characters of the common symbol typefaces show, for a
 // device without the typeface (phones and tablets usually lack them). Files
@@ -3065,7 +3070,10 @@ const buildBullet = (
       : null;
   const char = para.bulletIsPicture
     ? "■"
-    : (symbol ?? numberLabel ?? explicitChar ?? bulletChar(para.level));
+    : (symbol ??
+      numberLabel ??
+      explicitChar ??
+      bulletChar(para.level, para.bulletStyle));
   // An un-sized bullet (no buSzPct/buSzPts in the cascade) is 100% of the
   // paragraph's FIRST RUN size, not the placeholder default — a 32pt run gets a
   // 32pt bullet even on an 18pt-default body. Fall back to defaultPt only for an
@@ -3789,7 +3797,9 @@ const renderTextBody = (
       // square so users see a distinct glyph rather than the round bullet.
       const char = para.bulletIsPicture
         ? "■"
-        : (numberLabel ?? explicitChar ?? bulletChar(para.level));
+        : (numberLabel ??
+          explicitChar ??
+          bulletChar(para.level, para.bulletStyle));
       // Bullet style overrides: color, size %, fixed pt size, font face.
       const bulletStyles: string[] = [
         `margin-right:${(0.4 * defaultPt * PX_PER_PT * autoFitScale).toFixed(2)}px`,
