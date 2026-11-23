@@ -4,6 +4,7 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { initialsFor } from '../src/engine/comments.js';
+import { revisionTime } from '../src/engine/revisions.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -161,6 +162,27 @@ describe('DOCX comments', () => {
     expect(new DOMParser().parseFromString(strFromU8(saved['word/commentsExtended.xml']), 'application/xml').getElementsByTagName('parsererror')).toHaveLength(0);
     const reopened = await open(zipSync(saved));
     expect(reopened.model.comments.find(c => c.id === reply)).toMatchObject({ text: 'Agreed.', parentId: id });
+  });
+
+  // Word writes w:date in local time with a "Z" it ignores ([MS-OI29500] 2.1.313), and the UTC time in
+  // commentsExtensible (comments) and w16du:dateUtc (changes). Read as UTC, a comment made just now in Word by someone
+  // west of Greenwich showed as hours old, and one made east of it as in the future.
+  it('takes a comment\'s and a change\'s time from the UTC time Word writes beside w:date', async () => {
+    const parts = unzipSync(commentedDocx());
+    const CID = 'http://schemas.microsoft.com/office/word/2016/wordml/cid', CEX = 'http://schemas.microsoft.com/office/word/2018/wordml/cex', DU = 'http://schemas.microsoft.com/office/word/2023/wordml/word16du';
+    parts['word/commentsIds.xml'] = strToU8(`<w16cid:commentsIds xmlns:w16cid="${CID}"><w16cid:commentId w16cid:paraId="1A2B3C4D" w16cid:durableId="11111111"/><w16cid:commentId w16cid:paraId="2B3C4D5E" w16cid:durableId="22222222"/></w16cid:commentsIds>`);
+    parts['word/commentsExtensible.xml'] = strToU8(`<w16cex:commentsExtensible xmlns:w16cex="${CEX}"><w16cex:commentExtensible w16cex:durableId="11111111" w16cex:dateUtc="2026-01-02T11:04:05Z"/></w16cex:commentsExtensible>`);
+    parts['word/_rels/document.xml.rels'] = strToU8(strFromU8(parts['word/_rels/document.xml.rels']).replace('</Relationships>', '<Relationship Id="rId8" Type="http://schemas.microsoft.com/office/2016/09/relationships/commentsIds" Target="commentsIds.xml"/><Relationship Id="rId9" Type="http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible" Target="commentsExtensible.xml"/></Relationships>'));
+    parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace(`<w:document xmlns:w="${W}">`, `<w:document xmlns:w="${W}" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:w16du="${DU}" mc:Ignorable="w16du">`)
+      .replace('<w:r><w:t>line</w:t></w:r>', `<w:ins w:id="90" w:author="Ada Lovelace" w:date="2026-01-04T01:00:00Z" w16du:dateUtc="2026-01-04T09:00:00Z"><w:r><w:t>line</w:t></w:r></w:ins>`));
+    const source = zipSync(parts), { pkg, model } = await open(source);
+    expect(model.comments.map(c => [c.id, c.date, c.dateUtc])).toEqual([['3', '2026-01-02T03:04:05Z', '2026-01-02T11:04:05Z'], ['4', '2026-01-03T00:00:00Z', undefined], ['7', '', undefined]]);
+    expect(revisionTime(model.commentList[0])).toBe(Date.parse('2026-01-02T11:04:05Z'));
+    // Without a UTC time, w:date is what there is.
+    expect(revisionTime(model.comments[1])).toBe(Date.parse('2026-01-03T00:00:00Z'));
+    expect(model.revisions.map(r => [r.type, revisionTime(r)])).toEqual([['ins', Date.parse('2026-01-04T09:00:00Z')]]);
+    // Read, nothing changes in the file.
+    expect(unzipSync(await save(pkg, model))).toEqual(unzipSync(source));
   });
 
   it('derives initials from the author name', () => {

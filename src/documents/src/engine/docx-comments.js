@@ -53,6 +53,7 @@ export function readComments(parts) {
       if (paraId) extended.set(paraId.toUpperCase(), { parent: ex.getAttributeNS(W15, 'paraIdParent')?.toUpperCase() || null, done: ['1', 'true', 'on'].includes(ex.getAttributeNS(W15, 'done') || '') });
     }
   } catch { extended = new Map(); } // Replies and resolved state are optional companions.
+  const utc = commentUtcTimes(parts);
   const comments = [], byPara = new Map(), seen = new Set();
   for (const node of wChildren(root, 'comment')) {
     const raw = node.getAttributeNS(W, 'id');
@@ -68,6 +69,10 @@ export function readComments(parts) {
     comments.push(comment);
   }
   for (const comment of comments) {
+    // Word writes w:date in local time (and ignores its "Z" when reading, [MS-OI29500] 2.1.313); the time in UTC is
+    // the commentsExtensible entry's, kept apart so the comment is written back as it was.
+    const when = comment.paraId && utc.get(comment.paraId);
+    if (when) comment.dateUtc = when;
     const ex = comment.paraId && extended.get(comment.paraId);
     if (!ex) continue;
     comment.done = ex.done;
@@ -75,6 +80,32 @@ export function readComments(parts) {
     if (parent && parent !== comment) comment.parentId = parent.id;
   }
   return comments;
+}
+
+const COMMENTS_IDS_REL = 'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds';
+const COMMENTS_EXTENSIBLE_REL = 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible';
+/**
+ * Each comment's time in UTC by its last paragraph's identifier: commentsIds ([MS-DOCX] w16cid) gives the comment's
+ * durable identifier, and commentsExtensible (w16cex) its dateUtc. Both are optional; anything unreadable is skipped.
+ */
+function commentUtcTimes(parts) {
+  const out = new Map();
+  try {
+    const path = (rel, fallback) => { try { return relatedPartPath(parts, rel, rel) || (parts[fallback] ? fallback : null); } catch { return null; } };
+    const idsPath = path(COMMENTS_IDS_REL, 'word/commentsIds.xml'), extPath = path(COMMENTS_EXTENSIBLE_REL, 'word/commentsExtensible.xml');
+    if (!idsPath || !extPath || !parts[idsPath] || !parts[extPath]) return out;
+    const times = new Map();
+    for (const node of parseXml(parts[extPath]).getElementsByTagNameNS(W16CEX, 'commentExtensible')) {
+      const durable = node.getAttributeNS(W16CEX, 'durableId'), date = node.getAttributeNS(W16CEX, 'dateUtc');
+      if (durable && date && Number.isFinite(Date.parse(date))) times.set(durable.toUpperCase(), date);
+    }
+    for (const node of parseXml(parts[idsPath]).getElementsByTagNameNS(W16CID, 'commentId')) {
+      const paraId = node.getAttributeNS(W16CID, 'paraId'), durable = node.getAttributeNS(W16CID, 'durableId');
+      const date = paraId && durable && times.get(durable.toUpperCase());
+      if (date) out.set(paraId.toUpperCase(), date);
+    }
+  } catch { out.clear(); }
+  return out;
 }
 
 /** A new random paragraph identifier below 0x80000000, as §w14:paraId requires. */

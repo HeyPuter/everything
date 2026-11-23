@@ -16,6 +16,13 @@ export const REVISION_COLORS = ['B5082E', '2E6EB5', '2F8A3A', '8A3FB0', 'C25E00'
 export const MOVE_COLOR = '2E7D32';
 
 /** A stable display color per author, as hex without '#'. */
+/**
+ * When a change or comment was made, as milliseconds, or NaN. Word writes `w:date` in local time with a "Z" it ignores
+ * when reading ([MS-OI29500] 2.1.313); the UTC time it writes beside it (w16du:dateUtc, or a comment's
+ * commentsExtensible entry) is the one to show.
+ */
+export const revisionTime = item => Date.parse(item?.dateUtc || item?.date || '');
+
 export function revisionColor(author, authors = []) {
   const custom = revisionView.options.authorColors?.[author];
   if (custom) return custom;
@@ -75,7 +82,7 @@ function formatChange(xml, kind) {
   const attr = name => match.match(new RegExp(`\\b(?:\\w+:)?${name}="([^"]*)"`))?.[1] || '';
   return { type: 'format', author: attr('author'), date: attr('date') };
 }
-const revisionMeta = r => r && { type: 'format', author: r.author || '', date: r.date || '' };
+const revisionMeta = r => r && { type: 'format', author: r.author || '', date: r.date || '', ...(r.dateUtc ? { dateUtc: r.dateUtc } : {}) };
 export const runFormatChange = run => revisionMeta(run.formatRevision) || formatChange(run.properties, 'run');
 export const paragraphFormatChange = p => revisionMeta(p.formatRevision) || formatChange(p.shell, 'paragraph') || formatChange(p.markProperties, 'run');
 /** Drop the recorded formatting change from a run's or paragraph's retained XML (accepting it). */
@@ -184,7 +191,7 @@ export function revisionRanges(paragraphs) {
   const push = (revision, start, end, mark = false) => {
     const last = ranges.at(-1);
     if (last && last.end === start && sameRevision(last, revision)) { last.end = end; if (mark) last.marks = (last.marks || 0) + 1; return; }
-    ranges.push({ type: revision.type, author: revision.author, date: revision.date, start, end, ...(revision.move ? { move: true, moveName: revision.moveName || '' } : {}), ...(mark ? { marks: 1 } : {}) });
+    ranges.push({ type: revision.type, author: revision.author, date: revision.date, ...(revision.dateUtc ? { dateUtc: revision.dateUtc } : {}), start, end, ...(revision.move ? { move: true, moveName: revision.moveName || '' } : {}), ...(mark ? { marks: 1 } : {}) });
   };
   for (const p of paragraphs) {
     let offset = at;
