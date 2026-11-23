@@ -148,19 +148,29 @@ function runHtml(run) {
 
 /** HTML for other applications, carrying the fragment for this editor. */
 export function fragmentHtml(fragment) {
-  let html = '', openList = null;
+  // The lists open around the paragraph, outermost first: a deeper level is a list inside the item before it, as
+  // other applications nest one, so its items keep their level and the outer list counts on after them.
+  let html = '';
+  const open = [];
+  const closeTo = depth => { while (open.length > depth) { const list = open.pop(); html += `${list.item ? '</li>' : ''}</${list.tag}>`; } };
   for (const p of fragment.paragraphs) {
     const kind = p.list?.kind === 'bullet' ? 'ul' : p.list ? 'ol' : null;
-    if (openList !== kind) { if (openList) html += `</${openList}>`; if (kind) html += `<${kind}>`; openList = kind; }
+    const depth = kind ? Math.max(0, Math.min(8, Number.isInteger(p.list.level) ? p.list.level : 0)) + 1 : 0;
+    closeTo(depth);
+    if (kind && open.length === depth && open[depth - 1].tag !== kind) closeTo(depth - 1);
+    while (open.length < depth) { open.push({ tag: open.length + 1 === depth ? kind : open.at(-1)?.tag || kind, item: false }); html += `<${open.at(-1).tag}>`; }
+    if (kind && open[depth - 1].item) html += '</li>';
+    if (kind) open[depth - 1].item = true;
     const heading = /^Heading([1-6])$/.exec(p.styleId || '')?.[1] || (p.styleId === 'Title' ? '1' : null);
     const tag = kind ? 'li' : heading ? `h${heading}` : 'p';
     // Tabs and runs of spaces are the text's own, which HTML collapses into one space unless told otherwise.
     // A right-to-left paragraph says so, and names the physical side where it is not its own start.
     const rtl = p.bidi === true, side = physicalAlignment(p.alignment ?? 'left', rtl);
     const align = rtl && side === 'left' ? ';text-align:left' : rtl && side === 'right' ? '' : Object.hasOwn(HTML_ALIGNMENTS, side) ? `;text-align:${HTML_ALIGNMENTS[side]}` : '';
-    html += `<${tag}${rtl ? ' dir="rtl"' : ''} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}</${tag}>`;
+    // A list item stays open for a deeper list after it.
+    html += `<${tag}${rtl ? ' dir="rtl"' : ''} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}${kind ? '' : `</${tag}>`}`;
   }
-  if (openList) html += `</${openList}>`;
+  closeTo(0);
   return `<div ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}">${html}</div>`;
 }
 

@@ -41,6 +41,22 @@ it('marks headings and nested lists, and keeps a lone phrase in the destination 
   expect(htmlFragment('<p>Just a <b>phrase</b></p>').paragraphs[0].mark).toBe(false);
 });
 
+it('copies nested list items for other applications as lists inside their items, so levels and numbering carry over', () => {
+  const item = (text, kind, level) => ({ text, runs: [{ text, format: {} }], mark: true, styleId: null, alignment: 'left', list: { kind, level } });
+  const plain = text => ({ text, runs: [{ text, format: {} }], mark: true, styleId: null, alignment: 'left', list: null });
+  const fragment = { paragraphs: [item('One', 'number', 0), item('Inner', 'bullet', 1), item('Deep', 'bullet', 2), item('Two', 'number', 0), item('Bullet', 'bullet', 0), plain('After'), item('Skipped', 'number', 1)] };
+  // Another application sees the HTML alone, without this editor's own description of the copy.
+  const html = fragmentHtml(fragment).replace(new RegExp(` ${FRAGMENT_ATTRIBUTE}="[^"]*"`), '');
+  const li = text => `<li style="white-space:pre-wrap">${text}`;
+  expect(html).toBe(`<div><ol>${li('One')}<ul>${li('Inner')}<ul>${li('Deep')}</li></ul></li></ul></li>${li('Two')}</li></ol><ul>${li('Bullet')}</li></ul>`
+    + `<p style="white-space:pre-wrap">After</p><ol><ol>${li('Skipped')}</li></ol></ol></div>`);
+  // Read back as another application's HTML: each item keeps its level, and Two goes on in One's list.
+  const read = htmlFragment(html).paragraphs.map(p => [p.text, p.list && p.list.kind, p.list && p.list.level, p.list && p.list.id]);
+  expect(read).toEqual([['One', 'number', 0, 1], ['Inner', 'bullet', 1, 2], ['Deep', 'bullet', 2, 3], ['Two', 'number', 0, 1], ['Bullet', 'bullet', 0, 4], ['After', null, null, null], ['Skipped', 'number', 1, 6]]);
+  // This editor still reads its own copy as it was.
+  expect(htmlFragment(fragmentHtml(fragment))).toEqual(fragment);
+});
+
 it('reads its own embedded fragment and ignores a malformed one', () => {
   const fragment = { paragraphs: [{ text: 'Mine', runs: [{ text: 'Mine', format: { bold: true } }], mark: false, styleId: null, styleName: null, alignment: 'left', list: null }] };
   expect(htmlFragment(fragmentHtml(fragment))).toEqual(fragment);
