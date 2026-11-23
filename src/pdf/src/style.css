@@ -847,6 +847,13 @@ puter-user-menu::part(apps-panel) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* On the narrowest phones the letters close up, so CONFIDENTIAL is read whole, not cut short. */
+@media (max-width: 380px) {
+  .stamp-chip {
+    letter-spacing: 0.02em;
+    padding-inline: 4px;
+  }
+}
 .stamp-chip:hover {
   background: var(--surface-2);
 }

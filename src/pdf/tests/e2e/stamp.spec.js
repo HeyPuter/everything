@@ -313,3 +313,20 @@ test('a new color or opacity for a stamp recolors its letters and their outline 
   expect(stamp.state.alpha).toBeCloseTo(0.4, 5);
   expect(stamp.state.strokeAlpha).toBeCloseTo(0.4, 5);
 });
+
+// On a 320 px phone the CONFIDENTIAL preset read "CONFIDENTI…".
+test('every stamp preset is read whole on the smallest phones', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await openPdf(page, doc);
+  await menu(page, 'Stamp…');
+  const chips = page.getByRole('dialog', { name: 'Add stamp' }).locator('.stamp-chip');
+  await expect(chips.first()).toBeVisible();
+  const cut = await chips.evaluateAll((nodes) =>
+    nodes.filter((node) => node.scrollWidth > node.clientWidth).map((node) => node.textContent),
+  );
+  expect(cut).toEqual([]);
+});
