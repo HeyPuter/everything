@@ -1,7 +1,7 @@
 import { paragraphText, paragraphFormat, locate } from './model.js';
 import { physicalAlignment } from './rtl-paragraph.js';
 import { runFormat } from './formatting.js';
-import { listKind } from './numbering.js';
+import { listKind, hasListLevel } from './numbering.js';
 import { HIGHLIGHTS } from './backgrounds.js';
 import { showLink } from './link-appearance.js';
 import { normalizeCrop, FULL_TURN, OBJECT, validateImage, nextDrawingId } from './images.js';
@@ -97,10 +97,12 @@ export function copyFragment(model, { hidden = () => false, objects = null } = {
     paragraphs.push({ text: runs.map(r => r.text).join(''), runs, mark,
       // Alignment is relative to the paragraph's direction (rtl-paragraph.js): the two travel together.
       styleId: p.styleId || null, styleName: style?.name || null, alignment: format.alignment, ...(format.bidi ? { bidi: true } : {}),
-      list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level } : null });
+      list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level, ...(objects?.token ? { numId: p.list.numId } : {}) } : null });
   }
   if (!paragraphs.length) return null;
   const fragment = carried ? { paragraphs, objects: { token: objects.token, story: objects.story ?? null } } : { paragraphs };
+  // Which open document the copy is of: its list items go back into their own lists there (applyParagraph).
+  if (objects?.token) fragment.token = objects.token;
   // The comments on stretches of the copied text, where they are in it: a cut pasted back in this document takes
   // them along (movedComments). Text the copy leaves out would put them in the wrong place.
   const anchors = objects?.token && model.comments?.length && !skipped && !cell ? commentAnchors(model.paragraphs).filter(a => a.start < a.end && a.start >= start && a.end <= end).map(a => ({ id: a.id, start: a.start - start, end: a.end - start })) : [];
@@ -489,7 +491,7 @@ function continueList(model, p, lists) {
   lists.set(p.list.id, model.selectedParagraphs[0].list?.numId);
 }
 
-function applyParagraph(model, p, foreign, lists = new Map()) {
+function applyParagraph(model, p, foreign, lists = new Map(), own = false) {
   const style = styleFor(model, p);
   if (style) attempt(() => model.setParagraphStyle(style));
   else if (!foreign && p.styleId === null) attempt(() => model.setParagraphStyle(''));
@@ -511,6 +513,12 @@ function applyParagraph(model, p, foreign, lists = new Map()) {
       if (model.selectedParagraphs[0]?.list?.level === level) break;
     }
     continueList(model, p, lists);
+    // Copied in this document, an item stays in its own list, as in Word: pasted after a paragraph that ends the
+    // list, or above it, it numbers on with the list rather than starting a new one at 1.
+    const target = model.selectedParagraphs[0], kept = own && p.list.numId != null ? { numId: p.list.numId, level: target?.list?.level ?? p.list.level } : null;
+    if (kept && target?.list && target.list.numId !== kept.numId && hasListLevel(model.numbering, kept) && listKind(model.numbering, kept) === p.list.kind) {
+      target.list = { ...target.list, numId: kept.numId, level: kept.level, direct: true }; target.listChanged = true;
+    }
   } else if (current === 'bullet' || current === 'number') attempt(() => model.toggleList(current));
 }
 
@@ -560,7 +568,7 @@ export function pasteFragment(model, fragment, { token = null, story = null } = 
   model.checkpoint = () => {};
   // Formatting leaves the pasted text as it is: commands need not join or count through it each time.
   try {
-    model.withFixedText(() => applyFragment(model, fragment, start));
+    model.withFixedText(() => applyFragment(model, fragment, start, !fragment.foreign && !!token && fragment.token === token));
     // Before objects take their places: a stand-in that cannot become its object again goes, and the comments with the rest.
     if (fragment.comments?.token === token && token && (fragment.comments.story ?? null) === story) movedComments(model, fragment.comments.anchors, start, text.length);
     if (carried) placeObjects(model, fragment, start);
@@ -658,12 +666,12 @@ export function formattedPasteFits(fragment) {
  */
 const MAX_RUN_STEPS = 1000000;
 
-function applyFragment(model, fragment, start) {
+function applyFragment(model, fragment, start, own = false) {
   const after = start + fragment.paragraphs.reduce((n, p) => n + p.text.length + 1, -1);
   let at = start, steps = 0;
   const lists = new Map();
   for (const p of fragment.paragraphs) {
-    if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign, lists); }
+    if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign, lists, own); }
     let offset = at;
     let applied = appliedRuns(fragment, p);
     const cost = applied.length * p.runs.length;
