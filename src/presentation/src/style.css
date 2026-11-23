@@ -1947,6 +1947,14 @@ puter-user-menu::part(apps-panel) {
   font-size: 13px;
   line-height: 1.7;
 }
+.dialog-field-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+.dialog-body .input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
 .dialog-body label {
   display: block;
   font-size: 12px;

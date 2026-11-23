@@ -1618,6 +1618,7 @@ function libraryFileMenu(e, f) {
                 "Rename presentation",
                 fileTitle(f),
                 returnFocus,
+                { check: (name) => cloud.renameProblem(f.path, name) },
               );
               if (nameChanged(name, fileTitle(f))) {
                 await saveQueue.run(async () => {
@@ -3279,7 +3280,10 @@ async function exportImages(all) {
 }
 async function renameDoc() {
   const target = doc;
-  const name = await promptName("Rename presentation", target.name);
+  const name = await promptName("Rename presentation", target.name, null, {
+    check: (name) =>
+      target.path ? cloud.renameProblem(target.path, name) : "",
+  });
   if (!nameChanged(name, target.name)) return;
   await mutationTail;
   return saveQueue.run(async () => {

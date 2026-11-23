@@ -202,21 +202,21 @@ export async function saveFile(bytes, name, path = null) {
 }
 // A rename never replaces another file: the drive would refuse it, in words
 // meant for developers, or worse, take it.
-export async function renameFile(path, name) {
+// What stops renaming the file at `path` to `name` that a different name
+// would not: another file by that name in its folder. Empty when nothing.
+export async function renameProblem(path, name) {
   const fileName = `${cleanName(name)}.pptx`;
   const target = path.slice(0, path.lastIndexOf("/") + 1) + fileName;
-  if (
-    canStat() &&
+  return canStat() &&
     target.toLowerCase() !== path.toLowerCase() &&
     (await stat(target))
-  )
-    throw Object.assign(
-      new Error(
-        `A file named “${fileName}” is already in that folder. Choose another name.`,
-      ),
-      { code: "exists" },
-    );
-  return sdk().fs.rename(path, fileName);
+    ? `A file named “${fileName}” is already in that folder. Choose another name.`
+    : "";
+}
+export async function renameFile(path, name) {
+  const problem = await renameProblem(path, name);
+  if (problem) throw Object.assign(new Error(problem), { code: "exists" });
+  return sdk().fs.rename(path, `${cleanName(name)}.pptx`);
 }
 export async function deleteFile(path) {
   return sdk().fs.delete(path);
