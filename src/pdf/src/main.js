@@ -1061,17 +1061,35 @@ function showHome({ accountRefresh = false } = {}) {
           'Pencil',
           action(async () => {
             d.close();
-            const name = await promptText(
-              'Rename PDF',
-              'File name',
-              file.name.replace(/\.pdf$/i, ''),
-              { signal },
-            );
-            await settleAccount(signal);
-            // An unchanged name is no rename: Puter would refuse it as a name already taken.
-            if (name && safeName(name) !== file.name && !signal.aborted) {
-              await P.renameFile(file.path, name);
+            // A name Puter refuses (one already taken, say) brings the question back with what
+            // was typed and the reason, rather than ending on a message and an empty start.
+            let value = file.name.replace(/\.pdf$/i, ''),
+              refusal = null;
+            for (;;) {
+              const asked = promptText('Rename PDF', 'File name', value, { signal });
+              if (refusal) toast(refusal, { error: true });
+              const name = await asked;
+              await settleAccount(signal);
+              // An unchanged name is no rename: Puter would refuse it as a name already taken.
+              if (!name || safeName(name) === file.name || signal.aborted) return;
+              try {
+                await P.renameFile(file.path, name);
+              } catch (error) {
+                // Someone who has moved on to another dialog meanwhile gets the message alone,
+                // rather than the question taking over the dialog they are in.
+                if (
+                  signal.aborted ||
+                  P.isNotFound(error) ||
+                  P.isConnectionFailure(error) ||
+                  document.querySelector('dialog[open]')
+                )
+                  throw error;
+                value = name;
+                refusal = error?.message || error?.error?.message || 'This name could not be used.';
+                continue;
+              }
               if (!signal.aborted) refreshAfterAction();
+              return;
             }
           }),
         ),

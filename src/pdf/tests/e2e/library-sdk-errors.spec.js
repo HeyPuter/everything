@@ -31,12 +31,19 @@ for (const [action, reason] of Object.entries(refusals))
         .getByRole('dialog', { name: 'Delete PDF?', exact: true })
         .getByRole('button', { name: 'Delete PDF', exact: true })
         .click();
-    // Duplicate reports in its still open dialog, the others on the page.
+    // Duplicate reports in its still open dialog, Rename in its question asked again with the
+    // name typed, Delete on the page.
     const message =
       action === 'Duplicate'
         ? page.getByRole('dialog', { name: 'report.pdf' }).getByRole('alert')
-        : page.locator('#toast');
+        : action === 'Rename'
+          ? page.getByRole('dialog', { name: 'Rename PDF' }).getByRole('alert')
+          : page.locator('#toast');
     await expect(message).toHaveText(reason);
+    if (action === 'Rename')
+      await expect(
+        page.getByRole('dialog', { name: 'Rename PDF' }).getByRole('textbox'),
+      ).toHaveValue('summary');
   });
 
 test('opening a library PDF over a lost connection says so in plain words', async ({ page }) => {
