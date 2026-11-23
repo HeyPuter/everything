@@ -1301,6 +1301,7 @@ export class CanvasEditor {
       if (geometry.pageBorders?.zOrder !== 'back') for (const border of pageBorders) paintParagraphBorder(ctx, border);
       if (storyChrome && storyChrome.active !== 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, storyChrome.active, this.storyChromeLabels(index));
       if (!printing) for (const overlay of this.overlays) if (!overlay.spelling) overlay(ctx, index, geometry);
+      if (!printing && this.textDrag?.at != null) this.paintDropCaret(ctx, index);
       if (!printing && controlRects) paintControlCarets(ctx, controlRects, index, scale);
       if (composedRects.length) paintCompositionUnderline(ctx, composedRects, this.selectionLayout.lines, index, scale);
       if (!printing && start === end && caret.page === index && document.activeElement === this.input && !this.accessible) {
@@ -1468,7 +1469,7 @@ export class CanvasEditor {
     document.addEventListener('pointerdown', end, { capture: true, signal });
   }
   /** Forget the press in progress (the browser took it for a scroll, or a second finger made it a pinch). */
-  cancelPointer() { this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); }
+  cancelPointer() { if (this.textDrag) { this.textDrag = null; this.paint(); } this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); }
   pointerDown(e, tapped = false) {
     // Control+click is a Mac's secondary click: the context menu follows, and the selection it acts on stays.
     if (e.button !== 0 || MAC && e.ctrlKey) return;
@@ -1501,6 +1502,25 @@ export class CanvasEditor {
       if (story && isNoteStoryKind(this.pageStories?.stories[story.pageStory]?.kind) && this.pageStories.stories[story.pageStory].editable) this.editStory(story.pageStory, story.page);
     }
     let position = this.point(e), restoredPromptSelection, restoredOutsideCaret, sameOffsetCaret;
+    const margin = !this.pointImage && !e.altKey && this.marginLine(e);
+    if (margin) {
+      this.selectInMargin(e, margin, presses);
+      this.dragging = true; this.dragControl = null;
+      try { this.pages.setPointerCapture(e.pointerId); } catch { /* released */ }
+      this.preferredX = null; this.focus(); this.onSelection();
+      return;
+    }
+    // A press inside the selected text may start dragging it elsewhere (textDrag); a click there places the caret
+    // as it lifts.
+    const [selectedStart, selectedEnd] = this.model.range;
+    if (presses === 1 && !e.shiftKey && !e.metaKey && !e.ctrlKey && e.pointerType !== 'touch' && !this.readOnly && !this.viewOnly && !this.pointImage
+      && selectedStart < selectedEnd && position > selectedStart && position < selectedEnd && !this.model.activeCellBlock && !this.model.selectedImage
+      && carriesFormatting(this.model)) {
+      this.textDrag = { from: [selectedStart, selectedEnd], x: e.clientX, y: e.clientY, pointerId: e.pointerId, model: this.model, revision: this.session.revision, started: false, at: null };
+      try { this.pages.setPointerCapture(e.pointerId); } catch { /* released */ }
+      this.focus();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && this.pointLink) { this.openHyperlink(this.pointLink.link); return; }
     // A plain press on a link is settled when it lifts: a click there is a click on the link, a drag selects.
     if (this.pointLink && presses === 1 && !e.shiftKey && !e.altKey) this.linkPress = { range: this.pointLink, x: e.clientX, y: e.clientY, pointerId: e.pointerId };
@@ -1575,20 +1595,56 @@ export class CanvasEditor {
       if (dx < 10 || dx <= dy) return;
       this.pointerDown(this.touch.down, true);
     }
+    if (this.textDrag?.pointerId === e.pointerId) { this.moveTextDrag(e); return; }
     if (this.imageInteraction.move(e)) return;
     if (!this.dragging) {
       this.point(e, false);
       const openable = this.pointLink && openableHyperlink(this.pointLink.link);
       this.pages.title = this.pointLink ? `${this.pointLink.link.tooltip || hyperlinkLabel(this.pointLink.link)}${openable ? this.readOnly || this.viewOnly ? ' (Click to open)' : ` (${MAC ? 'Cmd' : 'Ctrl'}+click to open)` : ''}` : '';
-      this.pages.style.cursor = openable && (this.readOnly || this.viewOnly || e.metaKey || e.ctrlKey && !MAC) ? 'pointer' : '';
+      this.pages.style.cursor = openable && (this.readOnly || this.viewOnly || e.metaKey || e.ctrlKey && !MAC) ? 'pointer' : !this.pointImage && this.marginLine(e) ? 'default' : '';
       return;
     }
     this.dragTo(e);
     this.dragPoint = { clientX: e.clientX, clientY: e.clientY, altKey: e.altKey };
     this.autoScroll();
   }
+  /**
+   * The body line beside a press in the left margin of a page, the selection bar of desktop word processors, or null.
+   * Lines in tables (whose gutter selects rows, table-pointer.js), frames and text boxes have none.
+   */
+  marginLine(e) {
+    if (this.session.path !== null || this.accessible) return null;
+    // The page under the pointer is the event's own target, unless the pointer is captured (a drag).
+    const over = c => { const r = c.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
+    const canvas = this.canvases.includes(e.target) ? e.target : this.canvases.find(over);
+    if (!canvas || !over(canvas)) return null;
+    const rect = canvas.getBoundingClientRect(), page = Number(canvas.dataset.page), layout = this.selectionLayout;
+    const x = (e.clientX - rect.left) / this.zoom, y = (e.clientY - rect.top) / this.zoom, geometry = layout.pages?.[page] || layout.page;
+    if (!(geometry?.left > 8) || x >= geometry.left - 4) return null;
+    const line = layout.lines.find(l => l.page === page && y >= l.y && y < l.y + l.height && !l.cellId && !l.frameId && !l.cellText);
+    return line && line.stops?.length && x < line.stops[0].x - 4 && x < line.stops.at(-1).x ? line : null;
+  }
+  /**
+   * A press in the selection bar (marginLine): one selects the line, two its paragraph, three (or Cmd/Ctrl) the whole
+   * document; Shift extends the selection to the line, and a drag goes on by lines (or paragraphs).
+   */
+  selectInMargin(e, line, presses) {
+    const kind = e.metaKey || e.ctrlKey || presses === 3 ? 'all' : presses === 2 ? null : 'line';
+    const unit = this.textUnit(e, line.start, kind === null ? 3 : 1, kind);
+    if (e.shiftKey && kind === 'line') {
+      const anchor = this.model.selection.anchor;
+      this.model.select(anchor, unit.start < anchor ? unit.start : unit.end);
+    } else this.model.select(unit.start, unit.end);
+    this.caretPage = line.page;
+    this.unit = { ...unit, presses: kind === 'line' ? 1 : 3, margin: kind || 'paragraph', model: this.model, path: this.session.path };
+  }
   /** The word (two presses) or paragraph (three) at a pointer position. */
-  textUnit(e, position, presses) {
+  textUnit(e, position, presses, kind = null) {
+    if (kind === 'all') return { start: 0, end: this.model.text.length };
+    if (kind === 'line') {
+      const line = lineAtPosition(this.selectionLayout, position, 'forward', this.caretPage);
+      return { start: line.start, end: line.end };
+    }
     if (presses === 3) {
       const { index, offset } = locate(this.model.paragraphs, position), start = position - offset;
       return { start, end: start + paragraphText(this.model.paragraphs[index]).length };
@@ -1602,7 +1658,7 @@ export class CanvasEditor {
   }
   /** Select from the word or paragraph `unit` to the whole word or paragraph at `position`. */
   selectThroughUnit(e, unit, position) {
-    const other = this.textUnit(e, position, unit.presses) || { start: position, end: position };
+    const other = this.textUnit(e, position, unit.presses, unit.margin) || { start: position, end: position };
     if (other.start < unit.start) this.model.select(unit.end, Math.min(other.start, position));
     else this.model.select(unit.start, Math.max(other.end, position, unit.end));
   }
@@ -1648,9 +1704,85 @@ export class CanvasEditor {
       if (Math.hypot(e.clientX - x, e.clientY - y) > 10) return;
       this.pointerDown(down, true);
     }
+    if (this.textDrag?.pointerId === e.pointerId) { this.endTextDrag(e); return; }
     const press = this.linkPress; this.linkPress = null;
     this.release(e);
     if (press?.pointerId === e.pointerId && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5 && !this.destroyed) this.linkClicked(press.range, e.clientX, e.clientY);
+  }
+  /** Follow a drag of the selected text: once the pointer has moved a little, a dashed caret shows where it would go. */
+  moveTextDrag(e) {
+    const drag = this.textDrag;
+    if (!drag.started && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+    drag.started = true;
+    drag.at = this.point(e, false);
+    this.pages.style.cursor = e.altKey ? 'copy' : 'default';
+    this.paint();
+  }
+  /**
+   * Drop the dragged text where the pointer lifted, moved (Option or Alt: copied) as one undo step with its formatting,
+   * and selected there; dropped on itself, nothing changes. A press that did not move places the caret.
+   */
+  endTextDrag(e) {
+    const drag = this.textDrag;
+    this.textDrag = null; this.pages.style.cursor = '';
+    try { this.pages.releasePointerCapture(e.pointerId); } catch { /* released */ }
+    if (!drag.started) {
+      const position = this.point(e);
+      this.model.select(position); this.preferredX = null;
+      this.syncInput(); this.paint(); this.onSelection();
+      return;
+    }
+    const at = this.point(e, false), [start, end] = drag.from;
+    if (drag.model !== this.model || drag.revision !== this.session.revision || at >= start && at <= end) { this.paint(); return; }
+    this.moveText(start, end, at, e.altKey);
+  }
+  /** Move (or `copy`) the text from `start` to `end` to `at`, with its formatting, as one undo step. */
+  moveText(start, end, at, copy = false) {
+    const objects = { token: this.clipboardToken, story: this.session.path };
+    this.model.select(start, end);
+    const fragment = copyFragment(this.model, { hidden: hiddenRun, objects });
+    if (!fragment) { this.paint(); return false; }
+    const length = fragment.paragraphs.map(p => p.text).join('\n').length;
+    // Whole words keep their spacing, as a word processor's smart cut and paste does: the space they leave behind
+    // goes with them, and where they land between words they get a space on each side.
+    const text = this.model.text, word = c => !!c && /[\p{L}\p{N}]/u.test(c);
+    const words = fragment.paragraphs.length === 1 && word(text[start]) && word(text[end - 1]) && !word(text[start - 1]) && !word(text[end]) && !this.model.trackChanges;
+    return this.execute(() => {
+      let target = at;
+      if (!copy) {
+        // The original goes first; text after it moves back by what left (with Track Changes on, nothing does).
+        let from = start, to = end;
+        if (words && text[from - 1] === ' ' && (to === text.length || /[\s.,;:!?)\]}”’]/u.test(text[to]))) from--;
+        else if (words && (from === 0 || text[from - 1] === '\n') && text[to] === ' ') to++;
+        const before = this.model.text.length;
+        this.model.select(from, to);
+        if (!this.model.replace('')) return false;
+        if (at >= to) target = at - (before - this.model.text.length);
+      }
+      this.model.select(target);
+      if (!pasteFragment(this.model, fragment, objects)) throw new Error('The text cannot be moved there.');
+      let after = this.model.selection.focus, first = after - length;
+      if (words) {
+        const now = this.model.text;
+        if (word(now[after])) { this.model.select(after); this.model.replace(' '); }
+        if (word(now[first - 1])) { this.model.select(first); this.model.replace(' '); first++; after++; }
+      }
+      this.model.select(first, after);
+      return true;
+    }, undefined, { label: copy ? 'Copy' : 'Move' });
+  }
+  /** The dashed caret where dragged text would be dropped. */
+  paintDropCaret(ctx, index) {
+    let caret;
+    try { caret = caretRect(this.selectionLayout, this.textDrag.at, 'forward', null); } catch { return; }
+    if (caret.page !== index) return;
+    // The insertion caret's blue, dashed, with a white surround that keeps it visible on dark shading.
+    const unit = 1 / (this.zoom || 1);
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(caret.x, caret.y); ctx.lineTo(caret.x, caret.y + caret.height);
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3.5 * unit; ctx.stroke();
+    ctx.strokeStyle = '#375f91'; ctx.lineWidth = 1.5 * unit; ctx.setLineDash([3 * unit, 2 * unit]); ctx.stroke();
+    ctx.restore();
   }
   /** The end of a press on the pages: a picture move or resize, a drag, or a drag out of an empty control. */
   release(e) {
@@ -1702,7 +1834,7 @@ export class CanvasEditor {
       else if (this.session.path !== null) this.editStory(null);
     }
     // The second press already took the word, and a drag since extended it word by word.
-    if (this.unit?.presses === 2 && this.unit.model === this.model && this.unit.path === this.session.path) return;
+    if ((this.unit?.presses === 2 || this.unit?.margin) && this.unit.model === this.model && this.unit.path === this.session.path) return;
     const pos = this.point(e);
     if (this.pointImage) {
       this.model.select(this.pointImage.start, this.pointImage.end); this.focus(); this.onSelection();
@@ -1732,7 +1864,7 @@ export class CanvasEditor {
     return side && side.offset !== position ? Math.min(position, side.offset) : position;
   }
   selectParagraph(e) {
-    if (this.unit?.presses === 3 && this.unit.model === this.model && this.unit.path === this.session.path) return;
+    if ((this.unit?.presses === 3 || this.unit?.margin) && this.unit.model === this.model && this.unit.path === this.session.path) return;
     const pos = this.point(e, false);
     if (this.pointImage) return;
     const { index, offset } = locate(this.model.paragraphs, pos), start = pos - offset;
