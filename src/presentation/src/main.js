@@ -2102,6 +2102,9 @@ async function openCloud(file, { offerDraft = true } = {}) {
           // a slow read could describe a newer file than the one read, and
           // the first save would then write over that newer file unasked.
           pending.remote = await locateFile(pending, file.uid);
+          // A file too large to open is refused before it is downloaded.
+          const size = cloud.sizeOf(pending.remote);
+          if (size != null) validateImportSize(size);
           bytes = await cloud.readFile(pending.path, { importing: true });
           break;
         } catch (error) {

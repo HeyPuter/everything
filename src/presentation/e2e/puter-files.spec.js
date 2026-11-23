@@ -571,6 +571,36 @@ test("a failing autosave says so in the status, and leaving asks first", async (
   ).toBeVisible();
 });
 
+test("a Puter file too large to open is refused before it is downloaded", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    seed: { "Presentations/Huge.pptx": story },
+    path: "/#/home",
+  });
+  await page.evaluate(() => {
+    // The drive reports the file's size; its bytes stay small.
+    const stat = puter.fs.stat;
+    puter.fs.stat = async (arg) => ({
+      ...(await stat(arg)),
+      size: 300 * 1024 * 1024,
+    });
+    const read = puter.fs.read;
+    window.__reads = 0;
+    puter.fs.read = (path) => {
+      window.__reads++;
+      return read(path);
+    };
+  });
+  await page
+    .getByRole("button", { name: "Huge PowerPoint presentation" })
+    .click();
+  await expect(page.locator("#toast")).toHaveText(
+    "Please choose a PPTX file smaller than 200 MB.",
+  );
+  expect(await page.evaluate(() => window.__reads)).toBe(0);
+});
 test("opening a Puter file offers its unsaved recovery draft", async ({
   page,
 }) => {
