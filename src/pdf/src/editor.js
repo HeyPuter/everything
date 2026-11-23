@@ -9982,7 +9982,7 @@ export function createEditor({
       class: 'input',
       placeholder: 'e.g. 1-3, 5',
       'aria-label': 'Pages of the other PDF',
-      inputmode: 'numeric',
+      // No number pad: a phone's has no "-" or "," for ranges and lists.
       autocomplete: 'off',
     });
     const choice = (group, value, label, checked) =>
@@ -10118,7 +10118,7 @@ export function createEditor({
       class: 'input',
       placeholder: 'e.g. 1-3, 5',
       'aria-label': 'Page range',
-      inputmode: 'numeric',
+      // No number pad: a phone's has no "-" or "," for ranges and lists.
       autocomplete: 'off',
     });
     const choice = (value, label, checked) =>
@@ -13050,7 +13050,7 @@ export function createEditor({
       class: 'input',
       placeholder: 'e.g. 3, 7',
       'aria-label': 'Pages where new parts begin',
-      inputmode: 'numeric',
+      // No number pad: a phone's has no "-" or "," for ranges and lists.
       autocomplete: 'off',
     });
     const choice = (value, label, checked, control) =>
