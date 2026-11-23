@@ -298,3 +298,61 @@ test('object targets are not dimmed one by one while a save runs, and a hovered 
   expect(style).toMatchObject({ opacity: '1', hovered: true });
   expect(style.outline).toMatch(/^(rgba|color)\(.*0\.4\)$/);
 });
+
+test('the object targets are gone through only when their busy state changes', async ({ page }) => {
+  await mount(page);
+  const result = await page.evaluate(() => {
+    const { layer, entries, viewport } = window.selectionTest;
+    const targets = layer.targets;
+    const property = Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype, 'disabled');
+    let writes = 0;
+    Object.defineProperty(HTMLButtonElement.prototype, 'disabled', {
+      ...property,
+      set(value) {
+        if (targets.contains(this)) writes++;
+        property.set.call(this, value);
+      },
+    });
+    const count = (action) => {
+      writes = 0;
+      action();
+      return writes;
+    };
+    try {
+      // The editor sets the busy state many times a second while a page of thousands of shapes
+      // is saved; it changes only twice.
+      const unchanged = count(() => {
+        for (let i = 0; i < 5; i++) layer.setBusy(false);
+      });
+      const busy = count(() => layer.setBusy(true));
+      const disabled = [...targets.children].map((target) => target.disabled);
+      const again = count(() => layer.setBusy(true));
+      // A redraw while busy gives its new target the same state.
+      const next = entries.map((entry) => ({ ...entry }));
+      next[0].transform = [80, 0, 0, 60, 90, 140];
+      layer.render(next, viewport, 'second', 'page-1');
+      const redrawn = [...targets.children].map((target) => target.disabled);
+      const idle = count(() => layer.setBusy(false));
+      return {
+        unchanged,
+        busy,
+        disabled,
+        again,
+        redrawn,
+        idle,
+        enabled: [...targets.children].map((t) => t.disabled),
+      };
+    } finally {
+      Object.defineProperty(HTMLButtonElement.prototype, 'disabled', property);
+    }
+  });
+  expect(result).toEqual({
+    unchanged: 0,
+    busy: 2,
+    disabled: [true, true],
+    again: 0,
+    redrawn: [true, true],
+    idle: 2,
+    enabled: [false, false],
+  });
+});

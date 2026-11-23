@@ -108,6 +108,8 @@ export function createImageLayer({
     queuedClose = false;
   // The object target a finger last went down on, to tell its tap from a keyboard click.
   let touched = null;
+  // The busy state last given to every object target, as `${blocked}:${settlingFocus}`.
+  let targetState = null;
   let renderKey, pageKey;
   let keepRatio = true;
   // The corner handles' width in pixels, read once a selection's controls are shown.
@@ -143,12 +145,23 @@ export function createImageLayer({
   const pdfPoint = (p) => viewport.convertToPdfPoint(...p);
   function setBusy(value) {
     busy = value;
+    // The object targets, one per picture or shape, all take the same state, and the app sets
+    // it far more often than it changes: they are gone through only when it does, or when a
+    // redraw added new ones (render clears targetState). Thousands of them took most of the time.
+    const blocked = busy || !!committing;
+    const state = `${blocked}:${settlingFocus}`;
+    if (state !== targetState) {
+      targetState = state;
+      for (const target of targets.querySelectorAll('button')) {
+        target.disabled = blocked && !settlingFocus;
+        if (blocked && settlingFocus) target.setAttribute('aria-disabled', 'true');
+        else target.removeAttribute('aria-disabled');
+      }
+    }
     for (const control of [
-      ...targets.querySelectorAll('button'),
       ...controls.querySelectorAll('button'),
       ...properties.querySelectorAll('button, input'),
     ]) {
-      const blocked = busy || !!committing;
       // During a native blur/focus sequence, semantic disablement blocks
       // actions without removing the destination from the browser's tab order.
       // The selected object's own frame and handles are never disabled: the focus stays on
@@ -475,6 +488,7 @@ export function createImageLayer({
       if (sameView && target !== document.activeElement)
         reusable.set(target.dataset.ordinal, target);
     const wanted = [];
+    targetState = null;
     for (const entry of entries) {
       if (!entry.editable) continue;
       const kept = reusable.get(String(entry.ordinal));
