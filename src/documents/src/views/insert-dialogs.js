@@ -8,6 +8,7 @@ import { clipText } from '../core/text.js';
 import { openModal } from '../ui/modal.js';
 import { segmented } from '../ui/segmented.js';
 import { symbolName } from '../ui/symbols.js';
+import { formatChoices } from '../engine/page-numbering.js';
 import { formatDatePicture, DATE_PICTURES, FIELD_CATALOG, DOCUMENT_PROPERTY_NAMES, GENERAL_FORMATS, NUMBER_FORMATS, PAGE_NUMBER_FORMATS, fieldInstruction, evaluateField } from '../engine/field-results.js';
 import { linearToOmml, ommlToLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
 import { ommlToMathml } from '../engine/omml-mathml.js';
@@ -132,7 +133,7 @@ export function openFieldDialog({ context, bookmarks = [], onInsert, onClose }) 
 /* ---- Format Page Numbers ---- */
 export const PAGE_FORMATS = [['decimal', '1, 2, 3, …'], ['numberInDash', '- 1 -, - 2 -, - 3 -, …'], ['decimalZero', '01, 02, 03, …'], ['lowerLetter', 'a, b, c, …'], ['upperLetter', 'A, B, C, …'], ['lowerRoman', 'i, ii, iii, …'], ['upperRoman', 'I, II, III, …']];
 export function openFormatPageNumbers({ current = {}, onApply, onClose }) {
-  const format = select('Number format', PAGE_FORMATS, current.format || 'decimal');
+  const format = select('Number format', formatChoices(PAGE_FORMATS, current.format), current.format || 'decimal');
   let mode = Number.isInteger(current.start) ? 'start' : 'continue';
   const start = el('input.input', { type: 'number', min: 0, max: 32767, step: 1, value: current.start ?? 1, 'aria-label': 'Start at', disabled: mode !== 'start' });
   const modes = segmented([['continue', 'Continue from previous section'], ['start', 'Start at']], mode, value => { mode = value; start.disabled = value !== 'start'; if (!start.disabled) start.focus(); }, 'Page numbering');

@@ -52,6 +52,20 @@ export function formatPageNumber(value, format = 'decimal') {
   throw new Error(`Unsupported page number format: ${format}.`);
 }
 
+/**
+ * A dialog's number format choices ([format, label]), with the formats a document already uses that they do not
+ * list (01, 02, 03, or one another application wrote) added, labelled as they show. Left out, such a format left
+ * the list blank, and OK then saved an empty format.
+ */
+export function formatChoices(choices, ...formats) {
+  const extra = [...new Set(formats)].filter(format => format && !choices.some(([value]) => value === format));
+  return [...choices, ...extra.map(format => {
+    let sample = format;
+    try { sample = `${[1, 2, 3].map(n => formatPageNumber(n, format)).join(', ')}, …`; } catch { /* its name */ }
+    return [format, sample];
+  })];
+}
+
 export function pageNumberSequence(pageSections, definition, approximations = []) {
   let previous = null, number = 0;
   return pageSections.map(section => {
