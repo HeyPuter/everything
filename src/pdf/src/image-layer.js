@@ -10,8 +10,8 @@ import {
   MAX_IMAGE_SIZE,
 } from './core/image-edit.js';
 
-/** Screen pixels: two touch-size corner handles across. */
-const SMALL_OBJECT = 48;
+/** Screen pixels left free for a press between an object's corner handles. */
+const MOVE_STRIP = 12;
 /** A stored measure as a property field shows it: to two decimals, or to two significant
  * digits for a width under 1 pt, so a thin line never reads as zero. */
 const fieldNumber = (n) => Number(Math.abs(n) >= 1 ? n.toFixed(2) : n.toPrecision(2));
@@ -62,6 +62,10 @@ export function createImageLayer({
   let touched = null;
   let renderKey, pageKey;
   let keepRatio = true;
+  // The corner handles' width in pixels, read once a selection's controls are shown.
+  let handleSize = 0;
+  // The selected object whose handles stand outside it, by page and ordinal.
+  let smallObject = null;
   const dirty = () => !!(selected && draft && !same(selected.transform, draft));
   const pendingInputs = () =>
     [...properties.querySelectorAll('input[type="number"]')].filter(
@@ -492,6 +496,7 @@ export function createImageLayer({
     return corners;
   }
   function buildControls() {
+    handleSize = 0;
     controls.replaceChildren();
     properties.replaceChildren();
     controls.hidden = !enabled || !selected;
@@ -717,14 +722,21 @@ export function createImageLayer({
     outline
       .querySelector('polygon')
       .setAttribute('points', corners.map((p) => p.join(',')).join(' '));
-    // On an object smaller than two handles across, the handles centered on its corners would
-    // cover all of it, and a press meant to move it would resize it instead; they stand outside
-    // its corners then.
-    const small =
+    // On an object hardly wider than a handle, the handles centered on its corners would cover
+    // all of it, and a press meant to move it would resize it instead; they stand outside its
+    // corners then. A drag keeps the choice it started with, so a handle stays under the pointer,
+    // and an object keeps them outside while it stays selected, so they do not jump once it grows.
+    handleSize ||= controls.querySelector('.image-resize').offsetWidth;
+    const key = `${pageKey}:${selected.ordinal}`;
+    let small =
       Math.min(
         Math.hypot(corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]),
         Math.hypot(corners[2][0] - corners[1][0], corners[2][1] - corners[1][1]),
-      ) < SMALL_OBJECT;
+      ) <
+      (handleSize || 16) + MOVE_STRIP;
+    if (gesture) small = gesture.small ??= small;
+    if (small) smallObject = key;
+    else small = smallObject === key;
     controls.querySelectorAll('.image-resize').forEach((handle, i) => {
       handle.style.left = `${corners[i][0]}px`;
       handle.style.top = `${corners[i][1]}px`;
