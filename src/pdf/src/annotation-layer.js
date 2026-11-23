@@ -228,7 +228,8 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     // the pointer capture. Left behind, it would move whichever comment the pointer passed.
     drag = null;
     const previous = entries;
-    entries = next;
+    // One whose Rect cannot be read (left out, or the wrong length) has no place on the page.
+    entries = next.filter((entry) => entry.rect);
     viewport = nextViewport;
     let kept = selected && entries.find((entry) => entry.id === selected);
     // A comment written into the page's Annots directly becomes an object of its own, with a
