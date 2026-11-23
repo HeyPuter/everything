@@ -147,7 +147,8 @@ describe("assistant tools", () => {
     const outline = await runTool("get_presentation", {}, env);
     expect(outline.ok).toBe(true);
     expect(outline.content).toContain("5 slides");
-    expect(outline.content).toMatch(/1\. "YOUR NEXT CHAPTER" — Make room for/);
+    // Each starter slide's heading is its title.
+    expect(outline.content).toMatch(/1\. "Make room for\\nbig ideas\." — /);
     const read = await runTool("read_slide", { slide: 2 }, env);
     expect(read.content).toContain("Slide 2 of 5");
     expect(read.content).toMatch(/id \d+, text box, at x 0\.8/);

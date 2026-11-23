@@ -235,12 +235,32 @@ export function stylePaletteMaster(pres, theme = "studio") {
     P.syncPlaceholderListStyles(view);
   }
 }
+// A starter slide for screen readers: its heading is the slide's title, and
+// the panels behind the text, which say nothing, are marked decorative so
+// they are passed over. The stacking, and so the picture, stays as it was.
+function markForReading(slide, title) {
+  for (const s of P.getSlideShapes(slide))
+    if (P.getShapeKind(s) === "shape" && !(P.getShapeText(s) || "").trim())
+      P.setShapeDecorative(s, true);
+  if (!title) return;
+  const id = P.getShapeId(title);
+  P.setShapeAsTitlePlaceholder(title);
+  title = P.findShapeById(slide, id);
+  // A title would take its layout's title style for what the box left
+  // unsaid: centred, anchored lower and set tighter. The heading keeps its
+  // own.
+  P.setShapeTextAnchor(title, "top");
+  for (let i = 0; i < P.getShapeParagraphCount(title); i++) {
+    P.setParagraphAlignment(title, i, "left");
+    P.setParagraphLineSpacing(title, i, { kind: "pct", value: 1 });
+  }
+}
 export function addDesignedSlide(
   pres,
   layout = "title",
   theme = "studio",
   content = {},
-  { onLayout = false } = {},
+  { onLayout = false, titled = false } = {},
 ) {
   const t = THEMES[theme] || THEMES.studio;
   const slide = designedSlideBase(pres, layout, onLayout);
@@ -249,16 +269,31 @@ export function addDesignedSlide(
   if (layout === "blank") return slide;
   textFont = designed ? "+mn-lt" : "Arial";
   try {
-    return dressDesignedSlide(pres, slide, layout, theme, content, t, designed);
+    return dressDesignedSlide(pres, slide, layout, theme, content, t, {
+      designed,
+      titled,
+    });
   } finally {
     textFont = "Arial";
   }
 }
-function dressDesignedSlide(pres, slide, layout, theme, content, t, designed) {
-  // Titles take the heading font of a designed theme.
+function dressDesignedSlide(
+  pres,
+  slide,
+  layout,
+  theme,
+  content,
+  t,
+  { designed, titled },
+) {
+  // Titles take the heading font of a designed theme. On a starter slide
+  // (`titled`) the heading is the slide's title, for screen readers and the
+  // outline.
+  let title = null;
   const heading = (...args) => {
     const s = text(...args);
     if (designed) P.setShapeTextFormat(s, { font: "+mj-lt" });
+    title = s;
     return s;
   };
   text(
@@ -393,6 +428,7 @@ function dressDesignedSlide(pres, slide, layout, theme, content, t, designed) {
     9,
     footerColor,
   );
+  if (titled) markForReading(slide, title);
   // Template geometry follows the imported deck's aspect ratio.
   const size = P.getSlideSize(pres);
   const sx = size.width / 12192000,
@@ -440,6 +476,7 @@ export function createDeck(template = "blank", theme = "studio") {
       // compositions sit on the Blank layout, over the master's artwork.
       addDesignedSlide(pres, layout, theme, content, {
         onLayout: !designedTheme(theme),
+        titled: true,
       });
     const pitch = template === "pitch";
     designed(

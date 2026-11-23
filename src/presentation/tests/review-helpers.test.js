@@ -240,8 +240,17 @@ describe("thesaurus and AI replies", () => {
 describe("slide titles from existing text", () => {
   it("picks the largest text and makes it the title placeholder", async () => {
     const { titleCandidate } = await import("../src/review/accessibility.js");
-    const pres = createDeck("pitch");
+    // A slide of text boxes, as an imported deck may have: a kicker, then
+    // the heading in the largest type.
+    const pres = createDeck("blank");
     const slide = P.getSlides(pres)[0];
+    const box = (y, text, size) =>
+      P.setShapeTextFormat(
+        P.addSlideTextBox(slide, { x: 914400, y, w: 7315200, h: 914400, text }),
+        { size },
+      );
+    box(457200, "THE PITCH", 11);
+    box(1371600, "Small idea.\nBig possibility.", 52);
     expect(P.getSlideTitle(slide)).toBe(null);
     const pick = titleCandidate(pres, slide);
     expect(P.getShapeText(pick)).toMatch(/Small idea/);

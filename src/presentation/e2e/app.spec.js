@@ -9195,7 +9195,7 @@ test("hidden slides are marked in the navigator and can be shown or hidden again
   await expect(rows.nth(0)).toHaveClass(/hidden-slide/);
   await expect(rows.nth(0).locator(".slide-hidden")).toHaveText("Hidden");
   await expect(rows.nth(0).locator(".slide-thumb")).toHaveAccessibleName(
-    /^Slide 1 \(hidden\): YOUR NEXT CHAPTER/,
+    /^Slide 1 \(hidden\): Make room for\s+big ideas/,
   );
   await expect(rows.nth(1)).not.toHaveClass(/hidden-slide/);
   await expect(page.locator(".slide-hidden")).toHaveCount(1);
@@ -9208,7 +9208,7 @@ test("hidden slides are marked in the navigator and can be shown or hidden again
   await expect(page.locator(".slide-hidden")).toHaveCount(0);
   await expect(page.locator("#slide-label")).toHaveText("SLIDE 01");
   await expect(rows.nth(0).locator(".slide-thumb")).toHaveAccessibleName(
-    /^Slide 1: YOUR NEXT CHAPTER/,
+    /^Slide 1: Make room for\s+big ideas/,
   );
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await expect(page.locator(".presenter-controls")).toContainText("1 / 5");
@@ -11287,7 +11287,7 @@ test("slides are reordered by dragging their thumbnails along the navigator", as
   await story(page);
   const thumbs = page.locator(".slide-thumb");
   // Thumbnails are named for the first line of their slide's text.
-  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: YOUR NEXT/);
+  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: Make room/);
   const first = await thumbs.nth(0).boundingBox();
   const third = await thumbs.nth(2).boundingBox();
   const horizontal = third.x > first.x + first.width / 2;
@@ -11311,16 +11311,16 @@ test("slides are reordered by dragging their thumbnails along the navigator", as
   );
   await page.mouse.up();
   await expect(page.locator(".slide-drop")).toHaveCount(0);
-  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: Make room/);
   await expect(thumbs.nth(0)).toHaveAccessibleName(
-    /^Slide 1: 01 \/ THE CONTEXT/,
+    /^Slide 1: Where we are today/,
   );
   // The moved slide stays the current one, and undo restores the order.
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
   await page.keyboard.press("Control+z");
-  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: YOUR NEXT/);
+  await expect(thumbs.nth(0)).toHaveAccessibleName(/^Slide 1: Make room/);
   await page.keyboard.press("Control+y");
-  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: Make room/);
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
   await page
@@ -11947,11 +11947,13 @@ test("several slides are selected with Shift and Ctrl clicks and act together", 
   await expect(count).toHaveText("3 of 8 selected");
   await expect(position).toHaveText("Slide 6 of 8");
   await expect(thumbs.nth(5)).toHaveAccessibleName(
-    /^Slide 6 \(selected\): YOUR NEXT/,
+    /^Slide 6 \(selected\): Make room/,
   );
-  await expect(thumbs.nth(6)).toHaveAccessibleName(/^Slide 7 \(selected\): 02/);
+  await expect(thumbs.nth(6)).toHaveAccessibleName(
+    /^Slide 7 \(selected\): See the bigger picture/,
+  );
   await expect(thumbs.nth(7)).toHaveAccessibleName(
-    /^Slide 8 \(selected\): LET/,
+    /^Slide 8 \(selected\): The next chapter/,
   );
   // Escape lets the extra slides go.
   await page.keyboard.press("Escape");
@@ -12033,11 +12035,15 @@ test("selected slides move together when one of them is dragged or moved", async
   );
   await expect(page.locator(".slide-item.dragging")).toHaveCount(2);
   await page.mouse.up();
-  await expect(thumbs.nth(1)).toHaveAccessibleName(/^Slide 2: 03 \/ THE PLAN/);
-  await expect(thumbs.nth(2)).toHaveAccessibleName(
-    /^Slide 3 \(selected\): 01 \/ THE CONTEXT/,
+  await expect(thumbs.nth(1)).toHaveAccessibleName(
+    /^Slide 2: From idea to impact/,
   );
-  await expect(thumbs.nth(3)).toHaveAccessibleName(/^Slide 4 \(selected\): 02/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(
+    /^Slide 3 \(selected\): Where we are today/,
+  );
+  await expect(thumbs.nth(3)).toHaveAccessibleName(
+    /^Slide 4 \(selected\): See the bigger picture/,
+  );
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
   await expect(count).toHaveText("2 of 5 selected");
   // Move up from a selected slide's options takes the pair up together. At
@@ -12048,7 +12054,7 @@ test("selected slides move together when one of them is dragged or moved", async
     .click();
   await page.getByRole("menuitem", { name: "Move up", exact: true }).click();
   await expect(thumbs.nth(1)).toHaveAccessibleName(
-    /^Slide 2 \(selected\): 01 \/ THE CONTEXT/,
+    /^Slide 2 \(selected\): Where we are today/,
   );
   await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 5");
   for (const n of [3, 4]) {
@@ -12059,7 +12065,9 @@ test("selected slides move together when one of them is dragged or moved", async
       .getByRole("menuitem", { name: "Move down", exact: true })
       .click();
   }
-  await expect(thumbs.nth(4)).toHaveAccessibleName(/^Slide 5 \(selected\): 02/);
+  await expect(thumbs.nth(4)).toHaveAccessibleName(
+    /^Slide 5 \(selected\): See the bigger picture/,
+  );
   await expect(page.locator("#slide-position")).toHaveText("Slide 4 of 5");
   await page
     .getByRole("button", { name: "Options for slide 5", exact: true })
@@ -13529,16 +13537,19 @@ test("a table grows with its rows and shares its width among its columns", async
 test("Delete in the navigator removes the focused slide", async ({ page }) => {
   await story(page);
   const thumbs = page.locator(".slide-thumb");
-  await expect(thumbs.nth(2)).toHaveAttribute("aria-label", /THE APPROACH/);
+  await expect(thumbs.nth(2)).toHaveAttribute(
+    "aria-label",
+    /See the bigger picture/,
+  );
   await thumbs.nth(2).focus();
   await page.keyboard.press("Delete");
   await expect(page.locator("#slide-count")).toHaveText("4");
   await expect(thumbs.first()).toHaveAttribute(
     "aria-label",
-    /YOUR NEXT CHAPTER/,
+    /Make room for\s+big ideas/,
   );
   await expect(
-    page.locator('.slide-thumb[aria-label*="THE APPROACH"]'),
+    page.locator('.slide-thumb[aria-label*="See the bigger picture"]'),
   ).toHaveCount(0);
 });
 
@@ -13563,10 +13574,13 @@ test("the keyboard follows a slide added from the navigator", async ({
   await expect(page.locator("#slide-count")).toHaveText("6");
   await expect(thumbs.first()).toHaveAttribute(
     "aria-label",
-    /YOUR NEXT CHAPTER/,
+    /Make room for\s+big ideas/,
   );
   await expect(thumbs.nth(1)).toHaveAttribute("aria-label", /^Slide 2: Blank/);
-  await expect(thumbs.nth(2)).toHaveAttribute("aria-label", /THE CONTEXT/);
+  await expect(thumbs.nth(2)).toHaveAttribute(
+    "aria-label",
+    /Where we are today/,
+  );
 });
 
 // The link region sat where the unrotated object would be.
@@ -14058,7 +14072,7 @@ test("a press released outside a thumbnail before dragging arms no drag", async 
   await thumbs.first().click();
   await expect(thumbs.first()).toHaveAttribute(
     "aria-label",
-    /YOUR NEXT CHAPTER/,
+    /Make room for\s+big ideas/,
   );
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
 });
@@ -14082,7 +14096,7 @@ test("a slide flicked along the navigator in one movement still moves", async ({
   );
   await page.mouse.up();
   await expect(page.locator(".slide-drop")).toHaveCount(0);
-  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: Make room/);
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
 });
 

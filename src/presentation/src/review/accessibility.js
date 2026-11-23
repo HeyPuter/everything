@@ -197,8 +197,12 @@ export function findAccessibilityIssues(pres, env) {
       titles.set(key, [...(titles.get(key) || []), { slide, index, part }]);
     }
     // Reading order: objects read in an order unlike the one they show in.
+    // Decorative objects are passed over, so their place does not matter.
     const boxes = shapes
-      .filter((s) => !ownGroupChildren.has(P.getShapeId(s)))
+      .filter(
+        (s) =>
+          !ownGroupChildren.has(P.getShapeId(s)) && !P.isShapeDecorative(s),
+      )
       .map((s) => ({ id: P.getShapeId(s), ...(env.slideBounds(s) || {}) }))
       .filter((b) => Number.isFinite(b.x) && b.y > -1e9);
     if (boxes.length >= 2) {
@@ -208,8 +212,14 @@ export function findAccessibilityIssues(pres, env) {
       const titleShape = shapes.find((s) =>
         isTitlePh(P.getShapePlaceholderType?.(s)),
       );
-      const titleFirst = !titleShape || read[0] === P.getShapeId(titleShape);
-      if (!titleFirst || seen.join() !== read.join())
+      // The title is read where it shows, or first wherever it shows (a
+      // kicker line may sit above it).
+      const titleId = titleShape ? P.getShapeId(titleShape) : null;
+      const titleFirst = [
+        titleId,
+        ...seen.filter((id) => id !== titleId),
+      ].join();
+      if (seen.join() !== read.join() && titleFirst !== read.join())
         issues.push({
           id: `readingOrder:${part}:`,
           kind: "readingOrder",
