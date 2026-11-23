@@ -123,13 +123,23 @@ export function createPageStack({
     }
   }
 
-  /** Apply a layout change without moving the current page on screen. */
+  /**
+   * Apply a layout change without moving the current page on screen. When the page is read
+   * part way down (its top above the view), the place being read stays at the top of the view
+   * as the page changes size, as when a refit follows a wider page turned elsewhere; otherwise
+   * the page's top stays put.
+   */
   function keepInPlace(change) {
     const anchor = slots[currentIndex()];
-    const before = anchor?.getBoundingClientRect().top;
+    const box = anchor?.getBoundingClientRect();
+    const top = workspace.getBoundingClientRect().top;
+    const fraction =
+      box && box.top < top && box.bottom > top && box.height ? (top - box.top) / box.height : 0;
     change();
-    if (anchor && before != null) {
-      const after = anchor.getBoundingClientRect().top;
+    if (box) {
+      const now = anchor.getBoundingClientRect();
+      const after = now.top + fraction * now.height,
+        before = box.top + fraction * box.height;
       if (Math.abs(after - before) > 0.5) {
         workspace.scrollTop += after - before;
         quiet();
