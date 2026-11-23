@@ -1068,3 +1068,66 @@ test('Escape closes Organize pages, as it closes Compare files', async ({ page, 
     'true',
   );
 });
+
+test('the other pages in Organize pages keep their pictures while an edit redraws the grid', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 6; i++)
+    for (let k = 0, sheet = doc.addPage([400, 500]); k < 20; k++)
+      sheet.drawText(`Page ${i + 1}, line ${k + 1}`, { x: 30, y: 460 - k * 20, size: 14, font });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  // Whether each tile but the first shows a picture: a pixel of the page's paper.
+  const shown = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.organize-tile canvas')].slice(1).map((canvas) => {
+        if (!canvas.width) return false;
+        const [, , , alpha] = canvas
+          .getContext('2d')
+          .getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data;
+        return alpha > 0;
+      }),
+    );
+  await expect.poll(shown).toEqual([true, true, true, true, true]);
+  // Every frame from the click on, until the edit is done.
+  await page.evaluate(() => {
+    window.blankFrames = 0;
+    window.watching = true;
+    const check = () => {
+      for (const canvas of [...document.querySelectorAll('.organize-tile canvas')].slice(1)) {
+        const [, , , alpha] = canvas.width
+          ? canvas.getContext('2d').getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data
+          : [0, 0, 0, 0];
+        if (!alpha) window.blankFrames++;
+      }
+      if (window.watching) requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  });
+  await grid.getByRole('option', { name: 'Page 1', exact: true }).click();
+  await page
+    .getByRole('toolbar', { name: 'Organize pages' })
+    .getByRole('button', { name: 'Rotate clockwise', exact: true })
+    .click();
+  await settled(page);
+  // The turned page is drawn again, on its side.
+  await expect
+    .poll(() =>
+      grid
+        .getByRole('option', { name: 'Page 1', exact: true })
+        .locator('canvas')
+        .evaluate((canvas) => canvas.width > canvas.height),
+    )
+    .toBe(true);
+  await expect.poll(shown).toEqual([true, true, true, true, true]);
+  expect(await page.evaluate(() => ((window.watching = false), window.blankFrames))).toBe(0);
+});
