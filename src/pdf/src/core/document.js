@@ -1627,6 +1627,8 @@ export function listFields(doc) {
         multiline: !!(flags & AcroTextFlags.Multiline),
         password: !!(flags & AcroTextFlags.Password),
         spellcheck: !(flags & (AcroTextFlags.DoNotSpellCheck | AcroTextFlags.Password)),
+        // A date or time field's pattern, shown while it is empty.
+        ...(dateFormat(field) && { placeholder: dateFormat(field) }),
       };
     }
     if (field instanceof PDFCheckBox) {

@@ -206,6 +206,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
         ...attrs,
         type: widget.multiline ? null : widget.password ? 'password' : 'text',
         maxlength: widget.maxLength,
+        placeholder: widget.placeholder,
         autocomplete: 'off',
         spellcheck: String(widget.spellcheck),
       });

@@ -6897,6 +6897,7 @@ export function createEditor({
           type: field.multiline ? null : field.password ? 'password' : 'text',
           class: 'input',
           maxlength: field.maxLength,
+          placeholder: field.placeholder,
           disabled: field.readOnly,
           autocomplete: field.password ? 'off' : null,
           spellcheck: String(field.spellcheck),

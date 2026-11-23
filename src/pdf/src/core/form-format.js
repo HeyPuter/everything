@@ -150,8 +150,9 @@ const TIME_FORMATS = ['HH:MM', 'h:MM tt', 'HH:MM:ss', 'h:MM:ss tt'];
  * The field's date or time pattern (AFDate_FormatEx and AFTime_FormatEx, or the numbered ones
  * of AFDate_Format and AFTime_Format), or null.
  */
-export function dateFormat(field) {
-  const script = actionScript(field);
+export const dateFormat = (field) => datePattern(actionScript(field));
+/** The date or time pattern a format script writes values in, or null. */
+export function datePattern(script) {
   const pattern = script.match(
     /AF(?:Date|Time)_FormatEx\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\)/,
   );

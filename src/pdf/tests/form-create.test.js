@@ -617,6 +617,12 @@ it('takes dates in a date field, and shows them as its pattern writes them', asy
     'Enter a date in Due, such as 15-Mar-2025.',
   );
   await expect(fillFields(doc, { At: '3/15/26 13:00 pm' })).rejects.toThrow('Enter a date in At');
+  // The Fill forms dialog shows each pattern while its field is empty.
+  expect(listFields(doc).map((field) => field.placeholder)).toEqual([
+    'mm/dd/yyyy',
+    'dd-mmm-yyyy',
+    'm/d/yy h:MM tt',
+  ]);
   await fillFields(doc, { Born: '7/4/76', Due: '2026-03-01', At: '3/15/26 2:05 pm' });
   // The value keeps what was typed; the page shows it in the field's pattern.
   expect(listFields(doc).map((field) => field.value)).toEqual([

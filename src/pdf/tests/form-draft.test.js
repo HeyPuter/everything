@@ -266,3 +266,28 @@ it('describes widgets by their own tooltip, or by their field’s', () => {
   );
   expect(widgets.map((w) => w.tooltip)).toEqual(['Your name', 'From the field', '']);
 });
+
+it('shows a date or time field’s pattern while it is empty', () => {
+  const base = { fieldType: 'Tx', fieldValue: '', rect: [10, 20, 110, 50] };
+  const widgets = formWidgets([
+    {
+      ...base,
+      id: '1R',
+      fieldName: 'Born',
+      actions: { Format: ['AFDate_FormatEx("dd.mm.yyyy");'] },
+    },
+    // As PDF.js lists them.
+    { ...base, id: '2R', fieldName: 'At', actions: new Map([['Format', ['AFTime_Format(1);']]]) },
+    {
+      ...base,
+      id: '3R',
+      fieldName: 'Amount',
+      actions: { Format: ['AFNumber_Format(2, 0, 0, 0, "", true);'] },
+    },
+  ]);
+  expect(widgets.map(({ placeholder }) => placeholder)).toEqual([
+    'dd.mm.yyyy',
+    'h:MM tt',
+    undefined,
+  ]);
+});

@@ -1,6 +1,7 @@
 import { matrix } from './text-edit.js';
 import { annotationLayerVisible } from './optional-content.js';
 import { choiceKeys } from './form-values.js';
+import { datePattern } from './form-format.js';
 
 const clone = (value) => (Array.isArray(value) ? [...value] : value);
 export const equalFieldValue = (a, b) => {
@@ -250,6 +251,9 @@ export function formWidgets(
         buttonLabel: type === 'radio' ? a.buttonValue : undefined,
         exportValue: a.checkBox ? a.exportValue : undefined,
         editableChoice,
+        // A date or time field shows its pattern while empty: mm/dd/yyyy.
+        placeholder:
+          type === 'text' ? datePattern(actionScripts(a, 'Format')) || undefined : undefined,
         action:
           type === 'button'
             ? pushButtonAction(a)
