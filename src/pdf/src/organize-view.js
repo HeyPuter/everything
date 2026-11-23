@@ -254,9 +254,19 @@ export function createOrganizeView({
       class: 'organize-view',
       'aria-label': 'Organize pages',
       hidden: true,
-      // The editor's shortcuts to rotate or delete a page act on the current page, which the
-      // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
       onkeydown: (e) => {
+        // Escape leaves the grid, as it leaves Compare files, unless something here uses it:
+        // an open menu or a drag takes it first, and a text field keeps it.
+        if (e.key === 'Escape') {
+          if (e.defaultPrevented || e.isComposing || dragging) return;
+          if (e.target.closest?.('textarea, select, input:not([type="range"])')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          actions.close();
+          return;
+        }
+        // The editor's shortcuts to rotate or delete a page act on the current page, which the
+        // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
         const key = e.key.toLowerCase();
         if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || !['r', 'd'].includes(key))
           return;
