@@ -1111,3 +1111,31 @@ describe('Tab in a table', () => {
     expect(doc.paragraphs[locate(doc.paragraphs, doc.range[0]).index].cellId).toBe(cellAt(doc, 1, 1, outer).id);
   });
 });
+
+describe('Enter at the start of a table that begins the document', () => {
+  it('puts an empty paragraph above the table, as Word does; elsewhere in the table Enter splits the cell', () => {
+    const { pkg } = tableDocument(2, 2);
+    const doc = open(pkg);
+    doc.select(0); doc.insertTable(2, 2, 9000);
+    const cells = tableCells(doc.tables[0]);
+    doc.selectCell(cells[0].id); doc.replace('x');
+    expect(doc.paragraphs[0].cellId).toBe(cells[0].id);
+    doc.select(0);
+    expect(doc.insertParagraph()).toBe(true);
+    expect(doc.paragraphs[0].cellId).toBeUndefined();
+    expect(paragraphText(doc.paragraphs[0])).toBe('');
+    expect(doc.paragraphs.filter(p => p.cellId === cells[0].id).map(paragraphText)).toEqual(['x']);
+    expect(doc.range).toEqual([0, 0]);
+    valid(doc);
+    doc.undo();
+    expect(doc.paragraphs[0].cellId).toBe(cells[0].id);
+    // After the cell's first character, or with Track Changes on, Enter splits the cell's paragraph.
+    doc.select(1); doc.insertParagraph();
+    expect(doc.paragraphs.filter(p => p.cellId === cells[0].id).map(paragraphText)).toEqual(['x', '']);
+    doc.undo();
+    doc.trackChanges = true;
+    doc.select(0); doc.insertParagraph();
+    expect(doc.paragraphs[0].cellId).toBe(cells[0].id);
+    expect(doc.paragraphs.filter(p => p.cellId === cells[0].id)).toHaveLength(2);
+  });
+});

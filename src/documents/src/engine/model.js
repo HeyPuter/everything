@@ -886,6 +886,11 @@ export class TextDocument {
     this.didChange(); return true;
   }
   insertParagraph() {
+    // Enter at the very start of a table that begins the document (or the header, footer or note) puts an empty
+    // paragraph above the table, as in Word: there is no other place to type before it. With Track Changes on that
+    // paragraph would not be a tracked change, so the cell takes the new paragraph as usual.
+    const first = this.paragraphs[0];
+    if (this.range[0] === 0 && this.range[1] === 0 && first?.cellId && !cellContext(this.tables, first.cellId)?.table.parentCellId && !(this.trackChanges && !this.trackingInternal)) return this.insertTableParagraph(false);
     const p = this.selectedParagraphs[0];
     if (this.range[0] === this.range[1] && p.list && !paragraphText(p)) {
       // An empty nested item steps out one level, as in other word processors; only at the top level does
