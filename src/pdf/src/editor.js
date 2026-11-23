@@ -9441,6 +9441,11 @@ export function createEditor({
         'Remove the password before signing with a certificate. Encrypting the file again would invalidate the signature.',
       );
     await finishDrafts();
+    // What signing would refuse is refused before a digital ID and the details are asked for.
+    if (certify && signatureReports.length)
+      throw new Error('A document can be certified only before anyone has signed it.');
+    if (signatureReports.some((report) => report.certification?.level === 1))
+      throw new Error('This document is certified and allows no changes, so it cannot be signed.');
     const chosen = await chooseDigitalId(digitalIds, dialogOptions);
     if (!chosen || destroyed) return;
     if (!digitalIds.includes(chosen)) digitalIds.unshift(chosen);
