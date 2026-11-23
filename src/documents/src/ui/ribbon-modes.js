@@ -157,7 +157,8 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       const tip = el('span.ed-keytip', { 'aria-hidden': 'true' }, code);
       if (disabled) tip.classList.add('is-disabled');
       tip.style.left = `${Math.round(Math.min(Math.max((left + right) / 2, 12), width - 12))}px`;
-      tip.style.top = `${Math.round(box.bottom - 6)}px`;
+      // A split button's arrow has its badge above its command's, on the arrow itself.
+      tip.style.top = `${Math.round(target.classList.contains('ribbon-split-arrow') ? box.top + 2 : box.bottom - 6)}px`;
       return tip;
     }
     /** Shows the targets' badges; how many show. */
@@ -203,13 +204,34 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       if (effective() !== 'always') { peek(true); ribbon.fit(); }
       commands(id);
     }
+    let tabId = null;
     function commands(id) {
-      level = 'tab'; typed = '';
-      const panel = toolbar.querySelector(`#ribbon-panel-${id}`);
-      const controls = panel ? [...panel.querySelectorAll('button, select, input')].filter(n => visible(n) && !n.closest('.ribbon-gallery') && !n.classList.contains('ribbon-split-arrow')) : [];
-      const labels = controls.map(n => n.getAttribute('aria-label') || n.title || n.textContent || '');
-      const assigned = assignKeyTips(labels);
+      level = 'tab'; typed = ''; tabId = id;
+      label(toolbar.querySelector(`#ribbon-panel-${id}`));
+    }
+    /** The commands of a folded group, in the drop-down its letter opened. */
+    function group(popup) {
+      level = 'group'; typed = '';
+      label(popup);
+    }
+    // Every command gets a letter, the arrow of a split button too (Underline's styles, the font colours…); a folded
+    // group's letter opens it and labels the commands in it.
+    function label(container) {
+      const all = container ? [...container.querySelectorAll('button, select, input')].filter(n => visible(n) && !n.closest('.ribbon-gallery')) : [];
+      // The commands keep the letters they always had; the arrows take letters left over after them.
+      const arrow = n => n.classList.contains('ribbon-split-arrow');
+      const name = n => n.getAttribute('aria-label') || n.title || n.textContent || '';
+      const commandsIn = all.filter(n => !arrow(n)), arrows = all.filter(arrow);
+      const own = assignKeyTips(commandsIn.map(name));
+      const taken = own.filter(Boolean);
+      const rest = assignKeyTips(arrows.map(name), { taken: [...taken, ...taken.map(code => code[0])] });
+      const controls = [...commandsIn, ...arrows], assigned = [...own, ...rest];
       const shown = render(controls.map((node, i) => ({ node, code: assigned[i], disabled: node.disabled, run: () => {
+        if (node.classList.contains('ribbon-collapsed') && !node.disabled) {
+          node.click();
+          const popup = document.querySelector('.ribbon-flyout');
+          if (popup) { group(popup); return; }
+        }
         hide();
         if (node.disabled) return;
         if (node.matches('input, select')) node.focus(); else node.click();
@@ -228,7 +250,10 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       if (!level || isComposing(e)) return;
       if (['Alt', 'Shift', 'Control', 'Meta'].includes(e.key)) { if (e.key === 'Alt') { e.preventDefault(); } return; }
       e.preventDefault(); e.stopPropagation();
-      if (e.key === 'Escape') { if (level === 'tab') top(); else { hide(); focusEditor(); } return; }
+      if (e.key === 'Escape') {
+        if (level === 'group') { ribbon.closeFlyout({ focus: true }); commands(tabId); } else if (level === 'tab') top(); else { hide(); focusEditor(); }
+        return;
+      }
       const ch = /^Key([A-Z])$/.exec(shortcutCode(e))?.[1] || /^Digit([0-9])$/.exec(e.code)?.[1] || (e.key.length === 1 ? e.key.toUpperCase() : null);
       if (!ch) { hide(); return; }
       // A key no KeyTip goes on with is ignored: the letters typed so far still stand, as the dimmed badges show.

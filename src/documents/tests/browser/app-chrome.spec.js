@@ -854,3 +854,54 @@ test('Alt in Focus, where there is nothing to label, leaves the next keys to the
   await expect(text(page)).toHaveValue('Write here');
   await expect(page.locator('.ed-keytips')).toHaveCount(0);
 });
+
+// The letter KeyTips gave a control, read from the badge drawn on it.
+const tipOn = (page, locator) => locator.evaluate(node => {
+  const box = node.getBoundingClientRect();
+  return [...document.querySelectorAll('.ed-keytip')].find(tip => Math.abs(parseFloat(tip.style.left) - (box.left + box.width / 2)) < 2
+    && parseFloat(tip.style.top) >= box.top - 1 && parseFloat(tip.style.top) <= box.bottom)?.textContent || null;
+});
+const typeTip = async (page, code) => { for (const ch of code) await page.keyboard.press(ch.toLowerCase()); };
+
+test('KeyTips reach a split button\'s arrow and the commands of a folded group', async ({ page }) => {
+  await openEditor(page, 1440);
+  await text(page).fill('Keys');
+  await select(page, 0, 4);
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  // The commands keep their letters; the arrows, which had none, take letters of their own.
+  await expect(page.locator('.ed-keytip', { hasText: /^B$/ })).toBeVisible();
+  await expect(page.locator('.ed-keytip', { hasText: /^QB$/ })).toBeVisible();
+  const arrow = page.getByRole('button', { name: 'Underline options' });
+  const code = await tipOn(page, arrow);
+  expect(code).toBeTruthy();
+  await typeTip(page, code);
+  // It opens the underline styles, as a click on it does.
+  const styles = page.locator('.menu, .modal-panel').first();
+  await expect(styles).toBeVisible();
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(styles).toBeHidden();
+
+  // A narrow window folds Paragraph: its letter opens it and labels the commands inside.
+  await page.setViewportSize({ width: 760, height: 900 });
+  const paragraph = page.locator('#ribbon-panel-home .ribbon-collapsed[aria-label="Paragraph"]');
+  await expect(paragraph).toBeVisible();
+  await select(page, 0, 4);
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  await typeTip(page, await tipOn(page, paragraph));
+  const flyout = page.locator('.ribbon-flyout');
+  await expect(flyout).toBeVisible();
+  const center = flyout.getByRole('button', { name: 'Align center', exact: true });
+  const centerCode = await tipOn(page, center);
+  expect(centerCode).toBeTruthy();
+  // Escape goes back to the tab's letters and puts the drop-down away.
+  await page.keyboard.press('Escape');
+  await expect(flyout).toHaveCount(0);
+  await expect(page.locator('.ed-keytip').first()).toBeVisible();
+  await typeTip(page, await tipOn(page, paragraph));
+  await typeTip(page, centerCode);
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.paragraphFormatting.alignment)).toBe('center');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+});
