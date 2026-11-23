@@ -28,7 +28,7 @@ for (const comb of [false, true])
       const session = new PdfSession(bytes);
       await expect(
         session.change((doc) => fillFields(doc, { 'Address.Code': '123456' })),
-      ).rejects.toThrow(/length|max/i);
+      ).rejects.toThrow(/at most 5 characters in Address\.Code/);
       expect(session.bytes).toEqual(bytes);
       expect(session.dirty).toBe(false);
       expect(session.past).toHaveLength(0);

@@ -2020,6 +2020,15 @@ export async function fillFields(doc, values) {
           ),
           { field: name },
         );
+      // A value the file held over the field's limit can be shortened, though not to fit.
+      const limit = textMaxLength(field)?.asNumber();
+      if (limit >= 0 && String(value).length > limit)
+        throw Object.assign(
+          new Error(
+            `Enter at most ${limit} ${limit === 1 ? 'character' : 'characters'} in ${fieldTooltip(field) || name}.`,
+          ),
+          { field: name },
+        );
       prepareFieldAppearance(field, form);
       field.setText(value);
       // An explicit empty value overrides inherited/default values; deleting /V does not.
