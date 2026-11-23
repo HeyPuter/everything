@@ -237,6 +237,8 @@ const presetShadows = (
   ): ShapeEffectAny => ({
     kind: "outerShdw",
     blurEmu: 0,
+    // Laid out on the page, however the shape is turned.
+    fixedToPage: true,
     ...base,
     ...extra,
   });

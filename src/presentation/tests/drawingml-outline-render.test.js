@@ -20,8 +20,8 @@ const render = async (shapes) => {
   const pres = await deckWith(shapes);
   return renderSlideToSvg(pres, P.getSlides(pres)[0], { textLayout: "svg" });
 };
-const shape = (spPr, prst = "rect") =>
-  `<p:sp><p:nvSpPr><p:cNvPr id="9" name="S"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="2743200" cy="1371600"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom>${spPr}</p:spPr></p:sp>`;
+const shape = (spPr, prst = "rect", xfrm = "") =>
+  `<p:sp><p:nvSpPr><p:cNvPr id="9" name="S"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm${xfrm}><a:off x="914400" y="914400"/><a:ext cx="2743200" cy="1371600"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom>${spPr}</p:spPr></p:sp>`;
 const black = '<a:solidFill><a:srgbClr val="000000"/></a:solidFill>';
 // w = 76200 EMU = 8 px.
 const dashOf = (svg) =>
@@ -204,5 +204,38 @@ describe("slanted shadows", () => {
     expect(b).toBeCloseTo(0, 3);
     expect(c).toBeCloseTo(Math.tan((-20 * Math.PI) / 180), 3);
     expect(d).toBeCloseTo(-0.19, 3);
+  });
+});
+
+describe("shadows fixed to the page", () => {
+  it("lays a slanted shadow out below a turned shape on the page", async () => {
+    // Turned a half turn, the shape's own top is the page's bottom. A shadow
+    // that does not turn with it is squashed below it on the page: in the
+    // shape's own frame, above its top edge.
+    const svg = await render(
+      shape(
+        '<a:solidFill><a:srgbClr val="4472C4"/></a:solidFill><a:effectLst><a:outerShdw dist="0" sy="-50000" algn="b" rotWithShape="0"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst>',
+        "rect",
+        ' rot="10800000"',
+      ),
+    );
+    const m = /data-pptx-shadow="1"><g transform="matrix\(([^)]+)\)"/.exec(svg);
+    const [, , , d, , f] = m[1].split(" ").map(Number);
+    // The box runs from y 96 to 240 px in its own frame.
+    expect(d * 96 + f).toBeCloseTo(96, 1);
+    expect(d * 240 + f).toBeCloseTo(24, 1);
+  });
+
+  it("lays preset shadows out on the page", async () => {
+    const pres = await deckWith(
+      shape(
+        '<a:solidFill><a:srgbClr val="FFC000"/></a:solidFill><a:effectLst><a:prstShdw prst="shdw4" dist="114300" dir="2700000"><a:srgbClr val="404040"/></a:prstShdw></a:effectLst>',
+      ),
+    );
+    const [effect] = P.getShapeEffects(
+      pres,
+      P.getSlideShapes(P.getSlides(pres)[0]).at(-1),
+    );
+    expect(effect.fixedToPage).toBe(true);
   });
 });

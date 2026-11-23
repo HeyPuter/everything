@@ -13466,19 +13466,70 @@ const transformedShadows = (
       bh = box.h / EMU_PER_PX;
     const al = e.align ?? "b";
     const [fx, fy] = rectAlignment(al);
-    const ax = bx + bw * fx,
-      ay = by + bh * fy;
-    const [dx, dy] = shadowOffsetPx(e, frame);
     // x' = a x + c y + ox, y' = b x + d y + oy, about (ax, ay). Each skew
     // slants the box as it stands, before scaling: a far edge leans by the
     // box's own height (or width) times the skew's tangent, whatever the
     // scale, as the desktop app draws it.
-    const a = sx,
+    let a = sx,
       b = ty,
       c = tx,
-      d = sy;
-    const ox = ax + dx - (a * ax + c * ay),
+      d = sy,
+      ox: number,
+      oy: number;
+    const turned = frame.rotation !== 0 || frame.flipH || frame.flipV;
+    if (e.fixedToPage && frame.local && turned) {
+      // A shadow that does not turn with its shape is laid out on the page,
+      // about the turned shape's bounding box, and then drawn back in the
+      // shape's own frame: Q⁻¹·M·Q, Q being the turn and flips about the
+      // centre.
+      const cx = bx + bw / 2,
+        cy = by + bh / 2;
+      const r = (frame.rotation * Math.PI) / 180,
+        cos = Math.cos(r),
+        sin = Math.sin(r);
+      const hx = frame.flipH ? -1 : 1,
+        vy = frame.flipV ? -1 : 1;
+      const q = (x: number, y: number): [number, number] => {
+        const u = (x - cx) * hx,
+          v = (y - cy) * vy;
+        return [cx + u * cos - v * sin, cy + u * sin + v * cos];
+      };
+      const qi = (x: number, y: number): [number, number] => {
+        const u = x - cx,
+          v = y - cy;
+        return [cx + (u * cos + v * sin) * hx, cy + (-u * sin + v * cos) * vy];
+      };
+      const hw = (Math.abs(cos) * bw + Math.abs(sin) * bh) / 2,
+        hh = (Math.abs(sin) * bw + Math.abs(cos) * bh) / 2;
+      const ax = cx - hw + 2 * hw * fx,
+        ay = cy - hh + 2 * hh * fy;
+      const dist = effectLength(e.distEmu, MAX_EFFECT_DISTANCE) / EMU_PER_PX;
+      const dir = (e.angleDeg * Math.PI) / 180;
+      const dx = dist * Math.cos(dir),
+        dy = dist * Math.sin(dir);
+      const map = (x: number, y: number): [number, number] => {
+        const [px0, py0] = q(x, y);
+        return qi(
+          ax + dx + sx * (px0 - ax) + tx * (py0 - ay),
+          ay + dy + ty * (px0 - ax) + sy * (py0 - ay),
+        );
+      };
+      const [o0, o1] = map(0, 0),
+        [x0, x1] = map(1, 0),
+        [y0, y1] = map(0, 1);
+      a = x0 - o0;
+      b = x1 - o1;
+      c = y0 - o0;
+      d = y1 - o1;
+      ox = o0;
+      oy = o1;
+    } else {
+      const ax = bx + bw * fx,
+        ay = by + bh * fy;
+      const [dx, dy] = shadowOffsetPx(e, frame);
+      ox = ax + dx - (a * ax + c * ay);
       oy = ay + dy - (b * ax + d * ay);
+    }
     const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
     const corners = [
       [bx, by],
