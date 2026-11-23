@@ -11,6 +11,7 @@ import {
   pruneEditedFonts,
   pruneEditedForms,
   spliceContent,
+  sourceBytes,
 } from './text-edit.js';
 import { MAX_IMAGE_SIZE, embedOrientedImage } from './document.js';
 import { imageOrientationMatrix, IMAGE_ORIENTATION_KEY } from './image-orientation.js';
@@ -620,10 +621,7 @@ export function rewriteOccurrence(doc, index, entry, replacement, updateResource
       dict.delete(PDFName.of('DecodeParms'));
       retainCryptFilter(dict, [form.dict]);
       dict.set(PDFName.of('Resources'), nested.resources);
-      const stream = PDFRawStream.of(
-        dict,
-        Uint8Array.from(nested.source, (c) => c.charCodeAt(0)),
-      );
+      const stream = PDFRawStream.of(dict, sourceBytes(nested.source));
       const objects = get(copy, 'XObject'),
         current = get(resources, 'XObject').get(PDFName.of(call.name)),
         ref = storeStream(doc, current, stream);
