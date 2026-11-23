@@ -6,6 +6,7 @@ import '../styles/tables.css';
 import { clipText } from '../core/text.js';
 import { el, MOD_KEY, isComposing, amountInRange } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
+import { announce } from '../ui/toast.js';
 import { openColorPalette } from '../ui/color-palette.js';
 import { TEXT_COLORS } from './text-color.js';
 import * as T from '../engine/table-editing.js';
@@ -504,6 +505,27 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     ];
   }
 
+  /* ---- Where the caret is, for screen readers ---- */
+  // The page shows which cell the caret is in; a screen reader heard only the cell's text. Entering a table says its
+  // size, and each cell the caret moves to says its row and column (as desktop word processors do).
+  let spoken = { table: null, cell: null };
+  function announceCell() {
+    const m = editor()?.model;
+    if (!m || m.range[0] !== m.range[1]) return;
+    let context = null;
+    try { context = m.tableContext; } catch { context = null; }
+    if ((context?.cell.id || null) === spoken.cell) return;
+    const entering = context && context.table.id !== spoken.table, leaving = !context && spoken.cell;
+    spoken = { table: context?.table.id || null, cell: context?.cell.id || null };
+    if (leaving) announce('Out of table');
+    if (!context) return;
+    const { table, cell } = context, rowIndex = table.rows.findIndex(row => row.cells.includes(cell));
+    const column = rowIndex < 0 ? -1 : rowGrid(table.rows[rowIndex]).find(entry => entry.cell === cell)?.column ?? -1;
+    if (column < 0) return;
+    const size = `${table.parentCellId ? 'Nested table' : 'Table'}, ${table.rows.length} ${table.rows.length === 1 ? 'row' : 'rows'}, ${table.grid.length} ${table.grid.length === 1 ? 'column' : 'columns'}. `;
+    announce(`${entering ? size : ''}Row ${rowIndex + 1}, column ${column + 1}`);
+  }
+
   /* ---- Engine attachment: pointer tools, gridlines and keys ---- */
   function attach(engine) {
     pointer?.detach();
@@ -521,7 +543,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
       tableRibbon, tableInsertMenuItems: insertMenuItems, openTableProperties: openProperties, insertTableDialog, convertTextToTable, tableCommands: cmd,
     },
     extendMenu, contextMenuItems, attach,
-    refresh() { pointer?.refresh(); },
+    refresh() { pointer?.refresh(); announceCell(); },
     destroy() { pointer?.detach(); pointer = null; },
   };
 }
