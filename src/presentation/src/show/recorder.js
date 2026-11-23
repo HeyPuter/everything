@@ -9,6 +9,7 @@ import { lineButton, lineIcon } from "./icons.js";
 import { showPrefs } from "./prefs.js";
 import { formatClock } from "./rehearse.js";
 import { deviceKinds, deviceProblem } from "./camera.js";
+import { createClickTimes } from "./click-timings.js";
 
 const VIDEO_TYPES = [
   "video/webm;codecs=vp9,opus",
@@ -37,6 +38,7 @@ export function createRecordingStudio(ctx, session) {
   let recorder = null; // { media, segment }
   let state = "idle"; // idle | recording | paused
   let current = -1;
+  let step = 0; // click steps played on the current slide
   let ended = false;
   let total = 0; // ms recorded in finished segments
   const finishing = [];
@@ -380,7 +382,15 @@ export function createRecordingStudio(ctx, session) {
       since: performance.now(),
       poster: video ? poster() : null,
       done: null,
+      clicks: null,
     };
+    // The time of each click while the slide is recorded.
+    segment.clicks = createClickTimes(() =>
+      recorder?.segment === segment && state === "recording"
+        ? segment.ms + performance.now() - segment.since
+        : segment.ms,
+    );
+    segment.clicks.restart(step);
     segment.done = new Promise((resolve) => {
       media.ondataavailable = (e) =>
         e.data?.size && segment.chunks.push(e.data);
@@ -483,6 +493,7 @@ export function createRecordingStudio(ctx, session) {
     shown(i) {
       const moving = i !== current;
       ended = false;
+      if (moving) step = 0;
       if (moving && recorder) {
         const was = state;
         finish();
@@ -505,6 +516,16 @@ export function createRecordingStudio(ctx, session) {
     ended() {
       ended = true;
       if (recorder) stop();
+    },
+    /** A click step played (1), was taken back (-1), or the slide's
+     * opening effects started (0); `at` steps are now played. */
+    stepped(by, at, played) {
+      step = at;
+      const clicks = recorder?.segment.clicks;
+      if (!clicks) return;
+      if (by === 0) clicks.opened(played);
+      else if (by > 0) clicks.clicked(at - 1, played);
+      else clicks.back(at);
     },
     keydown(e) {
       // R starts or stops recording; K pauses (keys the show does not use).
@@ -542,6 +563,7 @@ export function createRecordingStudio(ctx, session) {
             contentType: segment.contentType,
             shape: segment.shape,
             durationMs: Math.max(100, Math.round(segment.ms)),
+            clicks: segment.clicks.times,
             data: new Uint8Array(await blob.arrayBuffer()),
             poster: segment.poster ? await segment.poster : null,
           });

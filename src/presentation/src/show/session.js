@@ -1278,6 +1278,9 @@ export function createShowSession(ctx, show) {
     stepped(by) {
       const steps = show.animationSteps?.() ?? 0;
       step = Math.max(0, Math.min(steps, step + by));
+      if (by === 0) step = 0;
+      rehearsal?.stepped(by, step, show.animationPlayed?.());
+      studio?.stepped?.(by, step, show.animationPlayed?.());
       consoleView?.update();
       // The presenter's copy follows the audience's slide once it settles.
       if (mirror)

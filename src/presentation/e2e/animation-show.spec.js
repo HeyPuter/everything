@@ -255,6 +255,107 @@ test("a timed advance plays the slide's remaining click steps first", async ({
   await expect(counter).toHaveText("2 / 2");
 });
 
+// Two boxes that each fade in on a click, on a slide timed to move on.
+function twoClickDeck(advanceAfterMs) {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const boxes = [1, 4].map((x) => shape(slide, x, 1, 2, 1.5, "#2266cc"));
+  P.setSlideAnimations(
+    slide,
+    boxes.map((box) => ({
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 300,
+    })),
+  );
+  if (advanceAfterMs !== undefined)
+    P.setSlideTransition(slide, { effect: "none", advanceAfterMs });
+  P.addBlankSlide(pres);
+  return { pres, slide };
+}
+
+test("rehearsed click times play each step when it was clicked", async ({
+  page,
+}) => {
+  const { pres, slide } = twoClickDeck(8000);
+  P.setSlideClickTimings(slide, [600, 600]);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false]);
+  // Each box in turn, long before the slide's time is up.
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 4000 })
+    .toEqual([true, false]);
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 4000 })
+    .toEqual([true, true]);
+  await expect(counter).toHaveText("1 / 2");
+  // Pausing the show holds the steps too.
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false]);
+  await page.keyboard.press("s");
+  await page.waitForTimeout(1500);
+  expect(await visibleLayers(page)).toEqual([true, false]);
+  await page.keyboard.press("s");
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 4000 })
+    .toEqual([true, true]);
+});
+
+test("a rehearsal keeps when each click came", async ({ page }) => {
+  await load(page, twoClickDeck().pres);
+  await page.getByRole("tab", { name: "Slide Show", exact: true }).click();
+  const direct = page
+    .getByRole("tabpanel")
+    .getByRole("button", { name: "Rehearse Timings", exact: true });
+  if (!(await direct.isVisible()))
+    await page
+      .getByRole("tabpanel")
+      .getByRole("button", { name: "Set Up", exact: true })
+      .click();
+  await page
+    .getByRole("button", { name: "Rehearse Timings", exact: true })
+    .first()
+    .click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false]);
+  await page.waitForTimeout(700);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false]);
+  await page.waitForTimeout(700);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, true]);
+  await page.waitForTimeout(1500);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 2");
+  await page.keyboard.press("Escape");
+  const prompt = page.getByRole("dialog", {
+    name: "Keep the new slide timings?",
+  });
+  await prompt.getByRole("button", { name: "Keep Timings" }).click();
+  await expect(prompt).toBeHidden();
+  // Played with the timings, the boxes come in as they were clicked, not
+  // both at the end of the slide's time.
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(counter).toHaveText("1 / 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false]);
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 2500 })
+    .toEqual([true, false]);
+  await expect(counter).toHaveText("1 / 2");
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 2500 })
+    .toEqual([true, true]);
+  await expect(counter).toHaveText("1 / 2");
+  await expect(counter).toHaveText("2 / 2", { timeout: 5000 });
+});
+
 test("a timed advance waits for effects that start with the slide", async ({
   page,
 }) => {

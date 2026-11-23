@@ -406,6 +406,72 @@ test("recording narration with the camera, a live camera, and clearing it", asyn
   }
 });
 
+test("a recording keeps when each click came on the slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const boxes = [1, 5].map((x, i) => text(slide, `Box ${i + 1}`, x, 1, 3, 1));
+  P.setSlideAnimations(
+    slide,
+    boxes.map((box) => ({
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 200,
+    })),
+  );
+  text(P.addBlankSlide(pres), "Two", 1, 1, 8, 2);
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Builds.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await tab(page, "Record");
+  await (await command(page, "From Beginning", "Record")).click();
+  const d = show(page);
+  const bar = d.getByRole("toolbar", { name: "Recording" });
+  await bar.getByRole("button", { name: "Start recording" }).click();
+  await expect(
+    bar.getByRole("button", { name: "Stop recording" }),
+  ).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(900);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(500);
+  await bar.getByRole("button", { name: "Stop recording" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#toast")).toHaveText(
+    "Recording saved on 1 slide.",
+  );
+  const deck = await download(page);
+  const [first] = P.getSlides(deck);
+  const [one, two] = P.getSlideClickTimings(first);
+  expect(one).toBeGreaterThanOrEqual(500);
+  // The second click came 900 ms after the first, whose effect took 200.
+  expect(two).toBeGreaterThanOrEqual(500);
+  expect(P.getEffectiveSlideTransition(first).advanceAfterMs).toBeGreaterThan(
+    one + two,
+  );
+});
+
 test("ending a show before the browser hands over the camera lets it go", async ({
   page,
 }) => {

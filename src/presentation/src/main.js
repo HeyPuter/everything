@@ -16387,6 +16387,7 @@ async function present(options = {}) {
       if (timeUp)
         if (animator.playing) advanceClock.select(0, animator.played);
         else advance(true);
+      else armStep();
       return;
     }
     show(n + 1, { step: auto ? "auto" : "click" });
@@ -16398,6 +16399,20 @@ async function present(options = {}) {
     if (animator?.playing) advanceClock.select(0, animator.played);
     else advance(true);
   });
+  // Rehearsed click times: with timings, each click step of the slide
+  // starts by itself this long after the step before it ends.
+  let stepTimes = [];
+  const stepClock = createSlideAdvanceClock(() => {
+    if (!ended && !timeUp && animator && animator.step < animator.steps)
+      advance(true);
+  });
+  function armStep() {
+    const ms = animator && !ended && !timeUp ? stepTimes[animator.step] : null;
+    if (typeof ms !== "number" || animator.step >= animator.steps)
+      return stepClock.clear();
+    stepClock.select(ms, animator.played);
+    if (advanceClock.paused) stepClock.setPaused(true);
+  }
   const pauseButton = iconButton(
     "Pause automatic advance",
     "Pause",
@@ -16416,6 +16431,7 @@ async function present(options = {}) {
     );
   function setPaused(on) {
     advanceClock.setPaused(on);
+    stepClock.setPaused(on);
     syncPause();
   }
   function restoreBlank() {
@@ -16440,6 +16456,7 @@ async function present(options = {}) {
     if (!ended && animator?.previous()) {
       syncPrevious();
       session?.stepped(-1);
+      armStep();
       // Stepping back starts the slide's time over.
       if (timeUp) {
         timeUp = false;
@@ -16469,6 +16486,7 @@ async function present(options = {}) {
     if (redirected === null) return;
     i = redirected;
     timeUp = false;
+    stepClock.clear();
     laser.hide();
     clearTyped();
     const wrapped = showTiming.loop && (i < 0 || i >= all.length);
@@ -16563,6 +16581,10 @@ async function present(options = {}) {
       // moves past it.
       onMedia: (effect) => timeUp || showInserted.mediaStep(effect),
     });
+    stepTimes =
+      showTiming.useTimings && plan.setup.showAnimation && animator.steps
+        ? P.getSlideClickTimings(all[n])
+        : [];
     // Set Up Show can show every slide without its animations.
     if (backward || !plan.setup.showAnimation) animator.finish();
     else {
@@ -16571,6 +16593,7 @@ async function present(options = {}) {
         if (animator !== playing) return;
         playing.start();
         session?.stepped(0);
+        armStep();
       });
     }
     placeLinks(all[n]);
@@ -16617,6 +16640,7 @@ async function present(options = {}) {
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();
+    stepClock.dispose();
     clearTransition();
     clearInterval(clock);
     clearTimeout(typedTimer);

@@ -3,6 +3,7 @@
 // advances by itself at the same pace.
 import { el } from "../ui.js";
 import { lineButton, lineIcon } from "./icons.js";
+import { createClickTimes } from "./click-timings.js";
 
 export const formatClock = (ms) => {
   const s = Math.floor(Math.max(0, ms) / 1000);
@@ -13,7 +14,9 @@ export function createRehearsal(ctx, session) {
   const { show } = session;
   const { P, all } = { P: ctx.P, all: show.all };
   const times = new Map(); // slide part -> ms
+  const clicks = new Map(); // slide part -> its click times
   let current = -1;
+  let step = 0;
   let since = performance.now();
   let paused = false;
   let ended = false;
@@ -29,6 +32,11 @@ export function createRehearsal(ctx, session) {
       ? 0
       : (times.get(part(current)) || 0) +
         (paused || ended ? 0 : performance.now() - since);
+  const clicksOf = (i) => {
+    let c = clicks.get(part(i));
+    if (!c) clicks.set(part(i), (c = createClickTimes(slideMs)));
+    return c;
+  };
   const totalMs = () =>
     [...times.values()].reduce((a, b) => a + b, 0) +
     (paused || ended || current < 0 ? 0 : performance.now() - since);
@@ -55,6 +63,7 @@ export function createRehearsal(ctx, session) {
     if (current < 0) return;
     times.set(part(current), 0);
     since = performance.now();
+    clicksOf(current).restart(step);
     sync();
   });
   const pausedNote = el(
@@ -104,8 +113,19 @@ export function createRehearsal(ctx, session) {
       commit();
       ended = false;
       current = i;
+      step = 0;
       since = performance.now();
       sync();
+    },
+    /** A click step played (1), was taken back (-1), or the slide's
+     * opening effects started (0); `at` steps are now played and the last
+     * one ends with `played`. */
+    stepped(by, at, played) {
+      if (current < 0 || ended) return;
+      step = at;
+      if (by === 0) clicksOf(current).opened(played);
+      else if (by > 0) clicksOf(current).clicked(at - 1, played);
+      else clicksOf(current).back(at);
     },
     ended() {
       commit();
@@ -118,6 +138,7 @@ export function createRehearsal(ctx, session) {
       bar.remove();
       return {
         timings: [...times].filter(([, ms]) => ms > 0),
+        clicks: new Map([...clicks].map(([p, c]) => [p, c.times])),
         totalMs: [...times.values()].reduce((a, b) => a + b, 0),
       };
     },
