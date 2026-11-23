@@ -267,8 +267,11 @@ test('custom stamp text and color are validated and used', async ({ page }) => {
   await dialog.getByLabel('Text').fill('   ');
   await dialog.getByRole('button', { name: 'Place stamp', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Enter the stamp text.');
+  // The field is marked as refused, for screen readers too, until it is typed in.
+  await expect(dialog.getByLabel('Text')).toHaveAttribute('aria-invalid', 'true');
   await dialog.getByLabel('Text').fill('Paid in full');
   await dialog.getByLabel('Color').fill('#0b63c4');
+  await expect(dialog.getByLabel('Text')).not.toHaveAttribute('aria-invalid');
   await expect(dialog.locator('.stamp-preview')).toBeVisible();
   await dialog.getByLabel('Text').press('Enter');
   await expect(dialog).toBeHidden();

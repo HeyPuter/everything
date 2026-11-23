@@ -10717,6 +10717,7 @@ export function createEditor({
       maxlength: 200,
       autocomplete: 'off',
       required: true,
+      oninput: () => text.removeAttribute('aria-invalid'),
     });
     const layout = selectInput(
       'watermark-layout',
@@ -10756,6 +10757,8 @@ export function createEditor({
     const apply = safe(async () => {
       if (!text.value.trim()) {
         toast('Enter the watermark text.', { error: true });
+        // Marked as refused, for screen readers too, until it is typed in.
+        text.setAttribute('aria-invalid', 'true');
         text.focus();
         return;
       }
