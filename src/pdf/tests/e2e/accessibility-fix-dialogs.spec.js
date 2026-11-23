@@ -148,6 +148,38 @@ test('a fix with nothing left to do says so', async ({ page }) => {
   );
 });
 
+test('Autotag with nothing left to tag says so', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([400, 500]).drawText('A short report', { x: 40, y: 440, size: 18, font });
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'report.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Prepare for accessibility', exact: true }).click();
+  await pane.getByRole('button', { name: 'Autotag document', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText(
+    'Tags added. Review the reading order and alternate text.',
+  );
+  await settled(page);
+  await page.locator('#toast').evaluate((node) => (node.textContent = ''));
+  // Chosen again, it has nothing to tag, and says so rather than nothing at all.
+  await pane.getByRole('button', { name: 'Autotag document', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Autotag found nothing left to tag.');
+});
+
 test('the focus stays in the accessibility report after a fix', async ({ page }) => {
   await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
   await page.goto('/#library');

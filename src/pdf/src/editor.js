@@ -12032,6 +12032,7 @@ export function createEditor({
         await run(
           (d) => autotagDocument(d, { lang: navigator.language || undefined }),
           'Tags added. Review the reading order and alternate text.',
+          'Autotag found nothing left to tag.',
         );
         break;
       case 'tag-annotations':
