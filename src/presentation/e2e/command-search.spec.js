@@ -47,3 +47,29 @@ test("command search leaves out the tabs that are not showing", async ({
   await expect(results(page).first()).toHaveText(/^Shading\s*Table Design/);
   expect(errors).toEqual([]);
 });
+
+// Commands only the menu bar has are found too, each named with its menu,
+// and a name on both the ribbon and a menu is listed once.
+test("command search finds the menu bar's commands", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "the search is in wide windows");
+  await start(page);
+  const search = page.getByRole("searchbox", { name: "Search for commands" });
+  await search.fill("print");
+  await expect(results(page).filter({ hasText: "Print…" })).toHaveText([
+    /^Print…\s*File/,
+  ]);
+  await search.fill("undo");
+  await expect(results(page)).toHaveText([/^Undo\s*Edit/]);
+  await expect(results(page).first()).toBeDisabled();
+  await search.fill("export to video");
+  await expect(results(page).first()).toBeVisible();
+  await expect(results(page).filter({ hasText: /^Export to/ })).toHaveCount(1);
+  await search.fill("keyboard shortcuts");
+  await expect(results(page)).toHaveCount(1);
+  await search.press("Enter");
+  await expect(results(page).first()).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
+});

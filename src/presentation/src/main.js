@@ -3844,7 +3844,43 @@ function commandSearch() {
       }
     },
     oninput: () => showMatches(false),
+    // The menu bar's commands are read once a search starts, as they stand
+    // for the selection the search started from.
+    onblur: () => (menuCommands = null),
   });
+  let menuCommands = null;
+  // The menu bar's commands that are not on the ribbon (Print, Export, Undo,
+  // Keyboard shortcuts...), each with the menu it is in.
+  function menuBarCommands() {
+    let file = [];
+    fileMenu(input, (options) => (file = options.items));
+    const menus = [
+      ["File", file],
+      ["Edit", editItems()],
+      ["View", viewItems()],
+      ["Insert", insertItems()],
+      ["Format", formatItems()],
+      ["Arrange", arrangeMenuItems()],
+      ["Slide", slideItems()],
+      ["Tools", review.toolsMenu()],
+      ["Slide Show", slideShowMenuItems()],
+      ["Help", helpItems()],
+    ];
+    const out = [];
+    const walk = (items, menu) => {
+      for (const item of items || []) {
+        if (!item || !item.label) continue;
+        if (item.onSelect) out.push({ item, menu });
+        else if (Array.isArray(item.items)) walk(item.items, menu);
+      }
+    };
+    for (const [menu, items] of menus) walk(items, menu);
+    return out;
+  }
+  // A name as it is matched and told apart: "Text box" is "Text Box", and
+  // "Export…" is "Export".
+  const commandKey = (label) =>
+    String(label).replace(/…$/, "").replace(/\s+/g, " ").trim().toLowerCase();
   function showMatches(focus) {
     const query = input.value.trim().toLowerCase();
     if (!query || !ribbon) return closeMenu();
@@ -3883,6 +3919,24 @@ function commandSearch() {
       items.push(entry);
       if (items.length >= 12) break;
     }
+    const ribbonNames = new Set(items.map((entry) => commandKey(entry.label)));
+    if (items.length < 12)
+      for (const { item, menu } of (menuCommands ??= menuBarCommands())) {
+        const key = commandKey(item.label);
+        if (ribbonNames.has(key) || seen.has(`menu|${key}`)) continue;
+        if (!words.every((w) => `${key} ${menu.toLowerCase()}`.includes(w)))
+          continue;
+        seen.add(`menu|${key}`);
+        items.push({
+          label: item.label,
+          hint: menu,
+          icon: item.icon,
+          checked: item.checked,
+          disabled: !!item.disabled,
+          onSelect: item.onSelect,
+        });
+        if (items.length >= 12) break;
+      }
     if (!items.length)
       items.push({
         label: `No commands match “${input.value.trim()}”`,
@@ -7691,10 +7745,12 @@ function recentMenuItems() {
 }
 // The File menu. The phone's File options button, the only menu button its
 // layout keeps, carries the other menus too.
-function fileMenu(anchor) {
+// With `collect`, the menu is handed to it instead of opening (the command
+// search looks through it).
+function fileMenu(anchor, collect = null) {
   const mobile = anchor.classList.contains("mobile-only");
-  loadRecentList({ again: false });
-  openMenu({
+  if (!collect) loadRecentList({ again: false });
+  (collect || openMenu)({
     anchor,
     label: "File",
     align: "auto",
