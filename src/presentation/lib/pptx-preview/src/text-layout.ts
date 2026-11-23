@@ -272,7 +272,7 @@ export interface ParaInput {
  *  90° clockwise (reading top-to-bottom, columns right-to-left); `cw270` is the
  *  opposite 270° rotation (columns left-to-right). `upright` is `wordArtVert` —
  *  glyphs stay upright and stack one per line (render-slide pre-splits the runs
- *  one code point per line), so it lays out like `none` with no rotation. */
+ *  one character per line), so it lays out like `none` with no rotation. */
 export type VerticalLayout = "none" | "cw90" | "cw270" | "upright";
 
 export interface ColumnLayout {

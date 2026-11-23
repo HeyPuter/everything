@@ -238,6 +238,7 @@ import {
   type VerticalLayout,
 } from "./text-layout.ts";
 import { textKerning } from "./text-kerning.ts";
+import { splitGraphemes } from "unicode-segmenter/grapheme";
 
 export type {
   RenderSlideOptions,
@@ -2363,14 +2364,16 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
       segs.forEach((seg, i) => {
         const segText = caps ? seg.toUpperCase() : seg;
         if (a.vert === "upright") {
-          // wordArtVert stacks one code point per line (spaces become blank
+          // wordArtVert stacks one character per line (spaces become blank
           // rows). Reuse the calibrated horizontal engine with a break before
           // every glyph rather than rotating the run. The break goes BEFORE each
           // glyph (skipped only at the very start or right after an existing
           // break) so adjacent runs stack too — a trailing per-glyph break would
           // leave the last glyph of run N sharing a row with the first of run
           // N+1, diverging from the browser's text-orientation:upright path.
-          for (const g of Array.from(segText)) {
+          // A character is what a reader sees as one (UAX #29): an emoji with
+          // its skin tone or joined family, or a letter with its accents.
+          for (const g of splitGraphemes(segText)) {
             const last = pieces[pieces.length - 1];
             if (last !== undefined && !last.isBreak) pieces.push(breakPiece());
             pieces.push({ ...base, text: g, isBreak: false });

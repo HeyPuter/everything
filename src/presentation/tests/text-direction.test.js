@@ -124,3 +124,30 @@ describe("explicit horizontal text overrides", () => {
     );
   });
 });
+
+describe("stacked text", () => {
+  it("stacks each character a reader sees as one, not each code point", async () => {
+    const pres = createDeck("blank"),
+      slide = P.getSlides(pres)[0];
+    const shape = P.addSlideTextBox(slide, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(1),
+      h: P.inches(5),
+      // A thumbs-up with its skin tone, a decomposed é, a family emoji.
+      text: "A\u{1F44D}\u{1F3FD}é\u{1F468}‍\u{1F469}‍\u{1F467}",
+    });
+    P.setShapeTextDirection(shape, "wordArtVert");
+    const loaded = await parseDeck(await P.savePresentation(pres));
+    const svg = render({ pres: loaded, slide: P.getSlides(loaded)[0] });
+    const rows = [...svg.matchAll(/<text\b[^>]*>(?:<tspan\b[^>]*>)?([^<]*)/g)]
+      .map((m) => m[1])
+      .filter(Boolean);
+    expect(rows).toEqual([
+      "A",
+      "\u{1F44D}\u{1F3FD}",
+      "é",
+      "\u{1F468}‍\u{1F469}‍\u{1F467}",
+    ]);
+  });
+});
