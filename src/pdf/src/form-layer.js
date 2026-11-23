@@ -35,6 +35,12 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   // calculated field's value as the fields filled in so far work it out.
   const shownValues = new WeakMap();
   let calculatedValues = new Map();
+  // Boxes typed in, which stay usable while the page is busy.
+  const typable = (control) =>
+    control.tagName === 'TEXTAREA' ||
+    (control.tagName === 'INPUT' && ['text', 'password'].includes(control.type));
+  let busyNow = false;
+  const lateEdits = new Map();
   let widgets = [],
     radioGroups = new Set(),
     controls = new Map(),
@@ -58,11 +64,19 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   function setEnabled(enabled) {
     root.hidden = !enabled;
   }
-  function setBusy(busy) {
+  /**
+   * While the page is busy (a value being saved, the page redrawn), boxes to type in stay as
+   * they are: what is typed then, and a Tab, still go to the fields, where a disabled box
+   * dropped them and the keys went on to the page's shortcuts. Typing goes on as a draft
+   * across the redraw (`lateEdits`). `locked` (no permission to fill) disables every field.
+   */
+  function setBusy(busy, { locked = false } = {}) {
     if (busy) rememberFocus();
+    busyNow = busy;
+    if (!busy) lateEdits.clear();
     for (const widget of widgets) {
       const control = controls.get(widget.id);
-      if (control) control.disabled = busy || widget.readOnly;
+      if (control) control.disabled = locked || widget.readOnly || (busy && !typable(control));
     }
     if (!busy && pendingFocus && !root.hidden) {
       const control = controls.get(pendingFocus.id);
@@ -131,6 +145,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
     invalidField ? widget.name === invalidField : draft.changes.has(widget.name);
   function changed(widget, value, editingControl) {
     if (widget.readOnly || !draft.set(widget.name, value)) return;
+    if (busyNow) lateEdits.set(widget.name, value);
     clearError();
     sync(editingControl);
     onChange();
@@ -310,6 +325,9 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
     structureOrder,
   ) {
     rememberFocus();
+    // Values typed while the page was saved or redrawn are drafts on the page drawn anew.
+    const carried = key !== pageKey ? new Map(lateEdits) : new Map();
+    lateEdits.clear();
     if (key !== pageKey) {
       draft.reset();
       key = pageKey;
@@ -323,6 +341,8 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       structureOrder,
     );
     draft.register(widgets.filter(hasValue));
+    for (const [name, value] of carried) if (busyNow) lateEdits.set(name, value);
+    for (const [name, value] of carried) draft.set(name, value);
     // Buttons sharing a name are on one at a time; groups whose buttons can be on together
     // (in unison, or two buttons for one choice) keep a name per button.
     const choices = new Map();

@@ -2674,7 +2674,7 @@ export function createEditor({
     nameButton.setAttribute('aria-label', `Rename ${name}`);
     // The name is clipped on narrow screens, so the tooltip carries it in full.
     nameButton.title = name;
-    pageForms.setBusy(busy || !pageReady || !access().fill);
+    pageForms.setBusy(busy || !pageReady, { locked: !access().fill });
     pageImages.setBusy(busy || !pageReady || !access().edit);
     const pendingText =
       pendingTextEdit() || pendingNoteEdit() || pageForms.draft.dirty || pageImages.dirty;
@@ -3166,7 +3166,7 @@ export function createEditor({
         tabs,
         structureOrder,
       );
-      pageForms.setBusy(busy || !pageReady || !access().fill);
+      pageForms.setBusy(busy || !pageReady, { locked: !access().fill });
       pageForms.setEnabled(tool === 'select' && !preparing);
       highlights = [];
       if (
