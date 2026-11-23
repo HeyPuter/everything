@@ -239,3 +239,20 @@ describe("shadows fixed to the page", () => {
     expect(effect.fixedToPage).toBe(true);
   });
 });
+
+describe("soft edges", () => {
+  it("fade the shape in from 0.87 of the radius inside its outline", async () => {
+    // Measured in the desktop app at 5, 10 and 25 pt: the fade is half way
+    // 0.87 of the radius inside the outline and spreads with a deviation
+    // of a third of the radius.
+    const svg = await render(
+      shape(
+        '<a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:effectLst><a:softEdge rad="317500"/></a:effectLst>',
+      ),
+    );
+    // 25 pt = 33.33 px.
+    expect(svg).toMatch(
+      /<feMorphology in="SourceAlpha" operator="erode" radius="29\.0\d"[^>]*\/><feGaussianBlur in="softCore\d+" stdDeviation="11\.0\d"/,
+    );
+  });
+});

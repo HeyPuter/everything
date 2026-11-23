@@ -13825,15 +13825,17 @@ const buildEffectsFilter = (
       );
       layers.push(`glowOut${i}`);
     } else if (e.kind === "softEdge") {
-      // A soft edge fades the shape out over `rad` inward from its outline,
-      // and nothing outside it: the outline's blurred alpha, which is one
-      // half on the outline, stretched so it runs from none there to full
-      // inside. The picture or fill itself stays sharp.
+      // A soft edge fades the shape out inward from its outline, and nothing
+      // outside it. As the desktop app draws it (measured at 5, 10 and 25
+      // pt), the fade is half way 0.87 of `rad` inside the outline and
+      // spreads with a deviation of a third of `rad`: the shape's alpha
+      // shrunk by 0.87 `rad`, then blurred. The picture or fill itself
+      // stays sharp.
       const radiusPx = effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX;
       const i = primitives.length;
       primitives.push(
-        `<feGaussianBlur in="SourceAlpha" stdDeviation="${(radiusPx / 2.5).toFixed(2)}" result="softBlur${i}"/>`,
-        `<feComponentTransfer in="softBlur${i}" result="softMask${i}"><feFuncA type="linear" slope="2" intercept="-1"/></feComponentTransfer>`,
+        `<feMorphology in="SourceAlpha" operator="erode" radius="${(radiusPx * 0.87).toFixed(2)}" result="softCore${i}"/>`,
+        `<feGaussianBlur in="softCore${i}" stdDeviation="${(radiusPx * 0.33).toFixed(2)}" result="softMask${i}"/>`,
         `<feComposite in="SourceGraphic" in2="softMask${i}" operator="in" result="softOut${i}"/>`,
       );
       // The faded shape replaces the source; glows and shadows stay

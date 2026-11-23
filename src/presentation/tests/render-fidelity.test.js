@@ -528,7 +528,10 @@ describe("soft edges", () => {
       }),
     );
     expect(svg).not.toContain('<feGaussianBlur in="SourceGraphic"');
-    expect(svg).toMatch(/<feGaussianBlur in="SourceAlpha" [^>]*result="soft/);
+    // The mask comes from the shape's alpha, shrunk and then blurred.
+    expect(svg).toMatch(
+      /<feMorphology in="SourceAlpha" operator="erode" [^>]*result="soft/,
+    );
     const merge = /<feMerge>(.*?)<\/feMerge>/.exec(svg)[1];
     const order = [...merge.matchAll(/in="([^"]+)"/g)].map((m) => m[1]);
     expect(order[0]).toMatch(/^glowOut/);
