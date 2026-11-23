@@ -844,8 +844,10 @@ const DASH = '\\u2010-\\u2015\\u2212-';
 export const REDACTION_PATTERNS = {
   phone: {
     label: 'Phone numbers',
+    // The first group can be one digit (+33 1 …, 1-800-…, a bracketed trunk 0), and up to four
+    // groups follow it (French numbers are five pairs); the validator bounds the digit count.
     regex: new RegExp(
-      `(?<![\\w+])(?:\\+\\d{1,3}[\\s.${DASH}]?)?(?:\\(\\d{2,4}\\)|\\d{2,4})(?:[\\s.${DASH}]?\\d{2,4}){1,3}(?![\\w])`,
+      `(?<![\\w+])(?:\\+\\d{1,3}[\\s.${DASH}]?)?(?:\\(\\d{1,4}\\)|\\d{1,4})(?:[\\s.${DASH}]?\\d{2,4}){1,4}(?![\\w])`,
       'g',
     ),
     validate: (text) => {

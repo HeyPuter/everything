@@ -1220,6 +1220,36 @@ describe('find text & redact', () => {
     expect(await found('date')).toEqual(['2024\u201103\u201105', '05\u201303\u20132024']);
   });
 
+  it('finds whole phone numbers in international and trunk-prefixed formats', async () => {
+    // French numbers are five pairs, often after +33 and a one-digit area code; US numbers are
+    // often written with the leading 1; UK numbers put the trunk 0 in brackets. These were
+    // missed or found without their first digits, which then stayed readable beside the mark.
+    const phones = [
+      '+33 1 23 45 67 89',
+      '01 23 45 67 89',
+      '1-800-555-0199',
+      '+44 (0) 20 7946 0958',
+    ];
+    const bytes = await makePdf([
+      {
+        content: phones
+          .map(
+            (phone, i) =>
+              `BT /F 10 Tf 30 ${300 - i * 30} Td (Call ${phone.replace(/[()]/g, '\\$&')} now) Tj ET`,
+          )
+          .join('\n'),
+      },
+    ]);
+    const found = (
+      await findTextRects(await PDFDocument.load(bytes), 0, REDACTION_PATTERNS.phone)
+    ).map((m) => m.text);
+    expect(found).toEqual(phones);
+    // Numbers without separators, and runs too short or too long, are still not phone numbers.
+    const { regex, validate } = REDACTION_PATTERNS.phone;
+    const other = 'Order 5551234567, code 12 34 56 78, id 1234 5678 9012 3456 7890';
+    expect([...other.matchAll(regex)].map((m) => m[0]).filter(validate)).toEqual([]);
+  });
+
   it('places exact rects on the matched glyphs from the page content itself', async () => {
     const bytes = await makePdf([
       {
