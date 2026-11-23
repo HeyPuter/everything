@@ -66,12 +66,11 @@ test('a radio button sharing its export value with another is chosen on its own'
   await settled(page);
   saved = await download(page);
   expect(states(saved)).toEqual(['Off', '1', 'Off']);
+  // The editor may still show the earlier copy's fields until the reopened one renders.
   await open(page, await saved.save());
-  expect(await radios.evaluateAll((all) => all.map((radio) => radio.checked))).toEqual([
-    false,
-    true,
-    false,
-  ]);
+  await expect
+    .poll(() => radios.evaluateAll((all) => all.map((radio) => radio.checked)))
+    .toEqual([false, true, false]);
 });
 
 test('radio buttons in unison that share an export value switch on together', async ({ page }) => {
