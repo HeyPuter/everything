@@ -18,6 +18,7 @@ import { flattenFields, requireFlattenedPages } from './flatten.js';
 import { copyPagesWithLayers } from './optional-content.js';
 import { mapPageDestinations } from './page-actions.js';
 import { tokenize } from './content-filter.js';
+import { sourceBytes } from './text-edit.js';
 import { appendOutline } from './outline-edit.js';
 import { pageLabelSpecs, setPageLabels } from './page-labels.js';
 
@@ -226,7 +227,7 @@ function contentNames(stream) {
   const names = new Set();
   let text = '';
   for (let i = 0; i < bytes.length; i += 0x8000)
-    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   for (const [, name] of text.matchAll(/\/([^\x00\t\n\f\r ()<>[\]{}/%]*)/g))
     names.add(
       name.replace(/#([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))),
@@ -315,7 +316,7 @@ export function pruneCopiedResources(doc, pages) {
 const latin1 = (bytes) => {
   let text = '';
   for (let i = 0; i < bytes.length; i += 0x8000)
-    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   return text;
 };
 /**
@@ -370,9 +371,7 @@ function untagCopiedContent(doc, page) {
     }
     if (!at) return ref;
     changed = true;
-    return doc.context.register(
-      doc.context.flateStream(Uint8Array.from(out + source.slice(at), (c) => c.charCodeAt(0))),
-    );
+    return doc.context.register(doc.context.flateStream(sourceBytes(out + source.slice(at))));
   });
   if (!changed) return;
   if (contents instanceof PDFArray) page.node.set(CONTENTS, doc.context.obj(replaced));

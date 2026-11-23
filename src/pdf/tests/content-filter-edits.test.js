@@ -47,3 +47,31 @@ describe('filtering content', () => {
     expect(result.source).toBe(' ');
   });
 });
+
+describe('stream bytes in redaction and page copies', () => {
+  const tagged = (count) => `/P <</MCID 0>> BDC\n${shapes(count)}\nEMC`;
+  it('writes a redacted form and an untagged copied page without a call per byte', async () => {
+    const { PDFName } = await import('pdf-lib');
+    const { addRedactionMarks, applyRedactions } = await import('../src/core/redact.js');
+    const { extractPages } = await import('../src/core/pages.js');
+    const inner = await PDFDocument.create();
+    inner
+      .addPage([400, 400])
+      .node.set(
+        PDFName.of('Contents'),
+        inner.context.register(inner.context.flateStream(Buffer.from(tagged(500), 'latin1'))),
+      );
+    const innerBytes = await inner.save();
+    const doc = await PDFDocument.create();
+    const [form] = await doc.embedPdf(innerBytes, [0]);
+    doc.addPage([400, 400]).drawPage(form);
+    // pdf-lib writes an embedded page only as the document is saved.
+    await doc.flush();
+    addRedactionMarks(doc, 0, [[0, 0, 20, 20]]);
+    // Uint8Array.from with a mapping function ran once per byte of megabytes of commands.
+    const from = vi.spyOn(Uint8Array, 'from');
+    expect((await applyRedactions(doc)).paths).toBeGreaterThan(0);
+    await extractPages(innerBytes, [0]);
+    expect(from).not.toHaveBeenCalled();
+  });
+});

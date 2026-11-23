@@ -9,7 +9,7 @@ import {
   PDFRef,
   PDFStream,
 } from 'pdf-lib';
-import { decode, matrix, parseContent, uniqueName } from './text-edit.js';
+import { decode, matrix, parseContent, sourceBytes, uniqueName } from './text-edit.js';
 import { fontMetrics } from './glyph-metrics.js';
 import { retainCryptFilter } from './stream-filters.js';
 import { expandInlineKey } from './image-redact.js';
@@ -29,7 +29,9 @@ const get = (dict, key) => dict?.lookup(PDFName.of(key));
 const numbers = (array) => array?.asArray?.().map((_, i) => array.lookup(i)?.asNumber?.());
 const translate = (x, y) => [1, 0, 0, 1, x, y];
 const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-const whitespace = (c) => /[\x00\t\n\f\r ]/.test(c);
+// Compared rather than matched with a regular expression: it runs for each character of a stream.
+const whitespace = (c) =>
+  c === ' ' || c === '\n' || c === '\r' || c === '\t' || c === '\f' || c === '\x00';
 const delimiter = (c) => !c || whitespace(c) || '()<>[]{}/%'.includes(c);
 const formatNumber = (n) => PDFNumber.of(Math.round(n * 10000) / 10000).toString();
 const MAX_DEPTH = 20;
@@ -893,9 +895,7 @@ export async function filterContent(doc, options) {
     const { inline } = command;
     if (!policy.inlineImage) return;
     const header = inlineHeader(context, inline.header);
-    const data = Uint8Array.from(source.slice(inline.dataStart, inline.dataEnd), (c) =>
-      c.charCodeAt(0),
-    );
+    const data = sourceBytes(source.slice(inline.dataStart, inline.dataEnd));
     const result = await policy.inlineImage({
       header,
       data,
@@ -1092,7 +1092,7 @@ function filteredForm(context, object, result) {
     copy.delete(PDFName.of(k));
   if (result.resources !== get(object.dict, 'Resources') || copy.has(PDFName.of('Resources')))
     copy.set(PDFName.of('Resources'), result.resources);
-  const stream = context.flateStream(Uint8Array.from(result.source, (c) => c.charCodeAt(0)));
+  const stream = context.flateStream(sourceBytes(result.source));
   for (const [k, v] of copy.entries())
     if (k !== PDFName.of('Length') && k !== PDFName.of('Filter')) stream.dict.set(k, v);
   retainCryptFilter(stream.dict, [object.dict]);
