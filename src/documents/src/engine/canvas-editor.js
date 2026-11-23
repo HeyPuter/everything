@@ -1727,9 +1727,11 @@ export class CanvasEditor {
     this.textDrag = null; this.pages.style.cursor = '';
     try { this.pages.releasePointerCapture(e.pointerId); } catch { /* released */ }
     if (!drag.started) {
-      const position = this.point(e);
+      const position = this.point(e), link = this.pointLink;
       this.model.select(position); this.preferredX = null;
       this.syncInput(); this.paint(); this.onSelection();
+      // A click on a link in the selection is a click on the link, as anywhere else.
+      if (link && !this.destroyed) this.linkClicked(link, e.clientX, e.clientY);
       return;
     }
     const at = this.point(e, false), [start, end] = drag.from;
