@@ -3679,6 +3679,9 @@ export function createEditor({
       onCommit?.();
       rememberPageStep(previousPage);
       await reload(retainedScale);
+      // A page moved with the page on view (no page added or removed, so the pages were not
+      // laid out again) takes the view along.
+      if (previousPage !== pageIndex && !destroyed) stack.scrollTo(pageIndex);
       if (message && !destroyed) toast(message);
     } finally {
       busy = false;

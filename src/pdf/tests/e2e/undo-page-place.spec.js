@@ -39,7 +39,7 @@ async function namedPages(count) {
 /** The text of the page being worked on. */
 const shown = (page) => page.locator('.paper .textLayer');
 
-test('undoing a page move keeps the moved page on view, as the move did', async ({ page }) => {
+test('a page move and its undo keep the moved page on view', async ({ page }) => {
   await mockPuter(page);
   await page.goto('/#library');
   await openPdf(page, await namedPages(6));
@@ -51,6 +51,7 @@ test('undoing a page move keeps the moved page on view, as the move did', async 
   await settled(page);
   await expect(page.locator('.page-caption')).toHaveText('Page 4 of 6');
   await expect(shown(page)).toContainText('Sheet 3');
+  await expect(page.locator('.paper')).toBeInViewport({ ratio: 0.5 });
   await page.keyboard.press('Meta+Z');
   await settled(page);
   await expect(page.locator('.page-caption')).toHaveText('Page 3 of 6');
