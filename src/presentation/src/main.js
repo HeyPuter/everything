@@ -8432,7 +8432,17 @@ function renderThumbnail(img) {
   if (!pending || !img.isConnected || doc?.pres !== pending.pres) return;
   const entry = doc.previews.get(pending.part);
   if (!entry) return;
-  img.src = cachedPreview(doc.previews, doc.pres, pending.slide);
+  showThumbnail(img, cachedPreview(doc.previews, doc.pres, pending.slide));
+}
+// The render each navigator thumbnail was last given. Renders are long data
+// URLs, and reading one back from the image copies it, which across a large
+// deck cost more on each edit than the edit; the string given last compares
+// at once.
+const thumbnailSources = new WeakMap();
+function showThumbnail(img, src) {
+  if (thumbnailSources.get(img) === src) return;
+  thumbnailSources.set(img, src);
+  if (img.getAttribute("src") !== src) img.src = src;
 }
 function scheduleThumbnails() {
   if (thumbnailWork || !thumbnailQueue.length) return;
@@ -8514,7 +8524,7 @@ function slidePreview(s) {
     const img = document.querySelector(
       `#slide-list [data-slide-part="${CSS.escape(part)}"] img`,
     );
-    if (img && img.getAttribute("src") !== src) img.src = src;
+    if (img) showThumbnail(img, src);
   }
   return src;
 }
@@ -8616,15 +8626,31 @@ function renderSlideArea(refreshNavigator = true) {
       let row = rows.get(part);
       rows.delete(part);
       if (!row) row = slideRow(part);
-      row.className = `slide-item ${i === index ? "active" : ""} ${hidden ? "hidden-slide" : ""} ${chosen ? "selected" : ""}`;
-      // A slide with animations is marked beside its number.
-      if (P.slideHasAnimations(s)) row.classList.add("has-animations");
-      row.querySelector(".slide-number").textContent = i + 1;
+      // A row is written to only where it changed, so an edit leaves the
+      // browser no other row to restyle or lay out again.
+      const classes = [
+        "slide-item",
+        i === index && "active",
+        hidden && "hidden-slide",
+        chosen && "selected",
+        // A slide with animations is marked beside its number.
+        P.slideHasAnimations(s) && "has-animations",
+      ].filter(Boolean);
+      if (
+        row.classList.length !== classes.length ||
+        !classes.every((name) => row.classList.contains(name))
+      )
+        row.className = classes.join(" ");
+      const number = row.querySelector(".slide-number");
+      if (number.textContent !== String(i + 1)) number.textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
-      thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
+      const label = thumbLabel(s, i, chosen);
+      if (thumb.getAttribute("aria-label") !== label)
+        thumb.setAttribute("aria-label", label);
       review.decorateThumb(thumb, s);
-      if (i === index) thumb.setAttribute("aria-current", "true");
-      else thumb.removeAttribute("aria-current");
+      if (i !== index) thumb.removeAttribute("aria-current");
+      else if (thumb.getAttribute("aria-current") !== "true")
+        thumb.setAttribute("aria-current", "true");
       const badge = thumb.querySelector(".slide-hidden");
       if (hidden && !badge)
         thumb.append(
@@ -8632,14 +8658,13 @@ function renderSlideArea(refreshNavigator = true) {
         );
       else if (!hidden && badge) badge.remove();
       transitionTools.markRow(row, s, i + 1);
-      row
-        .querySelector(":scope > .icon-btn")
-        .setAttribute("aria-label", `Options for slide ${i + 1}`);
+      const options = row.querySelector(":scope > .icon-btn");
+      if (options.getAttribute("aria-label") !== `Options for slide ${i + 1}`)
+        options.setAttribute("aria-label", `Options for slide ${i + 1}`);
       const img = thumb.querySelector("img");
       // A thumbnail waiting for its render keeps showing what it has.
-      if (src) {
-        if (img.getAttribute("src") !== src) img.src = src;
-      } else deferThumbnail(img, s, distance);
+      if (src) showThumbnail(img, src);
+      else deferThumbnail(img, s, distance);
       if (list.children[i] !== row)
         list.insertBefore(row, list.children[i] || null);
     });
