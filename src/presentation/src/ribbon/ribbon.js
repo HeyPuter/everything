@@ -1180,11 +1180,14 @@ export function createRibbon({
       observer.disconnect();
     },
     // Every command, for searching: label, the tab it is on, and a way to
-    // run it or open its menu.
+    // run it or open its menu. A contextual tab that is not showing (Picture
+    // Format with no picture chosen) and a hidden group offer nothing.
     commands() {
       const out = [];
-      for (const tab of tabs)
-        for (const group of tab.groups)
+      for (const tab of tabs) {
+        if (tab.visible && !tab.visible()) continue;
+        for (const group of tab.groups) {
+          if (group.visible && !group.visible()) continue;
           (function walk(items) {
             for (const item of items) {
               if (!item) continue;
@@ -1194,6 +1197,8 @@ export function createRibbon({
               out.push({ item, tab, group });
             }
           })(group.items);
+        }
+      }
       return out;
     },
     closeMenus: closeMenu,

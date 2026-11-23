@@ -3778,8 +3778,11 @@ function commandSearch() {
         icon: item.icon ? `o:${item.icon}` : null,
         disabled: !enabled,
       };
-      if (item.menu && !item.split) entry.items = item.menu();
-      else
+      // A command that is off offers no menu: its menu reads the selection
+      // it is off for (Text Direction with nothing chosen).
+      if (item.menu && !item.split) {
+        if (enabled) entry.items = item.menu();
+      } else
         entry.onSelect = () => {
           ribbon.select(tab.id);
           item.run?.();
