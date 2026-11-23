@@ -159,6 +159,7 @@ import {
   sharedChoiceSelections,
   fillFields,
   previewCalculations,
+  resetFieldNames,
   resetFields,
   flattenFonts,
   MAX_FILE_SIZE,
@@ -1325,7 +1326,14 @@ export function createEditor({
       else
         safe(async () => {
           await finishDrafts();
-          await mutate((doc) => resetFields(doc, action), null, 'fill');
+          // Only fields change, which a signed PDF takes after what was signed.
+          let fields;
+          try {
+            fields = editDocument ? resetFieldNames(editDocument, action) : undefined;
+          } catch {
+            fields = undefined;
+          }
+          await mutate((doc) => resetFields(doc, action), null, 'fill', { fields });
         })();
     },
   });

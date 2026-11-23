@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { PDFDocument, PDFHexString } from 'pdf-lib';
+import { PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
 import { createSelfSignedId, signPdf, verifySignatures } from '../../src/core/digital-signature.js';
 
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
@@ -116,4 +116,31 @@ test('filling in a field a signature locks asks first', async ({ page }) => {
   await ask.getByRole('button', { name: 'Cancel' }).click();
   await expect(total).toHaveValue('12');
   await expect(page.locator('.signature-bar')).not.toContainText('changed');
+});
+
+// The form's own Clear button wrote the file anew after asking, and the signature broke.
+test('the form’s Clear button keeps the signature valid', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 400]);
+  const form = doc.getForm();
+  form.createTextField('Note').addToPage(sheet, { x: 40, y: 300, width: 200, height: 24 });
+  const clear = form.createButton('Clear');
+  clear.addToPage('Clear', sheet, { x: 40, y: 250, width: 80, height: 24 });
+  clear.acroField.getWidgets()[0].dict.set(PDFName.of('A'), doc.context.obj({ S: 'ResetForm' }));
+  const id = await createSelfSignedId({ name: 'Grace Hopper', keyType: 'P-256' });
+  const signed = await signPdf(await doc.save(), id, {
+    page: 0,
+    rect: { x: 40, y: 40, width: 200, height: 50 },
+  });
+  await open(page, signed);
+  const note = page.getByRole('textbox', { name: 'Note (on page)' });
+  await note.fill('Reviewed');
+  await note.press('Enter');
+  await settled(page);
+  await page.getByRole('button', { name: 'Clear (on page)', exact: true }).click();
+  await settled(page);
+  await expect(page.getByRole('dialog', { name: 'Edit a signed PDF?' })).toHaveCount(0);
+  await expect(note).toHaveValue('');
+  await expect(page.locator('.signature-bar')).toContainText('valid');
+  await expect(page.locator('.signature-bar')).not.toContainText('invalid');
 });

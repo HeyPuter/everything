@@ -1897,7 +1897,8 @@ export function previewCalculations(doc, values) {
  * fields to reset, or with `include` false of those to leave; none means every field). A
  * named group resets the fields under it. Returns false when nothing changed.
  */
-export async function resetFields(doc, { fields: names = [], refs = [], include = true } = {}) {
+/** The fields a reset (a form's own Reset button, pushButtonAction) takes back. */
+function resetChosen(doc, { fields: names = [], refs = [], include = true } = {}) {
   const fields = formFields(doc);
   if (!fields) throw new Error(DAMAGED_FORM);
   const refName = (ref) =>
@@ -1914,9 +1915,12 @@ export async function resetFields(doc, { fields: names = [], refs = [], include 
     }
     return false;
   };
-  const chosen = fields.filter(
-    (field) => !(names.length || refs.length) || listed(field) === include,
-  );
+  return fields.filter((field) => !(names.length || refs.length) || listed(field) === include);
+}
+/** The names of the fields a reset takes back to their default values. */
+export const resetFieldNames = (doc, action) => resetChosen(doc, action).map(formFieldName);
+export async function resetFields(doc, action) {
+  const chosen = resetChosen(doc, action);
   // Each field's value without its own: the default value, or nothing.
   const keys = [PDFName.of('V'), PDFName.of('I')];
   const kept = chosen.map((field) =>
