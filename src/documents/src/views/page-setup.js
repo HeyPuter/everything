@@ -59,6 +59,11 @@ export function openPageSetup(settings, apply, options = {}) {
   const orientation = el('select.input', { 'aria-label': 'Page orientation', onchange: () => {
     const w = read('width'), h = read('height');
     write('width', h); write('height', w);
+    // The margins turn with the page, as Layout > Orientation turns them. Side margins cannot be negative: a
+    // negative top or bottom margin (text kept clear of a tall header) becomes the same distance at the side.
+    const [t, b, l, r] = ['top', 'bottom', 'left', 'right'].map(read);
+    const turned = orientation.value === 'landscape' ? { top: l, bottom: r, left: Math.abs(b), right: Math.abs(t) } : { top: r, bottom: l, left: Math.abs(t), right: Math.abs(b) };
+    for (const [key, twips] of Object.entries(turned)) write(key, twips);
     paper.value = matchPaper(); preview();
   } }, ...['portrait', 'landscape'].map(value => el('option', { value, selected: value === settings.orientation }, value[0].toUpperCase() + value.slice(1))));
   const pages = el('select.input', { 'aria-label': 'Multiple pages', onchange: () => {
