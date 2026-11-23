@@ -44,3 +44,20 @@ test('aligns right-to-left cell text to the side the cell alignment grid names',
   await expect.poll(async () => (await inkExtent(page, 406, 426)).right).toBeGreaterThan(380);
   expect(errors).toEqual([]);
 });
+
+test('drops the first letter of a right-to-left paragraph at the right margin', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await fixture(page), arabic = 'هذا نص عربي طويل';
+  await choose(input, arabic);
+  const ribbon = await onTab(page, 'insert');
+  await ribbon.getByRole('button', { name: 'Drop Cap', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Dropped' }).click();
+  // The letter moves into its own framed paragraph; laid out from the left, it filled the column and the
+  // command failed ("Square-wrapped drawing placement did not converge").
+  await expect.poll(() => input.inputValue()).toContain('ه\nذا نص عربي طويل');
+  await expect(page.locator('.canvas-message')).toBeHidden();
+  // The cap stands at the right margin, beside the paragraph's first lines.
+  const cap = await inkExtent(page, 150, 200);
+  expect(cap.right).toBeGreaterThan(714); expect(cap.right).toBeLessThan(722);
+  expect(errors).toEqual([]);
+});

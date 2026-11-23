@@ -89,6 +89,11 @@ function dropCapBox(frame, placed, anchor, page) {
   const capLine = frame.lines[0], text = capLine?.fragments.find(f => !f.image);
   const capBaseline = capLine ? capLine.baseline - (text?.baselineShift || 0) * 4 / 3 : 0;
   const left = anchor.columnLeft ?? page.left;
+  // A right-to-left paragraph (§17.3.1.6 bidi) leads from the column's right edge: its cap stands there.
+  if (first.rtl) {
+    const right = left + (anchor.columnWidth ?? page.width - page.left - page.right);
+    return { x: dropCap === 'margin' ? right + hSpace : right - frame.width, y: baseline - capBaseline, top, bottom };
+  }
   return { x: dropCap === 'margin' ? left - frame.width - hSpace : left, y: baseline - capBaseline, top, bottom };
 }
 
@@ -119,13 +124,16 @@ export function measureParagraphFrame(group, page, measureParagraph, paginate, m
     if (paragraphs.some(p => p.sectionEnd)) throw new Error('Paragraph frames on section-ending paragraphs require additional anchor handling.');
     if (paragraphs.some(p => /[\f\u000e]/.test(paragraphText(p)))) throw new Error('Page/column breaks inside paragraph frames are not supported yet.');
     const dimensions = frameDimensions(group.properties);
-    const naturalPage = { ...page, left: 0, right: 0, top: 0, bottom: 0, height: 1e9,
+    let naturalPage = { ...page, left: 0, right: 0, top: 0, bottom: 0, height: 1e9,
       pageBounds: undefined, columns: undefined, flowColumns: undefined, verticalAlignment: 'top',
       paragraphFrameFlow: true, width: dimensions.width || page.width - page.left - page.right };
     let measured = group.members.flatMap(b => measureParagraph(b, naturalPage));
     if (!dimensions.width) {
-      const lines = measured.flatMap(b => b.lines), width = Math.max(1, ...lines.map(l => Math.max(...l.stops.map(s => s.x))));
-      naturalPage.width = width;
+      // The text's extent from its leading edge: a right-to-left line is measured from the right one.
+      const extent = l => l.rtl ? naturalPage.width - Math.min(...l.stops.map(s => s.x)) : Math.max(...l.stops.map(s => s.x));
+      const lines = measured.flatMap(b => b.lines), width = Math.max(1, ...lines.map(extent));
+      // A new geometry, not the measured one changed: measurements are remembered by their geometry.
+      naturalPage = { ...naturalPage, width };
       measured = group.members.flatMap(b => measureParagraph(b, naturalPage));
     }
     const natural = paginate(measured, naturalPage, maximumPages, 0);

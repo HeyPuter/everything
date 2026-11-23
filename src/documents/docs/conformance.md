@@ -24212,7 +24212,10 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   `margin`), `w:lines`, `w:wrap="around"`, `w:vAnchor="text"`, `w:hAnchor` (`text` for drop, `page`
   for margin) and `w:hSpace`, exact line spacing and a lowered (`w:position`) enlarged run. Layout
   places the cap at the following paragraph's first line, spanning `lines` lines, with its baseline
-  on line `lines`; dropped caps indent those lines, margin caps sit left of the column. Ignored for
+  on line `lines`; dropped caps indent those lines, margin caps sit left of the column. A cap before a
+  right-to-left paragraph (§17.3.1.6 `bidi`) stands at the column's right edge (in the right margin
+  for `margin`), and its letter takes the complex-script size too (§17.3.2.39 `szCs`), which is the
+  size right-to-left text shows. Ignored for
   caps: x/y offsets and alignments. Gaps: indented paragraphs (the cap uses the column edge),
   per-font cap heights, caps across pages or in section columns.
 

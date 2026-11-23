@@ -8,6 +8,7 @@ import { setDropCap, dropCapState } from '../src/engine/drop-caps.js';
 import { frameDimensions } from '../src/engine/paragraph-frames.js';
 import { layoutDocument } from '../src/engine/layout.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
+import { ParagraphMeasureCache } from '../src/engine/paragraph-measure-cache.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -118,6 +119,41 @@ it('margin places the cap left of the column without indenting the text', () => 
   expect(frame.wrap).toBe('none');
   for (const line of body.slice(0, 4)) expect(line.stops[0].x).toBe(page.left);
   expect(capBaseline(cap)).toBeCloseTo(body[2].baseline, 6);
+});
+
+// §17.3.1.6 bidi: a right-to-left paragraph leads from the right edge, where its cap stands. Measured from
+// the left, the cap took the column's whole width and the text could never settle beside it.
+it('drop and margin put a right-to-left paragraph\'s cap at the right edge of the column', async () => {
+  const { pkg, d } = fresh('');
+  d.setParagraphDirection(true); d.replace('שלום ' + 'עולם '.repeat(80)); d.select(3);
+  setDropCap(d, { mode: 'drop', lines: 3, distance: 2 });
+  const page = pageGeometry(d.pageSettings), right = page.width - page.right;
+  const check = (placed, paragraphs) => {
+    const frame = placed.paragraphFrames[0], body = placed.lines.filter(l => l.paragraphId === paragraphs[1].id);
+    const cap = placed.lines.find(l => l.frameId), edge = line => Math.max(...line.stops.map(s => s.x));
+    expect(frame.right).toBeCloseTo(right, 6);
+    expect(frame.right - frame.left).toBeLessThan(40);
+    for (const line of body.slice(0, 3)) expect(edge(line)).toBeCloseTo(frame.left - 40 / 15, 6);
+    expect(edge(body[3])).toBeCloseTo(right, 6);
+    expect(capBaseline(cap)).toBeCloseTo(body[2].baseline, 6);
+    // The letter is drawn inside its frame.
+    for (const stop of cap.stops) { expect(stop.x).toBeGreaterThanOrEqual(frame.left - 1e-6); expect(stop.x).toBeLessThanOrEqual(frame.right + 1e-6); }
+  };
+  check(layout(d), d.paragraphs);
+  // Measurements are remembered by their geometry: the cap's frame measured again at its own width is not
+  // read back at the column's.
+  const cache = new ParagraphMeasureCache(), cached = Object.assign((text, style) => measure(text, style), { paragraphCache: () => cache });
+  check(layoutDocument(d.paragraphs, cached, page, d.numbering, d.tables), d.paragraphs);
+  // A right-to-left letter shows its complex-script size: the cap takes both.
+  const letter = d.paragraphs[0].runs[0];
+  expect(letter.rtl).toBe(true);
+  expect(letter.fontSize).toBeGreaterThan(30); expect(letter.fontSizeCs).toBe(letter.fontSize);
+  const reopened = await DocxPackage.open(await save(pkg, d));
+  check(layoutDocument(reopened.paragraphs, measure, pageGeometry(reopened.pageSettings), reopened.numbering, reopened.tables), reopened.paragraphs);
+  setDropCap(d, { mode: 'margin', lines: 3, distance: 2 });
+  const placed = layout(d), frame = placed.paragraphFrames[0];
+  expect(frame.left).toBeCloseTo(right + 40 / 15, 6);
+  for (const line of placed.lines.filter(l => l.paragraphId === d.paragraphs[1].id).slice(0, 4)) expect(Math.max(...line.stops.map(s => s.x))).toBeCloseTo(right, 6);
 });
 
 it('a short paragraph extrapolates the cap height and lets the next paragraph wrap', () => {

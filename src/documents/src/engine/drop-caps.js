@@ -85,7 +85,9 @@ function createCap(model, index) {
 function styleCap(model, index, { mode, lines, distance, fontFamily }) {
   const frame = model.paragraphs[index], next = model.paragraphs[index + 1];
   const textParagraph = next && !next.cellId && !capMode(next) ? next : frame;
-  const textRun = textParagraph.runs.find(plainRun) || textParagraph.markFormat || {}, size = textRun.fontSize ?? 12;
+  // Right-to-left and complex-script text shows its complex-script size (§17.3.2.39 szCs).
+  const textRun = textParagraph.runs.find(plainRun) || textParagraph.markFormat || {};
+  const size = (textRun.rtl || textRun.cs ? textRun.fontSizeCs : textRun.fontSize) ?? 12;
   // One line of the following paragraph, in points (§17.3.1.33 spacing).
   const format = paragraphFormat(textParagraph, model.numbering);
   const line = format.lineRule === 'exact' ? format.lineSpacing : format.lineRule === 'atLeast' ? Math.max(format.lineSpacing, size * LINE_HEIGHT) : size * LINE_HEIGHT * format.lineSpacing;
@@ -109,7 +111,8 @@ function styleCap(model, index, { mode, lines, distance, fontFamily }) {
   model.setParagraphFormat(Object.fromEntries(Object.entries({ lineRule: 'exact', lineSpacing: height, spaceBefore: 0, spaceAfter: 0, keepNext: true,
     indentLeft: 0, indentRight: 0, firstLine: 0, alignment: 'left' }).filter(([key, value]) => current[key] !== value)));
   model.select(start, end);
-  model.setRunFormat({ fontSize: capSize, baselineShift: -lowering,
+  // Both sizes, as Font Size sets them: a right-to-left letter is drawn at its complex-script size.
+  model.setRunFormat({ fontSize: capSize, fontSizeCs: capSize, baselineShift: -lowering,
     ...(fontFamily ? { fontAscii: fontFamily, fontHAnsi: fontFamily, fontEastAsia: fontFamily, fontCs: fontFamily } : {}) });
   model.select(anchor, focus);
 }
