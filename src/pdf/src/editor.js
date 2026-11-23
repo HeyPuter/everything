@@ -5781,6 +5781,13 @@ export function createEditor({
     pageForms.draft.base = new Map([...snapshot.base, ...snapshot.changes]);
     finishingForms = (async () => {
       try {
+        // Declining to edit a signed PDF leaves the values typed as a draft: not in the PDF,
+        // and not taken for saved either (Undo would then undo the signing instead).
+        if (!(await confirmSignedEdit())) {
+          pageForms.restore(snapshot);
+          updateStatus();
+          return;
+        }
         await mutate((doc) => fillFields(doc, values), null, 'fill');
         pageForms.clearError();
       } catch (error) {
