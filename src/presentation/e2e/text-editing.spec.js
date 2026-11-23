@@ -286,3 +286,36 @@ test("a click in the text after using the ribbon puts the caret there", async ({
   // The text is typed where clicked; "three", selected before, stays.
   await expect(editor).toHaveText("XOne two three");
 });
+
+test("Format Painter carries the formatting of selected text to other text", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "one two three");
+  const press = (key, times) => pressKey(page, key, times);
+  // Bold and italicize "three", and pick it up with the brush.
+  await press("Shift+ArrowLeft", 5);
+  await page.keyboard.press("ControlOrMeta+b");
+  await page.keyboard.press("ControlOrMeta+i");
+  await (await ribbonButton(page, "Home", "format-painter")).click();
+  // A click with the brush paints the word clicked.
+  const first = editor.locator("[data-run]").first();
+  const box = await first.boundingBox();
+  await page.mouse.click(box.x + 4, box.y + box.height / 2);
+  await expect(
+    editor.locator("[data-run]", { hasText: /^One$/ }).first(),
+  ).toHaveCSS("font-weight", "700");
+  await expect(editor.locator("[data-run]", { hasText: "two" })).toHaveCSS(
+    "font-weight",
+    "400",
+  );
+  // From the keyboard: copy the formatting of "one", paste it on "two".
+  await page.keyboard.press("ControlOrMeta+Shift+c");
+  await press("ArrowRight", 5);
+  await page.keyboard.press("ControlOrMeta+Shift+v");
+  await expect(editor.locator("[data-run]", { hasText: "two" })).toHaveCSS(
+    "font-style",
+    "italic",
+  );
+  await page.keyboard.press("Escape");
+  expect(await slideSvg(page)).toMatch(/font-weight="700"[^>]*>two</);
+});

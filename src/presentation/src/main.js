@@ -5336,15 +5336,63 @@ let painter = null;
 function formatPainterActive() {
   return !!painter;
 }
+// The text formatting Format Painter carries from one text to another.
+const PAINTED_TEXT_KEYS = [
+  "font",
+  "size",
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "color",
+  "underlineColor",
+  "cap",
+  "spc",
+  "kern",
+  "baseline",
+  "highlight",
+  "outline",
+  "gradient",
+  "effects",
+  "normalizeHeight",
+];
+const paintedText = (format) =>
+  Object.fromEntries(
+    PAINTED_TEXT_KEYS.map((key) => [key, format?.[key]]).filter(
+      ([, v]) => v != null,
+    ),
+  );
+// While text is edited, the formatting of the selected text is picked up.
 function pickUpFormat(obj) {
   const format = {
     part: P.getSlidePartName(P.getShapeSlide(obj)),
     id: P.getShapeId(obj),
   };
   try {
-    if (canEditText(obj)) format.text = { ...textFormat(obj) };
+    const editor = editorFor(obj);
+    if (editor) format.text = { ...editor.selectionFormat() };
+    else if (canEditText(obj)) format.text = { ...textFormat(obj) };
   } catch {}
   return format;
+}
+// Format Painter's text formatting, applied to the text selected in the
+// editor (or the word at its caret), as the brush is drawn over it.
+function paintText(editor) {
+  const change = paintedText(painter?.format.text);
+  if (!Object.keys(change).length) return false;
+  // A click paints the word it lands in or beside.
+  const sel = editor.selectionOffsets();
+  if (sel && sel[0] === sel[1]) {
+    const value = editor.text();
+    const letter = (ch) => /[\p{L}\p{M}\p{N}_'’]/u.test(ch || "");
+    let [start, end] = sel;
+    while (start > 0 && letter(value[start - 1])) start--;
+    while (end < value.length && letter(value[end])) end++;
+    if (start < end) editor.setSelection(start, end);
+  }
+  editor.apply(change);
+  if (!painter.sticky) formatPainter();
+  return true;
 }
 function formatPainter(sticky = false) {
   if (painter) {
@@ -5378,33 +5426,7 @@ function paintFormat(target) {
       if (source && !itself)
         changed = P.copyShapeFormatting(source, obj) || changed;
       if (format.text && canEditText(obj)) {
-        const keys = [
-          "font",
-          "size",
-          "bold",
-          "italic",
-          "underline",
-          "strike",
-          "color",
-          "underlineColor",
-          "cap",
-          "spc",
-          "kern",
-          "baseline",
-          "highlight",
-          "outline",
-          "gradient",
-          "effects",
-          "normalizeHeight",
-        ];
-        formatText(
-          withTextBody(obj),
-          Object.fromEntries(
-            keys
-              .map((key) => [key, format.text[key]])
-              .filter(([, v]) => v != null),
-          ),
-        );
+        formatText(withTextBody(obj), paintedText(format.text));
         changed = true;
       }
     }
@@ -12126,6 +12148,22 @@ function editText(target, event = null, { inserted = null } = {}) {
         return;
       }
     }
+    // Copy and paste formatting, as Format Painter does, on the text.
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      e.shiftKey &&
+      !e.altKey &&
+      (e.code === "KeyC" || (e.code === "KeyV" && painter?.format.text))
+    ) {
+      e.preventDefault();
+      if (e.code === "KeyC") {
+        painter = { format: pickUpFormat(obj), sticky: true, keyboard: true };
+        toast(
+          `Formatting copied. Select text and press Shift+${MOD_KEY}+V to apply it.`,
+        );
+      } else paintText(richEditor);
+      return;
+    }
     const style = { b: "bold", i: "italic", u: "underline" }[
       e.key.toLowerCase()
     ];
@@ -12251,6 +12289,16 @@ function editText(target, event = null, { inserted = null } = {}) {
     else if (value) replaceRange(sel[0], sel[1], value);
   });
   input.addEventListener("drop", (e) => e.preventDefault());
+  // With Format Painter on, the text the pointer selects takes its
+  // formatting.
+  input.addEventListener("pointerup", (e) => {
+    if (e.button || !painter || painter.keyboard || richEditor?.input !== input)
+      return;
+    // The selection settles after the press ends.
+    setTimeout(() => {
+      if (!closed && painter && !painter.keyboard) paintText(richEditor);
+    });
+  });
   // As it is typed, text set to shrink on overflow shrinks to the box, and a
   // shape set to fit its text grows and shrinks with it; the slide takes
   // the measured scale or size when the editor closes.
