@@ -12091,9 +12091,32 @@ function editText(target, event = null, { inserted = null } = {}) {
       finish(false);
     }
   });
+  // The offsets of a deletion or of typing that takes a paragraph break
+  // with it, if it does.
+  function acrossParagraphs(e) {
+    if (
+      !/^(delete|insertText$|insertReplacementText$)/.test(e.inputType) ||
+      (e.inputType.startsWith("insert") && e.data == null)
+    )
+      return null;
+    const range = e.getTargetRanges?.()[0];
+    const sel =
+      range && input.contains(range.startContainer)
+        ? [
+            pointOffset(range.startContainer, range.startOffset),
+            pointOffset(range.endContainer, range.endOffset),
+          ]
+        : selectionOffsets();
+    if (!sel || sel[0] === sel[1]) return null;
+    const [start, end] = sel[0] <= sel[1] ? sel : [sel[1], sel[0]];
+    return textOf(read().runs).slice(start, end).includes("\n")
+      ? [start, end]
+      : null;
+  }
   // Line breaks and pasted text go through the runs; the browser's own rich
   // formatting and drops stay out.
   input.addEventListener("beforeinput", (e) => {
+    let joined;
     // The browser's undo, asked for through its menu, is the editor's.
     if (["historyUndo", "historyRedo"].includes(e.inputType)) {
       e.preventDefault();
@@ -12116,7 +12139,13 @@ function editText(target, event = null, { inserted = null } = {}) {
       ["insertFromDrop", "insertLink", "insertFromPaste"].includes(e.inputType)
     )
       e.preventDefault();
-    else if (caretFormat && e.inputType === "insertText" && e.data) {
+    else if ((joined = acrossParagraphs(e))) {
+      // A join of paragraphs goes through the runs: the browser's own moves
+      // the text of the paragraph joined out of its run, and it took the
+      // formatting of the text before it.
+      e.preventDefault();
+      replaceRange(joined[0], joined[1], e.data || "");
+    } else if (caretFormat && e.inputType === "insertText" && e.data) {
       const sel = selectionOffsets();
       const change = caretFormatAt(sel, textOf(read().runs));
       if (change) {
