@@ -1356,6 +1356,9 @@ export function createEditor({
       if (!entry || refresh) return showAnnotationProperties(entry);
       // Choosing a comment finishes drafts and lets go of a picture, shape, or markup, as
       // choosing any other object does. A draft that cannot be saved keeps the selection.
+      const keep = keepChosenInView(() =>
+        annotationLayer.root.querySelector('.annotation-target.is-selected'),
+      );
       annotationChoice = safe(() =>
         selectionProperties(async () => {
           cancelTextSelection();
@@ -1373,7 +1376,7 @@ export function createEditor({
           const chosen = annotationLayer.selected;
           if (chosen) showAnnotationProperties(chosen);
         }),
-      )();
+      )().then(keep);
     },
     // Pressing the comment saves its Comment field first; the move or deletion waits for that.
     onMove: (entry, rect) =>
@@ -4250,8 +4253,14 @@ export function createEditor({
           'aria-pressed': selectedHighlight?.id === entry.id,
           'data-highlight-id': entry.id,
           onkeydown: deleteHighlightKey(entry),
-          onclick: safe(() =>
-            selectionProperties(async () => {
+          onclick: safe(async () => {
+            const keep = keepChosenInView(
+              () =>
+                highlightTargets.querySelectorAll(`[data-highlight-id="${CSS.escape(entry.id)}"]`)[
+                  i
+                ],
+            );
+            await selectionProperties(async () => {
               if (busy || !pageReady) return;
               const focusFrom = document.activeElement;
               cancelTextSelection();
@@ -4266,8 +4275,9 @@ export function createEditor({
                 properties.root
                   .querySelector('.highlight-edit-panel input')
                   ?.focus({ preventScroll: true });
-            }),
-          ),
+            });
+            keep();
+          }),
         });
         Object.assign(target.style, {
           left: `${x}px`,
@@ -6765,8 +6775,11 @@ export function createEditor({
         title: entry.text.slice(0, 200),
         'aria-pressed': noteEdit?.entry?.id === entry.id,
         'data-note-id': entry.id,
-        onclick: safe(() =>
-          selectionProperties(async () => {
+        onclick: safe(async () => {
+          const keep = keepChosenInView(() =>
+            noteTargets.querySelector(`[data-note-id="${CSS.escape(entry.id)}"]`),
+          );
+          await selectionProperties(async () => {
             if (busy || !pageReady || noteDragged) return;
             if (noteEdit?.entry?.id === entry.id) return;
             const focusFrom = document.activeElement;
@@ -6781,8 +6794,9 @@ export function createEditor({
               entry: notes.find((note) => note.id === entry.id) || notes[ordinal],
               canFocus: () => canFocusSelection(focusFrom),
             });
-          }),
-        ),
+          });
+          keep();
+        }),
       });
       Object.assign(target.style, {
         left: `${left}px`,
@@ -13720,6 +13734,27 @@ export function createEditor({
     // The scroll is Find's, not the reader's: a match near the top of the page, centered,
     // can leave the page above under the middle of the view, and that page is not chosen.
     stack.quiet();
+  }
+  /**
+   * On a phone, a chosen comment's settings open below the page and take the lower part of its
+   * view. Whether the comment (the target `find` gives, which a redraw can replace) is in full
+   * view is noted now; the function returned keeps it in view above the settings once they are
+   * shown. Elsewhere the view keeps its size and nothing moves.
+   */
+  function keepChosenInView(find) {
+    const box = find()?.getBoundingClientRect();
+    const view = workspace.getBoundingClientRect();
+    const shown = !!box && box.top >= view.top && box.bottom <= view.bottom;
+    return () => {
+      const now = shown && !destroyed && find()?.getBoundingClientRect();
+      const visible = workspace.getBoundingClientRect();
+      if (!now || now.bottom <= visible.bottom) return;
+      workspace.scrollTop += Math.max(
+        0,
+        Math.min(now.bottom - visible.bottom + 8, now.top - visible.top - 8),
+      );
+      stack.quiet();
+    };
   }
   /** Scroll the workspace to center a box (client coordinates) that is not fully in view. */
   function revealBox(box) {
