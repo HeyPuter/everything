@@ -590,6 +590,16 @@
   max-height: calc(100% - 24px);
   overflow-y: auto;
   scrollbar-width: none;
+  /* With no scroll bar, a shade at an end the tools continue past says there are more: the
+     column ended at a divider, and Image, Sign and Fill forms below it looked absent. Covers that
+     scroll with the tools hide each shade at the end reached. */
+  --tools-shade: color-mix(in srgb, var(--ink) 22%, transparent);
+  background:
+    linear-gradient(var(--surface) 40%, transparent) top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--surface) 60%) bottom / 100% 24px no-repeat local,
+    linear-gradient(var(--tools-shade), transparent) top / 100% 10px no-repeat scroll,
+    linear-gradient(transparent, var(--tools-shade)) bottom / 100% 10px no-repeat scroll,
+    var(--surface);
 }
 .editor .quick-tools .tool-btn:focus-visible {
   /* Inside the column's padding, which now clips. */
@@ -769,6 +779,13 @@
     border-bottom: 1px solid var(--chrome-line);
     padding: 3px 6px;
     overflow-x: auto;
+    /* The row scrolls sideways where it runs short (a small phone turned sideways). */
+    background:
+      linear-gradient(to right, var(--surface) 40%, transparent) left / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--surface) 40%, transparent) right / 24px 100% no-repeat local,
+      linear-gradient(to right, var(--tools-shade), transparent) left / 10px 100% no-repeat scroll,
+      linear-gradient(to left, var(--tools-shade), transparent) right / 10px 100% no-repeat scroll,
+      var(--surface);
   }
   .editor .quick-tools .tool-group {
     flex-direction: row;
