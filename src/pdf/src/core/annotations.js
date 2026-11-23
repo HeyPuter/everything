@@ -664,6 +664,15 @@ function describe(doc, { id, dict }, threads) {
     case 'Ink':
       entry.points = inkStrokes(dict);
       break;
+    case 'FileAttachment': {
+      // The name of the file a paperclip holds, which its settings offer to save.
+      const spec = dict.lookup(name('FS'));
+      entry.fileName =
+        spec instanceof PDFDict
+          ? (text(spec, 'UF') || text(spec, 'F')).split(/[\\/]/).pop() || null
+          : null;
+      break;
+    }
     case 'Highlight':
     case 'Underline':
     case 'StrikeOut':

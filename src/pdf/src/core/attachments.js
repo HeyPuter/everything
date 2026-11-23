@@ -8,6 +8,7 @@ import {
   PDFRawStream,
   decodePDFRawStream,
 } from 'pdf-lib';
+import { annotationPosition, annotationsOf } from './structure.js';
 
 const name = PDFName.of;
 /** Attached files are capped like inserted pictures, so one cannot exhaust the editor. */
@@ -57,23 +58,45 @@ export function listAttachments(doc) {
   });
 }
 
+/** The decoded bytes of the file a file specification embeds, or null. */
+function specBytes(spec) {
+  const stream =
+    spec instanceof PDFDict && spec.lookupMaybe(name('EF'), PDFDict)?.lookup(name('F'));
+  if (!(stream instanceof PDFRawStream)) return null;
+  try {
+    return decodePDFRawStream(stream).decode();
+  } catch {
+    return null;
+  }
+}
+
 /** The bytes of a document-level attachment, decoded, or null when it cannot be read. */
 export function attachmentBytes(doc, key) {
   const tree = embeddedFiles(doc);
   if (!tree) return null;
   for (const [entryKey, value] of leaves(doc, tree)) {
     if (entryKey !== key) continue;
-    const spec = doc.context.lookup(value);
-    const stream =
-      spec instanceof PDFDict && spec.lookupMaybe(name('EF'), PDFDict)?.lookup(name('F'));
-    if (!(stream instanceof PDFRawStream)) return null;
-    try {
-      return decodePDFRawStream(stream).decode();
-    } catch {
-      return null;
-    }
+    return specBytes(doc.context.lookup(value));
   }
   return null;
+}
+
+/**
+ * The file a paperclip comment (FileAttachment) on page `index` holds: { name, bytes }, or null
+ * when the comment is gone or its file cannot be read.
+ */
+export function commentFile(doc, index, id) {
+  const annots = annotationsOf(doc.getPage(index));
+  const position = annotationPosition(annots, id);
+  const dict = position < 0 ? null : doc.context.lookup(annots.get(position));
+  if (!(dict instanceof PDFDict) || dict.lookup(name('Subtype')) !== name('FileAttachment'))
+    return null;
+  const spec = dict.lookup(name('FS'));
+  const bytes = specBytes(spec);
+  if (!bytes) return null;
+  const fileName = text(spec.lookup(name('UF'))) || text(spec.lookup(name('F'))) || 'attachment';
+  // Only the name: a writer may put a path to the file there.
+  return { name: fileName.split(/[\\/]/).pop() || 'attachment', bytes };
 }
 
 /** Attach a file to the document, as a desktop editor's Attachments panel does. */

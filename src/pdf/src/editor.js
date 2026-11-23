@@ -42,6 +42,7 @@ import {
   MAX_ATTACHMENT_SIZE,
   addAttachment,
   attachmentBytes,
+  commentFile,
   removeAttachment,
 } from './core/attachments.js';
 import {
@@ -11665,6 +11666,19 @@ export function createEditor({
         [entry.author, when(entry.modified)].filter(Boolean).join(' · ') || entry.kind,
       ),
       text,
+      // A paperclip's file is saved from the paperclip itself, as well as from Attachments.
+      entry.fileName &&
+        button(
+          `Save ${entry.fileName}`,
+          'Download',
+          safe(async () => {
+            const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
+            const file = commentFile(doc, pageIndex, entry.id);
+            if (!file) throw new Error('This attachment could not be read.');
+            download(file.bytes, file.name, 'application/octet-stream');
+          }),
+          'btn',
+        ),
       el(
         'div',
         { class: 'annotation-style' },
