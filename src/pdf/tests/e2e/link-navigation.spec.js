@@ -35,13 +35,13 @@ async function prepare(page, missing = false) {
   addNote(doc, 2, { x: 40, y: 320, text: 'Destination note' });
   await page.goto('/#library');
   await openPdf(page, doc);
-  await expect(page.getByRole('button', { name: 'Link to another page', exact: true })).toHaveCount(
+  await expect(page.getByRole('button', { name: /^Link to (another page|page \d+)$/ })).toHaveCount(
     2,
   );
   return doc.getPage(1).ref.objectNumber;
 }
 async function linkAction(page, entry, index = 0) {
-  const link = page.getByRole('button', { name: 'Link to another page', exact: true }).nth(index);
+  const link = page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }).nth(index);
   if (entry === 'menu') {
     await link.click({ button: 'right' });
     return page.getByRole('menuitem', { name: 'Go to linked page', exact: true });

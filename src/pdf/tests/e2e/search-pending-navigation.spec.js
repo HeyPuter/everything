@@ -35,7 +35,7 @@ async function prepare(page) {
   return input;
 }
 async function linkAction(page, entry) {
-  const link = page.getByRole('button', { name: 'Link to another page', exact: true });
+  const link = page.getByRole('button', { name: /^Link to (another page|page \d+)$/ });
   if (entry === 'menu') {
     await link.click({ button: 'right' });
     return page.getByRole('menuitem', { name: 'Go to linked page', exact: true });

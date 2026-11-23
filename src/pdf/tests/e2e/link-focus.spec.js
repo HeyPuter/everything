@@ -37,7 +37,7 @@ for (const kind of ['web', 'page'])
           buffer: Buffer.from(await doc.save()),
         });
         const original = page.getByRole('button', {
-          name: kind === 'web' ? 'Link to example.com' : 'Link to another page',
+          name: kind === 'web' ? 'Link to example.com' : /^Link to (another page|page \d+)$/,
           exact: true,
         });
         await original.click();

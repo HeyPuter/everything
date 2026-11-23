@@ -47,7 +47,7 @@ for (const named of [false, true])
       buffer: Buffer.from(await doc.save()),
     });
     await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
-    await page.getByRole('button', { name: 'Link to another page', exact: true }).click();
+    await page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }).click();
     await page
       .getByRole('dialog', { name: 'Edit link', exact: true })
       .getByRole('button', { name: 'Go to linked page', exact: true })

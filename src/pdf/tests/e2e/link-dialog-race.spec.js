@@ -80,7 +80,7 @@ for (const pending of ['name', 'index', 'draft'])
           };
         }
       }, pending);
-      const link = page.getByRole('button', { name: 'Link to another page', exact: true });
+      const link = page.getByRole('button', { name: /^Link to (another page|page \d+)$/ });
       await link.click();
       await expect.poll(() => page.evaluate(() => !!window.releaseLinkDialog)).toBe(true);
       if (newer !== 'none') {

@@ -5021,6 +5021,21 @@ export function createEditor({
       },
     ].filter(Boolean);
   }
+  /** Where a named page action ("NextPage" and the like) goes, in words. */
+  const NAMED_PAGES = {
+    FirstPage: 'the first page',
+    LastPage: 'the last page',
+    NextPage: 'the next page',
+    PrevPage: 'the previous page',
+  };
+  // The page each destination of the PDF on view leads to, found once for its links' names.
+  let linkPages = { pdf: null, pages: new Map() };
+  function linkPage(dest) {
+    if (linkPages.pdf !== pdf) linkPages = { pdf, pages: new Map() };
+    const key = JSON.stringify(dest);
+    if (!linkPages.pages.has(key)) linkPages.pages.set(key, destinationPage(pdf, dest));
+    return linkPages.pages.get(key);
+  }
   /** Link targets edit on activation; following a destination is always an explicit action. */
   function renderLinkTargets() {
     linkTargets.replaceChildren();
@@ -5043,7 +5058,9 @@ export function createEditor({
             ? link.address
               ? 'Link with an unsupported address'
               : 'Link with an unsupported action'
-            : 'Link to another page',
+            : link.action
+              ? `Link to ${NAMED_PAGES[link.action]}`
+              : 'Link to another page',
         'aria-haspopup': canEditLink(link) ? 'dialog' : 'menu',
         onclick: safe(() => {
           if (busy) return;
@@ -5052,6 +5069,13 @@ export function createEditor({
         }),
       });
       target.dataset.linkId = link.id;
+      // A screen reader names the page a link leads to, as a reader's tooltip shows it, once
+      // the destination is found; one that leads nowhere keeps the general name.
+      if (link.dest && !link.url)
+        linkPage(link.dest).then((to) => {
+          if (to != null && target.isConnected)
+            target.setAttribute('aria-label', `Link to page ${to + 1}`);
+        });
       target.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         openMenu({

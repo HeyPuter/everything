@@ -79,7 +79,7 @@ async function prepare(page, phase) {
 }
 async function followLink(page) {
   await page
-    .getByRole('button', { name: 'Link to another page', exact: true })
+    .getByRole('button', { name: /^Link to (another page|page \d+)$/ })
     .click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Go to linked page', exact: true }).click();
   await expect.poll(() => page.evaluate(() => typeof window.releaseSearchLink)).toBe('function');
