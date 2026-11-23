@@ -761,6 +761,18 @@ describe('table commands', () => {
 });
 
 describe('cells holding a nested table', () => {
+  it('gives the row Tab adds the outer table\'s formatting, not that of a table nested at the start of its cell', () => {
+    const { doc } = tableDocument(1, 1), outer = doc.tables[0], cell = outer.rows[0].cells[0];
+    doc.selectCell(cell.id); doc.insertTable(1, 2, 4000);
+    const nested = doc.tables[1];
+    doc.selectCell(nested.rows[0].cells[0].id); doc.setParagraphFormat({ alignment: 'center' });
+    doc.select(doc.paragraphOffset(doc.paragraphs.findLastIndex(p => p.cellId === cell.id)));
+    expect(doc.moveCell(1)).toBe(true);
+    const added = doc.paragraphs.find(p => p.cellId === outer.rows[1].cells[0].id);
+    expect([added.tableStyleId, added.format?.alignment ?? 'left']).toEqual([outer.styleId, 'left']);
+    valid(doc);
+  });
+
   it('applies row options to the table of the selected cells when the selection ends in a nested table', () => {
     const { doc } = tableDocument(3, 2), outer = doc.tables[0];
     const holder = cellAt(doc, 0, 1), last = doc.paragraphs.findLastIndex(p => p.cellId === holder.id);

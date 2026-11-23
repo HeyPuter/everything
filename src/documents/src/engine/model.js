@@ -1392,7 +1392,8 @@ export class TextDocument {
     next.cells.forEach((cell, i) => {
       const owner = owners.get(row.cells[i].id); clearMerge(cell);
       if (owner.endRow > rowIndex) cell.vMerge = 'continue';
-      else state.byCell.set(cell.id, [blankCellParagraph(state.byCell.get(owner.cell.id)[0], cell)]);
+      // Formatted like the cell's own first paragraph: not one of a table nested at its start (another table's style).
+      else { const content = state.byCell.get(owner.cell.id); state.byCell.set(cell.id, [blankCellParagraph(content.find(p => p.cellId === owner.cell.id) || content[0], cell)]); }
     });
     state.bookmarks.insertedRow = { tableId: table.id, after: row.id, id: next.id };
     this.checkpoint(); table.rows.splice(rowIndex + 1, 0, next); applyTableContent(this, table, state);
