@@ -25115,3 +25115,13 @@ The Navigation pane's headings, Go To > Heading and the Cross-reference dialog's
 with the number it shows ("1.1 Scope", "II. Methods"), as the table of contents does; bullets and unnumbered
 headings show their text only. The numbers are counted once per list (`headingNumbers` in `outline.js`), and not
 at all in a document without numbered headings. Tests: `tests/toc-heading-numbers.test.js`.
+
+## Table of contents style names with a comma (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §17.16.5.68 `TOC` (`\t` switch).
+
+The `\t` list pairs style names with levels, separated by the list separator. A style whose name holds a comma is
+now written with semicolons as the separator ("Notes, Appendix;2;Title;1"), and a list is read with whichever of
+comma or semicolon pairs every name with a level 1–9, so lists written in locales that separate with semicolons
+are read too. Before, such a style split in two and its mapping was lost when the table was rebuilt. A name
+holding both a comma and a semicolon cannot be written unambiguously. Tests: `tests/toc-options.test.js`.
