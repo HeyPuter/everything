@@ -5,7 +5,7 @@
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { PDFArray, PDFDict, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
 import { annotationList, annotationsOf } from './structure.js';
-import { parsePdfDate } from './notes.js';
+import { POPUP_FLAGS, parsePdfDate } from './notes.js';
 import {
   FLAGS,
   annotationName,
@@ -691,7 +691,7 @@ export async function importXfdf(doc, xfdf) {
                 ? popupRect
                 : [rect[2] + 4, rect[3] - 120, rect[2] + 184, rect[3]],
             Open: popupElement?.getAttribute('open') === 'yes',
-            F: 0,
+            F: POPUP_FLAGS,
           }),
         );
         dict.set(name('Popup'), popup);

@@ -19,6 +19,8 @@ export const NOTE_SIZE = 20;
 /** How large PDF.js draws a note that has no appearance of its own, in page units. */
 const READER_ICON_SIZE = 22;
 export const MAX_NOTE_LENGTH = 5000;
+/** A note's popup prints (closed popups draw nothing) and keeps its size and turn: 4 | 8 | 16. */
+export const POPUP_FLAGS = 28;
 
 function hexToRgb(hex) {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) throw new Error('Choose a valid color.');
@@ -213,7 +215,9 @@ export function addNote(doc, index, { x, y, text, hex = '#f2c438', author = '' }
       Parent: ref,
       Rect: [x + size + 4 / unit, y - 120 / unit, x + size + 184 / unit, y],
       Open: false,
-      F: 0,
+      // Print, NoZoom and NoRotate, as Acrobat writes them: PDF/A has every annotation print,
+      // and a popup without the flag made a PDF/A file fail once a note was added.
+      F: POPUP_FLAGS,
     }),
   );
   dict.set(name('Popup'), popup);
