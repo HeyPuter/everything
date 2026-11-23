@@ -379,10 +379,15 @@ function renderSlideSelection() {
     const s = all[i];
     if (!s || P.getSlidePartName(s) !== row.dataset.slidePart) return;
     const chosen = many && parts.has(row.dataset.slidePart);
+    // The navigator wrote each row's label with the row; only a row whose
+    // selection changed reads differently, and the others keep theirs
+    // (reading every slide's text again on each change of slide).
+    if (row.classList.contains("selected") === chosen) return;
     row.classList.toggle("selected", chosen);
-    row
-      .querySelector(".slide-thumb")
-      ?.setAttribute("aria-label", thumbLabel(s, i, chosen));
+    const thumb = row.querySelector(".slide-thumb");
+    if (!thumb) return;
+    thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
+    review.decorateThumb(thumb, s);
   });
   updateSlideCount();
 }

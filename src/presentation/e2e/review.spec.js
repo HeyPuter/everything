@@ -170,6 +170,38 @@ test("comments: post, mention, reply and resolve, saved as threaded comments", a
   ).not.toContain("Check the date");
 });
 
+// Going to another slide rewrote every thumbnail's label, dropping the
+// comment count the thumbnails pane gives a slide with comments.
+test("thumbnails keep their comment count in their names as slides are chosen", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = createDeck("pitch");
+  const slides = P.getSlides(pres);
+  P.setSlideCommentThreads(slides[1], [
+    { author: { name: "Grace" }, text: "On two" },
+  ]);
+  await open(page, pres);
+  const thumb = (i) => page.locator(".slide-item .slide-thumb").nth(i);
+  await expect(thumb(1)).toHaveAttribute("aria-label", /, 1 comment$/);
+  await thumb(2).click();
+  await expect(thumb(2)).toHaveAttribute("aria-current", "true");
+  await expect(thumb(1)).toHaveAttribute("aria-label", /, 1 comment$/);
+  // Chosen with others, a slide says so, and keeps its count.
+  await thumb(1).click({ modifiers: ["Shift"] });
+  await expect(thumb(1)).toHaveAttribute(
+    "aria-label",
+    /^Slide 2 \(selected\): .*, 1 comment$/,
+  );
+  await expect(thumb(2)).toHaveAttribute("aria-label", /^Slide 3 \(selected\)/);
+  await thumb(0).click();
+  await expect(thumb(1)).toHaveAttribute(
+    "aria-label",
+    /^Slide 2: .*, 1 comment$/,
+  );
+  await expect(thumb(2)).toHaveAttribute("aria-label", /^Slide 3: /);
+});
+
 test("comments: previous and next across slides, filters, and delete all", async ({
   page,
 }) => {
