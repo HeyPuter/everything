@@ -76,3 +76,18 @@ it('wraps text without spaces, such as Chinese, between its characters', async (
   // 248 pt at 12 pt an em: 20 characters a line.
   expect(lines.map((line) => [...line].length)).toEqual([20, 20, 20, 10]);
 });
+
+// pdf-lib grew a few words until they filled the field (40 pt in this one), where Acrobat,
+// PDF.js and the page's own box show them at 12 pt.
+it('draws a few words at 12 pt at most in a multi-line field of automatic size', async () => {
+  const { doc, notes, widget } = await field('Line one\nLine two', '/Helv 0 Tf 0 g');
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const { size, lines } = drawn(defaultTextFieldAppearanceProvider(notes, widget, font));
+  expect(size).toBe(12);
+  expect(lines).toEqual(['Line one', 'Line two']);
+  // Words that do not fit at 12 pt still shrink to fit.
+  const long = await field('word '.repeat(200), '/Helv 0 Tf 0 g');
+  const shrunk = drawn(defaultTextFieldAppearanceProvider(long.notes, long.widget, font));
+  expect(shrunk.size).toBeLessThan(12);
+  expect(shrunk.ys.at(-1)).toBeGreaterThan(0);
+});

@@ -93,15 +93,20 @@ function wrapParagraph(paragraph, font, size, width) {
   if (line || !lines.length) lines.push(line.trimEnd());
   return lines;
 }
+const AUTO_MULTILINE_SIZE = 12;
 /**
  * pdf-lib's multiline layout, unless a line of it would run past the field: pdf-lib breaks
  * lines at spaces only, so a long word or a CJK sentence put all the rest of its paragraph
  * on one line, cut off at the field's edge; and with an automatic size it grew the text
  * until that one line was taller than the field. Such text is wrapped where it reaches the
- * edge instead, at the largest size that shows it all (at least 4 pt).
+ * edge instead, at the largest size that shows it all (4 to 12 pt).
  */
 function layoutMultilineFitted(text, { alignment, fontSize, font, bounds }) {
   const upstream = layoutMultilineText(text, { alignment, fontSize, font, bounds });
+  // An automatic size fits the text in at most 12 pt, as Acrobat, PDF.js and the page's own
+  // box draw it; pdf-lib grows a few words until they fill the field.
+  if (!fontSize && upstream.fontSize > AUTO_MULTILINE_SIZE)
+    return layoutMultilineFitted(text, { alignment, fontSize: AUTO_MULTILINE_SIZE, font, bounds });
   if (upstream.lines.every((line) => line.width <= bounds.width + 1e-6)) return upstream;
   // As pdf-lib cleans and splits the text.
   const paragraphs = text
@@ -114,7 +119,10 @@ function layoutMultilineFitted(text, { alignment, fontSize, font, bounds }) {
   let size = fontSize;
   if (!size) {
     size = 4;
-    while (size < 500 && wrap(size + 1).length * lineHeight(size + 1) <= Math.abs(bounds.height))
+    while (
+      size < AUTO_MULTILINE_SIZE &&
+      wrap(size + 1).length * lineHeight(size + 1) <= Math.abs(bounds.height)
+    )
       size++;
   }
   const height = font.heightAtSize(size);
