@@ -121,7 +121,7 @@ const SLIDE_RE = /\b[Ss]lides? (\d{1,3})\b/g;
  *                        user is typing on the slide is committed
  *   isTyping()           whether they are typing there now
  *   slidePart()          the part name of the slide they are on
- *   history()            { bytes }: the undo history's current snapshot
+ *   history()            { step }: the undo history's current step
  *   undoTurn(first, n)   takes the deck back to the snapshot `first`, from
  *                        before the reply's n undo steps
  *   focusWorkspace()     hands the keyboard back to the slide
@@ -837,7 +837,7 @@ export function createAssistantPanel(env) {
   // Undo takes back the reply's changes and only those: not once anything
   // else has changed the presentation since, or in between.
   const canUndo = (turn) =>
-    !!turn?.contiguous && env.history().bytes === turn.last.deref();
+    !!turn?.contiguous && env.history().step === turn.last.deref();
 
   // Only the latest reply that changed the deck keeps its Undo: a later
   // change leaves an earlier reply's to the Edit menu, and lets its snapshot

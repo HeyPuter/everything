@@ -319,6 +319,76 @@ describe("undo history", () => {
     expect(P.getSlideNotes(P.getSlides(redone)[0])).toBe("New notes");
     expect(history.state).toBe("clay");
   }, 15000);
+  // A step holds only the parts the edits after it replaced, so a large
+  // deck keeps every step of small edits, where whole files each counted
+  // against the history's 80 MB kept just two.
+  it("keeps every small edit of a large presentation", async () => {
+    const pres = createLargeDeck();
+    const notes = () => P.getSlideNotes(P.getSlides(pres)[0]);
+    const original = notes();
+    const h = new History();
+    await h.reset(pres);
+    expect(h.bytes.byteLength).toBeGreaterThan(40 * 1024 * 1024);
+    for (let i = 1; i <= 8; i++) {
+      P.setSlideNotes(P.getSlides(pres)[0], `Notes ${i}`);
+      await h.capture(pres);
+    }
+    expect(h.past).toHaveLength(8);
+    expect(h.heldBytes()).toBeLessThan(64 * 1024);
+    // The current step shares every picture with the presentation.
+    const data = new Set(P._internalPackageOf(pres).parts.map((p) => p.data));
+    expect(h.step.parts.every((part) => data.has(part.data))).toBe(true);
+    let deck = pres;
+    for (let i = 7; i >= 0; i--) {
+      deck = await h.undo();
+      expect(P.getSlideNotes(P.getSlides(deck)[0])).toBe(
+        i ? `Notes ${i}` : original,
+      );
+    }
+    expect(notes()).toBe("Notes 8");
+    expect(P.getSlideNotes(P.getSlides(await h.redo())[0])).toBe("Notes 1");
+  }, 30000);
+  it("still lets go of steps that hold more than 80 MB of replaced parts", async () => {
+    const pres = createLargeDeck();
+    const media = P._internalPackageOf(pres).parts.filter((p) =>
+      p.name.startsWith("/ppt/media/"),
+    );
+    const h = new History();
+    await h.reset(pres);
+    // Each edit replaces a 11 MB picture: the old one stays only in the
+    // history, and each version is counted once.
+    for (let i = 0; i < 12; i++) {
+      const part = media[i % media.length];
+      const copy = part.data.slice();
+      copy[copy.length - 20] ^= 1;
+      P.setMediaPartBytes(pres, part.name, copy);
+      await h.capture(pres);
+      expect(h.heldBytes()).toBeLessThanOrEqual(80 * 1024 * 1024);
+    }
+    expect(h.past.length).toBeGreaterThanOrEqual(7);
+    expect(h.past.length).toBeLessThan(12);
+  }, 30000);
+  // An undone presentation shares its parts with the step, and edits to it
+  // leave the step as it was.
+  it("keeps a step as it was whatever is done to what it restored", async () => {
+    const pres = createDeck("story");
+    const text = (deck) => P.getSlideText(P.getSlides(deck)[0]);
+    const h = new History();
+    await h.reset(pres);
+    const original = text(pres);
+    P.setShapeText(P.getSlideShapes(P.getSlides(pres)[0])[1], "Edited");
+    await h.capture(pres);
+    const undone = await h.undo();
+    expect(unzipSync(h.bytes)).toEqual(
+      unzipSync(await P.savePresentation(undone)),
+    );
+    P.setShapeText(P.getSlideShapes(P.getSlides(undone)[0])[1], "Scribble");
+    P.addBlankSlide(undone);
+    expect(text(h.restore())).toBe(original);
+    expect(P.getSlides(h.restore())).toHaveLength(P.getSlides(pres).length);
+    expect(text(await h.redo())).toContain("Edited");
+    expect(text(await h.undo())).toBe(original);
+  });
   it("restores text and discards a redo branch after new edits", async () => {
     const pres = createDeck("story");
     const h = new History(3);

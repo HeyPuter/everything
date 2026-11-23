@@ -2384,85 +2384,103 @@ export async function restoreDeck(bytes, { prepareFonts = true } = {}) {
   if (prepareFonts) await prepareDeckFonts(pres);
   return pres;
 }
+// What the history may hold beyond the open presentation: the part versions
+// its steps keep that the presentation no longer has.
+const HISTORY_BYTES = 80 * 1024 * 1024;
+// The undo history. Each step is a snapshot of the presentation's parts
+// (P.snapshotPresentation), which shares every part's bytes with the
+// presentation it was taken from, so a step holds only the parts the edits
+// after it replaced. Steps are identified by their snapshot (`step`); the
+// latest one is also kept serialized (`bytes`), the file the recovery draft
+// writes.
 export class History {
   constructor(limit = 30) {
     this.limit = limit;
     this.past = [];
     this.future = [];
+    this.step = null;
     this.bytes = null;
     this.states = new WeakMap();
   }
   get state() {
-    return this.bytes ? this.states.get(this.bytes) : null;
+    return this.step ? this.states.get(this.step) : null;
+  }
+  async #take(pres, state) {
+    this.bytes = await P.savePresentation(pres);
+    this.step = P.snapshotPresentation(pres);
+    this.states.set(this.step, state);
+    this.presentation = pres;
   }
   async reset(pres, state = null) {
-    this.bytes = await P.savePresentation(pres);
-    this.states = new WeakMap([[this.bytes, state]]);
-    this.presentation = pres;
+    this.states = new WeakMap();
+    await this.#take(pres, state);
     this.past = [];
     this.future = [];
   }
+  // The bytes the past steps hold that the latest one does not, each part
+  // version counted once however many steps share it.
+  heldBytes() {
+    const current = new Set(this.step.parts.map((part) => part.data));
+    const held = new Set();
+    let total = 0;
+    for (const step of this.past)
+      for (const { data } of step.parts)
+        if (!current.has(data) && !held.has(data)) {
+          held.add(data);
+          total += data.byteLength;
+        }
+    return total;
+  }
   async capture(pres, state = this.state) {
-    const next = await P.savePresentation(pres);
-    // State follows each snapshot without retaining discarded history bytes.
-    this.states.set(next, state);
-    this.presentation = pres;
-    this.past.push(this.bytes);
+    const previous = this.step;
+    await this.#take(pres, state);
+    this.past.push(previous);
     while (
       this.past.length > this.limit ||
-      (this.past.length > 1 &&
-        this.past.reduce((n, b) => n + b.byteLength, 0) > 80 * 1024 * 1024)
+      (this.past.length > 1 && this.heldBytes() > HISTORY_BYTES)
     )
       this.past.shift();
-    this.bytes = next;
     this.future = [];
   }
   // Fold a rapid follow-up edit into the latest snapshot so a picker drag
   // stays one undo step.
   async amend(pres, state = this.state) {
     if (!this.past.length) return this.capture(pres, state);
-    const next = await P.savePresentation(pres);
-    this.states.set(next, state);
-    this.presentation = pres;
-    this.bytes = next;
+    await this.#take(pres, state);
     this.future = [];
   }
   // Take the latest snapshot back out, as though its edit had not been made:
   // `pres` is as it was before that edit.
-  drop(pres) {
+  async drop(pres) {
     if (!this.past.length) return;
     this.presentation = pres;
-    this.bytes = this.past.pop();
+    this.step = this.past.pop();
+    this.bytes = await P.savePresentation(pres);
     this.future = [];
   }
-  async undo() {
-    if (!this.past.length) return null;
-    // These snapshots come from our own serializer, rather than file imports.
-    const pres = await P.loadPresentation(this.past.at(-1), {
-      snapshot: true,
-    });
+  // The presentation as the latest step holds it.
+  restore() {
+    return P.restorePresentation(this.step);
+  }
+  async #move(from, to) {
+    if (!from.length) return null;
+    const pres = P.restorePresentation(from.at(-1));
     P.refreshPresentationFields(
       pres,
       P.getPresentationFieldDate(this.presentation),
     );
+    const bytes = await P.savePresentation(pres);
     this.presentation = pres;
-    this.future.push(this.bytes);
-    this.bytes = this.past.pop();
+    this.bytes = bytes;
+    to.push(this.step);
+    this.step = from.pop();
     return pres;
   }
-  async redo() {
-    if (!this.future.length) return null;
-    const pres = await P.loadPresentation(this.future.at(-1), {
-      snapshot: true,
-    });
-    P.refreshPresentationFields(
-      pres,
-      P.getPresentationFieldDate(this.presentation),
-    );
-    this.presentation = pres;
-    this.past.push(this.bytes);
-    this.bytes = this.future.pop();
-    return pres;
+  undo() {
+    return this.#move(this.past, this.future);
+  }
+  redo() {
+    return this.#move(this.future, this.past);
   }
 }
 

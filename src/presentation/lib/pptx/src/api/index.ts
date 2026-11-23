@@ -548,6 +548,8 @@ export {
   replaceTokensInSlide,
   reverseSlides,
   savePresentation,
+  snapshotPresentation,
+  restorePresentation,
   searchSlides,
   sendShapeBackward,
   sendShapeToBack,

@@ -2558,27 +2558,27 @@ function mutate(
         // Color pickers fire a change per adjustment; merge a burst of edits
         // to the same property into one undo step.
         const merge =
-          (amends && history.bytes === amends) ||
+          (amends && history.step === amends) ||
           (coalesce &&
             lastCoalesce?.key === coalesce &&
             Date.now() - lastCoalesce.time < COALESCE_WINDOW);
-        const before = history.bytes;
-        if (takesBack && history.bytes === takesBack && history.past.length)
-          history.drop(doc.pres);
+        const before = history.step;
+        if (takesBack && history.step === takesBack && history.past.length)
+          await history.drop(doc.pres);
         else if (merge) {
           await history.amend(doc.pres, theme);
-          editPlaces.set(history.bytes, {
+          editPlaces.set(history.step, {
             before: editPlaces.get(before)?.before ?? placeBefore,
             after: placeAfter,
           });
         } else {
           await history.capture(doc.pres, theme);
-          editPlaces.set(history.bytes, {
+          editPlaces.set(history.step, {
             before: placeBefore,
             after: placeAfter,
           });
         }
-        onApplied?.(before, history.bytes);
+        onApplied?.(before, history.step);
         lastCoalesce = coalesce ? { key: coalesce, time: Date.now() } : null;
         revision++;
         // What is worked out once per revision (the accessibility status)
@@ -2604,9 +2604,9 @@ function mutate(
 // state everything else still shows, comes back.
 async function restoreSnapshot() {
   const active = doc;
-  if (!active || !history.bytes) return;
+  if (!active || !history.step) return;
   try {
-    const pres = await P.loadPresentation(history.bytes);
+    const pres = history.restore();
     if (doc !== active) return;
     const previous = active.pres;
     await prepareDeckFonts(pres, { reuseFrom: previous });
@@ -6452,7 +6452,7 @@ async function placeDrawn(tool, at) {
   ribbon?.select("shape-format");
   if (isText) {
     const obj = currentShape();
-    if (obj) editText(obj, null, { inserted: history.bytes });
+    if (obj) editText(obj, null, { inserted: history.step });
   }
 }
 // The ribbon's command surface: what tabs.js may call.
@@ -7592,7 +7592,7 @@ function assistantEnv() {
     },
     whenIdle: assistantIdle,
     isTyping: assistantTyping,
-    history: () => ({ bytes: history.bytes }),
+    history: () => ({ step: history.step }),
     undoTurn: (first, count) => undoAssistantTurn(first, count),
     focusWorkspace: () => workspace()?.focus({ preventScroll: true }),
     onToggle: (open) => {
@@ -8345,14 +8345,14 @@ function restoreHistory(direction, steps = 1) {
         place = null;
       // Several steps go back as one: the slide shows only where they end.
       for (let i = 0; i < steps; i++) {
-        const undone = editPlaces.get(history.bytes)?.before;
+        const undone = editPlaces.get(history.step)?.before;
         const next = await history[direction]();
         if (!next) break;
         pres = next;
         place =
           (direction === "undo"
             ? undone
-            : editPlaces.get(history.bytes)?.after) ?? null;
+            : editPlaces.get(history.step)?.after) ?? null;
       }
       if (pres) {
         const previous = active.pres;
@@ -8400,7 +8400,7 @@ async function undoAssistantTurn(first, count) {
   // The palette goes back with the slides: the history keeps the one each
   // snapshot was taken under.
   const palette = history.states.get(first) ?? theme;
-  const pres = await P.loadPresentation(first);
+  const pres = P.restorePresentation(first);
   if (doc !== active) return false;
   P.refreshPresentationFields(pres, P.getPresentationFieldDate(doc.pres));
   return mutate(() => {
@@ -9386,7 +9386,7 @@ async function fillAfter(command, place) {
   if (added.length !== 1) return;
   const id = P.getShapeId(added[0]);
   // The move into the placeholder is part of the insert's undo step.
-  const inserted = history.bytes;
+  const inserted = history.step;
   mutateSlide(
     after,
     (s) => {
