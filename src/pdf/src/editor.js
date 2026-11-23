@@ -9,7 +9,7 @@ import { draftText, needsDraftText, textLineInput } from './text-line-input.js';
 import { groupTextParagraphs } from './core/text-paragraph.js';
 import { readingOrder, reorderSegments, reorderText } from './core/bidi.js';
 import { textPositionControls } from './text-position.js';
-import { placeTextCaret } from './text-caret.js';
+import { placeTextCaret, wrappedTextareaValue } from './text-caret.js';
 import { textWidthControls } from './text-width.js';
 import { createFormLayer } from './form-layer.js';
 import { choiceInputOptions, structureAnnotations } from './core/form-draft.js';
@@ -5721,7 +5721,11 @@ export function createEditor({
         layoutTextEdit();
       }
     }
-    let value = drawnText(edit, edit.input.value);
+    // New text is saved line by line as it wrapped at the page edge.
+    let value = drawnText(
+      edit,
+      edit.run || !apply ? edit.input.value : wrappedTextareaValue(edit.input),
+    );
     let segments = drawnSegments(edit, edit.input.segments?.());
     const paragraphChanged =
       edit.run?.paragraph &&
@@ -5896,7 +5900,8 @@ export function createEditor({
           'aria-label': run ? 'Edit text' : 'Text to add',
           placeholder: run ? '' : 'Type your text',
           spellcheck: true,
-          wrap: 'off',
+          // New text wraps at the page edge rather than running off the page.
+          wrap: run ? 'off' : 'soft',
         });
     if (reading) {
       // Lay the line out in its own direction, still starting where the PDF's glyphs start.
@@ -6201,6 +6206,9 @@ export function createEditor({
           .join(' ') || 'none',
       transform: box.transform,
     });
+    // New text wrapped at the page edge grows a row for each line it wraps onto.
+    if (!edit.run && edit.input.scrollHeight > edit.input.clientHeight)
+      edit.input.style.height = `${edit.input.scrollHeight}px`;
     const fallbacks =
       edit.input.updateStyle?.(
         edit.hex,
