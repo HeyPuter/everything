@@ -233,6 +233,10 @@ test('a new digital ID asks for its password twice', async ({ page }) => {
   const chooser = await openChooser(page);
   await chooser.getByLabel('Create a new digital ID').check();
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
+  // The password's hint, with the least it takes, is said in the field itself.
+  await expect(chooser.getByLabel('Password for the ID file')).toHaveAccessibleDescription(
+    /^Use at least 6 characters\./,
+  );
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
   const confirm = chooser.getByLabel('Confirm password');
   await confirm.fill('secret-132');

@@ -5,14 +5,19 @@ import { el, button, modal, download } from './lib/ui.js';
  * a new self-signed ID (offered as a .p12 download so it can be used again). IDs stay in this
  * tab's memory only; nothing is stored on the device.
  */
-const field = (id, label, control, hint) =>
-  el(
+const field = (id, label, control, hint) => {
+  control.id = id;
+  // The hint is the field's description, so screen readers say it in the field, as they do
+  // in Protect.
+  if (hint) control.setAttribute('aria-describedby', `${id}-hint`);
+  return el(
     'div',
     { class: 'field' },
     el('label', { for: id }, label),
-    Object.assign(control, { id }),
-    hint && el('p', { class: 'muted field-hint' }, hint),
+    control,
+    hint && el('p', { class: 'muted field-hint', id: `${id}-hint` }, hint),
   );
+};
 
 const WRONG_PASSWORD = 'The password is not right for this digital ID file.';
 /** Why a digital ID cannot sign now: its certificate expired or is not valid yet; or null. */
@@ -140,7 +145,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
           'id-password',
           'Password for the ID file',
           newPassword,
-          'The new ID is downloaded as a .p12 file protected by this password, so you can sign with it again. Others see it as self-signed until they trust it.',
+          'Use at least 6 characters. The new ID is downloaded as a .p12 file protected by this password, so you can sign with it again. Others see it as self-signed until they trust it.',
         ),
         field('id-password-confirm', 'Confirm password', confirmPassword),
       ),
