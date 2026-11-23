@@ -155,7 +155,6 @@ test("signing in reloads the embed for the new account", async ({ page }) => {
 
 test("the editor offers the Apps button left of the account button", async ({
   page,
-  isMobile,
 }) => {
   await mockPuter(page);
   await page.goto("/");
@@ -169,7 +168,8 @@ test("the editor offers the Apps button left of the account button", async ({
     ),
   ).toBe(true);
   // Phones keep the account menu in File options and leave this out too.
-  if (isMobile) {
+  // A tablet (a touch device, but wider than a phone) keeps both buttons.
+  if (page.viewportSize().width <= 760) {
     await expect(button).toBeHidden();
     return;
   }
