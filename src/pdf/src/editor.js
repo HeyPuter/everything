@@ -5898,6 +5898,7 @@ export function createEditor({
                       width: edit.width / edit.physicalScale / edit.widthScale,
                       leading: edit.run.paragraph.leading,
                       softBreaks: flow.softBreaks,
+                      indent: edit.run.paragraph.indent,
                     }
                   : undefined,
                 size: edit.size,
@@ -6283,6 +6284,9 @@ export function createEditor({
       ),
     );
     const paragraphWidth = edit.run?.paragraph && (edit.width / edit.widthScale) * zoom;
+    // An indented paragraph's first line starts further in than its others.
+    if (edit.run?.paragraph?.indent)
+      edit.input.style.textIndent = `${edit.run.paragraph.indent * edit.physicalScale * zoom}px`;
     edit.widthControl?.sync(Math.max(24, (availableWidth / zoom) * edit.widthScale));
     const characterWidths = new Map();
     const characterWidth = (char) => {

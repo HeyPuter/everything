@@ -1108,3 +1108,45 @@ it('joins a justified line drawn word by word, where every space stretches alike
   );
   expect(tabs.groups.map((g) => g.text)).toEqual(['Name: ', 'Ada ', 'Lovelace']);
 });
+
+it('edits a paragraph with an indented first line as one, and keeps the indent when saved', async () => {
+  const r = await read(
+    await fixture(
+      'BT /F 12 Tf 15 TL 64 400 Td (A paragraph whose first line starts further) Tj -24 0 Td T* (in than the lines that follow it, as many) Tj T* (documents set them.) Tj ET',
+    ),
+  );
+  const [block, ...rest] = groupTextParagraphs(r.groups);
+  expect(rest).toEqual([]);
+  expect(block.text).toBe(
+    'A paragraph whose first line starts further in than the lines that follow it, as many documents set them.',
+  );
+  // The paragraph's frame starts at its other lines; the first line is indented within it.
+  expect(block.transform.slice(4)).toEqual([40, 400]);
+  expect(block.paragraph.indent).toBeCloseTo(24, 5);
+  const text =
+    'A paragraph whose first line starts \nfurther in than the lines that follow it, as \nmany documents set them.';
+  const softBreaks = [...text.matchAll(/\n/g)].map((m) => m.index);
+  await replaceTextGroup(r.doc, 0, block, text, {
+    reflow: true,
+    paragraph: { width: block.paragraph.width, leading: 1.25, softBreaks, indent: 24 },
+  });
+  const saved = await read(await r.doc.save());
+  expect(visible(saved).map((run) => run.transform[4])).toEqual([64, 40, 40]);
+  const [again] = groupTextParagraphs(saved.groups);
+  expect(again.paragraph.stored).toBe(true);
+  expect(again.transform.slice(4)).toEqual([40, 400]);
+  expect(again.paragraph.indent).toBeCloseTo(24, 5);
+  // Edited again without a new layout, its first line keeps the indent.
+  await replaceTextGroup(saved.doc, 0, again, 'Short now.', { reflow: true });
+  expect(visible(await read(await saved.doc.save()))[0].transform[4]).toBeCloseTo(64, 5);
+});
+
+it('keeps a line set further in than a first-line indent, or ending short, apart from the text below', async () => {
+  for (const source of [
+    // Further in than any first-line indent: a separate, right-aligned or centered line.
+    'BT /F 12 Tf 15 TL 200 400 Td (Dated the first of the month) Tj -160 0 Td T* (and a paragraph that follows on the next line) Tj ET',
+    // A first line that ends where the next word would still have fit ends its paragraph.
+    'BT /F 12 Tf 15 TL 64 400 Td (A heading in body text) Tj -24 0 Td T* (and a paragraph that follows on the next line) Tj ET',
+  ])
+    expect(groupTextParagraphs((await read(await fixture(source))).groups)).toHaveLength(2);
+});

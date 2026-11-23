@@ -87,7 +87,17 @@ function restoreParagraph(lines, data) {
     text,
     transform,
     advance: column,
-    ...(data.line ? {} : { paragraph: { lines, width: column, leading, stored: true } }),
+    ...(data.line
+      ? {}
+      : {
+          paragraph: {
+            lines,
+            width: column,
+            leading,
+            stored: true,
+            indent: (data.indent || 0) * column,
+          },
+        }),
   };
   for (const run of runs) {
     const dx = run.transform[4] - transform[4],
@@ -124,7 +134,7 @@ export function groupTextParagraphs(lines) {
   for (const line of savedParagraphs(lines)) {
     const block = blocks.at(-1),
       previous = block?.paragraph?.lines.at(-1) || block;
-    let leading;
+    let leading, indent;
     if (
       previous &&
       !block.paragraph?.stored &&
@@ -155,24 +165,30 @@ export function groupTextParagraphs(lines) {
       const x = (a[3] * dx - a[2] * dy) / det,
         y = (a[0] * dy - a[1] * dx) / det;
       const shared = parts(previous).some((p) => parts(line).some((n) => p.fontKey === n.fontKey));
+      // A paragraph's first line may start further in than the lines that follow it.
+      const first = !block.paragraph && x <= -0.3 && x >= -6 ? -x * h : 0;
+      const lead = block.paragraph ? (block.paragraph.indent / block.state.size) * h : first;
+      const reach = (l) => width(l) + (l === (block.paragraph?.lines[0] ?? block) ? lead : 0);
       if (
         shared &&
         a.slice(0, 4).every((v, i) => Math.abs(v - b[i]) < h * 0.025) &&
-        Math.abs(x) < 0.3 &&
+        (Math.abs(x) < 0.3 || first) &&
         -y >= 0.95 &&
         -y <= 1.8 &&
         (!block.paragraph || Math.abs(-y - block.paragraph.leading) < 0.15) &&
-        width(line) <= width(previous) * 1.4 + h * 2 &&
+        width(line) <= reach(previous) * 1.4 + h * 2 &&
         previous.text.trim().split(/\s+/).length >= 3 &&
         // A line wraps early only when the next word would not fit after it. Where that word
         // would have fit within the widest line, the break is a hard one: a paragraph ends.
         // A line ending mid-word in a hyphen wrapped because the whole word did not fit, so
         // the fragment after it says nothing about the break.
         (/\p{L}[-\u00ad\u2010]\s*$/u.test(previous.text) ||
-          width(previous) + h * 0.28 + wordWidth(line) >=
-            Math.max(width(line), ...(block.paragraph?.lines ?? [block]).map(width)) - h * 0.1)
-      )
+          reach(previous) + h * 0.28 + wordWidth(line) >=
+            Math.max(width(line), ...(block.paragraph?.lines ?? [block]).map(reach)) - h * 0.1)
+      ) {
         leading = -y;
+        indent = { first, x, reach };
+      }
     }
     if (!leading) {
       blocks.push(line);
@@ -180,16 +196,28 @@ export function groupTextParagraphs(lines) {
     }
     let paragraph = block;
     if (!block.paragraph) {
+      const t = block.transform;
       paragraph = {
         ...block,
+        // An indented paragraph's frame starts where its other lines do.
+        transform: indent.first
+          ? [...t.slice(0, 4), t[4] + indent.x * t[0], t[5] + indent.x * t[1]]
+          : t,
         parts: [...parts(block)],
         segments: (block.segments || [{ text: block.text, part: 0 }]).map((s) => ({ ...s })),
-        paragraph: { lines: [block], leading, width: 0, upper: Infinity },
+        paragraph: {
+          lines: [block],
+          leading,
+          width: 0,
+          upper: Infinity,
+          indent: (indent.first / height(block)) * block.state.size,
+        },
       };
       blocks[blocks.length - 1] = paragraph;
     }
-    const data = paragraph.paragraph;
-    data.upper = Math.min(data.upper, width(previous) + height(previous) * 0.28 + wordWidth(line));
+    const data = paragraph.paragraph,
+      { reach } = indent;
+    data.upper = Math.min(data.upper, reach(previous) + height(previous) * 0.28 + wordWidth(line));
     const offset = paragraph.parts.length;
     const last = paragraph.segments.at(-1);
     // A word hyphenated where the line broke goes on after its hyphen, with no space inside it.
@@ -205,7 +233,7 @@ export function groupTextParagraphs(lines) {
     paragraph.segments.push(...next);
     paragraph.parts.push(...parts(line));
     data.lines.push(line);
-    const widest = Math.max(...data.lines.map(width));
+    const widest = Math.max(...data.lines.map(reach));
     data.width =
       ((widest + Math.max(widest, Math.min(data.upper, widest + height(line)))) /
         2 /

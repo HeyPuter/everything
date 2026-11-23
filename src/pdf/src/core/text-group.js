@@ -239,6 +239,7 @@ export async function replaceTextGroup(
       width: group.paragraph.width,
       leading: group.paragraph.leading,
       softBreaks: [],
+      indent: group.paragraph.indent,
     },
     variant,
     fontStyle,
@@ -391,7 +392,10 @@ export async function replaceTextGroup(
       added = [];
     const used = fonts.clone(doc.context);
     const baseline = [group.transform[4] + offset[0], group.transform[5] + offset[1]],
-      pen = [...baseline];
+      indent = group.transform
+        .slice(0, 2)
+        .map((n) => (n * (paragraph?.indent || 0)) / group.state.size),
+      pen = baseline.map((n, i) => n + indent[i]);
     let line = 0;
     const inverseCtm = inverse(first.state.ctm),
       commands = ['q', ...(wrapper?.textObject ? ['BT'] : [])];
@@ -517,6 +521,9 @@ export async function replaceTextGroup(
           [...origin, ...width, ...spacing],
           items,
           styled ? { underline, strikethrough, line: !paragraph } : undefined,
+          paragraph?.indent > 0 && paragraph.width > 0
+            ? Math.min(paragraph.indent / paragraph.width, 0.95)
+            : 0,
         ),
       );
       if (decorations.length)
