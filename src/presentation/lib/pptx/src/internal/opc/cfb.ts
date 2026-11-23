@@ -10,6 +10,7 @@ const CUTOFF = 4096;
 const END = 0xfffffffe;
 const FREE = 0xffffffff;
 const FATSECT = 0xfffffffd;
+const DIFSECT = 0xfffffffc;
 const NOSTREAM = 0xffffffff;
 
 export interface CfbStream {
@@ -57,10 +58,17 @@ export const writeCfb = (
     miniFatSectors +
     miniStreamSectors +
     bigSectors.reduce((a, b) => a + b, 0);
+  // The header lists the first 109 FAT sectors; a larger object lists the
+  // rest in DIFAT sectors, 127 to a sector, each ending with the next one.
+  const difatFor = (fat: number) => Math.max(0, Math.ceil((fat - 109) / 127));
   let fatSectors = 1;
-  while (fatSectors * (SECTOR / 4) < contentSectors + fatSectors) fatSectors++;
-  if (fatSectors > 109) throw new Error("writeCfb: object too large");
-  const total = fatSectors + contentSectors;
+  while (
+    fatSectors * (SECTOR / 4) <
+    contentSectors + fatSectors + difatFor(fatSectors)
+  )
+    fatSectors++;
+  const difatSectors = difatFor(fatSectors);
+  const total = fatSectors + difatSectors + contentSectors;
   const out = new Uint8Array(SECTOR * (total + 1));
   const view = new DataView(out.buffer);
   const fat = new Uint32Array(fatSectors * (SECTOR / 4)).fill(FREE);
@@ -74,6 +82,8 @@ export const writeCfb = (
     return first;
   };
   for (let i = 0; i < fatSectors; i++) fat[next++] = FATSECT;
+  const difatStart = next;
+  for (let i = 0; i < difatSectors; i++) fat[next++] = DIFSECT;
   const dirStart = chain(dirSectors);
   const miniFatStart = chain(miniFatSectors);
   const miniStreamStart = chain(miniStreamSectors);
@@ -92,10 +102,26 @@ export const writeCfb = (
   view.setUint32(56, CUTOFF, true);
   view.setUint32(60, miniFatSectors ? miniFatStart : END, true);
   view.setUint32(64, miniFatSectors, true);
-  view.setUint32(68, END, true);
-  view.setUint32(72, 0, true);
+  view.setUint32(68, difatSectors ? difatStart : END, true);
+  view.setUint32(72, difatSectors, true);
   for (let i = 0; i < 109; i++)
     view.setUint32(76 + i * 4, i < fatSectors ? i : FREE, true);
+  for (let d = 0; d < difatSectors; d++) {
+    const base = at(difatStart + d);
+    for (let k = 0; k < 127; k++) {
+      const fatIndex = 109 + d * 127 + k;
+      view.setUint32(
+        base + k * 4,
+        fatIndex < fatSectors ? fatIndex : FREE,
+        true,
+      );
+    }
+    view.setUint32(
+      base + 127 * 4,
+      d < difatSectors - 1 ? difatStart + d + 1 : END,
+      true,
+    );
+  }
   for (let i = 0; i < fat.length; i++)
     view.setUint32(at(Math.floor(i / 128)) + (i % 128) * 4, fat[i]!, true);
 

@@ -241,6 +241,31 @@ describe("compound files and embedded objects", () => {
     expect(byName.Empty.length).toBe(0);
   });
 
+  it("writes objects past the header's FAT sectors (about 7 MB)", () => {
+    // 8 MB and 49 MB need FAT sectors listed in DIFAT sectors: one, and seven
+    // chained ones.
+    for (const size of [7_100_000, 8 * 1024 * 1024, 49 * 1024 * 1024]) {
+      const data = new Uint8Array(size);
+      for (let i = 0; i < size; i += 4093) data[i] = (i / 4093) % 251;
+      data[size - 1] = 9;
+      const bytes = writeCfb([
+        { name: "Small", data: new Uint8Array([1, 2, 3]) },
+        { name: "\x01Ole10Native", data },
+      ]);
+      const view = new DataView(bytes.buffer);
+      const fatSectors = view.getUint32(44, true);
+      expect(view.getUint32(72, true)).toBe(
+        Math.max(0, Math.ceil((fatSectors - 109) / 127)),
+      );
+      const byName = Object.fromEntries(
+        readCfb(bytes).map((s) => [s.name, s.data]),
+      );
+      expect([...byName.Small]).toEqual([1, 2, 3]);
+      expect(byName["\x01Ole10Native"].length).toBe(size);
+      expect(Buffer.compare(byName["\x01Ole10Native"], data)).toBe(0);
+    }
+  });
+
   it("packages a file and reads it back from the slide", async () => {
     const data = new TextEncoder().encode("hello, résumé");
     const pkg = readOlePackage(writeOlePackage("notes résumé.txt", data));
