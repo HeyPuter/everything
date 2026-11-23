@@ -910,6 +910,8 @@
     grid-column: 1;
     grid-row: 1;
     max-height: none;
+    /* The phone toolbar wraps; here a second line would take back the height this row saves. */
+    flex-wrap: nowrap;
   }
   .editor .document-view > .page-controls {
     grid-column: 2;
