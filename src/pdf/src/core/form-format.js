@@ -47,6 +47,8 @@ export function numberFormat(field) {
       decimals: Number(number[1]),
       separators: Number(number[2]),
       parentheses: Number(number[3]) >= 2,
+      // Styles 1 and 3 show negative amounts in red, style 1 without a minus sign.
+      red: Number(number[3]) === 1 || Number(number[3]) === 3,
       // A JavaScript string: \u20AC is the euro sign.
       currency: jsString(number[4]),
       prepend: number[5] === 'true',
@@ -422,12 +424,20 @@ export function formattedNumber(text, format) {
   const [whole, fraction] = Math.abs(number).toFixed(decimals).split('.');
   const digits =
     whole.replace(/\B(?=(\d{3})+(?!\d))/g, group) + (fraction ? `${mark}${fraction}` : '');
-  const negative = number < 0 && Number(Math.abs(number).toFixed(decimals)) !== 0;
+  const negative = negativeNumber(text, format);
   if (format.percent) {
     const shown = format.prepend ? `%${digits}` : `${digits}%`;
     return negative ? `-${shown}` : shown;
   }
   const shown = format.prepend ? `${format.currency}${digits}` : `${digits}${format.currency}`;
   if (!negative) return shown;
-  return format.parentheses ? `(${shown})` : `-${shown}`;
+  return format.parentheses ? `(${shown})` : format.red ? shown : `-${shown}`;
+}
+
+/** Whether the value is a negative number as the format shows it (not one rounded to zero). */
+export function negativeNumber(text, format) {
+  const number = format && String(text).trim() ? typedNumber(text) : null;
+  if (number === null || !(number < 0)) return false;
+  const decimals = Math.min(format.decimals, 20);
+  return Number((Math.abs(number) * (format.percent ? 100 : 1)).toFixed(decimals)) !== 0;
 }

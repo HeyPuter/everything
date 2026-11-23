@@ -555,6 +555,56 @@ it('shows number and percent fields as their formats do, keeping the value typed
     expect(text).toContain(shown);
 });
 
+it('draws negative amounts in red for Acrobat’s red number styles', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  // Negative styles: 0 minus, 1 red, 2 parentheses, 3 red parentheses.
+  const styles = { Minus: 0, Red: 1, Parens: 2, RedParens: 3, Positive: 1 };
+  for (const [i, [fieldName, style]] of Object.entries(styles).entries()) {
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+    });
+    doc
+      .getForm()
+      .getTextField(fieldName)
+      .acroField.dict.set(
+        name('AA'),
+        doc.context.obj({
+          F: {
+            S: 'JavaScript',
+            JS: PDFHexString.fromText(`AFNumber_Format(2, 0, ${style}, 0, "$", true);`),
+          },
+        }),
+      );
+  }
+  await fillFields(doc, { Minus: '-5', Red: '-5', Parens: '-5', RedParens: '-5', Positive: '5' });
+  const saved = await PDFDocument.load(await doc.save());
+  const drawing = (fieldName) => {
+    const widget = saved.getForm().getTextField(fieldName).acroField.getWidgets()[0];
+    return new TextDecoder().decode(
+      decodePDFRawStream(saved.context.lookup(widget.getNormalAppearance())).decode(),
+    );
+  };
+  const red = /1 0 0 rg/;
+  expect(Object.keys(styles).map((fieldName) => red.test(drawing(fieldName)))).toEqual([
+    false,
+    true,
+    false,
+    true,
+    false,
+  ]);
+  // The field's own color stays black for the values typed next.
+  expect(saved.getForm().getTextField('Red').acroField.getDefaultAppearance()).not.toMatch(red);
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  // In red, a negative amount needs no minus sign, as Acrobat shows it.
+  expect(text).toEqual(['-$5.00', '$5.00', '($5.00)', '($5.00)', '$5.00']);
+});
+
 it('takes ZIP Codes, phone and Social Security numbers, and shows them as their formats do', async () => {
   await mockTextFont();
   const doc = await blank();

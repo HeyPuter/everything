@@ -12,6 +12,7 @@ import {
   PDFStream,
   PDFTextField,
   TextAlignment,
+  rgb,
 } from 'pdf-lib';
 import {
   defaultTextFieldAppearanceProvider,
@@ -22,7 +23,7 @@ import {
 } from './appearance-providers.js';
 import { choiceOptions, selectedChoices, textValue } from './form-values.js';
 import { listAppearance } from './list-appearance.js';
-import { formattedValue } from './form-format.js';
+import { formattedValue, negativeNumber, numberFormat } from './form-format.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
 const preservedAppearances = new WeakMap();
@@ -75,7 +76,15 @@ function textAppearanceProvider(source, widget, font) {
     if (skip > 0) text = ' '.repeat(skip) + text;
   }
   display.getText = () => text;
-  return defaultTextFieldAppearanceProvider(display, widget, font);
+  // Acrobat's red styles draw negative amounts in red.
+  const format = numberFormat(source);
+  const red = !source.isPassword() && format?.red && negativeNumber(value, format);
+  return defaultTextFieldAppearanceProvider(
+    display,
+    widget,
+    font,
+    red ? { textColor: rgb(1, 0, 0) } : undefined,
+  );
 }
 
 export function textMaxLength(field) {
