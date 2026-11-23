@@ -28,6 +28,7 @@ export function protectDialog(current, { signal } = {}) {
         value,
         ...(unknownOpen && id !== 'protect-owner' && { placeholder: 'Unchanged' }),
       });
+      input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
       return { input, row: el('div', { class: 'field' }, el('label', { for: id }, label), input) };
     };
     const open = passwordField('protect-open', 'Password to open', current?.open || '');
@@ -114,7 +115,10 @@ export function protectDialog(current, { signal } = {}) {
         show,
       ),
     );
+    // The field to fix is marked as refused, for screen readers too, until it is changed.
     const fail = (message, input) => {
+      for (const { input: other } of [open, confirm, owner]) other.removeAttribute('aria-invalid');
+      input.setAttribute('aria-invalid', 'true');
       toast(message, { error: true });
       input.focus();
     };
