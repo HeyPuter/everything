@@ -183,8 +183,11 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     }
     function openTab(id) {
       ribbon.select(id);
-      if (effective() !== 'always') peek(true);
-      requestAnimationFrame(() => commands(id));
+      // The tab's letters go up at once: a quick typist's next key can come before the next frame, and
+      // it is meant for them. Shown over the document, the commands are fitted first (peeking fits them a
+      // frame later, which then finds nothing to change).
+      if (effective() !== 'always') { peek(true); ribbon.fit(); }
+      commands(id);
     }
     function commands(id) {
       level = 'tab'; typed = '';

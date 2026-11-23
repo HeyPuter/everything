@@ -353,6 +353,22 @@ test('a KeyTip letter that goes nowhere is ignored, and the letters typed before
   expect((await engine(page)).bold).toBe(false);
 });
 
+test('KeyTips typed faster than a frame (Alt, H, B at once) still run the command', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Keys');
+  await select(page, 0, 4);
+  // All in one task, as a quick typist's keys can arrive before the next frame: the tab's letters were only
+  // shown after a frame, so B fell on the tabs' level (where it means nothing) and was lost.
+  await page.evaluate(() => {
+    const key = (type, key, code) => window.dispatchEvent(new KeyboardEvent(type, { key, code, bubbles: true }));
+    key('keydown', 'Alt', 'AltLeft'); key('keyup', 'Alt', 'AltLeft');
+    key('keydown', 'h', 'KeyH'); key('keyup', 'h', 'KeyH');
+    key('keydown', 'b', 'KeyB'); key('keyup', 'b', 'KeyB');
+  });
+  await expect.poll(async () => (await engine(page)).bold).toBe(true);
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+});
+
 test('Escape in the text, then Tab, goes to the ribbon, and Escape there comes back', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Words');
