@@ -39,7 +39,8 @@ describe("effective DrawingML line formatting", () => {
       expect(P.getShapeStrokeDash(f.shape)).toBeNull();
       expect(P.getShapeStrokeCap(f.shape)).toBeNull();
       expect(P.getShapeStrokeJoin(f.shape)).toBeNull();
-      expect(svg(f)).toContain('stroke-dasharray="24.00 18.00"');
+      // A dash's round caps are part of its length.
+      expect(svg(f)).toContain('stroke-dasharray="18.00 24.00"');
       expect(svg(f)).toContain('stroke-linecap="round"');
       expect(svg(f)).toContain('stroke-linejoin="round"');
       expect(format(f)).toMatchObject({
@@ -93,7 +94,8 @@ describe("effective DrawingML line formatting", () => {
       dash: { kind: "preset", value: "sysDash" },
       join: { kind: "bevel" },
     });
-    expect(svg(f)).toContain('stroke-dasharray="18.00 6.00"');
+    // A preset dash's square caps are part of its length.
+    expect(svg(f)).toContain('stroke-dasharray="12.00 12.00"');
   });
   it("uses a layout's style reference with independently inherited master properties", async () => {
     const f = await lineFormattingFixture({
@@ -141,7 +143,8 @@ describe("effective DrawingML line formatting", () => {
       kind: "custom",
       stops: [{ dash: 0, space: 1.255 }],
     });
-    expect(svg(f)).toContain('stroke-dasharray="0.00 7.53"');
+    // Round caps take one width from the gap.
+    expect(svg(f)).toContain('stroke-dasharray="0.00 13.53"');
   });
   it.each(["", '<a:ds d="0" sp="0"/>'])(
     "an explicit custom pattern (%s) blocks an inherited preset",

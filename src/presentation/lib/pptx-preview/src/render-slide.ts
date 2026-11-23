@@ -1540,6 +1540,24 @@ const DASH_PATTERNS: Record<string, string> = {
   sysDashDotDot: "3 1 1 1 1 1",
 };
 
+// DrawingML dash lengths include round and square caps; SVG adds the caps
+// to each dash. Round-capped custom dashes are also compensated, while
+// square custom dashes keep their authored lengths (native controls).
+// Lengths are in line widths, as dash/gap pairs. A pattern with no length
+// draws solid (null).
+const capCompensatedDashes = (
+  pattern: readonly number[],
+  cap: string | null | undefined,
+  kind: "preset" | "custom",
+): number[] | null =>
+  !pattern.some((length) => length > 0)
+    ? null
+    : cap === "rnd" || (kind === "preset" && cap === "sq")
+      ? pattern.map((length, i) =>
+          i % 2 ? length + 1 : Math.max(0, length - 1),
+        )
+      : [...pattern];
+
 // Line ends as the desktop presentation app draws them (measured): a head is
 // 2, 3 or 5 line widths across (`w`) and along (`len`) for small, medium and
 // large, and lines thinner than 2 pt take a 2 pt line's head.
@@ -1782,14 +1800,17 @@ const paint = (
       const formatting = getShapeStrokeFormattingEffective(shape);
       const dash = formatting.dash;
       if (dash) {
-        const pattern =
+        const pattern = capCompensatedDashes(
           dash.kind === "custom"
             ? dash.stops.flatMap((stop) => [stop.dash, stop.space])
             : (DASH_PATTERNS[dash.value] ?? "")
                 .split(" ")
                 .filter(Boolean)
-                .map(Number);
-        if (pattern.some((length) => length > 0)) {
+                .map(Number),
+          formatting.cap,
+          dash.kind,
+        );
+        if (pattern) {
           // Scale by stroke width in CSS pixels so the dash cadence is right.
           const swPx = strokeWidth / EMU_PER_PX;
           const arr = pattern.map((n) => (n * swPx).toFixed(2)).join(" ");
@@ -10043,21 +10064,17 @@ const chartOutlineStyle = (
   if (style.opacity !== 1) attrs.push(`stroke-opacity="${style.opacity}"`);
   const dash = line.dash;
   if (dash) {
-    let pattern =
+    const pattern = capCompensatedDashes(
       dash.kind === "custom"
         ? dash.stops.flatMap((stop) => [stop.dash, stop.space])
         : (DASH_PATTERNS[dash.value] ?? "")
             .split(" ")
             .filter(Boolean)
-            .map(Number);
-    // DrawingML preset lengths include caps; SVG lengths exclude them.
-    // Round-capped custom dashes are also compensated, while square
-    // custom dashes retain their authored lengths (native controls).
-    if (line.cap === "rnd" || (dash.kind === "preset" && line.cap === "sq"))
-      pattern = pattern.map((length, i) =>
-        i % 2 ? length + 1 : Math.max(0, length - 1),
-      );
-    if (pattern.some((length) => length > 0))
+            .map(Number),
+      line.cap,
+      dash.kind,
+    );
+    if (pattern)
       attrs.push(
         `stroke-dasharray="${pattern.map((length) => length * width).join(" ")}"`,
       );
