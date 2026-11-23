@@ -291,8 +291,10 @@ describe('accessibility check', () => {
     });
     const edited = await reload(tagged);
     const report = checkAccessibility(edited);
+    // The report offers Autotag, which tags just the added content.
     expect(status(report, 'tagged-content')).toMatchObject({
       status: 'failed',
+      fix: 'tags',
     });
     expect(status(report, 'tagged-annotations')).toMatchObject({
       status: 'failed',
@@ -323,6 +325,8 @@ describe('accessibility check', () => {
     const report = checkAccessibility(await PDFDocument.load(session.bytes));
     expect(status(report, 'tagged-content').status).toBe('failed');
     expect(status(report, 'tagged-content').details.map((detail) => detail.page)).toEqual([1]);
+    // The copy lost its MCIDs, so Autotag can tag it.
+    expect(status(report, 'tagged-content').fix).toBe('tags');
   });
 
   it('counts marked content its parent-tree entry declares an Artifact as an artifact', async () => {
@@ -377,10 +381,13 @@ describe('accessibility check', () => {
     for (const role of ['Artifact', 'Decoration'])
       expect(status(checkAccessibility(await build(role)), 'tagged-content').status).toBe('passed');
     // A detached element of real content still leaves its content out of the tree.
-    expect(status(checkAccessibility(await build('P')), 'tagged-content')).toMatchObject({
+    const detached = status(checkAccessibility(await build('P')), 'tagged-content');
+    expect(detached).toMatchObject({
       status: 'failed',
       details: [{ page: 0, text: '1 untagged item' }],
     });
+    // Autotag leaves marked content alone, so the report does not offer it.
+    expect(detached.fix).toBeUndefined();
   });
 
   it('reports a figure without alternate text and setFigureAltText fixes it', async () => {
