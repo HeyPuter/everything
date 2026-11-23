@@ -25,6 +25,12 @@ it('places invisible text at the run\'s baseline, scaled to its painted width', 
   expect(ops).toContain('/F1 10.00 Tf 200.00 Tz');
 });
 
+it('places text from a turned drawing with its own matrix, the PDF\'s y axis pointing up', () => {
+  // A quarter turn clockwise on the page: the run's x axis points down the page.
+  const ops = textLayer([{ text: 'Abc', width: 40, fontSize: 10, matrix: [0, 1, -1, 0, 100, 200] }], 1056);
+  expect(ops).toContain('0 -1 1 0 75.00 642.00 Tm');
+});
+
 it('collects page text from body and story lines, skipping pictures and rotated cells', () => {
   const lines = [
     { page: 0, baseline: 50, fragments: [{ text: 'Body', x: 10, width: 30, fontSize: 12 }, { image: {}, text: '', x: 50 }] },

@@ -362,6 +362,9 @@ function rasterShape(asset, bitmaps, fontAlternatives, fieldContext, patternPlac
     // drop even a surviving-axis offset once the other axis is singular.
     ctx.setTransform(m.a*sx,m.b*sx,m.c*sy,m.d*sy,m.e+m.a*x+m.c*y,m.f+m.b*x+m.d*y);
   };
+  // The text painted, for a text layer (a PDF's searchable text): each run's text-space matrix in this raster's
+  // pixels. A shadow surface is drawn back where its contents were, so its offset is taken off again.
+  const textRuns = [], surfaceShift = { x: 0, y: 0 };
   const paint = (node, root = false, withoutShadow = false, handedness = 1) => {
     ctx.save(); if (!root) ctx.translate(node.x, node.y);
     if (node.shadow && !withoutShadow && shadowLayers.has(node)) {
@@ -369,7 +372,9 @@ function rasterShape(asset, bitmaps, fontAlternatives, fieldContext, patternPlac
       const surface=new OffscreenCanvas(w*resolution,h*resolution),parent=ctx,m=parent.getTransform();
       ctx=surface.getContext('2d');setCanvasFontAlternatives(ctx,fontAlternatives);
       ctx.setTransform(m.a,m.b,m.c,m.d,m.e+resolution*(left-layer.left),m.f+resolution*(top-layer.top));
-      try { paint(node,true,true,handedness); } finally {ctx=parent;}
+      const shifted = { x: surfaceShift.x, y: surfaceShift.y };
+      surfaceShift.x += resolution*(left-layer.left); surfaceShift.y += resolution*(top-layer.top);
+      try { paint(node,true,true,handedness); } finally {ctx=parent; Object.assign(surfaceShift, shifted);}
       const bitmap=surface.transferToImageBitmap();
       const painted=paintPictureShadow({bitmap,left:0,top:0,width:w,height:h,frameWidth:w,frameHeight:h,rasterScale:resolution,close:()=>bitmap.close()},layer.shadow);
       try {
@@ -660,6 +665,11 @@ function rasterShape(asset, bitmaps, fontAlternatives, fieldContext, patternPlac
             ctx.restore(); continue;
           }
           setCanvasTextStyle(ctx, fragment);
+          if (fragment.text && line.y + textTop + shift < clip.top + clip.height) {
+            const m = ctx.getTransform();
+            textRuns.push({ text: fragment.text, fontSize: fragment.fontSize, width: fragment.width, ...(fragment.bidiDirection === 'rtl' ? { rtl: true } : {}),
+              matrix: [m.a, m.b, m.c, m.d, m.a * fragment.x + m.c * line.baseline + m.e - surfaceShift.x, m.b * fragment.x + m.d * line.baseline + m.f - surfaceShift.y] });
+          }
           paintTextShadows(ctx, fragment, line.baseline);
           const colors = fragment.colors || [{ value: fragment.color }];
           for (let i = 0; i < colors.length; i++) {
@@ -692,5 +702,5 @@ function rasterShape(asset, bitmaps, fontAlternatives, fieldContext, patternPlac
   // Bilinear reduction can miss a subpixel table rule entirely at some page
   // offsets. Area filtering retains its coverage without widening authored ink.
   const tableText = [...textLayouts.values()].some(t => t.layout.cells.length);
-  return { bitmap, left, top, frameWidth: asset.width, frameHeight: asset.height, width, height, rasterScale:resolution, ...(tableText ? { smoothingQuality: 'high' } : {}), close: () => bitmap.close() };
+  return { bitmap, left, top, frameWidth: asset.width, frameHeight: asset.height, width, height, rasterScale:resolution, ...(tableText ? { smoothingQuality: 'high' } : {}), ...(textRuns.length ? { textRuns } : {}), close: () => bitmap.close() };
 }

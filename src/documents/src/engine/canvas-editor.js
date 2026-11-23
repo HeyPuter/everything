@@ -957,6 +957,8 @@ export class CanvasEditor {
   }
   paintSheets(pages = null) {
     this.printedLayout = { layout: this.layout, storyLayout: this.storyLayout };
+    // Text drawn inside drawings on each printed page (see paint), read by PDF export's text layer.
+    this.printTextRuns = new Map();
     const count = this.layout.pages.length, sheets = new Array(count);
     const chosen = pages ? [...new Set(pages)].filter(index => Number.isInteger(index) && index >= 0 && index < count).sort((a, b) => a - b) : [...sheets.keys()];
     for (const index of chosen) {
@@ -1090,6 +1092,9 @@ export class CanvasEditor {
       setCanvasFontAlternatives(ctx, this.model.styles.fontAlternatives);
       const scale = canvas.width / geometry.width;
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      // Printed sheets collect the text drawn inside drawings (text boxes, shapes) in page pixels, for a PDF's text layer.
+      const printText = printing && this.printTextRuns ? [] : null, textSink = printText ? run => printText.push({ ...run, matrix: run.matrix.map(v => v / scale) }) : undefined;
+      if (printText) this.printTextRuns.set(index, printText);
       ctx.fillStyle = geometry.background || '#FFFFFF'; ctx.fillRect(0, 0, geometry.width, geometry.height);
       paintPagePictureBackground(ctx, geometry, this.images, { bestEffort: this.readOnly });
       ctx.fillStyle = '#000000';
@@ -1140,10 +1145,10 @@ export class CanvasEditor {
                   const [x, y, w, h] = rect.destination;
                   const [sx, sy, sw, sh] = rect.source, scaleX = w * f.width / sw, scaleY = h * f.height / sh;
                   ctx.beginPath(); ctx.rect(x * f.width, y * f.height, w * f.width, h * f.height); ctx.clip();
-                  paintDecodedImage(ctx, bitmap, x * f.width - sx * scaleX, y * f.height - sy * scaleY, bitmap.width * scaleX, bitmap.height * scaleY, { ...drawingPageContext(this.drawingPageContexts, index, f.pageStory ? undefined : f.region), pageStory: !!f.pageStory, printing });
+                  paintDecodedImage(ctx, bitmap, x * f.width - sx * scaleX, y * f.height - sy * scaleY, bitmap.width * scaleX, bitmap.height * scaleY, { ...drawingPageContext(this.drawingPageContexts, index, f.pageStory ? undefined : f.region), pageStory: !!f.pageStory, printing, textSink });
                 }
                 ctx.restore();
-              } else paintDecodedImage(ctx, bitmap, f.x, f.y, f.width, f.height, { ...drawingPageContext(this.drawingPageContexts, index, f.pageStory ? undefined : f.region), pageStory: !!f.pageStory, printing, bitmapDisplayScale: printing ? undefined : scale });
+              } else paintDecodedImage(ctx, bitmap, f.x, f.y, f.width, f.height, { ...drawingPageContext(this.drawingPageContexts, index, f.pageStory ? undefined : f.region), pageStory: !!f.pageStory, printing, bitmapDisplayScale: printing ? undefined : scale, textSink });
               if (f.image.opacity !== undefined) ctx.restore();
             }
             // A selected shape shows its frame handles only; pictures and objects within a text selection are tinted.
@@ -1257,7 +1262,7 @@ export class CanvasEditor {
                     ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
                   }
                   const left = transformed ? -width / 2 : x0, upper = transformed ? -height / 2 : y0;
-                  if (bitmap.previewPlaceholder || !fragment.image.crop || !Object.values(fragment.image.crop).some(Boolean)) paintDecodedImage(ctx, bitmap, left, upper, width, height, { ...drawingPageContext(this.drawingPageContexts, index, line.pageStory ? undefined : line.region), pageStory: !!line.pageStory, printing, bitmapDisplayScale: printing ? undefined : scale });
+                  if (bitmap.previewPlaceholder || !fragment.image.crop || !Object.values(fragment.image.crop).some(Boolean)) paintDecodedImage(ctx, bitmap, left, upper, width, height, { ...drawingPageContext(this.drawingPageContexts, index, line.pageStory ? undefined : line.region), pageStory: !!line.pageStory, printing, bitmapDisplayScale: printing ? undefined : scale, textSink });
                   else {
                     const rect = imageCropRect(fragment.image.crop, bitmap.width, bitmap.height);
                     if (rect) { const [x, y, w, h] = rect.destination; paintImage(ctx, bitmap, ...rect.source, left + x * width, upper + y * height, w * width, h * height); }
