@@ -12060,7 +12060,7 @@ export function createEditor({
   /** Find fields on a flat form and create the chosen ones, as automatic detection does. */
   async function detectFieldsDialog(version = dialogVersion()) {
     requireAccess('edit');
-    const { addFormField, detectFormFields } = await loadForms();
+    const { detectFormFields } = await loadForms();
     // A newer request, another dialog, or an edit meanwhile makes these findings stale.
     const revision = session.revision;
     const current = () => canOpenDialog(version) && session.revision === revision;
@@ -12104,15 +12104,17 @@ export function createEditor({
       if (!chosen.length) throw new Error('Choose at least one field to create.');
       await mutateDialog(
         d,
-        async (doc) => {
-          for (const field of chosen)
-            await addFormField(doc, field.page, {
+        async (doc) =>
+          (await loadForms()).addFormFields(
+            doc,
+            chosen.map((field) => ({
+              page: field.page,
               type: field.type,
               rect: field.rect,
               name: field.name || undefined,
               multiline: field.multiline || undefined,
-            });
-        },
+            })),
+          ),
         `${chosen.length} ${chosen.length === 1 ? 'field' : 'fields'} created.`,
         'edit',
       );

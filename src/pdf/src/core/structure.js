@@ -483,6 +483,14 @@ export function formFields(doc) {
   }
   return fields;
 }
+/** The field a terminal field's dictionary makes, read without walking the whole form. */
+export function formField(doc, ref) {
+  const dict = doc.context.lookup(ref);
+  if (!(dict instanceof PDFDict)) return null;
+  prepareFormReader(doc);
+  const field = createPDFAcroField(dict, ref);
+  return fieldTypes.get(field.constructor)?.of(field, ref, doc) ?? null;
+}
 /** Read only password fields on import; a damaged neighboring field must not block viewing. */
 export function passwordFields(doc) {
   const tree = fieldTree(doc, true);
