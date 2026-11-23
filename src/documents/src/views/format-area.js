@@ -445,7 +445,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const rect = engine.input.getBoundingClientRect(), root = host();
     if (!root || !rect.width && !rect.height) return;
     const bounds = root.getBoundingClientRect();
-    const button = el('button.paste-options-chip', { type: 'button', 'aria-label': 'Pasted text options', title: 'Pasted text options: keep, merge or drop the formatting', 'aria-haspopup': 'menu', onclick: () => openMenu({ anchor: button, label: 'Paste Options', onClose: () => editor()?.focus(), items: pasteModeItems() }) },
+    const button = el('button.paste-options-chip', { type: 'button', 'aria-label': 'Pasted text options', title: 'Pasted text options: keep, merge or drop the formatting (Ctrl)', 'aria-keyshortcuts': 'Control', 'aria-haspopup': 'menu', onclick: () => openMenu({ anchor: button, label: 'Paste Options', onClose: () => editor()?.focus(), items: pasteModeItems() }) },
       commandIconEl('paste', 16), el('span.ribbon-caret', { 'aria-hidden': 'true' }));
     button.addEventListener('mousedown', e => e.preventDefault());
     button.style.left = `${Math.max(4, Math.min(bounds.width - 48, rect.left - bounds.left + root.scrollLeft + 4))}px`;
@@ -519,8 +519,21 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       commandsRef().noteCommand?.('Cut');
       try { return copy(e, cut); } finally { if (engine.session.revision === before) commandsRef().noteCommand?.(null); }
     };
-    engine.input.addEventListener('keydown', e => { if (chip && !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) hideChip(); });
-    engine.input.addEventListener('pointerdown', hideChip);
+    // Ctrl pressed and let go alone opens the options from the keyboard, as in Word; any other key goes on typing
+    // and puts them away.
+    let soleControl = false;
+    engine.input.addEventListener('keydown', e => {
+      if (e.key === 'Control' && e.repeat) return;
+      soleControl = !!chip && e.key === 'Control' && !e.shiftKey && !e.altKey && !e.metaKey;
+      if (chip && !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) hideChip();
+    });
+    engine.input.addEventListener('keyup', e => {
+      const open = soleControl && e.key === 'Control' && chip?.isConnected && !isComposing(e);
+      soleControl = false;
+      if (open) chip.click();
+    });
+    engine.input.addEventListener('blur', () => { soleControl = false; });
+    engine.input.addEventListener('pointerdown', () => { soleControl = false; hideChip(); });
   }
 
   /* ---- Format painter keyboard ---- */

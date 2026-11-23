@@ -183,3 +183,39 @@ test('Paste Special inserts a picture copied from a web page, whose HTML holds o
   await expect(input).toHaveValue('Text ￼');
   expect(errors).toEqual([]);
 });
+
+test('Ctrl pressed alone after a paste opens its options from the keyboard; typing on puts them away', async ({ page }) => {
+  const { input, errors } = await blank(page, 'One ');
+  await caretAtEnd(input);
+  const paste = () => input.evaluate(el => {
+    el.focus(); const data = new DataTransfer();
+    data.setData('text/plain', 'Big words'); data.setData('text/html', '<b>Big words</b>');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await paste();
+  const chip = page.getByRole('button', { name: 'Pasted text options' });
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveAttribute('aria-keyshortcuts', 'Control');
+  // A chord with Ctrl is not Ctrl alone: the options stay closed.
+  await input.press('Control+ArrowLeft').catch(() => {});
+  await expect(page.getByRole('menu', { name: 'Paste Options' })).toHaveCount(0);
+  await caretAtEnd(input);
+  await paste();
+  await input.press('Control');
+  const menu = page.getByRole('menu', { name: 'Paste Options' });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitemradio', { name: 'Keep Source Formatting' })).toBeFocused();
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+  await expect(input).toHaveValue('One Big wordsBig words');
+  await expect(input).toBeFocused();
+  // The choice was made: opened again, the options show Keep Text Only.
+  await input.press('Control');
+  await expect(menu.getByRole('menuitemradio', { name: 'Keep Text Only' })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await expect(input).toBeFocused();
+  // Typing goes on in the text and puts the options away.
+  await page.keyboard.type('!');
+  await expect(input).toHaveValue('One Big wordsBig words!');
+  await expect(chip).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
