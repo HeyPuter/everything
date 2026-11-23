@@ -604,10 +604,39 @@ export function splitTable(model) {
 }
 
 /**
+ * For joining tables of other columns: a function that puts both tables' rows on the union of their column lines (as
+ * twips from the table's left edge; lines within 20 twips of one another are one), or null when a grid holds no widths.
+ */
+function joinedGrid(first, second) {
+  if (first.grid.some(w => !(w > 0)) || second.grid.some(w => !(w > 0))) return null;
+  const lines = table => { let x = 0; return [0, ...table.grid.map(w => (x += w))]; };
+  const a = lines(first), b = lines(second), union = [...a];
+  for (const x of b) if (!union.some(y => Math.abs(y - x) <= 20)) union.push(x);
+  union.sort((x, y) => x - y);
+  if (union.length - 1 > 63) return null;
+  const at = x => union.findIndex(y => Math.abs(y - x) <= 20);
+  return () => {
+    const grid = union.slice(1).map((x, i) => x - union[i]), columns = grid.length;
+    for (const [table, positions] of [[first, a], [second, b]]) for (const row of table.rows) {
+      const entries = rowGrid(row), before = row.gridBefore || 0, after = row.gridAfter || 0, newBefore = at(positions[before]);
+      const newAfter = columns - at(positions[table.grid.length - after]);
+      if (newBefore !== before) { row.gridBefore = newBefore; row.gridBeforeChanged = true; row.widthBefore = { type: 'dxa', value: union[newBefore] }; row.widthBeforeChanged = true; }
+      if (newAfter !== after) { row.gridAfter = newAfter; row.gridAfterChanged = true; row.widthAfter = { type: 'dxa', value: union.at(-1) - union[columns - newAfter] }; row.widthAfterChanged = true; }
+      for (const { cell, column, span } of entries) {
+        const next = at(positions[column + span]) - at(positions[column]);
+        if (next !== span) { cell.span = next; cell.spanChanged = true; }
+      }
+    }
+    first.grid = grid; first.gridChanged = true;
+    if (first.width?.type === 'dxa') { first.width = { type: 'dxa', value: Math.min(MAX_WIDTH, union.at(-1)) }; first.widthChanged = true; }
+  };
+}
+
+/**
  * Delete in the empty paragraph that keeps two tables apart joins them, as in Word: the second table's rows follow
- * the first's, and the caret goes to the first of them. Only tables that would look the same as one do: the same
- * columns and widths, table formatting and style (a style the document gave each its own copy of counts as the
- * same). Others, floating tables, and a paragraph holding a section break, bookmark, comment, field or control stay
+ * the first's, and the caret goes to the first of them. Tables of other columns join on the union of their column
+ * lines, each row keeping its cells' edges (joinedGrid). Only tables that would look the same as one do: the same
+ * table formatting and style (a style the document gave each its own copy of counts as the same). Others, floating tables, and a paragraph holding a section break, bookmark, comment, field or control stay
  * as they are, as do tables with bookmarks or content controls around their rows or cells. Returns false then.
  */
 export function joinTables(model) {
@@ -621,15 +650,21 @@ export function joinTables(model) {
   const first = tableAt(model.paragraphs[index - 1]?.cellId), second = tableAt(model.paragraphs[index + 1]?.cellId);
   if (!first || !second || first === second || first.floating || second.floating) return false;
   const style = table => { const definition = model.styles.definitions[table.styleId]; return definition ? JSON.stringify({ ...definition, id: null, name: null }) : String(table.styleId ?? ''); };
-  const look = table => JSON.stringify([table.grid, table.layout, table.alignment, table.indent, table.borders, table.margins, table.shading, table.look, table.conditionalStyle?.settings, table.styleRowBandSize, table.styleColBandSize]);
+  const look = table => JSON.stringify([table.layout, table.alignment, table.indent, table.borders, table.margins, table.shading, table.look, table.conditionalStyle?.settings, table.styleRowBandSize, table.styleColBandSize]);
   if (look(first) !== look(second) || style(first) !== style(second)) return false;
   // A merge continuing from nothing at the top of the second table would join a merged cell above it.
   if (second.rows[0].cells.some(cell => cell.vMerge === 'continue')) return false;
   const state = M.tableContent(model, second), before = M.tableContent(model, first);
   const contents = [...state.byCell.values(), ...before.byCell.values()].flat();
   if (contents.some(q => q.blockControls?.length || q.bookmarks?.some(m => m.tableBoundary || m.columnRange || m.blockScope))) return false;
+  // Tables of other columns share one grid: every column line of either, each row keeping its own cells' edges
+  // (§17.4.48 tblGrid; a row narrower than the grid ends early, §17.4.14–15 gridBefore/gridAfter).
+  const sameGrid = first.grid.length === second.grid.length && first.grid.every((w, i) => w === second.grid[i]);
+  const regrid = !sameGrid && joinedGrid(first, second);
+  if (!sameGrid && !regrid) return false;
   refuseUntracked(model, 'Joining tables');
   model.checkpoint();
+  if (regrid) regrid();
   for (const row of second.rows) if (row.header) { row.header = false; row.headerChanged = true; }
   const own = new Set(tableCells(second).map(cell => cell.id));
   for (const q of model.paragraphs) if (own.has(q.cellId)) q.tableStyleId = first.styleId;

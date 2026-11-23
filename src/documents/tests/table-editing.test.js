@@ -1064,13 +1064,36 @@ describe('joining tables', () => {
     expect(two.tables[0].rows).toHaveLength(2);
   });
 
-  it('keeps tables of other columns, header rows of the second, and with Track Changes on refuses', () => {
-    const { doc } = tableDocument(1, 2);
-    doc.select(doc.text.length); doc.insertTable(1, 3, 9000);
-    const index = between(doc);
-    doc.select(doc.paragraphOffset(index));
-    expect(T.joinTables(doc)).toBe(false);
+  it('joins tables of other columns on the union of their column lines, each row keeping its cells', async () => {
+    const { pkg, doc } = tableDocument(1, 2);
+    doc.select(doc.text.length); doc.insertTable(2, 3, 9000);
+    const [twoWide, threeWide] = doc.tables.map(t => t.grid.reduce((a, b) => a + b, 0));
+    doc.select(doc.paragraphOffset(between(doc)));
+    expect(T.joinTables(doc)).toBe(true);
+    expect(doc.tables).toHaveLength(1);
+    const table = doc.tables[0];
+    // Lines at a half and at thirds and two thirds: four grid columns.
+    expect(table.grid).toHaveLength(4);
+    expect(shape(doc)).toEqual(['a0:2 a1:2', ' :2 ', ' :2 ']);
+    expect(table.grid.reduce((a, b) => a + b, 0)).toBe(Math.max(twoWide, threeWide));
+    valid(doc);
+    const { reopened, xml } = await roundTrip(pkg, doc);
+    expect(shape(reopened)).toEqual(shape(doc));
+    expect(xml.match(/<w:gridCol /g)).toHaveLength(4);
+    doc.undo();
     expect(doc.tables).toHaveLength(2);
+    expect(doc.tables[0].grid).toHaveLength(2);
+    // A narrower second table ends early: its rows leave the last grid columns empty.
+    const narrow = tableDocument(1, 2).doc;
+    narrow.select(narrow.text.length); narrow.insertTable(1, 1, 3000);
+    narrow.tables[1].grid = [3000];
+    narrow.select(narrow.paragraphOffset(between(narrow)));
+    expect(T.joinTables(narrow)).toBe(true);
+    expect(shape(narrow)).toEqual(['a0:2 a1', ' +2']);
+    valid(narrow);
+  });
+
+  it('keeps header rows of the second out of the header, and with Track Changes on refuses', () => {
     const same = tableDocument(2, 2).doc;
     at(same, 1, 0); T.splitTable(same);
     same.tables[1].rows[0].header = true;
