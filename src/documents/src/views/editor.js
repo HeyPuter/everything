@@ -50,6 +50,7 @@ import { announce, toast } from '../ui/toast.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { saveAsTemplate, templateExists, TEMPLATE_FOLDER } from '../lib/customtemplates.js';
 import { accountControls } from '../ui/appmenu.js';
+import { cycleRegions } from './regions.js';
 import { openShortcuts } from '../ui/shortcuts.js';
 import { loadEngine } from '../lib/engine.js';
 import { session } from '../lib/session.js';
@@ -1378,7 +1379,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     ...(IS_MAC ? { 'edit.goTo': ['Mod+Alt+G'], 'format.paragraph': ['Mod+Alt+M'], 'view.focus': ['Mod+Ctrl+Shift+F'] } : {}),
     'format.styles': ['Mod+Alt+Shift+S'], 'file.open': ['Mod+O'], ...(cloud ? { 'file.saveAs': ['Mod+Shift+S'] } : {}),
     'app.preferences': ['Mod+Comma'], 'app.search': [IS_MAC ? 'Mod+Alt+K' : 'Alt+Q'], 'view.ribbon': [IS_MAC ? 'Mod+Alt+R' : 'Mod+F1'],
-    'app.menubar': [IS_MAC ? 'Ctrl+F2' : 'Alt+F10'],
+    'app.menubar': [IS_MAC ? 'Ctrl+F2' : 'Alt+F10'], 'view.nextRegion': ['F6'], 'view.previousRegion': ['Shift+F6'],
   };
   const builtInCommands = {
     'edit.copyFormat': () => editCommands.copyFormat(),
@@ -1395,6 +1396,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     'file.open': () => openInput.click(), 'file.saveAs': () => backstage.open('save'),
     'app.preferences': () => openPreferencesDialog(), 'app.search': () => chrome.focusSearch(), 'view.ribbon': () => chrome.ribbonModes?.toggle(),
     'app.menubar': () => chrome.focusMenubar(),
+    'view.nextRegion': () => cycleRegions(root, { step: 1, focusDocument: () => engine?.focus() }),
+    'view.previousRegion': () => cycleRegions(root, { step: -1, focusDocument: () => engine?.focus() }),
   };
   // Copy Formatting makes Cmd/Ctrl+Shift+V paste formatting until text is copied or cut again.
   let formatClipboard = false;

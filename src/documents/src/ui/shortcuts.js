@@ -88,6 +88,7 @@ const GROUPS = [
     [IS_MAC ? 'Option' : ['Alt', 'F10'], 'Show KeyTips: letters for the ribbon tabs and commands'],
     [IS_MAC ? 'Cmd + Option + R' : 'Ctrl + F1', 'Collapse or expand the ribbon'],
     [IS_MAC ? 'Ctrl + F2' : 'Alt + F10', 'Go to the menu bar'],
+    [['F6', 'Shift + F6'], 'Next or previous area: title bar, ribbon, panes, document, status bar'],
     ...(IS_MAC ? [['Cmd + Option + M', 'Paragraph settings'], ['Cmd + Ctrl + Shift + F', 'Focus']] : []),
     [['Tab', 'Shift + Tab'], 'Next or previous table cell'],
     ...(IS_MAC ? [['Option + Tab', 'Type a tab character in a table cell']] : []),
