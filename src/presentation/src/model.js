@@ -1164,6 +1164,22 @@ export function setParagraphIndentLevel(shape, pi, level, bulleted) {
   const node = paragraphNodes(shape)[pi];
   if (!node) return;
   const clamped = Math.max(0, Math.min(LEVEL_INDENTS.length - 1, level));
+  // A placeholder paragraph that takes its bullet from the layout and the
+  // master takes each level's indent from there too, so only its level is
+  // written (the level's setter commits the margins taken off first).
+  let own = null;
+  try {
+    own = P.getParagraphBullet(shape, pi);
+  } catch {}
+  if (own == null && P.isShapePlaceholder(shape)) {
+    const props = node.children.find((c) => c.name?.localName === "pPr");
+    if (props)
+      props.attrs = props.attrs.filter(
+        (a) => !["marL", "indent"].includes(a.name.localName),
+      );
+    P.setParagraphLevel(shape, pi, clamped);
+    return;
+  }
   P.setParagraphLevel(shape, pi, clamped);
   let pPr = node.children.find((c) => c.name?.localName === "pPr");
   if (!pPr) {

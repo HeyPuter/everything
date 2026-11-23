@@ -36,6 +36,7 @@ import {
   textRuns,
   setRichText,
   setParagraphIndentLevel,
+  addLayoutSlide,
   LEVEL_INDENTS,
   listOf,
   SOFT_BREAK,
@@ -1551,6 +1552,35 @@ describe("paragraph levels", () => {
       leftEmu: LEVEL_INDENTS[1] - LEVEL_INDENTS[0],
       firstLineEmu: null,
     });
+  });
+  it("leaves a placeholder's level indents to its layout and master", () => {
+    const pres = createDeck("blank");
+    const slide = addLayoutSlide(pres, "obj");
+    const body = P.getSlideShapes(slide).find(
+      (shape) =>
+        P.getShapePlaceholderType(shape) === "body" ||
+        (P.isShapePlaceholder(shape) && !P.getShapePlaceholderType(shape)),
+    );
+    P.setShapeText(body, "Point\nSub point");
+    const inherited = P.getParagraphPropertiesEffective(pres, body, 1);
+    const paragraphs = textRuns(pres, body).map((paragraph, i) => ({
+      ...paragraph,
+      level: i,
+      levelChanged: i === 1,
+    }));
+    setRichText(body, paragraphs);
+    expect(P.getParagraphLevel(body, 1)).toBe(1);
+    expect(P.getParagraphIndent(body, 1)).toMatchObject({
+      leftEmu: null,
+      firstLineEmu: null,
+    });
+    const effective = P.getParagraphPropertiesEffective(pres, body, 1);
+    expect(effective.marL).toBeGreaterThan(inherited.marL);
+    // Back to the first level, the paragraph lines up with the first.
+    setParagraphIndentLevel(body, 1, 0, false);
+    expect(P.getParagraphPropertiesEffective(pres, body, 1).marL).toBe(
+      P.getParagraphPropertiesEffective(pres, body, 0).marL,
+    );
   });
 });
 
