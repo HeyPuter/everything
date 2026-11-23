@@ -166,9 +166,10 @@ export function removeBookmark(doc, path) {
  * Append the bookmarks of `source` that lead to its pages in `pageRefOf` (a map from source
  * page index to the page that copy became in `doc`), as an editor carries a PDF's bookmarks
  * along with pages inserted from it. Web links come too; a bookmark leading elsewhere stays
- * only as the heading of bookmarks that do come. Closed bookmarks stay closed.
+ * only as the heading of bookmarks that do come. Closed bookmarks stay closed. Without
+ * `webLinks`, as for pages taken out into a PDF of their own, only bookmarks to them come.
  */
-export function appendOutline(doc, source, pageRefOf) {
+export function appendOutline(doc, source, pageRefOf, { webLinks = true } = {}) {
   const from = outlines(source);
   if (!from) return;
   const sourcePages = new Map(source.getPages().map((page, index) => [page.ref, index]));
@@ -216,7 +217,7 @@ export function appendOutline(doc, source, pageRefOf) {
       action instanceof PDFDict && action.lookup(name('S')) === name('URI')
         ? action.lookup(name('URI'))
         : null;
-    if (uri instanceof PDFString || uri instanceof PDFHexString)
+    if (webLinks && (uri instanceof PDFString || uri instanceof PDFHexString))
       item.action = doc.context.obj({ S: 'URI', URI: uri.clone() });
   }
   // Children come after their parents in reading order, so a backward pass settles them first.
