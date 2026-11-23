@@ -511,6 +511,14 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       try { original(text, html); } finally { if (engine.session.revision === before) commandsRef().noteCommand?.(null); }
       if (engine.session.revision !== before && (text || html)) remember(engine, { text, html }, html ? 'keep' : 'text');
     };
+    // A cut from the keyboard is named Cut in Undo too, as the Edit menu's is, not Typing.
+    const copy = engine.copy.bind(engine);
+    engine.copy = (e, cut) => {
+      if (!cut) return copy(e, cut);
+      const before = engine.session.revision;
+      commandsRef().noteCommand?.('Cut');
+      try { return copy(e, cut); } finally { if (engine.session.revision === before) commandsRef().noteCommand?.(null); }
+    };
     engine.input.addEventListener('keydown', e => { if (chip && !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) hideChip(); });
     engine.input.addEventListener('pointerdown', hideChip);
   }

@@ -206,3 +206,21 @@ test('Repeat runs the last change only: after a key the editor takes itself (Cmd
   await input(page).press('End'); await page.keyboard.type(' six');
   await expect.poll(repeatLabel).toBe(null);
 });
+
+test('Edit › Undo names a cut from the keyboard Cut, and a cut of nothing names nothing', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('One two');
+  await page.keyboard.press('Shift+ArrowLeft'); await page.keyboard.press('Shift+ArrowLeft'); await page.keyboard.press('Shift+ArrowLeft');
+  await input(page).press('ControlOrMeta+x');
+  await expect(input(page)).toHaveValue('One ');
+  expect(await undoItem(page)).toMatch(/^Undo Cut/);
+  // With nothing selected the chord cuts nothing, and the next change is named for what it is.
+  await input(page).focus();
+  await input(page).press('ControlOrMeta+x');
+  await page.keyboard.press('Enter');
+  await expect(input(page)).toHaveValue('One \n');
+  expect(await undoItem(page)).toMatch(/^Undo Typing/);
+});
