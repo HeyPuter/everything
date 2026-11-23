@@ -374,6 +374,10 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   async function removeStory(kind) {
     const engine = ready(); if (!engine) return;
     try {
+      // A page without a header (or footer) has nothing to remove: opening one to clear it would add an empty part.
+      engine.finishComposition();
+      const page = engine.session.path !== null ? engine.storyPage ?? 0 : engine.caretPageIndex ?? 0;
+      if (!(engine.storyLayout?.positions || []).some(item => item.page === page && engine.pageStories?.stories[item.path]?.kind === kind)) { engine.focus(); return; }
       await base.editHeader?.(kind);
       if (activeKind(engine) !== kind) return;
       run(engine, () => { engine.model.select(0, engine.model.text.length); if (engine.model.text.length) engine.model.replace(''); return true; });
