@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
-import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
+import { TextDocument, paragraph, paragraphText, locate } from '../src/engine/model.js';
 import { tableCells, verticalMerges, rowGrid, documentBlocks } from '../src/engine/tables.js';
 import * as T from '../src/engine/table-editing.js';
 import { insertQuickTable } from '../src/engine/quick-tables.js';
@@ -997,5 +997,44 @@ describe('clearing a block of cells with Track Changes on', () => {
     expect(T.clearCells(doc)).toBe(false);
     session.undo();
     expect(JSON.stringify(doc.paragraphs)).toBe(before);
+  });
+});
+
+describe('the paragraph before a table', () => {
+  it('Delete in an empty paragraph just before a table removes it, and keeps one that keeps two tables apart', async () => {
+    const { pkg, doc } = tableDocument(2, 2, ['Top', '']);
+    const empty = doc.paragraphs.findIndex(p => p.cellId) - 1;
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(1)).toBe(true);
+    expect(doc.paragraphs.map(p => p.cellId ? 'cell' : paragraphText(p))).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '']);
+    // The caret is at the start of the first cell; one undo brings the paragraph back.
+    expect(doc.range).toEqual([4, 4]);
+    expect(doc.paragraphs[locate(doc.paragraphs, doc.range[0]).index].cellId).toBe(tableCells(doc.tables[0])[0].id);
+    doc.undo();
+    expect(doc.paragraphs.map(p => p.cellId ? 'cell' : paragraphText(p))).toEqual(['Top', '', 'cell', 'cell', 'cell', 'cell', '']);
+    doc.select(doc.paragraphOffset(empty)); doc.delete(1);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(reopened.text).toBe(doc.text);
+    // The empty paragraph between two tables stays: without it they would be one table.
+    doc.select(doc.text.length); doc.insertTable(2, 2, 9000);
+    const between = doc.paragraphs.findIndex((p, i) => !p.cellId && doc.paragraphs[i - 1]?.cellId && doc.paragraphs[i + 1]?.cellId);
+    expect(between).toBeGreaterThan(0);
+    doc.select(doc.paragraphOffset(between));
+    expect(doc.delete(1)).toBe(false);
+    expect(doc.tables).toHaveLength(2);
+    valid(doc);
+  });
+
+  it('Delete keeps an empty paragraph before a table that holds a bookmark, or with Track Changes on', () => {
+    const { doc } = tableDocument(2, 2, ['Top', '']);
+    const empty = doc.paragraphs.findIndex(p => p.cellId) - 1;
+    doc.trackChanges = true;
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(1)).toBe(false);
+    doc.trackChanges = false;
+    doc.paragraphs[empty].bookmarks = [{ id: 'b1', name: 'Here', edge: 'start', offset: 0 }, { id: 'b1', name: 'Here', edge: 'end', offset: 0 }];
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(1)).toBe(false);
+    expect(doc.paragraphs[empty].cellId).toBeUndefined();
   });
 });

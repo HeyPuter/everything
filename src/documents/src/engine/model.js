@@ -1525,6 +1525,23 @@ export class TextDocument {
     if (kind === 'table') { repairStructuralBookmarks(this.paragraphs, state.bookmarks, this.tables, table.id); normalizeBlockBookmarkScopes(this.paragraphs, this.tables); removeUnanchoredComments(this, state.comments); }
     this.select(this.paragraphOffset(Math.max(0, Math.min(first, this.paragraphs.length - 1)))); this.didChange(); return true;
   }
+  /**
+   * Delete in an empty paragraph just before a table removes that paragraph, as in Word: the table moves up and the
+   * caret goes to its first cell. A paragraph holding a section break, a bookmark, a comment, a field or a content
+   * control stays, as does one after another table at its level (the two tables would join into one).
+   */
+  removeParagraphBeforeTable(index) {
+    const p = this.paragraphs[index], next = this.paragraphs[index + 1], before = this.paragraphs[index - 1], level = p.cellId || null;
+    if (!next?.cellId || next.cellId === p.cellId || p.sectionEnd || p.bookmarks?.length || p.fieldMarkers?.length || p.blockControls?.length || p.markRevision) return false;
+    if (this.trackChanges && !this.trackingInternal) return false;
+    // The tables a paragraph is in, from its own cell's outwards: the one at `level` is the table it belongs to there.
+    const tableAt = cellId => { for (let at = cellId && cellContext(this.tables, cellId); at; at = at.table.parentCellId && cellContext(this.tables, at.table.parentCellId)) if ((at.table.parentCellId || null) === level) return at.table; return null; };
+    const table = tableAt(next.cellId);
+    if (!table || before && (before.cellId || null) !== level && tableAt(before.cellId)) return false;
+    try { documentBlocks(this.paragraphs.filter(other => other !== p), this.tables); } catch { return false; }
+    this.checkpoint(); this.paragraphs.splice(index, 1);
+    this.select(this.paragraphOffset(index)); this.didChange(); return true;
+  }
   insertTableParagraph(after = true) {
     const context = this.tableContext; if (!context) return false;
     if (documentLength(this.paragraphs) >= MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
@@ -3193,6 +3210,7 @@ export class TextDocument {
         return changed;
       } catch (error) { this.selection = selection; throw error; }
     }
+    if (direction > 0 && !paragraphLength(p) && this.removeParagraphBeforeTable(location.index)) return true;
     const sectionBeforeTable = direction > 0 && !p.cellId && p.sectionEnd && other.cellId;
     if ((p.cellId || '') !== (other.cellId || '') && !sectionBeforeTable) return false;
     if (this.hasPictureControls) checkPictureControlEdit(this.paragraphs, [Math.min(start, target), Math.max(start, target)]);
