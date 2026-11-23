@@ -290,6 +290,20 @@ describe('cells', () => {
     expect(shape(doc)).toEqual(['a0/a1/b0/b1  a2', '  b2', 'c0 c1 c2']);
     valid(doc);
   });
+
+  it('splits a cell the file gave no width into rows and still saves', async () => {
+    // Cells without w:tcW (§17.4.72: their width is automatic) split into rows used to have an empty width written.
+    const parts = unzipSync(readFileSync('public/fixtures/table-headers.docx'));
+    parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace(/<w:tcW [^>]*\/>/g, ''));
+    const pkg = await DocxPackage.open(zipSync(parts)), doc = open(pkg);
+    expect(cellAt(doc, 1, 1).width).toBeUndefined();
+    const rows = doc.tables.at(-1).rows.length;
+    at(doc, 1, 1); expect(T.splitCells(doc, { rows: 2, columns: 1 })).toBe(true);
+    expect(doc.tables.at(-1).rows).toHaveLength(rows + 1);
+    const { reopened, xml } = await roundTrip(pkg, doc);
+    expect(shape(reopened, reopened.tables.at(-1))).toEqual(shape(doc));
+    expect(xml).not.toMatch(/<w:tcW(?![^>]*w:type)/);
+  });
 });
 
 describe('inserting a table', () => {

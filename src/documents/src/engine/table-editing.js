@@ -542,7 +542,8 @@ export function splitCells(model, { rows = 1, columns = 2, widths: measured } = 
       const created = Array.from({ length: rows - 1 }, () => ({ ...copy(row), id: tableId('row'), headerChanged: true,
         cells: row.cells.map(source => {
           const cell = newCell(source);
-          if (pieceIds.has(source.id)) { cell.width = copy(source.width); cell.widthChanged = true; state.byCell.set(cell.id, [blankFor(state, target.cell, cell)]); }
+          // A piece the file gave no width (automatic, §17.4.72) keeps none; its copy says so already.
+          if (pieceIds.has(source.id)) { if (source.width) { cell.width = copy(source.width); cell.widthChanged = true; } state.byCell.set(cell.id, [blankFor(state, target.cell, cell)]); }
           else { cell.vMerge = 'continue'; cell.mergeChanged = true; }
           return cell;
         }) }));
