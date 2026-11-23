@@ -453,7 +453,8 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
           : visible.findLastIndex((item) => item.index < selected) + 1;
     const target = visible[Math.max(0, Math.min(visible.length - 1, at + delta))];
     if (!target) return;
-    select(target.index);
+    // From the list (F3 there), the keyboard goes with the chosen change, as arrow keys take it.
+    select(target.index, { focus: !!document.activeElement?.closest?.('.compare-item') });
     options[target.index]?.scrollIntoView({ block: 'nearest' });
     reveal(target);
   }
