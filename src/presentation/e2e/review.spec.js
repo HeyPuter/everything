@@ -300,6 +300,54 @@ test("a comment on a deleted object stays put, off any new object", async ({
   await expect(anchor).toContainText("Rectangle");
 });
 
+// Ungrouping removes the group; its comment kept the group's id, which the
+// next object added was given, so the comment jumped onto that one.
+test("a comment on an ungrouped group stays put, off any new object", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "mobile", "the sheet covers the slide");
+  await stub(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const box = (x) =>
+    P.addSlideShape(slide, {
+      preset: "rect",
+      x,
+      y: 914400,
+      w: 914400,
+      h: 914400,
+    });
+  const group = P.groupShapes([box(914400), box(914400 * 3)]);
+  P.setSlideCommentThreads(slide, [
+    {
+      author: { name: "Grace" },
+      text: "Space these out",
+      shapeId: String(P.getShapeId(group)),
+    },
+  ]);
+  await open(page, pres);
+  await reviewTab(page);
+  await command(page, "show-comments");
+  const anchor = page.locator("#review-pane .comment-anchor");
+  await expect(anchor).toHaveCount(1);
+  await page.locator(".object-hit").first().click();
+  await page.keyboard.press(`${MOD}+Alt+Shift+KeyG`);
+  await expect(page.locator(".object-hit")).toHaveCount(2);
+  await expect(anchor).toHaveCount(0);
+  await page
+    .getByRole("menubar")
+    .getByRole("menuitem", { name: "Insert", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
+  await expect(page.locator(".object-hit")).toHaveCount(3);
+  await page.keyboard.press("Escape");
+  await expect(anchor).toHaveCount(0);
+  const { pres: saved } = await download(page);
+  const [thread] = P.getSlideCommentThreads(P.getSlides(saved)[0]);
+  expect(thread.shapeId).toBeNull();
+  expect(thread.pos).not.toBeNull();
+});
+
 // A change of slide size that scales the content moves the comments with it;
 // they stayed at their old places, off the content or past the slide's edge.
 test("comments move with the content when the slide size changes", async ({

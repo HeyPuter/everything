@@ -1548,7 +1548,13 @@ const SHAPE_LOCAL_NAMES = new Set([
 // Comments on objects being deleted stay where their markers were, on the
 // slide itself: the next object added could be given a deleted one's id.
 // Read before the objects go; the returned step writes the comments after.
-export function detachShapeComments(pres, target, ids) {
+// `children`: a group's objects go with it (not when it is ungrouped).
+export function detachShapeComments(
+  pres,
+  target,
+  ids,
+  { children = true } = {},
+) {
   let threads;
   try {
     threads = P.getSlideCommentThreads(target);
@@ -1558,7 +1564,7 @@ export function detachShapeComments(pres, target, ids) {
   const gone = new Map();
   const visit = (shape) => {
     gone.set(String(P.getShapeId(shape)), shape);
-    if (P.getShapeKind(shape) === "group")
+    if (children && P.getShapeKind(shape) === "group")
       P.getGroupChildren(shape).forEach(visit);
   };
   for (const id of ids) {

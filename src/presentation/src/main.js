@@ -15189,7 +15189,18 @@ function ungroupSelection() {
         },
       ]),
     );
+    // The group's comments stay on the slide, and its animations go: the
+    // next object added would be given the group's id, and take them over.
+    const detach = detachShapeComments(
+      doc.pres,
+      targetSlide,
+      [P.getShapeId(target)],
+      { children: false },
+    );
     const children = P.ungroupShapes(target);
+    detach();
+    P.pruneSlideAnimations(targetSlide);
+    review.comments.invalidate();
     for (const child of children) {
       const was = shown.get(P.getShapeId(child));
       if (!was) continue;
