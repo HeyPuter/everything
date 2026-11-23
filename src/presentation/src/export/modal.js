@@ -4,6 +4,8 @@
 
 import { el, iconButton, button } from "../ui.js";
 
+// The boxes a value is typed into.
+const TYPED = new Set(["text", "number", "search", "email", "url", "tel"]);
 let uid = 0;
 export const nextId = (prefix) => `${prefix}-${++uid}`;
 
@@ -57,6 +59,24 @@ export function openModal({
   d.addEventListener("cancel", (e) => {
     e.preventDefault();
     close(null);
+  });
+  // Enter in a box presses the main button (Save, Export, OK), as it does in
+  // the app's other dialogs.
+  const main = buttons.find((_, i) => actions[i].kind === "primary");
+  d.addEventListener("keydown", (e) => {
+    const field = e.target;
+    if (
+      e.key !== "Enter" ||
+      e.isComposing ||
+      e.defaultPrevented ||
+      !main ||
+      main.disabled ||
+      !(field instanceof HTMLInputElement) ||
+      !TYPED.has(field.type)
+    )
+      return;
+    e.preventDefault();
+    main.click();
   });
   document.body.append(d);
   d.showModal();
