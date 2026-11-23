@@ -120,3 +120,25 @@ test('shows right-to-left headings and paragraphs right-to-left in the Navigatio
   await expect(row('What is new?')).not.toHaveAttribute('dir', 'rtl');
   expect(errors).toEqual([]);
 });
+
+test('lists a Hebrew comment right-to-left, as its card shows it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Alpha beta gamma.');
+  await input.evaluate(el => { el.setSelectionRange(6, 10); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await onTab(page, 'review');
+  await page.locator('#ribbon-panel-review').getByRole('button', { name: 'New Comment', exact: true }).click();
+  await page.locator('.ed-comment-draft textarea').fill('מה דעתך?');
+  await page.locator('.ed-comment-draft').getByRole('button', { name: 'Post' }).click();
+  expect(await readsRightToLeft(page.locator('.ed-comment-card .wcc-text'))).toBe(true);
+  await page.getByRole('button', { name: 'Show Comments options' }).filter({ visible: true }).first().click();
+  await page.getByRole('menuitemradio', { name: 'List' }).click();
+  const text = page.getByRole('list', { name: 'Comments' }).locator('.rv-comment-text');
+  await expect(text).toHaveText('מה דעתך?');
+  // The question mark ends the comment at its left.
+  expect(await readsRightToLeft(text)).toBe(true);
+  expect(errors).toEqual([]);
+});

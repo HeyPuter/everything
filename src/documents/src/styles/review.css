@@ -161,7 +161,7 @@ button.rv-item:hover, button.rv-item:focus-visible { background: var(--ed-hover)
 .rv-comment-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rv-comment-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-comment-date, .rv-comment-replies { color: var(--ed-ink-3); font-size: 11.5px; }
-.rv-comment-text { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.rv-comment-text { unicode-bidi: plaintext; text-align: start; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .rv-badge { margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--ed-hover); color: var(--ed-ink-2); font-size: 11px; }
 .rv-mention { color: var(--ed-accent); font-weight: 600; }
 .wcc-mentions { display: flex; flex-direction: column; margin-top: 4px; padding: 3px; border: 1px solid var(--ed-line); border-radius: 6px; background: var(--ed-card); box-shadow: 0 4px 12px rgba(0, 0, 0, .12); }
