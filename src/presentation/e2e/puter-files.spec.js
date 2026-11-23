@@ -238,6 +238,30 @@ test("a presentation launched from the desktop opens directly, titled after the 
     .toBe("Presentation");
 });
 
+test("an empty presentation file opens as a new presentation saved to it", async ({
+  page,
+}) => {
+  // As a desktop's New > Presentation makes it.
+  await mockDrive(page, {
+    seed: { "~/Desktop/Plan.pptx": "" },
+    launch: [{ name: "Plan.pptx", path: "~/Desktop/Plan.pptx" }],
+  });
+  await expect(title(page)).toHaveText("Plan");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
+  expect(await writes(page)).toEqual([]);
+  await addText(page);
+  await expect(status(page)).toHaveText("Saved to Puter");
+  expect((await writes(page)).at(-1)).toMatchObject({
+    path: "/test/Desktop/Plan.pptx",
+    options: { overwrite: true },
+  });
+  const saved = await page.evaluate(async () => {
+    const blob = await window.puter.fs.read("~/Desktop/Plan.pptx");
+    return [...new Uint8Array(await blob.arrayBuffer()).subarray(0, 2)];
+  });
+  expect(saved).toEqual([0x50, 0x4b]);
+});
+
 test("a launch that is not a presentation explains itself and opens a new one", async ({
   page,
 }) => {

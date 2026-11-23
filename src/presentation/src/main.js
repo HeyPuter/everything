@@ -2100,7 +2100,11 @@ async function openCloud(file, { offerDraft = true } = {}) {
       }
       if (request !== documentRequest) return;
       pending.bytes = bytes;
-      pending.pres = await parseDeck(bytes, { prepareFonts: false });
+      // An empty file, as a desktop's New > Presentation makes, opens as a
+      // new presentation that saves to it.
+      pending.pres = bytes.byteLength
+        ? await parseDeck(bytes, { prepareFonts: false })
+        : createDeck(startWith === "title" ? "title" : "blank", "studio");
       return pending;
     });
   } finally {
