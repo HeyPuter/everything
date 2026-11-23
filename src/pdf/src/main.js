@@ -495,8 +495,12 @@ async function canLeave(signal) {
   if (choice !== 'sign-in') return choice === 'leave';
   try {
     await ensureSignedIn();
-  } catch {
-    return false; // The sign-in was dismissed; the PDF stays open.
+  } catch (error) {
+    // The PDF stays open. A dismissed sign-in needs no word; one that could not start (Puter
+    // unreachable, its window blocked) says why, or the button would seem to do nothing.
+    if (!P.isSignInCancelled(error) && isCurrent())
+      toast(error?.message || 'Puter could not sign you in. Please try again.', { error: true });
+    return false;
   }
   if (!isCurrent()) return false;
   await leavingEditor.save();
