@@ -1248,7 +1248,12 @@ async function newThemeDeck(key) {
 // Scrolls the library to one of its parts and puts the keyboard there.
 function homeSection(selector, focusSelector) {
   const target = document.querySelector(selector);
-  target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  // Without the glide when motion is to be reduced.
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target?.scrollIntoView({
+    block: "start",
+    behavior: reduce ? "auto" : "smooth",
+  });
   document.querySelector(focusSelector)?.focus({ preventScroll: true });
 }
 // A deck written by the AI from a description opens as a new presentation.
