@@ -22559,7 +22559,10 @@ the `w:caps` property (§17.3.2.5); that remains **All caps** in the Font settin
 **Format Painter** copies the character style (`w:rStyle`, §17.3.2.29) and the
 direct character formatting of the selection's first character; with a caret, or
 a selection covering whole paragraphs, it also copies the paragraph style
-(`w:pStyle`, §17.3.1.27) and direct paragraph formatting. Direct formatting is
+(`w:pStyle`, §17.3.1.27) and direct paragraph formatting, including the paragraph's own list membership
+(`w:numPr` `numId`/`ilvl`, §17.9.18): the painted paragraphs become items of that list at that level, and painted
+from a paragraph that is no list item in its own right, direct list items stop being items (numbering that
+comes through a style follows the style). A `numId` the target document lacks is not painted. Direct formatting is
 taken as the resolved values that differ from the styles alone, so imported
 `w:rPr`/`w:pPr` declarations and in-editor edits copy alike. Painting first clears
 the target's direct formatting (replacing, not merging), then applies each

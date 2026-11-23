@@ -2,6 +2,7 @@ import { locate, paragraphText, RUN_FORMAT, PARAGRAPH_FORMAT, runFormat } from '
 import { effectiveStyleId, resolveCharacterRun, resolveStyledParagraph, paragraphRunStyle } from './styles.js';
 import { clearedRun, clearParagraph } from './direct-formatting.js';
 import { moveTableRows } from './table-editing.js';
+import { levelFor } from './numbering.js';
 
 /**
  * Home tab editing commands that work on the canvas model through its own
@@ -177,8 +178,25 @@ export function captureFormat(model) {
   return {
     characterStyle: model.stylesEnabled ? run.styleId || '' : null,
     run: directRun(model, run, p),
-    paragraph: wholeParagraph ? { styleId: model.stylesEnabled ? effectiveStyleId(p, model.styles) || '' : null, format: directParagraph(model, p) } : null,
+    paragraph: wholeParagraph ? { styleId: model.stylesEnabled ? effectiveStyleId(p, model.styles) || '' : null, format: directParagraph(model, p),
+      // The list the paragraph is an item of in its own right (not through its style, which the style brings along).
+      list: p.list?.direct ? { numId: p.list.numId, level: p.list.level } : null } : null,
   };
+}
+
+/**
+ * Paint a paragraph's list membership, as Word's Format Painter does: the selected paragraphs become items of the
+ * copied paragraph's list at its level, or, copied from a paragraph that is no list item in its own right, stop
+ * being items of a list of their own. A list this document does not have (formatting copied in another one) is
+ * left alone.
+ */
+function paintList(model, list) {
+  if (list) { try { levelFor(model.numbering, list); } catch { return; } }
+  const targets = model.selectedParagraphs.filter(p => list ? p.list?.numId !== list.numId || p.list.level !== list.level || !p.list.direct : p.list?.direct);
+  if (!targets.length) return;
+  model.checkpoint();
+  for (const p of targets) { p.list = list ? { numId: list.numId, level: list.level, direct: true } : null; p.listChanged = true; }
+  model.didChange();
 }
 
 // Each property applies on its own: one the target cannot take (a page break in a table cell) is skipped
@@ -210,6 +228,7 @@ export function applyFormat(model, captured) {
     if (styleId === '' || styleId && model.styles.definitions[styleId]?.type === 'paragraph') model.setParagraphStyle(styleId);
     model.clearDirectParagraphFormatting();
     applyEach(format, patch => model.setParagraphFormat(patch));
+    if (captured.paragraph.list !== undefined) paintList(model, captured.paragraph.list);
   }
   return model.revision !== before;
 }
