@@ -19,6 +19,8 @@
 //   played         settles when the step last started by next() ends
 //   playing        whether effects (other than endless repeats) are running
 //   snapshot()     a picture of the slide as it now stands
+//   shownParts()   what of each shape is in view as the slide now stands,
+//                  as a layer's shape filter (null: everything)
 //   nextPicture()  a picture of the slide once its next click step has
 //                  played (null when none is left)
 //   previous()     returns to the state before the last step; false at the
@@ -48,6 +50,7 @@ const NONE = {
   played: Promise.resolve(),
   playing: false,
   snapshot: () => null,
+  shownParts: () => null,
   nextPicture: () => null,
   finish() {},
   playTrigger: () => false,
@@ -128,6 +131,9 @@ export function createSlideAnimator({
     },
     snapshot() {
       return player.snapshot(preview.bind(null, pres, slide));
+    },
+    shownParts() {
+      return player.shownParts();
     },
     nextPicture() {
       const n = player.step + 1;

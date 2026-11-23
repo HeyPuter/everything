@@ -17801,6 +17801,8 @@ async function present(options = {}) {
     let readiness;
     const effect = playbackTransition?.effect || "none";
     clearTransition();
+    // What of the leaving slide is in view, for Morph.
+    const leavingParts = animator?.shownParts() ?? null;
     animator?.destroy();
     animator = null;
     const leaving = shown ? image.getAttribute("src") : null;
@@ -17849,6 +17851,8 @@ async function present(options = {}) {
         from: leaving,
         to:
           (atEnd ? animator.snapshot() : image.getAttribute("src")) || arriving,
+        fromParts: leavingParts,
+        toParts: animator.shownParts(),
         transition: playbackTransition,
         backward,
       });

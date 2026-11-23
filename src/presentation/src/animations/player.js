@@ -1267,6 +1267,11 @@ export function createAnimationPlayer({
   // One picture of the slide with the pieces `shown(piece)` says are
   // showing (positions aside).
   function picture(render, shown) {
+    return render({ background: true, shape: partsShown(shown) });
+  }
+  // Which part of each shape is in view (RenderSlideOptions' shape filter):
+  // shapes that never move, and the pieces `shown` says are visible.
+  function partsShown(shown) {
     const parts = new Map();
     const add = (id, part) => {
       if (part === false) return;
@@ -1285,10 +1290,7 @@ export function createAnimationPlayer({
         for (const [id, part] of run.shapes) add(id, part);
     for (const piece of pieces)
       if (shown(piece)) add(piece.shapeId, piece.layer);
-    return render({
-      background: true,
-      shape: (s) => parts.get(String(P.getShapeId(s))) ?? false,
-    });
+    return (s) => parts.get(String(P.getShapeId(s))) ?? false;
   }
 
   const autoStart = groups[0]?.auto ? 1 : 0;
@@ -1414,6 +1416,11 @@ export function createAnimationPlayer({
     /** One picture of the slide as it stands (positions aside). */
     snapshot(render) {
       return picture(render, (piece) => piece.state.visible);
+    },
+    /** What of each shape is in view as the slide stands, as a shape
+     * filter for a layer (true, false or { body, paragraphs }). */
+    shownParts() {
+      return partsShown((piece) => piece.state.visible);
     },
     destroy() {
       alive = false;

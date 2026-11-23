@@ -350,7 +350,10 @@ function cropArea(item, W, H) {
  * Prepares a morph between two slides: pairs their shapes and renders each
  * one, and both backgrounds, as pictures of width W and height H.
  * `render(slide, layer)` returns a picture URL for the given RenderSlideOptions
- * layer; `load(url)` resolves to a decoded image.
+ * layer; `load(url)` resolves to a decoded image. `fromParts` and `toParts`
+ * say what of each shape is in view on the slides (a layer's shape filter:
+ * true, false or `{ body, paragraphs }`), so objects still to enter, or
+ * gone already, take no part; null means everything.
  */
 export async function prepareMorph({
   P,
@@ -362,9 +365,11 @@ export async function prepareMorph({
   W,
   H,
   option = "byObject",
+  fromParts = null,
+  toParts = null,
 }) {
   const size = P.getSlideSize?.(pres) || DEFAULT_SIZE;
-  const slideParts = (slide) => {
+  const slideParts = (slide, inView) => {
     const shapes = [];
     const bg = render(slide, {
       background: true,
@@ -373,21 +378,21 @@ export async function prepareMorph({
         return false;
       },
     });
-    return {
-      bg,
-      items: shapes
-        .filter((shape) => {
-          try {
-            return !P.isShapeHidden?.(shape);
-          } catch {
-            return true;
-          }
-        })
-        .map((shape) => describeShape(P, pres, shape, size)),
-    };
+    const items = [];
+    for (const shape of shapes) {
+      try {
+        if (P.isShapeHidden?.(shape)) continue;
+      } catch {
+        // Counts as shown.
+      }
+      const part = inView ? inView(shape) : true;
+      if (!part) continue;
+      items.push({ ...describeShape(P, pres, shape, size), part });
+    }
+    return { bg, items };
   };
-  const A = slideParts(from),
-    B = slideParts(to);
+  const A = slideParts(from, fromParts),
+    B = slideParts(to, toParts);
   const { pairs, gone, added } = pairShapes(A.items, B.items);
   const cut = (image, area = { x: 0, y: 0, w: W, h: H }) => {
     const canvas = document.createElement("canvas");
@@ -399,10 +404,12 @@ export async function prepareMorph({
   const raster = async (url, area) => cut(await load(url), area);
   const byText = option === "byWord" || option === "byChar";
   const tokens = { A: [], B: [] };
-  const paragraphsOf = (shape) => {
+  // The paragraphs of an item's text in view.
+  const paragraphsOf = (item) => {
+    if (item.part !== true) return new Set(item.part.paragraphs ?? []);
     let count = 0;
     try {
-      count = P.getShapeParagraphCount(shape);
+      count = P.getShapeParagraphCount(item.shape);
     } catch {
       count = 0;
     }
@@ -412,7 +419,7 @@ export async function prepareMorph({
   // text alone. Resolves true when the text was taken apart.
   const splitText = async (slide, item, side) => {
     if (!byText || !item.text || item.rotation) return false;
-    const paragraphs = paragraphsOf(item.shape);
+    const paragraphs = paragraphsOf(item);
     if (!paragraphs.size) return false;
     const url = render(slide, {
       background: false,
@@ -466,8 +473,11 @@ export async function prepareMorph({
       shape: (shape) =>
         P.getShapeId(shape) === item.id
           ? split
-            ? { body: true, paragraphs: new Set() }
-            : true
+            ? {
+                body: item.part === true || !!item.part.body,
+                paragraphs: new Set(),
+              }
+            : item.part
           : false,
     });
     const image = await load(url);

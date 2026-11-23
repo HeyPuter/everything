@@ -254,6 +254,8 @@ export function createTransitionTools({
   /**
    * Plays the change from `fromSlide` to `toSlide` over `host`, as
    * `transition` describes. Pictures default to the slides' renders.
+   * `fromParts` and `toParts` say what of each shape is in view on the
+   * two slides (a layer's shape filter; null for everything), for Morph.
    */
   function play({
     host,
@@ -263,6 +265,8 @@ export function createTransitionTools({
     backward = false,
     from = fromSlide ? picture(fromSlide) : null,
     to = picture(toSlide),
+    fromParts = null,
+    toParts = null,
   }) {
     return playTransition({
       host,
@@ -275,11 +279,16 @@ export function createTransitionTools({
       morph: async (W, H, reversed) => {
         if (!fromSlide) return null;
         const [a, b] = reversed ? [toSlide, fromSlide] : [fromSlide, toSlide];
+        const [aParts, bParts] = reversed
+          ? [toParts, fromParts]
+          : [fromParts, toParts];
         return prepareMorph({
           P,
           pres: pres(),
           from: a,
           to: b,
+          fromParts: aParts,
+          toParts: bParts,
           render,
           load: loadImage,
           W,

@@ -660,3 +660,51 @@ test("a transition shows the slide as it opens, and as it ends going back", asyn
   await expect(counter).toHaveText("2 / 3");
   expect(await midway([redAt, blueAt])).toEqual(["red", "plain"]);
 });
+
+test("a morph leaves out objects still to come on the slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  shape(P.getSlides(pres)[0], 0.5, 0.5, 2, 2, "#22aa22");
+  const second = P.addBlankSlide(pres);
+  shape(second, 1, 1, 2, 2, "#22aa22");
+  // The red box comes in on the first click.
+  const red = shape(second, 5, 3, 3, 2, "#cc2222");
+  P.setSlideAnimations(second, [
+    {
+      shapeId: String(P.getShapeId(red)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 100,
+    },
+  ]);
+  P.setSlideTransition(second, { effect: "morph", durationMs: 4000 });
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 2");
+  const overlay = page.locator(".presenter .slide-transition canvas");
+  await expect(overlay).toBeAttached();
+  // Late in the morph, where new objects are nearly in.
+  await page.waitForTimeout(3300);
+  const color = await page.evaluate(() => {
+    const canvas = document.querySelector(
+      ".presenter .slide-transition canvas",
+    );
+    const [r, , b] = canvas
+      .getContext("2d")
+      .getImageData(
+        Math.round((6.5 / 13.333) * canvas.width),
+        Math.round((4 / 7.5) * canvas.height),
+        1,
+        1,
+      ).data;
+    return r - b > 40 ? "red" : "plain";
+  });
+  expect(color).toBe("plain");
+});
