@@ -663,6 +663,11 @@ test("the Symbol dialog is one tab stop that the arrow keys move through", async
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: "Symbol" })).toHaveCount(0);
+  // The symbol goes in at the caret, and the text stays open for typing.
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveText("A®");
+  await page.keyboard.press("Escape");
   await expect(page.locator(".object-hit").first()).toHaveAttribute(
     "aria-label",
     /^A®/,

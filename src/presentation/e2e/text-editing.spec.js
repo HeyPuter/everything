@@ -239,12 +239,15 @@ test("text in a content placeholder shrinks to its box as it is typed", async ({
     if (i) await page.keyboard.press("Enter");
     await page.keyboard.type(`Point ${i}`);
   }
-  // The editor shows the text smaller, without a scroll bar.
+  // The editor shows the text smaller, without a scroll bar unless it
+  // reached the smallest size it shows.
   if (readable) {
-    expect(await size()).toBeLessThan(full);
-    expect(
-      await editor.evaluate((e) => e.scrollHeight <= e.clientHeight + 1),
-    ).toBe(true);
+    const shrunkSize = await size();
+    expect(shrunkSize).toBeLessThan(full);
+    if (shrunkSize > 14)
+      expect(
+        await editor.evaluate((e) => e.scrollHeight <= e.clientHeight + 1),
+      ).toBe(true);
   }
   await page.keyboard.press("Escape");
   const sizes = (svg) =>
@@ -281,8 +284,14 @@ test("a text box set to resize to fit its text follows the text", async ({
   await box.getByRole("radio", { name: "Resize shape to fit text" }).click();
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
-  // Heights measured with the panel closed, at one size of the slide.
-  const height = async () => (await hit.boundingBox())?.height ?? 0;
+  // The box's height as the slide draws it (a touch screen's hit regions
+  // have a least size).
+  const height = async () =>
+    Number(
+      (await slideSvg(page)).match(
+        /data-pptx-shape-name="TextBox[^"]*"><g><g><rect [^>]*height="([\d.]+)"/,
+      )?.[1] ?? 0,
+    );
   await expect.poll(height).toBeGreaterThan(0);
   const oneLine = await height();
   await hit.dblclick();
