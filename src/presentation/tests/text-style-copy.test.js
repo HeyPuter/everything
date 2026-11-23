@@ -71,6 +71,7 @@ describe("source text styles across copy boundaries", () => {
         wrap: "square",
         compatibleLineSpacing: true,
         includeOuterSpacing: false,
+        anchorCenter: false,
       });
       expect(
         P.getShapeFieldFormatEffective(copied.pres, copied.shape, 0, 0),

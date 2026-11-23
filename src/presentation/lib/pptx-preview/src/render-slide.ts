@@ -2199,6 +2199,8 @@ export interface SvgTextArgs {
   readonly wrap: boolean;
   readonly compatibleLineSpacing?: boolean;
   readonly includeOuterSpacing?: boolean;
+  /** `anchorCtr`: center the text's bounding box across the box. */
+  readonly anchorCenter?: boolean;
   readonly innerX: number;
   readonly innerY: number;
   readonly innerW: number;
@@ -2547,6 +2549,7 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
     wrap: a.wrap,
     compatibleLineSpacing: a.compatibleLineSpacing ?? true,
     includeOuterSpacing: a.includeOuterSpacing ?? false,
+    ...(a.anchorCenter ? { anchorCenter: true } : {}),
     paragraphs,
     vert: a.vert,
     ...(a.uprightEastAsian ? { uprightEastAsian: true } : {}),
@@ -2838,6 +2841,7 @@ export const resolveTextBodyModel = (
       wrap: null,
       compatibleLineSpacing: null,
       includeOuterSpacing: null,
+      anchorCenter: null,
       vert: getShapeTextDirection(shape),
       margins: getShapeTextMargins(shape) ?? {
         left: null,
@@ -3460,6 +3464,7 @@ const renderTextBody = (
       measure: ctx.measure,
       vert: svgVert,
       ...(authoredVert === "eaVert" ? { uprightEastAsian: true } : {}),
+      ...(effectiveBody.anchorCenter ? { anchorCenter: true } : {}),
       columns: svgColumns,
       resolveFamily: ctx.resolveFamily,
       resolveKerning: ctx.resolveKerning,

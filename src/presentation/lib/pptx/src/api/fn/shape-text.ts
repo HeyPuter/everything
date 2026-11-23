@@ -522,6 +522,8 @@ export const getShapeBodyPrEffective = (
   vert: ReturnType<typeof getShapeTextDirection>;
   compatibleLineSpacing: boolean | null;
   includeOuterSpacing: boolean | null;
+  /** `anchorCtr`: the text's bounding box is centered across the shape. */
+  anchorCenter: boolean | null;
   margins: {
     left: number | null;
     top: number | null;
@@ -535,6 +537,7 @@ export const getShapeBodyPrEffective = (
     vert: null as ReturnType<typeof getShapeTextDirection>,
     compatibleLineSpacing: null as boolean | null,
     includeOuterSpacing: null as boolean | null,
+    anchorCenter: null as boolean | null,
     margins: {
       left: null as number | null,
       top: null as number | null,
@@ -549,6 +552,7 @@ export const getShapeBodyPrEffective = (
     for (const [attribute, property] of [
       ["compatLnSpc", "compatibleLineSpacing"],
       ["spcFirstLastPara", "includeOuterSpacing"],
+      ["anchorCtr", "anchorCenter"],
     ] as const) {
       if (result[property] !== null) continue;
       const value = getAttrValue(bodyPr, qname("", attribute, ""));

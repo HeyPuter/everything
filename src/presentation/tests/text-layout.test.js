@@ -1365,3 +1365,24 @@ describe("decimal tab stops", () => {
     ).toEqual([180, 120]);
   });
 });
+
+describe("centered text boxes (anchorCtr)", () => {
+  it("centers the text's own box across the frame, keeping its alignment", () => {
+    const xs = (anchorCenter) =>
+      layoutCore(
+        body({
+          boxXpx: 0,
+          boxWpx: 400,
+          ...(anchorCenter ? { anchorCenter: true } : {}),
+          paragraphs: [
+            para({ pieces: [piece("aaaa", 40)] }),
+            para({ pieces: [piece("aa", 40)] }),
+          ],
+        }),
+        measure,
+      ).placements.map((p) => p.line.anchorX + p.dx);
+    expect(xs(false)).toEqual([0, 0]);
+    // The 80 px wide block sits 160 px in; its lines stay left aligned.
+    expect(xs(true)).toEqual([160, 160]);
+  });
+});

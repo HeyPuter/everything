@@ -301,6 +301,9 @@ export interface TextBodyInput {
   /** spcFirstLastPara includes the outer paragraph margins and the last
    * line's full advance in the bounds used for anchoring and autofit. */
   readonly includeOuterSpacing?: boolean;
+  /** `anchorCtr`: the smallest box holding the text is centered across the
+   *  layout frame, its lines keeping their alignment within it. */
+  readonly anchorCenter?: boolean;
   /** Vertical text direction; omitted / 'none' is the default horizontal flow. */
   readonly vert?: VerticalLayout;
   /** Multi-column body (`numCol`/`spcCol`); null / omitted is single column. */
@@ -1014,6 +1017,27 @@ export const layoutCore = (
         )
       : placeSingle(frame, input.anchor, buildLines);
 
+  if (input.anchorCenter && !(columns && columns.count >= 2)) {
+    // The text's own box: from its leftmost to its rightmost drawn line.
+    let left = Infinity,
+      right = -Infinity;
+    for (const { line, dx } of placements) {
+      const extent = lineExtent(line);
+      if (!extent) continue;
+      left = Math.min(
+        left,
+        extent.left + dx,
+        (line.bullet?.x ?? Infinity) + dx,
+      );
+      right = Math.max(right, extent.right + dx);
+    }
+    if (left < right) {
+      const shift = frame.x + frame.w / 2 - (left + right) / 2;
+      for (const placement of placements)
+        (placement as { dx: number }).dx += shift;
+    }
+  }
+
   let automaticWraps = 0;
   let unbreakableOverflowW = 0;
   for (const { line } of placements) {
@@ -1033,6 +1057,27 @@ export const layoutCore = (
     cx,
     cy,
   };
+};
+
+// Where a line's drawn text starts and ends, before any column shift.
+const lineExtent = (line: Line): { left: number; right: number } | null => {
+  let end = line.tokens.length;
+  while (
+    end > 0 &&
+    (line.tokens[end - 1]!.isSpace || line.tokens[end - 1]!.isBreak)
+  )
+    end--;
+  let width = 0;
+  for (let i = 0; i < end; i++)
+    if (!line.tokens[i]!.isBreak) width += line.tokens[i]!.width;
+  if (width <= 0) return null;
+  const left =
+    line.textAnchor === "middle"
+      ? line.anchorX - width / 2
+      : line.textAnchor === "end"
+        ? line.anchorX - width
+        : line.anchorX;
+  return { left, right: left + width };
 };
 
 export const layoutTextSvg = (
