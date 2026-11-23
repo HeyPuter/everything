@@ -220,6 +220,43 @@ test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift
   await expect(input).toBeFocused();
 });
 
+test('Enter and Space press the Read Mode tools and page buttons instead of turning pages', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/Every page/);
+  await caret(input, 0);
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Read Mode' });
+  const counter = page.locator('.read-counter');
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  // The page keys swallowed both: Enter did nothing and Space turned the page, so the tools could not be used
+  // from the keyboard.
+  for (const key of ['Enter', 'Space']) {
+    await toolbar.getByRole('button', { name: 'View' }).focus();
+    await page.keyboard.press(key);
+    const menu = page.getByRole('menu', { name: 'View' });
+    await expect(menu, key).toBeVisible();
+    await expect(counter).toHaveText(/^Pages? 1\b/);
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+  }
+  const next = page.getByRole('button', { name: 'Next screen' });
+  await next.focus();
+  await page.keyboard.press('Enter');
+  await expect(counter).not.toHaveText(/^Pages? 1\b/);
+  const second = await counter.textContent();
+  // Space on Previous screen goes back, not forward.
+  await page.getByRole('button', { name: 'Previous screen' }).focus();
+  await page.keyboard.press('Space');
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  expect(second).not.toMatch(/^Pages? 1\b/);
+  await toolbar.getByRole('button', { name: 'Edit Document' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(toolbar).toBeHidden();
+});
+
 test('views without a horizontal ruler hide its tab-type button too', async ({ page }) => {
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'New', exact: true }).click();

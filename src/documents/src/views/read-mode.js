@@ -145,6 +145,8 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape' && !document.querySelector('.modal-root, .menu')) { e.preventDefault(); exit(); return; }
     if (mod || e.altKey) return;
+    // Enter and Space press the reading tools and the page buttons, as on any button.
+    if ((e.key === 'Enter' || e.key === ' ') && e.target?.closest?.('button')) return;
     if (focusLines && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); moveFocusLine(e.key === 'ArrowDown' ? 1 : -1); return; }
     const step = { ArrowRight: 1, ArrowDown: 1, PageDown: 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 }[e.key] ?? (e.key === ' ' ? (e.shiftKey ? -1 : 1) : null);
     if (step) { e.preventDefault(); turn(step); return; }
