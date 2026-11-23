@@ -3912,7 +3912,7 @@ export function createEditor({
     toolButtons.forEach((b, id) => b.setAttribute('aria-pressed', String(id === tool)));
     const passive = tool === 'select' || tool === 'hand';
     overlay.classList.toggle('active', !passive);
-    overlay.classList.toggle('tap-to-place', tool === 'text');
+    overlay.classList.toggle('tap-to-place', tool === 'text' || tool === 'note');
     overlay.tabIndex = passive ? -1 : 0;
     textTargets.hidden = !['text', 'select'].includes(tool);
     textTargets.classList.toggle('select-text-objects', tool === 'select');
@@ -4452,8 +4452,20 @@ export function createEditor({
     const p = screenPoint(e);
     safe(() => textDialog(p))();
   }
-  // With the Text tool a finger scrolls or zooms the page, as it does in Select mode; a tap
-  // (a finger lifted where it came down, which a scroll cancels) adds the text there.
+  /** Add a note where the Note tool was pressed, or let go of the note being edited. */
+  function placeNote(e) {
+    if (busy || !pageReady || gesture || tool !== 'note') return;
+    if (noteEdit) {
+      safe(deselectObjects)();
+      return;
+    }
+    const p = screenPoint(e);
+    safe(() => openNoteEditor({ point: p }))();
+  }
+  /** The tools that put something where the page is pressed, and what each puts there. */
+  const placeOnPress = { text: placeText, note: placeNote };
+  // With the Text and Note tools a finger scrolls or zooms the page, as it does in Select mode;
+  // a tap (a finger lifted where it came down, which a scroll cancels) adds the text or note.
   let textTouch = null,
     placeTap = null;
   overlay.addEventListener('pointerup', (e) => {
@@ -4465,31 +4477,23 @@ export function createEditor({
   overlay.addEventListener('pointercancel', (e) => {
     if (textTouch?.pointerId === e.pointerId) textTouch = null;
   });
-  // The tap's click comes after the focus its press gave the page; the new text then takes it.
+  // The tap's click comes after the focus its press gave the page; what it adds then takes it.
   overlay.addEventListener('click', () => {
     const tap = placeTap;
     placeTap = null;
-    if (tap) placeText(tap);
+    if (tap) placeOnPress[tool]?.(tap);
   });
   overlay.addEventListener('pointerdown', (e) => {
     textTouch = placeTap = null;
     if (busy || !pageReady || gesture || !e.isPrimary || tool === 'select' || e.button !== 0)
       return;
-    if (tool === 'text' && e.pointerType === 'touch') {
+    if (placeOnPress[tool] && e.pointerType === 'touch') {
       textTouch = e;
       return;
     }
     e.preventDefault();
-    if (tool === 'text') return placeText(e);
+    if (placeOnPress[tool]) return placeOnPress[tool](e);
     const p = screenPoint(e);
-    if (tool === 'note') {
-      if (noteEdit) {
-        safe(deselectObjects)();
-        return;
-      }
-      safe(() => openNoteEditor({ point: p }))();
-      return;
-    }
     if (tool === 'crop') discardCropDraft();
     if (tool === 'measure' && measureMode.value !== 'distance') {
       // Corners clicked on another page are no part of this one.

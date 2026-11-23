@@ -1520,7 +1520,7 @@ puter-user-menu::part(apps-panel) {
   touch-action: none;
   cursor: crosshair;
 }
-/* Text is added with a tap; a finger scrolls or zooms the page meanwhile. */
+/* Text and notes are added with a tap; a finger scrolls or zooms the page meanwhile. */
 .drawing-overlay.active.tap-to-place {
   touch-action: auto;
 }
