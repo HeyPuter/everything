@@ -998,18 +998,25 @@ export async function findTextRects(
     layout = await pageTextLayout(doc, pageIndex, report);
     cache?.set(pageIndex, layout);
   }
-  const { glyphs, text, original, owner, originalOwner } = layout;
+  const { glyphs, text, original, owner, originalOwner, variants, dropped } = layout;
   const ranges = [];
   if (typeof query === 'string') {
     const needle = searchQuery(query);
     if (!needle) return [];
-    for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
-      const before = text[at - 1],
-        after = text[at + needle.length];
-      if (wholeWord && (/[\p{L}\p{N}]/u.test(before || '') || /[\p{L}\p{N}]/u.test(after || '')))
-        continue;
-      ranges.push([at, at + needle.length]);
-    }
+    // The text as laid out, and as a reader types what wraps: a word broken at a line end
+    // whole (with its hyphen or without), a Thai or Chinese phrase without the line break.
+    for (const variant of [{ text, owner }, ...variants])
+      for (
+        let at = variant.text.indexOf(needle);
+        at >= 0;
+        at = variant.text.indexOf(needle, at + needle.length)
+      ) {
+        const before = variant.text[at - 1],
+          after = variant.text[at + needle.length];
+        if (wholeWord && (/[\p{L}\p{N}]/u.test(before || '') || /[\p{L}\p{N}]/u.test(after || '')))
+          continue;
+        ranges.push(variant.owner.slice(at, at + needle.length));
+      }
   } else {
     const pattern = query instanceof RegExp ? { regex: query } : query;
     if (!(pattern?.regex instanceof RegExp)) throw new Error('Choose text or a pattern to find.');
@@ -1019,15 +1026,23 @@ export async function findTextRects(
     const regex = new RegExp(pattern.regex.source, flags.includes('i') ? flags : flags + 'i');
     for (const match of text.matchAll(regex)) {
       if (!match[0]) continue;
-      ranges.push([match.index, match.index + match[0].length]);
+      ranges.push(owner.slice(match.index, match.index + match[0].length));
     }
   }
   const matches = [];
-  for (const [start, end] of ranges) {
-    const indices = [...new Set(owner.slice(start, end).filter((i) => i >= 0))].sort(
-      (a, b) => a - b,
-    );
-    if (!indices.length) continue;
+  const seen = new Set();
+  const found = ranges
+    .map((owners) => [...new Set(owners.filter((i) => i >= 0))].sort((a, b) => a - b))
+    .filter((indices) => indices.length)
+    .sort((a, b) => a[0] - b[0] || a.at(-1) - b.at(-1));
+  for (let indices of found) {
+    // A hyphen left out of a word found whole goes with it.
+    const all = new Set(indices);
+    for (const index of dropped) if (indices[0] < index && index < indices.at(-1)) all.add(index);
+    indices = [...all].sort((a, b) => a - b);
+    const key = indices.join(',');
+    if (seen.has(key)) continue;
+    seen.add(key);
     const first = originalOwner.indexOf(indices[0]),
       last = originalOwner.lastIndexOf(indices.at(-1));
     const matchedText = original
@@ -1040,37 +1055,70 @@ export async function findTextRects(
   }
   return matches;
 }
+const LINE_HYPHEN = /[-\u00ad\u2010]$/;
+// Scripts written without spaces between words: a line break inside them may join a phrase.
+const UNSPACED_SCRIPT =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\u3000-\u303f\uff00-\uffef]/u;
+
 /** A page's glyphs and the searchable text they make, each character tied to its glyph. */
 async function pageTextLayout(doc, pageIndex, report) {
   const glyphs = await pageGlyphs(doc, pageIndex, report);
+  // How each glyph follows the one before: on the same word (null), after a space ('space'),
+  // or on the next line after a hyphen that breaks a word ('hyphen') or inside a phrase of a
+  // script without spaces ('join').
+  const breaks = glyphs.map((glyph, i) => {
+    if (!i) return null;
+    const { line, gap } = sameLine(glyphs[i - 1], glyph);
+    if (line) return gap ? 'space' : null;
+    const before = glyphs[i - 1].text || '',
+      after = glyph.text || '';
+    const word = before.length > 1 ? before.slice(0, -1) : glyphs[i - 2]?.text || '';
+    if (LINE_HYPHEN.test(before) && /\p{L}$/u.test(word) && /^\p{Ll}/u.test(after)) return 'hyphen';
+    if (UNSPACED_SCRIPT.test(before.at(-1) || '') && UNSPACED_SCRIPT.test(after[0] || ''))
+      return 'join';
+    return 'space';
+  });
   // Lay the glyphs out as text, with a space wherever the pen jumps (words, lines, columns).
-  let text = '',
-    original = '';
-  const owner = [],
-    originalOwner = [];
-  const push = (char, index) => {
-    original += char;
-    originalOwner.push(index);
-    if (/\s/.test(char)) {
-      if (text && !text.endsWith(' ')) {
-        text += ' ';
+  // `wrap` lays out what wraps as a reader types it: 'hyphen' keeps a line-end hyphen, 'whole'
+  // leaves it out (the glyphs it leaves out are added to `dropped`).
+  const layOut = (wrap, dropped) => {
+    let text = '',
+      original = '';
+    const owner = [],
+      originalOwner = [];
+    const push = (char, index) => {
+      original += char;
+      originalOwner.push(index);
+      if (/\s/.test(char)) {
+        if (text && !text.endsWith(' ')) {
+          text += ' ';
+          owner.push(index);
+        }
+        return;
+      }
+      for (const folded of searchQuery(char)) {
+        text += folded;
         owner.push(index);
       }
-      return;
-    }
-    for (const folded of searchQuery(char)) {
-      text += folded;
-      owner.push(index);
-    }
+    };
+    glyphs.forEach((glyph, i) => {
+      const kind = breaks[i];
+      if (kind === 'space' || (kind && !wrap)) push(' ', -1);
+      let chars = glyph.text;
+      if (wrap === 'whole' && breaks[i + 1] === 'hyphen') {
+        chars = chars.slice(0, -1);
+        if (!chars) dropped?.add(i);
+      }
+      for (const char of chars) push(char, i);
+    });
+    return { text, original, owner, originalOwner };
   };
-  glyphs.forEach((glyph, i) => {
-    if (i) {
-      const { line, gap } = sameLine(glyphs[i - 1], glyph);
-      if (!line || gap) push(' ', -1);
-    }
-    for (const char of glyph.text) push(char, i);
-  });
-  return { glyphs, text, original, owner, originalOwner };
+  const layout = layOut(null);
+  const dropped = new Set();
+  const variants = breaks.some((kind) => kind === 'hyphen' || kind === 'join')
+    ? [layOut('whole', dropped), layOut('hyphen')]
+    : [];
+  return { glyphs, ...layout, variants, dropped };
 }
 /** Every glyph a page draws, in content order, with its quad, box, and text. */
 async function pageGlyphs(doc, pageIndex, report) {
