@@ -840,3 +840,17 @@ test('a tab half out of view in a narrow window keeps its KeyTip in the window',
   await page.keyboard.press('Escape');
   await expect(page.locator('.ed-keytip')).toHaveCount(0);
 });
+
+test('Alt in Focus, where there is nothing to label, leaves the next keys to the document', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Write');
+  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Exit Focus' })).toBeVisible();
+  await text(page).focus();
+  await text(page).press('End');
+  // An empty KeyTips layer took every key typed after it, unseen, until Escape.
+  await page.keyboard.press('Alt');
+  await page.keyboard.type(' here');
+  await expect(text(page)).toHaveValue('Write here');
+  await expect(page.locator('.ed-keytips')).toHaveCount(0);
+});

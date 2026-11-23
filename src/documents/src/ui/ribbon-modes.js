@@ -160,12 +160,14 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       tip.style.top = `${Math.round(box.bottom - 6)}px`;
       return tip;
     }
+    /** Shows the targets' badges; how many show. */
     function render(targets) {
       layer?.remove();
       codes = targets;
-      layer = el('div.ed-keytips', { role: 'status', 'aria-live': 'polite' }, el('span.visually-hidden', {}, 'KeyTips shown. Type a letter to choose, Escape to go back.'),
-        ...targets.filter(t => visible(t.node)).map(t => badge(t.node, t.code, t.disabled)).filter(Boolean));
+      const badges = targets.filter(t => visible(t.node)).map(t => badge(t.node, t.code, t.disabled)).filter(Boolean);
+      layer = el('div.ed-keytips', { role: 'status', 'aria-live': 'polite' }, el('span.visually-hidden', {}, 'KeyTips shown. Type a letter to choose, Escape to go back.'), ...badges);
       document.body.append(layer);
+      return badges.length;
     }
     function top() {
       level = 'top'; typed = '';
@@ -187,7 +189,10 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       const menubar = titleBar.querySelector('.ed-menubar .menu-btn');
       const menus = visible(menubar) ? menubar : titleBar.querySelector('.ed-menus-button');
       if (visible(menus)) targets.push({ node: menus, code: '0', run: () => { hide(); menus.focus(); menus.click(); } });
-      render(targets);
+      // With nothing to label (Focus hides the title bar and the ribbon), the keys are left to the document: they were
+      // taken, unseen, until Escape.
+      if (!render(targets)) { hide(); return false; }
+      return true;
     }
     function openTab(id) {
       peekedForTips = false;
@@ -204,11 +209,12 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       const controls = panel ? [...panel.querySelectorAll('button, select, input')].filter(n => visible(n) && !n.closest('.ribbon-gallery') && !n.classList.contains('ribbon-split-arrow')) : [];
       const labels = controls.map(n => n.getAttribute('aria-label') || n.title || n.textContent || '');
       const assigned = assignKeyTips(labels);
-      render(controls.map((node, i) => ({ node, code: assigned[i], disabled: node.disabled, run: () => {
+      const shown = render(controls.map((node, i) => ({ node, code: assigned[i], disabled: node.disabled, run: () => {
         hide();
         if (node.disabled) return;
         if (node.matches('input, select')) node.focus(); else node.click();
       } })).filter(t => t.code));
+      if (!shown) hide();
     }
     function hide() {
       layer?.remove(); layer = null; level = null; typed = '';
@@ -236,7 +242,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     function show() {
       if (document.querySelector('.modal-root:not(.closing), .backstage:not([hidden])')) return;
       if (effective() === 'auto' && !peeking) { peek(true); peekedForTips = true; }
-      top();
+      if (!top()) return;
       window.addEventListener('keydown', onKey, true);
       window.addEventListener('blur', hide);
       window.addEventListener('resize', hide);
