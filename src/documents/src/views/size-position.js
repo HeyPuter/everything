@@ -52,15 +52,23 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
   /* ---- Position ---- */
   const h = frame.horizontal || { relativeFrom: 'column', offset: 0 }, v = frame.vertical || { relativeFrom: 'paragraph', offset: 0 };
   const hGroup = `pic-h-${++ids}`, vGroup = `pic-v-${++ids}`;
-  // Aligned axes show their current place as an offset too, so switching keeps the object where it is. That
-  // offset is shown from the column or paragraph (the choice offered below for an aligned axis), so it is
-  // measured from there rather than from the frame the alignment uses.
-  const offsetOf = axis => {
+  // What an absolute position can be measured from (§20.4.3.4 ST_RelFromH, §20.4.3.5 ST_RelFromV, as far as
+  // the document's layout places them).
+  const H_FROM = [['column', 'Column'], ['margin', 'Margin'], ['page', 'Page']];
+  const V_FROM = [['paragraph', 'Paragraph'], ['line', 'Line'], ['margin', 'Margin'], ['page', 'Page'], ['topMargin', 'Top margin'], ['bottomMargin', 'Bottom margin']];
+  // The frame an axis's offset is shown from: its own, or for an aligned axis (or one measured from a frame not
+  // offered) the column or paragraph.
+  const shownFrom = axis => {
     const value = axis === 'x' ? h : v;
-    if (value.offset !== undefined) return value.offset;
-    if (!laidOut) return 0;
-    const from = !value.align ? {} : axis === 'x' ? { horizontal: 'column' } : { vertical: 'paragraph' };
-    const at = offsetsFor({ ...laidOut, image: { ...laidOut.image, anchor: { ...laidOut.image.anchor, ...from } } }, laidOut.x, laidOut.y);
+    return !value.align && (axis === 'x' ? H_FROM : V_FROM).some(([key]) => key === value.relativeFrom) ? value.relativeFrom : axis === 'x' ? 'column' : 'paragraph';
+  };
+  // Aligned axes show their current place as an offset too, so switching keeps the object where it is. An offset
+  // is measured from the frame shown beside it, so confirming the dialog does not move the object.
+  const offsetOf = axis => {
+    const value = axis === 'x' ? h : v, from = shownFrom(axis);
+    if (value.offset !== undefined && value.relativeFrom === from) return value.offset;
+    if (!laidOut) return value.offset ?? 0;
+    const at = offsetsFor({ ...laidOut, image: { ...laidOut.image, anchor: { ...laidOut.image.anchor, [axis === 'x' ? 'horizontal' : 'vertical']: from } } }, laidOut.x, laidOut.y);
     return axis === 'x' ? at.x : at.y;
   };
   const inlinePlace = frame.inline ? place?.() || { x: 0, y: 0 } : null;
@@ -68,12 +76,12 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
   const hAlign = choice([['left', 'Left'], ['center', 'Centered'], ['right', 'Right']], h.align || 'left', { 'aria-label': 'Horizontal alignment' });
   const hAlignFrom = choice([['margin', 'Margin'], ['page', 'Page'], ['column', 'Column']], h.align ? h.relativeFrom : 'column', { 'aria-label': 'Horizontal alignment relative to' });
   const hOffset = num(inches(inlinePlace ? inlinePlace.x : offsetOf('x')), { min: -22, max: 22, 'aria-label': 'Horizontal absolute position (in)' });
-  const hOffsetFrom = choice([['column', 'Column'], ['margin', 'Margin'], ['page', 'Page']], h.align ? 'column' : h.relativeFrom, { 'aria-label': 'Horizontal position to the right of' });
+  const hOffsetFrom = choice(H_FROM, shownFrom('x'), { 'aria-label': 'Horizontal position to the right of' });
   const vAlignRadio = radio(vGroup, 'align', !!v.align, 'Alignment'), vAbsRadio = radio(vGroup, 'offset', !v.align, 'Absolute position');
   const vAlign = choice([['top', 'Top'], ['center', 'Centered'], ['bottom', 'Bottom']], v.align || 'top', { 'aria-label': 'Vertical alignment' });
   const vAlignFrom = choice([['margin', 'Margin'], ['page', 'Page'], ['topMargin', 'Top margin'], ['bottomMargin', 'Bottom margin']], v.align ? v.relativeFrom : 'margin', { 'aria-label': 'Vertical alignment relative to' });
   const vOffset = num(inches(inlinePlace ? inlinePlace.y : offsetOf('y')), { min: -22, max: 22, 'aria-label': 'Vertical absolute position (in)' });
-  const vOffsetFrom = choice([['paragraph', 'Paragraph'], ['line', 'Line'], ['margin', 'Margin'], ['page', 'Page']], v.align ? 'paragraph' : v.relativeFrom, { 'aria-label': 'Vertical position below' });
+  const vOffsetFrom = choice(V_FROM, shownFrom('y'), { 'aria-label': 'Vertical position below' });
   // An offset left as shown (rounded to 0.01 in) keeps its exact value, so OK does not nudge the object.
   const shownOffsets = inlinePlace ? null : { h: hOffset.value, hFrom: hOffsetFrom.value, x: offsetOf('x'), v: vOffset.value, vFrom: vOffsetFrom.value, y: offsetOf('y') };
   const offsetValue = axis => {

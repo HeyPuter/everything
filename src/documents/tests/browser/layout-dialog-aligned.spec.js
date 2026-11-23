@@ -3,9 +3,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { onTab, downloadDocx } from './helpers/editor-tools.js';
 
-// A text-wrapped picture aligned to the margins (§20.4.2.1 align in positionH/positionV), as Word writes its
-// Position presets, keeps its place when the Layout dialog is confirmed: the dialog measures wrapped objects
-// from the column and paragraph, so it must show (and write) the offsets from those, not from the margins.
+// The Layout dialog keeps a floating picture where it is when it is confirmed unchanged, whatever its position
+// is measured from (§20.4.2.10 positionH, §20.4.2.11 positionV): margin alignment, as Word writes its Position
+// presets, or an offset below the top margin. The dialog measures wrapped objects from the column and paragraph,
+// so it must show (and write) the offsets from those frames, not from the ones the file used.
 const PNG = readFileSync('icon-128.png');
 const OBJECT = '￼';
 
@@ -20,8 +21,8 @@ async function frameOnPage(page) {
   return { top: (frame.y - canvas.y) / zoom, right: (frame.x + frame.width - canvas.x) / zoom };
 }
 
-test('OK in the Layout dialog leaves a margin-aligned, square-wrapped picture where it is', async ({ page }, info) => {
-  test.setTimeout(120000);
+/** A picture in the eighth of twelve paragraphs, wrapped as `wrap`, then saved with its position rewritten and reopened. */
+async function openPositioned(page, info, wrap, positionH, positionV) {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/playground.html');
@@ -32,38 +33,71 @@ test('OK in the Layout dialog leaves a margin-aligned, square-wrapped picture wh
   await onTab(page, 'insert');
   await page.getByLabel('Insert picture file').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
   await expect.poll(async () => (await input.inputValue()).split(OBJECT).length - 1).toBe(1);
-  const ribbon = page.locator('#ribbon-panel-picture');
-  await ribbon.getByRole('button', { name: 'Wrap Text', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'Square' }).click();
-  // Rewrite the picture's position as Word's "Position in Top Right with Square Text Wrapping" does.
-  const parts = await save(page, info.outputPath('square.docx'));
-  const body = strFromU8(parts['word/document.xml'])
-    .replace(/<wp:positionH\b.*?<\/wp:positionH>/, '<wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH>')
-    .replace(/<wp:positionV\b.*?<\/wp:positionV>/, '<wp:positionV relativeFrom="margin"><wp:align>top</wp:align></wp:positionV>');
-  expect(body).toContain('<wp:align>top</wp:align>');
-  const aligned = info.outputPath('aligned.docx');
-  writeFileSync(aligned, zipSync({ ...parts, 'word/document.xml': strToU8(body) }));
+  await page.locator('#ribbon-panel-picture').getByRole('button', { name: 'Wrap Text', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: wrap }).click();
+  const parts = await save(page, info.outputPath('wrapped.docx'));
+  const body = strFromU8(parts['word/document.xml']).replace(/<wp:positionH\b.*?<\/wp:positionH>/, positionH).replace(/<wp:positionV\b.*?<\/wp:positionV>/, positionV);
+  expect(body).toContain(positionV);
+  const positioned = info.outputPath('positioned.docx');
+  writeFileSync(positioned, zipSync({ ...parts, 'word/document.xml': strToU8(body) }));
   const previous = await input.elementHandle();
   page.once('dialog', dialog => dialog.accept());
-  await page.getByLabel('Open DOCX file').setInputFiles(aligned);
+  await page.getByLabel('Open DOCX file').setInputFiles(positioned);
   await expect.poll(() => previous.evaluate(el => el.isConnected), { timeout: 30000 }).toBe(false);
   await expect(input).toHaveValue(/Paragraph 12/);
   await input.evaluate((el, object) => { const at = el.value.indexOf(object); el.focus(); el.setSelectionRange(at, at + 1); el.dispatchEvent(new Event('select')); }, OBJECT);
   await expect(page.locator('.canvas-image-frame')).toBeVisible();
+  return errors;
+}
+async function confirmLayout(page, check) {
+  await onTab(page, 'picture');
+  await page.locator('#ribbon-panel-picture').getByRole('button', { name: 'Size and Position…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layout' });
+  await dialog.getByRole('tab', { name: 'Position' }).click();
+  await check?.(dialog);
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+test('OK in the Layout dialog leaves a margin-aligned, square-wrapped picture where it is', async ({ page }, info) => {
+  test.setTimeout(120000);
+  // As Word's "Position in Top Right with Square Text Wrapping" writes it.
+  const errors = await openPositioned(page, info, 'Square', '<wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH>', '<wp:positionV relativeFrom="margin"><wp:align>top</wp:align></wp:positionV>');
   // Letter paper with one-inch margins: the top and right margins are 96 px in from the page's edges.
   expect(Math.round((await frameOnPage(page)).top)).toBe(96);
   expect(Math.round((await frameOnPage(page)).right)).toBe(816 - 96);
-
-  await onTab(page, 'picture');
-  await ribbon.getByRole('button', { name: 'Size and Position…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Layout' });
-  await dialog.getByRole('tab', { name: 'Position' }).click();
-  // The picture is far above its paragraph, so its offset below the paragraph is negative.
-  await expect(dialog.getByRole('spinbutton', { name: 'Vertical absolute position (in)' })).not.toHaveValue('0');
-  expect(Number(await dialog.getByRole('spinbutton', { name: 'Vertical absolute position (in)' }).inputValue())).toBeLessThan(-1);
-  await dialog.getByRole('button', { name: 'OK' }).click();
-  await expect(dialog).toBeHidden();
+  await confirmLayout(page, async dialog => {
+    // The picture is far above its paragraph, so its offset below the paragraph is negative.
+    await expect(dialog.getByRole('spinbutton', { name: 'Vertical absolute position (in)' })).not.toHaveValue('0');
+    expect(Number(await dialog.getByRole('spinbutton', { name: 'Vertical absolute position (in)' }).inputValue())).toBeLessThan(-1);
+  });
   await expect.poll(async () => Math.round((await frameOnPage(page)).top)).toBe(96);
   expect(Math.round((await frameOnPage(page)).right)).toBe(816 - 96);
+  expect(errors).toEqual([]);
+});
+
+test('OK in the Layout dialog leaves a picture placed below the top margin where it is', async ({ page }, info) => {
+  test.setTimeout(120000);
+  // Half an inch below the top of the page (the top margin's band starts at the page's edge), 48 px.
+  const errors = await openPositioned(page, info, 'In Front of Text', '<wp:positionH relativeFrom="column"><wp:posOffset>914400</wp:posOffset></wp:positionH>', '<wp:positionV relativeFrom="topMargin"><wp:posOffset>457200</wp:posOffset></wp:positionV>');
+  expect(Math.round((await frameOnPage(page)).top)).toBe(48);
+  await confirmLayout(page, async dialog => {
+    await expect(dialog.getByRole('combobox', { name: 'Vertical position below' })).toHaveValue('topMargin');
+    await expect(dialog.getByRole('spinbutton', { name: 'Vertical absolute position (in)' })).toHaveValue('0.5');
+  });
+  await expect.poll(async () => Math.round((await frameOnPage(page)).top)).toBe(48);
+  expect(errors).toEqual([]);
+});
+
+test('a square-wrapped picture below the top margin keeps its place when the dialog measures it from its paragraph', async ({ page }, info) => {
+  test.setTimeout(120000);
+  const errors = await openPositioned(page, info, 'Square', '<wp:positionH relativeFrom="column"><wp:posOffset>914400</wp:posOffset></wp:positionH>', '<wp:positionV relativeFrom="topMargin"><wp:posOffset>1371600</wp:posOffset></wp:positionV>');
+  // An inch and a half below the top of the page: 144 px.
+  expect(Math.round((await frameOnPage(page)).top)).toBe(144);
+  await confirmLayout(page, async dialog => {
+    await expect(dialog.getByRole('combobox', { name: 'Vertical position below' })).toHaveValue('paragraph');
+    expect(Number(await dialog.getByRole('spinbutton', { name: 'Vertical absolute position (in)' }).inputValue())).toBeLessThan(-1);
+  });
+  await expect.poll(async () => Math.round((await frameOnPage(page)).top)).toBe(144);
   expect(errors).toEqual([]);
 });

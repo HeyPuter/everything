@@ -24969,11 +24969,13 @@ while labelling it as below the paragraph, so OK moved a Word-made "Top Right" p
 | --- | --- | --- |
 | Position presets | ECMA-376 Part 1 §§20.4.2.10 `positionH`, 20.4.2.11 `positionV`, 20.4.2.1 `align`, 20.4.2.17 `wrapSquare` | The nine presets write `relativeFrom="margin"` with `wp:align` left, center or right and top, center or bottom, and square wrapping on both sides with ⅛ in side distances, as Word writes them. The picture keeps its place on the page of its anchor paragraph wherever that paragraph moves on the page; Layout Options then shows Fix Position on Page. Not available in table cells (unchanged). |
 | Layout dialog offsets of aligned axes | Same clauses | An aligned axis shows its current place as an offset from the column (horizontal) or paragraph (vertical), the frames the dialog offers for it, so confirming the dialog for a text-wrapped object (written as column and paragraph offsets) keeps it where it is. |
+| Layout dialog offsets below the top or bottom margin | Same clauses; §20.4.3.5 `ST_RelFromV` | A vertical offset measured from `topMargin` or `bottomMargin` is shown and kept as such (Top margin and Bottom margin are offered below Margin and Page). It was shown as an offset below the paragraph, so OK moved the object; any other frame the list does not offer is converted to the paragraph's before it is shown. |
 
 Evidence: `tests/browser/position-presets.spec.js` places a picture in Top Right, adds lines above its
 paragraph, checks it stays against the top and right margins, and downloads and reopens the result; it
-also checks Bottom Left and Middle Center. `tests/browser/layout-dialog-aligned.spec.js` opens a picture
-rewritten with Word's margin alignment and confirms the Layout dialog without moving it. The downloads
+also checks Bottom Left and Middle Center. `tests/browser/layout-dialog-aligned.spec.js` opens pictures
+rewritten with Word's margin alignment and with offsets below the top margin (in front of text and
+square-wrapped) and confirms the Layout dialog without moving them. The downloads
 `top-right.docx` and `aligned.docx` pass `check:conformance`.
 
 **Remaining gaps:** the Layout dialog still writes a text-wrapped object as column and paragraph offsets,
