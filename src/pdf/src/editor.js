@@ -930,6 +930,8 @@ export function createEditor({
       await renderPage();
       stack.invalidate();
       renderThumbnails();
+      // The Layers panel stays at hand beside Organize pages, whose tiles follow it too.
+      organizer.refresh();
     }),
   });
   layers.el.id = 'sidebar-panel-layers';
