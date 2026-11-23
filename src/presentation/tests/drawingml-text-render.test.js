@@ -48,3 +48,44 @@ describe("underline colour", () => {
     expect(svg).toMatch(/<path d="M[^"]* Q[^"]*" stroke="#0000FF"/);
   });
 });
+
+describe("text shadow and glow", () => {
+  const run = (text, effects = "") =>
+    `<a:r><a:rPr lang="en-US" sz="2400"><a:solidFill><a:srgbClr val="000000"/></a:solidFill>${effects}</a:rPr><a:t>${text}</a:t></a:r>`;
+  const shadow =
+    '<a:effectLst><a:outerShdw blurRad="38100" dist="38100" dir="2700000"><a:srgbClr val="FF0000"/></a:outerShdw></a:effectLst>';
+  const glow =
+    '<a:effectLst><a:glow rad="101600"><a:srgbClr val="FFC000"/></a:glow></a:effectLst>';
+  // The text each filtered copy shows, by its filter's flood colour.
+  const casts = (svg) => {
+    const floods = new Map(
+      [...svg.matchAll(/<filter id="([^"]+)"[^>]*>(.*?)<\/filter>/g)].map(
+        (m) => [m[1], /flood-color="([^"]+)"/.exec(m[2])?.[1]],
+      ),
+    );
+    return [...svg.matchAll(/<g filter="url\(#([^)]+)\)">(.*?)<\/g>/g)].map(
+      (m) => [
+        floods.get(m[1]),
+        [...m[2].matchAll(/<tspan (?![^>]*visibility="hidden")[^>]*>([^<]*)/g)]
+          .map((t) => t[1])
+          .join("|"),
+      ],
+    );
+  };
+
+  it("falls from the runs that carry it alone", async () => {
+    const svg = await render(
+      textBox(
+        `<a:p>${run("Plain ")}${run("Shadowed", shadow)}</a:p><a:p>${run("Glowing", glow)}</a:p><a:p>${run("Plain again")}</a:p>`,
+      ),
+    );
+    expect(casts(svg)).toEqual([
+      ["#FF0000", "Shadowed"],
+      ["#FFC000", "Glowing"],
+    ]);
+    // The text itself shows once, over its effects.
+    expect(
+      svg.match(/<tspan (?![^>]*visibility="hidden")[^>]*>Plain again</g),
+    ).toHaveLength(1);
+  });
+});

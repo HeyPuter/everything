@@ -207,6 +207,9 @@ export interface PieceInput {
   readonly kerning?: "normal" | "none";
   readonly fillHex: string;
   readonly fillOpacity?: number;
+  /** Names the run's own shadow and glow (`data-fx` on its text), so they
+   *  can be drawn for its text alone. */
+  readonly effectKey?: string;
   /** `'wavy'` covers every `ST_TextUnderlineType` wavy variant (`wavy`,
    *  `wavyDbl`, `wavyHeavy`) — SVG/resvg has no `text-decoration-style`
    *  support, so the engine draws it as an explicit path (see `wavyPath`). */
@@ -1633,6 +1636,7 @@ const wavyPath = (
 
 const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   a.family === b.family &&
+  a.effectKey === b.effectKey &&
   a.sizePx === b.sizePx &&
   a.bold === b.bold &&
   a.italic === b.italic &&
@@ -1704,6 +1708,7 @@ const tspan = (g: Group, dx = 0, dy = 0, rotate = 0): string => {
     `fill="${p.fillHex}"`,
   ];
   if (p.bold) attrs.push('font-weight="700"');
+  if (p.effectKey) attrs.push(`data-fx="${escapeXml(p.effectKey)}"`);
   if (p.fillOpacity !== undefined && p.fillOpacity !== 1)
     attrs.push(`fill-opacity="${p.fillOpacity}"`);
   if (p.italic) attrs.push('font-style="italic"');

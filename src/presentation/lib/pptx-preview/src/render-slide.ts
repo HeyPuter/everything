@@ -2554,61 +2554,98 @@ const textGradientFill = (
   return `url(#${entry.id})`;
 };
 
-// Shadow, glow and reflection drawn with a shape's text: the first run that
-// carries effects speaks for the text body, as WordArt styles apply to all of it.
+// A key naming a run's outer shadow and glow, shared by runs whose shadow
+// and glow are alike; null for a run without them.
+const textEffectKeys = new WeakMap<object, string | null>();
+const textEffectKey = (fmt: TextFormat | null | undefined): string | null => {
+  const effects = fmt?.effects;
+  if (!effects) return null;
+  let key = textEffectKeys.get(effects);
+  if (key === undefined) {
+    const shadow =
+      effects.shadow && !effects.shadow.inner ? effects.shadow : null;
+    const glow =
+      effects.glow && effects.glow.radiusEmu > 0 ? effects.glow : null;
+    key = null;
+    if (shadow || glow) {
+      const text = JSON.stringify([shadow, glow]);
+      let hash = 5381;
+      for (let i = 0; i < text.length; i++)
+        hash = (Math.imul(hash, 33) ^ text.charCodeAt(i)) >>> 0;
+      key = `fx${hash.toString(36)}`;
+    }
+    textEffectKeys.set(effects, key);
+  }
+  return key;
+};
+
+// Shadow, glow and reflection drawn with a shape's text. Each run's shadow
+// and glow fall from that run's own text: they are drawn from a copy of the
+// text in which only the runs carrying them show. A reflection mirrors the
+// whole text body, as WordArt styles apply to all of it.
 const wrapTextEffects = (
   svg: string,
   paraData: readonly ParaData[],
   theme: PresentationTheme | null,
   box: { x: number; y: number; w: number; h: number },
 ): string => {
-  const effects = paraData
-    .flatMap((p) => p.runs)
-    .find((run) => run.fmt?.effects)?.fmt?.effects;
-  if (
-    !effects ||
-    (!effects.shadow && !effects.glow && !effects.reflection) ||
-    !svg
-  )
-    return svg;
+  if (!svg) return svg;
+  const runs = paraData.flatMap((p) => p.runs);
+  const reflection = runs.find((run) => run.fmt?.effects?.reflection)?.fmt
+    ?.effects?.reflection;
+  const keyed = new Map<string, NonNullable<TextFormat["effects"]>>();
+  for (const run of runs) {
+    const key = textEffectKey(run.fmt);
+    if (key && !keyed.has(key)) keyed.set(key, run.fmt!.effects!);
+  }
+  if (!keyed.size && !reflection) return svg;
   const px = (emu: number) => emu / EMU_PER_PX;
   let defs = "";
   let out = svg;
-  const layers: string[] = [];
-  if (effects.glow && effects.glow.radiusEmu > 0) {
-    const r = px(effects.glow.radiusEmu);
-    layers.push(
-      `<feMorphology in="SourceAlpha" operator="dilate" radius="${PX(r / 2)}" result="gd"/><feGaussianBlur in="gd" stdDeviation="${PX(r / 2)}" result="gb"/><feFlood flood-color="${resolveColor(effects.glow.color, theme, "#000000")}" flood-opacity="${PX(effects.glow.opacity ?? 1)}"/><feComposite in2="gb" operator="in" result="glow"/>`,
-    );
-  }
-  if (effects.shadow && !effects.shadow.inner) {
-    const rad = (effects.shadow.angleDeg * Math.PI) / 180;
-    const d = px(effects.shadow.distEmu);
-    layers.push(
-      `<feGaussianBlur in="SourceAlpha" stdDeviation="${PX(px(effects.shadow.blurEmu) / 2)}" result="sb"/><feOffset in="sb" dx="${PX(Math.cos(rad) * d)}" dy="${PX(Math.sin(rad) * d)}" result="so"/><feFlood flood-color="${resolveColor(effects.shadow.color, theme, "#000000")}" flood-opacity="${PX(effects.shadow.opacity ?? 1)}"/><feComposite in2="so" operator="in" result="shadow"/>`,
-    );
-  }
-  if (layers.length) {
+  // The runs' text alone, without its definitions, decorations, highlights
+  // or pictures; the other runs' text is hidden in place.
+  const textOnly = svg
+    .replace(/<defs>.*?<\/defs>/gs, "")
+    .replace(/<(?:path|rect|image)\b[^>]*\/>/g, "");
+  const casts: string[] = [];
+  for (const [key, effects] of keyed) {
+    const layers: string[] = [];
+    if (effects.glow && effects.glow.radiusEmu > 0) {
+      const r = px(effects.glow.radiusEmu);
+      layers.push(
+        `<feMorphology in="SourceAlpha" operator="dilate" radius="${PX(r / 2)}" result="gd"/><feGaussianBlur in="gd" stdDeviation="${PX(r / 2)}" result="gb"/><feFlood flood-color="${resolveColor(effects.glow.color, theme, "#000000")}" flood-opacity="${PX(effects.glow.opacity ?? 1)}"/><feComposite in2="gb" operator="in" result="glow"/>`,
+      );
+    }
+    if (effects.shadow && !effects.shadow.inner) {
+      const rad = (effects.shadow.angleDeg * Math.PI) / 180;
+      const d = px(effects.shadow.distEmu);
+      layers.push(
+        `<feGaussianBlur in="SourceAlpha" stdDeviation="${PX(px(effects.shadow.blurEmu) / 2)}" result="sb"/><feOffset in="sb" dx="${PX(Math.cos(rad) * d)}" dy="${PX(Math.sin(rad) * d)}" result="so"/><feFlood flood-color="${resolveColor(effects.shadow.color, theme, "#000000")}" flood-opacity="${PX(effects.shadow.opacity ?? 1)}"/><feComposite in2="so" operator="in" result="shadow"/>`,
+      );
+    }
     const id = mintId();
     const merge = [
       effects.shadow && !effects.shadow.inner ? "shadow" : null,
       effects.glow && effects.glow.radiusEmu > 0 ? "glow" : null,
-      "SourceGraphic",
     ]
       .filter(Boolean)
       .map((name) => `<feMergeNode in="${name}"/>`)
       .join("");
     defs += `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">${layers.join("")}<feMerge>${merge}</feMerge></filter>`;
-    out = `<g filter="url(#${id})">${out}</g>`;
+    const own = `data-fx="${key}"`;
+    casts.push(
+      `<g filter="url(#${id})">${textOnly.replace(/<tspan ([^>]*)>/g, (tag, attrs: string) => (attrs.includes(own) ? tag : `<tspan visibility="hidden" ${attrs}>`))}</g>`,
+    );
   }
-  if (effects.reflection) {
+  out = casts.join("") + out;
+  if (reflection) {
     const id = mintId(),
       maskId = mintId(),
       gradId = mintId();
     const bottom = box.y + box.h;
-    const gap = px(effects.reflection.distEmu);
-    const size = box.h * Math.max(0.05, Math.min(1, effects.reflection.endPos));
-    defs += `<linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${PX(effects.reflection.startOpacity)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><mask id="${maskId}" maskUnits="userSpaceOnUse" x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}"><rect x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}" fill="url(#${gradId})"/></mask>`;
+    const gap = px(reflection.distEmu);
+    const size = box.h * Math.max(0.05, Math.min(1, reflection.endPos));
+    defs += `<linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${PX(reflection.startOpacity)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><mask id="${maskId}" maskUnits="userSpaceOnUse" x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}"><rect x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}" fill="url(#${gradId})"/></mask>`;
     out = `<g id="${id}">${out}</g><g mask="url(#${maskId})" data-pptx-text-reflection="1"><use href="#${id}" transform="translate(0 ${PX(2 * bottom + gap)}) scale(1 -1)"/></g>`;
   }
   return `<defs>${defs}</defs>${out}`;
@@ -2728,6 +2765,7 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         ...(fmt?.highlight
           ? { highlightHex: resolveColor(fmt.highlight, a.theme, "#FFFF00") }
           : {}),
+        ...(textEffectKey(fmt) ? { effectKey: textEffectKey(fmt)! } : {}),
         href: run.href ?? null,
       });
       // A run's text can carry embedded '\n' only via <a:br>, already split
