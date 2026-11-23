@@ -821,9 +821,14 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     };
     const sizeGroup = (id, priority, { crop = false, noun = 'Picture' } = {}) => {
       const spin = (key, label) => {
+        // Enter applies the amount, and the browser's own change event for the same amount (on Enter or when the
+        // field is left) does not apply it a second time.
+        let entered = null;
+        const commit = () => { if (!amountInRange(input)) { input.reportValidity(); return; } setSize(key, Number(input.value)); };
         const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `${noun} ${label.toLowerCase()} (in)`,
-          onchange: () => { if (!amountInRange(input)) { input.reportValidity(); return; } setSize(key, Number(input.value)); },
-          onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
+          oninput: () => { entered = null; },
+          onchange: () => { if (entered !== null && input.value === entered) { entered = null; return; } entered = null; commit(); },
+          onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); entered = input.value; commit(); } } });
         states.push(input);
         sizeInputs.push({ input, key });
         return el('label.ribbon-spin', { title: label }, kit.commandIconEl(key === 'height' ? 'shapeHeight' : 'shapeWidth', 16), el('span.ribbon-spin-label.visually-hidden', {}, label), input, el('span.ribbon-spin-unit', {}, 'in'));
