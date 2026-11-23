@@ -216,6 +216,10 @@ export interface PieceInput {
   readonly underlineHex?: string;
   /** A double underline (`dbl`), drawn as two lines. */
   readonly underlineDouble?: boolean;
+  /** A thick (`…Heavy`) underline, drawn twice as heavy. */
+  readonly underlineHeavy?: boolean;
+  /** Dots and dashes of a dotted or dashed underline, in line widths. */
+  readonly underlineDashes?: readonly number[];
   /** A double strikethrough (`dblStrike`), drawn as two lines. */
   readonly strikeDouble?: boolean;
   /** Text outline (`<a:ln>` on the run). */
@@ -1406,7 +1410,11 @@ const emitHighlights = (
 };
 
 const explicitUnderline = (p: PieceInput): boolean =>
-  p.underline === "single" && (!!p.underlineHex || !!p.underlineDouble);
+  p.underline === "single" &&
+  (!!p.underlineHex ||
+    !!p.underlineDouble ||
+    !!p.underlineHeavy ||
+    !!p.underlineDashes);
 
 // Colored and double underlines and double strikethroughs have no SVG
 // decoration of their own; they are drawn as lines under or through the run.
@@ -1432,12 +1440,16 @@ const emitDrawnDecorations = (
       const size = renderedSizePxOf(p);
       const y0 = baselineY - baselineShiftPxOf(p);
       const width = Math.max(0.6, size * 0.055);
-      const line = (y: number, color: string) =>
-        `<path d="M${fmt(cursor)} ${fmt(y)}H${fmt(cursor + g.width)}" stroke="${color}" stroke-width="${fmt(width)}" fill="none"/>`;
+      const line = (y: number, color: string, w = width, dash = "") =>
+        `<path d="M${fmt(cursor)} ${fmt(y)}H${fmt(cursor + g.width)}" stroke="${color}" stroke-width="${fmt(w)}"${dash} fill="none"/>`;
       if (explicitUnderline(p)) {
         const color = p.underlineHex ?? p.fillHex;
         const y = y0 + size * 0.11;
-        parts.push(line(y, color));
+        const w = p.underlineHeavy ? width * 2 : width;
+        const dash = p.underlineDashes
+          ? ` stroke-dasharray="${p.underlineDashes.map((d) => fmt(d * w)).join(" ")}"`
+          : "";
+        parts.push(line(y, color, w, dash));
         if (p.underlineDouble) parts.push(line(y + width * 2.2, color));
       }
       if (p.strike && p.strikeDouble) {
@@ -1532,6 +1544,16 @@ const emitWavyUnderlines = (
       // super/subscript run's wave tracks its raised/lowered glyphs.
       const y = baselineY - baselineShiftPxOf(g.piece);
       parts.push(wavyPath(cursor, cursor + g.width, y, g.piece));
+      // `wavyDbl`: a second wave below the first.
+      if (g.piece.underlineDouble)
+        parts.push(
+          wavyPath(
+            cursor,
+            cursor + g.width,
+            y + renderedSizePxOf(g.piece) * WAVY_AMPLITUDE_RATIO * 3,
+            g.piece,
+          ),
+        );
     }
     cursor += g.width;
   }
@@ -1572,10 +1594,9 @@ const wavyPath = (
     cx = midX;
     up = !up;
   }
-  const strokeWidth = Math.max(
-    WAVY_STROKE_WIDTH_MIN_PX,
-    size * WAVY_STROKE_WIDTH_RATIO,
-  );
+  const strokeWidth =
+    Math.max(WAVY_STROKE_WIDTH_MIN_PX, size * WAVY_STROKE_WIDTH_RATIO) *
+    (piece.underlineHeavy ? 2 : 1);
   return `<path d="${d}" stroke="${piece.fillHex}"${piece.fillOpacity !== undefined && piece.fillOpacity !== 1 ? ` stroke-opacity="${piece.fillOpacity}"` : ""} stroke-width="${fmt(strokeWidth)}" fill="none"/>`;
 };
 
@@ -1592,6 +1613,8 @@ const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   a.strike === b.strike &&
   a.underlineHex === b.underlineHex &&
   a.underlineDouble === b.underlineDouble &&
+  a.underlineHeavy === b.underlineHeavy &&
+  a.underlineDashes === b.underlineDashes &&
   a.strikeDouble === b.strikeDouble &&
   a.strokeHex === b.strokeHex &&
   a.strokeWidthPx === b.strokeWidthPx &&

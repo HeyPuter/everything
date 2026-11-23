@@ -319,3 +319,52 @@ describe("effects with out-of-range sizes", () => {
     );
   });
 });
+
+describe("underline styles", () => {
+  const underlined = async (styles) => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    const runs = styles
+      .map(
+        (u) =>
+          `<a:r><a:rPr lang="en-US" sz="2400" u="${u}"/><a:t>${u} </a:t></a:r>`,
+      )
+      .join("");
+    const sp = `<p:sp><p:nvSpPr><p:cNvPr id="9" name="T"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="7315200" cy="914400"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none"/><a:lstStyle/><a:p>${runs}</a:p></p:txBody></p:sp>`;
+    files[name] = strToU8(
+      strFromU8(files[name]).replace("</p:spTree>", `${sp}</p:spTree>`),
+    );
+    const loaded = await parseDeck(zipSync(files));
+    return renderSlideToSvg(loaded, P.getSlides(loaded)[0], {
+      textLayout: "svg",
+    });
+  };
+  const lines = (svg) =>
+    [
+      ...svg.matchAll(
+        /<path d="M[\d.]+ [\d.]+H[\d.]+" stroke="#000000" stroke-width="([\d.]+)"( stroke-dasharray="([^"]+)")?/g,
+      ),
+    ].map((m) => ({ width: Number(m[1]), dashes: m[3] ?? null }));
+
+  it("draws heavy, dotted and dashed underlines as such", async () => {
+    const svg = await underlined(["sng", "heavy", "dotted", "dashLongHeavy"]);
+    const drawn = lines(svg);
+    expect(drawn).toHaveLength(3);
+    const [heavy, dotted, dashLong] = drawn;
+    expect(heavy.dashes).toBeNull();
+    expect(dotted.dashes).not.toBeNull();
+    expect(heavy.width).toBeCloseTo(dotted.width * 2, 2);
+    expect(dashLong.width).toBeCloseTo(heavy.width, 2);
+    expect(dashLong.dashes.split(" ").map(Number)[0]).toBeCloseTo(
+      dashLong.width * 8,
+      1,
+    );
+  });
+
+  it("draws a double wavy underline as two waves", async () => {
+    const svg = await underlined(["wavy", "wavyDbl"]);
+    expect(svg.match(/<path d="M[\d.]+ [\d.]+ Q/g)).toHaveLength(3);
+  });
+});

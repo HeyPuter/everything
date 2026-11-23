@@ -2182,6 +2182,15 @@ const underlineStyleOf = (
   if (typeof u === "string" && u.startsWith("wavy")) return "wavy";
   return "single";
 };
+// Dotted and dashed underlines' dashes and gaps, in line widths. Shared
+// arrays, so runs with the same style draw as one.
+const UNDERLINE_DASHES: Readonly<Record<string, readonly number[]>> = {
+  dotted: [1, 1.5],
+  dash: [4, 2.5],
+  dashLong: [8, 3],
+  dotDash: [4, 2, 1, 2],
+  dotDotDash: [4, 2, 1, 2, 1, 2],
+};
 // Underline color, double lines and the text outline, as the SVG text
 // engine draws them.
 const drawnTextDecorations = (
@@ -2192,6 +2201,8 @@ const drawnTextDecorations = (
   const out: {
     underlineHex?: string;
     underlineDouble?: boolean;
+    underlineHeavy?: boolean;
+    underlineDashes?: readonly number[];
     strikeDouble?: boolean;
     strokeHex?: string;
     strokeWidthPx?: number;
@@ -2199,7 +2210,13 @@ const drawnTextDecorations = (
   } = {};
   if (fmt?.underlineColor)
     out.underlineHex = resolveColor(fmt.underlineColor, theme, "#000000");
-  if (fmt?.underline === "dbl") out.underlineDouble = true;
+  const u = fmt?.underline;
+  if (u === "dbl" || u === "wavyDbl") out.underlineDouble = true;
+  if (typeof u === "string") {
+    if (u.endsWith("Heavy") || u === "heavy") out.underlineHeavy = true;
+    const dashes = UNDERLINE_DASHES[u.replace(/Heavy$/, "")];
+    if (dashes) out.underlineDashes = dashes;
+  }
   if (fmt?.strike === "dblStrike") out.strikeDouble = true;
   const outline = fmt?.outline;
   if (outline && outline.widthEmu > 0) {
