@@ -13500,6 +13500,9 @@ export function createEditor({
     const box = mark.getBoundingClientRect();
     if (!box.width && !box.height) return;
     revealBox(box);
+    // The scroll is Find's, not the reader's: a match near the top of the page, centered,
+    // can leave the page above under the middle of the view, and that page is not chosen.
+    stack.quiet();
   }
   /** Scroll the workspace to center a box (client coordinates) that is not fully in view. */
   function revealBox(box) {
