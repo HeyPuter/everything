@@ -1286,3 +1286,26 @@ it('does not take two lines for justified when only kerning tightened the last o
   );
   for (const block of groupTextParagraphs(r.groups)) expect(block.paragraph?.align).toBeUndefined();
 });
+
+it('joins a word that a renderer split at a tightly kerned pair', async () => {
+  const doc = await PDFDocument.create(),
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  // Chrome starts a new text command where kerning pulls a letter back: "W" + "ords", "A" + "VOID".
+  for (const [head, tail, kern, joined] of [
+    ['W', 'ords', 0.09, true],
+    ['A', 'VOID', 0.135, true],
+    // Drawn back over the letter before it, as an overstruck mark is: a separate line.
+    ['A', 'VOID', 0.4, false],
+  ]) {
+    const x = 40 + font.widthOfTextAtSize(head, 18) - kern * 18;
+    const r = await read(
+      await fixture(
+        `BT /F 18 Tf 1 0 0 1 40 300 Tm (${head}) Tj 1 0 0 1 ${x} 300 Tm (${tail}) Tj ET`,
+      ),
+    );
+    expect(
+      r.groups.map((g) => g.text),
+      `${head}${tail} ${kern}`,
+    ).toEqual(joined ? [head + tail] : [head, tail]);
+  }
+});

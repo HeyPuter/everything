@@ -50,7 +50,10 @@ function spacing(previous, run) {
     ratio > 0.5 &&
     ratio < 2 &&
     Math.abs(vertical) < height * 0.04 &&
-    across >= -height * 0.08 &&
+    // Kerning can pull a letter back by up to about a sixth of the size (A-V, W-o), and some
+    // renderers start a new text command there; a jump back past a space is a tab leader or
+    // overprinting instead.
+    across >= -height * (/\s$/.test(previous.text) || /^\s/.test(run.text) ? 0.08 : 0.16) &&
     across <= height * 0.65
     ? { dx, dy, across, height }
     : null;
