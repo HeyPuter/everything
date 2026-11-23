@@ -66,4 +66,25 @@ describe("a table cell's text direction", () => {
     const turned = svg.match(/<g transform="rotate\(270 [^)]+\)">(.*?)<\/g>/);
     expect((turned?.[1].match(/<text /g) ?? []).length).toBeGreaterThan(1);
   });
+  it("lines Mongolian vertical text up left to right", () => {
+    // Where each turned line sits across the cell, in reading order. The
+    // cell turns a quarter turn, so a line's y is its place across it.
+    const lines = (direction) => {
+      const { pres, slide, table } = deck(direction, 3);
+      P.setTableCellText(P.getTableCells(table)[0][0], "aaaa bbbb cccc dddd");
+      const svg = renderSlideToSvg(pres, slide, options);
+      const turned = /<g transform="rotate\(90 [^)]+\)">(.*?)<\/g>/.exec(svg);
+      return [
+        ...(turned?.[1] ?? "").matchAll(/<text x="[-\d.]+" y="([-\d.]+)"/g),
+      ].map((m) => Number(m[1]));
+    };
+    const mongolian = lines("mongolianVert");
+    const vert = lines("vert");
+    expect(vert.length).toBe(2);
+    expect(mongolian.length).toBe(2);
+    // Vertical text's lines follow one another right to left, Mongolian's
+    // left to right: across the turned cell, the other way round.
+    expect(vert[1]).toBeGreaterThan(vert[0]);
+    expect(mongolian[1]).toBeLessThan(mongolian[0]);
+  });
 });

@@ -11135,9 +11135,9 @@ const renderTableCellText = (
     top: number | null;
     bottom: number | null;
   },
-  vert: VerticalLayout = "none",
-  uprightEastAsian = false,
+  direction: ReturnType<typeof getTableCellTextDirection> = null,
 ): string => {
+  const vert = verticalLayoutOf(direction);
   const { paraData, hasText } = cellParaData(paragraphs, ctx);
   if (!hasText) return "";
   // CT_TableCellProperties defaults match body insets: 0.1 inch
@@ -11191,7 +11191,12 @@ const renderTableCellText = (
     // The cell's text direction (<a:tcPr vert>); the browser path below
     // still lays cells out horizontally.
     vert: ctx.mode === "svg" ? vert : "none",
-    ...(uprightEastAsian ? { uprightEastAsian: true } : {}),
+    // As in a text box: East Asian vertical text stands its ideographs
+    // upright, and Mongolian and right-to-left stacked lines follow one
+    // another left to right and right to left.
+    ...(direction === "eaVert" ? { uprightEastAsian: true } : {}),
+    ...(direction === "wordArtVertRtl" ? { stackRightToLeft: true } : {}),
+    ...(direction === "mongolianVert" ? { linesLeftToRight: true } : {}),
     columns: null,
     resolveFamily: ctx.resolveFamily,
     resolveKerning: ctx.resolveKerning,
@@ -11605,8 +11610,7 @@ const renderTable = (
           ctx,
           vAnchor,
           cellMargins,
-          verticalLayoutOf(getTableCellTextDirection(typedCell)),
-          getTableCellTextDirection(typedCell) === "eaVert",
+          getTableCellTextDirection(typedCell),
         ),
       );
     }
