@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { it, expect } from 'vitest';
-import { htmlFragment, fragmentHtml, formattedPasteFits, FRAGMENT_ATTRIBUTE } from '../src/engine/clipboard-fragment.js';
+import { htmlFragment, fragmentHtml, formattedPasteFits, FRAGMENT_ATTRIBUTE, pastedFragment, withoutPastedControls, OBJECT_STAND_IN } from '../src/engine/clipboard-fragment.js';
 
 const texts = html => htmlFragment(html)?.paragraphs.map(p => p.text);
 
@@ -139,4 +139,18 @@ it('pastes Word for the web paragraphs without the no-break space that marks eac
   expect(texts(html)).toEqual(['Hello world', '', 'Bold end ']);
   const list = `<div class="ListContainerWrapper SCXW1 BCX0"><ul class="BulletListStyle1 SCXW1 BCX0" role="list"><li data-leveltext="" data-listid="1" data-aria-level="1" role="listitem" class="OutlineElement Ltr SCXW1 BCX0">${p(run('Item')).replace(/^<div[^>]*>|<\/div>$/g, '')}</li></ul></div>`;
   expect(htmlFragment(list).paragraphs.map(q => [q.text, q.list?.kind])).toEqual([['Item', 'bullet']]);
+});
+
+it('a paste leaves out control characters, keeping tabs, lines, this editor\'s breaks and objects; reading HTML keeps them', () => {
+  expect(withoutPastedControls('a\u0000b\u0007c\u001b[0m\u007f\u0085\u009fd\te\r\nf\vg\fh\u000ei')).toBe('abc[0md\te\r\nf\vg\fh\u000ei');
+  const fragment = htmlFragment('<p>x<b>\u0001</b>y</p>');
+  // Reading the HTML (as a file is opened) keeps the text as it is; the paste drops the control and its empty run.
+  expect(fragment.paragraphs[0].text).toBe('x\u0001y');
+  const pasted = pastedFragment(fragment);
+  expect(pasted.paragraphs[0].runs.map(r => r.text)).toEqual(['x', 'y']);
+  expect(pasted.paragraphs[0].text).toBe('xy');
+  const clean = htmlFragment('<p>plain</p>');
+  expect(pastedFragment(clean)).toBe(clean);
+  const object = { paragraphs: [{ text: `a\u0002${OBJECT_STAND_IN}`, runs: [{ text: 'a\u0002', format: {} }, { text: OBJECT_STAND_IN, object: { math: { xml: '<m/>' } }, format: {} }], mark: false, list: null }] };
+  expect(pastedFragment(object).paragraphs[0]).toMatchObject({ text: `a${OBJECT_STAND_IN}`, runs: [{ text: 'a' }, { text: OBJECT_STAND_IN, object: { math: { xml: '<m/>' } } }] });
 });

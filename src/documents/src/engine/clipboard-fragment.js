@@ -432,6 +432,24 @@ export function htmlFragment(html, { copied = true } = {}) {
 
 /* ---------- Paste ---------- */
 
+/**
+ * Control characters other applications put in copied text (a terminal's escape codes, a bell, NUL, C1 controls)
+ * are no text a document holds, and pasted they showed as replacement marks (U+FFFD). They are left out of a
+ * paste. Tab, line feed and carriage return stay, and so do the breaks this editor's own copies carry: a line break
+ * (U+000B), a page break (U+000C) and a column break (U+000E).
+ */
+const PASTED_CONTROL = /[\u0000-\u0008\u000f-\u001f\u007f-\u009f]/, PASTED_CONTROLS = new RegExp(PASTED_CONTROL.source, 'g');
+export const withoutPastedControls = text => String(text ?? '').replace(PASTED_CONTROLS, '');
+/** A fragment for a paste with those control characters left out of its text (objects keep their stand-ins). */
+export function pastedFragment(fragment) {
+  if (!fragment?.paragraphs?.some(p => PASTED_CONTROL.test(p.text))) return fragment;
+  const paragraphs = fragment.paragraphs.map(p => {
+    const runs = p.runs.map(run => run.object ? run : { ...run, text: withoutPastedControls(run.text) }).filter(run => run.text);
+    return { ...p, runs, text: runs.map(run => run.text).join('') };
+  });
+  return { ...fragment, paragraphs };
+}
+
 function attempt(action) { try { action(); } catch { /* A property the destination cannot take keeps its own value. */ } }
 
 function styleFor(model, p) {
