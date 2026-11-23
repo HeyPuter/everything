@@ -25,6 +25,16 @@ it('says a Word 97–2003 document saved with a .docx name must be saved as .doc
   expect(error.message).not.toMatch(/invalid zip data/);
 });
 
+// An empty file (an upload or copy that never finished), a Rich Text Format document and a web page under a .docx
+// name were all "Could not read this DOCX archive: invalid zip data".
+it('says what an empty file, a Rich Text Format document or a web page named .docx is', async () => {
+  const message = async text => (await DocxPackage.open(new TextEncoder().encode(text)).catch(e => e)).message;
+  expect(await message('')).toMatch(/^This file is empty/);
+  expect(await message('{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times;}} Hello}')).toMatch(/^This is a Rich Text Format document \(\.rtf\)/);
+  expect(await message('\ufeff  <!DOCTYPE html><html><body><p>Hi</p></body></html>')).toMatch(/^This is a web page with a \.docx name\. Rename it to end in \.html/);
+  expect(await message('<?xml version="1.0"?>\n<!-- saved --><html xmlns="http://www.w3.org/1999/xhtml"><body/></html>')).toMatch(/^This is a web page/);
+});
+
 it('still reports other unreadable files as damaged archives', async () => {
   await expect(DocxPackage.open(new TextEncoder().encode('not a zip'))).rejects.toThrow('Could not read this DOCX archive');
 });
