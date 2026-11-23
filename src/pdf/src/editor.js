@@ -1546,6 +1546,7 @@ export function createEditor({
   const organizer = createOrganizeView({
     getPdf: () => pdf,
     getRevision: () => session.revision,
+    getPageIds: (revision) => session.pagesAt(revision),
     getLayers: () => documentLayers || undefined,
     currentIndex: () => pageIndex,
     can: (permission) => !!access()[permission],

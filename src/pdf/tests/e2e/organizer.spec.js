@@ -604,6 +604,73 @@ test('after deleting by key in Organize pages, the page with the focus is the on
   expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 450]);
 });
 
+test('the choice in Organize pages follows its pages through inserts and Undo', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  [300, 350, 400, 450, 500].forEach((height) => doc.addPage([400, height]));
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  const status = page.locator('.organize-status');
+  const chosen = () =>
+    grid
+      .locator('[aria-selected="true"]')
+      .evaluateAll((tiles) => tiles.map((t) => t.dataset.index));
+  // A page moved and moved back by Undo is still the one chosen, not whatever took its place.
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click();
+  await toolbar.getByRole('button', { name: 'Move pages later', exact: true }).click();
+  await settled(page);
+  expect(await chosen()).toEqual(['3']);
+  await page.keyboard.press('ControlOrMeta+z');
+  await settled(page);
+  expect(await chosen()).toEqual(['2']);
+  // Pages inserted before the choice become the choice.
+  const other = await PDFDocument.create();
+  other.addPage([400, 600]);
+  await toolbar.getByRole('button', { name: 'Insert', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: 'From PDF file…' }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'cover.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await other.save()),
+  });
+  const dialog = page.getByRole('dialog', { name: 'Insert pages' });
+  await dialog.getByRole('radio', { name: 'At the beginning' }).check();
+  await dialog.getByRole('button', { name: 'Insert pages', exact: true }).click();
+  await settled(page);
+  await expect(status).toHaveText('1 of 6 pages selected');
+  expect(await chosen()).toEqual(['0']);
+  // So the next command acts on the new page, and Undo of a deletion chooses the page back.
+  await toolbar.getByRole('button', { name: 'Delete pages', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Remove page 1?');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await page.keyboard.press('ControlOrMeta+z');
+  await settled(page);
+  expect(await chosen()).toEqual(['0']);
+  await toolbar.getByRole('button', { name: 'Rotate clockwise', exact: true }).click();
+  await settled(page);
+  expect(await exportedHeights(page)).toEqual([
+    [600, 90],
+    [300, 0],
+    [350, 0],
+    [400, 0],
+    [450, 0],
+    [500, 0],
+  ]);
+});
+
 test('a tile clicked in Organize pages is where the keyboard comes back to', async ({ page }) => {
   await mockPuter(page);
   await page.goto('/#library');
@@ -773,8 +840,10 @@ test('with no page chosen, Insert in Organize pages offers the same place as the
   await page.getByRole('menu').getByRole('menuitem', { name: 'Blank page' }).click();
   await settled(page);
   expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 300, 350, 450]);
+  // The new page is the choice now, and the tools pane follows it.
+  await expect(page.locator('.organize-status')).toHaveText('1 of 4 pages selected');
   if (await pane.isVisible())
-    await expect(pane.getByRole('heading', { name: 'Insert after page 1' })).toBeVisible();
+    await expect(pane.getByRole('heading', { name: 'Insert after page 2' })).toBeVisible();
 });
 
 for (const [width, height] of [

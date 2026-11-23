@@ -11,13 +11,16 @@ import { openMenu } from './lib/menu.js';
  *            insertBlank(after), insertFile(after), insertPictures(after), move(indices, to),
  *            reorder(order, moved), open(index), close() } — each may return a promise; the view
  *            redraws on refresh().
- * onSelectionChange(indices) hears of each change to the chosen pages.
+ * onSelectionChange(indices) hears of each change to the chosen pages. getPageIds(revision)
+ * names each page's object of a revision, in order, when known, so the choice follows its pages
+ * through edits.
  */
 const SIZES = [110, 150, 200, 260];
 
 export function createOrganizeView({
   getPdf,
   getRevision,
+  getPageIds = () => null,
   getLayers = () => undefined,
   currentIndex,
   can,
@@ -39,6 +42,8 @@ export function createOrganizeView({
   let tiles = [];
   let observer = null;
   let dragging = null;
+  // The revision the grid last showed.
+  let shownRevision = null;
   const status = el('span', { class: 'organize-status', role: 'status' });
   const sizeInput = el('input', {
     type: 'range',
@@ -89,14 +94,17 @@ export function createOrganizeView({
   };
   async function duplicateChosen() {
     const list = target();
+    const chosen = selected.size > 0;
+    const from = anchor;
     const revision = getRevision();
     await actions.duplicate(list);
-    if (getRevision() === revision || !selected.size) return;
+    if (getRevision() === revision || !chosen) return;
     // Each copy lands right after its page, pushing later selected pages along; keep the
-    // selection on the pages that were chosen rather than on whatever took their places.
+    // selection on the pages that were chosen rather than on whatever took their places, or
+    // on the copies.
     const moved = (i) => i + list.filter((k) => k < i).length;
-    selected = new Set(indices().map(moved));
-    if (anchor != null) anchor = moved(anchor);
+    selected = new Set(list.map(moved));
+    if (from != null) anchor = moved(from);
     updateState();
   }
   async function removeChosen() {
@@ -593,13 +601,42 @@ export function createOrganizeView({
     })();
   });
 
-  function rebuild() {
+  /**
+   * The choice goes with its pages when pages are added, removed or moved (by this grid, the
+   * tools pane, or Undo and Redo), rather than staying on places now holding other pages; pages
+   * added become the choice, as in desktop editors. Returns where a page at `index` went.
+   */
+  function followPages(count, { adopt = true } = {}) {
+    const revision = getRevision();
+    const ids = getPageIds(revision);
+    const known = ids?.length === count ? ids : null;
+    // An edit reads the pages it starts from, so those of the revision shown are known now.
+    const before = shownRevision == null ? null : getPageIds(shownRevision);
+    shownRevision = revision;
+    if (!known || !before || known === before) return (index) => index;
+    const where = new Map(known.map((id, i) => [id, i]));
+    const follow = (index) => (index == null ? index : where.get(before[index]));
+    const old = new Set(before);
+    const added = known.flatMap((id, i) => (old.has(id) ? [] : [i]));
+    if (adopt && added.length && known.length > before.length) {
+      selected = new Set(added);
+      anchor = added[0];
+      autoChosen = false;
+    } else {
+      selected = new Set([...selected].map(follow).filter((i) => i != null));
+      anchor = follow(anchor) ?? null;
+    }
+    return (index) => follow(index) ?? index;
+  }
+  function rebuild({ opening = false } = {}) {
     observer?.disconnect();
     const pdf = getPdf();
     if (!pdf || !visible) return;
     const focusAt = root.contains(document.activeElement)
       ? Number(document.activeElement.closest?.('.organize-tile')?.dataset.index)
       : null;
+    // Pages added while the grid was closed are not taken as a choice made in it.
+    const follow = followPages(pdf.numPages, { adopt: !opening });
     selected = new Set([...selected].filter((i) => i < pdf.numPages));
     // The tile holding the grid's tab stop must still exist once pages have gone.
     if (anchor != null) anchor = Math.min(anchor, pdf.numPages - 1);
@@ -676,7 +713,7 @@ export function createOrganizeView({
       keep.observe(t);
     });
     updateState();
-    if (Number.isInteger(focusAt)) focusTile(Math.min(focusAt, tiles.length - 1));
+    if (Number.isInteger(focusAt)) focusTile(Math.min(follow(focusAt), tiles.length - 1));
   }
 
   return {
@@ -707,8 +744,10 @@ export function createOrganizeView({
         selected = new Set([currentIndex()]);
         anchor = currentIndex();
         autoChosen = true;
+        // A choice made now names the pages as they are, not as the grid last showed them.
+        shownRevision = null;
       }
-      rebuild();
+      rebuild({ opening: true });
       tiles[anchor ?? currentIndex()]?.scrollIntoView({ block: 'nearest' });
       focusTile(anchor ?? currentIndex());
     },
