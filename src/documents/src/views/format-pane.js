@@ -172,7 +172,8 @@ export function createPane(context) {
     out.push(group('Size',
       field('Height', number(context.sizeOf(image, 'height'), { min: 0.01, max: 22, step: 0.01, unit: 'in', onCommit: v => context.setSize('height', v) })),
       field('Width', number(context.sizeOf(image, 'width'), { min: 0.01, max: 22, step: 0.01, unit: 'in', onCommit: v => context.setSize('width', v) })),
-      field('Rotation', number(Math.round((info.transform?.rotation || 0) * 10) / 10, { min: -3600, max: 3600, step: 1, unit: '°', onCommit: v => commands.rotate(v - (info.transform?.rotation || 0), 'Rotation') })),
+      // Charts do not turn (as the Rotate menu says).
+      kind(image) === 'chart' ? null : field('Rotation', number(Math.round((info.transform?.rotation || 0) * 10) / 10, { min: -3600, max: 3600, step: 1, unit: '°', onCommit: v => commands.rotate(v - (info.transform?.rotation || 0), 'Rotation') })),
       el('button.btn.btn-outline.pic-link-button', { type: 'button', onclick: () => context.openSizePosition('size') }, 'Size and Position…')));
     out.push(group('Alt Text', el('p.pic-hint', {}, info.decorative ? 'Marked as decorative.' : info.description ? `“${info.description}”` : 'No description yet.'),
       el('button.btn.btn-outline.pic-link-button', { type: 'button', onclick: () => context.openAltText?.() }, 'Edit Alt Text…')));

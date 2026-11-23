@@ -230,7 +230,8 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const locked = keepAspect ?? (image.aspectLocked !== false && (isPicture(image) || image.aspectLocked));
     const patch = { [key]: value, [other]: locked && image[key] ? Math.max(1, Math.round(value * image[other] / image[key])) : image[other] };
     if (patch.width > 22 * IN || patch.height > 22 * IN) { fail(new Error('Sizes must be at most 22 inches.')); return false; }
-    if (!image.retainedDrawing && !image.shell) { engine.finishComposition(); return engine.execute(() => engine.model.setImageProperties(patch)); }
+    // A chart's frame (a graphic frame without shape properties) is sized as its handles size it.
+    if (!image.retainedDrawing && (!image.shell || image.kind === 'chart')) { engine.finishComposition(); return engine.execute(() => engine.model.setImageProperties(patch)); }
     return apply('Size', props((sp, parts) => resizeFrame(parts.frame, sp, patch.width, patch.height)));
   }
 
