@@ -381,3 +381,80 @@ describe("underline styles", () => {
     expect(svg.match(/<path d="M[\d.]+ [\d.]+ Q/g)).toHaveLength(3);
   });
 });
+
+describe("line ends", () => {
+  const arrowed = (widthEmu, options, kind = "line") => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const line =
+      kind === "line"
+        ? P.addSlideLine(slide, {
+            from: { x: IN(1), y: IN(1) },
+            to: { x: IN(3), y: IN(1) },
+            color: "#000000",
+            widthEmu,
+          })
+        : P.addSlideShape(slide, {
+            preset: "line",
+            x: IN(1),
+            y: IN(1),
+            w: IN(2),
+            h: 0,
+          });
+    if (kind !== "line") P.setShapeStroke(line, { color: "#000000", widthEmu });
+    P.setShapeStrokeArrow(line, "tail", options);
+    return renderSlideToSvg(pres, slide, { textLayout: "svg" });
+  };
+  const marker = (svg) => {
+    const m =
+      /<marker [^>]*viewBox="0 0 ([\d.]+) ([\d.]+)"[^>]*>(.*?)<\/marker>/.exec(
+        svg,
+      );
+    return { along: Number(m[1]), across: Number(m[2]), body: m[3] };
+  };
+
+  it("sizes a head in line widths: 2, 3 or 5 across and along", () => {
+    const m = marker(
+      arrowed(57150, { type: "triangle", width: "lg", length: "sm" }),
+    );
+    expect(m).toMatchObject({ along: 2, across: 5 });
+    expect(
+      marker(arrowed(57150, { type: "triangle", width: "med", length: "med" })),
+    ).toMatchObject({ along: 3, across: 3 });
+  });
+
+  it("gives a line thinner than 2 pt the head of a 2 pt line", () => {
+    // 1 pt: twice the line widths.
+    expect(
+      marker(arrowed(12700, { type: "triangle", width: "med", length: "med" })),
+    ).toMatchObject({ along: 6, across: 6 });
+  });
+
+  it("draws an open arrow as two strokes", () => {
+    const { body } = marker(arrowed(25400, { type: "arrow" }));
+    expect(body).toContain('fill="none"');
+    expect(body).toContain('stroke-width="1"');
+  });
+
+  it.each([
+    ["line", 180],
+    ["shape", 183],
+  ])(
+    "stops a %s inside a closed head and keeps the head on the end",
+    (kind, drawn) => {
+      const svg = arrowed(57150, { type: "triangle" }, kind);
+      const el = /<(?:line|path) [^>]*marker-end="[^"]+"[^>]*>/.exec(svg)[0];
+      // The head stays on the end point (192px along) ...
+      expect(el).toMatch(/x2="288.00"|L288.00,96.00/);
+      // ... while the stroke stops half the 3-wide head (9px) short, and a
+      // round cap's half width more.
+      const [dash, gap] = /stroke-dasharray="([\d.]+) ([\d.]+)"/
+        .exec(el)
+        .slice(1)
+        .map(Number);
+      expect(dash).toBeCloseTo(drawn, 1);
+      expect(gap).toBeGreaterThan(192);
+      expect(el).not.toContain("stroke-dashoffset");
+    },
+  );
+});

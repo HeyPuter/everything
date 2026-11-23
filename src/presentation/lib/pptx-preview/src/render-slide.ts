@@ -1501,6 +1501,9 @@ interface PaintResult {
   strokeAttrs: string;
   /** Pre-built marker-start / marker-end attributes for arrowheads. */
   markerAttrs: string;
+  /** How far, in px, a straight line stops short of its start and end so
+   *  that it ends inside a closed arrowhead rather than poking out of it. */
+  markerSetback?: readonly [number, number];
   /** A compound outline (`<a:ln cmpd>`): two or three lines in its width. */
   compound?: "dbl" | "thickThin" | "thinThick" | "tri" | undefined;
 }
@@ -1522,8 +1525,63 @@ const DASH_PATTERNS: Record<string, string> = {
   sysDashDotDot: "3 1 1 1 1 1",
 };
 
+// Line ends as the desktop presentation app draws them (measured): a head is
+// 2, 3 or 5 line widths across (`w`) and along (`len`) for small, medium and
+// large, and lines thinner than 2 pt take a 2 pt line's head.
 const arrowSize = (size: "sm" | "med" | "lg" | undefined): number =>
-  size === "sm" ? 3 : size === "lg" ? 7 : 5;
+  size === "sm" ? 2 : size === "lg" ? 5 : 3;
+const ARROW_BASE_WIDTH = 25_400;
+// A line ends inside a closed head: halfway into a triangle, diamond or
+// oval, past the notch of a stealth head. An open arrow's line runs to its
+// tip.
+const arrowSetbackPx = (
+  type: string,
+  length: "sm" | "med" | "lg" | undefined,
+  strokeWidthEmu: number,
+): number => {
+  const share =
+    type === "triangle" || type === "diamond" || type === "oval"
+      ? 0.5
+      : type === "stealth"
+        ? 0.65
+        : 0;
+  if (!share || !(strokeWidthEmu > 0)) return 0;
+  return (
+    (share * arrowSize(length) * Math.max(strokeWidthEmu, ARROW_BASE_WIDTH)) /
+    EMU_PER_PX
+  );
+};
+
+// A straight line stops short inside its closed heads, which stay on its
+// ends: a dash covering the line less the setbacks. Round and square caps
+// reach half a line width further, so the dash is that much shorter. Lines
+// already dashed, or shorter than their heads, are left whole.
+const setbackDash = (
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  [start, end]: readonly [number, number],
+  attrs: string,
+  strokeWidthPx: number,
+): string => {
+  if (attrs.includes("stroke-dasharray")) return "";
+  const cap = /stroke-linecap="(round|square)"/.test(attrs)
+    ? strokeWidthPx / 2
+    : 0;
+  const s = start ? start + cap : 0,
+    e = end ? end + cap : 0;
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if (!(len > s + e) || !Number.isFinite(len)) return "";
+  return ` stroke-dasharray="${px(len - s - e)} ${px(len + s + e)}"${s ? ` stroke-dashoffset="${px(-s)}"` : ""}`;
+};
+
+// How far past its geometry an outline reaches: its miter joins, and a large
+// line end on a line at least 2 pt wide.
+const outlineReachPx = (strokeWidthEmu: number, ends: boolean): number =>
+  ends
+    ? (Math.max(strokeWidthEmu, ARROW_BASE_WIDTH) / EMU_PER_PX) * 6
+    : (strokeWidthEmu / EMU_PER_PX) * 2;
 
 const buildArrowMarker = (
   type: string,
@@ -1531,31 +1589,40 @@ const buildArrowMarker = (
   length: "sm" | "med" | "lg" | undefined,
   color: string,
   orient: "auto" | "auto-start-reverse",
+  strokeWidthEmu = ARROW_BASE_WIDTH,
 ): { id: string; def: string } => {
   const id = mintId();
-  const w = arrowSize(width);
-  const h = arrowSize(length);
-  // refX = w so the tip lands on the line's endpoint; refY centers vertically.
+  // In line widths: `l` along the line, `w` across it.
+  const k =
+    strokeWidthEmu > 0 ? Math.max(1, ARROW_BASE_WIDTH / strokeWidthEmu) : 1;
+  const w = PX(arrowSize(width) * k);
+  const l = PX(arrowSize(length) * k);
+  const W = Number(w),
+    L = Number(l);
+  // refX = l so the tip lands on the line's endpoint; refY centers it.
   let body: string;
   switch (type) {
     case "triangle":
+      body = `<path d="M0 0L${l} ${PX(W / 2)}L0 ${w}z" fill="${color}"/>`;
+      break;
     case "arrow":
-      body = `<path d="M0 0L${w} ${h / 2}L0 ${h}z" fill="${color}"/>`;
+      // An open head: two strokes as wide as the line, meeting at the tip.
+      body = `<path d="M0.5 0.5L${l} ${PX(W / 2)}L0.5 ${PX(W - 0.5)}" fill="none" stroke="${color}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`;
       break;
     case "stealth":
-      body = `<path d="M0 0L${w} ${h / 2}L0 ${h}L${w * 0.4} ${h / 2}z" fill="${color}"/>`;
+      body = `<path d="M0 0L${l} ${PX(W / 2)}L0 ${w}L${PX(L * 0.4)} ${PX(W / 2)}z" fill="${color}"/>`;
       break;
     case "diamond":
-      body = `<path d="M0 ${h / 2}L${w / 2} 0L${w} ${h / 2}L${w / 2} ${h}z" fill="${color}"/>`;
+      body = `<path d="M0 ${PX(W / 2)}L${PX(L / 2)} 0L${l} ${PX(W / 2)}L${PX(L / 2)} ${w}z" fill="${color}"/>`;
       break;
     case "oval":
-      body = `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${color}"/>`;
+      body = `<ellipse cx="${PX(L / 2)}" cy="${PX(W / 2)}" rx="${PX(L / 2)}" ry="${PX(W / 2)}" fill="${color}"/>`;
       break;
     case "none":
     default:
       body = "";
   }
-  const def = `<defs><marker id="${id}" viewBox="0 0 ${w} ${h}" refX="${w}" refY="${h / 2}" markerWidth="${w}" markerHeight="${h}" orient="${orient}">${body}</marker></defs>`;
+  const def = `<defs><marker id="${id}" viewBox="0 0 ${l} ${w}" refX="${l}" refY="${PX(W / 2)}" markerWidth="${l}" markerHeight="${w}" orient="${orient}" overflow="visible">${body}</marker></defs>`;
   return { id, def };
 };
 
@@ -1643,6 +1710,7 @@ const paint = (
   let compound: PaintResult["compound"];
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
+  let markerSetback: readonly [number, number] | undefined;
   // A gradient line paints its stroke with a gradient; width, dashes, caps,
   // joins and arrows are read as for a solid line.
   let lineGradient: GradientFillOptions | null = null;
@@ -1730,6 +1798,11 @@ const paint = (
       }
       const head = formatting.head;
       const tail = formatting.tail;
+      const setback = [
+        head ? arrowSetbackPx(head.type, head.length, strokeWidth) : 0,
+        tail ? arrowSetbackPx(tail.type, tail.length, strokeWidth) : 0,
+      ] as const;
+      if (setback[0] || setback[1]) markerSetback = setback;
       if (head && head.type !== "none") {
         const m = buildArrowMarker(
           head.type,
@@ -1737,6 +1810,7 @@ const paint = (
           head.length,
           strokeColor,
           "auto-start-reverse",
+          strokeWidth,
         );
         defs += m.def;
         markerAttrs += ` marker-start="url(#${m.id})"`;
@@ -1748,6 +1822,7 @@ const paint = (
           tail.length,
           strokeColor,
           "auto",
+          strokeWidth,
         );
         defs += m.def;
         markerAttrs += ` marker-end="url(#${m.id})"`;
@@ -1765,6 +1840,7 @@ const paint = (
     defs,
     strokeAttrs: strokeAttrParts.join(" "),
     markerAttrs,
+    ...(markerSetback ? { markerSetback } : {}),
     ...(compound ? { compound } : {}),
   };
 };
@@ -11932,6 +12008,24 @@ const shapeGeometryToSvg = (
       ma,
       p.patternFill,
     );
+    if (p.markerSetback && ma) {
+      const straight =
+        /^<path d="M(-?[\d.]+),(-?[\d.]+) L(-?[\d.]+),(-?[\d.]+)"([^>]*)\/>$/.exec(
+          geomSvg,
+        );
+      const dash =
+        straight &&
+        setbackDash(
+          Number(straight[1]),
+          Number(straight[2]),
+          Number(straight[3]),
+          Number(straight[4]),
+          p.markerSetback,
+          straight[5]!,
+          p.strokeWidth / EMU_PER_PX,
+        );
+      if (dash) geomSvg = geomSvg.replace(/\/>$/, `${dash}/>`);
+    }
   } else {
     geomSvg = `<rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}" fill="${p.fill}" stroke="${p.stroke}" stroke-width="${E(p.strokeWidth)}"${sa}${ma} data-pptx-preset="${escapeXml(preset)}"><title>${escapeXml(`preset: ${preset}`)}</title></rect>`;
   }
@@ -12225,10 +12319,22 @@ const renderShape = (
     });
     const withEffects = (svg: string): string =>
       fx
-        ? `${fx.defs}<g filter="url(#${fx.id})">${effectsExtent(fx, { x, y, w, h }, (sw / EMU_PER_PX) * (ma ? 7 : 2))}${svg}</g>`
+        ? `${fx.defs}<g filter="url(#${fx.id})">${effectsExtent(fx, { x, y, w, h }, outlineReachPx(sw, !!ma))}${svg}</g>`
         : svg;
     if (straight) {
-      const line = `<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}`;
+      const lineAttrs = `x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}`;
+      const dash = p.markerSetback
+        ? setbackDash(
+            x1 / EMU_PER_PX,
+            y1 / EMU_PER_PX,
+            x2 / EMU_PER_PX,
+            y2 / EMU_PER_PX,
+            p.markerSetback,
+            lineAttrs,
+            sw / EMU_PER_PX,
+          )
+        : "";
+      const line = `<line ${lineAttrs}${dash}${ma}${strokeOpacity}`;
       return fx
         ? `${p.defs}<g${connectorTransform}>${withEffects(`${line}/>`)}</g>`
         : `${p.defs}${line}${connectorTransform}/>`;
@@ -12576,7 +12682,7 @@ const renderShape = (
   // The outline's miter joins and arrowheads reach past the geometry too.
   const outlinePx =
     p.stroke !== "none" && p.strokeWidth > 0
-      ? (p.strokeWidth / EMU_PER_PX) * (p.markerAttrs ? 7 : 2)
+      ? outlineReachPx(p.strokeWidth, !!p.markerAttrs)
       : 0;
   const extent = fx ? effectsExtent(fx, { x, y, w, h }, outlinePx) : "";
   // Reflection can't live in the `<filter>` chain (SVG has no flip-and-fade
