@@ -424,11 +424,13 @@ export const getSlideComments = (
   slide: SlideData,
 ): ReadonlyArray<SlideCommentData> => {
   const pkg = slide[INTERNAL_PACKAGE];
+  const comments = loadCommentsForSlide(slide);
+  // The deck's author list is read only for a slide with comments.
+  if (!comments.length) return [];
   const authors = loadAuthorList(pkg);
   const authorById = new Map<number, CommentAuthor>();
   for (const a of authors) authorById.set(a.id, a);
 
-  const comments = loadCommentsForSlide(slide);
   const out: SlideCommentData[] = [];
   for (const snap of comments) {
     const author = authorById.get(snap.authorId);

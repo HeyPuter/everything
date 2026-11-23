@@ -148,6 +148,32 @@ describe("threaded comments", () => {
     expect(again[0].author.name).toBe("Legacy Reviewer");
   });
 
+  // The navigator counts every slide's comments on each edit: a slide
+  // without any does not read the deck's list of comment authors.
+  it("reads the comment authors only for slides with legacy comments", async () => {
+    const pres = createDeck("blank");
+    addDesignedSlide(pres, "title");
+    const [first, second] = P.getSlides(pres);
+    P.addSlideComment(first, {
+      author: { name: "Legacy Reviewer", initials: "LR" },
+      text: "old style",
+    });
+    const authors = P._internalPackageOf(pres).getPart(
+      "/ppt/commentAuthors.xml",
+    );
+    const reads = [];
+    const data = authors.data;
+    Object.defineProperty(authors, "data", {
+      get: () => (reads.push(1), data),
+      configurable: true,
+    });
+    expect(P.getSlideComments(second)).toEqual([]);
+    expect(P.getSlideCommentThreads(second)).toEqual([]);
+    expect(reads).toHaveLength(0);
+    const [legacy] = P.getSlideCommentThreads(first);
+    expect(legacy.author.name).toBe("Legacy Reviewer");
+    expect(reads.length).toBeGreaterThan(0);
+  });
   it("does not copy comments onto a duplicated slide", async () => {
     const pres = createDeck("blank");
     const s = P.getSlides(pres)[0];
