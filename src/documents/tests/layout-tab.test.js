@@ -61,6 +61,22 @@ describe('Layout tab commands', () => {
     expect(doc.sectionSettings.map(s => s.columns?.count ?? 1)).toEqual([3, 2, 1]);
     expect(item(commands.columnItems(), 'Three').checked).toBe(true);
   });
+  it('draws Line Between in each selected section with columns, keeping each section\'s own columns', () => {
+    const { doc, engine } = fakeEditor(['One', 'Two', 'Three']);
+    const { commands } = createLayoutTab({ editor: () => engine, pkg: () => ({}), error: vi.fn() });
+    const columns = () => doc.sectionSettings.map(s => [s.columns?.count ?? 1, !!s.columns?.separator]);
+    // Three sections: two columns, three columns and one.
+    doc.select(4); doc.insertSectionBreak('continuous'); doc.select(doc.text.indexOf('Three')); doc.insertSectionBreak('continuous');
+    doc.select(0); item(commands.columnItems(), 'Two').onSelect();
+    doc.select(doc.text.indexOf('Two')); item(commands.columnItems(), 'Three').onSelect();
+    expect(columns()).toEqual([[2, false], [3, false], [1, false]]);
+    // A selection across the sections: the caret's section had two columns, and the others took them as well.
+    doc.select(1, doc.text.length - 1);
+    item(commands.columnItems(), 'Line Between').onSelect();
+    expect(columns()).toEqual([[2, true], [3, true], [1, false]]);
+    item(commands.columnItems(), 'Line Between').onSelect();
+    expect(columns()).toEqual([[2, false], [3, false], [1, false]]);
+  });
   it('inserts each section break and refuses them in tables', () => {
     const { doc, engine } = fakeEditor(['One']), error = vi.fn();
     const { commands } = createLayoutTab({ editor: () => engine, pkg: () => ({}), error });
