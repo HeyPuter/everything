@@ -366,14 +366,8 @@ test("a slanted line is pressed along its length, not across its whole box", asy
   expect(await press(2.5, 5.5)).toEqual(["Box"]);
   expect(await press(5.5, 1 + (5.5 - 1) * 0.5)).toEqual(["Falling"]);
   expect(await press(9, 7 - (3 * 3) / 6.5)).toEqual(["Rising"]);
-  // Empty slide inside the line's box is no longer the line's.
-  expect(
-    await page.evaluate(
-      ([x, y]) => document.elementFromPoint(x, y)?.closest(".object-hit"),
-      [
-        canvas.x + (P.inches(10) / size.width) * canvas.width,
-        canvas.y + (P.inches(1.5) / size.height) * canvas.height,
-      ],
-    ),
-  ).toBeNull();
+  // Empty slide inside the falling line's box, well away from both lines
+  // and from the selected line's grips (which a phone enlarges), is no
+  // longer the line's: a press there lets the selection go.
+  expect(await press(2, 4)).toEqual([]);
 });
