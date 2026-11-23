@@ -248,6 +248,13 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
   const readDrawingStyle = drawingStyleReader(parts, readSchemeColor);
   const relPath = sourcePart.replace(/([^/]+)$/, '_rels/$1.rels');
   const rels = parts[relPath] ? parseXml(parts[relPath]) : null;
+  // The relationships by id, gathered once: looking through all of them for each picture took seconds in a document
+  // with thousands of pictures.
+  let relationsById = null;
+  const relationsWithId = id => {
+    if (!relationsById) { relationsById = new Map(); for (const n of rels?.getElementsByTagNameNS(REL, 'Relationship') || []) { const key = n.getAttribute('Id'); relationsById.set(key, [...(relationsById.get(key) || []), n]); } }
+    return relationsById.get(id) || [];
+  };
   const drawingAssetId = id => sourcePart === 'word/document.xml' ? `drawing:${id}` : `${sourcePart}:drawing:${id}`;
   const types = parseXml(parts['[Content_Types].xml']), usedIds = new Set();
   let nestedReader, nestedId = 0;
@@ -438,7 +445,7 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     }
     if (threeD || geom?.getAttribute('prst') === 'rect') { check(geom, A, ['avLst']); check(child(geom, A, 'avLst'), A, []); }
     const readAsset = (reference, vector = false) => {
-      const relId = reference.getAttributeNS(R, 'embed'), matches = [...(rels?.getElementsByTagNameNS(REL, 'Relationship') || [])].filter(n => n.getAttribute('Id') === relId);
+      const relId = reference.getAttributeNS(R, 'embed'), matches = relationsWithId(relId);
       if (!relId || matches.length !== 1) fail('missing or ambiguous image relationships');
       const rel = matches[0]; if (rel.getAttribute('Type') !== `${R}/image` || rel.hasAttribute('TargetMode') && rel.getAttribute('TargetMode') !== 'Internal') fail('external or non-image relationships');
       let url, path;

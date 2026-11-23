@@ -92,7 +92,7 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES, hasPart } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES, MAX_PACKAGE_ITEMS, hasPart } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
@@ -1248,9 +1248,13 @@ function otherPackageProblem(parts) {
 }
 
 const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
+const ARCHIVE_LIMITS = {
+  maxBytes: MAX_EXPANDED_PACKAGE_BYTES, maxItems: MAX_PACKAGE_ITEMS, message: EXPANDED_LIMIT,
+  itemsMessage: `This document is made of more than ${MAX_PACKAGE_ITEMS.toLocaleString('en-US')} pictures and other parts, more than this editor opens.`,
+};
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
-  const parts = canonicalMainPart(unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT }));
+  const parts = canonicalMainPart(unzipBounded(bytes, ARCHIVE_LIMITS));
   return DocxPackage.preview(parts).paragraphs;
 }
 
@@ -1297,11 +1301,11 @@ export class DocxPackage {
     let parts;
     const names = new Set(), duplicates = new Set();
     try {
-      parts = unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT, onItem: entry => {
+      parts = unzipBounded(bytes, { ...ARCHIVE_LIMITS, onItem: entry => {
         const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
         if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
       } });
-    } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
+    } catch (e) { throw new Error(e.message === ARCHIVE_LIMITS.itemsMessage ? e.message : `Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);
     if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error(otherPackageProblem(parts) || 'This file is not a supported DOCX document.');
