@@ -309,6 +309,10 @@ export interface TextBodyInput {
    *  place in the layout, so a paragraph painted alone sits exactly where it
    *  does in the whole body. Null / omitted paints them all. */
   readonly visibleParagraphs?: ReadonlySet<number> | null;
+  /** East Asian vertical text (`eaVert`): the layout turns a quarter turn
+   *  like `cw90`, but ideographs, kana and hangul stand upright in their
+   *  columns while Latin text and brackets lie along them. */
+  readonly uprightEastAsian?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -355,6 +359,8 @@ export interface Line {
   /** Width a distributed line is spread to, by spacing out its characters:
    *  set on every line of a distributed paragraph. */
   distributeWidth?: number;
+  /** Stand East Asian characters upright in a turned line (eaVert). */
+  uprightEastAsian?: boolean;
   bullet: { x: number; baselineDy: number; b: BulletInput } | null;
 }
 
@@ -898,6 +904,9 @@ export const layoutCore = (
           anchorX: lineLeft,
           textAnchor: "start",
           ...(para.rtl ? { rtl: true } : {}),
+          ...(input.uprightEastAsian && (input.vert ?? "none") === "cw90"
+            ? { uprightEastAsian: true }
+            : {}),
           bullet: null,
         };
         if (para.align === "center") {
@@ -1270,11 +1279,17 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
     }
   }
   let pendingDx = 0;
+  const upright = { dx: 0, dy: 0 };
   const tspans = groups
     .map((g) => {
       if (g.text === "\t" || /^\t+$/.test(g.text)) {
         pendingDx += g.width;
         return "";
+      }
+      if (line.uprightEastAsian) {
+        const out = uprightTspans(g, pendingDx, upright);
+        pendingDx = 0;
+        return out;
       }
       const out = tspan(g, pendingDx);
       pendingDx = 0;
@@ -1540,11 +1555,50 @@ const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   a.highlightHex === b.highlightHex &&
   a.href === b.href;
 
-const tspan = (g: Group, dx = 0): string => {
+// Characters that stand upright in East Asian vertical text (UAX #50 U and
+// Tu): ideographs, kana, hangul and full-width letters and digits. Brackets,
+// the long vowel mark and Latin text lie along the column instead, as does
+// sentence punctuation, which this layout cannot move to its vertical place.
+const UPRIGHT_EAST_ASIAN =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3005\u3006\uff10-\uff19\uff21-\uff3a\uff41-\uff5a]/u;
+
+// A turned line's upright characters are each turned back a quarter turn
+// within their own em square, which the glyph's ascent and descent share:
+// the glyph turns about its origin, moved by the ascent across and the
+// descent down, so it lands back in its square. `state` carries that move
+// from run to run of the line, since SVG keeps it for the glyphs after.
+const uprightTspans = (
+  g: Group,
+  dx: number,
+  state: { dx: number; dy: number },
+): string => {
+  const size = renderedSizePxOf(g.piece);
+  const runs = g.text.match(
+    new RegExp(
+      `(?:${UPRIGHT_EAST_ASIAN.source})+|(?:(?!${UPRIGHT_EAST_ASIAN.source})[\\s\\S])+`,
+      "gu",
+    ),
+  ) ?? [g.text];
+  return runs
+    .map((text, i) => {
+      const standing = UPRIGHT_EAST_ASIAN.test(text);
+      const target = standing ? { dx: size * 0.88, dy: size * 0.12 } : null;
+      const moveX = (target?.dx ?? 0) - state.dx + (i === 0 ? dx : 0);
+      const moveY = (target?.dy ?? 0) - state.dy;
+      state.dx = target?.dx ?? 0;
+      state.dy = target?.dy ?? 0;
+      return tspan({ ...g, text }, moveX, moveY, standing ? -90 : 0);
+    })
+    .join("");
+};
+
+const tspan = (g: Group, dx = 0, dy = 0, rotate = 0): string => {
   const p = g.piece;
   const sizePx = renderedSizePxOf(p);
   const attrs: string[] = [
     ...(dx ? [`dx="${fmt(dx)}"`] : []),
+    ...(dy ? [`dy="${fmt(dy)}"`] : []),
+    ...(rotate ? [`rotate="${rotate}"`] : []),
     `font-family="${escapeXml(p.family)}"`,
     `font-size="${fmt(sizePx)}"`,
     ...(p.kerning ? [`style="font-kerning:${p.kerning}"`] : []),

@@ -2205,6 +2205,8 @@ export interface SvgTextArgs {
   readonly innerH: number;
   readonly measure: TextMeasurer;
   readonly vert: VerticalLayout;
+  /** East Asian vertical text (`eaVert`): its ideographs stand upright. */
+  readonly uprightEastAsian?: boolean;
   readonly columns: ColumnLayout | null;
   /** Maps an authored font name onto the family the measurer keys off.
    *  The render paths leave this unset (= `substituteFamily`, whose output
@@ -2547,6 +2549,7 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
     includeOuterSpacing: a.includeOuterSpacing ?? false,
     paragraphs,
     vert: a.vert,
+    ...(a.uprightEastAsian ? { uprightEastAsian: true } : {}),
     columns: a.columns,
   };
   return input;
@@ -3403,9 +3406,8 @@ const renderTextBody = (
   // server-side rendering agrees with the browser (W1).
   if (ctx.mode === "svg") {
     const svgLineReduction = authoredAutofit?.lnSpcReduction ?? 0;
-    const svgVert = verticalLayoutOf(
-      effectiveBody.vert ?? getShapeTextDirection(shape),
-    );
+    const authoredVert = effectiveBody.vert ?? getShapeTextDirection(shape);
+    const svgVert = verticalLayoutOf(authoredVert);
     // numCol only applies to horizontal text — see the engine's combination note.
     const svgCols = getShapeTextColumns(shape);
     const svgColumns: ColumnLayout | null =
@@ -3457,6 +3459,7 @@ const renderTextBody = (
       innerH: vInnerH,
       measure: ctx.measure,
       vert: svgVert,
+      ...(authoredVert === "eaVert" ? { uprightEastAsian: true } : {}),
       columns: svgColumns,
       resolveFamily: ctx.resolveFamily,
       resolveKerning: ctx.resolveKerning,
@@ -10956,6 +10959,7 @@ const renderTableCellText = (
     bottom: number | null;
   },
   vert: VerticalLayout = "none",
+  uprightEastAsian = false,
 ): string => {
   const { paraData, hasText } = cellParaData(paragraphs, ctx);
   if (!hasText) return "";
@@ -11010,6 +11014,7 @@ const renderTableCellText = (
     // The cell's text direction (<a:tcPr vert>); the browser path below
     // still lays cells out horizontally.
     vert: ctx.mode === "svg" ? vert : "none",
+    ...(uprightEastAsian ? { uprightEastAsian: true } : {}),
     columns: null,
     resolveFamily: ctx.resolveFamily,
     resolveKerning: ctx.resolveKerning,
@@ -11422,6 +11427,7 @@ const renderTable = (
           vAnchor,
           cellMargins,
           verticalLayoutOf(getTableCellTextDirection(typedCell)),
+          getTableCellTextDirection(typedCell) === "eaVert",
         ),
       );
     }

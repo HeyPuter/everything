@@ -151,3 +151,36 @@ describe("stacked text", () => {
     ]);
   });
 });
+
+describe("East Asian vertical text", () => {
+  async function turned(direction) {
+    const pres = createDeck("blank"),
+      slide = P.getSlides(pres)[0];
+    const shape = P.addSlideTextBox(slide, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(2),
+      h: P.inches(4),
+      text: "縦書きABC「語」",
+    });
+    P.setShapeTextDirection(shape, direction);
+    const loaded = await parseDeck(await P.savePresentation(pres));
+    return render({ pres: loaded, slide: P.getSlides(loaded)[0] });
+  }
+  const standing = (svg) =>
+    [...svg.matchAll(/<tspan\b([^>]*)>([^<]*)<\/tspan>/g)]
+      .filter((m) => m[1].includes('rotate="-90"'))
+      .map((m) => m[2]);
+  it("stands ideographs and kana upright and lays Latin text and brackets along the column", async () => {
+    const svg = await turned("eaVert");
+    expect(svg).toContain('transform="rotate(90 ');
+    expect(standing(svg)).toEqual(["縦書き", "語"]);
+    // The upright glyphs turn back within their em squares: moved by the
+    // ascent (0.88 em) across and the descent down, and back after them.
+    expect(svg).toMatch(/dx="[\d.]+" dy="[\d.]+" rotate="-90"[^>]*>縦書き/);
+    expect(svg).toMatch(/dx="-[\d.]+" dy="-[\d.]+"[^>]*>ABC「/);
+  });
+  it("turns every character with the column in rotated text", async () => {
+    expect(standing(await turned("vert"))).toEqual([]);
+  });
+});
