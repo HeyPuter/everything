@@ -432,7 +432,7 @@ test("timers and slide-number jumps move past click-sequence media", async ({
 });
 
 // A second of silence, looping, set to start with its slide.
-function addLoopingSound(slide) {
+function addLoopingSound(slide, options = {}) {
   const wav = new Uint8Array(44 + 8000);
   const view = new DataView(wav.buffer);
   const tag = (at, s) =>
@@ -454,7 +454,7 @@ function addLoopingSound(slide) {
     slide,
     { kind: "audio", data: wav, contentType: "audio/wav" },
     { x: 914400, y: 914400, w: 914400, h: 914400 },
-    { start: "automatically", loop: true },
+    { start: "automatically", loop: true, ...options },
   );
 }
 // Every media element asked to play, kept after it leaves the page; the
@@ -499,6 +499,32 @@ test("media that starts by itself stays silent once the show has left its slide"
   await page.keyboard.press("Escape");
   await expect(page.locator("dialog.presenter")).toHaveCount(0);
   await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+});
+
+test("a sound playing across slides carries on when a loop comes back to its slide", async ({
+  page,
+}) => {
+  const pres = deck(
+    [{ effect: "none" }, { effect: "none" }, { effect: "none" }],
+    'loop="1"',
+  );
+  addLoopingSound(P.getSlides(pres)[0], { playAcrossSlides: true });
+  const sounding = await trackMedia(page);
+  await load(page, pres);
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+  for (let pass = 0; pass < 2; pass++) {
+    for (const at of ["2 / 3", "3 / 3", "1 / 3"]) {
+      await page.keyboard.press("ArrowRight");
+      await expect(counter(page)).toHaveText(at);
+      await page.clock.runFor(200);
+    }
+    // Still the one sound, not a second copy beside it.
+    expect(await sounding()).toBe(1);
+  }
+  await page.keyboard.press("Escape");
+  await expect(page.locator("dialog.presenter")).toHaveCount(0);
   expect(await sounding()).toBe(0);
 });
 

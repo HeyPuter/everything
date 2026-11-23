@@ -353,8 +353,20 @@ export function createShowExtras(ctx, show) {
       if (P.getShapeMediaKind(shape)) {
         // Narrations stay silent when the show is set to play without them.
         if (show.skipMedia?.(shape)) continue;
+        const key = `${partOf(slide)}#${P.getShapeId(shape)}`;
+        // A sound still playing across slides from an earlier visit (a loop
+        // coming round again) carries on, rather than starting over beside
+        // itself.
+        const carried = [...playing].find((p) => p.across && p.key === key);
+        if (carried && !carried.element.paused) {
+          layer.append(carried.node);
+          slideMedia.set(String(P.getShapeId(shape)), carried);
+          continue;
+        }
+        carried?.stop();
         const player = mediaPlayer(shape, parents);
         if (!player) continue;
+        player.key = key;
         layer.append(player.node);
         slideMedia.set(String(P.getShapeId(shape)), player);
         if (player.options.start === "automatically") autoplay.push(player);
