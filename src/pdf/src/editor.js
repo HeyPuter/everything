@@ -13028,7 +13028,10 @@ export function createEditor({
         signal: controller.signal,
         renderPage: pageFingerprint,
         onProgress: ({ phase, done: finished, total }) => {
-          bar.value = total ? (phase === 'read' ? 0.9 : 1) * (finished / total) : 0;
+          // Reading both files is the first nine tenths; comparing them, the last tenth.
+          if (total)
+            bar.value =
+              phase === 'read' ? 0.9 * (finished / total) : 0.9 + 0.1 * (finished / total);
           progress.textContent =
             phase === 'read' ? `Reading pages (${finished} of ${total})…` : 'Comparing…';
         },

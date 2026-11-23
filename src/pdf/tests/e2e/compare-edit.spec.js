@@ -432,3 +432,45 @@ test('Organize pages opened during a comparison shows its grid, not the comparis
     'true',
   );
 });
+
+test('the comparison progress bar only moves forward', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Alpha') });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Every value the bar is given, as it is given.
+  await page.evaluate(() => {
+    window.progressValues = [];
+    const { get, set } = Object.getOwnPropertyDescriptor(HTMLProgressElement.prototype, 'value');
+    Object.defineProperty(HTMLProgressElement.prototype, 'value', {
+      configurable: true,
+      get,
+      set(value) {
+        if (this.getAttribute('aria-label') === 'Comparison progress')
+          window.progressValues.push(value);
+        set.call(this, value);
+      },
+    });
+  });
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Beta') });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.getByRole('listbox', { name: 'Changes' }).getByRole('option')).toHaveCount(12);
+  const values = await page.evaluate(() => window.progressValues);
+  expect(values.length).toBeGreaterThan(2);
+  // Reading the pages fills most of the bar; comparing them must not empty it again.
+  values.forEach((value, i) => expect(value).toBeGreaterThanOrEqual(values[i - 1] ?? 0));
+  expect(values.at(-1)).toBe(1);
+});
