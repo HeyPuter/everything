@@ -154,6 +154,9 @@ export class CollabBinding extends EventTarget {
       // names them too, and without their bytes the others could not show them nor the owner's tab save the file.
       this.uploadAssets();
       const state = editorState(engine);
+      // Tracking "just mine" is this person's own choice: the document's Track Changes setting stays as it is shared.
+      if (engine.session.body.trackChangesMode === 'mine') state.trackChanges = this.documentTracking;
+      else this.documentTracking = state.trackChanges;
       const reason = unsupportedReason(state);
       if (this.mode === 'single' || reason) this.writeSnapshot(state, reason);
       else writeState(this.ydoc, state, this, this.bodyCache);
@@ -323,7 +326,10 @@ export class CollabBinding extends EventTarget {
     try {
       const oldStyles = body.styles, oldNumbering = body.numbering;
       for (const key of ['paragraphs', 'tables', 'styles', 'stylesEnabled', 'numbering', 'pageSettings', 'comments']) body[key] = fresh[key];
-      if (state.trackChanges !== undefined) body.trackChanges = fresh.trackChanges;
+      if (state.trackChanges !== undefined) {
+        this.documentTracking = state.trackChanges;
+        if (body.trackChangesMode !== 'mine') body.trackChanges = fresh.trackChanges;
+      }
       for (const key of Object.keys(fresh)) if (/^has[A-Z]/.test(key) && typeof fresh[key] === 'boolean') body[key] = fresh[key];
       body.revision++;
       this.applyStories(state.stories || {});

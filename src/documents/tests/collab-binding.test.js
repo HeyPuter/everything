@@ -100,6 +100,32 @@ describe('co-editing binding', () => {
     expect(ann.engine.model.text.slice(8, 11)).toBe('def');
   });
 
+  it('shares Track Changes turned on for everyone, but keeps tracking just mine to this person', async () => {
+    const { people: [ann, bob] } = await room('Alpha beta');
+    // For everyone (Review > Track Changes sets it in an unrecorded transaction): it reaches Bob before Ann edits.
+    ann.engine.session.run(() => { ann.engine.session.body.trackChanges = true; }, undefined, { record: false });
+    await settle();
+    expect(bob.engine.session.body.trackChanges).toBe(true);
+    bob.engine.execute(m => { m.select(0); m.replace('B'); });
+    await settle();
+    expect(ann.engine.session.body.trackChanges).toBe(true);
+    expect(bob.engine.session.body.revisions.map(r => r.type)).toEqual(['ins']);
+    // Just mine: Ann's edits no longer turned tracking on for everyone, and Bob turning it off for everyone no longer
+    // turned off what Ann tracks for herself.
+    bob.engine.session.run(() => { bob.engine.session.body.trackChanges = false; }, undefined, { record: false });
+    await settle();
+    expect(ann.engine.session.body.trackChanges).toBe(false);
+    Object.assign(ann.engine.session.body, { trackChangesMode: 'mine', trackChanges: true });
+    ann.engine.execute(m => { m.select(m.text.length); m.replace(' A'); });
+    await settle();
+    expect(bob.engine.session.body.trackChanges).toBe(false);
+    expect(bob.engine.model.text).toBe('BAlpha beta A');
+    bob.engine.execute(m => { m.select(0); m.replace('C'); });
+    await settle();
+    expect(ann.engine.session.body.trackChanges).toBe(true);
+    expect(ann.engine.session.body.revisions.map(r => [r.type, ann.engine.model.text.slice(r.start, r.end)])).toEqual([['ins', 'B'], ['ins', ' A']]);
+  });
+
   it('keeps viewers from changing the document', async () => {
     const { people: [, viewer] } = await room('Read me', ['owner', 'viewer']);
     expect(viewer.engine.viewOnly).toBe(true);

@@ -277,8 +277,13 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       engine.finishComposition();
       if (!on && locked()) { error(new Error('Tracking is locked. Unlock it to turn Track Changes off.')); return; }
       if (trackingFixed() && !!engine.session.body.trackChanges !== !!on) { fixedTracking(); return; }
-      if (!!engine.session.body.trackChanges === !!on) { if (force) { engine.session.revision++; engine.onChange(); onChange(); } return; }
-      engine.session.body.trackChanges = !!on;
+      // Track Changes is a setting of the whole document and changes no text. It is set in an editor transaction of
+      // its own, unrecorded, because a shared document sends the others what a transaction changed (collab/binding.js):
+      // set outside one, it reached nobody until this person's next edit, and someone else's edit before that turned it
+      // back off here. A forced change of mode (Just Mine or For Everyone) is sent the same way.
+      const share = action => engine.session.run(action, undefined, { record: false });
+      if (!!engine.session.body.trackChanges === !!on) { if (force) { share(() => {}); engine.session.revision++; engine.onChange(); onChange(); } return; }
+      share(() => { engine.session.body.trackChanges = !!on; });
       engine.session.revision++;
       engine.onChange();
       onChange();
