@@ -1471,6 +1471,8 @@ interface PaintResult {
   strokeAttrs: string;
   /** Pre-built marker-start / marker-end attributes for arrowheads. */
   markerAttrs: string;
+  /** A compound outline (`<a:ln cmpd>`): two or three lines in its width. */
+  compound?: "dbl" | "thickThin" | "thinThick" | "tri" | undefined;
 }
 
 // ECMA-376 `<a:prstDash val="…"/>` → SVG `stroke-dasharray` (in stroke widths).
@@ -1608,6 +1610,7 @@ const paint = (
 
   let strokeColor = "none";
   let strokeWidth = 0;
+  let compound: PaintResult["compound"];
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
   // A gradient line paints its stroke with a gradient; width, dashes, caps,
@@ -1689,9 +1692,10 @@ const paint = (
           `stroke-miterlimit="${Math.max(1, resolvedJoin.limit)}"`,
         );
       const cmpd = formatting.compound;
-      if (cmpd === "dbl") {
-        // Approximate a double line by widening + a transparent stripe down
-        // the middle. SVG has no native compound-line primitive.
+      if (cmpd && cmpd !== "sng") {
+        // Drawn as one line with clear stripes cut along it (see
+        // compoundOutline); a hairline still leaves room for its parts.
+        compound = cmpd;
         strokeWidth = Math.max(strokeWidth, 19_050);
       }
       const head = formatting.head;
@@ -1731,6 +1735,7 @@ const paint = (
     defs,
     strokeAttrs: strokeAttrParts.join(" "),
     markerAttrs,
+    ...(compound ? { compound } : {}),
   };
 };
 
@@ -11605,6 +11610,87 @@ const customGeometryToSvg = (
   return out.join("");
 };
 
+// A compound outline is its full-width line with clear stripes masked out
+// along the middle, so whatever lies beneath shows between its lines: a
+// double line keeps its outer thirds; a triple line a thin line each side
+// of a thick one. The unequal doubles keep a narrower stripe, as their
+// lines cannot be offset from the outline. Fill and arrowheads are drawn
+// whole.
+const COMPOUND_STRIPES: Record<
+  NonNullable<PaintResult["compound"]>,
+  readonly [number, number][]
+> = {
+  dbl: [[1 / 3, 0]],
+  thickThin: [[1 / 4, 0]],
+  thinThick: [[1 / 4, 0]],
+  tri: [[2 / 3, 1 / 3]],
+};
+const compoundOutline = (
+  geometry: ShapeGeometryResolved | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  p: PaintResult,
+): string => {
+  const plain = { ...p, compound: undefined };
+  const fill =
+    p.fill !== "none" || p.cssGradient || p.patternFill
+      ? shapeGeometryToSvg(geometry, x, y, w, h, {
+          ...plain,
+          stroke: "none",
+          strokeWidth: 0,
+          strokeOpacity: undefined,
+          strokeAttrs: "",
+          markerAttrs: "",
+        })
+      : "";
+  const line = shapeGeometryToSvg(geometry, x, y, w, h, {
+    ...plain,
+    fill: "none",
+    fillOpacity: undefined,
+    cssGradient: undefined,
+    patternFill: undefined,
+    markerAttrs: "",
+  });
+  const id = mintId();
+  // Reach far enough for geometry drawn outside the box (callouts).
+  const reach = Math.max(w, h) + p.strokeWidth * 4;
+  const region = `x="${E(x - reach)}" y="${E(y - reach)}" width="${E(w + 2 * reach)}" height="${E(h + 2 * reach)}"`;
+  const stripes = COMPOUND_STRIPES[p.compound!]
+    .flatMap(([cut, keep]) => [
+      [cut, "#000000"] as const,
+      ...(keep ? [[keep, "#FFFFFF"] as const] : []),
+    ])
+    .map(([share, color]) =>
+      shapeGeometryToSvg(geometry, x, y, w, h, {
+        ...plain,
+        fill: "none",
+        fillOpacity: undefined,
+        cssGradient: undefined,
+        patternFill: undefined,
+        stroke: color,
+        strokeWidth: p.strokeWidth * share,
+        strokeOpacity: undefined,
+        markerAttrs: "",
+      }),
+    )
+    .join("");
+  const mask = `<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}><rect ${region} fill="#FFFFFF"/>${stripes}</mask></defs>`;
+  const arrows = p.markerAttrs
+    ? shapeGeometryToSvg(geometry, x, y, w, h, {
+        ...plain,
+        fill: "none",
+        fillOpacity: undefined,
+        cssGradient: undefined,
+        patternFill: undefined,
+        stroke: "none",
+        strokeOpacity: undefined,
+      })
+    : "";
+  return `${fill}${mask}<g mask="url(#${id})">${line}</g>${arrows}`;
+};
+
 // The same outline defines a shape's fill, a picture's clipping region and
 // their strokes. Keep path evaluation and preset support consistent.
 // Preserve inexpensive SVG primitives only when the evaluated path agrees.
@@ -11687,6 +11773,8 @@ const shapeGeometryToSvg = (
   h: number,
   p: PaintResult,
 ): string => {
+  if (p.compound && p.stroke !== "none" && p.strokeWidth > 0)
+    return compoundOutline(geometry, x, y, w, h, p);
   // Color alpha belongs to the fill, not the complete shape. Inheriting
   // fill-opacity within geometry preserves independent outlines, markers,
   // text and effects, including each path's own no-fill choice.
@@ -12050,7 +12138,8 @@ const renderShape = (
         : svg;
     if (
       (preset === "straightConnector1" || preset === "line") &&
-      ordinaryLine
+      ordinaryLine &&
+      !p.compound
     ) {
       const line = `<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}`;
       return fx
