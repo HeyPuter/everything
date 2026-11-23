@@ -14,7 +14,8 @@ import { explicitDest } from './pages.js';
  * How a PDF asks to be shown when it opens (a desktop editor's Document Properties > Initial
  * View), and the fonts it uses (the Fonts tab).
  *
- * initial view: { layout: 'single' | 'continuous' | 'two' | 'two-continuous',
+ * initial view: { layout: 'single' | 'continuous' | 'two' | 'two-continuous', cover (side by
+ *                 side, page 1 alone: true, paired: false, or null for other layouts),
  *                 panel: 'none' | 'bookmarks' | 'pages' | 'attachments' | 'layers',
  *                 page (0-based), zoom: 'default' | 'fit' | 'page' | number (1 = 100%),
  *                 left, top (the PDF point at the view's top left, or null),
@@ -29,8 +30,14 @@ const LAYOUTS = {
   TwoColumnLeft: 'two-continuous',
   TwoColumnRight: 'two-continuous',
 };
-// The two-page views pair pages 1 and 2, 3 and 4: odd pages on the left. The Right
-// layouts would put page 1 alone, as a cover, in other readers.
+// The two-page views pair pages 1 and 2, 3 and 4: odd pages on the left. The Right layouts
+// put page 1 alone, as a cover (`cover`), so that 2 and 3 face.
+const COVER_LAYOUTS = {
+  TwoPageLeft: false,
+  TwoColumnLeft: false,
+  TwoPageRight: true,
+  TwoColumnRight: true,
+};
 const LAYOUT_NAMES = {
   single: 'SinglePage',
   continuous: 'OneColumn',
@@ -114,6 +121,7 @@ export function readInitialView(doc) {
         : null;
   return {
     layout: LAYOUTS[nameOf(catalog.lookup(name('PageLayout')))] || 'default',
+    cover: COVER_LAYOUTS[nameOf(catalog.lookup(name('PageLayout')))] ?? null,
     panel: MODES[mode] || 'none',
     fullScreen: mode === 'FullScreen',
     page: destinationPage(doc, dest instanceof PDFArray ? dest : null) ?? 0,
@@ -129,9 +137,15 @@ export function readInitialView(doc) {
 export function writeInitialView(doc, view) {
   const catalog = doc.catalog;
   if (view.layout !== undefined) {
+    // A book's cover stays alone when its spreads change from scrolling to one at a time.
+    const cover = COVER_LAYOUTS[nameOf(catalog.lookup(name('PageLayout')))];
+    const layout = LAYOUT_NAMES[view.layout];
     if (view.layout === 'default') catalog.delete(name('PageLayout'));
-    else if (LAYOUT_NAMES[view.layout])
-      catalog.set(name('PageLayout'), name(LAYOUT_NAMES[view.layout]));
+    else if (layout)
+      catalog.set(
+        name('PageLayout'),
+        name(cover && layout in COVER_LAYOUTS ? layout.replace(/Left$/, 'Right') : layout),
+      );
   }
   if (view.panel !== undefined || view.fullScreen !== undefined) {
     const mode = view.fullScreen ? 'FullScreen' : MODE_NAMES[view.panel] || 'UseNone';

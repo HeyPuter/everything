@@ -25,7 +25,11 @@ export function createPageStack({
   let sizesGeometry = null; // the document geometry those sizes were read for
   let fallback = { width: 612, height: 792 };
   let continuous = true,
-    twoUp = false;
+    twoUp = false,
+    // Side by side, the first page alone on the right, as a book's cover: then 2 and 3 face.
+    cover = false;
+  /** The spread a page belongs to, side by side. */
+  const pairOf = (i) => (cover ? Math.floor((i + 1) / 2) : Math.floor(i / 2));
   let paper = null;
   // The revision the interactive page was last drawn at.
   let paperRevision = null;
@@ -131,8 +135,7 @@ export function createPageStack({
       slot.style.height = `${height}px`;
       // One page at a time, or its spread when pages are side by side.
       const current = currentIndex();
-      slot.hidden =
-        !continuous && (twoUp ? Math.floor(i / 2) !== Math.floor(current / 2) : i !== current);
+      slot.hidden = !continuous && (twoUp ? pairOf(i) !== pairOf(current) : i !== current);
       // A picture drawn at another zoom keeps showing, stretched, until it is redrawn.
       if (slot.dataset.zoom && Number(slot.dataset.zoom) !== zoom) slot.dataset.stale = 'true';
     });
@@ -362,6 +365,18 @@ export function createPageStack({
       container.classList.toggle('two-up', on);
       layout();
     },
+    get cover() {
+      return cover;
+    },
+    /** Side by side, show the first page alone, as a cover, so later spreads face as in a book. */
+    setCover(on) {
+      cover = on;
+      container.classList.toggle('cover', on);
+      layout();
+    },
+    pairOf,
+    /** The first page of a spread. */
+    firstOfPair: (pair) => (cover ? Math.max(0, pair * 2 - 1) : pair * 2),
     rebuild,
     loadSizes,
     layout: () => keepInPlace(layout),

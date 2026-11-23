@@ -1826,6 +1826,10 @@
 .editor .page-stack.two-up > .page-caption {
   grid-column: 1 / -1;
 }
+/* With a cover, the first page stands alone on the right, so later pages face as in a book. */
+.editor .page-stack.two-up.cover > .page-slot[data-page='0'] {
+  grid-column: 2;
+}
 
 /* Document details: initial view and fonts */
 .detail-section {

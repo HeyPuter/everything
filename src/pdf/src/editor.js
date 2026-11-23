@@ -2706,7 +2706,7 @@ export function createEditor({
     }
     const destination = clampPageIndex(pendingNavigation?.index ?? pageIndex);
     // Side by side, the buttons turn pairs: the other page of the pair on view is in sight.
-    const turn = (index) => (stack.twoUp ? Math.floor(index / 2) : index);
+    const turn = (index) => (stack.twoUp ? stack.pairOf(index) : index);
     setStepOff(prevButton, !pageCount || turn(destination) === 0);
     setStepOff(nextButton, !pageCount || turn(destination) >= turn(pageCount - 1));
     editorRoot.setAttribute('aria-busy', String(busy));
@@ -3479,9 +3479,9 @@ export function createEditor({
     // other page of the pair on view is already in sight.
     if (stack.twoUp) {
       // From the first or last pair there is none to turn to.
-      const pair = Math.floor(from / 2) + direction;
-      if (pair < 0 || pair > Math.floor((pageCount - 1) / 2)) return false;
-      return navigate(pair * 2);
+      const pair = stack.pairOf(from) + direction;
+      if (pair < 0 || pair > stack.pairOf(pageCount - 1)) return false;
+      return navigate(stack.firstOfPair(pair));
     }
     return navigate(from + direction);
   }
@@ -3618,9 +3618,27 @@ export function createEditor({
       stack.refresh();
     }
   }
+  const COVER_PAGE_KEY = 'pdf-editor:cover-page';
+  function setCoverPage(on, { remember = true } = {}) {
+    stack.setCover(on);
+    if (remember)
+      try {
+        if (on) localStorage.setItem(COVER_PAGE_KEY, 'on');
+        else localStorage.removeItem(COVER_PAGE_KEY);
+      } catch {
+        /* The preference is optional. */
+      }
+    if (pdf && stack.twoUp) {
+      safe(() => renderPage())();
+      stack.scrollTo(pageIndex);
+      stack.refresh();
+      updateStatus();
+    }
+  }
   try {
     const stored = localStorage.getItem(PAGE_DISPLAY_KEY);
     if (PAGE_DISPLAYS[stored]) setPageDisplay(stored, { remember: false });
+    if (localStorage.getItem(COVER_PAGE_KEY)) setCoverPage(true, { remember: false });
   } catch {
     /* The preference is optional. */
   }
@@ -8816,11 +8834,23 @@ export function createEditor({
           ['single', 'Single page'],
           ['two-continuous', 'Two-page scrolling'],
           ['two', 'Two-page'],
-        ].map(([display, label]) => ({
-          label,
-          checked: pageDisplay() === display,
-          onSelect: () => setPageDisplay(display),
-        })),
+        ]
+          .map(([display, label]) => ({
+            label,
+            checked: pageDisplay() === display,
+            onSelect: () => setPageDisplay(display),
+          }))
+          .concat([
+            { separator: true },
+            {
+              // Side by side, page 1 alone, as a book's cover, so the pages after it face as
+              // printed: 2 and 3, 4 and 5.
+              label: 'Show cover page',
+              checked: stack.cover,
+              disabled: !stack.twoUp,
+              onSelect: () => setCoverPage(!stack.cover),
+            },
+          ]),
       },
       { label: 'Read out loud', icon: 'Volume2', items: readingItems() },
       {
@@ -14070,6 +14100,8 @@ export function createEditor({
       if (title) shownTitle = title;
     }
     if (view.layout !== 'default') setPageDisplay(view.layout, { remember: false });
+    // TwoPageRight and TwoColumnRight put page 1 alone, as a cover.
+    if (view.cover != null && stack.twoUp) setCoverPage(view.cover, { remember: false });
     const panel = {
       bookmarks: 'outline',
       pages: 'pages',
