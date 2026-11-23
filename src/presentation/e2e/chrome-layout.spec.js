@@ -276,3 +276,31 @@ test("screen tips stay in the window and follow the keyboard", async ({
   await page.keyboard.press("Escape");
   await expect(tip).toHaveCount(0);
 });
+
+// A menu shows its shortcuts to the eye only; assistive technology hears
+// them from aria-keyshortcuts.
+test("menu items tell assistive technology their shortcuts", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "the menu bar");
+  await mockPuter(page);
+  await story(page);
+  await page
+    .getByRole("menubar")
+    .getByRole("menuitem", { name: "Edit", exact: true })
+    .click();
+  await expect(
+    page.getByRole("menuitem", { name: "Undo", exact: true }),
+  ).toHaveAttribute("aria-keyshortcuts", "Meta+Z");
+  await expect(
+    page.getByRole("menuitem", { name: "Redo", exact: true }),
+  ).toHaveAttribute("aria-keyshortcuts", "Meta+Shift+Z");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("menubar")
+    .getByRole("menuitem", { name: "Arrange", exact: true })
+    .click();
+  await expect(
+    page.getByRole("menuitem", { name: "Selection Pane", exact: true }),
+  ).toHaveAttribute("aria-keyshortcuts", "Meta+Alt+U");
+});

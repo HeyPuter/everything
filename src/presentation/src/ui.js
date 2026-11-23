@@ -474,6 +474,16 @@ let listening = false;
 export const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform || "");
 export const MOD_KEY = IS_MAC ? "⌘" : "Ctrl";
 export const ALT_KEY = IS_MAC ? "⌥" : "Alt";
+// A menu's shortcut ("⌘+Shift+Z", "Ctrl+Alt+G", "F5") as aria-keyshortcuts
+// gives it ("Meta+Shift+Z"), so assistive technology hears what the menu
+// shows; null for one it cannot spell that way.
+const KEY_NAMES = { "⌘": "Meta", "⌥": "Alt", Ctrl: "Control", Esc: "Escape" };
+export function keyShortcuts(text) {
+  if (!text || /\s|\+$|^\+/.test(text)) return null;
+  const keys = text.split("+");
+  if (keys.some((key) => !key)) return null;
+  return keys.map((key) => KEY_NAMES[key] || key).join("+");
+}
 /** Which open menu holds this node, or -1 for none. */
 const panelAt = (node) =>
   node instanceof Node
@@ -576,6 +586,9 @@ export function openMenu({
         "aria-checked": isCheck ? String(!!item.checked) : null,
         "aria-haspopup": opensChild ? "menu" : null,
         "aria-expanded": opensChild ? "false" : null,
+        // The shortcut shown is hidden from assistive technology, which
+        // hears it from here.
+        "aria-keyshortcuts": keyShortcuts(item.shortcut),
         // A hint is a description, not part of the name.
         "aria-label": item.hint ? item.label : null,
         disabled: !!item.disabled,
