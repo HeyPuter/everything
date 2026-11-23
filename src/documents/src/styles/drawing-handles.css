@@ -13,6 +13,8 @@
 .canvas-crop-frame[hidden], .canvas-crop-preview[hidden], .canvas-anchor-mark[hidden], .canvas-drop-caret[hidden], .canvas-drawing-guide[hidden] { display:none; }
 /* The Move button sits below the frame so the rotation handle has the top edge to itself. */
 .canvas-image-frame > .canvas-image-move { top:auto; bottom:-30px; left:0; }
+/* The frame turns with its drawing; the Move label turns back so it reads upright (--frame-turn, image-interaction.js). */
+.canvas-image-frame > .canvas-image-move { transform:rotate(calc(-1 * var(--frame-turn, 0deg))); }
 /* The rotation handle sits on a short stem above the top edge and turns with the frame. */
 .canvas-image-rotate {
   position:absolute; left:calc(50% - 9px); top:-34px; width:18px; height:18px; padding:0;
@@ -22,7 +24,7 @@
 .canvas-image-rotate::after { content:''; position:absolute; left:8px; top:17px; width:1px; height:16px; background:var(--handle-ink); pointer-events:none; }
 .canvas-image-rotate:active { cursor:grabbing; }
 .canvas-image-frame[data-angle]::after {
-  content:attr(data-angle); position:absolute; left:50%; top:calc(100% + 8px); transform:translateX(-50%);
+  content:attr(data-angle); position:absolute; left:50%; top:calc(100% + 8px); transform:translateX(-50%) rotate(calc(-1 * var(--frame-turn, 0deg)));
   padding:1px 6px; border-radius:4px; background:#243e5f; color:white; font:11px system-ui; white-space:nowrap;
 }
 .canvas-image-handle:focus-visible, .canvas-image-rotate:focus-visible, .canvas-layout-options:focus-visible,
