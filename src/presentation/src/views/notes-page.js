@@ -2,6 +2,7 @@
 // above and its speaker notes below, as the notes would print. The notes
 // are edited on the page; Page Up and Page Down go from page to page.
 import { el } from "../ui.js";
+import { trackTextareaEdits } from "../text-edit-history.js";
 
 const EMU_PER_INCH = 914400;
 const PX_PER_INCH = 96;
@@ -16,6 +17,7 @@ export function createNotesPage(ctx) {
   let scroller = null;
   let zoom = "fit";
   const timers = new Map();
+  const typed = new WeakMap();
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries)
@@ -182,8 +184,14 @@ export function createNotesPage(ctx) {
       spellcheck: "true",
       oninput: () => schedule(part, text),
       onblur: () => flush(part),
-      onfocus: () => choose(part),
+      onfocus: () => {
+        if (!timers.has(part)) typed.get(text)?.rebase();
+        choose(part);
+      },
     });
+    // What is typed applies as the edits it was, so the notes' formatting
+    // stays where the typing did not reach.
+    typed.set(text, trackTextareaEdits(text));
     const page = el(
       "article",
       { class: "notes-page", "data-part": part },
@@ -216,11 +224,24 @@ export function createNotesPage(ctx) {
     clearTimeout(pending.timer);
     timers.delete(part);
     const value = pending.text.value;
+    const tracker = typed.get(pending.text);
+    const base = tracker?.base(),
+      edits = tracker?.edits() || [];
+    tracker?.rebase(value);
     const s = slides().find((x) => P.getSlidePartName(x) === part);
     if (!s || (P.getSlideNotes(s) || "") === value) return;
-    ctx.mutateSlide(s, (target) => P.setSlideNotes(target, value), {
-      coalesce: `notes-page:${part}`,
-    });
+    ctx.mutateSlide(
+      s,
+      (target) => {
+        if ((P.getSlideNotes(target) || "") === base && edits.length)
+          try {
+            P.editSlideNotes(target, edits, value);
+            return;
+          } catch {}
+        P.setSlideNotes(target, value);
+      },
+      { coalesce: `notes-page:${part}` },
+    );
   }
   function flushAll() {
     for (const part of [...timers.keys()]) flush(part);

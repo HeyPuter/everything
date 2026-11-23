@@ -8,6 +8,7 @@ import {
   indentLine,
   joinWithPrevious,
   normalize,
+  pasteLines,
   splitItem,
 } from "./outline.js";
 
@@ -17,8 +18,16 @@ import {
 const SAMPLE = "[Text]";
 
 // `read()` gives the graphic's items now (null once it is gone), `write(items)`
-// applies new ones; `onCurrent(index)` hears the item being edited.
-export function openTextPane({ title, about, read, write, onCurrent }) {
+// applies new ones; `onCurrent(index)` hears the item being edited;
+// `returnFocus()` gives the element the keyboard goes back to on closing.
+export function openTextPane({
+  title,
+  about,
+  read,
+  write,
+  onCurrent,
+  returnFocus = null,
+}) {
   let items = read();
   if (!items) return null;
   if (!items.length) items = [{ text: "", level: 0 }];
@@ -112,6 +121,21 @@ export function openTextPane({ title, about, read, write, onCurrent }) {
               schedule();
             },
             onkeydown: (e) => key(e, i),
+            // Lines pasted from a list become items of their own: the
+            // field alone would run them together on one line.
+            onpaste: (e) => {
+              const input = e.currentTarget;
+              const result = pasteLines(
+                items,
+                i,
+                input.selectionStart ?? input.value.length,
+                input.selectionEnd ?? input.value.length,
+                e.clipboardData?.getData("text/plain"),
+              );
+              if (!result) return;
+              e.preventDefault();
+              change(result);
+            },
           }),
         ),
       ),
@@ -191,7 +215,9 @@ export function openTextPane({ title, about, read, write, onCurrent }) {
     if (disposed) return;
     if (timer) commitNow();
     disposed = true;
+    const hadFocus = panel.contains(document.activeElement);
     panel.remove();
+    if (hadFocus) returnFocus?.()?.focus({ preventScroll: true });
     onClose?.();
   }
   draw();

@@ -145,6 +145,24 @@
   justify-content: safe center;
   gap: 4px;
 }
+/* Too narrow for the status to be read beside the name, it shows its icon
+   alone (its words stay in its tooltip and for screen readers) rather than
+   a letter or two of them. A phone has the status under the name. */
+@media (min-width: 761px) {
+  .editor .topbar-title-wrap {
+    container-type: inline-size;
+  }
+  @container (max-width: 250px) {
+    .editor .save-status > span {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+  }
+}
 /* When the bar is short of room the save status gives way first, down to
    its icon, and then the name, down to a few letters. */
 .editor .topbar-title-wrap > .editor-title {
@@ -221,7 +239,7 @@
 }
 /* A tablet has no room for the menus beside the title and the actions: the
    menu bar takes a row of its own under them. */
-@media (max-width: 1230px) and (min-width: 761px) {
+@media (max-width: 1260px) and (min-width: 761px) {
   .editor .topbar-row {
     flex-wrap: wrap;
     height: auto;
@@ -264,6 +282,24 @@
 @media (max-width: 1350px) {
   .command-search {
     width: 120px;
+  }
+}
+/* A laptop's bar holds the menus, the name and the actions in one row: the
+   menus and the search close up and Ask AI goes by its icon, so the
+   presentation's name keeps room to be read instead of running under the
+   search box. */
+@media (max-width: 1439px) and (min-width: 1261px) {
+  .editor .command-search {
+    width: 96px;
+  }
+  .editor .menu-btn {
+    padding: 0 6px;
+  }
+  .editor .topbar-actions .btn.ai-toggle {
+    padding: 0 7px;
+  }
+  .editor .topbar-actions .btn.ai-toggle span {
+    display: none;
   }
 }
 @media (max-width: 1200px) {

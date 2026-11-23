@@ -133,7 +133,11 @@ describe("saved SmartArt rendering", () => {
     const { pres } = await fixture({ nested: true });
     const svg = render(pres);
     expect(svg).toContain("translate(96.00 192.00)");
-    expect(svg).toContain("translate(96.00 0.00) scale(2.000000 2.000000)");
+    // The nested group doubles its child into its frame: the child is drawn
+    // at its mapped place and size, with its text left at its point size.
+    expect(svg).toContain(
+      '<rect x="96.00" y="0.00" width="192.00" height="192.00"',
+    );
     expect(svg).toContain("Rendered");
   });
 

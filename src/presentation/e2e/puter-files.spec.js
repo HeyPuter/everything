@@ -238,6 +238,30 @@ test("a presentation launched from the desktop opens directly, titled after the 
     .toBe("Presentation");
 });
 
+test("an empty presentation file opens as a new presentation saved to it", async ({
+  page,
+}) => {
+  // As a desktop's New > Presentation makes it.
+  await mockDrive(page, {
+    seed: { "~/Desktop/Plan.pptx": "" },
+    launch: [{ name: "Plan.pptx", path: "~/Desktop/Plan.pptx" }],
+  });
+  await expect(title(page)).toHaveText("Plan");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
+  expect(await writes(page)).toEqual([]);
+  await addText(page);
+  await expect(status(page)).toHaveText("Saved to Puter");
+  expect((await writes(page)).at(-1)).toMatchObject({
+    path: "/test/Desktop/Plan.pptx",
+    options: { overwrite: true },
+  });
+  const saved = await page.evaluate(async () => {
+    const blob = await window.puter.fs.read("~/Desktop/Plan.pptx");
+    return [...new Uint8Array(await blob.arrayBuffer()).subarray(0, 2)];
+  });
+  expect(saved).toEqual([0x50, 0x4b]);
+});
+
 test("a launch that is not a presentation explains itself and opens a new one", async ({
   page,
 }) => {
@@ -858,6 +882,28 @@ test("inside Puter, exports download to this device and copies go through Puter'
   await expect(
     page.getByRole("button", { name: /Recovery draft/ }),
   ).toHaveCount(0);
+});
+
+test("Open recent lists the presentations in Puter from the first screen", async ({
+  page,
+}) => {
+  const story = await base64(createDeck("story"));
+  await mockDrive(page, {
+    env: "web",
+    seed: {
+      "Presentations/Alpha.pptx": story,
+      "Presentations/Beta.pptx": story,
+    },
+  });
+  await expect(title(page)).toHaveText("Untitled presentation");
+  await fileMenu(page);
+  await page.getByRole("menuitem", { name: "Open recent" }).click();
+  const items = page
+    .getByRole("menu", { name: "Open recent" })
+    .getByRole("menuitem");
+  await expect(items).toHaveText([/^Beta/, /^Alpha/]);
+  await items.filter({ hasText: "Alpha" }).click();
+  await expect(title(page)).toHaveText("Alpha");
 });
 
 test("a cancelled Open dialog leaves things as they were", async ({ page }) => {

@@ -208,6 +208,24 @@ test("exports slides as PNG pictures in a ZIP and the current slide as JPEG", as
   expect([...jpeg.bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
 });
 
+test("names the pictures in a ZIP so that it unzips on Windows too", async ({
+  page,
+}) => {
+  await start(page);
+  const zip = await exportAs(page, "PNG pictures", async (dialog) => {
+    await dialog
+      .getByRole("textbox", { name: "File name" })
+      .fill('Q3: "Plan" <draft>?');
+    await dialog.getByRole("combobox", { name: "Size" }).selectOption("1280");
+  });
+  expect(Object.keys(unzipSync(zip.bytes))).toEqual([
+    "Q3_ _Plan_ _draft__ - Slide 1.png",
+    "Q3_ _Plan_ _draft__ - Slide 2.png",
+    "Q3_ _Plan_ _draft__ - Slide 3.png",
+    "Q3_ _Plan_ _draft__ - Slide 5.png",
+  ]);
+});
+
 test("exports the show as a WebM video that plays for the show's length", async ({
   page,
 }) => {
@@ -439,6 +457,28 @@ test("prints letter-size handouts at the paper's size", async ({ page }) => {
   expect(pages).toHaveLength(1);
   expect(pages[0][0]).toBeCloseTo(612, 0);
   expect(pages[0][1]).toBeCloseTo(792, 0);
+});
+
+test("a downloaded file says when it was last saved", async ({ page }) => {
+  const deck = storyDeck();
+  P.setCoreProperties(deck, {
+    created: "2020-01-02T03:04:05Z",
+    modified: "2020-01-02T03:04:05Z",
+  });
+  await start(page, deck);
+  const before = Date.now() - 2000;
+  const { bytes } = await downloadVia(page, "Download PowerPoint (.pptx)");
+  const core = P.getCoreProperties(await parseDeck(bytes));
+  expect(new Date(core.created).toISOString()).toBe("2020-01-02T03:04:05.000Z");
+  expect(new Date(core.modified).getTime()).toBeGreaterThan(before);
+  // As File > Properties shows.
+  await fileMenu(page, "Properties");
+  const dialog = page.getByRole("dialog", { name: "Properties" });
+  const modified = dialog
+    .locator("dt", { hasText: /^Modified$/ })
+    .locator("xpath=following-sibling::dd[1]");
+  await expect(modified).toContainText(String(new Date().getFullYear()));
+  await expect(modified).not.toContainText("2020");
 });
 
 test("saves document properties and statistics in the file", async ({

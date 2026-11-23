@@ -4935,6 +4935,77 @@ test("queued formatting toggles apply every activation", async ({ page }) => {
   expect(Boolean(format.italic)).toBe(false);
 });
 
+// Bold pressed at the caret with nothing selected made the whole box bold,
+// the text before the caret as well as the text typed next.
+test("formatting chosen at the caret goes to the text typed next, or to the word it is in", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  text(P.getSlides(pres)[0], "Hello", 1, 1, 8, 2, 24, "#000000");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Caret.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await page.locator(".object-hit").dblclick();
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(editor).toBeFocused();
+  const caret = (offset) =>
+    editor.evaluate((node, offset) => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      let left = offset;
+      for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+        if (left <= t.data.length) {
+          getSelection().collapse(t, left);
+          return;
+        }
+        left -= t.data.length;
+      }
+    }, offset);
+  await caret(5);
+  await page.keyboard.type(" ");
+  await page.keyboard.press("Control+b");
+  await expect(
+    page.locator('.ribbon-panel:not([hidden]) [data-command="bold"]').first(),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.type("bold");
+  await page.keyboard.press("Control+b");
+  await page.keyboard.type(" plain");
+  // Inside a word, the word takes it.
+  await caret(2);
+  await page.keyboard.press("Control+i");
+  await page.keyboard.press("Escape");
+  await expect(editor).toHaveCount(0);
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const shape = P.getSlideShapes(
+    P.getSlides(
+      await parseDeck(
+        new Uint8Array(await readFile(await (await downloaded).path())),
+      ),
+    )[0],
+  )[0];
+  const runs = Array.from({ length: P.getShapeRunCount(shape, 0) }, (_, r) => {
+    const format = P.getShapeRunFormat(shape, 0, r);
+    return [P.getShapeRunText(shape, 0, r), !!format.bold, !!format.italic];
+  });
+  expect(runs).toEqual([
+    ["Hello", false, true],
+    [" ", false, false],
+    ["bold", true, false],
+    [" plain", false, false],
+  ]);
+});
+
 for (const action of ["formatting", "movement"]) {
   test(`object ${action} queued immediately after undo edits the restored object`, async ({
     page,
@@ -7285,6 +7356,69 @@ test("speaker notes queued immediately after undo survive export", async ({
   );
 });
 
+// Typing in the notes pane wrote the whole of the notes back in their first
+// run's format: one character took a bold word's bold and a bulleted
+// line's bullet and level out of notes that came with them.
+test("typing in the speaker notes keeps the notes' formatting", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  P.setSlideNotes(slide, "placeholder");
+  const part = slide[Symbol.for("@office-kit/pptx.package")].parts.find((p) =>
+    /notesSlide\d+\.xml$/.test(p.name),
+  );
+  part.data = new TextEncoder().encode(
+    new TextDecoder()
+      .decode(part.data)
+      .replace(
+        /(<p:txBody>[\s\S]*?<a:lstStyle\/>)[\s\S]*?(<\/p:txBody>)/,
+        "$1" +
+          '<a:p><a:r><a:rPr lang="en-US"/><a:t>Say </a:t></a:r>' +
+          '<a:r><a:rPr lang="en-US" b="1"/><a:t>thanks</a:t></a:r></a:p>' +
+          '<a:p><a:pPr lvl="1"><a:buChar char="•"/></a:pPr>' +
+          '<a:r><a:rPr lang="en-US"/><a:t>then pause</a:t></a:r></a:p>' +
+          "$2",
+      ),
+  );
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Notes.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const notes = page.locator("#speaker-notes");
+  await expect(notes).toHaveValue("Say thanks\nthen pause");
+  await notes.click();
+  await notes.evaluate((t) =>
+    t.setSelectionRange(t.value.length, t.value.length),
+  );
+  await page.keyboard.type("!");
+  await page.locator("#slide-canvas").click({ position: { x: 5, y: 5 } });
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const loaded = await parseDeck(
+    new Uint8Array(await readFile(await (await downloaded).path())),
+  );
+  const saved = P.getSlides(loaded)[0];
+  expect(P.getSlideNotes(saved)).toBe("Say thanks\nthen pause!");
+  const xml = new TextDecoder().decode(
+    saved[Symbol.for("@office-kit/pptx.package")].parts.find((p) =>
+      /notesSlide\d+\.xml$/.test(p.name),
+    ).data,
+  );
+  expect(xml).toContain('<a:rPr lang="en-US" b="1"/><a:t>thanks</a:t>');
+  expect(xml).toContain('<a:pPr lvl="1"><a:buChar char="•"/></a:pPr>');
+});
+
 test("an edit queued for an object removed by undo preserves redo", async ({
   page,
 }) => {
@@ -8930,6 +9064,48 @@ test("slide options are visible without hovering on touch screens", async ({
   ).toBeVisible();
 });
 
+test("dropping several pictures while editing puts every one on the slide", async ({
+  page,
+}) => {
+  await story(page);
+  await expect(page.locator(".object-hit")).toHaveCount(7);
+  const png = Array.from(
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  );
+  await page.evaluate(
+    ({ png }) => {
+      const transfer = new DataTransfer();
+      for (const [name, type, bytes] of [
+        ["One.png", "image/png", png],
+        ["Animation.gif", "image/gif", new Array(64).fill(0)],
+        ["Two.png", "image/png", png],
+      ])
+        transfer.items.add(new File([new Uint8Array(bytes)], name, { type }));
+      document.querySelector("#slide-canvas").dispatchEvent(
+        new DragEvent("drop", {
+          dataTransfer: transfer,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { png },
+  );
+  await expect(page.locator("#toast")).toHaveText(
+    "“Animation.gif” was left out. Choose a PNG or JPEG image.",
+  );
+  await expect(page.locator(".object-hit")).toHaveCount(9);
+  await expect(
+    page.getByRole("button", { name: "Image: One.png. Select to edit" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Image: Two.png. Select to edit" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
 test("dropping an unsupported image while editing explains the image formats", async ({
   page,
 }) => {
@@ -9473,9 +9649,9 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
     expect.closeTo((4 / 13.333) * 100, 1),
     expect.closeTo((2 / 7.5) * 100, 1),
   ]);
-  // Its text edits at the size the doubled group shows it: 18 pt inside a
-  // twice-scaled group reads like 36 pt. (On phones the panel covers the
-  // canvas, so it closes first.)
+  // Its text edits at the size the slide shows it: a resized group keeps
+  // its text at 18 pt, re-wrapped in its doubled box. (On phones the panel
+  // covers the canvas, so it closes first.)
   const closePanel = page.getByRole("button", { name: "Close format panel" });
   if (await closePanel.isVisible()) await closePanel.click();
   await child.dblclick();
@@ -9486,7 +9662,7 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
     .evaluate((node) => node.clientWidth);
   expect(
     parseFloat(await editor.evaluate((node) => node.style.fontSize)),
-  ).toBeCloseTo(Math.max(14, (36 / 72 / (12192000 / 914400)) * canvasWidth), 0);
+  ).toBeCloseTo(Math.max(14, (18 / 72 / (12192000 / 914400)) * canvasWidth), 0);
   await editor.press("Escape");
   await expect(editor).toHaveCount(0);
   await paneTab(page, "Size & Properties");
@@ -13694,7 +13870,11 @@ test("a mail address typed as a link writes to it", async ({ page }) => {
 
 // Find counted matches in the flattened text while Replace found them run
 // by run, so the counts disagreed and Replace could change the wrong one.
-test("find counts the matches that Replace can reach", async ({ page }) => {
+// A match whose formatting changes part-way through (here a bold "ab" and a
+// plain "c") is found and replaced too, taking the formatting it starts in.
+test("find and replace reach text whose formatting changes part-way through", async ({
+  page,
+}) => {
   await start(page);
   const pres = createDeck("blank");
   const slide = P.getSlides(pres)[0];
@@ -13720,10 +13900,10 @@ test("find counts the matches that Replace can reach", async ({ page }) => {
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.keyboard.press("Control+h");
   await page.getByRole("searchbox", { name: "Find", exact: true }).fill("abc");
-  await expect(page.locator(".find-count")).toHaveText("1 of 2");
+  await expect(page.locator(".find-count")).toHaveText("1 of 3");
   await page.getByRole("textbox", { name: "Replace with" }).fill("ZZZ");
   await page.getByRole("button", { name: "Replace", exact: true }).click();
-  await expect(page.locator(".find-count")).toHaveText("1 of 1");
+  await expect(page.locator(".find-count")).toHaveText("1 of 2");
   await page.getByRole("button", { name: "Replace all", exact: true }).click();
   await expect(page.locator(".find-count")).toHaveText("No matches");
   await expect
@@ -13732,7 +13912,21 @@ test("find counts the matches that Replace can reach", async ({ page }) => {
         await page.locator(".slide-image").getAttribute("src"),
       ),
     )
-    .toContain("c ZZZ ZZZ");
+    .toContain(" ZZZ ZZZ");
+  await page.keyboard.press("Escape");
+  await openFileMenu(page);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const saved = await parseDeck(
+    new Uint8Array(await readFile(await (await download).path())),
+  );
+  const shape = P.getSlideShapes(P.getSlides(saved)[0])[0];
+  expect(P.getShapeText(shape)).toBe("ZZZ ZZZ ZZZ");
+  // The first replacement is bold, like the "ab" it began in.
+  expect(P.getShapeRunText(shape, 0, 0)).toBe("ZZZ");
+  expect(P.getShapeRunFormat(shape, 0, 0).bold).toBe(true);
 });
 
 // The toolbar read the editor's runs on every selection change and kept
@@ -14263,7 +14457,13 @@ test("dismissing the slide's context menu with a Shift-click still selects", asy
     .locator("#slide-canvas")
     .click({ button: "right", position: { x: 5, y: 5 } });
   await expect(page.getByRole("menu")).toBeVisible();
-  await page.locator('[data-object="1"]').click({ modifiers: ["Shift"] });
+  // On a phone the menu covers the object's left part: press its right end.
+  const object = page.locator('[data-object="1"]');
+  const { width, height } = await object.boundingBox();
+  await object.click({
+    modifiers: ["Shift"],
+    position: { x: width - 8, y: height / 2 },
+  });
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(page.locator('[data-object="1"]')).toHaveAttribute(
     "aria-pressed",
@@ -17010,17 +17210,161 @@ test("Tab steps past the cells a merge covers", async ({ page }) => {
   await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 1");
   await page.keyboard.press("Tab");
   await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 2");
-  // Back the same way, and the last step leaves the table's last cell.
+  // Back the same way, and the last step leaves the table selected.
   await page.keyboard.press("Shift+Tab");
   await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 1");
   await page.keyboard.press("Shift+Tab");
   await expect(cell).toHaveAccessibleName("Edit cell, row 1, column 1");
   await page.keyboard.press("Shift+Tab");
   await expect(cell).toHaveCount(0);
+  await expect(page.locator(".object-hit")).toBeFocused();
+});
+
+// Tab in a table's last cell let go of the keyboard altogether: the cell
+// closed, the focus fell to the page, and what was typed next went nowhere.
+test("Tab in a table's last cell adds a row and goes on in it", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  P.addSlideTable(P.getSlides(pres)[0], {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(1),
+    rows: [
+      ["a", "b"],
+      ["c", "d"],
+    ],
+  });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Rows.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const cell = page.getByRole("textbox", { name: /^Edit cell/ });
+  await page.locator(".object-hit").dblclick({ position: { x: 20, y: 10 } });
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 2, column 2");
+  await page.keyboard.type("D");
+  await page.keyboard.press("Tab");
+  await expect(cell).toHaveAccessibleName("Edit cell, row 3, column 1");
+  await expect(cell).toBeFocused();
+  await page.keyboard.type("e");
+  await page.keyboard.press("Escape");
+  await expect(cell).toHaveCount(0);
+  await openFileMenu(page);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const saved = await parseDeck(
+    new Uint8Array(await readFile(await (await download).path())),
+  );
+  const table = P.getSlideShapes(P.getSlides(saved)[0])[0];
+  expect(
+    P.getTableCells(table).map((row) => row.map(P.getTableCellText)),
+  ).toEqual([
+    ["a", "b"],
+    ["c", "D"],
+    ["e", ""],
+  ]);
 });
 
 // Escape in a table cell threw away what had been typed there, though in a
 // text box it keeps the typing and the shortcut list calls it finishing.
+// Committing a cell wrote its whole text back in the first run's format, so
+// one character typed anywhere took a bold word's bold, an italic run's
+// italic and a paragraph's centering out of the rest of the cell.
+test("typing in a table cell keeps the formatting of the text around it", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const table = P.addSlideTable(P.getSlides(pres)[0], {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(2),
+    rows: [
+      ["", "b"],
+      ["c", "d"],
+    ],
+  });
+  const tc = P.getTableCell(table, 0, 0)[
+    Symbol.for("@office-kit/pptx.cell.element")
+  ];
+  tc.children[tc.children.findIndex((c) => c.name?.localName === "txBody")] =
+    parseXml(
+      `<a:txBody xmlns:a="${NS.dml}"><a:bodyPr/><a:lstStyle/>` +
+        `<a:p><a:r><a:rPr lang="en-US"/><a:t>Revenue: </a:t></a:r>` +
+        `<a:r><a:rPr lang="en-US" b="1"/><a:t>$5M</a:t></a:r></a:p>` +
+        `<a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" i="1"/><a:t>up 10%</a:t></a:r></a:p>` +
+        `</a:txBody>`,
+    ).root;
+  // Another cell's change writes the slide with the rich cell in it.
+  P.setTableCellAlignment(P.getTableCell(table, 1, 1), "left");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Rich cell.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const cell = page.getByRole("textbox", { name: /^Edit cell/ });
+  await page.locator(".object-hit").dblclick({ position: { x: 20, y: 10 } });
+  await expect(cell).toHaveValue("Revenue: $5M\nup 10%");
+  await cell.evaluate((t) =>
+    t.setSelectionRange(t.value.length, t.value.length),
+  );
+  await page.keyboard.type("!");
+  await page.keyboard.press("Escape");
+  await expect(cell).toHaveCount(0);
+  await openFileMenu(page);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const saved = await parseDeck(
+    new Uint8Array(await readFile(await (await download).path())),
+  );
+  const paragraphs = P.getTableCellParagraphs(
+    P.getTableCell(P.getSlideShapes(P.getSlides(saved)[0])[0], 0, 0),
+  );
+  expect(
+    paragraphs.map((p) => ({
+      align: p.align,
+      runs: p.elements.map((e) => [
+        e.text,
+        !!e.format?.bold,
+        !!e.format?.italic,
+      ]),
+    })),
+  ).toEqual([
+    {
+      align: null,
+      runs: [
+        ["Revenue: ", false, false],
+        ["$5M", true, false],
+      ],
+    },
+    {
+      align: "center",
+      runs: [
+        ["up 10%", false, true],
+        ["!", false, true],
+      ],
+    },
+  ]);
+});
 test("Escape in a table cell keeps what was typed", async ({ page }) => {
   await start(page);
   const pres = createDeck("blank");
@@ -17422,7 +17766,9 @@ test("a group and a table are not offered a link", async ({ page }) => {
   await expect(
     page.getByRole("menuitem", { name: "Link", exact: true }),
   ).toBeDisabled();
-  await page.keyboard.press("Escape");
+  // Escape closes one menu at a time: on a phone Insert is inside File.
+  while (await page.getByRole("menu").count())
+    await page.keyboard.press("Escape");
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog", { name: "Add link" })).toHaveCount(0);
   const close = panel(page).getByRole("button", { name: "Close format panel" });

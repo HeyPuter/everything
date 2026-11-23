@@ -77,6 +77,11 @@ export interface RenderSlideOptions {
   /** Which text path to use. Defaults to 'foreignObject' (the browser path)
    *  so existing callers are unaffected; the harness opts into 'svg'. */
   readonly textLayout?: TextLayoutMode;
+  /** Whether a typeface is installed where the slide is drawn. A bullet in a
+   *  symbol typeface that is missing (Wingdings, Symbol) is drawn as the
+   *  Unicode character it shows, in the text's typeface, rather than as the
+   *  letter that stands for it. Omitted, every typeface counts as installed. */
+  readonly hasFont?: (family: string) => boolean;
   /** Resolves authored typefaces for SVG text and measurement. */
   readonly resolveFontFamily?: (
     family: string | null | undefined,
@@ -218,6 +223,8 @@ export interface PieceInput {
   readonly strokeWidthPx?: number;
   readonly strokeOpacity?: number;
   readonly superSub: 0 | 1 | -1; // 1 superscript, -1 subscript
+  /** Text highlight color (`<a:highlight>`), painted behind the run. */
+  readonly highlightHex?: string;
   readonly href: string | null;
   readonly isBreak: boolean; // <a:br>
 }
@@ -234,7 +241,7 @@ export interface BulletInput {
 }
 
 export interface ParaInput {
-  readonly align: "left" | "center" | "right" | "justify";
+  readonly align: "left" | "center" | "right" | "justify" | "distribute";
   readonly marLpx: number;
   readonly marRpx: number;
   readonly firstIndentPx: number; // first-line indent (negative = hanging)
@@ -272,7 +279,7 @@ export interface ParaInput {
  *  90° clockwise (reading top-to-bottom, columns right-to-left); `cw270` is the
  *  opposite 270° rotation (columns left-to-right). `upright` is `wordArtVert` —
  *  glyphs stay upright and stack one per line (render-slide pre-splits the runs
- *  one code point per line), so it lays out like `none` with no rotation. */
+ *  one character per line), so it lays out like `none` with no rotation. */
 export type VerticalLayout = "none" | "cw90" | "cw270" | "upright";
 
 export interface ColumnLayout {
@@ -294,6 +301,9 @@ export interface TextBodyInput {
   /** spcFirstLastPara includes the outer paragraph margins and the last
    * line's full advance in the bounds used for anchoring and autofit. */
   readonly includeOuterSpacing?: boolean;
+  /** `anchorCtr`: the smallest box holding the text is centered across the
+   *  layout frame, its lines keeping their alignment within it. */
+  readonly anchorCenter?: boolean;
   /** Vertical text direction; omitted / 'none' is the default horizontal flow. */
   readonly vert?: VerticalLayout;
   /** Multi-column body (`numCol`/`spcCol`); null / omitted is single column. */
@@ -302,6 +312,10 @@ export interface TextBodyInput {
    *  place in the layout, so a paragraph painted alone sits exactly where it
    *  does in the whole body. Null / omitted paints them all. */
   readonly visibleParagraphs?: ReadonlySet<number> | null;
+  /** East Asian vertical text (`eaVert`): the layout turns a quarter turn
+   *  like `cw90`, but ideographs, kana and hangul stand upright in their
+   *  columns while Latin text and brackets lie along them. */
+  readonly uprightEastAsian?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +355,15 @@ export interface Line {
   textAnchor: "start" | "middle" | "end";
   /** The paragraph's base direction is right-to-left. */
   rtl?: boolean;
+  /** Width a justified line is spread to: set on each line of a justified
+   *  paragraph that ends where the text wrapped (not on its last line, nor
+   *  on one that ends at a line break). */
+  justifyWidth?: number;
+  /** Width a distributed line is spread to, by spacing out its characters:
+   *  set on every line of a distributed paragraph. */
+  distributeWidth?: number;
+  /** Stand East Asian characters upright in a turned line (eaVert). */
+  uprightEastAsian?: boolean;
   bullet: { x: number; baselineDy: number; b: BulletInput } | null;
 }
 
@@ -643,6 +666,7 @@ const placeTabs = (
   lineLeft: number,
   origin: number,
   para: ParaInput,
+  measureWidth: (text: string, piece: PieceInput) => number,
 ): void => {
   const stops = [...(para.tabStops ?? [])].sort((a, b) => a.posPx - b.posPx);
   const step =
@@ -673,7 +697,12 @@ const placeTabs = (
           const point = next.text.search(/[.,]/);
           if (point >= 0) {
             pointSeen = true;
-            beforePoint += (next.width * point) / Math.max(1, next.text.length);
+            // The decimal point itself sits at the stop: measure the text
+            // before it, as glyph widths differ ("1" and "." are narrow).
+            beforePoint +=
+              point > 0
+                ? measureWidth(next.text.slice(0, point), next.piece)
+                : 0;
           } else beforePoint += next.width;
         }
       }
@@ -807,7 +836,9 @@ export const layoutCore = (
           : (isFirst ? firstLeft : wrapLeft) + bulletLead;
         const availableW = wrapRight - lineLeft;
         if (toks.some((t) => t.text === "\t"))
-          placeTabs(toks, lineLeft, contentLeft, para);
+          placeTabs(toks, lineLeft, contentLeft, para, (text, piece) =>
+            mWidth(text, specOf(piece)),
+          );
         let unbreakableOverflowW = 0;
         let ascent = 0;
         let descent = 0;
@@ -876,6 +907,9 @@ export const layoutCore = (
           anchorX: lineLeft,
           textAnchor: "start",
           ...(para.rtl ? { rtl: true } : {}),
+          ...(input.uprightEastAsian && (input.vert ?? "none") === "cw90"
+            ? { uprightEastAsian: true }
+            : {}),
           bullet: null,
         };
         if (para.align === "center") {
@@ -922,6 +956,9 @@ export const layoutCore = (
             ? Math.max(0.75 * line.advance, line.advance - descent)
             : 0.75 * line.advance;
         line.extent = line.baselineOffset + descent;
+        if (para.align === "justify" && paraLines[li + 1]?.automaticStart)
+          line.justifyWidth = availableW;
+        else if (para.align === "distribute") line.distributeWidth = availableW;
         cursorY += line.advance;
         lines.push(line);
       }
@@ -980,6 +1017,27 @@ export const layoutCore = (
         )
       : placeSingle(frame, input.anchor, buildLines);
 
+  if (input.anchorCenter && !(columns && columns.count >= 2)) {
+    // The text's own box: from its leftmost to its rightmost drawn line.
+    let left = Infinity,
+      right = -Infinity;
+    for (const { line, dx } of placements) {
+      const extent = lineExtent(line);
+      if (!extent) continue;
+      left = Math.min(
+        left,
+        extent.left + dx,
+        (line.bullet?.x ?? Infinity) + dx,
+      );
+      right = Math.max(right, extent.right + dx);
+    }
+    if (left < right) {
+      const shift = frame.x + frame.w / 2 - (left + right) / 2;
+      for (const placement of placements)
+        (placement as { dx: number }).dx += shift;
+    }
+  }
+
   let automaticWraps = 0;
   let unbreakableOverflowW = 0;
   for (const { line } of placements) {
@@ -999,6 +1057,27 @@ export const layoutCore = (
     cx,
     cy,
   };
+};
+
+// Where a line's drawn text starts and ends, before any column shift.
+const lineExtent = (line: Line): { left: number; right: number } | null => {
+  let end = line.tokens.length;
+  while (
+    end > 0 &&
+    (line.tokens[end - 1]!.isSpace || line.tokens[end - 1]!.isBreak)
+  )
+    end--;
+  let width = 0;
+  for (let i = 0; i < end; i++)
+    if (!line.tokens[i]!.isBreak) width += line.tokens[i]!.width;
+  if (width <= 0) return null;
+  const left =
+    line.textAnchor === "middle"
+      ? line.anchorX - width / 2
+      : line.textAnchor === "end"
+        ? line.anchorX - width
+        : line.anchorX;
+  return { left, right: left + width };
 };
 
 export const layoutTextSvg = (
@@ -1024,6 +1103,39 @@ export const measureTextBodyHeight = (
   input: TextBodyInput,
   measure: TextMeasurer,
 ): number => layoutCore(input, measure).requiredH;
+
+/** Width the body needs to set each paragraph's lines without wrapping:
+ *  its longest line, with its indents and bullet. */
+export const measureTextBodyWidth = (
+  input: TextBodyInput,
+  measure: TextMeasurer,
+): number => {
+  const { placements } = layoutCore(
+    {
+      ...input,
+      wrap: false,
+      vert: "none",
+      columns: null,
+      paragraphs: input.paragraphs.map((p) => ({ ...p, align: "left" })),
+    },
+    measure,
+  );
+  let width = 0;
+  for (const { line } of placements) {
+    let end = line.tokens.length;
+    while (
+      end > 0 &&
+      (line.tokens[end - 1]!.isSpace || line.tokens[end - 1]!.isBreak)
+    )
+      end--;
+    let content = 0;
+    for (let i = 0; i < end; i++)
+      if (!line.tokens[i]!.isBreak) content += line.tokens[i]!.width;
+    const marR = input.paragraphs[line.paraIndex]?.marRpx ?? 0;
+    width = Math.max(width, line.anchorX - input.boxXpx + content + marR);
+  }
+  return width;
+};
 
 // Anchor the measured text block, independently of its baseline placement.
 const anchorOffsetY = (
@@ -1164,12 +1276,65 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
   const content = toks.filter((t) => !t.isBreak);
   if (content.length === 0) return "";
   const groups = groupTokens(content);
+  // A justified line widens its word spaces until it fills the line.
+  // `word-spacing` adds to each space the browser draws; the drawn
+  // decorations below take the same widths.
+  let wordSpacing = 0;
+  if (line.justifyWidth !== undefined) {
+    let used = 0,
+      spaces = 0;
+    for (const g of groups) {
+      used += g.width;
+      if (!/^\t+$/.test(g.text)) spaces += countWordSeparators(g.text);
+    }
+    const slack = line.justifyWidth - used;
+    if (spaces > 0 && slack > 0.01) {
+      wordSpacing = slack / spaces;
+      for (const g of groups)
+        if (!/^\t+$/.test(g.text))
+          g.width += wordSpacing * countWordSeparators(g.text);
+    }
+  }
+  // A distributed line spaces out every character, its last line too. The
+  // spacing after the final character falls past the line's end unseen.
+  if (line.distributeWidth !== undefined) {
+    let used = 0,
+      characters = 0;
+    const counts = groups.map((g) => {
+      used += g.width;
+      if (/^\t+$/.test(g.text)) return 0;
+      let n = 0;
+      for (const _ of graphemes(g.text)) n++;
+      characters += n;
+      return n;
+    });
+    const slack = line.distributeWidth - used;
+    if (characters > 1 && slack > 0.01) {
+      const extra = slack / (characters - 1);
+      groups.forEach((g, i) => {
+        if (!counts[i]) return;
+        g.extraLetterSpacing = extra;
+        g.width += extra * counts[i]!;
+      });
+      for (let i = groups.length - 1; i >= 0; i--)
+        if (counts[i]) {
+          groups[i]!.width -= extra;
+          break;
+        }
+    }
+  }
   let pendingDx = 0;
+  const upright = { dx: 0, dy: 0 };
   const tspans = groups
     .map((g) => {
       if (g.text === "\t" || /^\t+$/.test(g.text)) {
         pendingDx += g.width;
         return "";
+      }
+      if (line.uprightEastAsian) {
+        const out = uprightTspans(g, pendingDx, upright);
+        pendingDx = 0;
+        return out;
       }
       const out = tspan(g, pendingDx);
       pendingDx = 0;
@@ -1187,12 +1352,57 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
       : line.textAnchor === "end"
         ? "start"
         : "middle";
-  const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${anchor}"${line.rtl ? ' direction="rtl"' : ""} xml:space="preserve">${tspans}</text>`;
+  const spacing = wordSpacing ? ` word-spacing="${fmt(wordSpacing)}"` : "";
+  const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${anchor}"${line.rtl ? ' direction="rtl"' : ""}${spacing} xml:space="preserve">${tspans}</text>`;
   return (
+    emitHighlights(groups, line, x0, baselineY) +
     text +
     emitWavyUnderlines(groups, line.textAnchor, x0, baselineY) +
     emitDrawnDecorations(groups, line.textAnchor, x0, baselineY)
   );
+};
+
+// The characters CSS word-spacing widens (the common ones).
+const countWordSeparators = (text: string): number => {
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x20 || c === 0xa0) n++;
+  }
+  return n;
+};
+
+// Highlighted runs sit on a band of their color as tall as the line's text,
+// drawn behind it. Right-to-left lines run their first run from the right.
+const emitHighlights = (
+  groups: readonly Group[],
+  line: Line,
+  x0: number,
+  baselineY: number,
+): string => {
+  if (!groups.some((g) => g.piece.highlightHex)) return "";
+  const total = groups.reduce((sum, g) => sum + g.width, 0);
+  const left =
+    line.textAnchor === "middle"
+      ? x0 - total / 2
+      : line.textAnchor === "end"
+        ? x0 - total
+        : x0;
+  const top = baselineY - line.ascent,
+    height = line.ascent + line.descent;
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const g of groups) {
+    const color = g.piece.highlightHex;
+    if (color && g.width > 0) {
+      const x = line.rtl ? left + total - cursor - g.width : left + cursor;
+      parts.push(
+        `<rect x="${fmt(x)}" y="${fmt(top)}" width="${fmt(g.width)}" height="${fmt(height)}" fill="${color}"/>`,
+      );
+    }
+    cursor += g.width;
+  }
+  return parts.join("");
 };
 
 const explicitUnderline = (p: PieceInput): boolean =>
@@ -1245,6 +1455,8 @@ interface Group {
   text: string;
   piece: PieceInput;
   width: number;
+  /** Spacing added after each character of a distributed line. */
+  extraLetterSpacing?: number;
 }
 
 const groupTokens = (toks: Token[]): Group[] => {
@@ -1385,13 +1597,53 @@ const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   a.strokeWidthPx === b.strokeWidthPx &&
   a.strokeOpacity === b.strokeOpacity &&
   a.superSub === b.superSub &&
+  a.highlightHex === b.highlightHex &&
   a.href === b.href;
 
-const tspan = (g: Group, dx = 0): string => {
+// Characters that stand upright in East Asian vertical text (UAX #50 U and
+// Tu): ideographs, kana, hangul and full-width letters and digits. Brackets,
+// the long vowel mark and Latin text lie along the column instead, as does
+// sentence punctuation, which this layout cannot move to its vertical place.
+const UPRIGHT_EAST_ASIAN =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3005\u3006\uff10-\uff19\uff21-\uff3a\uff41-\uff5a]/u;
+
+// A turned line's upright characters are each turned back a quarter turn
+// within their own em square, which the glyph's ascent and descent share:
+// the glyph turns about its origin, moved by the ascent across and the
+// descent down, so it lands back in its square. `state` carries that move
+// from run to run of the line, since SVG keeps it for the glyphs after.
+const uprightTspans = (
+  g: Group,
+  dx: number,
+  state: { dx: number; dy: number },
+): string => {
+  const size = renderedSizePxOf(g.piece);
+  const runs = g.text.match(
+    new RegExp(
+      `(?:${UPRIGHT_EAST_ASIAN.source})+|(?:(?!${UPRIGHT_EAST_ASIAN.source})[\\s\\S])+`,
+      "gu",
+    ),
+  ) ?? [g.text];
+  return runs
+    .map((text, i) => {
+      const standing = UPRIGHT_EAST_ASIAN.test(text);
+      const target = standing ? { dx: size * 0.88, dy: size * 0.12 } : null;
+      const moveX = (target?.dx ?? 0) - state.dx + (i === 0 ? dx : 0);
+      const moveY = (target?.dy ?? 0) - state.dy;
+      state.dx = target?.dx ?? 0;
+      state.dy = target?.dy ?? 0;
+      return tspan({ ...g, text }, moveX, moveY, standing ? -90 : 0);
+    })
+    .join("");
+};
+
+const tspan = (g: Group, dx = 0, dy = 0, rotate = 0): string => {
   const p = g.piece;
   const sizePx = renderedSizePxOf(p);
   const attrs: string[] = [
     ...(dx ? [`dx="${fmt(dx)}"`] : []),
+    ...(dy ? [`dy="${fmt(dy)}"`] : []),
+    ...(rotate ? [`rotate="${rotate}"`] : []),
     `font-family="${escapeXml(p.family)}"`,
     `font-size="${fmt(sizePx)}"`,
     ...(p.kerning ? [`style="font-kerning:${p.kerning}"`] : []),
@@ -1416,8 +1668,8 @@ const tspan = (g: Group, dx = 0): string => {
       attrs.push(`stroke-opacity="${p.strokeOpacity}"`);
   }
   if (deco.length) attrs.push(`text-decoration="${deco.join(" ")}"`);
-  if (p.letterSpacingPx !== 0)
-    attrs.push(`letter-spacing="${fmt(p.letterSpacingPx)}"`);
+  const letterSpacing = p.letterSpacingPx + (g.extraLetterSpacing ?? 0);
+  if (letterSpacing !== 0) attrs.push(`letter-spacing="${fmt(letterSpacing)}"`);
   if (p.superSub !== 0)
     attrs.push(`baseline-shift="${fmt(baselineShiftPxOf(p))}"`);
   return `<tspan ${attrs.join(" ")}>${escapeXml(g.text)}</tspan>`;

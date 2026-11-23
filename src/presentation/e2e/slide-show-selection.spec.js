@@ -120,20 +120,28 @@ for (const empty of [false, true])
         ? showSelectionDeck('<p:custShow id="7"/>', {
             customShows: [{ id: 7, sequence: [] }],
           })
-        : showSelectionDeck('<p:sldRg st="2" end="9"/>'),
+        : showSelectionDeck('<p:sldRg st="7" end="9"/>'),
     );
     await expect(
       page.getByRole("dialog", { name: "Presentation mode" }),
     ).toHaveCount(0);
     await expect(
-      page.getByText(
-        empty
-          ? "The configured slide show has no slides to present."
-          : /range exceeds.*slide count/i,
-      ),
+      page.getByText("The configured slide show has no slides to present."),
     ).toBeVisible();
     await expect(page.locator(".slide-image")).toBeVisible();
   });
+
+test("a range reaching past the last slide shows the slides it still covers", async ({
+  page,
+}) => {
+  // As after deleting the last slides of a range set in Set Up Slide Show.
+  await open(page, showSelectionDeck('<p:sldRg st="2" end="9"/>'));
+  await expect(counter(page)).toHaveText("1 / 4");
+  await expect(image(page)).toHaveAttribute("alt", /Selected show slide 2/);
+  await page.keyboard.press("End");
+  await expect(counter(page)).toHaveText("4 / 4");
+  await expect(image(page)).toHaveAttribute("alt", /Selected show slide 5/);
+});
 
 test("invalid selected shows are reported without presenting a different sequence", async ({
   page,

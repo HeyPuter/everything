@@ -12,6 +12,8 @@ import {
 } from "./geometry.js";
 export { ALBUM_LAYOUTS, ALBUM_FRAMES, albumBoxes, containBox };
 
+// A photo keeps its kind in black and white: a JPEG redrawn as a PNG
+// came out many times larger (a 400 KB photo took 2.9 MB in the file).
 async function grayscale(bytes, type) {
   const url = URL.createObjectURL(new Blob([bytes], { type }));
   try {
@@ -22,7 +24,12 @@ async function grayscale(bytes, type) {
     const g = canvas.getContext("2d");
     g.filter = "grayscale(1)";
     g.drawImage(image, 0, 0);
-    return canvasPng(canvas);
+    if (type !== "image/jpeg") return canvasPng(canvas);
+    const blob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.92),
+    );
+    if (!blob) throw new Error("The picture could not be drawn.");
+    return new Uint8Array(await blob.arrayBuffer());
   } finally {
     URL.revokeObjectURL(url);
   }

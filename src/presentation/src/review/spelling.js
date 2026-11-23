@@ -150,6 +150,21 @@ export function createSpelling(env, host) {
     if (u.id != null) env.showObjects(u.part, [u.id]);
   }
 
+  // Words changed in the notes leave the rest of the notes' formatting as it
+  // was; `ranges` are in the order of the text.
+  function replaceInNotes(slide, text, ranges) {
+    const edits = [...ranges].reverse();
+    const next = edits.reduce(
+      (value, edit) =>
+        value.slice(0, edit.start) + edit.text + value.slice(edit.end),
+      text,
+    );
+    try {
+      P.editSlideNotes(slide, edits, next);
+    } catch {
+      P.setSlideNotes(slide, next);
+    }
+  }
   // Replaces the issue's word in its own piece of text.
   function changeOne(issue, replacement) {
     const u = issue.unit;
@@ -161,10 +176,9 @@ export function createSpelling(env, host) {
           u.text.slice(issue.start, issue.end)
         )
           return env.SKIP;
-        P.setSlideNotes(
-          slide,
-          text.slice(0, issue.start) + replacement + text.slice(issue.end),
-        );
+        replaceInNotes(slide, text, [
+          { start: issue.start, end: issue.end, text: replacement },
+        ]);
         return;
       }
       const shape = P.findShapeById(slide, u.id);
@@ -223,7 +237,15 @@ export function createSpelling(env, host) {
         const notes = P.getSlideNotes(slide);
         if (notes && re.test(notes)) {
           re.lastIndex = 0;
-          P.setSlideNotes(slide, notes.replace(re, replacement));
+          replaceInNotes(
+            slide,
+            notes,
+            [...notes.matchAll(re)].map((hit) => ({
+              start: hit.index,
+              end: hit.index + hit[0].length,
+              text: replacement,
+            })),
+          );
           changed = true;
         }
         re.lastIndex = 0;

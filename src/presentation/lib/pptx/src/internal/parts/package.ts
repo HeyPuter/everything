@@ -17,6 +17,8 @@
 
 import {
   type ContentTypes,
+  contentTypeForFormat,
+  detectImageFormat,
   type PartName,
   type Relationships,
   type ZipEntry,
@@ -64,6 +66,27 @@ const foldedName = (p: Part): string => {
 };
 
 const CONTENT_TYPES_PART = "[Content_Types].xml";
+
+// OPC lets XML parts be UTF-16 as well as UTF-8 (ECMA-376 Part 2 §8.1.4);
+// a UTF-16 part starts with its byte order mark and then "<". Such a part
+// is read as UTF-8, which every reader here and every writer takes, with
+// its declaration saying so; anything else is returned as it is.
+const utf8Xml = (data: Uint8Array): Uint8Array => {
+  const little =
+    data[0] === 0xff && data[1] === 0xfe && data[2] === 0x3c && data[3] === 0;
+  const big =
+    data[0] === 0xfe && data[1] === 0xff && data[2] === 0 && data[3] === 0x3c;
+  if (!little && !big) return data;
+  const text = new TextDecoder(little ? "utf-16le" : "utf-16be").decode(data);
+  return encode(
+    text.replace(
+      /^(<\?xml\b[^>]*?\bencoding\s*=\s*)(["'])utf-16(?:le|be)?\2/i,
+      "$1$2UTF-8$2",
+    ),
+  );
+};
+const isXmlType = (contentType: string): boolean =>
+  /[/+]xml$/i.test(contentType.split(";")[0]!.trim());
 
 // A part's bytes are replaced, never changed in place, when it is written, so
 // each `.rels` buffer is parsed once and every read gets a copy of the result.
@@ -124,7 +147,7 @@ export class OpcPackage {
 
     for (const entry of zip.entries) {
       if (entry.name === CONTENT_TYPES_PART) {
-        contentTypes = parseContentTypes(decode(entry.data));
+        contentTypes = parseContentTypes(decode(utf8Xml(entry.data)));
         continue;
       }
       // Some producers (native Windows output, third-party tools) include
@@ -134,6 +157,14 @@ export class OpcPackage {
       if (entry.name.endsWith("/")) continue;
       // Readers ignore deleted parts stored without content types here.
       if (/^\/?\[trash\]\//i.test(entry.name)) continue;
+      // A package unpacked and zipped again on a desktop picks up the
+      // system's own files (macOS resource forks and folder settings,
+      // Windows thumbnail caches). They are not parts of the presentation.
+      if (
+        /^__MACOSX\//i.test(entry.name) ||
+        /(?:^|\/)(?:\.DS_Store|Thumbs\.db|desktop\.ini)$/i.test(entry.name)
+      )
+        continue;
       const name = fromZipPath(entry.name);
       parts.push({
         name,
@@ -147,13 +178,17 @@ export class OpcPackage {
     }
 
     for (const part of parts) {
-      const ct = lookupContentType(contentTypes, part.name);
+      let ct = lookupContentType(contentTypes, part.name);
       if (ct === null) {
-        throw new Error(
-          `part "${part.name}" has no content type registered in [Content_Types].xml`,
-        );
+        // A part the map does not cover (a picture saved as `.jfif`, say)
+        // is kept, as readers repair such packages, under the type its bytes
+        // show, and the map written back covers it.
+        const format = detectImageFormat(part.data);
+        ct = format ? contentTypeForFormat(format) : "application/octet-stream";
+        contentTypes.overrides.push({ partName: part.name, contentType: ct });
       }
       part.contentType = ct;
+      if (isXmlType(ct)) part.data = utf8Xml(part.data);
     }
 
     return new OpcPackage(parts, contentTypes);

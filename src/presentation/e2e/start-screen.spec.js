@@ -221,8 +221,12 @@ test("New Slide from Prompt has the assistant draft a slide after the current on
     .fill("Our goals for next year");
   await dialog.getByRole("button", { name: "Draft Slide" }).click();
   await expect(page.locator("#slide-count")).toHaveText("2");
-  const sent = await page.evaluate(
-    () => window.__requests[0].messages.at(-1).content,
+  // The assistant sends its messages as blocks marked for the prompt cache.
+  const sent = await page.evaluate(() =>
+    window.__requests[0].messages
+      .at(-1)
+      .content.map((block) => block.text)
+      .join(""),
   );
   expect(sent).toMatch(/right after slide 1/);
   expect(sent).toMatch(/Our goals for next year/);

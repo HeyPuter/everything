@@ -389,6 +389,42 @@ test("the table picker sizes a table with the arrow keys", async ({ page }) => {
   expect(slide().match(/<a:tr /g)).toHaveLength(2);
 });
 
+// A video file holding only sound was placed as a video with a blank
+// picture: an empty box on the slide and in the slide show.
+test("a video file holding only sound goes in as a sound with its speaker", async ({
+  page,
+}) => {
+  await start(page);
+  const data = await page.evaluate(async () => {
+    const ctx = new AudioContext();
+    const tone = ctx.createOscillator();
+    const out = ctx.createMediaStreamDestination();
+    tone.connect(out);
+    tone.start();
+    const rec = new MediaRecorder(out.stream, { mimeType: "audio/webm" });
+    const chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.start(100);
+    await new Promise((r) => setTimeout(r, 800));
+    rec.stop();
+    await new Promise((r) => (rec.onstop = r));
+    tone.stop();
+    return [...new Uint8Array(await new Blob(chunks).arrayBuffer())];
+  });
+  await choose(page, () => command(page, "video"), {
+    name: "talk.webm",
+    mimeType: "video/webm",
+    buffer: Buffer.from(data),
+  });
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+  const saved = await download(page);
+  expect(saved.slide()).toContain("<a:audioFile");
+  expect(saved.slide()).not.toContain("<a:videoFile");
+  expect(saved.rels()).toMatch(/relationships\/audio"/);
+  const types = strFromU8(saved.files["[Content_Types].xml"]);
+  expect(types).toMatch(/audio\/webm/);
+});
+
 test("audio from a file and from a recording is saved as media", async ({
   page,
 }) => {
@@ -597,6 +633,41 @@ test("a summary zoom jumps to its slide and returns", async ({ page }) => {
   await expect(page.locator(".presenter-counter")).toHaveText("1 / 4");
 });
 
+// In a deck with sections, the summary slide joined the section before it,
+// so zooming into that section played the summary slide as part of it.
+test("a summary zoom of a later section starts a section of its own", async ({
+  page,
+}) => {
+  await start(page);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Meta+Shift+N");
+  await expect(page.locator(".slide-item")).toHaveCount(4);
+  await page.locator(".slide-item").nth(2).locator(".slide-thumb").click();
+  await tab(page, "Home");
+  await command(page, "section");
+  await page.getByRole("menuitem", { name: "Add Section" }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("Later");
+  await page.getByRole("dialog").getByRole("button").last().click();
+  await tab(page, "Insert");
+  await command(page, "insert-zoom");
+  await page.getByRole("menuitem", { name: "Summary Zoom…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Insert Summary Zoom" });
+  await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+  await dialog.getByRole("checkbox").first().uncheck();
+  await dialog.getByRole("button", { name: "Insert", exact: true }).click();
+  await expect(page.locator(".slide-item")).toHaveCount(5);
+  const { files } = await download(page);
+  const pres = strFromU8(files["ppt/presentation.xml"]);
+  const sections = [
+    ...pres.matchAll(/<p14:section name="([^"]*)"[^>]*>(.*?)<\/p14:section>/g),
+  ].map(([, name, body]) => [name, (body.match(/<p14:sldId /g) || []).length]);
+  expect(sections.map(([name]) => name)).toEqual([
+    expect.any(String),
+    "Summary Section",
+    "Later",
+  ]);
+  expect(sections.map(([, n]) => n)).toEqual([2, 1, 2]);
+});
+
 test("action buttons get a default action and action settings", async ({
   page,
 }) => {
@@ -705,6 +776,44 @@ test("a picture the album can't use is left out, not the whole album", async ({
   await expect(page.locator("#toast")).toHaveText(
     "“huge.png” was left out. Choose an image smaller than 12 MB.",
   );
+});
+
+// A JPEG photo turned black and white was redrawn as a PNG, many times its
+// size in the file (a 400 KB photo took 2.9 MB).
+test("a black and white album keeps its JPEG photos as JPEGs", async ({
+  page,
+}) => {
+  await start(page);
+  const jpeg = Buffer.from(
+    await page.evaluate(async () => {
+      const c = document.createElement("canvas");
+      c.width = 640;
+      c.height = 480;
+      const g = c.getContext("2d");
+      for (let i = 0; i < 600; i++) {
+        g.fillStyle = `hsl(${i % 360},60%,50%)`;
+        g.fillRect((i * 37) % 640, (i * 53) % 480, 40, 30);
+      }
+      const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+      return [...new Uint8Array(await blob.arrayBuffer())];
+    }),
+  );
+  await command(page, "photo-album");
+  const dialog = page.getByRole("dialog", { name: "Photo Album" });
+  await choose(
+    page,
+    () => dialog.getByRole("button", { name: "Add Pictures…" }).click(),
+    [{ name: "photo.jpg", mimeType: "image/jpeg", buffer: jpeg }],
+  );
+  await dialog.getByLabel("All pictures black and white").check();
+  await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(page.locator(".slide-item")).toHaveCount(3);
+  const { files } = await download(page);
+  const media = Object.keys(files).filter((n) => n.startsWith("ppt/media/"));
+  expect(media).toHaveLength(1);
+  expect(media[0]).toMatch(/\.jpe?g$/);
+  expect([...files[media[0]].subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  expect(files[media[0]].length).toBeLessThan(jpeg.length * 2);
 });
 
 test("objects are embedded as packages and handed back on opening", async ({

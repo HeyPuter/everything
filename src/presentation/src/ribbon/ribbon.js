@@ -1200,7 +1200,8 @@ export function createRibbon({
   };
 }
 
-// Screen tips follow the pointer over any element that declares one.
+// Screen tips follow the pointer over any element that declares one, and
+// the keyboard's focus to one.
 let tipNode = null,
   tipTimer = 0,
   tipFor = null;
@@ -1210,11 +1211,8 @@ function hideTip() {
   tipNode = null;
   tipFor = null;
 }
-document.addEventListener("pointerover", (e) => {
-  const target = e.target.closest?.("[data-tip-title]");
-  if (target === tipFor) return;
+function scheduleTip(target) {
   hideTip();
-  if (!target || e.pointerType === "touch") return;
   tipFor = target;
   tipTimer = setTimeout(() => {
     if (!target.isConnected || document.querySelector(".menu")) return;
@@ -1226,9 +1224,33 @@ document.addEventListener("pointerover", (e) => {
     );
     document.body.append(tipNode);
     const r = target.getBoundingClientRect();
-    tipNode.style.left = `${Math.max(4, Math.min(r.left, document.documentElement.clientWidth - tipNode.offsetWidth - 8))}px`;
-    tipNode.style.top = `${r.bottom + 6}px`;
+    const root = document.documentElement;
+    tipNode.style.left = `${Math.max(4, Math.min(r.left, root.clientWidth - tipNode.offsetWidth - 8))}px`;
+    // Under the command, or over it where the window ends below (the
+    // status bar's buttons).
+    const below = r.bottom + 6;
+    tipNode.style.top = `${
+      below + tipNode.offsetHeight > root.clientHeight - 4
+        ? Math.max(4, r.top - 6 - tipNode.offsetHeight)
+        : below
+    }px`;
   }, 650);
+}
+document.addEventListener("pointerover", (e) => {
+  const target = e.target.closest?.("[data-tip-title]");
+  if (target === tipFor) return;
+  hideTip();
+  if (!target || e.pointerType === "touch") return;
+  scheduleTip(target);
+});
+document.addEventListener("focusin", (e) => {
+  const target = e.target.closest?.("[data-tip-title]");
+  if (!target || target === tipFor || !e.target.matches(":focus-visible"))
+    return;
+  scheduleTip(target);
+});
+document.addEventListener("focusout", (e) => {
+  if (tipFor && tipFor.contains(e.target)) hideTip();
 });
 document.addEventListener("pointerdown", hideTip, true);
 document.addEventListener("keydown", hideTip, true);

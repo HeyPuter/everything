@@ -3,6 +3,9 @@ import {
   addBlankSlide,
   addSlideTable,
   createPresentation,
+  editTableCellText,
+  getTableCell,
+  getTableCellParagraphs,
   getSlides,
   getSlideShapes,
   getTableCellSpan,
@@ -20,6 +23,8 @@ import {
   savePresentation,
 } from "../index.ts";
 import type { SlideShapeData } from "../index.ts";
+import { CELL_ELEMENT } from "../_internal-symbols.ts";
+import { NS, parseXml } from "../../internal/xml/index.ts";
 
 // Header merged across all three columns; "a" merged down two rows.
 const fixture = () => {
@@ -123,5 +128,86 @@ describe("table rows/columns and merged cells", () => {
     expect(dump(table)).toEqual(["X[rs2] | c", "·[v] | f", "h | i"]);
     removeTableRow(table, 0);
     expect(dump(table)).toEqual(["X | f", "h | i"]);
+  });
+});
+
+describe("editTableCellText", () => {
+  // "Revenue: " plain and "$5M" bold, then a centered italic paragraph.
+  const richCell = () => {
+    const pres = createPresentation();
+    const table = addSlideTable(addBlankSlide(pres), {
+      x: inches(0),
+      y: inches(0),
+      w: inches(4),
+      h: inches(1),
+      rows: [["", "b"]],
+    });
+    const cell = getTableCell(table, 0, 0);
+    const tc = cell[CELL_ELEMENT];
+    const body = parseXml(
+      `<a:txBody xmlns:a="${NS.dml}"><a:bodyPr/><a:lstStyle/>` +
+        `<a:p><a:r><a:rPr lang="en-US"/><a:t>Revenue: </a:t></a:r>` +
+        `<a:r><a:rPr lang="en-US" b="1"/><a:t>$5M</a:t></a:r></a:p>` +
+        `<a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" i="1"/><a:t>up 10%</a:t></a:r></a:p>` +
+        `</a:txBody>`,
+    ).root;
+    const at = tc.children.findIndex(
+      (c) => c.kind === "element" && c.name.localName === "txBody",
+    );
+    tc.children[at] = body;
+    return { pres, cell };
+  };
+  const shape = (cell: ReturnType<typeof getTableCell>) =>
+    getTableCellParagraphs(cell).map((p) => ({
+      align: p.align,
+      runs: p.elements.map((e) => [
+        e.kind === "br" ? "\n" : e.text,
+        !!e.format?.bold,
+        !!e.format?.italic,
+      ]),
+    }));
+
+  it("changes only the edited text, keeping the cell's other formatting", async () => {
+    const { pres, cell } = richCell();
+    editTableCellText(
+      cell,
+      [
+        { start: 19, end: 19, text: "!" },
+        { start: 11, end: 11, text: "0" },
+      ],
+      "Revenue: $50M\nup 10%!",
+    );
+    expect(getTableCellText(cell)).toBe("Revenue: $50M\nup 10%!");
+    const expected = [
+      {
+        align: null,
+        runs: [
+          ["Revenue: ", false, false],
+          ["$5", true, false],
+          ["0", true, false],
+          ["M", true, false],
+        ],
+      },
+      {
+        align: "center",
+        runs: [
+          ["up 10%", false, true],
+          ["!", false, true],
+        ],
+      },
+    ];
+    expect(shape(cell)).toEqual(expected);
+    const back = await loadPresentation(await savePresentation(pres));
+    const table = getSlideShapes(getSlides(back)[0]!).find(isTableShape)!;
+    expect(shape(getTableCell(table, 0, 0))).toEqual(expected);
+  });
+
+  it("throws and leaves the cell alone when the edits do not end at the text", () => {
+    const { cell } = richCell();
+    const before = shape(cell);
+    expect(() =>
+      editTableCellText(cell, [{ start: 0, end: 0, text: "x" }], "nope"),
+    ).toThrow();
+    expect(shape(cell)).toEqual(before);
   });
 });

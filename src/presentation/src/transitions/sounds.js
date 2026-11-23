@@ -153,8 +153,14 @@ function audio() {
   return context;
 }
 
+// Bumped whenever sounds stop or another starts, so a sound still being
+// decoded then (a slide left, a show ended) stays silent once it is ready.
+let soundTurn = 0;
+let effectTurn = 0;
+
 /** Stops the transition sound that is playing, if any. */
 export function stopSound() {
+  soundTurn++;
   try {
     playing?.stop();
   } catch {
@@ -168,7 +174,9 @@ export async function playSound(bytes, { loop = false } = {}) {
   const ctx = audio();
   if (!ctx || !bytes?.length) return;
   stopSound();
+  const turn = soundTurn;
   const buffer = await ctx.decodeAudioData(bytes.slice().buffer);
+  if (turn !== soundTurn) return;
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.loop = loop;
@@ -188,8 +196,10 @@ const effectSources = new Set();
 export async function playEffectSound(bytes) {
   const ctx = audio();
   if (!ctx || !bytes?.length) return;
+  const turn = effectTurn;
   try {
     const buffer = await ctx.decodeAudioData(bytes.slice().buffer);
+    if (turn !== effectTurn) return;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
@@ -203,6 +213,7 @@ export async function playEffectSound(bytes) {
 
 /** Stops every animation effect sound that is playing. */
 export function stopEffectSounds() {
+  effectTurn++;
   for (const source of effectSources)
     try {
       source.stop();

@@ -91,7 +91,7 @@ export function createViews(base) {
       {
         label: "Show Outline",
         checked: current === "outline",
-        shortcut: IS_MAC ? "⌃⇧Tab" : "Ctrl+Shift+Tab",
+        shortcut: "Ctrl+Shift+Tab",
         onSelect: () =>
           base.setView(current === "outline" ? "normal" : "outline"),
       },

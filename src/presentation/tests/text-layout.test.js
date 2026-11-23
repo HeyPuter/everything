@@ -1243,3 +1243,146 @@ describe("shaped spans across line-break opportunities", () => {
     );
   });
 });
+
+describe("justified paragraphs", () => {
+  // 20 px per character: "aa bb cc dd" wraps after "cc" in 200 px.
+  const justified = (pieces) =>
+    layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 200,
+        wrap: true,
+        paragraphs: [para({ align: "justify", pieces })],
+      }),
+      measure,
+    );
+  it("widens the word spaces of each wrapped line to fill it", () => {
+    const svg = justified([piece("aa bb cc dd", 40)]);
+    const lines = [...svg.matchAll(/<text\b[^>]*>/g)].map((m) => m[0]);
+    expect(lines).toHaveLength(2);
+    // "aa bb cc" is 160 px wide, leaving 40 px for its two spaces.
+    expect(lines[0]).toContain('word-spacing="20"');
+    expect(lines[1]).not.toContain("word-spacing");
+  });
+  it("leaves a line that ends at a line break at the start", () => {
+    const svg = justified([
+      piece("aa bb", 40),
+      { ...piece("", 40), isBreak: true },
+      piece("cc", 40),
+    ]);
+    expect(svg).not.toContain("word-spacing");
+  });
+});
+
+describe("highlighted runs", () => {
+  const highlighted = (options = {}) =>
+    layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 400,
+        paragraphs: [
+          para({
+            pieces: [
+              piece("ab ", 40),
+              { ...piece("cd", 40), highlightHex: "#FFFF00" },
+              piece(" ef", 40),
+            ],
+            ...options,
+          }),
+        ],
+      }),
+      measure,
+    );
+  it("paints the highlight behind the run, as tall as the line's text", () => {
+    const svg = highlighted();
+    const band = svg.match(
+      /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="#FFFF00"\/>/,
+    );
+    expect(band).not.toBeNull();
+    // "ab " is 60 px at 20 px per character; "cd" is 40 px.
+    expect(Number(band[1])).toBe(60);
+    expect(Number(band[3])).toBe(40);
+    expect(svg.indexOf("<rect")).toBeLessThan(svg.indexOf("<text"));
+    // A highlighted run is a span of its own.
+    expect(svg).toContain(">cd</tspan>");
+  });
+  it("runs a right-to-left line's first run from the right", () => {
+    const band = highlighted({ rtl: true }).match(
+      /<rect x="([^"]+)"[^>]*fill="#FFFF00"/,
+    );
+    // 160 px of text from x = 0: "cd" sits 60 px in from the right.
+    expect(Number(band[1])).toBe(160 - 60 - 40);
+  });
+});
+
+describe("distributed paragraphs", () => {
+  it("spaces out the characters of every line, the last one too", () => {
+    const svg = layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 200,
+        wrap: true,
+        paragraphs: [
+          para({ align: "distribute", pieces: [piece("aa bb cc dd", 40)] }),
+        ],
+      }),
+      measure,
+    );
+    // "aa bb cc" (8 characters, 160 px) and "dd" (2, 40 px) each fill 200 px:
+    // 40 px over 7 gaps, and 160 px over 1.
+    expect(
+      [...svg.matchAll(/letter-spacing="([^"]+)"/g)].map((m) => Number(m[1])),
+    ).toEqual([5.71, 160]);
+  });
+});
+
+describe("decimal tab stops", () => {
+  // Digits are 20 px wide and the decimal point 5 px, at any size.
+  const narrowPoint = (text, spec) => ({
+    widthPx: [...text].reduce((sum, c) => sum + (c === "." ? 5 : 20), 0),
+    ascentPx: spec.sizePx * 0.9,
+    descentPx: spec.sizePx * 0.2,
+    lineGapPx: 0,
+  });
+  it("puts each number's decimal point on the stop", () => {
+    const svg = layoutTextSvg(
+      body({
+        boxXpx: 0,
+        boxWpx: 400,
+        paragraphs: ["\t1.25", "\t1234.5"].map((text) =>
+          para({
+            pieces: [piece(text, 40)],
+            tabStops: [{ posPx: 200, align: "dec" }],
+          }),
+        ),
+      }),
+      narrowPoint,
+    );
+    // The tab is drawn as the gap before the number: 200 px less the
+    // digits before the point (one, then four).
+    expect(
+      [...svg.matchAll(/<tspan dx="([^"]+)"/g)].map((m) => Number(m[1])),
+    ).toEqual([180, 120]);
+  });
+});
+
+describe("centered text boxes (anchorCtr)", () => {
+  it("centers the text's own box across the frame, keeping its alignment", () => {
+    const xs = (anchorCenter) =>
+      layoutCore(
+        body({
+          boxXpx: 0,
+          boxWpx: 400,
+          ...(anchorCenter ? { anchorCenter: true } : {}),
+          paragraphs: [
+            para({ pieces: [piece("aaaa", 40)] }),
+            para({ pieces: [piece("aa", 40)] }),
+          ],
+        }),
+        measure,
+      ).placements.map((p) => p.line.anchorX + p.dx);
+    expect(xs(false)).toEqual([0, 0]);
+    // The 80 px wide block sits 160 px in; its lines stay left aligned.
+    expect(xs(true)).toEqual([160, 160]);
+  });
+});

@@ -33,8 +33,12 @@ import { NS } from "./namespaces.ts";
 // would lose the whole edit, so the separators that end a page or a line
 // (form feed, vertical tab) become a space and the others, which show
 // nothing, are left out.
+// U+FFFE and U+FFFF are outside `Char` as well; they show nothing (a byte
+// order mark read the wrong way round, typically) and are left out too.
 const forbiddenControlChar = (c: number): boolean =>
-  c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d;
+  (c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) ||
+  c === 0xfffe ||
+  c === 0xffff;
 const replaceForbiddenControlChar = (c: number): string =>
   c === 0x0b || c === 0x0c ? " " : "";
 
@@ -42,7 +46,7 @@ const escapeAttr = (s: string): string => {
   // Attribute values: escape <, &, and the quote char we use. We always use
   // double quotes, so single quotes pass through. CR and LF must be encoded
   // numerically because XML parsers normalize whitespace in attribute values.
-  if (!/[\x00-\x1f<>&"]/.test(s)) return s;
+  if (!/[\x00-\x1f<>&"\ufffe\uffff]/.test(s)) return s;
   let out = "";
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
@@ -60,7 +64,7 @@ const escapeAttr = (s: string): string => {
 };
 
 const escapeText = (s: string): string => {
-  if (!/[\x00-\x08\x0b\x0c\x0e-\x1f\r<>&]/.test(s)) return s;
+  if (!/[\x00-\x08\x0b\x0c\x0e-\x1f\r<>&\ufffe\uffff]/.test(s)) return s;
   let out = "";
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);

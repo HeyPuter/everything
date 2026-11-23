@@ -398,3 +398,41 @@ test("clicking a trigger object plays its effects", async ({ page }) => {
   // The trigger plays without using up the slide's advance.
   await expect(page.locator(".presenter-counter")).toHaveText("1 / 1");
 });
+
+test("the end screen shows nothing of an animated last slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const box = shape(slide, 1, 1, 2, 1.5, "#2266cc");
+  P.setSlideAnimations(slide, [
+    {
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 200,
+    },
+  ]);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true]);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".presenter-end")).toBeVisible();
+  // Nothing of the slide is drawn over the message.
+  const drawn = () =>
+    page.evaluate(
+      () =>
+        [...document.querySelectorAll(".presenter-frame img")].filter((img) =>
+          img.checkVisibility({ visibilityProperty: true }),
+        ).length,
+    );
+  expect(await drawn()).toBe(0);
+  // Going back shows the slide as it was built.
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => visibleLayers(page)).toEqual([true]);
+  await expect(page.locator(".presenter-end")).toBeHidden();
+});

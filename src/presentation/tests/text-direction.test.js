@@ -124,3 +124,63 @@ describe("explicit horizontal text overrides", () => {
     );
   });
 });
+
+describe("stacked text", () => {
+  it("stacks each character a reader sees as one, not each code point", async () => {
+    const pres = createDeck("blank"),
+      slide = P.getSlides(pres)[0];
+    const shape = P.addSlideTextBox(slide, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(1),
+      h: P.inches(5),
+      // A thumbs-up with its skin tone, a decomposed é, a family emoji.
+      text: "A\u{1F44D}\u{1F3FD}é\u{1F468}‍\u{1F469}‍\u{1F467}",
+    });
+    P.setShapeTextDirection(shape, "wordArtVert");
+    const loaded = await parseDeck(await P.savePresentation(pres));
+    const svg = render({ pres: loaded, slide: P.getSlides(loaded)[0] });
+    const rows = [...svg.matchAll(/<text\b[^>]*>(?:<tspan\b[^>]*>)?([^<]*)/g)]
+      .map((m) => m[1])
+      .filter(Boolean);
+    expect(rows).toEqual([
+      "A",
+      "\u{1F44D}\u{1F3FD}",
+      "é",
+      "\u{1F468}‍\u{1F469}‍\u{1F467}",
+    ]);
+  });
+});
+
+describe("East Asian vertical text", () => {
+  async function turned(direction) {
+    const pres = createDeck("blank"),
+      slide = P.getSlides(pres)[0];
+    const shape = P.addSlideTextBox(slide, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(2),
+      h: P.inches(4),
+      text: "縦書きABC「語」",
+    });
+    P.setShapeTextDirection(shape, direction);
+    const loaded = await parseDeck(await P.savePresentation(pres));
+    return render({ pres: loaded, slide: P.getSlides(loaded)[0] });
+  }
+  const standing = (svg) =>
+    [...svg.matchAll(/<tspan\b([^>]*)>([^<]*)<\/tspan>/g)]
+      .filter((m) => m[1].includes('rotate="-90"'))
+      .map((m) => m[2]);
+  it("stands ideographs and kana upright and lays Latin text and brackets along the column", async () => {
+    const svg = await turned("eaVert");
+    expect(svg).toContain('transform="rotate(90 ');
+    expect(standing(svg)).toEqual(["縦書き", "語"]);
+    // The upright glyphs turn back within their em squares: moved by the
+    // ascent (0.88 em) across and the descent down, and back after them.
+    expect(svg).toMatch(/dx="[\d.]+" dy="[\d.]+" rotate="-90"[^>]*>縦書き/);
+    expect(svg).toMatch(/dx="-[\d.]+" dy="-[\d.]+"[^>]*>ABC「/);
+  });
+  it("turns every character with the column in rotated text", async () => {
+    expect(standing(await turned("vert"))).toEqual([]);
+  });
+});

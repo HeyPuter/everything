@@ -160,3 +160,34 @@ export function createTextMeasurer() {
   };
   return measure;
 }
+
+// Whether a typeface is installed: text set in it measures differently from
+// the generic families it would otherwise fall back to. Outside a browser,
+// every typeface counts as installed.
+const installed = new Map();
+export function fontInstalled(family) {
+  let answer = installed.get(family);
+  if (answer !== undefined) return answer;
+  answer = true;
+  try {
+    const context = globalThis.document
+      ?.createElement("canvas")
+      .getContext("2d");
+    if (context) {
+      const sample = "\u00a7\u00d8\u00fcmwil10";
+      const width = (font) => {
+        context.font = font;
+        return context.measureText(sample).width;
+      };
+      const quoted = `"${family.replace(/["\\]/g, "")}"`;
+      answer = ["monospace", "serif", "sans-serif"].some(
+        (generic) =>
+          width(`72px ${quoted}, ${generic}`) !== width(`72px ${generic}`),
+      );
+    }
+  } catch {}
+  installed.set(family, answer);
+  return answer;
+}
+// A document's own fonts can supply a typeface once they load.
+fontInstalled.clear = () => installed.clear();

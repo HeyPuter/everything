@@ -12,6 +12,8 @@ import {
   preview,
   cleanName,
   validateZip,
+  packageSize,
+  checkPackageSize,
   THEMES,
   slideDescription,
   slideTitle,
@@ -37,6 +39,12 @@ import {
   listOf,
   SOFT_BREAK,
 } from "../src/model.js";
+const PNG_PIXEL = new Uint8Array(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+    "base64",
+  ),
+);
 describe(".pptx interoperability", () => {
   it("keeps text pasted with control characters, as a file that opens", async () => {
     const pres = createDeck("blank");
@@ -340,6 +348,30 @@ describe("file validation", () => {
       parseDeck(zipSync({ "[Content_Types].xml": strToU8("<<<") })),
     ).rejects.toThrow("could not be opened as a PowerPoint presentation");
   });
+  it("explains a presentation saved as Strict Open XML", async () => {
+    const entries = unzipSync(await P.savePresentation(createDeck("story")));
+    // Strict files name their relationships, and their XML, in namespaces of
+    // their own.
+    for (const name of Object.keys(entries)) {
+      if (!/\.(xml|rels)$/.test(name) || name === "[Content_Types].xml")
+        continue;
+      entries[name] = strToU8(
+        new TextDecoder()
+          .decode(entries[name])
+          .replaceAll(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            "http://purl.oclc.org/ooxml/officeDocument/relationships",
+          )
+          .replaceAll(
+            "http://schemas.openxmlformats.org/presentationml/2006/main",
+            "http://purl.oclc.org/ooxml/presentationml/main",
+          ),
+      );
+    }
+    await expect(parseDeck(zipSync(entries))).rejects.toThrow(
+      "saved in the Strict Open XML format",
+    );
+  });
   it("opens decks that carry [trash] leftovers and drops them on save", async () => {
     const pres = createDeck("story");
     const entries = unzipSync(await P.savePresentation(pres));
@@ -354,13 +386,136 @@ describe("file validation", () => {
         /trash/i.test(name),
       ),
     ).toBe(false);
-    // Any other part without a content type is still a damaged package.
-    delete entries["[trash]/0000.dat"];
-    entries["extra/0000.dat"] = new Uint8Array(8);
-    await expect(parseDeck(zipSync(entries))).rejects.toThrow(
-      "could not be opened as a PowerPoint presentation",
+  });
+  it("opens decks zipped again on a desktop, leaving the system's files out", async () => {
+    const pres = createDeck("story");
+    const entries = unzipSync(await P.savePresentation(pres));
+    entries[".DS_Store"] = new Uint8Array([0, 0, 0, 1, 66, 117, 100, 49]);
+    entries["ppt/.DS_Store"] = new Uint8Array(16);
+    entries["__MACOSX/ppt/slides/._slide1.xml"] = new Uint8Array([0, 5, 22, 7]);
+    entries["ppt/media/Thumbs.db"] = new Uint8Array(8);
+    const loaded = await parseDeck(zipSync(entries));
+    expect(P.getSlides(loaded).map(P.getSlideText)).toEqual(
+      P.getSlides(pres).map(P.getSlideText),
+    );
+    const saved = Object.keys(unzipSync(await P.savePresentation(loaded)));
+    expect(saved.filter((name) => /DS_Store|MACOSX|Thumbs/.test(name))).toEqual(
+      [],
     );
   });
+  it("opens a file whose XML parts are written in UTF-16", async () => {
+    const pres = createDeck("story");
+    P.setSlideNotes(P.getSlides(pres)[1], "Notes — naïve café ✓");
+    const entries = unzipSync(await P.savePresentation(pres));
+    const utf16 = (name, littleEndian) => {
+      const text = new TextDecoder()
+        .decode(entries[name])
+        .replace(/encoding="UTF-8"/i, 'encoding="UTF-16"');
+      const bytes = Buffer.from(`\ufeff${text}`, "utf16le");
+      if (!littleEndian) bytes.swap16();
+      entries[name] = new Uint8Array(bytes);
+    };
+    utf16("[Content_Types].xml", true);
+    utf16("_rels/.rels", false);
+    utf16("ppt/slides/slide2.xml", true);
+    const notes = Object.keys(entries).find((n) =>
+      /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n),
+    );
+    utf16(notes, false);
+    const loaded = await parseDeck(zipSync(entries));
+    expect(P.getSlides(loaded).map(P.getSlideText)).toEqual(
+      P.getSlides(pres).map(P.getSlideText),
+    );
+    expect(P.getSlideNotes(P.getSlides(loaded)[1])).toBe(
+      "Notes — naïve café ✓",
+    );
+    // Saved as UTF-8, saying so.
+    const saved = unzipSync(await P.savePresentation(loaded));
+    const slide = new TextDecoder().decode(saved["ppt/slides/slide2.xml"]);
+    expect(slide.startsWith("<?xml")).toBe(true);
+    expect(slide).not.toMatch(/UTF-16/i);
+    const again = await parseDeck(zipSync(saved));
+    expect(P.getSlideNotes(P.getSlides(again)[1])).toBe("Notes — naïve café ✓");
+  });
+  it("keeps a part its content types do not cover, and covers it on save", async () => {
+    const pres = createDeck("story");
+    const slide = P.getSlides(pres)[0];
+    P.addSlideImage(slide, PNG_PIXEL, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(1),
+      h: P.inches(1),
+    });
+    const entries = unzipSync(await P.savePresentation(pres));
+    // A picture saved under an extension the map has no default for.
+    const media = Object.keys(entries).find((n) => n.startsWith("ppt/media/"));
+    const renamed = media.replace(/\.png$/, ".jfif");
+    entries[renamed] = entries[media];
+    delete entries[media];
+    const relsName = "ppt/slides/_rels/slide1.xml.rels";
+    const leaf = media.split("/").pop();
+    entries[relsName] = strToU8(
+      new TextDecoder()
+        .decode(entries[relsName])
+        .replace(leaf, renamed.split("/").pop()),
+    );
+    entries["[Content_Types].xml"] = strToU8(
+      new TextDecoder()
+        .decode(entries["[Content_Types].xml"])
+        .replace(/<Default Extension="png"[^>]*\/>/, ""),
+    );
+    entries["extra/0000.dat"] = new Uint8Array(8).fill(3);
+    const loaded = await parseDeck(zipSync(entries));
+    const picture = P.getSlideShapes(P.getSlides(loaded)[0]).find(
+      (shape) => P.getShapeKind(shape) === "picture",
+    );
+    expect(Buffer.from(P.getShapeImageBytes(picture))).toEqual(
+      Buffer.from(PNG_PIXEL),
+    );
+    const saved = unzipSync(await P.savePresentation(loaded));
+    expect(saved[renamed]).toEqual(entries[renamed]);
+    expect(saved["extra/0000.dat"]).toEqual(entries["extra/0000.dat"]);
+    const types = new TextDecoder().decode(saved["[Content_Types].xml"]);
+    expect(types).toContain(
+      `<Override PartName="/${renamed}" ContentType="image/png"/>`,
+    );
+    expect(types).toContain(
+      '<Override PartName="/extra/0000.dat" ContentType="application/octet-stream"/>',
+    );
+    // The file written opens again as it is.
+    const again = await parseDeck(zipSync(saved));
+    expect(P.getSlides(again)).toHaveLength(P.getSlides(pres).length);
+  });
+  it("refuses only edits that would grow a presentation past what opens again", async () => {
+    const pres = createDeck("blank");
+    const limit = 200 * 1024 * 1024 - 256 * 1024;
+    // A video that brings the presentation to the most an edit may make it.
+    const data = new Uint8Array(limit - packageSize(pres) - 4096);
+    data.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]);
+    P.addSlideMedia(
+      P.getSlides(pres)[0],
+      {
+        kind: "video",
+        data,
+        contentType: "video/mp4",
+        extension: "mp4",
+        poster: PNG_PIXEL,
+      },
+      { x: 0, y: 0, w: P.inches(2), h: P.inches(2) },
+    );
+    const size = packageSize(pres);
+    expect(size).toBeLessThanOrEqual(limit);
+    expect(() => checkPackageSize(size)).not.toThrow();
+    // Saved at that size, it opens again.
+    const reopened = await parseDeck(await P.savePresentation(pres));
+    expect(packageSize(reopened)).toBe(size);
+    expect(() => checkPackageSize(limit + 1, size)).toThrow(
+      "too large to open again",
+    );
+    // A presentation already past it may still be edited without growing.
+    expect(() => checkPackageSize(limit + 1, limit + 1)).not.toThrow();
+    expect(() => checkPackageSize(limit + 1, limit + 2)).not.toThrow();
+  }, 60_000);
   it("preserves large deflated parts whose declared sizes are correct", async () => {
     const pres = createDeck();
     const notes = "A".repeat(1024 * 1024);

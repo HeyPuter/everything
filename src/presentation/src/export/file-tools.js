@@ -5,6 +5,7 @@
 import "./export.css";
 import { zipSync, strToU8 } from "fflate";
 import { el } from "../ui.js";
+import { archiveEntryName } from "../model.js";
 import {
   openModal,
   selectField,
@@ -241,7 +242,7 @@ export function createFileTools(ctx) {
   }
 
   async function templateBlob() {
-    const bytes = await P.savePresentation(ctx.doc().pres);
+    const bytes = await ctx.fileBytes(ctx.doc().pres);
     const copy = await P.loadPresentation(bytes);
     P.setPresentationKind(copy, "template");
     return new Blob([await P.savePresentation(copy)], {
@@ -681,7 +682,9 @@ export function createFileTools(ctx) {
         const files = {};
         for (const [i, blob] of blobs.entries())
           files[
-            `${fileBase} - Slide ${String(slides[i].number).padStart(digits, "0")}.${ext}`
+            archiveEntryName(
+              `${fileBase} - Slide ${String(slides[i].number).padStart(digits, "0")}.${ext}`,
+            )
           ] = new Uint8Array(await blob.arrayBuffer());
         return ctx.download(
           new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }),
@@ -754,7 +757,7 @@ export function createFileTools(ctx) {
         );
       if (format === "pptx")
         return ctx.download(
-          new Blob([await P.savePresentation(ctx.doc().pres)], {
+          new Blob([await ctx.fileBytes(ctx.doc().pres)], {
             type: P.PRESENTATION_FILE_TYPES.presentation,
           }),
           `${fileBase}.pptx`,

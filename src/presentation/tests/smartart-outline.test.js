@@ -15,6 +15,7 @@ import {
   moveDown,
   moveUp,
   normalize,
+  pasteLines,
   promote,
   removeItem,
   splitItem,
@@ -109,5 +110,41 @@ describe("SmartArt outline", () => {
         ]),
       ),
     ).toBe("One -detail Two");
+  });
+});
+
+// Lines pasted into the Text Pane ran together in one item ("Plan Build
+// \tTest Ship"); each now becomes an item, indented lines a level deeper.
+describe("pasting lines into the Text Pane", () => {
+  const items = [
+    { text: "Intro", level: 0 },
+    { text: "[Text]", level: 0 },
+    { text: "End", level: 0 },
+  ];
+  it("makes an item of each line, at the caret, with indents as levels", () => {
+    const result = pasteLines(items, 1, 0, 6, "Plan\nBuild\n\tTest\n\nShip\n");
+    expect(result.items).toEqual([
+      { text: "Intro", level: 0 },
+      { text: "Plan", level: 0 },
+      { text: "Build", level: 0 },
+      { text: "Test", level: 1 },
+      { text: "Ship", level: 0 },
+      { text: "End", level: 0 },
+    ]);
+    expect(result.index).toBe(4);
+    expect(result.caret).toBe(4);
+  });
+  it("keeps the text around the caret and reads space indents and bullets", () => {
+    const one = [{ text: "AB", level: 1 }];
+    const result = pasteLines(one, 0, 1, 1, "- x\r\n  • y\r\n    z");
+    expect(result.items).toEqual([
+      { text: "Ax", level: 0 },
+      { text: "y", level: 1 },
+      { text: "zB", level: 2 },
+    ]);
+    expect(result.caret).toBe(1);
+  });
+  it("leaves a single line to the field", () => {
+    expect(pasteLines(items, 0, 0, 0, "Just words")).toBeNull();
   });
 });

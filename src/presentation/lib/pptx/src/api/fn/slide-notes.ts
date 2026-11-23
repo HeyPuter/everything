@@ -28,7 +28,11 @@ import {
   type SlideShapeData,
 } from "../_internal-symbols.ts";
 import { NAME_CSLD, NAME_SP_TREE, decode, encode } from "./_helpers.ts";
-import { setTextBody } from "../../internal/drawingml/index.ts";
+import { setTextBody, textBodyText } from "../../internal/drawingml/index.ts";
+import {
+  editTextBodyRange,
+  type TextBodyEdit,
+} from "../../internal/drawingml/text-body-edit.ts";
 import { getSlides, isSlideHidden } from "./slide-query.ts";
 import { getShapeHyperlink, setShapeHyperlink } from "./shapes.ts";
 import {
@@ -688,6 +692,51 @@ export const appendSlideNotes = (slide: SlideData, text: string): void => {
   const value =
     existing === null || existing.length === 0 ? text : `${existing}\n${text}`;
   setSlideNotes(slide, value);
+};
+
+/** Applies sequential range edits in the notes' visible text (as an editing
+ * history records them, see `TextBodyEdit`), keeping the runs and paragraph
+ * properties outside the edited ranges. `text` is the text the edits end at.
+ * Throws, leaving the notes as they were, when the slide has no notes body or
+ * the edits do not start from its text or do not end at `text`. */
+export const editSlideNotes = (
+  slide: SlideData,
+  edits: readonly TextBodyEdit[],
+  text: string,
+): void => {
+  const notesPartName = findNotesPartName(slide);
+  const part =
+    notesPartName === null
+      ? null
+      : slide[INTERNAL_PACKAGE].getPart(notesPartName);
+  if (part === null) throw new Error("slide has no notes to edit");
+  const doc = parseXml(decode(part.data));
+  const spTree = firstChildElement(
+    firstChildElement(doc.root, NAME_CSLD) ?? doc.root,
+    NAME_SP_TREE,
+  );
+  // The same body placeholder getSlideNotes and setSlideNotes use.
+  const body = spTree?.children
+    .filter((child) => child.kind === "element")
+    .filter(
+      (child) =>
+        child.name.namespaceURI === NS.pml && child.name.localName === "sp",
+    )
+    .map((sp) => {
+      const nvPr = firstChildElement(
+        firstChildElement(sp, qname("p", "nvSpPr", NS.pml)) ?? sp,
+        qname("p", "nvPr", NS.pml),
+      );
+      return nvPr && firstChildElement(nvPr, qname("p", "ph", NS.pml))
+        ? firstChildElement(sp, qname("p", "txBody", NS.pml))
+        : null;
+    })
+    .find((txBody) => txBody);
+  if (!body) throw new Error("notesSlide has no body placeholder to edit");
+  for (const edit of edits) editTextBodyRange(body, edit);
+  if (textBodyText(body) !== text)
+    throw new Error("notes edits do not match the notes' text");
+  part.data = encode(serializeXml(doc));
 };
 
 export const setSlideNotes = (slide: SlideData, value: string): void => {

@@ -244,3 +244,48 @@ test("Find and Replace reach a graphic's text, Replace All in one step", async (
   ({ model } = await download(page));
   expect(model.items[1].text).toBe("Budget sign-off");
 });
+
+// Closing the Text Pane from the keyboard dropped the focus to the page.
+test("closing the Text Pane with Escape puts the keyboard back on the graphic", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  await expect(page.locator(".smartart-outline-input").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".smartart-pane")).toHaveCount(0);
+  await expect(
+    page.locator("#slide-canvas .object-hit.selected"),
+  ).toBeFocused();
+});
+
+// Lines pasted into the Text Pane ran together in one item.
+test("lines pasted into the Text Pane become items of their own", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  const inputs = page.locator(".smartart-outline-input");
+  await expect(inputs.first()).toBeFocused();
+  await inputs.first().evaluate((input) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "Plan\nBuild\n\tTest\nShip\n");
+    input.dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: data,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect(inputs.nth(3)).toBeFocused();
+  await page.keyboard.type("ped");
+  await page.waitForTimeout(600);
+  const { model } = await download(page);
+  expect(model.items.slice(0, 4)).toEqual([
+    { text: "Plan", level: 0 },
+    { text: "Build", level: 0 },
+    { text: "Test", level: 1 },
+    { text: "Shipped", level: 0 },
+  ]);
+});

@@ -253,6 +253,42 @@ describe("slide animations", () => {
     expect(xmlOf(slide)).not.toContain("<p:timing");
   });
 
+  it("writes a text build again for the paragraphs its text has now", async () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const body = text(slide, "One\nTwo\nThree", 4, 1, 4, 3);
+    const effect = {
+      shapeId: id(body),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 500,
+      text: { by: "paragraph", level: 1 },
+    };
+    P.setSlideAnimations(slide, [effect]);
+    // Looked at before the text changes, as the editor does before an edit.
+    expect(P.syncSlideTextBuilds(slide)).toBe(false);
+    // A paragraph deleted: the file names only the two left.
+    P.setShapeText(body, "One\nTwo");
+    expect(P.syncSlideTextBuilds(slide)).toBe(true);
+    expect(xmlOf(slide)).not.toContain('<p:pRg st="2" end="2"/>');
+    expect(P.syncSlideTextBuilds(slide)).toBe(false);
+    const restored = await parseDeck(await P.savePresentation(pres));
+    const read = P.getSlides(restored)[0];
+    expect(strip(P.getSlideAnimations(read))).toEqual([effect]);
+    // Paragraphs added: the build takes them in, in the file too.
+    expect(P.syncSlideTextBuilds(read)).toBe(false);
+    const again = P.getSlideShapes(read).find((s) => id(s) === id(body));
+    P.setShapeText(again, "One\nTwo\nThree\nFour");
+    expect(P.syncSlideTextBuilds(read)).toBe(true);
+    expect(xmlOf(read)).toContain('<p:pRg st="3" end="3"/>');
+    expect(strip(P.getSlideAnimations(await reload(restored)))).toEqual([
+      effect,
+    ]);
+  });
+
   it("places timing before the slide's extension list", () => {
     const { slide, box } = deck();
     P.setSlideAnimations(slide, [

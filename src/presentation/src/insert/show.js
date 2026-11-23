@@ -14,10 +14,12 @@ import { bytesUrl } from "./util.js";
 export function createShowExtras(ctx, show) {
   const { P } = ctx;
   const { pres, all, frame, size } = show;
-  const urls = [];
-  const url = (bytes, type) => {
-    const u = bytesUrl(bytes, type);
-    urls.push(u);
+  // One address per media file for the whole show: a slide shown again (a
+  // loop, a kiosk running all day) plays from the same copy of its bytes.
+  const urls = new Map();
+  const url = (bytes, type, key = bytes) => {
+    let u = urls.get(key);
+    if (!u) urls.set(key, (u = bytesUrl(bytes, type)));
     return u;
   };
   const partOf = (s) => P.getSlidePartName(s);
@@ -219,7 +221,7 @@ export function createShowExtras(ctx, show) {
     const element = document.createElement(
       media.kind === "video" ? "video" : "audio",
     );
-    element.src = url(media.data, media.contentType);
+    element.src = url(media.data, media.contentType, media.partName);
     element.preload = "auto";
     element.playsInline = true;
     element.setAttribute(
@@ -351,8 +353,20 @@ export function createShowExtras(ctx, show) {
       if (P.getShapeMediaKind(shape)) {
         // Narrations stay silent when the show is set to play without them.
         if (show.skipMedia?.(shape)) continue;
+        const key = `${partOf(slide)}#${P.getShapeId(shape)}`;
+        // A sound still playing across slides from an earlier visit (a loop
+        // coming round again) carries on, rather than starting over beside
+        // itself.
+        const carried = [...playing].find((p) => p.across && p.key === key);
+        if (carried && !carried.element.paused) {
+          layer.append(carried.node);
+          slideMedia.set(String(P.getShapeId(shape)), carried);
+          continue;
+        }
+        carried?.stop();
         const player = mediaPlayer(shape, parents);
         if (!player) continue;
+        player.key = key;
         layer.append(player.node);
         slideMedia.set(String(P.getShapeId(shape)), player);
         if (player.options.start === "automatically") autoplay.push(player);
@@ -453,6 +467,7 @@ export function createShowExtras(ctx, show) {
     layer?.remove();
     layer = null;
     urls.forEach((u) => URL.revokeObjectURL(u));
+    urls.clear();
   }
 
   return {

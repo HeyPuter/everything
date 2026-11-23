@@ -1,10 +1,10 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { P, createDeck, parseDeck } from "../src/model.js";
 import { renderSlideToSvg } from "../lib/pptx-preview/src/index.ts";
 import { parseXml } from "../lib/pptx/src/internal/xml/index.ts";
 import { bulletFontCases, bulletFontFixture } from "./bullet-font-fixture.js";
 import { textStyleFixture } from "./text-style-copy-fixture.js";
-import { strFromU8, strToU8, zipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import native from "./data/bullet-font-native.json";
 
 const visit = (el) => [
@@ -176,4 +176,67 @@ it("resolves all nine inherited placeholder levels and preserves local follow-te
   expect(P.getParagraphBulletStyleEffective(reset, resetShape, 5).font).toBe(
     "Courier New",
   );
+});
+
+describe("symbol-font bullets", () => {
+  async function bulleted(chars) {
+    const pres = createDeck("blank"),
+      slide = P.getSlides(pres)[0];
+    const box = P.addSlideTextBox(slide, {
+      x: P.inches(1),
+      y: P.inches(1),
+      w: P.inches(6),
+      h: P.inches(3),
+      text: chars.map((_, i) => `Item ${i}`).join("\n"),
+    });
+    P.setShapeTextFormat(box, { font: "Georgia" });
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    let index = 0;
+    files[name] = strToU8(
+      strFromU8(files[name]).replace(/<a:p>(?:<a:pPr\/>)?/g, () => {
+        const [font, char] = chars[index++] ?? [];
+        return font
+          ? `<a:p><a:pPr marL="342900" indent="-342900"><a:buFont typeface="${font}"/><a:buChar char="${char}"/></a:pPr>`
+          : "<a:p>";
+      }),
+    );
+    return parseDeck(zipSync(files));
+  }
+  const bullets = (pres, hasFont) =>
+    [
+      ...renderSlideToSvg(pres, P.getSlides(pres)[0], {
+        textLayout: "svg",
+        ...(hasFont ? { hasFont } : {}),
+        resolveFontFamily: (family) => family ?? "Calibri",
+      }).matchAll(
+        /<text x="[^"]+" y="[^"]+" font-family="([^"]+)"[^>]*>([^<]*)<\/text>/g,
+      ),
+    ].map((m) => [m[1], m[2]]);
+  const chars = [
+    ["Wingdings", "§"],
+    ["Wingdings", ""],
+    ["Symbol", "·"],
+    ["Arial", "–"],
+  ];
+  it("draws a missing symbol typeface's bullet as the character it shows", async () => {
+    const pres = await bulleted(chars);
+    expect(bullets(pres, (family) => family === "Arial")).toEqual([
+      ["Georgia", "▪"],
+      ["Georgia", "➢"],
+      ["Georgia", "•"],
+      ["Arial", "–"],
+    ]);
+  });
+  it("keeps the authored character where the typeface is installed", async () => {
+    const pres = await bulleted(chars);
+    const authored = [
+      ["Wingdings", "§"],
+      ["Wingdings", ""],
+      ["Symbol", "·"],
+      ["Arial", "–"],
+    ];
+    expect(bullets(pres, () => true)).toEqual(authored);
+    expect(bullets(pres)).toEqual(authored);
+  });
 });

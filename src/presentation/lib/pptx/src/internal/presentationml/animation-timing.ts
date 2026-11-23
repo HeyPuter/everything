@@ -1039,6 +1039,38 @@ const numberTimeNodes = (root: XmlElement) => {
   }
 };
 
+const targetKey = (t: AnimationTarget | null): string =>
+  !t
+    ? ""
+    : t.background
+      ? "bg"
+      : t.paragraphs
+        ? `${t.paragraphs.start}-${t.paragraphs.end}`
+        : "";
+const fits = (
+  source: AnimationSource,
+  e: SlideAnimation,
+  targets: ReturnType<typeof expandTargets>,
+): boolean =>
+  source.items.length === targets.length &&
+  // A paragraph build's markup names paragraphs: those the text has now.
+  (!e.text ||
+    targets.every((t, i) => {
+      const cTn = child(source.items[i]!, "cTn");
+      return !!cTn && targetKey(targetOf(cTn)) === targetKey(t.target);
+    }));
+
+/**
+ * Whether the markup an effect was read from still fits it as the slide now
+ * stands: false for a paragraph build whose shape's paragraphs changed
+ * since (text typed or deleted), which must be written afresh.
+ */
+export const sourceFitsEffect = (
+  e: SlideAnimation,
+  source: AnimationSource,
+  info: AnimationShapeInfo | null,
+): boolean => fits(source, e, expandTargets(e, info));
+
 /**
  * Builds `<p:timing>` for the effects, or null when there are none and
  * nothing else to keep. `sources` and `extras` come from `readTiming` of the
@@ -1072,7 +1104,7 @@ export const writeTiming = (
         source.fingerprint ===
           animationFingerprint({ ...e, durationMs: source.durationMs }));
     const pars =
-      reusable && source.items.length === targets.length
+      reusable && fits(source, e, targets)
         ? source.items.map((par) => {
             const copy = clone(par);
             if (source.durationMs > 0 && e.durationMs !== source.durationMs)

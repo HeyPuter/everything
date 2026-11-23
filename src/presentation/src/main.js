@@ -1,4 +1,4 @@
-import { textEditHistory } from "./text-edit-history.js";
+import { textEditHistory, trackTextareaEdits } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
@@ -80,9 +80,12 @@ import {
   prepareDeckFonts,
   parseDeck,
   validateImportSize,
+  packageSize,
+  checkPackageSize,
   restoreDeck,
   History,
   cleanName,
+  archiveEntryName,
 } from "./model.js";
 import * as cloud from "./cloud.js";
 import {
@@ -157,6 +160,7 @@ import {
   dismissMenuWithin,
   closeMenu,
   MOD_KEY,
+  ALT_KEY,
   IS_MAC,
 } from "./ui.js";
 
@@ -586,6 +590,7 @@ function setAccount(connected) {
   accountPicture = null;
   const request = ++accountPictureRequest;
   if (!account) return;
+  loadRecentList();
   cloud.profilePicture().then((picture) => {
     if (request !== accountPictureRequest || !picture) return;
     accountPicture = picture;
@@ -2095,7 +2100,11 @@ async function openCloud(file, { offerDraft = true } = {}) {
       }
       if (request !== documentRequest) return;
       pending.bytes = bytes;
-      pending.pres = await parseDeck(bytes, { prepareFonts: false });
+      // An empty file, as a desktop's New > Presentation makes, opens as a
+      // new presentation that saves to it.
+      pending.pres = bytes.byteLength
+        ? await parseDeck(bytes, { prepareFonts: false })
+        : createDeck(startWith === "title" ? "title" : "blank", "studio");
       return pending;
     });
   } finally {
@@ -2449,7 +2458,16 @@ function mutate(
       if (doc !== active || readOnlyDocument()) return false;
       const previous = active.pres;
       try {
+        // Text built paragraph by paragraph keeps to the paragraphs the
+        // edit leaves it, in the file as on the slide: the builds are read
+        // before the edit, and written again after it where they changed.
+        const syncTextBuilds = () =>
+          P.getSlides(active.pres).forEach((s) => P.syncSlideTextBuilds(s));
+        syncTextBuilds();
+        const sizeBefore = packageSize(previous);
         if ((await fn()) === SKIP_MUTATION) return false;
+        checkPackageSize(packageSize(active.pres), sizeBefore);
+        syncTextBuilds();
         // Formatting given to a master's or layout's placeholder text
         // becomes the style slides inherit.
         if (masterView.active) masterView.afterEdit();
@@ -2561,6 +2579,16 @@ async function settled() {
   commitText();
   await mutationTail;
 }
+// A presentation's bytes as a file written out, to Puter or downloaded: its
+// properties say when it was last saved, as File > Properties shows.
+function fileBytes(pres) {
+  try {
+    P.setCoreProperties(pres, {
+      modified: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    });
+  } catch {}
+  return P.savePresentation(pres);
+}
 // Resolves to whether the open presentation's latest revision is in Puter.
 // `force` writes over a file that changed elsewhere (the person chose to);
 // `quiet` leaves a conflict for the caller to put to the person. `chosen` is
@@ -2585,7 +2613,7 @@ async function saveCloud(
     if (!explicit) return false;
     return cloud.oneDialog(`first:${target.id}`, async () => {
       const rev = revision;
-      const bytes = await P.savePresentation(target.pres);
+      const bytes = await fileBytes(target.pres);
       if (doc !== target) return false;
       const file = await cloud.saveFileAs(
         new Blob([bytes], { type: MIME }),
@@ -2618,7 +2646,7 @@ async function saveCloud(
           return false;
         }
       }
-      const bytes = chosen?.bytes ?? (await P.savePresentation(target.pres));
+      const bytes = chosen?.bytes ?? (await fileBytes(target.pres));
       const file =
         chosen?.file ?? (await cloud.saveFile(bytes, target.name, target.path));
       target.path = file.path || target.path;
@@ -2897,7 +2925,7 @@ async function copyOf(target, useDialog) {
   const rev = revision;
   const file = await saveQueue.run(async () => {
     if (doc !== target) return null;
-    const bytes = await P.savePresentation(target.pres);
+    const bytes = await fileBytes(target.pres);
     // Puter's dialog writes the file itself and never settles when it is
     // closed, so it is not kept in the queue that later saves wait on.
     if (useDialog) return { forDialog: bytes };
@@ -3020,7 +3048,7 @@ async function downloadDeck() {
   await settled();
   if (!target) return;
   const name = target.name;
-  await cloud.download(await P.savePresentation(target.pres), name);
+  await cloud.download(await fileBytes(target.pres), name);
   toast("PowerPoint file downloaded.");
 }
 /* ---------- Slide size ---------- */
@@ -3208,8 +3236,11 @@ async function exportImages(all) {
   for (const [i, s] of slides.entries()) {
     const blob = await rasterizeSlide(target.pres, s, target.previews);
     if (doc !== target) return;
-    files[`${name} - Slide ${String(i + 1).padStart(digits, "0")}.png`] =
-      new Uint8Array(await blob.arrayBuffer());
+    files[
+      archiveEntryName(
+        `${name} - Slide ${String(i + 1).padStart(digits, "0")}.png`,
+      )
+    ] = new Uint8Array(await blob.arrayBuffer());
   }
   const zip = zipSync(files, { level: 0 });
   await cloud.downloadBlob(
@@ -3515,21 +3546,12 @@ function renderEditor() {
                 { for: "speaker-notes", class: "sr-only" },
                 "Speaker notes",
               ),
-              el("textarea", {
-                id: "speaker-notes",
-                placeholder: "Click to add notes",
-                onchange: (e) => {
-                  const target = slide(),
-                    value = e.target.value;
-                  mutateSlide(target, (target) =>
-                    P.setSlideNotes(target, value),
-                  );
-                },
-              }),
+              speakerNotes(),
             ),
           ),
-          // Slide Sorter and Notes Page take the place of the panes.
-          el("section", { id: "view-host", class: "view-host" }),
+          // Slide Sorter and Notes Page take the place of the panes, and of
+          // their main landmark (hidden with them).
+          el("main", { id: "view-host", class: "view-host" }),
           el("aside", {
             class: "inspector",
             id: "inspector",
@@ -3555,6 +3577,36 @@ function renderEditor() {
   fitCanvas();
   applyPaneSizes();
   views.mounted();
+}
+// The speaker notes under the slide. What is typed there is applied as the
+// edits it was, so formatting the notes came with (a bold word, a bulleted
+// line) stays where the typing did not reach.
+function speakerNotes() {
+  const notes = el("textarea", {
+    id: "speaker-notes",
+    placeholder: "Click to add notes",
+    onfocus: () => typed.rebase(),
+    onchange: () => {
+      const target = slide(),
+        value = notes.value,
+        base = typed.base(),
+        edits = typed.edits();
+      typed.rebase();
+      mutateSlide(target, (target) => commitNotes(target, value, base, edits));
+    },
+  });
+  const typed = trackTextareaEdits(notes);
+  return notes;
+}
+// Notes typed from `base` as `edits`, or the whole text when the notes are
+// no longer what the typing started from.
+function commitNotes(target, value, base, edits) {
+  if ((P.getSlideNotes(target) || "") === base && edits.length)
+    try {
+      P.editSlideNotes(target, edits, value);
+      return;
+    } catch {}
+  P.setSlideNotes(target, value);
 }
 // The title bar: the way back to the library, the quick access commands
 // (save, undo, redo), the menu bar, the presentation's name with its save
@@ -3764,6 +3816,7 @@ function commandSearch() {
 const fileTools = createFileTools({
   P,
   doc: () => doc,
+  fileBytes: (pres) => fileBytes(pres),
   // Recorded narrations go into exported videos (src/show/narration.js).
   narrationOf: (s) => showFeatures.narrationOf(s),
   settled,
@@ -4986,7 +5039,7 @@ function arrangeMenuItems() {
     {
       label: "Selection Pane",
       icon: "o:selectionPane",
-      shortcut: `${M}+Alt+U`,
+      shortcut: `${M}+${ALT_KEY}+U`,
       onSelect: toggleSelectionPane,
     },
   ];
@@ -7458,15 +7511,43 @@ const menuFor = (label, items) => (anchor) =>
   });
 // Presentations to reopen from the File menu: the newest in the library and
 // those opened from elsewhere on the drive, without the one already open.
+// The editor's Open recent lists the Presentations folder, which only the
+// library reads otherwise: an editor shown first (as the app opens, with a
+// new presentation) reads it too, when the account is known and each time
+// the File menu opens, for the next time.
+let recentListRequest = 0,
+  recentListAt = 0;
+function loadRecentList({ again = true } = {}) {
+  if (!account || view === "home") return;
+  // A menu opened again soon after does not read the folder again.
+  if (!again && Date.now() - recentListAt < 20000) return;
+  recentListAt = Date.now();
+  const request = ++recentListRequest;
+  const requestOwner = owner();
+  cloud
+    .listFiles()
+    .then((list) => {
+      if (
+        request === recentListRequest &&
+        view !== "home" &&
+        owner() === requestOwner
+      )
+        files = list;
+    })
+    .catch(() => {});
+}
 function recentMenuItems() {
   const open = doc?.path;
   const seen = new Set();
   const list = [
-    ...files.map((f) => ({
+    ...(account ? files : []).map((f) => ({
       ...f,
       at: Number(f.modified || f.created || 0) * 1000,
     })),
-    ...recentFiles.map((r) => ({ ...r, at: cloud.modifiedMs(r) ?? r.at ?? 0 })),
+    ...(account ? recent.recentFiles(owner()) : []).map((r) => ({
+      ...r,
+      at: cloud.modifiedMs(r) ?? r.at ?? 0,
+    })),
   ]
     .filter(
       (f) => f.path && f.path !== open && !seen.has(f.path) && seen.add(f.path),
@@ -7488,6 +7569,7 @@ function recentMenuItems() {
 // layout keeps, carries the other menus too.
 function fileMenu(anchor) {
   const mobile = anchor.classList.contains("mobile-only");
+  loadRecentList({ again: false });
   openMenu({
     anchor,
     label: "File",
@@ -7759,7 +7841,7 @@ function viewItems() {
     {
       label: "Ribbon",
       icon: "PanelTop",
-      shortcut: `${M}+${IS_MAC ? "⌥" : "Alt"}+R`,
+      shortcut: `${M}+${ALT_KEY}+R`,
       checked: !!ribbon && !ribbon.collapsed,
       onSelect: toggleRibbon,
     },
@@ -7802,7 +7884,7 @@ function viewItems() {
       ].map(([kind, label, icon, key]) => ({
         label,
         icon,
-        shortcut: `${M}+${IS_MAC ? "⌥" : "Alt"}+${key}`,
+        shortcut: `${M}+${ALT_KEY}+${key}`,
         checked: masterView.mode === kind,
         onSelect: () => setView(masterView.viewId(kind)),
       })),
@@ -8019,7 +8101,7 @@ function formatItems() {
     {
       label: "Animation Painter",
       icon: "o:animationPainter",
-      shortcut: `${MOD_KEY}+Alt+Shift+C`,
+      shortcut: `${MOD_KEY}+${ALT_KEY}+Shift+C`,
       checked: animationTools.painting,
       disabled: !animationTools.painting && !animationTools.current().length,
       onSelect: () => animationTools.startPainter(false),
@@ -10761,9 +10843,6 @@ function editText(target, event = null, { inserted = null } = {}) {
     b = slideBounds(doc.pres, obj);
   if (!b) return;
   const format = textFormat(obj);
-  // A resized group scales its text along with its shapes.
-  const own = P.getShapeBoundsResolved(doc.pres, obj);
-  const groupScale = own?.h && b.h ? b.h / own.h : 1;
   // The text as runs, with paragraph breaks as newlines inside them. The
   // editor shows one span per run and reads them back after every edit, so
   // typing lands in the run it touches and keeps that run's formatting.
@@ -10858,7 +10937,8 @@ function editText(target, event = null, { inserted = null } = {}) {
     contrast(luminance(color), luminance(surface)) >= 3;
   const readable = legible(format.color);
   const baseSize = format.size || 24;
-  input.dataset.points = baseSize * groupScale;
+  // A resized group keeps its text at its point size, as the slide shows it.
+  input.dataset.points = baseSize;
   const resolveFont = slideFontResolver(slide(), doc.pres);
   const decoration = (f) =>
     [
@@ -10874,7 +10954,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     top: `${(editorRect.y / size.cy) * 100}%`,
     width: `${(editorRect.w / size.cx) * 100}%`,
     height: `${(editorRect.h / size.cy) * 100}%`,
-    fontSize: editorFontSize(baseSize * groupScale, canvas),
+    fontSize: editorFontSize(baseSize, canvas),
     fontFamily: format.font ? resolveFont(format.font) : "",
     fontWeight: format.bold ? "700" : "400",
     fontStyle: format.italic ? "italic" : "normal",
@@ -11251,13 +11331,57 @@ function editText(target, event = null, { inserted = null } = {}) {
     undo();
   }
   const redoWithin = () => stepHistory(redoSteps, undoSteps);
-  // Formatting applies to the selected text, or to the whole box when
-  // nothing is selected.
+  // Formatting chosen at a caret, with nothing selected, waits for the text
+  // typed there next, as in a word processor; it lasts while the caret and
+  // the text stay as they were.
+  let caretFormat = null;
+  const caretFormatAt = (sel, value) =>
+    caretFormat &&
+    sel &&
+    sel[0] === sel[1] &&
+    sel[0] === caretFormat.at &&
+    value === caretFormat.text
+      ? caretFormat.change
+      : null;
+  const WORD_CHARACTER = /[\p{L}\p{M}\p{N}_'’]/u;
+  // The word a caret stands inside, as [start, end], if any.
+  function wordAround(offset, value) {
+    const inWord = (i) => WORD_CHARACTER.test(value[i] || "");
+    if (!inWord(offset - 1) || !inWord(offset)) return null;
+    let start = offset,
+      end = offset;
+    while (start > 0 && inWord(start - 1)) start--;
+    while (end < value.length && inWord(end)) end++;
+    return [start, end];
+  }
+  // Formatting applies to the selected text. At a caret it applies to the
+  // word the caret is in, or else to the text typed there next; in an empty
+  // box, to the text typed first.
   function apply(change, { refocus = true } = {}) {
+    const sel = selection() || [0, text().length];
+    let [start, end] = sel;
+    if (start === end) {
+      const value = textOf(read().runs);
+      const word = value && wordAround(start, value);
+      if (word) [start, end] = word;
+      else if (value) {
+        caretFormat = {
+          at: start,
+          text: value,
+          change: { ...caretFormatAt(sel, value), ...change },
+        };
+        saved = sel;
+        if (refocus) {
+          suspended = false;
+          input.focus();
+        }
+        setSelection(sel[0], sel[1]);
+        syncToolbar();
+        return;
+      }
+    }
     remember(`apply:${Object.keys(change).join()}`);
     runs = readRuns();
-    const sel = selection() || [0, text().length];
-    const [start, end] = sel[0] === sel[1] ? [0, text().length] : sel;
     const [from, to] = fieldFormattingRange(runs, start, end);
     const list = runs.slice(splitAt(from), splitAt(to));
     // With no text left, the change goes to the run the text typed next
@@ -11278,8 +11402,18 @@ function editText(target, event = null, { inserted = null } = {}) {
   }
   function toggle(key) {
     const sel = selection() || [0, text().length];
-    const [start, end] = sel[0] === sel[1] ? [0, text().length] : sel;
-    const list = runsBetween(read().runs, start, end);
+    let [start, end] = sel;
+    const current = read().runs;
+    if (start === end) {
+      const value = textOf(current);
+      const waiting = caretFormatAt(sel, value);
+      if (waiting && key in waiting)
+        return apply({ [key]: !isOn({ format: waiting }, key) });
+      const word = value && wordAround(start, value);
+      if (word) [start, end] = word;
+    }
+    // A caret stands for the run it ends.
+    const list = runsBetween(current, start, end);
     // With no text left, the run the text typed next takes after decides.
     const on = list.length
       ? list.every((run) => isOn(run, key))
@@ -11400,14 +11534,56 @@ function editText(target, event = null, { inserted = null } = {}) {
   // What the toolbar shows for the selection: on when every run in it is.
   function selectionFormat() {
     const sel = selection() || [0, 0];
-    const list = runsBetween(read().runs, sel[0], sel[1]);
+    const current = read().runs;
+    const list = runsBetween(current, sel[0], sel[1]);
     const result = { ...(list[0] || base).format };
     for (const key of ["bold", "italic", "underline", "strike"])
       result[key] = list.length
         ? list.every((run) => isOn(run, key))
         : isOn(base, key);
+    // Formatting waiting at the caret shows as the text typed will have it.
+    const waiting = caretFormat && caretFormatAt(sel, textOf(current));
+    if (waiting)
+      for (const [key, value] of Object.entries(waiting))
+        result[key] = ["bold", "italic", "underline", "strike"].includes(key)
+          ? isOn({ format: waiting }, key)
+          : value;
     return result;
   }
+  // Text typed where formatting waits at the caret takes it, in a run of its
+  // own that the typing after it continues.
+  function typeFormatted(at, value, change) {
+    caretFormat = null;
+    remember("insert");
+    runs = readRuns();
+    const from = splitAt(at);
+    const run = copyRun(runs[from - 1] || runs[from] || base, value);
+    Object.assign(run.format, change);
+    Object.assign(run.changes, change);
+    runs.splice(from, 0, run);
+    render();
+    setSelection(at + value.length, at + value.length);
+    syncToolbar();
+  }
+  // An input method's text can't be typed in for it; it takes the waiting
+  // formatting once composed.
+  let composing = null;
+  input.addEventListener("compositionstart", () => {
+    const sel = selectionOffsets();
+    const change = caretFormat && caretFormatAt(sel, textOf(read().runs));
+    composing = change ? { at: sel[0], change } : null;
+    caretFormat = null;
+  });
+  input.addEventListener("compositionend", () => {
+    const pending = composing;
+    composing = null;
+    const sel = pending && selectionOffsets();
+    if (!sel || sel[0] !== sel[1] || sel[0] <= pending.at) return;
+    setSelection(pending.at, sel[0]);
+    apply(pending.change, { refocus: false });
+    setSelection(sel[0], sel[0]);
+    syncToolbar();
+  });
   let cancelled = false,
     keepEmpty = false;
   const finish = (cancel) => {
@@ -11518,6 +11694,17 @@ function editText(target, event = null, { inserted = null } = {}) {
       ["insertFromDrop", "insertLink", "insertFromPaste"].includes(e.inputType)
     )
       e.preventDefault();
+    else if (caretFormat && e.inputType === "insertText" && e.data) {
+      const sel = selectionOffsets();
+      const change = caretFormatAt(sel, textOf(read().runs));
+      if (change) {
+        e.preventDefault();
+        typeFormatted(sel[0], e.data, change);
+      } else {
+        caretFormat = null;
+        remember("insert");
+      }
+    }
     // Anything else the browser types or deletes itself.
     else remember(e.inputType.startsWith("delete") ? "delete" : "insert");
   });
@@ -13652,11 +13839,10 @@ function collectMatches() {
         for (const item of smartArtItems(shape)) n += countIn(item.text || "");
         for (let k = 0; k < n; k++) matches.push({ part, id, k });
       } else if (hasTextBody(shape)) {
-        // Matches are counted the way Replace reaches them: within one run.
+        // Matches are counted the way Replace reaches them: along the runs
+        // between a paragraph's line breaks and fields.
         let n = 0;
-        for (let p = 0; p < P.getShapeParagraphCount(shape); p++)
-          for (let r = 0; r < P.getShapeRunCount(shape, p); r++)
-            n += countIn(P.getShapeRunText(shape, p, r) || "");
+        for (const segment of runSegments(shape)) n += countIn(segment.text);
         for (let k = 0; k < n; k++) matches.push({ part, id, k });
       }
     }
@@ -13752,28 +13938,64 @@ async function revealMatch(match) {
     .querySelector(`.object-hit[data-shape-id="${match.id}"]`)
     ?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
-// Replaces the k-th occurrence within one object's text, run by run.
+// A shape's text as Find reads it: each paragraph's runs joined up to a
+// line break or a field, so text whose formatting changes part-way through
+// (a bold word, or runs an editor split) is still found.
+function runSegments(shape) {
+  const segments = [];
+  for (let p = 0; p < P.getShapeParagraphCount(shape); p++) {
+    let r = 0,
+      segment = null;
+    for (const element of P.getShapeParagraphElements(shape, p)) {
+      if (element.kind !== "r") {
+        segment = null;
+        continue;
+      }
+      if (!segment) segments.push((segment = { p, runs: [], text: "" }));
+      const value = element.text || "";
+      segment.runs.push({ r: r++, start: segment.text.length, value });
+      segment.text += value;
+    }
+  }
+  return segments;
+}
+// Replaces the k-th occurrence within one object's text. A match that runs
+// across runs takes the formatting of the run it starts in.
 function replaceInShape(shape, regex, replacement, only = null) {
   let seen = 0;
   let changed = false;
-  const paragraphs = P.getShapeParagraphCount(shape);
-  for (let p = 0; p < paragraphs; p++) {
-    const runs = P.getShapeRunCount(shape, p);
-    for (let r = 0; r < runs; r++) {
-      const text = P.getShapeRunText(shape, p, r);
-      if (!regex.test(text)) continue;
-      regex.lastIndex = 0;
-      const next = text.replace(regex, (hit) => {
-        const mine = only == null || seen === only;
-        seen++;
-        return mine ? replacement : hit;
-      });
-      if (next !== text) {
-        P.setShapeRunText(shape, p, r, next);
-        changed = true;
-      }
-      if (only != null && seen > only) return changed;
+  for (const { p, runs, text } of runSegments(shape)) {
+    const hits = [];
+    for (const hit of text.matchAll(regex)) {
+      if (only == null || seen === only) hits.push(hit);
+      seen++;
     }
+    if (!hits.length) continue;
+    const values = runs.map((run) => run.value);
+    const at = (offset, end) =>
+      runs.findLastIndex((run) =>
+        end ? run.start < offset : run.start <= offset,
+      );
+    // From the last match back, so the offsets of earlier ones still hold.
+    for (const hit of hits.reverse()) {
+      const from = hit.index,
+        to = hit.index + hit[0].length;
+      const first = at(from, false),
+        last = at(to, true);
+      const tail = values[last].slice(to - runs[last].start);
+      for (let i = first + 1; i <= last; i++) values[i] = "";
+      values[first] =
+        values[first].slice(0, from - runs[first].start) +
+        replacement +
+        (first === last ? tail : "");
+      if (first !== last) values[last] = tail;
+    }
+    runs.forEach((run, i) => {
+      if (values[i] === run.value) return;
+      P.setShapeRunText(shape, p, run.r, values[i]);
+      changed = true;
+    });
+    if (only != null && seen > only) return changed;
   }
   return changed;
 }
@@ -13814,10 +14036,20 @@ function replaceInCell(cell, regex, replacement, only = null) {
   const matches = [...text.matchAll(regex)].filter(
     (_, i) => only == null || i === only,
   );
-  for (const hit of matches.reverse())
-    edits.replace(hit.index, hit.index + hit[0].length, replacement);
+  const ranges = matches.reverse().map((hit) => ({
+    start: hit.index,
+    end: hit.index + hit[0].length,
+    text: replacement,
+  }));
+  for (const range of ranges) edits.replace(range.start, range.end, range.text);
   if (edits.text === text) return false;
-  P.setTableCellText(cell, edits.text, { fields: edits.fields });
+  // The rest of the cell keeps its formatting; a field showing a value other
+  // than its own text has the cell's text replaced as a whole.
+  try {
+    P.editTableCellText(cell, ranges, edits.text);
+  } catch {
+    P.setTableCellText(cell, edits.text, { fields: edits.fields });
+  }
   return true;
 }
 
@@ -13863,9 +14095,7 @@ function replaceMatch(all) {
           changed;
     }
     if (!changed) {
-      toast(
-        "That match runs across differently formatted text. Edit it in place instead.",
-      );
+      toast("That match can't be replaced here. Edit it in place instead.");
       return SKIP_MUTATION;
     }
   }).then(async (applied) => {
@@ -14091,7 +14321,16 @@ function editTableCell(target, row, col) {
   });
   const fields = tableTextFields(doc.pres, cell);
   const fieldEdits = fields.length ? trackTextFields(input, fields) : null;
-  let move = null;
+  // The edits as typed, so the commit changes only the text they touched:
+  // a bold word, a link or a centered paragraph elsewhere in the cell keeps
+  // its formatting.
+  const history = trackTextareaEdits(input);
+  let move = null,
+    grow = false;
+  const focusTable = () =>
+    [...canvas.querySelectorAll(".object-hit")]
+      .find((hit) => hit.dataset.shapeId === String(P.getShapeId(obj)))
+      ?.focus({ preventScroll: true });
   input.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
       return;
@@ -14102,10 +14341,14 @@ function editTableCell(target, row, col) {
       e.preventDefault();
       return;
     }
+    // Tab in the last cell adds a row to go on in; Shift+Tab in the first
+    // leaves the table selected.
     if (e.key === "Tab") {
       e.preventDefault();
       move = nextCell(obj, { row, col }, e.shiftKey ? -1 : 1);
+      if (!move && !e.shiftKey) grow = true;
       input.blur();
+      if (!move && !grow) focusTable();
       return;
     }
     // Escape leaves the cell keeping what was typed, as in a text box; undo
@@ -14113,9 +14356,7 @@ function editTableCell(target, row, col) {
     if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key === "Enter")) {
       e.preventDefault();
       input.blur();
-      [...canvas.querySelectorAll(".object-hit")]
-        .find((hit) => hit.dataset.shapeId === String(P.getShapeId(obj)))
-        ?.focus({ preventScroll: true });
+      focusTable();
     }
   });
   input.addEventListener(
@@ -14124,14 +14365,33 @@ function editTableCell(target, row, col) {
       const next = input.value;
       input.remove();
       if (next !== value)
-        mutateShape(obj, (obj) =>
-          P.setTableCellText(P.getTableCell(obj, row, col), next, {
-            fields: fieldEdits?.fields || [],
-          }),
-        );
+        mutateShape(obj, (obj) => {
+          const cell = P.getTableCell(obj, row, col);
+          try {
+            P.editTableCellText(cell, history.edits(), next);
+          } catch {
+            // Edits that do not fit the cell's own text (a field showing a
+            // value other than its own) replace the text as a whole.
+            P.setTableCellText(cell, next, {
+              fields: fieldEdits?.fields || [],
+            });
+          }
+        });
       // The next cell opens at once, so typing carries straight on while the
       // last cell's text is still being written.
       if (move) editTableCell(obj, move.row, move.col);
+      else if (grow) {
+        const id = P.getShapeId(obj);
+        // The table holds the keyboard until the new row's first cell opens.
+        focusTable();
+        tableAction((table) =>
+          P.insertTableRow(table, P.getTableDimensions(table).rows),
+        )?.then((applied) => {
+          const table = currentShape();
+          if (!applied || !table || P.getShapeId(table) !== id) return;
+          editTableCell(table, P.getTableDimensions(table).rows - 1, 0);
+        });
+      }
     },
     { once: true },
   );
@@ -14143,7 +14403,7 @@ function tableAction(fn) {
   const obj = currentShape();
   if (!obj || !isTable(obj)) return;
   const { row, col } = currentCell(obj);
-  mutateShape(obj, (obj) => {
+  return mutateShape(obj, (obj) => {
     const b = slideBounds(doc.pres, obj);
     if (!b) return;
     const before = tableLayout(doc.pres, obj);
@@ -14748,14 +15008,14 @@ function arrangeItems() {
     {
       label: "Group",
       icon: "Group",
-      shortcut: `${M}+Alt+G`,
+      shortcut: `${M}+${ALT_KEY}+G`,
       disabled: !canGroup,
       onSelect: groupSelection,
     },
     {
       label: "Ungroup",
       icon: "Ungroup",
-      shortcut: `${M}+Alt+Shift+G`,
+      shortcut: `${M}+${ALT_KEY}+Shift+G`,
       disabled: !canUngroup,
       onSelect: ungroupSelection,
     },
@@ -15503,10 +15763,8 @@ async function present(options = {}) {
       return slide;
     });
   } else {
-    if (selection.kind === "range" && selection.end > slides.length)
-      throw Error(
-        "The slide show range exceeds the presentation's slide count.",
-      );
+    // A range reaching past the last slide (slides deleted since it was
+    // set) shows the slides it still covers.
     all = (
       selection.kind === "range"
         ? slides.slice(selection.start - 1, selection.end)
@@ -15927,6 +16185,9 @@ async function present(options = {}) {
         advanceClock.clear();
         syncPause();
         clearTransition();
+        // The last slide's effects (a repeat, a sound to come) stop with it.
+        animator?.destroy();
+        animator = null;
         stage.classList.remove("blank", "blank-white");
         stage.classList.add("ended");
         endMessage.hidden = false;
@@ -16947,10 +17208,13 @@ function dropPromise(transfer) {
   // A modal dialog or slideshow owns the screen and the drop is ignored
   // behind it, so promise nothing.
   if (document.querySelector("dialog[open]")) return null;
-  const file = [...transfer.items].find((item) => item.kind === "file");
-  return view === "editor" && doc && file?.type.startsWith("image/")
-    ? "Drop to add the image to this slide"
-    : "Drop to open a presentation";
+  const files = [...transfer.items].filter((item) => item.kind === "file");
+  const file = files[0];
+  if (!(view === "editor" && doc && file?.type.startsWith("image/")))
+    return "Drop to open a presentation";
+  return files.filter((item) => item.type.startsWith("image/")).length > 1
+    ? "Drop to add the images to this slide"
+    : "Drop to add the image to this slide";
 }
 const dropOverlay = document.querySelector("#drop-overlay");
 let dropOverlayTimer;
@@ -17009,9 +17273,32 @@ document.addEventListener("drop", (e) => {
   // unsupported image format is reported as such rather than as a non-PPTX
   // file.
   if (view === "editor" && doc && file.type.startsWith("image/"))
-    insertImageFile(file).catch(fail);
+    insertDroppedImages(
+      [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/")),
+    ).catch(fail);
   else importFile(file).catch(fail);
 });
+// Pictures dropped together all go on the slide, in the order dropped. One
+// that cannot is left out, and said so, without holding up the others.
+async function insertDroppedImages(images) {
+  if (images.length === 1) return insertImageFile(images[0]);
+  const target = doc;
+  const left = [];
+  for (const image of images) {
+    if (doc !== target) return;
+    try {
+      await insertImageFile(image);
+    } catch (error) {
+      left.push({ name: image.name, error });
+    }
+  }
+  if (left.length && doc === target)
+    toast(
+      left.length === 1
+        ? `“${left[0].name}” was left out. ${left[0].error?.message || ""}`.trim()
+        : `${left.length} pictures were left out. ${left[0].error?.message || ""}`.trim(),
+    );
+}
 // A bookmark or the address bar can ask for a screen too. Changing only the
 // fragment does not reload the page, so the address is followed here the way
 // a fresh load would: the library address opens the library, any other

@@ -181,6 +181,7 @@ import {
   getTableCellAnchor,
   getTableCellMargins,
   getTableCellSpan,
+  getTableCellTextDirection,
   getTableCells,
   getTableStyleResolver,
   getTableColumnWidths,
@@ -224,6 +225,7 @@ import {
   layoutCore,
   layoutTextSvg,
   measureTextBodyHeight,
+  measureTextBodyWidth,
   substituteFamily,
   type BulletInput,
   type ColumnLayout,
@@ -238,6 +240,7 @@ import {
   type VerticalLayout,
 } from "./text-layout.ts";
 import { textKerning } from "./text-kerning.ts";
+import { splitGraphemes } from "unicode-segmenter/grapheme";
 
 export type {
   RenderSlideOptions,
@@ -513,7 +516,11 @@ const renderPicture = (
     // Apply <a:srcRect> crop, brightness (lumOff), contrast (lumMod),
     // and opacity (alphaModFix) so authored picture corrections show up in
     // what the playground paints.
-    const geometry = getShapeGeometryResolved(pres, shape);
+    const geometry = getShapeGeometryResolved(
+      pres,
+      shape,
+      activeGroupMap ? { w, h } : undefined,
+    );
     const usesPathFills =
       geometry?.geometry &&
       (geometry.geometry.paths.length > 1 ||
@@ -547,7 +554,10 @@ const renderPicture = (
     const cropT = crop?.top ?? 0;
     const cropR = crop?.right ?? 0;
     const cropB = crop?.bottom ?? 0;
-    if (cropL > 0 || cropT > 0 || cropR > 0 || cropB > 0) {
+    // A negative side pads the picture instead: the source rectangle
+    // reaches past the image, which then fills less of the frame (a
+    // letterboxed "fit" crop).
+    if (cropL !== 0 || cropT !== 0 || cropR !== 0 || cropB !== 0) {
       // ECMA-376 <a:srcRect> sides are fractions of the source image;
       // cropping adjusts the visible region. We project
       // the same effect by scaling the <image> larger and clipping it
@@ -923,6 +933,38 @@ let activeDefinitionIds = sharedDefinitionIds;
 let activeLayerPart: SlideShapeLayerPart | null = null;
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
+// How the group being drawn places its children: their boxes, in its child
+// space, scaled and offset into its frame on the slide (EMU). Null outside
+// groups. A child is drawn at its mapped size rather than scaled, so a
+// resized group keeps its text at its point size and its outlines at their
+// width, re-wrapping text in the new box (as on the slide's own shapes).
+let activeGroupMap: {
+  readonly sx: number;
+  readonly sy: number;
+  readonly tx: number;
+  readonly ty: number;
+} | null = null;
+// A box turned nearer a quarter turn than upright shows its width across the
+// group's height, so it takes the group's scales the other way round.
+const throughActiveGroup = <
+  T extends { x: number; y: number; w: number; h: number },
+>(
+  b: T,
+  rotation = 0,
+): T => {
+  const m = activeGroupMap;
+  if (!m) return b;
+  const turn = ((rotation % 360) + 360) % 360;
+  const across = (turn >= 45 && turn < 135) || (turn >= 225 && turn < 315);
+  const w = b.w * (across ? m.sy : m.sx),
+    h = b.h * (across ? m.sx : m.sy);
+  const cx = m.tx + (b.x + b.w / 2) * m.sx,
+    cy = m.ty + (b.y + b.h / 2) * m.sy;
+  return { ...b, x: cx - w / 2, y: cy - h / 2, w, h };
+};
+// True inside an odd number of groups that mirror their content (flipped
+// along one axis): text drawn there is mirrored back so it still reads.
+let activeMirroringGroups = false;
 // The slide background as a paint server for shapes that fill with it.
 let activeBackgroundFill: { id: string; used: boolean } | null = null;
 
@@ -1429,6 +1471,8 @@ interface PaintResult {
   strokeAttrs: string;
   /** Pre-built marker-start / marker-end attributes for arrowheads. */
   markerAttrs: string;
+  /** A compound outline (`<a:ln cmpd>`): two or three lines in its width. */
+  compound?: "dbl" | "thickThin" | "thinThick" | "tri" | undefined;
 }
 
 // ECMA-376 `<a:prstDash val="…"/>` → SVG `stroke-dasharray` (in stroke widths).
@@ -1566,6 +1610,7 @@ const paint = (
 
   let strokeColor = "none";
   let strokeWidth = 0;
+  let compound: PaintResult["compound"];
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
   // A gradient line paints its stroke with a gradient; width, dashes, caps,
@@ -1647,9 +1692,10 @@ const paint = (
           `stroke-miterlimit="${Math.max(1, resolvedJoin.limit)}"`,
         );
       const cmpd = formatting.compound;
-      if (cmpd === "dbl") {
-        // Approximate a double line by widening + a transparent stripe down
-        // the middle. SVG has no native compound-line primitive.
+      if (cmpd && cmpd !== "sng") {
+        // Drawn as one line with clear stripes cut along it (see
+        // compoundOutline); a hairline still leaves room for its parts.
+        compound = cmpd;
         strokeWidth = Math.max(strokeWidth, 19_050);
       }
       const head = formatting.head;
@@ -1689,6 +1735,7 @@ const paint = (
     defs,
     strokeAttrs: strokeAttrParts.join(" "),
     markerAttrs,
+    ...(compound ? { compound } : {}),
   };
 };
 
@@ -1747,6 +1794,34 @@ const placeholderDefaultPt = (phType: string | null): number => {
 
 const bulletChar = (level: number): string =>
   level <= 0 ? "•" : level === 1 ? "◦" : "▪";
+
+// What the bullet characters of the common symbol typefaces show, for a
+// device without the typeface (phones and tablets usually lack them). Files
+// store the character as itself or in the private-use row U+F0xx.
+const SYMBOL_BULLETS: Record<string, Record<number, string>> = {
+  wingdings: {
+    0x6c: "●",
+    0x6e: "■",
+    0x6f: "□",
+    0x71: "❑",
+    0x72: "❒",
+    0x75: "◆",
+    0x76: "❖",
+    0x9f: "•",
+    0xa7: "▪",
+    0xd8: "➢",
+    0xfc: "✔",
+  },
+  symbol: { 0xb7: "•", 0xa7: "♣", 0xa8: "♦", 0xa9: "♥", 0xaa: "♠" },
+};
+// Whether the typeface being drawn with is installed (RenderSlideOptions).
+let activeHasFont: ((family: string) => boolean) | null = null;
+const symbolBullet = (char: string, font: string | null): string | null => {
+  const table = font ? SYMBOL_BULLETS[font.trim().toLowerCase()] : undefined;
+  if (!table || !activeHasFont || activeHasFont(font!.trim())) return null;
+  const code = char.codePointAt(0) ?? 0;
+  return table[code >= 0xf000 && code <= 0xf0ff ? code - 0xf000 : code] ?? null;
+};
 
 // Maps a `BulletStyle` value to the underlying `ST_TextAutoNumberScheme`
 // token (or `null` when the paragraph isn't auto-numbered). `'number'`
@@ -2124,12 +2199,16 @@ export interface SvgTextArgs {
   readonly wrap: boolean;
   readonly compatibleLineSpacing?: boolean;
   readonly includeOuterSpacing?: boolean;
+  /** `anchorCtr`: center the text's bounding box across the box. */
+  readonly anchorCenter?: boolean;
   readonly innerX: number;
   readonly innerY: number;
   readonly innerW: number;
   readonly innerH: number;
   readonly measure: TextMeasurer;
   readonly vert: VerticalLayout;
+  /** East Asian vertical text (`eaVert`): its ideographs stand upright. */
+  readonly uprightEastAsian?: boolean;
   readonly columns: ColumnLayout | null;
   /** Maps an authored font name onto the family the measurer keys off.
    *  The render paths leave this unset (= `substituteFamily`, whose output
@@ -2238,7 +2317,9 @@ const wrapTextEffects = (
 };
 
 const alignOf = (a: string): ParaInput["align"] =>
-  a === "center" || a === "right" || a === "justify" ? a : "left";
+  a === "center" || a === "right" || a === "justify" || a === "distribute"
+    ? a
+    : "left";
 
 // Map the OOXML `vert` token onto the engine's layout modes, mirroring the
 // foreignObject path's writing-mode grouping so server == browser: the
@@ -2349,6 +2430,9 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         strike: hasStrikeFmt(fmt),
         ...drawnTextDecorations(fmt, a.theme, sizePx),
         superSub,
+        ...(fmt?.highlight
+          ? { highlightHex: resolveColor(fmt.highlight, a.theme, "#FFFF00") }
+          : {}),
         href: run.href ?? null,
       });
       // A run's text can carry embedded '\n' only via <a:br>, already split
@@ -2357,14 +2441,16 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
       segs.forEach((seg, i) => {
         const segText = caps ? seg.toUpperCase() : seg;
         if (a.vert === "upright") {
-          // wordArtVert stacks one code point per line (spaces become blank
+          // wordArtVert stacks one character per line (spaces become blank
           // rows). Reuse the calibrated horizontal engine with a break before
           // every glyph rather than rotating the run. The break goes BEFORE each
           // glyph (skipped only at the very start or right after an existing
           // break) so adjacent runs stack too — a trailing per-glyph break would
           // leave the last glyph of run N sharing a row with the first of run
           // N+1, diverging from the browser's text-orientation:upright path.
-          for (const g of Array.from(segText)) {
+          // A character is what a reader sees as one (UAX #29): an emoji with
+          // its skin tone or joined family, or a letter with its accents.
+          for (const g of splitGraphemes(segText)) {
             const last = pieces[pieces.length - 1];
             if (last !== undefined && !last.isBreak) pieces.push(breakPiece());
             pieces.push({ ...base, text: g, isBreak: false });
@@ -2463,8 +2549,10 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
     wrap: a.wrap,
     compatibleLineSpacing: a.compatibleLineSpacing ?? true,
     includeOuterSpacing: a.includeOuterSpacing ?? false,
+    ...(a.anchorCenter ? { anchorCenter: true } : {}),
     paragraphs,
     vert: a.vert,
+    ...(a.uprightEastAsian ? { uprightEastAsian: true } : {}),
     columns: a.columns,
   };
   return input;
@@ -2555,9 +2643,13 @@ const buildBullet = (
   if (!showBullet) return null;
   // Picture bullet with resolved bytes → render the image; otherwise the
   // "■" glyph stands in (bytes unavailable, e.g. inherited buBlip).
+  const symbol =
+    explicitChar !== null && numberLabel === null && !para.bulletIsPicture
+      ? symbolBullet(explicitChar, para.bulletDetail.font)
+      : null;
   const char = para.bulletIsPicture
     ? "■"
-    : (numberLabel ?? explicitChar ?? bulletChar(para.level));
+    : (symbol ?? numberLabel ?? explicitChar ?? bulletChar(para.level));
   // An un-sized bullet (no buSzPct/buSzPts in the cascade) is 100% of the
   // paragraph's FIRST RUN size, not the placeholder default — a 32pt run gets a
   // 32pt bullet even on an 18pt-default body. Fall back to defaultPt only for an
@@ -2574,7 +2666,15 @@ const buildBullet = (
         : baseSizePx;
   return {
     text: char,
-    family: resolveFamily(bulletFont(para, numberLabel, a.themeFace)),
+    family: resolveFamily(
+      symbol !== null
+        ? bulletFont(
+            { ...para, bulletDetail: { ...para.bulletDetail, font: null } },
+            null,
+            a.themeFace,
+          )
+        : bulletFont(para, numberLabel, a.themeFace),
+    ),
     sizePx,
     ...bulletColor(para, a.theme, a.defaultColor),
     ...(para.bulletImageHref ? { imageHref: para.bulletImageHref } : {}),
@@ -2741,6 +2841,7 @@ export const resolveTextBodyModel = (
       wrap: null,
       compatibleLineSpacing: null,
       includeOuterSpacing: null,
+      anchorCenter: null,
       vert: getShapeTextDirection(shape),
       margins: getShapeTextMargins(shape) ?? {
         left: null,
@@ -3309,9 +3410,8 @@ const renderTextBody = (
   // server-side rendering agrees with the browser (W1).
   if (ctx.mode === "svg") {
     const svgLineReduction = authoredAutofit?.lnSpcReduction ?? 0;
-    const svgVert = verticalLayoutOf(
-      effectiveBody.vert ?? getShapeTextDirection(shape),
-    );
+    const authoredVert = effectiveBody.vert ?? getShapeTextDirection(shape);
+    const svgVert = verticalLayoutOf(authoredVert);
     // numCol only applies to horizontal text — see the engine's combination note.
     const svgCols = getShapeTextColumns(shape);
     const svgColumns: ColumnLayout | null =
@@ -3363,6 +3463,8 @@ const renderTextBody = (
       innerH: vInnerH,
       measure: ctx.measure,
       vert: svgVert,
+      ...(authoredVert === "eaVert" ? { uprightEastAsian: true } : {}),
+      ...(effectiveBody.anchorCenter ? { anchorCenter: true } : {}),
       columns: svgColumns,
       resolveFamily: ctx.resolveFamily,
       resolveKerning: ctx.resolveKerning,
@@ -10861,6 +10963,8 @@ const renderTableCellText = (
     top: number | null;
     bottom: number | null;
   },
+  vert: VerticalLayout = "none",
+  uprightEastAsian = false,
 ): string => {
   const { paraData, hasText } = cellParaData(paragraphs, ctx);
   if (!hasText) return "";
@@ -10871,10 +10975,19 @@ const renderTableCellText = (
   const padR = (margins.right ?? DEFAULT_INSET_X) / EMU_PER_PX;
   const padT = (margins.top ?? DEFAULT_INSET_Y) / EMU_PER_PX;
   const padB = (margins.bottom ?? DEFAULT_INSET_Y) / EMU_PER_PX;
-  const innerX = cx + padL;
-  const innerY = cy + padT;
-  const innerW = Math.max(0, cw - padL - padR);
-  const innerH = Math.max(0, ch - padT - padB);
+  let innerX = cx + padL;
+  let innerY = cy + padT;
+  let innerW = Math.max(0, cw - padL - padR);
+  let innerH = Math.max(0, ch - padT - padB);
+  // Turned text (a cell's text direction) turns its insets with it, as in
+  // a text box: the left and right insets run along its lines.
+  const turned = ctx.mode === "svg" && (vert === "cw90" || vert === "cw270");
+  if (turned) {
+    innerX = cx + padT;
+    innerY = cy + padL;
+    innerW = Math.max(0, cw - padT - padB);
+    innerH = Math.max(0, ch - padL - padR);
+  }
   if (innerW <= 0 || innerH <= 0) return "";
 
   // Pure-SVG path: hand the layout model to the same engine shape text uses so
@@ -10903,9 +11016,10 @@ const renderTableCellText = (
     innerW: innerW * EMU_PER_PX,
     innerH: innerH * EMU_PER_PX,
     measure: ctx.measure,
-    // Cell-level vertical text (<a:tcPr vert>) isn't modeled yet; cells lay
-    // out horizontally, single-column.
-    vert: "none",
+    // The cell's text direction (<a:tcPr vert>); the browser path below
+    // still lays cells out horizontally.
+    vert: ctx.mode === "svg" ? vert : "none",
+    ...(uprightEastAsian ? { uprightEastAsian: true } : {}),
     columns: null,
     resolveFamily: ctx.resolveFamily,
     resolveKerning: ctx.resolveKerning,
@@ -11041,6 +11155,8 @@ const measureTableLayout = (
       const bottom = margins.bottom ?? DEFAULT_INSET_Y;
       const paragraphs = style.paragraphs(cell, style.cell(cell).textFormat);
       const { paraData } = cellParaData(paragraphs, ctx);
+      const vert = verticalLayoutOf(getTableCellTextDirection(cell));
+      const turned = vert === "cw90" || vert === "cw270";
       const input = buildSvgTextInput({
         pres,
         shape,
@@ -11058,16 +11174,19 @@ const measureTableLayout = (
         includeOuterSpacing: false,
         innerX: 0,
         innerY: 0,
-        innerW: Math.max(0, width - left - right),
+        innerW: turned ? 0 : Math.max(0, width - left - right),
         innerH: 0,
         measure: ctx.measure,
-        vert: "none",
+        vert: vert === "upright" ? vert : "none",
         columns: null,
         resolveFamily: ctx.resolveFamily,
         resolveKerning: ctx.resolveKerning,
       });
-      const height =
-        measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
+      // Turned text runs along the row: the row grows to hold its longest
+      // line (unwrapped), between the cell's left and right insets.
+      const height = turned
+        ? measureTextBodyWidth(input, ctx.measure) * EMU_PER_PX + left + right
+        : measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
       if (end === r + 1) rowHeights[r] = Math.max(rowHeights[r] ?? 0, height);
       else spans.push({ start: r, end, height });
     }
@@ -11312,6 +11431,8 @@ const renderTable = (
           ctx,
           vAnchor,
           cellMargins,
+          verticalLayoutOf(getTableCellTextDirection(typedCell)),
+          getTableCellTextDirection(typedCell) === "eaVert",
         ),
       );
     }
@@ -11502,6 +11623,87 @@ const customGeometryToSvg = (
   return out.join("");
 };
 
+// A compound outline is its full-width line with clear stripes masked out
+// along the middle, so whatever lies beneath shows between its lines: a
+// double line keeps its outer thirds; a triple line a thin line each side
+// of a thick one. The unequal doubles keep a narrower stripe, as their
+// lines cannot be offset from the outline. Fill and arrowheads are drawn
+// whole.
+const COMPOUND_STRIPES: Record<
+  NonNullable<PaintResult["compound"]>,
+  readonly [number, number][]
+> = {
+  dbl: [[1 / 3, 0]],
+  thickThin: [[1 / 4, 0]],
+  thinThick: [[1 / 4, 0]],
+  tri: [[2 / 3, 1 / 3]],
+};
+const compoundOutline = (
+  geometry: ShapeGeometryResolved | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  p: PaintResult,
+): string => {
+  const plain = { ...p, compound: undefined };
+  const fill =
+    p.fill !== "none" || p.cssGradient || p.patternFill
+      ? shapeGeometryToSvg(geometry, x, y, w, h, {
+          ...plain,
+          stroke: "none",
+          strokeWidth: 0,
+          strokeOpacity: undefined,
+          strokeAttrs: "",
+          markerAttrs: "",
+        })
+      : "";
+  const line = shapeGeometryToSvg(geometry, x, y, w, h, {
+    ...plain,
+    fill: "none",
+    fillOpacity: undefined,
+    cssGradient: undefined,
+    patternFill: undefined,
+    markerAttrs: "",
+  });
+  const id = mintId();
+  // Reach far enough for geometry drawn outside the box (callouts).
+  const reach = Math.max(w, h) + p.strokeWidth * 4;
+  const region = `x="${E(x - reach)}" y="${E(y - reach)}" width="${E(w + 2 * reach)}" height="${E(h + 2 * reach)}"`;
+  const stripes = COMPOUND_STRIPES[p.compound!]
+    .flatMap(([cut, keep]) => [
+      [cut, "#000000"] as const,
+      ...(keep ? [[keep, "#FFFFFF"] as const] : []),
+    ])
+    .map(([share, color]) =>
+      shapeGeometryToSvg(geometry, x, y, w, h, {
+        ...plain,
+        fill: "none",
+        fillOpacity: undefined,
+        cssGradient: undefined,
+        patternFill: undefined,
+        stroke: color,
+        strokeWidth: p.strokeWidth * share,
+        strokeOpacity: undefined,
+        markerAttrs: "",
+      }),
+    )
+    .join("");
+  const mask = `<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}><rect ${region} fill="#FFFFFF"/>${stripes}</mask></defs>`;
+  const arrows = p.markerAttrs
+    ? shapeGeometryToSvg(geometry, x, y, w, h, {
+        ...plain,
+        fill: "none",
+        fillOpacity: undefined,
+        cssGradient: undefined,
+        patternFill: undefined,
+        stroke: "none",
+        strokeOpacity: undefined,
+      })
+    : "";
+  return `${fill}${mask}<g mask="url(#${id})">${line}</g>${arrows}`;
+};
+
 // The same outline defines a shape's fill, a picture's clipping region and
 // their strokes. Keep path evaluation and preset support consistent.
 // Preserve inexpensive SVG primitives only when the evaluated path agrees.
@@ -11584,6 +11786,8 @@ const shapeGeometryToSvg = (
   h: number,
   p: PaintResult,
 ): string => {
+  if (p.compound && p.stroke !== "none" && p.strokeWidth > 0)
+    return compoundOutline(geometry, x, y, w, h, p);
   // Color alpha belongs to the fill, not the complete shape. Inheriting
   // fill-opacity within geometry preserves independent outlines, markers,
   // text and effects, including each path's own no-fill choice.
@@ -11700,7 +11904,9 @@ const renderShape = (
   // `getShapeBounds` returns null for them and the preview would hide
   // every title / body / footer slot.
   if (isShapeHidden(shape)) return "";
-  const bounds = getShapeBoundsResolved(pres, shape);
+  const ownBounds = getShapeBoundsResolved(pres, shape);
+  const bounds =
+    ownBounds && throughActiveGroup(ownBounds, getShapeRotation(shape));
   if (!bounds && diagram && getShapeKind(shape) === "group")
     return getGroupChildren(shape)
       .map((child) => renderShape(child, pres, theme, ctx, diagram))
@@ -11719,7 +11925,10 @@ const renderShape = (
     ? diagramTextShape(shape, diagramTextTransform)
     : shape;
   const textBounds = diagramTextTransform
-    ? getShapeBoundsResolved(pres, textShape)
+    ? (() => {
+        const own = getShapeBoundsResolved(pres, textShape);
+        return own && throughActiveGroup(own, getShapeRotation(shape));
+      })()
     : bounds;
   // Path shapes can paint a stroke with no area: ordinary DrawingML shapes,
   // including SmartArt drawing children, use zero-height/width line geometry
@@ -11764,10 +11973,17 @@ const renderShape = (
   // direction (and text-upright-ness) unchanged. Verified against real
   // LibreOffice output across rotation × {none, flipH, flipV, both}.
   const textRotation = (flip.vertical ? rotation + 180 : rotation) % 360;
-  let textTransform =
-    textRotation !== 0
-      ? ` transform="rotate(${textRotation} ${E(cx)} ${E(cy)})"`
-      : "";
+  // Inside a group that mirrors its content, mirror the text back about its
+  // own centre, so it reads as in an unflipped shape at the mirrored place.
+  const unmirror = (mx: number): string =>
+    activeMirroringGroups ? `translate(${E(2 * mx)} 0) scale(-1 1)` : "";
+  const textParts = [
+    textRotation !== 0 ? `rotate(${textRotation} ${E(cx)} ${E(cy)})` : "",
+    unmirror(cx),
+  ].filter(Boolean);
+  let textTransform = textParts.length
+    ? ` transform="${textParts.join(" ")}"`
+    : "";
   if (diagramTextTransform && textBounds) {
     // MS-ODRAWXML CT_Shape stores txXfrm relative to the shape orientation:
     // a hexagon rotated +90 degrees can carry a -90 degree text transform.
@@ -11785,13 +12001,20 @@ const renderShape = (
       textTransforms.push(`translate(${E(2 * txCx)} 0) scale(-1 1)`);
     if (txFlip?.vertical)
       textTransforms.push(`translate(0 ${E(2 * txCy)}) scale(1 -1)`);
+    if (activeMirroringGroups) textTransforms.push(unmirror(txCx));
     textTransform = textTransforms.length
       ? ` transform="${textTransforms.join(" ")}"`
       : "";
   }
 
   const geometry =
-    kind === "graphicFrame" ? null : getShapeGeometryResolved(pres, shape);
+    kind === "graphicFrame"
+      ? null
+      : getShapeGeometryResolved(
+          pres,
+          shape,
+          activeGroupMap ? { w, h } : undefined,
+        );
   const textOverlay =
     (kind === "shape" || kind === "graphicFrame") && textBounds
       ? renderTextBody(
@@ -11831,6 +12054,8 @@ const renderShape = (
   // this way rather
   // than as top-level `<p:pic>`.
   if (kind === "shape" && fill.kind === "image") {
+    // The text follows the shape's rotation but not its flips, as on any
+    // other shape: a flipped picture-filled shape keeps its text readable.
     const picture = renderPicture(
       shape,
       pres,
@@ -11839,12 +12064,12 @@ const renderShape = (
       w,
       h,
       transform,
-      diagramTextTransform ? "" : textOverlay,
+      "",
       stroke,
       theme,
     );
     const painted = withPictureEffects(pres, shape, picture, { x, y, w, h });
-    return diagramTextTransform
+    return textOverlay
       ? `${painted}<g${textTransform}>${textOverlay}</g>`
       : painted;
   }
@@ -11912,11 +12137,27 @@ const renderShape = (
         lineCommands[1]?.kind === "lnTo" &&
         lineCommands[1].pt.x === w &&
         lineCommands[1].pt.y === h);
+    // A connector's shadow or glow, as on any other line.
+    let connectorEffects: readonly ReturnType<
+      typeof getShapeEffects
+    >[number][] = [];
+    try {
+      connectorEffects = getShapeEffectsEffective(pres, shape, activeColorMap);
+    } catch {}
+    const fx = buildEffectsFilter(connectorEffects);
+    const withEffects = (svg: string): string =>
+      fx
+        ? `${fx.defs}<g filter="url(#${fx.id})">${effectsExtent(fx, { x, y, w, h }, (sw / EMU_PER_PX) * (ma ? 7 : 2))}${svg}</g>`
+        : svg;
     if (
       (preset === "straightConnector1" || preset === "line") &&
-      ordinaryLine
+      ordinaryLine &&
+      !p.compound
     ) {
-      return `${p.defs}<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}${connectorTransform}/>`;
+      const line = `<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}`;
+      return fx
+        ? `${p.defs}<g${connectorTransform}>${withEffects(`${line}/>`)}</g>`
+        : `${p.defs}${line}${connectorTransform}/>`;
     }
     const routed = shapeGeometryToSvg(geometry, x, y, w, h, {
       ...p,
@@ -11925,7 +12166,7 @@ const renderShape = (
       strokeWidth: sw,
       strokeAttrs: `${p.strokeAttrs}${capDefault}${joinDefault}`,
     });
-    return `${p.defs}<g${transform}>${routed}</g>`;
+    return `${p.defs}<g${transform}>${withEffects(routed)}</g>`;
   }
 
   if (kind === "group") {
@@ -11942,60 +12183,53 @@ const renderShape = (
     // outer-rect center. Compose those transforms first, then the
     // translate+scale that maps internal coords onto slide coords.
     //
-    // KNOWN GAP: unlike the per-shape flip.vertical fix above, a group-level
-    // vertical flip has no text-upright compensation — `renderShape(child)`
-    // already emits each child's geometry AND text as one combined string, so
-    // the flip scale() below re-mirrors that child's already-correct text
-    // along with its geometry. Fixing this needs the group path to carry an
-    // ancestor flip-parity count down through the recursion so descendant
-    // text can add its own compensating rotation, mirroring how the per-shape
-    // fix works — out of scope here since there's no public API to author a
-    // flipped group (only getGroupChildren/getGroupTransform, read-only), so
-    // this only affects re-rendering a template that already has one.
-    if (xform && rotation !== 0) {
-      const cxG =
-        ((xform.outer.x as number) + (xform.outer.w as number) / 2) /
-        EMU_PER_PX;
-      const cyG =
-        ((xform.outer.y as number) + (xform.outer.h as number) / 2) /
-        EMU_PER_PX;
+    // Text keeps reading the right way round in a group flipped along one
+    // axis, as in a flipped shape: each shape's text is mirrored back about
+    // its own centre (see `activeMirroringGroups`). A group flipped both ways
+    // is turned a half turn, which turns its text with it.
+    // The group's frame, where its enclosing groups place it.
+    const outer = xform ? throughActiveGroup(xform.outer, rotation) : null;
+    if (outer && rotation !== 0) {
+      const cxG = (outer.x + outer.w / 2) / EMU_PER_PX;
+      const cyG = (outer.y + outer.h / 2) / EMU_PER_PX;
       tParts.push(`rotate(${rotation} ${cxG.toFixed(2)} ${cyG.toFixed(2)})`);
     }
-    if (xform && flip.horizontal) {
-      const cxG =
-        ((xform.outer.x as number) + (xform.outer.w as number) / 2) /
-        EMU_PER_PX;
+    if (outer && flip.horizontal) {
+      const cxG = (outer.x + outer.w / 2) / EMU_PER_PX;
       tParts.push(`translate(${(2 * cxG).toFixed(2)} 0) scale(-1 1)`);
     }
-    if (xform && flip.vertical) {
-      const cyG =
-        ((xform.outer.y as number) + (xform.outer.h as number) / 2) /
-        EMU_PER_PX;
+    if (outer && flip.vertical) {
+      const cyG = (outer.y + outer.h / 2) / EMU_PER_PX;
       tParts.push(`translate(0 ${(2 * cyG).toFixed(2)}) scale(1 -1)`);
-    }
-    if (xform) {
-      const ox = xform.outer.x as number;
-      const oy = xform.outer.y as number;
-      const ow = xform.outer.w as number;
-      const oh = xform.outer.h as number;
-      const ix = xform.inner.x as number;
-      const iy = xform.inner.y as number;
-      const iw = (xform.inner.w as number) || 1;
-      const ih = (xform.inner.h as number) || 1;
-      const sx = (ow / iw).toFixed(6);
-      const sy = (oh / ih).toFixed(6);
-      // translate first, then scale, so the child's natural coords
-      // (px) project: ox/EMU_PER_PX + (cx - ix) * sx / EMU_PER_PX,
-      // which factors as translate(ox/EMU - ix*sx/EMU) scale(sx).
-      const tx = ((ox - ix * (ow / iw)) / EMU_PER_PX).toFixed(2);
-      const ty = ((oy - iy * (oh / ih)) / EMU_PER_PX).toFixed(2);
-      tParts.push(`translate(${tx} ${ty})`, `scale(${sx} ${sy})`);
     }
     const groupTransform =
       tParts.length > 0 ? ` transform="${tParts.join(" ")}"` : "";
-    const childrenSvg = children
-      .map((c) => renderShape(c, pres, theme, ctx, diagram))
-      .join("");
+    const previousMirroring = activeMirroringGroups;
+    const previousGroupMap = activeGroupMap;
+    if (xform && flip.horizontal !== flip.vertical)
+      activeMirroringGroups = !activeMirroringGroups;
+    if (outer && xform) {
+      // Child space onto the frame: x' = tx + x * sx (and likewise for y).
+      const ix = xform.inner.x as number;
+      const iy = xform.inner.y as number;
+      const sx = outer.w / ((xform.inner.w as number) || 1);
+      const sy = outer.h / ((xform.inner.h as number) || 1);
+      activeGroupMap = {
+        sx,
+        sy,
+        tx: outer.x - ix * sx,
+        ty: outer.y - iy * sy,
+      };
+    }
+    let childrenSvg: string;
+    try {
+      childrenSvg = children
+        .map((c) => renderShape(c, pres, theme, ctx, diagram))
+        .join("");
+    } finally {
+      activeMirroringGroups = previousMirroring;
+      activeGroupMap = previousGroupMap;
+    }
     return `<g${groupTransform}>${childrenSvg}</g>`;
   }
 
@@ -12250,6 +12484,12 @@ const renderShape = (
   const fx = buildEffectsFilter(effects);
   const filterAttr = fx ? ` filter="url(#${fx.id})"` : "";
   let fxDefs = fx ? fx.defs : "";
+  // The outline's miter joins and arrowheads reach past the geometry too.
+  const outlinePx =
+    p.stroke !== "none" && p.strokeWidth > 0
+      ? (p.strokeWidth / EMU_PER_PX) * (p.markerAttrs ? 7 : 2)
+      : 0;
+  const extent = fx ? effectsExtent(fx, { x, y, w, h }, outlinePx) : "";
   // Reflection can't live in the `<filter>` chain (SVG has no flip-and-fade
   // primitive), so it's a duplicated, vertically mirrored copy of the raw
   // geometry masked by an opacity gradient — built from the un-filtered
@@ -12266,7 +12506,7 @@ const renderShape = (
   );
   // Apply the filter to the geometry only — text overlays use foreignObject
   // and react badly to feGaussianBlur (DOM gets rasterized).
-  geomSvg = `<g${filterAttr}>${geomSvg}</g>`;
+  geomSvg = `<g${filterAttr}>${extent}${geomSvg}</g>`;
   if (activeLayerPart && !activeLayerPart.body) {
     geomSvg = "";
     fxDefs = "";
@@ -12363,7 +12603,28 @@ const renderShape = (
 interface EffectsResult {
   readonly id: string;
   readonly defs: string;
+  /** How far, in px, the effects paint beyond the geometry's own edges. */
+  readonly reach: number;
 }
+
+// The filter region is measured on the filtered element's bounding box, which
+// is the geometry's alone: a straight line has none (and is then not drawn at
+// all), and a thin or small shape leaves its shadow or glow cut off at the
+// region's edge. An unpainted rectangle around the shape, as far out as the
+// effects and the outline reach, gives every shape a box that holds them.
+const effectsExtent = (
+  fx: EffectsResult,
+  box: { x: number; y: number; w: number; h: number },
+  outlinePx = 0,
+): string => {
+  const m = fx.reach + outlinePx;
+  if (!(m > 0) || !Number.isFinite(m)) return "";
+  const x = box.x / EMU_PER_PX - m,
+    y = box.y / EMU_PER_PX - m;
+  const w = box.w / EMU_PER_PX + 2 * m,
+    h = box.h / EMU_PER_PX + 2 * m;
+  return `<rect x="${px(x)}" y="${px(y)}" width="${px(w)}" height="${px(h)}" fill="none" stroke="none"/>`;
+};
 
 interface ReflectionResult {
   readonly svg: string;
@@ -12475,7 +12736,9 @@ const withPictureEffects = (
   }
   if (!effects.length) return svg;
   const fx = buildEffectsFilter(effects);
-  let out = fx ? `<g filter="url(#${fx.id})">${svg}</g>` : svg;
+  let out = fx
+    ? `<g filter="url(#${fx.id})">${effectsExtent(fx, box)}${svg}</g>`
+    : svg;
   let defs = fx ? fx.defs : "";
   const reflection = buildReflection(effects, svg, box);
   if (reflection) {
@@ -12544,6 +12807,8 @@ const buildEffectsFilter = (
   // Chain primitives by passing each result as `in` to the next merge.
   // The shape's original alpha + RGB live in SourceGraphic / SourceAlpha.
   const layers: string[] = [];
+  // A Gaussian blur visibly reaches about three standard deviations.
+  let reach = 0;
 
   for (const e of effects) {
     if (e.kind === "outerShdw") {
@@ -12552,6 +12817,10 @@ const buildEffectsFilter = (
       const dx = (e.distEmu * Math.cos(rad)) / EMU_PER_PX;
       const dy = (e.distEmu * Math.sin(rad)) / EMU_PER_PX;
       const blurPx = e.blurEmu / EMU_PER_PX / 2;
+      reach = Math.max(
+        reach,
+        Math.max(Math.abs(dx), Math.abs(dy)) + 3 * blurPx,
+      );
       const opacity = e.opacity ?? 1;
       const color = e.color || "#000000";
       // feDropShadow handles the whole shadow primitive in one go.
@@ -12588,6 +12857,7 @@ const buildEffectsFilter = (
       const radiusPx = e.radiusEmu / EMU_PER_PX;
       const dilatePx = radiusPx * 0.5;
       const featherPx = radiusPx * 0.3;
+      reach = Math.max(reach, dilatePx + 3 * featherPx);
       const color = e.color || "#FFFFFF";
       const opacity = e.opacity ?? 1;
       const i = primitives.length;
@@ -12600,6 +12870,7 @@ const buildEffectsFilter = (
       layers.push(`glowOut${i}`);
     } else if (e.kind === "softEdge") {
       const blurPx = e.radiusEmu / EMU_PER_PX / 2;
+      reach = Math.max(reach, 3 * blurPx);
       // Soft-edge feathers the shape's mask. Replace the source by a
       // blurred version of itself.
       const i = primitives.length;
@@ -12612,6 +12883,7 @@ const buildEffectsFilter = (
       layers.push(`softOut${i}`);
     } else if (e.kind === "blur") {
       const blurPx = e.radiusEmu / EMU_PER_PX / 2;
+      reach = Math.max(reach, 3 * blurPx);
       const i = primitives.length;
       primitives.push(
         `<feGaussianBlur in="SourceGraphic" stdDeviation="${blurPx.toFixed(2)}" result="blurOut${i}"/>`,
@@ -12639,7 +12911,7 @@ const buildEffectsFilter = (
   primitives.push(`<feMerge>${mergeChildren}${sourceMerge}</feMerge>`);
 
   const defs = `<defs><filter id="${id}" x="-25%" y="-25%" width="150%" height="150%">${primitives.join("")}</filter></defs>`;
-  return { id, defs };
+  return { id, defs, reach };
 };
 
 // ---------------------------------------------------------------------------
@@ -12700,7 +12972,13 @@ export const renderSlideSvg = (
   const previousColorMap = activeColorMap;
   const previousTextColor = activeDeckTextColor;
   const previousLayerPart = activeLayerPart;
+  const previousMirroring = activeMirroringGroups;
+  const previousGroupMap = activeGroupMap;
+  const previousHasFont = activeHasFont;
+  activeHasFont = opts.hasFont ?? null;
   activeLayerPart = null;
+  activeMirroringGroups = false;
+  activeGroupMap = null;
   activeDefinitionIds = opts.stableDefinitionIds
     ? { next: 0 }
     : sharedDefinitionIds;
@@ -12711,6 +12989,9 @@ export const renderSlideSvg = (
     activeColorMap = previousColorMap;
     activeDeckTextColor = previousTextColor;
     activeLayerPart = previousLayerPart;
+    activeMirroringGroups = previousMirroring;
+    activeGroupMap = previousGroupMap;
+    activeHasFont = previousHasFont;
   }
 };
 

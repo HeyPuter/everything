@@ -119,3 +119,41 @@ export function textEditHistory(initial) {
     },
   };
 }
+// Records what is typed in a textarea, from the value it holds when tracking
+// starts or is rebased, so a commit can apply the edits to rich text instead
+// of replacing it. Shift+Enter is recorded as a line break.
+export function trackTextareaEdits(input) {
+  let base = input.value;
+  let history = textEditHistory(base);
+  let pending = null,
+    line = false;
+  input.addEventListener("keydown", (e) => {
+    line = e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.metaKey;
+  });
+  input.addEventListener("beforeinput", (e) => {
+    pending = {
+      start: input.selectionStart,
+      end: input.selectionEnd,
+      type: e.inputType,
+      line,
+    };
+  });
+  input.addEventListener("input", (e) => {
+    history.input(input.value, {
+      ...pending,
+      type: e.inputType || pending?.type,
+      afterStart: input.selectionStart,
+    });
+    pending = null;
+    line = false;
+  });
+  return {
+    // The value the edits start from.
+    base: () => base,
+    edits: () => history.edits(),
+    rebase(value = input.value) {
+      base = value;
+      history = textEditHistory(value);
+    },
+  };
+}

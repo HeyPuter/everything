@@ -8,7 +8,14 @@ import {
   showTimeline,
   transitionDuration,
 } from "../src/export/transition-frames.js";
-import { P, createDeck } from "../src/model.js";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import {
+  P,
+  createDeck,
+  dedupeSlideMedia,
+  parseDeck,
+  pruneUnusedMedia,
+} from "../src/model.js";
 
 const INCH = 914400;
 const use = (w, h, crop = null, kind = "picture") => ({
@@ -91,6 +98,79 @@ describe("compress pictures planning", () => {
     expect(entry.uses).toEqual([
       expect.objectContaining({ kind: "picture", w: 2 * INCH, h: INCH }),
     ]);
+  });
+});
+
+describe("compress pictures uses", () => {
+  const png = new Uint8Array(
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  );
+  const croppedPicture = () => {
+    const deck = createDeck("blank");
+    const [s] = P.getSlides(deck);
+    const picture = P.addSlideImage(s, png, {
+      x: 0,
+      y: 0,
+      w: INCH,
+      h: INCH,
+    });
+    P.setShapeImageCrop(picture, {
+      left: 0.25,
+      top: 0,
+      right: 0.25,
+      bottom: 0,
+    });
+    return deck;
+  };
+  const plan = (deck) => {
+    const [entry] = collectPictures(P, deck, {
+      bounds: (shape) => P.getShapeBounds(shape),
+    });
+    return {
+      kinds: entry.uses.map((u) => u.kind),
+      plan: planPicture(
+        entry,
+        { width: 2000, height: 2000 },
+        { ppi: 150, deleteCropped: true },
+      ),
+    };
+  };
+  it("counts a slide background of the picture's own image", async () => {
+    const deck = croppedPicture();
+    const [s] = P.getSlides(deck);
+    // As Format Background does: the image is stored once, the background
+    // reaching it through a relationship of its own.
+    P.setSlideBackgroundImage(s, png);
+    pruneUnusedMedia(deck, s);
+    dedupeSlideMedia(deck, s);
+    expect(
+      P.getMediaParts(deck).filter((m) => /^image\//.test(m.contentType)),
+    ).toHaveLength(1);
+    // The crop is not cut out of the image the background shows whole.
+    expect(plan(deck)).toEqual({ kinds: ["picture", "other"], plan: null });
+  });
+  it("counts a shape filled through the picture's own relationship", async () => {
+    const entries = unzipSync(await P.savePresentation(croppedPicture()));
+    const name = "ppt/slides/slide1.xml";
+    const xml = strFromU8(entries[name]);
+    const id = /r:embed="(rId\d+)"/.exec(xml)[1];
+    entries[name] = strToU8(
+      xml.replace(
+        "</p:spTree>",
+        `<p:sp><p:nvSpPr><p:cNvPr id="90" name="Filled"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="2000000" y="0"/><a:ext cx="4000000" cy="3000000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:blipFill><a:blip r:embed="${id}"/><a:stretch><a:fillRect/></a:stretch></a:blipFill></p:spPr></p:sp></p:spTree>`,
+      ),
+    );
+    const deck = await parseDeck(zipSync(entries));
+    expect(plan(deck)).toEqual({ kinds: ["picture", "other"], plan: null });
+  });
+  it("still cuts the crop out of an image only its picture shows", () => {
+    expect(plan(croppedPicture())).toMatchObject({
+      kinds: ["picture"],
+      plan: { trims: true },
+    });
   });
 });
 

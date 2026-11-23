@@ -1095,6 +1095,7 @@ export function createAnimationPlayer({
       if (item.effect.sound && item.sub === 0 && sounds) {
         const id = setTimeout(() => {
           soundTimers.delete(id);
+          effectSoundTimers.delete(id);
           let data = null;
           try {
             data = P.getSlideAnimationSoundData(slide, item.effect.sound.relId);
@@ -1102,6 +1103,7 @@ export function createAnimationPlayer({
           if (data && alive) playEffectSound(data.bytes);
         }, item.at);
         soundTimers.add(id);
+        effectSoundTimers.add(id);
       }
     const entries = scheduled.map(({ item, piece, plan }) => {
       const effect = item.effect;
@@ -1178,6 +1180,13 @@ export function createAnimationPlayer({
     lasting = [];
   }
   function finishRunning() {
+    // An effect brought to its end before it began makes no sound later,
+    // over the step that ended it.
+    for (const id of effectSoundTimers) {
+      clearTimeout(id);
+      soundTimers.delete(id);
+    }
+    effectSoundTimers.clear();
     for (const entry of running) {
       if (entry.endless) {
         entry.animations.forEach((a) => a.cancel());
@@ -1208,9 +1217,11 @@ export function createAnimationPlayer({
         }
   }
   const soundTimers = new Set();
+  const effectSoundTimers = new Set(); // those of soundTimers that are sounds
   const stopSounds = () => {
     for (const id of soundTimers) clearTimeout(id);
     soundTimers.clear();
+    effectSoundTimers.clear();
     stopEffectSounds();
   };
 

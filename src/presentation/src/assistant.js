@@ -270,11 +270,15 @@ export function createAgent({
     const stopSignal = new Promise((resolve) => {
       stopResolve = resolve;
     });
+    // Stop aborts the request under way, so the service stops writing (and
+    // charging for) a reply nobody will read.
+    let abort = null;
     const run = {
       stopped: false,
       stop() {
         if (!this.stopped) {
           this.stopped = true;
+          abort?.abort();
           stopResolve(STOP);
         }
       },
@@ -286,9 +290,15 @@ export function createAgent({
         if (round) emit({ type: "round" });
         let text = "";
         const calls = [];
+        // A reply cut off at the length limit, and whether it was writing a
+        // call then: that call came with empty arguments.
+        let cut = false,
+          endedInCall = false;
+        abort = new AbortController();
         const iterable = chat(requestMessages(transcript), {
           model: AI_MODEL,
           tools: TOOLS,
+          signal: abort.signal,
         });
         const iter = iterable[Symbol.asyncIterator]();
         for (;;) {
@@ -301,14 +311,18 @@ export function createAgent({
           const part = next.value;
           if (part.type === "text") {
             text += part.text;
+            endedInCall = false;
             emit({ type: "text", text: part.text });
-          } else if (part.type === "tool")
+          } else if (part.type === "cut") cut = true;
+          else if (part.type === "tool") {
+            endedInCall = true;
             calls.push({
               id: part.id || newCallId(),
               name: String(part.name || ""),
               input:
                 part.input && typeof part.input === "object" ? part.input : {},
             });
+          }
         }
         if (run.stopped) {
           // Calls whose reply was cut off are dropped with it; what was said
@@ -320,6 +334,15 @@ export function createAgent({
         // it: an empty assistant message is refused by some models.
         const empty = !text && !calls.length;
         if (empty) text = "I have nothing to add.";
+        if (cut && !calls.length) {
+          const note =
+            "\n\n[My reply was cut off: it reached the length limit.]";
+          text += note;
+          if (!empty) emit({ type: "text", text: note });
+        }
+        // The call the limit cut short is not run: it would act on no
+        // arguments (an empty slide added, say).
+        const cutCall = cut && endedInCall ? calls.at(-1) : null;
         transcript.push({
           role: "assistant",
           content: text || null,
@@ -353,6 +376,12 @@ export function createAgent({
           if (run.stopped) {
             step.status = "skipped";
             content = "Not run: the user stopped the assistant.";
+          } else if (call === cutCall) {
+            step.status = "error";
+            step.error =
+              "The reply reached its length limit while writing this.";
+            content =
+              "Error: not run. Your reply reached the length limit while writing this call, so its arguments were cut off. Make the change in smaller calls.";
           } else if (!TOOL_NAMES.has(call.name)) {
             step.status = "error";
             content = `Error: there is no tool called ${call.name}.`;
