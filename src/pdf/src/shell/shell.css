@@ -2014,7 +2014,9 @@
 }
 .annotation-style {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Two equal columns that stay within the panel: a wide control shrinks rather than pushing its
+     column past the panel's edge. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 .annotation-style label,
@@ -2027,6 +2029,14 @@
 .annotation-style .annotation-check {
   justify-content: flex-start;
 }
+/* A field's name stays on one line ("Font size"); the field gives way instead. */
+.annotation-style label > span {
+  white-space: nowrap;
+}
+/* A width and its height, or a line's length and its angle, read as a pair on one row. */
+.annotation-style .annotation-pair {
+  grid-column-start: 1;
+}
 .annotation-style input[type='color'] {
   width: 28px;
   height: 24px;
@@ -2037,8 +2047,13 @@
 .annotation-style input[type='range'] {
   width: 70px;
 }
+.annotation-style select {
+  min-width: 0;
+}
+/* Wide enough for a length such as 206.16 to show whole. */
 .annotation-style input[type='number'] {
-  width: 56px;
+  width: 64px;
+  min-width: 0;
 }
 .annotation-replies {
   list-style: none;

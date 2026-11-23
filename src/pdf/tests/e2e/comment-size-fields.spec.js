@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { addCallout, addShapeAnnotation, listAnnotations } from '../../src/core/annotations.js';
+import {
+  addCallout,
+  addShapeAnnotation,
+  addTextBox,
+  listAnnotations,
+} from '../../src/core/annotations.js';
 
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
 
@@ -113,3 +118,56 @@ for (const rotation of [0, 90])
     if (rotation) near(box.rect, { x: 100, width: 120, y: 500, height: room });
     else near(box.rect, { x: 100, width: room, height: 60 });
   });
+
+// The width sat at the end of one row and the height at the start of the next, a line's
+// length showed cut off ("206.1"), and the right-hand fields ran past the panel's edge.
+test('a comment’s width and height, and a line’s length and angle, sit in pairs within the panel', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 500, width: 120, height: 60 },
+    text: 'Box',
+  });
+  addShapeAnnotation(doc, 0, {
+    kind: 'line',
+    points: [
+      { x: 100, y: 300 },
+      { x: 300, y: 350 },
+    ],
+    text: 'Rule',
+  });
+  await addTextBox(doc, 0, { rect: { x: 300, y: 600, width: 150, height: 40 }, text: 'Note' });
+  await open(page, doc);
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const box = (locator) => locator.evaluate((node) => node.getBoundingClientRect().toJSON());
+  for (const [name, first, second] of [
+    ['Rectangle: Box', 'Rectangle width in points', 'Rectangle height in points'],
+    [/^Line: Rule/, 'Line length in points', 'Line angle in degrees'],
+  ]) {
+    await page.getByRole('button', { name }).first().focus();
+    const a = props.getByLabel(first);
+    const b = props.getByLabel(second);
+    await expect(a).toBeVisible();
+    const [one, two, comment] = await Promise.all([
+      box(a),
+      box(b),
+      box(props.getByRole('textbox').first()),
+    ]);
+    expect(Math.abs(one.top - two.top)).toBeLessThan(1);
+    expect(one.left).toBeLessThan(two.left);
+    // Within the panel, as far right as the comment's own text and no further.
+    expect(two.right).toBeLessThanOrEqual(comment.right + 0.5);
+    // The whole value shows.
+    expect(await a.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  }
+  // A text box's "Font size" keeps to one line beside its field.
+  await page.getByRole('button', { name: 'Text box: Note' }).focus();
+  const name = props.locator('.annotation-style label > span', { hasText: 'Font size' });
+  await expect(name).toBeVisible();
+  expect(
+    await name.evaluate((node) => node.getClientRects().length === 1 && node.offsetHeight < 24),
+  ).toBe(true);
+});

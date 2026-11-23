@@ -11995,7 +11995,7 @@ export function createEditor({
         ].map(([key, shown, spoken, range]) =>
           el(
             'label',
-            {},
+            key === 'length' ? { class: 'annotation-pair' } : {},
             el('span', {}, shown),
             el('input', {
               type: 'number',
@@ -12071,7 +12071,12 @@ export function createEditor({
         fontSize && el('label', {}, el('span', {}, 'Font size'), fontSize),
         ...lineFields,
         ...sizeFields.map((field, axis) =>
-          el('label', {}, el('span', {}, axis ? 'H' : 'W'), field),
+          el(
+            'label',
+            axis ? {} : { class: 'annotation-pair' },
+            el('span', {}, axis ? 'H' : 'W'),
+            field,
+          ),
         ),
       ),
       thread.status,
