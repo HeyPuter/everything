@@ -566,3 +566,45 @@ test("a trimmed video's control bar covers only the part that is left", async ({
   });
   expect(await time()).toBeGreaterThanOrEqual(1.49);
 });
+
+test("in a rehearsal of a looping show, Presenter View shows the end coming after the last slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  text(P.getSlides(pres)[0], "One", 1, 1, 8, 2);
+  text(P.addBlankSlide(pres), "Two", 1, 1, 8, 2);
+  P.setSlideShowSetup(pres, { loop: true });
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Looping.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await tab(page, "Slide Show");
+  await (await command(page, "Rehearse Timings", "Set Up")).click();
+  const d = show(page);
+  await d
+    .locator(".presenter-stage")
+    .click({ button: "right", position: { x: 100, y: 100 } });
+  await page.getByRole("menuitem", { name: "Show Presenter View" }).click();
+  await page.keyboard.press("End");
+  await expect(d.locator(".show-console-counter")).toHaveText("Slide 2 of 2");
+  // A rehearsal does not loop.
+  await expect(d.locator(".show-console-next-label")).toHaveText(
+    "End of slide show",
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(d.locator(".show-console-counter")).toHaveText("End of show");
+});

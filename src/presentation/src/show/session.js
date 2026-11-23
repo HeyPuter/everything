@@ -760,7 +760,7 @@ export function createShowSession(ctx, show) {
         ? null
         : n + 1 < all.length
           ? all[n + 1]
-          : setup.loop
+          : show.loop
             ? all[0]
             : null;
       if (coming) {

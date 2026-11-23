@@ -16610,6 +16610,9 @@ async function present(options = {}) {
     },
     paused: () => advanceClock.paused,
     autoAdvance: !pauseButton.hidden,
+    // Whether the show starts over after its last slide: a kiosk always
+    // does, a rehearsal or recording never.
+    loop: showTiming.loop,
     toggleLaser: () => toggleLaser(),
     laserEnabled: () => laser.enabled,
     picture: (s) => cachedPreview(previews, pres, s),
