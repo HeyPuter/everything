@@ -12601,6 +12601,17 @@ export function createEditor({
   // The browser's own speech voices read the page text, page after page when asked.
   let reading = null; // { generation, toEnd }
   const canSpeak = () => !!globalThis.speechSynthesis && access().accessibility;
+  const editingPage = () =>
+    !!(
+      textEdit ||
+      textPointer ||
+      noteEdit ||
+      gesture ||
+      cropDraft ||
+      pageImages.active ||
+      pageImages.dirty ||
+      pageForms.draft.dirty
+    );
   async function pageWords(index) {
     const page = await pdf.getPage(index + 1);
     return pageSpeechText((await page.getTextContent()).items);
@@ -12624,7 +12635,9 @@ export function createEditor({
     for (let index = pageIndex; index < pageCount; index++) {
       const text = await pageWords(index);
       if (reading?.generation !== generation || destroyed) return;
-      if (index !== pageIndex) await navigate(index);
+      // The page follows the voice, except while something on it is being edited: turning
+      // the page would save and close the words being typed as they are heard.
+      if (index !== pageIndex && !editingPage()) await navigate(index);
       for (const chunk of speechChunks(text, { lang })) {
         if (reading?.generation !== generation || destroyed) return;
         spoken = true;
