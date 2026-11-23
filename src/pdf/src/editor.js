@@ -1382,6 +1382,8 @@ export function createEditor({
         overlay.focus({ preventScroll: true });
     },
     preparePreview: prepareImagePreview,
+    // A tap or the keyboard selects an object; the dock that opens on a phone may cover it.
+    onSelected: () => revealSelected(),
   });
   // Hidden until the first page has its size: an unsized canvas would show as a small blank
   // rectangle while the document loads.
@@ -6693,6 +6695,25 @@ export function createEditor({
       width: box.width + 2 * margin,
       height: box.height + 2 * margin,
     });
+  }
+  /**
+   * An object selected by a tap or the keyboard, scrolled into view only when part of it is
+   * hidden (behind the phone's properties dock, say), and then only as far as it needs to be.
+   */
+  function revealSelected() {
+    const frame = editorRoot.querySelector('.image-move');
+    if (!frame) return;
+    const box = frame.getBoundingClientRect(),
+      view = workspace.getBoundingClientRect(),
+      margin = 16;
+    const shift = (start, end, low, high) =>
+      start < low
+        ? start - margin - low
+        : end > high
+          ? Math.min(end + margin - high, start - margin - low)
+          : 0;
+    workspace.scrollTop += shift(box.top, box.bottom, view.top, view.bottom);
+    workspace.scrollLeft += shift(box.left, box.right, view.left, view.right);
   }
   /** A stamp lands centered like a signature and is selected for moving and resizing. */
   async function insertStamp() {

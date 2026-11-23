@@ -27,6 +27,7 @@ export function createImageLayer({
   onChange,
   preparePreview,
   onProperties = () => {},
+  onSelected = () => {},
 }) {
   const targets = el('div', { class: 'image-targets' });
   const controls = el('div', { class: 'image-controls', hidden: true });
@@ -389,7 +390,10 @@ export function createImageLayer({
         onclick: (e) => {
           const tap = touched === target;
           touched = null;
-          if ((!e.detail || tap) && !busy && !committing) safe(choose)(entry, true);
+          if ((!e.detail || tap) && !busy && !committing)
+            safe(async () => {
+              if (await choose(entry, true)) onSelected();
+            })();
         },
       });
       const corners = setPolygon(target, entry.transform);
