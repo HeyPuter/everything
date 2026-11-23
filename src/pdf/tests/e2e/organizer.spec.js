@@ -376,6 +376,40 @@ test("a page's own buttons in Organize pages cannot delete the only page", async
   ).toBeEnabled();
 });
 
+test('deleting a page with its own button in Organize pages keeps the focus in the grid', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  [300, 350, 400, 450].forEach((height) => doc.addPage([400, height]));
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).hover();
+  await grid.getByRole('button', { name: 'Delete page 3', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await expect(grid.getByRole('option')).toHaveCount(3);
+  // The button went with its tile; the focus goes to the page now in its place, not the page.
+  const third = grid.getByRole('option', { name: 'Page 3', exact: true });
+  await expect(third).toBeFocused();
+  await expect(grid.locator('[tabindex="0"]')).toHaveCount(1);
+  await page.keyboard.press('ArrowLeft');
+  await expect(grid.getByRole('option', { name: 'Page 2', exact: true })).toBeFocused();
+  // The last page's button leaves the focus on the page that is last now.
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).hover();
+  await grid.getByRole('button', { name: 'Delete page 3', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await expect(grid.getByRole('option', { name: 'Page 2', exact: true })).toBeFocused();
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 350]);
+});
+
 test('keys that move through Organize pages leave the page behind the grid alone', async ({
   page,
 }) => {

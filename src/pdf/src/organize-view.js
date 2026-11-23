@@ -102,9 +102,10 @@ export function createOrganizeView({
    * Delete pages. The deleted pages' places now hold other pages, which were not chosen; but
    * when the keyboard is in the grid, the tile it lands on is chosen, as arrow keys choose the
    * tile they reach. With nothing chosen, Delete would act on the current page behind the
-   * grid instead of the page with the focus.
+   * grid instead of the page with the focus. A tile's own Delete button (`from`, its page) goes
+   * with its tile, so the focus goes to the tile now in its place rather than off the grid.
    */
-  async function removePages(list) {
+  async function removePages(list, from = null) {
     const revision = getRevision();
     if ((await actions.remove(list)) === false || getRevision() === revision) return;
     const focused = visible
@@ -115,6 +116,12 @@ export function createOrganizeView({
       anchor = focused;
     } else selected.clear();
     updateState();
+    if (
+      from != null &&
+      visible &&
+      (!document.activeElement || document.activeElement === document.body)
+    )
+      focusTile(Math.min(from, tiles.length - 1));
   }
   /**
    * The page order with each chosen page one place earlier (-1) or later (1), past the next
@@ -483,7 +490,7 @@ export function createOrganizeView({
           iconButton(
             `Delete page ${i + 1}`,
             'Trash2',
-            run(() => removePages([i])),
+            run(() => removePages([i], i)),
             { 'data-permission': 'assemble', tabindex: -1, class: 'icon-btn organize-tile-delete' },
           ),
         ),
