@@ -276,6 +276,14 @@ export function createOrganizeView({
           actions.close();
           return;
         }
+        // Zooming in and out sizes the tiles, as a pinch does, rather than the page the grid
+        // hides, whose new zoom would show only once the grid closes.
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && ['=', '+', '-', '_'].includes(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSize(size + (e.key === '-' || e.key === '_' ? -1 : 1));
+          return;
+        }
         // The editor's shortcuts to rotate or delete a page act on the current page, which the
         // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
         const key = e.key.toLowerCase();

@@ -58,3 +58,42 @@ test('a pinch in Organize pages resizes the tiles instead of the application', a
   await expect.poll(async () => Number(await slider.inputValue())).toBeLessThan(larger);
   expect(await page.evaluate(() => visualViewport.scale)).toBeCloseTo(1, 2);
 });
+
+test('zooming in and out with the keyboard in Organize pages sizes the tiles', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 4; i++) doc.addPage([400, 500]);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'grid.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 4');
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await expect(zoom).toHaveValue('fit');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const slider = page.getByRole('slider', { name: 'Page tile size' });
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+  const start = Number(await slider.inputValue());
+  await page.keyboard.press('ControlOrMeta+Equal');
+  await expect(slider).toHaveValue(String(start + 1));
+  await page.keyboard.press('ControlOrMeta+Minus');
+  await page.keyboard.press('ControlOrMeta+Minus');
+  await expect(slider).toHaveValue(String(Math.max(0, start - 1)));
+  // The page behind the grid keeps its zoom; it used to come back zoomed in.
+  await page.keyboard.press('Escape');
+  await expect(grid).toBeHidden();
+  await expect(zoom).toHaveValue('fit');
+});
