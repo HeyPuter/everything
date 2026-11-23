@@ -13019,7 +13019,8 @@ export function createEditor({
     const { compareDocuments } = await import('./core/compare.js');
     const { createCompareView, pageFingerprint } = await import('./compare-view.js');
     closeComparison();
-    busy = true;
+    // Comparing only reads this PDF, as printing does: no unsaved change while it runs.
+    busy = readingOnly = true;
     updateStatus();
     const controller = new AbortController();
     const bar = el('progress', { max: 1, value: 0, 'aria-label': 'Comparison progress' });
@@ -13078,7 +13079,7 @@ export function createEditor({
     } finally {
       done = true;
       if (d.open) d.close();
-      busy = false;
+      busy = readingOnly = false;
       updateStatus();
     }
   }
@@ -13284,7 +13285,8 @@ export function createEditor({
   async function runBatchSteps(inputs, steps) {
     if (busy || destroyed) return;
     const { runBatch } = await import('./core/batch.js');
-    busy = true;
+    // The files are processed into downloads; this PDF is only read, as printing reads it.
+    busy = readingOnly = true;
     updateStatus();
     const controller = new AbortController();
     const progress = el('p', { class: 'muted', role: 'status' }, 'Starting…');
@@ -13386,7 +13388,7 @@ export function createEditor({
       done = true;
       if (d.open) d.close();
       for (const task of opened.values()) task.destroy().catch(() => {});
-      busy = false;
+      busy = readingOnly = false;
       updateStatus();
     }
   }
