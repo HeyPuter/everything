@@ -25086,3 +25086,21 @@ opened read-only with decimal numbers. The dialogs show such a format as its fir
 keep it. Formats lists do not show either (hex, bahtText, dollarText, the Russian and Vietnamese ones) still open
 the document read-only. Tests: `tests/footnotes.test.js` (ordinal, full-width and circled footnotes kept
 editable and unchanged on export; hex read-only), `tests/section-page-numbers.test.js`.
+### Hanword conversion: page-placed top-and-bottom wrapping and overlap (2026-11-23)
+
+Clauses (ECMA-376 Part 1): §20.4.2.3 `anchor` (`allowOverlap`, `distL`, `distR`), §20.4.2.17 `wrapSquare`,
+§20.4.2.20 `wrapTopAndBottom`, §20.4.3.4 `ST_RelFromV`.
+
+The editor reads top-and-bottom wrapping placed against a paragraph only, and `allowOverlap="0"` only for objects text
+does not wrap around; the Hanword converter wrote both for page-placed objects, so such files opened read-only. In a
+single-column section, a Hanword object with top-and-bottom wrapping placed against the page or its margins is now
+written with square wrapping whose left and right distances reach the edges of the text column: no text fits beside
+it, so text goes above and below it as before, in Word and in the editor. Hanword's "allow overlap" off is kept for
+objects without wrapping; a wrapped object is written where Hanword placed it with overlap allowed (Word would move
+such an object only if it overlapped another). Test: `tests/hwp.test.js` (page-placed top-and-bottom and no-overlap
+drawings open for editing); converted fixtures pass `tools/check-docx-schema.py`.
+
+Gaps: multi-column sections keep top-and-bottom wrapping (read-only). `tests/fixtures/hwp/basicsReport.hwp` still
+opens read-only: its text boxes hold a hyperlink and decorated runs, which the editor's text boxes do not take, and
+`tests/fixtures/hwpx/SimplePicture.hwpx` has a grouped picture with glow, reflection and soft edges, which the editor
+reads on ungrouped pictures only.

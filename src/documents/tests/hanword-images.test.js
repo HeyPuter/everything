@@ -70,9 +70,13 @@ describe('Hanword picture fidelity', () => {
   it('retains links, alt text, wrap side, overlap, stacking, flips and bounded rotation', () => {
     const model = parseHwpx(imageHwpx(picture('<hp:sz width="7200" height="3600"/><hp:pos treatAsChar="0" allowOverlap="0" flowWithText="0"/><hp:rotationInfo angle="-90"/><hp:flip horizontal="1"/><hp:shapeComment>한글 &amp; photo</hp:shapeComment>', 'href="https://example.com/image" textWrap="SQUARE" textFlow="LEFT_ONLY" zOrder="42"')));
     const d = doc(model), anchor = elements(d, 'anchor')[0];
-    expect(anchor.getAttribute('relativeHeight')).toBe('42'); expect(anchor.getAttribute('allowOverlap')).toBe('0'); expect(anchor.getAttribute('layoutInCell')).toBe('0');
+    expect(anchor.getAttribute('relativeHeight')).toBe('42'); expect(anchor.getAttribute('allowOverlap')).toBe('1'); expect(anchor.getAttribute('layoutInCell')).toBe('0');
     expect(elements(d, 'wrapSquare')[0].getAttribute('wrapText')).toBe('left'); expect(elements(d, 'docPr')[0].getAttribute('descr')).toBe('한글 & photo');
     expect(elements(d, 'xfrm')[0].getAttribute('rot')).toBe('16200000'); expect(elements(d, 'xfrm')[0].getAttribute('flipH')).toBe('1'); expect(elements(d, 'hyperlink')).toHaveLength(1);
+    // "Allow overlap" off is kept for an object text does not wrap around, which the editor reads; a wrapped one is
+    // written where Hanword placed it, overlap allowed, or the file opens read-only.
+    const front = doc(parseHwpx(imageHwpx(picture('<hp:sz width="7200" height="3600"/><hp:pos treatAsChar="0" allowOverlap="0"/>', 'textWrap="IN_FRONT_OF_TEXT"'))));
+    expect(elements(front, 'anchor')[0].getAttribute('allowOverlap')).toBe('0');
   });
   it('maps picture adjustments and borders into native DrawingML', () => {
     const input = picture('<hp:lineShape color="#123456" width="100" style="DASH" alpha="0.25"/>').replace('<hp:img ', '<hp:img bright="20" contrast="-30" effect="GRAY_SCALE" alpha="0.5" ');
