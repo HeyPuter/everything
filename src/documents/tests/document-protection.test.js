@@ -223,6 +223,20 @@ describe('enforcement', () => {
     expect(tryEdit(s, m => { m.select(0, 5); m.setRunFormat({ italic: true }); })).toBe(false);
   });
 
+  // Formatting the document already had somewhere passed: with one word bold, Bold worked on any other text.
+  it('refuses direct formatting the document already has elsewhere under a formatting restriction', async () => {
+    const { s, model } = await session({ edit: 'none', formatting: true, enforcement: true });
+    model.select(0, 5); model.setRunFormat({ bold: true }); model.setParagraphFormat({ alignment: 'center' });
+    const plain = model.text.indexOf('\n') + 1;
+    expect(tryEdit(s, m => { m.select(plain, plain + 4); m.setRunFormat({ bold: true }); })).toBe(false);
+    expect(tryEdit(s, m => { m.select(plain); m.setParagraphFormat({ alignment: 'center' }); })).toBe(false);
+    expect(model.paragraphs[1].runs.some(r => r.bold)).toBe(false);
+    // Typing beside formatted text, and clearing formatting, are still allowed.
+    expect(tryEdit(s, m => { m.select(2); m.replace('ab'); })).toBe(true);
+    expect(tryEdit(s, m => { m.select(0, 7); m.clearDirectTextFormatting(); })).toBe(true);
+    expect(model.paragraphs[0].runs.some(r => r.bold)).toBe(false);
+  });
+
   it('allows only form fields (content controls) to change under a forms restriction', async () => {
     const pkg = await DocxPackage.open(readFileSync('tests/fixtures/adjacent-control-selection/control.docx'));
     const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);

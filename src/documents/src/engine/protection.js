@@ -250,6 +250,33 @@ export function drawingContent(paragraphs, assets = {}) {
 export class ProtectionError extends Error {}
 
 /**
+ * Whether a change that left the text as it was gave any paragraph or character direct formatting (`formatOverrides`,
+ * a run's `overrides`) it did not have: a property added, or set to another value. A change of the text is judged by
+ * the formatting it brings, not here.
+ */
+function gainsDirectFormatting(before, after) {
+  if (before.length !== after.length) return false;
+  // Lengths first: a keystroke changes one, and comparing every paragraph's text at each keystroke cost time.
+  for (let i = 0; i < before.length; i++) if (length(before[i]) !== length(after[i])) return false;
+  for (let i = 0; i < before.length; i++) if (before[i].runs !== after[i].runs && before[i].runs.map(r => r.text).join('') !== after[i].runs.map(r => r.text).join('')) return false;
+  const gains = (old, now) => Object.keys(now || {}).some(key => JSON.stringify(now[key]) !== JSON.stringify(old?.[key]));
+  for (let i = 0; i < before.length; i++) {
+    const a = before[i], b = after[i];
+    if (gains(a.formatOverrides, b.formatOverrides)) return true;
+    if (a.runs === b.runs || a.runs.length === b.runs.length && a.runs.every((run, k) => run.overrides === b.runs[k].overrides || JSON.stringify(run.overrides || {}) === JSON.stringify(b.runs[k].overrides || {}))) continue;
+    // Each character's formatting before, by its offset, against the run that holds it now.
+    const old = [];
+    for (const run of a.runs) for (let k = 0; k < run.text.length; k++) old.push(run.overrides);
+    let at = 0;
+    for (const run of b.runs) {
+      for (let k = 0; k < run.text.length; k++) if (old[at + k] !== run.overrides && gains(old[at + k], run.overrides)) return true;
+      at += run.text.length;
+    }
+  }
+  return false;
+}
+
+/**
  * A guard for story transactions under enforced protection. It returns null when nothing is
  * restricted, otherwise check(beforeState, model) which throws a ProtectionError for a change
  * the restriction does not allow. Editable regions are the permission ranges that apply to the
@@ -289,6 +316,10 @@ export function protectionGuard(protection, user = {}, { contentControlRanges } 
       const directFormats = paragraphs => new Set(paragraphs.flatMap(p => [JSON.stringify(p.formatOverrides || {}), ...p.runs.map(r => JSON.stringify(r.overrides || {}))]));
       const known = directFormats(before.paragraphs);
       for (const key of directFormats(after)) if (!known.has(key)) throw new ProtectionError('Formatting is restricted: apply one of the allowed styles instead.');
+      // Formatting the document already had elsewhere is direct formatting too: Bold on plain text passed while some
+      // other text was bold. Where the text is unchanged (a formatting command), no character or paragraph may take
+      // on direct formatting it did not have; clearing it is allowed.
+      if (gainsDirectFormatting(before.paragraphs, after)) throw new ProtectionError('Formatting is restricted: apply one of the allowed styles instead.');
       const beforeStyles = new Set(before.paragraphs.flatMap(p => [p.styleId || '', ...p.runs.map(r => r.styleId || '')]));
       for (const p of after) for (const id of [p.styleId || '', ...p.runs.map(r => r.styleId || '')]) if (!beforeStyles.has(id) && locked.has(id)) throw new ProtectionError('Formatting is restricted: that style is not allowed.');
     }
