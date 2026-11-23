@@ -24,6 +24,8 @@ export function formatPageNumber(value, format = 'decimal') {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid page number.');
   if (format === 'decimal') return String(value);
   if (format === 'decimalZero') return String(value).padStart(2, '0');
+  // "- 1 -", one of the page number formats Word's Page Number Format dialog offers (§17.18.59 numberInDash).
+  if (format === 'numberInDash') return `- ${value} -`;
   if (['lowerLetter', 'upperLetter'].includes(format)) {
     if (!value) return ' ';
     const count = Math.floor((value - 1) / 26) + 1;

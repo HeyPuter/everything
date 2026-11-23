@@ -130,7 +130,7 @@ export function openFieldDialog({ context, bookmarks = [], onInsert, onClose }) 
 }
 
 /* ---- Format Page Numbers ---- */
-export const PAGE_FORMATS = [['decimal', '1, 2, 3, …'], ['decimalZero', '01, 02, 03, …'], ['lowerLetter', 'a, b, c, …'], ['upperLetter', 'A, B, C, …'], ['lowerRoman', 'i, ii, iii, …'], ['upperRoman', 'I, II, III, …']];
+export const PAGE_FORMATS = [['decimal', '1, 2, 3, …'], ['numberInDash', '- 1 -, - 2 -, - 3 -, …'], ['decimalZero', '01, 02, 03, …'], ['lowerLetter', 'a, b, c, …'], ['upperLetter', 'A, B, C, …'], ['lowerRoman', 'i, ii, iii, …'], ['upperRoman', 'I, II, III, …']];
 export function openFormatPageNumbers({ current = {}, onApply, onClose }) {
   const format = select('Number format', PAGE_FORMATS, current.format || 'decimal');
   let mode = Number.isInteger(current.start) ? 'start' : 'continue';

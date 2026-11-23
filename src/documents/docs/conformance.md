@@ -25061,3 +25061,13 @@ while NUMPAGES beside it updated ("Page 1 of 3" on page 2). Locked fields and PA
 keep their results; inserting a table of contents or a cross-reference still refreshes page references only.
 Tests: `tests/body-page-field-refresh.test.js` (Roman numbering from ii, SECTIONPAGES, `\* Arabic`, a locked
 field, save and reopen, undo).
+
+## "- 1 -" page numbers (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §17.6.12 `pgNumType` (`w:fmt`), §17.18.59 ST_NumberFormat `numberInDash`.
+
+Page numbers in the `numberInDash` format show as "- 1 -", in headers, footers, page references and Go To, and
+Insert > Page Number > Format Page Numbers offers the format ("- 1 -, - 2 -, - 3 -, …", as Word's dialog does).
+Before, a document numbered this way opened read-only with its numbers shown as plain digits. Other
+ST_NumberFormat values (ordinal, cardinalText, hex, the East Asian formats…) still open the document read-only.
+Tests: `tests/page-number-dash-format.test.js`.
