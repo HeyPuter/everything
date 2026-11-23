@@ -381,13 +381,43 @@ describe('accessibility check', () => {
     for (const role of ['Artifact', 'Decoration'])
       expect(status(checkAccessibility(await build(role)), 'tagged-content').status).toBe('passed');
     // A detached element of real content still leaves its content out of the tree.
-    const detached = status(checkAccessibility(await build('P')), 'tagged-content');
-    expect(detached).toMatchObject({
+    const doc = await build('P');
+    expect(status(checkAccessibility(doc), 'tagged-content')).toMatchObject({
       status: 'failed',
       details: [{ page: 0, text: '1 untagged item' }],
+      fix: 'tags',
     });
-    // Autotag leaves marked content alone, so the report does not offer it.
-    expect(detached.fix).toBeUndefined();
+    // Autotag gives the orphaned mark an element of its own, leaving the content as it was.
+    const before = await doc.save();
+    expect(autotagDocument(doc)).toMatchObject({ adopted: 1, elements: { P: 1 } });
+    const fixed = await reload(doc);
+    expect(status(checkAccessibility(fixed), 'tagged-content').status).toBe('passed');
+    const [a, b] = [await renderAll(before), await renderAll(await fixed.save())];
+    expect(b.pages[0].pixels.equals(a.pages[0].pixels)).toBe(true);
+    expect(readStructure(fixed).elements.map((e) => e.role)).toEqual(['Document', 'Figure', 'P']);
+  });
+
+  it('tags pages merged in with their marks but without their tags', async () => {
+    // A tool that merges PDFs keeps the second file's marked content but drops its tag tree.
+    const doc = await untaggedPdf();
+    autotagDocument(doc);
+    const tagged = await reload(doc);
+    const combined = await reload(tagged);
+    const [copy] = await combined.copyPages(tagged, [0]);
+    copy.node.delete(PDFName.of('StructParents'));
+    copy.node.delete(PDFName.of('Annots'));
+    combined.addPage(copy);
+    const report = checkAccessibility(combined);
+    expect(status(report, 'tagged-content')).toMatchObject({ status: 'failed', fix: 'tags' });
+    expect(status(report, 'tagged-content').details.map((detail) => detail.page)).toEqual([1]);
+    const elements = readStructure(combined).elements.length;
+    const result = autotagDocument(combined);
+    expect(result.adopted).toBeGreaterThan(0);
+    const fixed = await reload(combined);
+    expect(status(checkAccessibility(fixed), 'tagged-content').status).toBe('passed');
+    expect(readStructure(fixed).elements.length).toBe(elements + result.adopted);
+    // Running it again finds nothing left to tag.
+    expect(autotagDocument(fixed)).toBe(false);
   });
 
   it('reports a figure without alternate text and setFigureAltText fixes it', async () => {

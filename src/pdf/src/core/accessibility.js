@@ -1017,8 +1017,9 @@ export function checkAccessibility(doc, { textContents, access } = {}) {
           !item.artifact && (item.mcid === undefined ? !item.tagged : unclaimed(index, item.mcid)),
       );
       const count = left.length;
-      // Autotag tags content outside any marks, in a tagged document too.
-      if (!scan.irregular && left.some((item) => item.mcid === undefined)) autotaggable = true;
+      // Autotag tags content outside any marks, and gives orphaned marks elements, in a tagged
+      // document too.
+      if (!scan.irregular && count) autotaggable = true;
       if (count)
         untagged.push({
           page: index,

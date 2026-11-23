@@ -48,6 +48,10 @@ import {
 
 const N = PDFName.of;
 const ARTIFACT = { S: 'Artifact', artifact: true };
+/** Marks whose names make an element on their own when their content is adopted. */
+const ADOPTED_ROLES = new Set(
+  'P H H1 H2 H3 H4 H5 H6 Span Figure Formula Caption Quote Code Note BlockQuote'.split(' '),
+);
 const clean = (text) =>
   String(text ?? '')
     .replace(/\s+/g, ' ')
@@ -634,7 +638,63 @@ export function autotagDocument(doc, { lang } = {}) {
     changedPages++;
   });
 
-  if (incremental && !changedPages) {
+  // Marked content no element claims (pages merged by a tool that dropped their tags, say)
+  // keeps its marks: each such MCID gets an element of its own, named after its mark when that
+  // stands alone, so the content reads without being marked again.
+  let adopted = 0;
+  if (incremental && !structure.truncated) {
+    const claimed = new Set();
+    for (const element of structure.elements)
+      for (const { page, mcid, stream } of element.mcids)
+        if (!stream) claimed.add(`${page ?? '*'}:${mcid}`);
+    pageData.forEach((data, index) => {
+      if (!data) return;
+      const page = pages[index];
+      const key = page.node.lookup(N('StructParents'));
+      const slots =
+        key instanceof PDFNumber ? doc.context.lookup(parentEntries.get(key.asNumber())) : null;
+      const orphans = new Map();
+      for (const item of data.scan.items) {
+        const { mcid } = item;
+        if (item.artifact || mcid === undefined || orphans.has(mcid)) continue;
+        if (claimed.has(`${index}:${mcid}`) || claimed.has(`*:${mcid}`)) continue;
+        // An Artifact element in the parent tree declares the content decorative.
+        const owner = slots instanceof PDFArray ? doc.context.lookup(slots.get(mcid)) : null;
+        if (
+          owner instanceof PDFDict &&
+          owner.lookup(N('S')) instanceof PDFName &&
+          structure.role(owner.lookup(N('S')).decodeText()) === 'Artifact'
+        )
+          continue;
+        let frame = item.marked;
+        while (frame && frame.ownMcid !== mcid) frame = frame.parent;
+        orphans.set(mcid, { tag: frame?.tag, kinds: new Set() });
+      }
+      for (const item of data.scan.items)
+        orphans
+          .get(item.mcid)
+          ?.kinds.add(item.kind === 'form' && item.summary?.hasText ? 'text' : item.kind);
+      if (!orphans.size) return;
+      let parents = pageKeys.get(index);
+      if (!parents) pageKeys.set(index, (parents = []));
+      for (const [mcid, { tag, kinds }] of orphans) {
+        const S =
+          tag && ADOPTED_ROLES.has(structure.role(tag))
+            ? tag
+            : kinds.has('text') || !(kinds.has('image') || kinds.has('form'))
+              ? 'P'
+              : 'Figure';
+        const record = element(S, top, page);
+        record.kids.push(mcid);
+        attach(record);
+        parents[mcid] = record;
+        count(S);
+        adopted++;
+      }
+    });
+  }
+
+  if (incremental && !changedPages && !adopted) {
     const tagged = tagAnnotations(doc);
     return tagged === false ? false : { pages: 0, skipped, elements: counts };
   }
@@ -746,7 +806,7 @@ export function autotagDocument(doc, { lang } = {}) {
   for (const page of pages) if (hasAnnotations(page)) page.node.set(N('Tabs'), N('S'));
   if (incremental) tagAnnotations(doc);
   describeLinks(doc);
-  return { pages: changedPages, skipped, elements: counts };
+  return { pages: changedPages, adopted, skipped, elements: counts };
 }
 
 function hasAnnotations(page) {
