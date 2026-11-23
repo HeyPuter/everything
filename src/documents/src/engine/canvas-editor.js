@@ -1925,6 +1925,16 @@ export class CanvasEditor {
     return { page: caret.page, top: canvas.offsetTop + caret.y * this.zoom, left: canvas.offsetLeft + caret.x * this.zoom, height: caret.height * this.zoom,
       pageLeft: canvas.offsetLeft, pageRight: canvas.offsetLeft + canvas.offsetWidth, pageTop: canvas.offsetTop, textRight: (() => { const g = this.layout.pages[caret.page] || this.layout.page; return canvas.offsetLeft + (g.width - (g.right || 0)) * this.zoom; })() };
   }
+  /** Where the caret is drawn in the window ({ left, top, height }), or null: for the chrome to keep clear of it. */
+  caretClientRect() {
+    if (!this.layout || this.accessible) return null;
+    try {
+      const caret = caretRect(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage), canvas = this.canvases?.[caret.page];
+      if (!canvas) return null;
+      const box = canvas.getBoundingClientRect();
+      return { left: box.left + caret.x * this.zoom, top: box.top + caret.y * this.zoom, height: caret.height * this.zoom };
+    } catch { return null; }
+  }
   revealCaret() {
     if (this.accessible) { this.revealFieldCaret(); return; }
     const caret = caretRect(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage), canvas = this.canvases[caret.page];

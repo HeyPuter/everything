@@ -67,6 +67,39 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     if (e.defaultPrevented || isComposing(e) || !(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || shortcutCode(e) !== 'KeyI' || !editor()) return;
     e.preventDefault(); toggle();
   }, { signal: keys.signal });
+  // The button floats over the pages' bottom corner. While the document is being typed in, it steps aside when the
+  // caret comes near it, and on a touch screen while the on-screen keyboard is up (it covered the text being typed
+  // just above the keyboard); the Assistant stays in the View and Tools menus.
+  let watchedHost = null;
+  function keyboardUp() {
+    if (typeof matchMedia !== 'function' || !matchMedia('(pointer: coarse)').matches) return false;
+    const height = window.innerHeight, viewport = window.visualViewport?.height ?? height;
+    return height < (window.screen?.height || height) * 0.8 || viewport < height * 0.85;
+  }
+  function caretNear(engine) {
+    if (fab.hidden || !fab.isConnected) return false;
+    const at = engine.caretClientRect?.();
+    if (!at) return false;
+    const box = fab.getBoundingClientRect(), room = 16;
+    return at.left + room > box.left && at.left - room < box.right && at.top + at.height + room > box.top && at.top - room < box.bottom;
+  }
+  // Once a frame at most, where the frame's layout is read anyway: not in the middle of a keystroke's work.
+  let placing = 0;
+  const schedulePlace = () => { if (!placing && typeof requestAnimationFrame === 'function') placing = requestAnimationFrame(() => { placing = 0; placeFab(); }); };
+  keys.signal.addEventListener('abort', () => { if (placing) cancelAnimationFrame(placing); });
+  function placeFab() {
+    if (keys.signal.aborted) return;
+    const engine = editor();
+    if (engine?.host && engine.host !== watchedHost) {
+      watchedHost = engine.host;
+      watchedHost.addEventListener('scroll', schedulePlace, { passive: true, signal: keys.signal });
+    }
+    const typing = !!engine && document.activeElement === engine.input;
+    fab.classList.toggle('is-tucked', typing && (keyboardUp() || caretNear(engine)));
+  }
+  for (const type of ['focusin', 'focusout']) document.addEventListener(type, schedulePlace, { signal: keys.signal });
+  window.addEventListener('resize', schedulePlace, { signal: keys.signal });
+  window.visualViewport?.addEventListener('resize', schedulePlace, { signal: keys.signal });
 
   /* ---- What goes with a message ---- */
   function selection() {
@@ -260,6 +293,7 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     /** The editor's selection moved: what goes with a message follows it. */
     refresh() {
       fab.hidden = titleButton.hidden = !available() || !editor();
+      schedulePlace();
       for (const [button, latest] of undoSteps) { if (!button.isConnected) undoSteps.delete(button); else button.disabled = !latest(); }
       if (pane.isOpen && !busy) { renderContext(); if (!log.querySelector('.as-message')) renderEmpty(); }
     },
