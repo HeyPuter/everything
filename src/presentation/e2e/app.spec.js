@@ -1735,6 +1735,38 @@ test("the library sort control retains its selected order after reopening the li
   await expect(names).toHaveText(["Zulu", "Alpha"]);
 });
 
+// The recovery draft written after an undo holds the undone state: the
+// history keeps its steps as the deck's parts, and serializes the step an
+// undo lands on for the draft.
+test("a draft recovered after an undo holds the presentation as undone", async ({
+  page,
+}) => {
+  await story(page);
+  const notes = page.getByRole("textbox", { name: "Speaker notes" });
+  await notes.fill("Kept notes");
+  await notes.press("Tab");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  // Past the one-second merge window, so the next edit is a step of its own.
+  await page.waitForTimeout(1100);
+  await notes.fill("Undone notes");
+  await notes.press("Tab");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(notes).toHaveValue("Kept notes");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await reloadLibrary(page);
+  await page
+    .getByRole("button", { name: "The big idea Recovery draft" })
+    .click();
+  await expect(notes).toHaveValue("Kept notes");
+});
+
 test("create, edit, undo, recover, and download a real PPTX", async ({
   page,
 }, info) => {
