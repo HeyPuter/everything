@@ -11978,11 +11978,26 @@ const renderShape = (
         lineCommands[1]?.kind === "lnTo" &&
         lineCommands[1].pt.x === w &&
         lineCommands[1].pt.y === h);
+    // A connector's shadow or glow, as on any other line.
+    let connectorEffects: readonly ReturnType<
+      typeof getShapeEffects
+    >[number][] = [];
+    try {
+      connectorEffects = getShapeEffectsEffective(pres, shape, activeColorMap);
+    } catch {}
+    const fx = buildEffectsFilter(connectorEffects);
+    const withEffects = (svg: string): string =>
+      fx
+        ? `${fx.defs}<g filter="url(#${fx.id})">${effectsExtent(fx, { x, y, w, h }, (sw / EMU_PER_PX) * (ma ? 7 : 2))}${svg}</g>`
+        : svg;
     if (
       (preset === "straightConnector1" || preset === "line") &&
       ordinaryLine
     ) {
-      return `${p.defs}<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}${connectorTransform}/>`;
+      const line = `<line x1="${E(x1)}" y1="${E(y1)}" x2="${E(x2)}" y2="${E(y2)}" stroke="${strokeColor}" stroke-width="${E(sw)}"${capDefault}${sa}${ma}${strokeOpacity}`;
+      return fx
+        ? `${p.defs}<g${connectorTransform}>${withEffects(`${line}/>`)}</g>`
+        : `${p.defs}${line}${connectorTransform}/>`;
     }
     const routed = shapeGeometryToSvg(geometry, x, y, w, h, {
       ...p,
@@ -11991,7 +12006,7 @@ const renderShape = (
       strokeWidth: sw,
       strokeAttrs: `${p.strokeAttrs}${capDefault}${joinDefault}`,
     });
-    return `${p.defs}<g${transform}>${routed}</g>`;
+    return `${p.defs}<g${transform}>${withEffects(routed)}</g>`;
   }
 
   if (kind === "group") {

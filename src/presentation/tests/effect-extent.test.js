@@ -69,6 +69,15 @@ describe("shape effects", () => {
     expect(96 - x).toBeCloseTo(14.67 * 1.4, 1);
     expect(w).toBeCloseTo(31.5 + 2 * 14.67 * 1.4, 1);
   });
+  it("draw a connector's shadow", async () => {
+    const svg = await render(
+      `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="13" name="C13"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="3657600" cy="0"/></a:xfrm><a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom><a:ln w="38100"><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill></a:ln>${shadow}</p:spPr></p:cxnSp>`,
+    );
+    expect(svg).toContain("<feDropShadow");
+    const [, y, , h] = extent(svg);
+    expect(y + h / 2).toBeCloseTo(96, 1);
+    expect(svg).toMatch(/<g filter="url\(#[^)]+\)"><rect [^>]+\/><line /);
+  });
   it("adds nothing to a shape without effects", async () => {
     const svg = await render(
       shape(
