@@ -647,6 +647,21 @@ describe('table commands', () => {
     expect(table.rows).toHaveLength(2);
   });
 
+  it('aligns the cells of whole selected rows in one change, not one pass over the document per cell', () => {
+    // Select Table and Align Center on a 500-row table took seconds: each cell was selected and formatted in turn.
+    const { doc } = tableDocument(40, 4);
+    block(doc, 0, 0, 39, 4);
+    let selections = 0;
+    const select = doc.select;
+    doc.select = function (...args) { selections++; return select.apply(this, args); };
+    expect(T.setCellAlignment(doc, { horizontal: 'center', vertical: 'center' })).toBe(true);
+    delete doc.select;
+    expect(selections).toBeLessThan(5);
+    expect(doc.paragraphs.filter(p => p.cellId).every(p => p.format?.alignment === 'center')).toBe(true);
+    expect(doc.tables[0].rows.every(row => row.cells.every(cell => cell.vertical === 'center'))).toBe(true);
+    expect(doc.activeCellBlock).toMatchObject({ top: 0, bottom: 39, left: 0, right: 4 });
+  });
+
   it('draws diagonal borders across the selected cells and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 1, 1, 1, 3);

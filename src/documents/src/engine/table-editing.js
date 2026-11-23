@@ -6,7 +6,7 @@
 // layout and painting simply follow the model.
 import { tableModelInternals as M, paragraph, paragraphText, locate } from './model.js';
 import { tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, rowGrid, spanWidth, cellContext, documentBlocks } from './tables.js';
-import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements, blockRowRange, blockColumnRange } from './table-selection.js';
+import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements, blockRowRange, blockColumnRange, wholeRows } from './table-selection.js';
 import { resolveStyledParagraph } from './styles.js';
 import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
 import { mergeCellControls } from './block-controls.js';
@@ -746,7 +746,12 @@ export function setCellAlignment(model, { horizontal, vertical } = {}) {
   if (horizontal !== undefined && !['left', 'center', 'right', 'both'].includes(horizontal)) throw new Error('Choose left, center or right alignment.');
   let changed = false;
   if (vertical !== undefined) changed = model.setCellVerticalAlignment(vertical) || changed;
-  if (horizontal !== undefined) changed = eachSelectedCell(model, () => model.setParagraphFormat({ alignment: horizontal })) || changed;
+  if (horizontal !== undefined) {
+    // Whole rows are one stretch of text already selected: one change aligns all their cells, where one per cell
+    // read the whole document again for each (seconds for a long table).
+    const block = model.activeCellBlock, align = () => model.setParagraphFormat({ alignment: horizontal });
+    changed = (block && wholeRows(block.table, block) ? align() : eachSelectedCell(model, align)) || changed;
+  }
   return changed;
 }
 
