@@ -1,9 +1,17 @@
 import { el } from './lib/ui.js';
 import { FormDraft, formWidgets, formWidgetLayout, tabOrderedWidgets } from './core/form-draft.js';
-import { formattedText } from './core/form-format.js';
+import { formattedText, specialFormatOf } from './core/form-format.js';
 
 /** Buttons and signature fields hold no value to fill in. */
 const hasValue = (widget) => widget.type !== 'button' && widget.type !== 'signature';
+/**
+ * The keyboard a phone shows for a field: digits for a ZIP Code or Social Security number, the
+ * phone pad for a phone number (formats that take digits alone); the usual one otherwise.
+ */
+const inputMode = (widget) =>
+  ({ 0: 'numeric', 1: 'numeric', 2: 'tel', 3: 'numeric' })[
+    widget.format && specialFormatOf(widget.format)?.style
+  ] ?? null;
 const rgb = (value, fallback) => (value?.length === 3 ? `rgb(${[...value].join(' ')})` : fallback);
 
 /**
@@ -225,6 +233,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
         type: widget.multiline ? null : widget.password ? 'password' : 'text',
         maxlength: widget.maxLength,
         placeholder: widget.placeholder,
+        inputmode: widget.type === 'text' ? inputMode(widget) : null,
         autocomplete: 'off',
         spellcheck: String(widget.spellcheck),
       });
