@@ -97,6 +97,10 @@ export function textLineInput(group) {
     input.style.overflowWrap = 'anywhere';
     input.style.resize = 'none';
     input.style.minWidth = '0';
+    // A justified paragraph spreads the words of each wrapped line, as saving draws it; a
+    // line that ends the paragraph or a hard break stays at its natural spacing.
+    if (group.paragraph.align === 'justify')
+      Object.assign(input.style, { textAlign: 'justify', textJustify: 'inter-word' });
     input.exportLayout = () => paragraphLayout(input, segments, group);
   }
   /** Style each fragment; returns the Noto Sans faces previewing glyphs its font lacks. */
@@ -121,7 +125,7 @@ export function textLineInput(group) {
         fontSize: `${ratio * size}px`,
         color: hex !== group.fillColor ? hex : run.fillColor,
         letterSpacing: `${(run.state.charSpacing / run.state.size) * ratio * size}px`,
-        wordSpacing: `${!face && run.widths.get(' ')?.space ? (run.state.wordSpacing / run.state.size) * ratio * size : 0}px`,
+        wordSpacing: `${!face && run.widths.get(' ')?.space && group.paragraph?.align !== 'justify' ? (run.state.wordSpacing / run.state.size) * ratio * size : 0}px`,
         // A space in another font, as Word ends a paragraph with its mark's, shows nothing,
         // and a stand-in face takes the place of the source font: neither's taller font may
         // push its line further down than the paragraph's leading. A blank line keeps its

@@ -240,6 +240,7 @@ export async function replaceTextGroup(
       leading: group.paragraph.leading,
       softBreaks: [],
       indent: group.paragraph.indent,
+      align: group.paragraph.align,
     },
     variant,
     fontStyle,
@@ -351,38 +352,143 @@ export async function replaceTextGroup(
       encoded: ['<>'],
       font: variantFor(run) ? await embedFont(doc, variantFor(run), text) : null,
     });
-    const prepared =
-      paragraph && text.replaceAll('\n', '') ? [await formatting(group.parts[0], 2)] : [];
-    let position = 0;
+    // A justified paragraph spreads the words of each line that wraps across its width.
+    const justify = paragraph?.align === 'justify';
+    // Word spacing is how many PDFs justify their lines; a justified paragraph spaces its words
+    // itself, so the spacing a line had does not carry over to the lines it now wraps into.
+    const runs = justify
+      ? group.parts.map((run) => ({ ...run, state: { ...run.state, wordSpacing: 0 } }))
+      : group.parts;
+    const prepared = paragraph && text.replaceAll('\n', '') ? [await formatting(runs[0], 2)] : [];
+    const wrapped = new Set();
+    if (justify)
+      text.split('\n').reduce((end, line, row) => {
+        if (softBreaks.has(end + line.length)) wrapped.add(row);
+        return end + line.length + 1;
+      }, 0);
+    // Words and the spaces between them, each encoded on its own so the spaces can stretch.
+    const words = async (run, line) => {
+      const tokens = line.match(/\S+|\s+/g);
+      const data = await prepareText(doc, run, tokens.join('\n'), variantFor(run), text);
+      const size = run.state.size * factor;
+      const parts = tokens.map((token, k) => ({
+        text: token,
+        encoded: data.encoded[k],
+        width: advance(run, token, size, data.font, data.encoded[k]),
+      }));
+      return {
+        original: false,
+        font: data.font,
+        // Each part is one hex string; unstretched, they are shown as one.
+        encoded: [`<${parts.map((part) => part.encoded.slice(1, -1)).join('')}>`],
+        words: parts,
+        width: parts.reduce((sum, part) => sum + part.width, 0),
+      };
+    };
+    let position = 0,
+      row = 0;
     for (const fragment of fragments) {
-      const run = group.parts[fragment.part];
+      const run = runs[fragment.part];
       for (const [i, line] of fragment.text.split('\n').entries()) {
         if (i) {
           const soft = softBreaks.has(position);
           if (paragraph && !soft) prepared.push(await formatting(run, 0));
           prepared.push({ newline: true, soft });
           position++;
+          row++;
         }
         position += line.length;
         if (!line) continue;
         if (fragment.gap && line === ' ') {
-          prepared.push({ gap: fragment.gap.map((n) => n * factor) });
+          prepared.push({ gap: fragment.gap.map((n) => n * factor), row });
           continue;
         }
-        const original = line === run.text && !variantFor(run);
+        const original =
+          line === run.text &&
+          !variantFor(run) &&
+          !(justify && group.parts[fragment.part].state.wordSpacing);
+        const item = { run, text: line, size: run.state.size * factor, row };
+        if (wrapped.has(row) && !original) {
+          prepared.push({ ...item, ...(await words(run, line)) });
+          continue;
+        }
         const data = original
           ? { encoded: [run.source], font: null }
           : await prepareText(doc, run, line, variantFor(run), text);
         prepared.push({
-          run,
-          text: line,
-          size: run.state.size * factor,
+          ...item,
           original,
           ...data,
           width: original
             ? run.advance * factor
             : advance(run, line, run.state.size * factor, data.font, data.encoded[0]),
         });
+      }
+    }
+    if (justify) await spread();
+    /**
+     * Widen the spaces of each wrapped line until it reaches the paragraph's right edge. A
+     * line kept in its original glyphs is left as drawn when it already ends there.
+     */
+    async function spread() {
+      const along = (run) => Math.hypot(run.transform[0], run.transform[1]) / run.state.size;
+      const column = along(group) * paragraph.width;
+      const rows = new Map();
+      for (const item of prepared)
+        if (item.row !== undefined && wrapped.has(item.row))
+          rows.set(item.row, [...(rows.get(item.row) || []), item]);
+      for (const [row, items] of rows) {
+        const room = column - (row === 0 ? along(group) * (paragraph.indent || 0) : 0);
+        const spare = () => {
+          let total = 0,
+            trailing = 0;
+          for (const item of items) {
+            if (item.gap) {
+              total += Math.hypot(...item.gap);
+              trailing = 0;
+              continue;
+            }
+            total += item.width * along(item.run);
+            const tail = item.text.match(/\s*$/)[0];
+            if (tail.length === item.text.length) trailing += item.width * along(item.run);
+            else if (!tail) trailing = 0;
+            else if (item.words) trailing = item.words.at(-1).width * along(item.run);
+            else {
+              try {
+                trailing = advance(item.run, tail, item.size, null) * along(item.run);
+              } catch {
+                trailing = 0;
+              }
+            }
+          }
+          return room - (total - trailing);
+        };
+        let extra = spare();
+        if (Math.abs(extra) < 0.25) continue;
+        // Original glyphs that do not reach the edge are spaced again from their characters.
+        for (const [k, item] of items.entries())
+          if (item.original && originalGlyphs(item.run.map, item.text)) {
+            const next = { ...item, ...(await words(item.run, item.text)) };
+            items[k] = next;
+            prepared[prepared.indexOf(item)] = next;
+          }
+        extra = spare();
+        if (extra < 0.25) continue;
+        const spaces = [];
+        let after = false;
+        for (const item of [...items].reverse()) {
+          for (const word of [...(item.words || [{ text: item.text }])].reverse()) {
+            if (/\S/.test(word.text)) after = true;
+            else if (after && item.words) spaces.push([item, word]);
+          }
+          if (item.gap) after = true;
+        }
+        const count = spaces.reduce((sum, [, word]) => sum + word.text.length, 0);
+        for (const [item, word] of spaces) {
+          word.stretch = (extra * word.text.length) / count / along(item.run);
+          item.width += word.stretch;
+          item.stretch = true;
+        }
       }
     }
     if (!wrapper) await deleteRuns(doc, index, group.parts.slice(1));
@@ -446,6 +552,12 @@ export async function replaceTextGroup(
         .map((value) => num(parseInt(value, 16) / 255))
         .join(' ');
       let show = item.encoded[0] + ' Tj';
+      if (item.words && item.stretch)
+        show = `[${item.words
+          .map((word) =>
+            word.stretch ? `${word.encoded} ${num((-word.stretch * 1000) / size)}` : word.encoded,
+          )
+          .join(' ')}] TJ`;
       if (item.original) {
         if (run.op === 'Tj' || run.op === 'TJ') show = run.source;
         else {
@@ -520,7 +632,7 @@ export async function replaceTextGroup(
         writeParagraphData(
           [...origin, ...width, ...spacing],
           items,
-          styled ? { underline, strikethrough, line: !paragraph } : undefined,
+          styled || justify ? { underline, strikethrough, line: !paragraph, justify } : undefined,
           paragraph?.indent > 0 && paragraph.width > 0
             ? Math.min(paragraph.indent / paragraph.width, 0.95)
             : 0,

@@ -8,8 +8,9 @@ export const paragraphVector = (m, [x, y]) => [m[0] * x + m[2] * y, m[1] * x + m
  * Frame: origin delta, width vector, leading vector, all relative to the first run's CTM.
  * Items: 1 consumes a glyph run, 2 an empty base-font run, 0 an empty hard-break run;
  * -1 is a legacy unformatted hard break, -2 an automatic wrap, [x,y] a geometric space.
- * Optional Style bits: underline (1), strikethrough (2), and an unwrapped text box (4).
- * Optional Indent: how far in the first line starts, as a fraction of the width.
+ * Optional Style bits: underline (1), strikethrough (2), an unwrapped text box (4), and
+ * justified lines (8). Optional Indent: how far in the first line starts, as a fraction of the
+ * width.
  */
 export function readParagraphData(args) {
   if (args[0]?.type !== 'name' || args[0]?.value !== 'PuterParagraph' || args[1]?.type !== 'dict')
@@ -38,7 +39,7 @@ export function readParagraphData(args) {
     (values.Style.type !== 'number' ||
       !Number.isInteger(values.Style.value) ||
       values.Style.value < 0 ||
-      values.Style.value > 7)
+      values.Style.value > 15)
   )
     return null;
   if (
@@ -72,13 +73,14 @@ export function readParagraphData(args) {
       underline: Boolean(values.Style.value & 1),
       strikethrough: Boolean(values.Style.value & 2),
       line: Boolean(values.Style.value & 4),
+      justify: Boolean(values.Style.value & 8),
     }),
     ...(values.Indent?.value && { indent: values.Indent.value }),
   };
 }
 
-export function textStyleBits({ underline, strikethrough, line }) {
-  return (underline ? 1 : 0) | (strikethrough ? 2 : 0) | (line ? 4 : 0);
+export function textStyleBits({ underline, strikethrough, line, justify }) {
+  return (underline ? 1 : 0) | (strikethrough ? 2 : 0) | (line ? 4 : 0) | (justify ? 8 : 0);
 }
 
 export function writeParagraphData(frame, items, style, indent = 0) {

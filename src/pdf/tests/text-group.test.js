@@ -1109,6 +1109,82 @@ it('joins a justified line drawn word by word, where every space stretches alike
   expect(tabs.groups.map((g) => g.text)).toEqual(['Name: ', 'Ada ', 'Lovelace']);
 });
 
+/** Lines set in Helvetica 12 from x = 40, each spaced out to `column` by Tw unless it is last. */
+async function justifiedFixture(lines, { column = 300, indent = 0, last = lines.length - 1 } = {}) {
+  const doc = await PDFDocument.create(),
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  const ops = lines.map((line, i) => {
+    const start = i ? 0 : indent,
+      spaces = line.split(' ').length - 1;
+    // A plain Tj draws each glyph at its width, without the helper's pair kerning.
+    const natural = [...line].reduce((sum, c) => sum + font.widthOfTextAtSize(c, 12), 0);
+    const tw = i < last ? (column - start - natural) / spaces : 0;
+    return `${tw} Tw 1 0 0 1 ${40 + start} ${400 - i * 15} Tm (${line}) Tj`;
+  });
+  return fixture(`BT /F 12 Tf ${ops.join(' ')} ET`);
+}
+
+it('keeps a justified paragraph justified when it is edited and saved', async () => {
+  const lines = [
+    'Our team will review the revised schedule and',
+    'prepare a clear summary for the next meeting of',
+    'the board.',
+  ];
+  const r = await read(await justifiedFixture(lines));
+  const [block] = groupTextParagraphs(r.groups);
+  expect(block.text).toBe(lines.join(' '));
+  expect(block.paragraph.align).toBe('justify');
+  // Its lines reach the column's edge, so that edge is the paragraph's exact width.
+  expect(block.paragraph.width).toBeCloseTo(300, 3);
+  // The editor wraps the new text at the width; each wrapped line is spread across it.
+  const text =
+    'Our team will review the long revised schedule \nand prepare a clear summary for the \nnext meeting of the board.';
+  const softBreaks = [...text.matchAll(/\n/g)].map((m) => m.index);
+  await replaceTextGroup(r.doc, 0, block, text, {
+    reflow: true,
+    paragraph: { width: 300, leading: block.paragraph.leading, softBreaks, align: 'justify' },
+  });
+  const saved = await read(await r.doc.save());
+  const runs = visible(saved);
+  expect(runs.map((run) => run.text)).toEqual(text.split('\n'));
+  const end = (run) => {
+    const trailing = run.text.length - run.text.trimEnd().length;
+    return run.transform[4] + run.advance - trailing * 0.278 * 12;
+  };
+  expect(end(runs[0])).toBeCloseTo(340, 2);
+  expect(end(runs[1])).toBeCloseTo(340, 2);
+  // The last line keeps its natural spacing.
+  const font = await PDFDocument.create().then((d) => d.embedFont(StandardFonts.Helvetica));
+  expect(runs[2].advance).toBeCloseTo(
+    [...runs[2].text].reduce((sum, c) => sum + font.widthOfTextAtSize(c, 12), 0),
+    3,
+  );
+  // Reopened, it is still one justified paragraph with its words intact.
+  const [again] = groupTextParagraphs(saved.groups);
+  expect(again.paragraph.align).toBe('justify');
+  expect(again.text.replaceAll('\n', '')).toBe(text.replaceAll('\n', ''));
+  expect(again.paragraph.width).toBeCloseTo(300, 3);
+});
+
+it('tells a justified paragraph from a ragged one whose lines happen to end together', async () => {
+  const doc = await PDFDocument.create(),
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  const width = (line) => [...line].reduce((sum, c) => sum + font.widthOfTextAtSize(c, 12), 0);
+  const a = 'Each line of this paragraph has its own ',
+    b = 'natural spacing, and both end at the same ',
+    c = 'point.';
+  // Letter spacing makes the second line end exactly where the first does, at natural spacing.
+  const tc = (width(a) - width(b)) / b.length;
+  const r = await read(
+    await fixture(
+      `BT /F 12 Tf 15 TL 40 400 Td (${a}) Tj ${tc} Tc T* (${b}) Tj 0 Tc T* (${c}) Tj ET`,
+    ),
+  );
+  const [block] = groupTextParagraphs(r.groups);
+  expect(block.text).toBe(a + b + c);
+  expect(block.paragraph.align).toBeUndefined();
+});
+
 it('edits a paragraph with an indented first line as one, and keeps the indent when saved', async () => {
   const r = await read(
     await fixture(
@@ -1149,4 +1225,64 @@ it('keeps a line set further in than a first-line indent, or ending short, apart
     'BT /F 12 Tf 15 TL 64 400 Td (A heading in body text) Tj -24 0 Td T* (and a paragraph that follows on the next line) Tj ET',
   ])
     expect(groupTextParagraphs((await read(await fixture(source))).groups)).toHaveLength(2);
+});
+
+it('keeps the glyphs of a justified line it still fills, and spreads a line it now wraps', async () => {
+  const doc = await PDFDocument.create(),
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  const natural = (text) => [...text].reduce((sum, c) => sum + font.widthOfTextAtSize(c, 12), 0);
+  // Word justifies with a TJ adjustment after each space of a line.
+  const tj = (line, column) => {
+    const words = line.trimEnd().split(' ');
+    const gap = column ? ((column - natural(line.trimEnd())) / (words.length - 1) / 12) * 1000 : 0;
+    return `[${words.map((w, i) => `(${w}${i < words.length - 1 || line.endsWith(' ') ? ' ' : ''})`).join(` ${-gap} `)}] TJ`;
+  };
+  const lines = [
+    'Our team will review the revised schedule and ',
+    'prepare a clear summary for the next meeting of ',
+    'the board. ',
+  ];
+  const r = await read(
+    await fixture(
+      `BT /F 12 Tf 15 TL 40 400 Td ${tj(lines[0], 300)} T* ${tj(lines[1], 300)} T* ${tj(lines[2])} ET`,
+    ),
+  );
+  const [block] = groupTextParagraphs(r.groups);
+  expect(block.paragraph.align).toBe('justify');
+  const added = 'It meets on Monday.';
+  const segments = [
+    { text: lines[0] + '\n', part: 0 },
+    { text: lines[1] + '\n', part: 1 },
+    { text: `${lines[2]}\n${added}`, part: 2 },
+  ];
+  const text = segments.map((s) => s.text).join('');
+  await replaceTextGroup(r.doc, 0, block, text, {
+    segments,
+    reflow: true,
+    paragraph: {
+      width: block.paragraph.width,
+      leading: block.paragraph.leading,
+      softBreaks: [...text.matchAll(/\n/g)].map((m) => m.index),
+      align: 'justify',
+    },
+  });
+  const runs = visible(await read(await r.doc.save()));
+  expect(runs.map((run) => run.text)).toEqual([...lines, added]);
+  // The lines that already reached the edge keep their own commands; the old last line,
+  // now wrapped, is spread to the edge; the new last line keeps its natural spacing.
+  expect(runs[0].source).toBe(visible(r)[0].source);
+  expect(runs[1].source).toBe(visible(r)[1].source);
+  const end = (run) => run.transform[4] + run.advance - natural(' ');
+  expect(end(runs[2])).toBeCloseTo(340, 2);
+  expect(runs[3].advance).toBeCloseTo(natural(added), 3);
+});
+
+it('does not take two lines for justified when only kerning tightened the last one', async () => {
+  // Word's numbered lines: the first at its natural spacing, the second kerned a little tighter.
+  const r = await read(
+    await fixture(
+      'BT /F 12 Tf 18 TL 40 400 Td [(10 [Page 001] )] TJ T* [(11) 60 ( [001%] )] TJ ET',
+    ),
+  );
+  for (const block of groupTextParagraphs(r.groups)) expect(block.paragraph?.align).toBeUndefined();
 });

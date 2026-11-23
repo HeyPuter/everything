@@ -12,6 +12,13 @@ const pathKey = (run) => run.path.map((call) => call.start).join(':');
 const height = (line) => Math.hypot(line.transform[2], line.transform[3]);
 const width = (line) => (line.advance / line.state.size) * height(line);
 
+function glyphWidth(run, char) {
+  const glyph = run.widths.get(char);
+  return glyph
+    ? ((glyph.width * run.state.size + run.state.charSpacing) / run.state.size) * height(run)
+    : NaN;
+}
+
 function wordWidth(line) {
   let total = 0;
   for (const run of parts(line)) {
@@ -29,6 +36,59 @@ function wordWidth(line) {
     if (text.length < run.text.length) break;
   }
   return total;
+}
+
+/**
+ * A line's glyphs at their own widths, without word spacing, kerning or the jumps between
+ * words, and the width of the spaces it ends with: NaN where a glyph cannot be measured.
+ */
+function naturalWidth(line) {
+  let total = 0,
+    trailing = 0;
+  for (const run of parts(line))
+    for (const char of run.text) {
+      const width = glyphWidth(run, char);
+      total += width;
+      trailing = /\s/.test(char) ? trailing + width : 0;
+    }
+  return { total, trailing };
+}
+
+/**
+ * Whether a paragraph's lines are justified: every line but the last ends at the same right
+ * edge, and at least one of them spaces its words wider than the last line does (a ragged
+ * paragraph's lines rarely end together, and never by stretching their spaces).
+ */
+function justified(paragraph, reach) {
+  const { lines } = paragraph.paragraph,
+    h = height(paragraph);
+  if (lines.length < 2) return 0;
+  const measured = lines.map((line) => {
+    const { total, trailing } = naturalWidth(line);
+    const spaces = (line.text.trim().match(/\s/g) || []).length;
+    return {
+      edge: reach(line) - trailing,
+      stretch: spaces ? (width(line) - total) / spaces : null,
+    };
+  });
+  const body = measured.slice(0, -1),
+    last = measured.at(-1);
+  const right = Math.max(...body.map((m) => m.edge));
+  if (
+    !Number.isFinite(right) ||
+    body.some((m) => !Number.isFinite(m.edge) || right - m.edge > h * 0.04) ||
+    last.edge > right + h * 0.04 ||
+    (last.stretch === null && body.length < 2)
+  )
+    return 0;
+  const base = Number.isFinite(last.stretch) ? last.stretch : 0;
+  // Kerning tightens a line's spaces as often as it loosens them: only spaces wider than
+  // their glyphs, and wider than the last line's, say the line was stretched.
+  return body.some(
+    (m) => m.stretch !== null && m.stretch > h * 0.015 && m.stretch - base > h * 0.015,
+  )
+    ? right
+    : 0;
 }
 
 function restoreParagraph(lines, data) {
@@ -96,6 +156,7 @@ function restoreParagraph(lines, data) {
             leading,
             stored: true,
             indent: (data.indent || 0) * column,
+            ...(data.justify && { align: 'justify' }),
           },
         }),
   };
@@ -246,6 +307,17 @@ export function groupTextParagraphs(lines) {
       det = a[0] * a[3] - a[1] * a[2];
     const down = (a[0] * (b[5] - a[5]) - a[1] * (b[4] - a[4])) / det;
     paragraph.descent = Math.min(paragraph.descent, down + line.descent);
+  }
+  for (const block of blocks) {
+    const data = block.paragraph;
+    if (!data || data.stored) continue;
+    const lead = (data.indent / block.state.size) * height(block);
+    const right = justified(block, (l) => width(l) + (l === data.lines[0] ? lead : 0));
+    // A justified paragraph's lines end at its column's edge, which is its exact width.
+    if (right) {
+      data.align = 'justify';
+      data.width = block.advance = (right / height(block)) * block.state.size;
+    }
   }
   return blocks;
 }

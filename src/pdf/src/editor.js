@@ -5899,6 +5899,7 @@ export function createEditor({
                       leading: edit.run.paragraph.leading,
                       softBreaks: flow.softBreaks,
                       indent: edit.run.paragraph.indent,
+                      align: edit.run.paragraph.align,
                     }
                   : undefined,
                 size: edit.size,
