@@ -518,6 +518,45 @@ describe("assistant conversation", () => {
     });
   });
 
+  // Puter hands over a call the output limit cut off with empty arguments;
+  // run, add_slide with none added an empty slide.
+  it("does not run a call cut off at the length limit, and says a reply was cut", async () => {
+    const pres = deck();
+    const env = envFor(pres);
+    const before = P.getSlides(pres).length;
+    const { chat, requests } = scripted(
+      [
+        { type: "text", text: "Adding the slides. " },
+        tool("read_slide", { slide: 1 }, "a"),
+        tool("add_slide", {}, "b"),
+        { type: "cut" },
+      ],
+      [{ type: "text", text: "Here is a long answer" }, { type: "cut" }],
+    );
+    const agent = createAgent({
+      chat,
+      runTool: (name, args) => runTool(name, args, env),
+      describe: (name, args) => describeCall(name, args, env),
+      approve: () => true,
+    });
+    const events = [];
+    const outcome = await agent.send("Add slides", (e) => events.push(e));
+    expect(P.getSlides(pres)).toHaveLength(before);
+    expect(outcome.steps.map((s) => s.status)).toEqual(["done", "error"]);
+    expect(requests[1].messages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "b",
+    });
+    expect(requests[1].messages.at(-1).content).toMatch(/length limit/);
+    expect(agent.messages.at(-1).content).toBe(
+      "Here is a long answer\n\n[My reply was cut off: it reached the length limit.]",
+    );
+    expect(events.at(-1)).toEqual({
+      type: "text",
+      text: "\n\n[My reply was cut off: it reached the length limit.]",
+    });
+  });
+
   it("asks before deleting and reports a decline to the model", async () => {
     const pres = deck();
     const env = envFor(pres);
@@ -893,6 +932,41 @@ describe("Puter AI streaming", () => {
     expect(sent[1]).toBe(messages[1]);
     expect(messages[0].content.endsWith(cut)).toBe(true);
     expect(wellFormed("ok")).toBe("ok");
+  });
+
+  // Puter ends a reply the credits ran out during, or that reached the
+  // length limit, as though it were complete.
+  it("says when a reply stopped at the length limit or for want of credits", async () => {
+    const stream = (...parts) =>
+      vi.fn().mockResolvedValue(
+        (async function* () {
+          yield* parts;
+        })(),
+      );
+    let chat = stream(
+      { type: "text", text: "Part" },
+      { type: "usage", usage: {}, stopReason: "max_tokens" },
+    );
+    vi.stubGlobal("puter", { ai: { chat } });
+    const parts = [];
+    for await (const p of aiChatStream([])) parts.push(p);
+    expect(parts).toEqual([{ type: "text", text: "Part" }, { type: "cut" }]);
+    chat = stream(
+      { type: "text", text: "Part" },
+      { type: "usage", usage: {}, metadata: { usage_limited: true } },
+    );
+    vi.stubGlobal("puter", { ai: { chat } });
+    const iter = aiChatStream([]);
+    await iter.next();
+    const error = await iter.next().catch((e) => e);
+    // The panel words that code as "Your Puter AI allowance has run out".
+    expect(error).toMatchObject({ code: "insufficient_funds" });
+    // A whole reply stops at the usage line with nothing to say.
+    chat = stream({ type: "usage", usage: {}, stopReason: "end_turn" });
+    vi.stubGlobal("puter", { ai: { chat } });
+    const quiet = [];
+    for await (const p of aiChatStream([])) quiet.push(p);
+    expect(quiet).toEqual([]);
   });
 
   it("reads a whole reply with tool calls, and throws the service's error", async () => {

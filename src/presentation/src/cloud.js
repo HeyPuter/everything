@@ -300,6 +300,10 @@ export const canAI = () => !!globalThis.puter?.ai?.chat;
 //
 // `cache` marks a conversation sent again and again as it grows (the
 // assistant's): it goes with prompt-cache breakpoints (withCacheBreakpoints).
+//
+// Two parts tell of a reply that did not finish: { type: "cut" } when it
+// reached the output limit (a call being written then comes with empty
+// arguments), and an error when the account's credits ran out during it.
 export async function* aiChatStream(
   messages,
   { model, tools, maxTokens, cache = false } = {},
@@ -333,7 +337,22 @@ export async function* aiChatStream(
         if (!part) continue;
         if (part.type === "error" || (part.success === false && part.error))
           throw aiError(part.error || part);
-        if (part.type === "tool_use")
+        if (part.type === "usage") {
+          // Puter ends a reply the account's credits ran out during as
+          // though it were complete.
+          if (part.metadata?.usage_limited)
+            throw Object.assign(
+              new Error(
+                "Your Puter account ran out of AI credits, so the reply stopped.",
+              ),
+              { code: "insufficient_funds" },
+            );
+          if (
+            part.stopReason === "max_tokens" ||
+            part.finish_reason === "length"
+          )
+            yield { type: "cut" };
+        } else if (part.type === "tool_use")
           yield {
             type: "tool",
             id: part.id,
