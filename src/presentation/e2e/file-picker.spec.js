@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { P, createDeck } from "../src/model.js";
 import { insertImage } from "./editor-commands.js";
 
@@ -118,4 +119,59 @@ test("a template or slide show opens as a presentation", async ({ page }) => {
   expect(await imported("Keynote.ppsx", "slideshow")).toBe("Keynote");
   // A template renamed .pptx is saved as a presentation under that name.
   expect(await imported("Renamed.pptx", "template")).toBe("Renamed");
+});
+
+test("a macro deck renamed .pptx opens without its macros and saves as a plain presentation", async ({
+  page,
+}) => {
+  const entries = unzipSync(await P.savePresentation(createDeck("story")));
+  entries["[Content_Types].xml"] = strToU8(
+    strFromU8(entries["[Content_Types].xml"])
+      .replace(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
+        "application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml",
+      )
+      .replace(
+        "</Types>",
+        '<Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/></Types>',
+      ),
+  );
+  const rels = "ppt/_rels/presentation.xml.rels";
+  entries[rels] = strToU8(
+    strFromU8(entries[rels]).replace(
+      "</Relationships>",
+      '<Relationship Id="rIdVba" Type="http://schemas.microsoft.com/office/2006/relationships/vbaProject" Target="vbaProject.bin"/></Relationships>',
+    ),
+  );
+  entries["ppt/vbaProject.bin"] = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0]);
+  const pending = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await pending
+  ).setFiles({
+    name: "Renamed macros.pptx",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from(zipSync(entries)),
+  });
+  await expect(page.locator(".document-title")).toHaveText("Renamed macros");
+  await expect(page.locator("#toast")).toContainText("macros were removed");
+  // What a save would write: the recovery draft holds the open revision.
+  await expect
+    .poll(async () => {
+      const bytes = await page.evaluate(async () => {
+        const drafts = await import("/src/drafts.js");
+        const [summary] = await drafts.listDrafts("guest");
+        const stored = summary && (await drafts.getDraft(summary.id));
+        return stored ? Array.from(stored.bytes) : null;
+      });
+      if (!bytes) return null;
+      const files = unzipSync(new Uint8Array(bytes));
+      return {
+        types: /macroEnabled|vbaProject/.test(
+          strFromU8(files["[Content_Types].xml"]),
+        ),
+        parts: Object.keys(files).filter((n) => /vba/i.test(n)),
+      };
+    })
+    .toEqual({ types: false, parts: [] });
 });

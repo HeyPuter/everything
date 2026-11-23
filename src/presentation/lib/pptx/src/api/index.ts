@@ -734,6 +734,7 @@ export {
   updateExtendedStatistics,
   getPresentationKind,
   setPresentationKind,
+  removeMacros,
   PRESENTATION_FILE_TYPES,
   type DocumentStatistics,
   type ExtendedStatistics,

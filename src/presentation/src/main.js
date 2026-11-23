@@ -1917,7 +1917,9 @@ async function openDocument(load, { pristine = false } = {}) {
     if (request !== documentRequest) return false;
     const { pres, draft = null, color = "studio" } = loaded;
     // A template or slide show opens to be edited, and saved, as a
-    // presentation (.pptx).
+    // presentation (.pptx), which cannot hold macros: a file named .pptx
+    // that still declared them would not open in other apps.
+    const removedMacros = P.removeMacros(pres);
     const kind = P.getPresentationKind(pres);
     if (kind && kind !== "presentation")
       P.setPresentationKind(pres, "presentation");
@@ -1979,6 +1981,12 @@ async function openDocument(load, { pristine = false } = {}) {
     showEditorUrl();
     focusView();
     if ((!path || draft) && !pristine) await persistDraft().catch(warnStorage);
+    if (removedMacros && request === documentRequest) {
+      doc.macrosRemoved = true;
+      toast(
+        "This presentation's macros were removed. It saves as a PowerPoint presentation (.pptx), which can't hold macros.",
+      );
+    }
     return request === documentRequest;
   } catch (error) {
     if (request === documentRequest) throw error;
@@ -2369,14 +2377,15 @@ async function importFile(file) {
   if (!extension) throw new Error("Choose a PowerPoint (.pptx) file.");
   validateImportSize(file.size);
   if (
-    await openDocument(async () => ({
+    (await openDocument(async () => ({
       pres: await parseDeck(new Uint8Array(await file.arrayBuffer()), {
         prepareFonts: false,
       }),
       // A template starts a new, untitled presentation, as in PowerPoint; a
       // slide show keeps its name.
       name: extension === "potx" ? null : file.name.replace(/\.ppsx$/i, ""),
-    }))
+    }))) &&
+    !doc?.macrosRemoved
   )
     toast(
       "Imported. Complex effects may look different in preview; original content is retained in the PPTX.",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, strFromU8, strToU8, zipSync } from "fflate";
 import { P, createDeck } from "../src/model.js";
 
 const part = (bytes, name) => strFromU8(unzipSync(bytes)[name]);
@@ -105,5 +105,59 @@ describe("presentation kind", () => {
     expect(P.PRESENTATION_FILE_TYPES.template).toBe(
       "application/vnd.openxmlformats-officedocument.presentationml.template",
     );
+  });
+
+  // A macro-enabled deck: its main part says so, and a VBA project with a
+  // signature hangs off it.
+  const macroDeck = async (kind = "presentation") => {
+    const entries = unzipSync(await P.savePresentation(createDeck("story")));
+    const types = strFromU8(entries["[Content_Types].xml"])
+      .replace(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
+        `application/vnd.ms-powerpoint.${kind}.macroEnabled.main+xml`,
+      )
+      .replace(
+        "</Types>",
+        '<Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/>' +
+          '<Override PartName="/ppt/vbaProjectSignature.bin" ContentType="application/vnd.ms-office.vbaProjectSignature"/></Types>',
+      );
+    entries["[Content_Types].xml"] = strToU8(types);
+    const rels = "ppt/_rels/presentation.xml.rels";
+    entries[rels] = strToU8(
+      strFromU8(entries[rels]).replace(
+        "</Relationships>",
+        '<Relationship Id="rIdVba" Type="http://schemas.microsoft.com/office/2006/relationships/vbaProject" Target="vbaProject.bin"/></Relationships>',
+      ),
+    );
+    entries["ppt/vbaProject.bin"] = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0]);
+    entries["ppt/_rels/vbaProject.bin.rels"] = strToU8(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.microsoft.com/office/2006/relationships/vbaProjectSignature" Target="vbaProjectSignature.bin"/></Relationships>',
+    );
+    entries["ppt/vbaProjectSignature.bin"] = new Uint8Array([1, 2, 3]);
+    return P.loadPresentation(zipSync(entries));
+  };
+
+  it("takes the macros out of a macro-enabled deck, which then saves as a plain one", async () => {
+    const pres = await macroDeck();
+    expect(P.getPresentationKind(pres)).toBe(null);
+    expect(P.removeMacros(pres)).toBe(true);
+    expect(P.getPresentationKind(pres)).toBe("presentation");
+    const bytes = await P.savePresentation(pres);
+    const entries = unzipSync(bytes);
+    const types = strFromU8(entries["[Content_Types].xml"]);
+    expect(types).not.toMatch(/macroEnabled|vbaProject/);
+    expect(types).toContain("presentationml.presentation.main+xml");
+    expect(Object.keys(entries).filter((n) => /vba/i.test(n))).toEqual([]);
+    expect(strFromU8(entries["ppt/_rels/presentation.xml.rels"])).not.toMatch(
+      /vbaProject/,
+    );
+    const again = await P.loadPresentation(bytes);
+    expect(P.getSlides(again)).toHaveLength(P.getSlides(pres).length);
+    expect(P.removeMacros(again)).toBe(false);
+    // A macro slide show or template becomes a plain one.
+    const show = await macroDeck("slideshow");
+    expect(P.removeMacros(show)).toBe(true);
+    expect(P.getPresentationKind(show)).toBe("slideshow");
+    expect(P.removeMacros(createDeck("blank"))).toBe(false);
   });
 });
