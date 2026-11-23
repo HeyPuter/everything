@@ -29,6 +29,7 @@ import {
   blankPdf,
   samplePdf,
   MAX_FILE_SIZE,
+  MAX_IMAGE_SIZE,
 } from './core/document.js';
 
 const root = document.querySelector('#app');
@@ -544,6 +545,12 @@ async function openFiles(files) {
         import('./image-codec.js'),
       ]);
       signal.throwIfAborted();
+      // A picture too large among several is named; the size check below would not say which.
+      const large = pictures.length > 1 && pictures.find((file) => file.size > MAX_IMAGE_SIZE);
+      if (large)
+        throw new Error(
+          `${large.name} is larger than 20 MB. Leave it out, or make it smaller, and try again.`,
+        );
       const readers = await normalizeImageFiles(pictures, { lazy: true, signal });
       // An obsolete batch must not decode and embed pictures after its file reads finish.
       signal.throwIfAborted();
