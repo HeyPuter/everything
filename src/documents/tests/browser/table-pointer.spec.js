@@ -118,6 +118,28 @@ test('the + marks insert rows and columns; the move handle selects the table; ke
   expect((await tables(page))[0].rows).toHaveLength(3);
 });
 
+test('a press on the text just above a table places the caret there rather than inserting a column', async ({ page }) => {
+  await newTable(page, 3, 2);
+  // The intro runs past the first column line, so its text lies over the strip where the column + marks show.
+  await input(page).evaluate(el => { el.setSelectionRange(5, 5); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.keyboard.type(' paragraph that runs well across the page');
+  const point = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, table = e.model.tables[0], first = e.selectionLayout.cells.find(c => c.id === table.rows[0].cells[0].id);
+    const line = e.selectionLayout.lines.filter(l => !l.cellId && l.page === first.page && l.y < first.y).at(-1);
+    const r = e.canvases[first.page].getBoundingClientRect(), x = first.x + first.width;
+    // On the line's text, inside the strip 3 to 20 page units above the table.
+    const y = Math.min(line.y + line.height - 1, first.y - 4);
+    return { x: r.left + x * e.zoom, y: r.top + y * e.zoom, inStrip: y >= first.y - 20 && y < first.y - 3, onText: x > line.stops[0].x && x < line.stops.at(-1).x, length: e.model.paragraphs[0].runs.map(run => run.text).join('').length };
+  });
+  expect(point).toMatchObject({ inStrip: true, onText: true });
+  await page.mouse.move(point.x, point.y);
+  await expect(page.locator('.canvas-pages')).not.toHaveAttribute('data-table-cursor', 'pointer');
+  await page.mouse.click(point.x, point.y);
+  expect((await tables(page))[0].grid).toHaveLength(3);
+  const caret = await input(page).evaluate(el => [el.selectionStart, el.selectionEnd]);
+  expect(caret[0]).toBe(caret[1]); expect(caret[0]).toBeGreaterThan(0); expect(caret[0]).toBeLessThanOrEqual(point.length);
+});
+
 test('Draw Table draws a table and splits cells; the eraser merges them; the Border Painter paints edges', async ({ page }) => {
   await newTable(page, 2, 2);
   await onTab(page, 'tableLayout');

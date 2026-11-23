@@ -74,6 +74,10 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   const lastPage = table => Math.max(...(engine.selectionLayout?.cells || []).filter(c => c.tableId === table.id).map(c => c.page));
   const frameOf = (table, page) => frames(page).find(f => f.table === table);
   const cellAt = (f, x, y) => f.cells.filter(c => x >= c.x && x <= c.x + c.width && y >= c.y && y <= c.y + c.height).sort((a, b) => (b.depth || 1) - (a.depth || 1))[0] || null;
+  // The insertion marks' strips beside and above a table reach over the text there (the line just above it, a
+  // parent cell's text beside a nested table): a press on that text places the caret rather than inserting.
+  const overText = at => (engine.selectionLayout?.lines || []).some(l => l.page === at.page && !l.cellText && l.stops?.length
+    && at.y >= l.y && at.y <= l.y + l.height && at.x >= l.stops[0].x - 2 && at.x <= l.stops.at(-1).x + 2);
 
   /** What the pointer is over: a border, a handle, an insertion mark, or a cell edge for the drawing tools. */
   function hitTest(at, near = NEAR) {
@@ -92,12 +96,12 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       if (f.page === lastPage(f.table) && at.x >= f.right + 1 && at.x <= f.right + HANDLE && at.y >= f.bottom + 1 && at.y <= f.bottom + HANDLE) return { kind: 'resize', frame: f };
       const withinY = at.y >= f.top && at.y <= f.bottom, withinX = at.x >= f.left && at.x <= f.right;
       // Insertion marks: in the left gutter at a row line, above the table at a column line.
-      if (at.x < f.left - 3 && at.x >= f.left - GUTTER && withinY) {
+      if (at.x < f.left - 3 && at.x >= f.left - GUTTER && withinY && !overText(at)) {
         const lines = [...f.rows.values()].flatMap(r => [{ y: r.top, at: r.index, above: true }, { y: r.bottom, at: r.index, above: false }]);
         const line = lines.sort((a, b) => Math.abs(a.y - at.y) - Math.abs(b.y - at.y))[0];
         if (line && Math.abs(line.y - at.y) <= 6) return { kind: 'insertRow', frame: f, y: line.y, row: line.at, above: line.above };
       }
-      if (at.y < f.top - 3 && at.y >= f.top - GUTTER && withinX && f.page === firstPage(f.table)) {
+      if (at.y < f.top - 3 && at.y >= f.top - GUTTER && withinX && f.page === firstPage(f.table) && !overText(at)) {
         const line = [...f.columns.entries()].sort((a, b) => Math.abs(a[1] - at.x) - Math.abs(b[1] - at.x))[0];
         if (line && Math.abs(line[1] - at.x) <= 6) return { kind: 'insertColumn', frame: f, x: line[1], column: line[0] };
       }
