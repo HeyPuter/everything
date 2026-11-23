@@ -1,3 +1,5 @@
+import { TableBorderCache } from './table-border-layout.js';
+
 // Measuring body paragraphs is nearly all of a layout's work, and an edit changes only a few of
 // them. A measurer can carry this cache of measured paragraphs from earlier layouts. An entry is
 // keyed by every input measurement reads besides the measurer: the paragraph's content, its page
@@ -132,7 +134,7 @@ function flowJson(measured, horizontal, named = null) {
 }
 
 export class ParagraphMeasureCache {
-  constructor(limit = 10000) { this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.blockNames = new WeakMap(); this.cellCopies = new WeakMap(); this.flows = new Map(); this.stories = new Map(); this.cells = new Map(); this.view = null; this.viewGenerations = new Map(); }
+  constructor(limit = 10000) { this.tableBorders = new TableBorderCache(); this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.blockNames = new WeakMap(); this.cellCopies = new WeakMap(); this.flows = new Map(); this.stories = new Map(); this.cells = new Map(); this.view = null; this.viewGenerations = new Map(); }
   /** A page story measured earlier with the same inputs (page-story-measure.js), or undefined. */
   story(key) {
     const entry = this.stories.get(key);
@@ -261,5 +263,5 @@ export class ParagraphMeasureCache {
     }
     return measured;
   }
-  clear() { this.entries.clear(); this.names.clear(); this.viewGenerations.clear(); this.flowNames = new WeakMap(); this.blockNames = new WeakMap(); this.cellCopies = new WeakMap(); this.flows.clear(); this.stories.clear(); this.cells.clear(); }
+  clear() { this.tableBorders.clear(); this.entries.clear(); this.names.clear(); this.viewGenerations.clear(); this.flowNames = new WeakMap(); this.blockNames = new WeakMap(); this.cellCopies = new WeakMap(); this.flows.clear(); this.stories.clear(); this.cells.clear(); }
 }

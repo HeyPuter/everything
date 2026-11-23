@@ -140,10 +140,16 @@ export function winningTableBorder(first, second) {
 /** Split shared physical edges at every T-junction after pagination. Paint each
  * winning segment once, including merged rectangles and repeated header copies. */
 export function layoutTableBorders(cells, horizontalOnly = false) {
+  return placeTableBorders(cells, horizontalOnly, !horizontalOnly && needsBorderOutsets(cells)).strokes;
+}
+
+const needsBorderOutsets = cells => cells.some(cell => cell.borderInsets &&
+  (cell.pageBottomBorder || cell.borderInsets.top || tableBorderWidth(cell.borders.bottom) - cell.borderInsets.bottom));
+
+// The strokes of `cells` (layoutTableBorders), and where the caps of hidden merged rules begin among them.
+function placeTableBorders(cells, horizontalOnly, needsOutsets) {
   const groups = new Map(), quantum = value => Math.round(value * 1e6) / 1e6;
   const fragments = new Map();
-  const needsOutsets = !horizontalOnly && cells.some(cell => cell.borderInsets &&
-    (cell.pageBottomBorder || cell.borderInsets.top || tableBorderWidth(cell.borders.bottom) - cell.borderInsets.bottom));
   // Borderless fragments have no exterior ink to extend. Avoid constructing
   // page-edge lookup data when every vertical endpoint remains unchanged.
   if (needsOutsets) for (const cell of cells) {
@@ -230,6 +236,7 @@ export function layoutTableBorders(cells, horizontalOnly = false) {
     joinTableBorderCorner(edges);
     joinTableBorderCrossing(edges);
   }
+  const capsStart = result.length;
   // A merge hides interior horizontal rules, but their short caps remain
   // where an exposed vertical side changes format. Visible T-junctions above
   // already own those intersections; only add caps on otherwise hidden rules.
@@ -257,5 +264,68 @@ export function layoutTableBorders(cells, horizontalOnly = false) {
       result.push(cap);
     }
   }
-  return result;
+  return { strokes: result, capsStart };
+}
+
+// Everything placing a table's borders reads of one of its cells, exactly (exactText).
+const CELL_BORDER_INPUTS = ['id', 'tableId', 'page', 'column', 'x', 'y', 'width', 'height', 'fill', 'borders', 'borderInsets', 'pageBottomBorder', 'sideBorders', 'cellClip'];
+
+/**
+ * A short, exact name for `value`: equal names only for equal values (numbers by their exact text, so NaN,
+ * infinities and -0 stay apart). Objects are named once per placing (`seen`), and the texts' names
+ * (`names`) last as long as the cache's remembered tables.
+ */
+function exactText(value, seen, names) {
+  if (value === null || typeof value !== 'object') return typeof value === 'string' ? JSON.stringify(value) : Object.is(value, -0) ? '-0' : String(value);
+  let name = seen.get(value);
+  if (name !== undefined) return name;
+  const text = Array.isArray(value) ? `[${value.map(item => exactText(item, seen, names)).join(',')}]`
+    : `{${Object.keys(value).map(key => `${JSON.stringify(key)}:${exactText(value[key], seen, names)}`).join(',')}}`;
+  name = names.get(text);
+  if (name === undefined) names.set(text, name = `#${names.size}`);
+  seen.set(value, name);
+  return name;
+}
+
+/** Table borders (layoutTableBorders) remembered across layouts for each table whose cells are as before. */
+export class TableBorderCache {
+  constructor(limit = 50000) { this.limit = limit; this.names = new Map(); this.tables = new Map(); }
+  clear() { this.names.clear(); this.tables.clear(); }
+}
+
+/**
+ * layoutTableBorders(cells), reusing `cache`'s strokes for every table whose cells read the same as in an earlier
+ * layout: typing outside a long document's tables places none of their borders again. A table's strokes depend
+ * only on its own cells (and whether any cell of the layout needs outsets), and its caps follow every table's
+ * other strokes; the same order holds whenever each table's cells are together, as pagination places them.
+ */
+export function cachedTableBorders(cells, cache, generation) {
+  if (!cache) return layoutTableBorders(cells);
+  const tables = [], seenTables = new Set();
+  for (const cell of cells) {
+    if (tables.at(-1)?.tableId !== cell.tableId) {
+      if (seenTables.has(cell.tableId)) return layoutTableBorders(cells);
+      seenTables.add(cell.tableId);
+      tables.push({ tableId: cell.tableId, cells: [] });
+    }
+    tables.at(-1).cells.push(cell);
+  }
+  if (cache.names.size > cache.limit) cache.clear();
+  const needsOutsets = needsBorderOutsets(cells), seen = new WeakMap();
+  const strokes = [], caps = [];
+  for (const table of tables) {
+    const key = `${needsOutsets}\n${table.cells.map(cell => CELL_BORDER_INPUTS.map(input => exactText(cell[input], seen, cache.names)).join('|')).join('\n')}`;
+    let entry = cache.tables.get(key);
+    if (!entry) {
+      const placed = placeTableBorders(table.cells, false, needsOutsets);
+      cache.tables.set(key, entry = { strokes: placed.strokes.slice(0, placed.capsStart), caps: placed.strokes.slice(placed.capsStart) });
+    }
+    entry.used = generation;
+    for (const stroke of entry.strokes) strokes.push(stroke);
+    for (const cap of entry.caps) caps.push(cap);
+  }
+  // Tables the last few layouts (`generation`, as the measured paragraphs count them) did not use are forgotten.
+  for (const [key, entry] of cache.tables) if (entry.used < generation - 4) cache.tables.delete(key);
+  for (const cap of caps) strokes.push(cap);
+  return strokes;
 }

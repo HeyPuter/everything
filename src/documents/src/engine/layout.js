@@ -15,7 +15,7 @@ import { flatLineContains, flatLineRect } from './flat-drawing-lines.js';
 import { canvasFontFamily, fontSlot, textFontStyle } from './font-families.js';
 import { pageGeometry, readingPageGeometry } from './page-settings.js';
 import { layoutParagraphBorders } from './paragraph-border-layout.js';
-import { layoutTableBorders, tableRowBorderWidths, tableBorderWidth, cellBorderLayoutWidth, tableHorizontalInsets } from './table-border-layout.js';
+import { cachedTableBorders, layoutTableBorders, tableRowBorderWidths, tableBorderWidth, cellBorderLayoutWidth, tableHorizontalInsets } from './table-border-layout.js';
 import { cellWritingTopBorder, rowTableBorder } from './cell-borders.js';
 import { justificationRange, justifiedStyle, justifiedLineEnd } from './justification.js';
 import { contractionMetrics, fitContractedWord } from './justification-contraction.js';
@@ -154,11 +154,11 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
     const flow = () => notes
       ? layoutWithFootnotes(notes, noteReserve => layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...storyScope, ...counts, storyHeights, storyHeightCache, paragraphKeys, noteReserve }), measureBase, numbering, { ...storyOptions, ...storyScope }, flowContext())
       : layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...storyScope, ...counts, storyHeights, storyHeightCache, paragraphKeys });
-    placed = withBorders(flow());
+    placed = withBorders(flow(), cache);
     // Footnotes numbered per page (§17.11.19 eachPage) need their pages first; renumber once and lay out again.
     if (notes?.restart === 'eachPage') {
       const renumbered = pageRestartedNumbers(notes, source, placed);
-      if ([...renumbered].some(([id, display]) => notes.numbers.get(id) !== display)) { notes.numbers = renumbered; paragraphs = numberNotes(); placed = withBorders(flow()); }
+      if ([...renumbered].some(([id, display]) => notes.numbers.get(id) !== display)) { notes.numbers = renumbered; paragraphs = numberNotes(); placed = withBorders(flow(), cache); }
     }
     if (endnotes) placed = placeEndnotes(endnotes, placed, measureBase, numbering, { ...storyOptions, ...storyScope });
     const aligned = () => {
@@ -819,9 +819,9 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
 }
 
 /** `placed` (a settled layoutPass result) with the ink of its paragraph and table borders. */
-function withBorders(placed) {
+function withBorders(placed, cache) {
   placed.paragraphBorders = layoutParagraphBorders(placed);
-  placed.tableBorders = layoutTableBorders(placed.cells);
+  placed.tableBorders = cache ? cachedTableBorders(placed.cells, cache.tableBorders, cache.generation) : layoutTableBorders(placed.cells);
   return placed;
 }
 
