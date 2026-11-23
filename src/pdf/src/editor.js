@@ -13558,6 +13558,24 @@ export function createEditor({
       e.preventDefault();
       if (e.shiftKey) toggleToolsPanel();
       else safe(() => toggleSidebar())();
+    } else if (
+      !modifier &&
+      !e.altKey &&
+      !typing &&
+      !claimed &&
+      pdf &&
+      !stack.continuous &&
+      !organizer.visible &&
+      (e.key === 'PageDown' || e.key === 'PageUp') &&
+      !e.target.closest?.('.page-sidebar, .tools-pane, .menu, .compare-view')
+    ) {
+      // Shown a page (or a pair) at a time, Page Down and Page Up scroll the page on view as
+      // far as it goes and then turn to the next or previous one, as PDF readers do.
+      const down = e.key === 'PageDown';
+      const { scrollTop, scrollHeight, clientHeight } = workspace;
+      if (down ? scrollTop + clientHeight < scrollHeight - 1 : scrollTop > 0) return;
+      e.preventDefault();
+      navigateBy(down ? 1 : -1);
     } else if (!modifier && !e.altKey && !typing && (e.key === 'Home' || e.key === 'End')) {
       if (!pdf || claimed || e.target.closest?.('.page-sidebar, .tools-pane, .menu')) return;
       e.preventDefault();
