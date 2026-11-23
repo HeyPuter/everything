@@ -1507,6 +1507,8 @@ interface PaintResult {
   markerSetback?: readonly [number, number];
   /** A compound outline (`<a:ln cmpd>`): two or three lines in its width. */
   compound?: "dbl" | "thickThin" | "thinThick" | "tri" | undefined;
+  /** An inset outline (`<a:ln algn="in">`), drawn inside the shape. */
+  inset?: boolean | undefined;
 }
 
 // A linear gradient that does not turn with its shape (`rotWithShape="0"`)
@@ -1749,6 +1751,7 @@ const paint = (
   let strokeColor = "none";
   let strokeWidth = 0;
   let compound: PaintResult["compound"];
+  let inset = false;
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
   let markerSetback: readonly [number, number] | undefined;
@@ -1840,6 +1843,7 @@ const paint = (
         compound = cmpd;
         strokeWidth = Math.max(strokeWidth, 19_050);
       }
+      inset = formatting.align === "in";
       const head = formatting.head;
       const tail = formatting.tail;
       const setback = [
@@ -1886,6 +1890,7 @@ const paint = (
     markerAttrs,
     ...(markerSetback ? { markerSetback } : {}),
     ...(compound ? { compound } : {}),
+    ...(inset ? { inset } : {}),
   };
 };
 
@@ -11872,6 +11877,60 @@ const compoundOutline = (
   return `${fill}${mask}<g mask="url(#${id})">${line}</g>${arrows}`;
 };
 
+// An inset outline lies wholly inside its shape: the line drawn twice as wide
+// on the path, with the half outside the shape masked away. Only outlines
+// that close around filled areas have an inside.
+const closedOutline = (geometry: ShapeGeometryResolved | null): boolean =>
+  !geometry?.geometry ||
+  geometry.geometry.paths.every(
+    (path) =>
+      !path.stroke ||
+      (path.fill !== "none" && path.commands.at(-1)?.kind === "close"),
+  );
+const insetOutline = (
+  geometry: ShapeGeometryResolved | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  p: PaintResult,
+): string => {
+  const plain = { ...p, inset: undefined };
+  const fill =
+    p.fill !== "none" || p.cssGradient || p.patternFill
+      ? shapeGeometryToSvg(geometry, x, y, w, h, {
+          ...plain,
+          stroke: "none",
+          strokeWidth: 0,
+          strokeOpacity: undefined,
+          strokeAttrs: "",
+        })
+      : "";
+  const line = shapeGeometryToSvg(geometry, x, y, w, h, {
+    ...plain,
+    fill: "none",
+    fillOpacity: undefined,
+    cssGradient: undefined,
+    patternFill: undefined,
+    strokeWidth: p.strokeWidth * 2,
+  });
+  const inside = shapeGeometryToSvg(geometry, x, y, w, h, {
+    ...plain,
+    fill: "#FFFFFF",
+    fillOpacity: undefined,
+    cssGradient: undefined,
+    patternFill: undefined,
+    stroke: "none",
+    strokeWidth: 0,
+    strokeOpacity: undefined,
+    strokeAttrs: "",
+  });
+  const id = mintId();
+  const reach = Math.max(w, h) + p.strokeWidth * 4;
+  const region = `x="${E(x - reach)}" y="${E(y - reach)}" width="${E(w + 2 * reach)}" height="${E(h + 2 * reach)}"`;
+  return `${fill}<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}>${inside}</mask></defs><g mask="url(#${id})">${line}</g>`;
+};
+
 // The same outline defines a shape's fill, a picture's clipping region and
 // their strokes. Keep path evaluation and preset support consistent.
 // Preserve inexpensive SVG primitives only when the evaluated path agrees.
@@ -11956,6 +12015,14 @@ const shapeGeometryToSvg = (
 ): string => {
   if (p.compound && p.stroke !== "none" && p.strokeWidth > 0)
     return compoundOutline(geometry, x, y, w, h, p);
+  if (
+    p.inset &&
+    p.stroke !== "none" &&
+    p.strokeWidth > 0 &&
+    !p.markerAttrs &&
+    closedOutline(geometry)
+  )
+    return insetOutline(geometry, x, y, w, h, p);
   // Color alpha belongs to the fill, not the complete shape. Inheriting
   // fill-opacity within geometry preserves independent outlines, markers,
   // text and effects, including each path's own no-fill choice.

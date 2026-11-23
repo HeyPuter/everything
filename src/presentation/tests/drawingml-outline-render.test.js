@@ -98,3 +98,44 @@ describe("preset shadows", () => {
     expect(await effects(preset("shdw9"))).toEqual([]);
   });
 });
+
+describe("inset outlines", () => {
+  const outlined = (algn, prst = "rect", extra = "") =>
+    shape(
+      `<a:solidFill><a:srgbClr val="9DC3E6"/></a:solidFill><a:ln w="190500" algn="${algn}">${black}${extra}</a:ln>`,
+      prst,
+    );
+  // w = 190500 EMU = 20 px.
+  const masked = (svg) =>
+    /<mask id="([^"]+)"[^>]*>(.*?)<\/mask><\/defs><g mask="url\(#\1\)">(.*?)<\/g>/.exec(
+      svg,
+    );
+
+  it.each(["rect", "ellipse", "roundRect", "hexagon"])(
+    "draws a %s's inset line inside it",
+    async (prst) => {
+      const m = masked(await render(outlined("in", prst)));
+      expect(m).not.toBeNull();
+      // The mask is the shape's inside; the line is twice as wide on its path.
+      expect(m[2]).toContain('fill="#FFFFFF"');
+      expect(m[2]).toContain('stroke="none"');
+      expect(m[3]).toContain('stroke-width="40.00"');
+      expect(m[3]).toContain('fill="none"');
+    },
+  );
+
+  it("centres a line on its path by default", async () => {
+    const svg = await render(outlined("ctr"));
+    expect(masked(svg)).toBeNull();
+    expect(svg).toContain('stroke-width="20.00"');
+  });
+
+  it("centres open lines and lines with arrowheads", async () => {
+    expect(masked(await render(outlined("in", "arc")))).toBeNull();
+    expect(
+      masked(
+        await render(outlined("in", "rect", '<a:tailEnd type="triangle"/>')),
+      ),
+    ).toBeNull();
+  });
+});
