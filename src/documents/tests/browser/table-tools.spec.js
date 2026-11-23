@@ -416,3 +416,22 @@ test('Delete in the paragraph between two tables of the same columns joins them;
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   expect((await model(page)).tables).toHaveLength(2);
 });
+
+test('the Height box shows a row breaking across pages by its height on its first page, and stepping it keeps that height', async ({ page }) => {
+  await newTable(page, 2, 2, ['A', 'B', 'C', 'D']);
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine;
+    e.execute(() => { const m = e.model, cell = m.tables[0].rows[0].cells[0]; m.selectCell(cell.id); m.replace(Array.from({ length: 90 }, (_, i) => `line ${i}`).join('\n')); return true; });
+  });
+  await goToCell(page, 0, 1);
+  const layout = await onTab(page, 'tableLayout');
+  const height = layout.getByRole('spinbutton', { name: 'Height (in)', exact: true });
+  // The row runs over several pages; the box shows its part on the first, within the box's 22 in.
+  const firstPart = await page.evaluate(() => { const e = window.__docs.current.view.engine, row = e.model.tables[0].rows[0]; return Math.max(...e.selectionLayout.cells.filter(c => c.rowId === row.id && c.page === 0).map(c => c.height)) * 15 / 1440; });
+  expect(await page.evaluate(() => new Set(window.__docs.current.view.engine.selectionLayout.cells.map(c => c.page)).size)).toBeGreaterThan(2);
+  await expect(height).toHaveValue(String(Number(firstPart.toFixed(2))));
+  await height.focus(); await height.press('ArrowUp'); await height.press('Enter');
+  const row = await page.evaluate(() => { const r = window.__docs.current.view.engine.model.tables[0].rows[0]; return { rule: r.heightRule, value: r.minHeight }; });
+  expect(row.rule).toBe('atLeast');
+  expect(Math.abs(row.value - Math.round((Number(firstPart.toFixed(2)) + 0.01) * 1440))).toBeLessThan(2);
+});
