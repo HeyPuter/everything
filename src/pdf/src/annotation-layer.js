@@ -223,6 +223,7 @@ export function createAnnotationLayer({ onSelect, onMove, onResize, onDelete }) 
    * where it is. The box shown follows the pointer, and the change is saved on release.
    */
   function addHandles(node, entry, box) {
+    addPointHandles(node, entry, box);
     const target = resizeBox(entry);
     if (!target) return;
     const frame = screenBox(target.box);
@@ -286,7 +287,7 @@ export function createAnnotationLayer({ onSelect, onMove, onResize, onDelete }) 
           if (resize?.handle !== handle || resize.id !== e.pointerId) return;
           const done = resize;
           resize = null;
-          if (!done.corner) return;
+          if (!done.corner) return void cancelResize(done);
           const [x1, y1] = viewport.convertToPdfPoint(...done.anchor);
           const [x2, y2] = viewport.convertToPdfPoint(...done.corner);
           const x = Math.min(x1, x2),
@@ -307,15 +308,105 @@ export function createAnnotationLayer({ onSelect, onMove, onResize, onDelete }) 
       node.append(handle);
     });
   }
+  /**
+   * Handles on the points a comment is drawn between: a line's or arrow's two ends, and the
+   * point a callout points at. Dragging one moves that point alone; a dashed line shows where
+   * the line will run.
+   */
+  function addPointHandles(node, entry, box) {
+    if (!movable(entry) || !entry.editable || !(entry.points?.length >= 2)) return;
+    const callout = entry.subtype === 'FreeText';
+    if (!callout && entry.subtype !== 'Line') return;
+    const ends = callout ? [0] : [0, 1];
+    const local = ({ x, y }) => {
+      const [sx, sy] = viewport.convertToViewportPoint(x, y);
+      return [sx - box.left - 1, sy - box.top - 1];
+    };
+    for (const end of ends) {
+      const [x, y] = local(entry.points[end]);
+      // The line is drawn to the next point: the other end, or the callout's knee.
+      const [ox, oy] = local(entry.points[end === 0 ? 1 : 0]);
+      const handle = el('span', {
+        class: 'annotation-handle is-point',
+        'aria-hidden': 'true',
+        'data-point': end,
+        onpointerdown: (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          saveNudge();
+          resize = { entry, node, handle, id: e.pointerId, start: [e.clientX, e.clientY] };
+          handle.setPointerCapture(e.pointerId);
+          node.focus({ preventScroll: true });
+        },
+        onpointermove: (e) => {
+          if (resize?.handle !== handle || resize.id !== e.pointerId) return;
+          // The point stays on the page.
+          const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
+          const px = clamp(
+            x + e.clientX - resize.start[0],
+            -box.left - 1,
+            viewport.width - box.left - 1,
+          );
+          const py = clamp(
+            y + e.clientY - resize.start[1],
+            -box.top - 1,
+            viewport.height - box.top - 1,
+          );
+          resize.point = [px, py];
+          node.classList.add('is-resizing');
+          if (!resize.preview) {
+            resize.preview = document.createElementNS(SVG, 'svg');
+            resize.preview.setAttribute('class', 'annotation-resize-line');
+            resize.preview.append(document.createElementNS(SVG, 'line'));
+            node.append(resize.preview);
+          }
+          const line = resize.preview.firstChild;
+          line.setAttribute('x1', ox);
+          line.setAttribute('y1', oy);
+          line.setAttribute('x2', px);
+          line.setAttribute('y2', py);
+        },
+        onpointerup: (e) => {
+          if (resize?.handle !== handle || resize.id !== e.pointerId) return;
+          const done = resize;
+          resize = null;
+          if (!done.point || Math.hypot(done.point[0] - ox, done.point[1] - oy) < MIN_SIZE) {
+            cancelResize(done);
+            return;
+          }
+          const [px, py] = viewport.convertToPdfPoint(
+            done.point[0] + box.left + 1,
+            done.point[1] + box.top + 1,
+          );
+          const point = { x: px, y: py };
+          if (callout) onResize(entry, 'anchor', point);
+          else
+            onResize(
+              entry,
+              'points',
+              entry.points.map((p, i) => (i === end ? point : { x: p.x, y: p.y })),
+            );
+        },
+        onpointercancel: () => cancelResize(),
+      });
+      handle.style.left = `${x}px`;
+      handle.style.top = `${y}px`;
+      handle.style.cursor = 'crosshair';
+      node.append(handle);
+    }
+  }
   /** Put a comment being resized back as it was. */
-  function cancelResize() {
-    if (!resize) return false;
-    const { node, handle, id, entry } = resize;
+  function cancelResize(ended = null) {
+    const current = ended ?? resize;
+    if (!current) return false;
+    const { node, handle, id, entry } = current;
     resize = null;
     if (handle.hasPointerCapture(id)) handle.releasePointerCapture(id);
     place(node, screenBox(entry.rect));
     node.classList.remove('is-resizing');
     node.querySelector('.annotation-resize-box')?.remove();
+    node.querySelector('.annotation-resize-line')?.remove();
     return true;
   }
   const place = (node, box) =>

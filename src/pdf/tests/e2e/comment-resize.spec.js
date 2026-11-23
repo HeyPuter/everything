@@ -97,7 +97,7 @@ test('a chosen comment is resized by dragging a corner', async ({ page, isMobile
 
   const pointer = page.getByRole('button', { name: 'Callout: Pointed', exact: true });
   await pointer.focus();
-  const calloutHandles = pointer.locator('.annotation-handle');
+  const calloutHandles = pointer.locator('.annotation-handle:not(.is-point)');
   await expect(calloutHandles).toHaveCount(4);
   await drag(page, isMobile, center(await calloutHandles.nth(1).boundingBox()), 50 * unit, 0);
   await settled(page);
@@ -106,4 +106,70 @@ test('a chosen comment is resized by dragging a corner', async ({ page, isMobile
   expect(widened.box.width).toBeCloseTo(callout.box.width + 50, -1);
   expect(widened.points[0].x).toBeCloseTo(callout.points[0].x, 3);
   expect(widened.points[0].y).toBeCloseTo(callout.points[0].y, 3);
+});
+
+// A line or arrow drawn to the wrong place, or a callout pointing at the wrong words, could
+// only be moved whole. The ends of a line and the point of a callout can be dragged alone.
+test('the end of an arrow and the point of a callout are dragged alone', async ({
+  page,
+  isMobile,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'arrow',
+    points: [
+      { x: 100, y: 500 },
+      { x: 250, y: 550 },
+    ],
+    text: 'Aim',
+  });
+  await addCallout(doc, 0, {
+    rect: { x: 300, y: 300, width: 150, height: 40 },
+    anchor: { x: 150, y: 200 },
+    text: 'Pointed',
+  });
+  const [, callout] = listAnnotations(doc, 0);
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'comment-points.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  const sheet = await page.locator('.drawing-overlay').boundingBox();
+  const unit = sheet.width / 612;
+
+  const arrow = page.getByRole('button', { name: 'Arrow: Aim', exact: true });
+  await arrow.focus();
+  const ends = arrow.locator('.annotation-handle.is-point');
+  await expect(ends).toHaveCount(2);
+  // The arrow's tip goes 50 points right and 100 down; its tail stays.
+  await drag(page, isMobile, center(await ends.nth(1).boundingBox()), 50 * unit, 100 * unit);
+  await settled(page);
+  let [aimed, pointed] = await saved(page);
+  expect(aimed.points[0].x).toBeCloseTo(100, 3);
+  expect(aimed.points[0].y).toBeCloseTo(500, 3);
+  expect(aimed.points[1].x).toBeCloseTo(300, -1);
+  expect(aimed.points[1].y).toBeCloseTo(450, -1);
+  expect(aimed.lineEndings).toEqual(['None', 'OpenArrow']);
+
+  const label = page.getByRole('button', { name: 'Callout: Pointed', exact: true });
+  await label.focus();
+  const point = label.locator('.annotation-handle.is-point');
+  await expect(point).toHaveCount(1);
+  await drag(page, isMobile, center(await point.boundingBox()), -50 * unit, 0);
+  await settled(page);
+  [aimed, pointed] = await saved(page);
+  // Its point moved; its text box stayed where it was.
+  expect(pointed.points[0].x).toBeCloseTo(100, -1);
+  expect(pointed.points[0].y).toBeCloseTo(200, -1);
+  expect(pointed.box.x).toBeCloseTo(callout.box.x, 3);
+  expect(pointed.box.y).toBeCloseTo(callout.box.y, 3);
 });

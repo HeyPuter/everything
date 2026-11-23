@@ -1939,6 +1939,25 @@
 .annotation-target.is-resizing .annotation-handle {
   opacity: 0;
 }
+/* The ends of a line or arrow, and the point of a callout: dragging one moves it. */
+.annotation-handle.is-point {
+  border-radius: 50%;
+}
+/* Where a line will run while one of its points is dragged. */
+.annotation-resize-line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.annotation-resize-line line {
+  stroke: var(--select);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
 /* A callout's text box as it is resized. */
 .annotation-resize-box {
   position: absolute;
