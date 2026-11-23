@@ -13694,7 +13694,11 @@ test("a mail address typed as a link writes to it", async ({ page }) => {
 
 // Find counted matches in the flattened text while Replace found them run
 // by run, so the counts disagreed and Replace could change the wrong one.
-test("find counts the matches that Replace can reach", async ({ page }) => {
+// A match whose formatting changes part-way through (here a bold "ab" and a
+// plain "c") is found and replaced too, taking the formatting it starts in.
+test("find and replace reach text whose formatting changes part-way through", async ({
+  page,
+}) => {
   await start(page);
   const pres = createDeck("blank");
   const slide = P.getSlides(pres)[0];
@@ -13720,10 +13724,10 @@ test("find counts the matches that Replace can reach", async ({ page }) => {
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.keyboard.press("Control+h");
   await page.getByRole("searchbox", { name: "Find", exact: true }).fill("abc");
-  await expect(page.locator(".find-count")).toHaveText("1 of 2");
+  await expect(page.locator(".find-count")).toHaveText("1 of 3");
   await page.getByRole("textbox", { name: "Replace with" }).fill("ZZZ");
   await page.getByRole("button", { name: "Replace", exact: true }).click();
-  await expect(page.locator(".find-count")).toHaveText("1 of 1");
+  await expect(page.locator(".find-count")).toHaveText("1 of 2");
   await page.getByRole("button", { name: "Replace all", exact: true }).click();
   await expect(page.locator(".find-count")).toHaveText("No matches");
   await expect
@@ -13732,7 +13736,21 @@ test("find counts the matches that Replace can reach", async ({ page }) => {
         await page.locator(".slide-image").getAttribute("src"),
       ),
     )
-    .toContain("c ZZZ ZZZ");
+    .toContain(" ZZZ ZZZ");
+  await page.keyboard.press("Escape");
+  await openFileMenu(page);
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
+    .click();
+  const saved = await parseDeck(
+    new Uint8Array(await readFile(await (await download).path())),
+  );
+  const shape = P.getSlideShapes(P.getSlides(saved)[0])[0];
+  expect(P.getShapeText(shape)).toBe("ZZZ ZZZ ZZZ");
+  // The first replacement is bold, like the "ab" it began in.
+  expect(P.getShapeRunText(shape, 0, 0)).toBe("ZZZ");
+  expect(P.getShapeRunFormat(shape, 0, 0).bold).toBe(true);
 });
 
 // The toolbar read the editor's runs on every selection change and kept

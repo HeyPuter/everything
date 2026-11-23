@@ -13659,11 +13659,10 @@ function collectMatches() {
         for (const item of smartArtItems(shape)) n += countIn(item.text || "");
         for (let k = 0; k < n; k++) matches.push({ part, id, k });
       } else if (hasTextBody(shape)) {
-        // Matches are counted the way Replace reaches them: within one run.
+        // Matches are counted the way Replace reaches them: along the runs
+        // between a paragraph's line breaks and fields.
         let n = 0;
-        for (let p = 0; p < P.getShapeParagraphCount(shape); p++)
-          for (let r = 0; r < P.getShapeRunCount(shape, p); r++)
-            n += countIn(P.getShapeRunText(shape, p, r) || "");
+        for (const segment of runSegments(shape)) n += countIn(segment.text);
         for (let k = 0; k < n; k++) matches.push({ part, id, k });
       }
     }
@@ -13759,28 +13758,64 @@ async function revealMatch(match) {
     .querySelector(`.object-hit[data-shape-id="${match.id}"]`)
     ?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
-// Replaces the k-th occurrence within one object's text, run by run.
+// A shape's text as Find reads it: each paragraph's runs joined up to a
+// line break or a field, so text whose formatting changes part-way through
+// (a bold word, or runs an editor split) is still found.
+function runSegments(shape) {
+  const segments = [];
+  for (let p = 0; p < P.getShapeParagraphCount(shape); p++) {
+    let r = 0,
+      segment = null;
+    for (const element of P.getShapeParagraphElements(shape, p)) {
+      if (element.kind !== "r") {
+        segment = null;
+        continue;
+      }
+      if (!segment) segments.push((segment = { p, runs: [], text: "" }));
+      const value = element.text || "";
+      segment.runs.push({ r: r++, start: segment.text.length, value });
+      segment.text += value;
+    }
+  }
+  return segments;
+}
+// Replaces the k-th occurrence within one object's text. A match that runs
+// across runs takes the formatting of the run it starts in.
 function replaceInShape(shape, regex, replacement, only = null) {
   let seen = 0;
   let changed = false;
-  const paragraphs = P.getShapeParagraphCount(shape);
-  for (let p = 0; p < paragraphs; p++) {
-    const runs = P.getShapeRunCount(shape, p);
-    for (let r = 0; r < runs; r++) {
-      const text = P.getShapeRunText(shape, p, r);
-      if (!regex.test(text)) continue;
-      regex.lastIndex = 0;
-      const next = text.replace(regex, (hit) => {
-        const mine = only == null || seen === only;
-        seen++;
-        return mine ? replacement : hit;
-      });
-      if (next !== text) {
-        P.setShapeRunText(shape, p, r, next);
-        changed = true;
-      }
-      if (only != null && seen > only) return changed;
+  for (const { p, runs, text } of runSegments(shape)) {
+    const hits = [];
+    for (const hit of text.matchAll(regex)) {
+      if (only == null || seen === only) hits.push(hit);
+      seen++;
     }
+    if (!hits.length) continue;
+    const values = runs.map((run) => run.value);
+    const at = (offset, end) =>
+      runs.findLastIndex((run) =>
+        end ? run.start < offset : run.start <= offset,
+      );
+    // From the last match back, so the offsets of earlier ones still hold.
+    for (const hit of hits.reverse()) {
+      const from = hit.index,
+        to = hit.index + hit[0].length;
+      const first = at(from, false),
+        last = at(to, true);
+      const tail = values[last].slice(to - runs[last].start);
+      for (let i = first + 1; i <= last; i++) values[i] = "";
+      values[first] =
+        values[first].slice(0, from - runs[first].start) +
+        replacement +
+        (first === last ? tail : "");
+      if (first !== last) values[last] = tail;
+    }
+    runs.forEach((run, i) => {
+      if (values[i] === run.value) return;
+      P.setShapeRunText(shape, p, run.r, values[i]);
+      changed = true;
+    });
+    if (only != null && seen > only) return changed;
   }
   return changed;
 }
@@ -13870,9 +13905,7 @@ function replaceMatch(all) {
           changed;
     }
     if (!changed) {
-      toast(
-        "That match runs across differently formatted text. Edit it in place instead.",
-      );
+      toast("That match can't be replaced here. Edit it in place instead.");
       return SKIP_MUTATION;
     }
   }).then(async (applied) => {
