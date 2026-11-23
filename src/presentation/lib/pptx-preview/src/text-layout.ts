@@ -1394,6 +1394,7 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
   return (
     emitHighlights(groups, line, x0, baselineY) +
     text +
+    emitLinks(groups, line, x0, baselineY) +
     emitWavyUnderlines(groups, line.textAnchor, x0, baselineY) +
     emitDrawnDecorations(groups, line.textAnchor, x0, baselineY)
   );
@@ -1440,6 +1441,44 @@ const emitHighlights = (
     cursor += g.width;
   }
   return parts.join("");
+};
+
+// Linked runs carry an unpainted box over their text, marked with the link,
+// so a viewer can find where on the slide each link sits. Neighbouring runs
+// with the same link share one box.
+const emitLinks = (
+  groups: readonly Group[],
+  line: Line,
+  x0: number,
+  baselineY: number,
+): string => {
+  if (!groups.some((g) => g.piece.href)) return "";
+  const total = groups.reduce((sum, g) => sum + g.width, 0);
+  const left =
+    line.textAnchor === "middle"
+      ? x0 - total / 2
+      : line.textAnchor === "end"
+        ? x0 - total
+        : x0;
+  const top = baselineY - line.ascent,
+    height = line.ascent + line.descent;
+  const boxes: { href: string; from: number; width: number }[] = [];
+  let cursor = 0;
+  for (const g of groups) {
+    const href = g.piece.href;
+    const last = boxes.at(-1);
+    if (href && last?.href === href && last.from + last.width === cursor)
+      last.width += g.width;
+    else if (href && g.width > 0)
+      boxes.push({ href, from: cursor, width: g.width });
+    cursor += g.width;
+  }
+  return boxes
+    .map(({ href, from, width }) => {
+      const x = line.rtl ? left + total - from - width : left + from;
+      return `<rect x="${fmt(x)}" y="${fmt(top)}" width="${fmt(width)}" height="${fmt(height)}" fill="none" stroke="none" data-pptx-link="${escapeXml(href)}"/>`;
+    })
+    .join("");
 };
 
 const explicitUnderline = (p: PieceInput): boolean =>

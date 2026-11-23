@@ -15585,6 +15585,51 @@ function describeLink(action) {
 // A slide's name for a list: its title, or its first line of text.
 const slideLabel = (s) =>
   slideTitle(s, doc?.pres) || slideDescription(s, doc?.pres).split("\n")[0];
+// Where a slide's picture draws its linked runs: the boxes the renderer
+// marks over them, as shares of the slide, each with its link, in reading
+// order. The picture is laid out off screen without its images, so turned
+// and grouped text lands where it shows. Null when the picture can't be
+// read.
+function linkedRunRegions(src) {
+  if (!src?.startsWith("data:image/svg+xml")) return null;
+  let text;
+  try {
+    text = decodeURIComponent(src.slice(src.indexOf(",") + 1));
+  } catch {
+    return null;
+  }
+  if (!text.includes("data-pptx-link")) return [];
+  const parsed = new DOMParser().parseFromString(text, "image/svg+xml");
+  const svg = parsed.documentElement;
+  if (svg.nodeName !== "svg") return null;
+  for (const node of svg.querySelectorAll("image, script, foreignObject img"))
+    node.remove();
+  const host = el("div", {
+    "aria-hidden": "true",
+    style:
+      "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none",
+  });
+  host.append(document.importNode(svg, true));
+  document.body.append(host);
+  try {
+    const root = host.firstChild.getBoundingClientRect();
+    if (!root.width || !root.height) return null;
+    return [...host.querySelectorAll("[data-pptx-link]")]
+      .map((node) => {
+        const r = node.getBoundingClientRect();
+        return {
+          href: node.getAttribute("data-pptx-link"),
+          x: (r.left - root.left) / root.width,
+          y: (r.top - root.top) / root.height,
+          w: r.width / root.width,
+          h: r.height / root.height,
+        };
+      })
+      .filter((region) => region.w > 0 && region.h > 0);
+  } finally {
+    host.remove();
+  }
+}
 // The addresses a link may open: web pages, mail, and phone numbers. An
 // imported file can carry any address at all, and one with a "javascript:"
 // scheme would run in the page the moment it was followed while presenting.
@@ -17001,8 +17046,26 @@ async function present(options = {}) {
   function placeLinks(current) {
     links.replaceChildren();
     const parents = groupParents(current);
+    // Text linked run by run, with no link on the object as a whole, gets a
+    // region over each linked run, found where the slide draws it.
+    const runLinked = visibleSlideShapes(current).filter((shape) => {
+      try {
+        return (
+          !showInserted.claims(shape) &&
+          !P.getShapeClickAction(shape) &&
+          hasTextBody(shape) &&
+          !!P.getShapeHyperlink(shape)
+        );
+      } catch {
+        return false;
+      }
+    });
+    const runRegions = runLinked.length
+      ? linkedRunRegions(image.getAttribute("src"))
+      : null;
     for (const shape of visibleSlideShapes(current)) {
       if (showInserted.claims(shape)) continue;
+      if (runRegions && runLinked.includes(shape)) continue;
       const link = linkOf(shape);
       // An address the app would not accept in its own link dialog gets no
       // region: the file may have been written elsewhere.
@@ -17040,6 +17103,43 @@ async function present(options = {}) {
               },
             });
       Object.assign(node.style, style);
+      links.append(node);
+    }
+    for (const region of runRegions || []) {
+      const slideNumber = /^#slide-(\d+)$/.exec(region.href)?.[1];
+      const target = slideNumber && all[Number(slideNumber) - 1];
+      const link = target
+        ? { kind: "slide", slide: target }
+        : { kind: "url", url: region.href };
+      if (link.kind === "url" && !canOpenUrl(link.url)) continue;
+      if (slideNumber && !target) continue;
+      const label = describeLink(link);
+      const node =
+        link.kind === "url"
+          ? el("a", {
+              class: "presenter-link",
+              href: link.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              title: label,
+              "aria-label": `Open ${label}`,
+            })
+          : el("button", {
+              type: "button",
+              class: "presenter-link",
+              title: `Go to ${label.toLowerCase()}`,
+              "aria-label": `Go to ${label.toLowerCase()}`,
+              onclick: (e) => {
+                e.stopPropagation();
+                follow(link);
+              },
+            });
+      Object.assign(node.style, {
+        left: `${region.x * 100}%`,
+        top: `${region.y * 100}%`,
+        width: `${region.w * 100}%`,
+        height: `${region.h * 100}%`,
+      });
       links.append(node);
     }
   }

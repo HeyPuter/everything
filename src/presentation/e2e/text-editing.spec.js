@@ -3,7 +3,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
-import { P } from "../src/model.js";
+import { P, setRichText } from "../src/model.js";
 import {
   installMenuNow,
   ribbonButton,
@@ -630,4 +630,48 @@ test("a link added to selected text links that text alone", async ({
   await page.keyboard.press("ControlOrMeta+z");
   xml = await downloadedSlide(page);
   expect(xml.match(/<a:hlinkClick/g)).toHaveLength(1);
+});
+
+test("each link in a text box opens its own address in a slide show", async ({
+  page,
+}) => {
+  const pres = P.createPresentation();
+  const slide = P.addBlankSlide(pres);
+  P.addBlankSlide(pres);
+  const box = P.addSlideTextBox(slide, {
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(8),
+    h: P.inches(1),
+    text: "x",
+  });
+  const run = (text) => ({ text, format: {}, rpr: null, changes: {} });
+  setRichText(box, [
+    { runs: [run("Docs"), run(" and "), run("blog"), run(", or ")] },
+    { runs: [run("next slide")] },
+  ]);
+  P.setShapeRunHyperlink(box, 0, 0, "https://example.com/docs");
+  P.setShapeRunHyperlink(box, 0, 2, "https://example.com/blog");
+  P.setShapeRunHyperlink(box, 0, 3, "javascript:alert(1)");
+  await importDeck(page, await P.savePresentation(pres), "Links.pptx");
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const presenter = page.getByRole("dialog", { name: "Presentation mode" });
+  const docs = presenter.getByRole("link", {
+    name: "Open https://example.com/docs",
+  });
+  const blog = presenter.getByRole("link", {
+    name: "Open https://example.com/blog",
+  });
+  await expect(docs).toHaveAttribute("href", "https://example.com/docs");
+  await expect(blog).toHaveAttribute("href", "https://example.com/blog");
+  // Only the linked words are regions, and an address the app would not
+  // open gets none.
+  await expect(presenter.locator(".presenter-link")).toHaveCount(2);
+  const [a, b] = [await docs.boundingBox(), await blog.boundingBox()];
+  expect(a.x + a.width).toBeLessThan(b.x);
+  expect(Math.abs(a.y - b.y)).toBeLessThan(2);
+  // The keyboard reaches them in reading order.
+  await docs.focus();
+  await page.keyboard.press("Tab");
+  await expect(blog).toBeFocused();
 });

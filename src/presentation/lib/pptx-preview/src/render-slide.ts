@@ -3837,7 +3837,7 @@ const renderTextBody = (
         ? ""
         : ' target="_blank" rel="noopener noreferrer"';
       const titleAttr = run.hrefTip ? ` title="${escapeXml(run.hrefTip)}"` : "";
-      return `<a href="${escapeXml(run.href)}"${targetAttrs}${titleAttr} style="color:inherit;text-decoration:inherit">${span}</a>`;
+      return `<a href="${escapeXml(run.href)}"${targetAttrs}${titleAttr} data-pptx-link="${escapeXml(run.href)}" style="color:inherit;text-decoration:inherit">${span}</a>`;
     });
     if (!lineHasText && para.emptyLineFormat)
       runHtmls.push(
