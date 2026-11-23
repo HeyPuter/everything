@@ -125,6 +125,9 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   const fail = e => { error(e); editor()?.focus(); };
   const toBody = engine => { engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); };
   const activeKind = engine => engine?.session.path ? engine.pageStories?.stories[engine.session.path]?.kind : null;
+  // A shape, text box or WordArt drawn or inserted while a header or footer is being edited belongs to it, as its
+  // pictures do: the place drawn on is a position in that story, and in the body it would land on another page.
+  const editingPageStory = () => ['header', 'footer'].includes(activeKind(ready()));
   // The width a new drawing fits at the caret: its section's text column, or its table cell's.
   const textWidth = engine => {
     const model = engine.model, context = model.tableContext;
@@ -317,6 +320,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   function insertShapeAt(preset, rect = null) {
     const entry = SHAPE_PRESETS.find(([p]) => p === preset); if (!entry) return;
     const [, name, , w, h] = entry, line = LINE_PRESETS.has(preset), open = UNFILLED_PRESETS.has(preset);
+    const inPageStory = editingPageStory();
     return insertDrawing((engine, id, order) => {
       if (rect) { engine.model.select(rect.position); }
       // A dragged line goes from the drag's start to its end; one within a few pixels of an axis is straight along it.
@@ -326,7 +330,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       const flips = drawnLine ? { flipH: !!width && rect.flipH, flipV: !!height && rect.flipV } : {};
       const anchor = rect ? { horizontal: 'page', vertical: 'page', x: rect.x, y: rect.y, wrap: 'none', behind: false, order } : { horizontal: 'column', vertical: 'paragraph', x: 0, y: 0, wrap: 'none', behind: false, order };
       return sceneFragment(engine, shapeDrawingXml({ id, name: `${name} ${id}`, preset, width, height, fill: line || open ? null : DEFAULT_SHAPE_STYLE.fill, line: line || open ? DEFAULT_SHAPE_STYLE.fill : DEFAULT_SHAPE_STYLE.line, lineWidth: DEFAULT_SHAPE_STYLE.lineWidth, anchor, ...flips }));
-    });
+    }, { body: !inPageStory });
   }
   function openShapes(anchor, event) {
     if (!ready()) return;
@@ -516,14 +520,14 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
   // A new box opens for editing with its sample text selected, so typing replaces it; text it was made from stays.
   function insertTextBoxDesign(design, rect = null) {
-    let prompt = null;
+    let prompt = null; const inPageStory = editingPageStory();
     insertDrawing((engine, id, order) => {
       const text = rect ? '' : selectedText(engine);
       prompt = text ? null : design.prompt;
       if (rect) engine.model.select(rect.position);
       const placement = rect ? { width: rect.dragged ? Math.max(EMU_PER_INCH / 4, rect.width) : null, height: rect.dragged ? Math.max(EMU_PER_INCH / 8, rect.height) : null, anchor: { horizontal: 'page', vertical: 'page', x: rect.x, y: rect.y, wrap: 'square', behind: false, order } } : {};
       return sceneFragment(engine, textShapeXml(inCell(engine, textBoxParams(design, { id, order, text, textWidth: textWidth(engine), ...placement }))));
-    }, { edit: () => ({ select: prompt }) });
+    }, { edit: () => ({ select: prompt }), body: !inPageStory });
   }
   function textBoxItems() {
     const engine = ready();
@@ -543,7 +547,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       const text = selectedText(engine);
       prompt = text ? null : WORDART_PROMPT;
       return sceneFragment(engine, textShapeXml(inCell(engine, wordArtParams(style, { id, order, text: text || WORDART_PROMPT, textWidth: textWidth(engine) }))));
-    }, { edit: () => ({ select: prompt }) });
+    }, { edit: () => ({ select: prompt }), body: !editingPageStory() });
   }
   function insertSignatureLine() {
     if (!ready()) return;
