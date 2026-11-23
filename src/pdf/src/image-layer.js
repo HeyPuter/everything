@@ -936,6 +936,40 @@ export function createImageLayer({
       m[5] + m[1] * anchor[0] * (1 - sx) + m[3] * anchor[1] * (1 - sy),
     ];
   }
+  // A drag held at an edge of the page view scrolls it, so an object can be taken to a part of
+  // a zoomed page that is out of view. The pointer sends nothing while it holds still, so a frame
+  // loop scrolls until it leaves the edge, the view can scroll no further, or the drag ends. A
+  // drag that starts at an edge (a handle there, say) scrolls only once it has left it and come
+  // back.
+  let edgeScroll = [0, 0],
+    edgeFrame = 0;
+  const pageView = () => targets.closest('.workspace');
+  function followEdge(e) {
+    const view = pageView();
+    if (!view || !draft) return;
+    const box = view.getBoundingClientRect(),
+      edge = 16;
+    const toward = (at, low, high) => (at < low + edge ? -1 : at > high - edge ? 1 : 0);
+    const at = ({ clientX, clientY }) => [
+      toward(clientX, box.left, box.right),
+      toward(clientY, box.top, box.bottom),
+    ];
+    const ready = (gesture.awayFromEdge ||= at(gesture.startEvent).map((direction) => !direction));
+    edgeScroll = at(e).map((direction, axis) => ((ready[axis] ||= !direction) ? direction : 0));
+    if ((edgeScroll[0] || edgeScroll[1]) && !edgeFrame)
+      edgeFrame = requestAnimationFrame(scrollAtEdge);
+  }
+  function scrollAtEdge() {
+    edgeFrame = 0;
+    const view = pageView();
+    if (!gesture || !view || !(edgeScroll[0] || edgeScroll[1])) return;
+    const { scrollLeft, scrollTop } = view;
+    view.scrollLeft += edgeScroll[0] * 10;
+    view.scrollTop += edgeScroll[1] * 10;
+    if (view.scrollLeft === scrollLeft && view.scrollTop === scrollTop) return;
+    updateGesture(pointAt(gesture.event));
+    edgeFrame = requestAnimationFrame(scrollAtEdge);
+  }
   controls.addEventListener('pointermove', (e) => {
     if (selecting?.pointerId === e.pointerId) {
       selecting.event = e;
@@ -943,6 +977,7 @@ export function createImageLayer({
     if (gesture?.pointerId === e.pointerId) {
       gesture.event = e;
       updateGesture(pointAt(e));
+      followEdge(e);
     }
   });
   controls.addEventListener(
