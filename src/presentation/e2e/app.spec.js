@@ -7356,6 +7356,69 @@ test("speaker notes queued immediately after undo survive export", async ({
   );
 });
 
+// Typing in the notes pane wrote the whole of the notes back in their first
+// run's format: one character took a bold word's bold and a bulleted
+// line's bullet and level out of notes that came with them.
+test("typing in the speaker notes keeps the notes' formatting", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  P.setSlideNotes(slide, "placeholder");
+  const part = slide[Symbol.for("@office-kit/pptx.package")].parts.find((p) =>
+    /notesSlide\d+\.xml$/.test(p.name),
+  );
+  part.data = new TextEncoder().encode(
+    new TextDecoder()
+      .decode(part.data)
+      .replace(
+        /(<p:txBody>[\s\S]*?<a:lstStyle\/>)[\s\S]*?(<\/p:txBody>)/,
+        "$1" +
+          '<a:p><a:r><a:rPr lang="en-US"/><a:t>Say </a:t></a:r>' +
+          '<a:r><a:rPr lang="en-US" b="1"/><a:t>thanks</a:t></a:r></a:p>' +
+          '<a:p><a:pPr lvl="1"><a:buChar char="•"/></a:pPr>' +
+          '<a:r><a:rPr lang="en-US"/><a:t>then pause</a:t></a:r></a:p>' +
+          "$2",
+      ),
+  );
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Notes.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const notes = page.locator("#speaker-notes");
+  await expect(notes).toHaveValue("Say thanks\nthen pause");
+  await notes.click();
+  await notes.evaluate((t) =>
+    t.setSelectionRange(t.value.length, t.value.length),
+  );
+  await page.keyboard.type("!");
+  await page.locator("#slide-canvas").click({ position: { x: 5, y: 5 } });
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const loaded = await parseDeck(
+    new Uint8Array(await readFile(await (await downloaded).path())),
+  );
+  const saved = P.getSlides(loaded)[0];
+  expect(P.getSlideNotes(saved)).toBe("Say thanks\nthen pause!");
+  const xml = new TextDecoder().decode(
+    saved[Symbol.for("@office-kit/pptx.package")].parts.find((p) =>
+      /notesSlide\d+\.xml$/.test(p.name),
+    ).data,
+  );
+  expect(xml).toContain('<a:rPr lang="en-US" b="1"/><a:t>thanks</a:t>');
+  expect(xml).toContain('<a:pPr lvl="1"><a:buChar char="•"/></a:pPr>');
+});
+
 test("an edit queued for an object removed by undo preserves redo", async ({
   page,
 }) => {

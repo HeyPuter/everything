@@ -1,4 +1,4 @@
-import { textEditHistory } from "./text-edit-history.js";
+import { textEditHistory, trackTextareaEdits } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
@@ -3522,17 +3522,7 @@ function renderEditor() {
                 { for: "speaker-notes", class: "sr-only" },
                 "Speaker notes",
               ),
-              el("textarea", {
-                id: "speaker-notes",
-                placeholder: "Click to add notes",
-                onchange: (e) => {
-                  const target = slide(),
-                    value = e.target.value;
-                  mutateSlide(target, (target) =>
-                    P.setSlideNotes(target, value),
-                  );
-                },
-              }),
+              speakerNotes(),
             ),
           ),
           // Slide Sorter and Notes Page take the place of the panes.
@@ -3562,6 +3552,36 @@ function renderEditor() {
   fitCanvas();
   applyPaneSizes();
   views.mounted();
+}
+// The speaker notes under the slide. What is typed there is applied as the
+// edits it was, so formatting the notes came with (a bold word, a bulleted
+// line) stays where the typing did not reach.
+function speakerNotes() {
+  const notes = el("textarea", {
+    id: "speaker-notes",
+    placeholder: "Click to add notes",
+    onfocus: () => typed.rebase(),
+    onchange: () => {
+      const target = slide(),
+        value = notes.value,
+        base = typed.base(),
+        edits = typed.edits();
+      typed.rebase();
+      mutateSlide(target, (target) => commitNotes(target, value, base, edits));
+    },
+  });
+  const typed = trackTextareaEdits(notes);
+  return notes;
+}
+// Notes typed from `base` as `edits`, or the whole text when the notes are
+// no longer what the typing started from.
+function commitNotes(target, value, base, edits) {
+  if ((P.getSlideNotes(target) || "") === base && edits.length)
+    try {
+      P.editSlideNotes(target, edits, value);
+      return;
+    } catch {}
+  P.setSlideNotes(target, value);
 }
 // The title bar: the way back to the library, the quick access commands
 // (save, undo, redo), the menu bar, the presentation's name with its save
@@ -14251,26 +14271,7 @@ function editTableCell(target, row, col) {
   // The edits as typed, so the commit changes only the text they touched:
   // a bold word, a link or a centered paragraph elsewhere in the cell keeps
   // its formatting.
-  const history = textEditHistory(value);
-  let pending = null,
-    line = false;
-  input.addEventListener("beforeinput", (e) => {
-    pending = {
-      start: input.selectionStart,
-      end: input.selectionEnd,
-      type: e.inputType,
-      line,
-    };
-  });
-  input.addEventListener("input", (e) => {
-    history.input(input.value, {
-      ...pending,
-      type: e.inputType || pending?.type,
-      afterStart: input.selectionStart,
-    });
-    pending = null;
-    line = false;
-  });
+  const history = trackTextareaEdits(input);
   let move = null,
     grow = false;
   const focusTable = () =>
@@ -14278,7 +14279,6 @@ function editTableCell(target, row, col) {
       .find((hit) => hit.dataset.shapeId === String(P.getShapeId(obj)))
       ?.focus({ preventScroll: true });
   input.addEventListener("keydown", (e) => {
-    line = e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.metaKey;
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
       return;
     if (e.isComposing || !sharedEditorKey(e)) e.stopPropagation();
