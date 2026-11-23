@@ -688,15 +688,20 @@ test('text sizes learned from the page keep the size menu in ascending order', a
   await page.getByRole('button', { name: 'Text', exact: true }).click();
   const sizes = () =>
     page.getByLabel('Text size').evaluate((select) => [...select.options].map((o) => o.value));
+  const chosen = [];
   for (const text of ['Make it your own.', '01', 'PDF EDITOR / GETTING STARTED']) {
     await page.getByRole('button', { name: `Edit text: ${text}`, exact: true }).click();
     await expect(page.locator('.text-draft-background')).toBeVisible();
+    chosen.push(Number(await page.getByLabel('Text size', { exact: true }).inputValue()));
     await page.keyboard.press('Escape');
     await expect(page.locator('.text-draft-background')).toHaveCount(0);
   }
+  expect(chosen.slice(0, 2)).toEqual([34, 11]);
   const values = (await sizes()).map(Number);
-  expect(values).toContain(34);
-  expect(values).toContain(11);
+  // The last text's own size is offered; the odd ones before it do not pile up.
+  expect(values).toContain(chosen[2]);
+  expect(values).not.toContain(34);
+  expect(values).not.toContain(11);
   expect(values).toEqual([...values].sort((a, b) => a - b));
   expect(new Set(values).size).toBe(values.length);
 });

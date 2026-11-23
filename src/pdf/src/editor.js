@@ -6364,10 +6364,14 @@ export function createEditor({
     startTextPreview(edit);
     if (run) {
       const physicalSize = Number((textEdit.size * textEdit.physicalScale).toFixed(2));
+      // The list offers the usual sizes and this text's own: the odd sizes of text selected
+      // before (9.26 pt, 13.55 pt…) leave it rather than pile up.
+      for (const option of sizeInput.querySelectorAll('option[data-text-size]'))
+        if (Number(option.value) !== physicalSize) option.remove();
       if (![...sizeInput.options].some((option) => Number(option.value) === physicalSize)) {
         const larger = [...sizeInput.options].find((option) => Number(option.value) > physicalSize);
         sizeInput.insertBefore(
-          el('option', { value: physicalSize }, `${physicalSize} pt`),
+          el('option', { value: physicalSize, 'data-text-size': '' }, `${physicalSize} pt`),
           larger || null,
         );
       }

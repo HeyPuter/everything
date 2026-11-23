@@ -331,3 +331,30 @@ test('an unchanged edit of plain text stays a no-op and its toggles start unpres
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
   expect(await exportedFonts(page)).toContain('NotoSans-Bold');
 });
+
+test('the Text size list offers the usual sizes and only the selected text’s own', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([400, 400]);
+  for (const [i, size] of [9.5, 13.3, 18.7].entries())
+    sheet.drawText(`Sized ${size}`, { x: 40, y: 320 - i * 60, size, font });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  const sizes = page.getByLabel('Text size', { exact: true });
+  const offered = () => sizes.evaluate((list) => [...list.options].map((o) => o.value).join(' '));
+  for (const size of ['9.5', '13.3', '18.7']) {
+    await page.getByRole('button', { name: `Edit text: Sized ${size}`, exact: true }).click();
+    await expect(sizes).toHaveValue(size);
+    await page.keyboard.press('Escape');
+    await settled(page);
+  }
+  // Selecting text in three odd sizes left one of them in the list, not all three.
+  expect(await offered()).toBe('10 12 16 18.7 20 24 32 48');
+  await page.getByRole('button', { name: 'Edit text: Sized 9.5', exact: true }).click();
+  await expect(sizes).toHaveValue('9.5');
+  expect(await offered()).toBe('9.5 10 12 16 20 24 32 48');
+});
