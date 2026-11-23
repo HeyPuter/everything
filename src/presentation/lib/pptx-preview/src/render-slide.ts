@@ -386,6 +386,23 @@ const imagePixelSize = (bytes: Uint8Array): { w: number; h: number } | null => {
   return null;
 };
 
+// `<a:lum bright contrast>` (fractions in [-1, 1]) as one linear map of each
+// sRGB channel. Contrast "scales all colors to be either closer or further
+// apart", about the middle grey: -100% leaves flat grey, +100% a hard
+// threshold. Brightness then "linearly shifts all colors closer to white or
+// black": +100% is white, -100% black. Washout (+70%, -70%) stays a pale
+// picture this way.
+export const luminanceTransfer = (
+  brightness: number,
+  contrast: number,
+): { slope: number; intercept: number } => {
+  const b = Math.max(-1, Math.min(1, brightness || 0));
+  const c = Math.max(-1, Math.min(1, contrast || 0));
+  const m = c < 0 ? 1 + c : 1 / Math.max(0.001, 1 - c);
+  const k = b < 0 ? 1 + b : 1 - b;
+  return { slope: m * k, intercept: (0.5 - 0.5 * m) * k + Math.max(0, b) };
+};
+
 // Picture-layer adjustments (saturation, temperature, sharpness and an
 // artistic effect) as SVG filter primitives, applied after the blip's own
 // color effects. The artistic effects are drawn as close relatives of the
@@ -609,7 +626,7 @@ const renderPicture = (
       clipAttr = ` clip-path="url(#${clipId})"`;
     }
     const brightness = imagePaint?.brightness ?? 0;
-    const contrast = imagePaint?.contrast ?? 1;
+    const contrast = imagePaint?.contrast ?? 0;
     const opacity = imagePaint?.opacity ?? 1;
     const grayscale = imagePaint?.grayscale ?? false;
     const biLevel = imagePaint?.biLevelThreshold ?? null;
@@ -621,7 +638,7 @@ const renderPicture = (
     } catch {}
     if (
       brightness !== 0 ||
-      contrast !== 1 ||
+      contrast !== 0 ||
       grayscale ||
       biLevel !== null ||
       adjustments.length > 0 ||
@@ -632,9 +649,11 @@ const renderPicture = (
       // (discrete table that snaps each channel to 0 or 1 at thresh).
       const fid = mintId();
       const prims: string[] = [];
-      if (brightness !== 0 || contrast !== 1) {
+      if (brightness !== 0 || contrast !== 0) {
+        const { slope, intercept } = luminanceTransfer(brightness, contrast);
+        const fn = `type="linear" slope="${PX(slope)}" intercept="${PX(intercept)}"`;
         prims.push(
-          `<feComponentTransfer><feFuncR type="linear" slope="${contrast}" intercept="${brightness}"/><feFuncG type="linear" slope="${contrast}" intercept="${brightness}"/><feFuncB type="linear" slope="${contrast}" intercept="${brightness}"/></feComponentTransfer>`,
+          `<feComponentTransfer color-interpolation-filters="sRGB"><feFuncR ${fn}/><feFuncG ${fn}/><feFuncB ${fn}/></feComponentTransfer>`,
         );
       }
       if (grayscale) {
