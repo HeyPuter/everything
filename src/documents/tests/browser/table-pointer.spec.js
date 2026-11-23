@@ -188,3 +188,25 @@ test('a block of cells formats every cell, and typing replaces only its first ce
   await page.keyboard.type('Z');
   await expect(input(page)).toHaveValue(/\nX0\nZ\nX2\nX3\nX4\nX5\n/);
 });
+
+test('a ruler marker drag the browser cancels leaves the columns as they were and the borders answering the pointer', async ({ page }) => {
+  await newTable(page, 3, 2);
+  await expect(page.locator('.table-ruler-marker')).toHaveCount(4);
+  const result = await page.evaluate(async () => {
+    // Synthetic pointers have no capture to set; a real finger's drag is cancelled when it turns into a scroll.
+    Element.prototype.setPointerCapture = () => {};
+    const marker = document.querySelectorAll('.table-ruler-marker')[1], b = marker.getBoundingClientRect();
+    const touch = { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', button: 0, clientX: b.x + 4, clientY: b.y + 4, isPrimary: true };
+    marker.dispatchEvent(new PointerEvent('pointerdown', touch));
+    marker.dispatchEvent(new PointerEvent('pointermove', { ...touch, clientX: b.x + 40 }));
+    marker.dispatchEvent(new PointerEvent('pointercancel', touch));
+    await new Promise(r => setTimeout(r, 100));
+    const e = window.__docs.current.view.engine, table = e.model.tables[0], cell = e.selectionLayout.cells.find(c => c.id === table.rows[1].cells[0].id);
+    const r = e.canvases[cell.page].getBoundingClientRect();
+    e.canvases[cell.page].dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: r.left + (cell.x + cell.width) * e.zoom, clientY: r.top + (cell.y + cell.height / 2) * e.zoom }));
+    return { grid: [...table.grid], dragging: document.querySelectorAll('.table-ruler-marker.is-dragging').length };
+  });
+  expect(result).toEqual({ grid: (await tables(page))[0].grid, dragging: 0 });
+  expect(new Set(result.grid).size).toBe(1);
+  await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'col-resize');
+});

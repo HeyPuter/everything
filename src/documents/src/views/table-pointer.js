@@ -442,6 +442,12 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     if (d.moved) commit(m => T.setColumnWidths(m, d.frame.table, d.widths, { layout: 'fixed' }));
     refreshRuler(); repaint();
   });
+  // A drag the browser takes back (a finger that turns into a scroll) leaves the widths as they were, and the
+  // borders on the page answer the pointer again.
+  listen(rulerLayer, 'pointercancel', () => {
+    if (!drag?.ruler) return;
+    drag = null; refreshRuler(); repaint();
+  });
 
   /* ---- A selection from one cell into another becomes a block of cells ---- */
   function syncSelection() {
