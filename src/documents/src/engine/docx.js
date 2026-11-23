@@ -1235,6 +1235,18 @@ function hasPageStoryControls(root) {
   });
 }
 
+// Other ZIP-based formats a user may pick under "All files": "not a supported DOCX document" told them nothing to do.
+// An OpenDocument package names its kind in its first, uncompressed `mimetype` item (ODF 1.2 Part 3, §3.3), and an
+// Excel or PowerPoint package has its main part in xl/ or ppt/.
+function otherPackageProblem(parts) {
+  let mimetype = '';
+  try { mimetype = parts.mimetype ? new TextDecoder().decode(parts.mimetype.subarray(0, 100)).trim() : ''; } catch { /* not text */ }
+  if (/^application\/vnd\.oasis\.opendocument\.text(?:-template)?$/.test(mimetype)) return 'This is an OpenDocument text file (.odt), which this editor cannot open. Save it as a Word Document (.docx) in the app that made it, then open it here.';
+  const kind = /^application\/vnd\.oasis\.opendocument\.spreadsheet/.test(mimetype) || parts['xl/workbook.xml'] ? 'a spreadsheet'
+    : /^application\/vnd\.oasis\.opendocument\.presentation/.test(mimetype) || parts['ppt/presentation.xml'] ? 'a presentation' : null;
+  return kind && `This is ${kind}, not a Word document. Open it in a ${kind.slice(2)} app.`;
+}
+
 const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
@@ -1292,7 +1304,7 @@ export class DocxPackage {
     } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);
     if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
-    if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
+    if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error(otherPackageProblem(parts) || 'This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
     if (!MAIN_TYPES.has(mainPartType(types))) {
       throw new Error('Only standard .docx files are supported in this version.');

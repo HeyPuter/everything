@@ -103,7 +103,7 @@ test('the original of a file that cannot open keeps its own name', async ({ page
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
   await page.locator('input[type=file][aria-label="Open DOCX file"]').setInputFiles({ name: 'Minutes.odt', mimeType: 'application/vnd.oasis.opendocument.text', buffer: odt });
   const message = page.locator('.canvas-message.editor-error');
-  await expect(message).toBeVisible();
+  await expect(message).toContainText('This is an OpenDocument text file (.odt)');
   const downloading = page.waitForEvent('download');
   await message.getByRole('button', { name: 'Download original', exact: true }).click();
   const download = await downloading;
