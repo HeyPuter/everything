@@ -3677,6 +3677,7 @@ export function createEditor({
         throw error;
       }
       onCommit?.();
+      rememberPageStep(previousPage);
       await reload(retainedScale);
       if (message && !destroyed) toast(message);
     } finally {
@@ -3735,6 +3736,18 @@ export function createEditor({
     }
     return committed;
   }
+  /**
+   * The page each edit moved the reader from and to, by the revision it made. A page added,
+   * deleted, or moved before or at the page on view takes the reader along to the same page;
+   * undoing or redoing it does the same, as long as the reader has not moved on since.
+   */
+  const pageSteps = new Map();
+  function rememberPageStep(before) {
+    if (before === pageIndex) return;
+    pageSteps.set(session.revision, { before, after: pageIndex });
+    // The history keeps 25 steps; older ones can no longer be undone.
+    for (const key of pageSteps.keys()) if (pageSteps.size > 50) pageSteps.delete(key);
+  }
   let historyTail = Promise.resolve(),
     pendingHistory = 0;
   function history(action) {
@@ -3779,7 +3792,13 @@ export function createEditor({
     if (pageForms[action]()) return;
     if (pageForms.draft.dirty) return;
     await finishDrafts();
+    const undone = session.revision;
     if (session[action]()) {
+      const step = pageSteps.get(action === 'undo' ? undone : session.revision);
+      const [from, to] =
+        action === 'undo' ? [step?.after, step?.before] : [step?.before, step?.after];
+      const follow = step && pageIndex === from;
+      if (follow) pageIndex = to;
       // Pressed from the keyboard, the button is disabled while the PDF is redrawn, which drops
       // the focus; it takes it back for the next press unless the focus has moved meanwhile.
       const pressed = [undoButton, redoButton].find((b) => b === document.activeElement);
@@ -3790,6 +3809,8 @@ export function createEditor({
       updateStatus();
       try {
         await reload();
+        // A page moved back to its place (no page added or removed) is brought into view too.
+        if (follow && !destroyed) stack.scrollTo(pageIndex);
       } finally {
         busy = false;
         updateStatus();

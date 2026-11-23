@@ -403,7 +403,10 @@ test('inserting pages preserves a form draft entered while the source file is be
   await expect(page.getByLabel('Name (on page)', { exact: true })).toHaveValue(
     'Updated while reading',
   );
+  // Redo takes the reader to the inserted page again, as the insertion did.
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
+  await page.getByRole('button', { name: 'Previous page', exact: true }).click();
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 2');
   await expect(page.getByLabel('Name (on page)', { exact: true })).toHaveValue(
     'Updated while reading',
