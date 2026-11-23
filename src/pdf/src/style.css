@@ -511,6 +511,12 @@ puter-user-menu::part(apps-panel) {
 .file-row + .file-row {
   border-top: 1px solid var(--border);
 }
+/* A long library lays out only the rows on screen, so searching it stays quick. The size
+   stands in for a row's content (its padding and border are added), until it is first shown. */
+.file-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 38px;
+}
 .file-row:hover {
   background: var(--page);
 }
