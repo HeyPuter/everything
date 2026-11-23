@@ -102,9 +102,163 @@ export function formattedSpecial(text, format) {
   return pattern.replace(/9/g, () => digits[next++]);
 }
 
-/** The value as the field's number or special format shows it. */
+/** AFDate_Format's numbered formats, older than AFDate_FormatEx's patterns. */
+const DATE_FORMATS = [
+  'm/d',
+  'm/d/yy',
+  'mm/dd/yy',
+  'mm/yy',
+  'd-mmm',
+  'd-mmm-yy',
+  'dd-mmm-yy',
+  'yy-mm-dd',
+  'mmm-yy',
+  'mmmm-yy',
+  'mmm d, yyyy',
+  'mmmm d, yyyy',
+  'm/d/yy h:MM tt',
+  'm/d/yy HH:MM',
+];
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/** A date pattern's parts: letters of one kind (mm, yyyy, HH) or literal text. */
+const DATE_TOKEN = /(\\.|y+|m+|d+|H+|h+|M+|s+|t+)/;
+const datePart = (token) =>
+  // ddd and dddd are the day's name, which a date is not read from.
+  token.startsWith('ddd')
+    ? null
+    : ({ y: 'year', m: 'month', d: 'day', H: 'hour', h: 'hour', M: 'minute', s: 'second' }[
+        token[0]
+      ] ?? null);
+
+/** The field's date pattern (AFDate_FormatEx, or AFDate_Format's numbered one), or null. */
+export function dateFormat(field) {
+  const script = actionScript(field);
+  const pattern = script.match(/AFDate_FormatEx\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\)/);
+  if (pattern) return jsString(pattern[1]) || null;
+  const numbered = script.match(/AFDate_Format\(\s*(\d+)\s*\)/);
+  return (numbered && DATE_FORMATS[numbered[1]]) || null;
+}
+
+/**
+ * The date typed, read in the order the pattern gives its parts (3/15/26 for mm/dd/yyyy,
+ * 15.3.2026 for dd.mm.yyyy), or null when it is no date: Acrobat's lenient reading. A month
+ * may be written as its name, a four-digit year stands anywhere, two-digit years are 1950 to
+ * 2049, and a missing year is this year. Times read the same way, with am or pm.
+ */
+export function typedDate(text, pattern, today = new Date()) {
+  const tokens = pattern.split(DATE_TOKEN).filter((token, i) => i % 2 && !token.startsWith('\\'));
+  const parts = [...new Set(tokens.map(datePart).filter(Boolean))];
+  const words =
+    String(text)
+      .toLowerCase()
+      .match(/\p{L}+/gu) ?? [];
+  const numbers = String(text).match(/\d+/g) ?? [];
+  if (!parts.length || !numbers.length) return null;
+  const found = {};
+  for (const word of words) {
+    const month = MONTHS.findIndex(
+      (name) => word.length >= 3 && name.toLowerCase().startsWith(word),
+    );
+    if (month >= 0 && found.month === undefined) found.month = month + 1;
+    else if (['am', 'a', 'pm', 'p'].includes(word)) found.half = word[0];
+    else if (!DAYS.some((day) => word.length >= 3 && day.toLowerCase().startsWith(word)))
+      return null;
+  }
+  const year = numbers.findIndex((number) => number.length === 4);
+  if (year >= 0 && parts.includes('year')) found.year = Number(numbers.splice(year, 1)[0]);
+  for (const part of parts) {
+    if (found[part] !== undefined || !numbers.length) continue;
+    const number = numbers.shift();
+    if (number.length > (part === 'year' ? 4 : 2)) return null;
+    found[part] = Number(number);
+  }
+  if (numbers.length) return null;
+  if (found.year === undefined) {
+    // Day and month without a year are this year's; a date needs its other parts.
+    if (parts.includes('year') && !(parts.includes('month') && found.month !== undefined))
+      return null;
+    found.year = today.getFullYear();
+  } else if (found.year < 100) found.year += found.year < 50 ? 2000 : 1900;
+  if (parts.includes('month') && found.month === undefined) return null;
+  if (parts.includes('day') && found.day === undefined) return null;
+  let { month = 1, day = 1, hour = 0, minute = 0, second = 0 } = found;
+  if (found.half) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (found.half === 'p' ? 12 : 0);
+  }
+  // In UTC, where no clock change skips an hour.
+  const date = new Date(Date.UTC(found.year, month - 1, day, hour, minute, second));
+  return date.getUTCFullYear() === found.year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day &&
+    hour < 24 &&
+    minute < 60 &&
+    second < 60
+    ? date
+    : null;
+}
+
+/** The date (in UTC, as typedDate reads it) as the pattern writes it: mm/dd/yyyy, h:MM tt. */
+export function printedDate(date, pattern) {
+  const pad = (number, size) => String(number).padStart(size, '0');
+  const values = {
+    y: (n) => (n > 2 ? pad(date.getUTCFullYear(), 4) : pad(date.getUTCFullYear() % 100, 2)),
+    m: (n) =>
+      n > 3
+        ? MONTHS[date.getUTCMonth()]
+        : n > 2
+          ? MONTHS[date.getUTCMonth()].slice(0, 3)
+          : pad(date.getUTCMonth() + 1, n),
+    d: (n) =>
+      n > 3
+        ? DAYS[date.getUTCDay()]
+        : n > 2
+          ? DAYS[date.getUTCDay()].slice(0, 3)
+          : pad(date.getUTCDate(), n),
+    H: (n) => pad(date.getUTCHours(), n),
+    h: (n) => pad(date.getUTCHours() % 12 || 12, n),
+    M: (n) => pad(date.getUTCMinutes(), n),
+    s: (n) => pad(date.getUTCSeconds(), n),
+    t: (n) => (date.getUTCHours() < 12 ? 'am' : 'pm').slice(0, n),
+  };
+  return pattern
+    .split(DATE_TOKEN)
+    .map((token, i) =>
+      i % 2
+        ? token.startsWith('\\')
+          ? token[1]
+          : values[token[0]](Math.min(token.length, 4))
+        : token,
+    )
+    .join('');
+}
+
+/** The value as its date pattern writes it; text that is no date shows as it is. */
+export function formattedDate(text, pattern) {
+  const date = pattern && String(text).trim() ? typedDate(text, pattern) : null;
+  return date ? printedDate(date, pattern) : text;
+}
+
+/** The value as the field's number, date, or special format shows it. */
 export const formattedValue = (text, field) =>
-  formattedSpecial(formattedNumber(text, numberFormat(field)), specialFormat(field));
+  formattedSpecial(
+    formattedDate(formattedNumber(text, numberFormat(field)), dateFormat(field)),
+    specialFormat(field),
+  );
 
 /**
  * The field's calculation when it is one of Acrobat's own ("Value is the sum of the following

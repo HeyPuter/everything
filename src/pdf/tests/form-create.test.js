@@ -594,6 +594,44 @@ it('takes ZIP Codes, phone and Social Security numbers, and shows them as their 
   expect(text).toEqual(['02139', '02139-4307', '(555) 123-4567', '555-1234', '123-45-6789']);
 });
 
+it('takes dates in a date field, and shows them as its pattern writes them', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  await addFormField(doc, 0, { type: 'date', name: 'Born', rect: rect(50, 600, 200, 24) });
+  await addFormField(doc, 0, { type: 'date', name: 'Due', rect: rect(50, 540, 200, 24) });
+  await updateFormField(doc, 'Due', { dateFormat: 'dd-mmm-yyyy' });
+  // Another tool's numbered date format with a time: m/d/yy h:MM tt.
+  await addFormField(doc, 0, { type: 'text', name: 'At', rect: rect(50, 480, 200, 24) });
+  doc
+    .getForm()
+    .getTextField('At')
+    .acroField.dict.set(
+      name('AA'),
+      doc.context.obj({ F: { S: 'JavaScript', JS: PDFHexString.fromText('AFDate_Format(12);') } }),
+    );
+  for (const value of ['hello', '13/01/2026', '2/30/2026', '3/15/2026/7'])
+    await expect(fillFields(doc, { Born: value })).rejects.toThrow(
+      'Enter a date in Born, such as 03/15/2025.',
+    );
+  await expect(fillFields(doc, { Due: '31-Apr-2026' })).rejects.toThrow(
+    'Enter a date in Due, such as 15-Mar-2025.',
+  );
+  await expect(fillFields(doc, { At: '3/15/26 13:00 pm' })).rejects.toThrow('Enter a date in At');
+  await fillFields(doc, { Born: '7/4/76', Due: '2026-03-01', At: '3/15/26 2:05 pm' });
+  // The value keeps what was typed; the page shows it in the field's pattern.
+  expect(listFields(doc).map((field) => field.value)).toEqual([
+    '7/4/76',
+    '2026-03-01',
+    '3/15/26 2:05 pm',
+  ]);
+  await fillFields(doc, { Due: '1 march 26' });
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  expect(text).toEqual(['07/04/1976', '01-Mar-2026', '3/15/26 2:05 pm']);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>

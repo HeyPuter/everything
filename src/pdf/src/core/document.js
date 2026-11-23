@@ -62,11 +62,14 @@ import {
 import { reorientNotes } from './notes.js';
 import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatten.js';
 import {
+  dateFormat,
   decimalMark,
   numberFormat,
+  printedDate,
   simpleCalculation,
   specialDigits,
   specialFormat,
+  typedDate,
   typedNumber,
 } from './form-format.js';
 import {
@@ -1726,6 +1729,8 @@ function recalculate(doc, fields) {
   }
   return changed;
 }
+/** The date a date field's message shows as an example, in the field's pattern. */
+const EXAMPLE_DATE = new Date(Date.UTC(2025, 2, 15, 14, 30));
 export async function fillFields(doc, values) {
   const fields = formFields(doc);
   if (!fields) throw new Error(DAMAGED_FORM);
@@ -1754,6 +1759,15 @@ export async function fillFields(doc, values) {
             `Enter a number in ${fieldTooltip(field) || name}, such as 1234${decimalMark(format)}5.`,
           ),
           // The field it is about, for the page to point at it.
+          { field: name },
+        );
+      // A date field takes a date it can read in its pattern's order, as Acrobat's does.
+      const pattern = dateFormat(field);
+      if (String(value).trim() && pattern && !typedDate(value, pattern))
+        throw Object.assign(
+          new Error(
+            `Enter a date in ${fieldTooltip(field) || name}, such as ${printedDate(EXAMPLE_DATE, pattern)}.`,
+          ),
           { field: name },
         );
       // A ZIP Code, phone, or Social Security number field takes its digits, as in Acrobat.
