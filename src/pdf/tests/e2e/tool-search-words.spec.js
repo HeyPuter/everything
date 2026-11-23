@@ -26,3 +26,22 @@ test('several words find a tool whose words are not side by side', async ({ page
   await expect(page.getByRole('listbox', { name: 'Matching tools' })).toBeHidden();
   await expect(find).toHaveAttribute('aria-expanded', 'false');
 });
+
+test('the everyday names of formats and tasks offer their tools', async ({ page }) => {
+  const find = page.getByRole('combobox', { name: 'Find in PDF', exact: true });
+  for (const [words, tool] of [
+    ['word', 'Export a PDF'],
+    ['docx', 'Export a PDF'],
+    ['excel', 'Export a PDF'],
+    ['powerpoint', 'Export a PDF'],
+    ['jpg', 'Export a PDF'],
+    ['encrypt', 'Protect a PDF'],
+    ['remove password', 'Protect a PDF'],
+    ['reduce size', 'Compress a PDF'],
+    ['hyperlink', 'Edit a PDF'],
+    ['metadata', 'Document properties'],
+  ]) {
+    await find.fill(words);
+    await expect(option(page, tool)).toBeVisible();
+  }
+});

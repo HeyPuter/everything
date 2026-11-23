@@ -7748,6 +7748,8 @@ export function createEditor({
         group: 'Create & Edit',
         featured: true,
         description: 'Save the PDF, or its pages, in another format.',
+        keywords:
+          'convert word docx excel xlsx spreadsheet powerpoint pptx slides rtf html txt png jpeg jpg',
         sections: () => [
           {
             title: 'Export to',
@@ -7796,6 +7798,7 @@ export function createEditor({
         group: 'Create & Edit',
         featured: true,
         description: 'Change text and images, or add new content to the pages.',
+        keywords: 'link hyperlink url',
         permission: 'edit',
         sections: () => [
           {
@@ -8419,6 +8422,7 @@ export function createEditor({
         group: 'Protect & Standardize',
         featured: true,
         description: 'Require a password to open the PDF, or limit what others can do with it.',
+        keywords: 'encrypt encryption unlock remove password permissions restrict secure',
         sections: () => [
           {
             title: 'Password',
@@ -8541,6 +8545,7 @@ export function createEditor({
         featured: true,
         permission: 'edit',
         description: 'Make the file smaller by shrinking its pictures.',
+        keywords: 'reduce file size optimize',
         run: () => pageDialog(reduceSizeDialog)(),
       },
       {
@@ -8738,6 +8743,7 @@ export function createEditor({
         id: 'document-properties',
         label: 'Document properties',
         group: 'Protect & Standardize',
+        keywords: 'metadata title author subject info details',
         run: () => pageDialog(detailsDialog)(),
       },
     ];
