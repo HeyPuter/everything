@@ -721,7 +721,12 @@ export function createImageLayer({
       if (!angle.value.trim() || !angle.reportValidity()) return;
       const value = Number(angle.value),
         previous = rotation();
-      if (value === shownAngle(previous)) return;
+      // An angle the object already has, such as 360 for an upright one, turns nothing; the
+      // field shows the angle again rather than keep a value no edit will clear.
+      if (shownAngle(((value % 360) + 360) % 360) === shownAngle(previous)) {
+        angle.value = angle.defaultValue;
+        return;
+      }
       return rotate(value - previous);
     };
     const rotations = el(
