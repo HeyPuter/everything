@@ -3090,7 +3090,10 @@ export function createEditor({
     closeNoteEditor();
     noteTargets.replaceChildren();
     gesture = null;
-    discardCropDraft();
+    // A crop area drawn on this page stays through a zoom or a turned phone, drawn again at the
+    // new size; another page lets go of it.
+    const keptCrop = tool === 'crop' && cropDraft?.page === pageIndex ? cropDraft : null;
+    if (!keptCrop) discardCropDraft();
     if (!committingDrawing) clearOverlay();
     paper.setAttribute('aria-busy', 'true');
     updateStatus();
@@ -3204,6 +3207,13 @@ export function createEditor({
       const overlayRatio = Math.min(1, ratio);
       overlay.width = Math.max(1, Math.floor(viewport.width * overlayRatio));
       overlay.height = Math.max(1, Math.floor(viewport.height * overlayRatio));
+      if (keptCrop && cropDraft === keptCrop) {
+        const { x, y, width, height } = keptCrop.rect;
+        const [ax, ay] = viewport.convertToViewportPoint(x, y),
+          [bx, by] = viewport.convertToViewportPoint(x + width, y + height);
+        keptCrop.screen = normalizeRect({ x: ax, y: ay }, { x: bx, y: by });
+        drawCropDraft();
+      }
       // PDF.js validates `url`; `unsafeUrl` is whatever the file said, so it is checked here
       // before it can be opened. A link whose address is refused stays listed so it
       // can still be edited or removed, but it opens nothing.
@@ -5446,12 +5456,16 @@ export function createEditor({
     cropDraft = null;
     properties.clear('crop');
   }
-  /** Show the kept area with the choice of cropping this page or all of them. */
-  function renderCropDraft() {
-    if (!cropDraft || cropDraft.page !== pageIndex || !viewport) return;
+  /** Dim the page around the kept area. */
+  function drawCropDraft() {
     const ctx = clearOverlay();
     ctx.setTransform(overlay.width / viewport.width, 0, 0, overlay.height / viewport.height, 0, 0);
     drawCropPreview(ctx, cropDraft.screen);
+  }
+  /** Show the kept area with the choice of cropping this page or all of them. */
+  function renderCropDraft() {
+    if (!cropDraft || cropDraft.page !== pageIndex || !viewport) return;
+    drawCropDraft();
     const panel = el(
       'div',
       { class: 'crop-panel', role: 'group', 'aria-label': 'Crop area' },
