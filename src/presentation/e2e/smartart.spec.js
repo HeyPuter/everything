@@ -4,7 +4,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { unzipSync } from "fflate";
-import { P, parseDeck } from "../src/model.js";
+import { P, createDeck, parseDeck } from "../src/model.js";
 
 test.setTimeout(120_000);
 
@@ -222,6 +222,70 @@ test("bulleted text converts to a graphic, and a graphic back to text", async ({
 
 // Find & Replace looked only through text boxes and tables, so it reported no
 // match for text that a SmartArt graphic showed on the slide.
+test("a graphic turned into text and back keeps its place behind other objects", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  P.addSlideSmartArt(slide, {
+    model: {
+      layout: "arrow-steps",
+      items: [
+        { text: "Plan", level: 0 },
+        { text: "Build", level: 0 },
+      ],
+      colors: "accent2",
+      style: "subtle",
+    },
+    x: P.inches(1),
+    y: P.inches(1),
+    w: P.inches(6),
+    h: P.inches(3),
+  });
+  P.addSlideShape(slide, {
+    preset: "rect",
+    x: P.inches(4),
+    y: P.inches(2.5),
+    w: P.inches(4),
+    h: P.inches(3),
+    name: "Cover",
+  });
+  await start(page);
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Graphic.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const hit = page.locator(".object-hit").first();
+  await expect(hit).toBeVisible();
+  const box = await hit.boundingBox();
+  await page.mouse.click(box.x + 10, box.y + 10);
+  await ribbonCommand(page, "SmartArt Design", "smartart-convert");
+  await page.getByRole("menuitem", { name: "Convert to Text" }).click();
+  await page.waitForTimeout(300);
+  let { shapes } = await download(page);
+  expect(shapes.map((s) => P.getShapeName(s))).toEqual([
+    expect.stringMatching(/^TextBox/),
+    "Cover",
+  ]);
+  // The text box is selected; Convert to SmartArt turns it back.
+  await ribbonCommand(page, "Home", "convert-smartart");
+  await page.locator(".chart-menu-choice").first().click();
+  await expect(page.locator(".smartart-pane")).toBeVisible();
+  await page.waitForTimeout(300);
+  ({ shapes } = await download(page));
+  expect(shapes.map((s) => P.getShapeName(s))).toEqual([
+    expect.stringMatching(/^SmartArt/),
+    "Cover",
+  ]);
+});
+
 test("Find and Replace reach a graphic's text, Replace All in one step", async ({
   page,
 }) => {

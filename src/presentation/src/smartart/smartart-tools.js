@@ -160,11 +160,17 @@ export function createSmartArtTools(h) {
   async function place(model, box, { replace = null } = {}) {
     let id = null;
     const ok = await h.mutateSlide(h.slide(), (target) => {
+      // A graphic made from a text box takes its place in the stack.
+      let z = -1;
       if (replace) {
         const old = P.findShapeById(target, replace);
-        if (old) h.removeShape(target, old);
+        if (old) {
+          z = P.getShapeZIndex(old);
+          h.removeShape(target, old);
+        }
       }
       const shape = P.addSlideSmartArt(target, { model, ...box });
+      if (z >= 0) P.setShapeZIndex(shape, z);
       P.renameShape(shape, `SmartArt ${P.getShapeId(shape)}`);
       id = P.getShapeId(shape);
       h.selectIds([id]);
@@ -448,7 +454,10 @@ export function createSmartArtTools(h) {
       P.renameShape(box, `TextBox ${P.getShapeId(box)}`);
       P.setShapeBullets(box, "bullet");
       lines.forEach((l, i) => h.setIndentLevel(box, i, l.level, true));
+      // The text takes the graphic's place in the stack.
+      const z = P.getShapeZIndex(target);
       h.removeShape(targetSlide, target);
+      if (z >= 0) P.setShapeZIndex(box, z);
       h.selectIds([P.getShapeId(box)]);
     });
   }
