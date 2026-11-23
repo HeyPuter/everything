@@ -187,8 +187,10 @@ export async function pasteSpecialDialog({ available }) {
 
 /**
  * Paragraphs of formatted runs from clipboard HTML:
- * [{ runs: [{ text, format }] }]. A line break inside a paragraph is a soft
- * break ("\u000B").
+ * [{ runs: [{ text, format }], list?, level? }]. A line break inside a
+ * paragraph is a soft break ("\u000B"); a list item is a paragraph of a
+ * bulleted ("bullet") or numbered ("number") list at the level its nesting
+ * gives (0 for the outermost).
  */
 const SOFT_BREAK = "\u000B";
 export function htmlParagraphs(html) {
@@ -209,9 +211,17 @@ export function htmlParagraphs(html) {
     "BLOCKQUOTE",
     "PRE",
   ]);
+  // A paragraph with no text yet passes its list on to the block inside it
+  // (<li><p>Item</p></li>).
   const flush = () => {
-    if (current.runs.some((r) => r.text.trim())) paragraphs.push(current);
-    current = { runs: [] };
+    if (current.runs.some((r) => r.text.trim())) {
+      paragraphs.push(current);
+      current = { runs: [] };
+    } else
+      current = {
+        runs: [],
+        ...(current.list ? { list: current.list, level: current.level } : {}),
+      };
   };
   const walk = (node, format) => {
     if (node.nodeType === 3) {
@@ -243,6 +253,28 @@ export function htmlParagraphs(html) {
     if (color) next.color = color[1].toUpperCase();
     const block = BLOCKS.has(tag);
     if (block) flush();
+    // A list item, or a paragraph copied from a list in this app's editor.
+    const list =
+      tag === "LI"
+        ? node.closest("ol, ul")?.tagName === "OL"
+          ? "number"
+          : "bullet"
+        : ["bullet", "number"].includes(node.dataset?.list)
+          ? node.dataset.list
+          : null;
+    if (block && list) {
+      current.list = list;
+      let level = 0;
+      if (tag === "LI") {
+        for (
+          let up = node.parentElement?.parentElement;
+          up;
+          up = up.parentElement
+        )
+          if (up.tagName === "OL" || up.tagName === "UL") level++;
+      } else level = Number(node.dataset.level) || 0;
+      current.level = Math.min(8, level);
+    }
     for (const child of node.childNodes) walk(child, next);
     if (block) flush();
   };

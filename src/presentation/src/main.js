@@ -11293,13 +11293,15 @@ function formattedPaste(html, plain) {
   } catch {
     return null;
   }
-  // Plain text says as much unless the HTML has formatting or line breaks
-  // within its paragraphs.
+  // Plain text says as much unless the HTML has formatting, line breaks
+  // within its paragraphs, or lists.
   if (
-    !paragraphs.some((p) =>
-      p.runs.some(
-        (r) => Object.keys(r.format).length || r.text.includes(SOFT_BREAK),
-      ),
+    !paragraphs.some(
+      (p) =>
+        p.list ||
+        p.runs.some(
+          (r) => Object.keys(r.format).length || r.text.includes(SOFT_BREAK),
+        ),
     )
   )
     return null;
@@ -11310,10 +11312,12 @@ function formattedPaste(html, plain) {
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean)
       .join("\n");
+  // A paragraph's list goes with its first piece.
   const pieces = paragraphs.flatMap((p, i) =>
     p.runs.map((r, k) => ({
       text: (i && !k ? "\n" : "") + r.text,
       format: r.format,
+      ...(!k && p.list ? { list: p.list, level: p.level || 0 } : {}),
     })),
   );
   return words(pieces.map((p) => p.text).join("")) === words(plain)
@@ -11822,6 +11826,31 @@ function editText(target, event = null, { inserted = null } = {}) {
       0,
       ...Array.from({ length: added }, () => ({ ...paras[at] })),
     );
+    // Pasted list paragraphs keep their list and level: the paragraphs the
+    // paste adds, and the one it lands in when that one was empty.
+    if (pieces) {
+      const value = text();
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const lineEnd = value.indexOf("\n", end);
+      const landedEmpty =
+        !value.slice(lineStart, start) &&
+        !value.slice(end, lineEnd < 0 ? value.length : lineEnd);
+      let k = 0;
+      for (const piece of pieces) {
+        if (piece.text.startsWith("\n")) k++;
+        if (!piece.list || (k === 0 && !landedEmpty)) continue;
+        const para = paras[at + k] || blank();
+        if (para.list === piece.list && (para.level || 0) === piece.level)
+          continue;
+        paras[at + k] = {
+          ...para,
+          list: piece.list,
+          listChanged: true,
+          level: piece.level,
+          changed: true,
+        };
+      }
+    }
     const from = splitAt(start),
       to = splitAt(end);
     const source = runs[from - 1] || runs[from] || base;
@@ -16508,7 +16537,9 @@ function pasteRichText(paragraphs) {
       paragraphs.map((p, i) => {
         const base = before[i]?.runs[0] || before[0]?.runs[0];
         return {
-          level: 0,
+          level: p.level || 0,
+          levelChanged: !!p.level,
+          ...(p.list ? { list: p.list, listChanged: true } : {}),
           ppr: before[i]?.ppr ?? null,
           runs: p.runs.map((r) => ({
             text: r.text,

@@ -698,3 +698,51 @@ test("line breaks copied out of the text come back as line breaks", async ({
   const xml = await downloadedSlide(page);
   expect(xml.match(/<a:br/g)).toHaveLength(2);
 });
+
+test("list items pasted from another app become list paragraphs", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "x");
+  await page.keyboard.press("Backspace");
+  await editor.evaluate((input) => {
+    const data = new DataTransfer();
+    data.setData(
+      "text/html",
+      "<ul><li>One</li><li><p>Two</p><ul><li>Under two</li></ul></li></ul>" +
+        "<p>Plain</p><ol><li>First</li><li>Second</li></ol>",
+    );
+    data.setData("text/plain", "One\nTwo\nUnder two\nPlain\nFirst\nSecond");
+    input.dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: data,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  const paras = editor.locator(".para");
+  await expect(paras).toHaveText([
+    "One",
+    "Two",
+    "Under two",
+    "Plain",
+    "First",
+    "Second",
+  ]);
+  expect(
+    await paras.evaluateAll((list) =>
+      list.map((p) => [p.dataset.list, p.dataset.level, p.dataset.marker]),
+    ),
+  ).toEqual([
+    ["bullet", "0", "•"],
+    ["bullet", "0", "•"],
+    ["bullet", "1", "•"],
+    ["none", "0", undefined],
+    ["number", "0", "1."],
+    ["number", "0", "2."],
+  ]);
+  await page.keyboard.press("Escape");
+  const xml = await downloadedSlide(page);
+  expect(xml.match(/<a:buAutoNum/g)).toHaveLength(2);
+  expect(xml).toMatch(/<a:pPr[^>]*lvl="1"/);
+});
