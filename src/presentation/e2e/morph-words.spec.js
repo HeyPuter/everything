@@ -139,8 +139,21 @@ test("a morph starts and ends on exactly the slides", async ({ page }) => {
         P.renameShape(shape(b, 1, 1, 3, 3, "#cc2222"), "Red");
       },
     };
+    // By words: the words of a text partly covered by a square stay under
+    // it.
+    const byWord = {
+      coveredWords: (a, b) => {
+        text(a, "alpha beta gamma", 1, 1, 8, 1);
+        P.renameShape(shape(a, 1, 0.8, 2, 1.5, "#2222cc"), "Cover");
+        text(b, "alpha beta gamma", 1, 4, 8, 1);
+        P.renameShape(shape(b, 1, 3.8, 2, 1.5, "#2222cc"), "Cover");
+      },
+    };
     const out = {};
-    for (const [name, build] of Object.entries(cases)) {
+    for (const [name, build] of [
+      ...Object.entries(cases),
+      ...Object.entries(byWord),
+    ]) {
       const pres = createDeck("blank");
       const a = P.getSlides(pres)[0];
       const b = P.addBlankSlide(pres);
@@ -154,6 +167,7 @@ test("a morph starts and ends on exactly the slides", async ({ page }) => {
         load: loadImage,
         W,
         H,
+        option: name in byWord ? "byWord" : "byObject",
       });
       const slide = async (s) => {
         const image = await loadImage(preview(pres, s));
@@ -172,5 +186,6 @@ test("a morph starts and ends on exactly the slides", async ({ page }) => {
     overflow: [0, 0],
     leavingOnTop: [0, 0],
     restacked: [0, 0],
+    coveredWords: [0, 0],
   });
 });

@@ -639,19 +639,12 @@ export function drawMorph(ctx, scene, q, W, H, scratch) {
     else if (!step.a) drawLayer(ctx, step.b, fadeIn, step.b, W, H);
     else morphStep(ctx, step.a, step.b, e, mix, W, H, dissolve);
   }
-  // Words and characters, over the shapes.
-  if (scene.words) {
-    for (const a of scene.words.gone) drawLayer(ctx, a, fadeOut, a, W, H);
-    for (const b of scene.words.added) drawLayer(ctx, b, fadeIn, b, W, H);
-    for (const [a, b] of scene.words.pairs)
-      morphStep(ctx, a, b, e, mix, W, H, dissolve);
-  }
 }
 
 /**
- * The objects of a morph in the order they are drawn at eased progress `e`:
- * `{ a, b }` for an object on its way, `{ a }` for one leaving and `{ b }`
- * for one arriving. Objects stack as on the leaving slide at the start and
+ * The objects of a morph (and its words or characters, each over its own
+ * shape) in the order they are drawn at eased progress `e`: `{ a, b }` for
+ * an object on its way, `{ a }` for one leaving and `{ b }` for one arriving. Objects stack as on the leaving slide at the start and
  * as on the arriving one at the end, so neither end jumps.
  */
 export function morphOrder(scene, e) {
@@ -669,6 +662,29 @@ export function morphOrder(scene, e) {
       })),
       ...scene.added.map((b) => ({ from: rankB.get(b), to: rankB.get(b), b })),
     ];
+    // Words and characters stack just over their own shape.
+    const words = scene.words;
+    if (words) {
+      const above = (rank, token) => rank.get(token.owner) + 0.5;
+      steps.push(
+        ...words.gone.map((a) => ({
+          from: above(rankA, a),
+          to: above(rankA, a),
+          a,
+        })),
+        ...words.pairs.map(([a, b]) => ({
+          from: above(rankA, a),
+          to: above(rankB, b),
+          a,
+          b,
+        })),
+        ...words.added.map((b) => ({
+          from: above(rankB, b),
+          to: above(rankB, b),
+          b,
+        })),
+      );
+    }
     morphSteps.set(scene, steps);
   }
   for (const step of steps) step.at = lerp(step.from, step.to, e);

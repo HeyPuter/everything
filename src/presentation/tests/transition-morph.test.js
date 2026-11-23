@@ -55,6 +55,30 @@ describe("morph stacking", () => {
     const end = morphOrder(scene, 1).filter((s) => s.b);
     expect(end.map((s) => s.b.name)).toEqual(["dot", "green", "red"]);
   });
+  it("keeps words just over their own shape", () => {
+    const text = item("text", "shape"),
+      cover = item("cover", "shape");
+    const text2 = item("text", "shape"),
+      cover2 = item("cover", "shape");
+    const word = (owner) => ({ name: "word", owner });
+    const scene = {
+      A: { items: [text, cover] },
+      B: { items: [text2, cover2] },
+      pairs: [
+        [text, text2],
+        [cover, cover2],
+      ],
+      gone: [],
+      added: [],
+      words: { pairs: [[word(text), word(text2)]], gone: [], added: [] },
+    };
+    for (const e of [0, 0.5, 1])
+      expect(morphOrder(scene, e).map((s) => (s.a ?? s.b).name)).toEqual([
+        "text",
+        "word",
+        "cover",
+      ]);
+  });
 });
 
 describe("morph pairing", () => {
