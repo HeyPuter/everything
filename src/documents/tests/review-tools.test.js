@@ -96,6 +96,17 @@ describe('accessibility rules', () => {
     // Automatic text color is readable on a dark page.
     expect(checkAccessibility({ paragraphs: [para([run('Auto')])], tables: [], pageSettings: { background: '111111' } }).filter(i => i.rule === 'lowContrast')).toEqual([]);
   });
+
+  // A paragraph holding only a page, column or line break was reported as an empty paragraph used for spacing (the
+  // form feed and vertical tab are white space to trim()), and its quick fix joined it to the one before.
+  it('does not take a paragraph holding a break for an empty one', () => {
+    const rules = paragraphs => checkAccessibility({ paragraphs, tables: [] }).map(i => i.rule);
+    expect(rules([para([run('Intro')]), para([]), para([run('\f')]), para([run('\f')]), para([run('\u000e')]), para([run('\v')]), para([run('Next')])])).not.toContain('emptyParagraphs');
+    expect(rules([para([run('Intro')]), para([run(' \t')]), para([]), para([run('Next')])])).toContain('emptyParagraphs');
+    // A row whose cells hold a page break is not a blank row either.
+    const tables = [{ id: 't', rows: [{ header: true, cells: [{ id: 'a' }] }, { cells: [{ id: 'b' }] }] }];
+    expect(checkAccessibility({ paragraphs: [para([run('Head')], { cellId: 'a' }), para([run('\f')], { cellId: 'b' }), para([run('End')])], tables }).map(i => i.rule)).not.toContain('blankRows');
+  });
 });
 
 describe('AI grammar and translation helpers', () => {
