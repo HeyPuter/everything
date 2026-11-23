@@ -2686,7 +2686,9 @@ export function createEditor({
     setStepOff(prevButton, !pageCount || turn(destination) === 0);
     setStepOff(nextButton, !pageCount || turn(destination) >= turn(pageCount - 1));
     editorRoot.setAttribute('aria-busy', String(busy));
-    if (organizer.visible && organizer.busy !== busy) organizer.updateState();
+    // A page chosen elsewhere while organizing (a thumbnail, a find result) moves the grid's mark.
+    if (organizer.visible && (organizer.busy !== busy || organizer.current !== pageIndex))
+      organizer.updateState();
     // The tools pane's commands follow the busy state; redraw only when it changes.
     if (toolsBusy !== busy) {
       toolsBusy = busy;

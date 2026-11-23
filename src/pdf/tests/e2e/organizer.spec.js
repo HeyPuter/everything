@@ -841,3 +841,24 @@ test('Delete on every page in Organize pages says why nothing was deleted', asyn
   await expect(grid.getByRole('option')).toHaveCount(3);
   await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
 });
+
+test('a thumbnail chosen while organizing moves the current-page mark in the grid', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await showPanel(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toHaveClass(/is-current/);
+  await showPanel(page);
+  await page.locator('.thumb-item').nth(2).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 3 of 3');
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toHaveClass(/is-current/);
+  await expect(grid.locator('.is-current')).toHaveCount(1);
+});

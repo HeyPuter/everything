@@ -271,9 +271,11 @@ export function createOrganizeView({
   );
 
   let shownBusy = null,
-    shownSelection = null;
+    shownSelection = null,
+    shownCurrent = null;
   function updateState() {
     shownBusy = isBusy();
+    shownCurrent = currentIndex();
     // Other controls offering the same commands, as the tools pane does, follow the choice.
     const chosen = indices();
     if (visible && chosen.join() !== shownSelection) {
@@ -614,6 +616,10 @@ export function createOrganizeView({
     /** The busy state the controls last showed. */
     get busy() {
       return shownBusy;
+    },
+    /** The page the grid last marked as the current one. */
+    get current() {
+      return shownCurrent;
     },
     show() {
       visible = true;
