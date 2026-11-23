@@ -533,3 +533,29 @@ test("Change Case changes the text of the table cell being worked in", async ({
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => slideSvg(page)).toContain(">quiet words<");
 });
+
+test("a date or a symbol goes in at the caret of the text being edited", async ({
+  page,
+}) => {
+  const editor = await typedBox(page, "Due  ok");
+  await pressKey(page, "ArrowLeft", 3);
+  await (await ribbonButton(page, "Insert", "date-time")).click();
+  const date = page.getByRole("menu").last().getByRole("menuitem").first();
+  const value = (await date.textContent()).trim();
+  await date.click();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveText(`Due ${value} ok`);
+  // The Symbol dialog takes the focus; the symbol still lands at the caret,
+  // after the date.
+  await (await ribbonButton(page, "Insert", "symbol")).click();
+  await page
+    .getByRole("dialog", { name: "Symbol" })
+    .getByRole("button", {
+      name: "©",
+    })
+    .click();
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveText(`Due ${value}© ok`);
+  await page.keyboard.press("Escape");
+  expect(await slideSvg(page)).toContain(`>Due ${value}© ok<`);
+});

@@ -6172,6 +6172,9 @@ const SYMBOLS =
 async function insertSymbol() {
   const obj = currentShape();
   if (!obj || !canEditText(obj)) return;
+  // The dialog takes the focus from text being edited, which is kept; the
+  // symbol then goes in where the caret was, in the text opened again.
+  const caret = editorFor(obj)?.selectionOffsets() || null;
   let chosen = null;
   // One tab stop: the arrow keys move between the symbols (twelve a row, as
   // drawn), Home and End go to the first and the last.
@@ -6226,7 +6229,16 @@ async function insertSymbol() {
     cancel: "Cancel",
     confirm: null,
   });
-  if (chosen) insertTextAtCursor(obj, chosen);
+  if (!chosen) return;
+  if (caret && !richEditor) {
+    await settled();
+    const target = currentShape();
+    if (!target || P.getShapeId(target) !== P.getShapeId(obj)) return;
+    editText(target);
+    richEditor?.setSelection(caret[0], caret[1]);
+    return insertTextAtCursor(target, chosen);
+  }
+  insertTextAtCursor(obj, chosen);
 }
 // Text added to an object: at the cursor while it is edited, otherwise at the
 // end of its text.
@@ -12518,6 +12530,14 @@ function editText(target, event = null, { inserted = null } = {}) {
             .join("")
             .slice(sel[0], sel[1])
         : "";
+    },
+    // Text put in at the caret, or over the selection: a symbol, a date.
+    insertText: (value) => {
+      const sel = selection();
+      if (!sel) return false;
+      replaceRange(sel[0], sel[1], value);
+      refocusSoon([sel[0] + value.length, sel[0] + value.length]);
+      return true;
     },
     // A field put in at the caret, or over the selection.
     insertField: (value, field) => {
