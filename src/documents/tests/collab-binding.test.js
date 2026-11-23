@@ -257,6 +257,21 @@ describe('co-editing binding', () => {
     expect([...hub.doc.getMap('comments').keys()].filter(key => key !== '$part')).toHaveLength(1);
   });
 
+  it('a reply written while its thread is deleted goes with the thread', async () => {
+    const { hub, people: [ann, bob] } = await room('Alpha beta gamma delta');
+    let id;
+    ann.engine.execute(m => { m.select(6, 10); id = m.addComment({ author: 'Ann', text: 'Check beta' }); m.select(17, 22); m.addComment({ author: 'Ann', text: 'Keep' }); });
+    await settle();
+    hub.pause();
+    ann.engine.execute(m => m.deleteComment(id));
+    bob.engine.execute(m => m.replyToComment(id, { author: 'Bob', text: 'Agreed' }));
+    await settle();
+    hub.resume();
+    await settle();
+    for (const person of [ann, bob]) expect(person.engine.session.body.commentList.map(c => c.text)).toEqual(['Keep']);
+    expect([...hub.doc.getMap('comments').keys()].filter(key => key !== '$part')).toHaveLength(1);
+  });
+
   it('drops a comment added on words someone else deleted at the same moment, and keeps an unanchored one it had', async () => {
     const { hub, people: [ann, bob] } = await room('Alpha beta gamma delta');
     // A comment without an anchor from the file (as some files have) stays.

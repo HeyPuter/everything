@@ -462,11 +462,14 @@ export class CollabBinding extends EventTarget {
     if (this.mode !== 'shared' || this.role === 'viewer' || !state.comments?.length) return;
     const ids = new Set(state.comments.map(c => c.id)), anchored = new Set(commentAnchors(state.paragraphs).map(a => a.id));
     const loose = state.comments.filter(c => (!c.parentId || !ids.has(c.parentId)) && !anchored.has(c.id));
-    if (!loose.length) return;
-    // Only a thread this person sees anchored now: whoever had it anchored (the one who added it, the one who edited
-    // it) removes it, and the removal reaches the others.
-    const wasAnchored = new Set(commentAnchors(body.paragraphs).map(a => a.id));
-    const gone = new Set(loose.filter(c => wasAnchored.has(c.id)).flatMap(c => commentThread(state.comments, c.id)));
+    // A reply written while its thread was deleted outlived the thread, as a comment of its own.
+    const had = new Set((body.comments || []).map(c => c.id));
+    const stray = state.comments.filter(c => c.parentId && !ids.has(c.parentId) && had.has(c.parentId));
+    if (!loose.length && !stray.length) return;
+    // Only a thread this person sees anchored now (or whose first comment they had): whoever had it (the one who added
+    // it, the one who edited or answered it) removes it, and the removal reaches the others.
+    const wasAnchored = loose.length ? new Set(commentAnchors(body.paragraphs).map(a => a.id)) : new Set();
+    const gone = new Set([...loose.filter(c => wasAnchored.has(c.id)), ...stray].flatMap(c => commentThread(state.comments, c.id)));
     if (!gone.size) return;
     const map = this.ydoc.getMap('comments');
     this.ydoc.transact(() => { for (const id of gone) if (map.has(String(id))) map.delete(String(id)); }, this.repairOrigin);
