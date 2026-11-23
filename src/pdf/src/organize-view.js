@@ -47,13 +47,17 @@ export function createOrganizeView({
     step: 1,
     value: size,
     'aria-label': 'Page tile size',
-    oninput: () => {
-      sizePicked = true;
-      size = Number(sizeInput.value);
-      grid.style.setProperty('--tile', `${SIZES[size]}px`);
-      rebuild();
-    },
+    oninput: () => setSize(Number(sizeInput.value)),
   });
+  function setSize(next) {
+    sizePicked = true;
+    next = Math.max(0, Math.min(SIZES.length - 1, next));
+    sizeInput.value = next;
+    if (next === size) return;
+    size = next;
+    grid.style.setProperty('--tile', `${SIZES[size]}px`);
+    rebuild();
+  }
   const grid = el('div', {
     class: 'organize-grid',
     role: 'listbox',
@@ -499,6 +503,51 @@ export function createOrganizeView({
     );
     return node;
   }
+
+  // A pinch (Ctrl + wheel, as a trackpad sends it, or two fingers) resizes the tiles as the
+  // slider does. The browser's own magnified the whole application instead, pushing the
+  // toolbar off screen.
+  let wheelDistance = 0,
+    pinch = null;
+  grid.addEventListener(
+    'wheel',
+    (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      wheelDistance += e.deltaMode === 0 ? e.deltaY : e.deltaY * 24;
+      // Pinches arrive as many small deltas; a notch of a mouse wheel as one large one.
+      if (Math.abs(wheelDistance) < 24) return;
+      const direction = wheelDistance < 0 ? 1 : -1;
+      wheelDistance = 0;
+      setSize(size + direction);
+    },
+    { passive: false },
+  );
+  const touchSpan = ([a, b]) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  grid.addEventListener(
+    'touchstart',
+    (e) => {
+      pinch = e.touches.length === 2 ? { span: touchSpan(e.touches) || 1, scale: 1 } : null;
+    },
+    { passive: true },
+  );
+  grid.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      if (e.cancelable) e.preventDefault();
+      pinch.scale = touchSpan(e.touches) / pinch.span;
+    },
+    { passive: false },
+  );
+  grid.addEventListener('touchend', (e) => {
+    if (!pinch || e.touches.length >= 2) return;
+    // One size per step of the slider the fingers spread or closed by (each about a third).
+    const steps = Math.round(Math.log(pinch.scale) / Math.log(1.33));
+    pinch = null;
+    if (steps) setSize(size + steps);
+  });
+  grid.addEventListener('touchcancel', () => (pinch = null));
 
   // The grid is one tab stop, on the tile last focused however it got there (a click too), so
   // Tab leaves the grid and Shift+Tab comes back to the same tile.
