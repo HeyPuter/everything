@@ -5907,10 +5907,12 @@ function tableMenu() {
 }
 function tableInsert(where) {
   const map = {
-    rowAbove: (obj, row) => P.insertTableRow(obj, row),
-    rowBelow: (obj, row) => P.insertTableRow(obj, row + 1),
-    colLeft: (obj, row, col) => P.insertTableColumn(obj, col),
-    colRight: (obj, row, col) => P.insertTableColumn(obj, col + 1),
+    rowAbove: (obj, row) => P.insertTableRow(obj, row, [], { like: row }),
+    rowBelow: (obj, row) => P.insertTableRow(obj, row + 1, [], { like: row }),
+    colLeft: (obj, row, col) =>
+      P.insertTableColumn(obj, col, undefined, { like: col }),
+    colRight: (obj, row, col) =>
+      P.insertTableColumn(obj, col + 1, undefined, { like: col }),
   };
   return tableAction(map[where]);
 }
@@ -14714,9 +14716,10 @@ function editTableCell(target, row, col, { caret = null } = {}) {
         const id = P.getShapeId(obj);
         // The table holds the keyboard until the new row's first cell opens.
         focusTable();
-        tableAction((table) =>
-          P.insertTableRow(table, P.getTableDimensions(table).rows),
-        )?.then((applied) => {
+        tableAction((table) => {
+          const rows = P.getTableDimensions(table).rows;
+          P.insertTableRow(table, rows, [], { like: rows - 1 });
+        })?.then((applied) => {
           const table = currentShape();
           if (!applied || !table || P.getShapeId(table) !== id) return;
           editTableCell(table, P.getTableDimensions(table).rows - 1, 0);
@@ -14814,7 +14817,7 @@ function tableFields(obj) {
         "ArrowUp",
         () =>
           tableAction((obj, row) => {
-            P.insertTableRow(obj, row);
+            P.insertTableRow(obj, row, [], { like: row });
             tableCell = { id: P.getShapeId(obj), row: row + 1, col };
           }),
         "secondary",
@@ -14822,7 +14825,10 @@ function tableFields(obj) {
       button(
         "Row below",
         "ArrowDown",
-        () => tableAction((obj, row) => P.insertTableRow(obj, row + 1)),
+        () =>
+          tableAction((obj, row) =>
+            P.insertTableRow(obj, row + 1, [], { like: row }),
+          ),
         "secondary",
       ),
     ),
@@ -14834,7 +14840,7 @@ function tableFields(obj) {
         "ArrowLeft",
         () =>
           tableAction((obj, row, col) => {
-            P.insertTableColumn(obj, col);
+            P.insertTableColumn(obj, col, undefined, { like: col });
             tableCell = { id: P.getShapeId(obj), row, col: col + 1 };
           }),
         "secondary",
@@ -14842,7 +14848,10 @@ function tableFields(obj) {
       button(
         "Column right",
         "ArrowRight",
-        () => tableAction((obj, row, col) => P.insertTableColumn(obj, col + 1)),
+        () =>
+          tableAction((obj, row, col) =>
+            P.insertTableColumn(obj, col + 1, undefined, { like: col }),
+          ),
         "secondary",
       ),
     ),

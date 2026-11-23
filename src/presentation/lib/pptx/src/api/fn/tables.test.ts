@@ -9,9 +9,11 @@ import {
   getSlides,
   getSlideShapes,
   getTableCellSpan,
+  getTableCellFill,
   getTableCellText,
   getTableCells,
   getTableColumnWidths,
+  getTableRowHeights,
   inches,
   insertTableColumn,
   insertTableRow,
@@ -21,6 +23,9 @@ import {
   removeTableColumn,
   removeTableRow,
   savePresentation,
+  setTableCellFill,
+  setTableCellTextFormat,
+  setTableRowHeight,
 } from "../index.ts";
 import type { SlideShapeData } from "../index.ts";
 import { CELL_ELEMENT } from "../_internal-symbols.ts";
@@ -128,6 +133,93 @@ describe("table rows/columns and merged cells", () => {
     expect(dump(table)).toEqual(["X[rs2] | c", "·[v] | f", "h | i"]);
     removeTableRow(table, 0);
     expect(dump(table)).toEqual(["X | f", "h | i"]);
+  });
+});
+
+describe("rows and columns inserted like a neighbour", () => {
+  // A dark header row of bold white 12 pt text over light 11 pt rows, as a
+  // deck formats a table by hand.
+  const styled = () => {
+    const pres = createPresentation();
+    const table = addSlideTable(addBlankSlide(pres), {
+      x: inches(0),
+      y: inches(0),
+      w: inches(6),
+      h: inches(1.2),
+      rows: [
+        ["H1", "H2", "H3"],
+        ["a", "b", "c"],
+        ["d", "e", "f"],
+      ],
+    });
+    getTableCells(table).forEach((row, r) =>
+      row.forEach((cell) => {
+        setTableCellFill(cell, r ? "DDEBF7" : "1F4E79");
+        setTableCellTextFormat(
+          cell,
+          r
+            ? { size: 11, color: "1F4E79" }
+            : { size: 12, bold: true, color: "FFFFFF" },
+        );
+      }),
+    );
+    setTableRowHeight(table, 2, inches(0.6));
+    return { pres, table };
+  };
+  const look = (table: SlideShapeData, row: number, col: number) => {
+    const cell = getTableCell(table, row, col);
+    const run = getTableCellParagraphs(cell)[0]!.elements[0]!;
+    const format = "format" in run ? run.format : undefined;
+    return {
+      fill: getTableCellFill(cell),
+      size: format?.size,
+      bold: !!format?.bold,
+      color: format?.color,
+    };
+  };
+
+  it("gives a row the look and height of the row it is inserted beside", async () => {
+    const { pres, table } = styled();
+    insertTableRow(table, 3, ["x"], { like: 2 });
+    expect(getTableCellText(getTableCell(table, 3, 0))).toBe("x");
+    for (let c = 0; c < 3; c++)
+      expect(look(table, 3, c)).toEqual({
+        fill: "#DDEBF7",
+        size: 11,
+        bold: false,
+        color: "#1F4E79",
+      });
+    insertTableRow(table, 0, [], { like: 0 });
+    expect(look(table, 0, 1)).toEqual(look(table, 1, 1));
+    expect(getTableCellText(getTableCell(table, 0, 1))).toBe("");
+    const back = await loadPresentation(await savePresentation(pres));
+    const reread = getSlideShapes(getSlides(back)[0]!).find(isTableShape)!;
+    expect(look(reread, 4, 2)).toEqual(look(table, 4, 2));
+    expect(getTableRowHeights(reread)[4]).toBe(inches(0.6));
+    // Text typed into a new, empty cell takes the row's look too.
+    editTableCellText(
+      getTableCell(table, 0, 1),
+      [{ start: 0, end: 0, text: "typed" }],
+      "typed",
+    );
+    expect(look(table, 0, 1)).toEqual(look(table, 1, 1));
+  });
+
+  it("gives a column the look of the column it is inserted beside, row by row", () => {
+    const { table } = styled();
+    insertTableColumn(table, 3, undefined, { like: 2 });
+    expect(look(table, 0, 3)).toEqual(look(table, 0, 2));
+    expect(look(table, 1, 3)).toEqual(look(table, 1, 2));
+    expect(getTableCellText(getTableCell(table, 1, 3))).toBe("");
+  });
+
+  it("takes a covered cell's look from its merge, and stays plain without `like`", () => {
+    const { table } = styled();
+    mergeTableCells(table, { row: 1, col: 0, rowSpan: 2, colSpan: 1 });
+    insertTableRow(table, 3, [], { like: 2 });
+    expect(look(table, 3, 0)).toEqual(look(table, 1, 0));
+    insertTableRow(table, 4);
+    expect(look(table, 4, 0).fill).toBeNull();
   });
 });
 

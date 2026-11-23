@@ -145,6 +145,7 @@ export type {
   PresentationTheme,
   TableCellBorder,
   TableCellBorders,
+  TableInsertOptions,
   PresentationThumbnail,
   ShapeBounds,
   ShapeGeometry,
