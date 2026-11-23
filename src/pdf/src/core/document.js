@@ -70,6 +70,7 @@ import {
   simpleCalculation,
   specialDigits,
   specialFormat,
+  timeOnly,
   typedDate,
   typedNumber,
 } from './form-format.js';
@@ -1777,12 +1778,12 @@ export async function fillFields(doc, values) {
           // The field it is about, for the page to point at it.
           { field: name },
         );
-      // A date field takes a date it can read in its pattern's order, as Acrobat's does.
+      // A date or time field takes one it can read in its pattern's order, as Acrobat's does.
       const pattern = dateFormat(field);
       if (String(value).trim() && pattern && !typedDate(value, pattern))
         throw Object.assign(
           new Error(
-            `Enter a date in ${fieldTooltip(field) || name}, such as ${printedDate(EXAMPLE_DATE, pattern)}.`,
+            `Enter a ${timeOnly(pattern) ? 'time' : 'date'} in ${fieldTooltip(field) || name}, such as ${printedDate(EXAMPLE_DATE, pattern)}.`,
           ),
           { field: name },
         );

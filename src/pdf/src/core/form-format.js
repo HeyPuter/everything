@@ -144,14 +144,27 @@ const datePart = (token) =>
         token[0]
       ] ?? null);
 
-/** The field's date pattern (AFDate_FormatEx, or AFDate_Format's numbered one), or null. */
+/** AFTime_Format's numbered formats. */
+const TIME_FORMATS = ['HH:MM', 'h:MM tt', 'HH:MM:ss', 'h:MM:ss tt'];
+/**
+ * The field's date or time pattern (AFDate_FormatEx and AFTime_FormatEx, or the numbered ones
+ * of AFDate_Format and AFTime_Format), or null.
+ */
 export function dateFormat(field) {
   const script = actionScript(field);
-  const pattern = script.match(/AFDate_FormatEx\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\)/);
+  const pattern = script.match(
+    /AF(?:Date|Time)_FormatEx\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\)/,
+  );
   if (pattern) return jsString(pattern[1]) || null;
-  const numbered = script.match(/AFDate_Format\(\s*(\d+)\s*\)/);
-  return (numbered && DATE_FORMATS[numbered[1]]) || null;
+  const numbered = script.match(/AF(Date|Time)_Format\(\s*(\d+)\s*\)/);
+  return (numbered && (numbered[1] === 'Date' ? DATE_FORMATS : TIME_FORMATS)[numbered[2]]) || null;
 }
+
+/** Whether a date pattern writes a time alone, such as h:MM tt. */
+export const timeOnly = (pattern) =>
+  !pattern
+    .split(DATE_TOKEN)
+    .some((token, i) => i % 2 && ['year', 'month', 'day'].includes(datePart(token)));
 
 /**
  * The date typed, read in the order the pattern gives its parts (3/15/26 for mm/dd/yyyy,

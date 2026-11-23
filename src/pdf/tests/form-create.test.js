@@ -632,6 +632,40 @@ it('takes dates in a date field, and shows them as its pattern writes them', asy
   expect(text).toEqual(['07/04/1976', '01-Mar-2026', '3/15/26 2:05 pm']);
 });
 
+it('takes times in a time field, and shows them as its pattern writes them', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  const scripts = { Start: 'AFTime_Format(1);', End: 'AFTime_FormatEx("HH:MM");' };
+  for (const [i, [fieldName, script]] of Object.entries(scripts).entries()) {
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+    });
+    doc
+      .getForm()
+      .getTextField(fieldName)
+      .acroField.dict.set(
+        name('AA'),
+        doc.context.obj({ F: { S: 'JavaScript', JS: PDFHexString.fromText(script) } }),
+      );
+  }
+  for (const value of ['soon', '25:00', '9:75', '13:00 pm'])
+    await expect(fillFields(doc, { Start: value })).rejects.toThrow(
+      'Enter a time in Start, such as 2:30 pm.',
+    );
+  await expect(fillFields(doc, { End: 'noon' })).rejects.toThrow(
+    'Enter a time in End, such as 14:30.',
+  );
+  await fillFields(doc, { Start: '9:05am', End: '7:5 pm' });
+  expect(listFields(doc).map((field) => field.value)).toEqual(['9:05am', '7:5 pm']);
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str),
+  );
+  expect(text).toEqual(['9:05 am', '19:05']);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>
