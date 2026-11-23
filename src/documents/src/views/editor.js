@@ -77,6 +77,7 @@ import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
 import { createProofing } from './proofing.js';
 import { keyboardShortcuts } from './keyboard-shortcuts.js';
+import { attachFormatAnnouncer } from './format-announcer.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { createFormatArea } from './format-area.js';
 import { createEditCommands } from './edit-commands.js';
@@ -1515,6 +1516,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     return null;
   };
   // The paragraph and navigation chords run before the engine's own keys (Alt+Shift+Up moves a paragraph).
+  // Screen readers hear what a formatting key did (Bold on, Centered, Heading 1).
+  attachFormatAnnouncer(root, () => engine);
   root.addEventListener('keydown', keyboardShortcuts({ editor: () => engine, pkg: () => pkg,
     applyStyleLevel: level => { const style = !paragraphStyle.disabled && styleForLevel(level); if (style) engine?.setParagraphStyle(style.id); },
     focusFont: () => fontFamily.click(), focusSize: () => { fontSize.focus(); fontSize.select(); } }), true);

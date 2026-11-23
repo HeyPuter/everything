@@ -6,7 +6,7 @@ import { Doc, versioning, needsUnloadWarning } from '../src/lib/doc.js';
 // Booting the whole app shell can exceed the default timeout on a loaded machine.
 vi.setConfig({ testTimeout: 60000 });
 
-vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn(() => ({ dismiss() {} })) }));
+vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn(() => ({ dismiss() {} })), announce: vi.fn() }));
 vi.mock('../src/lib/engine.js', () => ({ loadEngine: async () => { throw new Error('engine unavailable'); } }));
 
 let view;

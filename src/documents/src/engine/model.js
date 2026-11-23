@@ -589,6 +589,7 @@ export class TextDocument {
     const targets = this.selectedParagraphs.map(p => { const format = paragraphFormat(p, this.numbering); return { p, from: format.alignment, to: physicalAlignment(side, format.bidi) }; }).filter(t => t.from !== t.to);
     if (!targets.length) return false;
     this.checkpoint();
+    this.formatChanges?.push({ paragraph: { alignment: side } });
     for (const { p, to } of targets) {
       p.format = { ...PARAGRAPH_FORMAT, ...p.format, alignment: to };
       p.formatOverrides = { ...p.formatOverrides, alignment: to };
@@ -686,6 +687,7 @@ export class TextDocument {
     }
     if (targets.every(p => !['Before', 'After'].some(side => Object.hasOwn(patch, 'space' + side) && p.format?.['autoSpace' + side]) && Object.entries(patch).every(([key, value]) => key === 'paragraphBorders' ? Object.entries(value).every(([side, border]) => sameValue(paragraphFormat(p, this.numbering).paragraphBorders[side], border)) : sameValue(paragraphFormat(p, this.numbering)[key], value)))) return false;
     this.checkpoint();
+    this.formatChanges?.push({ paragraph: patch });
     for (const p of targets) {
       const borders = patch.paragraphBorders && { ...p.format?.paragraphBorders, ...copy(patch.paragraphBorders) };
       const borderOverrides = patch.paragraphBorders && { ...p.formatOverrides?.paragraphBorders, ...copy(patch.paragraphBorders) };
@@ -725,6 +727,7 @@ export class TextDocument {
     const values = current.map(value => validateIndent(delta < 0 ? Math.max(Math.min(value, 0), value + delta) : value + delta));
     if (!delta || values.every((value, i) => value === current[i])) return false;
     this.checkpoint();
+    this.formatChanges?.push({ paragraph: { indentLeft: values[0] } });
     targets.forEach((p, i) => {
       p.format = { ...PARAGRAPH_FORMAT, ...p.format, indentLeft: values[i] };
       p.formatOverrides = { ...p.formatOverrides, indentLeft: values[i] };
@@ -746,6 +749,7 @@ export class TextDocument {
     if (targets.every(p => effective(p.styleId || '') === effective(id || ''))) return false;
     const next = targets.map(p => resolveStyledParagraph({ ...copy(p), styleId: id || null, styleChanged: true }, this.styles, this.numbering));
     this.checkpoint(); targets.forEach((p, i) => Object.assign(p, next[i]));
+    this.formatChanges?.push({ style: id || normal });
     this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false; this.stylesEnabled = true; this.didChange(); return true;
   }
   editParagraphStyle(id, patch) { return this.editNamedStyle(id, patch, 'paragraph'); }
@@ -784,6 +788,7 @@ export class TextDocument {
     }
     const targets = this.selectedParagraphs, remove = cells ? cells.remove : this.listFormatting === kind;
     this.checkpoint();
+    this.formatChanges?.push({ list: remove ? null : kind });
     let numId = cells?.numId;
     if (!remove && !numId) {
       // The selected paragraphs start at the range's start (selectedParagraphs).
@@ -2300,9 +2305,11 @@ export class TextDocument {
     }
     if (start === end && this.paragraphs[locate(this.paragraphs, start).index].runs.length) {
       this.typingFormat = { ...this.typingFormat, ...patch };
+      this.formatChanges?.push({ run: patch });
       return false;
     }
     this.checkpoint();
+    this.formatChanges?.push({ run: patch });
     // Paragraphs before the one holding the start, and after the end, are left as they are.
     const first = this.locate(start);
     let at = start - first.offset;
