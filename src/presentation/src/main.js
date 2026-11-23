@@ -803,7 +803,10 @@ async function shortcutsDialog() {
           "Tab / Shift + Tab in the outline",
           "Move a line down or up a level; a title becomes a paragraph",
         ],
-        ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
+        [
+          "Alt + arrow keys in the slide sorter or the thumbnails pane",
+          "Move the selected slides",
+        ],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
         [
@@ -17638,6 +17641,42 @@ document.addEventListener("keydown", (e) => {
         (s) => P.getSlidePartName(s) === row.dataset.slidePart,
       );
     deleteSlides(focused ? actionSlides(focused) : selectedSlides());
+    return;
+  }
+  // Alt with an arrow moves the focused slide, or the selection it is part
+  // of, one place along the navigator, as in the Slide Sorter.
+  if (
+    inNavigator &&
+    e.altKey &&
+    !mod &&
+    !e.shiftKey &&
+    !masterView.active &&
+    ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)
+  ) {
+    e.preventDefault();
+    const row = e.target.closest(".slide-item");
+    const focused =
+      (row &&
+        P.getSlides(doc.pres).find(
+          (s) => P.getSlidePartName(s) === row.dataset.slidePart,
+        )) ||
+      slide();
+    const part = P.getSlidePartName(focused);
+    const current = P.getSlidePartName(slide());
+    const group = actionSlides(focused);
+    moveSlides(
+      group,
+      ["ArrowUp", "ArrowLeft"].includes(e.key) ? -1 : 1,
+      group.some((s) => P.getSlidePartName(s) === current)
+        ? [current, part]
+        : [part],
+    ).then(() =>
+      document
+        .querySelector(
+          `#slide-list [data-slide-part="${CSS.escape(part)}"] .slide-thumb`,
+        )
+        ?.focus(),
+    );
     return;
   }
   // In the navigator the arrows step along the slides from the focused
