@@ -164,7 +164,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * untracked (a citation's bibliography refresh). `settings`: the action also writes settings the step takes back
    * (the citation sources and style).
    */
-  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false, stay = null, after = null, settings = false } = {}) {
+  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false, stay = null, after = null, settings = false, pageFields = false } = {}) {
     const engine = ready(); if (!engine) return false;
     engine.finishComposition();
     const [refreshModule, ...loaded] = await Promise.all([import('../engine/page-reference-refresh.js'), ...modules.map(name => ENGINE[name]())]);
@@ -192,7 +192,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
           // tracking locked it could not be inserted at all.
           if (before !== null) body.trackInsertion(before, fields);
           after?.(body, ...loaded);
-          if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
+          if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null, pageFields });
           return result;
         }, undefined, settings ? { settings: true } : undefined);
       } finally {
@@ -238,12 +238,13 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       const [{ updateSequenceFields }, { updateStoryFields, fieldEvaluationContext }] = await Promise.all([import('../engine/field-update.js'), import('../engine/field-results.js')]);
       const issues = [], notesMaps = await noteNumberMaps(), citationsUpdate = await citations.refreshAction();
       // Pressed in a header, footer or note, F9 updates the body's fields and stays there (runBody's `stay`): it
-      // used to leave the caret at the start of the body, and keys typed while it worked went into the body.
+      // used to leave the caret at the start of the body, and keys typed while it worked went into the body. PAGE
+      // fields in the text take the number of the page they are now on (`pageFields`), as page references do.
       await runBody((body, fields) => {
         updateSequenceFields(body, { onIssue: issue => issues.push(issue), notes: notesMaps });
         citationsUpdate?.(body, fields);
         return true;
-      }, { modules: ['bibliography'], stay: open => {
+      }, { modules: ['bibliography'], pageFields: true, stay: open => {
         // The header's or footer's own fields (DATE, FILENAME…) update too; page numbers there follow pagination.
         if (!open.model.paragraphs.some(p => p.runs.some(r => r.field))) return;
         const { anchor, focus } = open.model.selection;

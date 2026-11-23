@@ -25047,3 +25047,15 @@ type), as Word writes it when a page color is chosen. Without it Word does not s
 Layout, so the color chosen here appeared only in this editor. Removing the color leaves the settings as they
 are; an unchanged color writes nothing. Tests: `tests/canvas-page-background.test.js` (new package, existing
 settings part, removal); exports pass `tools/check-docx-schema.py`.
+
+## PAGE fields in the text on Update Fields (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §17.16.5.44 `PAGE`, §17.16.4.3 general formatting switch, §17.6.12 `pgNumType`.
+
+Update Fields (F9, Tools > Update Fields, Update Field) now gives a PAGE field in the body the number of the page
+it is on, formatted as its section numbers pages (`w:fmt`, `w:start`) unless its own `\*` or `\#` switch says
+otherwise, as page references (PAGEREF) are refreshed. Before, it kept the number of the page it was inserted on,
+while NUMPAGES beside it updated ("Page 1 of 3" on page 2). Locked fields and PAGE fields nested in another field
+keep their results; inserting a table of contents or a cross-reference still refreshes page references only.
+Tests: `tests/body-page-field-refresh.test.js` (Roman numbering from ii, `\* Arabic`, a locked field, save and
+reopen, undo).
