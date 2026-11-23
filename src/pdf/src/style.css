@@ -2742,6 +2742,26 @@ kbd {
 .form-widget.has-draft {
   outline-color: var(--brand);
 }
+/* A filled-in field with a format (an amount, a date) shows its value formatted, as the page
+   will draw it, while another field has the focus. */
+.form-shown {
+  display: none;
+}
+.form-widget.has-draft.is-formatted:not(:focus-within) .form-control {
+  color: transparent;
+}
+.form-widget.has-draft.is-formatted:not(:focus-within) .form-shown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 1px 2px;
+  overflow: hidden;
+  font: var(--field-font-size) / 1.2 sans-serif;
+  white-space: pre;
+  color: var(--field-ink);
+  pointer-events: none;
+}
 /* The field an error above the page is about. */
 .form-widget:has(.form-control[aria-invalid='true']),
 .form-widget:has(.form-control[aria-invalid='true']):focus-within {

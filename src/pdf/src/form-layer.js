@@ -1,5 +1,6 @@
 import { el } from './lib/ui.js';
 import { FormDraft, formWidgets, formWidgetLayout, tabOrderedWidgets } from './core/form-draft.js';
+import { formattedText } from './core/form-format.js';
 
 /** Buttons and signature fields hold no value to fill in. */
 const hasValue = (widget) => widget.type !== 'button' && widget.type !== 'signature';
@@ -22,6 +23,8 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
   });
   // Comb controls realign their boxes when their value changes.
   const combs = new WeakMap();
+  // A formatted field's value as its format shows it, while another field has the focus.
+  const shownValues = new WeakMap();
   let widgets = [],
     controls = new Map(),
     key,
@@ -95,6 +98,12 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
           control.value = text;
           combs.get(control)?.();
         }
+      }
+      const shown = shownValues.get(control);
+      if (shown) {
+        const text = formattedText(value, widget.format);
+        shown.textContent = text === value ? '' : text;
+        shown.parentElement.classList.toggle('is-formatted', text !== value);
       }
       control.closest('.form-widget').classList.toggle('has-draft', draft.changes.has(widget.name));
       control.setAttribute('aria-invalid', String(!error.hidden && isInvalid(widget)));
@@ -329,6 +338,13 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
         align();
         control.addEventListener('input', align);
         combs.set(control, align);
+      }
+      if (widget.format && !widget.comb && !widget.multiline && !widget.password) {
+        const shown = el('span', { class: 'form-shown', 'aria-hidden': 'true' });
+        shown.style.justifyContent =
+          { center: 'center', right: 'flex-end' }[widget.alignment] ?? '';
+        container.append(shown);
+        shownValues.set(control, shown);
       }
       if (widget.type === 'choice' && widget.editableChoice) {
         const id = `form-options-${widget.id}`;

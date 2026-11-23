@@ -36,8 +36,9 @@ function actionScript(field, key = 'F') {
 }
 
 /** The field's number format, or null when it has none. */
-export function numberFormat(field) {
-  const script = actionScript(field);
+export const numberFormat = (field) => numberFormatOf(actionScript(field));
+/** The number format a format script writes values in, or null. */
+export function numberFormatOf(script) {
   const number = script.match(
     /AFNumber_Format\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*\d+\s*,\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*,\s*(true|false)/,
   );
@@ -82,8 +83,10 @@ const SPECIAL_PATTERNS = {
 };
 
 /** The field's special format (ZIP Code, ZIP+4, phone, or Social Security number), or null. */
-export function specialFormat(field) {
-  const match = actionScript(field).match(/AFSpecial_Format\(\s*([0-3])\s*\)/);
+export const specialFormat = (field) => specialFormatOf(actionScript(field));
+/** The special format a format script writes values in, or null. */
+export function specialFormatOf(script) {
+  const match = script.match(/AFSpecial_Format\(\s*([0-3])\s*\)/);
   return match ? { ...SPECIAL[match[1]], style: Number(match[1]) } : null;
 }
 
@@ -270,10 +273,12 @@ export function formattedDate(text, pattern) {
 }
 
 /** The value as the field's number, date, or special format shows it. */
-export const formattedValue = (text, field) =>
+export const formattedValue = (text, field) => formattedText(text, actionScript(field));
+/** The value as a format script (AFNumber_Format and the like, read as data) shows it. */
+export const formattedText = (text, script) =>
   formattedSpecial(
-    formattedDate(formattedNumber(text, numberFormat(field)), dateFormat(field)),
-    specialFormat(field),
+    formattedDate(formattedNumber(text, numberFormatOf(script)), datePattern(script)),
+    specialFormatOf(script),
   );
 
 /**

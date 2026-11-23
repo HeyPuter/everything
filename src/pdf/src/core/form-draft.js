@@ -251,6 +251,9 @@ export function formWidgets(
         buttonLabel: type === 'radio' ? a.buttonValue : undefined,
         exportValue: a.checkBox ? a.exportValue : undefined,
         editableChoice,
+        // The format script, read as data: the value shows formatted while another field has
+        // the focus.
+        format: type === 'text' ? actionScripts(a, 'Format') || undefined : undefined,
         // A date or time field shows its pattern while empty: mm/dd/yyyy.
         placeholder:
           type === 'text' ? datePattern(actionScripts(a, 'Format')) || undefined : undefined,
