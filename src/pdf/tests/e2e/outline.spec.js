@@ -859,3 +859,30 @@ test("a bookmark added from a thumbnail's menu leaves the focus on the Outline t
     page.getByRole('tree', { name: 'Document outline' }).getByRole('treeitem', { name: 'Page 2' }),
   ).toBeVisible();
 });
+
+test('the Outline panel opened again shows the bookmark of the page reached meanwhile', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 60; i++) doc.addPage([400, 400]);
+  addOutline(
+    doc,
+    Array.from({ length: 60 }, (_, i) => ({ title: `Section ${i + 1}`, page: i })),
+  );
+  await openPdf(page, doc);
+  await showPanel(page);
+  await page.getByRole('tab', { name: 'Outline' }).click();
+  await expect(page.getByRole('treeitem', { name: 'Section 1', exact: true })).toBeInViewport();
+  await page.getByRole('button', { name: 'Toggle pages panel' }).click();
+  await expect(page.locator('#page-sidebar')).toBeHidden();
+  const input = page.getByLabel('Page number', { exact: true });
+  await input.fill('55');
+  await input.press('Enter');
+  await expect(page.locator('.page-caption')).toHaveText('Page 55 of 60');
+  await page.getByRole('button', { name: 'Toggle pages panel' }).click();
+  const current = page.getByRole('treeitem', { name: 'Section 55', exact: true });
+  await expect(current).toHaveAttribute('aria-current', 'page');
+  await expect(current).toBeInViewport();
+});

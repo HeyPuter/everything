@@ -3491,8 +3491,10 @@ export function createEditor({
     // A control inside a panel that just closed would leave focus on nothing; hand it back to
     // the toggle that opens the panel again.
     if (!show && hadFocus) pagesButton.focus({ preventScroll: true });
-    // A hidden panel could not scroll, so an opening one catches up with the current page.
-    if (show) revealThumbnail();
+    // A hidden panel could not scroll, so an opening one catches up with the current page:
+    // its thumbnail, or its bookmark when the Outline tab is the one open.
+    if (show && sidebarTab === 'outline') outline.setCurrent(pageIndex, { reveal: true });
+    else if (show) revealThumbnail();
     snapPaper();
     // Only a fit-width page whose workspace changed size needs another render: on narrow
     // screens the panel overlays the page, and a fixed zoom keeps its geometry either way.
