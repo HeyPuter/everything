@@ -14,6 +14,10 @@ import { createCitationCommands } from './references-citations.js';
 import { createIndexCommands } from './references-index.js';
 import { createSmartLookup } from './smart-lookup.js';
 import { check, field, openDialog, select, text } from './references-ui.js';
+// Both are in the editor's own bundle already: a header or footer opens without waiting, so keys typed right after
+// choosing one go into it, not the body.
+import { TextDocument, paragraph } from '../engine/model.js';
+import { pageNumberSequence } from '../engine/page-numbering.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -47,23 +51,25 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * Which header/footer variant a page shows: first, even or default (§17.10.5). Even and odd go by the
    * page's number, as layout chooses them: a section numbered from 2 shows its even story on its first sheet.
    */
-  async function variantFor(engine, page) {
+  function variantFor(engine, page) {
     const definition = engine.pageStories, section = engine.sectionOfPage(page), layout = engine.layout;
     const firstPage = layout.pageSections?.indexOf(section) ?? 0;
     if (page === firstPage && definition?.sections[section]?.firstPageDifferent) return 'first';
     if (!definition?.evenAndOdd) return 'default';
-    const { pageNumberSequence } = await import('../engine/page-numbering.js');
     const number = pageNumberSequence(layout.pageSections || [], definition, layout.numberingApproximations)[page] ?? page + 1;
     return number % 2 === 0 ? 'even' : 'default';
   }
   const currentPage = engine => engine.session.path !== null ? engine.storyPage ?? 0 : engine.caretPageIndex ?? 0;
 
-  /** The editable header/footer story of `kind` for the current page, creating it (in the right variant) when missing. */
+  /**
+   * The editable header/footer story of `kind` for the current page, creating it (in the right variant) when missing.
+   * It opens before this returns, with nothing awaited first, so a key pressed right after goes into it.
+   */
   async function story(kind, page = null) {
     const engine = ready(); if (!engine) return null;
     engine.finishComposition();
     page ??= currentPage(engine);
-    const section = engine.sectionOfPage(page), variant = await variantFor(engine, page);
+    const section = engine.sectionOfPage(page), variant = variantFor(engine, page);
     const existing = engine.pageStories?.sections[section]?.[kind]?.[variant];
     if (existing) {
       if (!engine.pageStories.stories[existing]?.editable) throw new Error(`This document's ${kind} cannot be edited yet.`);
@@ -71,7 +77,6 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     }
     unprotected(`its ${kind}s`); trackableStories();
     unshared(`New ${kind}s`);
-    const { TextDocument, paragraph } = await import('../engine/model.js');
     const body = engine.session.body;
     const styleId = Object.values(body.styles.definitions || {}).find(s => s.type === 'paragraph' && s.name?.toLowerCase() === kind)?.id;
     const draft = new TextDocument([paragraph('', styleId ? { styleId } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
