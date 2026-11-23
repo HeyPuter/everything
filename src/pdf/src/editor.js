@@ -12,7 +12,7 @@ import { textPositionControls } from './text-position.js';
 import { placeTextCaret } from './text-caret.js';
 import { textWidthControls } from './text-width.js';
 import { createFormLayer } from './form-layer.js';
-import { choiceInputOptions } from './core/form-draft.js';
+import { choiceInputOptions, structureAnnotations } from './core/form-draft.js';
 import { createImageLayer } from './image-layer.js';
 import { createPropertiesPanel } from './properties-panel.js';
 import { createToolsPanel } from './shell/tools-panel.js';
@@ -3024,13 +3024,18 @@ export function createEditor({
       // The page's tab order (/Tabs), which PDF.js does not report, for a page with fields to
       // visit. The document is loaded already to edit in Select; a form that may only be
       // filled in is read for it.
-      let tabs;
+      let tabs, structureOrder;
       if (annotations.filter((a) => a.fieldName && a.fieldType !== 'Sig').length > 1) {
         const doc =
           editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         tabs = doc.getPage(pageIndex).node.lookup(PDFName.of('Tabs'))?.asString?.().slice(1);
+        // In structure order (/Tabs /S), fields are visited as the tags read them.
+        if (tabs === 'S') {
+          structureOrder = structureAnnotations(await page.getStructTree().catch(() => null));
+          if (token !== pageRenderGeneration || destroyed) return;
+        }
       }
       pageForms.render(
         annotations,
@@ -3042,6 +3047,7 @@ export function createEditor({
         radioChoices,
         listSelections,
         tabs,
+        structureOrder,
       );
       pageForms.setBusy(busy || !pageReady || !access().fill);
       pageForms.setEnabled(tool === 'select' && !preparing);

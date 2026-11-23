@@ -267,6 +267,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
     radioChoices,
     listSelections,
     tabs,
+    structureOrder,
   ) {
     rememberFocus();
     if (key !== pageKey) {
@@ -279,6 +280,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut, onAction }) {
       formWidgets(annotations, layers, buttonSelections, tooltips, radioChoices, listSelections),
       viewport.transform,
       tabs,
+      structureOrder,
     );
     draft.register(widgets.filter(hasValue));
     controls = new Map();

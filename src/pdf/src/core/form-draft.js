@@ -270,12 +270,37 @@ export function formWidgets(
 }
 
 /**
- * The widgets in the page's tab order: by rows (/Tabs /R: left to right, rows top to bottom)
- * or by columns (/C: top to bottom, columns left to right) as the page is shown; any other
- * order is the annotation order they come in. Boxes whose middles fall within the first box of
- * a row or column share it.
+ * The annotations a page's structure tree (PDF.js's getStructTree) tags, by their ids, in the
+ * order the tags read.
  */
-export function tabOrderedWidgets(widgets, viewportTransform, tabs) {
+export function structureAnnotations(tree) {
+  const ids = [];
+  const visit = (node, depth = 0) => {
+    if (!node || depth > 256) return;
+    if (node.type === 'annotation' && typeof node.id === 'string')
+      ids.push(node.id.replace(/^pdfjs_internal_id_/, ''));
+    for (const child of node.children ?? []) visit(child, depth + 1);
+  };
+  visit(tree);
+  return ids;
+}
+
+/**
+ * The widgets in the page's tab order: by rows (/Tabs /R: left to right, rows top to bottom)
+ * or by columns (/C: top to bottom, columns left to right) as the page is shown, or by
+ * structure (/S) in the order the page's tags read them (`structureOrder`, annotation ids),
+ * untagged ones after them; any other order is the annotation order they come in. Boxes whose
+ * middles fall within the first box of a row or column share it.
+ */
+export function tabOrderedWidgets(widgets, viewportTransform, tabs, structureOrder) {
+  if (tabs === 'S' && structureOrder?.length) {
+    const rank = new Map();
+    structureOrder.forEach((id, i) => rank.has(id) || rank.set(id, i));
+    return widgets
+      .map((widget, i) => ({ widget, key: rank.get(widget.id) ?? structureOrder.length + i }))
+      .sort((p, q) => p.key - q.key)
+      .map(({ widget }) => widget);
+  }
   if (tabs !== 'R' && tabs !== 'C') return widgets;
   const [a, b, c, d, e, f] = viewportTransform;
   const along = tabs === 'R' ? 'top' : 'left',

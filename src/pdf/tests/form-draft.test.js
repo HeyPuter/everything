@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { FormDraft, formWidgets, formWidgetLayout } from '../src/core/form-draft.js';
+import {
+  FormDraft,
+  formWidgets,
+  formWidgetLayout,
+  structureAnnotations,
+  tabOrderedWidgets,
+} from '../src/core/form-draft.js';
 
 for (const [allowCustom, multiple] of [
   [true, false],
@@ -289,5 +295,35 @@ it('shows a date or time field’s pattern while it is empty', () => {
     'dd.mm.yyyy',
     'h:MM tt',
     undefined,
+  ]);
+});
+
+it('orders widgets by structure for /Tabs /S, untagged ones after the tagged', () => {
+  const widget = (id) => ({ id, rect: [0, 0, 10, 10] });
+  const widgets = ['1R', '2R', '3R', '4R'].map(widget);
+  const tree = {
+    children: [
+      { role: 'Form', children: [{ type: 'annotation', id: 'pdfjs_internal_id_3R' }] },
+      {
+        role: 'Form',
+        children: [
+          { type: 'annotation', id: 'pdfjs_internal_id_1R' },
+          { type: 'content', id: 'p1_mc0' },
+        ],
+      },
+      { role: 'Form', children: [{ type: 'annotation', id: 'pdfjs_internal_id_3R' }] },
+    ],
+  };
+  const order = structureAnnotations(tree);
+  expect(order).toEqual(['3R', '1R', '3R']);
+  const ids = (tabs) =>
+    tabOrderedWidgets(widgets, [1, 0, 0, 1, 0, 0], tabs, order).map((w) => w.id);
+  expect(ids('S')).toEqual(['3R', '1R', '2R', '4R']);
+  // Without tags, the annotation order.
+  expect(tabOrderedWidgets(widgets, [1, 0, 0, 1, 0, 0], 'S', []).map((w) => w.id)).toEqual([
+    '1R',
+    '2R',
+    '3R',
+    '4R',
   ]);
 });
