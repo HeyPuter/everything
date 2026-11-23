@@ -314,8 +314,9 @@ export const EFFECTS_GL = {
     const { q, o } = g;
     flat(g, g.B);
     const aspect = g.gl.aspect;
-    const sign = o.invertX ? 1 : -1;
-    // The page curls in from the trailing edge, slightly askew, and rolls off.
+    // Left (as Double Left) turns the page toward the left: it lifts at the
+    // right edge, slightly askew, and rolls off.
+    const sign = o.invertX ? -1 : 1;
     const tilt = 0.18;
     const d = [-sign * Math.cos(tilt), Math.sin(tilt)];
     const e = easeInOut(q);
