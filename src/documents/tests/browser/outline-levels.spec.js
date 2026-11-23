@@ -55,7 +55,7 @@ test('navigates imported outline levels across pages and tables, edits inheritan
   expectBodyEditParts(output, original, ['word/document.xml', 'word/styles.xml']);
   await reopenDocx(page, input, saved, text); await onTab(page, 'view'); await outline.click();
   await expect(outlines(page).getByRole('treeitem', { name: /^Level 1: Revised Later heading/ })).toBeVisible();
-  await expect(outlines(page).getByRole('treeitem', { name: /^Level 9: Numbered heading/ })).toHaveCount(1); await close(page); expect(errors).toEqual([]);
+  await expect(outlines(page).getByRole('treeitem', { name: /^Level 9: 1\. Numbered heading/ })).toHaveCount(1); await close(page); expect(errors).toEqual([]);
 });
 
 test('authors heading styles, direct levels and empty headings with keyboard navigation and undo', async ({ page }, testInfo) => {

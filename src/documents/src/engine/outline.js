@@ -1,4 +1,5 @@
 // Outline entries are a projection of source paragraphs, never additional text.
+import { listMarkers } from './numbering.js';
 // The OOXML levels 0–8 become user-facing levels 1–9; 9 is ordinary body text.
 export const builtinOutlineLevel = id => /^Heading[1-9]$/.test(id || '') ? Number(id.slice(-1)) - 1 : null;
 
@@ -15,3 +16,23 @@ export function outlineEntries(paragraphs) {
     return level < 9 ? [entry] : [];
   });
 }
+
+/**
+ * The number each numbered heading shows ("2.1", "Chapter 3."), by paragraph id, as headings lists (the Navigation
+ * pane, Go To, Cross-reference) show it before the heading's text, as the table of contents does. Bullets and
+ * suppressed numbers have none. The numbers are counted once for the whole list, and only when a heading is in a list.
+ */
+export function headingNumbers(paragraphs, numbering) {
+  const numbers = new Map();
+  const heading = p => !p.cellId && (p.format?.outlineLevel ?? 9) < 9;
+  if (!paragraphs.some(p => p.list && heading(p))) return numbers;
+  let markers;
+  try { markers = listMarkers(paragraphs, numbering); } catch { return numbers; }
+  paragraphs.forEach((p, i) => {
+    const marker = markers[i];
+    if (heading(p) && marker?.text && !marker.suppressed && marker.level?.format !== 'bullet') numbers.set(p.id, marker.text.trim());
+  });
+  return numbers;
+}
+/** An outline entry's text with its heading number in front ("2.1 Methods"). */
+export const numberedHeading = (entry, numbers) => numbers.has(entry.id) ? `${numbers.get(entry.id)} ${entry.text}` : entry.text;

@@ -59,6 +59,7 @@ import { paintPagePictureBackground } from './canvas-page-background.js';
 import { setDarkPage } from './canvas-dark-page.js';
 import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, usesScreenGeometry } from './document-views.js';
 import { pageLookup } from './page-lookup.js';
+import { headingNumbers, numberedHeading } from './outline.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects, selectionRectFinder } from './layout.js';
 import { refreshPageReferences } from './page-reference-refresh.js';
 import { positionedImageBounds, drawingOwnRotation } from './positioned-images.js';
@@ -668,7 +669,11 @@ export class CanvasEditor {
   createCharacterStyle(name, basedOn) { return this.execute(() => this.model.createCharacterStyle(name, basedOn)); }
   setParagraphStyle(id) { this.execute(() => this.model.setParagraphStyle(id)); this.focus(); }
   setOutlineLevel(value) { this.execute(() => this.model.setOutlineLevel(value)); this.focus(); }
-  get outline() { return this.model.outline.map(entry => ({ ...entry, page: lineAtPosition(this.selectionLayout, entry.start, 'forward').page + 1 })); }
+  get outline() {
+    // Numbered headings show their numbers ("2.1 Methods"), counted once for the whole list.
+    const numbers = headingNumbers(this.model.paragraphs, this.model.numbering);
+    return this.model.outline.map(entry => ({ ...entry, text: numberedHeading(entry, numbers), page: lineAtPosition(this.selectionLayout, entry.start, 'forward').page + 1 }));
+  }
   goToParagraph(id) {
     this.finishComposition();
     const index = this.model.paragraphs.findIndex(p => p.id === id); if (index < 0) return false;

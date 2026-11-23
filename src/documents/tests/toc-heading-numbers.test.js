@@ -61,3 +61,15 @@ it('starts the entries of numbered headings with their numbers, as Word lists th
   const rebuilt = tableOfContents(d.paragraphs);
   expect(d.paragraphs.slice(rebuilt.first, rebuilt.last + 1).map(paragraphText).slice(0, 3)).toEqual(['I.\tBackground\t1', 'II.\tIntroduction\t1', '2.1\tScope\t1']);
 });
+
+// The Navigation pane, Go To and Cross-reference listed numbered headings without their numbers ("Scope" for "1.1 Scope").
+it('gives the heading lists the numbers the headings show', async () => {
+  const { headingNumbers, numberedHeading } = await import('../src/engine/outline.js');
+  const { referenceTargets } = await import('../src/engine/captions.js');
+  const { d } = await open(source());
+  const numbers = headingNumbers(d.paragraphs, d.numbering);
+  expect(d.outline.map(entry => numberedHeading(entry, numbers))).toEqual(['I. Introduction', '1.1 Scope', '(1) Detail', 'Plain heading', 'II. Methods', 'Bulleted']);
+  expect(referenceTargets(d).headings.map(h => h.label)).toEqual(['I. Introduction', '1.1 Scope', '(1) Detail', 'Plain heading', 'II. Methods', 'Bulleted']);
+  // A document with no numbered headings counts nothing.
+  expect(headingNumbers(d.paragraphs.filter(p => !p.list), d.numbering).size).toBe(0);
+});

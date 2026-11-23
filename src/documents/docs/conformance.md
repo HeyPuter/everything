@@ -25106,3 +25106,12 @@ opens read-only: its text boxes hold a hyperlink and decorated runs, which the e
 reads on ungrouped pictures only. Update: a picture's drop shadow is now written as its own `a:outerShdw` (§20.1.8.49)
 with its blur, beside its glow, reflection and soft edges, rather than a shadow-colored copy grouped with it, so
 `SimplePicture.hwpx` opens for editing; a skewed shadow, which the editor does not paint, keeps the grouped copy.
+
+## Heading numbers in heading lists (2026-11-23)
+
+Clauses: ECMA-376 Part 1 §17.9 numbering (§17.9.11 `lvlText`), §17.3.1.20 `outlineLvl`.
+
+The Navigation pane's headings, Go To > Heading and the Cross-reference dialog's headings list a numbered heading
+with the number it shows ("1.1 Scope", "II. Methods"), as the table of contents does; bullets and unnumbered
+headings show their text only. The numbers are counted once per list (`headingNumbers` in `outline.js`), and not
+at all in a document without numbered headings. Tests: `tests/toc-heading-numbers.test.js`.
