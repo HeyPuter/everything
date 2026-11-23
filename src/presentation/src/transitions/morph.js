@@ -389,14 +389,14 @@ export async function prepareMorph({
   const A = slideParts(from),
     B = slideParts(to);
   const { pairs, gone, added } = pairShapes(A.items, B.items);
-  const raster = async (url, area = { x: 0, y: 0, w: W, h: H }) => {
-    const image = await load(url);
+  const cut = (image, area = { x: 0, y: 0, w: W, h: H }) => {
     const canvas = document.createElement("canvas");
     canvas.width = area.w;
     canvas.height = area.h;
     canvas.getContext("2d").drawImage(image, -area.x, -area.y, W, H);
     return canvas;
   };
+  const raster = async (url, area) => cut(await load(url), area);
   const byText = option === "byWord" || option === "byChar";
   const tokens = { A: [], B: [] };
   const paragraphsOf = (shape) => {
@@ -460,7 +460,6 @@ export async function prepareMorph({
     return true;
   };
   const layer = async (slide, item, side) => {
-    const area = cropArea(item, W, H);
     const split = await splitText(slide, item, side);
     const url = render(slide, {
       background: false,
@@ -471,8 +470,12 @@ export async function prepareMorph({
             : true
           : false,
     });
-    item.area = area;
-    item.picture = await raster(url, area);
+    const image = await load(url);
+    // Text that runs out of its box, a wide shadow or glow: everything the
+    // object draws is in its layer, so the first and last frames match the
+    // slides.
+    item.area = unite(cropArea(item, W, H), inkArea(image, W, H));
+    item.picture = cut(image, item.area);
   };
   await Promise.all([
     raster(A.bg).then((c) => (A.bgPicture = c)),
@@ -493,6 +496,46 @@ export async function prepareMorph({
     : null;
   return { A, B, pairs, gone, added, words };
 }
+
+// The part of a W × H picture that has anything drawn on it, found on a
+// small copy (with a pixel of the copy to spare), or null when it is empty.
+function inkArea(image, W, H) {
+  const sw = Math.min(W, 256),
+    sh = Math.max(1, Math.round((H * sw) / W));
+  const canvas = document.createElement("canvas");
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0, sw, sh);
+  const data = ctx.getImageData(0, 0, sw, sh).data;
+  let x0 = sw,
+    y0 = sh,
+    x1 = -1,
+    y1 = -1;
+  for (let y = 0; y < sh; y++)
+    for (let x = 0, i = y * sw * 4 + 3; x < sw; x++, i += 4)
+      if (data[i]) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+  if (x1 < 0) return null;
+  const kx = W / sw,
+    ky = H / sh;
+  return area((x0 - 1) * kx, (y0 - 1) * ky, (x1 + 2) * kx, (y1 + 2) * ky, W, H);
+}
+const unite = (a, b) =>
+  b
+    ? area(
+        Math.min(a.x, b.x),
+        Math.min(a.y, b.y),
+        Math.max(a.x + a.w, b.x + b.w),
+        Math.max(a.y + a.h, b.y + b.h),
+        Infinity,
+        Infinity,
+      )
+    : a;
 
 const area = (x0, y0, x1, y1, W, H) => {
   const x = Math.max(0, Math.floor(x0)),
@@ -577,20 +620,11 @@ export function drawMorph(ctx, scene, q, W, H, scratch) {
   );
   const fadeOut = 1 - smooth(clamp(q * 1.6));
   const fadeIn = smooth(clamp(q * 1.6 - 0.6));
-  for (const a of scene.gone) drawLayer(ctx, a, fadeOut, a, W, H);
-  // Paired objects and new ones keep the arriving slide's stacking order.
-  const order = new Map(scene.B.items.map((item, i) => [item, i]));
-  const steps = [
-    ...scene.pairs.map(([a, b]) => ({ at: order.get(b), a, b })),
-    ...scene.added.map((b) => ({ at: order.get(b), b })),
-  ].sort((x, y) => x.at - y.at);
   const mix = smooth(clamp((q - 0.15) / 0.7));
-  for (const step of steps) {
-    if (!step.a) {
-      drawLayer(ctx, step.b, fadeIn, step.b, W, H);
-      continue;
-    }
-    morphStep(ctx, step.a, step.b, e, mix, W, H, dissolve);
+  for (const step of morphOrder(scene, e)) {
+    if (!step.b) drawLayer(ctx, step.a, fadeOut, step.a, W, H);
+    else if (!step.a) drawLayer(ctx, step.b, fadeIn, step.b, W, H);
+    else morphStep(ctx, step.a, step.b, e, mix, W, H, dissolve);
   }
   // Words and characters, over the shapes.
   if (scene.words) {
@@ -600,6 +634,34 @@ export function drawMorph(ctx, scene, q, W, H, scratch) {
       morphStep(ctx, a, b, e, mix, W, H, dissolve);
   }
 }
+
+/**
+ * The objects of a morph in the order they are drawn at eased progress `e`:
+ * `{ a, b }` for an object on its way, `{ a }` for one leaving and `{ b }`
+ * for one arriving. Objects stack as on the leaving slide at the start and
+ * as on the arriving one at the end, so neither end jumps.
+ */
+export function morphOrder(scene, e) {
+  let steps = morphSteps.get(scene);
+  if (!steps) {
+    const rankA = new Map(scene.A.items.map((item, i) => [item, i]));
+    const rankB = new Map(scene.B.items.map((item, i) => [item, i]));
+    steps = [
+      ...scene.gone.map((a) => ({ from: rankA.get(a), to: rankA.get(a), a })),
+      ...scene.pairs.map(([a, b]) => ({
+        from: rankA.get(a),
+        to: rankB.get(b),
+        a,
+        b,
+      })),
+      ...scene.added.map((b) => ({ from: rankB.get(b), to: rankB.get(b), b })),
+    ];
+    morphSteps.set(scene, steps);
+  }
+  for (const step of steps) step.at = lerp(step.from, step.to, e);
+  return steps.sort((x, y) => x.at - y.at);
+}
+const morphSteps = new WeakMap();
 
 // One object (or word) on its way from `a` to `b`.
 function morphStep(ctx, a, b, e, mix, W, H, dissolve) {
