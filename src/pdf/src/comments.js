@@ -52,7 +52,13 @@ export function createCommentsPanel({ onSelect }) {
         swatch.style.setProperty('--comment-color', comment.hex);
         swatch.style.setProperty('--comment-ink', contrastInk(comment.hex));
       }
-      const meta = [comment.author, when(comment.date)].filter(Boolean).join(' · ');
+      // A reviewer sees each comment's status and whether others answered it, as in its panel.
+      const replies = comment.replies
+        ? `${comment.replies} ${comment.replies === 1 ? 'reply' : 'replies'}`
+        : '';
+      const meta = [comment.author, when(comment.date), comment.status, replies]
+        .filter(Boolean)
+        .join(' · ');
       // The name says what and where; the author and date shown beneath it describe it.
       const metaId = meta ? `comment-meta-${++metaIds}` : null;
       pageList.append(
