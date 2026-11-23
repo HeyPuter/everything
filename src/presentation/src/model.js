@@ -1206,6 +1206,74 @@ export function fieldFormattingRange(runs, start, end) {
   }
   return [start, end];
 }
+const NS_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+const isAlternateContent = (node) =>
+  node?.name?.namespaceURI === NS_MC &&
+  node.name.localName === "AlternateContent";
+// An equation sits in a paragraph as alternate content (the equation, and
+// plain text for readers without equations), which the editor neither shows
+// nor writes. Each one's place is counted in the text the editor writes:
+// runs' words, with paragraphs ending in "\n" and fields and breaks left out.
+function alternateContentPlaces(shape) {
+  const places = [];
+  let before = "";
+  paragraphNodes(shape).forEach((paragraph, pi) => {
+    if (pi) before += "\n";
+    for (const child of paragraph.children || []) {
+      if (isAlternateContent(child))
+        places.push({ at: before.length, node: child });
+      else if (
+        child.name?.namespaceURI === NS_A &&
+        child.name.localName === "r"
+      )
+        before += nodeText(fieldText(child));
+    }
+  });
+  return { places, before };
+}
+// The place in `after` of offset `at` in `before`, following the edit
+// between them: content stays after the character it followed, matched by
+// the longest run of characters the two texts share. Words typed exactly at
+// its place go after it. An edit too long to match leaves the content at the
+// end of what replaced the stretch it was in.
+function followEdit(before, after, at) {
+  let prefix = 0;
+  const shortest = Math.min(before.length, after.length);
+  while (prefix < shortest && before[prefix] === after[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < shortest - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  )
+    suffix++;
+  if (at <= prefix) return at;
+  if (at > before.length - suffix) return after.length - (before.length - at);
+  const b = before.slice(prefix, before.length - suffix);
+  const a = after.slice(prefix, after.length - suffix);
+  const n = b.length,
+    m = a.length,
+    w = m + 1;
+  if (!m) return prefix;
+  if ((n + 1) * w > 4_000_000) return prefix + m;
+  // The longest shared subsequence of each pair of endings.
+  const shared = new Uint16Array((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      shared[i * w + j] =
+        b[i] === a[j]
+          ? shared[(i + 1) * w + j + 1] + 1
+          : Math.max(shared[(i + 1) * w + j], shared[i * w + j + 1]);
+  let i = 0,
+    j = 0;
+  while (i < at - prefix) {
+    if (j < m && b[i] === a[j]) {
+      i++;
+      j++;
+    } else if (j < m && shared[i * w + j + 1] > shared[(i + 1) * w + j]) j++;
+    else i++;
+  }
+  return prefix + j;
+}
 // Writes paragraphs of runs back. The library rebuilds one run per paragraph
 // from the plain text; the other runs are copies of it, each given its own
 // run properties, text, and the editor's changes. A soft break splits its
@@ -1214,14 +1282,28 @@ export function fieldFormattingRange(runs, start, end) {
 // for paragraph breaks.
 export function setRichText(shape, paragraphs) {
   const plain = (text) => text.replaceAll(SOFT_BREAK, "");
-  P.setShapeText(
-    shape,
-    paragraphs
-      .map((p) =>
-        p.runs.map((r) => (unchangedField(r) ? "" : plain(r.text))).join(""),
-      )
-      .join("\n"),
+  const written = paragraphs.map((p) =>
+    p.runs.map((r) => (unchangedField(r) ? "" : plain(r.text))).join(""),
   );
+  const text = written.join("\n");
+  // Equations are put back where the edit leaves their place in the text.
+  const { places, before } = alternateContentPlaces(shape);
+  const placed = new Map();
+  if (places.length) {
+    for (const { at, node } of places) {
+      let offset = followEdit(before, text, at);
+      let pi = 0;
+      while (pi < written.length - 1 && offset > written[pi].length) {
+        offset -= written[pi].length + 1;
+        pi++;
+      }
+      if (!placed.has(pi)) placed.set(pi, []);
+      placed
+        .get(pi)
+        .push({ offset: Math.min(offset, written[pi].length), node });
+    }
+  }
+  P.setShapeText(shape, text);
   const nodes = paragraphNodes(shape);
   // The tree is edited directly first, paragraph properties and run copies
   // alike, and the library's setters run afterwards: each of those commits
@@ -1231,7 +1313,20 @@ export function setRichText(shape, paragraphs) {
   paragraphs.forEach((paragraph, pi) => {
     const node = nodes[pi];
     const first = node?.children.find((c) => c.name?.localName === "r");
-    if (!first) return;
+    if (!first) {
+      // A paragraph left without words keeps its equations all the same.
+      if (node && placed.has(pi)) {
+        const end = node.children.findIndex(
+          (c) => c.name?.localName === "endParaRPr",
+        );
+        node.children.splice(
+          end < 0 ? node.children.length : end,
+          0,
+          ...placed.get(pi).map((p) => p.node),
+        );
+      }
+      return;
+    }
     // The text rewrite gave every paragraph the first one's properties;
     // each paragraph's own go back.
     if (paragraph.ppr) {
@@ -1267,6 +1362,37 @@ export function setRichText(shape, paragraphs) {
     // A paragraph keeps at least one run, as the library wrote it.
     if (!inline.some((item) => item.run))
       inline.push({ node: structuredClone(first), run: runs[0], text: "" });
+    // Each equation goes back at its place, splitting the run it falls in.
+    // Later places first, so earlier ones are counted as written; of two at
+    // one place, the second goes in first and the first before it.
+    const going = (placed.get(pi) || [])
+      .map((place, order) => ({ ...place, order }))
+      .sort((a, b) => b.offset - a.offset || b.order - a.order);
+    for (const { offset, node: alternate } of going) {
+      let length = 0,
+        at = inline.length;
+      for (let i = 0; i < inline.length; i++) {
+        const item = inline[i];
+        const size = item.run && !item.field ? item.text.length : 0;
+        if (offset <= length) {
+          at = i;
+          break;
+        }
+        if (offset < length + size) {
+          const cut = offset - length;
+          inline.splice(i + 1, 0, {
+            node: structuredClone(item.node),
+            run: item.run,
+            text: item.text.slice(cut),
+          });
+          item.text = item.text.slice(0, cut);
+          at = i + 1;
+          break;
+        }
+        length += size;
+      }
+      inline.splice(at, 0, { node: alternate });
+    }
     node.children.splice(
       node.children.indexOf(first),
       1,
