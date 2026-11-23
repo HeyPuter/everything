@@ -58,6 +58,8 @@ export function createImageLayer({
     background,
     previewKey;
   const heldArrows = new Set();
+  // Arrow keys pressed while a nudge was being saved, to apply once it is.
+  const queuedArrows = [];
   // The object target a finger last went down on, to tell its tap from a keyboard click.
   let touched = null;
   let renderKey, pageKey;
@@ -103,8 +105,11 @@ export function createImageLayer({
       const blocked = busy || !!committing;
       // During a native blur/focus sequence, semantic disablement blocks
       // actions without removing the destination from the browser's tab order.
-      control.disabled = blocked && !settlingFocus;
-      if (blocked && settlingFocus) control.setAttribute('aria-disabled', 'true');
+      // The selected object's own frame and handles are never disabled: the focus stays on
+      // them while a nudge is saved, and their actions check for that themselves.
+      const held = settlingFocus || controls.contains(control);
+      control.disabled = blocked && !held;
+      if (blocked && held) control.setAttribute('aria-disabled', 'true');
       else control.removeAttribute('aria-disabled');
     }
   }
@@ -118,6 +123,8 @@ export function createImageLayer({
   }
   function cancel(preserveSelection = false, preservePreview = false, preserveControls = false) {
     heldArrows.clear();
+    // A save redraws the page and so closes the selection; arrows held for after it stay.
+    if (!committing) queuedArrows.length = 0;
     if (!preserveSelection) {
       selectionGeneration++;
       choosing = null;
@@ -281,7 +288,9 @@ export function createImageLayer({
     // Keep the final transform available to a preview that finishes during the commit.
     // Reload preserves that preview until the replacement page has been painted.
     keepCommitProperties = !remove;
-    let focus, focusedLabel;
+    let focus,
+      focusedLabel,
+      failed = false;
     settlingFocus = true;
     const focusSettled = new Promise((resolve) => {
       // Observe the destination after the native change/blur/focus event has
@@ -309,6 +318,7 @@ export function createImageLayer({
           selectOrdinal(entry.ordinal);
         }
       } catch (error) {
+        failed = true;
         await focusSettled;
         stopPreview();
         selectOrdinal(entry.ordinal);
@@ -333,6 +343,15 @@ export function createImageLayer({
           // A delayed keyboard commit can temporarily disable the toolbar control the
           // user moved to. Restore it only if focus has not moved somewhere else.
           priorFocus.focus({ preventScroll: true });
+        }
+        const queued = queuedArrows.splice(0);
+        if (queued.length && !failed && !remove && selected && enabled && !busy) {
+          for (const { key, shift, corner } of queued) nudge(key, shift, corner);
+          clearTimeout(keyboardTimer);
+          keyboardTimer = setTimeout(
+            safe(() => finish()),
+            180,
+          );
         }
         onChange();
       }
@@ -497,6 +516,10 @@ export function createImageLayer({
   }
   function buildControls() {
     handleSize = 0;
+    // A redraw while a nudge is saved rebuilds the frame and handles; the focus stays on them.
+    const focused = controls.contains(document.activeElement)
+      ? document.activeElement.getAttribute('aria-label')
+      : null;
     controls.replaceChildren();
     properties.replaceChildren();
     controls.hidden = !enabled || !selected;
@@ -712,6 +735,10 @@ export function createImageLayer({
     onProperties(properties, title());
     layout();
     setBusy(busy);
+    if (focused && document.activeElement === document.body)
+      [...controls.querySelectorAll('button')]
+        .find((control) => control.getAttribute('aria-label') === focused)
+        ?.focus({ preventScroll: true });
   }
   function layout(syncInputs = false) {
     if (!selected || !viewport || !controls.querySelector('.image-move')) return;
@@ -948,8 +975,37 @@ export function createImageLayer({
   properties.addEventListener('input', (e) => {
     if (e.target.matches('input[type="number"]')) onChange();
   });
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  const cornerOf = (node) => node.closest?.('.image-resize')?.dataset.corner ?? null;
+  /** One arrow key's move of the object, 1 pt or 10 pt; on a corner handle, of that corner. */
+  function nudge(key, shift, corner) {
+    const vector = arrows[key],
+      step = (shift ? 10 : 1) * viewport.scale,
+      m = current();
+    // On a corner handle the arrows move that corner, resizing the object as a drag of it does.
+    if (corner != null) {
+      setDraft(resizedFrom(m, Number(corner), [0, 0], [vector[0] * step, vector[1] * step]));
+      return;
+    }
+    // Keyboard moves stop where a drag would, so a held arrow cannot push the object out of
+    // sight off the page.
+    const { dx, dy } = visibleShift(m, vector[0] * step, vector[1] * step, true),
+      a = pdfPoint([0, 0]),
+      b = pdfPoint([dx, dy]);
+    setDraft([...m.slice(0, 4), m[4] + b[0] - a[0], m[5] + b[1] - a[1]]);
+  }
   const onKey = (e) => {
-    if (!selected || busy || committing) return;
+    if (!selected || busy || committing) {
+      // An arrow pressed while the last nudge is saved moves the object once that is done,
+      // rather than scrolling the page. The save redraws the page, which lets go of the
+      // selection for a moment while its frame keeps the focus.
+      if (arrows[e.key] && e.target.tagName !== 'INPUT' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (committing && !gesture && !selecting)
+          queuedArrows.push({ key: e.key, shift: e.shiftKey, corner: cornerOf(e.target) });
+      }
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -968,30 +1024,12 @@ export function createImageLayer({
       safe(() => finish(true))();
       return;
     }
-    const vector = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[
-      e.key
-    ];
-    if (!vector || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!arrows[e.key] || e.ctrlKey || e.metaKey || e.altKey) return;
     e.preventDefault();
     // The pointer owns its preview until release or cancellation. A keyboard
     // nudge would shift that preview and its release timer would end the drag.
     if (gesture || selecting) return;
-    const step = (e.shiftKey ? 10 : 1) * viewport.scale,
-      m = current(),
-      corner = e.target.closest?.('.image-resize')?.dataset.corner;
-    // On a corner handle the arrows move that corner, resizing the object as a drag of it does.
-    if (corner != null) {
-      setDraft(resizedFrom(m, Number(corner), [0, 0], [vector[0] * step, vector[1] * step]));
-      heldArrows.add(e.key);
-      clearTimeout(keyboardTimer);
-      return;
-    }
-    // Keyboard moves stop where a drag would, so a held arrow cannot push the object out of
-    // sight off the page.
-    const { dx, dy } = visibleShift(m, vector[0] * step, vector[1] * step, true),
-      a = pdfPoint([0, 0]),
-      b = pdfPoint([dx, dy]);
-    setDraft([...m.slice(0, 4), m[4] + b[0] - a[0], m[5] + b[1] - a[1]]);
+    nudge(e.key, e.shiftKey, cornerOf(e.target));
     heldArrows.add(e.key);
     clearTimeout(keyboardTimer);
   };
