@@ -4,6 +4,17 @@
 import { speechRecognitionClass } from "./prefs.js";
 
 const LINE_MS = 6000;
+// Errors that starting again cannot mend: the subtitles turn off and say why.
+const FATAL = {
+  "not-allowed": "Subtitles need permission to use the microphone.",
+  "service-not-allowed": "Subtitles need permission to use the microphone.",
+  "audio-capture": "Subtitles need a microphone, and none was found.",
+  network: "Subtitles need a network connection for speech recognition.",
+  "language-not-supported":
+    "Subtitles are not available for this spoken language.",
+};
+// Recognition that ends this soon after starting waits before starting again.
+const RESTART_MS = 1000;
 
 /**
  * host: the element the captions show in (the audience's stage).
@@ -25,6 +36,8 @@ export function createSubtitles({ host, language, position, onState }) {
   let recognition = null;
   let running = false;
   let clearTimer = 0;
+  let restartTimer = 0;
+  let startedAt = 0;
 
   function place(where) {
     box.dataset.position = where;
@@ -73,26 +86,30 @@ export function createSubtitles({ host, language, position, onState }) {
         }
         write(finalText.trim(), interimText.trim());
       };
+      const mine = recognition;
       recognition.onerror = (event) => {
-        if (
-          event.error === "not-allowed" ||
-          event.error === "service-not-allowed"
-        ) {
-          running = false;
-          place(box.dataset.position);
-          onState?.("Subtitles need permission to use the microphone.");
-        } else if (event.error === "language-not-supported")
-          onState?.("Subtitles are not available for this spoken language.");
+        if (recognition !== mine || !FATAL[event.error]) return;
+        stop();
+        onState?.(FATAL[event.error]);
       };
       // Recognition ends on its own after a pause; it starts again while the
-      // subtitles are on.
+      // subtitles are on, though not over and over if it keeps ending.
       recognition.onend = () => {
-        if (running)
+        if (!running || recognition !== mine) return;
+        const again = () => {
+          if (!running || recognition !== mine) return;
+          startedAt = performance.now();
           try {
-            recognition.start();
+            mine.start();
           } catch {}
+        };
+        clearTimeout(restartTimer);
+        const wait = startedAt + RESTART_MS - performance.now();
+        if (wait > 0) restartTimer = setTimeout(again, wait);
+        else again();
       };
       running = true;
+      startedAt = performance.now();
       recognition.start();
       place(box.dataset.position);
       onState?.(null);
@@ -106,6 +123,7 @@ export function createSubtitles({ host, language, position, onState }) {
   function stop() {
     running = false;
     clearTimeout(clearTimer);
+    clearTimeout(restartTimer);
     try {
       recognition?.abort();
     } catch {}
