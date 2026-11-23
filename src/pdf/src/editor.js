@@ -4235,7 +4235,7 @@ export function createEditor({
             'div',
             { class: 'annotation-props' },
             meta ? el('p', { class: 'muted annotation-meta' }, meta) : null,
-            words ? el('p', { class: 'markup-comment' }, words) : null,
+            words ? el('p', { class: 'markup-comment', dir: 'auto' }, words) : null,
             panel,
             thread && thread.status,
             thread && thread.replies,
@@ -6565,6 +6565,9 @@ export function createEditor({
     renderHighlightTargets();
     const textarea = el('textarea', {
       class: 'input note-text',
+      // Each comment field and comment shown takes its direction from its own words, so
+      // Hebrew or Arabic reads right to left with its punctuation at the right end.
+      dir: 'auto',
       rows: 4,
       maxlength: 5000,
       placeholder: 'Write a note',
@@ -10746,7 +10749,7 @@ export function createEditor({
    */
   function commentTextDialog(title, add) {
     return new Promise((resolve) => {
-      const area = el('textarea', { class: 'input', rows: 4, maxlength: 20000 });
+      const area = el('textarea', { class: 'input', dir: 'auto', rows: 4, maxlength: 20000 });
       const done = safe(async () => {
         // An empty box would be a frame with nothing to read, left on the page.
         if (!area.value.trim()) {
@@ -11014,6 +11017,7 @@ export function createEditor({
     );
     const replyText = el('textarea', {
       class: 'input',
+      dir: 'auto',
       rows: 2,
       placeholder: 'Write a reply',
       'aria-label': 'Reply text',
@@ -11053,7 +11057,7 @@ export function createEditor({
             { class: 'reply-meta muted' },
             [item.author, when(item.modified)].filter(Boolean).join(' · '),
           ),
-          el('span', { class: 'reply-text' }, item.contents || ''),
+          el('span', { class: 'reply-text', dir: 'auto' }, item.contents || ''),
           item.replies?.length > 0 &&
             el('ul', { class: 'annotation-replies' }, ...replyItems(item.replies)),
         ),
@@ -11090,6 +11094,7 @@ export function createEditor({
       );
     const text = el('textarea', {
       class: 'input',
+      dir: 'auto',
       rows: 3,
       maxlength: 20000,
       'aria-label': entry.subtype === 'FreeText' ? 'Text' : 'Comment',
