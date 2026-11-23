@@ -1462,6 +1462,16 @@ puter-user-menu::part(apps-panel) {
 }
 .thumbnail > span {
   font-size: 10px;
+  /* A long page label ("Appendix B-12") takes up to two lines rather than widening the panel,
+     so the number that tells it from the next page's stays in sight. */
+  max-width: 100%;
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 .workspace {
   background: var(--canvas);

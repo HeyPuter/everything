@@ -11,6 +11,7 @@ import { openMenu } from './lib/menu.js';
  *            insertBlank(after), insertFile(after), insertPictures(after), move(indices, to),
  *            reorder(order, moved), open(index), close() } — each may return a promise; the view
  *            redraws on refresh().
+ * getPageLabel(index) names a page by its own label ("iv"), when it has one.
  * onSelectionChange(indices) hears of each change to the chosen pages. getPageIds(revision)
  * names each page's object of a revision, in order, when known, so the choice follows its pages
  * through edits.
@@ -21,6 +22,7 @@ export function createOrganizeView({
   getPdf,
   getRevision,
   getPageIds = () => null,
+  getPageLabel = () => null,
   getLayers = () => undefined,
   currentIndex,
   can,
@@ -455,7 +457,7 @@ export function createOrganizeView({
         role: 'option',
         tabindex: i === (anchor ?? currentIndex()) ? 0 : -1,
         'data-index': i,
-        'aria-label': `Page ${i + 1}`,
+        'aria-label': getPageLabel(i) ? `Page ${i + 1} (${getPageLabel(i)})` : `Page ${i + 1}`,
         draggable: String(can('assemble')),
         onclick: (e) => {
           if (e.target.closest('button')) return;
@@ -515,7 +517,7 @@ export function createOrganizeView({
           ),
         ),
       ),
-      el('span', { class: 'organize-label' }, String(i + 1)),
+      el('span', { class: 'organize-label' }, getPageLabel(i) ?? String(i + 1)),
     );
     return node;
   }

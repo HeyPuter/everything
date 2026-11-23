@@ -282,6 +282,14 @@ export function createEditor({
   let toolsBusy = null; // the busy state the tools pane last showed
   let shownTitle = null; // the document's own title, when it asks to be shown by it
   let pdfaClaim = null; // the PDF/A level the file claims, read when it opens or is converted
+  // The pages' own labels (front matter in roman numerals, an appendix as A-1, A-2), when the
+  // PDF gives any that differ from the page numbers; read with each document, as edits move them.
+  let pageLabels = null;
+  /** Page `i`'s label, or null when it has none or it is just its number. */
+  const pageLabel = (i) => {
+    const label = pageLabels?.[i];
+    return label && label !== String(i + 1) ? label : null;
+  };
   let thumbnailObserver,
     searchGeneration = 0,
     pendingSearch = null,
@@ -1619,6 +1627,7 @@ export function createEditor({
     getPdf: () => pdf,
     getRevision: () => session.revision,
     getPageIds: (revision) => session.pagesAt(revision),
+    getPageLabel: (i) => pageLabel(i),
     getLayers: () => documentLayers || undefined,
     currentIndex: () => pageIndex,
     can: (permission) => !!access()[permission],
@@ -2950,11 +2959,17 @@ export function createEditor({
       const task = loadPdf(session.bytes.slice());
       loadingTask = task;
       const next = await task.promise;
+      // Read before the pages are shown, so their thumbnails and caption name them at once.
+      const labels = await next.getPageLabels().catch(() => null);
       if (destroyed || token !== generation) {
         await task.destroy();
         return;
       }
       pdf = next;
+      pageLabels =
+        labels?.length === next.numPages && labels.some((label, i) => label !== String(i + 1))
+          ? labels
+          : null;
       // A PDF that asks to be shown by its title is named by the title it has now: details,
       // an accessibility fix, removing hidden information, or undo can each change it.
       // Undo, redo, or an edit can add or take away the PDF/A claim too; opening reads it
@@ -3365,7 +3380,11 @@ export function createEditor({
       markSearch();
       // A comment chosen from the list opens once the page is ready to show its editor.
       if (revealComment) applyRevealComment().catch(() => {});
-      pageCaption.textContent = `Page ${pageIndex + 1} of ${pdf.numPages}`;
+      // A labelled page is named by its label first, as PDF readers show it: "Page iv (4 of 120)".
+      const label = pageLabel(pageIndex);
+      pageCaption.textContent = label
+        ? `Page ${label} (${pageIndex + 1} of ${pdf.numPages})`
+        : `Page ${pageIndex + 1} of ${pdf.numPages}`;
       outline.setCurrent(pageIndex);
       thumbnails
         .querySelectorAll('.thumbnail')
@@ -3563,7 +3582,9 @@ export function createEditor({
           type: 'button',
           class: 'thumbnail',
           'data-index': i,
-          'aria-label': `Go to page ${i + 1}`,
+          'aria-label': pageLabel(i)
+            ? `Go to page ${i + 1} (${pageLabel(i)})`
+            : `Go to page ${i + 1}`,
           'aria-current': i === pageIndex ? 'page' : 'false',
           tabindex: i === stop && !restore?.menu ? 0 : -1,
           onclick: () => {
@@ -3573,7 +3594,7 @@ export function createEditor({
           },
         },
         el('div', { class: 'thumb-paper' }, standIn(i) || el('canvas', { 'aria-hidden': 'true' })),
-        el('span', {}, String(i + 1)),
+        el('span', {}, pageLabel(i) ?? String(i + 1)),
       );
       // Each page has its own menu, on a button beside it and on a right click.
       const menuButton = iconButton(
