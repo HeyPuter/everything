@@ -37,6 +37,8 @@ import {
   setRichText,
   setParagraphIndentLevel,
   addLayoutSlide,
+  fitTextToShape,
+  textAutofit,
   LEVEL_INDENTS,
   listOf,
   SOFT_BREAK,
@@ -2004,5 +2006,68 @@ describe("group rotation", () => {
     const free = shape(slide, 7, 1, 1, 1, "#000000");
     expect(ownRotation(free, 270)).toBe(270);
     expect(ownRotation(free, -90)).toBe(270);
+  });
+});
+
+describe("autofit after text edits", () => {
+  it("shrinks a placeholder's overflowing text and lets it grow back", () => {
+    const pres = createDeck("blank");
+    const slide = addLayoutSlide(pres, "obj");
+    const body = P.getSlideShapes(slide).find(
+      (shape) =>
+        P.isShapePlaceholder(shape) &&
+        P.getShapePlaceholderType(shape) !== "title",
+    );
+    // The master's body shrinks text on overflow.
+    expect(textAutofit(body)).toBe("normal");
+    P.setShapeText(body, "One point");
+    expect(fitTextToShape(pres, body)).toBe(false);
+    expect(P.getShapeTextAutoFit(body)).toBeNull();
+    P.setShapeText(
+      body,
+      Array.from({ length: 30 }, (_, i) => `Point ${i}`).join("\n"),
+    );
+    expect(fitTextToShape(pres, body)).toBe(true);
+    const shrunk = P.getShapeTextAutoFitParams(body);
+    expect(shrunk.fontScale).toBeLessThan(1);
+    expect(shrunk.lnSpcReduction).toBeGreaterThan(0);
+    // Fitting again changes nothing; less text takes the scale off.
+    expect(fitTextToShape(pres, body)).toBe(false);
+    P.setShapeText(body, "One point");
+    expect(fitTextToShape(pres, body)).toBe(true);
+    expect(P.getShapeTextAutoFitParams(body)).toMatchObject({
+      fontScale: 1,
+      lnSpcReduction: 0,
+      hasFontScale: false,
+    });
+    // The saved file carries the scale.
+    P.setShapeText(
+      body,
+      Array.from({ length: 30 }, (_, i) => `Point ${i}`).join("\n"),
+    );
+    fitTextToShape(pres, body);
+    expect(P.getSlideXmlString(slide)).toMatch(
+      /<a:normAutofit fontScale="\d+"/,
+    );
+  });
+
+  it("resizes a shape set to fit its text", () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const box = text(slide, "One line", 1, 1, 6, 0.5, 20);
+    P.setShapeTextAutoFit(box, "shape");
+    const start = P.getShapeBounds(box);
+    P.setShapeText(box, "One\nTwo\nThree\nFour\nFive");
+    expect(fitTextToShape(pres, box)).toBe(true);
+    const grown = P.getShapeBounds(box);
+    expect(grown.h).toBeGreaterThan(start.h * 3);
+    expect(grown.y).toBe(start.y);
+    P.setShapeText(box, "One");
+    expect(fitTextToShape(pres, box)).toBe(true);
+    expect(P.getShapeBounds(box).h).toBeLessThan(grown.h / 3);
+    // A box left to overflow keeps its size.
+    P.setShapeTextAutoFit(box, "none");
+    P.setShapeText(box, "One\nTwo\nThree\nFour\nFive");
+    expect(fitTextToShape(pres, box)).toBe(false);
   });
 });

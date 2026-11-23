@@ -25,6 +25,8 @@ import {
   relsPartNameFor,
   resolveTarget,
 } from "../lib/pptx/src/internal/opc/index.ts";
+import { commitAndRefresh } from "../lib/pptx/src/api/fn/_helpers.ts";
+import { getPlaceholderInheritance } from "../lib/pptx/src/api/fn/placeholder-inheritance.ts";
 import { LEGACY_IDS, paletteEntries } from "./themes/catalog.js";
 import { applyTheme as applyCatalogTheme } from "./themes/engine.js";
 const measureText = createTextMeasurer();
@@ -1135,6 +1137,182 @@ export function textParagraphSpacing(pres, shape, paragraphs) {
         : null,
   });
   return layoutCore(input, measureText).paragraphSpacing;
+}
+// The text body's autofit as an element's <a:bodyPr> sets it, if it does.
+const AUTOFIT_MODES = {
+  noAutofit: "none",
+  normAutofit: "normal",
+  spAutoFit: "shape",
+};
+function bodyAutofit(element) {
+  const body = element?.children?.find((c) => c.name?.localName === "txBody");
+  const props = body?.children.find((c) => c.name?.localName === "bodyPr");
+  for (const child of props?.children || [])
+    if (
+      child.name?.namespaceURI === NS_A &&
+      AUTOFIT_MODES[child.name.localName]
+    )
+      return { mode: AUTOFIT_MODES[child.name.localName], props, child };
+  return { mode: null, props, child: null };
+}
+// Shrink text on overflow, or Resize shape to fit text: the shape's own
+// choice, or else its layout's and master's placeholder's.
+export function textAutofit(shape) {
+  const own = bodyAutofit(shape[SHAPE_ELEMENT]).mode;
+  if (own) return own;
+  let chain = null;
+  try {
+    chain = getPlaceholderInheritance(shape);
+  } catch {}
+  for (const source of [chain?.layout, chain?.master]) {
+    const mode = source && bodyAutofit(source.element).mode;
+    if (mode) return mode;
+  }
+  return null;
+}
+// How tall the shape's text lays out at a font scale and line spacing
+// reduction, against the height its box gives it, both in px; null for text
+// laid out other than in plain horizontal lines.
+function textFit(pres, shape, scale, reduction) {
+  const bounds = P.getShapeBoundsResolved(pres, shape);
+  if (!bounds?.w || !bounds?.h) return null;
+  const theme = P.getPresentationTheme(pres);
+  const resolveFamily = slideFontResolver(P.getShapeSlide(shape), pres);
+  const model = resolveTextBodyModel(
+    pres,
+    shape,
+    bounds,
+    theme,
+    P.getShapePlaceholderType(shape),
+    measureText,
+    "#000000",
+    resolveFamily,
+  );
+  if (!model) return null;
+  const vert = verticalLayoutOf(
+    model.effectiveBody.vert ?? P.getShapeTextDirection(shape),
+  );
+  const columns = P.getShapeTextColumns(shape);
+  if (vert !== "none" || (columns && columns.count >= 2)) return null;
+  const rect = model.svgTextRect(vert);
+  const input = buildSvgTextInput({
+    pres,
+    shape,
+    theme,
+    paraData: model.paraData,
+    numberLabels: model.numberLabels,
+    autoFitScale: scale,
+    lineSpacingReduction: reduction,
+    defaultPt: model.defaultPt,
+    themeFace: model.themeFace,
+    defaultColor: "#000000",
+    anchor: model.anchor,
+    wrap: model.effectiveBody.wrap !== "none",
+    compatibleLineSpacing: model.effectiveBody.compatibleLineSpacing ?? true,
+    includeOuterSpacing: model.effectiveBody.includeOuterSpacing ?? false,
+    innerX: rect.x,
+    innerY: rect.y,
+    innerW: rect.w,
+    innerH: rect.h,
+    measure: measureText,
+    resolveFamily,
+    resolveKerning: resolveFontKerning,
+    vert,
+    columns: null,
+  });
+  let top = Infinity,
+    bottom = -Infinity;
+  for (const p of layoutCore(input, measureText).placements) {
+    top = Math.min(top, p.baselineY - p.line.ascent);
+    bottom = Math.max(bottom, p.baselineY + p.line.descent);
+  }
+  if (!(bottom > top)) return null;
+  return {
+    text: bottom - top,
+    box: input.boxHpx,
+    emuPerPx: rect.h / input.boxHpx || 9525,
+  };
+}
+// The font scales and line spacing reductions Shrink text on overflow tries
+// in turn, as stored in <a:normAutofit>.
+export const AUTOFIT_STEPS = [
+  [92500, 10000],
+  [85000, 20000],
+  [77500, 20000],
+  [70000, 20000],
+  [62500, 20000],
+  [55000, 20000],
+  [47500, 20000],
+  [40000, 20000],
+  [32500, 20000],
+  [25000, 20000],
+];
+// After the text changes, text set to shrink on overflow takes the largest
+// scale it fits at, and a shape set to fit its text takes the text's height.
+// Whether anything changed.
+export function fitTextToShape(pres, shape) {
+  let mode = null;
+  try {
+    if (P.getShapeKind(shape) !== "shape") return false;
+    mode = textAutofit(shape);
+  } catch {
+    return false;
+  }
+  if (mode === "shape") {
+    const fit = textFit(pres, shape, 1, 0);
+    const bounds = P.getShapeBounds(shape);
+    if (!fit || !bounds) return false;
+    const h = Math.max(
+      1,
+      Math.round(bounds.h + (fit.text - fit.box) * fit.emuPerPx),
+    );
+    if (Math.abs(h - bounds.h) < fit.emuPerPx) return false;
+    P.setShapeBounds(shape, { ...bounds, h });
+    return true;
+  }
+  if (mode !== "normal") return false;
+  const fits = (scale, reduction) => {
+    const fit = textFit(pres, shape, scale, reduction);
+    return !fit || fit.text <= fit.box + 1;
+  };
+  let choice = [100000, 0];
+  if (!fits(1, 0))
+    for (const step of AUTOFIT_STEPS) {
+      choice = step;
+      if (fits(step[0] / 100000, step[1] / 100000)) break;
+    }
+  const { props, child } = bodyAutofit(shape[SHAPE_ELEMENT]);
+  const [scale, reduction] = choice;
+  // Text that fits as it is keeps its layout's autofit, with no scale of
+  // its own.
+  if (!child && scale === 100000) return false;
+  if (!props) return false;
+  const attrs = [
+    ...(scale < 100000 ? [xmlAttr("fontScale", String(scale))] : []),
+    ...(reduction ? [xmlAttr("lnSpcReduction", String(reduction))] : []),
+  ];
+  const same = (list) =>
+    list.length === attrs.length &&
+    attrs.every((a) =>
+      list.some(
+        (b) => b.name.localName === a.name.localName && b.value === a.value,
+      ),
+    );
+  if (child && same(child.attrs)) return false;
+  if (child) child.attrs = attrs;
+  else {
+    // In the schema's order: before 3-D, flat text and extensions.
+    const at = props.children.findIndex((c) =>
+      ["scene3d", "sp3d", "flatTx", "extLst"].includes(c.name?.localName),
+    );
+    props.children.splice(
+      at < 0 ? props.children.length : at,
+      0,
+      xmlNode(xmlName("a", "normAutofit", NS_A), attrs),
+    );
+  }
+  commitAndRefresh(shape);
+  return true;
 }
 const PARAGRAPH_ALIGNMENTS = {
   l: "left",

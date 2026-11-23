@@ -1,7 +1,11 @@
 // Editing text on the canvas: what the keys do to the runs and paragraphs
 // of the text being edited.
 import { test, expect } from "@playwright/test";
-import { installMenuNow, ribbonButton } from "./editor-commands.js";
+import {
+  installMenuNow,
+  ribbonButton,
+  paneSection,
+} from "./editor-commands.js";
 
 const slideSvg = async (page) =>
   decodeURIComponent(
@@ -180,4 +184,89 @@ test("typing over a triple-clicked paragraph leaves the next paragraph alone", a
     "Second line",
     "Third",
   ]);
+});
+
+test("text in a content placeholder shrinks to its box as it is typed", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await installMenuNow(page);
+  await page.evaluate(() =>
+    window.__menuNow("Insert", "New slide", "Title and Content"),
+  );
+  await page.locator(".object-hit").nth(1).dblclick();
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(editor).toBeFocused();
+  const size = async () =>
+    parseFloat(await editor.evaluate((e) => getComputedStyle(e).fontSize));
+  const full = await size();
+  // A phone shows the text no smaller than can be read.
+  const readable = full > 14;
+  for (let i = 0; i < 14; i++) {
+    if (i) await page.keyboard.press("Enter");
+    await page.keyboard.type(`Point ${i}`);
+  }
+  // The editor shows the text smaller, without a scroll bar.
+  if (readable) {
+    expect(await size()).toBeLessThan(full);
+    expect(
+      await editor.evaluate((e) => e.scrollHeight <= e.clientHeight + 1),
+    ).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  const sizes = (svg) =>
+    [...svg.matchAll(/font-size="([\d.]+)"[^>]*>(?:Point|Just)/g)].map(
+      (m) => +m[1],
+    );
+  const shrunk = sizes(await slideSvg(page));
+  expect(shrunk).toHaveLength(14);
+  // The body's 28 pt is 37.33 px in the slide's 1280 px picture.
+  expect(Math.max(...shrunk)).toBeLessThan(37);
+  // Fewer points grow back to full size.
+  await page.locator(".object-hit").nth(1).dblclick();
+  await expect(editor).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.type("Just one point");
+  if (readable) expect(await size()).toBeCloseTo(full, 0);
+  await page.keyboard.press("Escape");
+  const grown = sizes(await slideSvg(page));
+  expect(grown[0]).toBeGreaterThan(Math.max(...shrunk));
+  // Undo brings the shrunk text back.
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(sizes(await slideSvg(page))).toEqual(shrunk);
+});
+
+test("a text box set to resize to fit its text follows the text", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await installMenuNow(page);
+  await page.evaluate(() => window.__addTextNow());
+  const hit = page.locator(".object-hit").last();
+  await hit.click();
+  const box = await paneSection(page, "textBox");
+  await box.getByRole("radio", { name: "Resize shape to fit text" }).click();
+  const close = page.getByRole("button", { name: "Close format panel" });
+  if (await close.isVisible()) await close.click();
+  // Heights measured with the panel closed, at one size of the slide.
+  const height = async () => (await hit.boundingBox())?.height ?? 0;
+  await expect.poll(height).toBeGreaterThan(0);
+  const oneLine = await height();
+  await hit.dblclick();
+  const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(editor).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.type("One");
+  for (const line of ["Two", "Three", "Four"]) {
+    await page.keyboard.press("Enter");
+    await page.keyboard.type(line);
+  }
+  // The editor grows with the text, and the box takes its height.
+  expect(
+    await editor.evaluate((e) => e.scrollHeight <= e.clientHeight + 1),
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect.poll(height).toBeGreaterThan(oneLine * 3);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(height).toBeCloseTo(oneLine, 0);
 });

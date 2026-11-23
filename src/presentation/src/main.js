@@ -72,6 +72,9 @@ import {
   fieldFormattingRange,
   firstTextElement,
   setRichText,
+  fitTextToShape,
+  textAutofit,
+  AUTOFIT_STEPS,
   slideNumberRun,
   splitFieldEdges,
   SOFT_BREAK,
@@ -10641,12 +10644,14 @@ function textTargets(obj) {
 // objects as one undo step, recorded when at least one of them changed.
 function textMutation(obj, fn, options) {
   const targets = textTargets(obj);
-  if (targets.length === 1)
-    return mutateShape(
-      obj,
-      (obj, targetSlide) => fn(withTextBody(obj), targetSlide),
-      options,
-    );
+  // Text set to shrink on overflow, or a shape set to fit its text, follows
+  // the change.
+  const fitted = (target, targetSlide) => {
+    const result = fn(withTextBody(target), targetSlide);
+    if (result !== SKIP_MUTATION) fitText(target);
+    return result;
+  };
+  if (targets.length === 1) return mutateShape(obj, fitted, options);
   const ids = targets.map(P.getShapeId);
   return mutateSlide(
     P.getShapeSlide(obj),
@@ -10654,7 +10659,7 @@ function textMutation(obj, fn, options) {
       let changed = false;
       for (const id of ids) {
         const target = P.findShapeById(targetSlide, id);
-        if (target && fn(withTextBody(target), targetSlide) !== SKIP_MUTATION)
+        if (target && fitted(target, targetSlide) !== SKIP_MUTATION)
           changed = true;
       }
       return changed ? undefined : SKIP_MUTATION;
@@ -10711,6 +10716,14 @@ function setText(obj, value, fields = []) {
     });
   });
   setRichText(obj, retainTextFields(paragraphs, fields, before));
+  fitText(obj);
+}
+// Shrink text on overflow and Resize shape to fit text, after the text of a
+// shape changes.
+function fitText(obj) {
+  try {
+    fitTextToShape(doc.pres, obj);
+  } catch {}
 }
 // The format of the shape's text: that of its first run or field, or for an
 // empty placeholder the format typed text would take, resolved through the
@@ -11347,8 +11360,16 @@ function editText(target, event = null, { inserted = null } = {}) {
     contrast(luminance(color), luminance(surface)) >= 3;
   const readable = legible(format.color);
   const baseSize = format.size || 24;
+  // Text shrunk to fit its box shows at the size the slide draws it.
+  let autofit = null,
+    fontScale = 1;
+  try {
+    autofit = textAutofit(obj);
+    if (autofit === "normal")
+      fontScale = P.getShapeTextAutoFitParams(obj)?.fontScale || 1;
+  } catch {}
   // A resized group keeps its text at its point size, as the slide shows it.
-  input.dataset.points = baseSize;
+  input.dataset.points = baseSize * fontScale;
   const resolveFont = slideFontResolver(slide(), doc.pres);
   const decoration = (f) =>
     [
@@ -11364,7 +11385,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     top: `${(editorRect.y / size.cy) * 100}%`,
     width: `${(editorRect.w / size.cx) * 100}%`,
     height: `${(editorRect.h / size.cy) * 100}%`,
-    fontSize: editorFontSize(baseSize, canvas),
+    fontSize: editorFontSize(baseSize * fontScale, canvas),
     fontFamily: format.font ? resolveFont(format.font) : "",
     fontWeight: format.bold ? "700" : "400",
     fontStyle: format.italic ? "italic" : "normal",
@@ -11476,6 +11497,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     for (const b of blocks)
       if (!b.childNodes.length || endsWithBreak(b)) b.append(el("br"));
     input.replaceChildren(...blocks);
+    fitEditor();
   }
   const isBlock = (node) => ["DIV", "P", "LI"].includes(node.nodeName);
   const isBreak = (node) =>
@@ -12229,7 +12251,28 @@ function editText(target, event = null, { inserted = null } = {}) {
     else if (value) replaceRange(sel[0], sel[1], value);
   });
   input.addEventListener("drop", (e) => e.preventDefault());
-  input.addEventListener("input", () => syncToolbar());
+  // As it is typed, text set to shrink on overflow shrinks to the box, and a
+  // shape set to fit its text grows and shrinks with it; the slide takes
+  // the measured scale or size when the editor closes.
+  if (autofit === "shape") input.style.height = "auto";
+  function fitEditor() {
+    if (autofit !== "normal" || !input.isConnected) return;
+    const size = (scale) => {
+      input.dataset.points = baseSize * scale;
+      input.style.fontSize = editorFontSize(baseSize * scale, canvas);
+    };
+    const fits = () => input.scrollHeight <= input.clientHeight + 1;
+    size(1);
+    if (fits()) return;
+    for (const [scale] of AUTOFIT_STEPS) {
+      size(scale / 100000);
+      if (fits()) return;
+    }
+  }
+  input.addEventListener("input", () => {
+    fitEditor();
+    syncToolbar();
+  });
   const controls = (node) =>
     node instanceof Element &&
     node.closest(
@@ -12293,6 +12336,7 @@ function editText(target, event = null, { inserted = null } = {}) {
           paragraph.spaceAfterChanged = !!block.spaceAfterChanged;
         });
         setRichText(obj, paragraphs);
+        fitText(obj);
       });
   }
   // Focus or a press anywhere but the editor and its controls ends a
@@ -14568,10 +14612,12 @@ function replaceMatch(all) {
         changed =
           replaceInSmartArt(shape, regex, replacement, all ? null : match.k) ||
           changed;
-      else
-        changed =
-          replaceInShape(shape, regex, replacement, all ? null : match.k) ||
-          changed;
+      else if (
+        replaceInShape(shape, regex, replacement, all ? null : match.k)
+      ) {
+        fitText(shape);
+        changed = true;
+      }
     }
     if (!changed) {
       toast("That match can't be replaced here. Edit it in place instead.");

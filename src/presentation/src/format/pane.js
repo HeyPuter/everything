@@ -28,6 +28,7 @@ import { nativePatternPaths } from "../../lib/pptx-preview/src/pattern-cells.ts"
 import { TEXTURES, textureBytes } from "./textures.js";
 import { imageSize } from "./image-size.js";
 import { revealFormatSection } from "./pane-frame.js";
+import { fitTextToShape } from "../model.js";
 
 export const PATTERNS = [
   "pct5",
@@ -1898,7 +1899,11 @@ function textBoxSection(ctx, obj, edit) {
             ["normal", "Shrink text on overflow"],
             ["shape", "Resize shape to fit text"],
           ],
-          onChange: (v) => edit((s) => P.setShapeTextAutoFit(s, v)),
+          onChange: (v) =>
+            edit((s) => {
+              P.setShapeTextAutoFit(s, v);
+              fitTextToShape(ctx.pres(), s);
+            }),
         }),
       ),
       el(
