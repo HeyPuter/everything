@@ -22277,6 +22277,10 @@ Supported subset:
   the Comments pane still show them, and replying, resolving, deleting or going to one returns to the body
   first, so the change is the body's own undo step. New Comment stays unavailable there.
   Tests: `tests/browser/review-comments-in-stories.spec.js`.
+- Cut and paste in the same document moves a comment whose whole range was cut: its `commentRangeStart` and
+  `commentRangeEnd` go around the pasted text in one undo step with the paste. A copy pasted again leaves the
+  comment on its original text (no second range for one comment), and a paste into another document or story
+  carries no comment. A comment only partly cut keeps the rest of its range. Tests: `tests/comment-clipboard.test.js`.
 
 Gaps: comments in headers, footers, footnotes and drawing text keep the previous read-only
 behaviour; rich formatting inside comment bodies is flattened when a comment is edited; people

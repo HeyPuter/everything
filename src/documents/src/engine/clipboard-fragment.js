@@ -5,6 +5,7 @@ import { listKind } from './numbering.js';
 import { HIGHLIGHTS } from './backgrounds.js';
 import { showLink } from './link-appearance.js';
 import { normalizeCrop, FULL_TURN, OBJECT, validateImage, nextDrawingId } from './images.js';
+import { commentAnchors, addCommentMarkers, removeCommentMarkers } from './comments.js';
 
 // Formatted copy and paste. A copy carries HTML for other applications, with
 // the editor's own fragment embedded for an exact paste back here. Pasting
@@ -60,7 +61,7 @@ export function copyFragment(model, { hidden = () => false, objects = null } = {
   let carried = 0;
   // What the selection holds decides (each run is checked below); fields or notes elsewhere do not.
   if (start === end) return null;
-  const paragraphs = []; let at = 0, runCount = 0, cell = null;
+  const paragraphs = []; let at = 0, runCount = 0, cell = null, skipped = false;
   const last = model.paragraphs.at(-1);
   for (const p of model.paragraphs) {
     const length = paragraphText(p).length, from = at, to = at + length;
@@ -72,7 +73,7 @@ export function copyFragment(model, { hidden = () => false, objects = null } = {
     else if ((p.cellId || null) !== cell) return null;
     const runs = []; let offset = from;
     for (const run of p.runs) {
-      if (hidden(run)) { offset += run.text.length; continue; }
+      if (hidden(run)) { if (run.text && offset + run.text.length > start && offset < end) skipped = true; offset += run.text.length; continue; }
       const a = Math.max(start, offset), b = Math.min(end, offset + run.text.length);
       const overlaps = b > a || (!run.text && offset >= start && offset < end);
       // A picture, shape or equation in the text goes with it to a paste in this document (`objects`, below).
@@ -99,7 +100,12 @@ export function copyFragment(model, { hidden = () => false, objects = null } = {
       list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level } : null });
   }
   if (!paragraphs.length) return null;
-  return carried ? { paragraphs, objects: { token: objects.token, story: objects.story ?? null } } : { paragraphs };
+  const fragment = carried ? { paragraphs, objects: { token: objects.token, story: objects.story ?? null } } : { paragraphs };
+  // The comments on stretches of the copied text, where they are in it: a cut pasted back in this document takes
+  // them along (movedComments). Text the copy leaves out would put them in the wrong place.
+  const anchors = objects?.token && model.comments?.length && !skipped && !cell ? commentAnchors(model.paragraphs).filter(a => a.start < a.end && a.start >= start && a.end <= end).map(a => ({ id: a.id, start: a.start - start, end: a.end - start })) : [];
+  if (anchors.length) fragment.comments = { token: objects.token, story: objects.story ?? null, anchors };
+  return fragment;
 }
 
 /**
@@ -526,9 +532,27 @@ export function pasteFragment(model, fragment, { token = null, story = null } = 
   // Formatting leaves the pasted text as it is: commands need not join or count through it each time.
   try {
     model.withFixedText(() => applyFragment(model, fragment, start));
+    // Before objects take their places: a stand-in that cannot become its object again goes, and the comments with the rest.
+    if (fragment.comments?.token === token && token && (fragment.comments.story ?? null) === story) movedComments(model, fragment.comments.anchors, start, text.length);
     if (carried) placeObjects(model, fragment, start);
   } finally { delete model.checkpoint; }
   return true;
+}
+/**
+ * A cut takes the text a comment is on away, and the comment stays anchored to the point where the text was; pasted
+ * back in the same document, the text brings the comment with it, as in Word. A comment still on its text (the
+ * text was copied, not cut) stays there, and is not anchored twice.
+ */
+function movedComments(model, anchors, start, length) {
+  if (!Array.isArray(anchors) || !model.comments?.length) return;
+  const current = new Map(commentAnchors(model.paragraphs).map(a => [a.id, a]));
+  for (const anchor of anchors) {
+    const now = current.get(anchor?.id);
+    if (!now || now.start !== now.end || !model.comments.some(c => c.id === anchor.id)) continue;
+    if (!Number.isInteger(anchor.start) || !Number.isInteger(anchor.end) || anchor.start < 0 || anchor.end > length || anchor.start >= anchor.end) continue;
+    removeCommentMarkers(model.paragraphs, [anchor.id]);
+    addCommentMarkers(model.paragraphs, anchor.id, start + anchor.start, start + anchor.end);
+  }
 }
 function withoutObjects(fragment) {
   const paragraphs = fragment.paragraphs.map(p => { const runs = p.runs.filter(run => !run.object); return { ...p, runs, text: runs.map(run => run.text).join('') }; });
