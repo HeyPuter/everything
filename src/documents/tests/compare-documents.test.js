@@ -220,6 +220,22 @@ it('keeps the comment, bookmark and field of a last paragraph that joins a remov
   }
 });
 
+// The other document's text copied in where a comment started went inside it: in Compare a comment on "red", which
+// replaced "brown", came out on "brownred". A comment stays on its own words, and a point comment stays a point.
+it.each(['compare', 'combine'])('%s leaves a comment on its own words beside copied text', async mode => {
+  const original = await open(docx(p('The quick brown fox.') + p('Last one here.'))), revised = await open(docx(p('The quick red fox.') + p('Last one there.')));
+  const [base, other] = mode === 'compare' ? [revised, original] : [original, revised];
+  const doc = new TextDocument(base.paragraphs, base.pageSettings, base.numbering, base.styles, base.tables, base.assets, { comments: [] });
+  const word = mode === 'compare' ? ['red', 'there'] : ['brown', 'here'], at = w => doc.text.indexOf(w);
+  doc.addComment({ author: 'A', text: 'one', range: [at(word[0]), at(word[0]) + word[0].length] });
+  doc.addComment({ author: 'A', text: 'two', range: [at(word[1]), at(word[1]) + word[1].length] });
+  doc.addComment({ author: 'A', text: 'point', range: [at(word[1]), at(word[1])] });
+  const result = mergeDocuments({ paragraphs: doc.paragraphs, tables: base.tables }, { paragraphs: other.paragraphs, tables: other.tables }, { mode, author: 'Rev' });
+  const model = new TextDocument(result.paragraphs, base.pageSettings, base.numbering, base.styles, result.tables, base.assets, { comments: doc.comments });
+  expect(model.text).toBe('The quick brownred fox.\nLast one herethere.');
+  expect(model.commentList.map(c => [c.text, model.text.slice(c.start, c.end)]).sort()).toEqual([['one', word[0]], ['point', ''], ['two', word[1]]]);
+});
+
 describe('combine documents', () => {
   it('keeps the original with its changes and adds the copy\'s differences', async () => {
     const original = await open(docx(p('Shared start.') + p('Removed later.'))), copy = await open(docx(p('Shared start, extended.') + '<w:p><w:ins w:id="5" w:author="Bea" w:date="2026-01-05T00:00:00Z"><w:r><w:t>Tracked by Bea.</w:t></w:r></w:ins></w:p>'));

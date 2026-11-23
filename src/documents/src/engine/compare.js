@@ -249,8 +249,13 @@ function mergePair(base, other, { granularity, equals, otherIsNew, revision, sty
   // Deleted runs after the last visible character.
   for (const piece of pieces) if (piece.hidden && piece.at >= baseText.length) runs.push({ ...piece.run });
   const out = { ...base, runs: mergeRuns(runs) };
-  const moved = offset => offset + shifts.filter(s => s.at < offset).reduce((n, s) => n + s.length, 0);
-  if (out.bookmarks) out.bookmarks = out.bookmarks.map(m => ({ ...m, offset: moved(m.offset) }));
+  // Text copied in where a range starts goes before it, and where one ends after it: a comment on a replaced word
+  // stays on that word rather than taking in the copied text beside it. A range that is a point stays one.
+  const moved = (offset, starts = false) => offset + shifts.filter(s => s.at < offset || starts && s.at === offset).reduce((n, s) => n + s.length, 0);
+  if (out.bookmarks) {
+    const points = new Set(out.bookmarks.filter(m => m.edge === 'end').map(m => `${m.id}\u0000${m.offset}`));
+    out.bookmarks = out.bookmarks.map(m => ({ ...m, offset: moved(m.offset, m.edge === 'start' && !points.has(`${m.id}\u0000${m.offset}`)) }));
+  }
   if (out.fieldMarkers) out.fieldMarkers = out.fieldMarkers.map(m => ({ ...m, offset: moved(m.offset) }));
   return out;
 }
