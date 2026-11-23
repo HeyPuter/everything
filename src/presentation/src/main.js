@@ -830,7 +830,7 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + A in the navigator", "Select every slide"],
         ["Delete in the navigator", "Delete the selected slides"],
         ["Ctrl / ⌘ + Alt + G", "Group the selected objects"],
-        ["Ctrl / ⌘ + Alt + Shift + G", "Ungroup the selected group"],
+        ["Ctrl / ⌘ + Alt + Shift + G", "Ungroup the selected groups"],
         ["Ctrl / ⌘ + ] or [", "Bring forward or send backward"],
         ["Ctrl / ⌘ + Shift + ] or [", "Bring to front or send to back"],
         ["Enter", "Edit text of the selected object"],
@@ -15257,65 +15257,78 @@ function groupSelection() {
       selectIds([P.getShapeId(group)]);
   });
 }
+// Every selected group comes apart; the objects they held join the rest of
+// the selection.
+const selectedGroups = () =>
+  selectedApart().filter((s) => P.getShapeKind(s) === "group");
 function ungroupSelection() {
-  const obj = currentShape();
-  if (!obj || P.getShapeKind(obj) !== "group") return;
-  mutateShape(obj, (target, targetSlide) => {
-    // The children come back as the group held them, unturned and
-    // unmirrored; each takes the place, the turn, and the mirroring the
-    // slide showed it with, so nothing moves when the group goes.
-    const parents = groupParents(targetSlide);
-    const flip = P.getShapeFlip(target) || {};
-    const shown = new Map(
-      P.getGroupChildren(target).map((child) => [
-        P.getShapeId(child),
-        {
-          bounds: slideBounds(doc.pres, child, parents),
-          rotation: slideRotation(child, parents),
-          flip: P.getShapeFlip(child) || {},
-        },
-      ]),
-    );
-    // The group's comments stay on the slide, and its animations go: the
-    // next object added would be given the group's id, and take them over.
-    const detach = detachShapeComments(
-      doc.pres,
-      targetSlide,
-      [P.getShapeId(target)],
-      { children: false },
-    );
-    const children = P.ungroupShapes(target);
-    detach();
+  const groups = selectedGroups();
+  if (!groups.length) return;
+  const ids = groups.map(P.getShapeId);
+  const others = [...selectionIds()].filter((id) => !ids.includes(id));
+  const primaryId = P.getShapeId(currentShape());
+  // Regroup puts back the group that had the handles, or else the last.
+  const remembered = ids.includes(primaryId) ? primaryId : ids.at(-1);
+  mutateSlide(slide(), (targetSlide) => {
+    const released = [];
+    let regroupIds = null;
+    for (const id of ids) {
+      const target = P.findShapeById(targetSlide, id);
+      if (!target || P.getShapeKind(target) !== "group") continue;
+      // The children come back as the group held them, unturned and
+      // unmirrored; each takes the place, the turn, and the mirroring the
+      // slide showed it with, so nothing moves when the group goes.
+      const parents = groupParents(targetSlide);
+      const flip = P.getShapeFlip(target) || {};
+      const shown = new Map(
+        P.getGroupChildren(target).map((child) => [
+          P.getShapeId(child),
+          {
+            bounds: slideBounds(doc.pres, child, parents),
+            rotation: slideRotation(child, parents),
+            flip: P.getShapeFlip(child) || {},
+          },
+        ]),
+      );
+      // The group's comments stay on the slide, and its animations go: the
+      // next object added would be given the group's id, and take them over.
+      const detach = detachShapeComments(doc.pres, targetSlide, [id], {
+        children: false,
+      });
+      const children = P.ungroupShapes(target);
+      detach();
+      for (const child of children) {
+        const was = shown.get(P.getShapeId(child));
+        if (!was) continue;
+        if (was.bounds) setSlideBounds(doc.pres, child, was.bounds);
+        const own = ownRotation(child, was.rotation);
+        if (own !== (P.getShapeRotation(child) || 0))
+          P.setShapeRotation(child, own);
+        // A group mirrored along one axis mirrors each child along it; a
+        // child mirrored the same way already comes out straight.
+        if (flip.horizontal || flip.vertical)
+          P.setShapeFlip(child, {
+            horizontal: !!was.flip.horizontal !== !!flip.horizontal,
+            vertical: !!was.flip.vertical !== !!flip.vertical,
+          });
+      }
+      const childIds = children.map(P.getShapeId);
+      released.push(...childIds);
+      if (id === remembered || !regroupIds) regroupIds = childIds;
+    }
+    if (!released.length) return SKIP_MUTATION;
     P.pruneSlideAnimations(targetSlide);
     review.comments.invalidate();
-    for (const child of children) {
-      const was = shown.get(P.getShapeId(child));
-      if (!was) continue;
-      if (was.bounds) setSlideBounds(doc.pres, child, was.bounds);
-      const own = ownRotation(child, was.rotation);
-      if (own !== (P.getShapeRotation(child) || 0))
-        P.setShapeRotation(child, own);
-      // A group mirrored along one axis mirrors each child along it; a child
-      // mirrored the same way already comes out straight.
-      if (flip.horizontal || flip.vertical)
-        P.setShapeFlip(child, {
-          horizontal: !!was.flip.horizontal !== !!flip.horizontal,
-          vertical: !!was.flip.vertical !== !!flip.vertical,
-        });
-    }
-    formatTools.rememberUngroup(
-      P.getSlidePartName(targetSlide),
-      children.map(P.getShapeId),
-    );
+    formatTools.rememberUngroup(P.getSlidePartName(targetSlide), regroupIds);
     if (P.getSlidePartName(slide()) === P.getSlidePartName(targetSlide))
-      selectIds(children.map(P.getShapeId));
+      selectIds([...new Set([...others, ...released])]);
   });
 }
 function arrangeItems() {
   const count = selectionIds().size;
   const obj = currentShape();
   const canGroup = count > 1;
-  const canUngroup = !!obj && count === 1 && P.getShapeKind(obj) === "group";
+  const canUngroup = !!obj && selectedGroups().length > 0;
   return [
     {
       label: count > 1 ? "Align" : "Align to slide",

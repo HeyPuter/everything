@@ -145,6 +145,46 @@ test("rotate, the Size and Rotation dialog, Regroup and aligning to the slide", 
   expect(Math.min(...tops)).toBeLessThan(400000);
 });
 
+// Ungroup took apart only the group with the handles, and was off in the
+// menus for several selected groups.
+test("Ungroup takes apart every selected group", async ({ page }) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  await addShape(page, "Circle");
+  await selectAll(page);
+  await page.keyboard.press(`${mod}+Alt+g`);
+  await addShape(page, "Triangle");
+  await addShape(page, "Diamond");
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  await pane.getByRole("button", { name: /^Triangle/ }).click();
+  await pane
+    .getByRole("button", { name: /^Diamond/ })
+    .click({ modifiers: ["Shift"] });
+  await page.keyboard.press(`${mod}+Alt+g`);
+  await expect(pane.locator("li[data-depth]")).toHaveCount(4);
+  await selectAll(page);
+  const chosen = page.locator(".object-hit.selected");
+  await expect(chosen).toHaveCount(2);
+  await tab(page, "Shape Format");
+  await (await command(page, "group")).click();
+  await expect(
+    page.getByRole("menuitem", { name: /^Ungroup/ }).filter({ visible: true }),
+  ).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press(`${mod}+Alt+Shift+g`);
+  await expect(chosen).toHaveCount(4);
+  await expect(pane.locator("li[data-depth]")).toHaveCount(0);
+  const { shapes } = await download(page);
+  expect(shapes.map((s) => P.getShapeKind(s))).toEqual([
+    "shape",
+    "shape",
+    "shape",
+    "shape",
+  ]);
+});
+
 // Align and Distribute moved the unturned box, so Align Top put a long
 // rectangle turned upright half off the slide.
 test("a turned object aligns and distributes where the slide shows it", async ({
