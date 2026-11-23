@@ -42,6 +42,7 @@ import { addAttachment, attachmentBytes, removeAttachment } from './core/attachm
 import {
   listFonts,
   readInitialView,
+  pdfaClaimOf,
   readPdfaClaim,
   writeInitialView,
 } from './core/initial-view.js';
@@ -2783,10 +2784,17 @@ export function createEditor({
       pdf = next;
       // A PDF that asks to be shown by its title is named by the title it has now: details,
       // an accessibility fix, removing hidden information, or undo can each change it.
+      // Undo, redo, or an edit can add or take away the PDF/A claim too; opening reads it
+      // from the file itself (see applyInitialView).
+      const changed = !initializing;
       Promise.all([next.getViewerPreferences(), next.getMetadata()])
-        .then(([prefs, { info }]) => {
+        .then(([prefs, { info, metadata }]) => {
           if (destroyed || pdf !== next) return;
           shownTitle = (prefs?.get('DisplayDocTitle') && String(info?.Title ?? '').trim()) || null;
+          if (changed) {
+            pdfaClaim = pdfaClaimOf(metadata?.getRaw?.());
+            showStandardsBar();
+          }
           updateStatus();
         })
         .catch(() => {});

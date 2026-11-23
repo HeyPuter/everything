@@ -235,6 +235,12 @@ export function readPdfaClaim(doc) {
   } catch {
     return null;
   }
+  return pdfaClaimOf(xml);
+}
+
+/** The PDF/A level an XMP packet (as text) claims, as `readPdfaClaim` reads it, or null. */
+export function pdfaClaimOf(xml) {
+  if (typeof xml !== 'string') return null;
   const value = (key) =>
     new RegExp(`pdfaid:${key}\\s*=\\s*["']([^"']+)["']|<pdfaid:${key}>\\s*([^<\\s]+)`, 'i').exec(
       xml,
