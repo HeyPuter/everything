@@ -15243,6 +15243,71 @@ test("a newly inserted or pasted object is selected on its own", async ({
   await expect(page.locator(".selection-box.multi")).toHaveCount(0);
 });
 
+// Text pasted into a text box from another app or another box keeps its
+// bold, italic and color; a copy whose HTML holds other words than its plain
+// text (a table's cells) is pasted as the plain text.
+test("text pasted into a text box keeps its formatting", async ({ page }) => {
+  await start(page);
+  await page
+    .getByRole("button", { name: "New presentation", exact: true })
+    .click();
+  await addText(page);
+  await page.locator(".object-hit").last().dblclick();
+  const input = page.getByRole("textbox", { name: "Edit text", exact: true });
+  await expect(input).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+a");
+  const paste = (html, plain) =>
+    page.evaluate(
+      ([html, plain]) => {
+        const transfer = new DataTransfer();
+        transfer.setData("text/plain", plain);
+        transfer.setData("text/html", html);
+        document.activeElement.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: transfer,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      },
+      [html, plain],
+    );
+  await paste(
+    '<p>Hello <b>bold</b> and <i>italic</i></p><p>A <span style="color:#ff0000">red</span> word</p>',
+    "Hello bold and italic\n\nA red word",
+  );
+  await paste("<table><tr><td>a</td><td><b>b</b></td></tr></table>", "\ta\tb");
+  await input.press("Escape");
+  await expect(input).toHaveCount(0);
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const loaded = await parseDeck(
+    new Uint8Array(await readFile(await (await downloaded).path())),
+  );
+  const box = P.getSlideShapes(P.getSlides(loaded)[0]).at(-1);
+  const runs = (p) =>
+    P.getShapeParagraphElements(box, p)
+      .filter((e) => e.kind === "r")
+      .map((e) => ({
+        text: e.text,
+        bold: !!e.format?.bold,
+        italic: !!e.format?.italic,
+        color: e.format?.color || null,
+      }));
+  expect(P.getShapeText(box)).toBe("Hello bold and italic\nA red word\ta\tb");
+  expect(runs(0).find((r) => r.text === "bold")?.bold).toBe(true);
+  expect(runs(0).find((r) => r.text === "Hello ")?.bold).toBe(false);
+  expect(runs(0).find((r) => r.text === "italic")?.italic).toBe(true);
+  expect(runs(1).find((r) => r.text === "red")?.color).toMatch(/^#?FF0000$/i);
+  expect(runs(1).some((r) => r.text.includes("b") && r.bold)).toBe(false);
+});
+
 // A picture chosen for the slide that could not be decoded was refused with
 // the browser's own words ("The source image could not be decoded."), unlike
 // a background picture, which was refused in the app's.

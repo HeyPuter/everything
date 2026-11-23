@@ -101,6 +101,7 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createFormatTools } from "./format/index.js";
+import { htmlParagraphs } from "./format/arrange.js";
 import {
   formatFrame,
   preferTab,
@@ -10870,6 +10871,36 @@ async function editDiagramText(target) {
 
 // `inserted` is the history's snapshot of the insert that drew the object,
 // for a text box opened for typing as it is drawn.
+// Text pasted into a text box keeps the bold, italic, underline,
+// strikethrough and color the copy carried as HTML, when that HTML holds
+// the same words as the plain text: [{ text, format }] with "\n" between
+// paragraphs, or null to paste the plain text.
+function formattedPaste(html, plain) {
+  if (!html) return null;
+  let paragraphs;
+  try {
+    paragraphs = htmlParagraphs(html);
+  } catch {
+    return null;
+  }
+  if (!paragraphs.some((p) => p.runs.some((r) => Object.keys(r.format).length)))
+    return null;
+  const words = (text) =>
+    text
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join("\n");
+  const pieces = paragraphs.flatMap((p, i) =>
+    p.runs.map((r, k) => ({
+      text: (i && !k ? "\n" : "") + r.text,
+      format: r.format,
+    })),
+  );
+  return words(pieces.map((p) => p.text).join("")) === words(plain)
+    ? pieces
+    : null;
+}
 function editText(target, event = null, { inserted = null } = {}) {
   if (readOnlyDocument()) return;
   if (review.blocksEdits()) return review.blockedEdit();
@@ -11304,7 +11335,12 @@ function editText(target, event = null, { inserted = null } = {}) {
   }
   // Typed or pasted text continues the run before it; `field` makes the run
   // for a field shown as `value` from that run instead.
+  // `value` may also be a list of formatted pieces, pasted from another
+  // app or another box: each piece keeps its own look on top of the run
+  // before it.
   function replaceRange(start, end, value, field = null) {
+    const pieces = Array.isArray(value) ? value : null;
+    if (pieces) value = pieces.map((piece) => piece.text).join("");
     remember();
     runs = readRuns();
     // Paragraphs removed with the text go; new ones take after the one split.
@@ -11322,7 +11358,14 @@ function editText(target, event = null, { inserted = null } = {}) {
     runs.splice(
       from,
       to - from,
-      field ? field(source) : copyRun(source, value),
+      ...(pieces
+        ? pieces.map((piece) => {
+            const run = copyRun(source, piece.text);
+            Object.assign(run.format, piece.format);
+            Object.assign(run.changes, piece.format);
+            return run;
+          })
+        : [field ? field(source) : copyRun(source, value)]),
     );
     runs = runs.filter((run) => run.text);
     render();
@@ -11786,7 +11829,10 @@ function editText(target, event = null, { inserted = null } = {}) {
       "\n",
     );
     const sel = selectionOffsets();
-    if (value && sel) replaceRange(sel[0], sel[1], value);
+    if (!sel) return;
+    const pieces = formattedPaste(e.clipboardData?.getData("text/html"), value);
+    if (pieces) replaceRange(sel[0], sel[1], pieces);
+    else if (value) replaceRange(sel[0], sel[1], value);
   });
   input.addEventListener("drop", (e) => e.preventDefault());
   input.addEventListener("input", () => syncToolbar());
