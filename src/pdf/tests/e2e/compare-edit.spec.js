@@ -240,6 +240,16 @@ test('keys the comparison answers itself leave the document behind it alone', as
   await expect(options.nth(10)).toHaveAttribute('aria-selected', 'true');
   await expect(options.nth(10)).toBeFocused();
   await expect(page.locator('.compare-item:focus')).toHaveCount(1);
+  // On the documents, End and Home scroll the comparison to its end and back, rather than
+  // turning the page hidden behind it.
+  const docs = page.locator('.compare-docs');
+  await docs.focus();
+  await page.keyboard.press('End');
+  await expect
+    .poll(() => docs.evaluate((node) => node.scrollTop + node.clientHeight - node.scrollHeight))
+    .toBeGreaterThan(-2);
+  await page.keyboard.press('Home');
+  await expect.poll(() => docs.evaluate((node) => node.scrollTop)).toBe(0);
 
   await page.getByRole('button', { name: 'Close compare' }).click();
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');

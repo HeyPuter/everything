@@ -14525,7 +14525,9 @@ export function createEditor({
       e.preventDefault();
       navigateBy(down ? 1 : -1);
     } else if (!modifier && !e.altKey && !typing && (e.key === 'Home' || e.key === 'End')) {
-      if (!pdf || claimed || e.target.closest?.('.page-sidebar, .tools-pane, .menu')) return;
+      // In Compare files they scroll the comparison to its first or last pages instead.
+      if (!pdf || claimed || e.target.closest?.('.page-sidebar, .tools-pane, .menu, .compare-view'))
+        return;
       e.preventDefault();
       navigate(e.key === 'Home' ? 0 : pageCount - 1);
     } else if (
