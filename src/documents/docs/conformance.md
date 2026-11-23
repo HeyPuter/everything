@@ -128,8 +128,10 @@ coverage, which is not read. `tests/browser/font-dialog.spec.js` checks layout, 
 Likewise its **Complex script font** (offered when the selection, or the caret's paragraph, holds Hebrew, Arabic or
 other right-to-left letters, or text marked `w:rtl` or `w:cs`) sets the complex script slot alone
 (`w:rFonts/@w:cs`, §17.3.2.26), the font such text is shown in; for that text **Font style** also sets `w:bCs` and
-`w:iCs` (§§17.3.2.2, 17.3.2.17), as Bold and Italic do. Gap: the Home font box sets only the ASCII and high-ANSI
-slots, so it does not change the font of right-to-left text. `tests/font-dialog-fields.test.js` and
+`w:iCs` (§§17.3.2.2, 17.3.2.17), as Bold and Italic do. The Home font box tells by run direction rather than font
+coverage: for a selection of only `w:rtl` or `w:cs` text it shows and sets the complex script slot alone (named
+Complex script font family), and for one mixing such text with other text it sets that slot with the ASCII and
+high-ANSI ones. `tests/font-dialog-fields.test.js` and
 `tests/browser/rtl-paragraph-review.spec.js` check the field and the saved attributes.
 
 `tools/canvas_font_family_fixture.py` independently generates

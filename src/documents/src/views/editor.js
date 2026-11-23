@@ -503,13 +503,19 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     update();
   }
   const fontFamily = el('button.canvas-font-label', { type: 'button', disabled: true, 'aria-label': 'Latin font family', 'aria-haspopup': 'dialog', onclick: () => fontFamily.openPopover(fontFamily) }, 'Noto Sans');
+  // Right-to-left and complex script text (w:rtl, w:cs) is shown in its complex script font (§17.3.2.26 rFonts cs):
+  // for a selection of only such text the box shows and sets that font, and for one mixing it with other text it
+  // sets that font as well as the Latin one.
+  const fontScript = run => run.rtl === true || run.cs === true ? 'complex' : run.rtl === false && run.cs === false ? 'latin' : 'both';
+  const shownFont = run => fontScript(run) === 'complex' ? run.fontCs : run.fontAscii === run.fontHAnsi ? run.fontAscii : null;
   fontFamily.openPopover = (anchor, options) => {
     if (!engine) return; engine.finishComposition();
     const fontEditor = engine;
-    const run = engine.model.runFormatting;
-    fontPopover = openFontPicker({ anchor, ...options, value: run.fontAscii === run.fontHAnsi ? run.fontAscii : null,
+    const run = engine.model.runFormatting, script = fontScript(run);
+    fontPopover = openFontPicker({ anchor, ...options, value: shownFont(run),
       onFontsAvailable: () => refreshAvailableFonts(fontEditor),
-      alternatives: engine.model.styles.fontAlternatives, apply: name => engine?.setRunFormat({ fontAscii: name, fontHAnsi: name }) });
+      alternatives: engine.model.styles.fontAlternatives,
+      apply: name => engine?.setRunFormat(script === 'complex' ? { fontCs: name } : { fontAscii: name, fontHAnsi: name, ...(script === 'both' ? { fontCs: name } : {}) }) });
   };
   let fontSizeDraftCancelled = false;
   function applyFontSize() {
@@ -1658,11 +1664,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       indicator.classList.toggle('is-none', control === highlight && value === 'none');
     }
     fontSize.disabled = fontSizeMenu.disabled = fontFamily.disabled = false;
-    const family = run.fontAscii === run.fontHAnsi ? run.fontAscii : null;
+    const family = shownFont(run), complex = fontScript(run) === 'complex';
+    fontFamily.setAttribute('aria-label', complex ? 'Complex script font family' : 'Latin font family');
     const substituted = family && documentFontAvailable(family, engine.model.styles.fontAlternatives) === false;
     const replacement = substituted ? displayedFont({ fontFamily: family }, engine.model.styles.fontAlternatives) : family;
     fontFamily.textContent = !family ? 'Mixed fonts' : substituted ? `${family} → ${replacement}` : family;
-    fontFamily.title = substituted ? `${family} is unavailable in this browser. Displaying ${replacement}; the original font is retained in the DOCX.` : !family ? 'The selection uses different Latin font declarations.' : `Latin font: ${family}`;
+    fontFamily.title = substituted ? `${family} is unavailable in this browser. Displaying ${replacement}; the original font is retained in the DOCX.` : !family ? `The selection uses different ${complex ? 'complex script' : 'Latin'} font declarations.` : `${complex ? 'Complex script' : 'Latin'} font: ${family}`;
     if (document.activeElement !== fontSize) fontSize.value = run.fontSize ?? '';
     for (const control of [pageSetup, pageBreak, pageBreakBefore, outdent, indent, paragraphGeometry, insertTab, lineSpacingOptions, lineSpacingMenu, ...alignmentButtons, ...directionButtons]) control.disabled = false;
     pageBreak.disabled = !!engine.model.selectedParagraphs[0]?.cellId;

@@ -142,3 +142,31 @@ test('lists a Hebrew comment right-to-left, as its card shows it', async ({ page
   expect(await readsRightToLeft(text)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('the Home font box shows and sets the font right-to-left text is shown in', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await (await onTab(page, 'home')).getByRole('button', { name: 'Right-to-Left Text Direction', exact: true }).click();
+  await input.focus(); await page.keyboard.insertText('שלום עולם');
+  await input.evaluate(el => { el.setSelectionRange(0, el.value.length); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  // Typed Hebrew is marked right-to-left (w:rtl) and shown in the complex script font: the box names that one.
+  const box = page.locator('.ribbon-card').getByRole('button', { name: 'Complex script font family', exact: true });
+  await expect(box).toHaveText('Noto Sans');
+  await box.click();
+  await page.getByRole('searchbox', { name: 'Search fonts' }).fill('osw');
+  await page.getByRole('searchbox', { name: 'Search fonts' }).press('ArrowDown');
+  await page.keyboard.press('Enter'); await expect(input).toBeFocused();
+  await expect(box).toHaveText('Oswald');
+  const event = page.waitForEvent('download'); await downloadDocx(page);
+  const path = info.outputPath('rtl-home-font.docx'); await (await event).saveAs(path);
+  const run = strFromU8(unzipSync(readFileSync(path))['word/document.xml']).split('<w:r>').find(r => r.includes('שלום'));
+  expect(run).toMatch(/w:cs="Oswald"/); expect(run).not.toMatch(/w:ascii="Oswald"/);
+  // Left-to-right text keeps the Latin font box.
+  await input.evaluate(el => { el.setSelectionRange(el.value.length, el.value.length); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.getByRole('button', { name: 'Right-to-Left Text Direction', exact: true }).click();
+  await input.press('Enter'); await page.keyboard.insertText('Hello');
+  await expect(page.locator('.ribbon-card').getByRole('button', { name: 'Latin font family', exact: true })).toHaveText('Noto Sans');
+  expect(errors).toEqual([]);
+});
