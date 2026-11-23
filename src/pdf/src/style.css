@@ -850,10 +850,11 @@ puter-user-menu::part(apps-panel) {
 .stamp-chip:hover {
   background: var(--surface-2);
 }
-.stamp-chip[aria-pressed='true'] {
-  box-shadow:
-    0 0 0 2px var(--surface),
-    0 0 0 4px var(--accent);
+/* The chosen preset is filled with its own color, not ringed: a ring in the accent color drew it
+   as the keyboard focus, beside the Text field that has it. */
+.stamp-chip[aria-pressed='true'],
+.stamp-chip[aria-pressed='true']:hover {
+  background: color-mix(in srgb, var(--stamp-color, var(--strong)) 28%, transparent);
 }
 .stamp-preview-wrap {
   position: relative;

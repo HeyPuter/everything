@@ -179,6 +179,19 @@ test('a preset stamp lands centered as one selected vector shape', async ({ page
   await menu(page, 'Stamp…');
   const dialog = page.getByRole('dialog', { name: 'Add stamp' });
   await expect(dialog.getByLabel('Text')).toHaveValue('APPROVED');
+  // The chosen preset is filled, not ringed in the accent color as the focused Text field is:
+  // two rings read as two places the keyboard was.
+  await expect(dialog.getByLabel('Text')).toBeFocused();
+  const look = (name) =>
+    dialog
+      .getByRole('button', { name, exact: true })
+      .evaluate((node) => [
+        getComputedStyle(node).boxShadow,
+        getComputedStyle(node).backgroundColor,
+      ]);
+  const [[ring, chosen], [, other]] = [await look('APPROVED'), await look('REVIEWED')];
+  expect(ring).toBe('none');
+  expect(chosen).not.toBe(other);
   const accessibility = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
     .analyze();
