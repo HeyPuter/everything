@@ -351,6 +351,42 @@ export function createRibbon({
     // task on, so the press that opened it does not.
     document.addEventListener("keydown", onKey, true);
     setTimeout(() => document.addEventListener("pointerdown", close, true));
+    // Inside, the keys work as in a menu: the arrows, Home and End move
+    // between the commands (a box keeps its arrows, as does a gallery that
+    // moves through its own items), and Tab past either end closes the
+    // drop-down and goes back to its button.
+    pop.addEventListener("keydown", (e) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      const all = focusables(pop);
+      const at = all.indexOf(document.activeElement);
+      if (at < 0) return;
+      if (e.key === "Tab") {
+        if (e.shiftKey ? at > 0 : at < all.length - 1) return;
+        e.preventDefault();
+        close();
+        anchor.focus();
+        return;
+      }
+      if (e.target.matches("input, select, textarea")) return;
+      const step = {
+        ArrowRight: at + 1,
+        ArrowDown: at + 1,
+        ArrowLeft: at - 1,
+        ArrowUp: at - 1,
+        Home: 0,
+        End: all.length - 1,
+      }[e.key];
+      if (step === undefined) return;
+      e.preventDefault();
+      e.stopPropagation();
+      all[(step + all.length) % all.length].focus();
+    });
+    // The keyboard leaving it any other way closes it too.
+    pop.addEventListener("focusout", (e) => {
+      const to = e.relatedTarget;
+      if (!to || pop.contains(to) || to.closest?.(".menu")) return;
+      if (pop.isConnected) close();
+    });
     pop.addEventListener("click", (e) => {
       if (e.target.closest("button:not([aria-haspopup])")) setTimeout(close);
     });
