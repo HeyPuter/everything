@@ -239,6 +239,34 @@ export function htmlTableFragment(html) {
   } catch { return null; }
 }
 
+/**
+ * Another application's copy that is one table and nothing else (a spreadsheet's cells, a web page's or another word
+ * processor's table): its rows of cells, each { lines, colspan, rowspan, header, fill }, for a paste that makes it a
+ * table here. Null for anything else, which pastes as formatted paragraphs.
+ */
+export function foreignHtmlTable(html) {
+  if (typeof DOMParser === 'undefined' || !html || !/<table[\s>]/i.test(html) || html.includes(TABLE_ATTRIBUTE) || html.includes(FRAGMENT_ATTRIBUTE)) return null;
+  const body = new DOMParser().parseFromString(html, 'text/html').body;
+  const tables = body.querySelectorAll('table');
+  if (tables.length !== 1) return null;
+  const table = tables[0], outside = body.textContent.replace(table.textContent, '');
+  if (outside.trim() || table.querySelector('img, table table, svg, video')) return null;
+  const rows = [...table.querySelectorAll('tr')].filter(tr => tr.closest('table') === table).map(tr => [...tr.children].filter(td => /^(TD|TH)$/.test(td.tagName)).map(td => {
+    const lines = [];
+    const blocks = td.querySelectorAll('p, div, li, h1, h2, h3, h4, h5, h6');
+    // Whitespace in the markup is one space, as a browser shows it; a <br> or a paragraph of the cell is a new line.
+    for (const part of (blocks.length ? [...blocks].filter(b => !b.querySelector('p, div, li, h1, h2, h3, h4, h5, h6')) : [td])) {
+      const clone = part.cloneNode(true); clone.querySelectorAll('br').forEach(br => br.replaceWith('\u0001'));
+      lines.push(...String(clone.textContent ?? '').replace(/\s+/g, ' ').split('\u0001').map(line => line.trim()));
+    }
+    while (lines.length > 1 && !lines.at(-1)) lines.pop();
+    const color = cssColor(td.style?.backgroundColor || td.getAttribute('bgcolor') || ''), fill = color !== 'FFFFFF' && color;
+    const span = name => Math.max(1, Math.min(63, parseInt(td.getAttribute(name), 10) || 1));
+    return { lines: lines.length ? lines : [''], colspan: span('colspan'), rowspan: span('rowspan'), header: td.tagName === 'TH' || !!td.closest('thead'), ...(fill ? { fill } : {}) };
+  })).filter(cells => cells.length);
+  return rows.length ? rows : null;
+}
+
 /* ---------- A picture ---------- */
 
 export const PICTURE_ATTRIBUTE = 'data-documents-picture';

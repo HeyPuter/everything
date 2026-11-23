@@ -6,7 +6,7 @@ import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
 import { tableCells, verticalMerges, documentBlocks, rowGrid } from '../src/engine/tables.js';
 import * as T from '../src/engine/table-editing.js';
 import { applyTableStyle } from '../src/engine/table-styles.js';
-import { tableFragmentHtml, htmlTableFragment } from '../src/engine/clipboard-fragment.js';
+import { tableFragmentHtml, htmlTableFragment, foreignHtmlTable } from '../src/engine/clipboard-fragment.js';
 import { StorySession } from '../src/engine/story-session.js';
 
 let dom;
@@ -100,5 +100,31 @@ describe('copying and pasting whole tables', () => {
     // A table of other columns takes the rows as text.
     doc.select(doc.text.length); doc.insertTable(1, 2, 9000);
     expect(T.pasteTableRows(doc, rows, { token: 'here' })).toBe(false);
+  });
+
+  it('pastes another application’s table as a table, with its merges, header row and fills', async () => {
+    const html = `<meta charset="utf-8"><table border="1"><thead><tr><th>Item</th><th colspan="2">Amount</th></tr></thead>
+      <tbody><tr><td rowspan="2" style="background-color:#ffcc00">Pens<br>blue</td><td>2</td><td>4.00</td></tr>
+      <tr><td>
+        3</td><td>1.50</td></tr></tbody></table>`;
+    const rows = foreignHtmlTable(html);
+    expect(rows.map(r => r.map(c => c.lines.join('|')))).toEqual([['Item', 'Amount'], ['Pens|blue', '2', '4.00'], ['3', '1.50']]);
+    const pkg = createDocx([paragraph('Intro')], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+    const session = new StorySession(open(pkg));
+    let doc = session.model;
+    doc.select(doc.text.length);
+    session.run(() => T.pasteTableRows(doc, T.foreignTableRows(doc, rows)));
+    doc = session.model;
+    const table = doc.tables[0];
+    const shape = t => t.rows.map(row => row.cells.map(cell => doc.paragraphs.filter(p => p.cellId === cell.id).map(paragraphText).join('/') + ((cell.span ?? 1) > 1 ? `:${cell.span}` : '') + (cell.vMerge === 'restart' ? '^' : cell.vMerge === 'continue' ? 'v' : '')));
+    expect(shape(table)).toEqual([['Item', 'Amount:2'], ['Pens/blue^', '2', '4.00'], ['v', '3', '1.50']]);
+    expect(table.rows.map(row => !!row.header)).toEqual([true, false, false]);
+    expect(table.rows[1].cells[0].shading).toBe('FFCC00');
+    documentBlocks(doc.paragraphs, doc.tables); verticalMerges(table);
+    const reopened = open(await DocxPackage.open(await save(pkg, doc)));
+    expect(look(reopened, reopened.tables[0])).toEqual(look(doc, table));
+    // Text around a table, or two tables, paste as paragraphs.
+    expect(foreignHtmlTable('<p>Before</p><table><tr><td>a</td></tr></table>')).toBe(null);
+    expect(foreignHtmlTable('<table><tr><td>a</td></tr></table><table><tr><td>b</td></tr></table>')).toBe(null);
   });
 });

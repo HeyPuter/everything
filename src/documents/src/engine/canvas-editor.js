@@ -3,7 +3,7 @@ import { pageBackingSize } from './canvas-backing.js';
 import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
-import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture, pastedFragment, withoutPastedControls, FRAGMENT_ATTRIBUTE, tableFragmentHtml, htmlTableFragment } from './clipboard-fragment.js';
+import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture, pastedFragment, withoutPastedControls, FRAGMENT_ATTRIBUTE, tableFragmentHtml, htmlTableFragment, foreignHtmlTable } from './clipboard-fragment.js';
 import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing, equationHtml, htmlEquation, pastedEquation, uncopiedHtml, copiedUncopied, UNCOPIED_MESSAGE, UNCUT_MESSAGE } from './drawing-clipboard.js';
 import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
@@ -50,7 +50,7 @@ import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext, rowGrid, verticalMerges } from './tables.js';
 import { cellBlockRects, cellBlockPlacements, wholeRows, wholeColumns, blockBetween } from './table-selection.js';
-import { clearCells, deleteColumns, deleteRows, deleteTable, splitTable, insertTablePageBreak, joinTables, copyTableRows, pasteTableRows } from './table-editing.js';
+import { clearCells, deleteColumns, deleteRows, deleteTable, splitTable, insertTablePageBreak, joinTables, copyTableRows, pasteTableRows, foreignTableRows } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -2820,7 +2820,9 @@ export class CanvasEditor {
     const equation = htmlEquation(html);
     if (equation) { this.execute(() => this.model.insertMathRun(pastedEquation(this.model, equation))); return; }
     // Whole table rows copied in this application come back as a table outside tables, and as rows in a table of their columns.
-    const rows = !this.readOnly && !this.viewOnly ? htmlTableFragment(html) : null;
+    // Another application's table pastes as a table outside tables.
+    const foreign = !this.readOnly && !this.viewOnly && !this.model.tableContext ? foreignHtmlTable(html) : null;
+    const rows = !this.readOnly && !this.viewOnly ? htmlTableFragment(html) || (foreign && foreignTableRows(this.model, foreign)) : null;
     let pastedRows = false;
     if (rows) this.execute(() => (pastedRows = pasteTableRows(this.model, rows, { token: this.clipboardToken })), () => {}, undefined, true);
     if (pastedRows) return;

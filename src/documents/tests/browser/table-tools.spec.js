@@ -483,3 +483,26 @@ test('a whole table copied and pasted outside tables comes back as a table; Undo
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   expect((await model(page)).tables).toHaveLength(1);
 });
+
+test('a table copied from another application pastes as a table outside tables, and as text in one', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await page.keyboard.type('Intro'); await page.keyboard.press('Enter');
+  const paste = (text, html) => input(page).evaluate((el, [text, html]) => {
+    const data = new DataTransfer(); data.setData('text/plain', text); data.setData('text/html', html);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, [text, html]);
+  const html = '<html><body><!--StartFragment--><table><tr><th>Name</th><th>Qty</th></tr><tr><td>Pens</td><td>2</td></tr></table><!--EndFragment--></body></html>';
+  await paste('Name\tQty\nPens\t2', html);
+  const after = await model(page);
+  expect(after.tables).toHaveLength(1);
+  expect(after.tables[0].rows.map(r => r.cells.map(c => c.text))).toEqual([['Name', 'Qty'], ['Pens', '2']]);
+  // In a cell, the same paste is its text.
+  await goToCell(page, 1, 1);
+  await paste('Name\tQty\nPens\t2', html);
+  expect((await model(page)).tables).toHaveLength(1);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect((await model(page)).tables).toHaveLength(0);
+});

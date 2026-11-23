@@ -12,6 +12,7 @@ import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookm
 import { mergeCellControls } from './block-controls.js';
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE, xmlAttributeText } from './text-limits.js';
 import { checkedCellAlignment } from './cell-alignment.js';
+import { cellShadingFill } from './backgrounds.js';
 import { keptText } from './table-formula.js';
 import { checkedCellBorder, resolveCellBorders } from './cell-borders.js';
 import { resolveCellMargins } from './cell-margins.js';
@@ -1594,4 +1595,46 @@ function pasteRowsIntoTable(model, fragment, { token = null } = {}) {
   validate(model);
   model.selectCell(rows[0].cells.find(cell => content.has(cell.id)).id);
   model.didChange(); return true;
+}
+
+/**
+ * Rows of cells read from another application's HTML table (foreignHtmlTable) as rows for pasteTableRows: a table as
+ * Insert Table makes one, as wide as the text, its columns sharing it evenly, with the cells' merges (colspan,
+ * rowspan), header rows (th, thead) and fills. Rows a merge leaves short end with empty cells. Null when the table is
+ * too large (32 columns, 1,000 rows) or its columns too narrow.
+ */
+export function foreignTableRows(model, rows, { width = writingWidth(model) } = {}) {
+  // Lay the cells on a grid, as a browser does: a cell merged down holds its columns in the rows below.
+  const placed = [], taken = [];
+  rows.forEach((cells, r) => {
+    let column = 0;
+    for (const cell of cells) {
+      while (taken[r]?.[column]) column++;
+      placed.push({ ...cell, row: r, column });
+      for (let dr = 0; dr < cell.rowspan && r + dr < rows.length; dr++) for (let dc = 0; dc < cell.colspan; dc++) (taken[r + dr] ||= [])[column + dc] = true;
+      column += cell.colspan;
+    }
+  });
+  const columns = Math.max(1, ...taken.map(row => row?.length || 0));
+  if (columns > 32 || rows.length > 1000) return null;
+  let built;
+  try { built = newTable(model, rows.length, columns, width); } catch { return null; }
+  const { table, styles } = built, template = table.rows[0].cells[0], paragraphs = [];
+  const cellOf = (span, extra = {}) => ({ ...copy(template), id: tableId('cell'), span, width: { type: 'dxa', value: sum(table.grid.slice(extra.column, extra.column + span)) }, ...(extra.vMerge ? { vMerge: extra.vMerge } : {}) });
+  table.rows.forEach((row, r) => {
+    const cells = [];
+    for (let column = 0; column < columns;) {
+      const start = placed.find(p => p.row === r && p.column === column);
+      const above = !start && placed.find(p => p.row < r && p.row + p.rowspan > r && p.column === column);
+      const span = Math.min(columns - column, (start || above)?.colspan || 1);
+      const cell = cellOf(span, { column, vMerge: start ? (start.rowspan > 1 ? 'restart' : null) : above ? 'continue' : null });
+      if (start?.fill) Object.assign(cell, { shading: start.fill, fill: cellShadingFill(start.fill), shadingExplicit: true, shadingChanged: true });
+      if (!above) for (const line of start?.lines || ['']) paragraphs.push(paragraph(line, { cellId: cell.id, tableStyleId: table.styleId }));
+      cells.push(cell); column += span;
+    }
+    row.cells = cells;
+  });
+  // Rows marked as headings at the top repeat as header rows.
+  for (const [r, row] of table.rows.entries()) { const header = rows[r].length && rows[r].every(cell => cell.header); if (!header) break; row.header = true; row.headerChanged = true; }
+  return { token: null, table, paragraphs, style: styles.definitions[table.styleId] };
 }
