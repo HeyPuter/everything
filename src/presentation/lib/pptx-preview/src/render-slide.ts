@@ -547,7 +547,10 @@ const renderPicture = (
     const cropT = crop?.top ?? 0;
     const cropR = crop?.right ?? 0;
     const cropB = crop?.bottom ?? 0;
-    if (cropL > 0 || cropT > 0 || cropR > 0 || cropB > 0) {
+    // A negative side pads the picture instead: the source rectangle
+    // reaches past the image, which then fills less of the frame (a
+    // letterboxed "fit" crop).
+    if (cropL !== 0 || cropT !== 0 || cropR !== 0 || cropB !== 0) {
       // ECMA-376 <a:srcRect> sides are fractions of the source image;
       // cropping adjusts the visible region. We project
       // the same effect by scaling the <image> larger and clipping it
