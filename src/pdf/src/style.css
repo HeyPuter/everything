@@ -1877,6 +1877,17 @@ puter-user-menu::part(apps-panel) {
   outline: 2px solid var(--brand);
   outline-offset: -2px;
 }
+/* Targets are see-through, so dimming them while a save runs changed nothing in view but had the
+   browser repaint every one of them, thousands on a page of shapes. A hovered one dims as before. */
+.image-target:disabled,
+.path-target:disabled {
+  opacity: 1;
+}
+.image-target:disabled:hover,
+.path-target:disabled:hover {
+  background: color-mix(in srgb, var(--brand) 3.6%, transparent);
+  outline-color: color-mix(in srgb, var(--brand) 40%, transparent);
+}
 /* The move control is clipped to the object's outline, which would also clip an outset ring. */
 .image-move:focus-visible {
   background: color-mix(in srgb, var(--brand) 9%, transparent);

@@ -280,3 +280,21 @@ test('a redraw keeps the targets of unchanged objects, which then select the red
     .poll(() => page.evaluate(() => window.selectionTest.commits))
     .toEqual([{ ordinal: 1, transform: [80, 0, 0, 60, 241, 140] }]);
 });
+
+test('object targets are not dimmed one by one while a save runs, and a hovered one still dims', async ({
+  page,
+}) => {
+  await mount(page);
+  // Each dimmed target is a layer of its own for the browser to repaint; a page of shapes has
+  // thousands, and the targets are see-through anyway.
+  await page.evaluate(() => window.selectionTest.layer.setBusy(true));
+  const target = page.getByRole('button', { name: 'Select shape 2', exact: true });
+  await expect(target).toBeDisabled();
+  await target.hover();
+  const style = await target.evaluate((node) => {
+    const css = getComputedStyle(node);
+    return { opacity: css.opacity, outline: css.outlineColor, hovered: node.matches(':hover') };
+  });
+  expect(style).toMatchObject({ opacity: '1', hovered: true });
+  expect(style.outline).toMatch(/^(rgba|color)\(.*0\.4\)$/);
+});
