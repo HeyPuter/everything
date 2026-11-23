@@ -518,3 +518,20 @@ describe("gradients fixed to the page", () => {
     expect(pageFixedAngle(0, s)).toBe(180);
   });
 });
+
+describe("soft edges", () => {
+  it("fades the edge without blurring the picture or dropping a glow", () => {
+    const svg = shapeDeck((pres, s) =>
+      P.setShapeEffectSpec(pres, s, {
+        glow: { color: "#00B050", opacity: 1, radiusEmu: 101600 },
+        softEdge: { radiusEmu: 127000 },
+      }),
+    );
+    expect(svg).not.toContain('<feGaussianBlur in="SourceGraphic"');
+    expect(svg).toMatch(/<feGaussianBlur in="SourceAlpha" [^>]*result="soft/);
+    const merge = /<feMerge>(.*?)<\/feMerge>/.exec(svg)[1];
+    const order = [...merge.matchAll(/in="([^"]+)"/g)].map((m) => m[1]);
+    expect(order[0]).toMatch(/^glowOut/);
+    expect(order.at(-1)).toMatch(/^softOut/);
+  });
+});

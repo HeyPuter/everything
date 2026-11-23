@@ -13224,18 +13224,20 @@ const buildEffectsFilter = (
       );
       layers.push(`glowOut${i}`);
     } else if (e.kind === "softEdge") {
-      const blurPx =
-        effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
-      reach = Math.max(reach, 3 * blurPx);
-      // Soft-edge feathers the shape's mask. Replace the source by a
-      // blurred version of itself.
+      // A soft edge fades the shape out over `rad` inward from its outline,
+      // and nothing outside it: the outline's blurred alpha, which is one
+      // half on the outline, stretched so it runs from none there to full
+      // inside. The picture or fill itself stays sharp.
+      const radiusPx = effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX;
       const i = primitives.length;
       primitives.push(
-        `<feGaussianBlur in="SourceGraphic" stdDeviation="${blurPx.toFixed(2)}" result="softOut${i}"/>`,
+        `<feGaussianBlur in="SourceAlpha" stdDeviation="${(radiusPx / 2.5).toFixed(2)}" result="softBlur${i}"/>`,
+        `<feComponentTransfer in="softBlur${i}" result="softMask${i}"><feFuncA type="linear" slope="2" intercept="-1"/></feComponentTransfer>`,
+        `<feComposite in="SourceGraphic" in2="softMask${i}" operator="in" result="softOut${i}"/>`,
       );
-      // softEdge replaces the source; we drop earlier layers and the
-      // unmodified source is no longer painted on top.
-      layers.length = over.length = 0;
+      // The faded shape replaces the source; glows and shadows stay
+      // behind it.
+      over.length = 0;
       layers.push(`softOut${i}`);
     } else if (e.kind === "blur") {
       const blurPx =
