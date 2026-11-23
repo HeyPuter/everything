@@ -50,7 +50,7 @@ import { sectionColumnIntervals } from './section-columns.js';
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
-import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange, sharedRevision, sameRevision } from './revisions.js';
+import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange, sharedRevision, sameRevision, revisionTimes } from './revisions.js';
 import { footnoteReferenceRun } from './footnotes.js';
 import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers, commentThread, checkedCommentText, initialsFor } from './comments.js';
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
@@ -1796,16 +1796,18 @@ export class TextDocument {
     while (b < text.length && word.test(after(b))) b += after(b).length;
     return [points.findLast(p => p <= a) ?? 0, points.find(p => p >= b) ?? text.length];
   }
-  addComment({ author = '', initials, text = '', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z'), range } = {}) {
+  addComment({ author = '', initials, text = '', date, dateUtc, range } = {}) {
+    if (date === undefined) { const now = revisionTimes(); date = now.date; dateUtc ??= now.dateUtc; }
     this.comments ||= [];
     const body = checkedCommentText(text), id = nextCommentId(this.comments, this.commentIdFloor);
     const [start, end] = range || this.commentRange();
     this.checkpoint();
     addCommentMarkers(this.paragraphs, id, start, end);
-    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, text: body, done: false, parentId: null, paraId: null });
+    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, ...(dateUtc ? { dateUtc } : {}), text: body, done: false, parentId: null, paraId: null });
     this.didChange(); return id;
   }
-  replyToComment(parentId, { author = '', initials, text = '', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z') } = {}) {
+  replyToComment(parentId, { author = '', initials, text = '', date, dateUtc } = {}) {
+    if (date === undefined) { const now = revisionTimes(); date = now.date; dateUtc ??= now.dateUtc; }
     const parent = this.comments?.find(c => c.id === parentId);
     if (!parent) throw new Error('That comment no longer exists.');
     const root = parent.parentId && this.comments.some(c => c.id === parent.parentId) ? parent.parentId : parent.id;
@@ -1814,7 +1816,7 @@ export class TextDocument {
     this.checkpoint();
     // Each reply is anchored on its parent's range.
     if (anchor) addCommentMarkers(this.paragraphs, id, anchor.start, anchor.end);
-    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, text: body, done: false, parentId: root, paraId: null });
+    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, ...(dateUtc ? { dateUtc } : {}), text: body, done: false, parentId: root, paraId: null });
     this.didChange(); return id;
   }
   editComment(id, text) {
@@ -2557,7 +2559,7 @@ export class TextDocument {
     }
     return true;
   }
-  newRevision(type) { return { type, author: this.revisionAuthor || 'Author', date: new Date().toISOString().replace(/\.\d+Z$/, 'Z') }; }
+  newRevision(type) { return { type, author: this.revisionAuthor || 'Author', ...revisionTimes() }; }
   trackedReplace(text, { checkpoint = true, ...rest } = {}) {
     const [start, end] = this.range, backward = this.selection.focus < this.selection.anchor;
     if (checkpoint) this.checkpoint();
@@ -2591,7 +2593,7 @@ export class TextDocument {
         // as typing extends an insertion, so it stays one change even when it crosses a clock second.
         const now = Date.now();
         const continued = nearbyRevisionRanges(this.paragraphs, start, end).find(r => r.type === 'del' && !r.move && r.author === me && (r.end === start || r.start === end) && now - Date.parse(r.date) < 60000);
-        if (continued) deletion.date = continued.date;
+        if (continued) { deletion.date = continued.date; if (continued.dateUtc) deletion.dateUtc = continued.dateUtc; else delete deletion.dateUtc; }
         // A paragraph mark that ends a table cell (or sits before or after a table) cannot be deleted.
         let boundaries;
         const boundary = paragraph => (boundaries ||= new Set(this.paragraphs.filter((p, i) => (p.cellId || '') !== (this.paragraphs[i + 1]?.cellId || '')).map(p => p.id))).has(paragraph.id);
@@ -2632,7 +2634,7 @@ export class TextDocument {
             Object.assign(insertion, { move: true, moveName: name });
           }
         }
-        if (continued && !insertion.move) insertion.date = continued.date;
+        if (continued && !insertion.move) { insertion.date = continued.date; if (continued.dateUtc) insertion.dateUtc = continued.dateUtc; else delete insertion.dateUtc; }
         eachRevisionTarget(this.paragraphs, insertAt, insertAt + inserted, ({ paragraph, run, mark }) => {
           if (mark) paragraph.markRevision = { ...insertion }; else { run.revision = { ...insertion }; delete run.formatRevision; }
         });

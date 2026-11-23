@@ -4,7 +4,7 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { initialsFor } from '../src/engine/comments.js';
-import { revisionTime } from '../src/engine/revisions.js';
+import { revisionTime, revisionTimes } from '../src/engine/revisions.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -183,6 +183,38 @@ describe('DOCX comments', () => {
     expect(model.revisions.map(r => [r.type, revisionTime(r)])).toEqual([['ins', Date.parse('2026-01-04T09:00:00Z')]]);
     // Read, nothing changes in the file.
     expect(unzipSync(await save(pkg, model))).toEqual(unzipSync(source));
+  });
+
+  // Comments and changes made here were saved with a UTC w:date, which Word reads as local time: they showed shifted
+  // by the reader's time zone. They are saved as Word saves them: w:date in local time, and the UTC time beside it.
+  it('saves a comment\'s and a change\'s time as local w:date with its UTC companion, and reads both back', async () => {
+    const at = new Date(2026, 10, 23, 9, 5, 7);
+    expect(revisionTimes(at)).toEqual({ date: '2026-11-23T09:05:07', dateUtc: at.toISOString().replace(/\.\d+Z$/, 'Z') });
+    const { pkg, model } = await open(commentedDocx());
+    model.select(0, 3); const id = model.addComment({ author: 'Ann', text: 'New' });
+    model.replyToComment(id, { author: 'Bob', text: 'Re' });
+    model.trackChanges = true; model.revisionAuthor = 'Ann'; model.select(4); model.replace('very ');
+    const made = model.comments.filter(c => ['New', 'Re'].includes(c.text));
+    for (const item of [...made, model.revisions[0]]) {
+      expect(item.date).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$/);
+      expect(Date.parse(item.date)).toBe(Date.parse(item.dateUtc));
+    }
+    const saved = unzipSync(await save(pkg, model));
+    const xml = name => strFromU8(saved[name]);
+    expect(xml('word/comments.xml')).toContain(`w:date="${made[0].date}"`);
+    expect(xml('word/document.xml')).toMatch(new RegExp(`<w:ins w:id="\\d+" w:author="Ann" w:date="${model.revisions[0].date}" w16du:dateUtc="${model.revisions[0].dateUtc}">`));
+    expect(xml('word/document.xml')).toMatch(/^<w:document [^>]*xmlns:w16du="http:\/\/schemas.microsoft.com\/office\/word\/2023\/wordml\/word16du"[^>]*mc:Ignorable="w16du"/);
+    expect(xml('word/commentsExtensible.xml').match(/w16cex:dateUtc="[^"]+"/g)).toEqual([`w16cex:dateUtc="${made[0].dateUtc}"`, `w16cex:dateUtc="${made[1].dateUtc}"`]);
+    expect(xml('word/commentsIds.xml').match(/<w16cid:commentId /g)).toHaveLength(2);
+    expect(xml('[Content_Types].xml')).toContain('<Override PartName="/word/commentsIds.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml"/>');
+    expect(xml('[Content_Types].xml')).toContain('<Override PartName="/word/commentsExtensible.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml"/>');
+    expect(xml('word/_rels/document.xml.rels')).toMatch(/Type="http:\/\/schemas.microsoft.com\/office\/2016\/09\/relationships\/commentsIds" Target="commentsIds.xml"/);
+    expect(xml('word/_rels/document.xml.rels')).toMatch(/Type="http:\/\/schemas.microsoft.com\/office\/2018\/08\/relationships\/commentsExtensible" Target="commentsExtensible.xml"/);
+    // Read back exactly, and saved again unchanged.
+    const again = await open(zipSync(saved));
+    expect(again.model.comments.map(c => [c.text, c.date, c.dateUtc])).toEqual(model.comments.map(c => [c.text, c.date, c.dateUtc]));
+    expect(again.model.revisions.map(r => [r.type, r.date, r.dateUtc])).toEqual(model.revisions.map(r => [r.type, r.date, r.dateUtc]));
+    expect(unzipSync(await save(again.pkg, again.model))).toEqual(saved);
   });
 
   it('derives initials from the author name', () => {

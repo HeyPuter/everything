@@ -7,7 +7,7 @@
 //
 // Compare: base = revised document, other = original (other-only text is deleted text).
 // Combine: base = original document, other = a revised copy (other-only text is inserted text).
-import { trackFormatChanges } from './revisions.js';
+import { trackFormatChanges, revisionTimes } from './revisions.js';
 import { documentBlocks } from './tables.js';
 import { readCoreProperties } from './docx-core-properties.js';
 import { hasNumberingDefinition, hasListLevel } from './numbering.js';
@@ -318,9 +318,11 @@ function alignBlocks(baseBlocks, otherBlocks, otherFirst) {
  * Compare or combine two documents' paragraph sequences.
  * base/other: { paragraphs, tables }. Returns { paragraphs, tables, stats } for the base structure.
  */
-export function mergeDocuments(base, other, { mode = 'compare', author = 'Author', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z'), granularity = 'word', caseChanges = true, whiteSpace = true, formatting = true, tables: compareTables = true, styleIds = new Set(), numbering = null } = {}) {
+export function mergeDocuments(base, other, { mode = 'compare', author = 'Author', date, dateUtc, granularity = 'word', caseChanges = true, whiteSpace = true, formatting = true, tables: compareTables = true, styleIds = new Set(), numbering = null } = {}) {
   const otherIsNew = mode === 'combine';
-  const revision = { author, date };
+  // Changes found now record the time as Word does: local w:date and its UTC companion (revisionTimes).
+  if (date === undefined) { const now = revisionTimes(); date = now.date; dateUtc ??= now.dateUtc; }
+  const revision = { author, date, ...(dateUtc ? { dateUtc } : {}) };
   const normalize = text => { let t = text; if (!caseChanges) t = t.toLowerCase(); if (!whiteSpace && /^\s+$/.test(t)) t = ' '; return t; };
   const equals = (x, y) => normalize(x.text) === normalize(y.text);
   const options = { granularity, equals, otherIsNew, revision, styleIds };

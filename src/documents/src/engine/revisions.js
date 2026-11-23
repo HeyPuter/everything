@@ -21,6 +21,16 @@ export const MOVE_COLOR = '2E7D32';
  * when reading ([MS-OI29500] 2.1.313); the UTC time it writes beside it (w16du:dateUtc, or a comment's
  * commentsExtensible entry) is the one to show.
  */
+/**
+ * The times a change or comment made now records, as Word records them: `date` (w:date) in local time, which Word
+ * reads as local time (it ignores a "Z"), written here without the "Z", and `dateUtc` (w16du:dateUtc, a comment's
+ * commentsExtensible entry) in UTC. Written in UTC alone, Word showed them shifted by the reader's time zone.
+ */
+export function revisionTimes(now = new Date()) {
+  const pad = n => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  return { date, dateUtc: now.toISOString().replace(/\.\d+Z$/, 'Z') };
+}
 export const revisionTime = item => Date.parse(item?.dateUtc || item?.date || '');
 
 export function revisionColor(author, authors = []) {

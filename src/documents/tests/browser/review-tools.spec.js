@@ -308,7 +308,7 @@ test('tracked formatting shows in the Reviewing Pane and balloons, and rejecting
   await expect(page.locator('.ed-revision-card')).toContainText('Formatted: Bold');
   await page.screenshot({ path: info.outputPath('tracked-formatting.png') });
   const { parts } = await exported(page, info, 'tracked-formatting.docx');
-  expect(strFromU8(parts['word/document.xml'])).toMatch(/<w:rPrChange w:id="\d+" w:author="[^"]*" w:date="[^"]+"><w:rPr\/><\/w:rPrChange>/);
+  expect(strFromU8(parts['word/document.xml'])).toMatch(/<w:rPrChange w:id="\d+" w:author="[^"]*" w:date="[^"]+" w16du:dateUtc="[^"]+Z"><w:rPr\/><\/w:rPrChange>/);
   await select(input, 7);
   await page.locator('#ribbon-panel-review [aria-label="Reject"]').evaluate(button => button.click());
   await expect(pane).not.toContainText('Formatted');

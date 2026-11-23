@@ -828,10 +828,26 @@ function ignorableUtcPrefix(doc) {
   const root = doc.documentElement, prefix = root.lookupPrefix(W16DU);
   return prefix && (root.getAttributeNS(MC_NS, 'Ignorable') || '').split(/\s+/).includes(prefix) ? prefix : null;
 }
+/**
+ * The part's prefix for w16du, declaring the namespace (and listing it in mc:Ignorable) where the root does not: a
+ * change made here records its UTC time beside its local w:date, as Word does (revisionTimes).
+ */
+function utcPrefix(doc) {
+  const found = ignorableUtcPrefix(doc);
+  if (found) return found;
+  const root = doc.documentElement, XMLNS = 'http://www.w3.org/2000/xmlns/';
+  const free = base => { let prefix = base; while (root.lookupNamespaceURI(prefix)) prefix += 'x'; return prefix; };
+  let prefix = root.lookupPrefix(W16DU);
+  if (!prefix) { prefix = free('w16du'); root.setAttributeNS(XMLNS, `xmlns:${prefix}`, W16DU); }
+  let mc = root.lookupPrefix(MC_NS);
+  if (!mc) { mc = free('mc'); root.setAttributeNS(XMLNS, `xmlns:${mc}`, MC_NS); }
+  const listed = (root.getAttributeNS(MC_NS, 'Ignorable') || '').split(/\s+/).filter(Boolean);
+  root.setAttributeNS(MC_NS, `${root.getAttributeNodeNS(MC_NS, 'Ignorable')?.prefix || mc}:Ignorable`, [...listed, prefix].join(' '));
+  return prefix;
+}
 function writeRevisionDate(node, revision) {
   if (revision.date) node.setAttributeNS(W, 'w:date', revision.date);
-  const prefix = revision.dateUtc && ignorableUtcPrefix(node.ownerDocument);
-  if (prefix) node.setAttributeNS(W16DU, `${prefix}:dateUtc`, revision.dateUtc);
+  if (revision.dateUtc) node.setAttributeNS(W16DU, `${utcPrefix(node.ownerDocument)}:dateUtc`, revision.dateUtc);
 }
 function revisionElement(doc, revision) {
   const node = doc.createElementNS(W, revision.move ? (revision.type === 'del' ? 'w:moveFrom' : 'w:moveTo') : revision.type === 'del' ? 'w:del' : 'w:ins');
@@ -1048,7 +1064,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         return writtenControls.get(control.id);
       };
       // Tracked runs sit in w:ins/w:del wrappers; neighbours with the same revision share one.
-      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.move ? (revision.type === 'del' ? 'moveFrom' : 'moveTo') : revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '') && (node.getAttributeNS(W16DU, 'dateUtc') || '') === (revision.dateUtc && ignorableUtcPrefix(doc) ? revision.dateUtc : '') && (moveNames.get(node) || '') === (revision.move ? revision.moveName || 'move' : '');
+      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.move ? (revision.type === 'del' ? 'moveFrom' : 'moveTo') : revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '') && (node.getAttributeNS(W16DU, 'dateUtc') || '') === (revision.dateUtc || '') && (moveNames.get(node) || '') === (revision.move ? revision.moveName || 'move' : '');
       const place = (r, run) => {
         if (!run.revision) { parent.append(r); return; }
         const { inserted, ...revision } = run.revision;
