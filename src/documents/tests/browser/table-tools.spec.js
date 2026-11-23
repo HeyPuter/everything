@@ -382,3 +382,22 @@ test('screen readers hear the table size on entering it and the row and column o
   await input(page).press('ArrowDown');
   await expect.poll(spoken).toEqual(['Table, 2 rows, 3 columns. Row 1, column 1', 'Row 1, column 2', 'Row 2, column 2', 'Out of table']);
 });
+
+test('in a header, a table’s Width box shows its column width and sets it', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await page.keyboard.type('Body');
+  await (await onTab(page, 'insert')).locator('#ribbon-panel-insert').getByRole('button', { name: 'Header', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
+  await expect(page.locator('#ribbon-tab-headerFooter')).toHaveAttribute('aria-selected', 'true');
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '2 columns, 2 rows' }).click();
+  await page.keyboard.type('Cell');
+  const layout = await onTab(page, 'tableLayout');
+  const width = layout.getByRole('spinbutton', { name: 'Width (in)', exact: true });
+  // Half of the 6.5 in between the margins, as in the body.
+  await expect(width).toHaveValue('3.25');
+  await width.fill('2'); await width.press('Enter');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.tables[0].grid)).toEqual([2880, 4680]);
+});

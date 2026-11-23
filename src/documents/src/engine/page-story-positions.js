@@ -59,7 +59,7 @@ export function pageStorySelectionLayout(body, stories, path, page) {
     ...(item.cellText ? { cellText: { ...item.cellText, line: line(item.cellText.line) } } : {}) });
   const owned = items => (items || []).filter(item => item.pageStory === path && item.page === page);
   return { ...body, lines: owned(stories.lines).map(line), repeatedLines: [],
-    cells: owned(stories.cells), floatingObjects: owned(stories.floatingObjects).map(range),
+    cells: owned(stories.cells), tableWidths: stories.tableWidths?.[path] || {}, floatingObjects: owned(stories.floatingObjects).map(range),
     paragraphFrames: owned(stories.paragraphFrames).map(range),
     hasRotatedCells: owned(stories.lines).some(item => item.cellText),
   };
