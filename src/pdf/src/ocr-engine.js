@@ -13,6 +13,12 @@ const LSTM_ONLY = 1;
 const STARTUP = 0.3;
 
 const abortError = () => new DOMException('Text recognition was canceled.', 'AbortError');
+/**
+ * A recognizer that could not start: its worker, core or English model did not load (offline,
+ * say). tesseract.js says so in a bare string, or not at all ("failed: undefined").
+ */
+const startFailure = (cause) =>
+  new Error('Text recognition could not start. Check the connection and try again.', { cause });
 /** tesseract.js rejects with bare strings; give callers an Error. */
 const failure = (error) =>
   error instanceof Error || error instanceof DOMException
@@ -162,6 +168,12 @@ export function createOcrEngine({ base, workerPath, corePath, langPath } = {}) {
     if (worker && workerLang === lang) return worker;
     await stop();
     const { createWorker } = await import('tesseract.js');
+    // tesseract.js settles a new worker only when its core fails to load: a model that does not
+    // load (offline) left it pending, and the recognition waiting, for good. The job's failure
+    // still reaches the error handler, which ends the wait.
+    let failedStart;
+    const startFailed = new Promise((_, reject) => (failedStart = reject));
+    startFailed.catch(() => {});
     const pending = createWorker(lang, LSTM_ONLY, {
       ...paths,
       // Load the worker by URL rather than from a blob: URL, and keep the model out of
@@ -170,16 +182,18 @@ export function createOcrEngine({ base, workerPath, corePath, langPath } = {}) {
       cacheMethod: 'none',
       gzip: true,
       logger,
-      errorHandler: () => {},
+      errorHandler: (error) => failedStart?.(error),
     });
     worker = pending;
     workerLang = lang;
     let ready;
     try {
-      ready = await pending;
+      ready = await Promise.race([pending, startFailed]);
     } catch (error) {
       if (worker === pending) worker = workerLang = null;
-      throw failure(error);
+      throw startFailure(error);
+    } finally {
+      failedStart = null;
     }
     // Aborted while starting: `stop` already let go of this worker.
     if (worker !== pending) {

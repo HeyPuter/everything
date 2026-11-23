@@ -163,6 +163,22 @@ describe('OCR end to end', () => {
     expect(again.text.trim()).toBe('Cancel and retry');
     expect([again.width, again.height]).toEqual([600, 120]);
   }, 120000);
+
+  // A model that did not load (offline) left tesseract.js's new worker pending, and the
+  // recognition with it, for good; a core that did not load read "failed: undefined".
+  it('says when the recognizer cannot start, instead of waiting for good', async () => {
+    const missing = createOcrEngine({
+      langPath: fileURLToPath(new URL('./fixtures/no-such-model/', import.meta.url)),
+    });
+    try {
+      const canvas = createCanvas(40, 20);
+      await expect(missing.recognize(canvas)).rejects.toThrow(
+        'Text recognition could not start. Check the connection and try again.',
+      );
+    } finally {
+      await missing.terminate();
+    }
+  }, 60000);
 });
 
 /** A synthetic result: words in image pixels on a `width` x `height` render. */
