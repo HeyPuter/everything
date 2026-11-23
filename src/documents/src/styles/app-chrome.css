@@ -118,7 +118,7 @@ input:disabled + .ed-switch { opacity: .5; }
 }
 /* Signed out, "Sign in to save" gives way to the name too: it shortens, then leaves its cloud alone (the tooltip and the
    accessible name keep the words). It kept its width and squeezed the name out of sight, at 1366px and on phones. */
-.ed-header .canvas-save-status.signed-out { flex: 0 1000 auto; min-width: 22px; overflow: hidden; }
+.ed-header .canvas-save-status.signed-out { flex: 0 1000 auto; min-width: 22px; }
 .ed-header .canvas-save-status.signed-out svg { display: inline-block; flex: none; }
 .ed-header .canvas-save-status.signed-out .save-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The search box gives up the Apps button's width, so the name still shows whole at 1366px. */

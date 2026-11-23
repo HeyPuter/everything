@@ -357,6 +357,27 @@
   :is(.ed-search, .ed-header .canvas-save-status, .ed-header .user-btn)::after {
     content: ''; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%);
   }
+  /* So does puter.js's account picture, which stands in for the account button; the pills and small buttons between
+     their neighbours reach a fingertip's height (28px high, a tap just above or below them was lost). */
+  /* The picture clips what overflows it, so it reaches with a clear border instead, its look unchanged. */
+  .ed-header puter-user-menu::part(avatar) { width: 44px; height: 44px; margin: -8px; border: 8px solid transparent; background-clip: padding-box; }
+  .ed-header puter-user-menu::part(avatar):focus-visible { outline-offset: -8px; }
+  .ed-header puter-user-menu::part(sign-in) { position: relative; }
+  .ed-header puter-user-menu::part(sign-in)::after {
+    content: ''; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%);
+  }
+  :is(.ed-header .ed-pill, .ed-menus-button, .ed-quick-customize, .ed-title-details, .ed-autosave, .ed-header .settings-btn, .ed-header .apps-btn),
+  .ed-header puter-user-menu::part(apps-button), .ed-header puter-user-menu::part(upgrade-button) { position: relative; }
+  :is(.ed-header .ed-pill, .ed-menus-button, .ed-quick-customize, .ed-title-details, .ed-autosave, .ed-header .settings-btn, .ed-header .apps-btn)::after {
+    content: ''; position: absolute; top: 50%; left: 0; width: 100%; height: max(100%, 44px); transform: translateY(-50%);
+  }
+  .ed-header puter-user-menu::part(apps-button)::after {
+    content: ''; position: absolute; top: 50%; left: 0; width: 100%; height: max(100%, 44px); transform: translateY(-50%);
+  }
+  /* Upgrade, an icon 32px wide in most title bars, reaches as wide too: half the gaps beside it. */
+  .ed-header puter-user-menu::part(upgrade-button)::after {
+    content: ''; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%);
+  }
 }
 /* Fingertip-high rows of small commands outgrow the card's 72px, which clipped the Paste icon and hid Cut
    and Format Painter: wider touch screens let the card grow to its rows and line the groups up at the top. */
