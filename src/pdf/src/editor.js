@@ -512,6 +512,7 @@ export function createEditor({
   function holdNudges() {
     textEdit?.positionControl?.keys?.hold();
     textEdit?.widthControl?.keys?.hold();
+    annotationLayer.hold();
   }
   /** Whether the selected text has arrow-key moves not yet saved. */
   const textKeysWaiting = () =>

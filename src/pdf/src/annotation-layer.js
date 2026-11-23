@@ -385,6 +385,23 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
       saveNudge();
       if (selected) select(null);
     },
+    /**
+     * Keep the nudges not yet saved from saving until the press on Undo or Redo is let go:
+     * saved mid-press, they turned Undo off before its click. The click's Undo saves them
+     * first (see `finish`); a press let go elsewhere saves them once the keys have rested.
+     */
+    hold() {
+      if (!nudge || moving) return;
+      clearTimeout(nudgeTimer);
+      window.addEventListener(
+        'pointerup',
+        () => {
+          clearTimeout(nudgeTimer);
+          if (nudge) nudgeTimer = setTimeout(saveNudge, NUDGE_REST);
+        },
+        { once: true, capture: true },
+      );
+    },
     /** Save the nudges not yet saved, as a save or another edit must include them. */
     async finish() {
       while (nudge || moving) {
