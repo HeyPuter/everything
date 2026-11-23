@@ -386,6 +386,36 @@ const imagePixelSize = (bytes: Uint8Array): { w: number; h: number } | null => {
   return null;
 };
 
+// Set Transparent Color (`<a:clrChange>`): pixels of the `from` colour, give
+// or take a step for rounding, are painted in the `to` colour and opacity
+// (usually none). A table per channel marks where a pixel differs from
+// `from`; any difference keeps the pixel.
+const colorChangePrimitives = (change: {
+  from: string;
+  to: string;
+  toOpacity: number;
+}): string[] => {
+  const differs = (target: number) =>
+    Array.from({ length: 256 }, (_, i) =>
+      Math.abs(i - target) <= 1 ? 0 : 1,
+    ).join(" ");
+  const [r, g, b] = hexChannels(change.from);
+  const keep = [
+    `<feComponentTransfer in="SourceGraphic" color-interpolation-filters="sRGB" result="ccDiff"><feFuncR type="discrete" tableValues="${differs(r)}"/><feFuncG type="discrete" tableValues="${differs(g)}"/><feFuncB type="discrete" tableValues="${differs(b)}"/></feComponentTransfer>`,
+    '<feColorMatrix in="ccDiff" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0" result="ccKeep"/>',
+    '<feComposite in="SourceGraphic" in2="ccKeep" operator="in" result="ccKept"/>',
+  ];
+  const opacity = Math.max(0, Math.min(1, change.toOpacity));
+  if (opacity <= 0) return keep;
+  return [
+    ...keep,
+    `<feFlood flood-color="${change.to}" flood-opacity="${PX(opacity)}"/>`,
+    '<feComposite in2="ccKeep" operator="out"/>',
+    '<feComposite in2="SourceAlpha" operator="in" result="ccNew"/>',
+    '<feMerge><feMergeNode in="ccNew"/><feMergeNode in="ccKept"/></feMerge>',
+  ];
+};
+
 // `<a:lum bright contrast>` (fractions in [-1, 1]) as one linear map of each
 // sRGB channel. Contrast "scales all colors to be either closer or further
 // apart", about the middle grey: -100% leaves flat grey, +100% a hard
@@ -631,6 +661,7 @@ const renderPicture = (
     const grayscale = imagePaint?.grayscale ?? false;
     const biLevel = imagePaint?.biLevelThreshold ?? null;
     const duotone = imagePaint?.duotone ?? null;
+    const colorChange = imagePaint?.colorChange ?? null;
     let filterAttr = "";
     let adjustments: string[] = [];
     try {
@@ -641,6 +672,7 @@ const renderPicture = (
       contrast !== 0 ||
       grayscale ||
       biLevel !== null ||
+      colorChange ||
       adjustments.length > 0 ||
       (duotone && (duotone.firstColor || duotone.secondColor))
     ) {
@@ -648,7 +680,9 @@ const renderPicture = (
       // grayscale (luminance matrix), then optional biLevel two-tone
       // (discrete table that snaps each channel to 0 or 1 at thresh).
       const fid = mintId();
-      const prims: string[] = [];
+      const prims: string[] = colorChange
+        ? colorChangePrimitives(colorChange)
+        : [];
       if (brightness !== 0 || contrast !== 0) {
         const { slope, intercept } = luminanceTransfer(brightness, contrast);
         const fn = `type="linear" slope="${PX(slope)}" intercept="${PX(intercept)}"`;
@@ -687,21 +721,14 @@ const renderPicture = (
         );
       }
       if (biLevel !== null) {
-        const t = biLevel / 100;
-        // discrete tables snap channels to 0 below `t` and to 1 at/above.
-        const table = `0 1`;
-        // Use a step function: tableValues with 2 entries split at thresh.
-        // feFuncR/G/B with type=discrete + 2-entry table snaps at the midpoint;
-        // for an arbitrary threshold we shift via tableValues with more samples.
-        const steps = 32;
-        const vals: string[] = [];
-        for (let i = 0; i < steps; i++) {
-          vals.push(i / (steps - 1) >= t ? "1" : "0");
-        }
-        void table;
-        const tableStr = vals.join(" ");
+        // Black and white: each pixel is white where its lightness reaches
+        // the threshold and black below it. One steep linear map of the
+        // luminance does it, without banding the threshold into steps.
+        const t = Math.max(0, Math.min(1, biLevel / 100));
+        const k = 1000;
+        const row = `${PX(0.299 * k)} ${PX(0.587 * k)} ${PX(0.114 * k)} 0 ${PX(1 - k * t)}`;
         prims.push(
-          `<feComponentTransfer><feFuncR type="discrete" tableValues="${tableStr}"/><feFuncG type="discrete" tableValues="${tableStr}"/><feFuncB type="discrete" tableValues="${tableStr}"/></feComponentTransfer>`,
+          `<feColorMatrix type="matrix" color-interpolation-filters="sRGB" values="${row} ${row} ${row} 0 0 0 1 0"/>`,
         );
       }
       prims.push(...adjustments);

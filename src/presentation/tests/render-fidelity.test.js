@@ -236,3 +236,62 @@ describe("tiled picture fills", () => {
     expect(tiled(align)).toEqual([x, y]);
   });
 });
+
+describe("picture colour effects", () => {
+  // A picture whose <a:blip> carries the given effects.
+  const blipDeck = async (effects) => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    P.addSlideImage(slide, geometryImage, {
+      x: IN(1),
+      y: IN(1),
+      w: IN(2),
+      h: IN(1),
+    });
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = P.getSlidePartName(slide).slice(1);
+    files[name] = strToU8(
+      strFromU8(files[name]).replace(
+        /<a:blip ([^>]*?)\/>/,
+        `<a:blip $1>${effects}</a:blip>`,
+      ),
+    );
+    const loaded = await parseDeck(zipSync(files));
+    return renderSlideToSvg(loaded, P.getSlides(loaded)[0], {
+      textLayout: "svg",
+    });
+  };
+
+  it("turns a picture black and white by its lightness", async () => {
+    const svg = await blipDeck('<a:biLevel thresh="50000"/>');
+    const m =
+      /<feColorMatrix type="matrix" color-interpolation-filters="sRGB" values="([^"]+)"/.exec(
+        svg,
+      );
+    const v = m[1].split(" ").map(Number);
+    const out = (r, g, b) =>
+      Math.max(0, Math.min(1, v[0] * r + v[1] * g + v[2] * b + v[4]));
+    // Every channel gets the same answer, so the result is black or white.
+    expect(v.slice(0, 5)).toEqual(v.slice(5, 10));
+    expect(out(1, 1, 0)).toBe(1); // yellow is light
+    expect(out(0, 0, 1)).toBe(0); // blue is dark
+    expect(out(0.86, 0.12, 0.12)).toBe(0); // so is a strong red
+    expect(out(0.6, 0.6, 0.6)).toBe(1);
+    expect(out(0.4, 0.4, 0.4)).toBe(0);
+  });
+
+  it("makes the colour set as transparent see-through", async () => {
+    const svg = await blipDeck(
+      '<a:clrChange><a:clrFrom><a:srgbClr val="FF0000"/></a:clrFrom><a:clrTo><a:srgbClr val="FF0000"><a:alpha val="0"/></a:srgbClr></a:clrTo></a:clrChange>',
+    );
+    const tables = [
+      ...svg.matchAll(/<feFunc([RGB]) type="discrete" tableValues="([^"]+)"/g),
+    ].map((m) => m[2].split(" ").map(Number));
+    expect(tables).toHaveLength(3);
+    // Red differs from FF0000 below 254; green and blue above 1.
+    expect(tables[0].indexOf(0)).toBe(254);
+    expect(tables[1].lastIndexOf(0)).toBe(1);
+    expect(svg).toContain('operator="in" result="ccKept"');
+    expect(svg).not.toContain("feFlood");
+  });
+});

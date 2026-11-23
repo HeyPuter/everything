@@ -41,6 +41,7 @@ import {
   shapesOverlap,
 } from "./shapes.ts";
 import { resolveShapeColor } from "./shape-color-context.ts";
+import { resolveDrawingOpacity } from "./shape-color.ts";
 import { getSlideSize } from "./features.ts";
 import { shapeRelationshipOwner } from "./shape-source.ts";
 import { blipImageReferences, resolveBlipImage } from "./blip-image.ts";
@@ -377,6 +378,46 @@ const readDuotone = (
   return readBlipDuotone(blip, (c) =>
     resolveShapeColor(pres, shape, c, colorMap),
   );
+};
+
+const COLOR_ELEMENTS = new Set([
+  "srgbClr",
+  "scrgbClr",
+  "hslClr",
+  "schemeClr",
+  "sysClr",
+  "prstClr",
+]);
+const firstColorElement = (host: XmlElement | null): XmlElement | null => {
+  for (const c of host?.children ?? [])
+    if (
+      c.kind === "element" &&
+      c.name.namespaceURI === NS.dml &&
+      COLOR_ELEMENTS.has(c.name.localName)
+    )
+      return c;
+  return null;
+};
+
+/** `<a:clrChange>` ("Set Transparent Color"): pixels of the `from` colour
+ * are painted as `to`, usually fully transparent. */
+const readBlipColorChange = (
+  blip: XmlElement | null,
+  resolveColor: (color: XmlElement) => string | null,
+): { from: string; to: string; toOpacity: number } | null => {
+  if (!blip) return null;
+  const change = firstChildElement(blip, qname("a", "clrChange", NS.dml));
+  if (!change) return null;
+  const from = firstColorElement(
+    firstChildElement(change, qname("a", "clrFrom", NS.dml)),
+  );
+  const to = firstColorElement(
+    firstChildElement(change, qname("a", "clrTo", NS.dml)),
+  );
+  const fromHex = from && resolveColor(from);
+  const toHex = to && resolveColor(to);
+  if (!fromHex || !toHex) return null;
+  return { from: fromHex, to: toHex, toOpacity: resolveDrawingOpacity(to!) };
 };
 
 const readBlipDuotone = (
@@ -840,6 +881,12 @@ export interface ShapeImagePaint {
     firstColor: string | null;
     secondColor: string | null;
   } | null;
+  /** Set Transparent Color: `from` pixels become `to` at `toOpacity`. */
+  readonly colorChange?: {
+    readonly from: string;
+    readonly to: string;
+    readonly toOpacity: number;
+  } | null;
 }
 
 /**
@@ -905,5 +952,6 @@ export const readImagePaint = (
       !!blip && firstChildElement(blip, qname("a", "grayscl", NS.dml)) !== null,
     biLevelThreshold: readBiLevel(blip),
     duotone: readBlipDuotone(blip, resolveColor),
+    colorChange: readBlipColorChange(blip, resolveColor),
   };
 };
