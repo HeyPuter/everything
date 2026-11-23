@@ -16,6 +16,7 @@ import {
   contrastRatio,
   visualOrder,
   findAccessibilityIssues,
+  hasAccessibilityIssues,
 } from "../src/review/accessibility.js";
 import { normalizeThesaurus } from "../src/review/thesaurus.js";
 import { offlineLookup } from "../src/review/thesaurus-data.js";
@@ -190,6 +191,66 @@ describe("accessibility checks", () => {
     const kinds = findAccessibilityIssues(pres, env).map((i) => i.kind);
     expect(kinds).not.toContain("duplicateTitle");
     expect(kinds).not.toContain("missingTitle");
+  });
+  // The status bar's answer: an issue other than a tip, found without
+  // looking for tips (reading order, empty placeholders) or past the first.
+  it("tells the status bar what the full check would", () => {
+    const calls = { position: 0, colors: 0 };
+    const envFor = (pres, faint = new Set()) => ({
+      isTable: (s) => P.isTableShape(s),
+      slideBounds: (s) => (calls.position++, P.getShapeBounds(s)),
+      size: () => ({ cx: 12192000, cy: 6858000 }),
+      textColors: (s) => (
+        calls.colors++,
+        faint.has(P.getShapeId(s))
+          ? { text: "#EEEEEE", background: "#FFFFFF", size: 12, bold: false }
+          : null
+      ),
+    });
+    const full = (pres, env) =>
+      findAccessibilityIssues(pres, env).some((i) => i.severity !== "tip");
+    const decks = [];
+    for (const template of ["title", "blank", "story"])
+      decks.push([createDeck(template), new Set()]);
+    // Titled slides out of reading order: tips only.
+    const tips = createDeck("blank");
+    const [slide] = P.getSlides(tips);
+    P.addSlideTextBox(slide, { x: 0, y: 3e6, w: 1e6, h: 4e5, text: "Low" });
+    P.addSlideTextBox(slide, { x: 0, y: 1e5, w: 1e6, h: 4e5, text: "High" });
+    P.addSlideTitlePlaceholder(slide, "Plan", { hidden: true });
+    decks.push([tips, new Set()]);
+    // The same, with faint text on a second slide.
+    const faint = createDeck("blank");
+    P.addSlideTitlePlaceholder(P.getSlides(faint)[0], "One", { hidden: true });
+    const second = P.duplicateSlide(faint, P.getSlides(faint)[0]);
+    const box = P.addSlideTextBox(second, {
+      x: 0,
+      y: 0,
+      w: 1e6,
+      h: 4e5,
+      text: "Faint",
+    });
+    decks.push([faint, new Set([P.getShapeId(box)])]);
+    // Duplicate titles alone.
+    const dup = createDeck("blank");
+    P.addSlideTitlePlaceholder(P.getSlides(dup)[0], "Same", { hidden: true });
+    P.duplicateSlide(dup, P.getSlides(dup)[0]);
+    decks.push([dup, new Set()]);
+    const answers = [];
+    for (const [pres, colors] of decks) {
+      const expected = full(pres, envFor(pres, colors));
+      calls.position = 0;
+      expect(hasAccessibilityIssues(pres, envFor(pres, colors))).toBe(expected);
+      // Reading order, a tip, is not worked out.
+      expect(calls.position).toBe(0);
+      answers.push(expected);
+    }
+    expect(answers).toContain(true);
+    expect(answers).toContain(false);
+    expect(full(tips, envFor(tips))).toBe(false);
+    expect(
+      findAccessibilityIssues(tips, envFor(tips)).map((i) => i.kind),
+    ).toContain("readingOrder");
   });
   it("finds duplicate titles and treats decorative objects as described", () => {
     const pres = createDeck("blank");
