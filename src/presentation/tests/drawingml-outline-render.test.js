@@ -292,4 +292,15 @@ describe("3-D shapes", () => {
     const m = /matrix\(([^)]+)\)/.exec(svg)[1].split(" ").map(Number);
     expect(m[3]).toBeCloseTo(Math.cos((324 * Math.PI) / 180), 3);
   });
+
+  it("keeps a bevelled face its own colour", async () => {
+    const svg = await render(
+      solid(
+        '<a:sp3d><a:bevelT w="152400" h="50800"/></a:sp3d>',
+        "orthographicFront",
+      ),
+    );
+    // Lit at 50°, a flat face is lit to exactly one.
+    expect(svg).toContain('diffuseConstant="1.305"');
+  });
 });
