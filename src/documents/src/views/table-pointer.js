@@ -7,7 +7,7 @@
 // transactions; painting is an overlay above the page.
 import * as T from '../engine/table-editing.js';
 import { locate as locateParagraph } from '../engine/model.js';
-import { wholeRows, wholeColumns } from '../engine/table-selection.js';
+import { wholeRows, wholeColumns, blockFor, blockBetween } from '../engine/table-selection.js';
 import { caretRect, imageAtPoint } from '../engine/layout.js';
 import { rowGrid, verticalMerges, cellContext } from '../engine/tables.js';
 
@@ -82,6 +82,9 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   /** What the pointer is over: a border, a handle, an insertion mark, or a cell edge for the drawing tools. */
   function hitTest(at, near = NEAR) {
     if (!at) return null;
+    // A selection zone (beside a row, above a column) gives way to a border or handle of a table around this one:
+    // a nested table's zone reaches over its parent's column line.
+    let select = null;
     for (const f of frames(at.page)) {
       const inside = at.x >= f.left - GUTTER - 4 && at.x <= f.right + HANDLE + 4 && at.y >= f.top - GUTTER - 4 && at.y <= f.bottom + HANDLE + 4;
       if (!inside) continue;
@@ -100,18 +103,51 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
         const lines = [...f.rows.values()].flatMap(r => [{ y: r.top, at: r.index, above: true }, { y: r.bottom, at: r.index, above: false }]);
         const line = lines.sort((a, b) => Math.abs(a.y - at.y) - Math.abs(b.y - at.y))[0];
         if (line && Math.abs(line.y - at.y) <= 6) return { kind: 'insertRow', frame: f, y: line.y, row: line.at, above: line.above };
+        // Elsewhere beside a row, the press selects the row, as in the selection bar of desktop word processors.
+        const row = [...f.rows.values()].find(r => at.y >= r.top && at.y <= r.bottom);
+        if (row) select ||= { kind: 'selectRow', frame: f, row: row.index };
       }
       if (at.y < f.top - 3 && at.y >= f.top - GUTTER && withinX && f.page === firstPage(f.table) && !overText(at)) {
         const line = [...f.columns.entries()].sort((a, b) => Math.abs(a[1] - at.x) - Math.abs(b[1] - at.x))[0];
         if (line && Math.abs(line[1] - at.x) <= 6) return { kind: 'insertColumn', frame: f, x: line[1], column: line[0] };
+        // Elsewhere just above a column, the press selects the grid columns between the lines on either side. Higher
+        // up, beside the end of a line of text above the table, the press still places the caret.
+        const lines = at.y >= f.top - 10 ? [...f.columns.entries()].sort((a, b) => a[0] - b[0]) : [];
+        const left = lines.findLast(([, x]) => x <= at.x), right = lines.find(([, x]) => x > at.x);
+        if (left && right) select ||= { kind: 'selectColumn', frame: f, left: left[0], right: right[0] };
       }
       // A picture under the pointer takes the press, so one that reaches a cell edge can still be selected there.
       const border = () => !imageAtPoint(engine.selectionLayout, at.page, at.x, at.y);
       if (withinY) for (const [index, x] of f.columns) if (index > 0 && Math.abs(at.x - x) <= near && border()) return { kind: 'column', frame: f, index, x };
       if (withinX) for (const row of f.rows.values()) if (Math.abs(at.y - row.bottom) <= near && border()) return { kind: 'row', frame: f, row: row.index, y: row.bottom };
-      if (withinX && withinY) return { kind: 'inside', frame: f };
+      if (withinX && withinY) {
+        if (select) return select;
+        // Just inside a cell's left edge, before its text, a press selects the cell (a finger places the caret).
+        const cell = near === NEAR && cellAt(f, at.x, at.y), zone = Math.max(NEAR + 2, Math.min(NEAR + 6, (cell?.margins?.left ?? 108) / 15));
+        if (cell && at.x - cell.x <= zone && (cell.column === 0 || at.x - cell.x > NEAR) && border()) return { kind: 'selectCell', frame: f, cell };
+        return { kind: 'inside', frame: f };
+      }
     }
-    return null;
+    return select;
+  }
+  /** The block a selection press (and a drag on from it) chooses: rows, columns or cells from the press's to the pointer's. */
+  function selectionBlock(d, at) {
+    const f = d.frame, table = f.table, hit = d.hit, over = at?.page === f.page ? at : null;
+    if (hit.kind === 'selectRow') {
+      const row = over && [...f.rows.values()].find(r => over.y >= r.top && over.y <= r.bottom)?.index, end = row ?? hit.row;
+      return blockFor(table, { top: Math.min(hit.row, end), bottom: Math.max(hit.row, end) }, 'row');
+    }
+    if (hit.kind === 'selectColumn') {
+      const lines = [...f.columns.entries()].sort((a, b) => a[0] - b[0]);
+      const left = over ? lines.findLast(([, x]) => x <= over.x)?.[0] ?? hit.left : hit.left, right = over ? lines.find(([, x]) => x > over.x)?.[0] ?? hit.right : hit.right;
+      return blockFor(table, { left: Math.min(hit.left, left), right: Math.max(hit.right, right) }, 'column');
+    }
+    const cell = over && cellAt(f, over.x, over.y);
+    return blockBetween(table, hit.cell.id, (cell || hit.cell).id);
+  }
+  function selectBlock(block) {
+    if (!block) return;
+    engine.model.setCellBlock(block); engine.syncInput(); engine.paint(); engine.onSelection(); engine.focus();
   }
 
   /* ---- Painting ---- */
@@ -179,7 +215,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   engine.overlays.push(overlay);
 
   /* ---- Cursor ---- */
-  const CURSORS = { column: 'col-resize', row: 'row-resize', move: 'move', resize: 'nwse-resize', insertRow: 'pointer', insertColumn: 'pointer' };
+  const CURSORS = { column: 'col-resize', row: 'row-resize', move: 'move', resize: 'nwse-resize', insertRow: 'pointer', insertColumn: 'pointer', selectRow: 'select-row', selectColumn: 'select-column', selectCell: 'select-cell' };
   function setCursor(value) {
     if (value) engine.pages.dataset.tableCursor = value; else delete engine.pages.dataset.tableCursor;
     // Draw Table, the eraser and the border painter draw in any direction: a finger on the pages draws rather than
@@ -313,6 +349,9 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     } else if (hit.kind === 'resize') {
       drag = { kind: 'resize', frame: hit.frame, page: at.page, start: at, base: widths(table), baseHeights: heights(table), last: at };
       drag.widths = [...drag.base]; drag.heights = [...drag.baseHeights];
+    } else if (hit.kind === 'selectRow' || hit.kind === 'selectColumn' || hit.kind === 'selectCell') {
+      drag = { kind: 'select', hit, frame: hit.frame, page: at.page, start: at, last: at };
+      selectBlock(selectionBlock(drag, at));
     } else drag = { kind: hit.kind, hit, frame: hit.frame, page: at.page, start: at, last: at };
     // A finger that only taps beside a border places the caret there, as any tap on the text does (see finish).
     if (touch) drag.tap = e;
@@ -345,6 +384,10 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
           const caret = engine.point(e, false), rect = (() => { try { return caretRect(engine.selectionLayout, caret, 'forward'); } catch { return null; } })();
           drag.guide = { y: rect?.y ?? at.y, left: rect ? rect.x : at.x - 40, right: (rect ? rect.x : at.x) + 120, text: 'Move table here' }; drag.page = rect?.page ?? at.page;
         }
+      } else if (drag.kind === 'select') {
+        const block = selectionBlock(drag, at), current = engine.model.activeCellBlock;
+        if (block && !(current && current.top === block.top && current.bottom === block.bottom && current.left === block.left && current.right === block.right)) selectBlock(block);
+        e.preventDefault(); e.stopPropagation(); return;
       } else if (drag.kind === 'draw') {
         const s = drag.start;
         drag.guide = drag.frame

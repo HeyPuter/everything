@@ -9,6 +9,11 @@
 .canvas-pages[data-table-cursor="crosshair"] .canvas-page { cursor: crosshair; }
 .canvas-pages[data-table-cursor="cell"] .canvas-page { cursor: cell; }
 .canvas-pages[data-table-cursor="copy"] .canvas-page { cursor: copy; }
+/* Selecting a row (left of it), a cell (just inside its left edge) or a column (above it): an outlined arrow
+   pointing into the row, a filled one into the cell and a filled one down the column. */
+.canvas-pages[data-table-cursor="select-row"] .canvas-page { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M15 1v12l-3-3-2.5 5-2-1 2.5-5H6z' fill='%23fff' stroke='%23000' stroke-linejoin='round'/%3E%3C/svg%3E") 15 1, default; }
+.canvas-pages[data-table-cursor="select-cell"] .canvas-page { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M15 1v12l-3-3-2.5 5-2-1 2.5-5H6z' fill='%23000' stroke='%23fff' stroke-linejoin='round'/%3E%3C/svg%3E") 15 1, default; }
+.canvas-pages[data-table-cursor="select-column"] .canvas-page { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M6 1h4v8h4l-6 6-6-6h4z' fill='%23000' stroke='%23fff' stroke-linejoin='round'/%3E%3C/svg%3E") 8 15, s-resize; }
 
 /* Insert → Table: a 10 × 8 grid to sweep out a size. */
 .table-size-palette.table-size-palette { width: 300px; }

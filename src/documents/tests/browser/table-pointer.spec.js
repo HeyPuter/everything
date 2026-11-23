@@ -153,6 +153,61 @@ test('the + marks insert rows and columns; the move handle selects the table; ke
   expect((await tables(page))[0].rows).toHaveLength(3);
 });
 
+test('a press left of a row, just above a column or just inside a cell’s left edge selects it, and a drag selects more', async ({ page }) => {
+  await newTable(page, 3, 3);
+  const box = await cells(page), cursor = () => page.locator('.canvas-pages').getAttribute('data-table-cursor');
+  const press = async (x, y, kind) => {
+    await page.mouse.move(x, y);
+    await expect.poll(cursor).toBe(kind);
+    await page.mouse.down(); await page.mouse.up();
+  };
+  // Beside the middle of row 2 (its lines are the + marks' places).
+  await press(box[1][0].x - 12, box[1][0].y + box[1][0].h / 2, 'select-row');
+  expect(await block(page)).toEqual([1, 1, 0, 3]);
+  await press(box[0][1].x + box[0][1].w / 2, box[0][1].y - 6, 'select-column');
+  expect(await block(page)).toEqual([0, 2, 1, 2]);
+  await press(box[2][1].x + 6, box[2][1].y + box[2][1].h / 2, 'select-cell');
+  expect(await block(page)).toEqual([2, 2, 1, 2]);
+  await press(box[1][0].x + 3, box[1][0].y + box[1][0].h / 2, 'select-cell');
+  expect(await block(page)).toEqual([1, 1, 0, 1]);
+  // The borders, the + marks and the text keep their own presses.
+  await page.mouse.move(box[1][1].x + 1, box[1][1].y + box[1][1].h / 2);
+  await expect.poll(cursor).toBe('col-resize');
+  await page.mouse.move(box[1][0].x - 12, box[1][0].y);
+  await expect.poll(cursor).toBe('pointer');
+  await page.mouse.move(box[1][1].x + 20, box[1][1].y + box[1][1].h / 2);
+  await expect.poll(cursor).toBe(null);
+  await page.mouse.down(); await page.mouse.up();
+  expect(await block(page)).toBe(null);
+  // Dragging down the rows' bar, along the columns' or across cells selects every one passed.
+  await drag(page, { x: box[0][0].x - 12, y: box[0][0].y + box[0][0].h / 2 }, { x: box[1][0].x - 12, y: box[1][0].y + box[1][0].h / 2 });
+  expect(await block(page)).toEqual([0, 1, 0, 3]);
+  await drag(page, { x: box[0][2].x + box[0][2].w / 2, y: box[0][2].y - 6 }, { x: box[0][1].x + box[0][1].w / 2, y: box[0][1].y - 6 });
+  expect(await block(page)).toEqual([0, 2, 1, 3]);
+  await drag(page, { x: box[0][1].x + 6, y: box[0][1].y + 8 }, { x: box[1][2].x + 30, y: box[1][2].y + 8 });
+  expect(await block(page)).toEqual([0, 1, 1, 3]);
+  expect((await tables(page))[0].rows).toHaveLength(3);
+});
+
+test('beside a table nested in a cell, the outer column line still resizes rather than selecting a nested row', async ({ page }) => {
+  await newTable(page, 2, 2);
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model, t = m.tables[0];
+    e.execute(() => { m.selectCell(t.rows[0].cells[1].id); return m.insertTable(3, 2, 3000); });
+  });
+  const geometry = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model, outer = m.tables.find(t => !t.parentCellId), inner = m.tables.find(t => t.parentCellId);
+    const box = id => { const b = e.selectionLayout.cells.find(c => c.id === id), r = e.canvases[b.page].getBoundingClientRect(); return { x: r.left + b.x * e.zoom, y: r.top + b.y * e.zoom, h: b.height * e.zoom }; };
+    return { line: box(outer.rows[0].cells[1].id).x, inner: box(inner.rows[1].cells[0].id) };
+  });
+  const cursor = () => page.locator('.canvas-pages').getAttribute('data-table-cursor'), y = geometry.inner.y + geometry.inner.h / 2;
+  await page.mouse.move(geometry.line + 1, y);
+  await expect.poll(cursor).toBe('col-resize');
+  // Just inside the outer cell, before the nested table, a press selects the outer cell.
+  await page.mouse.move(geometry.line + 5, y);
+  await expect.poll(cursor).toBe('select-cell');
+});
+
 test('a press on the text just above a table places the caret there rather than inserting a column', async ({ page }) => {
   await newTable(page, 3, 2);
   // The intro runs past the first column line, so its text lies over the strip where the column + marks show.
