@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import nspell from 'nspell';
-import { wordsToCheck, rankSuggestions, apostropheSuggestions } from '../src/lib/spelling.js';
+import { wordsToCheck, rankSuggestions, apostropheSuggestions, spellerFrom } from '../src/lib/spelling.js';
 
 describe('words to check', () => {
   const words = text => wordsToCheck(text).map(w => w.word);
@@ -85,5 +85,14 @@ describe('suggestions', () => {
     expect(suggest('Doesnt')[0]).toBe("Doesn't");
     expect(suggest('teh')[0]).toBe('the');
     expect(apostropheSuggestions("don't", w => speller.correct(w))).toEqual([]);
+  });
+});
+
+describe('accented English words', () => {
+  it('accepts café, naïve and résumé (as written, or with combining accents) without accepting misspellings', () => {
+    const speller = spellerFrom(nspell(readFileSync('public/dictionaries/en-US.aff', 'utf8'), readFileSync('public/dictionaries/en-US.dic', 'utf8')));
+    for (const word of ['café', 'naïve', 'résumé', 'façade', 'Café', 'cafe\u0301', 'cafe', 'naive']) expect(speller.correct(word), word).toBe(true);
+    // The list has no accents to tell a right one from a wrong one: cafè passes as café does.
+    for (const word of ['écrire', 'Ørsted', 'recieve', 'naïv']) expect(speller.correct(word), word).toBe(false);
   });
 });
