@@ -114,12 +114,14 @@ export function directAnnotationIds(page, annotations) {
     if (values.length !== 4 || !values.every(Number.isFinite)) return;
     const [x0, y0, x1, y1] = values;
     const rect = [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
+    // A note without an appearance is reported at PDF.js's icon size, from its top-left corner.
+    const sides = subtype === 'Text' ? [0, 3] : [0, 1, 2, 3];
     const match = loose.find(
       (annotation) =>
         !ids.has(annotation.id) &&
         annotation.subtype === subtype &&
         annotation.rect?.length === 4 &&
-        rect.every((value, i) => Math.abs(value - annotation.rect[i]) < 0.01),
+        sides.every((i) => Math.abs(rect[i] - annotation.rect[i]) < 0.01),
     );
     if (match) ids.set(match.id, annotationKey(entry, position));
   });

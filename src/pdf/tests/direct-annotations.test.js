@@ -11,7 +11,7 @@ import {
 } from '../src/core/annotations.js';
 import { addNote, editNote, listNotes } from '../src/core/notes.js';
 import { addHighlight, editHighlight, listHighlights, rectQuad } from '../src/core/highlight.js';
-import { removeAnnotationThread } from '../src/core/structure.js';
+import { directAnnotationIds, removeAnnotationThread } from '../src/core/structure.js';
 
 // Some writers put annotation dictionaries in a page's Annots array itself instead of
 // referring to objects of their own.
@@ -97,4 +97,22 @@ it('takes a direct comment as already there when its comments file is imported a
   const entry = box(doc);
   expect(entry.replies.map((item) => item.contents)).toEqual(['Agreed']);
   expect(listAnnotations(doc, 0)).toHaveLength(3);
+});
+
+it('pairs PDF.js IDs for direct annotations with their places, notes by their corner', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const note = doc.context.obj({ Type: 'Annot', Subtype: 'Text', Rect: [100, 300, 100, 300] });
+  const box = doc.context.obj({ Type: 'Annot', Subtype: 'Square', Rect: [220, 100, 160, 40] });
+  page.node.set(PDFName.of('Annots'), doc.context.obj([note, box]));
+  // PDF.js gives a note without an appearance its icon's size from the top-left corner.
+  const ids = directAnnotationIds(page, [
+    { id: '12R', subtype: 'Square', rect: [160, 40, 220, 100] },
+    { id: 'annot_p0_1', subtype: 'Text', rect: [100, 278, 122, 300] },
+    { id: 'annot_p0_2', subtype: 'Square', rect: [160, 40, 220, 100] },
+  ]);
+  expect([...ids]).toEqual([
+    ['annot_p0_1', 'direct:0'],
+    ['annot_p0_2', 'direct:1'],
+  ]);
 });
