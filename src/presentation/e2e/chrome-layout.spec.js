@@ -426,3 +426,26 @@ test("a contextual tab comes into view on a narrow screen", async ({
   await expect.poll(() => shown(review)).toBe(true);
   await expect(tabs).toHaveClass(/more-before/);
 });
+
+// A checked menu item stays readable on the tint of the focused item.
+test("a focused checked menu item keeps its contrast", async ({ page }) => {
+  await mockPuter(page);
+  await story(page);
+  const bar = page.getByRole("menubar");
+  if (await bar.isVisible())
+    await bar.getByRole("menuitem", { name: "View", exact: true }).click();
+  else {
+    await page.getByRole("button", { name: "File options" }).click();
+    await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  }
+  // The keyboard brings the first item, Normal (checked), the focus tint.
+  const normal = page.getByRole("menuitemcheckbox", { name: "Normal" });
+  await page.keyboard.press("End");
+  await page.keyboard.press("Home");
+  await expect(normal).toBeFocused();
+  const { violations } = await new AxeBuilder({ page })
+    .include(".menu-item.checked:focus")
+    .withRules(["color-contrast"])
+    .analyze();
+  expect(violations).toEqual([]);
+});

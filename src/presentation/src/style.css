@@ -2049,6 +2049,12 @@ puter-user-menu::part(apps-panel) {
 .menu-item.checked {
   color: var(--accent);
 }
+/* On the tint of a hovered or focused item the accent is a shade darker,
+   to stay readable. */
+.menu-item.checked:hover,
+.menu-item.checked:focus {
+  color: color-mix(in srgb, var(--accent) 85%, var(--ink));
+}
 .menu-icon {
   width: 18px;
   display: inline-grid;
