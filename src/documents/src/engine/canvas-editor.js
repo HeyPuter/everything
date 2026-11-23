@@ -49,8 +49,8 @@ import { hasRunBackground, runBackground, foregroundBackground, runBackgroundRec
 import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext, rowGrid, verticalMerges } from './tables.js';
-import { cellBlockRects, cellBlockPlacements, wholeRows, blockBetween } from './table-selection.js';
-import { clearCells, splitTable, insertTablePageBreak } from './table-editing.js';
+import { cellBlockRects, cellBlockPlacements, wholeRows, wholeColumns, blockBetween } from './table-selection.js';
+import { clearCells, deleteColumns, deleteRows, deleteTable, splitTable, insertTablePageBreak } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -2488,7 +2488,21 @@ export class CanvasEditor {
     // A chart, diagram or other drawing the clipboard cannot carry would be lost on its way: a paste brings back
     // only its plain-text stand-in. Cut leaves it in place and says so, as the Edit menu offers no Cut for it.
     if (uncopied) { this.onError(new Error(UNCUT_MESSAGE)); return; }
-    this.deleteSelection();
+    this.cutSelection();
+  }
+  /**
+   * Remove what a cut takes: whole selected rows or columns of a table (or the whole table) go, as they do in
+   * Word, where Delete only empties them. Anything else, whole rows while Track Changes is on (removed rows
+   * cannot be tracked yet), and columns that cannot be removed (rows that end unevenly) go as deleteSelection
+   * removes them.
+   */
+  cutSelection() {
+    const model = this.model, block = model.activeCellBlock, table = block?.table;
+    const rows = !!block && wholeRows(table, block), columns = !!block && wholeColumns(table, block);
+    if (!rows && !columns || model.trackChanges && !model.trackingInternal) return this.deleteSelection();
+    const widths = (this.selectionLayout?.tableWidths || this.layout?.tableWidths)?.[table.id]?.map(w => Math.round(w * 15));
+    return this.execute(() => rows && columns ? deleteTable(model) : rows ? deleteRows(model) : deleteColumns(model, { widths }), null, undefined, true)
+      || this.deleteSelection();
   }
   /**
    * Remove the selection, as a cut or Clear Contents does: the selected text, or the contents of a block of table
