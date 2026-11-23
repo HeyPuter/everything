@@ -2013,7 +2013,9 @@ export class CanvasEditor {
       const columnBreak = () => this.model.tableContext ? splitTable(this.model) : this.model.insertColumnBreak();
       const pageBreak = () => this.model.tableContext ? insertTablePageBreak(this.model) : this.model.insertPageBreak();
       const capital = this.continuedCapital(...this.model.range);
-      const done = this.execute(() => mod ? (e.shiftKey ? columnBreak() : pageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph());
+      // A new paragraph or line break leaves the copy of the document for the next command's undo step to be
+      // made from its own, as a typed character does (StorySession typingCopy), rather than all of it at idle.
+      const done = this.execute(() => mod ? (e.shiftKey ? columnBreak() : pageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph(), undefined, mod ? undefined : { typing: true });
       // A new paragraph ends the word before it, which may be an address to link.
       if (done && !mod && !e.shiftKey) {
         const caret = this.model.selection.focus, place = locate(this.model.paragraphs, caret);
