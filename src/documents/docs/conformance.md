@@ -24956,3 +24956,26 @@ marks, linked pictures and the inputs of plain-text content controls are not res
 back only while the word is typed without a break: after the caret moves, an input-method composition, or
 a paste, it stays. Addresses are recognized by the conservative rules of links as you type, so a host on
 an uncommon domain typed without a scheme keeps its capital. A schema pass is not layout fidelity.
+
+### Position presets align to the margins (2026-11-22)
+
+Picture Format > Position (and Shape Format and Layout > Position) placed a picture with an offset from
+its column and anchor paragraph. When the text above the picture wrapped around it, or lines were added
+above its paragraph, the paragraph moved down and took the picture with it, so "Top Right" left a gap
+under the top margin. The Layout dialog also showed an aligned axis's offset measured from the margins
+while labelling it as below the paragraph, so OK moved a Word-made "Top Right" picture to its paragraph.
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Position presets | ECMA-376 Part 1 §§20.4.2.10 `positionH`, 20.4.2.11 `positionV`, 20.4.2.1 `align`, 20.4.2.17 `wrapSquare` | The nine presets write `relativeFrom="margin"` with `wp:align` left, center or right and top, center or bottom, and square wrapping on both sides with ⅛ in side distances, as Word writes them. The picture keeps its place on the page of its anchor paragraph wherever that paragraph moves on the page; Layout Options then shows Fix Position on Page. Not available in table cells (unchanged). |
+| Layout dialog offsets of aligned axes | Same clauses | An aligned axis shows its current place as an offset from the column (horizontal) or paragraph (vertical), the frames the dialog offers for it, so confirming the dialog for a text-wrapped object (written as column and paragraph offsets) keeps it where it is. |
+
+Evidence: `tests/browser/position-presets.spec.js` places a picture in Top Right, adds lines above its
+paragraph, checks it stays against the top and right margins, and downloads and reopens the result; it
+also checks Bottom Left and Middle Center. `tests/browser/layout-dialog-aligned.spec.js` opens a picture
+rewritten with Word's margin alignment and confirms the Layout dialog without moving it. The downloads
+`top-right.docx` and `aligned.docx` pass `check:conformance`.
+
+**Remaining gaps:** the Layout dialog still writes a text-wrapped object as column and paragraph offsets,
+so after OK it moves with its paragraph again; inside and outside alignment and book-layout positions are
+not offered.
