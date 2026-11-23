@@ -67,6 +67,16 @@ describe('with <puter-user-menu> in the SDK', () => {
     expect(nodes[1].localName).toBe(USER_MENU_TAG);
   });
 
+  it('says its Settings menu is closed before it first opens, as the account button did', () => {
+    const [settings] = accountControls().nodes;
+    document.body.append(settings);
+    expect(settings.getAttribute('aria-expanded')).toBe('false');
+    settings.click();
+    expect(settings.getAttribute('aria-expanded')).toBe('true');
+    closeMenu();
+    expect(settings.getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('keeps the settings in the Settings menu, without the account rows', () => {
     const { nodes } = accountControls();
     document.body.append(...nodes);

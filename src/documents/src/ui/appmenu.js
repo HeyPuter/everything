@@ -72,7 +72,7 @@ export function accountControls({ label = 'Account menu', buttonClass = 'icon-bt
   const sdkMenu = userMenu({ onSignOut: confirmSignOut });
   if (sdkMenu) {
     const settings = el('button.icon-btn.settings-btn', {
-      type: 'button', html: icon('settings', 20), title: 'Settings', 'aria-label': 'Settings', 'aria-haspopup': 'menu',
+      type: 'button', html: icon('settings', 20), title: 'Settings', 'aria-label': 'Settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
       onclick: (e) => openAppMenu(e.currentTarget, { account: false }),
     });
     return { nodes: [settings, sdkMenu], refresh() {} };
