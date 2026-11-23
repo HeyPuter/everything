@@ -740,7 +740,11 @@ export function eachSelectedCell(model, fn) {
   return changed;
 }
 
-/** Alignment grid: the selected cells' text aligns horizontally and vertically at once. */
+/**
+ * Alignment grid: the selected cells' text aligns horizontally and vertically at once. Left and right
+ * name sides of the cell, as the grid shows them: a right-to-left paragraph stores the other value
+ * (setParagraphAlignment, rtl-paragraph.js).
+ */
 export function setCellAlignment(model, { horizontal, vertical } = {}) {
   if (vertical !== undefined && vertical !== null) checkedCellAlignment(vertical);
   if (horizontal !== undefined && !['left', 'center', 'right', 'both'].includes(horizontal)) throw new Error('Choose left, center or right alignment.');
@@ -749,7 +753,7 @@ export function setCellAlignment(model, { horizontal, vertical } = {}) {
   if (horizontal !== undefined) {
     // Whole rows are one stretch of text already selected: one change aligns all their cells, where one per cell
     // read the whole document again for each (seconds for a long table).
-    const block = model.activeCellBlock, align = () => model.setParagraphFormat({ alignment: horizontal });
+    const block = model.activeCellBlock, align = () => model.setParagraphAlignment(horizontal);
     changed = (block && wholeRows(block.table, block) ? align() : eachSelectedCell(model, align)) || changed;
   }
   return changed;

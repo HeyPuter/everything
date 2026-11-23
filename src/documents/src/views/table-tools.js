@@ -16,6 +16,7 @@ import { insertFormula, evaluateFormula, suggestedFormula, FORMULA_FUNCTIONS, NU
 import { QUICK_TABLES, insertQuickTable } from '../engine/quick-tables.js';
 import { headerRowCount, rowGrid, verticalMerges } from '../engine/tables.js';
 import { locate } from '../engine/model.js';
+import { physicalAlignment } from '../engine/rtl-paragraph.js';
 import { createTableStyleGallery } from '../ui/table-design-gallery.js';
 import { openInsertTableDialog, openConvertTextDialog, openConvertTableDialog, openSplitCellsDialog, openCellsDialog, openSortDialog, openFormulaDialog } from './table-dialogs.js';
 import { openTableStyleDialog } from './table-style-dialog.js';
@@ -439,7 +440,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   function measureAlignment(m, b) {
     const cells = cellBlockPlacements(b.table, b).map(p => p.cell);
     const vertical = cells.every(cell => (cell.vertical || 'top') === (cells[0].vertical || 'top')) ? cells[0].vertical || 'top' : null;
-    const ids = new Set(cells.map(c => c.id)), aligns = new Set(m.paragraphs.filter(p => ids.has(p.cellId)).map(p => p.format?.alignment || 'left'));
+    const ids = new Set(cells.map(c => c.id)), aligns = new Set(m.paragraphs.filter(p => ids.has(p.cellId)).map(p => physicalAlignment(p.format?.alignment || 'left', p.format?.bidi)));
     const horizontal = aligns.size === 1 ? [...aligns][0] : null;
     return vertical && horizontal ? `${vertical}-${horizontal === 'both' ? 'left' : horizontal}` : null;
   }
