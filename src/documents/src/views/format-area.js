@@ -18,7 +18,7 @@ import { PASTE_MODES, pastePayload, availablePasteModes } from '../engine/paste-
 import { fragmentHtml } from '../engine/clipboard-fragment.js';
 import { levelFor } from '../engine/numbering.js';
 import { styleDisplayName } from '../lib/style-names.js';
-import { openFontDialog, selectsEastAsianText } from './font-dialog.js';
+import { openFontDialog, selectsEastAsianText, selectsComplexScriptText } from './font-dialog.js';
 import { openParagraphDialog } from './paragraph-dialog.js';
 import { openTabsDialog } from './tabs-dialog.js';
 import { openBordersAndShading } from './borders-shading.js';
@@ -70,6 +70,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const [start, end] = engine.model.range;
     const format = seed ? { ...NULL_RUN, ...seed } : engine.model.runCommandFormatting;
     return track(openFontDialog({ title, format, sample: engine.model.text.slice(start, end), onClose: capture ? null : later, eastAsian: selectsEastAsianText(engine.model.text, [start, end]),
+      complexScript: !capture && selectsComplexScriptText(engine.model.text, [start, end], format),
       ligatures: !capture && !!engine.model.styles?.openTypeFeatures,
       textEffects: capture || readOnly() ? null : () => textEffectsDialog(),
       setDefault: capture || readOnly() ? null : async (patch, fail) => {
@@ -83,7 +84,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       },
       apply: async (patch, fail) => {
         if (capture) { capture(patch); return true; }
-        for (const name of new Set([patch.fontAscii, patch.fontEastAsia].filter(Boolean))) {
+        for (const name of new Set([patch.fontAscii, patch.fontEastAsia, patch.fontCs].filter(Boolean))) {
           await prepareCanvasFont(name);
           if (documentFontAvailable(name, engine.model.styles.fontAlternatives) !== true) { fail(new Error(`${name} could not be loaded on this device. Choose another font.`)); return false; }
         }

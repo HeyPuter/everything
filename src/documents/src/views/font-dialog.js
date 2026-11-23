@@ -31,7 +31,20 @@ export function selectsEastAsianText(text, [start, end]) {
   return EAST_ASIAN.test(text.slice(start, end));
 }
 
-export function openFontDialog({ format: f, sample = '', apply, onClose, setDefault = null, textEffects = null, ligatures = false, title = 'Font', eastAsian = false }) {
+// Hebrew, Arabic and the other right-to-left scripts, which runs show in their complex script font (w:rFonts/@w:cs).
+const RIGHT_TO_LEFT = /[\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Samaritan}\p{Script=Mandaic}\p{Script=Adlam}]/u;
+/**
+ * Whether the Font dialog offers the selection's complex script font: when the selection, or with only a caret the
+ * paragraph it is in, holds right-to-left letters, or its text is marked right-to-left or complex script (`format`,
+ * null where mixed). Such text is shown in that font, which Font alone leaves as it was.
+ */
+export function selectsComplexScriptText(text, [start, end], format = {}) {
+  if (format.rtl !== false && format.rtl !== undefined || format.cs !== false && format.cs !== undefined) return true;
+  if (start === end) { start = text.lastIndexOf('\n', start - 1) + 1; end = text.indexOf('\n', end); if (end < 0) end = text.length; }
+  return RIGHT_TO_LEFT.test(text.slice(start, end));
+}
+
+export function openFontDialog({ format: f, sample = '', apply, onClose, setDefault = null, textEffects = null, ligatures = false, title = 'Font', eastAsian = false, complexScript = false }) {
   const patch = {};
   const set = values => { Object.assign(patch, values); preview(); };
   const unset = (...keys) => { for (const key of keys) delete patch[key]; preview(); };
@@ -46,7 +59,16 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   const asianName = f.fontEastAsia ?? '';
   const asianFont = eastAsian && el('input.input', { type: 'text', value: asianName, placeholder: asianName ? '' : 'Mixed', list: fonts.id, 'aria-label': 'Asian text font', autocomplete: 'off',
     oninput: () => { const name = asianFont.value.trim(); if (name) set({ fontEastAsia: name }); else unset('fontEastAsia'); } });
-  const style = el('select.input', { 'aria-label': 'Font style', onchange: () => set({ bold: style.value.startsWith('bold'), italic: /italic/i.test(style.value) }) },
+  // Right-to-left and complex script text is shown in the run's complex script font (§17.3.2.26 rFonts cs).
+  const csName = f.fontCs ?? '';
+  const csFont = complexScript && el('input.input', { type: 'text', value: csName, placeholder: csName ? '' : 'Mixed', list: fonts.id, 'aria-label': 'Complex script font', autocomplete: 'off',
+    oninput: () => { const name = csFont.value.trim(); if (name) set({ fontCs: name }); else unset('fontCs'); } });
+  // Right-to-left and complex script text shows its own bold and italic (§17.3.2.2 bCs, §17.3.2.17 iCs): set them too,
+  // as Bold and Italic do.
+  const style = el('select.input', { 'aria-label': 'Font style', onchange: () => {
+    const bold = style.value.startsWith('bold'), italic = /italic/i.test(style.value);
+    set({ bold, italic, ...(complexScript ? { boldCs: bold, italicCs: italic } : {}) });
+  } },
     ...(fontStyle(f) ? [] : [el('option', { value: '', disabled: true }, 'Mixed')]), ...STYLES.map(([value, label]) => el('option', { value }, label)));
   style.value = fontStyle(f);
   const sizes = el('datalist', { id: 'ed-font-dialog-sizes' }, ...FALLBACK_SIZES.map(size => el('option', { value: size })));
@@ -176,6 +198,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   const fontPanel = el('div.ed-font-panel', { role: 'tabpanel', id: 'ed-font-tab-font', 'aria-labelledby': 'ed-font-tab-font-button' },
     el('div.ed-font-grid', {}, row('Font', font), row('Font style', style), row('Size', size)),
     asianFont && el('div.ed-font-grid', {}, row('Asian text font', asianFont)),
+    csFont && el('div.ed-font-grid', {}, row('Complex script font', csFont)),
     el('div.ed-font-grid', {}, row('Font color', colorButton('Font color', 'color')), row('Underline style', underline), row('Underline color', colorButton('Underline color', 'underlineColor'))),
     effectGrid, fonts, sizes);
   const advancedPanel = el('div.ed-font-panel', { role: 'tabpanel', id: 'ed-font-tab-advanced', 'aria-labelledby': 'ed-font-tab-advanced-button', hidden: true },

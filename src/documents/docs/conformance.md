@@ -125,6 +125,13 @@ Character selection rules above use for those letters; **Font** keeps setting th
 Home font box still sets only those two: telling a Latin font from an East Asian one would need the font's
 coverage, which is not read. `tests/browser/font-dialog.spec.js` checks layout, undo and the saved attribute.
 
+Likewise its **Complex script font** (offered when the selection, or the caret's paragraph, holds Hebrew, Arabic or
+other right-to-left letters, or text marked `w:rtl` or `w:cs`) sets the complex script slot alone
+(`w:rFonts/@w:cs`, §17.3.2.26), the font such text is shown in; for that text **Font style** also sets `w:bCs` and
+`w:iCs` (§§17.3.2.2, 17.3.2.17), as Bold and Italic do. Gap: the Home font box sets only the ASCII and high-ANSI
+slots, so it does not change the font of right-to-left text. `tests/font-dialog-fields.test.js` and
+`tests/browser/rtl-paragraph-review.spec.js` check the field and the saved attributes.
+
 `tools/canvas_font_family_fixture.py` independently generates
 `public/fixtures/font-families.docx` with python-docx and original XML. It covers
 partial style overrides, theme precedence, empty marks, AutoFit cells, mixed

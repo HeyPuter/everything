@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { showAllTools, onTab } from './helpers/editor-tools.js';
+import { showAllTools, onTab, downloadDocx } from './helpers/editor-tools.js';
+import { readFileSync } from 'node:fs';
+import { unzipSync, strFromU8 } from 'fflate';
 
 // Right-to-left paragraphs (ECMA-376 Part 1 §17.3.1.6 bidi) where other commands meet them. The fixture
 // is written directly as WordprocessingML by tools/rtl_paragraph_fixture.py; its page is 8.5in wide
@@ -59,5 +61,31 @@ test('drops the first letter of a right-to-left paragraph at the right margin', 
   // The cap stands at the right margin, beside the paragraph's first lines.
   const cap = await inkExtent(page, 150, 200);
   expect(cap.right).toBeGreaterThan(714); expect(cap.right).toBeLessThan(722);
+  expect(errors).toEqual([]);
+});
+
+test('sets the font, bold and italic that right-to-left text shows from the Font dialog', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await fixture(page), arabic = 'هذا نص عربي طويل';
+  await input.evaluate((el, text) => { const at = el.value.indexOf(text); el.setSelectionRange(at, at + text.length); el.dispatchEvent(new Event('select', { bubbles: true })); }, arabic);
+  await onTab(page, 'home');
+  await input.press('ControlOrMeta+d');
+  const dialog = page.getByRole('dialog', { name: 'Font' });
+  // Arabic letters are shown in the complex script font (w:rFonts/@w:cs), which Font alone leaves as it was.
+  const cs = dialog.getByRole('combobox', { name: 'Complex script font', exact: true });
+  await cs.fill('Oswald');
+  await dialog.getByLabel('Font style').selectOption('bold');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const event = page.waitForEvent('download'); await downloadDocx(page);
+  const path = info.outputPath('rtl-font.docx'); await (await event).saveAs(path);
+  const xml = strFromU8(unzipSync(readFileSync(path))['word/document.xml']);
+  const run = xml.split('<w:r>').find(r => r.includes(arabic.slice(0, 3)));
+  expect(run).toMatch(/w:cs="Oswald"/); expect(run).toMatch(/<w:bCs\/>|<w:bCs w:val="1"\/>/);
+  // Left-to-right text offers no such field.
+  await choose(input, 'Left to right paragraph');
+  await input.press('ControlOrMeta+d');
+  await expect(dialog.getByRole('combobox', { name: 'Font', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: 'Complex script font', exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
