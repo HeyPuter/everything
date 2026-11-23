@@ -104,6 +104,21 @@ describe('Doc', () => {
     doc.destroy();
   });
 
+  // Opened with the app from the Puter desktop (or by its address), a Markdown, HTML or text file was taken for a
+  // .docx and failed with "Could not read this DOCX archive: invalid zip data". It imports as one from the device does.
+  it.each([['Desktop/notes.md', 'markdown'], ['Desktop/page.html', 'html'], ['Desktop/todo.txt', 'text']])('opens %s from Puter as a new document imported from it', async (path, type) => {
+    const source = new Blob(['# Notes\n\nSome text']);
+    P.__fs.set(path, source);
+    const doc = await Doc.fromPath(path);
+    expect(doc.path).toBeNull();
+    expect(doc.blob).toBeNull();
+    expect(doc.name).toBe(P.stripExtension(P.displayName(path)));
+    expect(doc.pendingImport?.type).toBe(type);
+    expect(doc.dirty).toBe(true);
+    expect(P.__fs.get(path)).toBe(source);
+    doc.destroy();
+  });
+
   it('rejects a broken Hanword import before creating or writing a document', async () => {
     await expect(Doc.fromImportFile(new File(['bad'], 'broken.hwp'))).rejects.toThrow(/not a valid/);
     expect(P.writeFile).not.toHaveBeenCalled();

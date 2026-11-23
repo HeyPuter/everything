@@ -20,6 +20,8 @@ export const FOLDER = DOCUMENT_FOLDER;
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 export const OPENABLE = /\.(docx|dotx|docm|hwp|hwpx)$/i;
 export const DOCUMENT_EXTENSIONS = ['.docx', '.dotx', '.docm', '.hwp', '.hwpx'];
+/** What Puter's Open dialog offers for opening: the documents, and the text formats that import as new documents. */
+export const OPEN_EXTENSIONS = [...DOCUMENT_EXTENSIONS, '.md', '.markdown', '.txt', '.html', '.htm'];
 /** Device imports: DOCX, Hanword, and the text formats the engine reads. */
 export const IMPORTABLE = /\.(docx|dotx|docm|hwp|hwpx|md|markdown|txt|html?)$/i;
 export const IMPORT_ACCEPT = '.docx,.dotx,.docm,.hwp,.hwpx,.md,.markdown,.txt,.html,.htm,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-hwp,application/haansofthwp,application/vnd.hancom.hwp,application/hwp+zip,text/markdown,text/plain,text/html';

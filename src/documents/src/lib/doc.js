@@ -907,7 +907,9 @@ export class Doc extends EventTarget {
       /\.docx$/i.test(path) ? P.statFile(path).catch(() => null) : null,
       P.readFile(path), P.prepareDocumentPaths(),
     ]);
-    if (HANWORD_IMPORTABLE.test(path)) return Doc.fromImportFile(new File([blob], P.displayName(path)));
+    // A Hanword, Markdown, HTML or text file on the drive (opened with this app from the Puter desktop, say) is imported
+    // as one from the device is: a new document. Opened as a .docx, it failed with "invalid zip data".
+    if (HANWORD_IMPORTABLE.test(path) || importKind(path)) return Doc.fromImportFile(new File([blob], P.displayName(path), { type: blob.type || '' }));
     return new Doc({ name: Doc.nameFor(path), path, uid: stat?.uid || stat?.id || null, blob, modified: stat?.modified });
   }
 

@@ -242,7 +242,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
 
   async function openFromPuter() {
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
-    const picked = await P.pickFile();
+    const picked = await P.pickFile({ accept: P.OPEN_EXTENSIONS });
     if (!destroyed && picked) openPath(picked.path);
   }
 
