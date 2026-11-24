@@ -38,6 +38,16 @@ async function mockPuter(page: Page) {
         async read(path: string) { const f = files.get(path); if (!f) throw { code: 'subject_does_not_exist', message: 'Not found' }; return new Blob([f.text]); },
         async readdir(path: string) { const pre = `/tester/AppData/parametric/${path}/`; return [...files.keys()].filter((k) => k.startsWith(pre)).map(item); },
         async delete(path: string) { if (path.includes('Locked')) throw { message: 'Permission denied' }; files.delete(path); },
+        async move(path: string, to: string, opts?: { newName?: string; dedupeName?: boolean }) {
+          if (path.includes('Locked')) throw { message: 'Permission denied' };
+          const f = files.get(path);
+          if (!f) throw { code: 'subject_does_not_exist', message: 'Not found' };
+          let np = `${to.replace(/^~/, '/tester')}/${opts?.newName ?? path.split('/').pop()}`;
+          for (let n = 1; files.has(np) && opts?.dedupeName; n++) np = np.replace(/( \(\d+\))?(\.[^./]*)?$/, ` (${n})$2`);
+          files.delete(path);
+          files.set(np, f);
+          return item(np);
+        },
         async rename(path: string, name: string) {
           const np = path.replace(/[^/]+$/, name);
           if (np !== path && files.has(np)) throw { code: 'item_with_same_name_exists', message: `An item with name \`${name}\` already exists.` };
@@ -625,7 +635,8 @@ test('parts are deleted from the Open dialog with a button, and stay listed when
   await dialog.getByRole('button', { name: 'Delete Bracket' }).click();
   await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
   await expect(dialog.getByRole('button', { name: /^Bracket/ })).toHaveCount(0);
-  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Locked.parametric']);
+  // As the question said, it went to the Puter Trash, where it can be restored from.
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Locked.parametric', '/tester/Trash/Bracket.parametric']);
   await dialog.getByRole('button', { name: 'Delete Locked' }).click();
   await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByRole('region', { name: 'Notifications' }).getByText('Permission denied')).toBeVisible();

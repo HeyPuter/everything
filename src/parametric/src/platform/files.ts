@@ -332,8 +332,19 @@ export async function loadPart(location: Location): Promise<{ text: string; vers
   return { text, version: (await version) ?? null };
 }
 
+/**
+ * Moves a cloud part to the user's Puter Trash, where it can be restored from
+ * (delete would remove it for good). Puter records where it came from.
+ */
+async function trashCloud(path: string) {
+  const fs = puter()!.fs;
+  if (typeof fs.move !== 'function') return fs.delete(path);
+  // A name given skips the SDK's check of the destination; another part of the same name may be there already.
+  await fs.move(path, '~/Trash', { newName: path.split('/').pop(), dedupeName: true });
+}
+
 export async function deletePart(location: Location) {
-  if (location.type === 'cloud') await puter()!.fs.delete(location.path);
+  if (location.type === 'cloud') await trashCloud(location.path);
   else await localDelete(location.id);
   forgetRecent(location);
   partsChanged();

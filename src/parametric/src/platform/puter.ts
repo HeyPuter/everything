@@ -31,6 +31,7 @@ export interface PuterSDK {
     readdir(path: string, opts?: Record<string, unknown>): Promise<PuterFSItem[]>;
     delete(path: string, opts?: Record<string, unknown>): Promise<void>;
     rename(path: string, name: string): Promise<PuterFSItem>;
+    move?(source: string, destination: string, opts?: Record<string, unknown>): Promise<PuterFSItem>;
     stat(path: string): Promise<PuterFSItem>;
     mkdir(path: string, opts?: Record<string, unknown>): Promise<PuterFSItem>;
   };
