@@ -1452,6 +1452,8 @@ export class App {
       : `Delete ${names.join(', ')}?`;
     if (!(await confirmDialog('Delete', msg, 'Delete', true, signal)) || signal.aborted) return;
     if (this.sketchEditor && del.has(this.sketchEditor.sketchId)) this.exitSketch(false);
+    // A panel editing a deleted feature (deleted from the flyout tree) has nothing left to edit.
+    if (this.panel?.editingId && del.has(this.panel.editingId)) await this.closePanel(false);
     this.store.change('Delete', (d) => {
       const before = d.features.length;
       const builtBefore = this.store.builtCount;

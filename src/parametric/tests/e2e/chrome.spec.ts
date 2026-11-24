@@ -82,3 +82,29 @@ test('OK in a feature panel keeps names and suppression changed in the flyout tr
   ).toEqual([{ name: 'Round', suppressed: true }]);
   expect(errors).toEqual([]);
 });
+
+test('deleting the feature a panel edits from the flyout tree closes the panel and keeps the model shown', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).dblclick();
+  await page.locator('.flyout-tree > button').click();
+  await page
+    .getByRole('tree', { name: 'Design tree (flyout)' })
+    .getByRole('treeitem', { name: 'Hole1' })
+    .focus();
+  await page.keyboard.press('Delete');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(page.locator('.flyout-tree')).toBeHidden();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const a = (window as unknown as Handle).__parametric;
+        return { panel: !!a.panel, faces: a.faces.length > 0 };
+      }),
+    )
+    .toEqual({ panel: false, faces: true });
+  expect(errors).toEqual([]);
+});
