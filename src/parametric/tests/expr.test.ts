@@ -52,6 +52,19 @@ describe('expression evaluator', () => {
     expect(errors.has('X') || errors.has('Y')).toBe(true);
   });
 
+  it('reports every variable of a loop as circular, and those using it as depending on an error', () => {
+    const { errors } = evaluateVariables([
+      { name: 'A', expr: 'B + 1' },
+      { name: 'B', expr: 'C + 1' },
+      { name: 'C', expr: 'A + 1' },
+      { name: 'D', expr: 'C * 2' },
+      { name: 'E', expr: 'E' },
+    ]);
+    expect(Object.fromEntries(errors)).toEqual({
+      A: 'Circular reference', B: 'Circular reference', C: 'Circular reference', D: '"C" has an error', E: 'Circular reference',
+    });
+  });
+
   it('lists referenced names', () => {
     expect(referencedNames('Width * 2 + sin(Angle) + 3mm')).toEqual(['Width', 'Angle']);
   });
