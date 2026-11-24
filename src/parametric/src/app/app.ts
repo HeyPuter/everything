@@ -280,6 +280,18 @@ export class App {
     lp.classList.toggle('open', v);
     if (!v) this.setLeftPanePeek(false);
     this.shell.treeToggle.setAttribute('aria-expanded', String(v));
+    this.syncSheetInert();
+  }
+
+  /**
+   * Phones: the closed sheet is out of sight, so out of reach of the keyboard
+   * and screen readers too; focus in it moves to the Tree button that brings it back.
+   */
+  syncSheetInert() {
+    const lp = this.shell.leftpane;
+    const hidden = window.matchMedia('(max-width: 760px)').matches && !lp.classList.contains('open');
+    if (hidden && lp.contains(document.activeElement)) this.shell.treeToggle.focus({ preventScroll: true });
+    lp.inert = hidden;
   }
 
   private panelElement(p: PropertyPanel): HTMLElement {
@@ -533,6 +545,8 @@ export class App {
   private bindShell() {
     const s = this.shell;
     s.treeToggle.addEventListener('click', () => this.toggleLeftPane());
+    window.matchMedia('(max-width: 760px)').addEventListener('change', () => this.syncSheetInert());
+    this.syncSheetInert();
     s.treeToggle.addEventListener('click', this.uncoverWorkspace);
     s.cmTools.addEventListener('click', this.uncoverWorkspace);
     // Splitter resize.
@@ -1230,13 +1244,14 @@ export class App {
     // tree, so keyboard focus moves to the panel instead of being lost.
     const fromPane = this.shell.leftpane.contains(document.activeElement);
     this.showLeft('pm');
+    // Open (on phones, no longer inert) before the panel takes focus.
+    this.toggleLeftPane(true);
     if (fromPane || document.activeElement === document.body) this.shell.lpBody.querySelector<HTMLElement>('.pm-head .title')?.focus();
     this.shell.confirm.hidden = !p.confirm;
     this.renderConfirmCorner();
     this.setStatus(p.title);
     this.updateFlyout();
     this.viewport.refreshStates();
-    this.toggleLeftPane(true);
     this.requestRebuild(true);
     this.commands.changed();
   }

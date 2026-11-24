@@ -298,3 +298,22 @@ test('a small phone\'s title bar shows the whole default part name', async ({ pa
   await expect(title).toHaveText('Part1');
   expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
+
+test('the closed design tree sheet is out of reach of the keyboard and screen readers', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const sheet = page.locator('.leftpane');
+  await expect(sheet).toHaveJSProperty('inert', true);
+  await page.locator('.tree [data-key="part"]').evaluate((el: HTMLElement) => el.focus());
+  await expect(page.locator('.tree [data-key="part"]')).not.toBeFocused();
+  await page.locator('.statusbar').getByRole('button', { name: 'Tree' }).click();
+  await expect(sheet).toHaveJSProperty('inert', false);
+  await page.getByRole('treeitem', { name: 'Origin' }).focus();
+  await expect(page.getByRole('treeitem', { name: 'Origin' })).toBeFocused();
+  // Closing it hands focus to the button that opens it again.
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await expect(sheet).toHaveJSProperty('inert', true);
+  // A panel opens the sheet and takes focus there.
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): boolean } } }).__parametric.commands.run('plane'));
+  await expect(sheet).toHaveJSProperty('inert', false);
+});
