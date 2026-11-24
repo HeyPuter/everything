@@ -38,7 +38,11 @@ async function mockPuter(page: Page) {
         async read(path: string) { const f = files.get(path); if (!f) throw { code: 'subject_does_not_exist', message: 'Not found' }; return new Blob([f.text]); },
         async readdir(path: string) { const pre = `/tester/AppData/parametric/${path}/`; return [...files.keys()].filter((k) => k.startsWith(pre)).map(item); },
         async delete(path: string) { if (path.includes('Locked')) throw { message: 'Permission denied' }; files.delete(path); },
-        async rename(path: string, name: string) { const np = path.replace(/[^/]+$/, name); files.set(np, files.get(path)!); files.delete(path); return item(np); },
+        async rename(path: string, name: string) {
+          const np = path.replace(/[^/]+$/, name);
+          if (np !== path && files.has(np)) throw { code: 'item_with_same_name_exists', message: `An item with name \`${name}\` already exists.` };
+          files.set(np, files.get(path)!); files.delete(path); return item(np);
+        },
         async stat(path: string) { if (!files.has(path)) throw { code: 'subject_does_not_exist', message: 'Not found' }; return item(path); },
         async mkdir() { return {}; },
         async listShared() { return { items: [] }; },
@@ -1062,6 +1066,29 @@ test('a cloud part renamed while a sketch is open keeps its new name when the sk
   expect(errors).toEqual([]);
 });
 
+test('a cloud part whose file cannot take the new name keeps its name, and says why', async ({ page }) => {
+  type W = Mock & { __parametric: import('../../src/app/app').App };
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as W;
+    w.__files.set('/tester/AppData/parametric/Parts/Bracket.parametric', { text: '{}' });
+    w.__parametric.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => { void (window as unknown as W).__parametric.commands.run('rename'); });
+  await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Bracket');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page.getByText('A file named "Bracket.parametric" already exists in this folder. Choose another name.')).toBeVisible();
+  // Opened again, a cloud part takes its file's name: the part keeps the name the file has.
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as W).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/AppData/parametric/Parts/Part1.parametric' });
+  expect(await page.evaluate(() => (window as unknown as W).__files.get('/tester/AppData/parametric/Parts/Bracket.parametric')!.text)).toBe('{}');
+  expect(errors).toEqual([]);
+});
+
 test('renaming a cloud part to the name it already has leaves its file alone', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);
@@ -1096,6 +1123,8 @@ test('a delayed cloud rename does not attach its file to a new part', async ({ p
     a.commands.run('save');
   });
   await expect(page).toHaveTitle('Part1 - Parametric');
+  // Unsaved work, so New asks while the rename is pending.
+  await page.evaluate(() => { (window as unknown as { __parametric: AppHandle }).__parametric.store.change('Edit', (d) => { d.variables[0].expr = '11'; }); });
   await page.evaluate(() => {
     type W = { __parametric: import('../../src/app/app').App; puter: { fs: { rename: (...args: unknown[]) => Promise<unknown> } }; renameStarted: boolean; releaseRename: () => void; pendingRename: Promise<void> };
     const w = window as unknown as W;

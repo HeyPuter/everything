@@ -665,23 +665,32 @@ export class FileOps {
       // otherwise restore the old name, while the file keeps the new one.
       if (app.sketchEditor) app.exitSketch(true);
       const clean = safeName(name);
-      app.store.change('Rename part', (doc) => { doc.name = clean; });
       const loc = app.location;
       // A file that already has the name is left alone (Enter in an unchanged Rename box).
+      // The file is renamed first: a cloud part opens under its file's name, so
+      // a name the file could not take would be lost when the part is opened again.
       if (loc?.type === 'cloud' && loc.path.split('/').pop() !== `${clean}${EXT}`) {
+        let result: Awaited<ReturnType<typeof renameCloudPart>>;
         try {
-          const { location: renamed, version } = await renameCloudPart(loc, clean);
-          if (documentVersion === this.documentVersion) {
-            // The file's version as renamed, or the one known before when the rename did not say.
-            const known = this.known?.path === loc.path ? this.known.version : null;
-            this.setLocation(renamed, version ?? known);
-          }
-          forgetRecent(loc);
-          rememberRecent({ location: renamed, name: clean });
+          result = await renameCloudPart(loc, clean);
         } catch (e) {
-          toast({ kind: 'warning', message: `Renamed in the app, but the file could not be renamed: ${storageError(e)}` });
+          if (documentVersion === this.documentVersion) {
+            const taken = (e as { code?: string } | null)?.code === 'item_with_same_name_exists';
+            toast({ kind: 'error', title: 'Could not rename the part', message: taken ? `A file named "${clean}${EXT}" already exists in this folder. Choose another name.` : storageError(e) });
+          }
+          return;
         }
+        const { location: renamed, version } = result;
+        forgetRecent(loc);
+        rememberRecent({ location: renamed, name: clean });
+        if (documentVersion !== this.documentVersion) return;
+        // The file's version as renamed, or the one known before when the rename did not say.
+        const known = this.known?.path === loc.path ? this.known.version : null;
+        this.setLocation(renamed, version ?? known);
+        // A sketch opened while the file was renamed is finished too.
+        if (app.sketchEditor) app.exitSketch(true);
       }
+      if (app.store.doc.name !== clean) app.store.change('Rename part', (doc) => { doc.name = clean; });
     });
   }
 
