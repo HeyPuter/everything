@@ -96,7 +96,7 @@ export class Viewport {
 
   constructor(private app: App, root: HTMLElement) {
     this.root = root;
-    this.canvas = h('canvas', { class: 'gl', tabindex: '0', role: 'application', 'aria-label': '3D view. Use arrow keys to rotate, Ctrl and arrow keys to pan, F to fit, plus and minus to zoom.' }) as HTMLCanvasElement;
+    this.canvas = h('canvas', { class: 'gl', tabindex: '0', role: 'application', 'aria-label': `3D view. Use arrow keys to rotate, ${isMac ? 'Command' : 'Ctrl'} and arrow keys to pan, F to fit, plus and minus to zoom.` }) as HTMLCanvasElement;
     this.overlay = h('div', { class: 'dims', 'aria-hidden': 'true' });
     this.triad = this.buildTriad();
     this.viewLabel = h('div', { class: 'view-label', 'aria-live': 'off' });

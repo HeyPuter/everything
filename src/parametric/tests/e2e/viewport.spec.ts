@@ -433,6 +433,20 @@ test.describe('viewport', () => {
     await expect.poll(distance).toBeLessThan(d0);
   });
 
+  test('the 3D view names the pan key of the platform, and that key pans', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+    const canvas = page.locator('canvas.gl');
+    // macOS keeps Control with the arrow keys for switching spaces.
+    await expect(canvas).toHaveAttribute('aria-label', new RegExp(`${mac ? 'Command' : 'Ctrl'} and arrow keys to pan`));
+    await canvas.focus();
+    const target = () => page.evaluate(() => [...(window as unknown as Win).__parametric.renderer.camera.target]);
+    const t0 = await target();
+    await page.keyboard.press(mac ? 'Meta+ArrowLeft' : 'Control+ArrowLeft');
+    expect(await target()).not.toEqual(t0);
+  });
+
   test('repeated arrow keys add up their rotations', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
