@@ -234,7 +234,12 @@ export class AssistantPanel {
     this.bindDrop();
     this.renderEmpty();
     app.store.on((reason) => {
-      if (reason !== 'load') return;
+      if (reason !== 'load') {
+        // The ideas offered before a message is sent follow the part: new parts, or changes to this one.
+        const empty = this.log.childElementCount === 1 && this.log.firstElementChild?.classList.contains('as-empty');
+        if (empty && this.ideasFor !== this.app.store.doc.features.length > 0 && !this.log.contains(document.activeElement)) this.renderEmpty();
+        return;
+      }
       this.opened++;
       // A failed reply asked again would go on without a description of this part, about the one closed.
       for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
@@ -300,8 +305,12 @@ export class AssistantPanel {
     else this.focusInput();
   }
 
+  /** Whether the ideas shown are for a part that has features. */
+  private ideasFor = false;
+
   private renderEmpty() {
     const hasFeatures = this.app.store.doc.features.length > 0;
+    this.ideasFor = hasFeatures;
     const ideas = hasFeatures
       ? ['Explain how this part is built', 'Round all the outer edges with 1 mm fillets', 'Make the main sizes parametric with global variables', 'What does it weigh in aluminium?']
       : ['A 100 × 60 × 8 mm mounting plate with four M5 holes and rounded corners', 'A flanged bushing: 40 mm flange, 20 mm shaft, 10 mm bore', 'An enclosure box 80 × 50 × 30 mm with 2 mm walls, open on top', 'A spur-gear-like disc: 60 mm across with 12 teeth and a 8 mm bore'];

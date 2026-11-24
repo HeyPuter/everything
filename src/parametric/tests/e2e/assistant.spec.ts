@@ -573,3 +573,17 @@ test('the conversation keeps its place when the pane is closed or switched and s
   await tab('assistant').click();
   await expect.poll(() => log.evaluate((l) => Math.round(l.scrollTop))).toBe(300);
 });
+
+test('the ideas offered before the first message follow whether the part has features yet', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await expect(page.locator('.as-empty')).toContainText('Describe a part to design');
+  type P = { __parametric: { store: { change(l: string, f: (d: { features: unknown[] }) => void): void; undo(): void } } };
+  await page.evaluate(() => (window as unknown as P).__parametric.store.change('Sketch', (d) => {
+    d.features.push({ id: 's1', type: 'sketch', name: 'Sketch1', plane: { kind: 'base', plane: 'top' }, entities: [], constraints: [] });
+  }));
+  await expect(page.locator('.as-empty')).toContainText('Change or ask about this part');
+  await expect(page.getByRole('button', { name: 'Explain how this part is built' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as P).__parametric.store.undo());
+  await expect(page.locator('.as-empty')).toContainText('Describe a part to design');
+});
