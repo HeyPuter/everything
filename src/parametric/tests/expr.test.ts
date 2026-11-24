@@ -67,6 +67,9 @@ describe('expression evaluator', () => {
 
   it('lists referenced names', () => {
     expect(referencedNames('Width * 2 + sin(Angle) + 3mm')).toEqual(['Width', 'Angle']);
+    // A variable named like a function is a reference unless it is called.
+    expect(referencedNames('Max * 2 + max(Min, 1)')).toEqual(['Max', 'Min']);
+    expect(evaluateVariables([{ name: 'Max', expr: '4' }, { name: 'B', expr: 'Max * 2 + max(Max, 1)' }]).values.get('B')).toBe(12);
   });
 
   it('renames variable references and nothing else', () => {

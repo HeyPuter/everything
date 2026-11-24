@@ -229,10 +229,12 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
 /** Names referenced by an expression (for dependency ordering). */
 export function referencedNames(src: string): string[] {
   try {
-    return tokenize(src)
-      .filter((t): t is { k: 'name'; v: string } => t.k === 'name')
-      .map((t) => t.v)
-      .filter((n) => !Object.hasOwn(CONSTS, n) && !Object.hasOwn(FUNCS, n.toLowerCase()) && !Object.hasOwn(LENGTH_SUFFIX, n) && !Object.hasOwn(ANGLE_SUFFIX, n));
+    const toks = tokenize(src);
+    // A function name is one only when called: a variable may be named "Max" (=Max*2).
+    const call = (i: number) => { const t = toks[i + 1]; return t?.k === 'op' && t.v === '('; };
+    return toks
+      .flatMap((t, i) => (t.k === 'name' && !(call(i) && Object.hasOwn(FUNCS, t.v.toLowerCase())) ? [t.v] : []))
+      .filter((n) => !Object.hasOwn(CONSTS, n) && !Object.hasOwn(LENGTH_SUFFIX, n) && !Object.hasOwn(ANGLE_SUFFIX, n));
   } catch {
     return [];
   }
