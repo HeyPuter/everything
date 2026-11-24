@@ -155,7 +155,7 @@ export function registerCommands(app: App, files: FileOps) {
       checked: () => app.taskPaneOpen() === 'assistant', run: () => app.toggleTaskPane('assistant'),
     },
     { id: 'share', label: 'Share...', icon: 'share', keywords: 'collaborate invite team access', description: 'Let other Puter users view or edit this part.', run: () => shareDialog(app, files) },
-    { id: 'properties', label: 'Part Properties...', icon: 'part', keywords: 'units decimals', description: 'Name, units and precision.', run: () => propertiesDialog(app) },
+    { id: 'properties', label: 'Part Properties...', icon: 'part', keywords: 'units decimals', description: 'Name, units and precision.', run: () => propertiesDialog(app, (name) => files.rename(name)) },
     // ---- edit ----
     {
       id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.canUndo,

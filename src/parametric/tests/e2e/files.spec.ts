@@ -353,6 +353,24 @@ test('a cloud part renamed in another tab is saved under its new name, not again
   await expect.poll(() => b.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Renamed.parametric']);
 });
 
+test('a cloud part renamed in Part Properties is saved under its new name, like Rename Part', async ({ page }) => {
+  type W = Mock & { __parametric: import('../../src/app/app').App };
+  await mockPuter(page);
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => { const p = (window as unknown as W).__parametric; p.store.change('X', (d) => { d.variables.push({ id: 'v1', name: 'X', expr: '1' }); }); p.commands.run('save'); });
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.store.dirty)).toBe(false);
+  await page.evaluate(() => { void (window as unknown as W).__parametric.commands.run('properties'); });
+  const dialog = page.getByRole('dialog', { name: 'Part Properties' });
+  await dialog.getByRole('textbox', { name: 'Part name' }).fill('Holder: v2');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle(/Holder- v2 - Parametric/);
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/AppData/parametric/Parts/Holder- v2.parametric' });
+  await page.evaluate(() => (window as unknown as W).__parametric.commands.run('save'));
+  await expect.poll(() => page.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Holder- v2.parametric']);
+});
+
 test('a pending recovery copy is written as soon as the tab is hidden', async ({ page }) => {
   await mockPuter(page);
   await openApp(page);

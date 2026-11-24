@@ -653,10 +653,11 @@ export class FileOps {
     }
   }
 
-  async rename() {
+  /** Renames the part (and its cloud file); asks for the name unless it is given (Part Properties). */
+  async rename(given?: string) {
     const app = this.app;
     const documentVersion = this.documentVersion;
-    const name = await promptDialog('Rename part', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'), app.documentSignal);
+    const name = given ?? await promptDialog('Rename part', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'), app.documentSignal);
     if (name == null || documentVersion !== this.documentVersion) return;
     return this.fileOperation(async () => {
       if (documentVersion !== this.documentVersion) return;

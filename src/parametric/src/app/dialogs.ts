@@ -213,7 +213,8 @@ export async function materialDialog(app: App) {
 
 // ---------- part properties ----------
 
-export async function propertiesDialog(app: App) {
+/** Part name, units and precision; a new name is given to `rename`, which renames the saved file too. */
+export async function propertiesDialog(app: App, rename?: (name: string) => Promise<void> | void) {
   const signal = app.documentSignal;
   const doc = app.store.doc;
   const name = h('input', { class: 'input', value: doc.name, 'aria-label': 'Part name' }) as HTMLInputElement;
@@ -223,21 +224,39 @@ export async function propertiesDialog(app: App) {
     if (u.id === doc.units) o.selected = true;
     units.append(o);
   }
-  const decimals = h('input', { class: 'input', type: 'number', min: '0', max: '6', value: String(doc.decimals), 'aria-label': 'Decimal places' }) as HTMLInputElement;
+  const decimals = h('input', { class: 'input', type: 'number', min: '0', max: '6', step: '1', value: String(doc.decimals), 'aria-label': 'Decimal places' }) as HTMLInputElement;
+  const error = h('div', { id: nextDomId('props-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
+  // An empty name or a precision out of range is said, not quietly replaced.
+  const invalid = (): HTMLInputElement | null => {
+    for (const x of [name, decimals]) x.removeAttribute('aria-invalid');
+    const places = decimals.value.trim() === '' ? NaN : Number(decimals.value);
+    const bad = !name.value.trim() ? name : !(Number.isInteger(places) && places >= 0 && places <= 6) ? decimals : null;
+    error.textContent = bad === name ? 'Enter a name.' : bad ? 'Enter a whole number of decimal places from 0 to 6.' : '';
+    bad?.setAttribute('aria-invalid', 'true');
+    bad?.setAttribute('aria-describedby', error.id);
+    return bad;
+  };
   const v = await showDialog({
     title: 'Part Properties', signal,
     body: [h('div', { class: 'grid-form' }, h('label', {}, 'Name'), name, h('label', {}, 'Units'), units, h('label', {}, 'Decimal places'), decimals),
-      h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
+      error, h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
+    onAction: (a) => {
+      const bad = a === 'ok' ? invalid() : null;
+      if (bad) { bad.focus(); return false; }
+    },
   });
   if (v !== 'ok' || signal.aborted) return;
   let unlinked: string[] = [];
+  const newName = name.value.trim();
   app.store.change('Part properties', (d) => {
-    d.name = name.value.trim() || d.name;
+    if (!rename) d.name = newName;
     // Expressions are written in the part's units: they are converted so the geometry keeps its size.
     unlinked = changeUnits(d, units.value as UnitSystem);
-    d.decimals = Math.max(0, Math.min(6, Math.round(Number(decimals.value) || 0)));
+    d.decimals = Number(decimals.value);
   });
+  // As Rename Part does: a file-safe name, and the saved file renamed with it.
+  if (rename && newName !== app.store.doc.name) void rename(newName);
   if (unlinked.length) toast({ kind: 'warning', title: 'Some equations were replaced by their values', message: `These could not be converted to the new units and keep their size as plain numbers: ${unlinked.join(', ')}.`, timeout: 9000 });
   app.sketchEditor?.render();
 }

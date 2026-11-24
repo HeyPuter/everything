@@ -273,3 +273,37 @@ test('keyboard focus moves on when the focused toolbar button becomes unavailabl
   await expect(toolbar.getByRole('button', { name: 'Redo' })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('Part Properties says what is wrong with an empty name or decimal places out of range', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('properties'));
+  const dialog = page.getByRole('dialog', { name: 'Part Properties' });
+  const name = dialog.getByRole('textbox', { name: 'Part name' });
+  const places = dialog.getByRole('spinbutton', { name: 'Decimal places' });
+  await name.fill(' ');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Enter a name.');
+  await expect(name).toBeFocused();
+  await name.fill('Bracket');
+  for (const value of ['9', '1.5', '']) {
+    await places.fill(value);
+    await dialog.getByRole('button', { name: 'OK' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText(
+      'Enter a whole number of decimal places from 0 to 6.',
+    );
+    await expect(places).toHaveAttribute('aria-invalid', 'true');
+  }
+  await places.fill('3');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(
+    await page.evaluate(() => {
+      const d = (window as unknown as Handle).__parametric.store.doc;
+      return { name: d.name, decimals: d.decimals };
+    }),
+  ).toEqual({ name: 'Bracket', decimals: 3 });
+  expect(errors).toEqual([]);
+});
