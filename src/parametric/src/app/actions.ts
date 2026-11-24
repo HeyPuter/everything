@@ -47,7 +47,7 @@ const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: str
   spline: { label: 'Spline', desc: 'Sketch a smooth curve through points.', make: (ed) => splineTool(ed) },
   point: { label: 'Point', desc: 'Sketch points, for example to place holes.', make: (ed) => pointTool(ed) },
   smartDimension: { label: 'Smart Dimension', shortcut: 'D', desc: 'Add a dimension; its type depends on what you select and where you place it.', make: (ed) => dimensionTool(ed) },
-  sketchFillet: { label: 'Sketch Fillet', desc: 'Round the corner between two lines.', make: (ed) => sketchFilletTool(ed) },
+  sketchFillet: { label: 'Sketch Fillet', desc: 'Round the corner between two lines or arcs.', make: (ed) => sketchFilletTool(ed) },
   trim: { label: 'Trim Entities', shortcut: 'T', desc: 'Remove parts of curves up to their intersections.', make: (ed) => trimTool(ed) },
   extend: { label: 'Extend Entities', desc: 'Extend a line to the next curve.', make: (ed) => extendTool(ed) },
 };

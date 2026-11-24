@@ -680,7 +680,7 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
   return {
     id: 'sketchFillet',
     label: 'Sketch Fillet',
-    hint: 'Click a corner where two lines meet to round it.',
+    hint: 'Click a corner where two lines or arcs meet to round it.',
     picks: true,
     move(s) {
       // The arc a click would make, on the corner under the cursor.
@@ -692,7 +692,7 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       const hit = ed.pickAt(s.p, 9);
-      if (!hit || hit.kind !== 'point') { ed.app.setStatus('Click the corner point shared by two lines.'); return true; }
+      if (!hit || hit.kind !== 'point') { ed.app.setStatus('Click the corner point shared by two lines or arcs.'); return true; }
       let err: string | null = null;
       ed.edit('Sketch fillet', (sk, newId) => { err = filletCorner(sk, hit.id, radius, newId); });
       ed.setHighlight([]);
