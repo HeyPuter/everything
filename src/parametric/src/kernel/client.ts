@@ -92,7 +92,10 @@ export class KernelClient {
       if (p) {
         this.pending.delete(r.id);
         if (r.ok) p.resolve(r.result);
-        else p.reject(new Error(r.error));
+        // An aborted kernel restarts the worker: the request was cut short like
+        // any other one in flight then, and a rebuild is tried again (an
+        // ordinary error said "Rebuild failed" and left the new worker empty).
+        else p.reject(r.fatal ? new KernelRestartError(r.error) : new Error(r.error));
       }
       if (!r.ok && r.fatal) this.restart('the OpenCascade kernel failed');
       this.checkStall();

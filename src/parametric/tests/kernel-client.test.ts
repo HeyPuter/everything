@@ -61,6 +61,8 @@ describe('kernel client recovery', () => {
     const id = workers[0].sent.find((m) => m.type === 'export')!.id;
     workers[0].reply({ id, ok: false, error: 'The geometry kernel failed', fatal: true });
     await expect(exp).rejects.toThrow('The geometry kernel failed');
+    // Cut short by the restart, as any request in flight then (a rebuild is tried again).
+    await expect(exp).rejects.toBeInstanceOf(KernelRestartError);
     expect(workers).toHaveLength(2);
     expect(restarts).toEqual([['the OpenCascade kernel failed', false]]);
   });

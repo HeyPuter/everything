@@ -228,3 +228,33 @@ test('quick successive edits show the last one, never an older result after a ne
   for (let i = 1; i < shown.tops.length; i++) expect(shown.tops[i]).toBeGreaterThan(shown.tops[i - 1]);
   expect(errors).toEqual([]);
 });
+
+test('a kernel that aborts in the middle of a rebuild is replaced and the edit built', async ({ page }) => {
+  // The aborted build was rejected as an ordinary failure: "Rebuild failed",
+  // and the new worker was left without the part until the next edit.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type K = Kernel & { worker: { onmessage: ((ev: MessageEvent) => void) | null } };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; bbox: { max: number[] } | null; store: { change(l: string, fn: (d: { features: { id: string; depth?: number }[] }) => void): void } } };
+  const top = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    await app.whenBuilt();
+    // The next build reply comes back as from an aborted WebAssembly module.
+    const w = app.kernel.worker;
+    const handle = w.onmessage!;
+    w.onmessage = (ev) => {
+      const r = ev.data as { id: number; result?: { status?: unknown } };
+      if (r.result?.status) { w.onmessage = handle; handle({ data: { id: r.id, ok: false, error: 'The geometry kernel failed', fatal: true } } as MessageEvent); return; }
+      handle(ev);
+    };
+    app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = 60; });
+    await new Promise((r) => setTimeout(r, 50));
+    await app.whenBuilt();
+    return app.bbox?.max[2];
+  });
+  expect(top).toBeCloseTo(60, 6);
+  expect(await volume(page)).toBeGreaterThan(0);
+  await expect(page.locator('.toast', { hasText: 'Rebuild failed' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
