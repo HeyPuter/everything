@@ -786,6 +786,10 @@
     width: 32px;
     min-width: 32px;
   }
+  /* The narrower rail leaves 4 px beside a tab: the comments count stood past the screen's edge. */
+  .right-rail .tab-count {
+    right: -3px;
+  }
   .editor .quick-tools {
     position: static;
     flex-direction: row;
