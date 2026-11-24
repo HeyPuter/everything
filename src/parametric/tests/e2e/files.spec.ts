@@ -352,7 +352,9 @@ test('a cloud part renamed in another tab is saved under its new name, not again
   await a.evaluate(() => { void (window as unknown as W).__parametric.commands.get('rename')!.run(); });
   await a.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Renamed');
   await a.getByRole('button', { name: 'OK', exact: true }).click();
-  await expect(b).toHaveTitle(/Renamed - Parametric/);
+  // Nothing was changed in this tab: the part is still what its file holds.
+  await expect(b).toHaveTitle('Renamed - Parametric');
+  expect(await b.evaluate(() => (window as unknown as W).__parametric.store.dirty)).toBe(false);
   await b.evaluate(() => { (window as unknown as W).__files.delete('/tester/AppData/parametric/Parts/Part1.parametric'); (window as unknown as W).__parametric.commands.run('save'); });
   await expect.poll(() => b.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Renamed.parametric']);
 });

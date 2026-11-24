@@ -73,7 +73,16 @@ export class FileOps {
       // As for a rename here: discarding an open sketch's changes later would
       // otherwise restore the old name, while the file keeps the new one.
       if (app.store.doc.name !== name && app.sketchEditor) app.exitSketch(true);
-      if (app.store.doc.name !== name) app.store.change('Rename part', (doc) => { doc.name = name; });
+      if (app.store.doc.name !== name) {
+        // The part opens under its file's name, so a part with nothing unsaved
+        // is still what its file holds: it stays saved.
+        const wasSaved = !app.store.dirty;
+        app.store.change('Rename part', (doc) => { doc.name = name; });
+        if (wasSaved) {
+          app.store.dirty = false;
+          app.store.emit('saved');
+        }
+      }
       toast({ message: `This part was renamed to "${name}" in another tab.`, timeout: 6000 });
     });
     window.addEventListener('beforeunload', (e) => {
