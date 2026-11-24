@@ -7,7 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, type FileEntry, deletePart, forgetRecent, rememberRecent,
-  onRenamedElsewhere, onSavedElsewhere, sameLocation, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
+  onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
 import { type PuterFSItem, cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -523,7 +523,7 @@ export class FileOps {
   }
 
   async openFromDevice(signal = this.beginOpen()) {
-    const file = await pickDeviceFile(`${EXT},.json,${IMPORT_EXTS.join(',')}`);
+    const file = await pickDeviceFile(acceptList([EXT, '.json', ...IMPORT_EXTS]));
     if (file && await this.openBlob(file, file.name, null, signal)) this.app.store.dirty = true;
   }
 
@@ -544,7 +544,7 @@ export class FileOps {
   /** Imports a STEP or SolidWorks file as a solid feature in the current part. */
   async importStep() {
     const documentVersion = this.documentVersion;
-    const file = await pickDeviceFile(IMPORT_EXTS.join(','));
+    const file = await pickDeviceFile(acceptList(IMPORT_EXTS));
     if (!file || documentVersion !== this.documentVersion || tooLarge(file.size, file.name)) return;
     if (isSolidWorksFile(file.name)) {
       const step = await this.convertSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name);

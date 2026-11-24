@@ -437,6 +437,20 @@ export async function pickCloudSave(text: string, name: string): Promise<{ locat
   return { location, version: versionOf(item) ?? (await cloudVersion(item.path)) ?? null };
 }
 
+/** File types for a file input: the extensions, plus the media types they are known by. */
+export function acceptList(exts: string[]): string {
+  const types = new Set<string>(exts);
+  for (const ext of exts) {
+    if (ext === EXT || ext === '.json') types.add('application/json');
+    if (isStepFile(`x${ext}`)) { types.add('model/step'); types.add('application/step'); }
+  }
+  // iPhone and iPad pickers grey out files of types they do not know
+  // (.parametric, .sldprt): there, any file can be picked and is checked after.
+  const nav = typeof navigator === 'undefined' ? null : navigator;
+  if (nav && (/iPhone|iPad|iPod/.test(nav.userAgent) || (/Macintosh/.test(nav.userAgent) && nav.maxTouchPoints > 1))) types.add('application/octet-stream');
+  return [...types].join(',');
+}
+
 /** Reads a file from the user's device. */
 export function pickDeviceFile(accept: string): Promise<File | null> {
   return new Promise((resolve) => {

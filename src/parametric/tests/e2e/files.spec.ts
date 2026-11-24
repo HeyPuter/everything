@@ -1772,3 +1772,21 @@ test('a rename in another tab is kept when this tab discards the changes of a sk
   await expect(b).toHaveTitle('* Renamed - Parametric');
   expect(errors).toEqual([]);
 });
+
+test('device file pickers name the media types of the files they open, and accept any file on iPhone and iPad', async ({ browser }) => {
+  for (const ios of [false, true]) {
+    const context = await browser.newContext(ios ? { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' } : {});
+    const page = await context.newPage();
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    for (const command of ['openDevice', 'importStep']) {
+      const chooser = page.waitForEvent('filechooser');
+      await page.evaluate((c) => { void (window as unknown as { __parametric: AppHandle }).__parametric.commands.run(c); }, command);
+      const accept = (await (await chooser).element().getAttribute('accept'))!.split(',');
+      expect(accept).toEqual(expect.arrayContaining(['.step', '.stp', '.sldprt', 'model/step']));
+      if (command === 'openDevice') expect(accept).toEqual(expect.arrayContaining(['.parametric', 'application/json']));
+      expect(accept.includes('application/octet-stream')).toBe(ios);
+    }
+    await context.close();
+  }
+});
