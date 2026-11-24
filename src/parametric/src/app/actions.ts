@@ -166,13 +166,11 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'rebuild', label: 'Rebuild', icon: 'rebuild', shortcut: 'Ctrl+B', description: 'Rebuild the model.', run: () => app.requestRebuild(true) },
     { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Control+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
     {
-      // The sketch tool in use is that command already: running it again would
-      // turn it off and drop what it is drawing (a circle's centre).
+      // A command whose mode is still on (the sketch tool in use, the open
+      // sketch, a section view) is in effect already: running it again would
+      // turn it off, dropping what a tool was drawing or leaving the sketch.
       id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true,
-      enabled: () => {
-        const tool = app.sketchEditor?.tool?.id;
-        return !!c.lastRun && !app.panel && !(tool && (c.lastRun === tool || c.lastRun === `tool:${tool}`));
-      },
+      enabled: () => !!c.lastRun && !app.panel && !c.isChecked(c.lastRun),
       run: () => { if (c.lastRun) c.run(c.lastRun); },
     },
     {

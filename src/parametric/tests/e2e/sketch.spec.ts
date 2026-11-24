@@ -1197,6 +1197,36 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Enter does not repeat Delete or Redo on what is selected next', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const lines = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'line').map((e) => e.id).join());
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add lines', (sk) => {
+        sk.entities.push({ id: 'a1', t: 'point', x: 0, y: 0 }, { id: 'a2', t: 'point', x: 10, y: 0 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' });
+        sk.entities.push({ id: 'b1', t: 'point', x: 0, y: 10 }, { id: 'b2', t: 'point', x: 10, y: 10 }, { id: 'B', t: 'line', a: 'b1', b: 'b2' });
+      });
+      a.selection.set([{ kind: 'sk', id: 'A' }]);
+      // Edit > Delete, from the menu.
+      a.commands.run('delete');
+      a.selection.set([{ kind: 'sk', id: 'B' }]);
+    });
+    expect(await lines()).toBe('B');
+    await page.locator('canvas.gl').focus();
+    // Enter deleted the line selected next.
+    await page.keyboard.press('Enter');
+    expect(await lines()).toBe('B');
+    await page.keyboard.press('Meta+z');
+    expect(await lines()).toBe('A,B');
+    await page.keyboard.press('Meta+Shift+z');
+    await page.keyboard.press('Meta+z');
+    // Nor does it redo what was just undone.
+    await page.keyboard.press('Enter');
+    expect(await lines()).toBe('A,B');
+    expect(errors).toEqual([]);
+  });
+
   test('undo in the middle of a line chain starts a fresh chain', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
