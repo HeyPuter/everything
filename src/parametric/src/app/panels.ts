@@ -10,7 +10,7 @@ import { BASE_PLANE_NAMES } from '../model/planes';
 import { changeFeatureUnits } from '../model/document';
 import { evaluateVariables, variableReferenceChanges } from '../model/expr';
 import type {
-  AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeFeature, FaceRef, Feature, FilletFeature,
+  AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeDir2, ExtrudeFeature, FaceRef, Feature, FilletFeature,
   HoleFeature, Id, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature, PlaneRef, RevolveFeature,
   ShellFeature, SketchFeature, SweepFeature, UnitSystem, Variable,
 } from '../model/types';
@@ -255,13 +255,20 @@ export class ExtrudePanel extends FeaturePanel<ExtrudeFeature> {
       }),
       draftAngle, outward,
     ]);
-    const d2depth = numberField({ label: 'Depth', icon: 'ruler', value: f.dir2?.depth ?? f.depth, kind: 'length', ctx, min: 1e-6, onChange: (v) => { if (f.dir2) { f.dir2.depth = v; this.changed(); } } });
+    // The controls show and edit this one, so turning Direction 2 on uses what
+    // they show (a new one made then took the depth typed for Direction 1
+    // since, and Blind after Through All was picked, under controls showing otherwise).
+    const dir2: ExtrudeDir2 = f.dir2 ?? { end: 'blind', depth: f.depth };
+    const d2depth = numberField({ label: 'Depth', icon: 'ruler', value: dir2.depth, kind: 'length', ctx, min: 1e-6, onChange: (v) => { dir2.depth = v; if (f.dir2) this.changed(); } });
+    d2depth.hidden = dir2.end === 'throughAll';
     const dir2sec = section('Direction 2', [
-      selectField('End condition', f.dir2?.end ?? 'blind', [{ value: 'blind' as const, label: 'Blind' }, { value: 'throughAll' as const, label: 'Through All' }], (v) => {
-        if (f.dir2) { f.dir2.end = v; d2depth.hidden = v === 'throughAll'; this.changed(); }
+      selectField('End condition', dir2.end, [{ value: 'blind' as const, label: 'Blind' }, { value: 'throughAll' as const, label: 'Through All' }], (v) => {
+        dir2.end = v;
+        d2depth.hidden = v === 'throughAll';
+        if (f.dir2) this.changed();
       }),
       d2depth,
-    ], { collapsed: !f.dir2, checkbox: { checked: !!f.dir2, onChange: (v) => { f.dir2 = v ? { end: 'blind', depth: f.depth } : null; this.changed(); } } });
+    ], { collapsed: !f.dir2, checkbox: { checked: !!f.dir2, onChange: (v) => { f.dir2 = v ? dir2 : null; this.changed(); } } });
     dir2sec.hidden = f.end === 'midPlane';
     return [section('Profile', [sketch.el]), dir1, dir2sec];
   }

@@ -728,3 +728,27 @@ test('the Hole panel counts the holes its positions sketch makes', async ({ page
   await expect(page.getByRole('group', { name: 'Positions' })).toContainText('Sketch2 (2 holes)');
   expect(errors).toEqual([]);
 });
+
+test('turning on Direction 2 of an extrude uses the depth and end its controls show', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const dir2 = () => page.evaluate(() => (window as unknown as { __parametric: { panel: { f: { dir2: { end: string; depth: number } | null } } } }).__parametric.panel.f.dir2);
+  const sec1 = page.locator('.pm-section', { has: page.getByRole('button', { name: 'Direction 1' }) });
+  const sec2 = page.locator('.pm-section', { has: page.getByRole('button', { name: 'Direction 2' }) });
+  await sec1.getByRole('textbox', { name: 'Depth' }).fill('20');
+  await sec1.getByRole('textbox', { name: 'Depth' }).press('Enter');
+  const enable = page.getByRole('checkbox', { name: 'Enable Direction 2' });
+  await enable.check();
+  const depth2 = sec2.getByRole('textbox', { name: 'Depth' });
+  expect((await dir2())?.depth).toBe(Number(await depth2.inputValue()));
+  // Through All picked, Direction 2 turned off and on again: still Through All, as the control shows.
+  await sec2.getByRole('combobox', { name: 'End condition' }).selectOption('throughAll');
+  await expect(depth2).toBeHidden();
+  await enable.uncheck();
+  await enable.check();
+  expect((await dir2())?.end).toBe('throughAll');
+  await expect(sec2.getByRole('combobox', { name: 'End condition' })).toHaveValue('throughAll');
+  expect(errors).toEqual([]);
+});
