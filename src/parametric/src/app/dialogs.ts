@@ -7,13 +7,13 @@ import type { MassProperties } from '../kernel/protocol';
 import { dist, dot, normalize, sub } from '../math/vec';
 import { evaluateVariables, referencedNames, renameReferences, reservedName, variableReferenceChanges } from '../model/expr';
 import { changeUnits, mapExpressions } from '../model/document';
-import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
+import type { MaterialRef, SkCurve, SkDimension, UnitSystem, Variable } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
 import { MATERIALS } from '../model/materials';
 import { uniqueId } from '../model/ids';
-import { mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
-import { SketchIndex } from '../sketch/geom';
+import { idFactory, mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
+import { SketchIndex, tessellate } from '../sketch/geom';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
 import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -755,19 +755,55 @@ export class OffsetPanel extends NumericToolPanel {
   private distance: number;
   private reverse = false;
 
+  private count: HTMLElement | null = null;
+  private unsubscribe: () => void;
+
   constructor(app: App) {
     super(app);
     this.distance = app.typicalSize() / 5;
     this.helpText = 'Select a chain of sketch curves before starting, then set the distance.';
+    // The preview and the count follow the selection while the panel is open.
+    this.unsubscribe = app.selection.on((hoverOnly) => { if (!hoverOnly) this.showPreview(); });
   }
 
   render(): HTMLElement[] {
-    const ids = this.app.sketchEditor?.selectedIds() ?? [];
-    return [section('Parameters', [
-      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = this.app.store.evalParam(v, 'length'); } }),
-      checkbox('Reverse (inward)', this.reverse, (v) => { this.reverse = v; }),
-      h('div', { class: 'field-label' }, `${ids.length} entities selected`),
+    this.count = h('div', { class: 'field-label' });
+    const out = [section('Parameters', [
+      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = this.app.store.evalParam(v, 'length'); this.showPreview(); } }),
+      checkbox('Reverse (inward)', this.reverse, (v) => { this.reverse = v; this.showPreview(); }),
+      this.count,
     ])];
+    this.showPreview();
+    return out;
+  }
+
+  /**
+   * Draws the curves OK would make, so the side and the distance can be seen
+   * before they are applied (an open chain goes to the left of how it was
+   * drawn, which nothing showed).
+   */
+  private showPreview() {
+    const ed = this.app.sketchEditor;
+    if (!ed) return;
+    const ids = ed.selectedIds();
+    if (this.count) this.count.textContent = `${ids.length} entities selected`;
+    const copy = structuredClone(ed.sketch);
+    let made: string[] = [];
+    try {
+      made = ids.length && this.distance > 0 ? offsetCurves(copy, ids, this.reverse ? -this.distance : this.distance, idFactory(copy)) : [];
+    } catch { /* nothing to show */ }
+    const ix = new SketchIndex(copy.entities);
+    const tol = Math.max(ed.px * 0.4, 1e-5);
+    ed.setPreview(made.map((id) => ix.get(id)).filter((e): e is SkCurve => !!e && e.t !== 'point').map((e) => tessellate(ix, e, tol)));
+  }
+
+  cancel() {
+    this.app.sketchEditor?.setPreview([]);
+  }
+
+  dispose() {
+    this.unsubscribe();
+    this.app.sketchEditor?.setPreview([]);
   }
 
   ok() {

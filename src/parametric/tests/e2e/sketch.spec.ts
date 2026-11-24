@@ -120,6 +120,31 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Offset previews the curves it would make on the side Reverse picks, and Cancel clears them', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add line', (sk) => {
+        sk.entities.push({ id: 'la', t: 'point', x: 0, y: 0 }, { id: 'lb', t: 'point', x: 20, y: 0 }, { id: 'l', t: 'line', a: 'la', b: 'lb' });
+      });
+      a.selection.set([{ kind: 'sk', id: 'l' }]);
+      a.commands.run('offset');
+    });
+    // Nothing showed which side an open chain would go to before OK.
+    const preview = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { preview: { lines: [number, number][][] } } } }).__parametric.sketchEditor.preview.lines
+      .map((l) => l.map((p) => p.map((v) => Math.round(v * 1000) / 1000))));
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).fill('3');
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).press('Tab');
+    await expect.poll(preview).toEqual([[[0, 3], [20, 3]]]);
+    await page.getByRole('checkbox', { name: 'Reverse (inward)' }).check();
+    await expect.poll(preview).toEqual([[[0, -3], [20, -3]]]);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+    await expect.poll(preview).toEqual([]);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(3);
+    expect(errors).toEqual([]);
+  });
+
   for (const shape of ['semicircle', 'lens'] as const) test(`an impossible inward ${shape} offset leaves the sketch and Redo unchanged`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
