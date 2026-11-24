@@ -24,6 +24,8 @@
 .as-text p:last-child { margin-bottom: 0; }
 .as-text ul, .as-text ol { margin: 2px 0 6px; padding-left: 20px; }
 .as-text li { margin: 2px 0; }
+.as-text blockquote { margin: 2px 0 6px; padding: 0 0 0 10px; border-left: 3px solid var(--border-strong); color: var(--text-2); }
+.as-text hr { margin: 8px 0; border: 0; border-top: 1px solid var(--border); }
 .as-text a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .as-text code { font: 12px var(--font-mono); background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; }
 .as-table { margin: 4px 0 6px; overflow-x: auto; }

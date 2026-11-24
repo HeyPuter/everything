@@ -1,5 +1,5 @@
 // Light Markdown for assistant replies, built as DOM nodes (never HTML text):
-// paragraphs, bullet and numbered lists, tables, fenced code, `code`, **bold**,
+// paragraphs, bullet and numbered lists, tables, quotes, rules, fenced code, `code`, **bold**,
 // *italic*, links and backslash escapes.
 
 /** A link the reply may open: web pages and e-mail addresses only (never javascript: or data:). */
@@ -82,7 +82,11 @@ function table(lines: string[], at: number): { el: HTMLElement; end: number } | 
   return { el: wrap, end: end - 1 };
 }
 
-export function renderMarkdown(src: string): DocumentFragment {
+const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+const QUOTE = /^\s{0,3}>\s?(.*)$/;
+
+/** depth: quotes inside quotes (a line of a thousand ">" is not a thousand nested quotes). */
+export function renderMarkdown(src: string, depth = 0): DocumentFragment {
   const frag = document.createDocumentFragment();
   const lines = src.replace(/\r\n?/g, '\n').split('\n');
   let para: string[] = [];
@@ -113,6 +117,24 @@ export function renderMarkdown(src: string): DocumentFragment {
       listEl = null;
       frag.append(tbl.el);
       i = tbl.end;
+      continue;
+    }
+    // A rule (---, ***) between sections, before a "* " or "- " bullet could take it.
+    if (RULE.test(line)) {
+      flush();
+      listEl = null;
+      frag.append(document.createElement('hr'));
+      continue;
+    }
+    if (depth < 3 && QUOTE.test(line)) {
+      flush();
+      listEl = null;
+      const inner: string[] = [];
+      for (let q = QUOTE.exec(lines[i]); q; q = QUOTE.exec(lines[++i] ?? '')) inner.push(q[1]);
+      i--;
+      const quote = document.createElement('blockquote');
+      quote.append(renderMarkdown(inner.join('\n'), depth + 1));
+      frag.append(quote);
       continue;
     }
     const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);

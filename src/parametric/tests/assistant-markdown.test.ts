@@ -47,4 +47,13 @@ describe('assistant markdown', () => {
     html(`${'[a]('.repeat(20000)}\n${'['.repeat(20000)}${']('.repeat(5000)}`);
     expect(performance.now() - t0).toBeLessThan(500);
   });
+
+  it('renders quotes and rules, and leaves a bullet that is not a rule a bullet', () => {
+    expect(html('Done.\n\n---\n\n> **Note:** check the\n> wall thickness\n\nNext')).toBe(
+      '<p>Done.</p><hr><blockquote><p><strong>Note:</strong> check the<br>wall thickness</p></blockquote><p>Next</p>');
+    expect(html('* * *\n* item')).toBe('<hr><ul><li>item</li></ul>');
+    // Quotes nest a few levels deep; past that the marks are text.
+    const deep = html(`${'>'.repeat(5000)} x`);
+    expect(deep.match(/<blockquote>/g)).toHaveLength(3);
+  });
 });
