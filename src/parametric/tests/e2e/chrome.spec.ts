@@ -564,3 +564,21 @@ test('a rollback bar drag released outside the window stops following the pointe
   await expect(page.locator('.rollback-bar.dragging')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('a menu item clipped by an ellipsis shows its whole label as a tooltip', async ({ page }) => {
+  const long = 'A recent part with a name far too long for any menu to show in full';
+  await page.addInitScript((long) => {
+    localStorage.setItem(
+      'parametric:recent',
+      JSON.stringify([{ location: { type: 'local', id: 'p1' }, name: long, opened: 1 }]),
+    );
+  }, long);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'File' }).click();
+  await page.getByRole('menuitem', { name: 'Recent' }).click();
+  const label = page.getByRole('menuitem', { name: new RegExp(`^${long}`) }).locator('.lbl');
+  await label.hover();
+  await expect(label).toHaveAttribute('title', new RegExp(`^${long}`));
+  expect(errors).toEqual([]);
+});

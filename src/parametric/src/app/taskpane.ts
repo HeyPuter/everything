@@ -3,7 +3,7 @@
 
 import { listParts, locationLabel, onPartsChanged, recentParts } from '../platform/files';
 import { cloudAvailable, storageError } from '../platform/puter';
-import { h } from '../ui/dom';
+import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
 import { selectTabs, tabKeys } from '../ui/tabs';
@@ -125,7 +125,7 @@ export class TaskPane {
       for (const p of parts.slice(0, 50)) {
         // Buttons keep their role; list items wrap them (as in the Open dialog).
         const b = h('button', { class: 'file-item', type: 'button' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
-          h('span', { class: 'txt' }, h('span', { class: 'n' }, p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
+          h('span', { class: 'txt' }, clippedName(p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
         b.addEventListener('click', () => void this.files.openLocation(p.location, p.name, undefined, p.size));
         list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
       }
@@ -163,6 +163,13 @@ export class TaskPane {
     });
     body.append(h('div', { class: 'field-label' }, 'Part colour'), grid, h('label', { class: 'field-label' }, 'Custom colour'), custom);
   }
+}
+
+/** A part's name in a list, in full as a tooltip when it is clipped. */
+function clippedName(name: string): HTMLElement {
+  const el = h('span', { class: 'n' }, name);
+  titleWhenClipped(el);
+  return el;
 }
 
 export function renderHelp(body: HTMLElement) {

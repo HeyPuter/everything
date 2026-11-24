@@ -1,6 +1,6 @@
 // Popup menus (dropdowns, context menus, menubar) with full keyboard support.
 
-import { h, formatShortcut, ancestors, refocus } from './dom';
+import { h, formatShortcut, ancestors, refocus, titleWhenClipped } from './dom';
 import { icon } from './icons';
 
 export interface MenuItem {
@@ -70,13 +70,16 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
     if (it.separator) { el.append(h('div', { class: 'sep', role: 'separator' })); continue; }
     if (it.group) { el.append(h('div', { class: 'group-label', role: 'presentation' }, it.group)); continue; }
     const role = it.checked !== undefined ? (it.radio ? 'menuitemradio' : 'menuitemcheckbox') : 'menuitem';
+    // A long label (a recent part's name) is clipped: its tooltip has all of it.
+    const lbl = h('span', { class: 'lbl' }, it.label ?? '');
+    titleWhenClipped(lbl);
     const b = h('button', {
       role,
       tabindex: '-1',
       'aria-disabled': it.disabled ? 'true' : null,
       'aria-checked': it.checked !== undefined ? String(!!it.checked) : null,
       'aria-haspopup': it.submenu ? 'menu' : null,
-    }, h('span', { class: 'ic' }, it.checked ? icon('check', 16) : it.icon ? icon(it.icon, 16) : null), h('span', { class: 'lbl' }, it.label ?? ''),
+    }, h('span', { class: 'ic' }, it.checked ? icon('check', 16) : it.icon ? icon(it.icon, 16) : null), lbl,
     it.shortcut ? h('span', { class: 'kbd' }, formatShortcut(it.shortcut)) : null,
     it.submenu ? h('span', { class: 'sub-caret' }, icon('chevronRight', 14)) : null);
     const openSub = () => {
