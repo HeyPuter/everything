@@ -15,7 +15,7 @@ import {
   RELATION_LABELS, addRelations, availableRelations, cleanupConstraints, deleteItems, filletCorner, idFactory, kindOf, makeRelations, measureDimension,
   mirrorAxisDirection, mirrorEntities, nextDimName, offsetCurves, usedPoints,
 } from '../sketch/ops';
-import { buildProfiles, sketchPoints } from '../sketch/profiles';
+import { type Loop, buildProfiles, sketchPoints } from '../sketch/profiles';
 import { type SolveResult, solveSketch } from '../sketch/solver';
 import { ToolError, type Units, num } from './units';
 
@@ -567,6 +567,36 @@ export function constraintLine(sk: SketchFeature, c: SkConstraint, u: Units, sto
   return `${c.id} ${RELATION_LABELS[c.type].toLowerCase()} [${c.refs.join(', ')}]`;
 }
 
+/**
+ * The area a loop encloses, from its lines, arcs and curves themselves (Green's theorem):
+ * the polygon drawn for it reads a circle of radius 10 as 313.935, not 314.159.
+ */
+function loopArea(l: Loop): number {
+  let twice = 0;
+  for (const s of l.segs) {
+    if (s.k === 'line') twice += s.a[0] * s.b[1] - s.b[0] * s.a[1];
+    else if (s.k === 'circle') twice += (s.ccw ? 2 : -2) * Math.PI * s.r * s.r;
+    else if (s.k === 'arc') {
+      const t0 = Math.atan2(s.a[1] - s.c[1], s.a[0] - s.c[0]);
+      let sweep = Math.atan2(s.b[1] - s.c[1], s.b[0] - s.c[0]) - t0;
+      if (s.ccw) { while (sweep <= 1e-12) sweep += 2 * Math.PI; } else { while (sweep >= -1e-12) sweep -= 2 * Math.PI; }
+      const t1 = t0 + sweep;
+      twice += s.r * s.c[0] * (Math.sin(t1) - Math.sin(t0)) - s.r * s.c[1] * (Math.cos(t1) - Math.cos(t0)) + s.r * s.r * sweep;
+    } else {
+      // A cubic Bezier: x dy - y dx integrated exactly by Gauss-Legendre (the integrand is of degree 5).
+      const [p0, p1, p2, p3] = s.p;
+      const at = (t: number, d: 0 | 1) => { const u = 1 - t; return u * u * u * p0[d] + 3 * u * u * t * p1[d] + 3 * u * t * t * p2[d] + t * t * t * p3[d]; };
+      const der = (t: number, d: 0 | 1) => { const u = 1 - t; return 3 * (u * u * (p1[d] - p0[d]) + 2 * u * t * (p2[d] - p1[d]) + t * t * (p3[d] - p2[d])); };
+      const g = Math.sqrt(3 / 5);
+      for (const [x, w] of [[-g, 5 / 9], [0, 8 / 9], [g, 5 / 9]]) {
+        const t = (x + 1) / 2;
+        twice += (w / 2) * (at(t, 0) * der(t, 1) - at(t, 1) * der(t, 0));
+      }
+    }
+  }
+  return Math.abs(twice / 2);
+}
+
 /** Definition status, problems and closed profiles of a sketch. */
 export function sketchReport(sk: SketchFeature, solve: SolveResult | null, u: Units, store: DocStore): string {
   const lines: string[] = [];
@@ -583,7 +613,7 @@ export function sketchReport(sk: SketchFeature, solve: SolveResult | null, u: Un
   if (prof.regions.length) {
     lines.push(`Closed profiles: ${prof.regions.length} region(s) to extrude or revolve:`);
     for (const r of prof.regions.slice(0, 12)) {
-      const area = Math.abs(r.outer.area) - r.holes.reduce((s, h) => s + Math.abs(h.area), 0);
+      const area = loopArea(r.outer) - r.holes.reduce((s, h) => s + loopArea(h), 0);
       const xs = r.outer.poly.map((p) => p[0]), ys = r.outer.poly.map((p) => p[1]);
       lines.push(`- area ${u.area(area)}, x ${u.len(Math.min(...xs))} to ${u.len(Math.max(...xs))}, y ${u.len(Math.min(...ys))} to ${u.len(Math.max(...ys))}${r.holes.length ? `, ${r.holes.length} hole(s)` : ''}, inside point ${u.pt(r.sample)}`);
     }
