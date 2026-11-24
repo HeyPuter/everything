@@ -508,3 +508,23 @@ test('opening another part while a step is running keeps that step out of the ne
   expect(await page.evaluate(() => { const d = (window as unknown as P).__parametric.store.doc; return [d.name, d.features.map((f) => f.name)]; })).toEqual(['Other part', []]);
   await expect(page.locator('.as-step.error')).toContainText('another part was opened');
 });
+
+test('a failed reply about a part that was then closed cannot be tried again on the part opened', async ({ page }) => {
+  await page.addInitScript(() => {
+    let n = 0;
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      if (n++ === 0) throw new Error('The request was refused');
+      yield { type: 'tool', id: `c${n}`, name: 'delete_features', input: { features: ['Sketch1'] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Delete Sketch1');
+  await box.press('Enter');
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  // The retry would carry on with no description of the part now open.
+  await page.evaluate(() => (window as unknown as { __parametric: { newDocument(n: string): void } }).__parametric.newDocument('Other part'));
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(page.locator('.as-error')).toBeVisible();
+});

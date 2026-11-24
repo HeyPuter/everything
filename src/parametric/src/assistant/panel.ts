@@ -221,6 +221,8 @@ export class AssistantPanel {
     app.store.on((reason) => {
       if (reason !== 'load') return;
       this.opened++;
+      // A failed reply asked again would go on without a description of this part, about the one closed.
+      for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
       // Another part was opened: the reply in progress was about the one that was closed.
       if (this.agent.busy) this.stop('Stopped: another part was opened.');
       else if (!this.agent.messages.length) this.renderEmpty();
