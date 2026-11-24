@@ -115,7 +115,11 @@ test("the Comments pane keeps the keyboard when a comment is resolved or deleted
       await page.getByRole("textbox", { name: "Your name" }).fill("Ada");
       await page.getByRole("button", { name: "Continue" }).click();
     }
-    await expect(pane.getByText(text)).toBeVisible();
+    // The posted comment, not the box it was typed in (which may still hold
+    // the text for a moment).
+    await expect(
+      pane.locator(".comment-text").getByText(text, { exact: true }),
+    ).toBeVisible();
   }
   const threads = pane.locator(".comment-thread");
   await expect(threads).toHaveCount(2);
