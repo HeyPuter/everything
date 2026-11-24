@@ -79,7 +79,7 @@ export function snapPoint(sk: SketchFeature, raw: Vec2, o: SnapOptions): Snap {
     let on: Snap | null = null;
     for (const e of sk.entities) {
       if (e.t === 'point' || ex.has(e.id) || pointIdsOf(e).some((id) => ex.has(id))) continue;
-      const r = distanceToCurve(ix, e as SkCurve, raw);
+      const r = distanceToCurve(ix, e as SkCurve, raw, bd);
       if (r.d < bd) { bd = r.d; on = { p: r.q, raw, kind: 'on', curveId: e.id }; }
     }
     if (on) return on;

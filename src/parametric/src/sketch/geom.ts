@@ -177,8 +177,14 @@ export function closestOnSegment(p: Vec2, a: Vec2, b: Vec2): { q: Vec2; t: numbe
   return { q, t, d: dist2(p, q) };
 }
 
-/** Distance from p to a curve (using its tessellation for splines). */
-export function distanceToCurve(ix: SketchIndex, e: SkCurve, p: Vec2): { d: number; q: Vec2 } {
+/**
+ * Distance from p to a curve (using its tessellation for splines). With
+ * `within`, a spline segment whose control points all lie farther away is
+ * skipped (a cubic stays inside their bounds) and the result may be Infinity:
+ * snapping and picking ask only about nearby curves, and tessellating every
+ * spline on each pointer move was most of their cost.
+ */
+export function distanceToCurve(ix: SketchIndex, e: SkCurve, p: Vec2, within = Infinity): { d: number; q: Vec2 } {
   switch (e.t) {
     case 'line': {
       const r = closestOnSegment(p, ix.pt(e.a), ix.pt(e.b));
@@ -204,11 +210,24 @@ export function distanceToCurve(ix: SketchIndex, e: SkCurve, p: Vec2): { d: numb
       return da < db ? { d: da, q: pa } : { d: db, q: pb };
     }
     case 'spline': {
-      const poly = tessellate(ix, e, 0.005);
       let best = { d: Infinity, q: p as Vec2 };
-      for (let i = 0; i + 1 < poly.length; i++) {
-        const r = closestOnSegment(p, poly[i], poly[i + 1]);
-        if (r.d < best.d) best = { d: r.d, q: r.q };
+      // The same points tessellate() makes at this tolerance, segment by segment.
+      const tol = 0.005;
+      for (const b of splineBeziers(e.pts.map((id) => ix.pt(id)))) {
+        if (within < Infinity) {
+          const x0 = Math.min(b[0][0], b[1][0], b[2][0], b[3][0]), x1 = Math.max(b[0][0], b[1][0], b[2][0], b[3][0]);
+          const y0 = Math.min(b[0][1], b[1][1], b[2][1], b[3][1]), y1 = Math.max(b[0][1], b[1][1], b[2][1], b[3][1]);
+          if (Math.hypot(Math.max(x0 - p[0], 0, p[0] - x1), Math.max(y0 - p[1], 0, p[1] - y1)) > within) continue;
+        }
+        const span = dist2(b[0], b[1]) + dist2(b[1], b[2]) + dist2(b[2], b[3]);
+        const n = Math.max(4, Math.min(64, Math.ceil(Math.sqrt(span / tol))));
+        let a = b[0];
+        for (let i = 1; i <= n; i++) {
+          const q = bezierPoint(b, i / n);
+          const r = closestOnSegment(p, a, q);
+          if (r.d < best.d) best = { d: r.d, q: r.q };
+          a = q;
+        }
       }
       return best;
     }

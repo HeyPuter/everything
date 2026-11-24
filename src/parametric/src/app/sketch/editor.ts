@@ -412,7 +412,7 @@ export class SketchEditor implements ViewportTool {
     bd = tol;
     for (const e of sk.entities) {
       if (e.t === 'point') continue;
-      const r = distanceToCurve(ix, e as SkCurve, p);
+      const r = distanceToCurve(ix, e as SkCurve, p, bd);
       if (r.d < bd) { bd = r.d; best = { kind: 'curve', id: e.id }; }
     }
     return best;
