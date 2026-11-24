@@ -842,3 +842,42 @@ test('a design tree filter that matches nothing says so', async ({ page }) => {
   await expect(page.getByText('Nothing in the design tree matches')).toBeHidden();
   expect(errors).toEqual([]);
 });
+
+test('the spin arrows leave a value driven by an equation alone', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.change('Variables', (d) => {
+      d.variables.push({ id: 'v1', name: 'R', expr: '0.5' });
+    }),
+  );
+  await page.getByRole('treeitem', { name: 'Fillet1' }).dblclick();
+  const radius = page.getByRole('textbox', { name: 'Radius', exact: true });
+  await radius.fill('=R*2');
+  await radius.press('Tab');
+  const up = page.getByRole('button', { name: 'Increase Radius' });
+  await expect(up).toHaveAttribute('aria-disabled', 'true');
+  await expect(up.locator('xpath=..')).toHaveAttribute('title', /Driven by an equation/);
+  await up.click({ force: true });
+  await radius.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(radius).toHaveValue('=R*2');
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  expect(
+    await page.evaluate(() => {
+      const f = (window as unknown as Handle).__parametric.store.doc.features.find(
+        (x) => x.name === 'Fillet1',
+      );
+      return (f as { radius: unknown }).radius;
+    }),
+  ).toBe('=R*2');
+  // A plain number steps as before.
+  await page.getByRole('treeitem', { name: 'Fillet1' }).dblclick();
+  await radius.fill('3');
+  await radius.press('Tab');
+  await expect(up).not.toHaveAttribute('aria-disabled');
+  await up.click();
+  await expect(radius).toHaveValue('4');
+  expect(errors).toEqual([]);
+});

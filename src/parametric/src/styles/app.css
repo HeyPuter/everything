@@ -345,6 +345,8 @@ a.icon-btn { text-decoration: none; }
 .spin .spin-btns { display: flex; flex-direction: column; border: 1px solid var(--border-strong); border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; overflow: hidden; }
 .spin .spin-btns button { flex: 1; width: 18px; border: 0; background: var(--panel-2); padding: 0; display: grid; place-items: center; color: var(--text-2); }
 .spin .spin-btns button:hover { background: var(--hover); color: var(--text); }
+.spin .spin-btns button[aria-disabled='true'] { opacity: 0.4; cursor: default; }
+.spin .spin-btns button[aria-disabled='true']:hover { background: var(--panel-2); color: var(--text-2); }
 .check { display: flex; align-items: center; gap: 7px; font-size: var(--fs); }
 .check input { margin: 0; width: 15px; height: 15px; accent-color: var(--accent); }
 .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }

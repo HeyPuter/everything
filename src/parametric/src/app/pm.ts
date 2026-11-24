@@ -290,7 +290,10 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   // take back it goes on to the panel or tool (which it cancels).
   let atFocus: Param = current;
   input.addEventListener('focus', () => { atFocus = current; input.select(); });
+  // A value linked to an equation (=Width/2) is not stepped: that would replace the equation with a number.
+  const linked = () => input.value.trim().startsWith('=');
   const step = (dir: number) => {
+    if (linked()) return;
     const r = parseParam(input.value, o.kind, o.ctx, false);
     const base = r.ok ? r.num : 0;
     const scale = o.kind === 'length' ? UNIT_SYSTEMS[o.ctx.units].scale : 1;
@@ -312,6 +315,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
       e.preventDefault();
       cancelPending();
       input.value = text;
+      syncLinked();
       input.classList.remove('invalid');
       input.removeAttribute('aria-invalid');
       input.title = '';
@@ -323,9 +327,22 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   const unit = o.icon && unitSuffix(o.kind, o.ctx);
   const unitEl = unit ? h('span', { class: 'unit', id: nextDomId('unit') }, unit) : null;
   if (unitEl) input.setAttribute('aria-describedby', unitEl.id);
-  const spin = h('div', { class: 'spin' }, input, unitEl, h('div', { class: 'spin-btns' },
-    h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12)),
-    h('button', { type: 'button', tabindex: '-1', 'aria-label': `Decrease ${o.label}`, onclick: () => step(-1) }, icon('chevronDown', 12))));
+  const up = h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12));
+  const down = h('button', { type: 'button', tabindex: '-1', 'aria-label': `Decrease ${o.label}`, onclick: () => step(-1) }, icon('chevronDown', 12));
+  const spinBtns = h('div', { class: 'spin-btns' }, up, down);
+  const syncLinked = () => {
+    const on = linked();
+    for (const b of [up, down]) {
+      if (on) b.setAttribute('aria-disabled', 'true');
+      else b.removeAttribute('aria-disabled');
+    }
+    if (on) spinBtns.title = 'Driven by an equation: edit the equation to change the value';
+    else spinBtns.removeAttribute('title');
+  };
+  syncLinked();
+  input.addEventListener('input', syncLinked);
+  input.addEventListener('change', syncLinked);
+  const spin = h('div', { class: 'spin' }, input, unitEl, spinBtns);
   const label = h('label', { class: 'sr-only', for: id }, o.label);
   const row = h('div', { class: 'row' }, label);
   if (o.icon) {
