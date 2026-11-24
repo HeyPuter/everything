@@ -402,6 +402,27 @@ export function fuse(a: Sh, b: Sh): Sh {
   return runBoolean(new oc.BRepAlgoAPI_Fuse(a.wrapped, b.wrapped));
 }
 
+/**
+ * One boolean of many shapes: fusing them one by one compares each new piece
+ * with the whole result so far, about six times slower for a profile of many
+ * regions (a plate split by many lines).
+ */
+export function fuseAll(shapes: Sh[]): Sh {
+  if (shapes.length === 1) return shapes[0];
+  const args = new oc.NCollection_List_TopoDS_Shape(), tools = new oc.NCollection_List_TopoDS_Shape();
+  try {
+    args.Append(shapes[0].wrapped);
+    for (let i = 1; i < shapes.length; i++) tools.Append(shapes[i].wrapped);
+    const builder = new oc.BRepAlgoAPI_Fuse();
+    builder.SetArguments(args);
+    builder.SetTools(tools);
+    return runBoolean(builder);
+  } finally {
+    args.delete();
+    tools.delete();
+  }
+}
+
 export function cut(a: Sh, b: Sh): Sh {
   return runBoolean(new oc.BRepAlgoAPI_Cut(a.wrapped, b.wrapped));
 }

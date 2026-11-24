@@ -5,7 +5,7 @@ import init from 'replicad-opencascadejs';
 import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
 import * as R from 'replicad';
 import { type Sh, getOc, isValid, mirrored, rotated, setOc } from '../src/kernel/occ';
-import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
+import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SkEntity, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
 import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
@@ -65,6 +65,19 @@ describe('feature regeneration', () => {
     const res = await b.build(req([sketch('S1', [...rect(0, 0, 10, 10), ...rect(10, 0, 20, 10)]), extrude('E1', 'S1', 1)]));
     expect(res.status.every((s) => s.ok && !s.warning)).toBe(true);
     expect(volume(b)).toBeCloseTo(200, 6);
+    expect(res.faces).toHaveLength(6);
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
+  });
+
+  it('extrudes a rectangle divided by many lines into one plain box', async () => {
+    // The regions between the dividers are fused in one boolean (one by one was
+    // several times slower), and the result is the box with its six faces.
+    const ents: SkEntity[] = [...rect(0, 0, 60, 10, 't')];
+    for (let i = 1; i < 30; i++) ents.push({ id: `a${i}`, t: 'point', x: i * 2, y: 0 }, { id: `b${i}`, t: 'point', x: i * 2, y: 10 }, { id: `d${i}`, t: 'line', a: `a${i}`, b: `b${i}` });
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', ents), extrude('E1', 'S1', 5)]));
+    expect(res.status[1]).toEqual({ id: 'E1', ok: true });
+    expect(volume(b)).toBeCloseTo(3000, 6);
     expect(res.faces).toHaveLength(6);
     expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
   });

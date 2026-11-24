@@ -31,7 +31,7 @@ import type {
   ProjectionRequest, ProjectionResult,
 } from './protocol';
 import {
-  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, getOc, gdir,
+  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
   hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
@@ -591,12 +591,6 @@ export class ModelBuilder {
     return face;
   }
 
-  private fuseAll(shapes: Sh[]): Sh {
-    let acc = shapes[0];
-    for (let i = 1; i < shapes.length; i++) acc = fuse(acc, shapes[i]);
-    return acc;
-  }
-
   /** Nearest profile segment to a sketch-plane point: used to name side faces. */
   private nearestSrc(regions: Region[], p: Vec2): string {
     let best = Infinity, src = 'x';
@@ -666,7 +660,7 @@ export class ModelBuilder {
         if (from !== 0) solid = translated(solid, scale(d, from));
         pieces.push(solid);
       }
-      return pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
+      return pieces.length === 1 ? pieces[0] : fuseAll(pieces);
     };
     let tool: Sh;
     if (draft > 1e-9) {
@@ -765,7 +759,7 @@ export class ModelBuilder {
       if (f.end === 'midPlane' && angle < 360) solid = rotated(solid, axis.p, d, (-angle * Math.PI) / 360);
       pieces.push(solid);
     }
-    const tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
+    const tool = pieces.length === 1 ? pieces[0] : fuseAll(pieces);
     const s0 = regions[0].sample;
     const side = Math.sign((s0[0] - a2[0]) * perp[0] + (s0[1] - a2[1]) * perp[1]) || 1;
     // Mid-plane revolves were turned back by half the angle; undo that to
