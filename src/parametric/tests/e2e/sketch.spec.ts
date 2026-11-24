@@ -1180,7 +1180,24 @@ test.describe('sketching', () => {
     await page.locator('[data-cmd="tool:line"]').click();
     await page.mouse.click(x - 120, y + 30);
     await page.mouse.click(x, y + 30);
+    // The line tool says how; typing an A into a field is only text.
+    await expect(page.locator('.statusbar .msg')).toContainText('Press A to carry on with a tangent arc');
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned line', (sk) => {
+        sk.entities.push({ id: 'qa', t: 'point', x: 30, y: 30 }, { id: 'qb', t: 'point', x: 40, y: 30 }, { id: 'Q', t: 'line', a: 'qa', b: 'qb' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['Q'], value: 10, at: [35, 35], name: 'D1' });
+      });
+      a.sketchEditor!.openModify('D');
+    });
+    const box = page.getByRole('dialog', { name: 'Modify D1' }).getByRole('textbox');
+    await expect(box).toBeFocused();
+    await box.press('a');
+    await box.press('Escape');
+    const tool = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.tool?.id);
+    expect(await tool()).toBe('line');
     await page.keyboard.press('a');
+    await expect(page.locator('.statusbar .msg')).toHaveText('Click where the arc should end. Press Esc to start from another end point.');
     await page.mouse.move(x + 50, y - 10);
     await page.mouse.click(x + 60, y - 20);
     const made = () => page.evaluate(() => {

@@ -64,7 +64,7 @@ export function lineTool(ed: SketchEditor, construction = false): SkTool {
   return {
     id: construction ? 'centerline' : 'line',
     label: construction ? 'Centerline' : 'Line',
-    hint: 'Click to start a line, click again to add segments. Double-click or press Esc to finish.',
+    hint: 'Click to start a line, click again to add segments. Double-click or press Esc to finish. Press A to carry on with a tangent arc.',
     from: () => start?.p ?? null,
     chainEnd: () => (chain > 0 && start?.id) || null,
     exclude: () => new Set<Id>(),
@@ -420,7 +420,7 @@ export function tangentArcTool(ed: SketchEditor, from?: Id | null): SkTool {
     return true;
   };
   // Switched to from a line chain: carry on from its end.
-  if (from) begin(from);
+  const carried = !!from && begin(from);
   const geometry = (p: Vec2, t: Vec2, q: Vec2) => {
     // Centre lies on the normal at p and is equidistant to p and q.
     const n: Vec2 = [-t[1], t[0]];
@@ -435,7 +435,7 @@ export function tangentArcTool(ed: SketchEditor, from?: Id | null): SkTool {
   return {
     id: 'tangentArc',
     label: 'Tangent Arc',
-    hint: 'Click the end point of a line or arc, then where the arc should end.',
+    hint: carried ? 'Click where the arc should end. Press Esc to start from another end point.' : 'Click the end point of a line or arc, then where the arc should end.',
     from: () => null,
     move(s) {
       if (!start) return;

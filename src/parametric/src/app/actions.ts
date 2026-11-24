@@ -40,7 +40,7 @@ const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: str
   circle: { label: 'Circle', shortcut: 'C', desc: 'Sketch a circle from its centre and radius.', make: (ed) => circleTool(ed) },
   perimeterCircle: { label: 'Perimeter Circle', desc: 'Sketch a circle through three points.', make: (ed) => perimeterCircleTool(ed) },
   centerArc: { label: 'Centerpoint Arc', desc: 'Sketch an arc from its centre, start and end.', make: (ed) => centerArcTool(ed) },
-  tangentArc: { label: 'Tangent Arc', shortcut: 'A', desc: 'Sketch an arc tangent to the end of a line or arc.', make: (ed) => tangentArcTool(ed, ed.tool?.chainEnd?.()) },
+  tangentArc: { label: 'Tangent Arc', shortcut: 'A', desc: 'Sketch an arc tangent to the end of a line or arc. Press A while drawing lines to carry on from the last point.', make: (ed) => tangentArcTool(ed, ed.tool?.chainEnd?.()) },
   arc3: { label: '3 Point Arc', desc: 'Sketch an arc through its ends and a point on it.', make: (ed) => threePointArcTool(ed) },
   polygon: { label: 'Polygon', desc: 'Sketch a regular polygon.', make: (ed) => polygonTool(ed) },
   slot: { label: 'Straight Slot', desc: 'Sketch a slot with rounded ends.', make: (ed) => slotTool(ed) },
