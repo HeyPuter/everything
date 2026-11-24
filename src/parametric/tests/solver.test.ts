@@ -165,6 +165,10 @@ describe('sketch solver', () => {
     expect([...res.conflicting]).toEqual(['eq']);
     expect(['p1', 'p2', 'p3', 'p4'].map((id) => [P(ents, id).x, P(ents, id).y])).toEqual([[0, 0], [20, 0], [20, 10], [0, 10]]);
     expect(Math.hypot(P(ents, 'q2').x - P(ents, 'q1').x, P(ents, 'q2').y - P(ents, 'q1').y)).toBeCloseTo(8, 9);
+    // Nor does dragging it pull it into that compromise.
+    const drag = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: ['p3'], targets: [[25, 14]] }, analyze: false });
+    expect([...drag.conflicting]).toEqual(['eq']);
+    expect(['p1', 'p2', 'p3', 'p4'].map((id) => [P(ents, id).x, P(ents, id).y])).toEqual([[0, 0], [20, 0], [20, 10], [0, 10]]);
   });
 
   it('solves a conflicting angle directly instead of stepping towards it', () => {

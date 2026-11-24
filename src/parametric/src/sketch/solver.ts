@@ -770,13 +770,14 @@ export class SketchSystem {
           folded = cusps;
         }
       }
-      // Constraints that cannot all be met (a relation or dimension that
-      // conflicts with the others) leave their geometry where it was, as the
-      // cusps above do. A least-squares compromise between them distorted the
-      // whole shape (a rectangle no longer square, its sides at odd lengths)
-      // and spread the blame over every constraint it bent.
-      if (!converged) this.keepUnsolvedClusters(initial);
     }
+    // Constraints that cannot all be met (a relation or dimension that
+    // conflicts with the others) leave their geometry where it was, as the
+    // cusps above do, and a drag cannot pull it into a compromise either. A
+    // least-squares compromise between them distorted the whole shape (a
+    // rectangle no longer square, its sides at odd lengths) and spread the
+    // blame over every constraint it bent.
+    if (!converged) this.keepUnsolvedClusters(initial);
     // Overflow (e.g. from an absurd dimension value) must never reach the
     // document as NaN coordinates: keep the geometry as it was instead.
     if (!this.x.every(Number.isFinite)) {
