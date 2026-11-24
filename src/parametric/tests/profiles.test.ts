@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkEntity } from '../src/model/types';
-import { buildProfiles, inRegion } from '../src/sketch/profiles';
+import { buildProfiles, hasOverlappingLines, inRegion } from '../src/sketch/profiles';
 import { circle, polygon, rect } from './helpers';
 
 const area = (r: { outer: { area: number }; holes: { area: number }[] }) => r.outer.area + r.holes.reduce((s, h) => s + h.area, 0);
@@ -134,6 +134,17 @@ describe('sketch profiles', () => {
       expect(found).toEqual(areas.map((a) => expect.closeTo(a, 9)));
       expect(p.openEnds).toHaveLength(0);
     }
+  });
+
+  it('tells lines that lie over each other in part from lines that only meet', () => {
+    // A square in the corner of a larger one, untrimmed: no faces can be found.
+    const corner = [...rect(0, 0, 20, 20), ...rect(0, 0, 5, 5)];
+    expect(buildProfiles(corner).regions).toHaveLength(0);
+    expect(hasOverlappingLines(corner)).toBe(true);
+    expect(hasOverlappingLines([...rect(0, 0, 10, 10), ...rect(10, 0, 20, 10)])).toBe(true);
+    // End to end along one line, or crossing: no overlap.
+    expect(hasOverlappingLines([...rect(0, 0, 10, 10), ...rect(10, 0, 20, 10, 'x').filter((e) => e.id !== 'xl3')])).toBe(false);
+    expect(hasOverlappingLines(polygon([[0, 0], [10, 0], [10, 10], [0, 10]]).concat(polygon([[5, -5], [15, 5], [5, 15]])))).toBe(false);
   });
 
   it('handles a closed polygon with many sides', () => {

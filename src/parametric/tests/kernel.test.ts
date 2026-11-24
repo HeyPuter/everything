@@ -748,6 +748,9 @@ describe('feature regeneration', () => {
     expect(res.status[1].error).toMatch(/open/i);
     expect(res.status[3].ok).toBe(true);
     expect(volume(b)).toBeCloseTo(125, 3);
+    // Untrimmed contours lying over each other say so.
+    const corner = await b.build(req([sketch('S1', [...rect(0, 0, 20, 20), ...rect(0, 0, 5, 5)]), extrude('E1', 'S1', 5)]));
+    expect(corner.status[1].error).toMatch(/lie over each other. Trim them/);
   });
 
   it('reuses cached steps when only later features change', async () => {

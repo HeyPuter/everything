@@ -8,7 +8,7 @@
 // material and empty by nesting depth (even-odd), which matches what people
 // expect from nested profiles. Explicit sample points can pick regions instead.
 
-import type { SkArc, SkCurve, SkEntity, SkPoint } from '../model/types';
+import type { SkArc, SkCurve, SkEntity, SkLine, SkPoint } from '../model/types';
 import { type Vec2, angle2, dist2, sub2, wrap2Pi } from '../math/vec';
 import { SketchIndex, arcAngles, splineBeziers, tessellate } from './geom';
 
@@ -698,6 +698,35 @@ function interiorPoint(outer: Loop, holes: Loop[]): Vec2 {
     }
   }
   return best;
+}
+
+/**
+ * Whether two lines of the sketch run along each other for part of their
+ * length (a rectangle drawn in the corner of another, untrimmed). Such
+ * contours cannot be told apart, so a sketch of them can have no profile.
+ */
+export function hasOverlappingLines(entities: SkEntity[]): boolean {
+  const ix = new SketchIndex(entities);
+  const lines = entities.filter((e): e is SkLine => e.t === 'line' && !e.construction).map((l) => [ix.pt(l.a), ix.pt(l.b)] as const);
+  const size = boundsOf(ix, entities.filter((e): e is SkCurve => e.t !== 'point' && !e.construction));
+  const tol = Math.max(1e-7, size * 1e-9) * 10;
+  for (let i = 0; i < lines.length; i++) {
+    const [a, b] = lines[i];
+    const d = sub2(b, a), l = Math.hypot(d[0], d[1]);
+    if (l <= tol) continue;
+    const u: Vec2 = [d[0] / l, d[1] / l];
+    // Position along line i, or NaN off its supporting line.
+    const along = (p: Vec2) => {
+      const w = sub2(p, a);
+      return Math.abs(w[0] * u[1] - w[1] * u[0]) <= tol ? w[0] * u[0] + w[1] * u[1] : NaN;
+    };
+    for (let j = i + 1; j < lines.length; j++) {
+      const s = along(lines[j][0]), t = along(lines[j][1]);
+      if (Number.isNaN(s) || Number.isNaN(t)) continue;
+      if (Math.min(l, Math.max(s, t)) - Math.max(0, Math.min(s, t)) > tol) return true;
+    }
+  }
+  return false;
 }
 
 /** Stand-alone sketch points (not curve end points) - used by holes. */

@@ -21,7 +21,7 @@ import type {
 } from '../model/types';
 import { dependencies, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
-import { type Region, type Seg2, buildProfiles, inRegion, pointInPoly, segPolyline, sketchPoints } from '../sketch/profiles';
+import { type Region, type Seg2, buildProfiles, hasOverlappingLines, inRegion, pointInPoly, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
 import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
@@ -556,7 +556,10 @@ export class ModelBuilder {
     const lost = picks?.length ? picks.filter((p) => !prof.all.some((r) => inRegion(p, r))).length : 0;
     if (lost && lost === picks!.length && prof.all.length) throw new FeatureError('The selected regions are no longer in the sketch. Edit the feature and select them again.');
     if (!prof.regions.length) {
-      throw new FeatureError(prof.openEnds.length ? 'The sketch has open contours. Close the profile to use it.' : 'The sketch has no closed profile');
+      if (prof.openEnds.length) throw new FeatureError('The sketch has open contours. Close the profile to use it.');
+      // Contours drawn over each other in part make no faces, which said nothing about why.
+      if (hasOverlappingLines(sketch.entities)) throw new FeatureError('Lines in the sketch lie over each other. Trim them where they meet, or delete the copies.');
+      throw new FeatureError('The sketch has no closed profile');
     }
     if (lost) this.warning = 'A selected region is no longer in the sketch and was left out. Edit the feature and select the regions again.';
     else if (prof.openEnds.length && !picks?.length) this.warning = 'Open contours in the sketch were ignored';
