@@ -307,3 +307,17 @@ test('Part Properties says what is wrong with an empty name or decimal places ou
   ).toEqual({ name: 'Bracket', decimals: 3 });
   expect(errors).toEqual([]);
 });
+
+test('Enter on the part or Material row of the design tree opens its dialog', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('treeitem', { name: /^Material/ }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Material' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('treeitem', { name: /^Material/ })).toBeFocused();
+  await page.getByRole('treeitem', { name: 'Part1' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

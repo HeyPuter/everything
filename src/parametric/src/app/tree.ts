@@ -295,6 +295,9 @@ export class FeatureTree {
         e.preventDefault();
         e.stopPropagation();
         if (this.app.store.feature(key)) this.app.editFeature(key);
+        // As a click on Material or a double click on the part does.
+        else if (key === 'material') this.app.commands.run('material');
+        else if (key === 'part') this.app.commands.run('properties');
         break;
       case ' ':
         e.preventDefault();
