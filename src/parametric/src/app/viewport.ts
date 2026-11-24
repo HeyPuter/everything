@@ -707,7 +707,8 @@ export class Viewport {
 
   previousView() {
     const s = this.history.pop();
-    if (s) this.camera.animateTo(s);
+    // Orientation, position and zoom go back; the projection is a display setting and stays.
+    if (s) this.camera.animateTo({ ...s, ortho: this.camera.ortho });
   }
 
   setView(name: ViewName, animate = true) {

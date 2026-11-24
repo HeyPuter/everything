@@ -510,6 +510,16 @@ test.describe('viewport', () => {
     expect(await normal()).toEqual([0.707, 0.707, 0]);
   });
 
+  test('Previous View keeps the perspective projection chosen since', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.setView('front', false));
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('perspective'));
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('previousView'));
+    await expect(page.locator('.view-label')).toHaveText('Trimetric');
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
+  });
+
   test('picks the pixel under the pointer, not the one above it', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
