@@ -1181,3 +1181,20 @@ test('Esc in a feature panel takes back a typed value first, then cancels the pa
   expect(errors).toEqual([]);
 });
 
+
+test('arrow keys pressed in quick succession in the design tree keep focus where they moved it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const extrude = page.getByRole('treeitem', { name: 'Extrude1' });
+  await extrude.focus();
+  // Both keys before the next frame: opening the row must not pull focus back to it afterwards.
+  await page.evaluate(() => {
+    for (let i = 0; i < 2; i++) {
+      document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    }
+  });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeFocused();
+  expect(errors).toEqual([]);
+});

@@ -330,10 +330,18 @@ export class FeatureTree {
 
   focus(key: string) {
     this.focusKey = key;
+    const row = () => this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
+    // At once when the row is there, and again on the next frame for a tree
+    // redrawn meanwhile (its focused row replaced, focus fallen to the page).
+    row()?.focus();
+    const at = document.activeElement;
     requestAnimationFrame(() => {
-      // A rename started meanwhile (F2 straight after the last one) keeps its field.
+      // A rename started meanwhile (F2 straight after the last one) keeps its field,
+      // and a key pressed meanwhile (a second arrow) keeps the row it moved to.
       if (this.renameEl?.isConnected) return;
-      this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus();
+      const now = document.activeElement;
+      if (now !== at && now && now !== document.body && now.isConnected) return;
+      row()?.focus();
     });
   }
 
