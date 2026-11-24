@@ -1133,6 +1133,22 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the status bar shows the snapped position while drawing', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const origin = await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen([0, 0]), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    });
+    await page.locator('[data-cmd="tool:line"]').click();
+    // A few pixels off the origin: the point would go on the origin, and the status says so.
+    await page.mouse.move(origin.x + 4, origin.y - 3);
+    await page.mouse.move(origin.x + 3, origin.y - 2);
+    await expect(page.locator('.statusbar')).toContainText('0.00mm  0.00mm');
+    expect(errors).toEqual([]);
+  });
+
   test('Esc on a line in progress clears its inference guide and length tip', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

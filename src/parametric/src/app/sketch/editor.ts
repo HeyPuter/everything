@@ -487,6 +487,8 @@ export class SketchEditor implements ViewportTool {
       const s = this.tool.picks ? { p: raw, raw, kind: 'none' as const } : this.snap(raw, e);
       this.lastSnap = s;
       this.lastToolEvent = e;
+      // The status bar shows where a click would put the point (as the tip does).
+      this.cursorPt = s.p;
       this.tool.move?.(s, e, dragging);
       this.updateGuides(s);
       this.showTip(e, s);
