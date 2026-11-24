@@ -656,6 +656,9 @@ export class SketchEditor implements ViewportTool {
     if (this.tool) {
       const s = this.tool.picks ? { p: raw, raw, kind: 'none' as const } : this.snap(raw, e);
       this.tool.click?.(s, e);
+      // A finger does not hover: show at once what the tap started (a line's
+      // start point, a circle's centre) instead of nothing until the next tap.
+      if (e.pointerType === 'touch' && this.tool) this.tool.move?.(s, e, false);
       return true;
     }
     const hit = this.pickAt(raw);

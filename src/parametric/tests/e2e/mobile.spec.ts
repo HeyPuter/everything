@@ -342,6 +342,8 @@ test('a tap a finger-width from a sketch point snaps to it', async ({ page }) =>
   // 13 px off the point: beyond a mouse's reach, within a fingertip's.
   const m = await at([0, 15]);
   await tap(m.x + 9, m.y + 9);
+  // With no hover, the tap shows the line's start straight away.
+  expect(await page.evaluate(() => ((window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.renderer as unknown as { points: Map<string, unknown> }).points.has('sk-preview-pts'))).toBe(true);
   const e = await at([-30, -10]);
   await tap(e.x, e.y);
   const line = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.find((x) => x.t === 'line') as { a: string; b: string } | undefined);
