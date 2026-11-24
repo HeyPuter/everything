@@ -197,10 +197,20 @@ export const versionChanged = (now: FileVersion, then: FileVersion) =>
  * undefined when it could not be checked (offline, say), so callers go ahead.
  */
 export async function cloudVersion(path: string): Promise<FileVersion | null | undefined> {
+  const entry = await cloudEntry(path);
+  return entry === null ? null : entry?.version ?? undefined;
+}
+
+/**
+ * A cloud file's full path (a path from the home folder, ~/..., spelled out)
+ * and current version; null when it no longer exists, undefined when it could not be checked.
+ */
+export async function cloudEntry(path: string): Promise<{ path: string; version: FileVersion | null } | null | undefined> {
   const fs = puter()?.fs;
   if (!fs?.stat || !cloudAvailable()) return undefined;
   try {
-    return versionOf(await fs.stat(path)) ?? undefined;
+    const item = await fs.stat(path);
+    return { path: typeof item?.path === 'string' && item.path.startsWith('/') ? item.path : path, version: versionOf(item) };
   } catch (e) {
     return isMissing(e) ? null : undefined;
   }

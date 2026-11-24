@@ -7,7 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, type FileEntry, deletePart, forgetRecent, rememberRecent,
-  onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
+  onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
 import { type PuterFSItem, cloudAvailable, env, isMissing, isPermissionError, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -157,21 +157,29 @@ export class FileOps {
     const picked = this.pickOne(files.map((f) => ({ item: f, name: f.name || f.path.replace(/\/+$/, '').split('/').pop() || f.path })));
     if (!picked) return;
     const { item: it, name } = picked;
-    const loc: Location = { type: 'cloud', path: it.path };
-    if (sameLocation(loc, this.app.location)) {
+    const isOpen = (path: string) => {
+      if (!sameLocation({ type: 'cloud', path }, this.app.location)) return false;
       toast({ message: `"${this.app.store.doc.name}" is already open.` });
-      return;
-    }
-    if (this.openingDrivePath === it.path) return;
-    if (typeof it.size === 'number' && tooLarge(it.size, name)) return;
+      return true;
+    };
+    if (isOpen(it.path) || this.openingDrivePath === it.path) return;
+    // Launch items carry their size and time as text.
+    const size = Number(it.size);
+    if (it.size != null && Number.isFinite(size) && tooLarge(size, name)) return;
     const signal = this.beginOpen();
     this.openingDrivePath = it.path;
     try {
       // The version is asked first, so a save landing meanwhile counts as a change.
-      const version = versionOf(it) ? Promise.resolve(versionOf(it)) : cloudVersion(it.path);
+      // A launch item's path starts from the home folder (~/Desktop/...): the
+      // part takes the full path that recent parts and other tabs know it by.
+      const given = versionOf(it);
+      const entry = given && !it.path.startsWith('~') ? Promise.resolve({ path: it.path, version: given }) : cloudEntry(it.path);
       // Launch items can read themselves; dropped entries are plain records.
       const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
-      if (!signal.aborted) await this.openBlob(blob, name, loc, signal, (await version) ?? null);
+      const found = await entry;
+      const loc: Location = { type: 'cloud', path: found?.path ?? it.path };
+      if (signal.aborted || (loc.path !== it.path && isOpen(loc.path))) return;
+      await this.openBlob(blob, name, loc, signal, found?.version ?? given ?? null);
     } catch (e) {
       toast({ kind: 'error', title: 'Could not open the file', message: isMissing(e) ? `"${name}" no longer exists. It may have been moved or deleted.` : storageError(e) });
     } finally {

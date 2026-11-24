@@ -935,6 +935,33 @@ test('a part launched from the desktop asks before replacing unsaved work', asyn
   expect(errors).toEqual([]);
 });
 
+test('a part launched from the desktop by its home-folder path opens under its full path, once', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    type Item = { name: string; path: string; size: string; modified: string };
+    type Launch = (items: Item[]) => Promise<void>;
+    const w = window as unknown as Mock & { puter: { fs: { stat(p: string): Promise<unknown>; read(p: string): Promise<Blob> }; ui: { onLaunchedWithItems(fn: Launch): void } }; launchPart: Launch };
+    w.puter.ui.onLaunchedWithItems = (fn) => { w.launchPart = fn; };
+    // Puter reads ~ as the home folder, and stat names the file by its full path.
+    const { stat, read } = w.puter.fs;
+    w.puter.fs.stat = (p) => stat.call(w.puter.fs, p.replace(/^~/, '/tester'));
+    w.puter.fs.read = (p) => read.call(w.puter.fs, p.replace(/^~/, '/tester'));
+    w.__files.set('/tester/Documents/Opened.parametric', { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Opened', features: [] }) });
+  });
+  const errors = await openApp(page);
+  await app(page);
+  // As puter.js hands them over from the launch URL: size and time as text.
+  const launch = () => page.evaluate(() => (window as unknown as { launchPart(items: unknown[]): Promise<void> }).launchPart([{ name: 'Opened.parametric', path: '~/Documents/Opened.parametric', size: '80', modified: '1700000000' }]));
+  await launch();
+  await expect(page).toHaveTitle('Opened - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/Documents/Opened.parametric' });
+  await launch();
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('"Opened" is already open.');
+  const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
+  expect(recent.map((r: { location: { path: string } }) => r.location.path)).toEqual(['/tester/Documents/Opened.parametric']);
+  expect(errors).toEqual([]);
+});
+
 test('a cloud part renamed on the Puter desktop opens under its file name', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
