@@ -154,6 +154,9 @@ export class FeatureTree {
         if (r.item && !sel.has(r.item)) sel.set([r.item]);
         if (f) app.openFeatureMenu(f.id, e.clientX, e.clientY);
         else if (r.item) app.openReferenceMenu(r.item, e.clientX, e.clientY);
+        // The part and Material rows have menus too (Shift+F10 on them did nothing).
+        else if (r.key === 'part') app.openCommandMenu(['properties', 'rename', 'equations', 'appearance'], e.clientX, e.clientY, 'Part menu');
+        else if (r.key === 'material') app.openCommandMenu(['material'], e.clientX, e.clientY, 'Material menu');
       });
       el.addEventListener('pointerenter', () => { if (r.item) sel.setHover(r.item); });
       el.addEventListener('pointerleave', () => { if (r.item) sel.setHover(null); });

@@ -1221,6 +1221,15 @@ export class App {
     openMenu(this.hooks.contextItems('feature', id), x, y, { label: 'Feature menu' });
   }
 
+  /** The design tree's part and Material rows: the commands their double click or Enter run, and related ones. */
+  openCommandMenu(ids: string[], x: number, y: number, label: string) {
+    const c = this.commands;
+    openMenu(ids.map((id) => {
+      const cmd = c.get(id)!;
+      return { label: cmd.label, icon: cmd.icon, shortcut: cmd.shortcut, disabled: !c.isEnabled(id), run: () => c.run(id) };
+    }), x, y, { label });
+  }
+
   openReferenceMenu(item: SelItem, x: number, y: number) {
     void item;
     openMenu(this.hooks.contextItems('reference'), x, y, { label: 'Reference menu' });

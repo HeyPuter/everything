@@ -344,6 +344,24 @@ test('focus returns to the re-rendered tree row after a dialog closes', async ({
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
 });
 
+test('the part and Material rows of the design tree have context menus too', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const part = page.getByRole('treeitem', { name: 'Mounting Bracket' });
+  await part.focus();
+  await page.keyboard.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: 'Part menu' });
+  await expect(menu.getByRole('menuitem', { name: 'Part Properties...' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(part).toBeFocused();
+  await page.getByRole('treeitem', { name: /Aluminum 6061/ }).click({ button: 'right' });
+  await page.getByRole('menu', { name: 'Material menu' }).getByRole('menuitem', { name: 'Edit Material...' }).click();
+  await expect(page.getByRole('dialog', { name: 'Material' })).toBeVisible();
+});
+
 test('Shift+F10 opens the context menu of the focused tree row', async ({ page }) => {
   await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
