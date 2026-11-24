@@ -177,11 +177,11 @@ export function registerCommands(app: App, files: FileOps) {
     },
     {
       id: 'suppress', label: 'Suppress', icon: 'eyeOff', enabled: () => !!selectedFeature(app),
-      run: () => app.toggleSuppress(app.selection.ofKind('feature').map((x) => x.id), true),
+      run: () => app.toggleSuppress(selectedFeatureIds(app), true),
     },
     {
       id: 'unsuppress', label: 'Unsuppress', icon: 'eye', enabled: () => !!selectedFeature(app)?.suppressed,
-      run: () => app.toggleSuppress(app.selection.ofKind('feature').map((x) => x.id), false),
+      run: () => app.toggleSuppress(selectedFeatureIds(app), false),
     },
     { id: 'rollToEnd', label: 'Roll to End', icon: 'downToLine', enabled: () => app.store.doc.rollback != null, run: () => app.setRollback(null) },
     { id: 'material', label: 'Edit Material...', icon: 'material', keywords: 'density steel aluminum', run: () => materialDialog(app) },
@@ -336,6 +336,13 @@ function selectedFeature(app: App): Feature | undefined {
   const face = app.selection.items.find((x) => x.kind === 'face') as { index: number } | undefined;
   if (face) return app.store.feature(app.faces[face.index]?.feature ?? '');
   return undefined;
+}
+
+/** The features Suppress acts on: the selected features, else those that made the selected faces. */
+function selectedFeatureIds(app: App): Id[] {
+  const ids = app.selection.ofKind('feature').map((x) => x.id);
+  if (ids.length) return ids;
+  return [...new Set(app.selection.ofKind('face').map((x) => app.faces[x.index]?.feature).filter((x): x is Id => !!x))];
 }
 
 // ---------- layout ----------
