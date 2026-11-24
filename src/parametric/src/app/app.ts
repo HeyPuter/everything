@@ -1404,6 +1404,11 @@ export class App {
     if (p) void this.openPanel(p);
   }
 
+  /** Starts renaming a feature in the design tree on screen: the flyout while a panel covers the tree. */
+  startRename(id: Id) {
+    (this.tree.el.isConnected || !this.panel || !this.flyoutOpen ? this.tree : this.flyout).startRename(id);
+  }
+
   renameFeature(id: Id, name: string) {
     this.store.change('Rename', (doc) => {
       const f = doc.features.find((x) => x.id === id);

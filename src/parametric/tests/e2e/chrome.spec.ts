@@ -29,3 +29,29 @@ test('Edit › Suppress with a face selected suppresses the feature that made it
   ).toEqual([owner]);
   expect(errors).toEqual([]);
 });
+
+test('Rename from the context menu of the flyout tree renames there while a panel is open', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('button', { name: 'Fillet', exact: true }).click();
+  await page.locator('.flyout-tree > button').click();
+  const flyout = page.getByRole('tree', { name: 'Design tree (flyout)' });
+  await flyout.getByRole('treeitem', { name: 'Fillet1' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  await expect(flyout.getByRole('textbox', { name: 'Feature name' })).toBeFocused();
+  await page.keyboard.type('Round');
+  await page.keyboard.press('Enter');
+  await expect(flyout.getByRole('treeitem', { name: 'Round' })).toBeVisible();
+  // The design tree under the panel has no rename of its own left open.
+  await page.keyboard.press('Escape');
+  await expect(
+    page
+      .getByRole('tree', { name: 'Design tree', exact: true })
+      .getByRole('treeitem', { name: 'Round' }),
+  ).toBeVisible();
+  await expect(page.locator('input.rename')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
