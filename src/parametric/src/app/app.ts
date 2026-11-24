@@ -255,7 +255,7 @@ export class App {
     // The tablist holds only the tabs; the phone sheet's close button sits beside it.
     const list = h('div', { class: 'lp-tablist', role: 'tablist', 'aria-label': 'Panels' });
     for (const [id, ic, label] of tabs) {
-      const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(id === this.leftTab), 'aria-controls': 'left-panel', 'aria-label': label, title: label, 'data-tab': id }, icon(ic, 16));
+      const b = h('button', { role: 'tab', type: 'button', id: `left-tab-${id}`, 'aria-selected': String(id === this.leftTab), 'aria-controls': 'left-panel', 'aria-label': label, title: label, 'data-tab': id }, icon(ic, 16));
       b.addEventListener('click', () => this.showLeft(id as 'tree' | 'pm'));
       list.append(b);
     }
@@ -284,6 +284,7 @@ export class App {
     this.leftTab = tab;
     selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === tab);
     const body = this.shell.lpBody;
+    body.setAttribute('aria-labelledby', `left-tab-${tab}`);
     // A panel opens at its top, not at the scroll position of the tree it
     // replaces; the tree comes back where it was.
     const before = this.leftShown.get(body.firstElementChild as Element);

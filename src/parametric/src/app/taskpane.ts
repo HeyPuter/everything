@@ -26,7 +26,7 @@ export class TaskPane {
     const s = app.shell;
     const tabs: [PaneId, string, string][] = [['assistant', 'assistant', 'Assistant'], ['files', 'files', 'Parts'], ['appearance', 'appearance', 'Appearance'], ['help', 'help', 'Getting started']];
     for (const [id, ic, label] of tabs) {
-      const b = h('button', { role: 'tab', type: 'button', 'aria-selected': 'false', 'aria-label': label, 'data-pane': id }, icon(ic, 18));
+      const b = h('button', { role: 'tab', type: 'button', id: `task-pane-tab-${id}`, 'aria-selected': 'false', 'aria-controls': s.tpPanel.id, 'aria-label': label, 'data-pane': id }, icon(ic, 18));
       attachTooltip(b, label);
       b.addEventListener('click', () => this.toggle(id));
       s.tpStrip.append(b);
@@ -103,6 +103,9 @@ export class TaskPane {
 
   private sync() {
     selectTabs(this.app.shell.tpStrip, (b) => b.dataset.pane === this.current);
+    // The panel is named by the tab that shows it.
+    if (this.current) this.app.shell.tpPanel.setAttribute('aria-labelledby', `task-pane-tab-${this.current}`);
+    else this.app.shell.tpPanel.removeAttribute('aria-labelledby');
     this.app.shell.root.classList.toggle('assistant-open', this.current === 'assistant');
     this.app.commands.changed();
   }

@@ -602,3 +602,16 @@ test("the start screen's units field is named by its visible label", async ({ pa
   await start.getByText('Units for new parts', { exact: true }).click();
   await expect(start.getByRole('combobox', { name: 'Units for new parts', exact: true })).toBeFocused();
 });
+
+test('the task pane and left pane tabs each control a tab panel named by the chosen tab', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  for (const [list, tab] of [['Task pane', 'Appearance'], ['Task pane', 'Getting started'], ['Panels', 'PropertyManager'], ['Panels', 'Design tree']] as const) {
+    const t = page.getByRole('tablist', { name: list }).getByRole('tab', { name: tab, exact: true });
+    await t.click();
+    const panel = page.locator(`#${await t.getAttribute('aria-controls')}`);
+    await expect(panel).toHaveAttribute('role', 'tabpanel');
+    await expect(page.getByRole('tabpanel', { name: tab, exact: true })).toBeVisible();
+  }
+  expect(await seriousViolations(page)).toEqual([]);
+});

@@ -199,14 +199,14 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const cm = h('section', { class: 'cm', 'aria-label': 'CommandManager' }, cmTools, cmTabs);
 
   const lpTabs = h('div', { class: 'lp-tabs' });
-  const lpBody = h('div', { class: 'lp-body', id: 'left-panel' });
+  const lpBody = h('div', { class: 'lp-body', id: 'left-panel', role: 'tabpanel' });
   const leftpane = h('aside', { class: 'leftpane', 'aria-label': 'Design tree and properties' }, lpTabs, lpBody);
   const splitter = h('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize panel', tabindex: '0', 'aria-valuemin': '200', 'aria-valuemax': '520', 'aria-valuenow': '280' });
   const hud = h('div', { class: 'hud', role: 'toolbar', 'aria-label': 'View' });
   const confirm = h('div', { class: 'confirm-corner', hidden: true });
   const viewport = h('section', { class: 'viewport', id: 'main', 'aria-label': 'Graphics area' }, hud, confirm);
   const tpStrip = h('div', { class: 'tp-strip', role: 'tablist', 'aria-label': 'Task pane', 'aria-orientation': 'vertical' });
-  const tpPanel = h('div', { class: 'tp-panel', hidden: true });
+  const tpPanel = h('div', { class: 'tp-panel', id: 'task-pane-panel', role: 'tabpanel', hidden: true });
   const taskpane = h('aside', { class: 'taskpane', 'aria-label': 'Task pane' }, tpStrip, tpPanel);
   const workspace = h('main', { class: 'workspace' }, leftpane, splitter, viewport, taskpane);
 
