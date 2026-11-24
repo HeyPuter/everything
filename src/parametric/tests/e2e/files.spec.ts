@@ -455,6 +455,24 @@ for (const how of ['closed', 'reloaded'] as const) test(`changes made just befor
   await expect(next.getByRole('dialog', { name: 'Recover unsaved work?' })).toHaveCount(0);
 });
 
+test('unsaved work left by a closed tab is offered in one tab, not in every tab opened at the same time', async ({ context }) => {
+  const first = await context.newPage();
+  await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Left', expr: '1' }); }));
+  await first.close({ runBeforeUnload: false });
+  // A browser restoring its tabs opens several at once.
+  const [a, b] = [await context.newPage(), await context.newPage()];
+  await Promise.all([openApp(a), openApp(b)]);
+  const offers = async () => (await a.getByRole('dialog', { name: 'Recover unsaved work?' }).count()) + (await b.getByRole('dialog', { name: 'Recover unsaved work?' }).count());
+  await expect.poll(offers).toBe(1);
+  // The other tab carries on to its start screen.
+  const other = (await a.getByRole('dialog', { name: 'Recover unsaved work?' }).count()) ? b : a;
+  await expect(other.getByRole('button', { name: /New part/ })).toBeVisible();
+  expect(await offers()).toBe(1);
+});
+
 test('the start screen gives way to work started behind it, which an example then does not replace silently', async ({ page }) => {
   await mockPuter(page);
   await openApp(page);
@@ -1372,9 +1390,19 @@ for (const next of ['close', 'save', 'retry backup', 'discard'] as const) test(`
   await recover.getByRole('button', { name: 'Restore', exact: true }).click();
   expect(await b.evaluate(() => (window as unknown as { pendingRecovery: Promise<boolean> }).pendingRecovery)).toBe(true);
   await expect(b).toHaveTitle('* Keep backup - Parametric');
-  const retained = await b.evaluate(async (url) => (await import(url)).orphanRecoveries(), '/src/platform/files.ts');
+  // The backup is kept in browser storage, and other tabs do not offer it while this one holds it.
+  const retained = await b.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('parametric-parts');
+    const texts: string[] = [];
+    for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemFileHandle]> }).entries()) {
+      if (name.startsWith('recovery-')) texts.push(await (await handle.getFile()).text());
+    }
+    // The failed write leaves this tab's own file empty.
+    return texts.filter(Boolean);
+  });
   expect(retained).toHaveLength(1);
-  expect(retained[0].text).toContain('Keep backup');
+  expect(retained[0]).toContain('Keep backup');
+  expect(await b.evaluate(async (url) => (await import(url)).orphanRecoveries(), '/src/platform/files.ts')).toHaveLength(0);
   if (next !== 'close') {
     await b.evaluate(() => (window as unknown as { restoreWrites: () => void }).restoreWrites());
     if (next === 'save') {

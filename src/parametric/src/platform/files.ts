@@ -544,7 +544,11 @@ const LOCK_PREFIX = 'parametric-recovery-';
 const TAB_ID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const ownRecovery = `${RECOVERY_PREFIX}${TAB_ID}.json`;
 
-type Locks = { request(name: string, cb: () => Promise<void>): Promise<void>; query(): Promise<{ held?: { name?: string }[] }> };
+type Locks = {
+  request(name: string, cb: (lock: unknown) => Promise<void>): Promise<void>;
+  request(name: string, opts: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<void>): Promise<void>;
+  query(): Promise<{ held?: { name?: string }[] }>;
+};
 const locks = (): Locks | undefined => (typeof navigator !== 'undefined' ? (navigator as unknown as { locks?: Locks }).locks : undefined);
 // Held until the tab goes away.
 void locks()?.request(`${LOCK_PREFIX}${TAB_ID}`, () => new Promise<void>(() => {})).catch(() => {});
@@ -631,6 +635,23 @@ const savedAtOf = (text: string) => {
   }
 };
 
+/**
+ * Takes a left-behind recovery copy for this tab while it is offered, so
+ * tabs opened at the same time (a browser restoring its tabs) do not offer
+ * it too. Resolves to the release, or null when another tab has it.
+ */
+export function claimRecovery(file: string): Promise<(() => void) | null> {
+  const l = locks();
+  const id = file === 'recovery.json' ? 'legacy' : file.slice(RECOVERY_PREFIX.length, -5);
+  if (!l) return Promise.resolve(() => {});
+  return new Promise((resolve) => {
+    l.request(`${LOCK_PREFIX}${id}`, { ifAvailable: true }, (lock) => {
+      if (!lock) { resolve(null); return Promise.resolve(); }
+      return new Promise<void>((release) => resolve(release));
+    }).catch(() => resolve(() => {}));
+  });
+}
+
 /** Recovery copies left by tabs that are no longer open, newest first. */
 export async function orphanRecoveries(): Promise<{ file: string; text: string }[]> {
   const dir = await opfsDir();
@@ -648,7 +669,7 @@ export async function orphanRecoveries(): Promise<{ file: string; text: string }
       const id = name === 'recovery.json' ? '' : name.startsWith(RECOVERY_PREFIX) && name.endsWith('.json') ? name.slice(RECOVERY_PREFIX.length, -5) : null;
       if (id === null || name === ownRecovery || handle.kind !== 'file') continue;
       // Without Web Locks every other copy counts as left behind.
-      if (id && held?.has(`${LOCK_PREFIX}${id}`)) continue;
+      if (held?.has(`${LOCK_PREFIX}${id || 'legacy'}`)) continue;
       const f = await (handle as FileSystemFileHandle).getFile();
       out.push({ file: name, text: await f.text(), at: f.lastModified });
     }

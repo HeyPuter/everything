@@ -6,7 +6,7 @@ import { allocateId, newDocument, parseDocument, serializeDocument, withUsedBlob
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, writeRecoveryOnUnload, type FileEntry, deletePart, forgetRecent, rememberRecent,
+  pickCloudFile, pickCloudSave, pickDeviceFile, claimRecovery, orphanRecoveries, removeRecovery, safeName, writeRecovery, writeRecoveryOnUnload, type FileEntry, deletePart, forgetRecent, rememberRecent,
   onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
 import { type PuterFSItem, cloudAvailable, env, isMissing, isPermissionError, puter, signIn, storageError } from '../platform/puter';
@@ -25,6 +25,8 @@ export class FileOps {
   private recoveryTimer = 0;
   /** A recovered copy retained until this tab writes a durable replacement. */
   private recoverySource: string | null = null;
+  /** Keeps other tabs from offering the recovered copy while this tab holds it. */
+  private recoveryClaim: (() => void) | null = null;
   /** Counts document changes, so a save only clears the edits it wrote. */
   private revision = 0;
   /** Changes only when another document opens, not on edits or undo. */
@@ -753,16 +755,24 @@ export class FileOps {
     if (!(await writeRecovery(text))) return;
     if (source) {
       await removeRecovery(source);
-      if (this.recoverySource === source) this.recoverySource = null;
+      if (this.recoverySource === source) this.dropRecoverySource();
     }
   }
 
   /** Saved or explicitly discarded work no longer needs either backup. */
   private async clearRecoveryCopies() {
-    const source = this.recoverySource;
+    const source = this.recoverySource, claim = this.recoveryClaim;
     this.recoverySource = null;
+    this.recoveryClaim = null;
     await clearRecovery();
     if (source) await removeRecovery(source);
+    claim?.();
+  }
+
+  private dropRecoverySource() {
+    this.recoverySource = null;
+    this.recoveryClaim?.();
+    this.recoveryClaim = null;
   }
 
   private scheduleRecovery() {
@@ -804,48 +814,59 @@ export class FileOps {
     try {
       for (const { file, text } of await orphanRecoveries()) {
         if (!canRecover()) return false;
-        let data: { location: Location | null; version?: FileVersion | null; savedAt: number; doc: PartDocument } | null = null;
+        // Another tab opened at the same time may be offering it already.
+        let release = await claimRecovery(file);
+        if (!release) continue;
         try {
-          data = JSON.parse(text);
-        } catch {
-          data = null;
-        }
-        // Recovery copies contain unsaved work. An empty model can still hold
-        // drawing notes, part properties, or an intentional deletion of geometry.
-        if (!data?.doc) { await removeRecovery(file); continue; }
-        const when = new Date(data.savedAt).toLocaleString();
-        // Saved again since (in another tab, on another device): restoring over
-        // that version would lose it, so the changes come back as a copy.
-        const newer = await this.savedAfter(data.location, data.version ?? null, data.savedAt);
-        if (!canRecover()) return false;
-        const v = await showDialog({
-          title: 'Recover unsaved work?', signal: controller.signal,
-          body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. ${newer ? 'The part was saved again after these changes, so they are restored as a new, unsaved copy and that saved version stays as it is. ' : ''}Do you want to restore them?`),
-          buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
-        });
-        if (!canRecover()) return false;
-        if (v === 'restore') {
-          let doc: PartDocument;
+          if (!canRecover()) return false;
+          let data: { location: Location | null; version?: FileVersion | null; savedAt: number; doc: PartDocument } | null = null;
           try {
-            doc = parseDocument(JSON.stringify(data.doc));
-          } catch (e) {
-            toast({ kind: 'error', message: (e as Error).message });
-            await removeRecovery(file);
-            continue;
+            data = JSON.parse(text);
+          } catch {
+            data = null;
           }
-          stopWatching();
-          const location = newer ? null : validLocation(data.location);
-          this.app.loadDocument(doc, location);
-          // Saving then asks before replacing a version saved after the one these changes were made on.
-          if (location?.type === 'cloud' && data.version && versionOf(data.version)) this.known = { path: location.path, version: data.version };
-          this.app.store.dirty = true;
-          this.app.store.emit('restored');
-          this.recoverySource = file;
-          await this.writeRecoveryCopy(text);
-          return true;
+          // Recovery copies contain unsaved work. An empty model can still hold
+          // drawing notes, part properties, or an intentional deletion of geometry.
+          if (!data?.doc) { await removeRecovery(file); continue; }
+          const when = new Date(data.savedAt).toLocaleString();
+          // Saved again since (in another tab, on another device): restoring over
+          // that version would lose it, so the changes come back as a copy.
+          const newer = await this.savedAfter(data.location, data.version ?? null, data.savedAt);
+          if (!canRecover()) return false;
+          const v = await showDialog({
+            title: 'Recover unsaved work?', signal: controller.signal,
+            body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. ${newer ? 'The part was saved again after these changes, so they are restored as a new, unsaved copy and that saved version stays as it is. ' : ''}Do you want to restore them?`),
+            buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
+          });
+          if (!canRecover()) return false;
+          if (v === 'restore') {
+            let doc: PartDocument;
+            try {
+              doc = parseDocument(JSON.stringify(data.doc));
+            } catch (e) {
+              toast({ kind: 'error', message: (e as Error).message });
+              await removeRecovery(file);
+              continue;
+            }
+            stopWatching();
+            const location = newer ? null : validLocation(data.location);
+            this.app.loadDocument(doc, location);
+            // Saving then asks before replacing a version saved after the one these changes were made on.
+            if (location?.type === 'cloud' && data.version && versionOf(data.version)) this.known = { path: location.path, version: data.version };
+            this.app.store.dirty = true;
+            this.app.store.emit('restored');
+            this.recoverySource = file;
+            // Kept from other tabs until this tab's own copy replaces it.
+            this.recoveryClaim = release;
+            release = null;
+            await this.writeRecoveryCopy(text);
+            return true;
+          }
+          if (v !== 'discard') return false;
+          await removeRecovery(file);
+        } finally {
+          release?.();
         }
-        if (v !== 'discard') return false;
-        await removeRecovery(file);
       }
       return false;
     } finally {
