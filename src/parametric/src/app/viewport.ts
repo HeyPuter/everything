@@ -784,12 +784,19 @@ export class Viewport {
 
   pushHistory() {
     // Mid-animation, the view being left is the one the camera was heading to.
-    this.history.push(this.camera.goal());
+    const now = this.camera.goal();
+    // The same view twice (zoom to fit pressed again) is one step back, not two.
+    const last = this.history[this.history.length - 1];
+    if (last && sameView(last, now)) return;
+    this.history.push(now);
     if (this.history.length > 30) this.history.shift();
   }
 
   previousView() {
-    const s = this.history.pop();
+    // A view left for itself (a zoom to fit where the view was already fitted) is no step back.
+    const now = this.camera.goal();
+    let s = this.history.pop();
+    while (s && sameView(s, now)) s = this.history.pop();
     // Orientation, position and zoom go back; the projection is a display setting and stays.
     if (s) this.camera.animateTo({ ...s, ortho: this.camera.ortho });
   }
@@ -936,6 +943,13 @@ export class Viewport {
 }
 
 export const unitNormal = (v: Vec3) => normalize(v);
+
+/** Whether two camera states show the same view (the projection aside). */
+function sameView(a: ReturnType<Camera['state']>, b: ReturnType<Camera['state']>): boolean {
+  const tol = 1e-9 * Math.max(1, a.distance);
+  return Math.abs(a.distance - b.distance) <= tol && a.target.every((v, i) => Math.abs(v - b.target[i]) <= tol)
+    && Math.abs(a.rot[0] * b.rot[0] + a.rot[1] * b.rot[1] + a.rot[2] * b.rot[2] + a.rot[3] * b.rot[3]) > 1 - 1e-12;
+}
 
 /** The smallest sphere around two spheres. */
 function enclose(a: { center: Vec3; radius: number }, b: { center: Vec3; radius: number }): { center: Vec3; radius: number } {

@@ -688,6 +688,24 @@ test.describe('viewport', () => {
     await expect(page.locator('.view-label')).toHaveText('Trimetric');
   });
 
+  test('Previous View after zooming to fit twice goes back to the view before', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const distance = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.goal().distance);
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.setView('front', false);
+      app.renderer.camera.zoomAt(0.25, 300, 300);
+    });
+    const zoomed = await distance();
+    await page.evaluate(() => { const v = (window as unknown as Win).__parametric.viewport; v.zoomToFit(false); v.zoomToFit(false); });
+    expect(await distance()).not.toBeCloseTo(zoomed, 3);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('previousView'));
+    expect(await distance()).toBeCloseTo(zoomed, 6);
+  });
+
   test('Previous View keeps the perspective projection chosen since', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
