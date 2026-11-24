@@ -289,6 +289,26 @@ describe('editing tools', () => {
     expect(arcAngles(new SketchIndex(s.entities), left[0] as Extract<SkEntity, { t: 'arc' }>).sweep).toBeCloseTo(Math.PI / 2, 9);
   });
 
+  it('trims a line across a hole from one side to the other, not to the hole centre on it', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: -10, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 3 },
+    ]);
+    s.constraints.push({ id: 'm', type: 'midpoint', refs: ['o', 'h'] });
+    expect(trimPreview(s, 'h', [1, 0])).toEqual([[-3, 0], [3, 0]]);
+    expect(trimAt(s, 'h', [1, 0], idFactory(s))).toBe(true);
+    const ix = new SketchIndex(s.entities);
+    const spans = s.entities.filter((e): e is SkLine => e.t === 'line').map((l) => [ix.pt(l.a)[0], ix.pt(l.b)[0]].sort((p, q) => p - q));
+    expect(spans.map((x) => x.map((v) => Math.round(v * 1e9) / 1e9))).toEqual([[-10, -3], [3, 10]]);
+    // A line that ends at the centre still stops a trim there.
+    const t = sk([
+      { id: 'a', t: 'point', x: -10, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 3 },
+      { id: 'up', t: 'point', x: 0, y: 2 }, { id: 'radius', t: 'line', a: 'o', b: 'up' },
+    ]);
+    expect(trimPreview(t, 'h', [1, 0])).toEqual([[0, 0], [3, 0]]);
+  });
+
   it('previews exactly the piece a trim removes', () => {
     const ents = (): SkEntity[] => [
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },

@@ -418,16 +418,19 @@ function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
     for (const p of mine) for (const q of primsOf(ix, o as SkCurve)) for (const x of intersectPrims(p, q)) pts.push({ p: x, by });
   }
   // Points lying on the curve (e.g. end points of other curves) also cut.
-  const centers = new Set(sk.entities.flatMap((x) => (x.t === 'circle' || x.t === 'arc' ? [x.c] : [])));
+  // Another circle's or arc's centre is not a boundary drawn on the curve (a
+  // line through a hole's centre trims from one side of the hole to the
+  // other), unless a curve also ends there.
+  const ends = new Set(sk.entities.flatMap((x) => (x.t === 'line' || x.t === 'arc' ? [x.a, x.b] : x.t === 'spline' ? x.pts : [])));
+  const centers = new Set(sk.entities.flatMap((x) => (x.t === 'circle' || x.t === 'arc') && !ends.has(x.c) ? [x.c] : []));
   for (const o of sk.entities) {
-    if (o.t !== 'point') continue;
+    if (o.t !== 'point' || centers.has(o.id)) continue;
     if (pointIdsOf(e).includes(o.id)) continue;
     const p: Vec2 = [o.x, o.y];
     for (const prim of mine) {
       if (prim.kind === 'seg' && closestOnSegment(p, prim.a!, prim.b!).d < 1e-7) pts.push({ p });
-      // On a circle or arc too (within its sweep), as on a line; another
-      // circle's centre there is not a boundary drawn on it.
-      else if (prim.kind === 'circ' && !centers.has(o.id) && Math.abs(dist2(p, prim.c!) - prim.r!) < 1e-7 + 1e-12 * prim.r!
+      // On a circle or arc too (within its sweep), as on a line.
+      else if (prim.kind === 'circ' && Math.abs(dist2(p, prim.c!) - prim.r!) < 1e-7 + 1e-12 * prim.r!
         && (prim.start === undefined || wrap2Pi(angle2(sub2(p, prim.c!)) - prim.start) <= prim.sweep! + 1e-9)) pts.push({ p });
     }
   }
