@@ -666,6 +666,9 @@ export class App {
         opts.forEach((o, i) => o.setAttribute('aria-selected', String(i === active)));
         s.search.setAttribute('aria-activedescendant', `cmdopt-${active}`);
       } else if (e.key === 'Enter') {
+        // Else the key's keypress reaches the dialog the command opens, and
+        // presses its focused button (OK) at once.
+        e.preventDefault();
         const list = this.commands.search(s.search.value);
         if (list[active]) run(list[active].id);
       } else if (e.key === 'Escape') {

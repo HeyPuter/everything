@@ -268,6 +268,18 @@ test.describe('accessibility', () => {
   });
 });
 
+test('a dialog opened from the command search with Enter stays open', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const search = page.getByRole('combobox', { name: 'Search commands' });
+  await search.click();
+  await page.keyboard.type('equations');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Equations and Global Variables' })).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.getByRole('dialog', { name: 'Equations and Global Variables' })).toBeVisible();
+});
 
 test('focus returns to the re-rendered tree row after a dialog closes', async ({ page }) => {
   await openApp(page);
