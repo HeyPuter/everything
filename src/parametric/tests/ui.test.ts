@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeMenus, dropdown, openMenu } from '../src/ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../src/ui/overlay';
-import { numberField, parseParam, paramText, retireNumberFields, type UnitContext } from '../src/app/pm';
+import { numberField, parseParam, paramText, retireNumberFields, SelectionBox, type PropertyPanel, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
 import { sketchDefinitionStatus } from '../src/app/sketch/panel';
 import type { SolveResult } from '../src/sketch/solver';
@@ -444,5 +444,32 @@ describe('sketch definition status', () => {
     expect(sketchDefinitionStatus(st(['a'], [])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) are redundant/);
     expect(sketchDefinitionStatus(st(['a'], ['a'])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) conflict\./);
     expect(sketchDefinitionStatus(st(['a', 'b'], ['a'])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) conflict and 1 are redundant/);
+  });
+});
+
+describe('selection boxes', () => {
+  it('take out the focused item, or from the box the last one, with Delete or Backspace, and keep the key from the app', () => {
+    const panel = { boxes: [], activate() {} } as unknown as PropertyPanel;
+    const onChange = vi.fn();
+    const box = new SelectionBox(panel, 'Edges', { edge: true }, () => null, onChange);
+    box.setItems(['A', 'B', 'C'].map((label) => ({ item: null, data: label, label })));
+    document.body.append(box.el);
+    const outside = vi.fn();
+    document.addEventListener('keydown', outside);
+    try {
+      const rm = box.el.querySelector<HTMLElement>('[aria-label="Remove B"]')!;
+      rm.focus();
+      key(rm, 'Delete');
+      expect(box.items.map((x) => x.label)).toEqual(['A', 'C']);
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Remove C');
+      const list = box.el.querySelector<HTMLElement>('.selbox')!;
+      list.focus();
+      key(list, 'Backspace');
+      expect(box.items.map((x) => x.label)).toEqual(['A']);
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(outside).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', outside);
+    }
   });
 });

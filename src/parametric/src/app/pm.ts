@@ -431,6 +431,21 @@ export class SelectionBox {
     this.list = h('div', { class: 'selbox', role: 'group', tabindex: '0', 'aria-label': label });
     this.list.addEventListener('click', () => panel.activate(this));
     this.list.addEventListener('focus', () => panel.activate(this));
+    // Delete or Backspace takes out the item whose Remove button has focus, or
+    // from the box itself the last item picked (as in a list of tags).
+    this.list.addEventListener('keydown', (e) => {
+      if ((e.key !== 'Delete' && e.key !== 'Backspace') || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const rm = (e.target as Element).closest<HTMLElement>('.rm');
+      if (!rm && e.target !== this.list) return;
+      // Not also the app's Delete (which would delete the sketch geometry selected).
+      e.preventDefault();
+      e.stopPropagation();
+      if (rm) { rm.click(); return; }
+      if (!this.items.length) return;
+      this.items.pop();
+      this.draw();
+      this.onChange(this.items);
+    });
     const head = h('div', { class: 'row' }, opts.icon ? h('span', { class: 'row-icon', 'aria-hidden': 'true' }, icon(opts.icon, 18)) : null, h('span', { class: 'field-label' }, label));
     this.el = h('div', {}, head, this.list);
     panel.boxes.push(this);
