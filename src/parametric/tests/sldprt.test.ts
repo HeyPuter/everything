@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
 import { SolidWorksError, solidWorksToStep } from '../src/formats/sldprt';
-import { readStreams } from '../src/formats/sldprt/container';
+import { findTransmits, readStreams } from '../src/formats/sldprt/container';
+import { writeStep } from '../src/formats/sldprt/step';
 import { Graph, GeomError, nurbsCurve } from '../src/formats/sldprt/geom';
 import { type XtNode, XtError, parseTransmit } from '../src/formats/sldprt/xt';
 import { ModelBuilder } from '../src/kernel/build';
@@ -53,6 +54,20 @@ describe('SolidWorks parts', () => {
     // Crossed cylinders meet along exact ellipses.
     const crossed = (await solidWorksToStep(fixture('cylinders-crossed-sw2022.sldprt'), 'x.sldprt')).step;
     expect(crossed.match(/ELLIPSE\('',#\d+,7\.07106781186547\d*,5\.\)/g)).toHaveLength(4);
+  });
+
+  it('leaves out a face whose loop of edges runs into a cycle instead of following it 100000 times', async () => {
+    // Two damaged bytes (found by fuzzing) send a loop's chain of half-edges into a cycle.
+    const ts = (await findTransmits((await readStreams(fixture('cube-shell-sw2011.sldprt'))).streams)).filter((t) => t.kind !== 'deltas');
+    const data = ts.find((t) => t.stream === 'Config-0-Partition')!.data.slice();
+    expect([data[3380], data[4980]]).toEqual([20, 168]);
+    data[3380] = 31;
+    data[4980] = 53;
+    const x = parseTransmit(data);
+    const r = writeStep([{ graph: new Graph(x.nodes), bodies: [...x.nodes.values()].filter((n) => n.name === 'BODY') }], 'x');
+    // It was 4.5 MB, with one loop of 100000 edges the geometry worker could not build for minutes.
+    expect(r.text.length).toBeLessThan(100_000);
+    expect(r.problems.some((p) => /does not close/.test(p))).toBe(true);
   });
 
   it('explains what it cannot open', async () => {
