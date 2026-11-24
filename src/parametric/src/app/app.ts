@@ -399,7 +399,7 @@ export class App {
       b('zoomFit'), b('previousView', 'hide-mobile'), b('sectionView'),
       h('span', { class: 'sep' }),
       split('viewOrientation', () => this.viewMenuItems(), 'Standard views'),
-      split('displayStyle', () => this.displayMenuItems(), 'Display style'),
+      split('displayStyle', () => this.displayMenuItems(), 'Display style options'),
       split('toggleVisibility', () => this.visibilityMenuItems(), 'Hide or show items'),
       h('span', { class: 'sep hide-mobile' }),
       b('perspective', 'hide-mobile'), b('normalTo'),

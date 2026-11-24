@@ -1086,3 +1086,16 @@ test("renaming a feature to another feature's name is refused and says why", asy
   expect(names.filter((n) => n.toLowerCase() === 'extrude1')).toHaveLength(1);
   expect(errors).toEqual([]);
 });
+
+test("the view toolbar's buttons have names that tell them apart", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const names = await page
+    .getByRole('toolbar', { name: 'View' })
+    .getByRole('button')
+    .evaluateAll((els) => els.map((el) => (el.getAttribute('aria-label') ?? '').toLowerCase()));
+  expect(new Set(names).size).toBe(names.length);
+  await page.getByRole('button', { name: 'Display style options' }).click();
+  await expect(page.getByRole('menu', { name: 'Display style options' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
