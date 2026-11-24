@@ -230,6 +230,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     'aria-label': o.label,
     value: paramText(o.value, o.kind, o.ctx),
   }) as HTMLInputElement;
+  const limitText = (v: number) => `${paramText(v, o.kind, o.ctx)}${unitSuffix(o.kind, o.ctx) ? ` ${unitSuffix(o.kind, o.ctx)}` : ''}`;
   let current: Param = o.value;
   const mark = () => input.classList.toggle('expr', typeof current === 'string');
   mark();
@@ -249,13 +250,14 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     if (o.min !== undefined && r.num < o.min) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
-      input.title = `Must be at least ${paramText(o.min, o.kind, o.ctx)}`;
+      // A tiny minimum stands for "more than zero" (1e-6 mm reads 3.937007874015748e-8 in inches).
+      input.title = o.min > 0 && o.min <= 1e-6 ? 'Must be greater than 0' : `Must be at least ${limitText(o.min)}`;
       return;
     }
     if (o.max !== undefined && r.num > o.max) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
-      input.title = `Must be at most ${paramText(o.max, o.kind, o.ctx)}`;
+      input.title = `Must be at most ${limitText(o.max)}`;
       return;
     }
     input.classList.remove('invalid');

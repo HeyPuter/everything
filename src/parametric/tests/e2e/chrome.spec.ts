@@ -234,3 +234,22 @@ test('a selection box keeps taking picks after the PropertyManager is shown agai
   await expect(box.locator('.item')).toHaveCount(1);
   expect(errors).toEqual([]);
 });
+
+test("a value under a field's minimum says what is allowed in plain words", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.change('Units', (d) => {
+      d.units = 'IPS';
+    }),
+  );
+  await page.getByRole('treeitem', { name: 'Fillet1' }).dblclick();
+  const radius = page.getByRole('textbox', { name: 'Radius', exact: true });
+  await radius.fill('0');
+  await radius.press('Tab');
+  await expect(radius).toHaveAttribute('title', 'Must be greater than 0');
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  await expect(page.getByRole('alert')).toHaveText('Radius: Must be greater than 0');
+  expect(errors).toEqual([]);
+});
