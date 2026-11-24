@@ -605,6 +605,8 @@ a.icon-btn { text-decoration: none; }
     border-right: 0; border-top: 1px solid var(--border-strong); border-radius: 12px 12px 0 0; transform: translateY(105%); transition: transform 0.18s ease, height 0.18s ease;
   }
   .leftpane.open { transform: none; }
+  /* The closed sheet hides below the graphics area, not over the status bar's taps. */
+  .workspace { overflow: hidden; }
   .leftpane.peek { height: 132px; }
   .leftpane .lp-tabs::before { content: ''; position: absolute; left: 50%; top: 4px; width: 36px; height: 4px; border-radius: 4px; background: var(--border-strong); transform: translateX(-50%); }
   .leftpane .lp-tabs { position: relative; padding-top: 12px; }

@@ -274,3 +274,18 @@ test('on a phone Enter starts a new line in the assistant\'s message and Send se
   await expect(page.getByText('Got it.')).toBeVisible();
   expect((await page.evaluate(() => (window as unknown as { __sent: string[] }).__sent))[0]).toMatch(/A plate\nwith four holes$/);
 });
+
+test('the closed design tree sheet leaves the whole status bar to taps', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const blocked = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.statusbar button, .statusbar [role="tab"]')]
+    .filter((el) => el.getClientRects().length)
+    .flatMap((el) => {
+      const b = el.getBoundingClientRect();
+      // Near the top, the middle and the bottom of each control.
+      return [b.top + 3, b.top + b.height / 2, b.bottom - 3].map((y) => document.elementFromPoint(b.left + b.width / 2, y))
+        .filter((hit) => !el.contains(hit)).map(() => el.textContent);
+    }));
+  expect(blocked).toEqual([]);
+});
