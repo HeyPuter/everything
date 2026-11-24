@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { openApp } from './helpers';
+import { openApp, waitForFeature } from './helpers';
 
 // A scripted stand-in for Puter AI (window.__assistantChat, dev builds only):
 // it builds a plate with holes and rounded corners, looks at it and answers.
@@ -826,4 +826,29 @@ test('Stop while the reply streams keeps what was written; Stop while a step run
   expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['A']);
   await turn.getByRole('button', { name: 'Undo changes' }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.length)).toBe(0);
+});
+
+test('the assistant keeps drawing views on the sheet when it scales the sheet up', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      const round = messages.filter((m) => m.role === 'assistant').length;
+      if (round === 0) yield { type: 'tool', id: 'c1', name: 'drawing', input: { show: true } };
+      else if (round === 1) yield { type: 'tool', id: 'c2', name: 'drawing', input: { scale: 2 } };
+      else yield { type: 'text', text: 'Now at 2:1.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Drawing at twice the size');
+  await box.press('Enter');
+  await expect(page.getByText('Now at 2:1.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type Frame = { id: string; x0: number; y0: number; x1: number; y1: number };
+  type A = { drawing: { frames: Frame[]; doc: { scale: number } } };
+  const state = () => page.evaluate(() => { const d = (window as unknown as { __parametric: A }).__parametric.drawing; return { frames: d.frames, scale: d.doc.scale }; });
+  await expect.poll(async () => (await state()).scale).toBe(2);
+  // Every view inside the border of the 297 x 210 sheet (the isometric view grew off its top).
+  await expect.poll(async () => { const s = await state(); return s.frames.length === 4 && s.frames.every((f) => f.x0 >= 9.999 && f.y0 >= 9.999 && f.x1 <= 287.001 && f.y1 <= 200.001); }).toBe(true);
 });

@@ -418,8 +418,8 @@ export class DrawingWorkspace {
     const v = d?.views.find((q) => q.id === id);
     if (!d || !v) return [x, y];
     const { w, h } = sheetDims(d);
-    // The view's reach from its centre (none while it is still being projected), at k times the scale drawn.
-    const f = this.frames.find((q) => q.id === id);
+    // The view's reach from its centre, at k times the scale drawn.
+    const f = this.frameOf(v, d.scale / k);
     const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y].map((q) => q * k) : [0, 0, 0, 0];
     // Its dimensions, left of and below it, stay on the sheet too.
     const [dl, db] = v.dims && v.kind !== 'isometric' ? [DIM_LEFT, DIM_BELOW] : [0, 0];
@@ -435,13 +435,25 @@ export class DrawingWorkspace {
   rescaleViews(d: DrawingDoc, old: number) {
     const k = d.scale / old;
     if (!(k > 0) || k === 1) return;
-    const fs = this.frames.filter((f) => d.views.some((v) => v.id === f.id));
+    const fs = d.views.map((v) => this.frameOf(v, old)).filter((f) => !!f);
     const ax = Math.min(...fs.map((f) => f.x0)), ay = Math.min(...fs.map((f) => f.y0));
     const moved = d.views.map((v) => {
       const [x, y] = k > 1 && fs.length ? [ax + (v.x - ax) * k, ay + (v.y - ay) * k] : [v.x, v.y];
       return this.onSheet(v.id, x, y, d, k);
     });
     d.views.forEach((v, i) => { [v.x, v.y] = moved[i]; });
+  }
+
+  /**
+   * A view's frame as last drawn or, while it is still being projected (a drawing just opened),
+   * the projection of the part's bounding box drawn at `scale`.
+   */
+  private frameOf(v: DrawingView, scale: number): ViewFrame | undefined {
+    const f = this.frames.find((q) => q.id === v.id);
+    const b = this.app.bbox;
+    if (f || !b) return f;
+    const [vw, vh] = projectedSize(v.kind, b.min, b.max).map((q) => (q * scale) / 2);
+    return { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
   }
 
   /** After the sheet got smaller or turned: views that would hang off it move back on. */
@@ -473,14 +485,7 @@ export class DrawingWorkspace {
     const dims = kind !== 'isometric';
     // In free room on the sheet, not on top of the other views or their dimensions
     // (a view still being projected takes the room of its bounding box's projection).
-    const others = d.views.map((v) => {
-      let frame = this.frames.find((f) => f.id === v.id);
-      if (!frame) {
-        const [vw, vh] = projectedSize(v.kind, b.min, b.max).map((k) => (k * d.scale) / 2);
-        frame = { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
-      }
-      return { frame, dims: v.dims && v.kind !== 'isometric' };
-    });
+    const others = d.views.map((v) => ({ frame: this.frameOf(v, d.scale)!, dims: v.dims && v.kind !== 'isometric' }));
     const [x, y] = placeView(sheetDims(d), w * d.scale, hh * d.scale, dims, others);
     let n = d.views.length + 1;
     while (d.views.some((v) => v.id === `v${n}`)) n++;

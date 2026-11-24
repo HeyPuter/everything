@@ -6,7 +6,7 @@
 import type { EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget } from '../kernel/protocol';
 import type { Frame, Vec3 } from '../math/vec';
 import type { DocStore } from '../model/document';
-import type { DrawingViewKind, Id } from '../model/types';
+import type { DrawingDoc, DrawingViewKind, Id } from '../model/types';
 import type { ViewName } from '../render/camera';
 import type { DisplayStyle } from '../render/renderer';
 import type { SelItem } from '../app/selection';
@@ -40,5 +40,7 @@ export interface AssistantUI {
   showDrawing(on: boolean): void;
   arrangeDrawing(): void;
   addDrawingView(kind: DrawingViewKind): void;
+  /** Inside a document change: keeps the views on a sheet whose size, orientation or scale (from oldScale) changed. */
+  fitDrawingViews(d: DrawingDoc, oldScale: number): void;
   runCommand(id: string): boolean;
 }

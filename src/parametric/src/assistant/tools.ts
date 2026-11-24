@@ -972,7 +972,13 @@ class Toolkit {
     if (Object.keys(patch).length) {
       if (!this.doc.drawing) throw new ToolError('there is no drawing yet; set show: true first');
       this.host.prepareForEdit();
-      this.store.change('Edit drawing', (doc) => { if (doc.drawing) Object.assign(doc.drawing, patch); });
+      this.store.change('Edit drawing', (doc) => {
+        if (!doc.drawing) return;
+        const old = doc.drawing.scale;
+        Object.assign(doc.drawing, patch);
+        // As the drawing panel does: views stay on a smaller or turned sheet, and apart at a larger scale.
+        ui.fitDrawingViews(doc.drawing, old);
+      });
       this.changed = true;
       done.push(`set ${Object.keys(patch).join(', ')}`);
     }

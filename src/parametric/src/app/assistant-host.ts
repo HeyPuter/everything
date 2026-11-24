@@ -55,6 +55,10 @@ export function appHost(app: App): AssistantHost {
     showDrawing: (on) => (on ? app.openDrawing() : app.closeDrawing()),
     arrangeDrawing: () => app.drawing.relayout(),
     addDrawingView: (kind) => app.drawing.addView(kind),
+    fitDrawingViews(d, oldScale) {
+      app.drawing.rescaleViews(d, oldScale);
+      app.drawing.keepOnSheet(d);
+    },
     runCommand(id) {
       if (!app.commands.get(id) || !app.commands.isEnabled(id)) return false;
       return app.commands.run(id);
