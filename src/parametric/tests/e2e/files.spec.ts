@@ -102,8 +102,7 @@ test('cancelling the Save As location saves nothing', async ({ page }) => {
     w.__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '10' }); });
     w.__parametric.commands.run('saveAs');
   });
-  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Bracket');
-  await page.getByRole('button', { name: 'OK' }).click();
+  // Puter's save dialog asks for the name: Parametric does not ask first.
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual([]);
@@ -111,15 +110,16 @@ test('cancelling the Save As location saves nothing', async ({ page }) => {
 
   // Choosing a place saves there under the new name.
   await page.evaluate(() => {
-    const w = window as unknown as { __savePick: (name: string) => Promise<string>; __parametric: AppHandle };
-    w.__savePick = async (name) => `/tester/Documents/${name}`;
+    const w = window as unknown as { __savePick: (name: string) => Promise<string>; __parametric: AppHandle; suggested: string };
+    w.__savePick = async (name) => { w.suggested = name; return '/tester/Documents/Bracket.parametric'; };
     w.__parametric.commands.run('saveAs');
   });
-  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Bracket');
-  await page.getByRole('button', { name: 'OK' }).click();
   await expect(page).toHaveTitle('Bracket - Parametric');
-  const files = await page.evaluate(() => [...(window as unknown as Mock).__files.entries()].map(([k, v]) => [k, JSON.parse(v.text).name]));
-  expect(files).toEqual([['/tester/Documents/Bracket.parametric', 'Bracket']]);
+  // The dialog started from the part's name.
+  expect(await page.evaluate(() => (window as unknown as { suggested: string }).suggested)).toBe('Part1.parametric');
+  await expect(page.getByRole('dialog', { name: 'Save As' })).toHaveCount(0);
+  const files = await page.evaluate(() => [...(window as unknown as Mock).__files.entries()].map(([k, v]) => [k, JSON.parse(v.text).variables[0].name]));
+  expect(files).toEqual([['/tester/Documents/Bracket.parametric', 'A']]);
   // And is the recent part to open again.
   const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
   expect(recent[0]).toMatchObject({ name: 'Bracket', location: { type: 'cloud', path: '/tester/Documents/Bracket.parametric' } });
@@ -134,7 +134,7 @@ for (const existing of [false, true]) test(`cloud Save As finishes the ${existin
   await page.locator('[data-cmd="sketch"]').first().click();
   await page.evaluate((existing) => {
     const w = window as unknown as { __parametric: import('../../src/app/app').App; __savePick: (name: string) => Promise<string> };
-    w.__savePick = async (name) => `/tester/Documents/${name}`;
+    w.__savePick = async () => '/tester/Documents/Saved sketch.parametric';
     w.__parametric.sketchEditor!.edit('Add circle', (sk) => {
       sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 10 });
     });
@@ -149,9 +149,6 @@ for (const existing of [false, true]) test(`cloud Save As finishes the ${existin
     }
     w.__parametric.commands.run('saveAs');
   }, existing);
-  const dialog = page.getByRole('dialog', { name: 'Save As' });
-  await dialog.getByRole('textbox').fill('Saved sketch');
-  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
   await expect(page).toHaveTitle('Saved sketch - Parametric');
   // A stale session used to remain available, restoring the pre-save part.
   const discard = page.getByRole('button', { name: 'Discard sketch changes', exact: true });
@@ -187,13 +184,8 @@ test('cancelling cloud Save As preserves sketch geometry and allows saving it on
     });
     w.__parametric.commands.run('saveAs');
   });
-  const dialog = page.getByRole('dialog', { name: 'Save As' });
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.inSketch)).toBe(true);
-  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('saveAs'));
-  await dialog.getByRole('textbox').fill('Saved sketch');
-  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await page.waitForFunction(() => !(window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.inSketch);
+  await page.waitForTimeout(300);
   const cancelled = await page.evaluate(() => {
     const w = window as unknown as Mock & { __parametric: import('../../src/app/app').App };
     const a = w.__parametric;
@@ -203,31 +195,26 @@ test('cancelling cloud Save As preserves sketch geometry and allows saving it on
   expect(cancelled.features).toHaveLength(1);
   await page.evaluate(() => {
     const w = window as unknown as { __parametric: AppHandle; __savePick: (name: string) => Promise<string> };
-    w.__savePick = async (name) => `/tester/Documents/${name}`;
+    w.__savePick = async () => '/tester/Documents/Saved sketch.parametric';
     w.__parametric.commands.run('saveAs');
   });
-  await dialog.getByRole('textbox').fill('Saved sketch');
-  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
   await expect(page).toHaveTitle('Saved sketch - Parametric');
   const saved = await page.evaluate(() => JSON.parse((window as unknown as Mock).__files.get('/tester/Documents/Saved sketch.parametric')!.text));
   expect(saved.features).toEqual(cancelled.features);
   expect(errors).toEqual([]);
 });
 
-test('a part saved under another name chosen in the Puter save dialog takes that name', async ({ page }) => {
+test('a part saved under a name chosen in the Puter save dialog takes that name', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
   await app(page);
   await page.evaluate(() => {
     const w = window as unknown as { __parametric: AppHandle; __savePick: (name: string) => Promise<string> };
-    // The name typed in Parametric is changed again in Puter's dialog.
+    // The name is changed in Puter's dialog.
     w.__savePick = async () => '/tester/Documents/Gear v2.parametric';
     w.__parametric.commands.run('saveAs');
   });
-  const dialog = page.getByRole('dialog', { name: 'Save As' });
-  await dialog.getByRole('textbox').fill('Gear');
-  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
   await expect(page).toHaveTitle('Gear v2 - Parametric');
   const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
   expect(recent[0]).toMatchObject({ name: 'Gear v2', location: { type: 'cloud', path: '/tester/Documents/Gear v2.parametric' } });
@@ -735,10 +722,6 @@ for (const command of ['save', 'saveAs'] as const) test(`a delayed ${command} ca
     w.__parametric.store.change('Old work', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '10' }); });
     w.pendingSave = Promise.resolve(w.__parametric.commands.get(command)!.run());
   }, command);
-  if (command === 'saveAs') {
-    await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Original');
-    await page.getByRole('button', { name: 'OK', exact: true }).click();
-  }
   await page.waitForFunction(() => (window as unknown as { saveStarted: boolean }).saveStarted);
   await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
   await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
@@ -1272,14 +1255,16 @@ for (const first of ['save', 'saveAs', 'rename', 'samePath'] as const) test(`Sav
       const original = w.puter.fs[method].bind(w.puter.fs);
       w.puter.fs[method] = async (...args) => { w.firstStarted = true; await gate; return original(...args); };
     }
-    w.__savePick = async (name) => {
-      if ((first === 'saveAs' || first === 'samePath') && name === 'Original.parametric') { w.firstStarted = true; await gate; }
-      return first === 'samePath' ? '/tester/Documents/Shared.parametric' : `/tester/Documents/${name}`;
+    let picks = 0;
+    w.__savePick = async () => {
+      const firstPick = (first === 'saveAs' || first === 'samePath') && picks++ === 0;
+      if (firstPick) { w.firstStarted = true; await gate; }
+      return first === 'samePath' ? '/tester/Documents/Shared.parametric' : `/tester/Documents/${firstPick ? 'Original' : 'Copy'}.parametric`;
     };
     w.__parametric.commands.run(first === 'samePath' ? 'saveAs' : first);
   }, first);
-  if (first !== 'save') {
-    await page.getByRole('dialog', { name: first === 'rename' ? 'Rename part' : 'Save As' }).getByRole('textbox').fill('Original');
+  if (first === 'rename') {
+    await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Original');
     await page.getByRole('button', { name: 'OK', exact: true }).click();
   }
   await page.waitForFunction(() => (window as unknown as { firstStarted: boolean }).firstStarted);
@@ -1288,8 +1273,6 @@ for (const first of ['save', 'saveAs', 'rename', 'samePath'] as const) test(`Sav
     w.copyDone = false;
     w.pendingCopy = Promise.resolve(w.__parametric.commands.get('saveAs')!.run()).then(() => { w.copyDone = true; });
   });
-  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Copy');
-  await page.getByRole('button', { name: 'OK', exact: true }).click();
   // The second operation either completed (the old bug) or explains that it
   // is waiting for the current operation. Neither path relies on a sleep.
   await page.waitForFunction(() => (window as unknown as { copyDone: boolean }).copyDone || document.querySelector('.toasts')?.textContent?.includes('Waiting for the current file operation'));
@@ -1303,7 +1286,7 @@ for (const first of ['save', 'saveAs', 'rename', 'samePath'] as const) test(`Sav
   await expect(page).toHaveTitle(`${first === 'samePath' ? 'Shared' : 'Copy'} - Parametric`);
   const path = `/tester/Documents/${first === 'samePath' ? 'Shared' : 'Copy'}.parametric`;
   expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path });
-  expect(await page.evaluate((path) => JSON.parse((window as unknown as Mock).__files.get(path)!.text).name, path)).toBe('Copy');
+  expect(await page.evaluate((path) => JSON.parse((window as unknown as Mock).__files.get(path)!.text).variables[0].name, path)).toBe('Keep');
   await expect(page.locator('.toast', { hasText: 'Waiting for the current file operation' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -1447,7 +1430,10 @@ for (const command of ['rename', 'saveAs', 'new'] as const) test(`the ${command}
   const errors = await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
   await page.evaluate((command) => {
-    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; puter: { ui: { showSaveFilePicker?: unknown } } };
+    // Save As asks for a name itself only without Puter's save dialog.
+    delete w.puter.ui.showSaveFilePicker;
+    const a = w.__parametric;
     a.store.change('Original work', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '17' }); });
     a.commands.run(command);
   }, command);
@@ -1601,10 +1587,8 @@ test('the Parts task pane lists a part as soon as it is saved, saved as or renam
   const names = pane.locator('.file-item .n');
   await run('save');
   await expect(names).toHaveText(['Part1']);
-  await page.evaluate(() => { (window as unknown as { __savePick: (n: string) => Promise<string> }).__savePick = async (n) => `/tester/AppData/parametric/Parts/${n}`; });
+  await page.evaluate(() => { (window as unknown as { __savePick: () => Promise<string> }).__savePick = async () => '/tester/AppData/parametric/Parts/Bracket.parametric'; });
   await run('saveAs');
-  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Bracket');
-  await page.getByRole('dialog', { name: 'Save As' }).getByRole('button', { name: 'OK' }).click();
   // Parts saved within a second of each other may list in either order.
   const listed = () => names.allTextContents().then((t) => t.sort());
   await expect.poll(listed).toEqual(['Bracket', 'Part1']);

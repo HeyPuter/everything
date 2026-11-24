@@ -316,8 +316,9 @@ export class FileOps {
   async saveAs() {
     const app = this.app;
     const documentVersion = this.documentVersion;
+    // Puter's save dialog asks for the name itself, starting from the part's.
     const picker = cloudAvailable() && !!puter()?.ui?.showSaveFilePicker;
-    const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'), app.documentSignal);
+    const name = picker ? app.store.doc.name : await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'), app.documentSignal);
     if (name == null || documentVersion !== this.documentVersion) return;
     return this.fileOperation(async () => {
       if (documentVersion !== this.documentVersion) return;
