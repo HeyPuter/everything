@@ -170,6 +170,7 @@ export class AssistantPanel {
       },
       system: SYSTEM_PROMPT,
       snapshot: () => partSnapshot(this.host),
+      ready: () => this.host.settle(),
       model: () => ASSISTANT_MODEL,
       changes: changesDocument,
     });

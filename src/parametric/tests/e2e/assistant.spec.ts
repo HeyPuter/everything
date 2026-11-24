@@ -371,6 +371,8 @@ test('Enter that commits an IME composition does not send', async ({ page }) => 
   await box.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true, cancelable: true })));
   await box.press('Enter');
   await expect(page.locator('.as-user')).toHaveText(['にほんご']);
+  // The request goes once the part is rebuilt, a moment after the message shows.
+  await expect(page.getByText('ok', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __sends: number }).__sends)).toBe(1);
 });
 
@@ -483,20 +485,27 @@ test('changing the part\'s units finishes an open sketch first, so discarding it
 
 test('opening another part while a step is running keeps that step out of the new part', async ({ page }) => {
   await page.addInitScript(() => {
-    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+    const w = window as unknown as { __assistantChat: unknown; __asked?: boolean };
+    w.__assistantChat = async function* (messages: { role: string }[]) {
       if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done.' }; return; }
+      w.__asked = true;
       yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'front', name: 'Stray', shapes: [{ type: 'circle', center: [0, 0], radius: 9 }] } };
     };
   });
   await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
-  type P = { __parametric: { whenBuilt(): Promise<void>; newDocument(n: string): void; store: { doc: { name: string; features: { name: string }[] } } }; __stepWaiting?: boolean };
+  type P = { __parametric: { whenBuilt(): Promise<void>; newDocument(n: string): void; store: { doc: { name: string; features: { name: string }[] } } }; __stepWaiting?: boolean; __asked?: boolean };
   // The step waits on a slow rebuild, during which the user opens another part.
   await page.evaluate(() => {
     const w = window as unknown as P;
     const app = w.__parametric;
     const real = app.whenBuilt.bind(app);
-    app.whenBuilt = async () => { w.__stepWaiting = true; await new Promise((r) => setTimeout(r, 800)); return real(); };
+    app.whenBuilt = async () => {
+      if (!w.__asked) return real();
+      w.__stepWaiting = true;
+      await new Promise((r) => setTimeout(r, 800));
+      return real();
+    };
   });
   const box = page.getByRole('textbox', { name: 'Message the assistant' });
   await box.fill('A sketch');
@@ -604,4 +613,32 @@ test('the ideas offered before the first message follow whether the part has fea
   await expect(page.getByRole('button', { name: 'Explain how this part is built' })).toBeVisible();
   await page.evaluate(() => (window as unknown as P).__parametric.store.undo());
   await expect(page.locator('.as-empty')).toContainText('Describe a part to design');
+});
+
+test('the assistant reads the part as rebuilt, not as it was before a rebuild that is still running', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __results: string[]; __assistantChat: unknown };
+    w.__results = [];
+    w.__assistantChat = async function* (messages: { role: string; content: unknown }[]) {
+      const round = messages.filter((m) => m.role === 'assistant').length;
+      if (round === 0) {
+        w.__results.push(String(messages[1].content));
+        yield { type: 'tool', id: 'c1', name: 'find_geometry', input: { kind: 'faces', limit: 1 } };
+        return;
+      }
+      w.__results.push(String(messages.at(-1)!.content));
+      yield { type: 'text', text: 'Read it.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  // Sent while the part opened is still being built.
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('What is this?');
+  await box.press('Enter');
+  await expect(page.getByText('Read it.')).toBeVisible({ timeout: 60_000 });
+  const [snapshot, found] = await page.evaluate(() => (window as unknown as { __results: string[] }).__results);
+  expect(snapshot).not.toContain('Body: none yet');
+  expect(snapshot).not.toContain('not built yet');
+  expect(found).toMatch(/^\d+ of \d+ faces match \(showing 1\)/);
 });

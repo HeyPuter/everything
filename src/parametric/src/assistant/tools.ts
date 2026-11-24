@@ -110,6 +110,12 @@ const SKETCH_OPS: Obj = {
 };
 const REGIONS = ARR(POINT, 'Optional points inside the closed regions to use (sketch coordinates); by default every region is used, nested ones alternating material/holes');
 
+/** A tool that reads the part: it waits for a rebuild still running (a change the user just made, a part just opened). */
+const reads = (fn: (a: Obj, k: Toolkit) => string | Promise<string>) => async (a: Obj, k: Toolkit) => {
+  await k.host.settle();
+  return fn(a, k);
+};
+
 function featureTool(type: FeatureType, description: string, props: Obj, required: string[]): ToolDef {
   return {
     name: ADD_TOOLS[type]!,
@@ -125,13 +131,13 @@ const TOOLS: ToolDef[] = [
     name: 'get_model',
     description: 'The part as it is now: units, material, global variables, every feature in build order with its arguments and rebuild status, the body\'s size, and the selection. Pass feature ids to get just those features in full: their arguments (exactly what edit_feature takes) and faces.',
     parameters: obj({ features: NAMES('Feature ids or names to describe in full (then the rest of the part is left out)') }),
-    run: async (a, k) => k.getModel(a),
+    run: reads((a, k) => k.getModel(a)),
   },
   {
     name: 'get_sketch',
     description: 'Everything in one sketch: its plane and how sketch coordinates map to world space, every entity with ids and coordinates, relations and dimensions, definition status (degrees of freedom, conflicts) and the closed profiles it forms.',
     parameters: obj({ sketch: S('Sketch id or name'), from: N('Long sketches: start the entity and relation lists at this index (the answer says where the rest starts)') }, ['sketch']),
-    run: async (a, k) => k.getSketch(a),
+    run: reads((a, k) => k.getSketch(a)),
   },
   {
     name: 'find_geometry',
@@ -147,19 +153,19 @@ const TOOLS: ToolDef[] = [
       name_contains: S('Only names containing this text'),
       limit: N('At most this many (default 60, at most 400)'),
     }, ['kind']),
-    run: async (a, k) => k.findGeometry(a),
+    run: reads((a, k) => k.findGeometry(a)),
   },
   {
     name: 'measure',
     description: 'Minimum distance between two faces, edges or world points, with the closest points. Also reports the angle between two planar faces or two straight edges.',
     parameters: obj({ a: { description: 'Face name, edge name or world point [x, y, z]' }, b: { description: 'Face name, edge name or world point [x, y, z]' } }, ['a', 'b']),
-    run: async (a, k) => k.measure(a),
+    run: reads((a, k) => k.measure(a)),
   },
   {
     name: 'mass_properties',
     description: 'Volume, surface area, mass (from the material density), centre of mass and principal moments of the body.',
     parameters: obj({}),
-    run: async (_a, k) => k.massProperties(),
+    run: reads((_a, k) => k.massProperties()),
   },
   {
     name: 'calculate',
