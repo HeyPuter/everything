@@ -6,7 +6,7 @@ import { allocateId, newDocument, parseDocument, serializeDocument, withUsedBlob
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, type FileEntry, deletePart, forgetRecent, rememberRecent,
+  pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, writeRecoveryOnUnload, type FileEntry, deletePart, forgetRecent, rememberRecent,
   onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
 import { type PuterFSItem, cloudAvailable, env, isMissing, isPermissionError, puter, signIn, storageError } from '../platform/puter';
@@ -54,7 +54,8 @@ export class FileOps {
     };
     // A hidden tab can be closed without notice (phones discard background tabs).
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.flushRecovery(); });
-    window.addEventListener('pagehide', () => this.flushRecovery());
+    // A closing tab cannot wait for the asynchronous write: it is kept synchronously too.
+    window.addEventListener('pagehide', () => this.flushRecovery(true));
     onSavedElsewhere((loc) => {
       if (!sameLocation(loc, app.location) || sameLocation(loc, this.savedElsewhere)) return;
       this.savedElsewhere = loc;
@@ -771,21 +772,23 @@ export class FileOps {
     this.recoveryTimer = window.setTimeout(() => this.writeRecoveryNow(), 4000);
   }
 
-  private writeRecoveryNow() {
+  private writeRecoveryNow(unloading = false) {
     this.recoveryTimer = 0;
     if (!this.app.store.dirty) return;
     const location = this.app.location;
     // The file's version these changes were made on: a later save of it is told apart on restore.
     const version = location?.type === 'cloud' && this.known?.path === location.path ? this.known.version : null;
     const payload = JSON.stringify({ location, version, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
+    if (unloading) writeRecoveryOnUnload(payload);
     void this.writeRecoveryCopy(payload);
   }
 
-  /** Writes a pending recovery copy now: the tab is being hidden and may not come back (phones). */
-  private flushRecovery() {
-    if (this.recoveryTimer) {
+  /** Writes a pending recovery copy now: the tab is being hidden or closed and may not come back (phones). */
+  private flushRecovery(unloading = false) {
+    // Closing, even a write started when the tab was hidden just before may not finish.
+    if (this.recoveryTimer || (unloading && this.app.store.dirty)) {
       clearTimeout(this.recoveryTimer);
-      this.writeRecoveryNow();
+      this.writeRecoveryNow(unloading);
     }
   }
 

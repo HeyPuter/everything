@@ -583,11 +583,36 @@ export async function readRecovery(): Promise<string | null> {
   });
 }
 
+// A tab that is closing cannot wait for browser storage: what it has not
+// written yet goes into the synchronous key-value storage instead, if it fits.
+const UNLOAD_PREFIX = 'parametric:recovery-unload:';
+// Small enough to leave room for the list of parts kept in this browser and the preferences.
+const UNLOAD_LIMIT = 1_000_000;
+const unloadKey = (file: string) => `${UNLOAD_PREFIX}${file.slice(RECOVERY_PREFIX.length, -5)}`;
+
+/** Writes this tab's recovery copy at once, while the tab is being closed; false when it does not fit. */
+export function writeRecoveryOnUnload(text: string): boolean {
+  if (text.length > UNLOAD_LIMIT) return false;
+  try {
+    localStorage.setItem(unloadKey(ownRecovery), text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function clearRecovery() {
   return removeRecovery(ownRecovery);
 }
 
 export function removeRecovery(file: string) {
+  if (file.startsWith(RECOVERY_PREFIX)) {
+    try {
+      localStorage.removeItem(unloadKey(file));
+    } catch {
+      /* storage unavailable */
+    }
+  }
   return queued(async () => {
     try {
       await (await opfsDir())?.removeEntry(file);
@@ -597,10 +622,18 @@ export function removeRecovery(file: string) {
   });
 }
 
+const savedAtOf = (text: string) => {
+  try {
+    const t = (JSON.parse(text) as { savedAt?: unknown }).savedAt;
+    return typeof t === 'number' && Number.isFinite(t) ? t : 0;
+  } catch {
+    return 0;
+  }
+};
+
 /** Recovery copies left by tabs that are no longer open, newest first. */
 export async function orphanRecoveries(): Promise<{ file: string; text: string }[]> {
   const dir = await opfsDir();
-  if (!dir) return [];
   let held: Set<string> | null = null;
   try {
     const q = await locks()?.query();
@@ -610,7 +643,7 @@ export async function orphanRecoveries(): Promise<{ file: string; text: string }
   }
   const out: { file: string; text: string; at: number }[] = [];
   try {
-    for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+    if (dir) for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
       // recovery.json was the single copy written before there was one per tab.
       const id = name === 'recovery.json' ? '' : name.startsWith(RECOVERY_PREFIX) && name.endsWith('.json') ? name.slice(RECOVERY_PREFIX.length, -5) : null;
       if (id === null || name === ownRecovery || handle.kind !== 'file') continue;
@@ -621,6 +654,23 @@ export async function orphanRecoveries(): Promise<{ file: string; text: string }
     }
   } catch {
     /* listing failed: nothing to offer */
+  }
+  // Copies written while a tab closed: they replace an older copy of the same tab.
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(UNLOAD_PREFIX)) continue;
+      const id = key.slice(UNLOAD_PREFIX.length);
+      const file = `${RECOVERY_PREFIX}${id}.json`;
+      if (!id || file === ownRecovery || held?.has(`${LOCK_PREFIX}${id}`)) continue;
+      const text = localStorage.getItem(key) ?? '';
+      const at = savedAtOf(text);
+      const other = out.find((o) => o.file === file);
+      if (!other) out.push({ file, text, at });
+      else if (at > savedAtOf(other.text)) Object.assign(other, { text, at });
+    }
+  } catch {
+    /* storage unavailable */
   }
   return out.sort((a, b) => b.at - a.at).map(({ file, text }) => ({ file, text }));
 }

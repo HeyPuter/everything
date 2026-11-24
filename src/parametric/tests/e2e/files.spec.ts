@@ -427,6 +427,34 @@ test('a pending recovery copy is written as soon as the tab is hidden', async ({
   await expect.poll(() => page.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 1500 }).toContain('"name":"Hidden"');
 });
 
+for (const how of ['closed', 'reloaded'] as const) test(`changes made just before the tab is ${how} are offered for recovery`, async ({ context }) => {
+  const first = await context.newPage();
+  await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  // Closed or reloaded right away, before browser storage could be written.
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Last', expr: '1' }); }));
+  let page = first;
+  if (how === 'closed') {
+    await first.close({ runBeforeUnload: false });
+    page = await context.newPage();
+    await openApp(page);
+  } else {
+    first.on('dialog', (d) => void d.accept());
+    await first.reload();
+  }
+  const offer = page.getByRole('dialog', { name: 'Recover unsaved work?' });
+  await offer.getByRole('button', { name: 'Restore' }).click();
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['Last']);
+  // Restored, the copy is not offered again.
+  await page.evaluate(() => { (window as unknown as { __parametric: AppHandle }).__parametric.store.dirty = false; });
+  const next = await context.newPage();
+  await openApp(next);
+  await expect(next.getByRole('button', { name: /New part/ })).toBeVisible();
+  await expect(next.getByRole('dialog', { name: 'Recover unsaved work?' })).toHaveCount(0);
+});
+
 test('the start screen gives way to work started behind it, which an example then does not replace silently', async ({ page }) => {
   await mockPuter(page);
   await openApp(page);
