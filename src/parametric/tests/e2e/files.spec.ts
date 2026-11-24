@@ -791,6 +791,25 @@ test('a part launched from the desktop asks before replacing unsaved work', asyn
   expect(errors).toEqual([]);
 });
 
+test('a cloud part renamed on the Puter desktop opens under its file name', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    type Launch = (items: { name: string; path: string }[]) => Promise<void>;
+    const w = window as unknown as Mock & { puter: { ui: { onLaunchedWithItems(fn: Launch): void } }; launchPart: Launch };
+    w.puter.ui.onLaunchedWithItems = (fn) => { w.launchPart = fn; };
+    // Saved as Part1, then renamed in a desktop folder window.
+    w.__files.set('/tester/Documents/Gear.parametric', { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Part1', features: [] }) });
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { launchPart(items: unknown[]): Promise<void> }).launchPart([{ name: 'Gear.parametric', path: '/tester/Documents/Gear.parametric' }]));
+  await expect(page).toHaveTitle('Gear - Parametric');
+  const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
+  expect(recent[0]).toMatchObject({ name: 'Gear', location: { type: 'cloud', path: '/tester/Documents/Gear.parametric' } });
+  expect(errors).toEqual([]);
+});
+
 test('files from the Puter desktop: folders and other files are not read, one part opens at a time', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {

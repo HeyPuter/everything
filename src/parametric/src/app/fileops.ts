@@ -343,7 +343,11 @@ export class FileOps {
   }
 
   private openDoc(doc: PartDocument, loc: Location | null, name?: string) {
-    if (name && !doc.name) doc.name = name;
+    // A cloud file renamed outside Parametric (on the Puter desktop, say) opens
+    // under its file's name, as the Open dialog lists it and Rename renames it.
+    const fileName = loc?.type === 'cloud' ? loc.path.split('/').pop()!.replace(/\.(parametric|json)$/i, '') : '';
+    if (fileName) doc.name = fileName;
+    else if (name && !doc.name) doc.name = name;
     this.app.loadDocument(doc, loc);
     if (loc) rememberRecent({ location: loc, name: doc.name });
   }
