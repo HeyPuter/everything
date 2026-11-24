@@ -208,8 +208,8 @@ type Box = [x0: number, y0: number, x1: number, y1: number];
 
 const LABEL_SIZE = 2.6;
 /** How far a view's dimensions reach left of and below its outline. */
-const DIM_LEFT = 12;
-const DIM_BELOW = 10.5;
+export const DIM_LEFT = 12;
+export const DIM_BELOW = 10.5;
 
 const hasDims = (v: DrawingView) => v.dims && v.kind !== 'isometric';
 

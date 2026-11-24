@@ -5,7 +5,7 @@
 import type { ProjectionResult } from '../kernel/protocol';
 import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
-import { MARGIN, SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
+import { DIM_BELOW, DIM_LEFT, MARGIN, SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
 import { download, safeName } from '../platform/files';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -371,20 +371,39 @@ export class DrawingWorkspace {
   }
 
   /**
-   * Where a view moved to (x, y) stays: inside the sheet's border, where it
+   * Where a view moved to (x, y) stays: with its dimensions inside the sheet's border, where it
    * shows and is exported (the sheet clips what lies off it, so a view
    * dragged off could not be seen or found again). A view larger than the
    * border slides until its edges reach it.
    */
-  private onSheet(id: string, x: number, y: number, d = this.doc): [number, number] {
+  private onSheet(id: string, x: number, y: number, d = this.doc, k = 1): [number, number] {
     const v = d?.views.find((q) => q.id === id);
     if (!d || !v) return [x, y];
     const { w, h } = sheetDims(d);
-    // The view's reach from its centre (none while it is still being projected).
+    // The view's reach from its centre (none while it is still being projected), at k times the scale drawn.
     const f = this.frames.find((q) => q.id === id);
-    const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y] : [0, 0, 0, 0];
+    const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y].map((q) => q * k) : [0, 0, 0, 0];
+    // Its dimensions, left of and below it, stay on the sheet too.
+    const [dl, db] = v.dims && v.kind !== 'isometric' ? [DIM_LEFT, DIM_BELOW] : [0, 0];
     const fit = (c: number, lo: number, hi: number) => Math.min(Math.max(c, Math.min(lo, hi)), Math.max(lo, hi));
-    return [fit(x, MARGIN + l, w - MARGIN - r), fit(y, MARGIN + t, h - MARGIN - b)];
+    return [fit(x, MARGIN + l + dl, w - MARGIN - r), fit(y, MARGIN + t, h - MARGIN - b - db)];
+  }
+
+  /**
+   * After the scale changed from `old` to d.scale: views stay on the sheet. Growing, the
+   * layout grows from its top left corner, so the views move apart as they grow instead
+   * of running into each other; shrinking, each view keeps its place.
+   */
+  rescaleViews(d: DrawingDoc, old: number) {
+    const k = d.scale / old;
+    if (!(k > 0) || k === 1) return;
+    const fs = this.frames.filter((f) => d.views.some((v) => v.id === f.id));
+    const ax = Math.min(...fs.map((f) => f.x0)), ay = Math.min(...fs.map((f) => f.y0));
+    const moved = d.views.map((v) => {
+      const [x, y] = k > 1 && fs.length ? [ax + (v.x - ax) * k, ay + (v.y - ay) * k] : [v.x, v.y];
+      return this.onSheet(v.id, x, y, d, k);
+    });
+    d.views.forEach((v, i) => { [v.x, v.y] = moved[i]; });
   }
 
   /** After the sheet got smaller or turned: views that would hang off it move back on. */
@@ -491,7 +510,7 @@ export class DrawingPanel extends PropertyPanel {
     const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; ws.keepOnSheet(x); }, 'Sheet size'));
     const scales = STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }));
     if (!scales.some((s) => Number(s.value) === d.scale)) scales.push({ value: String(d.scale), label: scaleLabel(d.scale) });
-    const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { x.scale = Number(v); }, 'Sheet scale'));
+    const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { const old = x.scale; x.scale = Number(v); ws.rescaleViews(x, old); }, 'Sheet scale'));
     const views = h('div', { class: 'relations-list' });
     for (const v of d.views) views.append(this.viewRow(v));
     const addSel = h('select', { class: 'input', 'aria-label': 'View to add' }) as HTMLSelectElement;

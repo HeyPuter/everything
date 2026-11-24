@@ -242,6 +242,34 @@ test('views stay on a sheet made smaller or turned, in the same undo step', asyn
   await expect.poll(async () => (await iso()).x1).toBeLessThanOrEqual(200.001);
 });
 
+test('a larger drawing scale moves the views apart and keeps them on the sheet, in one undo step', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type Frame = { id: string; x0: number; y0: number; x1: number; y1: number };
+  type A = { store: { undoDepth: number; doc: { drawing: { scale: number } } }; drawing: { frames: Frame[] } };
+  const frames = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.drawing.frames);
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.undoDepth);
+  await page.getByRole('combobox', { name: 'Sheet size' }).selectOption('A3');
+  const before = await frames();
+  const d0 = await depth();
+  await page.getByRole('combobox', { name: 'Scale' }).selectOption('2');
+  await expect.poll(async () => { const f = (await frames()).find((q) => q.id === 'v1')!; return f.x1 - f.x0; }).toBeCloseTo(2 * (before.find((q) => q.id === 'v1')!.x1 - before.find((q) => q.id === 'v1')!.x0), 3);
+  expect(await depth()).toBe(d0 + 1);
+  const after = await frames();
+  // Twice the size, not on top of each other, and with their dimensions on the A3 sheet (420 x 297, 10 mm border).
+  for (const a of after) {
+    for (const b of after) if (a !== b) expect(a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0, `${a.id} ${b.id}`).toBe(false);
+    const dims = a.id !== 'v4';
+    expect(a.x0 - (dims ? 12 : 0)).toBeGreaterThanOrEqual(10 - 1e-6);
+    expect(a.y0).toBeGreaterThanOrEqual(10 - 1e-6);
+    expect(a.x1).toBeLessThanOrEqual(410 + 1e-6);
+    expect(a.y1 + (dims ? 10.5 : 0)).toBeLessThanOrEqual(287 + 1e-6);
+  }
+});
+
 test.describe('in a time zone behind UTC', () => {
   test.use({ timezoneId: 'Pacific/Pago_Pago' });
   test('the title block shows the local date', async ({ page }) => {
