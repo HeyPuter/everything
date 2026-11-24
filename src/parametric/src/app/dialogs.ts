@@ -48,7 +48,27 @@ export async function equationsDialog(app: App) {
   const cells = new Map<Variable, { expr: HTMLInputElement; result: HTMLElement; del: HTMLElement }>();
   // The name the other equations use for each row, while its typed name is not usable yet.
   const linked = new Map<Variable, string>();
+  /** Shows what every row evaluates to with `trial` (the rows, or what is being typed in one). */
+  const showResults = (trial: Variable[]) => {
+    const { values, errors } = evaluateVariables(trial);
+    trial.forEach((t, i) => {
+      const c = cells.get(rows[i]);
+      if (!c) return;
+      const val = values.get(t.name);
+      const e = errors.get(t.name);
+      c.result.textContent = e ? e : val !== undefined ? formatNumber(val, 4) : '';
+      c.result.style.color = e ? 'var(--danger)' : '';
+    });
+  };
+  // While a value is typed its result (and those of the equations using it) follows,
+  // without taking the value until the field is left.
+  let typing = 0;
+  const preview = (v: Variable, text: string) => {
+    clearTimeout(typing);
+    typing = window.setTimeout(() => showResults(rows.map((r) => (r === v ? { ...r, expr: text.trim() } : r))), 250);
+  };
   const refresh = () => {
+    clearTimeout(typing);
     const { values, errors } = evaluateVariables(rows);
     for (const v of rows) {
       const c = cells.get(v)!;
@@ -87,6 +107,7 @@ export async function equationsDialog(app: App) {
         refresh();
       });
       expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });
+      expr.addEventListener('input', () => preview(v, expr.value));
       const result = h('td', { class: 'num', id: nextDomId('eq-result') });
       expr.setAttribute('aria-describedby', result.id);
       const del = h('button', { class: 'icon-btn', type: 'button' }, icon('trash', 16));

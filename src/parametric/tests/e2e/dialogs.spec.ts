@@ -175,3 +175,28 @@ test('the labels of Part Properties and a custom material name their fields and 
   await material.getByText('Density (kg/m³)', { exact: true }).click();
   await expect(material.getByLabel('Density in kg per cubic metre')).toBeFocused();
 });
+
+test('Equations shows what a value being typed evaluates to, and what uses it, before it is taken', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Variables', (d) => {
+      d.variables.push({ id: 'v1', name: 'Width', expr: '10' }, { id: 'v2', name: 'Half', expr: 'Width/2' });
+    });
+    a.commands.run('equations');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  const width = dialog.getByRole('textbox', { name: 'Value or expression of Width' });
+  await width.click();
+  await width.fill('30');
+  await expect(width).toBeFocused();
+  const rows = dialog.locator('tbody tr');
+  await expect(rows.nth(0).locator('td.num').first()).toHaveText('30.0000');
+  await expect(rows.nth(1).locator('td.num').first()).toHaveText('15.0000');
+  await width.fill('30+');
+  await expect(rows.nth(0).locator('td.num').first()).not.toHaveText('30.0000');
+  // Nothing is taken until OK.
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.variables.map((v) => v.expr))).toEqual(['10', 'Width/2']);
+});
