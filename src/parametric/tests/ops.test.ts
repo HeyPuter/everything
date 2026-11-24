@@ -269,6 +269,26 @@ describe('editing tools', () => {
     }
   });
 
+  it('stops a trim at sketch points lying on a circle or arc, as on a line', () => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 10 },
+      { id: 'q1', t: 'point', x: 10, y: 0 }, { id: 'q2', t: 'point', x: 0, y: 10 },
+    ]);
+    s.constraints.push({ id: 'k1', type: 'coincident', refs: ['q1', 'C'] }, { id: 'k2', type: 'coincident', refs: ['q2', 'C'] });
+    // Clicking between the two points removes the quarter between them, not the whole circle.
+    expect(trimAt(s, 'C', [7.07, 7.07], idFactory(s))).toBe(true);
+    const arc = s.entities.find((e) => e.id === 'C') as Extract<SkEntity, { t: 'arc' }>;
+    expect(arc.t).toBe('arc');
+    const ix = new SketchIndex(s.entities);
+    expect(arcAngles(ix, arc).sweep).toBeCloseTo(1.5 * Math.PI, 9);
+    // And on that arc, a point between its ends splits it there.
+    s.entities.push({ id: 'q3', t: 'point', x: -10, y: 0 });
+    expect(trimAt(s, 'C', [0, -10], idFactory(s))).toBe(true);
+    const left = s.entities.filter((e) => e.t === 'arc');
+    expect(left).toHaveLength(1);
+    expect(arcAngles(new SketchIndex(s.entities), left[0] as Extract<SkEntity, { t: 'arc' }>).sweep).toBeCloseTo(Math.PI / 2, 9);
+  });
+
   it('previews exactly the piece a trim removes', () => {
     const ents = (): SkEntity[] => [
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
