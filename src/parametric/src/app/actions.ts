@@ -165,7 +165,16 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'rebuild', label: 'Rebuild', icon: 'rebuild', shortcut: 'Ctrl+B', description: 'Rebuild the model.', run: () => app.requestRebuild(true) },
     { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Control+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
-    { id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true, enabled: () => !!c.lastRun && !app.panel, run: () => { if (c.lastRun) c.run(c.lastRun); } },
+    {
+      // The sketch tool in use is that command already: running it again would
+      // turn it off and drop what it is drawing (a circle's centre).
+      id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true,
+      enabled: () => {
+        const tool = app.sketchEditor?.tool?.id;
+        return !!c.lastRun && !app.panel && !(tool && (c.lastRun === tool || c.lastRun === `tool:${tool}`));
+      },
+      run: () => { if (c.lastRun) c.run(c.lastRun); },
+    },
     {
       id: 'delete', label: 'Delete', icon: 'trash', shortcut: 'Delete',
       enabled: () => app.selection.items.some((x) => x.kind === 'feature' || x.kind.startsWith('sk')),

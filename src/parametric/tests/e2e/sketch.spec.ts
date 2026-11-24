@@ -1131,6 +1131,24 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Enter in the middle of a circle or a constraint keeps the tool and what it started', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const tool = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { tool: { id: string } | null } } }).__parametric.sketchEditor.tool?.id);
+    await page.locator('[data-cmd="tool:circle"]').click();
+    await page.mouse.click(x, y);
+    // Enter repeated the last command, the circle tool itself, which turned it off and dropped the centre.
+    await page.keyboard.press('Enter');
+    expect(await tool()).toBe('circle');
+    await page.mouse.click(x + 60, y);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { sketch: { entities: { t: string }[] } } } }).__parametric.sketchEditor.sketch.entities.filter((e) => e.t === 'circle').length)).toBe(1);
+    await page.keyboard.press('Escape');
+    await page.locator('[data-cmd="constraint:horizontal"]').click();
+    await page.keyboard.press('Enter');
+    expect(await tool()).toBe('constraint:horizontal');
+    expect(errors).toEqual([]);
+  });
+
   test('undo in the middle of a line chain starts a fresh chain', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
