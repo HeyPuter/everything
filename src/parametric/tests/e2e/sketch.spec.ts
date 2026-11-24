@@ -1227,6 +1227,42 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('moving the pointer while drawing redraws only the preview, not the whole sketch', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add line', (sk) => {
+        sk.entities.push({ id: 'a1', t: 'point', x: -30, y: -20 }, { id: 'a2', t: 'point', x: -10, y: -20 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['A'], value: 20, at: [-20, -25], name: 'D1' });
+      });
+      const w = window as unknown as { layers: string[] };
+      w.layers = [];
+      const set = a.renderer.setLines.bind(a.renderer);
+      a.renderer.setLines = (k: string, v: Parameters<typeof set>[1]) => { w.layers.push(k); return set(k, v); };
+    });
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x, y);
+    await page.evaluate(() => { (window as unknown as { layers: string[] }).layers = []; });
+    for (let i = 1; i <= 6; i++) await page.mouse.move(x + i * 15, y - i * 4);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const layers = await page.evaluate(() => (window as unknown as { layers: string[] }).layers);
+    // Every move rebuilt the sketch's lines, points, dimensions and badges.
+    expect(layers).toContain('sk-preview');
+    expect(layers).not.toContain('sk-active');
+    expect(layers).not.toContain('sk-dims');
+    // The rubber band still follows the pointer, and the status bar the snapped position.
+    const preview = await page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { preview: { lines: [number, number][][] } } } }).__parametric.sketchEditor.preview.lines.length);
+    expect(preview).toBe(1);
+    const coords = page.locator('.statusbar .cell.hide-mobile').first();
+    const before = await coords.textContent();
+    await page.mouse.move(x + 120, y - 40);
+    await expect(coords).not.toHaveText(before ?? '');
+    await page.mouse.click(x + 90, y - 24);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'line').length)).toBe(2);
+    expect(errors).toEqual([]);
+  });
+
   test('undo in the middle of a line chain starts a fresh chain', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

@@ -388,14 +388,14 @@ export class SketchEditor implements ViewportTool {
     // drawing: the inference guide and length tip measured from its start
     // point would otherwise stay on screen until the pointer moves again.
     if (!lines.length && !points.length && !dashed.length) this.resnapCursor();
-    this.queueRender();
+    this.queueRender(true);
   }
 
   /** Highlights what the active tool would act on, in the hover colour. */
   setHighlight(lines: Vec2[][]) {
     if (!lines.length && !this.highlight.length) return;
     this.highlight = lines;
-    this.queueRender();
+    this.queueRender(true);
   }
 
   /** Snaps the last cursor position again for the tool state (its start point may be gone). */
@@ -1046,11 +1046,21 @@ export class SketchEditor implements ViewportTool {
 
   // ---------- rendering ----------
 
-  queueRender() {
+  /** Whether the queued redraw must redraw the sketch itself, not only the tool preview. */
+  private fullRender = false;
+
+  /**
+   * Redraws on the next frame. `previewOnly`: only the tool preview, guides
+   * and highlight changed (a pointer move while drawing), so the sketch's own
+   * geometry, dimensions and badges are not rebuilt for it.
+   */
+  queueRender(previewOnly = false) {
+    if (!previewOnly) this.fullRender = true;
     if (this.renderQueued || this.disposed) return;
     this.renderQueued = requestAnimationFrame(() => {
       this.renderQueued = 0;
-      this.render();
+      if (this.fullRender) this.render();
+      else this.renderPreview();
     });
   }
 
@@ -1069,6 +1079,7 @@ export class SketchEditor implements ViewportTool {
   render() {
     const sk = this.sketch;
     if (!sk || this.disposed) return;
+    this.fullRender = false;
     const r = this.app.renderer;
     const fr = this.frame;
     const ix = new SketchIndex(sk.entities);
@@ -1118,6 +1129,22 @@ export class SketchEditor implements ViewportTool {
     psz.push(9, 2);
     r.setPoints('sk-points', { positions: new Float32Array(ppos), colors: new Uint8Array(pcol), sizeStyle: new Float32Array(psz), depth: 'always', order: 12 });
 
+    this.renderPreview(false);
+    this.renderDimensions();
+    this.renderRelations();
+    this.syncTabStops();
+    this.app.updateSketchStatus();
+  }
+
+  /** Draws the tool preview, inference guides and highlight (and, alone, the status bar position). */
+  private renderPreview(alone = true) {
+    if (!this.sketch || this.disposed) return;
+    const r = this.app.renderer;
+    const fr = this.frame;
+    const push = (arr: number[], carr: number[], a: Vec3, b: Vec3, c: number[], alpha = 255) => {
+      arr.push(...a, ...b);
+      carr.push(c[0] * 255, c[1] * 255, c[2] * 255, alpha);
+    };
     // Tool preview and inference guides.
     const prev: number[] = [], pc: number[] = [];
     const pv = this.app.colors.sketchUnder;
@@ -1134,11 +1161,7 @@ export class SketchEditor implements ViewportTool {
       colors: new Uint8Array(this.preview.points.length * 4).map((_, i) => [pv[0] * 255, pv[1] * 255, pv[2] * 255, 255][i % 4]),
       sizeStyle: new Float32Array(this.preview.points.length * 2).map((_, i) => (i % 2 ? 0 : 6)), depth: 'always', order: 14,
     } : null);
-
-    this.renderDimensions();
-    this.renderRelations();
-    this.syncTabStops();
-    this.app.updateSketchStatus();
+    if (alone) this.app.updateSketchStatus();
   }
 
   private renderDimensions() {
@@ -1371,7 +1394,7 @@ export class SketchEditor implements ViewportTool {
     const from = this.tool?.from?.();
     if (from && (s.kind === 'h' || s.kind === 'v')) guides.push([from, s.p]);
     this.preview.guides = guides;
-    this.queueRender();
+    this.queueRender(true);
   }
 
   private showTip(e: VPEvent, s: Snap | null) {
