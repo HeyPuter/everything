@@ -4,7 +4,7 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { PROJECTED_LOCKED, extendAt, filletCorner, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
+import { PROJECTED_LOCKED, extendAt, extendPreview, filletCorner, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
 import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
@@ -712,6 +712,9 @@ export function extendTool(ed: SketchEditor): SkTool {
     move(s) {
       const hit = ed.pickAt(s.p, 8);
       ed.hovered = hit && hit.kind === 'curve' ? hit : null;
+      // Where the line would grow to, from the end nearest the cursor.
+      const add = hit?.kind === 'curve' && !isExternal(ed.sketch, hit.id) ? extendPreview(ed.sketch, hit.id, s.p) : null;
+      ed.setHighlight(add ? [add] : []);
       ed.queueRender();
     },
     click(s) {
@@ -720,6 +723,7 @@ export function extendTool(ed: SketchEditor): SkTool {
       if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
       let ok = false;
       ed.edit('Extend', (sk, newId) => { ok = extendAt(sk, hit.id, s.p, newId); });
+      ed.setHighlight([]);
       if (!ok) ed.app.setStatus('Nothing to extend to in that direction.');
       return true;
     },

@@ -613,14 +613,11 @@ function moveConstraintsOnPoint(sk: SketchFeature, pointId: Id, newCurve: Id, ol
   }
 }
 
-/**
- * Extends the end of a line nearest `at` to the closest intersection. With
- * `newId`, the new end is kept on the curve it reached (as trim does).
- */
-export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: string) => Id): boolean {
+/** Where extending the end of a line nearest `at` takes it, and the curve it reaches. */
+function extendPlan(sk: SketchFeature, lineId: Id, at: Vec2): { pid: Id; from: Vec2; to: Vec2; by: SkEntity } | null {
   const ix = new SketchIndex(sk.entities);
   const l = ix.get(lineId);
-  if (!l || l.t !== 'line' || l.ext) return false;
+  if (!l || l.t !== 'line' || l.ext) return null;
   const a = ix.pt(l.a), b = ix.pt(l.b);
   const fromB = dist2(at, b) < dist2(at, a);
   const start = fromB ? a : b, end = fromB ? b : a;
@@ -638,13 +635,27 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: st
       }
     }
   }
-  if (!best) return false;
-  const pid = fromB ? l.b : l.a;
-  const pt = sk.entities.find((e) => e.id === pid) as SkPoint;
-  pt.x = best[0];
-  pt.y = best[1];
+  return best && by ? { pid: fromB ? l.b : l.a, from: end, to: best, by } : null;
+}
+
+/** The segment extending a line at `at` would add, or null when it reaches nothing. */
+export function extendPreview(sk: SketchFeature, lineId: Id, at: Vec2): [Vec2, Vec2] | null {
+  const plan = extendPlan(sk, lineId, at);
+  return plan ? [plan.from, plan.to] : null;
+}
+
+/**
+ * Extends the end of a line nearest `at` to the closest intersection. With
+ * `newId`, the new end is kept on the curve it reached (as trim does).
+ */
+export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: string) => Id): boolean {
+  const plan = extendPlan(sk, lineId, at);
+  if (!plan) return false;
+  const pt = sk.entities.find((e) => e.id === plan.pid) as SkPoint;
+  pt.x = plan.to[0];
+  pt.y = plan.to[1];
   dropLengthDimensions(sk, lineId);
-  if (newId && by) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pid, by.id] });
+  if (newId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [plan.pid, plan.by.id] });
   return true;
 }
 
