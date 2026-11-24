@@ -68,7 +68,15 @@ type Tok =
   | { k: 'op'; v: string }
   | { k: 'end' };
 
+/**
+ * Typographic signs pasted from documents and spreadsheets as the ASCII ones:
+ * the minus sign (U+2212) and dashes, multiplication and division signs. Each
+ * stays one character, so positions in the text are unchanged.
+ */
+const typographic = (src: string) => src.replace(/[\u2212\u2012\u2013\uFE63\uFF0D]/g, '-').replace(/[\u00D7\u22C5]/g, '*').replace(/\u00F7/g, '/');
+
 function tokenize(src: string): Tok[] {
+  src = typographic(src);
   const out: Tok[] = [];
   let i = 0;
   while (i < src.length) {
