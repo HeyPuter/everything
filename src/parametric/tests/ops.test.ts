@@ -37,6 +37,10 @@ describe('relations', () => {
     expect(availableRelations(s, ['rp0', 'circ'])).toEqual(['coincident', 'concentric', 'fix']);
     expect(availableRelations(s, ['c0', 'arc'])).toEqual(['coincident', 'concentric', 'fix']);
     expect(availableRelations(s, ['rp0', 'rp1', 'rl0'])).toEqual(['fix']);
+    // Nor the ends of one line, or an arc's centre and end, made one point.
+    expect(availableRelations(s, ['rp0', 'rp1'])).toEqual(['horizontal', 'vertical', 'fix']);
+    expect(availableRelations(s, ['ac', 'ab'])).toEqual(['horizontal', 'vertical', 'fix']);
+    expect(availableRelations(s, ['rp0', 'rp2'])).toEqual(['horizontal', 'vertical', 'coincident', 'fix']);
     expect(availableRelations(s, ['rp0', 'rp2', 'rl0'])).toContain('symmetric');
   });
 

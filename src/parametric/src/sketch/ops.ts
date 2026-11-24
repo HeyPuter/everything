@@ -103,7 +103,9 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
     if (n === 3) out.push('symmetric');
   } else if (pts === n) {
     out.push('horizontal', 'vertical');
-    if (n === 2) out.push('coincident');
+    // Two points of one line or arc (its ends, or an arc's centre and an
+    // end) made coincident collapse it.
+    if (n === 2 && !sk.entities.some((e) => (e.t === 'line' || e.t === 'arc') && ids.every((id) => pointIdsOf(e).includes(id)))) out.push('coincident');
   } else if (circs === n) {
     out.push('equal');
     if (n === 2) out.push('concentric', 'tangent');
