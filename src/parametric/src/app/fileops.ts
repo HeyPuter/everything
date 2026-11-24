@@ -569,7 +569,14 @@ export class FileOps {
   async importStep() {
     const documentVersion = this.documentVersion;
     const file = await pickDeviceFile(acceptList(IMPORT_EXTS));
-    if (!file || documentVersion !== this.documentVersion || tooLarge(file.size, file.name)) return;
+    if (!file || documentVersion !== this.documentVersion) return;
+    // Any file can be picked (iPhone and iPad, or All Files): only models are imported.
+    if (!isStepFile(file.name) && !isSolidWorksFile(file.name)) {
+      const part = file.name.toLowerCase().endsWith(EXT);
+      toast({ kind: 'error', title: 'Import failed', message: `${file.name} is not a STEP file (.step, .stp) or a SolidWorks part (.sldprt).${part ? ' To work on a part file, open it with Open.' : ''}`, timeout: 8000 });
+      return;
+    }
+    if (tooLarge(file.size, file.name)) return;
     if (isSolidWorksFile(file.name)) {
       const step = await this.convertSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name);
       if (step && documentVersion === this.documentVersion) await this.importStepText(step, file.name);
