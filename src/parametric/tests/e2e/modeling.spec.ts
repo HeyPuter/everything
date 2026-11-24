@@ -752,3 +752,23 @@ test('turning on Direction 2 of an extrude uses the depth and end its controls s
   await expect(sec2.getByRole('combobox', { name: 'End condition' })).toHaveValue('throughAll');
   expect(errors).toEqual([]);
 });
+
+test('turning an extrude draft off and on again keeps the angle its field shows', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const draft = () => page.evaluate(() => (window as unknown as { __parametric: { panel: { f: { draft: number } } } }).__parametric.panel.f.draft);
+  const check = page.getByRole('checkbox', { name: 'Draft', exact: true });
+  await check.check();
+  const angle = page.getByRole('textbox', { name: 'Draft angle' });
+  await angle.fill('7');
+  await angle.press('Enter');
+  expect(await draft()).toBe(7);
+  await check.uncheck();
+  expect(await draft()).toBe(0);
+  await check.check();
+  await expect(angle).toHaveValue('7');
+  expect(await draft()).toBe(7);
+  expect(errors).toEqual([]);
+});

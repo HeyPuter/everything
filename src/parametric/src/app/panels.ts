@@ -234,7 +234,9 @@ export class ExtrudePanel extends FeaturePanel<ExtrudeFeature> {
     depth.hidden = f.end === 'throughAll';
     // A draft linked to an equation ("=Angle") is on too.
     const hasDraft = String(f.draft).trim().startsWith('=') || Number(f.draft) > 0;
-    const draftAngle = numberField({ label: 'Draft angle', icon: 'draft', value: f.draft || 3, kind: 'angle', ctx, min: 0, onChange: (v) => { f.draft = v; this.changed(); } });
+    // What the angle field shows, which turning the draft on again uses (it went back to 3 under a field showing another angle).
+    let draft = f.draft || 3;
+    const draftAngle = numberField({ label: 'Draft angle', icon: 'draft', value: draft, kind: 'angle', ctx, min: 0, onChange: (v) => { draft = v; f.draft = v; this.changed(); } });
     draftAngle.hidden = !hasDraft;
     const outward = checkbox('Draft outward', f.draftOutward, (v) => { f.draftOutward = v; this.changed(); });
     outward.hidden = !hasDraft;
@@ -248,7 +250,7 @@ export class ExtrudePanel extends FeaturePanel<ExtrudeFeature> {
         }))),
       depth,
       checkbox('Draft', hasDraft, (v) => {
-        f.draft = v ? 3 : 0;
+        f.draft = v ? draft : 0;
         draftAngle.hidden = !v;
         outward.hidden = !v;
         this.changed();
