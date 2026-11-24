@@ -775,3 +775,55 @@ test('double-clicking Send sends once and does not stop the reply it started', a
   await expect(page.locator('.as-bot .as-foot')).not.toContainText('Stopped');
   expect(await page.evaluate(() => (window as unknown as { __sends: number }).__sends)).toBe(1);
 });
+
+test('Stop while the reply streams keeps what was written; Stop while a step runs lets it finish and skips the rest', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __asked?: boolean; __n: number };
+    w.__n = 0;
+    w.__assistantChat = async function* (_m: unknown, opts: { signal?: AbortSignal }) {
+      w.__n++;
+      if (w.__n === 1) {
+        yield { type: 'text', text: 'The first half of' };
+        await new Promise((r) => opts.signal?.addEventListener('abort', r));
+        return;
+      }
+      w.__asked = true;
+      yield { type: 'tool', id: 'a', name: 'set_variables', input: { set: [{ name: 'A', value: 1 }] } };
+      yield { type: 'tool', id: 'b', name: 'set_variables', input: { set: [{ name: 'B', value: 1 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Explain');
+  await box.press('Enter');
+  await expect(page.getByText('The first half of')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.locator('.as-bot').first().locator('.as-foot')).toHaveText('Stopped.');
+  await expect(page.getByText('The first half of')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+
+  // A slow rebuild keeps the first step running when Stop is pressed.
+  type P = { __parametric: { whenBuilt(): Promise<void>; store: { doc: { variables: { name: string }[] } } }; __asked?: boolean; __stepRunning?: boolean };
+  await page.evaluate(() => {
+    const w = window as unknown as P;
+    const app = w.__parametric;
+    const real = app.whenBuilt.bind(app);
+    app.whenBuilt = async () => {
+      if (w.__asked) { w.__stepRunning = true; await new Promise((r) => setTimeout(r, 600)); }
+      return real();
+    };
+  });
+  await box.fill('Two variables');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as P).__stepRunning);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.locator('.as-status')).toHaveText('Stopping…');
+  const turn = page.locator('.as-bot').nth(1);
+  await expect(turn.locator('.as-foot')).toContainText('Stopped.');
+  await expect(turn.locator('.as-step.done')).toHaveCount(1);
+  await expect(turn.locator('.as-step.skipped')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['A']);
+  await turn.getByRole('button', { name: 'Undo changes' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.length)).toBe(0);
+});
