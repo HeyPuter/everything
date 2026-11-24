@@ -137,6 +137,60 @@ export function estimatePdfPages(text: string, streams: { data: string; first: n
   return pages.size + loose;
 }
 
+/** Header variables a model needs to read a DXF's geometry: version, units and extents. */
+const DXF_HEADER_VARS = new Set(['$ACADVER', '$INSUNITS', '$MEASUREMENT', '$LUNITS', '$EXTMIN', '$EXTMAX']);
+/** Sections with geometry; the rest (classes, tables, objects, thumbnail) are drawing-program bookkeeping. */
+const DXF_SECTIONS = new Set(['HEADER', 'BLOCKS', 'ENTITIES']);
+
+/**
+ * An ASCII DXF as the model reads it best: each group code with its value on one line, only the
+ * units and extents from the header, the BLOCKS and ENTITIES sections, and without handles, owner
+ * references, subclass markers and application data. A DXF saved by a CAD program is mostly
+ * bookkeeping before its entities (tables, classes, objects): cut at the text limit, the model got
+ * the bookkeeping and none of the geometry. Null when the text is not an ASCII DXF.
+ */
+export function condenseDxf(text: string): string | null {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
+  if (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  if (lines.length < 4 || lines.length % 2) return null;
+  const out: string[] = [];
+  let section = '';
+  let headerVar = '';
+  let inAppGroup = false;
+  let sawSection = false;
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const code = Number(lines[i].trim());
+    if (!Number.isInteger(code) || !/^\s*-?\d+\s*$/.test(lines[i])) return null;
+    const value = lines[i + 1].trim();
+    if (code === 0 && value === 'SECTION') {
+      sawSection = true;
+      section = (lines[i + 2]?.trim() === '2' ? lines[i + 3]?.trim() : '') ?? '';
+      if (DXF_SECTIONS.has(section)) out.push(`0 SECTION`, `2 ${section}`);
+      i += 2;
+      continue;
+    }
+    if (code === 0 && value === 'ENDSEC') {
+      if (DXF_SECTIONS.has(section)) out.push('0 ENDSEC');
+      section = '';
+      continue;
+    }
+    if (code === 0 && value === 'EOF') { out.push('0 EOF'); break; }
+    if (!DXF_SECTIONS.has(section)) continue;
+    if (section === 'HEADER') {
+      if (code === 9) headerVar = value;
+      if (DXF_HEADER_VARS.has(headerVar)) out.push(`${code} ${value}`);
+      continue;
+    }
+    // {ACAD_REACTORS … } and other application groups, handles, owners, subclass markers, extended data.
+    if (code === 102) { inAppGroup = value.startsWith('{') && !value.endsWith('}'); continue; }
+    if (inAppGroup) continue;
+    if (code === 5 || code === 105 || code === 100 || code === 330 || code === 360 || code >= 1000) continue;
+    out.push(`${code} ${value}`);
+  }
+  if (!sawSection) return null;
+  return `[DXF condensed for reading: one group code and its value per line; from the header only the version, units ($INSUNITS: 1 in, 4 mm, 5 cm, 6 m) and extents; the BLOCKS and ENTITIES sections; handles, owners and application data left out.]\n${out.join('\n')}`;
+}
+
 const cutText = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
 const quoteTag = (s: string) => s.replace(/<(\s*\/?\s*attached_file)\b/gi, '‹$1');
 const quoteName = (s: string) => cutText(String(s ?? '').replace(/["\r\n<>]/g, ' '), 200);

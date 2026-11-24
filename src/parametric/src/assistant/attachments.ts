@@ -7,8 +7,8 @@
 // most that size. A phone photo is routinely 3-12 MB and 4000 px or more.
 
 import {
-  type Attachment, MAX_PDF_PAGES, MAX_TEXT_CHARS, VISION_TYPES, attachmentKind, attachmentProblem, estimatePdfPages, imageBlock, imageType, pdfBlock,
-  textBlock,
+  type Attachment, MAX_PDF_PAGES, MAX_TEXT_CHARS, VISION_TYPES, attachmentKind, attachmentProblem, condenseDxf, estimatePdfPages, imageBlock, imageType,
+  pdfBlock, textBlock,
 } from './attach';
 
 // The API's 5 MB is the base64 it is sent as, a third larger than the image.
@@ -230,7 +230,9 @@ export async function readAttachment(file: File): Promise<Attachment> {
     if (pages > MAX_PDF_PAGES) throw new AttachmentError(`${base.name} has about ${pages} pages; the assistant reads at most ${MAX_PDF_PAGES}. Attach the pages you need as a shorter PDF.`);
     return { ...base, pages: Math.max(1, pages), blocks: [pdfBlock(bytesToBase64(bytes))] };
   }
-  const text = decodeText(await readBytes(file));
-  if (!text.trim()) throw new AttachmentError(`${base.name} is empty.`);
+  const bytes = await readBytes(file);
+  const raw = decodeText(bytes);
+  if (!raw.trim()) throw new AttachmentError(`${base.name} is empty.`);
+  const text = /\.dxf$/i.test(base.name) || /^\s*0\r?\n\s*SECTION\r?\n/.test(raw) ? condenseDxf(raw) ?? raw : raw;
   return { ...base, chars: Math.min(text.length, MAX_TEXT_CHARS), blocks: [textBlock(base.name, text)] };
 }

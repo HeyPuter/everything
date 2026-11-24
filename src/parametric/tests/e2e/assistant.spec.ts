@@ -133,7 +133,8 @@ test('files go with a message: picked, pasted or dropped, and refused when the a
   expect(sent[0].text).toContain('Model this bracket');
   expect(sent[1].text).toContain('photo.png (image), drawing.pdf (PDF), notes.csv (text), outline.dxf (text)');
   expect(sent[2].source!.media_type).toBe('image/png');
-  expect(sent[5].text).toMatch(/^<attached_file name="outline.dxf">\n0\nSECTION/);
+  // A DXF goes condensed: a group code and its value per line.
+  expect(sent[5].text).toMatch(/^<attached_file name="outline.dxf">\n\[DXF condensed[^\n]*\n0 SECTION\n2 ENTITIES\n0 LINE\n10 0\n20 0\n11 100\n21 0\n0 ENDSEC\n0 EOF\n/);
 });
 
 test('a large photo is fitted to what the model takes', async ({ page }) => {
