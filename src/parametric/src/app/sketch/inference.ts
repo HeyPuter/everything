@@ -44,7 +44,11 @@ export function snapPoint(sk: SketchFeature, raw: Vec2, o: SnapOptions): Snap {
   for (const e of sk.entities) {
     if (e.t !== 'point' || ex.has(e.id)) continue;
     const d = dist2(raw, [e.x, e.y]);
-    if (d < bestD) { bestD = d; best = { p: [e.x, e.y], raw, kind: centerIds.has(e.id) ? 'center' : 'point', pointId: e.id }; }
+    // A real point at the origin (a chain's first point) wins over the origin
+    // itself, so drawing back to it closes the chain instead of adding a
+    // second point there.
+    const atOrigin = best?.kind === 'origin' && Math.hypot(e.x, e.y) <= tol * 1e-6;
+    if (d < bestD || atOrigin) { bestD = d; best = { p: [e.x, e.y], raw, kind: centerIds.has(e.id) ? 'center' : 'point', pointId: e.id }; }
   }
   if (best) return best;
   // 2. Midpoints of lines.
