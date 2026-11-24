@@ -407,10 +407,10 @@ export function lineIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | nul
 // ---------- trim / extend ----------
 
 /** All cut points on curve `e` from other non-construction... curves. */
-function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
+function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id; at?: Id }[] {
   const ix = new SketchIndex(sk.entities);
   const mine = primsOf(ix, e);
-  const pts: { p: Vec2; by?: Id }[] = [];
+  const pts: { p: Vec2; by?: Id; at?: Id }[] = [];
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === e.id) continue;
     // `by`: the cutting curve, which the new end point is kept on.
@@ -428,20 +428,30 @@ function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
     if (pointIdsOf(e).includes(o.id)) continue;
     const p: Vec2 = [o.x, o.y];
     for (const prim of mine) {
-      if (prim.kind === 'seg' && closestOnSegment(p, prim.a!, prim.b!).d < 1e-7) pts.push({ p });
+      if (prim.kind === 'seg' && closestOnSegment(p, prim.a!, prim.b!).d < 1e-7) pts.push({ p, at: o.id });
       // On a circle or arc too (within its sweep), as on a line.
       else if (prim.kind === 'circ' && Math.abs(dist2(p, prim.c!) - prim.r!) < 1e-7 + 1e-12 * prim.r!
-        && (prim.start === undefined || wrap2Pi(angle2(sub2(p, prim.c!)) - prim.start) <= prim.sweep! + 1e-9)) pts.push({ p });
+        && (prim.start === undefined || wrap2Pi(angle2(sub2(p, prim.c!)) - prim.start) <= prim.sweep! + 1e-9)) pts.push({ p, at: o.id });
     }
   }
   return pts;
 }
 
-/** New end point at a cut, kept on the curve that made the cut. */
-function cutEnd(sk: SketchFeature, cut: { p: Vec2; by?: Id }, newId: (p: string) => Id): Id {
+/**
+ * New end point of `curve` at a cut, kept on the curve that made the cut, or
+ * on the sketch point it was made at (a hole's position stays a point of its own).
+ */
+function cutEnd(sk: SketchFeature, cut: { p: Vec2; by?: Id; at?: Id }, newId: (p: string) => Id, curve: Id): Id {
   const id = newId('p');
   sk.entities.push({ id, t: 'point', x: cut.p[0], y: cut.p[1] });
   if (cut.by) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, cut.by] });
+  else if (cut.at) {
+    // That point now lies at the curve's end, so its own relation putting it
+    // on the curve would count twice (over defined).
+    const at = cut.at;
+    sk.constraints = sk.constraints.filter((k) => !(k.type === 'coincident' && k.refs.length === 2 && k.refs.includes(at) && k.refs.includes(curve)));
+    sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, at] });
+  }
   return id;
 }
 
@@ -464,7 +474,7 @@ function dropLengthDimensions(sk: SketchFeature, lineId: Id) {
   });
 }
 
-type Cut = { p: Vec2; by?: Id; t: number };
+type Cut = { p: Vec2; by?: Id; at?: Id; t: number };
 
 /**
  * What trimming a curve at `at` removes: nothing, the whole curve, the part
@@ -563,7 +573,7 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
     if (e.t === 'line') dropLengthDimensions(sk, e.id);
     if (before && after) {
       // Split: keep [start, before] on this entity and add [after, end].
-      const p1 = cutEnd(sk, before, newId), p2 = cutEnd(sk, after, newId);
+      const p1 = cutEnd(sk, before, newId, e.id), p2 = cutEnd(sk, after, newId, e.id);
       const copy = { ...e, id: newId(e.t === 'line' ? 'l' : 'a'), a: p2, b: endId } as SkLine | SkArc;
       e.b = p1;
       sk.entities.push(copy);
@@ -575,10 +585,10 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
       return true;
     }
     if (before) {
-      e.b = cutEnd(sk, before, newId);
+      e.b = cutEnd(sk, before, newId, e.id);
       dropOrphan(sk, endId);
     } else if (after) {
-      e.a = cutEnd(sk, after, newId);
+      e.a = cutEnd(sk, after, newId, e.id);
       dropOrphan(sk, startId);
     }
     cleanupConstraints(sk);
@@ -587,7 +597,7 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
   const { e, lo, hi } = plan;
   const c = ix.pt(e.c);
   const on = (cut: Cut): Cut => ({ ...cut, p: [c[0] + e.r * Math.cos(cut.t), c[1] + e.r * Math.sin(cut.t)] });
-  const ia = cutEnd(sk, on(hi), newId), ib = cutEnd(sk, on(lo), newId);
+  const ia = cutEnd(sk, on(hi), newId, e.id), ib = cutEnd(sk, on(lo), newId, e.id);
   const idx = sk.entities.indexOf(e);
   const arc: SkArc = { id: e.id, t: 'arc', c: e.c, a: ia, b: ib, construction: e.construction };
   sk.entities[idx] = arc;

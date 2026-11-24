@@ -6,6 +6,7 @@ import {
   extendPreview, filletPreview, offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, trimPreview, zeroDimensionReason,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
+import { dist2 } from '../src/math/vec';
 import { buildProfiles } from '../src/sketch/profiles';
 import { rect, sketch } from './helpers';
 
@@ -287,6 +288,34 @@ describe('editing tools', () => {
     const left = s.entities.filter((e) => e.t === 'arc');
     expect(left).toHaveLength(1);
     expect(arcAngles(new SketchIndex(s.entities), left[0] as Extract<SkEntity, { t: 'arc' }>).sweep).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('keeps a curve trimmed at a sketch point ending on that point', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' },
+      { id: 'q', t: 'point', x: 4, y: 0 },
+      { id: 'o', t: 'point', x: 30, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 5 },
+      { id: 'q1', t: 'point', x: 35, y: 0 }, { id: 'q2', t: 'point', x: 25, y: 0 },
+    ]);
+    s.constraints.push(
+      { id: 'k', type: 'coincident', refs: ['q', 'l'] },
+      { id: 'k1', type: 'coincident', refs: ['q1', 'C'] }, { id: 'k2', type: 'coincident', refs: ['q2', 'C'] },
+    );
+    expect(trimAt(s, 'l', [8, 0], idFactory(s))).toBe(true);
+    expect(trimAt(s, 'C', [30, 5], idFactory(s))).toBe(true);
+    // The point stays a point of its own (a hole's position), and the new end stays on it.
+    expect(s.entities.filter((e) => e.t !== 'point').map((e) => e.id)).toEqual(['l', 'C']);
+    const ends = (id: string) => { const e = s.entities.find((x) => x.id === id) as SkLine; return [e.a, e.b]; };
+    const tied = (p: string) => s.constraints.some((c) => c.type === 'coincident' && c.refs.includes(p) && c.refs.some((r) => ends('l').includes(r) || ends('C').includes(r)));
+    expect(['q', 'q1', 'q2'].every(tied)).toBe(true);
+    // Its old place on the curve now follows from the end: kept, it would over-define the sketch.
+    expect(s.constraints.some((c) => ['k', 'k1', 'k2'].includes(c.id))).toBe(false);
+    const r = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['q', 'q1'], targets: [[5, 1], [30, 5]] } });
+    expect(r.badConstraints.size).toBe(0);
+    const ix = new SketchIndex(s.entities);
+    expect(ix.pt(ends('l')[1])[0]).toBeCloseTo(5, 6);
+    expect(ix.pt(ends('l')[1])[1]).toBeCloseTo(1, 6);
+    expect(dist2(ix.pt(ends('C')[0]), [30, 5]) < 1e-6 || dist2(ix.pt(ends('C')[1]), [30, 5]) < 1e-6).toBe(true);
   });
 
   it('trims a line across a hole from one side to the other, not to the hole centre on it', () => {
