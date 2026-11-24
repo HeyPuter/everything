@@ -137,10 +137,14 @@ test('a watermark is centered on the chosen pages with the typed text, layout, a
   await dialog.getByLabel('Text').fill('   ');
   await dialog.getByRole('button', { name: 'Add watermark', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Enter the watermark text.');
+  // The field is marked as refused, for screen readers too, until it is typed in.
+  await expect(dialog.getByLabel('Text')).toHaveAttribute('aria-invalid', 'true');
   await dialog.getByLabel('Text').fill('DRAFT');
+  await expect(dialog.getByLabel('Text')).not.toHaveAttribute('aria-invalid');
   await dialog.getByLabel('Layout').selectOption('horizontal');
   await dialog.getByLabel('Opacity').fill('60');
   await expect(dialog.getByText('60%')).toBeVisible();
+  await expect(dialog.getByLabel('Opacity')).toHaveAttribute('aria-valuetext', '60%');
   await dialog.getByRole('radio', { name: 'Current page (2)' }).check();
   await dialog.getByRole('button', { name: 'Add watermark', exact: true }).click();
   await expect(dialog).toBeHidden();

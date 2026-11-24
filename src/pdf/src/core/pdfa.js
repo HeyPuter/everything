@@ -2262,6 +2262,11 @@ async function convertAnnotations(doc, part, fixed) {
     const annots = annotationsOf(page);
     if (!annots) continue;
     const doomed = new Set();
+    const onPage = new Set(annots.asArray().map((ref) => context.lookup(ref)));
+    // Replies and review statuses: hidden notes in a comment's thread (IRT), which readers
+    // list with the comment instead of drawing. They stay, with nothing to draw, and go only
+    // with their comment.
+    const threads = new Map();
     for (const ref of annots.asArray()) {
       const dict = context.lookup(ref);
       if (!(dict instanceof PDFDict)) continue;
@@ -2276,7 +2281,10 @@ async function convertAnnotations(doc, part, fixed) {
       const flags = numberOf(get(dict, 'F'));
       const hidden =
         flags !== undefined && (flags & HIDDEN || (flags & NO_VIEW && !(flags & PRINT)));
-      if (hidden && !widget && !popup) {
+      const parent = get(dict, 'IRT');
+      const thread = hidden && subtype === 'Text' && parent !== dict && onPage.has(parent);
+      if (thread) threads.set(dict, parent);
+      else if (hidden && !widget && !popup) {
         doomed.add(dict);
         fixed('Removed hidden annotations.');
         continue;
@@ -2286,6 +2294,21 @@ async function convertAnnotations(doc, part, fixed) {
         if (next !== flags) {
           dict.set(name('F'), PDFNumber.of(next));
           fixed('Set annotations to print and show.');
+        }
+        if (thread) {
+          dict.set(
+            name('AP'),
+            context.obj({
+              N: context.register(
+                context.stream(new Uint8Array(), {
+                  Type: 'XObject',
+                  Subtype: 'Form',
+                  BBox: [0, 0, 1, 1],
+                }),
+              ),
+            }),
+          );
+          fixed('Kept replies and review statuses with their comments.');
         }
         if (hidden && widget) {
           // Keep a hidden field invisible: it may hold data, but shows nothing.
@@ -2346,6 +2369,15 @@ async function convertAnnotations(doc, part, fixed) {
         else dict.delete(name('AP'));
         fixed('Kept only the normal appearance of annotations.');
       }
+    }
+    // A reply goes with the comment it answers, and the replies to it with it.
+    for (let more = true; more;) {
+      more = false;
+      for (const [reply, parent] of threads)
+        if (doomed.has(parent) && !doomed.has(reply)) {
+          doomed.add(reply);
+          more = true;
+        }
     }
     for (const ref of annots.asArray()) {
       const dict = context.lookup(ref);

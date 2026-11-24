@@ -119,7 +119,10 @@ export function stampDialog({ signal, size = { width: 260, height: 117 } } = {})
         );
       paintPreview();
     };
-    text.oninput = sync;
+    text.oninput = () => {
+      text.removeAttribute('aria-invalid');
+      sync();
+    };
     colorPick.oninput = sync;
     const form = el(
       'form',
@@ -142,6 +145,8 @@ export function stampDialog({ signal, size = { width: 260, height: 117 } } = {})
       if (pending || !dialog.open || signal?.aborted) return;
       if (!text.value.trim()) {
         toast('Enter the stamp text.', { error: true });
+        // Marked as refused, for screen readers too, until it is typed in.
+        text.setAttribute('aria-invalid', 'true');
         text.focus();
         return;
       }

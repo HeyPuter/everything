@@ -644,3 +644,36 @@ test('Find text and redact lists each match once when Enter is pressed again whi
   await finder.getByRole('button', { name: 'Mark selected' }).click();
   await expect(page.locator('#toast')).toContainText('12 matches marked for redaction');
 });
+
+// Find text and redact searched only the page's own text: a number typed into a form field was
+// not found ("No matches found"), and stayed in the file after the person thought it redacted.
+test('Find text and redact finds what was typed into a form field', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([300, 300]);
+  const field = doc.getForm().createTextField('ssn');
+  field.setText('123-45-6789');
+  field.addToPage(sheet, { x: 40, y: 200, width: 200, height: 24 });
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'form.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Find text and redact…' }).click();
+  const finder = page.getByRole('dialog', { name: 'Find text and redact' });
+  await finder.getByLabel('Find text').fill('123-45');
+  await finder.getByRole('button', { name: 'Search' }).click();
+  await expect(finder.getByRole('checkbox', { name: 'Page 1: 123-45' })).toBeChecked();
+  await expect(finder.getByRole('status')).toHaveText('1 match found. Choose the ones to mark.');
+});

@@ -17,7 +17,7 @@ import {
   documentProperties,
   CORE_TYPES,
 } from './ooxml-zip.js';
-import { textOf } from './export-layout.js';
+import { linkStretches, textOf } from './export-layout.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -60,6 +60,7 @@ class DocxWriter {
     this.body = model.body;
     this.media = new Map(); // picture key -> { rid, name }
     this.rels = [];
+    this.links = new Map(); // web address -> relationship id
     this.nextRel = 1;
     this.drawingId = 1;
     this.lists = new Map(); // instance -> { levels: [{ format, pattern, start }] }
@@ -105,6 +106,22 @@ class DocxWriter {
   }
 
   runs(runs, options = {}) {
+    // Web links of the PDF stay links, each address one relationship of the document.
+    return linkStretches(runs)
+      .map(({ link, runs: stretch }) => {
+        const content = this.plainRuns(stretch, options);
+        if (!link || !content) return content;
+        if (!this.links.has(link)) {
+          const id = `rId${this.nextRel++}`;
+          this.rels.push({ id, type: 'hyperlink', target: link, external: true });
+          this.links.set(link, id);
+        }
+        return `<w:hyperlink r:id="${this.links.get(link)}" w:history="1">${content}</w:hyperlink>`;
+      })
+      .join('');
+  }
+
+  plainRuns(runs, options = {}) {
     let out = '';
     for (const run of runs) {
       const props = this.runProps(run, options);
@@ -361,7 +378,11 @@ class DocxWriter {
         );
       if (page) {
         for (const block of page[kind]) {
-          const runs = withPageFields(block.runs, page.index + 1, pages.length);
+          // Links in running heads would need relationships of the header's own.
+          const runs = withPageFields(block.runs, page.index + 1, pages.length).map((run) => ({
+            ...run,
+            link: null,
+          }));
           body += this.paragraph({
             ...block,
             runs,

@@ -66,7 +66,13 @@ for (const kind of ['note', 'highlight', 'shape'])
     const replies = props.getByRole('list', { name: 'Replies' });
     await expect(replies).toContainText('Sent too soon');
     await expect(props.getByRole('button', { name: 'Delete reply from Grace' })).toHaveCount(2);
-    await props.getByRole('button', { name: 'Delete reply from Grace' }).first().click();
+    // Each is named with its reply's words, so a screen reader can tell them apart.
+    await expect(
+      props.getByRole('button', { name: 'Delete reply from Grace: Done', exact: true }),
+    ).toHaveCount(1);
+    await props
+      .getByRole('button', { name: 'Delete reply from Grace: Sent too soon', exact: true })
+      .click();
     await expect(page.locator('#toast')).toHaveText('Reply deleted.');
     await settled(page);
     // The comment stays selected, with what is left of its thread.

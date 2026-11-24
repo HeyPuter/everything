@@ -15,6 +15,7 @@ export function createPageStack({
   getPdf,
   getZoom,
   getRevision,
+  getPageIds = () => null,
   getLayers = () => undefined,
   currentIndex,
   canFollowScroll,
@@ -59,13 +60,28 @@ export function createPageStack({
     }
     cancelAll();
     const keep = paper?.parentNode;
-    slots = Array.from({ length: count }, (_, i) =>
-      el(
+    // A page's picture stands in until the page is drawn again, so pages added or removed do
+    // not blank the others in view. Pictures are matched to pages by the page objects of the
+    // revision each was drawn at; a new slot has none of its own, so the page is redrawn.
+    const ids = getPageIds(getRevision());
+    const known = ids?.length === count ? ids : null;
+    const pictures = new Map();
+    if (known)
+      for (const slot of slots) {
+        const canvas = slot.querySelector('.page-image');
+        if (!canvas?.width || !slot.dataset.revision) continue;
+        const id = getPageIds(Number(slot.dataset.revision))?.[Number(slot.dataset.page)];
+        if (id != null && !pictures.has(id)) pictures.set(id, canvas);
+      }
+    slots = Array.from({ length: count }, (_, i) => {
+      const picture = known ? pictures.get(known[i]) : null;
+      if (picture) pictures.delete(known[i]);
+      return el(
         'div',
         { class: 'page-slot', 'data-page': i },
-        el('canvas', { class: 'page-image', 'aria-hidden': 'true' }),
-      ),
-    );
+        picture || el('canvas', { class: 'page-image', 'aria-hidden': 'true' }),
+      );
+    });
     container.querySelectorAll(':scope > .page-slot').forEach((slot) => slot.remove());
     container.prepend(...slots);
     if (keep && paper && !paper.isConnected) container.prepend(paper);
@@ -107,13 +123,23 @@ export function createPageStack({
     }
   }
 
-  /** Apply a layout change without moving the current page on screen. */
+  /**
+   * Apply a layout change without moving the current page on screen. When the page is read
+   * part way down (its top above the view), the place being read stays at the top of the view
+   * as the page changes size, as when a refit follows a wider page turned elsewhere; otherwise
+   * the page's top stays put.
+   */
   function keepInPlace(change) {
     const anchor = slots[currentIndex()];
-    const before = anchor?.getBoundingClientRect().top;
+    const box = anchor?.getBoundingClientRect();
+    const top = workspace.getBoundingClientRect().top;
+    const fraction =
+      box && box.top < top && box.bottom > top && box.height ? (top - box.top) / box.height : 0;
     change();
-    if (anchor && before != null) {
-      const after = anchor.getBoundingClientRect().top;
+    if (box) {
+      const now = anchor.getBoundingClientRect();
+      const after = now.top + fraction * now.height,
+        before = box.top + fraction * box.height;
       if (Math.abs(after - before) > 0.5) {
         workspace.scrollTop += after - before;
         quiet();

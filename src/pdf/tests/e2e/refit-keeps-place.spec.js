@@ -55,3 +55,35 @@ test('a refit after the window narrows keeps the current page in view', async ({
   expect(await inView(page, 29)).toBe(true);
   await expect(number).toHaveValue('30');
 });
+
+test('turning a page elsewhere keeps the place being read at the top of the view', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'pages panel');
+  await open(page, await longPdf(10));
+  // Part way down page 5; turning page 2 sideways makes it the widest, and the fitted zoom
+  // shrinks every page. The line at the top of the view used to slide a tenth of a page.
+  const reading = () =>
+    page.evaluate(() => {
+      const view = document.querySelector('.workspace').getBoundingClientRect();
+      const box = document.querySelector('.page-slot[data-page="4"]').getBoundingClientRect();
+      return (view.top - box.top) / box.height;
+    });
+  await page.evaluate(() => {
+    const workspace = document.querySelector('.workspace');
+    const box = document.querySelector('.page-slot[data-page="4"]').getBoundingClientRect();
+    workspace.scrollTop += box.top - workspace.getBoundingClientRect().top + box.height * 0.4;
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 5 of 10');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const before = await reading();
+  const width = () => page.locator('.page-slot[data-page="4"]').evaluate((n) => n.offsetWidth);
+  const wide = await width();
+  await page.getByRole('button', { name: 'Page 2 actions' }).click();
+  await page.getByRole('menuitem', { name: 'Rotate clockwise' }).click();
+  await expect.poll(width).toBeLessThan(wide - 20);
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect.poll(async () => Math.abs((await reading()) - before)).toBeLessThan(0.01);
+  await expect(page.locator('.page-caption')).toHaveText('Page 5 of 10');
+});

@@ -515,6 +515,9 @@ export async function replaceTextGroup(
       fonts = get(entry.resources, 'Font'),
       added = [];
     const used = fonts.clone(doc.context);
+    // One name for each font the rewrite adds, however many lines or glyph runs it draws:
+    // naming it afresh for each one filled the page's fonts with copies, slowly.
+    const names = new Map();
     const baseline = [group.transform[4] + offset[0], group.transform[5] + offset[1]],
       indent = group.transform
         .slice(0, 2)
@@ -549,9 +552,13 @@ export async function replaceTextGroup(
       items.push(item.marker ?? 1);
       let fontName = PDFName.of(s.font);
       if (item.font) {
-        fontName = uniqueName(used, 'LineFont');
-        used.set(fontName, item.font.ref);
-        added.push([fontName, item.font.ref]);
+        fontName = names.get(item.font.ref);
+        if (!fontName) {
+          fontName = uniqueName(used, 'LineFont');
+          used.set(fontName, item.font.ref);
+          added.push([fontName, item.font.ref]);
+          names.set(item.font.ref, fontName);
+        }
       }
       const t = run.transform;
       // A superscript or subscript keeps its distance from the line's baseline.

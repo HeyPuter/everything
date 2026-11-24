@@ -19,10 +19,12 @@
  *     column?: { x0, x1 }, band?: { id, count, index, gap } }
  *   { type: 'table', x, y, w, h, columns: number[] (boundaries), ruled, rows: Row[] }
  *   { type: 'image', x, y, w, h, picture, wrap: 'inline' | 'square' | 'behind' }
- * Run = { text, font, size, bold, italic, underline, strike, color: 'RRGGBB', script?, tab? }
+ * Run = { text, font, size, bold, italic, underline, strike, color: 'RRGGBB', script?, tab?,
+ *         link? (a web address the run links to) }
  * Row = { y, h, header, cells: Cell[] } ; Cell = { col, span, rowSpan?, merged?, align,
  *         fill?, paragraphs: { runs: Run[], align }[] }
  */
+import { charWidth } from './compare.js';
 
 // PDF.js operator codes (pdfjs-dist 6.x; the test checks them against the installed build).
 export const OPS = {
@@ -512,14 +514,71 @@ function addPath(args, state, view, rules, fills, vectors) {
   }
 }
 
+/** The quarter turn (0, 90, 180 or 270) in which most of a page's text reads upright. */
+export function readingRotation(page, content) {
+  const own = page.rotate;
+  const upright = (rotation) => {
+    const { transform } = page.getViewport({ scale: 1, rotation });
+    let count = 0;
+    for (const item of content.items) {
+      if (typeof item.str !== 'string' || !item.str.trim() || !item.transform) continue;
+      const m = mul(transform, item.transform);
+      const scale = Math.hypot(m[0], m[1]);
+      if (Math.abs(m[1]) < 0.02 * scale && m[0] > 0 && m[3] < 0) count += item.str.trim().length;
+    }
+    return count;
+  };
+  const shown = upright(own);
+  let best = own,
+    most = shown;
+  for (const rotation of [0, 90, 180, 270]) {
+    if (rotation === own) continue;
+    const count = upright(rotation);
+    if (count > most) {
+      best = rotation;
+      most = count;
+    }
+  }
+  // Only when the page as shown has little upright text and another turn has much more.
+  return most >= 2 * shown + 20 ? best : own;
+}
+
 /**
  * Everything the exporter needs from one page: text spans with styles, ruling lines, filled
  * boxes and image placements (with their pictures).
  */
 export async function readPage(pdf, page, { images, signal, layers } = {}) {
-  const viewport = page.getViewport({ scale: 1 });
-  const view = viewport.transform;
   const content = await page.getTextContent();
+  signal?.throwIfAborted();
+  // A page turned so that its text runs sideways (a portrait page shown on its side) is read
+  // the way its text is written, as one would turn the paper to read it: line by line from
+  // the top, rather than across the lines.
+  const viewport = page.getViewport({ scale: 1, rotation: readingRotation(page, content) });
+  const view = viewport.transform;
+  // Web links stay links in the exported text; links within the PDF and scripts do not.
+  let links = [];
+  try {
+    links = (await page.getAnnotations({ intent: 'display' }))
+      .filter(
+        (a) =>
+          a.subtype === 'Link' &&
+          /^(?:https?|mailto|ftp|tel):/i.test(a.url ?? '') &&
+          a.rect?.length === 4,
+      )
+      .map((a) => {
+        const [x0, y0] = viewport.convertToViewportPoint(a.rect[0], a.rect[1]);
+        const [x1, y1] = viewport.convertToViewportPoint(a.rect[2], a.rect[3]);
+        return {
+          url: a.url,
+          x0: Math.min(x0, x1),
+          x1: Math.max(x0, x1),
+          top: Math.min(y0, y1),
+          bottom: Math.max(y0, y1),
+        };
+      });
+  } catch {
+    links = [];
+  }
   signal?.throwIfAborted();
   const list = await page.getOperatorList();
   signal?.throwIfAborted();
@@ -635,7 +694,8 @@ export async function readPage(pdf, page, { images, signal, layers } = {}) {
       span.baseline = span.bottom;
       span.rotated = true;
     }
-    spans.push(splitWideSpaces(span));
+    for (const piece of links.length ? linkSpan(span, links) : [span])
+      spans.push(splitWideSpaces(piece));
   }
 
   // Pictures: resolve each painted image to file bytes once.
@@ -657,6 +717,7 @@ export async function readPage(pdf, page, { images, signal, layers } = {}) {
   }
   return {
     index: page._pageIndex ?? page.pageNumber - 1,
+    rotation: viewport.rotation,
     width: viewport.width,
     height: viewport.height,
     spans: spans.flat(),
@@ -798,6 +859,80 @@ export function figureRegions(scan) {
  * Split a text item where it spaces columns apart with runs of three or more spaces, or where
  * leader dots run to a page number ("Overview ........ 4").
  */
+/**
+ * The web links over a span: the span whole when one covers it, else cut where a link begins
+ * and ends, at the word boundary nearest to the link's edge, so "Visit example.com today"
+ * links only "example.com". `links` are { url, x0, x1, top, bottom } in the page's view.
+ */
+function linkSpan(span, links) {
+  const middle = (span.top + span.bottom) / 2;
+  const over = links.filter(
+    (link) => middle >= link.top && middle <= link.bottom && link.x1 > span.x0 && link.x0 < span.x1,
+  );
+  if (!over.length) return [span];
+  if (span.rotated) return [{ ...span, link: over[0].url }];
+  const { text } = span,
+    width = span.x1 - span.x0;
+  // Where each character ends along the span, by typical letter widths (an "i" is narrower
+  // than an "m"), so a link's edges land on the right letters.
+  const ends = [0];
+  for (let k = 0; k < text.length; k++) ends.push(ends[k] + charWidth(text.charCodeAt(k)));
+  const scale = width / (ends[text.length] || 1);
+  // A character belongs to the link when the link covers most of it: links reach a little
+  // past their words, over the bracket or the stop beside them. The place found is then moved
+  // to the nearest word boundary.
+  const boundary = (x, end) => {
+    const along = (x - span.x0) / scale;
+    let at = 0;
+    if (end)
+      while (at < text.length && ends[at + 1] - 0.25 * (ends[at + 1] - ends[at]) <= along) at++;
+    else while (at < text.length && ends[at] + 0.25 * (ends[at + 1] - ends[at]) < along) at++;
+    // Between words, or between a word and the brackets, quotes or punctuation around it.
+    const edge = (k) =>
+      k <= 0 ||
+      k >= text.length ||
+      /[\s([{<"'“‘]/.test(text[k - 1]) ||
+      /[\s)\]}>"'”’,;:!?]/.test(text[k]);
+    let best = at;
+    for (let d = 0; d <= 3; d++) {
+      if (edge(at - d)) {
+        best = at - d;
+        break;
+      }
+      if (edge(at + d)) {
+        best = at + d;
+        break;
+      }
+    }
+    return Math.max(0, Math.min(text.length, best));
+  };
+  const cuts = [];
+  for (const link of [...over].sort((a, b) => a.x0 - b.x0)) {
+    const from = Math.max(boundary(link.x0, false), cuts.at(-1)?.to ?? 0),
+      to = boundary(link.x1, true);
+    if (to > from) cuts.push({ from, to, url: link.url });
+  }
+  const pieces = [];
+  const piece = (from, to, link) => {
+    if (to > from)
+      pieces.push({
+        ...span,
+        text: text.slice(from, to),
+        x0: span.x0 + ends[from] * scale,
+        x1: span.x0 + ends[to] * scale,
+        ...(link && { link }),
+      });
+  };
+  let at = 0;
+  for (const cut of cuts) {
+    piece(at, cut.from);
+    piece(cut.from, cut.to, cut.url);
+    at = cut.to;
+  }
+  piece(at, text.length);
+  return pieces.length ? pieces : [span];
+}
+
 function splitWideSpaces(span) {
   if (span.rotated || !/\S\s{3,}\S|(?:\.\s?){4,}|…{2,}|_{4,}/.test(span.text)) return [span];
   const parts = [];
@@ -1016,6 +1151,7 @@ function finishChunk(chunk) {
       strike: span.strike,
       color: span.color,
       script,
+      link: span.link || null,
     };
     const last = runs.at(-1);
     if (last && sameStyle(last, style)) last.text += piece;
@@ -1056,7 +1192,34 @@ const sameStyle = (a, b) =>
   a.underline === b.underline &&
   a.strike === b.strike &&
   a.color === b.color &&
-  a.script === b.script;
+  a.script === b.script &&
+  (a.link || null) === (b.link || null);
+
+/**
+ * Runs gathered into the stretches a writer makes links of: { link, runs } in order, `link`
+ * null between links. Spaces at a link's ends, as a line break leaves after one, stay outside it.
+ */
+export function linkStretches(runs) {
+  const out = [];
+  for (const run of runs) {
+    const link = run.tab ? null : run.link || null;
+    let pieces = [run];
+    // Spaces at either end of a linked run stay outside the link.
+    const [, lead, body, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(run.text || '');
+    if (link && body && (lead || trail))
+      pieces = [
+        lead && { ...run, text: lead, link: null },
+        { ...run, text: body },
+        trail && { ...run, text: trail, link: null },
+      ].filter(Boolean);
+    for (const piece of pieces) {
+      const own = piece.tab ? null : piece.link || null;
+      if (out.at(-1)?.link === own) out.at(-1).runs.push(piece);
+      else out.push({ link: own, runs: [piece] });
+    }
+  }
+  return out;
+}
 
 /** Thin horizontal rules hugging a span's baseline are underlines (or strike-throughs). */
 function markDecorations(spans, rules) {
@@ -2198,6 +2361,7 @@ function layoutPage(scan, context) {
   const contentBottom = elements.length ? Math.max(...elements.map((e) => e.bottom)) : height - 72;
   return {
     index: scan.index,
+    rotation: scan.rotation,
     width,
     height,
     margins: {

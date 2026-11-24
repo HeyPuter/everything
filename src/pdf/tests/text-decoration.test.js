@@ -4,7 +4,7 @@ import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { addText } from '../src/core/document.js';
-import { inspectText, pageSource } from '../src/core/text-edit.js';
+import { inspectText, pageSource, prepareText } from '../src/core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from '../src/core/text-group.js';
 import { groupTextParagraphs } from '../src/core/text-paragraph.js';
 import { inspectPaths } from '../src/core/path-edit.js';
@@ -154,6 +154,54 @@ it('new decorated multiline text can be edited and deleted without leaving lines
   expect(pageSource(deleted.doc.getPage(0))).not.toContain('/PuterTextDecoration');
 });
 
+it('new multiline text stays one block that moves, edits and deletes as a whole', async () => {
+  serveFonts();
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await addText(doc, 0, { text: 'Hello world\nSecond line', x: 50, y: 280, size: 16 });
+  await addText(doc, 0, { text: 'Single', x: 50, y: 100, size: 16 });
+  const saved = await read(await doc.save());
+  expect(saved.groups.map((g) => g.text)).toEqual(['Hello world\nSecond line', 'Single']);
+  expect(saved.groups[0]).toMatchObject({ underline: false, strikethrough: false });
+  // A single line is written as before, with no block around it.
+  expect(pageSource(saved.doc.getPage(0)).match(/PuterParagraph/g)).toHaveLength(1);
+  await replaceTextGroup(saved.doc, 0, saved.groups[0], saved.groups[0].text, {
+    offset: [10, -15],
+  });
+  const moved = await read(await saved.doc.save());
+  expect(moved.groups.map((g) => g.text)).toEqual(['Hello world\nSecond line', 'Single']);
+  expect(moved.groups[0].transform[5]).toBeCloseTo(saved.groups[0].transform[5] - 15, 5);
+  await replaceTextGroup(moved.doc, 0, moved.groups[0], 'Hello world\nSecond line\nThird');
+  const edited = await read(await moved.doc.save());
+  expect(edited.groups.map((g) => g.text)).toEqual(['Hello world\nSecond line\nThird', 'Single']);
+  await replaceTextGroup(edited.doc, 0, edited.groups[0], '');
+  const deleted = await read(await edited.doc.save());
+  expect(deleted.groups.map((g) => g.text)).toEqual(['Single']);
+});
+
+it('a paragraph turned bold names its new font once, not once for each line', async () => {
+  serveFonts();
+  const doc = await PDFDocument.create();
+  doc
+    .addPage([400, 400])
+    .drawText('The first line of words\nthe second line of words\nand the third line ends', {
+      x: 40,
+      y: 300,
+      size: 14,
+      lineHeight: 18,
+    });
+  const parsed = await read(await doc.save());
+  const group = parsed.groups[0];
+  expect(group.text.split(/\s+/)).toHaveLength(15);
+  await replaceTextGroup(parsed.doc, 0, group, group.text, { fontStyle: { bold: true } });
+  const fonts = parsed.doc.getPage(0).node.Resources().lookup(PDFName.of('Font'));
+  const added = fonts.keys().filter((key) => /^\/LineFont/.test(key.toString()));
+  expect(added).toHaveLength(1);
+  const bold = await read(await parsed.doc.save());
+  expect(bold.groups[0].text).toBe(group.text);
+  expect(bold.groups[0].parts.every((run) => /Bold/.test(run.fontName))).toBe(true);
+});
+
 it('bold changes retain italic fragments instead of flattening their slant', async () => {
   serveFonts();
   const doc = await PDFDocument.create(),
@@ -226,4 +274,23 @@ it('paragraph decorations retain logical text and follow reflow', async () => {
   expect(reflowed.groups[0].text).toBe('One two three four five.');
   expect(reflowed.groups[0].paragraph.width).toBeCloseTo(180);
   expect(inspectPaths(reflowed.doc, 0)).toHaveLength(0);
+});
+
+it('names the letters typed and the ones already there when no one font has both', async () => {
+  serveFonts();
+  const doc = await PDFDocument.create();
+  // A run whose own subset has an Arabic-Indic zero and A, as Word writes a complex-script run.
+  const run = {
+    fontName: 'ABCDEF+ArialMT',
+    map: new Map([
+      ['٠', '\x01'],
+      ['A', '\x02'],
+    ]),
+  };
+  await expect(prepareText(doc, run, 'A٠')).resolves.toMatchObject({ font: undefined });
+  await expect(prepareText(doc, run, 'A٠QZ')).rejects.toThrow(
+    'This text’s font has no “Q” or “Z”, and the font that has them has no “\u2068٠\u2069”. Add “Q” and “Z” as new text instead.',
+  );
+  // Letters neither font has are named as before.
+  await expect(prepareText(doc, run, 'A٠ش')).rejects.toThrow(/^This font does not support/);
 });

@@ -10,7 +10,13 @@ import {
   StandardFonts,
   decodePDFRawStream,
 } from 'pdf-lib';
-import { assertSupportedText, embedFont, textVariant, visibleBox } from './document.js';
+import {
+  assertSupportedText,
+  characterList,
+  embedFont,
+  textVariant,
+  visibleBox,
+} from './document.js';
 import { readParagraphData } from './paragraph-data.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
@@ -26,7 +32,10 @@ export function matrix(a, b) {
   ];
 }
 const translation = (x, y) => [1, 0, 0, 1, x, y];
-const whitespace = (c) => /[\x00\t\n\f\r ]/.test(c);
+// Compared rather than matched with a regular expression: content parsing calls this for every
+// character of a page's drawing commands, which run to megabytes on a page of thousands of shapes.
+const whitespace = (c) =>
+  c === ' ' || c === '\n' || c === '\r' || c === '\t' || c === '\f' || c === '\x00';
 const delimiter = (c) => !c || whitespace(c) || '()<>[]{}/%'.includes(c);
 const unsupported = () => new Error('This text uses a PDF structure that cannot yet be edited.');
 /**
@@ -84,12 +93,7 @@ const COMPONENTS = {
 function inflatedLength(data) {
   try {
     const dict = PDFContext.create().obj({ Filter: 'FlateDecode' });
-    return decodePDFRawStream(
-      PDFRawStream.of(
-        dict,
-        Uint8Array.from(data, (c) => c.charCodeAt(0)),
-      ),
-    ).decode().length;
+    return decodePDFRawStream(PDFRawStream.of(dict, sourceBytes(data))).decode().length;
   } catch {
     return -1;
   }
@@ -327,9 +331,28 @@ export function decode(stream) {
         ).decode()
       : stream.getUnencodedContents();
   let source = '';
+  // apply() takes the bytes as they are; spreading them walks an iterator, many times slower.
   for (let i = 0; i < bytes.length; i += 8192)
-    source += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    source += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
   return source;
+}
+/**
+ * The bytes of a content source, as Uint8Array.from(source, (c) => c.charCodeAt(0)) reads them
+ * (a surrogate pair is one character there, its first half), without calling a function for
+ * every character of what can be megabytes of drawing commands.
+ */
+export function sourceBytes(source) {
+  const bytes = new Uint8Array(source.length);
+  let length = 0;
+  for (let i = 0; i < source.length; i++) {
+    const code = source.charCodeAt(i);
+    bytes[length++] = code;
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = source.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) i++;
+    }
+  }
+  return length === source.length ? bytes : bytes.slice(0, length);
 }
 export function pageSource(page) {
   const contents = page.node.Contents();
@@ -1076,7 +1099,7 @@ export function setPageSource(doc, page, source) {
     .map((ref) => doc.context.lookup(ref))
     .filter((stream) => stream instanceof PDFStream)
     .map((stream) => stream.dict);
-  const stream = doc.context.flateStream(Uint8Array.from(source, (c) => c.charCodeAt(0)));
+  const stream = doc.context.flateStream(sourceBytes(source));
   retainCryptFilter(stream.dict, sources);
   const ref = storeStream(
     doc,
@@ -1139,13 +1162,30 @@ export async function prepareText(doc, run, text, variant, context = text) {
     }
     if (!font) {
       font = await embedFont(doc, variant || fallbackVariant(run), text, context);
-      assertSupportedText(font, text);
+      try {
+        assertSupportedText(font, text);
+      } catch (error) {
+        throw mixedScriptError(error, run, text, variant) || error;
+      }
       encoded = lines.map((line) => font.encodeText(line).toString());
     }
   }
   return { encoded, font };
 }
 
+/**
+ * Text that mixes letters only the run's own font has with letters it lacks cannot be set in one
+ * font. Naming only what the stand-in font lacks blamed the letters already there ("٠" in an
+ * Arabic run) for the ones just typed ("Q", "Z"), so the message names both.
+ */
+function mixedScriptError(error, run, text, variant) {
+  if (variant || !run?.map || !error.missing) return null;
+  const typed = new Set([...text].filter((char) => char !== '\n' && !run.map.has(char)));
+  if (!typed.size || [...error.missing].some((char) => !run.map.has(char))) return null;
+  return new Error(
+    `This text’s font has no ${characterList(typed)}, and the font that has them has no ${characterList(error.missing)}. Add ${characterList(typed, 'and')} as new text instead.`,
+  );
+}
 /** Replace actual source glyphs and restore the old text advance, preserving following content. */
 export function replaceText(doc, index, run, text, options = {}) {
   return editRuns(doc, index, [{ run, text, options }]);
@@ -1225,10 +1265,7 @@ async function editRuns(doc, index, edits) {
       dict.delete(PDFName.of('DecodeParms'));
       retainCryptFilter(dict, [form.dict]);
       dict.set(PDFName.of('Resources'), nested.resources);
-      const stream = PDFRawStream.of(
-        dict,
-        Uint8Array.from(nested.source, (c) => c.charCodeAt(0)),
-      );
+      const stream = PDFRawStream.of(dict, sourceBytes(nested.source));
       const objects = get(copy, 'XObject');
       const current = get(resources, 'XObject').get(PDFName.of(call.args[0].value));
       const ref = storeStream(doc, current, stream);

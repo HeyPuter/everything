@@ -572,7 +572,9 @@ puter-user-menu::part(apps-panel) {
 .home-footer .text-btn {
   font-size: 11px;
 }
-.dropping:after {
+/* Full screen shows one element alone, so the outline is drawn in it too. */
+.dropping:after,
+.dropping :fullscreen:after {
   content: 'Drop a PDF, or pictures, to open them';
   position: fixed;
   inset: 12px;
@@ -845,13 +847,21 @@ puter-user-menu::part(apps-panel) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* On the narrowest phones the letters close up, so CONFIDENTIAL is read whole, not cut short. */
+@media (max-width: 380px) {
+  .stamp-chip {
+    letter-spacing: 0.02em;
+    padding-inline: 4px;
+  }
+}
 .stamp-chip:hover {
   background: var(--surface-2);
 }
-.stamp-chip[aria-pressed='true'] {
-  box-shadow:
-    0 0 0 2px var(--surface),
-    0 0 0 4px var(--accent);
+/* The chosen preset is filled with its own color, not ringed: a ring in the accent color drew it
+   as the keyboard focus, beside the Text field that has it. */
+.stamp-chip[aria-pressed='true'],
+.stamp-chip[aria-pressed='true']:hover {
+  background: color-mix(in srgb, var(--stamp-color, var(--strong)) 28%, transparent);
 }
 .stamp-preview-wrap {
   position: relative;
@@ -1460,6 +1470,16 @@ puter-user-menu::part(apps-panel) {
 }
 .thumbnail > span {
   font-size: 10px;
+  /* A long page label ("Appendix B-12") takes up to two lines rather than widening the panel,
+     so the number that tells it from the next page's stays in sight. */
+  max-width: 100%;
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 .workspace {
   background: var(--canvas);
@@ -1865,6 +1885,17 @@ puter-user-menu::part(apps-panel) {
   outline: 2px solid var(--brand);
   outline-offset: -2px;
 }
+/* Targets are see-through, so dimming them while a save runs changed nothing in view but had the
+   browser repaint every one of them, thousands on a page of shapes. A hovered one dims as before. */
+.image-target:disabled,
+.path-target:disabled {
+  opacity: 1;
+}
+.image-target:disabled:hover,
+.path-target:disabled:hover {
+  background: color-mix(in srgb, var(--brand) 3.6%, transparent);
+  outline-color: color-mix(in srgb, var(--brand) 40%, transparent);
+}
 /* The move control is clipped to the object's outline, which would also clip an outset ring. */
 .image-move:focus-visible {
   background: color-mix(in srgb, var(--brand) 9%, transparent);
@@ -2004,6 +2035,13 @@ dialog.leave-save-dialog {
 .dialog-actions {
   flex: none;
 }
+/* On a phone, buttons too wide for one row fill the rows they wrap onto, rather than one hanging
+   at the right of a row of its own over the other. */
+@media (max-width: 520px) {
+  .dialog-actions > .btn {
+    flex: 1 1 auto;
+  }
+}
 /* A short window (a phone turned sideways, a zoomed-in laptop) keeps the title and the actions
    close, so the body, which scrolls, keeps more of the little height there is. */
 @media (max-height: 500px) {
@@ -2022,6 +2060,12 @@ dialog.leave-save-dialog {
 }
 .dialog-body .stack > .btn {
   justify-content: flex-start;
+}
+/* A job's progress (recognizing text, exporting, comparing) spans the dialog in the app's own
+   color, rather than a short bar in the browser's. */
+.dialog-body progress {
+  width: 100%;
+  accent-color: var(--accent);
 }
 .dialog-body label {
   display: block;
@@ -2326,7 +2370,16 @@ dialog.signature-dialog {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 6px 14px;
+  /* A key too long to sit beside its name (on the smallest phones) goes under it, at the end,
+     rather than past the edge of the list. */
+  flex-wrap: wrap;
+}
+.shortcut-list > div > span {
+  flex: 1 1 0;
+}
+.shortcut-list kbd {
+  margin-inline-start: auto;
 }
 kbd {
   font-size: 11px;
@@ -2356,6 +2409,8 @@ kbd {
   font-size: 13px;
   text-align: center;
   line-height: 1.5;
+  /* A file name without spaces breaks rather than running past the edge of a phone. */
+  overflow-wrap: anywhere;
   /* It holds no controls, and on a phone it can sit over the selection dock for a few
      seconds: taps go through to whatever it covers. */
   pointer-events: none;

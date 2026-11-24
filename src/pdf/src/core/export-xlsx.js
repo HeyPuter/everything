@@ -219,7 +219,13 @@ class Sheet {
     this.rows = []; // row index -> Map(col -> cell)
     this.merges = [];
     this.widths = [];
+    this.links = []; // { ref, url }: cells that link to a web address
     this.next = 0;
+  }
+  /** Make the cell at `row`, `col` a link when its text carries one of the PDF's web links. */
+  link(row, col, runs) {
+    const url = runs.find((r) => r.link && r.text?.trim())?.link;
+    if (url) this.links.push({ ref: `${columnName(col)}${row + 1}`, url });
   }
   set(row, col, cell) {
     (this.rows[row] ||= new Map()).set(col, cell);
@@ -280,6 +286,7 @@ function placeBlock(sheet, block, styles, strings) {
     pieces.forEach((piece, k) => {
       const cell = cellFor(k === 0 ? prefix + piece.trim() : piece.trim(), block.runs, { size });
       if (cell) sheet.set(row, k, cell);
+      if (cell && pieces.length === 1) sheet.link(row, k, block.runs);
       if (pieces.length > 1) sheet.width(k, Math.min(40, piece.length + 2));
     });
     return;
@@ -313,6 +320,7 @@ function placeBlock(sheet, block, styles, strings) {
               wrap: true,
             });
           sheet.set(start + r, cell.col, value);
+          sheet.link(start + r, cell.col, runs);
         }
         const rowSpan = cell.rowSpan || 1;
         if (cell.span > 1 || rowSpan > 1)
@@ -330,7 +338,7 @@ function placeBlock(sheet, block, styles, strings) {
   }
 }
 
-function sheetXml(sheet) {
+function sheetXml(sheet, linkIds = []) {
   let data = '';
   let maxCol = 0;
   const lastRow = sheet.rows.length;
@@ -366,6 +374,10 @@ function sheetXml(sheet) {
     `<sheetData>${data}</sheetData>` +
     (sheet.merges.length
       ? `<mergeCells count="${sheet.merges.length}">${sheet.merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>`
+      : '') +
+    // The PDF's web links, through the sheet's relationships.
+    (sheet.links.length
+      ? `<hyperlinks>${sheet.links.map((l, k) => `<hyperlink ref="${l.ref}" r:id="${linkIds[k]}"/>`).join('')}</hyperlinks>`
       : '') +
     `<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>` +
     `</worksheet>`
@@ -410,9 +422,23 @@ export async function writeXlsx(model, options = {}) {
   const parts = [];
   const rels = [];
   sheets.forEach((sheet, k) => {
+    const linkRels = sheet.links.map((l, n) => ({
+      id: `rId${n + 1}`,
+      type: 'hyperlink',
+      target: l.url,
+      external: true,
+    }));
+    if (linkRels.length)
+      parts.push({
+        name: `xl/worksheets/_rels/sheet${k + 1}.xml.rels`,
+        data: relationships(linkRels),
+      });
     parts.push({
       name: `xl/worksheets/sheet${k + 1}.xml`,
-      data: sheetXml(sheet),
+      data: sheetXml(
+        sheet,
+        linkRels.map((r) => r.id),
+      ),
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml',
     });
     rels.push({

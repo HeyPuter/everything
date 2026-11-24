@@ -33,7 +33,10 @@ export function textPositionControls({
   };
   const move = button('Move text', 'MousePointer2', () => {}, 'btn text-move', {
     'aria-label': 'Move text',
-    title: 'Drag to move. Arrow keys move 1 pt; Shift moves 10 pt.',
+    // The description screen readers give the selected text: the keys that edit or delete it
+    // as well as those that move it.
+    title:
+      'Drag to move. Arrow keys move 1 pt; Shift moves 10 pt. Enter or F2 edits the text; Delete removes it.',
   });
   const begin = (e, { capture = true, from = pointAt(e), focus = true } = {}) => {
     if (gesture || !e.isPrimary || e.button !== 0) return;

@@ -24,7 +24,9 @@ async function form() {
 }
 
 // Declining "Edit a signed PDF?" left the words typed in the field, taken for saved: the PDF
-// did not have them, and the next Undo took the signature away instead.
+// did not have them, and the next Undo took the signature away instead. A field filled in
+// after signing keeps the signature valid (signed-form-fill.spec.js); a certification that
+// allows no changes still asks first.
 test('declining to edit a signed PDF keeps the typed words as a draft', async ({ page }) => {
   await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
   await page.goto('/#library');
@@ -34,22 +36,30 @@ test('declining to edit a signed PDF keeps the typed words as a draft', async ({
     await chooser
   ).setFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await form()) });
   await settled(page);
-  await page.getByRole('button', { name: 'Approver: signature field (on page)' }).click();
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Use a certificate', exact: true }).click();
+  await pane.getByRole('button', { name: /Certify/ }).click();
   const ids = page.getByRole('dialog', { name: 'Choose a digital ID' });
   await ids.getByLabel('Create a new digital ID').check();
   await ids.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await ids.getByLabel('Password for the ID file').fill('secret-123');
+  await ids.getByLabel('Confirm password').fill('secret-123');
   await ids.getByRole('button', { name: 'Continue' }).click();
-  const details = page.getByRole('dialog', { name: 'Sign with a certificate' });
-  await details.getByRole('button', { name: 'Sign', exact: true }).click();
+  const details = page.getByRole('dialog', { name: 'Certify document' });
+  await details
+    .getByLabel('Changes allowed after certifying')
+    .selectOption({ label: 'No changes' });
+  await details.getByRole('button', { name: 'Certify', exact: true }).click();
   // The signing ends by settling the page's drafts (the Select tool is chosen again) after the
   // page is no longer busy; its message comes last. A field filled before then is that draft.
   await expect(
-    page.getByText('Signed. Download or save the PDF to keep the signature.'),
+    page.getByText('Certified. Download or save the PDF to keep the certification.'),
   ).toBeVisible();
   await settled(page);
   const bar = page.locator('.signature-bar');
-  await expect(bar).toContainText('Signed');
+  await expect(bar).toContainText('Certified');
   const note = page.getByRole('textbox', { name: 'Note (on page)' });
   await note.fill('After signing');
   await note.press('Enter');
@@ -65,7 +75,7 @@ test('declining to edit a signed PDF keeps the typed words as a draft', async ({
   await expect(note).toHaveValue('');
   await settled(page);
   await expect(widget).not.toHaveClass(/has-draft/);
-  // The signature is still there.
+  // The certification is still there.
   await expect(bar).toBeVisible();
-  await expect(bar).toContainText('Signed');
+  await expect(bar).toContainText('Certified');
 });

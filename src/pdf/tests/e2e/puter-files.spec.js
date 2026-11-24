@@ -186,6 +186,23 @@ test('a file that cannot be written keeps the changes as a new file', async ({ p
   expect(await writes(page)).toEqual([{ path: 'PDF Editor/report.pdf', overwrite: false }]);
 });
 
+// A full drive refused the save, and the app offered to save the changes as a new file instead,
+// which a full drive refuses as well. It now says why at once, with the changes kept.
+test('a save refused because the drive is full offers no copy that could not be saved either', async ({
+  page,
+}) => {
+  await desktop(page);
+  await rotate(page);
+  await page.evaluate(() => (window.failQuota = true));
+  await save(page);
+  await expect(page.locator('#toast')).toHaveText(
+    'Puter could not save report.pdf: Storage capacity limit reached.',
+  );
+  await expect(page.getByRole('dialog', { name: 'This PDF could not be saved' })).toHaveCount(0);
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+  expect(await writes(page)).toEqual([]);
+});
+
 test('renaming a saved PDF renames its file instead of leaving a second copy', async ({ page }) => {
   await desktop(page);
   await rotate(page);

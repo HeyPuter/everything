@@ -131,3 +131,38 @@ test('Fill forms points at the field whose value it refused', async ({ page }) =
   await dialog.getByRole('button', { name: 'Save form' }).click();
   await expect(dialog).toBeHidden();
 });
+
+// On a long form the message was at the end of the dialog, out of sight under the fields,
+// while the field it named took the focus: the field went red with no word why.
+test('Fill forms shows why it refused a value next to the field, on a long form', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 800]);
+  const form = doc.getForm();
+  const amount = form.createTextField('Amount');
+  amount.addToPage(sheet, { x: 40, y: 740, width: 200, height: 20 });
+  amount.acroField.dict.set(
+    PDFName.of('AA'),
+    doc.context.obj({
+      F: { S: 'JavaScript', JS: PDFString.of('AFNumber_Format(2, 0, 0, 0, "$", true);') },
+    }),
+  );
+  for (let i = 1; i <= 20; i++)
+    form
+      .createTextField(`Line ${i}`)
+      .addToPage(sheet, { x: 40, y: 740 - i * 30, width: 200, height: 20 });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Fill forms', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fill forms' });
+  await dialog.getByLabel('Amount').fill('twelve');
+  await dialog.getByRole('button', { name: 'Save form' }).click();
+  const alert = dialog.getByRole('alert');
+  await expect(alert).toHaveText('Enter a number in Amount, such as 1234.5.');
+  await expect(dialog.getByLabel('Amount')).toBeFocused();
+  await expect(alert).toBeInViewport();
+  await dialog.getByLabel('Amount').fill('12');
+  await expect(alert).toBeHidden();
+  await dialog.getByRole('button', { name: 'Save form' }).click();
+  await expect(dialog).toBeHidden();
+});

@@ -312,6 +312,40 @@ test('a field renamed from the keyboard keeps the focus', async ({ page }) => {
   await expect(designer(page, 'Remark#0')).toHaveAttribute('aria-pressed', 'true');
 });
 
+// A name another field had was made unique (Name_2) without a word, so the field the person
+// named "Name" was not the one they thought, and their two fields did not share a value.
+test('a field given a name another field has says which name it took', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 400]);
+  for (const [name, y] of [
+    ['Name', 300],
+    ['Note', 100],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 100, y, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill(' Name ');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Name_2#0')).toBeFocused();
+  await expect(page.locator('#toast')).toHaveText(
+    'Another field is named “Name”, so this one is named “Name_2”.',
+  );
+  // A name of its own says nothing.
+  await page.evaluate(() => (document.querySelector('#toast').hidden = true));
+  await page.keyboard.press('Enter');
+  await dialog.getByLabel('Name', { exact: true }).fill('Remark');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Remark#0')).toBeFocused();
+  await expect(page.locator('#toast')).toBeHidden();
+});
+
 test('a field dragged or nudged past the edge stops at the edge of the page', async ({ page }) => {
   const doc = await PDFDocument.create();
   const note = doc.getForm().createTextField('Note');

@@ -114,3 +114,53 @@ describe('stamps', () => {
     );
   });
 });
+
+// Some PDF writers save a graphics state they never restore after changing the coordinates. A
+// picture, signature or stamp placed on such a page came out at half size and in the wrong place.
+it('places pictures, signatures and stamps where they are asked to go on a page that leaves a state open', async () => {
+  const { PDFName } = await import('pdf-lib');
+  const { addImage } = await import('../src/core/document.js');
+  const { inspectImages } = await import('../src/core/image-edit.js');
+  const { drawSignature } = await import('../src/core/signature.js');
+  const pixel = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const source = await PDFDocument.create();
+  const sheet = source.addPage([400, 400]);
+  sheet.node.set(
+    PDFName.of('Contents'),
+    source.context.register(source.context.stream('0.5 0 0 0.5 0 0 cm q 0 0 m 10 10 l S')),
+  );
+  const doc = await PDFDocument.load(await source.save());
+  await addImage(doc, 0, pixel);
+  const target = { x: 100, y: 100, width: 200, height: 90 };
+  await drawSignature(
+    doc,
+    0,
+    {
+      type: 'draw',
+      strokes: [
+        [
+          [0, 0],
+          [200, 90],
+        ],
+      ],
+    },
+    target,
+  );
+  await drawStamp(doc, 0, { text: 'DRAFT', hex: '#d92626' }, target, { fontkit });
+  const saved = await PDFDocument.load(await doc.save());
+  // The picture is centered at 200 by 200, as on any other 400-point page.
+  expect(inspectImages(saved, 0).map((image) => image.transform)).toEqual([
+    [200, 0, 0, 200, 100, 100],
+  ]);
+  for (const kind of ['signature', 'stamp']) {
+    const [x0, y0, x1, y1] = inspectPaths(saved, 0).find((path) => path.kind === kind).bounds;
+    expect(x0).toBeGreaterThan(99);
+    expect(y0).toBeGreaterThan(99);
+    expect(x1).toBeLessThan(301);
+    expect(y1).toBeLessThan(191);
+    expect(x1 - x0).toBeGreaterThan(150);
+  }
+});

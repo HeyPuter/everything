@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { inspectPaths } from '../../src/core/path-edit.js';
+import { inspectPaths, pathColorHex } from '../../src/core/path-edit.js';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
 async function mockPuter(page) {
@@ -179,6 +179,19 @@ test('a preset stamp lands centered as one selected vector shape', async ({ page
   await menu(page, 'Stamp…');
   const dialog = page.getByRole('dialog', { name: 'Add stamp' });
   await expect(dialog.getByLabel('Text')).toHaveValue('APPROVED');
+  // The chosen preset is filled, not ringed in the accent color as the focused Text field is:
+  // two rings read as two places the keyboard was.
+  await expect(dialog.getByLabel('Text')).toBeFocused();
+  const look = (name) =>
+    dialog
+      .getByRole('button', { name, exact: true })
+      .evaluate((node) => [
+        getComputedStyle(node).boxShadow,
+        getComputedStyle(node).backgroundColor,
+      ]);
+  const [[ring, chosen], [, other]] = [await look('APPROVED'), await look('REVIEWED')];
+  expect(ring).toBe('none');
+  expect(chosen).not.toBe(other);
   const accessibility = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
     .analyze();
@@ -254,8 +267,11 @@ test('custom stamp text and color are validated and used', async ({ page }) => {
   await dialog.getByLabel('Text').fill('   ');
   await dialog.getByRole('button', { name: 'Place stamp', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Enter the stamp text.');
+  // The field is marked as refused, for screen readers too, until it is typed in.
+  await expect(dialog.getByLabel('Text')).toHaveAttribute('aria-invalid', 'true');
   await dialog.getByLabel('Text').fill('Paid in full');
   await dialog.getByLabel('Color').fill('#0b63c4');
+  await expect(dialog.getByLabel('Text')).not.toHaveAttribute('aria-invalid');
   await expect(dialog.locator('.stamp-preview')).toBeVisible();
   await dialog.getByLabel('Text').press('Enter');
   await expect(dialog).toBeHidden();
@@ -264,4 +280,56 @@ test('custom stamp text and color are validated and used', async ({ page }) => {
   const paths = inspectPaths(await exported(page), 0);
   expect(paths).toHaveLength(1);
   expect(paths[0]).toMatchObject({ filled: true, stroked: true });
+});
+
+// A stamp's letters are filled and outlined in one color. A new fill color left the outline in
+// the old one, a rim of red or green around the recolored letters; so did a new opacity.
+test('a new color or opacity for a stamp recolors its letters and their outline alike', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await openPdf(page, doc);
+  await menu(page, 'Stamp…');
+  const dialog = page.getByRole('dialog', { name: 'Add stamp' });
+  await dialog.getByRole('button', { name: 'Place stamp', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const fill = page.getByLabel('Stamp fill color', { exact: true });
+  await fill.evaluate((input) => {
+    input.value = '#0033cc';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(page.getByLabel('Stamp stroke color', { exact: true })).toHaveValue('#0033cc');
+  await settled(page);
+  const opacity = page.getByLabel('Stamp stroke opacity in percent', { exact: true });
+  await opacity.fill('40');
+  await opacity.press('Enter');
+  await expect(page.getByLabel('Stamp fill opacity in percent', { exact: true })).toHaveValue('40');
+  await settled(page);
+  const [stamp] = inspectPaths(await exported(page), 0);
+  expect(pathColorHex(stamp.state.fill)).toBe('#0033cc');
+  expect(pathColorHex(stamp.state.stroke)).toBe('#0033cc');
+  expect(stamp.state.alpha).toBeCloseTo(0.4, 5);
+  expect(stamp.state.strokeAlpha).toBeCloseTo(0.4, 5);
+});
+
+// On a 320 px phone the CONFIDENTIAL preset read "CONFIDENTI…".
+test('every stamp preset is read whole on the smallest phones', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await openPdf(page, doc);
+  await menu(page, 'Stamp…');
+  const chips = page.getByRole('dialog', { name: 'Add stamp' }).locator('.stamp-chip');
+  await expect(chips.first()).toBeVisible();
+  const cut = await chips.evaluateAll((nodes) =>
+    nodes.filter((node) => node.scrollWidth > node.clientWidth).map((node) => node.textContent),
+  );
+  expect(cut).toEqual([]);
 });

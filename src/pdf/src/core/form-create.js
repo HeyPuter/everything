@@ -51,11 +51,13 @@ import {
   DAMAGED_FORM,
   annotationList,
   annotationsOf,
+  formField,
   formFields,
   pageRotation,
 } from './structure.js';
 import { parseContent } from './text-edit.js';
 export { detectFormFields } from './form-detect.js';
+export { cleanName as cleanFieldName };
 
 const name = PDFName.of;
 const KIDS = name('Kids'),
@@ -267,6 +269,12 @@ function nameTaken(fields, except) {
   const taken = (candidate) =>
     terminals.has(candidate) || groups.has(candidate) || blocked(candidate.split('.')) > 0;
   taken.blocked = blocked;
+  /** A field given a name later on, which takes it and the groups above it. */
+  taken.add = (full) => {
+    terminals.add(full);
+    const parts = full.split('.');
+    for (let i = 1; i < parts.length; i++) groups.add(parts.slice(0, i).join('.'));
+  };
   return taken;
 }
 /** `base`, or with _2, _3... on the last part (or on the part that names another field). */
@@ -280,9 +288,8 @@ function uniqueName(taken, base) {
     if (!taken(next.join('.'))) return next.join('.');
   }
 }
-function defaultName(type, fields) {
+function defaultName(type, taken) {
   const base = DEFAULT_NAMES[type];
-  const taken = nameTaken(fields);
   for (let n = 1; ; n++) if (!taken(`${base}${n}`)) return `${base}${n}`;
 }
 /** Place a terminal field dictionary under its (possibly new) groups. */
@@ -935,7 +942,7 @@ function createWidget(doc, page, fieldRef, rect, props) {
   return ref;
 }
 function wrapField(doc, ref) {
-  const field = requireFields(doc).find((f) => f.ref === ref);
+  const field = formField(doc, ref);
   if (!field) throw new Error(DAMAGED_FORM);
   return field;
 }
@@ -1111,7 +1118,27 @@ function applyFieldProps(doc, field, props) {
  * button: label, action (reset | print | none). signature: an empty Acrobat signature field.
  * A name already in use gets _2, _3... (radio groups join instead).
  */
-export async function addFormField(doc, pageIndex, { type, name: requested, rect, ...props } = {}) {
+export const addFormField = (doc, pageIndex, options) => createFormField(doc, pageIndex, options);
+/**
+ * Add several fields, as addFormField does each: `entries` are its options with the `page`
+ * each goes on. Resolves to the names the fields took. The form is read once for all of them,
+ * where field by field it was read again for each, which took a minute for 3,600 fields found
+ * on a long form.
+ */
+export async function addFormFields(doc, entries) {
+  const fields = requireFields(doc);
+  const known = { fields, taken: nameTaken(fields) };
+  const names = [];
+  for (const { page, ...options } of entries)
+    names.push(await createFormField(doc, page, options, known));
+  return names;
+}
+async function createFormField(
+  doc,
+  pageIndex,
+  { type, name: requested, rect, ...props } = {},
+  known = null,
+) {
   if (!DEFAULT_NAMES[type]) throw new Error('Choose a supported field type.');
   // Check everything that can fail before the document changes.
   validateText(props);
@@ -1132,7 +1159,7 @@ export async function addFormField(doc, pageIndex, { type, name: requested, rect
     throw new Error('That page does not exist.');
   const page = doc.getPage(pageIndex);
   const box = normalizeBox(rect);
-  const fields = requireFields(doc);
+  const fields = known?.fields ?? requireFields(doc);
   const form = doc.getForm();
   const wanted = cleanName(requested);
   const radio = type === 'radio';
@@ -1145,7 +1172,8 @@ export async function addFormField(doc, pageIndex, { type, name: requested, rect
       return wanted;
     }
   }
-  const fieldName = wanted ? uniqueName(nameTaken(fields), wanted) : defaultName(type, fields);
+  const taken = known?.taken ?? nameTaken(fields);
+  const fieldName = wanted ? uniqueName(taken, wanted) : defaultName(type, taken);
   const context = doc.context;
   const dict = context.obj({});
   const ref = context.register(dict);
@@ -1195,6 +1223,10 @@ export async function addFormField(doc, pageIndex, { type, name: requested, rect
   attachField(form, ref, dict, fieldName);
   if (!radio) annotationList(page).push(ref);
   const field = wrapField(doc, ref);
+  if (known) {
+    known.fields.push(field);
+    known.taken.add(fieldName);
+  }
   applyFieldProps(doc, field, {
     ...props,
     font: undefined,

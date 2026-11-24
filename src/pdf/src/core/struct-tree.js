@@ -115,6 +115,93 @@ export function removePageStructure(doc, pages) {
   }
 }
 
+/**
+ * Take marked content that an edit emptied (a deleted picture's, say) out of the structure: its
+ * references go from the elements that named it on the page `pageRef`, as do elements left with
+ * nothing, so a removed figure's alternate text is not still read out, and the page's parent
+ * tree no longer names an element for it.
+ */
+export function removeMarkedContentStructure(doc, pageRef, mcids) {
+  const root = doc.catalog.lookup(name('StructTreeRoot'));
+  if (!(root instanceof PDFDict) || !mcids.size) return;
+  const PG = name('Pg'),
+    K = name('K'),
+    TYPE = name('Type');
+  const gone = (pg, mcid) => pg === pageRef && mcids.has(mcid);
+  const frame = (node, pg) => {
+    const kids = node.get(K);
+    const array = node.lookup(K);
+    const list = array instanceof PDFArray ? array.asArray() : kids ? [kids] : [];
+    return { node, pg, list, next: 0, kept: [] };
+  };
+  const seen = new Set(),
+    removed = new Set();
+  const stack = [frame(root, undefined)];
+  while (stack.length) {
+    const current = stack.at(-1);
+    if (current.next < current.list.length) {
+      const kid = current.list[current.next++];
+      const value = doc.context.lookup(kid);
+      let stays = true;
+      if (value instanceof PDFNumber) stays = !gone(current.pg, value.asNumber());
+      else if (value instanceof PDFDict) {
+        const type = value.lookup(TYPE);
+        if (type === name('MCR'))
+          stays =
+            value.has(name('Stm')) ||
+            !gone(value.get(PG) ?? current.pg, value.lookup(name('MCID'))?.asNumber?.());
+        else if (type !== name('OBJR') && !seen.has(value)) {
+          seen.add(value);
+          stack.push({ ...frame(value, value.get(PG) ?? current.pg), kid });
+          continue;
+        }
+      }
+      if (stays) current.kept.push(kid);
+      continue;
+    }
+    stack.pop();
+    const { node, list, kept } = current;
+    const parent = stack.at(-1);
+    if (kept.length !== list.length) {
+      // An element whose every kid went goes too; the document root stays.
+      if (!kept.length && parent) {
+        removed.add(node);
+        continue;
+      }
+      if (!kept.length) node.delete(K);
+      else node.set(K, doc.context.obj(kept));
+    }
+    if (parent) parent.kept.push(current.kid);
+  }
+  for (const element of removed) element.delete(PG);
+  pruneNameTree(doc, root.lookup(name('IDTree')), (value) => removed.has(value));
+  // The page's entry in the parent tree lists an element for each of its marked contents.
+  const page = doc.context.lookup(pageRef);
+  const key = page instanceof PDFDict && page.lookup(name('StructParents'));
+  if (!(key instanceof PDFNumber)) return;
+  const visited = new Set();
+  const pending = [root.lookup(name('ParentTree'))];
+  while (pending.length) {
+    const node = pending.pop();
+    if (!(node instanceof PDFDict) || visited.has(node)) continue;
+    visited.add(node);
+    const nums = node.lookup(name('Nums'));
+    if (nums instanceof PDFArray)
+      for (let i = 0; i + 1 < nums.size(); i += 2) {
+        const at = nums.lookup(i);
+        if (!(at instanceof PDFNumber) || at.asNumber() !== key.asNumber()) continue;
+        const elements = nums.lookup(i + 1);
+        if (elements instanceof PDFArray)
+          for (const mcid of mcids)
+            if (Number.isInteger(mcid) && mcid >= 0 && mcid < elements.size())
+              elements.set(mcid, doc.context.obj(null));
+      }
+    const kids = node.lookup(name('Kids'));
+    if (kids instanceof PDFArray)
+      for (const kid of kids.asArray()) pending.push(doc.context.lookup(kid));
+  }
+}
+
 /** Drop the entries of a name tree whose values `drop` picks; Limits are left as they are. */
 function pruneNameTree(doc, tree, drop) {
   const visited = new Set();

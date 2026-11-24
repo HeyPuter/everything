@@ -60,7 +60,7 @@ const ASCII_WIDTHS = [
   667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500,
   222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
 ];
-function charWidth(code) {
+export function charWidth(code) {
   if (code >= 32 && code <= 126) return ASCII_WIDTHS[code - 32];
   // CJK, kana and full-width forms are square.
   if ((code >= 0x2e80 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7af)) return 1000;

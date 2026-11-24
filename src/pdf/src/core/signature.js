@@ -18,6 +18,7 @@ import {
 } from 'pdf-lib';
 import { color, embedOrientedImage, drawOrientedImage } from './document.js';
 import { checkedFontData } from './font-data.js';
+import { closeOpenStates } from './page-state.js';
 
 /** Pen width of a drawn signature, in the units of its own drawing box. */
 export const PEN_WIDTH = 3;
@@ -297,6 +298,8 @@ export async function drawSignature(
   // On a rotated page the signature turns with it, around the middle of its box, so it reads
   // upright on screen; the box itself is given in the upright frame.
   const { turn, unturn } = turnOperators(target, rotation);
+  // Closing them adds nothing a reader draws, so a signature refused below changes nothing.
+  closeOpenStates(page);
   if (signature.type === 'image') {
     const image = await embedOrientedImage(doc, signature.bytes);
     const placed = fitSignature({ width: image.width, height: image.height }, target);

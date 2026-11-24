@@ -16,6 +16,7 @@ import {
   PDFParser,
   PDFRawStream,
   PDFRef,
+  PDFString,
   decodePDFRawStream,
 } from 'pdf-lib';
 import { unpredict } from './image-redact.js';
@@ -336,6 +337,75 @@ export function appendRevision(original, objects, { xref, trailer, size }) {
     at += part.length;
   }
   return { bytes: out, offsets };
+}
+
+/** Bytes of an object to tell later whether it changed: a stream by its data, not a copy. */
+function fingerprint(object) {
+  if (object instanceof PDFRawStream)
+    return { contents: object.contents, dict: objectBytes(object.dict) };
+  return { bytes: objectBytes(object) };
+}
+const sameBytes = (a, b) => a.length === b.length && a.every((byte, i) => byte === b[i]);
+const sameFingerprint = (a, b) =>
+  a.bytes
+    ? !!b.bytes && sameBytes(a.bytes, b.bytes)
+    : a.contents === b.contents && sameBytes(a.dict, b.dict);
+
+/**
+ * Follow the edits made to `doc`, loaded from `original`, so that they can be appended to the
+ * file as a revision of their own: the bytes before them stay as they were, and so do the
+ * signatures over those bytes. Returns `{ finish }`, or null for a file whose revisions cannot
+ * be appended to (an unreadable cross-reference section, or encryption). `finish()` resolves
+ * to the new bytes, or to null when nothing changed.
+ */
+export function trackRevision(original, doc) {
+  const { context } = doc;
+  if (context.trailerInfo.Encrypt) return null;
+  let xref;
+  try {
+    xref = lastCrossReference(original);
+  } catch {
+    return null;
+  }
+  // New objects take numbers above everything the file has ever used.
+  context.largestObjectNumber = Math.max(
+    context.largestObjectNumber,
+    xref.size - 1,
+    highestObjectNumber(original),
+  );
+  const before = new Map();
+  for (const [ref, object] of context.enumerateIndirectObjects())
+    before.set(ref.objectNumber, fingerprint(object));
+  return {
+    async finish() {
+      // What saving the document would draw and embed first (pdf-lib's save).
+      doc.formCache?.getValue()?.updateFieldAppearances();
+      await doc.flush();
+      const objects = [];
+      for (const [ref, object] of context.enumerateIndirectObjects()) {
+        const was = before.get(ref.objectNumber);
+        if (!was || !sameFingerprint(was, fingerprint(object)))
+          objects.push({ ref, body: objectBytes(object) });
+      }
+      if (!objects.length) return null;
+      const ids = context.lookup(context.trailerInfo.ID);
+      const first = ids instanceof PDFArray && ids.size() ? context.lookup(ids.get(0)) : null;
+      const id = globalThis.crypto.getRandomValues(new Uint8Array(16));
+      const { Root: root, Info: info } = context.trailerInfo;
+      return appendRevision(original, objects, {
+        xref,
+        size: context.largestObjectNumber + 1,
+        trailer: {
+          root,
+          info: info instanceof PDFRef ? info : null,
+          id: [
+            first instanceof PDFHexString || first instanceof PDFString ? first.asBytes() : id,
+            id,
+          ],
+        },
+      }).bytes;
+    },
+  };
 }
 
 export { ascii, latin1 };

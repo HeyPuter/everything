@@ -95,7 +95,7 @@ test('image page insertion preserves link and bookmark targets through history a
   };
   const followLink = async (total) => {
     await goToFirst();
-    await page.getByRole('button', { name: 'Link to another page', exact: true }).click();
+    await page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }).click();
     await page
       .getByRole('dialog', { name: 'Edit link' })
       .getByRole('button', { name: 'Go to linked page', exact: true })

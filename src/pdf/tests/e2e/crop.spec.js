@@ -240,3 +240,40 @@ test('typed margins can crop all pages without typing their range', async ({ pag
   const exported = await PDFDocument.load(await readFile(await (await pending).path()));
   expect(exported.getPages().map((p) => p.getCropBox().height)).toEqual([300, 300, 300]);
 });
+
+// Zooming, or a phone turned on its side, drew the page again and threw away the crop area
+// just drawn, with its Crop this page and Crop all pages buttons.
+test('a crop area stays through a zoom and crops what was drawn', async ({ page }) => {
+  test.skip(test.info().project.name === 'mobile', 'The zoom menu of the desktop layout.');
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await squarePages());
+  await menu(page, 'Crop pages…');
+  const overlay = page.locator('.drawing-overlay');
+  const box = await overlay.boundingBox();
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.6, { steps: 5 });
+  await page.mouse.up();
+  const panel = page.getByRole('group', { name: 'Crop area' });
+  await expect(panel).toBeVisible();
+  await page.getByLabel('Zoom', { exact: true }).selectOption('2');
+  await settled(page);
+  await expect(panel).toBeVisible();
+  // The dimmed margin is drawn again around the same part of the page, now twice the size.
+  const dimmed = await overlay.evaluate((canvas) => {
+    const context = canvas.getContext('2d');
+    const at = (u, v) =>
+      context.getImageData(Math.floor(canvas.width * u), Math.floor(canvas.height * v), 1, 1)
+        .data[3];
+    return { outside: at(0.5, 0.1), inside: at(0.5, 0.4) };
+  });
+  expect(dimmed.outside).toBeGreaterThan(0);
+  expect(dimmed.inside).toBe(0);
+  await panel.getByRole('button', { name: 'Crop this page', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Page cropped.');
+  await settled(page);
+  const cropped = await canvasBox(page);
+  expect(cropped.width / cropped.height).toBeGreaterThan(1.9);
+  expect(cropped.width / cropped.height).toBeLessThan(2.1);
+});

@@ -95,7 +95,7 @@ for (const indirectAction of [false, true])
       );
     }
     await openPdf(page, doc);
-    const jump = page.getByRole('button', { name: 'Link to another page', exact: true });
+    const jump = page.getByRole('button', { name: /^Link to (another page|page \d+)$/ });
     await jump.click();
     await page
       .getByRole('dialog', { name: 'Edit link' })
@@ -165,7 +165,7 @@ test('links edit on click, open explicitly, and can be removed from their menu',
     ['https://example.com/', '_blank', 'noopener'],
   ]);
   await expect(editor).toHaveCount(0);
-  const jump = page.getByRole('button', { name: 'Link to another page', exact: true });
+  const jump = page.getByRole('button', { name: /^Link to (another page|page \d+)$/ });
   await expect(jump).toBeVisible();
   // The editing targets sit over their text.
   const text = page.locator('.workspace .textLayer').getByText('Visit our website');
@@ -195,7 +195,7 @@ test('links edit on click, open explicitly, and can be removed from their menu',
   await settled(page);
   await expect(page.getByRole('button', { name: 'Link to example.com' })).toHaveCount(0);
   await expect(
-    page.getByRole('button', { name: 'Link to another page', exact: true }),
+    page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }),
   ).toBeVisible();
   const doc = await exported(page);
   const remaining = listLinks(doc, 0);
@@ -323,7 +323,7 @@ test('next-page links are followed, and links that run scripts can be removed', 
   }
   await openPdf(page, doc);
   await settled(page);
-  const pageLinks = page.getByRole('button', { name: 'Link to another page', exact: true });
+  const pageLinks = page.getByRole('button', { name: /^Link to the (next|last) page$/ });
   const unsupported = page.getByRole('button', { name: 'Link with an unsupported action' });
   await expect(pageLinks).toHaveCount(2);
   await expect(unsupported).toHaveCount(2);
@@ -391,7 +391,7 @@ test('the Link tool links a dragged area to a typed address or a page, with undo
   await second.getByRole('button', { name: 'Add link', exact: true }).click();
   await expect(second).toBeHidden();
   await settled(page);
-  await page.getByRole('button', { name: 'Link to another page', exact: true }).click();
+  await page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }).click();
   await page
     .getByRole('dialog', { name: 'Edit link' })
     .getByRole('button', { name: 'Go to linked page' })
@@ -401,7 +401,7 @@ test('the Link tool links a dragged area to a typed address or a page, with undo
   await settled(page);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await settled(page);
-  await expect(page.getByRole('button', { name: 'Link to another page', exact: true })).toHaveCount(
+  await expect(page.getByRole('button', { name: /^Link to (another page|page \d+)$/ })).toHaveCount(
     0,
   );
   await expect(page.getByRole('button', { name: 'Link to example.org/docs' })).toBeVisible();
@@ -504,7 +504,7 @@ test('clicking or using the keyboard edits a link without navigating, with cance
   await editor.getByRole('spinbutton', { name: 'Page to link to' }).fill('2');
   await save.click();
   await settled(page);
-  await expect(target).toHaveAccessibleName('Link to another page');
+  await expect(target).toHaveAccessibleName(/^Link to (another page|page \d+)$/);
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 2');
   await target.click();
   await expect(editor.getByRole('radio', { name: 'Page in this PDF' })).toBeChecked();
@@ -543,7 +543,7 @@ test('protected links offer explicit navigation while editing remains disabled',
     await chooser
   ).setFiles({ name: 'protected.pdf', mimeType: 'application/pdf', buffer: Buffer.from(bytes) });
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 2');
-  await page.getByRole('button', { name: 'Link to another page', exact: true }).click();
+  await page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }).click();
   const options = page.getByRole('menu', { name: 'Link', exact: true });
   await expect(options.getByRole('menuitem', { name: 'Edit link…', exact: true })).toBeDisabled();
   await expect(options.getByRole('menuitem', { name: 'Remove link', exact: true })).toBeDisabled();
@@ -565,7 +565,7 @@ test('saving an unchanged page link at a different zoom preserves its exact dest
   annotation.set(PDFName.of('Dest'), destination);
   await openPdf(page, source);
   await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('0.5');
-  const target = page.getByRole('button', { name: 'Link to another page', exact: true });
+  const target = page.getByRole('button', { name: /^Link to (another page|page \d+)$/ });
   await target.click();
   const editor = page.getByRole('dialog', { name: 'Edit link' });
   await expect(editor.getByRole('spinbutton', { name: 'Page to link to' })).toHaveValue('2');
@@ -608,7 +608,7 @@ for (const flags of [64, 128, 128 | 512]) {
     for (const ref of saved.getPage(0).node.Annots().asArray())
       expect(saved.context.lookup(ref).lookup(PDFName.of('F')).asNumber()).toBe(4 | flags);
     if (flags === 128) {
-      await page.getByRole('button', { name: 'Link to another page', exact: true }).click();
+      await page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }).click();
       await menu.getByRole('menuitem', { name: 'Go to linked page', exact: true }).click();
       await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
     }
@@ -663,7 +663,7 @@ for (const operation of ['edit', 'remove'])
     await openPdf(page, saved);
     await expectChanged();
     await expect(
-      page.getByRole('button', { name: 'Link to another page', exact: true }),
+      page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }),
     ).toBeVisible();
   });
 
@@ -702,7 +702,7 @@ for (const dismiss of ['Escape', 'Cancel', 'Save link'])
       await expect(web).toBeFocused();
       for (let i = 0; i < 2; i++) {
         if (destination === 'same link') await page.keyboard.press('Enter');
-        else await page.getByRole('button', { name: 'Link to another page', exact: true }).click();
+        else await page.getByRole('button', { name: /^Link to (another page|page \d+)$/ }).click();
       }
       await expect(editor).toHaveCount(0);
       await page.evaluate(() => window.releaseLinkClose());
@@ -765,7 +765,7 @@ for (const index of [0, 1])
       }
       await page
         .getByRole('button', {
-          name: kind === 'web' ? 'Link to example.com' : 'Link to another page',
+          name: kind === 'web' ? 'Link to example.com' : /^Link to (another page|page \d+)$/,
           exact: true,
         })
         .click();

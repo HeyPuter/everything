@@ -28,12 +28,18 @@ const movable = (entry) =>
   !entry.locked && !entry.readOnly && annotationAccepts(entry.subtype, 'rect');
 
 /**
+ * Whether a comment's shape can be changed (resized, or its points moved): not one drawn with
+ * members of its group, such as a measurement with its label, whose value would no longer
+ * match; it moves as a whole instead.
+ */
+export const reshapable = (entry) => movable(entry) && entry.editable && !entry.group?.length;
+/**
  * Whether a comment can be resized by its corners, and by which box: a callout's text box
  * (its point stays where it points), or the whole comment. Lines and stamps keep their size.
  */
 const RESIZABLE = new Set(['Square', 'Circle', 'FreeText', 'Ink', 'Polygon']);
-const resizeBox = (entry) =>
-  movable(entry) && entry.editable && RESIZABLE.has(entry.subtype)
+export const resizeBox = (entry) =>
+  reshapable(entry) && RESIZABLE.has(entry.subtype)
     ? entry.subtype === 'FreeText' && entry.points?.length >= 2
       ? entry.box && { key: 'box', box: entry.box }
       : { key: 'rect', box: entry.rect }
@@ -314,7 +320,7 @@ export function createAnnotationLayer({ onSelect, onMove, onResize, onDelete }) 
    * the line will run.
    */
   function addPointHandles(node, entry, box) {
-    if (!movable(entry) || !entry.editable || !(entry.points?.length >= 2)) return;
+    if (!reshapable(entry) || !(entry.points?.length >= 2)) return;
     const callout = entry.subtype === 'FreeText';
     if (!callout && entry.subtype !== 'Line') return;
     const ends = callout ? [0] : [0, 1];

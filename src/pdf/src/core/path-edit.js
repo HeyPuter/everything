@@ -1,6 +1,13 @@
 import { PDFArray, PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
 import { parseContent, matrix, decode, pageSource, uniqueName } from './text-edit.js';
-import { inverse, invertible, imageCorners, rewriteOccurrence, quadClip } from './image-edit.js';
+import {
+  inverse,
+  invertible,
+  imageCorners,
+  rewriteOccurrence,
+  quadClip,
+  removedStructure,
+} from './image-edit.js';
 
 const identity = [1, 0, 0, 1, 0, 0];
 const get = (dict, key) => dict?.lookup(PDFName.of(key));
@@ -540,6 +547,7 @@ export function editPath(
   const opacityName = changedOpacity && !remove ? uniqueName(states, 'PathOpacity') : null;
   if (opacityName) commands.push(`${opacityName} gs`);
   const local = matrix(matrix(inverse(entry.ctm), transform), inverse(entry.local));
+  const untag = remove ? removedStructure(doc, index, entry) : null;
   rewriteOccurrence(
     doc,
     index,
@@ -553,6 +561,7 @@ export function editPath(
         }
       : undefined,
   );
+  untag?.();
 }
 
 export async function pathPreview(doc, entry) {

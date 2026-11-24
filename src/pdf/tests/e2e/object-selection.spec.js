@@ -245,3 +245,114 @@ test('an object commit locks actions in the initiating event while native focus 
   });
   await expect(move).toBeEnabled();
 });
+
+test('a redraw keeps the targets of unchanged objects, which then select the redrawn objects', async ({
+  page,
+}) => {
+  await mount(page);
+  const result = await page.evaluate(() => {
+    const { layer, entries, viewport } = window.selectionTest;
+    const before = [...layer.targets.children];
+    // A page of thousands of shapes is redrawn after each nudge: only the moved one changes.
+    const next = entries.map((entry) => ({ ...entry, id: `${entry.id}-again` }));
+    next[0].transform = [80, 0, 0, 60, 90, 140];
+    layer.render(next, viewport, 'second', 'page-1');
+    const after = [...layer.targets.children];
+    layer.render(next, { ...viewport, transform: [2, 0, 0, -2, 0, 800] }, 'zoom', 'page-1');
+    const zoomed = [...layer.targets.children];
+    layer.render(next, viewport, 'third', 'page-1');
+    layer.setBusy(false);
+    window.selectionTest.entries = next;
+    return {
+      moved: after[0] === before[0],
+      kept: after[1] === before[1],
+      left: after[0].style.left,
+      keptOnZoom: zoomed.some((target) => after.includes(target)),
+    };
+  });
+  expect(result).toEqual({ moved: false, kept: true, left: '90px', keptOnZoom: false });
+  await page.getByRole('button', { name: 'Select shape 2', exact: true }).press('Enter');
+  await page.evaluate(() => window.selectionTest.pending[0].resolve());
+  const move = page.getByRole('button', { name: 'Move selected shape', exact: true });
+  await expect(move).toBeVisible();
+  await move.press('ArrowRight');
+  await expect
+    .poll(() => page.evaluate(() => window.selectionTest.commits))
+    .toEqual([{ ordinal: 1, transform: [80, 0, 0, 60, 241, 140] }]);
+});
+
+test('object targets are not dimmed one by one while a save runs, and a hovered one still dims', async ({
+  page,
+}) => {
+  await mount(page);
+  // Each dimmed target is a layer of its own for the browser to repaint; a page of shapes has
+  // thousands, and the targets are see-through anyway.
+  await page.evaluate(() => window.selectionTest.layer.setBusy(true));
+  const target = page.getByRole('button', { name: 'Select shape 2', exact: true });
+  await expect(target).toBeDisabled();
+  await target.hover();
+  const style = await target.evaluate((node) => {
+    const css = getComputedStyle(node);
+    return { opacity: css.opacity, outline: css.outlineColor, hovered: node.matches(':hover') };
+  });
+  expect(style).toMatchObject({ opacity: '1', hovered: true });
+  expect(style.outline).toMatch(/^(rgba|color)\(.*0\.4\)$/);
+});
+
+test('the object targets are gone through only when their busy state changes', async ({ page }) => {
+  await mount(page);
+  const result = await page.evaluate(() => {
+    const { layer, entries, viewport } = window.selectionTest;
+    const targets = layer.targets;
+    const property = Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype, 'disabled');
+    let writes = 0;
+    Object.defineProperty(HTMLButtonElement.prototype, 'disabled', {
+      ...property,
+      set(value) {
+        if (targets.contains(this)) writes++;
+        property.set.call(this, value);
+      },
+    });
+    const count = (action) => {
+      writes = 0;
+      action();
+      return writes;
+    };
+    try {
+      // The editor sets the busy state many times a second while a page of thousands of shapes
+      // is saved; it changes only twice.
+      const unchanged = count(() => {
+        for (let i = 0; i < 5; i++) layer.setBusy(false);
+      });
+      const busy = count(() => layer.setBusy(true));
+      const disabled = [...targets.children].map((target) => target.disabled);
+      const again = count(() => layer.setBusy(true));
+      // A redraw while busy gives its new target the same state.
+      const next = entries.map((entry) => ({ ...entry }));
+      next[0].transform = [80, 0, 0, 60, 90, 140];
+      layer.render(next, viewport, 'second', 'page-1');
+      const redrawn = [...targets.children].map((target) => target.disabled);
+      const idle = count(() => layer.setBusy(false));
+      return {
+        unchanged,
+        busy,
+        disabled,
+        again,
+        redrawn,
+        idle,
+        enabled: [...targets.children].map((t) => t.disabled),
+      };
+    } finally {
+      Object.defineProperty(HTMLButtonElement.prototype, 'disabled', property);
+    }
+  });
+  expect(result).toEqual({
+    unchanged: 0,
+    busy: 2,
+    disabled: [true, true],
+    again: 0,
+    redrawn: [true, true],
+    idle: 2,
+    enabled: [false, false],
+  });
+});

@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFName, PDFNumber } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFHexString, PDFName, PDFNumber, PDFString } from 'pdf-lib';
 
 const LABELS = PDFName.of('PageLabels');
 
@@ -50,4 +50,73 @@ export function shiftPageLabels(doc, at, count) {
     .sort((a, b) => a[0] - b[0])
     .flatMap(([start, label]) => [PDFNumber.of(start), label]);
   doc.catalog.set(LABELS, doc.context.obj({ Nums: nums }));
+}
+
+const STYLES = new Set(['D', 'R', 'r', 'A', 'a']);
+/**
+ * Each page's label as { style, prefix, value } (style one of D R r A a or null for a prefix
+ * alone, prefix a string, value the number shown), or null for a page no range covers. Null
+ * when the PDF has no page labels.
+ */
+export function pageLabelSpecs(doc) {
+  const tree = doc.catalog.lookup(LABELS);
+  if (!(tree instanceof PDFDict)) return null;
+  const ranges = labelRanges(doc, tree)
+    .filter(([start]) => start >= 0)
+    .sort((a, b) => a[0] - b[0]);
+  if (!ranges.length) return null;
+  const specs = [];
+  let r = -1;
+  for (let i = 0; i < doc.getPageCount(); i++) {
+    while (r + 1 < ranges.length && ranges[r + 1][0] <= i) r++;
+    const label = r >= 0 ? doc.context.lookup(ranges[r][1]) : null;
+    if (!(label instanceof PDFDict)) {
+      specs.push(null);
+      continue;
+    }
+    const style = label.lookup(PDFName.of('S'));
+    const prefix = label.lookup(PDFName.of('P'));
+    const first = label.lookup(PDFName.of('St'));
+    const name = style instanceof PDFName ? style.decodeText() : null;
+    specs.push({
+      style: STYLES.has(name) ? name : null,
+      prefix:
+        prefix instanceof PDFString || prefix instanceof PDFHexString ? prefix.decodeText() : '',
+      value:
+        (first instanceof PDFNumber && first.asNumber() >= 1 ? Math.floor(first.asNumber()) : 1) +
+        i -
+        ranges[r][0],
+    });
+  }
+  return specs;
+}
+
+/**
+ * Give the pages these labels (see pageLabelSpecs), one range per run of pages that count on
+ * from each other. A page without a label shows its page number.
+ */
+export function setPageLabels(doc, specs) {
+  const nums = [];
+  let previous = null;
+  specs.forEach((spec, i) => {
+    const label = spec || { style: 'D', prefix: '', value: i + 1 };
+    const continues =
+      previous &&
+      previous.style === label.style &&
+      previous.prefix === label.prefix &&
+      (label.style ? label.value === previous.value + 1 : true);
+    previous = label;
+    if (continues) return;
+    const dict = {};
+    if (label.style) dict.S = PDFName.of(label.style);
+    if (label.prefix) dict.P = PDFHexString.fromText(label.prefix);
+    if (label.style && label.value !== 1) dict.St = label.value;
+    nums.push(PDFNumber.of(i), doc.context.obj(dict));
+  });
+  // Labels that are just the page numbers need no tree.
+  const plain = specs.every(
+    (spec, i) => !spec || (spec.style === 'D' && !spec.prefix && spec.value === i + 1),
+  );
+  if (plain) doc.catalog.delete(LABELS);
+  else doc.catalog.set(LABELS, doc.context.obj({ Nums: nums }));
 }

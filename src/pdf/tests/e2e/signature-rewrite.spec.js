@@ -4,9 +4,9 @@ import { PDFDocument } from 'pdf-lib';
 
 test.skip(({ isMobile }) => isMobile, 'desktop workspace');
 
-test('a signature that filling in the form invalidated still shows, as invalid', async ({
-  page,
-}) => {
+// Filling in a field keeps the signature valid (signed-form-fill.spec.js); other edits rewrite
+// the file.
+test('a signature that an edit invalidated still shows, as invalid', async ({ page }) => {
   const { createSelfSignedId, signPdf, verifySignatures } =
     await import('../../src/core/digital-signature.js');
   const doc = await PDFDocument.create();
@@ -24,8 +24,11 @@ test('a signature that filling in the form invalidated still shows, as invalid',
   ).setFiles({ name: 'signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from(signed) });
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.signature-bar')).toContainText('Signed');
-  await page.getByRole('textbox', { name: 'Name (on page)' }).fill('Ada');
-  await page.keyboard.press('Enter');
+  await page
+    .getByRole('menubar', { name: 'PDF menus' })
+    .getByRole('menuitem', { name: 'Page', exact: true })
+    .click();
+  await page.getByRole('menuitem', { name: 'Rotate clockwise', exact: true }).click();
   await page
     .getByRole('dialog', { name: 'Edit a signed PDF?' })
     .getByRole('button', {

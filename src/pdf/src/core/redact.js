@@ -5,6 +5,7 @@ import {
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFString,
   StandardFontEmbedder,
   StandardFonts,
 } from 'pdf-lib';
@@ -16,7 +17,7 @@ import {
   removeAnnotationThread,
 } from './structure.js';
 import { annotationId } from './links.js';
-import { indexPageText, searchQuery } from './search.js';
+import { foldChar, indexPageText, searchQuery } from './search.js';
 import {
   contentReport,
   filterContent,
@@ -548,6 +549,9 @@ function redactionPolicy(doc, areas, { codec } = {}) {
     softMasks: true,
     glyph: (quad) => hits(quad),
     path: (bounds) => areas.some(({ rect }) => rectInside(bounds, rect)),
+    // A path partly under the areas (outlined text, a drawn signature) loses what lies under
+    // them; the rest is painted as before.
+    cutPath: (bounds) => areas.map(({ rect }) => rect).filter((rect) => rectsOverlap(bounds, rect)),
     async image({ object, ctm, resources }) {
       const quad = placementQuad(ctm);
       let stream = object,
@@ -976,6 +980,58 @@ export function findRedactionMatches(items, query, { measure, wholeWord = false 
   }
   return matches;
 }
+/** A text string of a PDF dictionary entry, or of each of an array's; '' for anything else. */
+function plainText(value) {
+  if (value instanceof PDFString || value instanceof PDFHexString) return value.decodeText();
+  if (value instanceof PDFArray)
+    return value
+      .asArray()
+      .map((_, i) => plainText(value.lookup(i)))
+      .filter(Boolean)
+      .join('\n');
+  return '';
+}
+/**
+ * What was typed into a page's form fields and comments, which the page's own text does not
+ * hold: "Find text & redact" searches it too, and a match marks the whole field or comment,
+ * which applying the mark removes. `query` is as for `findRedactionMatches`. Returns
+ * `[{ text, rects }]` with one rect, the field's or comment's.
+ */
+export function findAnnotationTextRects(doc, pageIndex, query, { wholeWord = false } = {}) {
+  const found = [];
+  for (const ref of annotationsOf(doc.getPage(pageIndex))?.asArray() || []) {
+    const dict = doc.context.lookup(ref);
+    if (!(dict instanceof PDFDict)) continue;
+    const subtype = get(dict, 'Subtype');
+    if (subtype === name('Popup') || subtype === name('Redact')) continue;
+    const rect = numbers(get(dict, 'Rect'));
+    if (rect?.length !== 4 || !rect.every(Number.isFinite)) continue;
+    const texts = [plainText(get(dict, 'Contents'))];
+    // A field's value can sit on the widget or on a parent field above it.
+    if (subtype === name('Widget'))
+      for (let node = dict, depth = 0; node instanceof PDFDict && depth < 32; depth++) {
+        if (node.has(name('V'))) {
+          texts.push(plainText(get(node, 'V')));
+          break;
+        }
+        node = get(node, 'Parent');
+      }
+    const bounds = [
+      Math.min(rect[0], rect[2]),
+      Math.min(rect[1], rect[3]),
+      Math.max(rect[0], rect[2]),
+      Math.max(rect[1], rect[3]),
+    ];
+    for (const text of texts.filter(Boolean))
+      for (const match of findRedactionMatches(
+        [{ str: text, transform: [1, 0, 0, 1, 0, 0], width: 1, height: 1 }],
+        query,
+        { wholeWord },
+      ))
+        found.push({ text: match.text, rects: [bounds] });
+  }
+  return found;
+}
 /**
  * Exact "Find text & redact": search the page's own glyphs (in content order, through Form
  * XObjects, including invisible OCR text) and return one rectangle per matched line run, built
@@ -1096,7 +1152,9 @@ async function pageTextLayout(doc, pageIndex, report) {
         }
         return;
       }
-      for (const folded of searchQuery(char)) {
+      // Folded once per distinct character, as the Find bar does: a page repeats a few hundred
+      // of them, and folding each glyph afresh paused a search of a few hundred pages.
+      for (const folded of foldChar(char)) {
         text += folded;
         owner.push(index);
       }

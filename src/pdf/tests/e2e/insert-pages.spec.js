@@ -157,7 +157,7 @@ test('inserting an unresolved named link cannot target an unrelated existing pag
       ),
     );
   await openPdf(page, target);
-  const jump = page.getByRole('button', { name: 'Link to another page', exact: true });
+  const jump = page.getByRole('button', { name: /^Link to (another page|page \d+)$/ });
   await expect(jump).toBeVisible();
   const chooser = page.waitForEvent('filechooser');
   await menu(page, 'Insert pages from PDF…');

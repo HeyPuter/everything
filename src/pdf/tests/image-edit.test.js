@@ -682,3 +682,77 @@ it('moves a turned picture that Word clips to a four-sided outline instead of a 
   expect(at(after, 230, 50)).toEqual(at(before, 70, 140));
   expect(at(after, 70, 140)).toEqual(at(before, 10, 10));
 });
+
+// Word tags each picture as a figure with its alternate text. Deleting the picture left the
+// figure in the tags, read out by screen readers and flagged by the accessibility check.
+it('takes a deleted picture or shape out of the tags when nothing else was in its figure', async () => {
+  const { inspectPaths, editPath } = await import('../src/core/path-edit.js');
+  const source = await PDFDocument.create(),
+    image = await source.embedPng(imagePng());
+  let doc = source;
+  const page = doc.addPage([400, 400]);
+  page.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({ XObject: { Im: image.ref, Im2: image.ref } }),
+  );
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      doc.context.stream(
+        [
+          '/P <</MCID 0>> BDC 0 0 1 rg 10 10 20 20 re f q 20 0 0 20 300 300 cm /Im2 Do Q EMC',
+          '/Figure <</MCID 1>> BDC q 80 0 0 60 40 200 cm /Im Do Q EMC',
+          '/Figure <</MCID 2>> BDC q 1 0 0 rg 200 100 80 60 re f Q EMC',
+        ].join('\n'),
+      ),
+    ),
+  );
+  page.node.set(PDFName.of('StructParents'), doc.context.obj(0));
+  const element = (role, mcid, alt) =>
+    doc.context.register(
+      doc.context.obj({
+        Type: 'StructElem',
+        S: role,
+        Pg: page.ref,
+        K: mcid,
+        ...(alt && { Alt: alt }),
+      }),
+    );
+  const paragraph = element('P', 0),
+    logo = element('Figure', 1, 'Company logo'),
+    box = element('Figure', 2, 'Red box');
+  const root = doc.context.obj({
+    Type: 'StructTreeRoot',
+    K: doc.context.obj({ Type: 'StructElem', S: 'Document', K: [paragraph, logo, box] }),
+    ParentTree: { Nums: [0, [paragraph, logo, box]] },
+  });
+  doc.catalog.set(PDFName.of('StructTreeRoot'), doc.context.register(root));
+  doc = await PDFDocument.load(await doc.save());
+  const kids = () =>
+    doc.catalog
+      .lookup(PDFName.of('StructTreeRoot'))
+      .lookup(PDFName.of('K'))
+      .lookup(PDFName.of('K'))
+      .asArray()
+      .map((ref) => ref.toString());
+  const parents = () =>
+    doc.catalog
+      .lookup(PDFName.of('StructTreeRoot'))
+      .lookup(PDFName.of('ParentTree'))
+      .lookup(PDFName.of('Nums'))
+      .lookup(1)
+      .asArray()
+      .map((ref) => ref.toString());
+  const figure = inspectImages(doc, 0).find((entry) => entry.transform[0] === 80);
+  editImage(doc, 0, figure, { remove: true });
+  expect(kids()).toEqual([paragraph.toString(), box.toString()]);
+  expect(parents()).toEqual([paragraph.toString(), 'null', box.toString()]);
+  const shape = inspectPaths(doc, 0).find((entry) => entry.bounds[0] === 200);
+  editPath(doc, 0, shape, { remove: true });
+  expect(kids()).toEqual([paragraph.toString()]);
+  // A picture that shares its tag with other content leaves the tag as it is.
+  const shared = inspectImages(doc, 0).find((entry) => entry.transform[0] === 20);
+  editImage(doc, 0, shared, { remove: true });
+  expect(kids()).toEqual([paragraph.toString()]);
+  expect(parents()).toEqual([paragraph.toString(), 'null', 'null']);
+});

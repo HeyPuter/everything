@@ -11,6 +11,7 @@ import { openMenu } from './lib/menu.js';
  *            insertBlank(after), insertFile(after), insertPictures(after), move(indices, to),
  *            reorder(order, moved), open(index), close() } — each may return a promise; the view
  *            redraws on refresh().
+ * getPageLabel(index) names a page by its own label ("iv"), when it has one.
  * onSelectionChange(indices) hears of each change to the chosen pages. getPageIds(revision)
  * names each page's object of a revision, in order, when known, so the choice follows its pages
  * through edits.
@@ -21,6 +22,7 @@ export function createOrganizeView({
   getPdf,
   getRevision,
   getPageIds = () => null,
+  getPageLabel = () => null,
   getLayers = () => undefined,
   currentIndex,
   can,
@@ -446,8 +448,8 @@ export function createOrganizeView({
     });
   }
 
-  function tile(i) {
-    const canvas = el('canvas', { 'aria-hidden': 'true' });
+  function tile(i, standIn = null) {
+    const canvas = standIn || el('canvas', { 'aria-hidden': 'true' });
     const node = el(
       'div',
       {
@@ -455,7 +457,7 @@ export function createOrganizeView({
         role: 'option',
         tabindex: i === (anchor ?? currentIndex()) ? 0 : -1,
         'data-index': i,
-        'aria-label': `Page ${i + 1}`,
+        'aria-label': getPageLabel(i) ? `Page ${i + 1} (${getPageLabel(i)})` : `Page ${i + 1}`,
         draggable: String(can('assemble')),
         onclick: (e) => {
           if (e.target.closest('button')) return;
@@ -515,7 +517,7 @@ export function createOrganizeView({
           ),
         ),
       ),
-      el('span', { class: 'organize-label' }, String(i + 1)),
+      el('span', { class: 'organize-label' }, getPageLabel(i) ?? String(i + 1)),
     );
     return node;
   }
@@ -640,10 +642,27 @@ export function createOrganizeView({
     selected = new Set([...selected].filter((i) => i < pdf.numPages));
     // The tile holding the grid's tab stop must still exist once pages have gone.
     if (anchor != null) anchor = Math.min(anchor, pdf.numPages - 1);
-    tiles = Array.from({ length: pdf.numPages }, (_, i) => tile(i));
-    grid.replaceChildren(...tiles);
     const revision = getRevision();
     const width = SIZES[size];
+    // A page's picture at this size stands in until the page is drawn again, as in the pages
+    // panel, so an edit (a page turned, deleted or moved) does not blank every tile in view.
+    // Pictures are matched to pages by the page objects of the revision each was drawn at.
+    const ids = getPageIds(revision);
+    const pageIds = ids?.length === pdf.numPages ? ids : null;
+    const drawnBefore = new Map();
+    if (pageIds)
+      for (const old of tiles) {
+        const canvas = old.querySelector('canvas');
+        if (!canvas?.width || Number(canvas.dataset.size) !== width) continue;
+        const id = getPageIds(Number(canvas.dataset.revision))?.[Number(canvas.dataset.index)];
+        if (id != null && !drawnBefore.has(id)) drawnBefore.set(id, canvas);
+      }
+    tiles = Array.from({ length: pdf.numPages }, (_, i) => {
+      const standIn = pageIds ? drawnBefore.get(pageIds[i]) : null;
+      if (standIn) drawnBefore.delete(pageIds[i]);
+      return tile(i, standIn);
+    });
+    grid.replaceChildren(...tiles);
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     // Tiles are drawn as they come near the view and let go of their pictures once far from
     // it, so scrolling through a long PDF does not keep a picture of every page it passed.
@@ -664,12 +683,14 @@ export function createOrganizeView({
             const natural = page.getViewport({ scale: 1 });
             const scale = Math.min(width / natural.width, (width * 1.3) / natural.height);
             const view = page.getViewport({ scale });
-            canvas.width = Math.max(1, Math.floor(view.width * ratio));
-            canvas.height = Math.max(1, Math.floor(view.height * ratio));
-            canvas.style.width = `${Math.floor(view.width)}px`;
-            canvas.style.height = `${Math.floor(view.height)}px`;
+            // Drawn to the side and copied in once done, so a picture standing in stays until
+            // its replacement is ready.
+            const buffer = el('canvas', {
+              width: Math.max(1, Math.floor(view.width * ratio)),
+              height: Math.max(1, Math.floor(view.height * ratio)),
+            });
             const task = page.render({
-              canvasContext: canvas.getContext('2d'),
+              canvasContext: buffer.getContext('2d'),
               viewport: view,
               transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0],
               // Layers hidden in the Layers panel stay hidden here, as on the pages.
@@ -678,7 +699,16 @@ export function createOrganizeView({
             renders.set(entry.target, task);
             try {
               await task.promise;
+              if (renders.get(entry.target) === task && canvas.isConnected) {
+                canvas.width = buffer.width;
+                canvas.height = buffer.height;
+                canvas.style.width = `${Math.floor(view.width)}px`;
+                canvas.style.height = `${Math.floor(view.height)}px`;
+                canvas.getContext('2d').drawImage(buffer, 0, 0);
+                Object.assign(canvas.dataset, { revision, index, size: width });
+              }
             } finally {
+              buffer.width = buffer.height = 0;
               if (renders.get(entry.target) === task) renders.delete(entry.target);
             }
           } catch {

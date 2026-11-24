@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 import { inspectPaths, pathColorHex } from '../../src/core/path-edit.js';
 import { inspectImages, imageCorners } from '../../src/core/image-edit.js';
@@ -135,7 +135,11 @@ test('malformed saved drawings are ignored while valid signatures remain usable'
   expect(JSON.parse(await stored(page))).toEqual({ items: valid });
   await page.getByRole('button', { name: 'Sign', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use saved signature 2: Ada Lovelace' }).click();
+  // The first signature's settings are still showing: wait for the second to be placed, as
+  // Download is unavailable until it is.
+  await expect(page.locator('.path-target')).toHaveCount(2);
   await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   expect(inspectPaths(await exported(page), 0)).toHaveLength(2);
   expect(errors).toEqual([]);
 });
@@ -1386,4 +1390,136 @@ test('a typed signature takes the color chosen on the Type tab', async ({ page }
   await page.getByRole('button', { name: 'Sign', exact: true }).click();
   await expect(dialog.getByRole('tabpanel').getByLabel('Signature color')).toBeVisible();
   await expect(dialog.getByLabel('Signature color')).toHaveValue('#111111');
+});
+
+// A busy page or a fast pen hands over several pointer samples in one event. Only the last of
+// each was kept, so a quick zigzag lost most of its turns and came out as a gentle wave.
+test('every sample of a quick stroke is part of the drawn signature', async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'Coalesced pointer samples as Chromium hands them over.');
+  await mockPuter(page);
+  await page.goto('/');
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  const pad = dialog.locator('.signature-pad');
+  const box = await pad.boundingBox();
+  await page.mouse.move(box.x + 20, box.y + box.height / 2);
+  await page.mouse.down();
+  // The page is busy while the pen zigzags 30 times, so the moves arrive together.
+  await page.evaluate(() =>
+    setTimeout(() => {
+      const start = performance.now();
+      while (performance.now() - start < 400);
+    }),
+  );
+  await page.waitForTimeout(20);
+  await Promise.all(
+    Array.from({ length: 30 }, (_, i) =>
+      page.mouse.move(box.x + 20 + (i + 1) * 8, box.y + box.height / 2 + (i % 2 ? 30 : -30)),
+    ),
+  );
+  await page.mouse.up();
+  await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const [path] = inspectPaths(await exported(page), 0);
+  // One curve to each sample: all 30 turns are in the signature.
+  expect(path.source.match(/ c\b/g).length).toBeGreaterThanOrEqual(30);
+});
+
+// A photo of a signature went into the PDF at its full size: 12 megapixels, megabytes of file,
+// for a mark a few inches wide. It is kept at 1500 pixels on its longest side, transparency,
+// orientation and all.
+for (const format of ['png', 'jpeg'])
+  test(`a large uploaded ${format} signature is kept at a sensible size`, async ({ page }) => {
+    await mockPuter(page);
+    await page.goto('/');
+    await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+    const canvas = createCanvas(4000, 2000);
+    const context = canvas.getContext('2d');
+    if (format === 'jpeg') {
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, 4000, 2000);
+    }
+    context.strokeStyle = '#123';
+    context.lineWidth = 40;
+    context.beginPath();
+    context.moveTo(200, 1600);
+    context.bezierCurveTo(1200, 0, 2400, 2000, 3800, 400);
+    context.stroke();
+    let buffer = canvas.toBuffer(format === 'png' ? 'image/png' : 'image/jpeg');
+    if (format === 'jpeg') {
+      // Taken with the phone on its side: EXIF orientation 6 turns it a quarter clockwise.
+      const exif = Buffer.from(
+        'ffe1002245786966000049492a0008000000010012010300010000000600000000000000',
+        'hex',
+      );
+      buffer = Buffer.concat([buffer.subarray(0, 2), exif, buffer.subarray(2)]);
+    }
+    await page.getByRole('button', { name: 'Sign', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add signature' });
+    await dialog.getByRole('tab', { name: 'Upload', exact: true }).click();
+    await dialog
+      .getByLabel('Signature image file')
+      .setInputFiles({ name: `signature.${format}`, mimeType: `image/${format}`, buffer });
+    await expect(dialog.getByLabel('Uploaded signature preview')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+    const [image] = inspectImages(await exported(page), 0);
+    const width = image.object.dict.lookup(PDFName.of('Width')).asNumber(),
+      height = image.object.dict.lookup(PDFName.of('Height')).asNumber();
+    // Upright as the photo is seen: the sideways photo is taller than wide.
+    expect([width, height]).toEqual(format === 'png' ? [1500, 750] : [750, 1500]);
+    const size = [
+      Math.hypot(image.transform[0], image.transform[1]),
+      Math.hypot(image.transform[2], image.transform[3]),
+    ];
+    expect(size[0] > size[1]).toBe(format === 'png');
+    // The transparent background stays transparent.
+    expect(!!image.object.dict.lookup(PDFName.of('SMask'))).toBe(format === 'png');
+  });
+
+// Eight signatures are remembered on the device; within a session the list grew past them, so
+// it showed a ninth that was gone after a reload.
+test('the saved signatures listed are the ones a reload remembers', async ({ page }) => {
+  const names = Array.from({ length: 8 }, (_, i) => `Name ${i + 1}`);
+  await page.addInitScript(
+    (items) => {
+      if (!sessionStorage.getItem('seeded')) {
+        sessionStorage.setItem('seeded', '1');
+        localStorage.setItem('pdf-editor:signatures', JSON.stringify({ items }));
+      }
+    },
+    names.map((text) => ({ type: 'type', text })),
+  );
+  await mockPuter(page);
+  await page.goto('/');
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  const saved = dialog.getByRole('button', { name: /^Use saved signature/ });
+  await expect(saved).toHaveCount(8);
+  await dialog.getByRole('tab', { name: 'Type', exact: true }).click();
+  await dialog.getByLabel('Signature text', { exact: true }).fill('Name 9');
+  await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const listed = async () => {
+    await page.getByRole('button', { name: 'Sign', exact: true }).click();
+    await expect(dialog).toBeVisible();
+    const labels = await saved.evaluateAll((buttons) =>
+      buttons.map((b) => b.getAttribute('aria-label').replace(/^Use saved signature \d+: /, '')),
+    );
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    return labels;
+  };
+  const expected = [...names.slice(1), 'Name 9'];
+  expect(await listed()).toEqual(expected);
+  await page.reload();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  expect(await listed()).toEqual(expected);
 });

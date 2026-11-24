@@ -1,4 +1,11 @@
 import { waitFor } from '../lib/abort.js';
+import {
+  MAX_FILE_SIZE,
+  MAX_IMAGE_SIZE,
+  MAX_PNG_PIXELS,
+  MAX_PAGES,
+  safeName,
+} from './file-limits.js';
 import { rememberStreamProtection } from './stream-filters.js';
 import {
   PDFDocument,
@@ -48,12 +55,13 @@ import { textDecorationQuads } from './text-decoration.js';
 import { dropUsageRights, inheritPdfVersion, loadPdfDocument, savePdf } from './version.js';
 import { sweepUnreferenced } from './compress.js';
 import { removePageStructure } from './struct-tree.js';
-import { shiftPageLabels } from './page-labels.js';
+import { pageLabelSpecs, setPageLabels, shiftPageLabels } from './page-labels.js';
 import { retargetDeletedPages, stabilizeLocalDestinations } from './destinations.js';
 import { addHighlight, rectQuad } from './highlight.js';
 import { checkedFontData } from './font-data.js';
 import { CjkFace, cjkRegions, cjkScriptName, hasCjkText, hasKoreanText } from './cjk-fonts.js';
 import { normalizeJpegPadding } from './jpeg.js';
+import { closeOpenStates } from './page-state.js';
 import {
   prepareImageOrientation,
   imageOrientationMatrix,
@@ -116,29 +124,7 @@ import {
   repairForm,
 } from './structure.js';
 
-export const MAX_FILE_SIZE = 100 * 1024 * 1024;
-export const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
-/** The most pixels a PNG may unpack to: an 8000 by 6000 photo, about 200 MB as it is placed. */
-export const MAX_PNG_PIXELS = 50 * 1000 * 1000;
-export const MAX_PAGES = 1000;
-const nameEncoder = new TextEncoder();
-export function safeName(value) {
-  const clean = String(value || '')
-    .replace(/[\x00-\x1f\x7f/\\:*?"<>|]/g, ' ')
-    .trim()
-    .replace(/\.pdf$/i, '')
-    .trim();
-  let name = '',
-    bytes = 0;
-  // Leave room for export suffixes within filesystem limits, without cutting a code point.
-  for (const char of clean) {
-    const size = nameEncoder.encode(char).length;
-    if (bytes + size > 180) break;
-    name += char;
-    bytes += size;
-  }
-  return `${name.trim() || 'Untitled'}.pdf`;
-}
+export { MAX_FILE_SIZE, MAX_IMAGE_SIZE, MAX_PNG_PIXELS, MAX_PAGES, safeName };
 export function normalizeRect(a, b) {
   return {
     x: Math.min(a.x, b.x),
@@ -262,6 +248,24 @@ function pageGeometry(doc) {
 const pageObjects = (doc) =>
   doc.getPages().map(({ ref }) => `${ref.objectNumber} ${ref.generationNumber}`);
 
+/** Whether a field of the form holds a signature (a dictionary with the bytes it covers). */
+function hasSignatures(doc) {
+  const form = doc.catalog.lookup(PDFName.of('AcroForm'));
+  const fields = form instanceof PDFDict ? form.lookup(PDFName.of('Fields')) : null;
+  const pending = fields instanceof PDFArray ? [...fields.asArray()] : [];
+  const seen = new Set();
+  while (pending.length && seen.size < 100000) {
+    const field = doc.context.lookup(pending.pop());
+    if (!(field instanceof PDFDict) || seen.has(field)) continue;
+    seen.add(field);
+    const value = field.lookup(PDFName.of('V'));
+    if (value instanceof PDFDict && value.has(PDFName.of('ByteRange'))) return true;
+    const kids = field.lookup(PDFName.of('Kids'));
+    if (kids instanceof PDFArray) pending.push(...kids.asArray());
+  }
+  return false;
+}
+
 /** Transactions retain original bytes, commit only on success, and bound undo memory. */
 export class PdfSession {
   constructor(bytes) {
@@ -286,13 +290,28 @@ export class PdfSession {
   markSaved(revision = this.revision) {
     this.savedRevision = revision;
   }
-  async change(operation, { signal, canCommit, streamProtection, saveOptions } = {}) {
+  /**
+   * `incremental`: an edit that only fills in fields. A signed PDF then keeps its bytes, the
+   * values appended as a revision of their own, as Acrobat saves them: rewritten whole, the
+   * file no longer matched what its signatures cover, and every signature showed as invalid.
+   */
+  async change(
+    operation,
+    { signal, canCommit, streamProtection, saveOptions, incremental = false } = {},
+  ) {
     // Reconciliation must see the original Info timestamps, not pdf-lib's load time.
     const doc = await waitFor(() => loadPdfDocument(this.bytes, { updateMetadata: false }), signal);
     signal?.throwIfAborted();
     // The pages as they were, read from the document the edit loads anyway, so the revision
     // kept for Undo knows them too.
     this.pages ??= pageObjects(doc);
+    const revision =
+      incremental && hasSignatures(doc)
+        ? (await waitFor(() => import('./pdf-incremental.js'), signal)).trackRevision(
+            this.bytes,
+            doc,
+          )
+        : null;
     // Read before the repairs, which can move or resize pages as much as the operation can.
     const geometry = pageGeometry(doc);
     repairDocument(doc);
@@ -301,7 +320,8 @@ export class PdfSession {
     const changed = await waitFor(() => operation(doc), signal);
     signal?.throwIfAborted();
     if (changed === false) return false;
-    dropUsageRights(doc);
+    // Usage rights stay valid over values appended to the file.
+    if (!revision) dropUsageRights(doc);
     if (!doc.getPageCount() || doc.getPageCount() > MAX_PAGES)
       throw new Error('Keep between 1 and 1,000 pages in the PDF.');
     // Load XML support only for documents that actually carry an XMP packet.
@@ -310,6 +330,13 @@ export class PdfSession {
       (await waitFor(() => import('./details.js'), signal)).synchronizeDocumentMetadata(doc);
     signal?.throwIfAborted();
     if (!synchronized) doc.setModificationDate(new Date());
+    if (revision) {
+      const bytes = await waitFor(() => revision.finish(), signal);
+      signal?.throwIfAborted();
+      if (!bytes || (canCommit && !canCommit())) return false;
+      this.adopt(bytes, { sameGeometry: true, pages: pageObjects(doc) });
+      return;
+    }
     // pdf-lib writes every object it holds, referenced or not. Without this sweep each edit left
     // the content it replaced in the file, so files grew with every change and deleted pages or
     // replaced text stayed recoverable from the saved PDF.
@@ -709,8 +736,20 @@ export async function insertPdfPages(
     copyPageStandIns(copier, source, doc),
   );
   const position = Math.min(Math.max(after + 1, 0), doc.getPageCount());
+  const labelsBefore = pageLabelSpecs(doc);
   copied.forEach((page, k) => ownGeometry(doc.insertPage(position + k, page)));
-  shiftPageLabels(doc, position, copied.length);
+  // Pages from a PDF with labels of its own keep them ("A-1", "A-2"), and the pages around
+  // them keep theirs; pages without labels carry on the numbering where they land.
+  const sourceLabels = pageLabelSpecs(source);
+  if (sourceLabels) {
+    const before = labelsBefore || new Array(position).fill(null);
+    setPageLabels(doc, [
+      ...before.slice(0, position),
+      ...indices.map((index) => sourceLabels[index]),
+      ...(labelsBefore ? labelsBefore.slice(position) : []),
+      ...new Array(labelsBefore ? 0 : doc.getPageCount() - position - indices.length).fill(null),
+    ]);
+  } else shiftPageLabels(doc, position, copied.length);
   pruneCopiedResources(doc, copied);
   const indexToRef = new Map(indices.map((index, k) => [index, copied[k].ref]));
   relinkCopiedPages(doc, copied, indexToRef);
@@ -995,7 +1034,11 @@ export async function addText(
   const angle = (rotation * Math.PI) / 180,
     c = Math.cos(angle),
     s = Math.sin(angle);
-  if (underline || strikethrough) {
+  const decorated = underline || strikethrough;
+  // The lines of new text stay one block, as they were typed: edited, moved and deleted together
+  // rather than line by line.
+  const block = decorated || lines.length > 1;
+  if (block) {
     const width = Math.max(1, ...widths),
       leading = size * 1.35;
     const items = lines.flatMap((_, i) => (i ? [-1, 1] : [1]));
@@ -1021,7 +1064,7 @@ export async function addText(
     rotate: degrees(rotation),
     lineHeight: size * 1.35,
   });
-  if (underline || strikethrough) {
+  if (decorated) {
     page.pushOperators(
       PDFOperator.of('BMC', [PDFName.of('PuterTextDecoration')]),
       pushGraphicsState(),
@@ -1043,13 +1086,9 @@ export async function addText(
           fill(),
         );
     }
-    page.pushOperators(
-      popGraphicsState(),
-      PDFOperator.of('EMC'),
-      PDFOperator.of('EMC'),
-      popGraphicsState(),
-    );
+    page.pushOperators(popGraphicsState(), PDFOperator.of('EMC'));
   }
+  if (block) page.pushOperators(PDFOperator.of('EMC'), popGraphicsState());
 }
 /**
  * The bundled faces flattening needs for fields it draws anew whose text the standard font
@@ -1092,18 +1131,26 @@ export function assertSupportedText(font, text) {
     })
     .join('');
   if (missing.size) {
-    // Name what to change; a character that shows nothing is named by its code.
-    const names = [...missing].slice(0, 3).map((char) =>
-      /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
-        ? // Isolate a right-to-left letter, or the message reorders around it: “ر” ,“م”.
-          `“${RTL.test(char) ? `\u2068${char}\u2069` : char}”`
-        : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
-    );
-    const list =
-      names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0];
-    throw new Error(`This font does not support ${list} in this text.`);
+    const error = new Error(`This font does not support ${characterList(missing)} in this text.`);
+    error.missing = missing;
+    throw error;
   }
   return spelled;
+}
+/**
+ * Up to three characters named for a message: “Q”, “Z” or “٠”. A character that shows nothing is
+ * named by its code.
+ */
+export function characterList(chars, conjunction = 'or') {
+  const names = [...chars].slice(0, 3).map((char) =>
+    /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
+      ? // Isolate a right-to-left letter, or the message reorders around it: “ر” ,“م”.
+        `“${RTL.test(char) ? `\u2068${char}\u2069` : char}”`
+      : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
+  );
+  return names.length > 1
+    ? `${names.slice(0, -1).join(', ')} ${conjunction} ${names.at(-1)}`
+    : names[0];
 }
 /**
  * The triangle at the tip of an arrow from `from` to `to` drawn with a stroke `width`, in the
@@ -1315,6 +1362,7 @@ export function drawOrientedImage(page, embedded, { x, y, width, height, rotatio
 export async function addImage(doc, index, bytes) {
   const image = await embedOrientedImage(doc, bytes);
   const page = doc.getPage(index);
+  closeOpenStates(page);
   const box = visibleBox(page);
   const rotation = pageRotation(page);
   const sideways = rotation === 90 || rotation === 270;
@@ -1856,7 +1904,8 @@ export function previewCalculations(doc, values) {
  * fields to reset, or with `include` false of those to leave; none means every field). A
  * named group resets the fields under it. Returns false when nothing changed.
  */
-export async function resetFields(doc, { fields: names = [], refs = [], include = true } = {}) {
+/** The fields a reset (a form's own Reset button, pushButtonAction) takes back. */
+function resetChosen(doc, { fields: names = [], refs = [], include = true } = {}) {
   const fields = formFields(doc);
   if (!fields) throw new Error(DAMAGED_FORM);
   const refName = (ref) =>
@@ -1873,9 +1922,12 @@ export async function resetFields(doc, { fields: names = [], refs = [], include 
     }
     return false;
   };
-  const chosen = fields.filter(
-    (field) => !(names.length || refs.length) || listed(field) === include,
-  );
+  return fields.filter((field) => !(names.length || refs.length) || listed(field) === include);
+}
+/** The names of the fields a reset takes back to their default values. */
+export const resetFieldNames = (doc, action) => resetChosen(doc, action).map(formFieldName);
+export async function resetFields(doc, action) {
+  const chosen = resetChosen(doc, action);
   // Each field's value without its own: the default value, or nothing.
   const keys = [PDFName.of('V'), PDFName.of('I')];
   const kept = chosen.map((field) =>
@@ -2030,7 +2082,12 @@ export async function fillFields(doc, values) {
           { field: name },
         );
       prepareFieldAppearance(field, form);
+      const flags = field.acroField.dict.get(PDFName.of('Ff'));
       field.setText(value);
+      // pdf-lib clears the rich-text flag, writing flags a field without them did not have:
+      // a change to the field's definition to a signature over the form.
+      if (!flags && field.acroField.dict.get(PDFName.of('Ff'))?.asNumber?.() === 0)
+        field.acroField.dict.delete(PDFName.of('Ff'));
       // An explicit empty value overrides inherited/default values; deleting /V does not.
       if (value === '') field.acroField.setValue(PDFHexString.fromText(''));
       // A rich-text field also carries its value as RV, which viewers show in preference; a

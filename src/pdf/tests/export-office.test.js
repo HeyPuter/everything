@@ -901,12 +901,14 @@ it('lays out rotated pages in their displayed orientation', async () => {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([612, 792]);
   page.setRotation(degrees(90));
-  page.drawText('Sideways heading', { x: 100, y: 700, size: 20, font });
+  // Written to read upright as the page is shown, as landscape pages usually are.
+  page.drawText('Sideways heading', { x: 100, y: 100, size: 20, font, rotate: degrees(90) });
   page.drawText('Body text below the heading on a rotated page.', {
-    x: 100,
-    y: 670,
+    x: 130,
+    y: 100,
     size: 11,
     font,
+    rotate: degrees(90),
   });
   const bytes = await doc.save();
   const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
@@ -948,7 +950,14 @@ it('turns pictures the way their page shows them', async () => {
     width: 400,
     height: 200,
   });
-  page.drawText('Caption text under the picture here.', { x: 100, y: 250, size: 11, font });
+  // The caption reads upright as the page is shown, as the scan's own text does.
+  page.drawText('Caption text under the picture here.', {
+    x: 520,
+    y: 300,
+    size: 11,
+    font,
+    rotate: degrees(90),
+  });
   const bytes = await doc.save();
   const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
   try {
@@ -1444,5 +1453,136 @@ it('keeps a chart drawn among the text as a picture of its area, with its labels
     expect(txt).toContain('Jun');
   } finally {
     await loading.destroy();
+  }
+});
+
+it('lets go of each exported page’s decoded pictures once the page is read', async () => {
+  // PDF.js keeps a page's decoded pictures until told otherwise: exporting a long scan held
+  // every page's (about 25 MB each at 300 dpi) until the tab ran out of memory.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const png = await doc.embedPng(await pngPicture());
+  for (let i = 0; i < 3; i++) {
+    const page = doc.addPage([300, 300]);
+    page.drawImage(png, { x: 40, y: 120, width: 200, height: 100 });
+    page.drawText(`Picture ${i + 1}`, { x: 40, y: 80, size: 12, font });
+  }
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  const cleaned = new Set();
+  const getPage = pdf.getPage.bind(pdf);
+  pdf.getPage = async (number) => {
+    const page = await getPage(number);
+    const cleanup = page.cleanup.bind(page);
+    page.cleanup = (...args) => {
+      cleaned.add(number);
+      return cleanup(...args);
+    };
+    return page;
+  };
+  try {
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    expect(html.match(/<img /g)).toHaveLength(3);
+    expect([...cleaned].sort()).toEqual([1, 2, 3]);
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('keeps the PDF’s web links as links in web pages, Word, rich text, Excel and PowerPoint', async () => {
+  // Links were dropped: "example.com" came out as plain words that could not be followed.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([400, 300]);
+  const before = 'Read the guide at ',
+    linked = 'example.com',
+    after = ' for details.';
+  page.drawText(before + linked + after, { x: 40, y: 200, size: 12, font });
+  const x0 = 40 + font.widthOfTextAtSize(before, 12),
+    x1 = x0 + font.widthOfTextAtSize(linked, 12);
+  page.drawText('A line without a link.', { x: 40, y: 150, size: 12, font });
+  const link = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [x0, 196, x1, 212],
+      Border: [0, 0, 0],
+      A: { S: 'URI', URI: PDFString.of('https://example.com/guide?a=1&b=2') },
+    }),
+  );
+  page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  try {
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    expect(html).toContain(
+      'Read the guide at <a href="https://example.com/guide?a=1&amp;b=2">example.com</a> for details.',
+    );
+    expect(html.match(/<a /g)).toHaveLength(1);
+    const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+    const body = new TextDecoder().decode(files['word/document.xml']);
+    const rels = new TextDecoder().decode(files['word/_rels/document.xml.rels']);
+    const id = /<w:hyperlink r:id="(rId\d+)"[^>]*>(.*?)<\/w:hyperlink>/.exec(body);
+    expect(id[2]).toContain('>example.com<');
+    expect(rels).toContain(
+      `Id="${id[1]}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/guide?a=1&amp;b=2" TargetMode="External"`,
+    );
+    const rtf = new TextDecoder().decode((await exportDocument(pdf, bytes, 'rtf')).bytes);
+    expect(rtf).toMatch(/HYPERLINK "https:\/\/example\.com\/guide\?a=1&b=2".*example\.com/);
+    // In a spreadsheet, the cell holding the link is the link.
+    const book = await unzip((await exportDocument(pdf, bytes, 'xlsx')).bytes);
+    const sheet = new TextDecoder().decode(book['xl/worksheets/sheet1.xml']);
+    const sheetRels = new TextDecoder().decode(book['xl/worksheets/_rels/sheet1.xml.rels']);
+    expect(sheet).toContain('<hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks>');
+    expect(sheet.indexOf('<hyperlinks>')).toBeLessThan(sheet.indexOf('<pageMargins'));
+    expect(sheetRels).toContain(
+      'Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/guide?a=1&amp;b=2" TargetMode="External"',
+    );
+    const slides = await unzip((await exportDocument(pdf, bytes, 'pptx')).bytes);
+    const slide = new TextDecoder().decode(slides['ppt/slides/slide1.xml']);
+    const slideRels = new TextDecoder().decode(slides['ppt/slides/_rels/slide1.xml.rels']);
+    const click = /<a:hlinkClick r:id="(rId\d+)"\/><\/a:rPr><a:t>([^<]*)</.exec(slide);
+    expect(click[2]).toBe('example.com');
+    expect(slide.match(/<a:hlinkClick /g)).toHaveLength(1);
+    expect(slideRels).toContain(
+      `Id="${click[1]}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/guide?a=1&amp;b=2" TargetMode="External"`,
+    );
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('reads a page turned on its side the way its text is written', async () => {
+  // A page turned a quarter or a half turn showed its lines last first, each a paragraph.
+  for (const angle of [90, 180, 270]) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    for (let i = 0; i < 4; i++)
+      page.drawText(`This is line ${i + 1} of a paragraph about the turned page.`, {
+        x: 72,
+        y: 700 - i * 14,
+        size: 11,
+        font,
+      });
+    page.setRotation(degrees(angle));
+    const bytes = await doc.save();
+    const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const pdf = await loading.promise;
+    try {
+      const out = new TextDecoder().decode((await exportDocument(pdf, bytes, 'txt')).bytes);
+      expect(out.trim()).toBe(
+        [1, 2, 3, 4]
+          .map((n) => `This is line ${n} of a paragraph about the turned page.`)
+          .join(' '),
+      );
+      // Read upright, the page is the portrait sheet the text was written on.
+      const model = await analyzeDocument(pdf, bytes);
+      expect([model.pages[0].width, model.pages[0].height]).toEqual([612, 792]);
+    } finally {
+      await loading.destroy();
+    }
   }
 });

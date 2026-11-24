@@ -38,6 +38,7 @@ export async function promptUnlock(
       type: 'password',
       autocomplete: 'off',
       required: true,
+      oninput: () => input.removeAttribute('aria-invalid'),
     });
     const show = el('input', { type: 'checkbox', id: 'unlock-show' });
     show.onchange = () => {
@@ -78,6 +79,8 @@ export async function promptUnlock(
           error instanceof PasswordError ? 'That password is not right. Try again.' : error.message,
           { error: true },
         );
+        // The field to fix is marked as refused, for screen readers too, until it is changed.
+        input.setAttribute('aria-invalid', 'true');
         input.focus();
         input.select();
       } finally {
@@ -115,6 +118,7 @@ export function promptOwner(protection, { signal, isCurrent = () => true, onOpen
       type: 'password',
       autocomplete: 'off',
       required: true,
+      oninput: () => input.removeAttribute('aria-invalid'),
     });
     const form = el(
       'form',
@@ -177,6 +181,8 @@ export function promptOwner(protection, { signal, isCurrent = () => true, onOpen
             : error.message,
           { error: true },
         );
+        // The field to fix is marked as refused, for screen readers too, until it is changed.
+        input.setAttribute('aria-invalid', 'true');
         input.focus();
         input.select();
       } finally {

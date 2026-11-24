@@ -174,6 +174,50 @@ test('a long picture export holds the editor busy behind a progress dialog that 
   await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
 });
 
+test('pictures too large to download together stop at the page that passes the limit', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  // A limit of a few bytes stands in for a long scan at 300 dpi passing 1 GB.
+  await page.route('**/src/core/split.js', async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    expect(body).toContain('export const MAX_SPLIT_BYTES = 1024 * 1024 * 1024;');
+    await route.fulfill({
+      response,
+      body: body.replace(
+        'export const MAX_SPLIT_BYTES = 1024 * 1024 * 1024;',
+        'export const MAX_SPLIT_BYTES = 16;',
+      ),
+    });
+  });
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 6; i++) doc.addPage([200, 100]);
+  await openPdf(page, doc);
+  await page.evaluate(() => {
+    window.renderedPages = [];
+    new MutationObserver(() => {
+      const text = document.querySelector('dialog[open] [role="status"]')?.textContent || '';
+      const match = /Rendering page (\d+) of/.exec(text);
+      if (match) window.renderedPages.push(Number(match[1]));
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  const downloads = [];
+  page.on('download', (download) => downloads.push(download.suggestedFilename()));
+  await menu(page, 'Download pages as images…');
+  const dialog = page.getByRole('dialog', { name: 'Download pages as images' });
+  await dialog.getByLabel('Resolution').selectOption('72');
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText(
+    'These pictures would add up to more than 1 GB. Choose fewer pages, a lower resolution, or JPEG.',
+  );
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // The export stopped at the first page over the limit, not after drawing all six.
+  expect(Math.max(...(await page.evaluate(() => window.renderedPages)))).toBe(1);
+  expect(downloads).toEqual([]);
+});
+
 for (const [type, extension] of [
   ['image/png', 'png'],
   ['image/jpeg', 'jpg'],

@@ -1150,6 +1150,7 @@ test('a certificate signature is added, validated, and protected from silent edi
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await chooser.getByLabel('Email').fill('ada@example.com');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   const idFile = page.waitForEvent('download');
   await chooser.getByRole('button', { name: 'Continue' }).click();
   expect((await idFile).suggestedFilename()).toMatch(/\.p12$/);
@@ -1220,6 +1221,7 @@ async function signWithNewId(page) {
   await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
   await chooser.getByLabel('Email').fill('ada@example.com');
   await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByLabel('Confirm password').fill('secret-123');
   await chooser.getByRole('button', { name: 'Continue' }).click();
   await page
     .getByRole('dialog', { name: 'Sign with a certificate' })
@@ -1581,6 +1583,49 @@ test('Scan & OCR skips a page with text whatever its unit size', async ({ page }
   await expect(page.getByText('These pages already have text', { exact: false })).toBeVisible({
     timeout: 120000,
   });
+});
+
+// A long document whose pages all had text showed "Starting text recognition…" and an empty
+// bar while each page was looked through.
+test('Scan & OCR shows its progress through pages that already have text', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  for (let i = 0; i < 6; i++)
+    doc.addPage([306, 396]).drawText(`PLAN ${i + 1}`, { x: 40, y: 200, size: 40, font });
+  await openPdf(page, doc);
+  // Every value the progress bar takes, and every word it says, while the dialog is open.
+  await page.evaluate(() => {
+    window.ocrProgress = { values: [], words: [] };
+    new MutationObserver(() => {
+      const dialog = [...document.querySelectorAll('dialog[open]')].find((node) =>
+        node.textContent.startsWith('Recognizing text'),
+      );
+      const bar = dialog?.querySelector('progress');
+      if (!bar) return;
+      window.ocrProgress.values.push(bar.value);
+      window.ocrProgress.words.push(dialog.querySelector('[role="status"]').textContent);
+    }).observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+  });
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Scan & OCR', exact: true }).click();
+  await pane.getByRole('button', { name: 'In this file…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Recognize text' })
+    .getByRole('button', { name: 'Recognize text' })
+    .click();
+  await expect(page.getByText('These pages already have text', { exact: false })).toBeVisible({
+    timeout: 120000,
+  });
+  const { values, words } = await page.evaluate(() => window.ocrProgress);
+  // The bar moves on with the pages looked through (the last step closes the dialog).
+  expect(Math.max(...values)).toBeGreaterThan(0.5);
+  expect(words).toContain('Looking for pages without text…');
 });
 
 test('Batch process applies the same steps to several PDFs', async ({ page }) => {
@@ -2215,4 +2260,63 @@ test("the first tool's keyboard focus ring shows whole in the tools pane", async
     return own.top - reach < list.top - 0.5 || own.left - reach < list.left - 0.5;
   });
   expect(cut).toBe(false);
+});
+
+test('pages in view keep their pictures while a deleted page redraws the view', async ({
+  page,
+}) => {
+  // Wide, short pages, several in view, each with enough on it to take a moment to draw.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 8; i++) {
+    const sheet = doc.addPage([612, 300]);
+    for (let k = 0; k < 24; k++)
+      sheet.drawText(`Page ${i + 1}, line ${k + 1} of the words on this wide and short page`, {
+        x: 20,
+        y: 285 - k * 11,
+        size: 9,
+        font,
+      });
+  }
+  await openPdf(page, doc);
+  const blank = () =>
+    page.evaluate(() => {
+      const view = document.querySelector('.workspace').getBoundingClientRect();
+      let count = 0;
+      for (const slot of document.querySelectorAll('.page-slot:not(:has(.paper))')) {
+        const box = slot.getBoundingClientRect();
+        if (!(box.bottom > view.top && box.top < view.bottom)) continue;
+        const canvas = slot.querySelector('.page-image');
+        const [, , , alpha] = canvas.width
+          ? canvas.getContext('2d').getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data
+          : [0, 0, 0, 0];
+        if (!alpha) count++;
+      }
+      return count;
+    });
+  await expect.poll(blank).toBe(0);
+  await page.evaluate(() => {
+    window.blankFrames = 0;
+    window.watching = true;
+    const check = () => {
+      const view = document.querySelector('.workspace').getBoundingClientRect();
+      for (const slot of document.querySelectorAll('.page-slot:not(:has(.paper))')) {
+        const box = slot.getBoundingClientRect();
+        if (!(box.bottom > view.top && box.top < view.bottom)) continue;
+        const canvas = slot.querySelector('.page-image');
+        const [, , , alpha] = canvas.width
+          ? canvas.getContext('2d').getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data
+          : [0, 0, 0, 0];
+        if (!alpha) window.blankFrames++;
+      }
+      if (window.watching) requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  });
+  await page.keyboard.press('ControlOrMeta+Shift+D');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 7');
+  await settled(page);
+  await expect.poll(blank).toBe(0);
+  expect(await page.evaluate(() => ((window.watching = false), window.blankFrames))).toBe(0);
 });

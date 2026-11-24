@@ -78,7 +78,7 @@ async function prepare(page, kind, comments) {
   });
   return input;
 }
-async function verifySavedEdit(page, kind) {
+async function verifySavedEdit(page, kind, current) {
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   const bytes = new Uint8Array(await readFile(await (await download).path()));
@@ -102,7 +102,8 @@ async function verifySavedEdit(page, kind) {
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
-  await expect(page.locator('.search-count')).toHaveText('1 of 2');
+  // Undo reads the text again; Find stays on the match it was on.
+  await expect(page.locator('.search-count')).toHaveText(current);
   await goTo(page, 1);
   await page.getByRole('button', { name: kind === 'text' ? 'Text' : 'Note', exact: true }).click();
   await expect(
@@ -156,5 +157,5 @@ for (const kind of ['text', 'note'])
           await expect(page.locator('.page-caption')).toHaveText('Page 2 of 3');
         }
         await expect(page.locator('.search-hit-current')).toHaveText('banana');
-        await verifySavedEdit(page, kind);
+        await verifySavedEdit(page, kind, await page.locator('.search-count').textContent());
       });

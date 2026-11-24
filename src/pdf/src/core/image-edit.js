@@ -11,10 +11,12 @@ import {
   pruneEditedFonts,
   pruneEditedForms,
   spliceContent,
+  sourceBytes,
 } from './text-edit.js';
 import { MAX_IMAGE_SIZE, embedOrientedImage } from './document.js';
 import { imageOrientationMatrix, IMAGE_ORIENTATION_KEY } from './image-orientation.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
+import { removeMarkedContentStructure } from './struct-tree.js';
 export { MAX_IMAGE_SIZE };
 
 const identity = [1, 0, 0, 1, 0, 0];
@@ -433,6 +435,37 @@ export function constrainImage(entry, desired) {
   return desired.map((n, i) => entry.transform[i] + (n - entry.transform[i]) * amount);
 }
 
+/**
+ * The marked-content ids (MCIDs) in a page's own content that nothing would be left in once the
+ * commands from `start` to `end` are cut out: those wrapped around only them, and those inside.
+ */
+export function emptiedMarkedContent(source, start, end) {
+  const open = [],
+    emptied = new Set();
+  for (const command of parseContent(source, { inlineImages: true })) {
+    const cut = command.start >= start && command.end <= end;
+    if (command.op === 'BDC' || command.op === 'BMC') {
+      const [, properties] = command.args;
+      let mcid = null;
+      if (command.op === 'BDC' && properties?.type === 'dict')
+        for (let i = 0; i + 1 < properties.value.length; i += 2)
+          if (properties.value[i].value === 'MCID') mcid = properties.value[i + 1].value;
+      open.push({ mcid, cut, held: false, painted: false });
+    } else if (command.op === 'EMC') {
+      const sequence = open.pop();
+      if (
+        sequence &&
+        Number.isInteger(sequence.mcid) &&
+        (sequence.cut || (sequence.held && !sequence.painted))
+      )
+        emptied.add(sequence.mcid);
+    } else if (cut) for (const sequence of open) sequence.held = true;
+    else if (PAINTS.has(command.op) || command.op === 'Do')
+      for (const sequence of open) sequence.painted = true;
+  }
+  return emptied;
+}
+
 /** Wrap only the selected Do in a local transform; clone every shared ancestor form. */
 export function editImage(doc, index, entry, { transform = entry.transform, remove = false } = {}) {
   if (!entry.editable) throw error();
@@ -458,7 +491,21 @@ export function editImage(doc, index, entry, { transform = entry.transform, remo
   const replacement = remove
     ? ''
     : `q\n${local.map((n) => PDFNumber.of(n).toString()).join(' ')} cm\n${entry.source}\nQ`;
+  const untag = remove ? removedStructure(doc, index, entry) : null;
   rewriteOccurrence(doc, index, entry, replacement);
+  untag?.();
+}
+
+/**
+ * Read before a page-level object is deleted, what takes its marked content, then empty, out of
+ * the page's tags once it is: a deleted picture's figure would still be read out by its
+ * alternate text, and counted by the accessibility check.
+ */
+export function removedStructure(doc, index, entry) {
+  if (entry.path.length) return null;
+  const page = doc.getPage(index),
+    emptied = emptiedMarkedContent(pageSource(page), entry.start, entry.end);
+  return emptied.size ? () => removeMarkedContentStructure(doc, page.ref, emptied) : null;
 }
 
 /** New pixels and alpha inherit the replaced image's individual cipher choices. */
@@ -574,10 +621,7 @@ export function rewriteOccurrence(doc, index, entry, replacement, updateResource
       dict.delete(PDFName.of('DecodeParms'));
       retainCryptFilter(dict, [form.dict]);
       dict.set(PDFName.of('Resources'), nested.resources);
-      const stream = PDFRawStream.of(
-        dict,
-        Uint8Array.from(nested.source, (c) => c.charCodeAt(0)),
-      );
+      const stream = PDFRawStream.of(dict, sourceBytes(nested.source));
       const objects = get(copy, 'XObject'),
         current = get(resources, 'XObject').get(PDFName.of(call.name)),
         ref = storeStream(doc, current, stream);
