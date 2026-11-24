@@ -1099,3 +1099,21 @@ test("the view toolbar's buttons have names that tell them apart", async ({ page
   await expect(page.getByRole('menu', { name: 'Display style options' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('renaming a feature to a base plane name is refused, as the assistant refuses it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  await page.keyboard.press('F2');
+  const input = page.getByRole('textbox', { name: 'Feature name' });
+  for (const name of ['Front', 'top plane', 'XY']) {
+    await input.fill(name);
+    await page.keyboard.press('Enter');
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.locator('.statusbar .msg')).toContainText(`"${name}" names the`);
+  }
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+  expect(errors).toEqual([]);
+});

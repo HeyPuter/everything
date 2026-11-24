@@ -33,3 +33,10 @@ export function planeFrame(p: Vec3, n: Vec3, x?: Vec3): Frame {
   const kept = x && len(sub(x, scale(n, dot(x, n)))) > 0.05 ? x : null;
   return frameFrom(o, kept ?? faceFrameAxis(n), n);
 }
+
+/** What else names a base plane (the assistant's plane arguments): no feature may be named so. */
+export const BASE_PLANE_ALIASES: Record<string, BasePlane> = {
+  front: 'front', 'front plane': 'front', xy: 'front',
+  top: 'top', 'top plane': 'top', xz: 'top', zx: 'top',
+  right: 'right', 'right plane': 'right', yz: 'right', zy: 'right',
+};

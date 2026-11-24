@@ -4,7 +4,7 @@
 
 import type { Feature, Id } from '../model/types';
 import { consumedSketches, featureIcon } from '../model/features';
-import { BASE_PLANE_NAMES } from '../model/planes';
+import { BASE_PLANE_ALIASES, BASE_PLANE_NAMES } from '../model/planes';
 import type { BasePlane } from '../model/types';
 import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -230,17 +230,24 @@ export class FeatureTree {
     if (this.renameEl?.dataset.id === f.id) return this.renameEl;
     const input = h('input', { class: 'rename', value: f.name, 'aria-label': 'Feature name', 'data-id': f.id }) as HTMLInputElement;
     this.renameEl = input;
-    // Another feature's name (in any case) is refused: the assistant and the
-    // menus find features by name, and would find that one instead.
-    const taken = (name: string) => this.app.store.doc.features.find((x) => x.id !== f.id && x.name.toLowerCase() === name.toLowerCase());
+    // Another feature's name or id (in any case), or a base plane's name, is
+    // refused, as the assistant refuses it: references by name would find that one instead.
+    const refusal = (name: string): string | null => {
+      const low = name.toLowerCase();
+      if (!low || low === f.name.toLowerCase()) return null;
+      const plane = BASE_PLANE_ALIASES[low];
+      if (plane) return `"${name}" names the ${BASE_PLANE_NAMES[plane]}. Choose another name.`;
+      const other = this.app.store.doc.features.find((x) => x.id !== f.id && (x.name.toLowerCase() === low || x.id.toLowerCase() === low));
+      return other ? `"${other.name.toLowerCase() === low ? other.name : name}" is already the name of another feature. Choose another name.` : null;
+    };
     const finish = (save: boolean) => {
       if (this.renaming !== f.id) return;
       this.renaming = null;
       this.renameEl = null;
       const name = input.value.trim();
-      const other = save && name ? taken(name) : undefined;
-      if (other) this.app.setStatus(`"${other.name}" is already the name of another feature. Choose another name.`, true);
-      if (save && name && name !== f.name && !other) this.app.renameFeature(f.id, name);
+      const msg = save && name ? refusal(name) : null;
+      if (msg) this.app.setStatus(msg, true);
+      if (save && name && name !== f.name && !msg) this.app.renameFeature(f.id, name);
       else this.render();
       this.focus(f.id);
     };
@@ -253,9 +260,8 @@ export class FeatureTree {
       e.stopPropagation();
       if (e.key === 'Enter') {
         // Enter keeps the field open to choose another name; leaving it keeps the old one.
-        const other = taken(input.value.trim());
-        if (other) {
-          const msg = `"${other.name}" is already the name of another feature. Choose another name.`;
+        const msg = refusal(input.value.trim());
+        if (msg) {
           input.setAttribute('aria-invalid', 'true');
           input.title = msg;
           this.app.setStatus(msg, true);
