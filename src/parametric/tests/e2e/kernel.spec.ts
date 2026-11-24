@@ -258,3 +258,36 @@ test('a kernel that aborts in the middle of a rebuild is replaced and the edit b
   await expect(page.locator('.toast', { hasText: 'Rebuild failed' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('an imported SolidWorks part rebuilds on a worker replaced for its memory and after a crash', async ({ page }) => {
+  const errors = await openApp(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open from device/ }).click();
+  await (await chooser).setFiles(decodeURIComponent(new URL('../fixtures/sldprt/cube-hole-sw2022.sldprt', import.meta.url).pathname));
+  await waitForFeature(page, 'Imported1');
+  const v0 = await volume(page);
+  expect(v0).toBeGreaterThan(0);
+  type K = Kernel & { worker: unknown; recycleBytes: number; baseHeap: number; busy: boolean };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; store: { change(l: string, fn: (d: { color: string }) => void): void } } };
+  // Replaced for its memory: the new worker gets the file data again and builds it.
+  const replaced = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    const first = app.kernel.worker;
+    app.kernel.recycleBytes = 1;
+    app.kernel.baseHeap = 1;
+    app.store.change('Colour', (d) => { d.color = '#c08040'; });
+    await app.whenBuilt();
+    (window as unknown as { __parametric: { requestRebuild(f: boolean): void } }).__parametric.requestRebuild(true);
+    await app.whenBuilt();
+    while (app.kernel.busy) await new Promise((r) => setTimeout(r, 10));
+    return app.kernel.worker !== first;
+  });
+  expect(replaced).toBe(true);
+  expect(await volume(page)).toBeCloseTo(v0!, 3);
+  // A crash: the restarted worker gets it again too.
+  await page.evaluate(() => (window as unknown as A).__parametric.kernel.debugFail('crash').catch(() => undefined));
+  await expect(page.locator('.toast', { hasText: 'Geometry engine restarted' })).toBeVisible();
+  expect(await volume(page)).toBeCloseTo(v0!, 3);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
