@@ -1080,8 +1080,8 @@ export class Renderer {
     const dpr = this.dpr;
     const R = Math.ceil(radius * dpr);
     const size = R * 2 + 1;
-    // The device pixel whose area contains the CSS point (GL rows count up).
-    const px = Math.floor(x * dpr), py = Math.floor(this.canvas.height - y * dpr);
+    // The device pixel whose area contains the CSS point (GL rows count up, from 0 at the bottom row).
+    const px = Math.floor(x * dpr), py = this.canvas.height - 1 - Math.floor(y * dpr);
     if (px < 0 || py < 0 || px >= this.canvas.width || py >= this.canvas.height) return null;
     const x0 = Math.max(0, px - R), y0 = Math.max(0, py - R);
     const w = Math.min(size, this.canvas.width - x0), h = Math.min(size, this.canvas.height - y0);

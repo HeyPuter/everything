@@ -510,6 +510,29 @@ test.describe('viewport', () => {
     expect(await normal()).toEqual([0.707, 0.707, 0]);
   });
 
+  test('picks the pixel under the pointer, not the one above it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const rows = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.setView('front', false);
+      const b = app.bbox!, cam = app.renderer.camera;
+      // The top of the upright, seen from the front: put it a quarter pixel above row k's top,
+      // so pixel row k (centre at k + 0.5) is on the face and row k - 1 (centre k - 0.5) is not.
+      const top: [number, number, number] = [b.min[0] + 2, b.max[1], b.max[2]];
+      const [x, y0] = app.viewport.project(top);
+      const k = Math.round(y0) + 10;
+      cam.pan(0, k - 0.25 - y0);
+      const [, y] = app.viewport.project(top);
+      const at = (row: number) => app.renderer.pick(Math.floor(x), row, { face: true })?.kind ?? null;
+      return { edge: y - k, k: at(k), above: at(k - 1) };
+    });
+    expect(rows.edge).toBeCloseTo(-0.25, 3);
+    expect(rows).toMatchObject({ k: 'face', above: null });
+  });
+
   test('zoomed in past a face, picking still finds where it was clicked', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
