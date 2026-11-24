@@ -964,7 +964,12 @@ class Toolkit {
       ui.showDrawing(true);
       done.push('showing the drawing');
     }
-    if (a.arrange === true) { ui.arrangeDrawing(); done.push('standard views arranged'); }
+    if (a.arrange === true) {
+      // Without a solid nothing is arranged: it was reported as done all the same.
+      if (!this.host.bbox) throw new ToolError(`arrange: there is no solid to draw${done.length ? ` (done before that: ${done.join(', ')})` : ''}`);
+      ui.arrangeDrawing();
+      done.push('standard views arranged');
+    }
     for (const v of list(a.add_views).map(str)) {
       if (!['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric'].includes(v)) throw new ToolError(`add_views: unknown view ${v}`);
       const before = this.doc.drawing?.views.length ?? 0;
