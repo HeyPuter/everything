@@ -307,15 +307,27 @@ uniform vec4 uClip;
 uniform vec3 uEye;
 uniform vec3 uViewDir;
 uniform int uOrtho;
+#ifdef PICK
+uniform mat4 uView;
+layout(location=1) out float outDepth;
+#else
 out vec4 outColor;
+#endif
 void main() {
   if (gl_FrontFacing || dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   vec3 d = uOrtho == 1 ? uViewDir : normalize(vWorld - uEye);
   float dn = dot(uClip.xyz, d);
   if (abs(dn) < 1e-6) discard;
-  vec4 c = uViewProj * vec4(vWorld - d * ((dot(uClip.xyz, vWorld) + uClip.w) / dn), 1.0);
-  gl_FragDepth = clamp(c.z / c.w * 0.5 + 0.5, 0.0, 1.0);
+  vec3 p = vWorld - d * ((dot(uClip.xyz, vWorld) + uClip.w) / dn);
+  vec4 c = uViewProj * vec4(p, 1.0);
+  // Only ever nearer: an open surface seen from behind, with the plane beyond it, keeps its depth.
+  gl_FragDepth = min(gl_FragCoord.z, clamp(c.z / c.w * 0.5 + 0.5, 0.0, 1.0));
+#ifdef PICK
+  // A pick on the cap is at the cap (where a zoom closes in or an orbit turns about).
+  outDepth = min(-(uView * vec4(vWorld, 1.0)).z, -(uView * vec4(p, 1.0)).z);
+#else
   outColor = vec4(0.0);
+#endif
 }`;
 
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
@@ -473,6 +485,7 @@ export class Renderer {
     this.progs.pickSeg = this.program(SEG_VS, PICK_SEG_FS);
     this.progs.pickPt = this.program(PICK_PT_VS, PICK_PT_FS);
     this.progs.cap = this.program(MESH_VS, CAP_FS);
+    this.progs.pickCap = this.program(MESH_VS, CAP_FS.replace('\n', '\n#define PICK\n'));
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
@@ -999,14 +1012,15 @@ export class Renderer {
   }
 
   /** After markCaps and the mesh: puts the depth of the marked pixels on the section plane. */
-  private capDepth(m: GpuMesh, vp: Float32Array, clip: number[]) {
+  private capDepth(m: GpuMesh, vp: Float32Array, clip: number[], pickView?: Float32Array) {
     const gl = this.gl, cam = this.camera, b = cam.back;
     gl.stencilFunc(gl.EQUAL, 1, 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-    gl.colorMask(false, false, false, false);
+    if (!pickView) gl.colorMask(false, false, false, false);
     gl.depthFunc(gl.ALWAYS);
-    const { p, u } = this.progs.cap;
+    const { p, u } = pickView ? this.progs.pickCap : this.progs.cap;
     gl.useProgram(p);
+    if (pickView) gl.uniformMatrix4fv(u.uView, false, pickView);
     gl.uniformMatrix4fv(u.uViewProj, false, vp);
     gl.uniform4fv(u.uClip, clip);
     gl.uniform3fv(u.uEye, cam.eye);
@@ -1200,9 +1214,10 @@ export class Renderer {
       gl.colorMask(true, true, true, true);
       gl.disable(gl.POLYGON_OFFSET_FILL);
       if (caps) {
-        // The depth target keeps the eye distance of the face seen through the cut.
-        gl.drawBuffers(this.canFloat ? [gl.NONE, gl.NONE] : [gl.NONE]);
-        this.capDepth(m, vp, clip);
+        // The id stays the face seen through the cut; the eye distance becomes the cap's.
+        gl.drawBuffers(this.canFloat ? [gl.NONE, gl.COLOR_ATTACHMENT1] : [gl.NONE]);
+        if (!want.face) gl.colorMask(false, false, false, false);
+        this.capDepth(m, vp, clip, view);
         gl.drawBuffers(this.canFloat ? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1] : [gl.COLOR_ATTACHMENT0]);
       }
     }

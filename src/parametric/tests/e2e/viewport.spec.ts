@@ -501,7 +501,7 @@ test.describe('viewport', () => {
     expect(seen.pick).toBe('face');
   });
 
-  test('the section cap hides the edges of a hole behind it', async ({ page }) => {
+  test('the section cap hides the edges of a hole behind it and is picked where it is', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
     await waitForFeature(page, 'Fillet1');
@@ -523,10 +523,12 @@ test.describe('viewport', () => {
       ctx.drawImage(img, 0, 0);
       const k = img.width / r.camera.width;
       const pixel = [...ctx.getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data].slice(0, 3);
-      return { kind: hit?.kind ?? null, pixel, cap: r.theme.cap.map((v) => Math.round(v * 255)) };
+      return { kind: hit?.kind ?? null, z: hit?.point?.[2] ?? null, pixel, cap: r.theme.cap.map((v) => Math.round(v * 255)) };
     });
     const seen = await probe();
     expect(seen.kind).not.toBe('edge');
+    // Picked on the cap (where a zoom closes in or an orbit turns about), not on the hole behind.
+    expect(seen.z).toBeCloseTo(20, 1);
     seen.pixel.forEach((v, i) => expect(Math.abs(v - seen.cap[i])).toBeLessThan(25));
   });
 
