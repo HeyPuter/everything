@@ -1313,6 +1313,13 @@ test.describe('viewport', () => {
     expect(await framed()).toBe(false);
     await page.evaluate(() => (window as unknown as Win).__parametric.viewport.zoomToFit(false));
     expect(await framed()).toBe(true);
+    // Also while that sketch is being edited (it is drawn by the sketch editor then).
+    await page.evaluate(() => (window as unknown as Win).__parametric.editSketch('s9'));
+    await expect(page.locator('.statusbar')).toContainText('Under Defined');
+    await page.evaluate(() => { const app = (window as unknown as Win).__parametric; app.viewport.setView('front', false); app.renderer.camera.zoomAt(0.2, 0, 0); });
+    expect(await framed()).toBe(false);
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.zoomToFit(false));
+    expect(await framed()).toBe(true);
   });
 
   const countDoubleClicks = async (page: import('@playwright/test').Page) => {

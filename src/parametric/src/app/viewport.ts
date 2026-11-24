@@ -483,10 +483,12 @@ export class Viewport {
    */
   private fitSphere(): { center: Vec3; radius: number } | null {
     const b = this.app.bbox;
-    if (!b) return this.camera.sceneBounds;
-    const part = { center: scale(add(b.min, b.max), 0.5), radius: Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 };
-    const sketches = this.renderer.boundsOf(['lines:sketches', 'points:sketchPts']);
-    return sketches ? enclose(part, sketches) : part;
+    // The sketch being edited, with no solid: just that sketch.
+    const editing = this.app.sketchEditor?.bounds() ?? null;
+    if (!b) return editing ?? this.camera.sceneBounds;
+    let s = { center: scale(add(b.min, b.max), 0.5), radius: Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 };
+    for (const o of [this.renderer.boundsOf(['lines:sketches', 'points:sketchPts']), editing]) if (o) s = enclose(s, o);
+    return s;
   }
 
   modelCenter(): Vec3 {
@@ -801,20 +803,13 @@ export class Viewport {
 
   modelRadius(): number {
     const drawn = this.fitSphere();
-    let r = drawn?.radius ?? 0;
-    const sk = this.app.sketchEditor?.bounds();
-    if (sk) r = Math.max(r, sk.radius);
     // Only guard against a degenerate box: small parts must still fill the view.
-    return Math.max(r, drawn ? 1e-3 : 50);
+    return Math.max(drawn?.radius ?? 0, drawn ? 1e-3 : 50);
   }
 
   zoomToFit(animate = true, remember = true) {
     if (remember) this.pushHistory();
-    let center = this.modelCenter();
-    let radius = this.modelRadius();
-    const sk = this.app.sketchEditor?.bounds();
-    if (sk && !this.app.bbox) { center = sk.center; radius = sk.radius; }
-    const st = this.camera.fitState(center, radius);
+    const st = this.camera.fitState(this.modelCenter(), this.modelRadius());
     if (animate) this.camera.animateTo(st);
     else this.camera.setState(st);
   }
