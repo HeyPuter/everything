@@ -211,6 +211,7 @@ export function registerCommands(app: App, files: FileOps) {
       description: 'Project model edges, faces or vertices into the sketch. The projected geometry stays linked to the model and follows it when it changes.',
       enabled: inSketch, checked: () => app.sketchEditor?.tool?.id === 'convertEntities', run: () => convertEntities(app),
     },
+    { id: 'selectAll', label: 'Select All', icon: 'select', shortcut: 'Ctrl+A', description: 'Select all the geometry of the sketch being edited.', enabled: inSketch, run: () => app.sketchEditor?.selectAll() },
     { id: 'construction', label: 'Construction Geometry', icon: 'construction', shortcut: 'Q', description: 'Toggle selected sketch entities between normal and construction geometry.', enabled: inSketch, run: () => app.sketchEditor?.toggleConstruction() },
     {
       id: 'addRelation', label: 'Add Constraint', icon: 'relation', keywords: 'relation constrain geometric', description: 'Add geometric constraints between selected sketch entities.', enabled: inSketch,

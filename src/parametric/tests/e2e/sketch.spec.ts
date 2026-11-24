@@ -1133,6 +1133,26 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Ctrl+A selects all the sketch geometry, which Delete then removes', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x - 80, y - 40);
+    await page.mouse.click(x + 80, y + 40);
+    await page.locator('[data-cmd="tool:point"]').click();
+    await page.mouse.click(x + 120, y - 90);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.mouse.click(x, y - 150);
+    await page.keyboard.press('ControlOrMeta+a');
+    const selected = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.length);
+    // Four lines and the standalone point (corner points come with their lines).
+    await expect.poll(selected).toBe(5);
+    await page.keyboard.press('Delete');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
   test('the status bar shows the snapped position while drawing', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

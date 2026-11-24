@@ -726,6 +726,12 @@ export class SketchEditor implements ViewportTool {
     else this.app.selection.set(items);
   }
 
+  /** Selects every curve and standalone point of the sketch (the end points come with their curves, as in a box selection). */
+  selectAll() {
+    const used = usedPoints(this.sketch.entities);
+    this.app.selection.set(this.sketch.entities.filter((e) => e.t !== 'point' || !used.has(e.id)).map((e) => ({ kind: 'sk' as const, id: e.id })));
+  }
+
   // ---------- deletion and construction ----------
 
   deleteSelection(): boolean {
