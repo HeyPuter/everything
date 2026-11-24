@@ -304,6 +304,19 @@ export async function optionsDialog(app: App) {
 
 // ---------- mass properties ----------
 
+/**
+ * Values formatted together (a vector, a tensor) with d decimals; values under
+ * 1 keep three significant digits (a part's volume in m³, a 5 mm edge in m)
+ * instead of showing 0.00. Numerical noise next to the largest value of the
+ * group (an off-diagonal 1e-20) still shows as 0.
+ */
+export function formatGroup(vs: number[], d: number): string[] {
+  const big = Math.max(...vs.map(Math.abs));
+  const places = big > 0 && big < 1 ? Math.max(d, 2 - Math.floor(Math.log10(big))) : d;
+  const clean = vs.map((v) => (Math.abs(v) < big * 1e-9 ? 0 : v));
+  return places > 8 ? clean.map((v) => (v ? v.toExponential(3) : '0')) : clean.map((v) => formatNumber(v, places));
+}
+
 export async function massPropertiesDialog(app: App) {
   let replaced = false;
   const off = app.store.on((reason) => { if (reason === 'load') replaced = true; });
@@ -336,15 +349,7 @@ export async function massPropertiesDialog(app: App) {
   const dec = Math.max(2, doc.decimals);
   const massKg = (mp.volume * 1e-9) * density;
   const mass = massKg / u.massScale;
-  // Values under 1 keep three significant digits (a part's volume in m³, its
-  // inertia in kg·m²) instead of showing 0.00; numerical noise next to the
-  // largest value of its group (an off-diagonal 1e-20) still shows as 0.
-  const group = (vs: number[], d = dec): string[] => {
-    const big = Math.max(...vs.map(Math.abs));
-    const places = big > 0 && big < 1 ? Math.max(d, 2 - Math.floor(Math.log10(big))) : d;
-    const clean = vs.map((v) => (Math.abs(v) < big * 1e-9 ? 0 : v));
-    return places > 8 ? clean.map((v) => (v ? v.toExponential(3) : '0')) : clean.map((v) => formatNumber(v, places));
-  };
+  const group = (vs: number[], d = dec) => formatGroup(vs, d);
   const fmt = (v: number, d = dec) => group([v], d)[0];
   // Inertia per unit density (mm^5) to mass units * length^2.
   const inertiaScale = (density * 1e-9) / u.massScale / (s * s);
@@ -508,8 +513,10 @@ export class MeasurePanel extends PropertyPanel {
     const seq = ++this.seq;
     const u = UNIT_SYSTEMS[app.store.doc.units];
     const dec = Math.max(2, app.store.doc.decimals);
-    const L = (v: number) => `${formatNumber(v / u.scale, dec)} ${u.length}`;
-    const A = (v: number) => `${formatNumber(v / u.scale ** 2, dec)} ${u.length}²`;
+    // Small values keep significant digits (a 5 mm edge in metres is 0.00500 m, not 0.01 m).
+    const xyz = (p: readonly number[]) => formatGroup(p.map((c) => c / u.scale), dec).join(', ');
+    const L = (v: number) => `${formatGroup([v / u.scale], dec)[0]} ${u.length}`;
+    const A = (v: number) => `${formatGroup([v / u.scale ** 2], dec)[0]} ${u.length}²`;
     const items = this.box.items.map((i) => i.data as SelItem);
     const lines: [string, string][] = [];
     const normalOf = (it: SelItem): Vec3 | null => {
@@ -524,14 +531,14 @@ export class MeasurePanel extends PropertyPanel {
         if (!e) continue;
         lines.push(['Edge length', L(e.length)]);
         if (e.radius) lines.push(['Radius', L(e.radius)], ['Diameter', L(e.radius * 2)]);
-        if (e.center) lines.push(['Center', e.center.map((c) => formatNumber(c / u.scale, dec)).join(', ')]);
+        if (e.center) lines.push(['Center', xyz(e.center)]);
       } else if (it.kind === 'face') {
         const f = app.faces[it.index];
         if (!f) continue;
         lines.push(['Face area', A(f.area)]);
         if (f.radius) lines.push(['Radius', L(f.radius)], ['Diameter', L(f.radius * 2)]);
       } else if (it.kind === 'vertex') {
-        lines.push(['X, Y, Z', it.p.map((c) => formatNumber(c / u.scale, dec)).join(', ')]);
+        lines.push(['X, Y, Z', xyz(it.p)]);
       }
     }
     if (items.length === 2) {
@@ -573,7 +580,7 @@ export class MeasurePanel extends PropertyPanel {
           if (seq !== this.seq) return;
           lines.push(['Distance', L(r.distance)]);
           const d = sub(r.p2, r.p1);
-          lines.push(['dX, dY, dZ', d.map((x) => formatNumber(Math.abs(x) / u.scale, dec)).join(', ')]);
+          lines.push(['dX, dY, dZ', xyz(d.map(Math.abs))]);
           this.showLeader(r.p1, r.p2);
         } catch (e) {
           if (seq !== this.seq) return;

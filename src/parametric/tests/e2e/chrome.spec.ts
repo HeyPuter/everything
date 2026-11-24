@@ -480,3 +480,29 @@ test('the arrow keys move between a design tree row and its children', async ({ 
   await expect(page.getByRole('treeitem', { name: 'Mounting Bracket' })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('Measure keeps significant digits for small values in metres', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.change('Units', (d) => {
+      d.units = 'MKS';
+    }),
+  );
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Handle).__parametric.edges.length))
+    .toBeGreaterThan(0);
+  const length = await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    const i = a.edges.findIndex((e) => e.type === 'line');
+    a.selection.set([{ kind: 'edge', index: i, name: a.edges[i].name }]);
+    a.commands.run('measure');
+    return a.edges[i].length / 1000;
+  });
+  const digits = 2 - Math.floor(Math.log10(length));
+  await expect(page.locator('.pm-section table')).toContainText(
+    `Edge length${length.toFixed(digits)} m`,
+  );
+  expect(errors).toEqual([]);
+});
