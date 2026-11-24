@@ -32,7 +32,7 @@ import type {
 } from './protocol';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, getOc, gdir,
-  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, subShapes, translated,
+  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -451,32 +451,37 @@ export class ModelBuilder {
   private nameFaces(featId: Id, body: Sh, st: State, tool: NamedFace[], fallback?: (d: SurfDesc, k: number) => string): NamedFace[] {
     const tol = Math.max(this.tol(st), 1e-6);
     const prev = st.faces;
-    let k = 0;
     const score = (d: SurfDesc, c: NamedFace) => dist(d.center, c.desc.center) / Math.sqrt(Math.max(c.desc.area, 1e-12));
     // Faces without an exact descriptor are compared by centre, which moves
     // when a later feature trims them: then their surface tells.
+    const surfaces = new SurfaceCache();
     const same = (shape: Sh, d: SurfDesc, c: NamedFace) =>
-      sameSurface(d, c.desc, tol) || (!EXACT_SURFACES.has(d.type) && d.type === c.desc.type && sharesSurface(shape, c.shape));
-    return subShapes(body, 'face').map((shape) => {
-      const desc = describeFace(shape);
-      let best: NamedFace | null = null, bestS = Infinity;
-      for (const c of prev) {
-        if (!same(shape, desc, c)) continue;
-        const s = score(desc, c);
-        if (s < bestS) { bestS = s; best = c; }
-      }
-      if (!best) {
-        for (const c of tool) {
+      sameSurface(d, c.desc, tol) || (!EXACT_SURFACES.has(d.type) && d.type === c.desc.type && sharesSurface(shape, c.shape, surfaces));
+    let k = 0;
+    try {
+      return subShapes(body, 'face').map((shape) => {
+        const desc = describeFace(shape);
+        let best: NamedFace | null = null, bestS = Infinity;
+        for (const c of prev) {
           if (!same(shape, desc, c)) continue;
           const s = score(desc, c);
           if (s < bestS) { bestS = s; best = c; }
         }
-      }
-      if (best) return { shape, desc, name: best.name, feature: best.feature };
-      const name = fallback ? fallback(desc, k) : `${featId}:n${k}`;
-      k++;
-      return { shape, desc, name, feature: featId };
-    });
+        if (!best) {
+          for (const c of tool) {
+            if (!same(shape, desc, c)) continue;
+            const s = score(desc, c);
+            if (s < bestS) { bestS = s; best = c; }
+          }
+        }
+        if (best) return { shape, desc, name: best.name, feature: best.feature };
+        const name = fallback ? fallback(desc, k) : `${featId}:n${k}`;
+        k++;
+        return { shape, desc, name, feature: featId };
+      });
+    } finally {
+      surfaces.dispose();
+    }
   }
 
   private nameTool(featId: Id, tool: Sh, classify: (d: SurfDesc, k: number, shape: Sh) => string): NamedFace[] {

@@ -789,6 +789,34 @@ describe('feature regeneration', () => {
     expect(made.filter((o) => !o.isDeleted())).toHaveLength(0);
   });
 
+  it('frees the surfaces it looks up to name trimmed spline faces', async () => {
+    const b = new ModelBuilder();
+    const loft: Feature[] = [
+      sketch('A', rect(-10, -10, 10, 10)),
+      { id: 'P1', name: 'P1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 20, flip: false },
+      sketch('B', circle(0, 0, 5), { kind: 'feature', id: 'P1' }),
+      { id: 'L', name: 'L', type: 'loft', profiles: ['A', 'B'], cut: false, ruled: false },
+      sketch('S9', circle(0, -8, 2), { kind: 'base', plane: 'top' }),
+      extrude('E9', 'S9', 50, { cut: true, end: 'throughAll', dir2: { end: 'throughAll', depth: 0 } }),
+    ];
+    // A surface handle keeps its surface alive: count the ones left.
+    const tool = getOc().BRep_Tool;
+    const surface = tool.Surface;
+    const made: { isDeleted(): boolean }[] = [];
+    // The bindings look up their overloads on the function they find there: give it them.
+    tool.Surface = Object.assign((...args: unknown[]) => { const s = surface.apply(tool, args); made.push(s); return s; }, surface);
+    try {
+      const res = await b.build(req(loft));
+      expect(res.status.every((s) => s.ok)).toBe(true);
+      // The trimmed loft faces keep their names (the surfaces were compared).
+      expect(res.faces.filter((f) => f.type === 'bspline').map((f) => f.name).sort()).toEqual(['L:l0', 'L:l1', 'L:l2', 'L:l3', 'L:l4']);
+    } finally {
+      tool.Surface = surface;
+    }
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.filter((s) => !s.isDeleted())).toHaveLength(0);
+  });
+
   it('measures the minimum distance between faces, edges and points', async () => {
     const b = new ModelBuilder();
     await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
