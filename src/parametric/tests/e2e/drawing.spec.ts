@@ -298,6 +298,31 @@ test('opening the drawing does not mark the part edited until the drawing is cha
   expect((await state()).depth).toBe(s0.depth);
 });
 
+test('the sheet zooms and pans from the keyboard, and Zoom In and Out zoom the sheet', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = { drawing: { zoom: number; pan: { x: number; y: number } }; renderer: { camera: { distance: number } } };
+  const state = () => page.evaluate(() => { const a = (window as unknown as { __parametric: A }).__parametric; return { zoom: a.drawing.zoom, pan: { ...a.drawing.pan }, distance: a.renderer.camera.distance }; });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.locator('.drawing-ws').focus();
+  const s0 = await state();
+  await page.keyboard.press('+');
+  expect((await state()).zoom).toBeCloseTo(s0.zoom * 1.25, 6);
+  await page.keyboard.press('-');
+  expect((await state()).zoom).toBeCloseTo(s0.zoom, 6);
+  // With no view selected, arrow keys move the sheet.
+  await page.keyboard.press('ArrowLeft');
+  expect((await state()).pan.x).toBeCloseTo(s0.pan.x + 40, 6);
+  // Zoom Out (Z) zooms the sheet, not the hidden 3D view.
+  await page.keyboard.press('z');
+  const s1 = await state();
+  expect(s1.zoom).toBeCloseTo(s0.zoom * 0.8, 6);
+  expect(s1.distance).toBe(s0.distance);
+});
+
 test.describe('in a time zone behind UTC', () => {
   test.use({ timezoneId: 'Pacific/Pago_Pago' });
   test('the title block shows the local date', async ({ page }) => {

@@ -44,7 +44,7 @@ export class DrawingWorkspace {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
     this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
-    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel to zoom. Arrow keys move the selected view and Delete removes it.' }, this.host,
+    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel or plus and minus to zoom. Arrow keys move the selected view, or else the sheet, and Delete removes the view.' }, this.host,
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();
@@ -245,6 +245,16 @@ export class DrawingWorkspace {
     Object.assign(this.selBox.style, { left: `${f.x0 - pad}px`, top: `${f.y0 - pad}px`, width: `${f.x1 - f.x0 + 2 * pad}px`, height: `${f.y1 - f.y0 + 2 * pad}px` });
   }
 
+  /** Zooms the sheet by f about the middle of the view. */
+  zoomBy(f: number) {
+    const r = this.el.getBoundingClientRect();
+    const mx = r.width / 2, my = r.height / 2;
+    const nz = Math.max(0.1, Math.min(40, this.zoom * f));
+    this.pan = { x: mx - ((mx - this.pan.x) * nz) / this.zoom, y: my - ((my - this.pan.y) * nz) / this.zoom };
+    this.zoom = nz;
+    this.applyTransform();
+  }
+
   /** Fits the sheet into the visible area. */
   fit() {
     const r = this.el.getBoundingClientRect();
@@ -373,10 +383,20 @@ export class DrawingWorkspace {
         if (join) store.squash(mark, 'Move view');
         nudge = { id, mark, last: store.undoMark };
       };
-      if (e.key === 'ArrowLeft') move(-step, 0);
-      else if (e.key === 'ArrowRight') move(step, 0);
-      else if (e.key === 'ArrowUp') move(0, -step);
-      else if (e.key === 'ArrowDown') move(0, step);
+      const pan = (dx: number, dy: number) => {
+        e.preventDefault();
+        this.pan = { x: this.pan.x + dx, y: this.pan.y + dy };
+        this.applyTransform();
+      };
+      // Arrow keys move the selected view, else the sheet; + and - zoom it (as the wheel does).
+      const d = this.selected ? null : 40 * (e.shiftKey ? 4 : 1);
+      const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (e.key === 'ArrowLeft') d ? pan(d, 0) : move(-step, 0);
+      else if (e.key === 'ArrowRight') d ? pan(-d, 0) : move(step, 0);
+      else if (e.key === 'ArrowUp') d ? pan(0, d) : move(0, -step);
+      else if (e.key === 'ArrowDown') d ? pan(0, -d) : move(0, step);
+      else if (plain && (e.key === '+' || e.key === '=')) { e.preventDefault(); this.zoomBy(1.25); }
+      else if (plain && (e.key === '-' || e.key === '_')) { e.preventDefault(); this.zoomBy(0.8); }
     });
     new ResizeObserver(() => { if (this.active) this.applyTransform(); }).observe(this.el);
   }
