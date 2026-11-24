@@ -21,7 +21,7 @@ import type {
 } from '../model/types';
 import { dependencies, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
-import { type Region, type Seg2, buildProfiles, hasOverlappingLines, inRegion, pointInPoly, segPolyline, sketchPoints } from '../sketch/profiles';
+import { type Region, type Seg2, buildProfiles, hasOverlappingLines, holesMayTouch, inRegion, pointInPoly, reverseLoop, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
 import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
@@ -32,7 +32,7 @@ import type {
 } from './protocol';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
-  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
+  hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -595,6 +595,24 @@ export class ModelBuilder {
     return face;
   }
 
+  /**
+   * The solid a region sweeps (make turns a face into it). A hole touching its
+   * outline or another hole (a circle tangent to an edge) makes an invalid face
+   * and so an invalid solid, which later features fail on: then the holes'
+   * solids are cut from the outline's instead, which the boolean keeps valid.
+   */
+  /** Set when a region's holes were cut out because they touch (see regionSolid). */
+  private touchingHoles = false;
+
+  private regionSolid(r: Region, fr: Frame, make: (face: any) => Sh): Sh {
+    const face = this.regionFace(r, fr);
+    if (!holesMayTouch(r) || isValid(face as Sh)) return make(face);
+    this.touchingHoles = true;
+    const outer = make(R.makeFace(this.loopWire(r.outer.segs, fr)));
+    const holes = r.holes.map((h) => make(R.makeFace(this.loopWire(reverseLoop(h).segs, fr))));
+    return cut(outer, fuseAll(holes));
+  }
+
   /** Nearest profile segment to a sketch-plane point: used to name side faces. */
   private nearestSrc(regions: Region[], p: Vec2): string {
     let best = Infinity, src = 'x';
@@ -659,8 +677,7 @@ export class ModelBuilder {
     const extrudeAll = (from: number, length: number, d: Vec3): Sh => {
       const pieces: Sh[] = [];
       for (const r of regions) {
-        const face = this.regionFace(r, frame);
-        let solid: Sh = R.basicFaceExtrusion(face, new R.Vector(scale(d, length))) as unknown as Sh;
+        let solid = this.regionSolid(r, frame, (face) => R.basicFaceExtrusion(face, new R.Vector(scale(d, length))) as unknown as Sh);
         if (from !== 0) solid = translated(solid, scale(d, from));
         pieces.push(solid);
       }
@@ -679,10 +696,17 @@ export class ModelBuilder {
       // Both directions taper away from the sketch plane, which keeps the
       // sketched profile (like other CAD systems do).
       const angle = draft * (f.draftOutward ? -1 : 1);
-      tool = this.draftLateral(extrudeAll(0, total + start, dir), frame, dir, 0, angle);
-      if (start < 0) {
-        const back = scale(dir, -1);
-        tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
+      this.touchingHoles = false;
+      try {
+        tool = this.draftLateral(extrudeAll(0, total + start, dir), frame, dir, 0, angle);
+        if (start < 0) {
+          const back = scale(dir, -1);
+          tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
+        }
+      } catch (e) {
+        // The faces of a hole touching the outline meet at a single line, which cannot be tapered.
+        if (this.touchingHoles) throw new FeatureError('The draft cannot taper a hole that touches the outline or another hole. Move the hole off it, or extrude without draft.');
+        throw e;
       }
     } else tool = extrudeAll(start, d1, dir);
     const classify = (d: SurfDesc, _k: number, shape: Sh) => {
@@ -759,8 +783,7 @@ export class ModelBuilder {
     const d = scale(axis.d, sgn);
     const pieces: Sh[] = [];
     for (const r of regions) {
-      const face = this.regionFace(r, frame);
-      let solid = R.revolution(face, axis.p, d, angle) as unknown as Sh;
+      let solid = this.regionSolid(r, frame, (face) => R.revolution(face, axis.p, d, angle) as unknown as Sh);
       if (f.end === 'midPlane' && angle < 360) solid = rotated(solid, axis.p, d, (-angle * Math.PI) / 360);
       pieces.push(solid);
     }

@@ -532,7 +532,7 @@ function makeLoop(segs: Seg2[]): Loop {
   return { segs, poly, area: polyArea(poly) };
 }
 
-function reverseLoop(l: Loop): Loop {
+export function reverseLoop(l: Loop): Loop {
   const segs: Seg2[] = [...l.segs].reverse().map((s): Seg2 => {
     switch (s.k) {
       case 'line': return { k: 'line', a: s.b, b: s.a, src: s.src };
@@ -730,6 +730,26 @@ export function hasOverlappingLines(entities: SkEntity[]): boolean {
       const s = along(lines[j][0]), t = along(lines[j][1]);
       if (Number.isNaN(s) || Number.isNaN(t)) continue;
       if (Math.min(l, Math.max(s, t)) - Math.max(0, Math.min(s, t)) > tol) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether a hole of the region may touch its outline or another hole (they
+ * cannot cross: such contours are separate regions). Cheap and cautious: true
+ * whenever their polygons come near, so the exact check runs only then.
+ */
+export function holesMayTouch(r: Region): boolean {
+  if (!r.holes.length) return false;
+  const eps = (l: Loop) => loopInfo(l).err * 2 + 1e-6 * (1 + Math.abs(loopInfo(l).box[0]) + Math.abs(loopInfo(l).box[1]));
+  if (r.holes.some((h) => nearBox(r.outer.poly, loopInfo(h).box, eps(h) + eps(r.outer)))) return true;
+  const boxes = r.holes.map((h) => ({ box: loopInfo(h).box, e: eps(h) })).sort((p, q) => p.box[0] - q.box[0]);
+  for (let i = 0; i < boxes.length; i++) {
+    const p = boxes[i];
+    for (let j = i + 1; j < boxes.length && boxes[j].box[0] <= p.box[2] + p.e + boxes[j].e; j++) {
+      const q = boxes[j], m = p.e + q.e;
+      if (p.box[1] <= q.box[3] + m && q.box[1] <= p.box[3] + m) return true;
     }
   }
   return false;

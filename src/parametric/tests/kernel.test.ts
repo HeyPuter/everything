@@ -105,6 +105,30 @@ describe('feature regeneration', () => {
     }
   });
 
+  it('builds a valid solid when a hole touches its outline or another hole at a point', async () => {
+    // The face of such a region is invalid, and so was every solid made from it.
+    const body = (b: ModelBuilder) => (b as unknown as { current: { body: Sh } }).current.body;
+    const cases: [string, SkEntity[], number][] = [
+      ['a circle touching an edge', [...rect(0, 0, 20, 20, 'r'), ...circle(10, 3, 3, 'c')], 400 - Math.PI * 9],
+      ['a circle touching the circle round it', [...circle(0, 0, 10, 'o'), ...circle(5, 0, 5, 'i')], Math.PI * 75],
+      ['two circles touching', [...rect(-20, -10, 20, 10, 'r'), ...circle(-3, 0, 3, 'a'), ...circle(3, 0, 3, 'b')], 800 - Math.PI * 18],
+    ];
+    for (const [label, ents, area] of cases) {
+      const b = new ModelBuilder();
+      const res = await b.build(req([sketch('S1', ents), extrude('E1', 'S1', 2)]));
+      expect(res.status[1], label).toEqual({ id: 'E1', ok: true });
+      expect(volume(b), label).toBeCloseTo(area * 2, 6);
+      expect(isValid(body(b)), label).toBe(true);
+    }
+    // The inner circle's face is named after it, not after the outer one.
+    const ring = await new ModelBuilder().build(req([sketch('S1', cases[1][1]), extrude('E1', 'S1', 2)]));
+    expect(ring.faces.map((f) => f.name).sort()).toEqual(['E1:cap0', 'E1:cap1', 'E1:side:i', 'E1:side:o']);
+    // A taper cannot follow the faces meeting at the touching point: say why.
+    const b = new ModelBuilder();
+    const drafted = await b.build(req([sketch('S1', cases[0][1]), extrude('E1', 'S1', 1, { draft: 2 })]));
+    expect(drafted.status[1].error).toMatch(/cannot taper a hole that touches the outline/);
+  });
+
   it('extrudes the same spline region and hole in either drawing direction', async () => {
     const volumes: number[] = [];
     for (const clockwise of [false, true]) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkEntity } from '../src/model/types';
-import { buildProfiles, hasOverlappingLines, inRegion } from '../src/sketch/profiles';
+import { buildProfiles, hasOverlappingLines, holesMayTouch, inRegion } from '../src/sketch/profiles';
 import { circle, polygon, rect } from './helpers';
 
 const area = (r: { outer: { area: number }; holes: { area: number }[] }) => r.outer.area + r.holes.reduce((s, h) => s + h.area, 0);
@@ -145,6 +145,14 @@ describe('sketch profiles', () => {
     // End to end along one line, or crossing: no overlap.
     expect(hasOverlappingLines([...rect(0, 0, 10, 10), ...rect(10, 0, 20, 10, 'x').filter((e) => e.id !== 'xl3')])).toBe(false);
     expect(hasOverlappingLines(polygon([[0, 0], [10, 0], [10, 10], [0, 10]]).concat(polygon([[5, -5], [15, 5], [5, 15]])))).toBe(false);
+  });
+
+  it('tells holes that may touch their outline or each other from holes well inside', () => {
+    const touch = (ents: SkEntity[]) => holesMayTouch(buildProfiles(ents).regions[0]);
+    expect(touch([...rect(0, 0, 20, 20), ...circle(10, 3, 3)])).toBe(true);
+    expect(touch([...rect(-20, -10, 20, 10), ...circle(-3, 0, 3), ...circle(3, 0, 3)])).toBe(true);
+    expect(touch([...rect(0, 0, 20, 20), ...circle(10, 10, 3), ...circle(3, 3, 1)])).toBe(false);
+    expect(touch(rect(0, 0, 20, 20))).toBe(false);
   });
 
   it('handles a closed polygon with many sides', () => {
