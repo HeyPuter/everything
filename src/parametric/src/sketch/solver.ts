@@ -63,6 +63,8 @@ export class SketchSystem {
   private nVars = 0;
   /** Variables owned by each entity (for definition status). */
   private entityVars = new Map<Id, number[]>();
+  /** Driving dimensions whose value is not a finite number (an expression that does not evaluate). */
+  private unresolved = new Set<Id>();
 
   constructor(private entities: SkEntity[], private constraints: SkConstraint[], private opts: SolveOptions) {
     // Origin point is two fixed variables at zero.
@@ -425,8 +427,9 @@ export class SketchSystem {
     // Evaluated once per solve: an expression's value cannot change while
     // solving, and re-evaluating it (and the variables it uses) in every
     // residual and Jacobian column made each drag frame pay for it thousands
-    // of times.
+    // of times. A value that cannot be resolved holds nothing and is reported.
     const value = this.opts.value(d);
+    if (!Number.isFinite(value)) { this.unresolved.add(d.id); return; }
     const val = () => value;
     const id = d.id;
     const refs = d.refs;
@@ -750,6 +753,7 @@ export class SketchSystem {
     const conflicting = new Set<Id>();
     for (let i = 0; i < this.eqs.length; i++) if (Math.abs(r[i]) > 1e-6 && this.eqs[i].cid) conflicting.add(this.eqs[i].cid!);
     for (const id of folded) conflicting.add(id);
+    for (const id of this.unresolved) conflicting.add(id);
 
     const res: SolveResult = {
       converged,

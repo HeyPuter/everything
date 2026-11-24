@@ -165,6 +165,24 @@ describe('sketch solver', () => {
     expect(Math.hypot(P(ents, 'p2').x - P(ents, 'p1').x, P(ents, 'p2').y - P(ents, 'p1').y)).toBeCloseTo(30, 6);
   });
 
+  it('reports a dimension whose value does not resolve as a conflict and solves the rest', () => {
+    const ents = rectangle();
+    const cons: SkConstraint[] = [
+      { id: 'c1', type: 'horizontal', refs: ['l1'] },
+      { id: 'c2', type: 'horizontal', refs: ['l3'] },
+      { id: 'c3', type: 'vertical', refs: ['l2'] },
+      { id: 'c4', type: 'vertical', refs: ['l4'] },
+      dim('d1', 'distance', ['l1'], 30),
+      dim('d2', 'distance', ['l2'], NaN),
+    ];
+    const res = solveSketch(ents, cons, { value });
+    expect(res.status).toBe('over');
+    expect([...res.conflicting]).toEqual(['d2']);
+    expect(P(ents, 'p2').x - P(ents, 'p1').x).toBeCloseTo(30, 6);
+    expect(P(ents, 'p1').y).toBeCloseTo(P(ents, 'p2').y, 9);
+    expect(ents.every((e) => e.t !== 'point' || (Number.isFinite(e.x) && Number.isFinite(e.y)))).toBe(true);
+  });
+
   it('turns a free line to a much larger angle without stretching it', () => {
     for (const [v, sector] of [[90, 0], [150, 0], [180, 0], [5, 0], [170, 1]] as const) {
       const ents: SkEntity[] = [pt('a', 0, 0), pt('b', 10, 0), line('l1', 'a', 'b'), pt('c', 0, 0), pt('d', 8, 5), line('l2', 'c', 'd')];

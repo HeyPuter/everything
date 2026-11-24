@@ -1254,6 +1254,34 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a dimension linked to a missing variable shows as a conflict and the sketch stays editable', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    // As a part file written elsewhere can arrive: the variable is not defined.
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const id = a.sketchEditor!.sketchId;
+      a.store.change('Add linked line', (doc) => {
+        const sk = doc.features.find((f) => f.id === id) as SketchFeature;
+        sk.entities.push({ id: 'a', t: 'point', x: -20, y: 30 }, { id: 'b', t: 'point', x: 20, y: 30 }, { id: 'L', t: 'line', a: 'a', b: 'b' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['L'], value: '=Missing', at: [0, 40], name: 'D1' });
+      }, 'sketch');
+    });
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { kinds: a.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').map((e) => e.t).join(), undo: a.store.undoLabel };
+    });
+    await page.locator('[data-cmd="tool:circle"]').click();
+    await page.mouse.click(x, y + 60);
+    await page.mouse.click(x + 40, y + 60);
+    await expect.poll(state).toEqual({ kinds: 'line,circle', undo: 'Add circle' });
+    await expect(page.locator('.status-over')).toBeVisible();
+    await expect(page.locator('.dim-label.bad')).toHaveCount(1);
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect.poll(state).toEqual({ kinds: 'line', undo: 'Add linked line' });
+    expect(errors).toEqual([]);
+  });
+
   test('right-clicking a sketch line selects it so the context menu acts on it', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

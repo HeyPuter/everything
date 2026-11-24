@@ -178,7 +178,18 @@ export class SketchEditor implements ViewportTool {
 
   // ---------- model changes ----------
 
-  dimValue = (d: SkDimension): number => this.app.store.dimensionValue(d);
+  /**
+   * Value of a driving dimension. One whose expression no longer evaluates (a
+   * variable missing from an opened file) is NaN, which the solver reports as
+   * a conflict, instead of an exception that aborted every sketch edit.
+   */
+  dimValue = (d: SkDimension): number => {
+    try {
+      return this.app.store.dimensionValue(d);
+    } catch {
+      return NaN;
+    }
+  };
 
   /** Projected entities whose model edge or vertex the last rebuild did not find. */
   lostExternal = new Set<Id>();
