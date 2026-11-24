@@ -1761,7 +1761,8 @@ for (const later of [false, true]) test(`recovering work on a cloud part ${later
   await first.getByRole('button', { name: /New part/ }).click();
   await app(first);
   await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
-  await expect(first).toHaveTitle('Part1 - Parametric');
+  // A new part's title has no edit mark before the save either: wait for the file.
+  await expect.poll(() => first.evaluate((path) => (window as unknown as Mock).__files.has(path), path)).toBe(true);
   const saved = await first.evaluate((path) => (window as unknown as Mock).__files.get(path)!, path);
   await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('E', (d) => { d.variables.push({ name: 'Unsaved', expr: '1' }); }));
   await expect.poll(() => first.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 10_000 }).toContain('"name":"Unsaved"');
