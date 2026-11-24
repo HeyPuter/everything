@@ -1070,7 +1070,8 @@ export class ModelBuilder {
     const n = Math.round(num(f.count));
     if (n < 2 || n > 1000) throw new FeatureError('Instance count must be between 2 and 1000');
     const total = num(f.angle);
-    const step = f.equal ? (Math.abs(total - 360) < 1e-9 ? total / n : total / (n - 1)) : total;
+    // A full turn either way spaces the instances round the whole circle.
+    const step = f.equal ? (Math.abs(Math.abs(total) - 360) < 1e-9 ? total / n : total / (n - 1)) : total;
     const d = scale(ax.d, f.flip ? -1 : 1);
     const tfs: ((s: Sh) => Sh)[] = [];
     for (let i = 1; i < n; i++) {

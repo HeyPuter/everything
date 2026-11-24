@@ -615,7 +615,10 @@ describe('feature regeneration', () => {
       expect(res.status[4].error).toMatch(/on top of each other/);
     }
     expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
-    for (const p of [circ(360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
+    for (const p of [circ(360, true), circ(-360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
+    // A full turn the other way makes the same four holes.
+    await b.build(req([...base, circ(-360, true)]));
+    expect(volume(b)).toBeCloseTo(40 * 40 * 10 - 4 * Math.PI * 4 * 10, 3);
     // Copies of a cut that all land off the part do nothing: say so.
     const off = await b.build(req([...base, lin(100)]));
     expect(off.status[4].ok).toBe(true);
