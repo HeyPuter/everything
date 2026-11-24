@@ -297,8 +297,10 @@ export function intersectPrims(p: Prim, q: Prim, extendFirst = false): Vec2[] {
   // long lines, losing both roots (or inventing an intersection on a miss).
   const perpendicular = ux * f[1] - uy * f[0];
   const distance = Math.abs(perpendicular), radius = circ.r!;
-  if (distance > radius) return [];
-  const halfChord = Math.sqrt((radius - distance) * (radius + distance));
+  // A line tangent to the circle (a slot side ending where it touches) can
+  // miss it by rounding; it touches, as two circles within 1e-9 do.
+  if (distance > radius + 1e-9 * Math.max(1, radius)) return [];
+  const halfChord = distance >= radius ? 0 : Math.sqrt((radius - distance) * (radius + distance));
   const along = -(f[0] * ux + f[1] * uy);
   const center: Vec2 = [circ.c![0] - uy * perpendicular, circ.c![1] + ux * perpendicular];
   const offsets = halfChord < 1e-12 ? [0] : [-halfChord, halfChord];

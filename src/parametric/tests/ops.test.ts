@@ -245,6 +245,26 @@ describe('editing tools', () => {
     expect(lengths[1]).toBeCloseTo(3, 9);
   });
 
+  it('trims a circle between lines that end where they touch it', () => {
+    for (const [r, ang] of [[3.1, 1.1], [10, 0], [12.7, 2.2], [0.37, 0.7]]) {
+      // Two tangent lines ending on opposite sides of the circle, as a slot drawn with circles.
+      const c: [number, number] = [1.234, -5.678];
+      const n: [number, number] = [Math.cos(ang), Math.sin(ang)], t: [number, number] = [-n[1], n[0]];
+      const P = [c[0] + r * n[0], c[1] + r * n[1]], Q = [c[0] - r * n[0], c[1] - r * n[1]];
+      const s = sk([
+        { id: 'c', t: 'point', x: c[0], y: c[1] }, { id: 'C', t: 'circle', c: 'c', r },
+        { id: 'a1', t: 'point', x: P[0] + 20 * t[0], y: P[1] + 20 * t[1] }, { id: 'a2', t: 'point', x: P[0], y: P[1] }, { id: 'L1', t: 'line', a: 'a1', b: 'a2' },
+        { id: 'b1', t: 'point', x: Q[0], y: Q[1] }, { id: 'b2', t: 'point', x: Q[0] + 20 * t[0], y: Q[1] + 20 * t[1] }, { id: 'L2', t: 'line', a: 'b1', b: 'b2' },
+      ]);
+      // The half away from the lines goes; it used to take the whole circle when a touch was missed.
+      expect(trimAt(s, 'C', [c[0] - r * t[0], c[1] - r * t[1]], idFactory(s))).toBe(true);
+      const arc = s.entities.find((e) => e.id === 'C');
+      expect(arc?.t).toBe('arc');
+      const ix = new SketchIndex(s.entities);
+      expect(arcAngles(ix, arc as Extract<SkEntity, { t: 'arc' }>).sweep).toBeCloseTo(Math.PI, 6);
+    }
+  });
+
   it('previews exactly the piece a trim removes', () => {
     const ents = (): SkEntity[] => [
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
