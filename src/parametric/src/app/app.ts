@@ -122,6 +122,8 @@ export class App {
   /** Command to resume after leaving a sketch started for it. */
   pendingAfterSketch: string | null = null;
   onDocumentChanged: (reason: string) => void = () => {};
+  /** Renames the part and its saved file, as Rename Part does (set by the file operations). */
+  renamePart: ((name: string) => Promise<void>) | null = null;
 
   constructor() {
     this.kernel = new KernelClient();

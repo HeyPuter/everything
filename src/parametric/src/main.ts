@@ -26,6 +26,7 @@ async function boot() {
   const root = document.getElementById('app')!;
   const app = new App();
   const files = new FileOps(app);
+  app.renamePart = (name) => files.rename(name);
   registerCommands(app, files);
   const hooks = makeHooks(app);
   let start: StartScreen | null = null;

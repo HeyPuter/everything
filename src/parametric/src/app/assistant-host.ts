@@ -59,6 +59,10 @@ export function appHost(app: App): AssistantHost {
       app.drawing.rescaleViews(d, oldScale);
       app.drawing.keepOnSheet(d);
     },
+    async renamePart(name) {
+      if (app.renamePart) await app.renamePart(name);
+      else app.store.change('Rename part', (doc) => { doc.name = name; });
+    },
     runCommand(id) {
       if (!app.commands.get(id) || !app.commands.isEnabled(id)) return false;
       return app.commands.run(id);

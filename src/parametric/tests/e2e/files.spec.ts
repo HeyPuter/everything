@@ -371,6 +371,32 @@ test('a cloud part renamed in Part Properties is saved under its new name, like 
   await expect.poll(() => page.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Holder- v2.parametric']);
 });
 
+test('a cloud part the assistant renames is saved under its new name, like Rename Part', async ({ page }) => {
+  type W = Mock & { __parametric: import('../../src/app/app').App };
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Renamed.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'set_part', input: { name: 'Holder: v2' } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => { const p = (window as unknown as W).__parametric; p.store.change('X', (d) => { d.variables.push({ id: 'v1', name: 'X', expr: '1' }); }); p.commands.run('save'); });
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.store.dirty)).toBe(false);
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Call it Holder: v2');
+  await box.press('Enter');
+  await expect(page.getByText('Renamed.')).toBeVisible();
+  await expect(page).toHaveTitle(/Holder- v2 - Parametric/);
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/AppData/parametric/Parts/Holder- v2.parametric' });
+  await page.evaluate(() => (window as unknown as W).__parametric.commands.run('save'));
+  await expect.poll(() => page.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Holder- v2.parametric']);
+  // The rename is part of the message's one undo step.
+  await expect(page.getByRole('button', { name: 'Undo changes' })).toBeVisible();
+});
+
 test('a pending recovery copy is written as soon as the tab is hidden', async ({ page }) => {
   await mockPuter(page);
   await openApp(page);

@@ -14,6 +14,7 @@ import { MATERIALS } from '../model/materials';
 import { uniqueId } from '../model/ids';
 import type { DrawingViewKind, Feature, FeatureType, Id, PartDocument, SketchFeature, UnitSystem } from '../model/types';
 import { UNIT_SYSTEMS } from '../model/units';
+import { safeName } from '../platform/files';
 import type { ViewName } from '../render/camera';
 import type { DisplayStyle } from '../render/renderer';
 import type { SelItem } from '../app/selection';
@@ -866,7 +867,7 @@ class Toolkit {
 
   async setPart(a: Obj): Promise<string> {
     const patch: Partial<PartDocument> = {};
-    if (a.name != null) { const n = str(a.name); if (!n) throw new ToolError('name: cannot be empty'); patch.name = n.slice(0, 120); }
+    if (a.name != null) { const n = str(a.name); if (!n) throw new ToolError('name: cannot be empty'); patch.name = safeName(n); }
     if (a.units != null) {
       const un = str(a.units).toUpperCase() as UnitSystem;
       if (!(un in UNIT_SYSTEMS)) throw new ToolError('units: MMGS, CGS, MKS or IPS');
@@ -898,9 +899,16 @@ class Toolkit {
     if (!Object.keys(patch).length) return 'Nothing to change.';
     // Like every change: an open sketch is finished first, so discarding it later cannot undo this too.
     this.host.prepareForEdit();
-    const { units, ...rest } = patch;
+    const { units, name, ...rest } = patch;
+    // As Rename Part: a saved part's file is renamed too, or the next save kept the old file name
+    // and the part opened under it again.
+    if (name != null && name !== this.doc.name) {
+      if (this.host.ui) await this.host.ui.renamePart(name);
+      else this.store.change('Rename part', (doc) => { doc.name = name; });
+      this.changed = true;
+    }
     let unlinked: string[] = [];
-    this.store.change('Part properties', (doc) => {
+    if (Object.keys(rest).length || units) this.store.change('Part properties', (doc) => {
       Object.assign(doc, rest);
       // Expressions are in display units: convert them so the geometry keeps its size.
       if (units) unlinked = changeUnits(doc, units);

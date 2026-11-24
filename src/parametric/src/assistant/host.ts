@@ -43,4 +43,6 @@ export interface AssistantUI {
   /** Inside a document change: keeps the views on a sheet whose size, orientation or scale (from oldScale) changed. */
   fitDrawingViews(d: DrawingDoc, oldScale: number): void;
   runCommand(id: string): boolean;
+  /** Renames the part and its saved file, as Rename Part does. */
+  renamePart(name: string): Promise<void>;
 }
