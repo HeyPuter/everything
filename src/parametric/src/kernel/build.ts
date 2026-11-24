@@ -22,7 +22,7 @@ import type {
 import { dependencies, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
 import { type Region, type Seg2, buildProfiles, hasOverlappingLines, holesMayTouch, inRegion, pointInPoly, reverseLoop, segPolyline, sketchPoints } from '../sketch/profiles';
-import { SketchIndex, splineBeziers } from '../sketch/geom';
+import { SketchIndex, pointIdsOf, splineBeziers } from '../sketch/geom';
 import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
 import { measureDimension } from '../sketch/ops';
@@ -751,7 +751,12 @@ export class ModelBuilder {
     if (f.axis) axis = this.resolveAxis(f.axis, st);
     else {
       const ix = new SketchIndex(sketch.entities);
-      const cl = sketch.entities.find((e) => e.t === 'line' && e.construction);
+      const lines = sketch.entities.filter((e) => e.t === 'line' && e.construction);
+      // Construction lines ending on the profile (a center rectangle's
+      // diagonals, the full length a sketch fillet keeps) are part of the
+      // shape: a centerline standing free of it is the axis, wherever it is listed.
+      const onProfile = new Set(sketch.entities.flatMap((e) => (e.t !== 'point' && !e.construction ? pointIdsOf(e) : [])));
+      const cl = lines.find((l) => l.t === 'line' && !l.ext && !onProfile.has(l.a) && !onProfile.has(l.b)) ?? lines[0];
       if (!cl || cl.t !== 'line') throw new FeatureError('Select an axis of revolution (or add a centerline to the sketch)');
       const a = toWorld(frame, ix.pt(cl.a)), b = toWorld(frame, ix.pt(cl.b));
       axis = { p: a, d: normalize(sub(b, a)) };

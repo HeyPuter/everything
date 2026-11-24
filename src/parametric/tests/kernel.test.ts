@@ -261,6 +261,21 @@ describe('feature regeneration', () => {
     expect(over.status[1].error).toBe('The angle cannot be more than 360 degrees');
   });
 
+  it('revolves about the free-standing centerline, not a construction diagonal of the profile', async () => {
+    const b = new ModelBuilder();
+    const ents = [
+      ...rect(5, 0, 10, 20, 'r'),
+      // A center rectangle's diagonal, listed before the axis.
+      { id: 'dg', t: 'line', a: 'rp0', b: 'rp2', construction: true },
+      { id: 'a1', t: 'point', x: 0, y: -5 }, { id: 'a2', t: 'point', x: 0, y: 25 },
+      { id: 'axis', t: 'line', a: 'a1', b: 'a2', construction: true },
+    ] as any[];
+    // It revolved about the diagonal, which crosses the profile.
+    const res = await b.build(req([sketch('S1', ents), revolve('R1', 'S1')]));
+    expect(res.status[1].error).toBeUndefined();
+    expect(volume(b)).toBeCloseTo(Math.PI * (100 - 25) * 20, 0);
+  });
+
   it('rejects a revolve profile that crosses its axis with a readable error', async () => {
     const b = new ModelBuilder();
     const axis = [
