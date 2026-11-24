@@ -405,8 +405,8 @@ export class Viewport {
     else if (e.key === 'ArrowRight') this.rotateView('up', step);
     else if (e.key === 'ArrowUp') this.rotateView('right', -step);
     else if (e.key === 'ArrowDown') this.rotateView('right', step);
-    else if (e.key === '+' || e.key === '=') cam.zoomAt(0.8, cam.width / 2, cam.height / 2);
-    else if (e.key === '-' || e.key === '_') cam.zoomAt(1.25, cam.width / 2, cam.height / 2);
+    else if (e.key === '+' || e.key === '=') this.zoomBy(0.8);
+    else if (e.key === '-' || e.key === '_') this.zoomBy(1.25);
     else handled = false;
     if (handled) e.preventDefault();
   }
@@ -771,7 +771,9 @@ export class Viewport {
   }
 
   zoomBy(f: number) {
-    this.camera.zoomAt(f, this.camera.width / 2, this.camera.height / 2);
+    const cam = this.camera;
+    this.focusZoomAt(cam.width / 2, cam.height / 2);
+    cam.zoomAt(f, cam.width / 2, cam.height / 2);
   }
 
   // ---------- triad and label ----------

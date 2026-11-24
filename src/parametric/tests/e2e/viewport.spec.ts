@@ -520,39 +520,51 @@ test.describe('viewport', () => {
     expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
   });
 
-  test('wheel zoom in perspective closes in on the face under the pointer instead of passing through it', async ({ page }) => {
+  for (const how of ['wheel', 'keys'] as const) test(`${how === 'wheel' ? 'wheel zoom' : 'zoom keys'} in perspective close in on the face there instead of passing through it`, async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
     await waitForFeature(page, 'Fillet1');
-    // The front face of the base, well in front of the target at the middle of the part.
+    // The front face of the base, well in front of the target at the middle of the part: under
+    // the pointer, or for the keys (which zoom at the middle of the view) panned to the middle.
     const p: [number, number, number] = [55, 4, 30];
-    // Once built (the opened part is framed then), seen in perspective.
-    await expect.poll(() => page.evaluate((p) => {
+    await expect.poll(() => page.evaluate(([p, how]) => {
       const app = (window as unknown as Win).__parametric;
       if (!app.bbox) return null;
       app.viewport.setView('trimetric', false);
-      app.renderer.camera.ortho = false;
-      const [x, y] = app.viewport.project(p);
-      return app.renderer.pick(x, y, { face: true })?.point?.[2];
-    }, p)).toBeCloseTo(30, 1);
-    const at = await page.evaluate((p) => {
+      const cam = app.renderer.camera;
+      cam.ortho = false;
+      let [x, y] = app.viewport.project(p);
+      if (how === 'keys') { cam.pan(cam.width / 2 - x, cam.height / 2 - y); [x, y] = [cam.width / 2, cam.height / 2]; }
+      return app.renderer.pick(x, y, { face: true }, 0)?.point?.[2];
+    }, [p, how] as const)).toBeCloseTo(30, 1);
+    const at = await page.evaluate(([p, how]) => {
       const app = (window as unknown as Win).__parametric;
-      const [x, y] = app.viewport.project(p);
+      const cam = app.renderer.camera;
       const r = app.viewport.canvas.getBoundingClientRect();
-      return { x: r.left + x, y: r.top + y };
-    }, p);
-    await page.mouse.move(at.x, at.y);
-    for (let i = 0; i < 25; i++) await page.mouse.wheel(0, -100);
-    const after = await page.evaluate((p) => {
+      // The pointer is on a whole pixel of the page: zooms keep that point in place.
+      let [x, y] = app.viewport.project(p);
+      if (how === 'keys') [x, y] = [cam.width / 2, cam.height / 2];
+      else [x, y] = [Math.round(r.left + x) - r.left, Math.round(r.top + y) - r.top];
+      return { x, y, cx: r.left + x, cy: r.top + y, q: app.renderer.pick(x, y, { face: true }, 0)!.point! };
+    }, [p, how] as const);
+    if (how === 'wheel') {
+      await page.mouse.move(at.cx, at.cy);
+      for (let i = 0; i < 25; i++) await page.mouse.wheel(0, -100);
+    } else {
+      await page.locator('canvas.gl').focus();
+      for (let i = 0; i < 25; i++) await page.keyboard.press('+');
+    }
+    const after = await page.evaluate((q) => {
       const app = (window as unknown as Win).__parametric;
       const cam = app.renderer.camera, e = cam.eye, b = cam.back;
-      const [x, y] = app.viewport.project(p);
+      const [x, y] = app.viewport.project(q);
       const hit = app.renderer.pick(x, y, { face: true });
-      return { ahead: -((p[0] - e[0]) * b[0] + (p[1] - e[1]) * b[1] + (p[2] - e[2]) * b[2]), distance: cam.distance, z: hit?.point?.[2] ?? null };
-    }, p);
-    // Zoomed in a long way, with the face still in front of the eye and under the pointer.
+      return { ahead: -((q[0] - e[0]) * b[0] + (q[1] - e[1]) * b[1] + (q[2] - e[2]) * b[2]), distance: cam.distance, x, y, z: hit?.point?.[2] ?? null };
+    }, at.q);
+    // Zoomed in a long way, with the face still in front of the eye and where it was on screen.
     expect(after.distance).toBeLessThan(5);
     expect(after.ahead).toBeGreaterThan(0);
+    expect(Math.hypot(after.x - at.x, after.y - at.y)).toBeLessThan(2);
     expect(after.z).toBeCloseTo(30, 1);
   });
 
