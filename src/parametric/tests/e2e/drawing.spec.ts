@@ -174,6 +174,42 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await expect(page.getByRole('button', { name: 'Add view' })).toBeFocused();
 });
 
+test('a view dragged or nudged toward the edge of the sheet stays on it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  // The isometric view's outline on the sheet, in millimetres (the sheet's SVG units).
+  const frame = () => page.evaluate(() => {
+    const svg = document.querySelector<SVGSVGElement>('.paper svg')!;
+    const b = svg.querySelector<SVGGElement>('g[data-view="v4"]')!.getBoundingClientRect(), s = svg.getBoundingClientRect();
+    const k = 297 / s.width;
+    return { x0: (b.left - s.left) * k, y0: (b.top - s.top) * k, x1: (b.right - s.left) * k, y1: (b.bottom - s.top) * k };
+  });
+  const before = await frame();
+  const box = (await page.locator('.paper g[data-view="v4"]').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2 - 100, { steps: 4 });
+  await page.mouse.move(box.x + box.width / 2 + 600, box.y + box.height / 2 - 400, { steps: 4 });
+  await page.mouse.up();
+  // Stopped with its outline against the border (10 mm in from the edge), not dragged off the sheet.
+  const after = await frame();
+  expect(after.x1).toBeCloseTo(297 - 10, 0);
+  expect(after.y0).toBeCloseTo(10, 0);
+  expect(after.x1 - after.x0).toBeCloseTo(before.x1 - before.x0, 3);
+  // Against the border, an arrow key toward it moves nothing and adds no undo step.
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: { store: { undoDepth: number } } }).__parametric.store.undoDepth);
+  const d0 = await depth();
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowUp');
+  expect(await depth()).toBe(d0);
+  expect(await frame()).toEqual(after);
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(async () => (await frame()).x1).toBeCloseTo(after.x1 - 10, 0);
+});
+
 test.describe('in a time zone behind UTC', () => {
   test.use({ timezoneId: 'Pacific/Pago_Pago' });
   test('the title block shows the local date', async ({ page }) => {

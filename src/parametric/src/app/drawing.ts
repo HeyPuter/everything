@@ -5,7 +5,7 @@
 import type { ProjectionResult } from '../kernel/protocol';
 import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
-import { SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
+import { MARGIN, SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
 import { download, safeName } from '../platform/files';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -316,7 +316,8 @@ export class DrawingWorkspace {
         this.pan = { x: drag.ox + dx, y: drag.oy + dy };
         this.applyTransform();
       } else {
-        const id = drag.id!, nx = drag.ox + dx / this.zoom, ny = drag.oy + dy / this.zoom;
+        const id = drag.id!;
+        const [nx, ny] = this.onSheet(id, drag.ox + dx / this.zoom, drag.oy + dy / this.zoom);
         // The change re-renders the sheet (App refreshes the drawing on every document change).
         this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x = nx; v.y = ny; } }, 'Move view');
       }
@@ -352,7 +353,12 @@ export class DrawingWorkspace {
         const store = this.app.store;
         const join = e.repeat && nudge?.id === id && nudge.last === store.undoMark ? nudge : null;
         const mark = join ? join.mark : store.undoMark;
-        this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x += dx; v.y += dy; } }, 'Move view');
+        const v = this.doc?.views.find((q) => q.id === id);
+        if (!v) return;
+        // Held against the edge of the sheet: nothing to move (and no empty undo step).
+        const [nx, ny] = this.onSheet(id, v.x + dx, v.y + dy);
+        if (nx === v.x && ny === v.y) return;
+        this.update((d) => { const q = d.views.find((x) => x.id === id); if (q) { q.x = nx; q.y = ny; } }, 'Move view');
         if (join) store.squash(mark, 'Move view');
         nudge = { id, mark, last: store.undoMark };
       };
@@ -362,6 +368,24 @@ export class DrawingWorkspace {
       else if (e.key === 'ArrowDown') move(0, step);
     });
     new ResizeObserver(() => { if (this.active) this.applyTransform(); }).observe(this.el);
+  }
+
+  /**
+   * Where a view moved to (x, y) stays: inside the sheet's border, where it
+   * shows and is exported (the sheet clips what lies off it, so a view
+   * dragged off could not be seen or found again). A view larger than the
+   * border slides until its edges reach it.
+   */
+  private onSheet(id: string, x: number, y: number): [number, number] {
+    const d = this.doc;
+    const v = d?.views.find((q) => q.id === id);
+    if (!d || !v) return [x, y];
+    const { w, h } = sheetDims(d);
+    // The view's reach from its centre (none while it is still being projected).
+    const f = this.frames.find((q) => q.id === id);
+    const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y] : [0, 0, 0, 0];
+    const fit = (c: number, lo: number, hi: number) => Math.min(Math.max(c, Math.min(lo, hi)), Math.max(lo, hi));
+    return [fit(x, MARGIN + l, w - MARGIN - r), fit(y, MARGIN + t, h - MARGIN - b)];
   }
 
   /** Selects a view from the keyboard (the Views list) and focuses the sheet so arrow keys move it. */
