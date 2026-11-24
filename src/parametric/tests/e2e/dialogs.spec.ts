@@ -156,3 +156,22 @@ test('a long unbroken feature name wraps inside a confirmation on a phone', asyn
   await expect(body).toContainText('FilletFillet');
   expect(await body.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
 });
+
+test('the labels of Part Properties and a custom material name their fields and focus them when clicked', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const run = (id: string) => page.evaluate((id) => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run(id), id);
+  await run('properties');
+  const props = page.getByRole('dialog', { name: 'Part Properties' });
+  // The visible label is the field's name, so speech input can say what it sees.
+  await props.getByText('Unit system', { exact: true }).click();
+  await expect(props.getByRole('combobox', { name: 'Unit system' })).toBeFocused();
+  await props.getByText('Decimal places', { exact: true }).click();
+  await expect(props.getByRole('spinbutton', { name: 'Decimal places' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await run('material');
+  const material = page.getByRole('dialog', { name: 'Material', exact: true });
+  await material.getByRole('combobox').selectOption('__custom');
+  await material.getByText('Density (kg/m³)', { exact: true }).click();
+  await expect(material.getByLabel('Density in kg per cubic metre')).toBeFocused();
+});

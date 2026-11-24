@@ -172,6 +172,12 @@ export async function equationsDialog(app: App) {
 
 // ---------- material ----------
 
+/** A visible label that focuses its field when clicked (the field's name stays its aria-label). */
+function fieldLabel(text: string, field: HTMLElement): HTMLElement {
+  if (!field.id) field.id = nextDomId('field');
+  return h('label', { for: field.id }, text);
+}
+
 
 export async function materialDialog(app: App) {
   const signal = app.documentSignal;
@@ -187,7 +193,7 @@ export async function materialDialog(app: App) {
   select.append(h('option', { value: '__custom' }, 'Custom...'));
   const customName = h('input', { class: 'input', value: cur && !preset ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
   const customDensity = h('input', { class: 'input', type: 'number', min: '0', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
-  const custom = h('div', { class: 'grid-form' }, h('label', {}, 'Name'), customName, h('label', {}, 'Density (kg/m³)'), customDensity);
+  const custom = h('div', { class: 'grid-form' }, fieldLabel('Name', customName), customName, fieldLabel('Density (kg/m³)', customDensity), customDensity);
   if (cur && !preset) select.value = '__custom';
   const error = h('div', { id: nextDomId('density-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   customDensity.setAttribute('aria-describedby', error.id);
@@ -250,7 +256,7 @@ export async function propertiesDialog(app: App, rename?: (name: string) => Prom
   };
   const v = await showDialog({
     title: 'Part Properties', signal,
-    body: [h('div', { class: 'grid-form' }, h('label', {}, 'Name'), name, h('label', {}, 'Units'), units, h('label', {}, 'Decimal places'), decimals),
+    body: [h('div', { class: 'grid-form' }, fieldLabel('Name', name), name, fieldLabel('Unit system', units), units, fieldLabel('Decimal places', decimals), decimals),
       error, h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
     onAction: (a) => {
