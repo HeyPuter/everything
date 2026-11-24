@@ -165,7 +165,11 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   // A submenu that does not fit on the right opens to the left of its parent menu.
   const parentLeft = level > 0 ? opts.anchor?.closest('.menu')?.getBoundingClientRect().left : undefined;
   if (left + r.width > vw - 8) left = Math.max(8, parentLeft !== undefined ? parentLeft - r.width + 2 : vw - r.width - 8);
-  if (top + r.height > vh - 8) top = Math.max(8, vh - r.height - 8);
+  if (top + r.height > vh - 8) {
+    // No room below its button (the status bar's): it opens above it rather than over it.
+    const a = level === 0 ? opts.anchor?.getBoundingClientRect() : undefined;
+    top = a && a.top - r.height - 2 >= 8 ? a.top - r.height - 2 : Math.max(8, vh - r.height - 8);
+  }
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
   opts.anchor?.setAttribute('aria-expanded', 'true');

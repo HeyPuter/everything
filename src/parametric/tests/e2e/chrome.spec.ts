@@ -1024,3 +1024,18 @@ test("a sketch a feature absorbed offers Show in its context menu, and Hide acts
   expect(await hidden()).toEqual([false, false]);
   expect(errors).toEqual([]);
 });
+
+test("the status bar's unit menu opens above its button, which closes it again", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const units = page.locator('.statusbar').getByRole('button', { name: 'MMGS' });
+  await units.click();
+  const menu = page.getByRole('menu', { name: 'Unit system' });
+  await expect(menu).toBeVisible();
+  const [m, b] = [(await menu.boundingBox())!, (await units.boundingBox())!];
+  expect(m.y + m.height).toBeLessThanOrEqual(b.y);
+  await units.click();
+  await expect(menu).toHaveCount(0);
+  await expect(units).toHaveAttribute('aria-expanded', 'false');
+  expect(errors).toEqual([]);
+});
