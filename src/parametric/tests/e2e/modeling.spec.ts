@@ -816,3 +816,30 @@ test('deleting a plane a sketch is on, or suppressing a sketch a feature uses, r
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('new features in an inch part get defaults sized to the part, not 1 in or more', async ({ page }) => {
+  // The defaults were at least one display unit: a 1 in fillet and a 2 in hole on a 2 in bracket.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: { whenBuilt(): Promise<void>; commands: { run(id: string): boolean }; panel: { f: Record<string, unknown> } | null; closePanel(ok: boolean): Promise<void>; store: { change(l: string, fn: (d: { units: string }) => void): void } } };
+  const defaults = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    app.store.change('Units', (d) => { d.units = 'IPS'; });
+    await app.whenBuilt();
+    const out: Record<string, number> = {};
+    for (const [cmd, key] of [['fillet', 'radius'], ['chamfer', 'distance'], ['shell', 'thickness'], ['hole', 'diameter']]) {
+      app.commands.run(cmd);
+      while (!app.panel) await new Promise((r) => setTimeout(r, 10));
+      out[cmd] = app.panel.f[key] as number;
+      await app.closePanel(false);
+    }
+    return out;
+  });
+  // The bracket is about 2.4 in across.
+  expect(defaults.fillet).toBeLessThan(0.2 * 25.4);
+  expect(defaults.chamfer).toBeLessThan(0.2 * 25.4);
+  expect(defaults.shell).toBeLessThan(0.1 * 25.4);
+  expect(defaults.hole).toBeLessThan(0.5 * 25.4);
+  expect(errors).toEqual([]);
+});

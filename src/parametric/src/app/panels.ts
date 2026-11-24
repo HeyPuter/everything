@@ -703,6 +703,8 @@ export function panelFor(app: App, f: Feature, editing: boolean): PropertyPanel 
 export function startFeature(app: App, type: Feature['type'], opts: { cut?: boolean } = {}): PropertyPanel | null {
   const doc = app.store.doc;
   const id = app.store.nextId('f');
+  // Defaults are at least 1 mm (2 mm for a hole), not one display unit: an
+  // inch part got a 1 in fillet and a 2 in hole, a metre part 1 m.
   const size = app.typicalSize();
   const sel = app.selection.items;
   const selSketch = (() => {
@@ -726,10 +728,10 @@ export function startFeature(app: App, type: Feature['type'], opts: { cut?: bool
       break;
     }
     case 'revolve': f = newRevolve(id, name, selSketch ?? '', !!opts.cut); break;
-    case 'fillet': { const x = newFillet(id, name, Math.max(size / 10, app.store.unitScale)); x.edges = edges; x.faces = faces; f = x; break; }
-    case 'chamfer': { const x = newChamfer(id, name, Math.max(size / 10, app.store.unitScale)); x.edges = edges; x.faces = faces; f = x; break; }
-    case 'shell': { const x = newShell(id, name, shellThickness(app, Math.max(size / 20, app.store.unitScale))); x.faces = faces; f = x; break; }
-    case 'hole': f = newHole(id, name, '', Math.max(size / 5, app.store.unitScale * 2)); break;
+    case 'fillet': { const x = newFillet(id, name, Math.max(size / 10, 1)); x.edges = edges; x.faces = faces; f = x; break; }
+    case 'chamfer': { const x = newChamfer(id, name, Math.max(size / 10, 1)); x.edges = edges; x.faces = faces; f = x; break; }
+    case 'shell': { const x = newShell(id, name, shellThickness(app, Math.max(size / 20, 1))); x.faces = faces; f = x; break; }
+    case 'hole': f = newHole(id, name, '', Math.max(size / 5, 2)); break;
     case 'linearPattern': {
       const x = newLinearPattern(id, name, seeds, size);
       const e = app.selection.ofKind('edge')[0];

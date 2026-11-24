@@ -1715,8 +1715,9 @@ export class App {
     const s = this.sketchEditor?.bounds();
     const d = b ? Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) : s ? s.radius * 2 : 50;
     const unit = this.store.unitScale;
-    // Round to a friendly number in display units.
-    const v = Math.max(d / 4, unit);
+    // Round to a friendly number in display units. At least 1 mm, not one
+    // display unit: an inch or metre part got 1 in or 1 m defaults whatever its size.
+    const v = Math.max(d / 4, 1);
     const mag = Math.pow(10, Math.floor(Math.log10(v / unit)));
     return Math.round(v / unit / mag) * mag * unit;
   }
