@@ -59,7 +59,14 @@ export function registerCommands(app: App, files: FileOps) {
   const hasBody = () => !!app.bbox;
   // A feature panel holds a copy of its feature: OK after a Redo would write
   // that copy back over the redone change, so the panel is cancelled first.
-  const redo = () => { if (app.panel?.preview()) void app.closePanel(false); app.store.redo(); };
+  // While the assistant changes the part, its changes become one undo step at the end: a step
+  // undone or redone meanwhile would split that, and pull the part from under the reply.
+  const historyFree = () => {
+    const busy = app.historyBusy();
+    if (busy) toast({ kind: 'info', message: busy });
+    return !busy;
+  };
+  const redo = () => { if (!historyFree()) return; if (app.panel?.preview()) void app.closePanel(false); app.store.redo(); };
   const feature = (type: Feature['type'], label: string, iconName: string, desc: string, opts: { cut?: boolean; needsBody?: boolean; shortcut?: string; keywords?: string } = {}): Command => ({
     id: opts.cut ? `${type}Cut` : type,
     label,
@@ -148,7 +155,7 @@ export function registerCommands(app: App, files: FileOps) {
     // ---- edit ----
     {
       id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.canUndo,
-      run: () => { if (app.panel) void app.closePanel(false); app.store.undo(); },
+      run: () => { if (!historyFree()) return; if (app.panel) void app.closePanel(false); app.store.undo(); },
     },
     { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },

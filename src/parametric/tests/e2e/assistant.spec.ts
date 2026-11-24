@@ -695,3 +695,45 @@ test('an earlier message is not undone while the assistant works on the next one
   // One undo step per message.
   expect(await page.evaluate(() => (window as unknown as P).__parametric.store.undoDepth)).toBe(2);
 });
+
+test('Edit > Undo and its keys wait while the assistant changes the part, so the message stays one undo step', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __go?: () => void; __waiting?: boolean };
+    w.__assistantChat = async function* (messages: { role: string }[]) {
+      const rounds = messages.filter((m) => m.role === 'assistant').length;
+      if (rounds === 0) { yield { type: 'tool', id: 'a', name: 'set_variables', input: { set: [{ name: 'A', value: 1 }] } }; return; }
+      if (rounds === 1) {
+        w.__waiting = true;
+        await new Promise<void>((r) => { w.__go = r; });
+        yield { type: 'tool', id: 'b', name: 'set_variables', input: { set: [{ name: 'B', value: 1 }] } };
+        return;
+      }
+      yield { type: 'text', text: 'Both set.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  type P = { __parametric: { store: { doc: { variables: { name: string }[] }; undoDepth: number; undoLabel: string } } };
+  const names = () => page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name));
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Two variables');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as { __waiting?: boolean }).__waiting);
+  expect(await names()).toEqual(['A']);
+  // The shortcut, away from the message box (whose own Undo is the text's).
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Meta+z');
+  await expect(page.getByText('The assistant is still working.').first()).toBeVisible();
+  expect(await names()).toEqual(['A']);
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Edit' }).click();
+  await page.getByRole('menuitem', { name: /^Undo/ }).click();
+  expect(await names()).toEqual(['A']);
+  await page.evaluate(() => (window as unknown as { __go: () => void }).__go());
+  await expect(page.getByText('Both set.')).toBeVisible();
+  expect(await names()).toEqual(['A', 'B']);
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.undoDepth)).toBe(1);
+  // Once it is done, Undo works as always, the whole message at once.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Meta+z');
+  await expect.poll(names).toEqual([]);
+});

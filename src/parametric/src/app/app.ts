@@ -429,6 +429,8 @@ export class App {
   /** Opens a task pane panel by id (set up by the task pane module). */
   openTaskPane: (id: string) => void = () => {};
   toggleTaskPane: (id: string) => void = () => {};
+  /** Why Undo and Redo must wait (the assistant is changing the part), or null. Set by the assistant. */
+  historyBusy: () => string | null = () => null;
   /** The open task pane panel, if any. */
   taskPaneOpen: () => string | null = () => null;
 

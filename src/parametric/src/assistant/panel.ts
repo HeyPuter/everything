@@ -20,6 +20,7 @@ import { changesDocument, runTool, toolSpecs } from './tools';
 import { ToolError } from './units';
 
 export const ASSISTANT_MODEL = 'claude-opus-5-5';
+const BUSY_UNDO = 'The assistant is still working. Stop it or wait for it to finish, then undo.';
 
 /** Development builds and browser tests may stand in for Puter AI with window.__assistantChat. */
 const devChat = (): ChatFn | null => (import.meta.env.DEV ? (window as unknown as { __assistantChat?: ChatFn }).__assistantChat ?? null : null);
@@ -154,6 +155,8 @@ export class AssistantPanel {
 
   constructor(private app: App) {
     this.host = appHost(app);
+    // Edit > Undo and Redo (menu, toolbar and keys) wait too: see the Undo changes button.
+    app.historyBusy = () => (this.agent.busy ? BUSY_UNDO : null);
     this.agent = createAgent({
       chat: (m, o) => (this.chat ?? devChat() ?? puterChat)(m, o),
       tools: toolSpecs,
@@ -657,7 +660,7 @@ export class AssistantPanel {
       undo.addEventListener('click', (e) => {
         // The reply being written builds on these changes, and its own would no longer make one undo step.
         if (this.agent.busy) {
-          toast({ kind: 'info', message: 'The assistant is still working. Stop it or wait for it to finish, then undo.' });
+          toast({ kind: 'info', message: BUSY_UNDO });
           return;
         }
         if (store.undoMark !== after || store.undoLabel !== label) {
