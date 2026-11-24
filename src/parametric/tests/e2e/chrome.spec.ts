@@ -321,3 +321,27 @@ test('Enter on the part or Material row of the design tree opens its dialog', as
   await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('mass properties of a small part in metres show significant digits, not zeros', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.change('Units', (d) => {
+      d.units = 'MKS';
+    }),
+  );
+  await expect
+    .poll(() => page.evaluate(() => !!(window as unknown as Handle).__parametric.bbox))
+    .toBe(true);
+  await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.commands.run('massProperties'),
+  );
+  const dialog = page.getByRole('dialog', { name: 'Mass Properties' });
+  const volume = dialog.getByRole('row', { name: /^Volume/ });
+  await expect(volume).toContainText(/0\.0000\d{3} m³/);
+  await expect(dialog.getByRole('cell', { name: /^Ixx = 0\.0000\d+$/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});

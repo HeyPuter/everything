@@ -324,7 +324,16 @@ export async function massPropertiesDialog(app: App) {
   const dec = Math.max(2, doc.decimals);
   const massKg = (mp.volume * 1e-9) * density;
   const mass = massKg / u.massScale;
-  const fmt = (v: number, d = dec) => formatNumber(v, d);
+  // Values under 1 keep three significant digits (a part's volume in m³, its
+  // inertia in kg·m²) instead of showing 0.00; numerical noise next to the
+  // largest value of its group (an off-diagonal 1e-20) still shows as 0.
+  const group = (vs: number[], d = dec): string[] => {
+    const big = Math.max(...vs.map(Math.abs));
+    const places = big > 0 && big < 1 ? Math.max(d, 2 - Math.floor(Math.log10(big))) : d;
+    const clean = vs.map((v) => (Math.abs(v) < big * 1e-9 ? 0 : v));
+    return places > 8 ? clean.map((v) => (v ? v.toExponential(3) : '0')) : clean.map((v) => formatNumber(v, places));
+  };
+  const fmt = (v: number, d = dec) => group([v], d)[0];
   // Inertia per unit density (mm^5) to mass units * length^2.
   const inertiaScale = (density * 1e-9) / u.massScale / (s * s);
   const tensor = mp.inertia.map((x) => x * inertiaScale);
@@ -337,9 +346,11 @@ export async function massPropertiesDialog(app: App) {
     ['Mass', mp.solid ? `${fmt(mass)} ${u.mass}` : none],
     ['Volume', mp.solid ? `${fmt(mp.volume / s ** 3)} ${L}³` : none],
     ['Surface area', `${fmt(mp.area / s ** 2)} ${L}²`],
-    ['Center of mass', mp.solid ? mp.center.map((c) => fmt(c / s)).join(', ') + ` ${L}` : none],
+    ['Center of mass', mp.solid ? group(mp.center.map((c) => c / s)).join(', ') + ` ${L}` : none],
   ];
-  const t = (i: number) => fmt(tensor[i], 3);
+  const tensorText = group(tensor, 3);
+  const principalText = group(principal, 3).join(', ');
+  const t = (i: number) => tensorText[i];
   const text = [
     `Mass properties of ${doc.name}`,
     ...rows.map(([k, v]) => `${k}: ${v}`),
@@ -348,7 +359,7 @@ export async function massPropertiesDialog(app: App) {
       `Ixx ${t(0)}  Ixy ${t(1)}  Ixz ${t(2)}`,
       `Iyx ${t(3)}  Iyy ${t(4)}  Iyz ${t(5)}`,
       `Izx ${t(6)}  Izy ${t(7)}  Izz ${t(8)}`,
-      `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`,
+      `Principal moments: ${principalText}`,
     ] : []),
   ].join('\n');
   const copy = h('button', { class: 'btn small', type: 'button' }, icon('copy', 14), 'Copy');
@@ -378,7 +389,7 @@ export async function massPropertiesDialog(app: App) {
         h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, aligned with the part axes (${u.mass}·${L}²)`),
         h('table', { class: 'table' }, h('tbody', {},
           [0, 1, 2].map((r) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[r]}${'xyz'[c]} = ${t(r * 3 + c)}`)))))),
-        h('div', { class: 'field-label' }, `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`),
+        h('div', { class: 'field-label' }, `Principal moments: ${principalText}`),
       ] : []),
       copy, copyError,
     ],
