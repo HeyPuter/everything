@@ -83,12 +83,25 @@ export function commandButton(cmds: CommandRegistry, id: string, variant: 'icon'
 }
 
 export function syncCommandButtons(root: ParentNode, cmds: CommandRegistry) {
+  const focused = document.activeElement;
+  let lostFocus: HTMLButtonElement | null = null;
   for (const b of root.querySelectorAll<HTMLButtonElement>('[data-cmd]')) {
     const id = b.dataset.cmd!;
     const c = cmds.get(id);
     if (!c) continue;
     b.disabled = !cmds.isEnabled(id);
+    if (b.disabled && b === focused) lostFocus = b;
     if (c.checked) b.setAttribute('aria-pressed', String(cmds.isChecked(id)));
+  }
+  // A disabled button drops keyboard focus to the page (Undo pressed until
+  // there is nothing left to undo): it moves on to its toolbar's next button.
+  if (lostFocus) {
+    const bar = lostFocus.closest<HTMLElement>('[role="toolbar"]') ?? lostFocus.parentElement;
+    const all = [...(bar?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
+    const i = all.indexOf(lostFocus);
+    const usable = all.filter((x) => !x.disabled && x.getClientRects().length);
+    const next = usable.find((x) => all.indexOf(x) > i) ?? usable.findLast((x) => all.indexOf(x) < i);
+    next?.focus({ preventScroll: true });
   }
 }
 

@@ -253,3 +253,23 @@ test("a value under a field's minimum says what is allowed in plain words", asyn
   await expect(page.getByRole('alert')).toHaveText('Radius: Must be greater than 0');
   expect(errors).toEqual([]);
 });
+
+test('keyboard focus moves on when the focused toolbar button becomes unavailable', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.change('Rename', (d) => {
+      d.name = 'Renamed';
+    }),
+  );
+  const toolbar = page.getByRole('toolbar', { name: 'Quick access' });
+  // Focus arrives from the keyboard (after a click, Enter is Repeat Last Command).
+  await page.keyboard.press('Shift');
+  await toolbar.getByRole('button', { name: 'Undo' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(toolbar.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  await expect(toolbar.getByRole('button', { name: 'Redo' })).toBeFocused();
+  expect(errors).toEqual([]);
+});
