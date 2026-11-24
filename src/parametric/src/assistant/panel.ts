@@ -180,7 +180,22 @@ export class AssistantPanel {
 
     this.log = h('div', { class: 'as-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversation' });
     // Follow new content only while the user is at the bottom; scrolling up to read stops it.
-    this.log.addEventListener('scroll', () => { const l = this.log; this.stick = l.scrollHeight - l.scrollTop - l.clientHeight < 40; }, { passive: true });
+    this.log.addEventListener('scroll', () => {
+      const l = this.log;
+      // A pane that is closed or switched away from has no height: that is not the user scrolling.
+      if (!l.clientHeight) return;
+      this.stick = l.scrollHeight - l.scrollTop - l.clientHeight < 40;
+      this.readAt = l.scrollTop;
+    }, { passive: true });
+    // Closing the pane or switching to another one resets the conversation's scroll to its
+    // top: shown again, it goes back to where the user was, or to the end while it follows.
+    // The message box growing keeps the end in view too.
+    new ResizeObserver(() => {
+      const l = this.log;
+      if (!l.clientHeight) return;
+      if (this.stick) l.scrollTop = l.scrollHeight;
+      else if (l.scrollTop !== this.readAt) l.scrollTop = this.readAt;
+    }).observe(this.log);
     this.input = h('textarea', { class: 'as-input', rows: 1, placeholder: 'Describe a part or a change…', 'aria-label': 'Message the assistant' }) as HTMLTextAreaElement;
     this.sendBtn = h('button', { class: 'as-send', type: 'button', 'aria-label': 'Send' }, icon('send', 16)) as HTMLButtonElement;
     this.status = h('div', { class: 'as-status', role: 'status' });
@@ -356,6 +371,8 @@ export class AssistantPanel {
 
   /** Whether the conversation follows new content (the user has not scrolled up from the bottom). */
   private stick = true;
+  /** Where the user left the conversation scrolled. */
+  private readAt = 0;
 
   private scroll(force = false) {
     // Judged by where the user left it, not by the distance now: one piece of text

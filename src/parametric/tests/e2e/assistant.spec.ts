@@ -544,3 +544,32 @@ test('a reply cut off at the length limit says so', async ({ page }) => {
   await expect(page.getByText('its holes are')).toBeVisible();
   await expect(page.locator('.as-bot .as-foot')).toContainText('Cut off: the reply reached its length limit.');
 });
+
+test('the conversation keeps its place when the pane is closed or switched and shown again', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      yield { type: 'text', text: Array.from({ length: 80 }, (_, i) => `Line ${i}`).join('\n\n') };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('A long answer');
+  await box.press('Enter');
+  await expect(page.locator('.as-bot[aria-busy]')).toHaveCount(0);
+  const log = page.locator('.as-log');
+  const fromEnd = () => log.evaluate((l) => l.scrollHeight - l.clientHeight - l.scrollTop);
+  await expect.poll(fromEnd).toBeLessThan(2);
+  const tab = (pane: string) => page.locator(`.tp-strip [data-pane="${pane}"]`);
+  await tab('files').click();
+  await tab('assistant').click();
+  await expect.poll(fromEnd).toBeLessThan(2);
+  await page.getByRole('button', { name: 'Close task pane' }).click();
+  await tab('assistant').click();
+  await expect.poll(fromEnd).toBeLessThan(2);
+  // Scrolled up to read, it comes back where it was.
+  await log.evaluate((l) => { l.scrollTop = 300; });
+  await tab('files').click();
+  await tab('assistant').click();
+  await expect.poll(() => log.evaluate((l) => Math.round(l.scrollTop))).toBe(300);
+});
