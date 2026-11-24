@@ -1191,6 +1191,10 @@ describe('feature regeneration', () => {
     // From the top the hole is hidden: two hidden lines.
     expect(top.bounds![3] - top.bounds![1]).toBeCloseTo(10, 3);
     expect(top.hidden.length).toBeGreaterThan(0);
+    // A view drawn without hidden lines is projected without them.
+    const [bare] = b.project([{ id: 'top', dir: [0, 1, 0], x: [1, 0, 0], hidden: false }]);
+    expect(bare.hidden).toEqual([]);
+    expect(bare.visible).toEqual(top.visible);
   });
 
   it('projects views without hidden lines (a ball), with arcs drawn exactly', async () => {

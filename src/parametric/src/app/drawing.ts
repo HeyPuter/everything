@@ -28,7 +28,7 @@ export class DrawingWorkspace {
   selected: string | null = null;
   private zoom = 1;
   private pan = { x: 0, y: 0 };
-  private cache = new Map<string, { kind: DrawingViewKind; version: number; result: ProjectionResult }>();
+  private cache = new Map<string, { kind: DrawingViewKind; version: number; hidden: boolean; result: ProjectionResult }>();
   private frames: ViewFrame[] = [];
   private pending = false;
   /** A refresh was asked for while views were being projected. */
@@ -181,7 +181,8 @@ export class DrawingWorkspace {
     const version = this.app.geometryVersion;
     const need = d.views.filter((v) => {
       const c = this.cache.get(v.id);
-      return !c || c.kind !== v.kind || c.version !== version;
+      // A view whose hidden lines are turned on needs them projected; turned off, they are just not drawn.
+      return !c || c.kind !== v.kind || c.version !== version || (v.hidden && !c.hidden);
     });
     if (need.length && this.app.bbox) {
       this.pending = true;
@@ -189,10 +190,10 @@ export class DrawingWorkspace {
       if (!this.paper.firstChild) this.render();
       const slow = setTimeout(() => { this.busy.textContent = 'Projecting the views…'; }, 300);
       try {
-        const res = await this.app.kernel.project(need.map((v) => ({ id: v.id, ...VIEW_DIRS[v.kind] })));
+        const res = await this.app.kernel.project(need.map((v) => ({ id: v.id, ...VIEW_DIRS[v.kind], hidden: v.hidden })));
         for (const r of res) {
           const v = need.find((x) => x.id === r.id)!;
-          this.cache.set(r.id, { kind: v.kind, version, result: r });
+          this.cache.set(r.id, { kind: v.kind, version, hidden: v.hidden, result: r });
         }
       } catch (e) {
         toast({ kind: 'error', title: 'Could not project the views', message: (e as Error).message });

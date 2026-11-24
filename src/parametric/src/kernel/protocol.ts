@@ -138,6 +138,8 @@ export interface ProjectionRequest {
   dir: Vec3;
   /** Paper x axis in model space. */
   x: Vec3;
+  /** Whether to find the hidden lines too (default true). */
+  hidden?: boolean;
 }
 
 export interface ProjectionResult {

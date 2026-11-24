@@ -688,3 +688,20 @@ test('a drawing whose views take a while to project shows its sheet and says it 
   await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
   await expect(page.locator('.drawing-busy')).toHaveText('');
 });
+
+test('hidden lines turned on for the isometric view are projected and drawn', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = { store: { doc: { drawing: { views: { id: string; kind: string }[] } } } };
+  const iso = await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.doc.drawing.views.find((v) => v.kind === 'isometric')!.id);
+  const dashed = () => page.locator(`.paper g[data-view="${iso}"] path[stroke-dasharray]`).count();
+  // Shown without hidden lines, it is projected without them.
+  expect(await dashed()).toBe(0);
+  await page.getByRole('checkbox', { name: 'Hidden lines in Isometric view' }).check();
+  await expect.poll(dashed).toBeGreaterThan(0);
+  await page.getByRole('checkbox', { name: 'Hidden lines in Isometric view' }).uncheck();
+  await expect.poll(dashed).toBe(0);
+});
