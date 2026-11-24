@@ -42,6 +42,8 @@ export abstract class PropertyPanel {
   private msgEl: HTMLElement | null = null;
   /** Which selection box receives viewport picks. */
   activeBox: SelectionBox | null = null;
+  /** Called when another selection box becomes active, which changes what can be picked. */
+  onFilterChange: () => void = () => {};
   boxes: SelectionBox[] = [];
   /** Show OK/Cancel in the confirmation corner. */
   confirm = true;
@@ -124,8 +126,10 @@ export abstract class PropertyPanel {
   }
 
   activate(box: SelectionBox) {
+    const changed = box !== this.activeBox;
     this.activeBox = box;
     this.boxes.forEach((b) => b.setActive(b === box));
+    if (changed) this.onFilterChange();
   }
 }
 

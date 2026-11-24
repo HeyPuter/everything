@@ -1221,6 +1221,38 @@ test.describe('viewport', () => {
     expect(await pixel()).toBeLessThan(12);
   });
 
+  test('the hover under a resting pointer follows what the active selection box can pick', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // A point on the wall of a counterbore (a cylinder, not a planar face).
+    const at = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.viewport.canvas.getBoundingClientRect();
+      for (let dx = -6; dx <= 6; dx += 0.5) for (let dz = -6; dz <= 6; dz += 0.5) for (const y0 of [4, 5, 6, 7]) {
+        const [x, y] = app.viewport.project([24 + dx, y0, 15 + dz]);
+        // Clear of edges, which the hover would prefer.
+        const hit = app.renderer.pick(Math.round(x), Math.round(y), { face: true, edge: true, vertex: true }, 7);
+        if (hit?.kind === 'face' && app.faces[hit.index]?.type === 'cylinder') return [r.left + Math.round(x), r.top + Math.round(y)];
+      }
+      return null;
+    });
+    expect(at).not.toBeNull();
+    await page.mouse.move(at![0], at![1]);
+    await page.mouse.move(at![0] + 1, at![1]);
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.selection.hover?.kind ?? null)).toBe('face');
+    // Mirror starts on its plane box, which takes planar faces only; the pointer does not move.
+    const hover = () => page.evaluate(() => (window as unknown as Win).__parametric.selection.hover?.kind ?? null);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('mirror'));
+    await expect.poll(hover).toBeNull();
+    // Tabbing to the features box, which takes any face, picks the face again.
+    await page.getByRole('group', { name: 'Features to mirror' }).focus();
+    await expect.poll(hover).toBe('face');
+    await page.getByRole('group', { name: 'Mirror plane' }).focus();
+    await expect.poll(hover).toBeNull();
+  });
+
   test('a pointer leaving the view before its hover is picked leaves nothing hovered', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

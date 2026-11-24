@@ -1349,6 +1349,9 @@ export class App {
     if (this.panel) await this.closePanel(false);
     this.hideContextToolbar();
     this.panel = p;
+    // What can be picked changed: the hover under a resting pointer is picked again.
+    p.onFilterChange = () => this.viewport.rehoverSoon();
+    this.viewport.rehoverSoon();
     // Opened from the design tree with the keyboard: the panel replaces the
     // tree, so keyboard focus moves to the panel instead of being lost.
     const fromPane = this.shell.leftpane.contains(document.activeElement);
@@ -1382,6 +1385,7 @@ export class App {
     } else p.cancel();
     p.dispose();
     this.panel = null;
+    this.viewport.rehoverSoon();
     if (ok) this.selection.clear();
     this.updateFlyout();
     this.renderer.setPreview(null);
