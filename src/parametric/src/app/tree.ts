@@ -38,6 +38,15 @@ export class FeatureTree {
   constructor(private app: App, flyout = false) {
     const filterInput = h('input', { type: 'search', placeholder: 'Filter', 'aria-label': 'Filter the design tree' }) as HTMLInputElement;
     filterInput.addEventListener('input', () => { this.filter = filterInput.value.trim().toLowerCase(); this.render(); });
+    // Down from the filter goes to the first row it matches (the part row stays first).
+    filterInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' || e.isComposing) return;
+      const rows = [...this.list.querySelectorAll<HTMLElement>('.ti')];
+      const target = (this.filter ? rows[1] : null) ?? rows[0];
+      if (!target) return;
+      e.preventDefault();
+      this.focus(target.dataset.key!);
+    });
     this.list = h('div', { class: 'tree', role: 'tree', 'aria-label': 'Design tree', 'aria-multiselectable': 'true' });
     this.list.addEventListener('keydown', (e) => this.onKey(e));
     if (flyout) this.list.setAttribute('aria-label', 'Design tree (flyout)');

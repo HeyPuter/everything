@@ -817,3 +817,14 @@ test('a count typed with a fraction is pointed out, not rounded quietly', async 
   await expect(count).not.toHaveAttribute('aria-invalid', 'true');
   expect(errors).toEqual([]);
 });
+
+test('Down from the design tree filter goes to the first matching row', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const filter = page.getByRole('searchbox', { name: 'Filter the design tree' });
+  await filter.fill('hole');
+  await filter.press('ArrowDown');
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+  expect(errors).toEqual([]);
+});
