@@ -192,8 +192,12 @@ export function storageError(err: unknown): string {
   if (e?.code === 'storage_limit_reached' || e?.status === 413) return 'Your Puter storage is full. Free up space or upgrade your plan, then save again.';
   if (e?.status === 429 || e?.code === 'too_many_requests') return 'Too many requests right now. Wait a moment and try again.';
   if (isPermissionError(err)) return 'You do not have permission to change this file (it may be shared with you as view only). Save your own copy with Save As.';
-  // fetch() failures: Chrome, Firefox and Safari wording.
-  if (err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message ?? '')) return 'Puter could not be reached. Check your connection and try again.';
+  // fetch() failures (Chrome, Firefox and Safari wording), and the request
+  // itself, which the SDK rejects with when its XMLHttpRequest gets no answer.
+  const noAnswer = !!e && typeof (e as { readyState?: unknown }).readyState === 'number' && e.status === 0;
+  if (noAnswer || (err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message ?? ''))) return 'Puter could not be reached. Check your connection and try again.';
+  if (e?.code === 'request_timeout') return 'Puter took too long to answer. Check your connection and try again.';
+  if (e?.status === 401) return 'Your Puter session has ended. Sign in again, then try again.';
   if (e?.name === 'QuotaExceededError') return 'This browser has run out of storage space for parts. Delete parts you no longer need, download this one, or sign in to save it to your Puter cloud.';
   return e?.message || 'Something went wrong while talking to Puter.';
 }
