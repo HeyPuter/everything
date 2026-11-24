@@ -571,6 +571,15 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(6000 - 28 * 18 * 9, 1);
   });
 
+  it('says to remove fewer faces when the faces a shell opens leave nothing to hold its walls', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20)), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const sides = r0.faces.filter((f) => f.name.includes(':side:')).map((f) => ({ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }));
+    const r = await b.build(req([...base, { id: 'SH', name: 'SH', type: 'shell', faces: sides, thickness: 1, outward: false }]));
+    expect(r.status[2].error).toBe('The shell could not be created. Try a smaller thickness, or remove fewer faces.');
+  });
+
   it('shells a box with no faces removed into a closed hollow part', async () => {
     const b = new ModelBuilder();
     const base = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];

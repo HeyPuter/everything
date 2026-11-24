@@ -1056,7 +1056,7 @@ export class ModelBuilder {
         }
         body = outward ? cut(offset, solid) : cut(solid, offset);
       } catch {
-        throw shellError(st, t);
+        throw shellError(st, t, removed.length);
       } finally {
         builder.delete();
         progress.delete();
@@ -1070,7 +1070,7 @@ export class ModelBuilder {
         builder.Build();
         body = wrap(builder.Shape());
       } catch {
-        throw shellError(st, t);
+        throw shellError(st, t, removed.length);
       } finally {
         builder.delete();
         list.delete();
@@ -1080,7 +1080,7 @@ export class ModelBuilder {
     // unchanged solid instead of an error. An inward shell always removes
     // material (an outward one is only the new walls, so any size goes).
     const v0 = volumeOf(solid);
-    if (degenerate(body, solid) || (!outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw shellError(st, t);
+    if (degenerate(body, solid) || (!outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw shellError(st, t, removed.length);
     return body;
   }
 
@@ -1786,11 +1786,13 @@ function chainPieces<T extends { a?: Vec2; b?: Vec2 }>(pieces: T[]): T[] {
  * Why a shell failed. A wall as thick as a fillet's radius (or any round
  * face's) collapses that face when it is offset, which OpenCascade cannot do.
  */
-function shellError(st: State, t: number): FeatureError {
+function shellError(st: State, t: number, opened: number): FeatureError {
   const round = st.faces.some((f) => (f.desc.type === 'cylinder' || f.desc.type === 'sphere') && f.desc.r <= t * (1 + 1e-9));
+  // Opening faces that leave walls with nothing between them (all four sides
+  // of a box) fails at any thickness, where "a smaller thickness" misled.
   return new FeatureError(round
     ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
-    : 'The shell could not be created. Try a smaller thickness.');
+    : opened > 1 ? 'The shell could not be created. Try a smaller thickness, or remove fewer faces.' : 'The shell could not be created. Try a smaller thickness.');
 }
 
 /**
