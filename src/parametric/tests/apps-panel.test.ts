@@ -121,6 +121,23 @@ describe('closing the panel', () => {
     expect(document.activeElement).toBe(btn);
   });
 
+  it('closes when keyboard focus moves on to the page, not into the embed or out of the window', () => {
+    const btn = mount();
+    const elsewhere = document.createElement('button');
+    document.body.append(elsewhere);
+    btn.click();
+    const close = panel()!.querySelector<HTMLButtonElement>('.apps-panel-close')!;
+    close.focus();
+    panel()!.querySelector('iframe')!.focus();
+    expect(shown()).toBe(true);
+    close.focus();
+    close.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    expect(shown()).toBe(true);
+    elsewhere.focus();
+    expect(shown()).toBe(false);
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
   it('a press outside closes it without taking the press; one inside or on the button does not', () => {
     const btn = mount();
     const elsewhere = document.createElement('canvas');
