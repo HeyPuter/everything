@@ -28,8 +28,10 @@ type ShareFS = {
 };
 
 interface SharedItem {
-  name: string;
+  /** Null when the listing could not name it. */
+  name: string | null;
   path: string;
+  size?: number | null;
   is_dir?: boolean;
   isDir?: boolean;
   modified?: number;
@@ -237,11 +239,16 @@ export async function sharedWithMe(): Promise<(FileEntry & { owner: string; mode
     for (let page = 0; page < 50; page++) {
       const res: { items: SharedItem[]; cursor?: string | null } = await fs.listShared({ cursor, limit: 100 });
       for (const i of res.items ?? []) {
-        if (i.is_dir || i.isDir || !isPartFile(i.name)) continue;
+        // One unnamed or pathless row must not hide every other shared part.
+        if (typeof i?.path !== 'string' || !i.path) continue;
+        const name = typeof i.name === 'string' && i.name ? i.name : i.path.split('/').pop() ?? '';
+        if (i.is_dir || i.isDir || !isPartFile(name)) continue;
         out.push({
-          name: i.name.slice(0, -EXT.length),
+          name: name.slice(0, -EXT.length),
           location: { type: 'cloud', path: i.path },
           modified: toMs(i.modified),
+          // Checked before a too large part is downloaded.
+          size: typeof i.size === 'number' ? i.size : null,
           owner: typeof i.owner === 'string' ? i.owner : i.owner?.username ?? '',
           mode: i.mode ?? 'read',
         });

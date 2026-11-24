@@ -543,6 +543,7 @@ export class FileOps {
 
   /** View-only shares open detached: saving makes a copy in the user's own Parts. */
   private async openReadOnlyCopy(e: FileEntry, signal: AbortSignal) {
+    if (typeof e.size === 'number' && tooLarge(e.size, `x${EXT}`)) return;
     let text: string;
     try {
       text = await loadText(e.location);
