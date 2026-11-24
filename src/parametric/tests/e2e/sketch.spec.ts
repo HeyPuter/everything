@@ -1599,7 +1599,8 @@ test('the fully defined drag notice clears once geometry that can move is dragge
     const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
     a.sketchEditor!.edit('Add geometry', (sk) => {
       sk.entities.push({ id: 'fixed', t: 'point', x: 20, y: 20 }, { id: 'free', t: 'point', x: -20, y: -20 });
-      sk.constraints.push({ id: 'fx', type: 'fix', refs: ['fixed'] });
+      sk.entities.push({ id: 'cc', t: 'point', x: 20, y: -20 }, { id: 'circle', t: 'circle', c: 'cc', r: 6 });
+      sk.constraints.push({ id: 'fx', type: 'fix', refs: ['fixed'] }, { id: 'fc', type: 'fix', refs: ['circle'] });
     });
   });
   const screen = (p: [number, number]) => page.evaluate((p) => {
@@ -1619,6 +1620,11 @@ test('the fully defined drag notice clears once geometry that can move is dragge
   await expect(status).toHaveText('This geometry is fully defined, so it cannot be dragged.');
   await drag([-20, -20], [-30, -10]);
   // Straight away, not when the notice's own timer runs out.
+  await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
+  // A fixed circle dragged by its edge says so too.
+  await drag([26, -20], [32, -12]);
+  await expect(status).toHaveText('This geometry is fully defined, so it cannot be dragged.');
+  await drag([-30, -10], [-20, -20]);
   await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
   expect(errors).toEqual([]);
 });

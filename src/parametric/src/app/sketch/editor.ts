@@ -425,6 +425,9 @@ export class SketchEditor implements ViewportTool {
         // A circle whose radius is fixed (a diameter dimension, an equal
         // relation) keeps it, and the drag moves it by its centre if it can.
         const ids = !free || free.has(ent.c) ? [ent.c] : [];
+        // Nothing about it can move: say so, as for other geometry.
+        if (!ids.length) this.app.setStatus(FIXED_DRAG_NOTICE, true);
+        else this.app.clearStatus(FIXED_DRAG_NOTICE);
         this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, circle: ent.id, moved: false };
       } else {
         // Drag every selected point (and curves' points) together.
