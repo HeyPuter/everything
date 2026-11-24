@@ -4,7 +4,7 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { PROJECTED_LOCKED, extendAt, extendPreview, filletCorner, filletPreview, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
+import { PROJECTED_LOCKED, usedPoints, extendAt, extendPreview, filletCorner, filletPreview, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
 import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
@@ -659,6 +659,13 @@ export function pointTool(ed: SketchEditor): SkTool {
     label: 'Point',
     hint: 'Click to place sketch points (used to position holes).',
     click(s) {
+      // A sketch point already there (or a double-click) would stack a second
+      // one on it, and a hole on that position would be made twice.
+      const there = s.kind === 'point' && s.pointId ? ed.sketch.entities.find((e) => e.id === s.pointId) : undefined;
+      if (there && !there.ext && !usedPoints(ed.sketch.entities).has(there.id)) {
+        ed.app.setStatus('There is already a sketch point here.', true);
+        return true;
+      }
       ed.edit('Add point', (sk, newId) => {
         const id = newId('p');
         sk.entities.push({ id, t: 'point', x: s.p[0], y: s.p[1] });

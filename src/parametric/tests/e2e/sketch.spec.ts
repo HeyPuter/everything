@@ -998,6 +998,29 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the point tool does not stack a second point on a sketch point', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const points = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'point').length);
+    await page.locator('[data-cmd="tool:point"]').click();
+    // A double-click made two points there, so a hole on it was made twice.
+    await page.mouse.dblclick(x + 60, y - 40);
+    expect(await points()).toBe(1);
+    await page.mouse.click(x + 60, y - 40);
+    expect(await points()).toBe(1);
+    await expect(page.locator('.statusbar')).toContainText('There is already a sketch point here.');
+    // A point on a line's end is still placed (a hole at a corner).
+    await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      ed.edit('Add line', (sk) => { sk.entities.push({ id: 'a1', t: 'point', x: -20, y: 0 }, { id: 'a2', t: 'point', x: -10, y: 0 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' }); });
+    });
+    const end = await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.toScreen([-10, 0]));
+    const box = (await page.locator('canvas.gl').boundingBox())!;
+    await page.mouse.click(box.x + end[0], box.y + end[1]);
+    expect(await points()).toBe(4);
+    expect(errors).toEqual([]);
+  });
+
   test('the Modify box says a variable in a circular reference is circular, not unknown', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
