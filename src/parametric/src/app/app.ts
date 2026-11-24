@@ -9,7 +9,7 @@ import { evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { BASE_FRAMES, BASE_PLANE_NAMES } from '../model/planes';
 import type { BasePlane, Feature, Id, PlaneRef, SkEntity, SketchFeature } from '../model/types';
-import { UNIT_SYSTEMS, formatLength, formatNumber } from '../model/units';
+import { UNIT_SYSTEMS } from '../model/units';
 import { Renderer, type Theme } from '../render/renderer';
 import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
@@ -27,7 +27,7 @@ import { SketchEditor } from './sketch/editor';
 import { sketchDefinitionStatus } from './sketch/panel';
 import { FeatureTree } from './tree';
 import { DrawingPanel, DrawingWorkspace } from './drawing';
-import { setPartUnits } from './dialogs';
+import { formatGroup, setPartUnits } from './dialogs';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
@@ -1064,21 +1064,22 @@ export class App {
   }
 
   describe(it: SelItem): string {
-    const units = this.store.doc.units, dec = this.store.doc.decimals;
+    const u = UNIT_SYSTEMS[this.store.doc.units], dec = this.store.doc.decimals;
+    // Small values keep significant digits (a 5 mm edge in metres is 0.00500 m, not 0.01 m).
+    const len = (v: number) => `${formatGroup([v / u.scale], dec)[0]} ${u.length}`;
     switch (it.kind) {
       case 'face': {
         const f = this.faces[it.index];
         if (!f) return 'Face';
         const owner = this.store.feature(f.feature);
-        const u = UNIT_SYSTEMS[units];
-        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatNumber(f.area / u.scale ** 2, dec)} ${u.length}²`;
+        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatGroup([f.area / u.scale ** 2], dec)[0]} ${u.length}²`;
       }
       case 'edge': {
         const e = this.edges[it.index];
         if (!e) return 'Edge';
-        return `Edge (${e.type})  Length ${formatLength(e.length, units, dec, true)}${e.radius ? `  Radius ${formatLength(e.radius, units, dec, true)}` : ''}`;
+        return `Edge (${e.type})  Length ${len(e.length)}${e.radius ? `  Radius ${len(e.radius)}` : ''}`;
       }
-      case 'vertex': return `Vertex  ${it.p.map((v) => formatLength(v, units, dec)).join(', ')}`;
+      case 'vertex': return `Vertex  ${formatGroup(it.p.map((v) => v / u.scale), dec).join(', ')}`;
       case 'plane': return it.ref.kind === 'base' ? BASE_PLANE_NAMES[it.ref.plane] : this.store.feature(it.ref.id)?.name ?? 'Plane';
       case 'origin': return 'Origin';
       case 'feature': return this.store.feature(it.id)?.name ?? '';
