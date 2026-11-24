@@ -102,10 +102,12 @@ test('a feature panel sheet shrinks to show the preview above it', async ({ page
   await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
   const sheet = page.locator('.leftpane');
   const full = (await sheet.boundingBox())!.height;
-  const peek = page.getByRole('button', { name: 'Expand panel' });
+  const peek = page.locator('.lp-peek');
   await expect(peek).toHaveAttribute('aria-expanded', 'true');
+  await expect(peek).toHaveAccessibleName('Collapse panel');
   await peek.click();
   await expect(peek).toHaveAttribute('aria-expanded', 'false');
+  await expect(peek).toHaveAccessibleName('Expand panel');
   await expect.poll(async () => (await sheet.boundingBox())!.height).toBeLessThan(full / 2);
   // Title and OK/Cancel stay on screen.
   await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeInViewport();

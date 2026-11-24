@@ -261,7 +261,7 @@ export class App {
     this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
     // Phones: the sheet can shrink to its tabs, title and OK/Cancel so the
     // preview of a feature being edited is visible above it.
-    const peek = h('button', { class: 'icon-btn mobile-only lp-peek', type: 'button', 'aria-label': 'Expand panel', 'aria-expanded': 'true', 'aria-controls': 'left-panel' }, icon('chevronDown', 16));
+    const peek = h('button', { class: 'icon-btn mobile-only lp-peek', type: 'button', 'aria-label': 'Collapse panel', 'aria-expanded': 'true', 'aria-controls': 'left-panel' }, icon('chevronDown', 16));
     peek.addEventListener('click', () => this.setLeftPanePeek(!this.shell.leftpane.classList.contains('peek')));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
@@ -273,6 +273,8 @@ export class App {
     const b = this.shell.lpTabs.querySelector<HTMLElement>('.lp-peek');
     if (!b) return;
     b.setAttribute('aria-expanded', String(!peek));
+    // It says what a press does: "Expand panel, collapsed" rather than "Expand panel, expanded".
+    b.setAttribute('aria-label', peek ? 'Expand panel' : 'Collapse panel');
     b.replaceChildren(icon(peek ? 'chevronUp' : 'chevronDown', 16));
   }
 
