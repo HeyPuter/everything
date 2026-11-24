@@ -165,6 +165,8 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('.drawing-ws')).toBeFocused();
+  // Screen readers pass the arrow keys to it, and read its name and how to use it.
+  await expect(page.getByRole('application', { name: /^Drawing\. .*arrow keys/ })).toBeFocused();
   await expect(page.locator('.view-sel')).toBeVisible();
   await expect(page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Shift+ArrowRight');

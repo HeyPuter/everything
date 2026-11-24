@@ -44,7 +44,12 @@ export class DrawingWorkspace {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
     this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
-    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel or plus and minus to zoom. Arrow keys move the selected view, or else the sheet; Escape deselects the view and Delete removes it.' }, this.host,
+    // An application: screen readers pass it the arrow keys instead of reading on with them
+    // (and a label on a plain div is not read at all).
+    this.el = h('div', {
+      class: 'drawing-ws', hidden: true, tabindex: '0', role: 'application',
+      'aria-label': 'Drawing. Drag views to move them, or select one in the Views list of the Drawing panel and move it with the arrow keys; Escape deselects it and Delete removes it. With no view selected the arrow keys move the sheet; plus and minus zoom.',
+    }, this.host,
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();

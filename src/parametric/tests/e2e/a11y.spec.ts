@@ -28,6 +28,33 @@ test.describe('accessibility', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('the drawing sheet and its panel have no serious violations, with a view selected', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('tab', { name: 'Drawing' }).click();
+    await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+    await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).click();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
+  test('the assistant with a reply and its steps has no serious violations', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+        if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done: **a plate**.\n\n- one\n- two' }; return; }
+        yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'top', shapes: [{ type: 'rectangle', center: [0, 0], width: 40, height: 20 }] } };
+        yield { type: 'tool', id: 'c2', name: 'add_extrude', input: { sketch: 'nope', depth: 5 } };
+      };
+    });
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const box = page.getByRole('textbox', { name: 'Message the assistant' });
+    await box.fill('A plate');
+    await box.press('Enter');
+    await expect(page.locator('.as-bot').getByText('a plate')).toBeVisible({ timeout: 30_000 });
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test('feature panels with selection boxes pass axe in the dark theme', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
     await openApp(page);
