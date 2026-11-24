@@ -194,6 +194,23 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the wheel zooms over a sketch dimension label and over the triad', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.evaluate(() => (window as unknown as Win).__parametric.editSketch('s1'));
+    const label = page.locator('.dim-label').first();
+    await expect(label).toBeVisible();
+    const distance = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.distance);
+    for (const target of [label, page.locator('svg.triad')]) {
+      const b = (await target.boundingBox())!;
+      const before = await distance();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await page.mouse.wheel(0, -200);
+      await expect.poll(distance).toBeLessThan(before * 0.9);
+    }
+  });
+
   test('relation badges do not swallow clicks while a sketch tool is active', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

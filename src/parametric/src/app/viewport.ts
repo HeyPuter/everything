@@ -144,6 +144,8 @@ export class Viewport {
       }
     });
     c.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+    // The wheel zooms over sketch dimension labels, relation badges and the triad as well.
+    for (const el of [this.overlay, this.triad]) el.addEventListener('wheel', (e) => this.onWheel(e as WheelEvent), { passive: false });
     c.addEventListener('dblclick', (e) => {
       // Touch double taps are recognised in onUp; browsers that also
       // synthesise a dblclick for them must not run the action twice.
