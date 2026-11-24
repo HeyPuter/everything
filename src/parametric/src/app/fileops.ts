@@ -371,8 +371,13 @@ export class FileOps {
   }
 
   /** Opens a part from a location (cloud or local). */
-  async openLocation(loc: Location, name?: string, signal = this.beginOpen()) {
+  async openLocation(loc: Location, name?: string, signal = this.beginOpen(), size?: number | null) {
+    // A size the listing gave is checked before the file is downloaded.
+    if (typeof size === 'number' && tooLarge(size, `x${EXT}`)) return;
     let read: { text: string; version: FileVersion | null };
+    // A large part or a slow connection: say what is happening.
+    let reading: (() => void) | null = null;
+    const slow = setTimeout(() => { reading = toast({ message: `Opening "${name || 'the part'}"...`, timeout: 0 }); }, 600);
     try {
       read = await loadPart(loc);
     } catch (e) {
@@ -381,6 +386,9 @@ export class FileOps {
       if (missing) forgetRecent(loc);
       toast({ kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e) });
       return;
+    } finally {
+      clearTimeout(slow);
+      (reading as (() => void) | null)?.();
     }
     if (!signal.aborted) await this.openPartText(read.text, loc, name, signal, read.version);
   }
@@ -488,7 +496,7 @@ export class FileOps {
     if (v === 'open' && chosen) {
       const c = chosen as FileEntry;
       if ((sharedChosen as { readOnly: boolean } | null)?.readOnly) await this.openReadOnlyCopy(c, signal);
-      else await this.openLocation(c.location, c.name, signal);
+      else await this.openLocation(c.location, c.name, signal, c.size);
     }
     else if (v === 'device') await this.openFromDevice(signal);
     else if (v === 'browse') {

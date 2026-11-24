@@ -1708,3 +1708,34 @@ for (const later of [false, true]) test(`recovering work on a cloud part ${later
   await expect(second).toHaveTitle(later ? 'Part1 (2) - Parametric' : 'Part1 - Parametric');
   expect(await second.evaluate((path) => (window as unknown as Mock).__files.get(path)!.text.slice(0, 11), path)).toBe(later ? 'saved later' : saved.text.slice(0, 11));
 });
+
+test('a cloud part too large to open is refused before it is downloaded, and a slow one says it is opening', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as Mock & { puter: { fs: { readdir: (p: string) => Promise<{ name: string; size: number }[]>; read: (p: string) => Promise<Blob> } }; reads: string[]; releaseRead: () => void };
+    w.__files.set('/tester/AppData/parametric/Parts/Huge.parametric', { text: '{}' });
+    w.__files.set('/tester/AppData/parametric/Parts/Slow.parametric', { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Slow', features: [] }) });
+    const readdir = w.puter.fs.readdir;
+    w.puter.fs.readdir = async (p) => (await readdir(p)).map((it) => (it.name === 'Huge.parametric' ? { ...it, size: 300_000_000 } : it));
+    w.reads = [];
+    const read = w.puter.fs.read;
+    const gate = new Promise<void>((r) => { w.releaseRead = r; });
+    w.puter.fs.read = async (p) => { w.reads.push(p); if (p.endsWith('Slow.parametric')) await gate; return read(p); };
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  const open = async (name: string) => {
+    await page.evaluate(() => { void (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('open'); });
+    await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
+  };
+  await open('Huge');
+  await expect(page.locator('.toast.error')).toContainText('too large to open as a part (200 MB limit)');
+  expect(await page.evaluate(() => (window as unknown as { reads: string[] }).reads)).toEqual([]);
+  await open('Slow');
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByText('Opening "Slow"...')).toBeVisible();
+  await page.evaluate(() => (window as unknown as { releaseRead: () => void }).releaseRead());
+  await expect(page).toHaveTitle('Slow - Parametric');
+  await expect(page.locator('.toast', { hasText: 'Opening "Slow"...' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -122,7 +122,7 @@ export class TaskPane {
         // Buttons keep their role; list items wrap them (as in the Open dialog).
         const b = h('button', { class: 'file-item', type: 'button' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
           h('span', { class: 'txt' }, h('span', { class: 'n' }, p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
-        b.addEventListener('click', () => void this.files.openLocation(p.location, p.name));
+        b.addEventListener('click', () => void this.files.openLocation(p.location, p.name, undefined, p.size));
         list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
       }
     } catch (e) {
