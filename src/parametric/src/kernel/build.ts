@@ -134,6 +134,14 @@ function volumeOfBody(shape: Sh): number {
   return v;
 }
 
+/** Whether the bounding boxes of two shapes meet (within tol). */
+function touching(a: Sh, b: Sh, tol: number): boolean {
+  const p = boxOf(a), q = boxOf(b);
+  if (!p || !q) return true;
+  for (let k = 0; k < 3; k++) if (p.min[k] > q.max[k] + tol || q.min[k] > p.max[k] + tol) return false;
+  return true;
+}
+
 /** 53-bit FNV-1a style hash of a string, as base36. */
 export function hashString(s: string, seed = 0): string {
   let h1 = 0x811c9dc5 ^ seed, h2 = 0x1b873593 ^ seed;
@@ -407,6 +415,13 @@ export class ModelBuilder {
   resolveFace(ref: FaceRef, st: State): number {
     const cands: number[] = [];
     st.faces.forEach((f, i) => { if (f.name === ref.name) cands.push(i); });
+    // A copy's face level with its original's used to take the original's name
+    // (see nameFaces): a reference saved then to a copy carries the original's
+    // name and the copy's place. When the one face of that name is not there,
+    // its copies ("name@pattern.n") are candidates too.
+    if (cands.length === 1 && !ref.name.includes('@') && dist(st.faces[cands[0]].desc.center, ref.sig.c) > this.tol(st) * 10) {
+      st.faces.forEach((f, i) => { if (f.name.startsWith(ref.name + '@')) cands.push(i); });
+    }
     const near = (list: number[]) =>
       list.reduce((best, i) => (best < 0 || dist(st.faces[i].desc.center, ref.sig.c) < dist(st.faces[best].desc.center, ref.sig.c) ? i : best), -1);
     const fits = (d: SurfDesc) => d.type === ref.sig.type && (!ref.sig.n || dot(d.d, ref.sig.n) > 0.999);
@@ -501,7 +516,16 @@ export class ModelBuilder {
 
   // ---- naming ----
 
-  private nameFaces(featId: Id, body: Sh, st: State, tool: NamedFace[], fallback?: (d: SurfDesc, k: number) => string): NamedFace[] {
+  /**
+   * copies: the tool faces are copies (pattern or mirror) placed elsewhere. A
+   * copy's face lying on the surface of a face of the body (a copy's top face
+   * level with its seed's) took the body face's name: two faces of one name,
+   * found again only by position (a sketch on a copy went to another copy when
+   * the spacing changed) and with no sign of the pattern (suppressing it left
+   * that sketch on the seed). Such a face keeps the body face's name only when
+   * the two touch.
+   */
+  private nameFaces(featId: Id, body: Sh, st: State, tool: NamedFace[], fallback?: (d: SurfDesc, k: number) => string, copies = false): NamedFace[] {
     const tol = Math.max(this.tol(st), 1e-6);
     const prev = st.faces;
     const score = (d: SurfDesc, c: NamedFace) => dist(d.center, c.desc.center) / Math.sqrt(Math.max(c.desc.area, 1e-12));
@@ -517,6 +541,7 @@ export class ModelBuilder {
         let best: NamedFace | null = null, bestS = Infinity;
         for (const c of prev) {
           if (!same(shape, desc, c)) continue;
+          if (copies && !touching(shape, c.shape, tol) && tool.some((t) => same(shape, desc, t))) continue;
           const s = score(desc, c);
           if (s < bestS) { bestS = s; best = c; }
         }
@@ -545,7 +570,7 @@ export class ModelBuilder {
   }
 
   /** Combines a tool with the body and renames faces. */
-  private applyTool(featId: Id, st: State, tool: Sh, toolFaces: NamedFace[], isCut: boolean, noGain = 'The feature adds no material: it lies inside the part. Check its direction.') {
+  private applyTool(featId: Id, st: State, tool: Sh, toolFaces: NamedFace[], isCut: boolean, noGain = 'The feature adds no material: it lies inside the part. Check its direction.', copies = false) {
     let body: Sh;
     if (isCut) {
       if (!st.body) throw new FeatureError('There is no material to cut');
@@ -559,7 +584,7 @@ export class ModelBuilder {
       const v0 = st.body ? volumeOfBody(st.body) : 0;
       if (v0 > 0 && volumeOfBody(body) <= v0 * (1 + 1e-9)) this.warning = noGain;
     }
-    st.faces = this.nameFaces(featId, body, st, toolFaces);
+    st.faces = this.nameFaces(featId, body, st, toolFaces, undefined, copies);
     st.body = body;
     st.edges = null;
     st.tools.set(featId, { shape: tool, cut: isCut, faces: toolFaces });
@@ -1117,7 +1142,7 @@ export class ModelBuilder {
     }
     if (!body || isEmpty(body)) throw new FeatureError('The pattern removed all material');
     const allNamed = parts.flatMap((p) => p.faces);
-    st.faces = this.nameFaces(featId, body, st, allNamed);
+    st.faces = this.nameFaces(featId, body, st, allNamed, undefined, true);
     st.body = body;
     st.edges = null;
     const tool = parts.length === 1 ? parts[0].shape : compound(parts.map((p) => p.shape));
@@ -1190,7 +1215,7 @@ export class ModelBuilder {
       // Name mirrored faces after their originals.
       const orig = st.faces;
       tf.forEach((t, k) => { if (orig[k]) t.name = `${orig[k].name}@${f.id}`; });
-      this.applyTool(f.id, st, m, tf, false, 'The mirror adds no material: the part is already symmetric about the mirror plane.');
+      this.applyTool(f.id, st, m, tf, false, 'The mirror adds no material: the part is already symmetric about the mirror plane.', true);
       return;
     }
     this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);

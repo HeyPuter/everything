@@ -7,6 +7,7 @@ import * as R from 'replicad';
 import { type Sh, getOc, isValid, mirrored, rotated, setOc, subShapes } from '../src/kernel/occ';
 import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SkEntity, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
+import type { Vec3 } from '../src/math/vec';
 import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
 
@@ -812,6 +813,34 @@ describe('feature regeneration', () => {
     r = await b.build(req(feats));
     expect(r.status.every((s) => s.ok && !s.suppressed)).toBe(true);
     expect(volume(b)).toBeCloseTo(50 * 10 * 5 - 2 * Math.PI * 4 * 5 + 10 * 10 * 5, 1);
+  });
+
+  it('names the faces of pattern copies after their copy even where they lie level with the seed', async () => {
+    // The copies' top faces took the seed's name: a fillet round one went to
+    // another copy when the spacing changed, and stayed on when the pattern
+    // was suppressed.
+    const b = new ModelBuilder();
+    const top = { kind: 'face' as const, face: { name: 'E1:cap1', sig: { type: 'plane', c: [50, 10, 5] as Vec3, n: [0, 0, 1] as Vec3, area: 2000 } } };
+    const base: Feature[] = [sketch('S1', rect(0, 0, 100, 20)), extrude('E1', 'S1', 5), sketch('S2', rect(2, 2, 12, 12), top), extrude('E2', 'S2', 5)];
+    const lin = (spacing: number, suppressed = false): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing, count: 4, flip: false }, dir2: null, suppressed });
+    let r = await b.build(req([...base, lin(20)]));
+    const tops = r.faces.filter((f) => f.type === 'plane' && Math.abs(f.center[2] - 10) < 1e-6).map((f) => f.name).sort();
+    expect(tops).toEqual(['E2:cap1', 'E2:cap1@P.1', 'E2:cap1@P.2', 'E2:cap1@P.3']);
+    const copy = r.faces.find((f) => f.name === 'E2:cap1@P.2')!;
+    const round = (name: string): FilletFeature => ({ id: 'F', name: 'F', type: 'fillet', edges: [], radius: 1, faces: [{ name, sig: { type: 'plane', c: copy.center, n: copy.normal, area: copy.area } }] });
+    const filleted = () => r.faces.filter((f) => f.name.startsWith('F:')).map((f) => f.center[0]);
+    // Spacing 20 to 30: the fillet stays on the second copy, now 20 mm further on.
+    r = await b.build(req([...base, lin(30), round(copy.name)]));
+    expect(r.status.every((s) => s.ok)).toBe(true);
+    for (const x of filleted()) expect(Math.abs(x - 67)).toBeLessThan(6);
+    // Suppressing the pattern suppresses what was built on its copy.
+    r = await b.build(req([...base, lin(20, true), round(copy.name)]));
+    expect(r.status.slice(4)).toEqual([{ id: 'P', ok: true, suppressed: true }, { id: 'F', ok: true, suppressed: true }]);
+    // A reference saved under the old naming (the seed's name, the copy's place) still finds the copy.
+    r = await b.build(req([...base, lin(20), round('E2:cap1')]));
+    expect(r.status.every((s) => s.ok)).toBe(true);
+    expect(filleted().length).toBeGreaterThan(0);
+    for (const x of filleted()) expect(Math.abs(x - 47)).toBeLessThan(6);
   });
 
   it('mirrors and patterns a pattern of a boss and a cut as a boss and a cut', async () => {
