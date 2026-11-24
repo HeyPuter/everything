@@ -558,6 +558,36 @@ test.describe('viewport', () => {
     expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
   });
 
+  test('switching to perspective while zoomed in keeps the face in the middle of the view framed', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // Front view, orthographic, zoomed far in on the front face of the base (z = 30), in front
+    // of the target zoom to fit put in the middle of the part (z = 15).
+    const probe = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      const p = app.renderer.pick(cam.width / 2, cam.height / 2, { face: true }, 0)?.point ?? null;
+      const a = p && cam.project(p), b = p && cam.project([p[0] + 1, p[1], p[2]]);
+      return { z: p?.[2] ?? null, pxPerMm: a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : null };
+    });
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.setView('front', false);
+      const cam = app.renderer.camera;
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      cam.pan(cam.width / 2 - x, cam.height / 2 - y);
+      cam.zoomAt(1 / 300, cam.width / 2, cam.height / 2);
+    });
+    const before = await probe();
+    expect(before.z).toBeCloseTo(30, 2);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('perspective'));
+    const after = await probe();
+    expect(after.z).toBeCloseTo(30, 2);
+    expect(after.pxPerMm! / before.pxPerMm!).toBeCloseTo(1, 2);
+  });
+
   for (const how of ['wheel', 'keys'] as const) test(`${how === 'wheel' ? 'wheel zoom' : 'zoom keys'} in perspective close in on the face there instead of passing through it`, async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

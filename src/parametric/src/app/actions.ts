@@ -309,7 +309,7 @@ export function registerCommands(app: App, files: FileOps) {
     {
       id: 'perspective', label: 'Perspective', icon: 'perspective', checked: () => !app.renderer.camera.ortho,
       enabled: in3d,
-      run: () => { const cam = app.renderer.camera; cam.ortho = !cam.ortho; cam.onChange(); c.changed(); },
+      run: () => { app.viewport.togglePerspective(); c.changed(); },
     },
     toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => app.changeSettings({ showPlanes: v })),
     toggle('showOrigin', 'Origins', () => app.viewport.showOrigin, (v) => app.changeSettings({ showOrigin: v })),

@@ -796,6 +796,23 @@ export class Viewport {
     else this.camera.setState(st);
   }
 
+  /**
+   * Switches between orthographic and perspective projection. An orthographic
+   * view keeps its target wherever zoom to fit put it (often the middle of the
+   * part), however far it is zoomed in; seen in perspective from there the eye
+   * would sit inside the part. Perspective is framed like the orthographic view
+   * at the surface in the middle of the view instead.
+   */
+  togglePerspective() {
+    const cam = this.camera;
+    if (cam.ortho && !cam.animating) {
+      const p = this.renderer.pick(cam.width / 2, cam.height / 2, { face: true }, 0)?.point;
+      if (p) cam.target = add(cam.target, scale(cam.back, dot(sub(p, cam.target), cam.back)));
+    }
+    cam.ortho = !cam.ortho;
+    cam.onChange();
+  }
+
   zoomBy(f: number) {
     const cam = this.camera;
     this.focusZoomAt(cam.width / 2, cam.height / 2);
