@@ -104,6 +104,10 @@ describe('expression evaluator', () => {
     expect(() => evaluate('W / (N - 1)', { lookup: (n) => (n === 'W' ? 10 : 1) })).toThrow('Division by zero');
     expect(() => evaluate('1 / (1 / 0)')).toThrow('Division by zero');
     expect(evaluate('0 / 5')).toBe(0);
+    // The tangent of a right angle has no value either.
+    for (const a of ['90', '-90', '270', '450']) expect(() => evaluate(`10 * tan(${a})`)).toThrow(`tan(${a}) is undefined`);
+    expect(evaluate('tan(45)')).toBeCloseTo(1, 12);
+    expect(evaluate('tan(180)')).toBeCloseTo(0, 12);
   });
 
   it('says a unit cannot be used where a plain number goes', () => {

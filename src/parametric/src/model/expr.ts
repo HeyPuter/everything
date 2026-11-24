@@ -32,7 +32,11 @@ export class ExprError extends Error {}
 const FUNCS: Record<string, (...a: number[]) => number> = {
   sin: (d) => Math.sin((d * Math.PI) / 180),
   cos: (d) => Math.cos((d * Math.PI) / 180),
-  tan: (d) => Math.tan((d * Math.PI) / 180),
+  // At 90° (and 270°...) cos(90°) is 6e-17, not 0: the tangent came out as 1.6e16 instead of an error.
+  tan: (d) => {
+    if (Math.abs(((d % 180) + 180) % 180 - 90) < 1e-9) throw new ExprError(`tan(${d}) is undefined`);
+    return Math.tan((d * Math.PI) / 180);
+  },
   asin: (x) => (Math.asin(x) * 180) / Math.PI,
   acos: (x) => (Math.acos(x) * 180) / Math.PI,
   atan: (x) => (Math.atan(x) * 180) / Math.PI,
