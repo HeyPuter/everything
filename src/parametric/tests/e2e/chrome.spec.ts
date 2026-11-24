@@ -442,3 +442,14 @@ test('the flyout tree over a panel follows a rename of the part', async ({ page 
   await expect(page.locator('.flyout-tree > button')).toHaveText('Wall Bracket');
   expect(errors).toEqual([]);
 });
+
+test('a value field labelled by an icon shows its unit', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const depth = page.getByRole('textbox', { name: 'Depth', exact: true }).first();
+  await expect(depth).toHaveAccessibleDescription('mm');
+  await expect(depth.locator('xpath=..').locator('.unit')).toHaveText('mm');
+  expect(errors).toEqual([]);
+});

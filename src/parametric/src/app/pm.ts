@@ -317,7 +317,11 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
       if (current !== atFocus) { current = atFocus; mark(); o.onChange(atFocus); }
     }
   });
-  const spin = h('div', { class: 'spin' }, input, h('div', { class: 'spin-btns' },
+  // A field labelled by an icon has no "Depth (mm)" label above it: its unit shows beside the value.
+  const unit = o.icon && unitSuffix(o.kind, o.ctx);
+  const unitEl = unit ? h('span', { class: 'unit', id: nextDomId('unit') }, unit) : null;
+  if (unitEl) input.setAttribute('aria-describedby', unitEl.id);
+  const spin = h('div', { class: 'spin' }, input, unitEl, h('div', { class: 'spin-btns' },
     h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12)),
     h('button', { type: 'button', tabindex: '-1', 'aria-label': `Decrease ${o.label}`, onclick: () => step(-1) }, icon('chevronDown', 12))));
   const label = h('label', { class: 'sr-only', for: id }, o.label);

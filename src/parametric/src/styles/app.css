@@ -341,6 +341,7 @@ a.icon-btn { text-decoration: none; }
 .input.expr { color: var(--accent); }
 .spin { display: flex; align-items: stretch; min-width: 0; flex: 1; }
 .spin .input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.spin .unit { display: flex; align-items: center; padding: 0 6px; border: 1px solid var(--border-strong); border-left: 0; background: var(--panel-2); color: var(--text-2); font-size: var(--fs-xs); white-space: nowrap; }
 .spin .spin-btns { display: flex; flex-direction: column; border: 1px solid var(--border-strong); border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; overflow: hidden; }
 .spin .spin-btns button { flex: 1; width: 18px; border: 0; background: var(--panel-2); padding: 0; display: grid; place-items: center; color: var(--text-2); }
 .spin .spin-btns button:hover { background: var(--hover); color: var(--text); }
