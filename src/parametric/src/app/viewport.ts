@@ -731,7 +731,7 @@ export class Viewport {
     const app = this.app;
     const pos: number[] = [];
     const col: number[] = [];
-    const ptPos: number[] = [];
+    const ptPos: number[] = [], ptCol: number[] = [];
     const consumed = new Set<Id>();
     for (const f of app.store.doc.features) consumedSketches(f).forEach((s) => consumed.add(s));
     // Sketches after the one being edited are rolled back with the model.
@@ -756,12 +756,12 @@ export class Viewport {
         this.sketchPolylines(f, fr, (a, b, construction) => {
           pos.push(...a, ...b);
           col.push(c[0], c[1], c[2], construction ? 120 : 255);
-        }, (p) => ptPos.push(...p));
+        }, (p) => { ptPos.push(...p); ptCol.push(...c); });
       }
     }
     this.renderer.setLines('sketches', pos.length ? { positions: new Float32Array(pos), colors: new Uint8Array(col), width: 1.4, depth: 'test', bias: 3e-4, order: 1 } : null);
     this.renderer.setPoints('sketchPts', ptPos.length ? {
-      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => inactive[i % 4]),
+      positions: new Float32Array(ptPos), colors: new Uint8Array(ptCol),
       sizeStyle: new Float32Array((ptPos.length / 3) * 2).map((_, i) => (i % 2 ? 1 : 5)), depth: 'test', order: 1,
     } : null);
   }

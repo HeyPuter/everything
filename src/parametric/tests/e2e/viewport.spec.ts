@@ -1076,6 +1076,31 @@ test.describe('viewport', () => {
     }
   });
 
+  test('the points of a selected sketch are highlighted with its lines', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.store.change('Add sketch', (doc) => {
+        doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [
+          { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 40, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }, { id: 'p', t: 'point', x: 20, y: 30 },
+        ], constraints: [] });
+      });
+    });
+    await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeVisible();
+    const colours = () => page.evaluate(() => {
+      const r = (window as unknown as Win).__parametric.renderer as unknown as { lines: Map<string, { colors: Uint8Array }>; points: Map<string, { colors: Uint8Array }> };
+      return { line: [...r.lines.get('sketches')!.colors.slice(0, 3)], point: [...r.points.get('sketchPts')!.colors.slice(0, 3)] };
+    });
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.boundsOf(['points:sketchPts']) !== null)).toBe(true);
+    const shown = await colours();
+    expect(shown.point).toEqual(shown.line);
+    await page.evaluate(() => (window as unknown as Win).__parametric.selection.set([{ kind: 'feature', id: 's1' }]));
+    const c = await colours();
+    expect(c.point).toEqual(c.line);
+    expect(c.line).toEqual(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.theme.selection.map((v) => Math.round(v * 255))));
+  });
+
   test('a pointer leaving the view before its hover is picked leaves nothing hovered', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
