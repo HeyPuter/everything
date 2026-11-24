@@ -766,3 +766,25 @@ test('the rollback bar and colour swatches stay visible in high contrast mode', 
   expect(swatches).toBeGreaterThan(1);
   expect(errors).toEqual([]);
 });
+
+test('a panel opened from a scrolled design tree starts at its top, and the tree keeps its place', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 844, height: 390 });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const pane = page.locator('.lp-body');
+  await pane.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  const scrolled = await pane.evaluate((el) => el.scrollTop);
+  expect(scrolled).toBeGreaterThan(0);
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
+  expect(await pane.evaluate((el) => el.scrollTop)).toBe(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toBeVisible();
+  expect(await pane.evaluate((el) => el.scrollTop)).toBe(scrolled);
+  expect(errors).toEqual([]);
+});

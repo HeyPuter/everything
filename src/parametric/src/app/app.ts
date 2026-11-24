@@ -280,6 +280,11 @@ export class App {
     this.leftTab = tab;
     selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === tab);
     const body = this.shell.lpBody;
+    // A panel opens at its top, not at the scroll position of the tree it
+    // replaces; the tree comes back where it was.
+    const before = this.leftShown.get(body.firstElementChild as Element);
+    const next = tab === 'tree' ? this.tree : this.panel;
+    if (before === this.tree && next !== this.tree) this.treeScroll = body.scrollTop;
     if (tab === 'tree') {
       body.replaceChildren(this.tree.el);
       this.tree.render();
@@ -289,7 +294,13 @@ export class App {
     } else {
       body.replaceChildren(h('div', { class: 'pm-msg info', style: { margin: '12px' } }, 'Start a command to see its properties here.'));
     }
+    if (body.firstElementChild) this.leftShown.set(body.firstElementChild, next);
+    if (before !== next) body.scrollTop = next === this.tree ? this.treeScroll : 0;
   }
+
+  /** What the left pane shows (the tree or a panel), to tell a new view from a redrawn one. */
+  private leftShown = new WeakMap<Element, unknown>();
+  private treeScroll = 0;
 
   toggleLeftPane(open?: boolean) {
     const lp = this.shell.leftpane;
