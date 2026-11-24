@@ -144,6 +144,27 @@ describe('sketch solver', () => {
     expect(res.status).toBe('full');
   });
 
+  it('evaluates each driving dimension once per solve, dragging included', () => {
+    const ents = rectangle();
+    const cons: SkConstraint[] = [
+      { id: 'c1', type: 'horizontal', refs: ['l1'] },
+      { id: 'c3', type: 'vertical', refs: ['l2'] },
+      dim('d1', 'distance', ['l1'], 30),
+      dim('d2', 'distance', ['l2'], 20),
+      dim('d3', 'distance', ['l3'], 25, { driven: true }),
+    ];
+    // An expression value re-evaluates every variable it uses: evaluating it in
+    // each residual and Jacobian column made drag frames many times slower.
+    const calls = new Map<string, number>();
+    const counted = (d: SkDimension) => { calls.set(d.id, (calls.get(d.id) ?? 0) + 1); return value(d); };
+    solveSketch(ents, cons, { value: counted });
+    expect(Object.fromEntries(calls)).toEqual({ d1: 1, d2: 1 });
+    calls.clear();
+    solveSketch(ents, cons, { value: counted, drag: { kind: 'points', ids: ['p3'], targets: [[50, 40]] }, analyze: false });
+    expect(Object.fromEntries(calls)).toEqual({ d1: 1, d2: 1 });
+    expect(Math.hypot(P(ents, 'p2').x - P(ents, 'p1').x, P(ents, 'p2').y - P(ents, 'p1').y)).toBeCloseTo(30, 6);
+  });
+
   it('turns a free line to a much larger angle without stretching it', () => {
     for (const [v, sector] of [[90, 0], [150, 0], [180, 0], [5, 0], [170, 1]] as const) {
       const ents: SkEntity[] = [pt('a', 0, 0), pt('b', 10, 0), line('l1', 'a', 'b'), pt('c', 0, 0), pt('d', 8, 5), line('l2', 'c', 'd')];

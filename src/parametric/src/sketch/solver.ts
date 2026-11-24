@@ -422,7 +422,12 @@ export class SketchSystem {
   }
 
   private buildDimension(d: SkDimension) {
-    const val = () => this.opts.value(d);
+    // Evaluated once per solve: an expression's value cannot change while
+    // solving, and re-evaluating it (and the variables it uses) in every
+    // residual and Jacobian column made each drag frame pay for it thousands
+    // of times.
+    const value = this.opts.value(d);
+    const val = () => value;
     const id = d.id;
     const refs = d.refs;
     const kinds = refs.map((r) => this.kind(r));
