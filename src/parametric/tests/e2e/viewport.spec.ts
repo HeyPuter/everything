@@ -376,6 +376,25 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('says how to get the view back when the WebGL context stays lost', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const ext = (window as unknown as Win).__parametric.renderer.gl.getExtension('WEBGL_lose_context')!;
+      (window as unknown as { __lose: WEBGL_lose_context }).__lose = ext;
+      ext.loseContext();
+    });
+    const alert = page.locator('.viewport').getByRole('alert');
+    // Not while the browser may still give the context back by itself.
+    await page.waitForTimeout(1500);
+    await expect(alert).toHaveCount(0);
+    await expect(alert).toContainText('graphics processor was reset', { timeout: 5000 });
+    await expect(alert.getByRole('button', { name: 'Reload' })).toBeVisible();
+    await page.evaluate(() => (window as unknown as { __lose: WEBGL_lose_context }).__lose.restoreContext());
+    await expect(alert).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('repeated arrow keys add up their rotations', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

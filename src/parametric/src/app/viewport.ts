@@ -151,9 +151,32 @@ export class Viewport {
       this.app.onViewportDoubleClick(ev);
     });
     c.addEventListener('keydown', (e) => this.onKey(e));
+    // A lost graphics context that the browser does not give back within a few seconds leaves
+    // a blank view: say what happened and how to get the view back.
+    let lostTimer = 0;
+    c.addEventListener('webglcontextlost', () => {
+      clearTimeout(lostTimer);
+      lostTimer = window.setTimeout(() => this.showContextLost(this.renderer.lost), 3000);
+    });
+    c.addEventListener('webglcontextrestored', () => { clearTimeout(lostTimer); this.showContextLost(false); });
     new ResizeObserver(() => this.resize()).observe(this.root);
     this.watchPixelRatio();
     this.resize();
+  }
+
+  private lostNotice: HTMLElement | null = null;
+
+  private showContextLost(on: boolean) {
+    this.lostNotice?.remove();
+    this.lostNotice = null;
+    if (!on) return;
+    const reload = h('button', { class: 'btn small', type: 'button' }, 'Reload');
+    reload.addEventListener('click', () => location.reload());
+    this.lostNotice = h('div', { class: 'viewport-empty' },
+      h('div', { class: 'pm-msg error', role: 'alert', style: { pointerEvents: 'auto', maxWidth: '360px', display: 'grid', gap: '8px', justifyItems: 'start' } },
+        h('div', {}, 'The 3D view stopped working because the graphics processor was reset. Your part is not affected: save your changes, then reload to get the view back.'),
+        reload));
+    this.root.append(this.lostNotice);
   }
 
   /**
