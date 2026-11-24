@@ -1132,6 +1132,25 @@ test.describe('sketching', () => {
     await expect.poll(dangling).toEqual({ lines: 1, dangling: 0 });
     expect(errors).toEqual([]);
   });
+
+  test('Esc on a line in progress clears its inference guide and length tip', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 40);
+    // Close to horizontal: the horizontal guide runs from the start point.
+    await page.mouse.move(x + 50, y + 41);
+    const guides = () => page.evaluate(() => (window as unknown as { __parametric: { renderer: { lines: Map<string, unknown> } } }).__parametric.renderer.lines.has('sk-guides'));
+    await expect.poll(guides).toBe(true);
+    await expect(page.locator('.cursor-tip')).toContainText('L ');
+    await page.keyboard.press('Escape');
+    // The tool stays active, with nothing measured from the dropped start point.
+    await expect.poll(guides).toBe(false);
+    await expect(page.locator('.cursor-tip')).not.toContainText('L ');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { tool: { id: string } | null } } }).__parametric.sketchEditor.tool?.id)).toBe('line');
+    expect(errors).toEqual([]);
+  });
+
   test('leaving a sketch with a tool still active leaves no sketch drawn over the model', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

@@ -103,6 +103,8 @@ export class SketchEditor implements ViewportTool {
   /** Cursor position in sketch coordinates. */
   cursorPt: Vec2 | null = null;
   private lastSnap: Snap | null = null;
+  /** The pointer event behind `lastSnap`, to snap again once the tool state changes. */
+  private lastToolEvent: VPEvent | null = null;
   private renderQueued = 0;
   private disposed = false;
   private unsubscribe: () => void;
@@ -327,6 +329,7 @@ export class SketchEditor implements ViewportTool {
   setTool(tool: SkTool | null) {
     this.tool?.cancel();
     this.tool = tool;
+    this.lastToolEvent = null;
     this.preview = { lines: [], points: [], dashed: [], guides: [] };
     this.tipEl.hidden = true;
     this.app.viewport.canvas.style.cursor = tool ? 'crosshair' : 'default';
@@ -338,7 +341,21 @@ export class SketchEditor implements ViewportTool {
 
   setPreview(lines: Vec2[][], points: Vec2[] = [], dashed: Vec2[][] = []) {
     this.preview = { lines, points, dashed, guides: this.preview.guides };
+    // A cleared preview means the tool finished or dropped what it was
+    // drawing: the inference guide and length tip measured from its start
+    // point would otherwise stay on screen until the pointer moves again.
+    if (!lines.length && !points.length && !dashed.length) this.resnapCursor();
     this.queueRender();
+  }
+
+  /** Snaps the last cursor position again for the tool state (its start point may be gone). */
+  private resnapCursor() {
+    const t = this.tool, e = this.lastToolEvent, last = this.lastSnap;
+    if (!t || !e || !last || t.picks) return;
+    const s = this.snap(last.raw, e);
+    this.lastSnap = s;
+    this.updateGuides(s);
+    if (!this.tipEl.hidden) this.showTip(e, s);
   }
 
   // ---------- picking ----------
@@ -433,6 +450,7 @@ export class SketchEditor implements ViewportTool {
     if (this.tool) {
       const s = this.tool.picks ? { p: raw, raw, kind: 'none' as const } : this.snap(raw, e);
       this.lastSnap = s;
+      this.lastToolEvent = e;
       this.tool.move?.(s, e, dragging);
       this.updateGuides(s);
       this.showTip(e, s);
