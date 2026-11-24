@@ -541,6 +541,9 @@ export class FileOps {
     const err = await app.kernel.checkImport(text).catch((e) => (e as Error).message);
     if (documentVersion !== this.documentVersion || signal.aborted) return;
     if (err) { toast({ kind: 'error', title: 'Import failed', message: err }); return; }
+    // Finish an open sketch first, as feature commands do: discarding its
+    // changes later would otherwise take the imported body with them.
+    if (app.sketchEditor) app.exitSketch(true);
     const blobId = newBlobId(app.store.doc);
     const id = app.store.nextId('f');
     app.store.doc.blobs[blobId] = text;
