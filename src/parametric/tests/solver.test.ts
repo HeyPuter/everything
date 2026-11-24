@@ -334,6 +334,39 @@ describe('sketch solver', () => {
     expect(res.converged).toBe(true);
   });
 
+  it('analyses separate shapes each on their own, with the same verdicts', () => {
+    const shape = (k: number, extra: SkConstraint[] = []) => {
+      const ents = rectangle().map((e) => (e.t === 'point' ? { ...e, id: `${e.id}_${k}`, x: e.x + 40 * k } : e.t === 'line' ? { ...e, id: `${e.id}_${k}`, a: `${e.a}_${k}`, b: `${e.b}_${k}` } : e));
+      const cons: SkConstraint[] = [
+        { id: `h1_${k}`, type: 'horizontal', refs: [`l1_${k}`] }, { id: `h2_${k}`, type: 'horizontal', refs: [`l3_${k}`] },
+        { id: `v1_${k}`, type: 'vertical', refs: [`l2_${k}`] }, { id: `v2_${k}`, type: 'vertical', refs: [`l4_${k}`] },
+        ...extra,
+      ];
+      return { ents, cons };
+    };
+    // Fully defined and fixed; with a redundant length; free to move.
+    const a = shape(0, [{ id: 'fix0', type: 'fix', refs: ['p1_0'] }, dim('w0', 'distance', ['l1_0'], 30), dim('t0', 'distance', ['l2_0'], 20)]);
+    const b = shape(1, [dim('w1', 'distance', ['l1_1'], 30), dim('w1b', 'distance', ['l3_1'], 30)]);
+    const c = shape(2);
+    const ents = [...a.ents, ...b.ents, ...c.ents, pt('q', 200, 5)];
+    // A dimension between two fixed things holds nothing either.
+    const cons = [...a.cons, ...b.cons, ...c.cons, { id: 'fixq', type: 'fix', refs: ['q'] } as SkConstraint, dim('qq', 'distance', ['q', 'p1_0'], Math.hypot(200, 5))];
+    const res = solveSketch(ents, cons, { value });
+    expect([...res.badConstraints].sort()).toEqual(['qq', 'w1b']);
+    expect(res.dof).toBe(3 + 4);
+    expect(['l1_0', 'l2_0', 'l3_0', 'l4_0', 'q'].some((id) => res.freeEntities.has(id))).toBe(false);
+    expect(['l1_1', 'l2_1', 'l1_2', 'p3_2'].every((id) => res.freeEntities.has(id))).toBe(true);
+    // Many separate shapes: each edit of such a sketch analysed rows as wide
+    // as the whole sketch (over 800 ms for 1200 rectangles on a fast machine).
+    const many: SkEntity[] = [], manyCons: SkConstraint[] = [];
+    for (let k = 0; k < 1200; k++) { const s = shape(k, [dim(`w${k}`, 'distance', [`l1_${k}`], 30)]); many.push(...s.ents); manyCons.push(...s.cons); }
+    const t0 = performance.now();
+    const big = solveSketch(many, manyCons, { value });
+    const ms = performance.now() - t0;
+    expect(big.dof).toBe(1200 * 3);
+    expect(ms).toBeLessThan(4000);
+  });
+
   it('solves one long connected chain without a dense factorization', () => {
     const ents: SkEntity[] = [];
     const cons: SkConstraint[] = [];

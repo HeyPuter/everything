@@ -643,7 +643,8 @@ export class SketchSystem {
   }
 
   /** Splits equations into clusters connected through free variables. */
-  private clusters(): { eqs: Eq[]; vars: number[] }[] {
+  /** `eqs` in solving order; `added` in the order the equations were built (for blame). */
+  private clusters(): { eqs: Eq[]; vars: number[]; added: Eq[] }[] {
     const parent = new Int32Array(this.nVars).map((_, i) => i);
     const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
     for (const eq of this.eqs) {
@@ -672,9 +673,9 @@ export class SketchSystem {
     const first = (eq: Eq) => { let m = Infinity; for (const v of eq.vars) if (!this.fixed[v] && v < m) m = v; return m; };
     const out = [...groups.values()].map((g) => {
       const keyed = g.eqs.map((eq) => ({ eq, k: first(eq) })).sort((a, b) => a.k - b.k);
-      return { eqs: keyed.map((x) => x.eq), vars: [...g.vars] };
+      return { eqs: keyed.map((x) => x.eq), vars: [...g.vars], added: g.eqs };
     });
-    if (orphan.length) out.push({ eqs: orphan, vars: [] });
+    if (orphan.length) out.push({ eqs: orphan, vars: [], added: orphan });
     return out;
   }
 
@@ -870,23 +871,40 @@ export class SketchSystem {
 
   /** Rank analysis: redundant constraints, free variables and entity status. */
   private analyze(res: SolveResult) {
-    const freeVars: number[] = [];
-    for (let v = 0; v < this.nVars; v++) if (!this.fixed[v]) freeVars.push(v);
+    // Clusters share no free variable, so each is analysed on its own columns
+    // (the same reduction as over the whole sketch, block by block). Rows as
+    // wide as every free variable of the sketch made each edit of a sketch
+    // with a thousand separate shapes take most of a second.
+    const undetermined = new Uint8Array(this.nVars);
+    let rank = 0, n = 0;
+    for (let v = 0; v < this.nVars; v++) if (!this.fixed[v]) { n++; undetermined[v] = 1; }
+    for (const c of this.clusters()) rank += this.analyzeCluster(c.added, c.vars, res, undetermined);
+    res.dof = n - rank;
+    for (const [id, vs] of this.entityVars) {
+      if (vs.some((v) => !this.fixed[v] && undetermined[v])) res.freeEntities.add(id);
+    }
+    res.status = res.badConstraints.size ? 'over' : res.dof === 0 ? 'full' : 'under';
+  }
+
+  /**
+   * Row-reduces one cluster's Jacobian in the order its equations were built.
+   * A row that reduces to zero is redundant and is blamed on the later
+   * constraint. Clears `undetermined` for the variables the cluster fixes and
+   * returns its rank.
+   */
+  private analyzeCluster(eqs: Eq[], vars: number[], res: SolveResult, undetermined: Uint8Array): number {
     const local = new Map<number, number>();
-    freeVars.forEach((v, i) => local.set(v, i));
-    const n = freeVars.length;
-    const { cols, vals } = this.jacobian(this.eqs, local);
-    // Incremental row reduction: a row that reduces to zero is redundant and
-    // is blamed on the later constraint.
+    vars.forEach((v, i) => local.set(v, i));
+    const n = vars.length;
+    const { cols, vals } = this.jacobian(eqs, local);
     const basis: { row: Float64Array; pivot: number }[] = [];
-    const undetermined = new Uint8Array(n);
-    for (let i = 0; i < this.eqs.length; i++) {
+    for (let i = 0; i < eqs.length; i++) {
       const row = new Float64Array(n);
       for (let k = 0; k < cols[i].length; k++) row[cols[i][k]] += vals[i][k];
       let scale = 0;
       for (let k = 0; k < n; k++) scale = Math.max(scale, Math.abs(row[k]));
       if (scale < 1e-12) {
-        if (this.eqs[i].cid) res.badConstraints.add(this.eqs[i].cid!);
+        if (eqs[i].cid) res.badConstraints.add(eqs[i].cid!);
         continue;
       }
       for (const b of basis) {
@@ -899,7 +917,7 @@ export class SketchSystem {
       let piv = -1, best = 0;
       for (let k = 0; k < n; k++) { const a = Math.abs(row[k]); if (a > best) { best = a; piv = k; } }
       if (best < 1e-8 * scale) {
-        if (this.eqs[i].cid) res.badConstraints.add(this.eqs[i].cid!);
+        if (eqs[i].cid) res.badConstraints.add(eqs[i].cid!);
         continue;
       }
       const inv = 1 / row[piv];
@@ -913,17 +931,14 @@ export class SketchSystem {
     }
     const isPivot = new Uint8Array(n);
     for (const b of basis) isPivot[b.pivot] = 1;
-    for (let k = 0; k < n; k++) if (!isPivot[k]) undetermined[k] = 1;
     for (const b of basis) {
+      let free = false;
       for (let k = 0; k < n; k++) {
-        if (!isPivot[k] && Math.abs(b.row[k]) > 1e-7) { undetermined[b.pivot] = 1; break; }
+        if (!isPivot[k] && Math.abs(b.row[k]) > 1e-7) { free = true; break; }
       }
+      if (!free) undetermined[vars[b.pivot]] = 0;
     }
-    res.dof = n - basis.length;
-    for (const [id, vs] of this.entityVars) {
-      if (vs.some((v) => !this.fixed[v] && undetermined[local.get(v)!])) res.freeEntities.add(id);
-    }
-    res.status = res.badConstraints.size ? 'over' : res.dof === 0 ? 'full' : 'under';
+    return basis.length;
   }
 
   /** Writes solved coordinates back into the entity objects. */
