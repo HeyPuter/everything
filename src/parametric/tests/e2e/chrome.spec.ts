@@ -395,3 +395,25 @@ test('the status bar has no button without an action', async ({ page }) => {
   await expect(page.locator('.statusbar').getByRole('button', { name: /Defined/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('the panel splitter reports the panel width and resizes with the keyboard', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 800 });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const splitter = page.getByRole('separator', { name: 'Resize panel' });
+  const width = () =>
+    page
+      .locator('.leftpane')
+      .evaluate((el) => String(Math.round(el.getBoundingClientRect().width)));
+  await expect(splitter).toHaveAttribute('aria-valuenow', await width());
+  await splitter.focus();
+  await page.keyboard.press('End');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '520');
+  await page.keyboard.press('ArrowLeft');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '500');
+  await page.keyboard.press('Home');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '200');
+  expect(errors).toEqual([]);
+});

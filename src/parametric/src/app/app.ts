@@ -554,10 +554,15 @@ export class App {
     });
     s.splitter.addEventListener('keydown', (e) => {
       const w = s.leftpane.getBoundingClientRect().width;
-      if (e.key === 'ArrowLeft') s.leftpane.style.width = `${Math.max(200, w - 20)}px`;
-      if (e.key === 'ArrowRight') s.leftpane.style.width = `${Math.min(520, w + 20)}px`;
-      s.splitter.setAttribute('aria-valuenow', String(Math.round(s.leftpane.getBoundingClientRect().width)));
+      const to = e.key === 'ArrowLeft' ? w - 20 : e.key === 'ArrowRight' ? w + 20 : e.key === 'Home' ? 200 : e.key === 'End' ? 520 : null;
+      if (to === null) return;
+      e.preventDefault();
+      s.leftpane.style.width = `${Math.max(200, Math.min(520, to))}px`;
     });
+    // The width it reports follows the panel, also where narrow windows set it.
+    new ResizeObserver(() => {
+      if (s.leftpane.offsetWidth) s.splitter.setAttribute('aria-valuenow', String(Math.round(s.leftpane.getBoundingClientRect().width)));
+    }).observe(s.leftpane);
     // Command search.
     let active = 0;
     const results = s.searchResults;
