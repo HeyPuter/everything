@@ -376,7 +376,11 @@ export class DrawingWorkspace {
     this.el.addEventListener('wheel', (e) => {
       e.preventDefault();
       const r = this.el.getBoundingClientRect();
-      const f = Math.exp(-Math.max(-0.5, Math.min(0.5, e.deltaY * (e.ctrlKey ? 0.01 : 0.0018))));
+      // As in the 3D view: line and page deltas from wheels, the zoom direction setting for the
+      // wheel only (a trackpad pinch arrives with Ctrl and follows the fingers).
+      let dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+      if (this.app.viewport.invertZoom && !e.ctrlKey) dy = -dy;
+      const f = Math.exp(-Math.max(-0.5, Math.min(0.5, dy * (e.ctrlKey ? 0.01 : 0.0018))));
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       const nz = Math.max(0.1, Math.min(40, this.zoom * f));
       this.pan = { x: mx - ((mx - this.pan.x) * nz) / this.zoom, y: my - ((my - this.pan.y) * nz) / this.zoom };

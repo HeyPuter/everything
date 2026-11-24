@@ -705,3 +705,23 @@ test('hidden lines turned on for the isometric view are projected and drawn', as
   await page.getByRole('checkbox', { name: 'Hidden lines in Isometric view' }).uncheck();
   await expect.poll(dashed).toBe(0);
 });
+
+test('the sheet follows the wheel zoom direction setting, but not for a trackpad pinch', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.getByRole('img', { name: 'Drawing sheet' })).toBeVisible();
+  const zoomed = (ctrlKey: boolean) => page.evaluate((ctrlKey) => {
+    type Ws = { el: HTMLElement; zoom: number };
+    const app = (window as unknown as { __parametric: { drawing: Ws; viewport: { invertZoom: boolean } } }).__parametric;
+    app.viewport.invertZoom = true;
+    const ws = app.drawing, before = ws.zoom;
+    const r = ws.el.getBoundingClientRect();
+    // Spreading two fingers, or turning the wheel away (reversed: zoom out).
+    ws.el.dispatchEvent(new WheelEvent('wheel', { deltaY: -20, ctrlKey, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+    return ws.zoom / before;
+  }, ctrlKey);
+  expect(await zoomed(false)).toBeLessThan(1);
+  expect(await zoomed(true)).toBeGreaterThan(1);
+});
