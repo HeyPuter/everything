@@ -558,6 +558,23 @@ test.describe('viewport', () => {
     expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
   });
 
+  test('reversing the wheel zoom direction does not reverse a trackpad pinch', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const zoomed = (ctrlKey: boolean) => page.evaluate((ctrlKey) => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.invertZoom = true;
+      const cam = app.renderer.camera;
+      const before = cam.distance;
+      const r = app.viewport.canvas.getBoundingClientRect();
+      // Spreading two fingers (or turning the wheel away, which reversed zooms out).
+      app.viewport.canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -20, ctrlKey, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+      return cam.distance / before;
+    }, ctrlKey);
+    expect(await zoomed(true)).toBeLessThan(1);
+    expect(await zoomed(false)).toBeGreaterThan(1);
+  });
+
   test('switching to perspective while zoomed in keeps the face in the middle of the view framed', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

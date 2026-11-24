@@ -399,7 +399,8 @@ export class Viewport {
       this.camera.pan(-e.deltaX * unit, -dy);
       return;
     }
-    if (this.invertZoom) dy = -dy;
+    // A trackpad pinch arrives as a wheel with Ctrl: spreading the fingers always zooms in.
+    if (this.invertZoom && !e.ctrlKey) dy = -dy;
     // Once per burst of wheel events, or when the pointer moved on to something else.
     const w = this.lastWheel;
     if (e.timeStamp - w.t > 250 || Math.hypot(ev.x - w.x, ev.y - w.y) > DRAG_PX) {
