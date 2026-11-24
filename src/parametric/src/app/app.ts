@@ -1247,6 +1247,8 @@ export class App {
   // ---------- panels ----------
 
   async openPanel(p: PropertyPanel) {
+    // A model command run in the drawing (a shortcut, the command search) works on the model, shown again.
+    this.closeDrawing();
     if (this.panel) await this.closePanel(false);
     this.hideContextToolbar();
     this.panel = p;
@@ -1355,6 +1357,7 @@ export class App {
   editSketch(id: Id, restore?: () => void, undoFloor = this.store.undoMark) {
     const sk = this.store.feature<SketchFeature>(id);
     if (!sk) return;
+    this.closeDrawing();
     if (this.panel) void this.closePanel(false);
     if (this.sketchEditor) this.exitSketch(true);
     const frame = this.frameOfSketch(sk) ?? BASE_FRAMES.front;

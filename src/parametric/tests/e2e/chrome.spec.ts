@@ -699,3 +699,30 @@ test('View › Design Tree shows and focuses the design tree beside an open pane
   ).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('a model command run from the drawing goes back to the model to show its panel', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await expect
+    .poll(() => page.evaluate(() => !!(window as unknown as Handle).__parametric.bbox))
+    .toBe(true);
+  await page.evaluate(() => (window as unknown as Handle).__parametric.openDrawing());
+  await expect(page.getByRole('tab', { name: 'Drawing', exact: true }).first()).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.locator('.drawing-ws').focus();
+  await page.keyboard.press('l');
+  await expect(page.getByRole('heading', { name: 'Sketch' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.inDrawing)).toBe(
+    false,
+  );
+  await expect(page.getByRole('tab', { name: 'Model', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(errors).toEqual([]);
+});
