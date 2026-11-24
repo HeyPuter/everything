@@ -698,6 +698,27 @@ describe('feature regeneration', () => {
     expect(await error([...base, extrude('E2', 'S2', 5, { cut: true, flip: true }), pattern('E2')])).toBeUndefined();
   });
 
+  it('names the sketch, plane or feature whose face a feature is missing', async () => {
+    const b = new ModelBuilder();
+    const named = (f: Feature, name: string) => ({ ...f, name });
+    const status = async (feats: Feature[], id: string) => (await b.build(req(feats))).status.find((s) => s.id === id)!.error;
+    const open = named(sketch('S1', [{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 5, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }]), 'Sketch1');
+    const plane = named({ id: 'P1', name: '', type: 'plane', ref: { kind: 'feature', id: 'gone' }, offset: 5, flip: false }, 'Plane1');
+    // A sketch that failed (on a plane that failed), and one after the feature.
+    expect(await status([plane, named(sketch('S1', rect(0, 0, 5, 5), { kind: 'feature', id: 'P1' }), 'Sketch1'), extrude('E1', 'S1', 5)], 'E1'))
+      .toBe('The profile sketch (Sketch1) failed to build');
+    // Renaming changes no geometry (the steps stay cached), but the message follows the name.
+    expect(await status([plane, named(sketch('S1', rect(0, 0, 5, 5), { kind: 'feature', id: 'P1' }), 'Profile'), extrude('E1', 'S1', 5)], 'E1'))
+      .toBe('The profile sketch (Profile) failed to build');
+    expect(await status([plane], 'P1')).toBe('The reference plane no longer exists');
+    expect(await status([extrude('E1', 'S1', 5), open], 'E1')).toBe('The profile sketch (Sketch1) comes after this feature in the tree');
+    expect(await status([extrude('E1', '', 5)], 'E1')).toBe('Select the profile sketch');
+    // A face reference says which feature made the face.
+    const base: Feature[] = [named(sketch('S2', rect(0, 0, 10, 10)), 'Sketch2'), named(extrude('E2', 'S2', 10), 'Boss')];
+    const gone: ShellFeature = { id: 'SH', name: 'SH', type: 'shell', thickness: 1, outward: false, faces: [{ name: 'E2:side:zz', sig: { type: 'cone', c: [99, 99, 99], area: 1 } }] };
+    expect(await status([...base, gone], 'SH')).toBe('A referenced face (made by Boss) no longer exists. Edit the feature and select it again.');
+  });
+
   it('reports selected regions that a sketch edit moved away', async () => {
     const b = new ModelBuilder();
     const two = (bx: number) => sketch('S1', [...circle(0, 0, 5, 'ca'), ...circle(bx, 0, 5, 'cb')]);

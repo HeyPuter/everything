@@ -19,7 +19,7 @@ import type {
   FilletFeature, HoleFeature, Id, ImportFeature, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature,
   PlaneRef, RevolveFeature, ShellFeature, SkDimension, SketchFeature, SweepFeature,
 } from '../model/types';
-import { dependencies } from '../model/features';
+import { dependencies, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
 import { type Region, type Seg2, buildProfiles, inRegion, pointInPoly, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
@@ -153,11 +153,41 @@ export class ModelBuilder {
   }
 
   /** Position and type of every feature of the request being built. */
-  private order = new Map<Id, { index: number; type: Feature['type'] }>();
+  private order = new Map<Id, { index: number; type: Feature['type']; name: string }>();
+
+  /** A status with the features its message names under their names in this request. */
+  private named(st: FeatureStatus): FeatureStatus {
+    const text = (m: string | undefined) => m?.replace(NAME_REF, (_, id: string) => this.order.get(id)?.name ?? id);
+    if (!st.error?.includes('\u0001') && !st.warning?.includes('\u0001')) return st;
+    return { ...st, ...(st.error ? { error: text(st.error) } : {}), ...(st.warning ? { warning: text(st.warning) } : {}) };
+  }
+  /** Position of the feature being applied (a preview goes at the build position). */
+  private at = 0;
+
+  /**
+   * Why a feature or sketch a feature uses is not there, naming it: in a long
+   * tree "the profile sketch is missing" did not say which one to look at.
+   */
+  private missing(id: Id | null | undefined, what: string): FeatureError {
+    const at = id ? this.order.get(id) : undefined;
+    if (!id) return new FeatureError(`Select the ${what}`);
+    if (!at) return new FeatureError(`The ${what} no longer exists`);
+    if (at.index >= this.at) return new FeatureError(`The ${what} (${nameOf(id)}) comes after this feature in the tree`);
+    return new FeatureError(`The ${what} (${nameOf(id)}) failed to build`);
+  }
+
+  /** The feature that made a named face or edge, for messages. */
+  private maker(name: string): string {
+    for (const id of refFeatureIds(name)) {
+      const f = this.order.get(id);
+      if (f) return ` (made by ${nameOf(id)})`;
+    }
+    return '';
+  }
 
   async build(req: BuildRequest): Promise<BuildResult> {
     const t0 = performance.now();
-    this.order = new Map(req.features.map((f, index) => [f.id, { index, type: f.type }]));
+    this.order = new Map(req.features.map((f, index) => [f.id, { index, type: f.type, name: f.name }]));
     let state = emptyState();
     let chain = 'root';
     const status: FeatureStatus[] = [];
@@ -174,7 +204,7 @@ export class ModelBuilder {
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
-        status.push(cached.status);
+        status.push(this.named(cached.status));
         chain = key;
         continue;
       }
@@ -184,6 +214,7 @@ export class ModelBuilder {
       if (!suppressed) {
         try {
           this.warning = null;
+          this.at = i;
           await this.apply(f, next, req);
           if (this.warning) st = { id: f.id, ok: true, warning: this.warning };
         } catch (e) {
@@ -197,7 +228,7 @@ export class ModelBuilder {
       }
       this.steps[i] = { key, state: next, status: st };
       state = next;
-      status.push(st);
+      status.push(this.named(st));
       chain = key;
     }
     for (let i = upTo; i < req.features.length; i++) status.push({ id: req.features[i].id, ok: true });
@@ -242,9 +273,10 @@ export class ModelBuilder {
       const p = cloneState(state);
       try {
         this.warning = null;
+        this.at = upTo;
         const kind = await this.apply(req.preview, p, req);
         // Shown while the feature is edited, when it can still be fixed.
-        if (this.warning) result.previewWarning = this.warning;
+        if (this.warning) result.previewWarning = this.named({ id: '', ok: true, warning: this.warning }).warning;
         if (kind === 'tool') {
           const tool = p.tools.get(req.preview.id);
           if (tool) result.preview = this.meshBody(tool.shape, req.quality);
@@ -263,7 +295,7 @@ export class ModelBuilder {
         }
       } catch (e) {
         if (isFatal(e)) throw e;
-        result.previewError = errorText(e);
+        result.previewError = this.named({ id: '', ok: false, error: errorText(e) }).error;
       }
     }
     return result;
@@ -336,7 +368,7 @@ export class ModelBuilder {
     if (ref.kind === 'base') return BASE_FRAMES[ref.plane];
     if (ref.kind === 'feature') {
       const f = st.frames.get(ref.id);
-      if (!f) throw new FeatureError('The reference plane is missing or failed to build');
+      if (!f) throw this.missing(ref.id, 'reference plane');
       return f;
     }
     const i = this.resolveFace(ref.face, st);
@@ -369,7 +401,7 @@ export class ModelBuilder {
       .filter(({ f }) => fits(f.desc) && dist(f.desc.center, ref.sig.c) < lim);
     if (alt.length) return near(alt.map((a) => a.i));
     if (cands.length === 1) return cands[0];
-    throw new FeatureError('A referenced face no longer exists');
+    throw new FeatureError(`A referenced face${this.maker(ref.name)} no longer exists. Edit the feature and select it again.`);
   }
 
   resolveEdge(ref: EdgeRef, st: State): number {
@@ -385,7 +417,7 @@ export class ModelBuilder {
     const lim = b ? dist(b.min, b.max) * 0.02 : 1;
     const alt = edges.flatMap((e, i) => (e.desc.type === ref.sig.type && dist(e.desc.mid, ref.sig.m) < lim ? [i] : []));
     if (alt.length) return near(alt);
-    throw new FeatureError('A referenced edge no longer exists');
+    throw new FeatureError(`A referenced edge${this.maker(ref.name)} no longer exists. Edit the feature and select it again.`);
   }
 
   /** Point and unit direction of an axis reference. */
@@ -408,7 +440,7 @@ export class ModelBuilder {
       case 'sketchLine': {
         const sk = st.sketches.get(ref.sketch);
         const fr = st.frames.get(ref.sketch);
-        if (!sk || !fr) throw new FeatureError('The axis sketch is missing');
+        if (!sk || !fr) throw this.missing(ref.sketch, 'axis sketch');
         const ix = new SketchIndex(sk.entities);
         const l = ix.get(ref.entity);
         if (!l || l.t !== 'line') throw new FeatureError('The axis line is missing');
@@ -517,7 +549,7 @@ export class ModelBuilder {
   private sketchRegions(sketchId: Id, st: State, picks?: Vec2[]): { regions: Region[]; frame: Frame; sketch: SketchFeature } {
     const sketch = st.sketches.get(sketchId);
     const frame = st.frames.get(sketchId);
-    if (!sketch || !frame) throw new FeatureError('The profile sketch is missing or failed to build');
+    if (!sketch || !frame) throw this.missing(sketchId, 'profile sketch');
     const prof = buildProfiles(sketch.entities, picks);
     // Selected regions are kept as points inside them; a sketch edit can
     // move a region off its point.
@@ -939,7 +971,7 @@ export class ModelBuilder {
   private applyHole(f: HoleFeature, st: State) {
     const sketch = st.sketches.get(f.sketch);
     const frame = st.frames.get(f.sketch);
-    if (!sketch || !frame) throw new FeatureError('The hole position sketch is missing');
+    if (!sketch || !frame) throw this.missing(f.sketch, 'hole position sketch');
     const pts = sketchPoints(sketch.entities);
     if (!pts.length) throw new FeatureError('Add sketch points to place holes');
     const r = num(f.diameter) / 2;
@@ -995,9 +1027,9 @@ export class ModelBuilder {
       // that adds no tool body.
       const at = this.order.get(id);
       if (at === undefined) throw new FeatureError('A seed feature no longer exists');
-      if (at.index > (this.order.get(featId)?.index ?? Infinity)) throw new FeatureError('A seed feature comes after this feature in the tree');
-      if (SEED_TYPES.has(at.type)) throw new FeatureError('A seed feature failed to build');
-      throw new FeatureError('A seed feature cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)');
+      if (at.index > (this.order.get(featId)?.index ?? Infinity)) throw new FeatureError(`The seed feature ${nameOf(id)} comes after this feature in the tree`);
+      if (SEED_TYPES.has(at.type)) throw new FeatureError(`The seed feature ${nameOf(id)} failed to build`);
+      throw new FeatureError(`${nameOf(id)} cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)`);
     });
   }
 
@@ -1149,7 +1181,7 @@ export class ModelBuilder {
     if (prof.extra) this.warning = ModelBuilder.EXTRA_CONTOURS;
     const pathSk = st.sketches.get(f.path);
     const pathFr = st.frames.get(f.path);
-    if (!pathSk || !pathFr) throw new FeatureError('The path sketch is missing');
+    if (!pathSk || !pathFr) throw this.missing(f.path, 'path sketch');
     const ix = new SketchIndex(pathSk.entities);
     // Path pieces with their sketch end points (none for closed curves).
     const pieces: { edges: any[]; a?: Vec2; b?: Vec2 }[] = [];
@@ -1622,6 +1654,14 @@ function shellError(st: State, t: number): FeatureError {
     ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
     : 'The shell could not be created. Try a smaller thickness.');
 }
+
+/**
+ * A feature named in a message. Steps are cached by geometry, not by name,
+ * so the name is put in when the status is sent: renaming the feature must
+ * not leave its old name in a cached message.
+ */
+const nameOf = (id: Id) => `\u0001${id}\u0002`;
+const NAME_REF = /\u0001([^\u0002]*)\u0002/g;
 
 /** Surface types that sameSurface compares exactly. */
 const EXACT_SURFACES = new Set(['plane', 'cylinder', 'sphere']);
