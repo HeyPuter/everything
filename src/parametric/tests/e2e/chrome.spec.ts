@@ -962,3 +962,33 @@ test('design tree rows are selected as a range with Shift, and several from the 
   await expect(selected()).toHaveText(['Extrude1', 'Fillet1']);
   expect(errors).toEqual([]);
 });
+
+test('selected rows, chosen tabs and pressed buttons stand out in high contrast mode', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).click();
+  await page.mouse.move(600, 600);
+  // High contrast replaces the colours computed styles report: compare what is drawn, at
+  // a spot inside each element away from its text and border.
+  const fill = async (l: import('@playwright/test').Locator, dx = -6) => {
+    const b = (await l.boundingBox())!;
+    const x = dx < 0 ? b.x + b.width + dx - 2 : b.x + dx;
+    return (await page.screenshot({ clip: { x, y: b.y + 3, width: 2, height: 2 } })).toString('base64');
+  };
+  const tree = page.getByRole('tree', { name: 'Design tree' });
+  expect(await fill(tree.getByRole('treeitem', { name: 'Hole1' }))).not.toBe(await fill(tree.getByRole('treeitem', { name: 'Fillet1' })));
+  const tabs = page.getByRole('tablist', { name: 'Command groups' });
+  expect(await fill(tabs.getByRole('tab', { name: 'Features' }), 3)).not.toBe(await fill(tabs.getByRole('tab', { name: 'Sketch' }), 3));
+  const perspective = page.getByRole('toolbar', { name: 'View' }).getByRole('button', { name: 'Perspective' });
+  const before = await fill(perspective, 3);
+  const pressed = await perspective.getAttribute('aria-pressed');
+  await perspective.click();
+  await expect(perspective).toHaveAttribute('aria-pressed', String(pressed !== 'true'));
+  await page.mouse.move(600, 600);
+  expect(await fill(perspective, 3)).not.toBe(before);
+  expect(errors).toEqual([]);
+});

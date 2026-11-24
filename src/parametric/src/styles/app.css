@@ -665,4 +665,12 @@ a.icon-btn { text-decoration: none; }
   .rollback-bar:hover::before, .rollback-bar.dragging::before { background: Highlight; }
   .swatch { forced-color-adjust: none; }
   .swatch[aria-pressed='true'] { outline-color: Highlight; }
+  /* Selected rows and options, pressed buttons and the chosen tabs are shown by
+     colours high contrast replaces: they take the system's selection colours. */
+  :root :is(.ti[aria-selected='true'], .cmd-results [role='option'][aria-selected='true'], [role='tab'][aria-selected='true'],
+    .icon-btn[aria-pressed='true'], .tool[aria-pressed='true'], .seg button[aria-pressed='true']) {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+  :root :is(.ti[aria-selected='true'], .cmd-results [role='option'][aria-selected='true'], [role='tab'][aria-selected='true'],
+    .icon-btn[aria-pressed='true'], .tool[aria-pressed='true'], .seg button[aria-pressed='true']) * { color: inherit; }
 }
