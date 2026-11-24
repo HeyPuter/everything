@@ -140,6 +140,23 @@ describe('assistant tools', () => {
     expect(await h.volume()).toBeCloseTo(Math.PI * 1600 * 8 - 6 * Math.PI * 6.25 * 8, 0);
   });
 
+  it('refuses a fractional number of pattern instances instead of rounding it', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 40 }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 8 });
+    await h.call('add_hole', { on: h.faces.find((f) => f.name.endsWith(':cap1'))!.name, points: [[30, 8, 0]], diameter: 5 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    const volume = await h.volume();
+    for (const count of [2.5, '=7/2']) {
+      const r = await h.call('add_circular_pattern', { features: [hole], axis: 'y', count }, false);
+      expect(r.ok).toBe(false);
+      expect(r.content).toMatch(/count: a whole number of instances, not (2\.5|3\.5)/);
+    }
+    expect(h.store.doc.features.at(-1)!.id).toBe(hole);
+    expect(await h.volume()).toBeCloseTo(volume, 6);
+    await h.call('add_circular_pattern', { features: [hole], axis: 'y', count: '=6' });
+  });
+
   it('works in the part\'s units', async () => {
     const h = new TestHost();
     await h.call('set_part', { units: 'IPS', material: 'Aluminum 6061' });
