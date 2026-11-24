@@ -547,7 +547,9 @@ export class FileOps {
   }
 
   async openFromDevice(signal = this.beginOpen()) {
-    const file = await pickDeviceFile(acceptList([EXT, '.json', ...IMPORT_EXTS]));
+    const picked = await pickDeviceFile(acceptList([EXT, '.json', ...IMPORT_EXTS]));
+    // Any file can be picked (iPhone and iPad, or All Files): say which ones open, as for a drop.
+    const file = picked && this.pickOne([{ item: picked, name: picked.name }])?.item;
     if (file && await this.openBlob(file, file.name, null, signal)) this.app.store.dirty = true;
   }
 
