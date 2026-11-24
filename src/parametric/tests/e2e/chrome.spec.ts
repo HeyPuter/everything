@@ -135,3 +135,36 @@ test('names and messages clipped by an ellipsis show in full as a tooltip', asyn
   await expect(origin).not.toHaveAttribute('title');
   expect(errors).toEqual([]);
 });
+
+test('Undo and Redo of a part colour recolour the model and the Appearance swatches', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.openTaskPane('appearance'));
+  const before = await page.evaluate(
+    () => (window as unknown as Handle).__parametric.store.doc.color,
+  );
+  await page.getByRole('button', { name: 'Colour #c45a4a' }).click();
+  const shown = () =>
+    page.evaluate(() => {
+      const a = (window as unknown as Handle).__parametric;
+      const hex = (a.renderer.modelColor ?? [])
+        .map((v) =>
+          Math.round(v * 255)
+            .toString(16)
+            .padStart(2, '0'),
+        )
+        .join('');
+      const pressed = [...document.querySelectorAll('.swatch[aria-pressed="true"]')];
+      return { model: `#${hex}`, pressed: pressed.map((b) => b.getAttribute('aria-label')) };
+    });
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('undo'));
+  expect(await shown()).toEqual({
+    model: before ?? '#',
+    pressed: before ? [`Colour ${before}`] : [],
+  });
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('redo'));
+  expect(await shown()).toEqual({ model: '#c45a4a', pressed: ['Colour #c45a4a'] });
+  expect(errors).toEqual([]);
+});

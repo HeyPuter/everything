@@ -33,7 +33,11 @@ export class TaskPane {
     app.toggleTaskPane = (id) => this.toggle(id as PaneId);
     app.taskPaneOpen = () => this.current;
     onPartsChanged(() => this.refreshFiles());
+    // Undo, Redo, the assistant or another part change the colour shown as chosen.
+    app.store.on(() => { if (this.current === 'appearance') this.syncAppearance(); });
   }
+
+  private syncAppearance = () => {};
 
   /** Lists the parts again after a save, rename or delete while Parts is open. */
   private refreshFiles() {
@@ -137,7 +141,7 @@ export class TaskPane {
     const cur = app.store.doc.color;
     const grid = h('div', { class: 'swatches', role: 'group', 'aria-label': 'Part colour' });
     for (const c of SWATCHES) {
-      const b = h('button', { class: 'swatch', type: 'button', style: { background: c }, 'aria-label': `Colour ${c}`, 'aria-pressed': String(c === cur) });
+      const b = h('button', { class: 'swatch', type: 'button', style: { background: c }, 'aria-label': `Colour ${c}`, 'aria-pressed': String(c === cur), 'data-color': c });
       b.addEventListener('click', () => {
         app.store.change('Appearance', (doc) => { doc.color = c; });
         app.applyModelColor();
@@ -148,6 +152,11 @@ export class TaskPane {
       grid.append(b);
     }
     const custom = h('input', { type: 'color', value: cur, 'aria-label': 'Custom colour', style: { width: '100%', height: '32px', border: '0', background: 'none' } }) as HTMLInputElement;
+    this.syncAppearance = () => {
+      const c = app.store.doc.color;
+      for (const x of grid.children) x.setAttribute('aria-pressed', String(x.getAttribute('data-color') === c));
+      if (c && custom.value !== c) custom.value = c;
+    };
     custom.addEventListener('change', () => {
       app.store.change('Appearance', (doc) => { doc.color = custom.value; });
       app.applyModelColor();

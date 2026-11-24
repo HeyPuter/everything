@@ -218,8 +218,12 @@ export class App {
     this.renderer.requestRender();
   }
 
+  /** The part colour the renderer shows. */
+  private shownColor: string | null | undefined;
+
   applyModelColor() {
     const c = this.store.doc.color;
+    this.shownColor = c;
     this.renderer.modelColor = c ? parseColor(c) : null;
     this.renderer.requestRender();
   }
@@ -722,6 +726,8 @@ export class App {
       this.sketchEditor?.resolve();
       this.refreshSketchPanel();
     }
+    // Undo, Redo and the assistant change the colour too.
+    if (this.store.doc.color !== this.shownColor) this.applyModelColor();
     if (reason !== 'sketch') this.requestRebuild();
     else {
       this.syncChrome();
