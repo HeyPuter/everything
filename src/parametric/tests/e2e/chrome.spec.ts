@@ -427,3 +427,18 @@ test('Esc dismisses a tooltip while the pointer stays on its button', async ({ p
   await expect(page.getByRole('tooltip')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('the flyout tree over a panel follows a rename of the part', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('button', { name: 'Fillet', exact: true }).click();
+  await expect(page.locator('.flyout-tree > button')).toHaveText('Mounting Bracket');
+  await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.change('Rename', (d) => {
+      d.name = 'Wall Bracket';
+    }),
+  );
+  await expect(page.locator('.flyout-tree > button')).toHaveText('Wall Bracket');
+  expect(errors).toEqual([]);
+});

@@ -665,6 +665,9 @@ export class App {
     syncCommandButtons(this.shell.root, this.commands);
     const doc = this.store.doc;
     this.shell.docTitle.textContent = doc.name;
+    // The flyout tree over a panel is headed by the part's name too.
+    const flyoutLabel = this.flyoutEl?.querySelector('button > span');
+    if (flyoutLabel) flyoutLabel.textContent = doc.name;
     this.shell.docTitle.setAttribute('aria-label', `${doc.name}, rename part`);
     // The name may be clipped by an ellipsis: the tooltip has all of it.
     this.shell.docTitle.title = `Rename ${doc.name}`;
