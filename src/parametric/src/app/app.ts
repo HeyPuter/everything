@@ -1680,8 +1680,11 @@ export class App {
       return;
     }
     if (e.key === 'Escape') {
-      // A number field passes on an Esc it had nothing to take back for (pm.ts).
-      if (inText && (e.defaultPrevented || !target.closest('.spin'))) return;
+      // A number field passes on an Esc it had nothing to take back for (pm.ts),
+      // and a panel's dropdown (closed: an open one takes its own Esc) passes it on
+      // to cancel the panel, as its checkboxes and buttons do.
+      const passesEsc = !!target.closest('.spin') || (target instanceof HTMLSelectElement && !!target.closest('.pm'));
+      if (inText && (e.defaultPrevented || !passesEsc)) return;
       closeMenus();
       this.hideContextToolbar();
       if (this.sketchEditor?.modifyOpen) { this.sketchEditor.closeModify(); return; }

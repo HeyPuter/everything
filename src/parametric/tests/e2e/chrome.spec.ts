@@ -1154,3 +1154,30 @@ test('Measure tells screen readers its results', async ({ page }) => {
   await expect(status).toHaveAttribute('aria-live', 'polite');
   expect(errors).toEqual([]);
 });
+
+test('Esc in a feature panel takes back a typed value first, then cancels the panel, also from a dropdown', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const before = await page.evaluate(() => JSON.stringify((window as unknown as Handle).__parametric.store.doc.features));
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const pm = page.locator('.pm');
+  const end = pm.getByRole('combobox', { name: 'End condition' }).first();
+  await expect(end).toBeVisible();
+  await end.focus();
+  await page.keyboard.press('Escape');
+  await expect(pm).toHaveCount(0);
+  // A number field: the first Esc takes the typed text back, the second cancels.
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const depth = pm.getByRole('textbox').first();
+  const was = await depth.inputValue();
+  await depth.fill('77');
+  await page.keyboard.press('Escape');
+  await expect(depth).toHaveValue(was);
+  await expect(pm).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(pm).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.stringify((window as unknown as Handle).__parametric.store.doc.features))).toBe(before);
+  expect(errors).toEqual([]);
+});
+
