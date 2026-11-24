@@ -647,6 +647,9 @@ describe('feature regeneration', () => {
     r = await b.build(req([...base, pos, hole('throughAll', 0, 5)]));
     expect(r.status[3].ok).toBe(true);
     expect(4800 - volume(b)).toBeCloseTo(Math.PI * 16 * 3, 3);
+    // No hole of the hole diameter is left, which is likely a slip: said.
+    expect(r.status[3].warning).toBe('The counterbore goes through the part, so no hole of the hole diameter is left. Check its depth.');
+    expect((await b.build(req([...base, pos, hole('throughAll', 0, 1)]))).status[3]).toEqual({ id: 'H', ok: true });
     // A blind countersunk hole ending inside its 2 mm deep countersink.
     const sink = (depth: number): Feature => ({ ...hole('blind', depth, 1), kind: 'countersink' } as Feature);
     r = await b.build(req([...base, pos, sink(2.5)]));

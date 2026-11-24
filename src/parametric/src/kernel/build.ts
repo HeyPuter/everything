@@ -1096,6 +1096,10 @@ export class ModelBuilder {
     if (depth <= 0) throw new FeatureError('Depth must be greater than zero');
     // Profile in (radius, depth) coordinates, revolved around the hole axis.
     const prof: [number, number][] = [];
+    // A counterbore or countersink as deep as the part leaves no hole below it
+    // (a depth typed in the wrong unit): the part's far side along the hole.
+    const far = st.body ? this.throughAllDepth(st, frame.o, scale(frame.n, f.flip ? 1 : -1), false) : 0;
+    const through = (d: number, what: string) => { if (far > 0 && d >= far * (1 - 1e-9)) this.warning = `The ${what} goes through the part, so no hole of the hole diameter is left. Check its depth.`; };
     if (f.kind === 'counterbore') {
       const cr = num(f, 'cbDiameter') / 2, cd = num(f, 'cbDepth');
       if (cr <= r) throw new FeatureError('The counterbore diameter must be larger than the hole');
@@ -1103,6 +1107,7 @@ export class ModelBuilder {
       // A shallower hole would turn the profile back on itself and leave a
       // ring of material in the counterbore.
       if (f.end !== 'throughAll' && depth <= cd) throw new FeatureError('The hole depth must be greater than the counterbore depth');
+      through(cd, 'counterbore');
       const d = Math.max(depth, cd + 1e-3);
       prof.push([0, 0], [cr, 0], [cr, cd], [r, cd], [r, d], [0, d]);
     } else if (f.kind === 'countersink') {
@@ -1114,6 +1119,7 @@ export class ModelBuilder {
       // Like a counterbore: a blind hole ending inside its countersink was
       // silently made deeper than asked.
       if (f.end !== 'throughAll' && depth <= sd) throw new FeatureError('The hole depth must be greater than the countersink depth');
+      through(sd, 'countersink');
       prof.push([0, 0], [sr, 0], [r, sd], [r, Math.max(depth, sd + 1e-3)], [0, Math.max(depth, sd + 1e-3)]);
     } else prof.push([0, 0], [r, 0], [r, depth], [0, depth]);
     // Small tip so the top face sits slightly above the surface for a clean cut.
