@@ -501,6 +501,35 @@ test.describe('viewport', () => {
     expect(seen.pick).toBe('face');
   });
 
+  test('the section cap hides the edges of a hole behind it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // The base is cut at z = 20; the through hole (r 3 about x 24, z 15) lies behind the cap.
+    // Its bottom circle, nearest point (24, 0, 18), is seen through the cap.
+    const probe = () => page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      r.section = { normal: [0, 0, 1], offset: 20 };
+      const [x, y] = app.viewport.project([24, 0, 18]);
+      const hit = r.pick(x, y, { face: true, edge: true, vertex: true });
+      const img = new Image();
+      img.src = r.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / r.camera.width;
+      const pixel = [...ctx.getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data].slice(0, 3);
+      return { kind: hit?.kind ?? null, pixel, cap: r.theme.cap.map((v) => Math.round(v * 255)) };
+    });
+    const seen = await probe();
+    expect(seen.kind).not.toBe('edge');
+    seen.pixel.forEach((v, i) => expect(Math.abs(v - seen.cap[i])).toBeLessThan(25));
+  });
+
   test('does not pick vertices cut away by the section view', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

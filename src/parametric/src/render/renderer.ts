@@ -293,6 +293,31 @@ void main() {
   outDepth = -(uView * vec4(vWorld, 1.0)).z;
 }`;
 
+/**
+ * Section cap depth. Through the cut, the inside of the part shows as its back faces in the cap
+ * colour; at their own depth, edges lying on them (a hole behind the cut) showed through the
+ * cap. Where a back face is what is seen (marked in the stencil), this moves the depth onto the
+ * section plane in front of it, as a real cap would be.
+ */
+const CAP_FS = `#version 300 es
+precision highp float;
+in vec3 vWorld;
+uniform mat4 uViewProj;
+uniform vec4 uClip;
+uniform vec3 uEye;
+uniform vec3 uViewDir;
+uniform int uOrtho;
+out vec4 outColor;
+void main() {
+  if (gl_FrontFacing || dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
+  vec3 d = uOrtho == 1 ? uViewDir : normalize(vWorld - uEye);
+  float dn = dot(uClip.xyz, d);
+  if (abs(dn) < 1e-6) discard;
+  vec4 c = uViewProj * vec4(vWorld - d * ((dot(uClip.xyz, vWorld) + uClip.w) / dn), 1.0);
+  gl_FragDepth = clamp(c.z / c.w * 0.5 + 0.5, 0.0, 1.0);
+  outColor = vec4(0.0);
+}`;
+
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
 
 type Box = [number, number, number, number, number, number];
@@ -424,7 +449,7 @@ export class Renderer {
   lost = false;
 
   constructor(readonly canvas: HTMLCanvasElement, theme: Theme) {
-    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance', premultipliedAlpha: false });
+    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, stencil: true, preserveDrawingBuffer: false, powerPreference: 'high-performance', premultipliedAlpha: false });
     if (!gl) throw new Error('WebGL 2 is not available in this browser');
     this.gl = gl;
     this.theme = theme;
@@ -447,6 +472,7 @@ export class Renderer {
     this.progs.pickMesh = this.program(MESH_VS, PICK_MESH_FS);
     this.progs.pickSeg = this.program(SEG_VS, PICK_SEG_FS);
     this.progs.pickPt = this.program(PICK_PT_VS, PICK_PT_FS);
+    this.progs.cap = this.program(MESH_VS, CAP_FS);
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
@@ -830,7 +856,7 @@ export class Renderer {
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     const bg = this.theme.background;
     gl.clearColor(bg[0], bg[1], bg[2], 1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
@@ -851,8 +877,10 @@ export class Renderer {
       if (style !== 'wireframe') {
         gl.enable(gl.POLYGON_OFFSET_FILL);
         gl.polygonOffset(1, 1);
+        if (clip) this.markCaps();
         this.drawMesh(body, vp, view, clip, { flat: flat ? 1 : 0, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
         gl.disable(gl.POLYGON_OFFSET_FILL);
+        if (clip) this.capDepth(body, vp, clip);
       } else if (showBody && this.faceStateData.some((s) => s & 3)) {
         // Wireframe draws no faces: tint just the selected and hovered ones.
         gl.disable(gl.DEPTH_TEST);
@@ -959,6 +987,37 @@ export class Renderer {
     const gpu = out.length ? this.segVao(new Float32Array(out)) : null;
     this.cut = { mesh: m, key, gpu };
     return gpu;
+  }
+
+  /** The next mesh draw marks in the stencil where a back face (the section cap) is what is seen. */
+  private markCaps() {
+    const gl = this.gl;
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.ZERO);
+    gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.REPLACE);
+  }
+
+  /** After markCaps and the mesh: puts the depth of the marked pixels on the section plane. */
+  private capDepth(m: GpuMesh, vp: Float32Array, clip: number[]) {
+    const gl = this.gl, cam = this.camera, b = cam.back;
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    gl.colorMask(false, false, false, false);
+    gl.depthFunc(gl.ALWAYS);
+    const { p, u } = this.progs.cap;
+    gl.useProgram(p);
+    gl.uniformMatrix4fv(u.uViewProj, false, vp);
+    gl.uniform4fv(u.uClip, clip);
+    gl.uniform3fv(u.uEye, cam.eye);
+    gl.uniform3fv(u.uViewDir, [-b[0], -b[1], -b[2]]);
+    gl.uniform1i(u.uOrtho, cam.ortho ? 1 : 0);
+    gl.bindVertexArray(m.vao);
+    gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(null);
+    gl.depthFunc(gl.LEQUAL);
+    gl.colorMask(true, true, true, true);
+    gl.disable(gl.STENCIL_TEST);
   }
 
   /** `flat`: 0 shaded, 1 background fill (line styles), 2 only selected/hovered faces, translucent (wireframe). */
@@ -1075,8 +1134,8 @@ export class Renderer {
     }
     this.pickRb = gl.createRenderbuffer();
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.pickRb);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.pickRb);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, this.pickRb);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.pickSize = [w, h];
   }
@@ -1133,10 +1192,19 @@ export class Renderer {
       gl.enable(gl.POLYGON_OFFSET_FILL);
       gl.polygonOffset(1, 1);
       if (!want.face) gl.colorMask(false, false, false, false);
+      // Edges and vertices behind a section cap are hidden by it, as they are drawn.
+      const caps = !!clip && !wire;
+      if (caps) this.markCaps();
       gl.bindVertexArray(m.vao);
       gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0);
       gl.colorMask(true, true, true, true);
       gl.disable(gl.POLYGON_OFFSET_FILL);
+      if (caps) {
+        // The depth target keeps the eye distance of the face seen through the cut.
+        gl.drawBuffers(this.canFloat ? [gl.NONE, gl.NONE] : [gl.NONE]);
+        this.capDepth(m, vp, clip);
+        gl.drawBuffers(this.canFloat ? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1] : [gl.COLOR_ATTACHMENT0]);
+      }
     }
     if (want.edge && m.edges) {
       const { p, u } = this.progs.pickSeg;
