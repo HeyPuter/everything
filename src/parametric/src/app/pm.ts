@@ -299,7 +299,9 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     const scale = o.kind === 'length' ? UNIT_SYSTEMS[o.ctx.units].scale : 1;
     const inc = o.kind === 'count' ? 1 : o.kind === 'angle' ? 1 : o.ctx.units === 'IPS' ? 0.1 * scale : o.ctx.units === 'MKS' ? 0.01 * scale : 1 * scale;
     let next = base + dir * inc;
-    if (o.min !== undefined) next = Math.max(o.min, next);
+    // A tiny minimum stands for "more than zero": stepping below it keeps the
+    // value rather than landing on 0.000001 (and Up then on 1.000001).
+    if (o.min !== undefined && next < o.min) next = o.min > 0 && o.min <= 1e-6 ? Math.max(base, o.min) : o.min;
     if (o.max !== undefined) next = Math.min(o.max, next);
     input.value = paramText(next, o.kind, o.ctx);
     commit();

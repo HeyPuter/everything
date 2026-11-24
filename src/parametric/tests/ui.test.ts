@@ -242,6 +242,21 @@ describe('PropertyManager number fields', () => {
     expect(input.classList.contains('expr')).toBe(true);
   });
 
+  it('steps down to a minimum, but not onto the tiny one that stands for more than zero', () => {
+    const onChange = vi.fn();
+    const radius = numberField({ label: 'Radius', value: 0.5, kind: 'length', ctx: ctx(), min: 1e-6, onChange });
+    const count = numberField({ label: 'Sides', value: 4, kind: 'count', ctx: ctx(), min: 3, onChange });
+    document.body.append(radius, count);
+    const [r, c] = [radius.querySelector('input')!, count.querySelector('input')!];
+    key(r, 'ArrowDown');
+    expect(r.value).toBe('0.5');
+    key(r, 'ArrowUp');
+    expect(r.value).toBe('1.5');
+    key(c, 'ArrowDown');
+    key(c, 'ArrowDown');
+    expect(c.value).toBe('3');
+  });
+
   it.each(['retired', 'removed'])('ignores delayed edits and change events from a %s numeric field', (state) => {
     vi.useFakeTimers();
     try {
