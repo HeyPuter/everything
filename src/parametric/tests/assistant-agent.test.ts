@@ -399,6 +399,17 @@ describe('assistant agent', () => {
     expect(a.chars).toBeLessThan(1000);
   });
 
+  it('refuses a binary DXF and binary data named as text, and sends CSV as it is', async () => {
+    const binary = new Uint8Array([...new TextEncoder().encode('AutoCAD Binary DXF\r\n'), 0x1a, 0, 0, 0, 2, 0x53, 0x45]);
+    await expect(readAttachment(new File([binary], 'plate.dxf'))).rejects.toThrow(/plate\.dxf is a binary DXF.*ASCII DXF/);
+    const junk = new Uint8Array(4096).map((_, i) => (i * 37) % 256);
+    await expect(readAttachment(new File([junk], 'sizes.csv', { type: 'text/csv' }))).rejects.toThrow(/sizes\.csv is not a text file/);
+    const csv = '\uFEFFpart,size,"note, with comma"\r\nM5,"5,5",ok\r\n';
+    const a = await readAttachment(new File([csv], 'sizes.csv', { type: 'text/csv' }));
+    expect((a.blocks[0] as { text: string }).text).toContain('part,size,"note, with comma"\r\nM5,"5,5",ok');
+    await expect(readAttachment(new File(['\r\n  \r\n'], 'empty.csv', { type: 'text/csv' }))).rejects.toThrow(/empty\.csv is empty/);
+  });
+
   it('refuses a file named .pdf that is not a PDF, which would fail the messages it goes with', async () => {
     const page = new File(['<!doctype html><title>404 Not Found</title>'], 'drawing.pdf', { type: 'application/pdf' });
     await expect(readAttachment(page)).rejects.toThrow(/drawing\.pdf is not a PDF file/);

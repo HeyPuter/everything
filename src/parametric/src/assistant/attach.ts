@@ -191,6 +191,9 @@ export function condenseDxf(text: string): string | null {
   return `[DXF condensed for reading: one group code and its value per line; from the header only the version, units ($INSUNITS: 1 in, 4 mm, 5 cm, 6 m) and extents; the BLOCKS and ENTITIES sections; handles, owners and application data left out.]\n${out.join('\n')}`;
 }
 
+/** A DXF saved in binary form, which reads as nothing but noise. */
+export const isBinaryDxf = (head: Uint8Array) => new TextDecoder('latin1').decode(head.subarray(0, 18)) === 'AutoCAD Binary DXF';
+
 const cutText = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
 const quoteTag = (s: string) => s.replace(/<(\s*\/?\s*attached_file)\b/gi, '‹$1');
 const quoteName = (s: string) => cutText(String(s ?? '').replace(/["\r\n<>]/g, ' '), 200);
