@@ -11,11 +11,22 @@ test('makes a drawing with standard views and exports a PDF', async ({ page }) =
   // Front, top, right and isometric views are projected by the geometry engine.
   await expect(page.locator('.relations-list > *')).toHaveCount(4, { timeout: 30_000 });
   await expect(paper.locator('svg path').first()).toBeAttached({ timeout: 30_000 });
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Bracket, rev B');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).press('Tab');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PDF', exact: true }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('Mounting Bracket.pdf');
   expect(await file.failure()).toBeNull();
+  // The document's title is the title block's, as on the sheet (UTF-16 hex in the PDF).
+  const fs = await import('node:fs');
+  const pdf = new TextDecoder('latin1').decode(fs.readFileSync(await file.path()));
+  const hex = `FEFF${[...'Bracket, rev B'].map((c) => c.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()).join('')}`;
+  expect(pdf).toContain(`/Title <${hex}>`);
+  const svgDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'SVG', exact: true }).click();
+  const svg = new TextDecoder().decode(fs.readFileSync(await (await svgDownload).path()));
+  expect(svg).toContain('<title>Bracket, rev B</title>');
   await page.getByRole('tab', { name: 'Model' }).click();
   await expect(page.locator('canvas.gl')).toBeVisible();
   expect(errors).toEqual([]);

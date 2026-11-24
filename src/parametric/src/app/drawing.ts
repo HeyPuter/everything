@@ -526,16 +526,21 @@ export class DrawingWorkspace {
     }
   }
 
+  /** The title the exported document carries: the title block's, as on the sheet. */
+  private exportTitle(): string {
+    return this.doc?.title || this.app.store.doc.name;
+  }
+
   async exportPdf() {
     if (!(await this.projected())) return;
     const s = this.sheet();
-    download(toPdf(s.items, s.w, s.h, this.app.store.doc.name) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
+    download(toPdf(s.items, s.w, s.h, this.exportTitle()) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
   }
 
   async exportSvg() {
     if (!(await this.projected())) return;
     const s = this.sheet();
-    download(toSvg(s.items, s.w, s.h), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
+    download(toSvg(s.items, s.w, s.h, { title: this.exportTitle() }), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
   }
 }
 
