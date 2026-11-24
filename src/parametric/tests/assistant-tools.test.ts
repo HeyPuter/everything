@@ -141,6 +141,12 @@ describe('assistant tools', () => {
     expect(await h.volume()).toBeCloseTo(Math.PI * 1600 * 8 - 6 * Math.PI * 6.25 * 8, 0);
   });
 
+  it('refuses a view orientation or style it does not know instead of capturing the current view', async () => {
+    const h = new TestHost();
+    expect((await h.call('capture_view', { orientation: 'side' }, false)).content).toMatch(/^Error: orientation: one of front, back/);
+    expect((await h.call('capture_view', { style: 'xray' }, false)).content).toMatch(/^Error: style: one of shadedEdges/);
+  });
+
   it('reports the exact area of profiles bounded by circles, arcs and splines', async () => {
     const h = new TestHost();
     const r = await h.call('create_sketch', { plane: 'front', shapes: [

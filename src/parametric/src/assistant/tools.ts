@@ -600,11 +600,14 @@ class Toolkit {
   }
 
   async capture(a: Obj): Promise<ToolResult> {
+    // An orientation or style it does not know was ignored: the current view came back as if it were the one asked for.
+    if (a.orientation != null && !VIEWS.includes(a.orientation as ViewName)) throw new ToolError(`orientation: one of ${VIEWS.join(', ')}`);
+    if (a.style != null && !STYLES.includes(a.style as DisplayStyle)) throw new ToolError(`style: one of ${STYLES.join(', ')}`);
     const ui = this.host.ui;
     if (!ui) return { ok: false, content: 'Error: there is no view to capture here.' };
     await this.host.settle();
-    const orientation = VIEWS.includes(a.orientation as ViewName) ? (a.orientation as ViewName) : undefined;
-    const style = STYLES.includes(a.style as DisplayStyle) ? (a.style as DisplayStyle) : undefined;
+    const orientation = (a.orientation ?? undefined) as ViewName | undefined;
+    const style = (a.style ?? undefined) as DisplayStyle | undefined;
     const image = ui.capture({ orientation, style });
     if (!image) return { ok: false, content: 'Error: the view could not be captured.' };
     return { ok: true, content: `Screenshot of the ${orientation ?? 'current'} view${style ? ` (${style})` : ''} attached below. Axes: X red, Y green (up), Z blue.`, image };
