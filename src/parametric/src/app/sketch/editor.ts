@@ -75,6 +75,10 @@ interface DragState {
   circle?: Id;
   boxStart?: { x: number; y: number };
   dimId?: Id;
+  /** Points held where they started (an arc's centre while its size changes). */
+  pinned?: Set<Id>;
+  /** Arc whose radius the drag changes: the dragged ends move along their radii. */
+  arc?: { c: Id };
   moved: boolean;
 }
 
@@ -447,6 +451,14 @@ export class SketchEditor implements ViewportTool {
         if (!ids.length) this.app.setStatus(ent.ext ? PROJECTED_DRAG_NOTICE : FIXED_DRAG_NOTICE, true);
         else { this.app.clearStatus(FIXED_DRAG_NOTICE); this.app.clearStatus(PROJECTED_DRAG_NOTICE); }
         this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, circle: ent.id, moved: false };
+      } else if (ent.t === 'arc' && hit.kind === 'curve' && (!free || free.has(ent.id)) && !this.tangentTo(ent.id)
+        && [ent.a, ent.b].some((id) => !free || free.has(id)) && !this.arcRadiusLocked(ent)) {
+        // Like a circle's edge: dragging an arc changes its radius about its
+        // centre (the ends slide along their radii) instead of moving it.
+        const ends = [ent.a, ent.b].filter((id) => !free || free.has(id));
+        const ids = [...ends, ent.c];
+        this.app.clearStatus(FIXED_DRAG_NOTICE);
+        this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, pinned: new Set([ent.c]), arc: { c: ent.c }, moved: false };
       } else {
         // Drag every selected point (and curves' points) together.
         const ids = new Set<Id>();
@@ -472,7 +484,17 @@ export class SketchEditor implements ViewportTool {
           this.app.clearStatus(FIXED_DRAG_NOTICE);
           this.app.clearStatus(PROJECTED_DRAG_NOTICE);
         }
-        this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
+        // An arc's end dragged on its own resizes the arc about its centre,
+        // which stays (the other end slides along its radius); a tangent
+        // arc (a fillet) still follows the curves it meets.
+        const pinned = new Set<Id>();
+        if (hit.kind === 'point' && list.length === 1 && list[0] === hit.id) {
+          for (const a of sk.entities) {
+            if (a.t === 'arc' && (a.a === hit.id || a.b === hit.id) && (!free || free.has(a.c)) && !this.tangentTo(a.id)) pinned.add(a.c);
+          }
+        }
+        const all = [...list, ...[...pinned].filter((id) => !list.includes(id))];
+        this.drag = { kind: 'points', ids: all, start: all.map((id) => ix.pt(id)), grab: raw, pinned, moved: false };
       }
       this.app.store.beginBatch('Drag sketch geometry', () => { this.drag = null; });
       return true;
@@ -519,13 +541,36 @@ export class SketchEditor implements ViewportTool {
       }, 'sketch');
     } else if (d.kind === 'points' && d.ids!.length) {
       const dx = raw[0] - d.grab![0], dy = raw[1] - d.grab![1];
-      const targets = d.start!.map((p) => [p[0] + dx, p[1] + dy] as Vec2);
+      const c = d.arc ? d.start![d.ids!.indexOf(d.arc.c)] : null;
+      const r = c ? Math.max(dist2(c, raw), this.px) : 0;
+      const targets = d.start!.map((p, i) => {
+        if (d.pinned?.has(d.ids![i])) return p;
+        if (c) { const l = dist2(p, c) || 1; return [c[0] + ((p[0] - c[0]) / l) * r, c[1] + ((p[1] - c[1]) / l) * r] as Vec2; }
+        return [p[0] + dx, p[1] + dy] as Vec2;
+      });
       this.app.store.change('Drag', (doc) => {
         const s2 = doc.features.find((f) => f.id === this.sketchId) as SketchFeature;
         this.keepAnalysis(solveSketch(s2.entities, s2.constraints, { value: this.dimValue, drag: { kind: 'points', ids: d.ids!, targets }, analyze: false }));
       }, 'sketch');
     }
     this.queueRender();
+  }
+
+  /** Whether the relations and dimensions keep an arc's radius (about its centre) from changing. */
+  private arcRadiusLocked(arc: Extract<SkEntity, { t: 'arc' }>): boolean {
+    const sk = this.sketch;
+    const entities = structuredClone(sk.entities);
+    const ix = new SketchIndex(entities);
+    const c = ix.pt(arc.c), r = dist2(c, ix.pt(arc.a)), grown = r * 1.25 + this.px * 10;
+    const out = (id: Id): Vec2 => { const p = ix.pt(id), l = dist2(p, c) || 1; return [c[0] + ((p[0] - c[0]) / l) * grown, c[1] + ((p[1] - c[1]) / l) * grown]; };
+    solveSketch(entities, sk.constraints, { value: this.dimValue, drag: { kind: 'points', ids: [arc.a, arc.b, arc.c], targets: [out(arc.a), out(arc.b), c] }, analyze: false });
+    const after = new SketchIndex(entities);
+    return Math.abs(dist2(after.pt(arc.c), after.pt(arc.a)) - r) < 1e-6 * Math.max(1, r);
+  }
+
+  /** Whether a tangent relation ties the curve to another (a fillet follows the curves it meets). */
+  private tangentTo(id: Id): boolean {
+    return this.sketch.constraints.some((k) => k.type === 'tangent' && k.refs.includes(id));
   }
 
   /** Whether the relations and dimensions keep a circle's radius from changing. */

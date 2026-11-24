@@ -1608,6 +1608,50 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('dragging an arc or its end resizes it about its centre; a fixed radius moves it instead', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add arc', (sk) => {
+        sk.entities.push({ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 20, y: 0 }, { id: 'b', t: 'point', x: 0, y: 20 }, { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const drag = async (from: [number, number], to: [number, number]) => {
+      const p = await screen(from), q = await screen(to);
+      await page.mouse.move(p.x, p.y);
+      await page.mouse.down();
+      await page.mouse.move(q.x, q.y, { steps: 4 });
+      await page.mouse.up();
+    };
+    const pts = () => page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      const at = (id: string) => { const e = sk.entities.find((x) => x.id === id) as { x: number; y: number }; return [Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100]; };
+      return { c: at('c'), a: at('a'), b: at('b') };
+    });
+    // The curve: radius 20 becomes 30 along both radii, the centre stays.
+    const mid = 20 * Math.SQRT1_2, far = 30 * Math.SQRT1_2;
+    await drag([mid, mid], [far, far]);
+    await expect.poll(pts).toEqual({ c: [0, 0], a: [30, 0], b: [0, 30] });
+    // An end: the centre stays and the other end follows the new radius.
+    await drag([30, 0], [36, 0]);
+    await expect.poll(pts).toEqual({ c: [0, 0], a: [36, 0], b: [0, 36] });
+    // With its radius dimensioned the curve drag moves the arc instead.
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Dimension', (sk) => { sk.constraints.push({ id: 'R', type: 'radius', refs: ['arc'], value: 36, at: [40, 40], name: 'D1' }); });
+    });
+    const m2 = 36 * Math.SQRT1_2;
+    await drag([m2, m2], [m2 + 5, m2]);
+    await expect.poll(pts).toEqual({ c: [5, 0], a: [41, 0], b: [5, 36] });
+    expect(errors).toEqual([]);
+  });
+
   test('dragging a fully defined rectangle leaves it where it is', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
