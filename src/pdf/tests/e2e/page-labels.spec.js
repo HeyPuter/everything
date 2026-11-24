@@ -56,3 +56,52 @@ test('pages with labels of their own are named by them in the caption, thumbnail
   await expect(grid.locator('.organize-label')).toHaveText(['i', 'ii', '1', '2', '3']);
   await expect(grid.getByRole('option', { name: 'Page 3 (1)' })).toBeVisible();
 });
+
+// A link and the dialogs' Current page named the page by its number alone, while the caption
+// names it by its label first: "Page iii (3 of 6)" was "Link to page 3", "Current page (3)".
+test('links and the Current page choice name a labelled page as the caption does', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  const source = await PDFDocument.load(await labelledPdf());
+  source.getPage(0).node.addAnnot(
+    source.context.register(
+      source.context.obj({
+        Type: 'Annot',
+        Subtype: 'Link',
+        Rect: [40, 300, 200, 330],
+        Dest: [source.getPage(2).ref, 'Fit'],
+      }),
+    ),
+  );
+  source.getPage(0).node.addAnnot(
+    source.context.register(
+      source.context.obj({
+        Type: 'Annot',
+        Subtype: 'Link',
+        Rect: [40, 340, 200, 370],
+        Dest: [source.getPage(4).ref, 'Fit'],
+      }),
+    ),
+  );
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'book.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await source.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page i (1 of 6)');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.getByRole('button', { name: 'Link to page iii (3)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Link to page 2 (5)' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+p');
+  await expect(
+    page.getByRole('dialog', { name: 'Print' }).getByRole('radio', { name: 'Current page i (1)' }),
+  ).toBeVisible();
+});

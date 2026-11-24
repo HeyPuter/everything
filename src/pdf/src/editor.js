@@ -5213,8 +5213,14 @@ export function createEditor({
       // the destination is found; one that leads nowhere keeps the general name.
       if (link.dest && !link.url)
         linkPage(link.dest).then((to) => {
+          // A labelled page is named by its label first, as the page caption names it.
           if (to != null && target.isConnected)
-            target.setAttribute('aria-label', `Link to page ${to + 1}`);
+            target.setAttribute(
+              'aria-label',
+              pageLabel(to)
+                ? `Link to page ${pageLabel(to)} (${to + 1})`
+                : `Link to page ${to + 1}`,
+            );
         });
       target.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -10672,7 +10678,14 @@ export function createEditor({
       'div',
       { class: 'choice-list', role: 'radiogroup', 'aria-label': 'Pages to include' },
       all && choice('all', `All pages (${count})`, start === 'all'),
-      choice('current', `Current page (${pageIndex + 1})`, start === 'current'),
+      // A labelled page is named by its label first, as the page caption names it.
+      choice(
+        'current',
+        pageLabel(pageIndex)
+          ? `Current page ${pageLabel(pageIndex)} (${pageIndex + 1})`
+          : `Current page (${pageIndex + 1})`,
+        start === 'current',
+      ),
       el('div', { class: 'choice-with-input' }, rangeChoice, rangeInput),
     );
     return {
