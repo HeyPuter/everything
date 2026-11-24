@@ -1042,10 +1042,11 @@ export class App {
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;
     this.viewport.refreshStates();
-    // After the sketches shown with the solid are drawn for this build: zoom to fit frames them too.
+    // After the sketches shown with the solid are drawn for this build: zoom to fit frames them too
+    // (and a part with only sketches).
     if (this.fitOnNextBuild) {
       this.fitOnNextBuild = false;
-      if (res.bbox) this.viewport.zoomToFit(false, false);
+      if (res.bbox || this.renderer.camera.sceneBounds) this.viewport.zoomToFit(false, false);
     }
     this.viewport.rehoverSoon();
     this.renderTrees();
