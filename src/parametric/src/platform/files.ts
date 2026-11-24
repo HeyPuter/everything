@@ -16,6 +16,7 @@ export const CLOUD_DIR = 'Parts';
 const LOCAL_DIR = 'parametric-parts';
 const LOCAL_INDEX = 'parametric:local-parts';
 const RECENT_KEY = 'parametric:recent';
+const NO_LOCAL_STORAGE = 'This browser cannot store parts locally. Download the part or sign in to save it to your Puter cloud.';
 
 export type Location = { type: 'cloud'; path: string } | { type: 'local'; id: string };
 
@@ -74,6 +75,7 @@ export const localAvailable = async () => !!(await opfsDir());
 
 async function writeFile(dir: FileSystemDirectoryHandle, name: string, text: string) {
   const fh = await dir.getFileHandle(name, { create: true });
+  if (typeof fh.createWritable !== 'function') return writeInWorker(name, text);
   const w = await fh.createWritable();
   try {
     await w.write(text);
@@ -85,9 +87,41 @@ async function writeFile(dir: FileSystemDirectoryHandle, name: string, text: str
   }
 }
 
+// Safari before 26 reads browser storage from the page but writes it only
+// from a worker (see opfs-writer.ts).
+let writer: Worker | null = null;
+let writeRequests = 0;
+const pendingWrites = new Map<number, { resolve: () => void; reject: (e: Error) => void }>();
+
+function writeInWorker(name: string, text: string): Promise<void> {
+  if (typeof Worker !== 'function') return Promise.reject(new Error(NO_LOCAL_STORAGE));
+  if (!writer) {
+    writer = new Worker(new URL('./opfs-writer.ts', import.meta.url), { type: 'module', name: 'storage' });
+    writer.onmessage = (e: MessageEvent<{ id: number; ok: boolean; name?: string; message?: string }>) => {
+      const req = pendingWrites.get(e.data.id);
+      pendingWrites.delete(e.data.id);
+      if (!req) return;
+      if (e.data.ok) req.resolve();
+      else req.reject(Object.assign(new Error(e.data.name === 'TypeError' ? NO_LOCAL_STORAGE : e.data.message || NO_LOCAL_STORAGE), { name: e.data.name ?? 'Error' }));
+    };
+    // A worker that cannot start fails every write waiting for it.
+    writer.onerror = () => {
+      for (const req of pendingWrites.values()) req.reject(new Error(NO_LOCAL_STORAGE));
+      pendingWrites.clear();
+      writer = null;
+    };
+  }
+  const id = ++writeRequests;
+  const w = writer;
+  return new Promise<void>((resolve, reject) => {
+    pendingWrites.set(id, { resolve, reject });
+    w.postMessage({ id, dir: LOCAL_DIR, name, text });
+  });
+}
+
 async function localWrite(id: string, name: string, text: string) {
   const dir = await opfsDir();
-  if (!dir) throw new Error('This browser cannot store parts locally. Download the part or sign in to save it to your Puter cloud.');
+  if (!dir) throw new Error(NO_LOCAL_STORAGE);
   await writeFile(dir, `${id}${EXT}`, text);
   const list = readIndex().filter((p) => p.id !== id);
   list.unshift({ id, name, modified: Date.now(), size: text.length });
