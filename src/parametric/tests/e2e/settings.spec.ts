@@ -60,7 +60,7 @@ for (const fails of [false, true]) test(`later preference changes remain saved w
     };
   }, fails);
   const errors = await openApp(page);
-  const units = page.getByLabel('Units for the new part', { exact: true });
+  const units = page.getByLabel('Units for new parts', { exact: true });
   await units.selectOption('IPS');
   await page.waitForFunction(() => (window as unknown as { writeStarted: boolean }).writeStarted);
   await units.selectOption('MKS');
@@ -135,7 +135,7 @@ test('an earlier account-settings response cannot replace a later load', async (
 test('the start screen reflects account units that arrive after it opens', async ({ page }) => {
   await delayedAccountSettings(page);
   const errors = await openApp(page);
-  const units = page.getByLabel('Units for the new part', { exact: true });
+  const units = page.getByLabel('Units for new parts', { exact: true });
   await expect(units).toHaveValue('MMGS');
   await page.evaluate(() => (window as unknown as SettingsWindow).releaseSettings());
   await expect(units).toHaveValue('CGS');

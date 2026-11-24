@@ -5,7 +5,7 @@ import type { UnitSystem } from '../model/types';
 import { locationLabel, recentParts, sameLocation } from '../platform/files';
 import { accountChanged, canSignOut, cloudAvailable, env, getProfilePicture, getUser, isSignedIn, puter, signIn, signOut } from '../platform/puter';
 import { getThemeChoice, setThemeChoice } from '../platform/theme';
-import { h } from '../ui/dom';
+import { h, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { dropdown, type MenuItem } from '../ui/menu';
 import { toast } from '../ui/overlay';
@@ -26,7 +26,8 @@ export class StartScreen {
     this.hide();
     const app = this.app;
     const units = app.settings.defaultUnits;
-    const unitSel = h('select', { class: 'input', 'aria-label': 'Units for the new part', style: { width: 'auto' } }) as HTMLSelectElement;
+    // Named by its visible label, so speech input can use what it sees.
+    const unitSel = h('select', { class: 'input', id: nextDomId('start-units'), style: { width: 'auto' } }) as HTMLSelectElement;
     for (const u of Object.values(UNIT_SYSTEMS)) {
       const o = h('option', { value: u.id }, u.label) as HTMLOptionElement;
       if (u.id === units) o.selected = true;
@@ -57,7 +58,7 @@ export class StartScreen {
         action('open', 'Open', cloudAvailable() ? 'Open a part from your Puter cloud or this browser' : 'Open a part saved in this browser', () => { this.hide(); void this.files.open(); }),
         action('upload', 'Open from device', 'Open a part file, or a STEP or SolidWorks file', () => { this.hide(); void this.files.openFromDevice(); }),
       ),
-      h('div', { class: 'row' }, h('label', { class: 'field-label' }, 'Units for new parts'), unitSel),
+      h('div', { class: 'row' }, h('label', { class: 'field-label', for: unitSel.id }, 'Units for new parts'), unitSel),
       recents.length ? h('div', { class: 'start-section' }, h('h2', {}, 'Recent'), h('div', { class: 'file-list' }, recents.map((r) => {
         const b = h('button', { class: 'file-item', type: 'button' }, icon(r.location.type === 'cloud' ? 'cloud' : 'device', 16),
           h('span', { class: 'txt' }, h('span', { class: 'n' }, r.name), h('span', { class: 'meta' }, locationLabel(r.location))));

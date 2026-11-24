@@ -595,3 +595,10 @@ test('the shortcut bar gives keyboard focus back to where S was pressed', async 
   await expect(bar).toHaveCount(0);
   await expect(row).toBeFocused();
 });
+
+test("the start screen's units field is named by its visible label", async ({ page }) => {
+  await openApp(page);
+  const start = page.getByRole('dialog', { name: 'Parametric' });
+  await start.getByText('Units for new parts', { exact: true }).click();
+  await expect(start.getByRole('combobox', { name: 'Units for new parts', exact: true })).toBeFocused();
+});
