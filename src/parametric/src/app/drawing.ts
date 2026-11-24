@@ -81,13 +81,18 @@ export class DrawingWorkspace {
     const layout = b ? standardLayout(sheetDims({ sheet: size, landscape: true }), b.min, b.max) : { scale: 1, views: [] };
     // Opened before the first rebuild finished: lay out once the solid exists.
     this.layoutPending = !b;
-    this.app.store.change('Create drawing', (d) => {
-      d.drawing = {
-        sheet: size, landscape: true, scale: layout.scale,
-        views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })), title: '', drawnBy: '', notes: '',
-      };
-    });
+    // Only looking at the drawing does not edit the part: it is neither marked edited nor
+    // given an undo step until the drawing is changed (and is saved with the part from then).
+    const drawing: DrawingDoc = {
+      sheet: size, landscape: true, scale: layout.scale,
+      views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })), title: '', drawnBy: '', notes: '',
+    };
+    this.app.store.doc.drawing = drawing;
+    this.untouched = JSON.stringify(drawing);
   }
+
+  /** The drawing as created, until it is changed. */
+  private untouched = '';
 
   /** Re-lays out the standard views (keeps sheet settings). */
   relayout() {
@@ -95,10 +100,16 @@ export class DrawingWorkspace {
     const d = this.doc;
     if (!b || !d) return;
     const layout = standardLayout(sheetDims(d), b.min, b.max);
-    this.app.store.change('Arrange views', (doc) => {
-      doc.drawing!.scale = layout.scale;
-      doc.drawing!.views = layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` }));
-    });
+    const arrange = (x: DrawingDoc) => {
+      x.scale = layout.scale;
+      x.views = layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` }));
+    };
+    // A drawing nobody changed yet is still not an edit of the part.
+    if (JSON.stringify(d) === this.untouched) {
+      arrange(d);
+      this.untouched = JSON.stringify(d);
+      void this.refresh();
+    } else this.app.store.change('Arrange views', (doc) => arrange(doc.drawing!));
   }
 
   update(fn: (d: DrawingDoc) => void, label = 'Edit drawing') {

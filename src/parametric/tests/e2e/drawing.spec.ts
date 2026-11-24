@@ -270,6 +270,34 @@ test('a larger drawing scale moves the views apart and keeps them on the sheet, 
   }
 });
 
+test('opening the drawing does not mark the part edited until the drawing is changed', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { store: { dirty: boolean; undoDepth: number; doc: { drawing?: { views: { x: number }[] } } } };
+  const state = () => page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    // What saving writes, from the app's own module (served by the dev server).
+    const url = '/src/model/document.ts';
+    const { serializeDocument } = (await import(/* @vite-ignore */ url)) as typeof import('../../src/model/document');
+    return { dirty: app.store.dirty, depth: app.store.undoDepth, saved: !!JSON.parse(serializeDocument(app.store.doc as never)).drawing };
+  });
+  const s0 = await state();
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await expect(page.locator('.doc-state')).not.toHaveText('Edited');
+  expect(await state()).toMatchObject({ dirty: s0.dirty, depth: s0.depth });
+  // Moving a view is an edit: one undo step, and the drawing is saved with the part.
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).click();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.doc-state')).toHaveText('Edited');
+  expect(await state()).toEqual({ dirty: true, depth: s0.depth + 1, saved: true });
+  // Undoing it leaves the drawing as it was opened, still open.
+  await page.keyboard.press('Meta+Z');
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  expect((await state()).depth).toBe(s0.depth);
+});
+
 test.describe('in a time zone behind UTC', () => {
   test.use({ timezoneId: 'Pacific/Pago_Pago' });
   test('the title block shows the local date', async ({ page }) => {
