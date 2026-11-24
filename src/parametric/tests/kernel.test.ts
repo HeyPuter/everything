@@ -1013,6 +1013,9 @@ describe('feature regeneration', () => {
     });
     for (const angle of [95, -90]) expect((await b.build(req([...base, draft(angle)]))).status[2].error).toMatch(/between -90 and 90 degrees/);
     expect((await b.build(req([...base, draft(-5)]))).status[2].ok).toBe(true);
+    // A draft of 0 degrees changes nothing: said, as for other features that change nothing.
+    expect((await b.build(req([...base, draft(0)]))).status[2]).toEqual({ id: 'D1', ok: true, warning: 'A draft angle of 0 degrees changes nothing. Enter an angle.' });
+    expect(volume(b)).toBeCloseTo(4000, 6);
     // A value that is not a number (a damaged file) is named.
     expect((await b.build(req([...base, { ...draft(5), angle: 'x' } as Feature]))).status[2].error).toBe('Draft angle has an invalid value');
   });

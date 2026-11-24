@@ -1344,6 +1344,8 @@ export class ModelBuilder {
     const oc = getOc();
     const dir = scale(fr.n, f.flip ? -1 : 1);
     const selected = f.faces.map((r) => st.faces[this.resolveFace(r, st)]);
+    // It built without a word, like other features that change nothing used to.
+    if (Math.abs(angle) < 1e-9) { this.warning = 'A draft angle of 0 degrees changes nothing. Enter an angle.'; return; }
     const builder = new oc.BRepOffsetAPI_DraftAngle(st.body.wrapped);
     const pln = plane(fr.o, dir);
     const gd = gdir(dir);
