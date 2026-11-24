@@ -671,20 +671,37 @@ export function extendPreview(sk: SketchFeature, lineId: Id, at: Vec2): [Vec2, V
 export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: string) => Id): boolean {
   const plan = extendPlan(sk, lineId, at);
   if (!plan) return false;
-  const pt = sk.entities.find((e) => e.id === plan.pid) as SkPoint;
-  pt.x = plan.to[0];
-  pt.y = plan.to[1];
+  const line = sk.entities.find((e) => e.id === lineId) as SkLine;
+  const end = line.a === plan.pid ? 'a' : 'b';
   dropLengthDimensions(sk, lineId);
-  // The end leaves the curves it lay on (a line drawn up to a circle, extended
-  // across it): relations holding it on them would drag them along to the new end.
-  const ix = new SketchIndex(sk.entities);
-  sk.constraints = sk.constraints.filter((k) => {
-    if ((k.type !== 'coincident' && k.type !== 'midpoint') || k.refs.length !== 2 || !k.refs.includes(plan.pid)) return true;
-    const other = ix.get(k.refs[0] === plan.pid ? k.refs[1] : k.refs[0]);
-    if (!other || other.t === 'point') return true;
-    return k.type === 'coincident' && distanceToCurve(ix, other, plan.to).d < 1e-7 * (1 + Math.hypot(plan.to[0], plan.to[1]));
-  });
-  if (newId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [plan.pid, plan.by.id] });
+  // An end another curve also uses (a rectangle's corner) stays where it is
+  // with that curve: moving it slanted the other side. The line leaves it on
+  // a new end point, as an end coincident with another point leaves that one.
+  const shared = sk.entities.some((e) => e.t !== 'point' && e.id !== lineId && pointIdsOf(e).includes(plan.pid));
+  let pid = plan.pid;
+  if (shared) {
+    pid = (newId ?? idFactory(sk))('p');
+    sk.entities.push({ id: pid, t: 'point', x: plan.to[0], y: plan.to[1] });
+    line[end] = pid;
+  } else {
+    const pt = sk.entities.find((e) => e.id === plan.pid) as SkPoint;
+    pt.x = plan.to[0];
+    pt.y = plan.to[1];
+    // The end leaves the curves and points it lay on (a line drawn up to a
+    // circle, extended across it): relations holding it there would drag them
+    // along to the new end.
+    const ix = new SketchIndex(sk.entities);
+    sk.constraints = sk.constraints.filter((k) => {
+      if ((k.type !== 'coincident' && k.type !== 'midpoint') || k.refs.length !== 2 || !k.refs.includes(pid)) return true;
+      const otherId = k.refs[0] === pid ? k.refs[1] : k.refs[0];
+      if (otherId === ORIGIN_ID) return dist2(plan.to, [0, 0]) < 1e-9;
+      const other = ix.get(otherId);
+      if (!other) return true;
+      if (other.t === 'point') return k.type !== 'coincident' || dist2(plan.to, [other.x, other.y]) < 1e-9;
+      return k.type === 'coincident' && distanceToCurve(ix, other, plan.to).d < 1e-7 * (1 + Math.hypot(plan.to[0], plan.to[1]));
+    });
+  }
+  if (newId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pid, plan.by.id] });
   return true;
 }
 

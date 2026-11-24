@@ -796,6 +796,34 @@ describe('editing tools', () => {
     expect([ix.pt('w1a')[0], ix.pt('w2a')[0], ix.pt('b')[0]]).toEqual([5, 10, 10]);
   });
 
+  it('extends a rectangle side from its corner without slanting the side that shares it', () => {
+    const s = sk([
+      ...rect(0, 0, 10, 5, 'r'),
+      { id: 'w1', t: 'point', x: 20, y: -10 }, { id: 'w2', t: 'point', x: 20, y: 10 }, { id: 'w', t: 'line', a: 'w1', b: 'w2' },
+      { id: 'q1', t: 'point', x: 2, y: 8 }, { id: 'q2', t: 'point', x: 6, y: 8 }, { id: 'q', t: 'line', a: 'q1', b: 'q2' },
+      { id: 'z1', t: 'point', x: 6, y: 8 }, { id: 'z2', t: 'point', x: 6, y: 12 }, { id: 'z', t: 'line', a: 'z1', b: 'z2' },
+    ]);
+    s.constraints.push(
+      { id: 'h1', type: 'horizontal', refs: ['rl0'] }, { id: 'h2', type: 'horizontal', refs: ['rl2'] },
+      { id: 'v1', type: 'vertical', refs: ['rl1'] }, { id: 'v2', type: 'vertical', refs: ['rl3'] },
+      { id: 'o', type: 'coincident', refs: ['rp0', 'O'] }, { id: 'vw', type: 'vertical', refs: ['w'] },
+      // A chain joined by a coincident relation instead of a shared point.
+      { id: 'j', type: 'coincident', refs: ['q2', 'z1'] }, { id: 'hq', type: 'horizontal', refs: ['q'] }, { id: 'vz', type: 'vertical', refs: ['z'] },
+    );
+    // It moved the shared corner to x=20, taking the right side with it.
+    expect(extendAt(s, 'rl0', [9.9, 0], idFactory(s))).toBe(true);
+    expect(extendAt(s, 'q', [5.9, 8], idFactory(s))).toBe(true);
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.badConstraints.size).toBe(0);
+    const ix = new SketchIndex(s.entities);
+    const l = s.entities.find((e) => e.id === 'rl0') as SkLine;
+    expect(l.a).toBe('rp0');
+    expect(ix.pt(l.b)).toEqual([20, 0]);
+    expect([ix.pt('rp1'), ix.pt('rp2')]).toEqual([[10, 0], [10, 5]]);
+    expect(ix.pt('q2')).toEqual([20, 8]);
+    expect([ix.pt('z1'), ix.pt('z2')]).toEqual([[6, 8], [6, 12]]);
+  });
+
   it('keeps a line extended or trimmed at a spline on the spline', () => {
     const spline = (): SkEntity[] => [
       { id: 's0', t: 'point', x: 9, y: -6 }, { id: 's1', t: 'point', x: 10, y: 0 }, { id: 's2', t: 'point', x: 9, y: 6 },
