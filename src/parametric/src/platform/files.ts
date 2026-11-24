@@ -245,6 +245,11 @@ export async function uniqueCloudPath(name: string): Promise<string> {
 
 export async function newLocation(name: string): Promise<Location> {
   if (cloudAvailable()) return { type: 'cloud', path: await uniqueCloudPath(name) };
+  return newLocalLocation();
+}
+
+/** A new file in this browser's storage. */
+export function newLocalLocation(): Location {
   const existing = new Set(readIndex().map((p) => p.id));
   let id: string;
   do {

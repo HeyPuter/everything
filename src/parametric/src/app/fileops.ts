@@ -7,9 +7,9 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, claimRecovery, orphanRecoveries, removeRecovery, safeName, writeRecovery, writeRecoveryOnUnload, type FileEntry, deletePart, forgetRecent, rememberRecent,
-  onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
+  newLocalLocation, onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
-import { type PuterFSItem, cloudAvailable, env, isMissing, isPermissionError, puter, signIn, storageError } from '../platform/puter';
+import { type PuterFSItem, cloudAvailable, env, isMissing, isNetworkError, isPermissionError, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../ui/overlay';
@@ -318,11 +318,34 @@ export class FileOps {
       const actions = [{ label: 'Download a copy', run: () => void this.exportAs('part') }];
       // Signed out (in another tab, say), Save As keeps it in this browser, as the message says.
       if (isPermissionError(e) || (app.location?.type === 'cloud' && !cloudAvailable())) actions.unshift({ label: 'Save As...', run: () => void this.saveAs() });
+      // Offline, the cloud cannot be reached at all, Save As included: this browser can keep it.
+      else if (isNetworkError(e)) actions.unshift({ label: 'Save in this browser', run: () => void this.saveInBrowser() });
       toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions, timeout: 15000 });
       return false;
     });
     this.queuedSave = { documentVersion, result };
     return result;
+  }
+
+  /** Keeps the part in this browser's storage, for when the cloud cannot be reached (offline). */
+  saveInBrowser() {
+    const app = this.app;
+    const documentVersion = this.documentVersion;
+    return this.fileOperation(async () => {
+      if (documentVersion !== this.documentVersion) return;
+      if (app.sketchEditor) app.exitSketch(true);
+      const doc = app.store.doc;
+      const revision = this.revision;
+      try {
+        const { location } = await savePart(newLocalLocation(), doc.name, serializeDocument(doc), true);
+        if (documentVersion !== this.documentVersion) return;
+        this.setLocation(location, null);
+        this.markSaved(revision);
+        toast({ kind: 'success', message: `Saved in this browser. Once you are online again, Save As puts "${doc.name}" back in your Puter cloud.`, timeout: 9000 });
+      } catch (e) {
+        toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
+      }
+    });
   }
 
   /** Where the open part now lives, and the version of its cloud file written or read there. */

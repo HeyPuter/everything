@@ -606,6 +606,32 @@ test('a recent cloud part chosen while signed out offers to sign in, then opens'
   expect(errors).toEqual([]);
 });
 
+test('a cloud save that cannot reach Puter offers to keep the part in this browser', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; puter: { fs: { write: () => Promise<unknown> } } };
+    // Offline: puter.js rejects with the request that got no answer.
+    w.puter.fs.write = async () => { throw { readyState: 4, status: 0, responseText: '' }; };
+    w.__parametric.store.change('Work', (d) => { d.variables.push({ name: 'Offline', expr: '1' }); });
+    w.__parametric.commands.run('save');
+  });
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts).toContainText('Puter could not be reached. Check your connection and try again.');
+  await toasts.getByRole('button', { name: 'Save in this browser' }).click();
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await expect(toasts).toContainText('Saved in this browser.');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location?.type)).toBe('local');
+  const stored = await page.evaluate(async (url) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return JSON.parse(await (await import(url)).loadText(a.location)).variables.map((v: { name: string }) => v.name);
+  }, '/src/platform/files.ts');
+  expect(stored).toEqual(['Offline']);
+  expect(errors).toEqual([]);
+});
+
 test('Open says it is loading while a slow cloud listing is pending', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);
