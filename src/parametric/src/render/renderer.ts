@@ -580,11 +580,14 @@ export class Renderer {
     const gl = this.gl;
     const w = Math.max(1, Math.min(2048, n));
     const h = Math.max(1, Math.ceil(n / 2048));
-    const rgba = new Uint8Array(w * h * 4);
-    if (channels === 4) rgba.set(data.subarray(0, Math.min(data.length, rgba.length)));
-    else for (let i = 0; i < n; i++) rgba[i * 4] = data[i];
+    // States (one byte per face or edge, re-sent on every hover change) go up as a one-channel
+    // texture: spreading them over RGBA cost four bytes of garbage per entity per hover.
+    const size = w * h * channels;
+    let px = data;
+    if (data.length !== size) { px = new Uint8Array(size); px.set(data.subarray(0, Math.min(data.length, size))); }
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+    if (channels === 4) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, px);
   }
 
   // ---- resources ----
