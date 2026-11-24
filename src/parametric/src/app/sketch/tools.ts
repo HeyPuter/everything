@@ -4,7 +4,7 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { PROJECTED_LOCKED, extendAt, filletCorner, smartDimension, trimAt, zeroDimensionReason } from '../../sketch/ops';
+import { PROJECTED_LOCKED, extendAt, filletCorner, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
 import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
@@ -670,15 +670,23 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
 }
 
 export function trimTool(ed: SketchEditor): SkTool {
+  // Only the piece a click removes lights up, not the whole curve: a curve
+  // crossed by others loses just the part between its nearest cuts.
+  const show = (p: Vec2) => {
+    const hit = ed.pickAt(p, 8);
+    const part = hit?.kind === 'curve' && !isExternal(ed.sketch, hit.id) ? trimPreview(ed.sketch, hit.id, p, Math.max(ed.px * 0.4, 1e-5)) : null;
+    // Projected geometry cannot be trimmed: it lights up whole, and a click explains.
+    ed.hovered = hit?.kind === 'curve' && !part ? hit : null;
+    ed.setHighlight(part ? [part] : []);
+    ed.queueRender();
+  };
   return {
     id: 'trim',
     label: 'Trim Entities',
     hint: 'Click the part of a curve to remove (up to its nearest intersections).',
     picks: true,
     move(s) {
-      const hit = ed.pickAt(s.p, 8);
-      ed.hovered = hit && hit.kind === 'curve' ? hit : null;
-      ed.queueRender();
+      show(s.p);
     },
     click(s) {
       const hit = ed.pickAt(s.p, 8);
@@ -687,6 +695,8 @@ export function trimTool(ed: SketchEditor): SkTool {
       let changed = false;
       ed.edit('Trim', (sk, newId) => { changed = trimAt(sk, hit.id, s.p, newId); });
       ed.app.setStatus(changed ? this.hint : 'Nothing trimmed. Click between intersections on a line, arc, or circle.');
+      // What the next click here would remove.
+      show(s.p);
       return true;
     },
     cancel: () => false,

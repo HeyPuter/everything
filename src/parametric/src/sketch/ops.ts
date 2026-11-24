@@ -10,7 +10,7 @@ import { isDimension } from '../model/types';
 import { SketchSystem } from './solver';
 import { type Vec2, angle2, cross2, dist2, dot2, norm2, sub2, wrap2Pi } from '../math/vec';
 import {
-  ORIGIN_ID, SketchIndex, arcAngles, arcRadius, closestOnSegment, curveParam, intersectPrims, pointIdsOf, primsOf, tessellate,
+  ORIGIN_ID, SketchIndex, arcAngles, arcRadius, closestOnSegment, curveParam, intersectPrims, pointIdsOf, primsOf, segmentsFor, tessellate,
 } from './geom';
 
 export class IdGen {
@@ -454,17 +454,26 @@ function dropLengthDimensions(sk: SketchFeature, lineId: Id) {
   });
 }
 
+type Cut = { p: Vec2; by?: Id; t: number };
+
 /**
- * Removes the portion of a curve around `at` bounded by its nearest
- * intersections with other curves. Returns false if nothing changed.
+ * What trimming a curve at `at` removes: nothing, the whole curve, the part
+ * of a line or arc between the cuts either side (`before`/`after`, or its
+ * start/end where there is none), or the part of a circle from `lo` to `hi`
+ * counter-clockwise.
  */
-export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: string) => Id): boolean {
-  const ix = new SketchIndex(sk.entities);
+type TrimPlan =
+  | { kind: 'none' }
+  | { kind: 'delete' }
+  | { kind: 'open'; e: SkLine | SkArc; before?: Cut; after?: Cut }
+  | { kind: 'circle'; e: SkCircle; lo: Cut; hi: Cut };
+
+function trimPlan(sk: SketchFeature, ix: SketchIndex, curveId: Id, at: Vec2): TrimPlan {
   const found = ix.get(curveId);
   // Projected geometry is where its model edge is: trimming it would not last.
-  if (!found || found.t === 'point' || found.ext) return false;
+  if (!found || found.t === 'point' || found.ext) return { kind: 'none' };
   const e: SkCurve = found;
-  const cuts = cutPoints(sk, e).map((c) => ({ ...c, t: curveParam(ix, e, c.p) }));
+  const cuts: Cut[] = cutPoints(sk, e).map((c) => ({ ...c, t: curveParam(ix, e, c.p) }));
   const tc = curveParam(ix, e, at);
   if (e.t === 'line' || e.t === 'arc' || e.t === 'spline') {
     const start = ix.pt(e.t === 'spline' ? e.pts[0] : e.a);
@@ -477,11 +486,69 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
       && (c.t < 1 - 1e-6 || dist2(c.p, end) > 1e-7));
     // A cut itself does not identify either adjacent portion. Ignoring it
     // would let one click remove both sides (or the entire curve).
-    if (inner.some((c) => c.t === tc)) return false;
+    if (inner.some((c) => c.t === tc)) return { kind: 'none' };
     const before = inner.filter((c) => c.t < tc).sort((a, b) => b.t - a.t)[0];
     const after = inner.filter((c) => c.t > tc).sort((a, b) => a.t - b.t)[0];
-    if (!before && !after) { deleteItems(sk, [curveId]); return true; }
-    if (e.t === 'spline') return false;
+    if (!before && !after) return { kind: 'delete' };
+    if (e.t === 'spline') return { kind: 'none' };
+    return { kind: 'open', e, before, after };
+  }
+  // Circle: needs two cuts and becomes an arc covering the rest.
+  // Several cutting curves can report the same point. Count locations,
+  // including across the angle seam, rather than producing a full-circle
+  // arc from two coincident ends. Bound merging in both angle and length.
+  const tolerance = Math.min(1e-9, 1e-7 / e.r);
+  const sorted: Cut[] = [];
+  for (const cut of cuts.sort((a, b) => a.t - b.t)) {
+    if (!sorted.length || cut.t - sorted[sorted.length - 1].t > tolerance) sorted.push(cut);
+  }
+  if (sorted.length > 1 && 2 * Math.PI - sorted[sorted.length - 1].t + sorted[0].t <= tolerance) sorted.pop();
+  if (sorted.length < 2) return { kind: 'delete' };
+  if (cuts.some((c) => c.t === tc)) return { kind: 'none' };
+  let lo = sorted[sorted.length - 1], hi = sorted[0];
+  for (let i = 0; i + 1 < sorted.length; i++) if (tc >= sorted[i].t && tc <= sorted[i + 1].t) { lo = sorted[i]; hi = sorted[i + 1]; }
+  return { kind: 'circle', e, lo, hi };
+}
+
+/**
+ * The part of a curve that trimming at `at` would remove, as a polyline
+ * (`tol` is its chord error), or null when the click would trim nothing.
+ */
+export function trimPreview(sk: SketchFeature, curveId: Id, at: Vec2, tol = 0.01): Vec2[] | null {
+  const ix = new SketchIndex(sk.entities);
+  const plan = trimPlan(sk, ix, curveId, at);
+  if (plan.kind === 'none') return null;
+  if (plan.kind === 'delete') return tessellate(ix, ix.get(curveId) as SkCurve, tol);
+  const arcPart = (c: Vec2, r: number, a0: number, sweep: number): Vec2[] => {
+    const n = segmentsFor(r, sweep, tol);
+    return Array.from({ length: n + 1 }, (_, i) => [c[0] + r * Math.cos(a0 + (sweep * i) / n), c[1] + r * Math.sin(a0 + (sweep * i) / n)] as Vec2);
+  };
+  if (plan.kind === 'circle') {
+    const c = ix.pt(plan.e.c);
+    return arcPart(c, plan.e.r, plan.lo.t, wrap2Pi(plan.hi.t - plan.lo.t) || 2 * Math.PI);
+  }
+  const { e, before, after } = plan;
+  const t0 = before?.t ?? 0, t1 = after?.t ?? 1;
+  if (e.t === 'line') {
+    const a = ix.pt(e.a), b = ix.pt(e.b);
+    const at2 = (t: number): Vec2 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    return [at2(t0), at2(t1)];
+  }
+  const { start, sweep, r, c } = arcAngles(ix, e);
+  return arcPart(c, r, start + t0 * sweep, (t1 - t0) * sweep);
+}
+
+/**
+ * Removes the portion of a curve around `at` bounded by its nearest
+ * intersections with other curves. Returns false if nothing changed.
+ */
+export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: string) => Id): boolean {
+  const ix = new SketchIndex(sk.entities);
+  const plan = trimPlan(sk, ix, curveId, at);
+  if (plan.kind === 'none') return false;
+  if (plan.kind === 'delete') { deleteItems(sk, [curveId]); return true; }
+  if (plan.kind === 'open') {
+    const { e, before, after } = plan;
     const startId = e.a, endId = e.b;
     if (e.t === 'line') dropLengthDimensions(sk, e.id);
     if (before && after) {
@@ -507,31 +574,15 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
     cleanupConstraints(sk);
     return true;
   }
-  // Circle: needs two cuts and becomes an arc covering the rest.
-  if (e.t === 'circle') {
-    // Several cutting curves can report the same point. Count locations,
-    // including across the angle seam, rather than producing a full-circle
-    // arc from two coincident ends. Bound merging in both angle and length.
-    const tolerance = Math.min(1e-9, 1e-7 / e.r);
-    const sorted: typeof cuts = [];
-    for (const cut of cuts.sort((a, b) => a.t - b.t)) {
-      if (!sorted.length || cut.t - sorted[sorted.length - 1].t > tolerance) sorted.push(cut);
-    }
-    if (sorted.length > 1 && 2 * Math.PI - sorted[sorted.length - 1].t + sorted[0].t <= tolerance) sorted.pop();
-    if (sorted.length < 2) { deleteItems(sk, [curveId]); return true; }
-    if (cuts.some((c) => c.t === tc)) return false;
-    let lo = sorted[sorted.length - 1], hi = sorted[0];
-    for (let i = 0; i + 1 < sorted.length; i++) if (tc >= sorted[i].t && tc <= sorted[i + 1].t) { lo = sorted[i]; hi = sorted[i + 1]; }
-    const c = ix.pt(e.c);
-    const on = (cut: typeof lo): typeof lo => ({ ...cut, p: [c[0] + e.r * Math.cos(cut.t), c[1] + e.r * Math.sin(cut.t)] });
-    const ia = cutEnd(sk, on(hi), newId), ib = cutEnd(sk, on(lo), newId);
-    const idx = sk.entities.indexOf(e);
-    const arc: SkArc = { id: e.id, t: 'arc', c: e.c, a: ia, b: ib, construction: e.construction };
-    sk.entities[idx] = arc;
-    // Radius-based constraints still apply to the arc; nothing else to fix.
-    return true;
-  }
-  return false;
+  const { e, lo, hi } = plan;
+  const c = ix.pt(e.c);
+  const on = (cut: Cut): Cut => ({ ...cut, p: [c[0] + e.r * Math.cos(cut.t), c[1] + e.r * Math.sin(cut.t)] });
+  const ia = cutEnd(sk, on(hi), newId), ib = cutEnd(sk, on(lo), newId);
+  const idx = sk.entities.indexOf(e);
+  const arc: SkArc = { id: e.id, t: 'arc', c: e.c, a: ia, b: ib, construction: e.construction };
+  sk.entities[idx] = arc;
+  // Radius-based constraints still apply to the arc; nothing else to fix.
+  return true;
 }
 
 function dropOrphan(sk: SketchFeature, pid: Id) {

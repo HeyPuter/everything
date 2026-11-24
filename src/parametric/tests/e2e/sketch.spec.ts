@@ -1282,14 +1282,52 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
-  test('a curve highlighted by Trim does not stay highlighted in the next tool', async ({ page }) => {
+  test('Trim highlights only the piece a click would remove', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add crossing lines', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: -30, y: 0 }, { id: 'b', t: 'point', x: 30, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' });
+        sk.entities.push({ id: 'c', t: 'point', x: 0, y: -20 }, { id: 'd', t: 'point', x: 0, y: 20 }, { id: 'v', t: 'line', a: 'c', b: 'd' });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const hl = (a.renderer as unknown as { lines: Map<string, { positions: Float32Array }> }).lines.get('sk-highlight');
+      return { hovered: a.sketchEditor!.hovered?.id ?? null, xs: hl ? [...hl.positions].filter((_, i) => i % 3 === 0).map(Math.round) : [] };
+    });
+    await page.locator('[data-cmd="tool:trim"]').click();
+    const p = await screen([15, 0]);
+    await page.mouse.move(p.x, p.y - 4);
+    await page.mouse.move(p.x, p.y);
+    // The right half of the horizontal line, not the whole line.
+    await expect.poll(state).toEqual({ hovered: null, xs: [0, 30] });
+    await page.mouse.click(p.x, p.y);
+    await expect.poll(state).toEqual({ hovered: null, xs: [] });
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'line').length)).toBe(2);
+    const q = await screen([0, 10]);
+    await page.mouse.move(q.x, q.y);
+    // Nothing crosses the vertical line now but the remaining half's end: its upper part goes.
+    await expect.poll(async () => (await state()).xs.length).toBeGreaterThan(0);
+    await page.keyboard.press('Escape');
+    await expect.poll(state).toEqual({ hovered: null, xs: [] });
+    expect(errors).toEqual([]);
+  });
+
+  test('a curve highlighted by Extend does not stay highlighted in the next tool', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
     await page.locator('[data-cmd="tool:line"]').click();
     await page.mouse.click(x - 100, y - 40);
     await page.mouse.dblclick(x + 100, y - 40);
     const hovered = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.hovered?.kind ?? null);
-    await page.locator('[data-cmd="tool:trim"]').click();
+    await page.locator('[data-cmd="tool:extend"]').click();
     await page.mouse.move(x, y - 45);
     await page.mouse.move(x, y - 40);
     await expect.poll(hovered).toBe('curve');

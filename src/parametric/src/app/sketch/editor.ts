@@ -87,6 +87,8 @@ export class SketchEditor implements ViewportTool {
   tool: SkTool | null = null;
   hovered: Pickable | null = null;
   private preview: { lines: Vec2[][]; points: Vec2[]; dashed: Vec2[][]; guides: Vec2[][] } = { lines: [], points: [], dashed: [], guides: [] };
+  /** Part of the sketch an editing tool would act on (the piece Trim removes). */
+  private highlight: Vec2[][] = [];
   private drag: DragState | null = null;
   private boxEl: HTMLElement | null = null;
   private tipEl: HTMLElement;
@@ -137,6 +139,8 @@ export class SketchEditor implements ViewportTool {
       variables = structuredClone(app.store.doc.variables);
       if (reason === 'undo' || reason === 'redo') {
         if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
+        // It showed a piece of the geometry that was just replaced.
+        this.setHighlight([]);
         this.modifyRevert = null;
         this.closeModify();
       } else {
@@ -346,6 +350,7 @@ export class SketchEditor implements ViewportTool {
     // drawing tools never clear that, so it stayed lit in their colours.
     this.hovered = null;
     this.preview = { lines: [], points: [], dashed: [], guides: [] };
+    this.highlight = [];
     this.tipEl.hidden = true;
     this.app.viewport.canvas.style.cursor = tool ? 'crosshair' : 'default';
     this.app.setStatus(tool ? tool.hint : 'Select sketch entities, drag them, or pick a sketch tool.');
@@ -360,6 +365,13 @@ export class SketchEditor implements ViewportTool {
     // drawing: the inference guide and length tip measured from its start
     // point would otherwise stay on screen until the pointer moves again.
     if (!lines.length && !points.length && !dashed.length) this.resnapCursor();
+    this.queueRender();
+  }
+
+  /** Highlights what the active tool would act on, in the hover colour. */
+  setHighlight(lines: Vec2[][]) {
+    if (!lines.length && !this.highlight.length) return;
+    this.highlight = lines;
     this.queueRender();
   }
 
@@ -628,6 +640,7 @@ export class SketchEditor implements ViewportTool {
   leave() {
     this.tipEl.hidden = true;
     if (this.hovered) { this.hovered = null; this.queueRender(); }
+    this.setHighlight([]);
   }
 
   private hoverAt(raw: Vec2) {
@@ -1031,6 +1044,9 @@ export class SketchEditor implements ViewportTool {
     const pv = this.app.colors.sketchUnder;
     for (const l of this.preview.lines) for (let i = 0; i + 1 < l.length; i++) push(prev, pc, toWorld(fr, l[i]), toWorld(fr, l[i + 1]), pv);
     r.setLines('sk-preview', prev.length ? { positions: new Float32Array(prev), colors: new Uint8Array(pc), width: 1.6, depth: 'always', order: 13 } : null);
+    const hpos: number[] = [], hcol: number[] = [];
+    for (const l of this.highlight) for (let i = 0; i + 1 < l.length; i++) push(hpos, hcol, toWorld(fr, l[i]), toWorld(fr, l[i + 1]), this.app.colors.hover);
+    r.setLines('sk-highlight', hpos.length ? { positions: new Float32Array(hpos), colors: new Uint8Array(hcol), width: 3, depth: 'always', order: 13 } : null);
     const gpos: number[] = [], gcol: number[] = [];
     for (const l of [...this.preview.dashed, ...this.preview.guides]) for (let i = 0; i + 1 < l.length; i++) push(gpos, gcol, toWorld(fr, l[i]), toWorld(fr, l[i + 1]), this.app.colors.sketchConstruction, 220);
     r.setLines('sk-guides', gpos.length ? { positions: new Float32Array(gpos), colors: new Uint8Array(gcol), width: 1, depth: 'always', dash: 3, order: 13 } : null);
@@ -1284,7 +1300,7 @@ export class SketchEditor implements ViewportTool {
     for (const el of this.labels.values()) el.remove();
     for (const els of this.badges.values()) els.forEach((x) => x.remove());
     const r = this.app.renderer;
-    for (const k of ['sk-active', 'sk-construction', 'sk-preview', 'sk-guides', 'sk-dims']) r.setLines(k, null);
+    for (const k of ['sk-active', 'sk-construction', 'sk-preview', 'sk-highlight', 'sk-guides', 'sk-dims']) r.setLines(k, null);
     for (const k of ['sk-points', 'sk-preview-pts']) r.setPoints(k, null);
     this.app.viewport.canvas.style.cursor = 'default';
   }
