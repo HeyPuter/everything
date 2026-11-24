@@ -190,3 +190,22 @@ test("closing a design tree row's context menu returns focus to the row after th
   await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('deleting a feature from the design tree with the keyboard moves focus to the next row', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  await page.keyboard.press('Delete');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toHaveCount(0);
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeFocused();
+  // The last feature: the row before it.
+  await page.keyboard.press('Delete');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toHaveCount(0);
+  await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toBeFocused();
+  expect(errors).toEqual([]);
+});

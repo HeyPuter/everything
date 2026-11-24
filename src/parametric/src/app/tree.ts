@@ -315,7 +315,18 @@ export class FeatureTree {
         break;
       case 'Delete':
       case 'Backspace':
-        if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); void this.app.deleteFeatures(this.targets(key)); }
+        if (this.app.store.feature(key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          // Focus moves on to the row after the deleted ones (else before), not back to the top.
+          const keys = items.map((x) => x.dataset.key);
+          const order = [...keys.slice(cur + 1), ...keys.slice(0, cur).reverse()];
+          void this.app.deleteFeatures(this.targets(key)).then(() => {
+            if (this.app.store.feature(key) || !this.list.contains(document.activeElement)) return;
+            const next = order.find((k) => k && this.list.querySelector(`[data-key="${CSS.escape(k)}"]`));
+            if (next) this.focus(next);
+          });
+        }
         break;
     }
   }
