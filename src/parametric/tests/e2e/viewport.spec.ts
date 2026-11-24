@@ -1311,6 +1311,25 @@ test.describe('viewport', () => {
     for (const v of d) expect(v).toBeLessThan(40);
   });
 
+  test('the triad is hidden from assistive technology and names the shortcut of each axis view', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const triad = page.locator('svg.triad');
+    await expect(triad).toHaveAttribute('aria-hidden', 'true');
+    await expect(triad).not.toHaveAttribute('role', /./);
+    const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+    await expect(triad.locator('[data-axis="x"] > title')).toHaveText(`Look along X: Right view (${mac ? '⌘4' : 'Ctrl+4'})`);
+    await expect(triad.locator('[data-axis="y"] > title')).toHaveText(/Top view/);
+    await expect(triad.locator('[data-axis="z"] > title')).toHaveText(/Front view/);
+    // The named shortcut gives the view clicking the axis does.
+    await page.locator('canvas.gl').focus();
+    await page.keyboard.press(mac ? 'Meta+4' : 'Control+4');
+    await expect(page.locator('.view-label')).toHaveText('Right');
+    await triad.locator('[data-axis="y"] line').last().click({ force: true });
+    await expect(page.locator('.view-label')).toHaveText('Top');
+  });
+
   test('the triad letters are readable in both themes', async ({ page }) => {
     await openApp(page);
     await expect(page.locator('.triad text')).toHaveCount(3);

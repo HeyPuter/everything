@@ -11,7 +11,7 @@ import { cssColor } from '../platform/theme';
 import { Camera, VIEWS, VIEW_LABELS, type ViewName } from '../render/camera';
 import { STATE_HOVER, STATE_SELECTED, type PickHit } from '../render/renderer';
 import { SketchIndex, tessellate } from '../sketch/geom';
-import { h, isMac } from '../ui/dom';
+import { formatShortcut, h, isMac } from '../ui/dom';
 import type { App } from './app';
 import type { PickFilter } from './pm';
 import type { SelItem } from './selection';
@@ -61,6 +61,8 @@ interface PlaneVis {
 }
 
 const DRAG_PX = 4;
+/** The standard view each triad axis looks along, and its shortcut. */
+const TRIAD_VIEWS: Record<string, [string, string]> = { x: ['Right', 'Ctrl+4'], y: ['Top', 'Ctrl+5'], z: ['Front', 'Ctrl+1'] };
 /** Turn of two fingers (radians) before the view rolls with them. */
 const TWIST = 0.2;
 
@@ -866,8 +868,9 @@ export class Viewport {
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('class', 'triad');
     svg.setAttribute('viewBox', '-37 -37 74 74');
-    svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', 'Orientation triad. Click an axis to look along it.');
+    // A pointer shortcut to the Right, Top and Front views, which the keyboard reaches with their
+    // own shortcuts (named in each axis's tooltip): hidden from assistive technology.
+    svg.setAttribute('aria-hidden', 'true');
     svg.addEventListener('click', (e) => {
       const t = (e.target as Element).closest('[data-axis]');
       if (!t) return;
@@ -915,7 +918,10 @@ export class Viewport {
       text.setAttribute('y', String(it.y + (it.y / len) * 7 + 4));
       text.setAttribute('fill', it.color);
       text.textContent = it.a.toUpperCase();
-      g.append(hit, line, text);
+      const title = document.createElementNS(ns, 'title');
+      const [view, key] = TRIAD_VIEWS[it.a];
+      title.textContent = `Look along ${it.a.toUpperCase()}: ${view} view (${formatShortcut(key)})`;
+      g.append(title, hit, line, text);
       this.triad.append(g);
     }
     const name = cam.viewName();
