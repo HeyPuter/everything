@@ -455,8 +455,9 @@ export class Viewport {
     else if (e.key === 'ArrowRight') this.rotateView('up', step);
     else if (e.key === 'ArrowUp') this.rotateView('right', -step);
     else if (e.key === 'ArrowDown') this.rotateView('right', step);
-    else if (e.key === '+' || e.key === '=') this.zoomBy(0.8);
-    else if (e.key === '-' || e.key === '_') this.zoomBy(1.25);
+    // With Ctrl or Cmd these zoom the page (the browser's own zoom), not the model.
+    else if (!ctrl && (e.key === '+' || e.key === '=')) this.zoomBy(0.8);
+    else if (!ctrl && (e.key === '-' || e.key === '_')) this.zoomBy(1.25);
     else handled = false;
     if (handled) e.preventDefault();
   }

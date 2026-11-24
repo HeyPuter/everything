@@ -412,6 +412,27 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Ctrl or Cmd with plus or minus is left to the browser to zoom the page', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.locator('canvas.gl').focus();
+    await page.evaluate(() => {
+      const w = window as unknown as { __prevented: boolean[] };
+      w.__prevented = [];
+      window.addEventListener('keydown', (e) => { if (e.key === '-' || e.key === '=') w.__prevented.push(e.defaultPrevented); });
+    });
+    const distance = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.distance);
+    const d0 = await distance();
+    for (const key of ['Control+-', 'Meta+-', 'Control+=', 'Meta+=']) {
+      await page.keyboard.press(key);
+      expect(await distance()).toBe(d0);
+    }
+    expect(await page.evaluate(() => (window as unknown as { __prevented: boolean[] }).__prevented)).toEqual([false, false, false, false]);
+    // Without the modifier they zoom the model.
+    await page.keyboard.press('=');
+    await expect.poll(distance).toBeLessThan(d0);
+  });
+
   test('repeated arrow keys add up their rotations', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
