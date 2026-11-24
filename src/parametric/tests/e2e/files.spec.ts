@@ -985,6 +985,29 @@ test('a cloud part renamed while a sketch is open keeps its new name when the sk
   expect(errors).toEqual([]);
 });
 
+test('renaming a cloud part to the name it already has leaves its file alone', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; puter: { fs: { rename: (...args: unknown[]) => Promise<unknown> } }; renames: number };
+    w.renames = 0;
+    const rename = w.puter.fs.rename.bind(w.puter.fs);
+    w.puter.fs.rename = (...args) => { w.renames++; return rename(...args); };
+    w.__parametric.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => { void (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('rename'); });
+  await page.getByRole('dialog', { name: 'Rename part' }).getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Rename part' })).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect(page.getByText('Saved to Parts/Part1.parametric')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as unknown as { renames: number }).renames)).toBe(0);
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  expect(errors).toEqual([]);
+});
+
 test('a delayed cloud rename does not attach its file to a new part', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);

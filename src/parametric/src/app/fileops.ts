@@ -598,7 +598,8 @@ export class FileOps {
       const clean = safeName(name);
       app.store.change('Rename part', (doc) => { doc.name = clean; });
       const loc = app.location;
-      if (loc?.type === 'cloud') {
+      // A file that already has the name is left alone (Enter in an unchanged Rename box).
+      if (loc?.type === 'cloud' && loc.path.split('/').pop() !== `${clean}${EXT}`) {
         try {
           const renamed = await renameCloud(loc, clean);
           if (documentVersion === this.documentVersion) app.location = renamed;
