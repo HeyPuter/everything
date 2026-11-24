@@ -301,9 +301,25 @@ export function installTransform(e: Editor) {
   viewport.addEventListener(
     'pointerdown',
     (ev) => {
-      if (ev.button !== 0 || !e.transform.active || e.tool !== 'move' || e.busy) return;
+      if (ev.button !== 0 || e.tool !== 'move' || e.busy) return;
       const mod = isMac ? ev.metaKey : ev.ctrlKey;
       const handle = (ev.target as Element).closest?.('[data-transform-handle]')?.getAttribute('data-transform-handle');
+      // With a selection on a pixel layer, the Move tool's handles frame the
+      // selected pixels: they float in a session (as with Free Transform),
+      // which receives this drag.
+      if (handle && e.transform.selectedPixelsFrame()) {
+        if (sessions.loaded) sessions.loaded.startSession(e, { mode: 'free' });
+        else {
+          // Still loading: the session opens for the next drag.
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          void sessions().then((m) => {
+            if (e.tool === 'move' && !currentSession() && e.transform.selectedPixelsFrame()) m.startSession(e, { mode: 'free' });
+          });
+        }
+        return;
+      }
+      if (!e.transform.active) return;
       if (!mod || !handle || handle === 'rotate' || !rasterLayer(e)) return;
       if (sessions.loaded) fromFreeTransform(e, 'free', sessions.loaded);
       else sessions.prefetch();

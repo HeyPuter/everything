@@ -17,7 +17,7 @@ import {
   type Transform,
 } from '../model/document';
 import type { Assets } from '../model/assets';
-import { gridDocBounds, gridFromImage, gridTileIds, readMask, type TileGrid } from '../model/tiles';
+import { gridDocBounds, gridFromImage, gridTileIds, intersectRect, readMask, type TileGrid } from '../model/tiles';
 import { applySelection, selectionGrid } from '../model/selection';
 import { layerLock } from '../model/locks';
 import { tileHolders } from '../app/session';
@@ -302,6 +302,20 @@ export class FreeTransform {
     const l = this.e.selectedIds.size === 1 ? this.e.layer : undefined;
     return l?.kind === 'pixel' && l.pixels && l.visible ? l : undefined;
   }
+  /** With a selection on a single pixel layer, the Move tool's frame encloses
+   * the selected pixels, and dragging its handles transforms them instead of
+   * the layer (the transform feature hands the drag to an advanced session). */
+  selectedPixelsFrame(): Transform | undefined {
+    if (this.active || this.floatMove) return;
+    const doc = this.e.doc,
+      l = this.selectedPixelLayer();
+    if (!l || !doc.selection || layerLock(doc.layers, l.id, 'pixels')) return;
+    const content = gridDocBounds(l.pixels!);
+    const canvas = { x: 0, y: 0, width: doc.width, height: doc.height };
+    const inside = content && intersectRect(content, canvas);
+    const r = inside && intersectRect(doc.selection, inside);
+    return r ? { ...r, rotation: 0 } : undefined;
+  }
   /** Lift the selected pixels of the selected pixel layer (`copy` leaves them
    * in place too). Undefined after explaining why not. */
   private lift(copy: boolean): { layer: Layer; float: FloatingPixels } | undefined {
@@ -423,6 +437,9 @@ export class FreeTransform {
           return;
         }
       }
+      // The handles of selected pixels belong to an advanced session; never
+      // let them resize the whole layer (the session may still be loading).
+      if (handle && this.selectedPixelsFrame()) return;
       if (!this.editable()) return;
       const t = this.frame();
       if (!t) return;
@@ -755,10 +772,12 @@ export class FreeTransform {
       html += `<line class="snap-guide" x1="0" x2="${doc.width}" y1="${this.guides.y}" y2="${this.guides.y}" stroke-width="${1 / z}"/>`;
     if (this.guides.smart) html += smartGuidesSvg(e, this.guides.smart);
     // Adjustment layers have no bounds of their own to transform.
-    if (e.tool !== 'move' || !l || !l.visible || l.kind === 'adjustment' || !this.editable()) return html;
+    if (e.tool !== 'move' || !l || !l.visible || l.kind === 'adjustment') return html;
+    const pixels = this.selectedPixelsFrame();
+    if (!pixels && !this.editable()) return html;
     // Move tool > Show Transform Controls off: the frame appears only while transforming.
     if (!this.active && e.settings.showTransformControls === false) return html;
-    const t = this.frame(doc);
+    const t = pixels ?? this.frame(doc);
     if (!t) return html;
     const corners = [
       [0, 0],
