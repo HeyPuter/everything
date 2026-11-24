@@ -50,7 +50,8 @@ async function mockPuter(page: Page) {
         },
         async rename(path: string, name: string) {
           const np = path.replace(/[^/]+$/, name);
-          if (np !== path && files.has(np)) throw { code: 'item_with_same_name_exists', message: `An item with name \`${name}\` already exists.` };
+          // As Puter's rename answers (its writes and moves say item_with_same_name_exists).
+          if (np !== path && files.has(np)) throw { code: 'conflict', message: `An entry named \`${name}\` already exists` };
           files.set(np, files.get(path)!); files.delete(path); return item(np);
         },
         async stat(path: string) { if (!files.has(path)) throw { code: 'subject_does_not_exist', message: 'Not found' }; return item(path); },

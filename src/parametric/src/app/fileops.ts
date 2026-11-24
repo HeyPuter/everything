@@ -752,7 +752,9 @@ export class FileOps {
           result = await renameCloudPart(loc, clean);
         } catch (e) {
           if (documentVersion === this.documentVersion) {
-            const taken = (e as { code?: string } | null)?.code === 'item_with_same_name_exists';
+            // Puter's rename answers 'conflict' (its writes and moves, 'item_with_same_name_exists').
+            const code = (e as { code?: string } | null)?.code;
+            const taken = code === 'conflict' || code === 'item_with_same_name_exists';
             toast({ kind: 'error', title: 'Could not rename the part', message: taken ? `A file named "${clean}${EXT}" already exists in this folder. Choose another name.` : storageError(e) });
           }
           return;
