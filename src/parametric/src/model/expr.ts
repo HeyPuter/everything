@@ -85,7 +85,9 @@ function tokenize(src: string): Tok[] {
     if (/[0-9.]/.test(ch)) {
       const m = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(src.slice(i));
       if (!m) throw new ExprError(`Unexpected "${ch}"`);
-      out.push({ k: 'num', v: parseFloat(m[0]), at: i, len: m[0].length });
+      const v = parseFloat(m[0]);
+      if (!Number.isFinite(v)) throw new ExprError(`The number ${m[0]} is too large`);
+      out.push({ k: 'num', v, at: i, len: m[0].length });
       i += m[0].length;
       continue;
     }
@@ -193,7 +195,14 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
   function power(): number {
     const base = atom();
     const p = peek();
-    if (p.k === 'op' && p.v === '^') { pos++; return Math.pow(base, unary()); }
+    if (p.k === 'op' && p.v === '^') {
+      pos++;
+      const e = unary();
+      // Said here, not as "not a finite number" at the end (and 1/(0^-1) came out as 0).
+      if (base === 0 && e < 0) throw new ExprError('Division by zero');
+      if (base < 0 && !Number.isInteger(e)) throw new ExprError('A negative number cannot be raised to a fractional power');
+      return Math.pow(base, e);
+    }
     return base;
   }
 
@@ -233,7 +242,7 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
   if (!src2) throw new ExprError('Enter a value');
   const v = expr();
   if (peek().k !== 'end') throw new ExprError('Unexpected text after expression');
-  if (!Number.isFinite(v)) throw new ExprError('Result is not a finite number');
+  if (!Number.isFinite(v)) throw new ExprError(Number.isNaN(v) ? 'Result is not a number' : 'Result is too large');
   // Expressions are written in display units (variables are plain numbers in
   // display units too); convert the result to internal units.
   return v * bare;

@@ -124,6 +124,11 @@ describe('expression evaluator', () => {
     expect(() => evaluate('asin(2)')).toThrow('asin() takes a value from -1 to 1');
     expect(() => evaluate('acos(-1.5)')).toThrow('acos() takes a value from -1 to 1');
     expect(evaluate('acos(-1)')).toBeCloseTo(180, 9);
+    expect(() => evaluate('(-8)^(1/3)')).toThrow('A negative number cannot be raised to a fractional power');
+    expect(evaluate('(-2)^3')).toBe(-8);
+    expect(() => evaluate('1/(0^-1)')).toThrow('Division by zero');
+    expect(() => evaluate('10^400')).toThrow('Result is too large');
+    expect(() => evaluate('1e400 - 1e400')).toThrow('The number 1e400 is too large');
   });
 
   it('says a unit cannot be used where a plain number goes', () => {
