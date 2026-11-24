@@ -1739,3 +1739,36 @@ test('a cloud part too large to open is refused before it is downloaded, and a s
   await expect(page.locator('.toast', { hasText: 'Opening "Slow"...' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('a rename in another tab is kept when this tab discards the changes of a sketch it had open', async ({ context }) => {
+  type W = Mock & { __parametric: import('../../src/app/app').App };
+  const errors: string[] = [];
+  const start = async () => {
+    const p = await context.newPage();
+    await mockPuter(p);
+    errors.push(...await openApp(p));
+    p.on('pageerror', (e) => errors.push(e.message));
+    await app(p);
+    return p;
+  };
+  const a = await start();
+  await a.getByRole('button', { name: /New part/ }).click();
+  await a.evaluate(() => (window as unknown as W).__parametric.commands.run('save'));
+  // The title reads the same before the save: wait for the file itself.
+  await expect.poll(() => a.evaluate(() => (window as unknown as W).__files.has('/tester/AppData/parametric/Parts/Part1.parametric'))).toBe(true);
+  const text = await a.evaluate(() => (window as unknown as W).__files.get('/tester/AppData/parametric/Parts/Part1.parametric')!.text);
+  const b = await start();
+  await b.evaluate((t) => { (window as unknown as W).__files.set('/tester/AppData/parametric/Parts/Part1.parametric', { text: t }); }, text);
+  await b.getByRole('button', { name: /Part1\.parametric/ }).click();
+  await expect.poll(() => b.evaluate(() => (window as unknown as W).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/AppData/parametric/Parts/Part1.parametric' });
+  await b.evaluate(() => (window as unknown as W).__parametric.startSketchOn({ kind: 'base', plane: 'front' }));
+  await a.evaluate(() => { void (window as unknown as W).__parametric.commands.get('rename')!.run(); });
+  await a.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Renamed');
+  await a.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(b, errors.join('\n')).toHaveTitle('* Renamed - Parametric');
+  // The sketch was finished for the rename, so nothing restores the old name.
+  expect(await b.evaluate(() => !!(window as unknown as W).__parametric.sketchEditor)).toBe(false);
+  await b.evaluate(() => { void (window as unknown as W).__parametric.discardSketch(); });
+  await expect(b).toHaveTitle('* Renamed - Parametric');
+  expect(errors).toEqual([]);
+});

@@ -70,6 +70,9 @@ export class FileOps {
       if (sameLocation(from, this.savedElsewhere)) this.savedElsewhere = to;
       if (!sameLocation(from, app.location)) return;
       this.setLocation(to, this.known && from.type === 'cloud' && this.known.path === from.path ? this.known.version : null);
+      // As for a rename here: discarding an open sketch's changes later would
+      // otherwise restore the old name, while the file keeps the new one.
+      if (app.store.doc.name !== name && app.sketchEditor) app.exitSketch(true);
       if (app.store.doc.name !== name) app.store.change('Rename part', (doc) => { doc.name = name; });
       toast({ message: `This part was renamed to "${name}" in another tab.`, timeout: 6000 });
     });
