@@ -101,6 +101,36 @@ export function standardLayout(sheet: { w: number; h: number }, min: Vec3, max: 
   };
 }
 
+/**
+ * Where a new view of paper size (vw, vh) goes: the first spot, scanning the
+ * sheet row by row from the top left, where it, its dimensions and its label
+ * stay inside the border and clear of the title block and of the other views
+ * with their dimensions and labels. The middle of the sheet when there is
+ * no such spot.
+ */
+export function placeView(
+  sheet: { w: number; h: number },
+  vw: number,
+  vh: number,
+  dims: boolean,
+  others: { frame: ViewFrame; dims: boolean }[],
+): [number, number] {
+  const room = (x0: number, y0: number, x1: number, y1: number, d: boolean): Box =>
+    [x0 - (d ? DIM_LEFT : 2), y0 - 2, x1 + 2, y1 + (d ? 18 : 9)];
+  const taken = others.map(({ frame: f, dims: d }) => room(f.x0, f.y0, f.x1, f.y1, d));
+  const { w, h } = sheet;
+  taken.push([w - MARGIN - TITLE_W, h - MARGIN - TITLE_H, w - MARGIN, h - MARGIN]);
+  const overlaps = (b: Box) => taken.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
+  const step = 5;
+  for (let y = MARGIN + vh / 2 + 2; y + vh / 2 <= h - MARGIN; y += step) {
+    for (let x = MARGIN + vw / 2 + (dims ? DIM_LEFT : 2); x + vw / 2 <= w - MARGIN; x += step) {
+      const b = room(x - vw / 2, y - vh / 2, x + vw / 2, y + vh / 2, dims);
+      if (b[2] <= w - MARGIN && b[3] <= h - MARGIN && !overlaps(b)) return [x, y];
+    }
+  }
+  return [w / 2, h / 2];
+}
+
 // ---------- display list ----------
 
 export type Item =

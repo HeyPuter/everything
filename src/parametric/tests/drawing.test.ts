@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PdfPage, arcToCubics, parseSvgPath, pdfString, textWidth } from '../src/drawing/pdf';
-import { SHEETS, STANDARD_SCALES, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
+import { SHEETS, STANDARD_SCALES, buildSheet, placeView, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
 import type { Vec3 } from '../src/math/vec';
 import type { DrawingDoc, SheetSize } from '../src/model/types';
 
@@ -118,6 +118,30 @@ describe('sheet layout', () => {
     const [s1, s2] = tris.map(span).sort((p, q) => p[0] - q[0]);
     expect(s1[1]).toBeLessThanOrEqual(f.y0 + 1e-9);
     expect(s2[0]).toBeGreaterThanOrEqual(f.y1 - 1e-9);
+  });
+
+  it('places an added view in free room, clear of the other views, their dimensions and the title block', () => {
+    const sheet = { w: 297, h: 210 };
+    const frame = (id: string, x0: number, y0: number, x1: number, y1: number) => ({ frame: { id, x0, y0, x1, y1 }, dims: true });
+    // An empty sheet: top left, with room for the height dimension left of it.
+    const [x, y] = placeView(sheet, 60, 40, true, []);
+    expect(x - 30 - 12).toBeGreaterThanOrEqual(10);
+    expect(y - 20).toBeGreaterThanOrEqual(10);
+    expect(x - 30 - 12).toBeLessThan(20);
+    // Next to views across the top and left, not on them or on their dimensions and labels.
+    const others = [frame('a', 25, 15, 125, 75), frame('b', 25, 110, 85, 150), frame('c', 150, 15, 200, 60)];
+    const [x2, y2] = placeView(sheet, 60, 40, true, others);
+    const box = [x2 - 30 - 12, y2 - 22, x2 + 32, y2 + 20 + 18];
+    for (const { frame: f } of others) {
+      const o = [f.x0 - 12, f.y0 - 2, f.x1 + 2, f.y1 + 18];
+      expect(box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1], f.id).toBe(false);
+    }
+    // Clear of the title block and inside the border.
+    expect(box[3] <= 210 - 10 - 32 || box[2] <= 297 - 10 - 170).toBe(true);
+    expect(box[2]).toBeLessThanOrEqual(287);
+    expect(box[3]).toBeLessThanOrEqual(200);
+    // No room anywhere: the middle of the sheet.
+    expect(placeView(sheet, 60, 40, true, [frame('all', 10, 10, 287, 200)])).toEqual([148.5, 105]);
   });
 
   it('keeps the SVG well-formed when a title holds control characters', () => {

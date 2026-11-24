@@ -37,6 +37,10 @@ test('a view added while the others are still being projected is drawn too', asy
   expect(pending).toBe(true);
   await expect(page.locator('.paper g[data-view]')).toHaveCount(5);
   await expect(page.locator('.paper g[data-view="v5"] path').first()).toBeAttached();
+  // Placed in free room, not on top of the views that were still being projected.
+  const frames = await page.evaluate(() => (window as unknown as { __parametric: { drawing: { frames: { id: string; x0: number; y0: number; x1: number; y1: number }[] } } }).__parametric.drawing.frames);
+  const added = frames.find((f) => f.id === 'v5')!;
+  for (const f of frames.filter((q) => q !== added)) expect(added.x0 < f.x1 && added.x1 > f.x0 && added.y0 < f.y1 && added.y1 > f.y0, f.id).toBe(false);
 });
 
 test('two fingers zoom the sheet, ending a view drag as one undo step', async ({ page }) => {

@@ -5,7 +5,7 @@
 import type { ProjectionResult } from '../kernel/protocol';
 import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
-import { MARGIN, SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
+import { MARGIN, SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
 import { download, safeName } from '../platform/files';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -409,18 +409,23 @@ export class DrawingWorkspace {
     const b = this.app.bbox;
     if (!d || !b) return;
     const [w, hh] = projectedSize(kind, b.min, b.max);
-    const sheet = sheetDims(d);
-    // Place it in the first free spot along the top row.
-    let x = 40 + (w * d.scale) / 2, y = 30 + (hh * d.scale) / 2;
-    for (let tries = 0; tries < 20 && this.frames.some((f) => x + (w * d.scale) / 2 > f.x0 && x - (w * d.scale) / 2 < f.x1 && y + (hh * d.scale) / 2 > f.y0 && y - (hh * d.scale) / 2 < f.y1); tries++) {
-      x += 30;
-      if (x > sheet.w - 30) { x = 40; y += 30; }
-    }
+    const dims = kind !== 'isometric';
+    // In free room on the sheet, not on top of the other views or their dimensions
+    // (a view still being projected takes the room of its bounding box's projection).
+    const others = d.views.map((v) => {
+      let frame = this.frames.find((f) => f.id === v.id);
+      if (!frame) {
+        const [vw, vh] = projectedSize(v.kind, b.min, b.max).map((k) => (k * d.scale) / 2);
+        frame = { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
+      }
+      return { frame, dims: v.dims && v.kind !== 'isometric' };
+    });
+    const [x, y] = placeView(sheetDims(d), w * d.scale, hh * d.scale, dims, others);
     let n = d.views.length + 1;
     while (d.views.some((v) => v.id === `v${n}`)) n++;
     const id = `v${n}`;
     this.selected = id;
-    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: kind !== 'isometric', dims: kind !== 'isometric' }); }, 'Add view');
+    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: dims, dims }); }, 'Add view');
   }
 
   // ---------- export ----------
