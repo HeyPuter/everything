@@ -1176,6 +1176,20 @@ describe('feature regeneration', () => {
     await b.build({ ...req(feats), upTo: 2 });
     expect(volume(b)).toBeCloseTo(1000, 4);
   });
+
+  it('shows the frames of rolled-back planes of this part, not of a part opened before', async () => {
+    // The steps beyond the rollback bar were trusted whatever part built them.
+    const b = new ModelBuilder();
+    const plane = (offset: number): Feature => ({ id: 'P1', name: 'P1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset, flip: false });
+    const head: Feature[] = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)];
+    const s2 = sketch('S2', rect(0, 0, 5, 5), { kind: 'feature', id: 'P1' });
+    const part = (offset: number): Feature[] => [...head, plane(offset), s2];
+    await b.build(req(part(10)));
+    // Rolled back to before the plane, the same part shows where its plane was built.
+    expect((await b.build({ ...req(part(10)), upTo: 2 })).frames.P1.o[2]).toBeCloseTo(10, 9);
+    // Another part whose plane sits elsewhere does not show the first part's.
+    expect((await b.build({ ...req(part(30)), upTo: 2 })).frames.P1).toBeUndefined();
+  });
 });
 
 describe('kernel failures', () => {

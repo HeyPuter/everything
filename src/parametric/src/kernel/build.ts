@@ -215,7 +215,8 @@ export class ModelBuilder {
     // Suppressed features, and features built on them (their children are
     // suppressed with them rather than failing for want of their parent).
     const off = new Set<Id>();
-    for (let i = 0; i < upTo; i++) {
+    /** Cache key of feature i after the chain of keys before it; notes whether it is suppressed. */
+    const keyOf = (i: number, chain: string) => {
       const f = req.features[i];
       const deps = dependencies(f);
       const suppressed = !!f.suppressed || deps.some((d) => off.has(d));
@@ -227,6 +228,10 @@ export class ModelBuilder {
       // "comes after this feature" in place of "no longer exists".
       const refs = deps.map((d) => { const o = this.order.get(d); return !o ? '-' : o.index < i ? '' : '+' + o.type; }).join(',');
       const key = hashString(chain + '\u0000' + stepText(f) + imported + (invalid ? '\u0000!' + invalid : '') + '\u0000' + refs);
+      return { f, key, suppressed, invalid };
+    };
+    for (let i = 0; i < upTo; i++) {
+      const { f, key, suppressed, invalid } = keyOf(i, chain);
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
@@ -282,8 +287,15 @@ export class ModelBuilder {
     const linked = (s: State, id: Id, sk: SketchFeature) => { if (hasExternal(sk)) sketches[id] = { entities: sk.entities, lost: s.lostRefs.get(id) ?? [] }; };
     for (const [k, v] of state.sketches) linked(state, k, v);
     // Frames of features beyond the rollback bar that were built before stay
-    // useful for display; take them from the deepest cached step.
-    const last = this.steps[this.steps.length - 1]?.state;
+    // useful for display; take them from the deepest cached step that is
+    // still this part's. The deepest step whatever it was could be left from
+    // another part opened before, with features of the same ids elsewhere.
+    let last: State | null = null;
+    for (let i = upTo, key = chain; i < Math.min(this.steps.length, req.features.length); i++) {
+      key = keyOf(i, key).key;
+      if (this.steps[i].key !== key) break;
+      last = this.steps[i].state;
+    }
     if (last) for (const [k, v] of last.frames) if (!(k in frames)) frames[k] = v;
 
     const result: BuildResult = {
