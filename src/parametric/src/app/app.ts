@@ -920,8 +920,10 @@ export class App {
   /** The body mesh the viewport shows. */
   private shownMesh: MeshData | null = null;
 
-  /** Incremented after every rebuild (drawings re-project when it changes). */
+  /** Incremented after every rebuild. */
   buildVersion = 0;
+  /** Incremented after a rebuild that changed the body (drawings re-project when it changes). */
+  geometryVersion = 0;
   drawing!: DrawingWorkspace;
 
   get inDrawing(): boolean {
@@ -978,6 +980,8 @@ export class App {
 
   private applyBuild(res: BuildResult, ms: number) {
     this.buildVersion++;
+    // The same body (a rename, a suppressed sketch, a colour) needs no new drawing projections.
+    if (!res.meshUnchanged) this.geometryVersion++;
     this.statuses = new Map(res.status.map((s) => [s.id, s]));
     for (const [id, err] of this.resolveErrors) {
       // A suppressed feature is not built, so its values are not used either.

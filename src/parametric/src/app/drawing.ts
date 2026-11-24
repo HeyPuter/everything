@@ -170,7 +170,7 @@ export class DrawingWorkspace {
       this.layoutPending = false;
       if (!d.views.length) { this.relayout(); return; }
     }
-    const version = this.app.buildVersion;
+    const version = this.app.geometryVersion;
     const need = d.views.filter((v) => {
       const c = this.cache.get(v.id);
       return !c || c.kind !== v.kind || c.version !== version;
@@ -189,7 +189,7 @@ export class DrawingWorkspace {
         this.pending = false;
       }
       // The model or the views may have changed while projecting.
-      if (version !== this.app.buildVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
+      if (version !== this.app.geometryVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
     }
     this.render();
   }
@@ -211,7 +211,7 @@ export class DrawingWorkspace {
     const projections = new Map<string, ProjectionResult>();
     for (const v of d.views) {
       const c = this.cache.get(v.id);
-      if (this.app.bbox && c?.version === this.app.buildVersion && c.kind === v.kind) projections.set(v.id, c.result);
+      if (this.app.bbox && c?.version === this.app.geometryVersion && c.kind === v.kind) projections.set(v.id, c.result);
     }
     return buildSheet(d, projections, this.info());
   }
@@ -513,7 +513,7 @@ export class DrawingWorkspace {
     for (;;) {
       await this.app.whenBuilt();
       if (!stillOpen()) return false;
-      const version = this.app.buildVersion;
+      const version = this.app.geometryVersion;
       await this.refresh();
       while (this.pending || this.refreshAgain) {
         await new Promise((r) => setTimeout(r, 50));
@@ -522,7 +522,7 @@ export class DrawingWorkspace {
       // Another edit may have arrived while the projection was running.
       await this.app.whenBuilt();
       if (!stillOpen()) return false;
-      if (version === this.app.buildVersion) return true;
+      if (version === this.app.geometryVersion) return true;
     }
   }
 

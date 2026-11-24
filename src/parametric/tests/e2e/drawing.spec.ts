@@ -628,3 +628,39 @@ test('drawing pinch stops when a touch loses capture and a fresh pinch still wor
   expect((await state()).zoom).toBeCloseTo(interrupted.zoom * 2, 6);
   expect(errors).toEqual([]);
 });
+
+test('the drawing is not projected again after a change that leaves the body as it was', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = {
+    buildVersion: number; whenBuilt(): Promise<void>; kernel: { project(v: unknown): Promise<unknown> };
+    store: { change(l: string, f: (d: { features: { name: string; hidden?: boolean; type: string }[] }) => void): void };
+  };
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A; __projections: number }).__parametric;
+    const w = window as unknown as { __projections: number };
+    w.__projections = 0;
+    const project = a.kernel.project.bind(a.kernel);
+    a.kernel.project = (v) => { w.__projections++; return project(v); };
+  });
+  const state = () => page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    await a.whenBuilt();
+    return { builds: a.buildVersion, projections: (window as unknown as { __projections: number }).__projections };
+  });
+  const s0 = await state();
+  // A feature renamed and a sketch hidden: rebuilt, with the same body.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Rename', (d) => { d.features[1].name = 'Base plate'; }));
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Hide', (d) => { d.features.find((f) => f.type === 'sketch')!.hidden = true; }));
+  await expect.poll(async () => (await state()).builds).toBeGreaterThan(s0.builds);
+  await page.waitForTimeout(300);
+  expect((await state()).projections).toBe(0);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  // A change to the body is projected again.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Depth', (d) => { const e = d.features.find((f) => f.type === 'extrude') as unknown as { depth: number }; e.depth += 5; }));
+  await expect.poll(async () => (await state()).projections).toBeGreaterThan(0);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+});
