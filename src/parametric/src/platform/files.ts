@@ -362,6 +362,9 @@ export async function listParts(onCloudError?: (err: unknown) => void): Promise<
 /** The part name a cloud file's name gives ('' for parts kept in this browser). */
 export const partFileName = (loc: Location) => (loc.type === 'cloud' ? (loc.path.split('/').pop() ?? '').replace(/\.(parametric|json)$/i, '') : '');
 
+/** The browser-storage listing of a part kept in this browser. */
+export const readIndexEntry = (id: string) => readIndex().find((p) => p.id === id) ?? null;
+
 export const sameLocation = (a?: Location | null, b?: Location | null) =>
   !!a && !!b && a.type === b.type && (a.type === 'cloud' ? a.path === (b as { path: string }).path : a.id === (b as { id: string }).id);
 

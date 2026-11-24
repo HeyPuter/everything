@@ -1693,3 +1693,34 @@ test('a new part never replaces a file of the same name another tab created mean
   expect(Object.keys(files)).toContain('/tester/AppData/parametric/Parts/Part1 (1).parametric');
   expect(errors).toEqual([]);
 });
+
+for (const later of [false, true]) test(`recovering work on a cloud part ${later ? 'saved again since restores it as a copy' : 'restores it to the same file'}`, async ({ context }) => {
+  const path = '/tester/AppData/parametric/Parts/Part1.parametric';
+  const first = await context.newPage();
+  await mockPuter(first);
+  await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect(first).toHaveTitle('Part1 - Parametric');
+  const saved = await first.evaluate((path) => (window as unknown as Mock).__files.get(path)!, path);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('E', (d) => { d.variables.push({ name: 'Unsaved', expr: '1' }); }));
+  await expect.poll(() => first.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 10_000 }).toContain('"name":"Unsaved"');
+  await first.close({ runBeforeUnload: false });
+  // The next visit sees the file as saved, or as saved again later (another device).
+  const second = await context.newPage();
+  await mockPuter(second);
+  await second.addInitScript(({ path, saved, later }) => {
+    (window as unknown as Mock).__files.set(path, later ? { text: 'saved later', modified: (saved.modified ?? 0) + 100 } : saved);
+  }, { path, saved, later });
+  await openApp(second);
+  const offer = second.getByRole('dialog', { name: 'Recover unsaved work?' });
+  if (later) await expect(offer).toContainText('restored as a new, unsaved copy');
+  else await expect(offer).not.toContainText('copy');
+  await offer.getByRole('button', { name: 'Restore' }).click();
+  await expect(second).toHaveTitle('* Part1 - Parametric');
+  expect(await second.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual(later ? null : { type: 'cloud', path });
+  await second.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect(second).toHaveTitle(later ? 'Part1 (2) - Parametric' : 'Part1 - Parametric');
+  expect(await second.evaluate((path) => (window as unknown as Mock).__files.get(path)!.text.slice(0, 11), path)).toBe(later ? 'saved later' : saved.text.slice(0, 11));
+});

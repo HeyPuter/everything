@@ -7,7 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, type FileEntry, deletePart, forgetRecent, rememberRecent,
-  onRenamedElsewhere, onSavedElsewhere, sameLocation, type FileVersion, cloudVersion, loadPart, partFileName, renameCloudPart, savePart, versionChanged, versionOf,
+  onRenamedElsewhere, onSavedElsewhere, sameLocation, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
 import { type PuterFSItem, cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -698,7 +698,10 @@ export class FileOps {
   private writeRecoveryNow() {
     this.recoveryTimer = 0;
     if (!this.app.store.dirty) return;
-    const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
+    const location = this.app.location;
+    // The file's version these changes were made on: a later save of it is told apart on restore.
+    const version = location?.type === 'cloud' && this.known?.path === location.path ? this.known.version : null;
+    const payload = JSON.stringify({ location, version, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
     void this.writeRecoveryCopy(payload);
   }
 
@@ -722,7 +725,7 @@ export class FileOps {
     try {
       for (const { file, text } of await orphanRecoveries()) {
         if (!canRecover()) return false;
-        let data: { location: Location | null; savedAt: number; doc: PartDocument } | null = null;
+        let data: { location: Location | null; version?: FileVersion | null; savedAt: number; doc: PartDocument } | null = null;
         try {
           data = JSON.parse(text);
         } catch {
@@ -732,9 +735,13 @@ export class FileOps {
         // drawing notes, part properties, or an intentional deletion of geometry.
         if (!data?.doc) { await removeRecovery(file); continue; }
         const when = new Date(data.savedAt).toLocaleString();
+        // Saved again since (in another tab, on another device): restoring over
+        // that version would lose it, so the changes come back as a copy.
+        const newer = await this.savedAfter(data.location, data.version ?? null, data.savedAt);
+        if (!canRecover()) return false;
         const v = await showDialog({
           title: 'Recover unsaved work?', signal: controller.signal,
-          body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. Do you want to restore them?`),
+          body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. ${newer ? 'The part was saved again after these changes, so they are restored as a new, unsaved copy and that saved version stays as it is. ' : ''}Do you want to restore them?`),
           buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
         });
         if (!canRecover()) return false;
@@ -748,7 +755,10 @@ export class FileOps {
             continue;
           }
           stopWatching();
-          this.app.loadDocument(doc, data.location);
+          const location = newer ? null : validLocation(data.location);
+          this.app.loadDocument(doc, location);
+          // Saving then asks before replacing a version saved after the one these changes were made on.
+          if (location?.type === 'cloud' && data.version && versionOf(data.version)) this.known = { path: location.path, version: data.version };
           this.app.store.dirty = true;
           this.app.store.emit('restored');
           this.recoverySource = file;
@@ -762,6 +772,17 @@ export class FileOps {
     } finally {
       stopWatching();
     }
+  }
+
+  /** Whether a part's file was saved after a recovery copy of it was made (false when that cannot be told). */
+  private async savedAfter(loc: Location | null, version: FileVersion | null, savedAt: number): Promise<boolean> {
+    loc = validLocation(loc);
+    if (!loc) return false;
+    if (loc.type === 'local') return (readIndexEntry(loc.id)?.modified ?? 0) > savedAt;
+    const now = await cloudVersion(loc.path);
+    if (!now) return false;
+    // Copies made before versions were recorded compare times (the server's clock against this one's).
+    return version && versionOf(version) ? versionChanged(now, version) : now.modified > savedAt;
   }
 
   /**
@@ -794,6 +815,14 @@ export class FileOps {
       /* an SDK without launch items */
     }
   }
+}
+
+/** A location read back from storage, or null when it is not one. */
+function validLocation(loc: unknown): Location | null {
+  const l = loc as { type?: unknown; path?: unknown; id?: unknown } | null;
+  if (l?.type === 'cloud' && typeof l.path === 'string' && l.path) return { type: 'cloud', path: l.path };
+  if (l?.type === 'local' && typeof l.id === 'string' && l.id) return { type: 'local', id: l.id };
+  return null;
 }
 
 /** File data is immutable: a new import must never reuse an existing key. */
