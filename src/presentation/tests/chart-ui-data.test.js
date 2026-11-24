@@ -13,13 +13,13 @@ import {
   insertColumn,
   insertRow,
   insertSeriesColumn,
+  parseNumber,
   parseTsv,
   pasteBlock,
   sampleSpec,
   specToGrid,
   switchRowColumn,
   toTsv,
-  withSeriesBack,
 } from "../src/charts/chart-data.js";
 
 const CATEGORY_TYPES = CHART_TYPES.filter((t) => !t.custom);
@@ -72,7 +72,9 @@ describe("chart catalogue", () => {
     expect(line.series[0].color).toBe("#112233");
     expect(line.categories).toEqual(column.categories);
     const pie = convertChart(line, "pie");
-    expect(pie.series).toHaveLength(1);
+    // A pie plots its first series and keeps the rest for a change back.
+    expect(pie.series).toHaveLength(3);
+    expect(pie.series[0].color).toBe("#112233");
     expect(pie.grouping).toBeUndefined();
     const scatter = convertChart(column, "scatter");
     expect(scatter.kind).toBe("scatter");
@@ -184,23 +186,52 @@ describe("data sheet grid", () => {
     ]);
   });
 
-  it("gives a pie the series it left out back, to convert from", () => {
+  // Cells copied from a spreadsheet come as they are shown there: amounts
+  // with their currency, and negatives in brackets, left the chart blank.
+  it("reads pasted amounts with a currency sign or in brackets", () => {
+    expect(
+      ["$1,234.50", "€12", "-£3", "£-3", "(1,200)", "($5.25)", "12 ¥"].map(
+        parseNumber,
+      ),
+    ).toEqual([1234.5, 12, -3, -3, -1200, -5.25, 12]);
+    // Text stays blank, as do signs on their own.
+    expect(["$", "()", "abc", "$abc", "(-5)", "--5"].map(parseNumber)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    const spec = sampleSpec("column-clustered");
+    const grid = pasteBlock(
+      specToGrid(spec),
+      1,
+      0,
+      parseTsv("Q1\t$1,000.00\t(250)\nQ2\t$2,500.00\t$75\n"),
+    );
+    const next = gridToSpec(grid, spec);
+    expect(next.series[0].values.slice(0, 2)).toEqual([1000, 2500]);
+    expect(next.series[1].values.slice(0, 2)).toEqual([-250, 75]);
+  });
+
+  it("keeps a pie's unplotted series through a save, for a change back", async () => {
     const column = sampleSpec("column-clustered");
     const pie = convertChart(column, "pie");
-    expect(pie.series).toHaveLength(1);
-    const back = convertChart(
-      withSeriesBack(pie, column.series.slice(1)),
-      "column-clustered",
-    );
+    expect(detectChartType(pie)).toBe("pie");
+    // An edit in the data sheet keeps them too.
+    const grid = specToGrid(pie);
+    grid[1][1] = "9";
+    const edited = gridToSpec(grid, pie);
+    const reopened = await roundTrip(edited);
+    expect(reopened.kind).toBe("pie");
+    const back = convertChart(reopened, "column-clustered");
     expect(back.series.map((s) => [s.name, s.values])).toEqual(
-      column.series.map((s) => [s.name, s.values]),
+      column.series.map((s, i) => [
+        s.name,
+        i === 0 ? [9, ...s.values.slice(1)] : s.values,
+      ]),
     );
-    // Converted to a pie again, it plots one series.
-    expect(
-      convertChart(withSeriesBack(pie, column.series.slice(1)), "pie").series,
-    ).toHaveLength(1);
-    // Only a pie takes them.
-    expect(withSeriesBack(column, column.series)).toBe(column);
   });
 
   it("adds and deletes a bubble series with its size column", () => {

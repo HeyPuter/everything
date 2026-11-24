@@ -406,6 +406,159 @@ test("recording narration with the camera, a live camera, and clearing it", asyn
   }
 });
 
+test("a recording keeps when each click came on the slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const boxes = [1, 5].map((x, i) => text(slide, `Box ${i + 1}`, x, 1, 3, 1));
+  P.setSlideAnimations(
+    slide,
+    boxes.map((box) => ({
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 200,
+    })),
+  );
+  text(P.addBlankSlide(pres), "Two", 1, 1, 8, 2);
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Builds.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await tab(page, "Record");
+  await (await command(page, "From Beginning", "Record")).click();
+  const d = show(page);
+  const bar = d.getByRole("toolbar", { name: "Recording" });
+  await bar.getByRole("button", { name: "Start recording" }).click();
+  await expect(
+    bar.getByRole("button", { name: "Stop recording" }),
+  ).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(900);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(500);
+  await bar.getByRole("button", { name: "Stop recording" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#toast")).toHaveText(
+    "Recording saved on 1 slide.",
+  );
+  const deck = await download(page);
+  const [first] = P.getSlides(deck);
+  const [one, two] = P.getSlideClickTimings(first);
+  expect(one).toBeGreaterThanOrEqual(500);
+  // The second click came 900 ms after the first, whose effect took 200.
+  expect(two).toBeGreaterThanOrEqual(500);
+  expect(P.getEffectiveSlideTransition(first).advanceAfterMs).toBeGreaterThan(
+    one + two,
+  );
+});
+
+test("the screen stays on during a show, and is let go when it ends", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.wake = { asked: 0, released: 0 };
+    Object.defineProperty(navigator, "wakeLock", {
+      configurable: true,
+      value: {
+        request: async () => {
+          window.wake.asked++;
+          const lock = new EventTarget();
+          lock.release = async () => {
+            window.wake.released++;
+            lock.dispatchEvent(new Event("release"));
+          };
+          return lock;
+        },
+      },
+    });
+  });
+  await story(page);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = show(page);
+  await expect(d).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.wake))
+    .toEqual({
+      asked: 1,
+      released: 0,
+    });
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Escape");
+  await expect(d).toBeHidden();
+  await expect
+    .poll(() => page.evaluate(() => window.wake))
+    .toEqual({
+      asked: 1,
+      released: 1,
+    });
+});
+
+test("an action button that jumps to a hidden slide says so", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const first = P.getSlides(pres)[0];
+  const button = text(first, "Backup", 1, 1, 3, 1);
+  text(P.addBlankSlide(pres), "Two", 1, 1, 8, 2);
+  const hidden = P.addBlankSlide(pres);
+  text(hidden, "Hidden", 1, 1, 8, 2);
+  P.setSlideHidden(hidden, true);
+  P.setShapeActionSettings(button, {
+    click: {
+      jump: { kind: "slide", slide: hidden },
+      sound: null,
+      highlight: true,
+    },
+    hover: null,
+  });
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Hidden.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator(".slide-image")).toBeVisible();
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = show(page);
+  await expect(d.locator(".presenter-counter")).toHaveText("1 / 2");
+  await d.locator(".presenter-action-button").click();
+  await expect(page.locator("#toast")).toHaveText(
+    "That slide is hidden or was removed.",
+  );
+  await expect(d.locator(".presenter-counter")).toHaveText("1 / 2");
+});
+
 test("ending a show before the browser hands over the camera lets it go", async ({
   page,
 }) => {
@@ -414,10 +567,13 @@ test("ending a show before the browser hands over the camera lets it go", async 
     const media = navigator.mediaDevices;
     const ask = media.getUserMedia.bind(media);
     window.tracks = [];
+    window.asking = 0;
     media.getUserMedia = async (want) => {
+      window.asking++;
       await new Promise((r) => setTimeout(r, 1500));
       const stream = await ask(want);
       window.tracks.push(...stream.getTracks());
+      window.asking--;
       return stream;
     };
   });
@@ -429,13 +585,19 @@ test("ending a show before the browser hands over the camera lets it go", async 
   await expect(d.getByRole("toolbar", { name: "Recording" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(d).toBeHidden();
-  // The studio's camera and microphone and the slide's live camera.
+  // Whatever the browser hands over once the show has ended (the slide's
+  // live camera, and the studio's camera and microphone if it had asked
+  // before the show ended) is let go.
   await expect
-    .poll(() => page.evaluate(() => window.tracks.length), { timeout: 10_000 })
-    .toBe(3);
-  expect(
-    await page.evaluate(() => window.tracks.map((t) => t.readyState)),
-  ).toEqual(["ended", "ended", "ended"]);
+    .poll(
+      () => page.evaluate(() => (window.asking ? -1 : window.tracks.length)),
+      { timeout: 10_000 },
+    )
+    .toBeGreaterThan(0);
+  const states = await page.evaluate(() =>
+    window.tracks.map((t) => t.readyState),
+  );
+  expect(states.every((state) => state === "ended")).toBe(true);
 });
 
 test("switching to a custom show asks about the ink first", async ({

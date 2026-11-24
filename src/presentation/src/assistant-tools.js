@@ -41,6 +41,9 @@ import {
   ownRotation,
   slideRotation,
   removeAnyShape,
+  detachShapeComments,
+  copySlideComments,
+  replaceInSmartArt,
   pruneUnusedMedia,
   removeSlides,
   canHoldText,
@@ -575,6 +578,14 @@ function textArg(value, what = "text") {
     );
   return s;
 }
+// A SmartArt graphic's items; none for any other object.
+const smartArtItems = (shape) => {
+  try {
+    return (P.isDiagramShape(shape) && P.getShapeSmartArt(shape)?.items) || [];
+  } catch {
+    return [];
+  }
+};
 const isTable = (shape) => {
   try {
     return P.isTableShape(shape);
@@ -723,6 +734,13 @@ function describeObject(pres, shape, parents, { full = true } = {}) {
     line += `; ${t.rows}×${t.cols} table:\n${t.lines.join("\n")}`;
   } else if (kind === "chart") {
     line += "; its data cannot be read or edited here";
+  } else if (smartArtItems(shape).length) {
+    // SmartArt: its items, as the Text Pane lists them; replace_text edits
+    // them.
+    const items = smartArtItems(shape).map(
+      (item) => `${"  ".repeat(item.level || 0)}${item.text || ""}`,
+    );
+    line += `; SmartArt items:\n${clip(items.join("\n"), full ? 4000 : 160)}`;
   } else if (hasTextBody(shape)) {
     const value = displayShapeText(pres, shape);
     if (value) {
@@ -839,6 +857,10 @@ function findText(pres, args) {
               displayTableCellText(pres, P.getTableCell(s, r, c)),
             );
       } else if (hasTextBody(s)) hit(where, displayShapeText(pres, s));
+      else
+        smartArtItems(s).forEach((item, k) =>
+          hit(`${where} item ${k + 1}`, item.text || ""),
+        );
     }
     hit(
       `slide ${i + 1} speaker notes`,
@@ -1023,6 +1045,7 @@ async function duplicateSlide(pres, args, env) {
     if (!Number.isInteger(at) || at < 1 || at > count + 1)
       throw new ToolError(`position must be from 1 to ${count + 1}.`);
     const copy = P.duplicateSlide(pres, original);
+    copySlideComments(original, copy);
     P.moveSlide(pres, copy, at - 1);
     return { part: P.getSlidePartName(copy), number: slideNumber(pres, copy) };
   });
@@ -1602,10 +1625,12 @@ async function deleteObjects(pres, args, env) {
   const ids = idList(args.ids);
   const { part, number } = await onSlide(pres, args, env, (slide, pres) => {
     for (const id of ids) shapeIn(slide, id, pres);
+    const detach = detachShapeComments(pres, slide, ids);
     for (const id of ids) {
       const s = P.findShapeById(slide, id);
       if (s) removeAnyShape(slide, s);
     }
+    detach();
     pruneUnusedMedia(pres, slide);
   });
   return {
@@ -1656,6 +1681,18 @@ async function replaceText(pres, args, env) {
           ].length;
           if (hits && env.replaceIn(s, new RegExp(source, flags), replacement))
             here += hits;
+        } else {
+          const hits = smartArtItems(s).reduce(
+            (n, item) =>
+              n +
+              [...(item.text || "").matchAll(new RegExp(source, flags))].length,
+            0,
+          );
+          if (
+            hits &&
+            replaceInSmartArt(s, new RegExp(source, flags), replacement)
+          )
+            here += hits;
         }
       }
       if (here) touched.push(i + 1);
@@ -1681,8 +1718,8 @@ async function applyTheme(pres, args, env) {
     throw new ToolError(
       `theme must be one of ${Object.keys(THEMES).join(", ")}.`,
     );
-  const { applied } = await env.edit(() =>
-    env.applyTheme(key) === false ? NO_CHANGE : undefined,
+  const { applied } = await env.edit(async () =>
+    (await env.applyTheme(key)) === false ? NO_CHANGE : undefined,
   );
   return {
     content: applied

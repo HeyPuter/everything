@@ -83,6 +83,7 @@ export * from "./fn/comment-threads.ts";
 export * from "./fn/custom-properties.ts";
 export * from "./fn/charts.ts";
 export * from "./fn/tables.ts";
+export * from "./fn/connections.ts";
 export { getTableStyleResolver } from "./fn/table-styles.ts";
 export type {
   TableResolvedFill,

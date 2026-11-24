@@ -1,6 +1,7 @@
 // Sections as the slide sorter edits them: an ordered list of
-// { name, slides: [part names] } whose slides, read in order, are the deck's
-// slide order. A deck without sections is one unnamed group.
+// { name, id, slides: [part names] } whose slides, read in order, are the
+// deck's slide order. A section keeps its id (the file's GUID for it) through
+// every change; a new one has none until it is written. A deck without sections is one unnamed group.
 
 // The deck's slides grouped by section. Slides a section list leaves out
 // (a damaged file, or a slide added without a section) join the section of
@@ -13,7 +14,11 @@ export function groupSlides(order, sections) {
       if (!owner.has(part)) owner.set(part, i);
     }),
   );
-  const groups = sections.map((sec) => ({ name: sec.name, slides: [] }));
+  const groups = sections.map((sec) => ({
+    name: sec.name,
+    ...(sec.id ? { id: sec.id } : {}),
+    slides: [],
+  }));
   let last = 0;
   for (const part of order) {
     const i = owner.has(part) ? owner.get(part) : last;
@@ -31,6 +36,7 @@ const result = (groups) => ({
       ? []
       : groups.map((g) => ({
           name: g.name ?? "Default Section",
+          ...(g.id ? { id: g.id } : {}),
           slides: g.slides,
         })),
 });
@@ -76,7 +82,10 @@ export function addSectionAt(order, sections, part, name) {
   const i = groups.findIndex((g) => g.slides.includes(part));
   if (i < 0) return result([...groups, { name, slides: [] }]);
   const k = groups[i].slides.indexOf(part);
-  const head = { name: groups[i].name, slides: groups[i].slides.slice(0, k) };
+  const head = {
+    ...groups[i],
+    slides: groups[i].slides.slice(0, k),
+  };
   const tail = { name, slides: groups[i].slides.slice(k) };
   groups.splice(i, 1, ...(head.slides.length ? [head, tail] : [tail]));
   return result(groups);

@@ -2,7 +2,7 @@
 // playback settings say, zooms jump to their slide or section and come
 // back, and action settings follow clicks and pointer-overs with jumps,
 // sounds and highlights.
-import { el } from "../ui.js";
+import { el, toast } from "../ui.js";
 import {
   groupParents,
   slideBounds,
@@ -104,11 +104,18 @@ export function createShowExtras(ctx, show) {
     return !!a.hover || ownAction(a.click);
   }
 
-  function playSound(action) {
-    if (!action?.sound) return;
+  // "Stop previous sound" (a slide's transition or an action) also ends
+  // sounds playing across slides, which wait for just that.
+  function stopSounds() {
     sound?.pause();
     sound = null;
-    if (action.sound === "stop") return;
+    for (const p of [...playing]) if (p.across) p.stop();
+  }
+  function playSound(action) {
+    if (!action?.sound) return;
+    if (action.sound === "stop") return stopSounds();
+    sound?.pause();
+    sound = null;
     sound = new Audio(url(action.sound.data, "audio/wav"));
     sound.play().catch(() => {});
   }
@@ -134,8 +141,10 @@ export function createShowExtras(ctx, show) {
       case "endShow":
         return show.close();
       case "slide": {
+        // As a link to it does: a slide left out of the show says so.
         const i = indexOfPart(partOf(j.slide));
-        return i >= 0 ? go(i) : undefined;
+        if (i >= 0) return go(i);
+        return toast("That slide is hidden or was removed.");
       }
       case "url":
         if (/^(https?:|mailto:)/i.test(j.url))
@@ -266,6 +275,8 @@ export function createShowExtras(ctx, show) {
       kind: media.kind,
       options: o,
       across: media.kind === "audio" && o.playAcrossSlides,
+      // Slides still to play across, its own included.
+      slidesLeft: o.acrossSlideCount ?? Infinity,
       started: false,
       play() {
         player.started = true;
@@ -304,16 +315,15 @@ export function createShowExtras(ctx, show) {
       }
       element.pause();
       node.classList.remove("full-screen");
-      if (o.rewind) {
-        element.currentTime = startAt;
-        node.classList.remove("playing");
-      }
+      if (o.rewind) element.currentTime = startAt;
+      // Rewound, or hidden while not playing, it shows as before it began.
+      if (o.rewind || o.hideWhileNotPlaying) node.classList.remove("playing");
     });
     element.addEventListener("ended", () => {
       if (o.loop) player.play();
       else {
         node.classList.remove("full-screen");
-        if (o.rewind) node.classList.remove("playing");
+        if (o.rewind || o.hideWhileNotPlaying) node.classList.remove("playing");
       }
     });
     element.addEventListener("pause", () => cancelAnimationFrame(fading));
@@ -347,7 +357,7 @@ export function createShowExtras(ctx, show) {
   // playing across slides goes on.
   function leaveMedia() {
     for (const p of new Set([...playing, ...slideMedia.values()]))
-      if (!(p.across && playing.has(p))) p.stop();
+      if (!(p.across && playing.has(p)) || --p.slidesLeft <= 0) p.stop();
     pendingMedia = [];
     slideMedia = new Map();
   }
@@ -533,6 +543,7 @@ export function createShowExtras(ctx, show) {
     bookmark,
     navigate,
     claims,
+    stopSounds,
     dispose,
   };
 }

@@ -783,14 +783,19 @@ export function createMediaFeatures(ctx) {
         const at = p.element.currentTime * 1000 - media.options.trimStart;
         time.textContent = formatTime(at);
         if (total > 0) scrub.value = String(Math.round((at / total) * 1000));
-        // Stop at the trimmed end.
+        // Stop at the trimmed end, or play from the start again when
+        // looping (the media may have stopped at its own end by now).
         if (
           p.element.currentTime * 1000 >=
           (durationOf(obj) || Infinity) - media.options.trimEnd
         ) {
-          p.element.pause();
-          if (!media.options.loop) ctx.refreshCanvas();
-          else p.element.currentTime = media.options.trimStart / 1000;
+          if (media.options.loop) {
+            p.element.currentTime = media.options.trimStart / 1000;
+            if (p.element.paused) p.element.play().catch(() => {});
+          } else {
+            p.element.pause();
+            ctx.refreshCanvas();
+          }
         }
       };
       p.element.addEventListener("timeupdate", update);

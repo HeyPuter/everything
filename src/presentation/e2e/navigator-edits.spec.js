@@ -104,3 +104,38 @@ test("an edit and its undo touch only the edited slide's thumbnail", async ({
     "Slide 6: Slide 6 text",
   );
 });
+
+// Undoing a new or duplicated slide left the view on whichever slide moved
+// up into its place, not the slide it was made from.
+test("undoing a duplicated slide goes back to the slide it was made from", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (route) =>
+    route.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const choose = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await choose
+  ).setFiles({
+    name: "Navigator.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(deck())),
+  });
+  const rows = page.locator("#slide-list > .slide-item");
+  await expect(rows).toHaveCount(6);
+  const position = page.locator("#slide-position");
+  await rows.nth(1).locator(".slide-thumb").click();
+  await expect(position).toHaveText("Slide 2 of 6");
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.press(`${mod}+Shift+D`);
+  await expect(position).toHaveText("Slide 3 of 7");
+  await page.keyboard.press(`${mod}+Z`);
+  await expect(rows).toHaveCount(6);
+  await expect(position).toHaveText("Slide 2 of 6");
+});

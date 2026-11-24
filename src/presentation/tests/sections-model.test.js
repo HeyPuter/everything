@@ -80,3 +80,29 @@ describe("sections model", () => {
     expect(gone.order).toEqual(["c", "d", "e"]);
   });
 });
+
+// A section keeps its id through every plan, so the Slide Sorter can keep it
+// folded when it moves, is renamed, or gets a new section before it.
+describe("section ids in plans", () => {
+  const order = ["a", "b", "c", "d"];
+  const sections = [
+    { name: "One", id: "{1}", slides: ["a", "b"] },
+    { name: "Two", id: "{2}", slides: ["c", "d"] },
+  ];
+  const ids = (plan) => plan.sections.map((sec) => sec.id ?? null);
+  it("carries ids through moves, renames, splits and slide moves", () => {
+    expect(ids(moveSectionBy(order, sections, 1, -1))).toEqual(["{2}", "{1}"]);
+    expect(ids(renameSectionAt(order, sections, 0, "Uno"))).toEqual([
+      "{1}",
+      "{2}",
+    ]);
+    expect(ids(addSectionAt(order, sections, "b", "Mid"))).toEqual([
+      "{1}",
+      null,
+      "{2}",
+    ]);
+    expect(
+      ids(moveSlidesTo(order, sections, new Set(["a"]), { section: 1 })),
+    ).toEqual(["{1}", "{2}"]);
+  });
+});

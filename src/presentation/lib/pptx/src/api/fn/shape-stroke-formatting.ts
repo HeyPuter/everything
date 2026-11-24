@@ -27,6 +27,8 @@ export interface ShapeStrokeFormatting {
   readonly dash: ShapeStrokeDash | null;
   readonly join: ShapeStrokeJoin | null;
   readonly compound: "sng" | "dbl" | "thickThin" | "thinThick" | "tri" | null;
+  /** Pen alignment (`algn`): centred on the path, or inside the shape. */
+  readonly align: "ctr" | "in" | null;
   readonly head: ArrowOptions | null;
   readonly tail: ArrowOptions | null;
 }
@@ -219,6 +221,7 @@ export const getShapeStrokeFormattingEffective = (
     dash: null,
     join: null,
     compound: null,
+    align: null,
     head: null,
     tail: null,
   };
@@ -227,6 +230,7 @@ export const getShapeStrokeFormattingEffective = (
     result.dash ??= readStrokeDash(line);
     result.join ??= readStrokeJoin(line);
     result.compound ??= readStrokeCompound(line);
+    result.align ??= token(value(line, "algn"), ["ctr", "in"] as const);
     result.head ??= readStrokeEnd(line, "headEnd");
     result.tail ??= readStrokeEnd(line, "tailEnd");
     if (Object.values(result).every((v) => v !== null)) break;

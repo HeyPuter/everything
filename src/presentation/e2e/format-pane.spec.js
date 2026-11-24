@@ -163,6 +163,31 @@ test("effect presets from the ribbon, and shadow, glow, soft edge, bevel and 3-D
   });
 });
 
+// The Width and Height boxes ignored Lock aspect ratio, which the Scale
+// boxes, the ribbon and the handles keep.
+test("a locked aspect ratio holds when Width or Height is typed", async ({
+  page,
+}) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  const pane = await formatPane(page);
+  const size = await section(pane, "size");
+  await size.getByRole("checkbox", { name: "Lock aspect ratio" }).check();
+  const width = pane.getByRole("spinbutton", { name: "Width (in)" });
+  const height = pane.getByRole("spinbutton", { name: "Height (in)" });
+  await expect(width).toHaveValue("3");
+  await expect(height).toHaveValue("2");
+  await setNumber(pane, "Width (in)", 6);
+  await expect(height).toHaveValue("4");
+  await setNumber(pane, "Height (in)", 1);
+  await expect(width).toHaveValue("1.5");
+  const { shapes } = await download(page);
+  expect(P.getShapeBounds(shapes[0])).toMatchObject({
+    w: P.inches(1.5),
+    h: P.inches(1),
+  });
+});
+
 test("size and properties, the text box, alt text and text options", async ({
   page,
 }) => {

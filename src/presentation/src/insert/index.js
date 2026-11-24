@@ -46,6 +46,7 @@ export function createInsertFeatures(host) {
     commitText: host.commitText,
     fail: host.fail,
     mutate: host.mutate,
+    skip: host.skip,
     mutateSlide: host.mutateSlide,
     mutateShape: host.mutateShape,
     currentSize: host.currentSize,
@@ -131,6 +132,8 @@ export function createInsertFeatures(host) {
   const equations = {
     prepare: (source, color, pt) => equation.prepareEquation(source, color, pt),
     place: (slide, prepared, at) => equation.placeEquation(slide, prepared, at),
+    textColorsBefore: (pres) => equation.textColorsBefore(pres),
+    followTextColor: (pres, before) => equation.followTextColor(pres, before),
   };
 
   const tabs = () => [
@@ -242,5 +245,7 @@ export function createInsertFeatures(host) {
     slideShow: (show) => createShowExtras(ctx, show),
     leaveSlide: () => media.stopAll(),
     actionSettings: (obj) => actions.actionSettings(obj),
+    refreshZooms: (amends) => zoom.refreshStale(amends),
+    seedZooms: () => zoom.seedZooms(),
   };
 }

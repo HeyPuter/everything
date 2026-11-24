@@ -1551,17 +1551,23 @@ test("library search matches equivalent Unicode names in imported drafts and clo
   const names = page.locator(".file-open strong");
   const search = page.getByRole("searchbox", { name: "Search presentations" });
   await expect(names).toHaveCount(2);
+  // What the search found is told to assistive technology as well.
+  const found = page.locator("#library-status");
+  await expect(found).toHaveAttribute("role", "status");
   for (const query of ["CAFÉ", "cafe\u0301"]) {
     await search.fill(query);
     await expect(names).toHaveCount(2);
+    await expect(found).toHaveText("2 presentations found");
   }
   await search.fill("No matching name");
   await expect(names).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "No matching presentations" }),
   ).toBeVisible();
+  await expect(found).toHaveText("No matching presentations");
   await search.fill("");
   await expect(names).toHaveCount(2);
+  await expect(found).toHaveText("");
 });
 
 test("library dates refresh over time without replacing focused controls", async ({
@@ -1727,6 +1733,38 @@ test("the library sort control retains its selected order after reopening the li
   await expect(names).toHaveText(["Alpha", "Zulu"]);
   await sort.selectOption("modified");
   await expect(names).toHaveText(["Zulu", "Alpha"]);
+});
+
+// The recovery draft written after an undo holds the undone state: the
+// history keeps its steps as the deck's parts, and serializes the step an
+// undo lands on for the draft.
+test("a draft recovered after an undo holds the presentation as undone", async ({
+  page,
+}) => {
+  await story(page);
+  const notes = page.getByRole("textbox", { name: "Speaker notes" });
+  await notes.fill("Kept notes");
+  await notes.press("Tab");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  // Past the one-second merge window, so the next edit is a step of its own.
+  await page.waitForTimeout(1100);
+  await notes.fill("Undone notes");
+  await notes.press("Tab");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(notes).toHaveValue("Kept notes");
+  await expect(page.locator("#save-status")).toContainText(
+    "Saved on this device",
+  );
+  await reloadLibrary(page);
+  await page
+    .getByRole("button", { name: "The big idea Recovery draft" })
+    .click();
+  await expect(notes).toHaveValue("Kept notes");
 });
 
 test("create, edit, undo, recover, and download a real PPTX", async ({
@@ -9723,7 +9761,23 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
   );
   const shapes = P.getSlideShapes(P.getSlides(loaded)[0]);
   const savedGroup = shapes.find((s) => P.getShapeKind(s) === "group");
-  expect(P.getGroupTransform(savedGroup)).toEqual(P.getGroupTransform(group));
+  // The group's frame is the box around what it holds: the leftmost object
+  // moved a hundredth of an inch right (half that in the doubled group's
+  // own numbers), so the frame's left edge did too. Its scale stays double.
+  const before = P.getGroupTransform(group);
+  const nudge = P.inches(0.01) / 2;
+  expect(P.getGroupTransform(savedGroup)).toEqual({
+    inner: {
+      ...before.inner,
+      x: before.inner.x + nudge,
+      w: before.inner.w - nudge,
+    },
+    outer: {
+      ...before.outer,
+      x: before.outer.x + 2 * nudge,
+      w: before.outer.w - 2 * nudge,
+    },
+  });
   // The child's own numbers moved by half as much inside the doubled group.
   expect(P.getShapeBounds(P.getGroupChildren(savedGroup)[0])).toEqual({
     x: P.inches(1) + P.inches(0.01) / 2,
@@ -10510,16 +10564,14 @@ test("pasting an image or text from another app inserts a picture or a text box"
   await expect(page.locator(".editor")).toBeVisible();
   const objects = page.locator(".object-hit");
   const paste = (data) =>
-    page.evaluate(({ text, png }) => {
+    page.evaluate(({ text, png, name = "screenshot.png" }) => {
       const transfer = new DataTransfer();
       if (text) transfer.setData("text/plain", text);
       if (png)
         transfer.items.add(
-          new File(
-            [Uint8Array.from(atob(png), (c) => c.charCodeAt(0))],
-            "screenshot.png",
-            { type: "image/png" },
-          ),
+          new File([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], name, {
+            type: "image/png",
+          }),
         );
       document.dispatchEvent(
         new ClipboardEvent("paste", {
@@ -10541,6 +10593,13 @@ test("pasting an image or text from another app inserts a picture or a text box"
   await expect(page.locator(".object-hit.selected")).toHaveAccessibleName(
     "Image: screenshot.png. Select to edit",
   );
+  // A screenshot or a picture copied from a web page arrives as
+  // "image.png": a name not worth reading out, so it is not its description.
+  await paste({ png: PIXEL_PNG, name: "image.png" });
+  await expect(objects).toHaveCount(4);
+  await expect(page.locator(".object-hit.selected")).toHaveAccessibleName(
+    "Image. Select to edit",
+  );
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
   await page
@@ -10551,11 +10610,16 @@ test("pasting an image or text from another app inserts a picture or a text box"
   const pictures = P.getSlideShapes(P.getSlides(loaded)[0]).filter(
     (shape) => P.getShapeKind(shape) === "picture",
   );
-  expect(pictures).toHaveLength(2);
+  expect(pictures).toHaveLength(3);
   for (const picture of pictures)
     expect(Buffer.from(P.getShapeImageBytes(picture)).toString("base64")).toBe(
       PIXEL_PNG,
     );
+  expect(pictures.map((picture) => P.getShapeDescription(picture))).toEqual([
+    "screenshot.png",
+    "screenshot.png",
+    null,
+  ]);
   expect(
     Object.keys(unzipSync(bytes)).filter((name) =>
       name.startsWith("ppt/media/"),

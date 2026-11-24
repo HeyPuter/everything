@@ -1,4 +1,4 @@
-import { cleanName, MIME, validateImportSize } from "./model.js";
+import { cleanName, fileStem, MIME, validateImportSize } from "./model.js";
 export const FOLDER = "Presentations";
 const sdk = () => {
   if (!globalThis.puter)
@@ -132,6 +132,19 @@ export const displayName = (path) =>
     .split("/")
     .pop();
 export const isPptxName = (name) => /\.pptx$/i.test(String(name || ""));
+// A slide show (.ppsx), template (.potx) or macro presentation (.pptm and
+// the like) opens too, as a new presentation: saving one is saving a
+// presentation (.pptx), which its own file can't hold.
+export const OPENS_AS_COPY = [".ppsx", ".potx", ".pptm", ".ppsm", ".potm"];
+export const opensAsCopy = (name) =>
+  /\.(?:pps[xm]|pot[xm]|pptm)$/i.test(String(name || ""));
+// The name a presentation opened from such a file takes: a template's starts
+// untitled (null); the others keep theirs.
+export const copyName = (name) =>
+  /\.pot[xm]$/i.test(String(name || ""))
+    ? null
+    : String(name || "").replace(/\.(?:pps[xm]|pptm)$/i, "");
+export const isOpenableName = (name) => isPptxName(name) || opensAsCopy(name);
 // The desktop keeps a deleted file in ~/Trash (or /<user>/Trash) under its id.
 export const inTrash = (path) =>
   typeof path === "string" && /^(?:\/[^/]+|~)\/Trash(?:\/|$)/.test(path);
@@ -230,7 +243,7 @@ export const canSaveFiles = () =>
 // original to wait.
 const settleOnCancel = (pending) => pending?.undefinedOnCancel ?? pending;
 // Puter's Open dialog: the chosen file, or null when it was cancelled.
-export async function pickFile({ accept = [".pptx"] } = {}) {
+export async function pickFile({ accept = [".pptx", ...OPENS_AS_COPY] } = {}) {
   const item = await settleOnCancel(
     sdk().ui.showOpenFilePicker({ multiple: false, accept }),
   );
@@ -309,7 +322,7 @@ export function exitApp() {
 export async function download(bytes, name) {
   return downloadBlob(
     new Blob([bytes], { type: MIME }),
-    `${cleanName(name, { stripExtension: false, maxLength: Infinity })}.pptx`,
+    `${fileStem(cleanName(name, { stripExtension: false, maxLength: Infinity }))}.pptx`,
   );
 }
 // A file the app exports is downloaded to this device, inside the Puter

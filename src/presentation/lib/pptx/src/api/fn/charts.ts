@@ -469,7 +469,7 @@ const validateChartSpec = (spec: ChartSpec): void => {
  *
  * Constraints:
  *
- *   - `pie` charts require exactly one series.
+ *   - `pie` charts require at least one series and plot the first.
  *   - Category labels may be absent or shorter than the numeric values.
  *     Each series retains its own numeric extent, including empty series.
  */

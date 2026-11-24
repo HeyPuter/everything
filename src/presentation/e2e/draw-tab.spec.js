@@ -119,3 +119,44 @@ test("the eraser removes the stroke it crosses, and Escape puts the pen down", a
   const { p } = await download(page);
   expect(P.getSlideShapes(P.getSlides(p)[0])).toHaveLength(1);
 });
+
+// The next stroke is given an erased stroke's id, and took its animation
+// over: a stroke drawn after erasing an animated one faded in.
+test("an erased stroke's animation goes with it", async ({ page }, info) => {
+  test.skip(
+    info.project.name === "mobile",
+    "The Animations tab's gallery is folded away on a phone",
+  );
+  await start(page);
+  await page.locator('[data-command="draw-pen1"]').click();
+  await stroke(page, [
+    [100, 100],
+    [200, 100],
+    [300, 100],
+  ]);
+  await page.keyboard.press("Escape");
+  await page.locator("#slide-canvas .object-hit").first().click();
+  await page.getByRole("tab", { name: "Animations", exact: true }).click();
+  await page
+    .getByRole("listbox", { name: "Animations", exact: true })
+    .getByRole("option", { name: "Fade", exact: true })
+    .click();
+  await expect(page.locator(".anim-badge")).toHaveCount(1);
+  await page.getByRole("tab", { name: "Draw" }).click();
+  await page.locator('[data-command="draw-eraser"]').click();
+  await stroke(page, [
+    [200, 80],
+    [200, 120],
+  ]);
+  await expect(page.locator(".object-hit")).toHaveCount(0);
+  await page.locator('[data-command="draw-pen1"]').click();
+  await stroke(page, [
+    [100, 300],
+    [200, 300],
+    [300, 300],
+  ]);
+  await expect(page.locator(".object-hit")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  const { p } = await download(page);
+  expect(P.getSlideAnimations(P.getSlides(p)[0])).toEqual([]);
+});

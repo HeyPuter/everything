@@ -322,3 +322,52 @@ test("a turned object moves up to the slide's edges as the slide shows it", asyn
   expect(Math.abs(saved.x - P.inches(-1.75))).toBeLessThan(P.inches(0.01));
   expect(Math.abs(saved.y - P.inches(1.75))).toBeLessThan(P.inches(0.01));
 });
+
+// A slanted line took every click inside the box it spans, so the shape
+// under it could not be selected, and empty slide there selected the line.
+test("a slanted line is pressed along its length, not across its whole box", async ({
+  page,
+}) => {
+  await start(page);
+  const p = createDeck("blank"),
+    s = P.getSlides(p)[0];
+  P.addSlideShape(s, {
+    preset: "rect",
+    name: "Box",
+    x: P.inches(1.5),
+    y: P.inches(5),
+    w: P.inches(2),
+    h: P.inches(1),
+  });
+  for (const [name, from, to] of [
+    ["Falling", [1, 1], [12, 6.5]],
+    ["Rising", [6, 7], [12.5, 4]],
+  ])
+    P.addSlideLine(s, {
+      name,
+      from: { x: P.inches(from[0]), y: P.inches(from[1]) },
+      to: { x: P.inches(to[0]), y: P.inches(to[1]) },
+    });
+  await load(page, p, 3);
+  const canvas = await page.locator("#slide-canvas").boundingBox();
+  const size = P.getSlideSize(p);
+  const press = async (x, y) => {
+    await page.mouse.click(
+      canvas.x + (P.inches(x) / size.width) * canvas.width,
+      canvas.y + (P.inches(y) / size.height) * canvas.height,
+    );
+    return page
+      .locator(".object-hit.selected")
+      .evaluateAll((hits) =>
+        hits.map((hit) => hit.getAttribute("aria-label").split(".")[0]),
+      );
+  };
+  // The box lies inside the falling line's box, well away from the line.
+  expect(await press(2.5, 5.5)).toEqual(["Box"]);
+  expect(await press(5.5, 1 + (5.5 - 1) * 0.5)).toEqual(["Falling"]);
+  expect(await press(9, 7 - (3 * 3) / 6.5)).toEqual(["Rising"]);
+  // Empty slide inside the falling line's box, well away from both lines
+  // and from the selected line's grips (which a phone enlarges), is no
+  // longer the line's: a press there lets the selection go.
+  expect(await press(2, 4)).toEqual([]);
+});

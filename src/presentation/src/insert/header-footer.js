@@ -335,7 +335,8 @@ export function createHeaderFooter(ctx) {
                     ? { ...settings.date, lang: language }
                     : settings.date,
               },
-          i + 1,
+          // The number it shows, which a deck may start at other than 1.
+          P.getSlideNumber(ctx.pres(), target) ?? i + 1,
         );
       });
       if (tab === "notes" || choice === "all")

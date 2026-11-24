@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as P from "../lib/pptx/src/index.ts";
-import { createLargeDeck, withArchiveComment } from "./fixtures.js";
+import { asZip64, createLargeDeck, withArchiveComment } from "./fixtures.js";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import {
   P,
@@ -12,6 +12,7 @@ import {
   preview,
   cleanName,
   validateZip,
+  fileStem,
   packageSize,
   checkPackageSize,
   THEMES,
@@ -35,6 +36,9 @@ import {
   textRuns,
   setRichText,
   setParagraphIndentLevel,
+  addLayoutSlide,
+  fitTextToShape,
+  textAutofit,
   LEVEL_INDENTS,
   listOf,
   SOFT_BREAK,
@@ -319,6 +323,76 @@ describe("undo history", () => {
     expect(P.getSlideNotes(P.getSlides(redone)[0])).toBe("New notes");
     expect(history.state).toBe("clay");
   }, 15000);
+  // A step holds only the parts the edits after it replaced, so a large
+  // deck keeps every step of small edits, where whole files each counted
+  // against the history's 80 MB kept just two.
+  it("keeps every small edit of a large presentation", async () => {
+    const pres = createLargeDeck();
+    const notes = () => P.getSlideNotes(P.getSlides(pres)[0]);
+    const original = notes();
+    const h = new History();
+    await h.reset(pres);
+    expect(h.bytes.byteLength).toBeGreaterThan(40 * 1024 * 1024);
+    for (let i = 1; i <= 8; i++) {
+      P.setSlideNotes(P.getSlides(pres)[0], `Notes ${i}`);
+      await h.capture(pres);
+    }
+    expect(h.past).toHaveLength(8);
+    expect(h.heldBytes()).toBeLessThan(64 * 1024);
+    // The current step shares every picture with the presentation.
+    const data = new Set(P._internalPackageOf(pres).parts.map((p) => p.data));
+    expect(h.step.parts.every((part) => data.has(part.data))).toBe(true);
+    let deck = pres;
+    for (let i = 7; i >= 0; i--) {
+      deck = await h.undo();
+      expect(P.getSlideNotes(P.getSlides(deck)[0])).toBe(
+        i ? `Notes ${i}` : original,
+      );
+    }
+    expect(notes()).toBe("Notes 8");
+    expect(P.getSlideNotes(P.getSlides(await h.redo())[0])).toBe("Notes 1");
+  }, 30000);
+  it("still lets go of steps that hold more than 80 MB of replaced parts", async () => {
+    const pres = createLargeDeck();
+    const media = P._internalPackageOf(pres).parts.filter((p) =>
+      p.name.startsWith("/ppt/media/"),
+    );
+    const h = new History();
+    await h.reset(pres);
+    // Each edit replaces a 11 MB picture: the old one stays only in the
+    // history, and each version is counted once.
+    for (let i = 0; i < 12; i++) {
+      const part = media[i % media.length];
+      const copy = part.data.slice();
+      copy[copy.length - 20] ^= 1;
+      P.setMediaPartBytes(pres, part.name, copy);
+      await h.capture(pres);
+      expect(h.heldBytes()).toBeLessThanOrEqual(80 * 1024 * 1024);
+    }
+    expect(h.past.length).toBeGreaterThanOrEqual(7);
+    expect(h.past.length).toBeLessThan(12);
+  }, 30000);
+  // An undone presentation shares its parts with the step, and edits to it
+  // leave the step as it was.
+  it("keeps a step as it was whatever is done to what it restored", async () => {
+    const pres = createDeck("story");
+    const text = (deck) => P.getSlideText(P.getSlides(deck)[0]);
+    const h = new History();
+    await h.reset(pres);
+    const original = text(pres);
+    P.setShapeText(P.getSlideShapes(P.getSlides(pres)[0])[1], "Edited");
+    await h.capture(pres);
+    const undone = await h.undo();
+    expect(unzipSync(h.bytes)).toEqual(
+      unzipSync(await P.savePresentation(undone)),
+    );
+    P.setShapeText(P.getSlideShapes(P.getSlides(undone)[0])[1], "Scribble");
+    P.addBlankSlide(undone);
+    expect(text(h.restore())).toBe(original);
+    expect(P.getSlides(h.restore())).toHaveLength(P.getSlides(pres).length);
+    expect(text(await h.redo())).toContain("Edited");
+    expect(text(await h.undo())).toBe(original);
+  });
   it("restores text and discards a redo branch after new edits", async () => {
     const pres = createDeck("story");
     const h = new History(3);
@@ -670,7 +744,7 @@ describe("file validation", () => {
       "This is not a valid PPTX file.",
     );
   });
-  it("rejects a ZIP64 locator instead of validating the legacy directory", async () => {
+  it("rejects a ZIP64 locator that points at no ZIP64 end record", async () => {
     const original = await P.savePresentation(createDeck());
     const end = original.length - 22;
     const bytes = new Uint8Array(original.length + 20);
@@ -678,6 +752,42 @@ describe("file validation", () => {
     bytes.set(original.subarray(end), end + 20);
     new DataView(bytes.buffer).setUint32(end, 0x07064b50, true);
     expect(() => validateZip(bytes)).toThrow();
+  });
+  it.each([true, false])(
+    "opens a ZIP64 archive (sizes in ZIP64 fields: %s)",
+    async (sizes) => {
+      const original = createDeck("story");
+      const bytes = asZip64(await P.savePresentation(original), { sizes });
+      expect(() => validateZip(bytes)).not.toThrow();
+      const loaded = await parseDeck(bytes);
+      expect(P.getSlides(loaded).map(P.getSlideText)).toEqual(
+        P.getSlides(original).map(P.getSlideText),
+      );
+    },
+  );
+  it("bounds a ZIP64 archive's expanded size from its ZIP64 fields", async () => {
+    const bytes = asZip64(await P.savePresentation(createDeck("story")));
+    const view = new DataView(bytes.buffer);
+    const end = bytes.length - 22;
+    const start = Number(view.getBigUint64(end - 76 + 48, true));
+    // The first entry's uncompressed size, in its ZIP64 extra field.
+    const extra = start + 46 + view.getUint16(start + 28, true);
+    view.setBigUint64(extra + 4, BigInt(250 * 1024 * 1024), true);
+    expect(() => validateZip(bytes)).toThrow("200 MB");
+  });
+  it("rejects a ZIP64 end record that disagrees with itself", async () => {
+    const bytes = asZip64(await P.savePresentation(createDeck("story")));
+    const view = new DataView(bytes.buffer);
+    const record = bytes.length - 22 - 20 - 56;
+    view.setBigUint64(record + 24, 1n, true);
+    expect(() => validateZip(bytes)).toThrow();
+    const moved = asZip64(await P.savePresentation(createDeck("story")));
+    new DataView(moved.buffer).setBigUint64(
+      moved.length - 22 - 20 + 8,
+      BigInt(moved.length),
+      true,
+    );
+    expect(() => validateZip(moved)).toThrow();
   });
   it("rejects directory records extending past their declared boundary", async () => {
     const bytes = await P.savePresentation(createDeck());
@@ -725,6 +835,126 @@ describe("file validation", () => {
     ).toEqual(png);
     expect(() => validateZip(bytes)).toThrow();
   });
+  it("gives downloads a name even when the presentation's is only dots or spaces", () => {
+    expect(fileStem("...")).toBe("Untitled presentation");
+    expect(fileStem(". . .")).toBe("Untitled presentation");
+    expect(fileStem("Plan.  ")).toBe("Plan");
+    expect(fileStem(".hidden plan")).toBe("hidden plan");
+    expect(fileStem("Q3: plan")).toBe("Q3: plan");
+  });
+  it.each([
+    ["its package relationships", "_rels/.rels"],
+    ["a layout its master lists", "ppt/slideLayouts/slideLayout1.xml"],
+    ["a layout its slides use", "ppt/slideLayouts/slideLayout2.xml"],
+    ["its theme", "ppt/theme/theme1.xml"],
+  ])("saves a presentation that lost %s whole again", async (_, lost) => {
+    const entries = unzipSync(await P.savePresentation(createDeck("story")));
+    delete entries[lost];
+    const pres = await parseDeck(zipSync(entries));
+    const saved = unzipSync(await P.savePresentation(pres));
+    const names = new Set(Object.keys(saved).map((n) => n.toLowerCase()));
+    // Every relationship leads to a part, starting from the package's own.
+    expect(saved["_rels/.rels"]).toBeDefined();
+    for (const [name, data] of Object.entries(saved)) {
+      if (!name.endsWith(".rels")) continue;
+      const owner =
+        name === "_rels/.rels"
+          ? "/"
+          : "/" + name.replace(/_rels\/(.*)\.rels$/, "$1");
+      for (const [, target] of new TextDecoder()
+        .decode(data)
+        .matchAll(/Target="([^"]+)"(?![^>]*TargetMode="External")/g))
+        expect(
+          names.has(
+            new URL(target, `file://${owner}`).pathname.slice(1).toLowerCase(),
+          ),
+          `${name} -> ${target}`,
+        ).toBe(true);
+    }
+    expect(P.getSlides(await parseDeck(zipSync(saved)))).toHaveLength(5);
+    // A whole presentation is left as it is.
+    expect(P.repairPackage(createDeck("story"))).toBe(false);
+  });
+  it.each([
+    [false, true],
+    [true, false],
+  ])(
+    "shows a picture whose name the file spells two ways (archive encoded: %s)",
+    async (archiveEncoded, targetEncoded) => {
+      const png = new Uint8Array(
+        Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
+          "base64",
+        ),
+      );
+      const pres = createDeck("story");
+      P.addSlideImage(P.getSlides(pres)[0], png, {
+        x: 0,
+        y: 0,
+        w: P.inches(1),
+        h: P.inches(1),
+      });
+      const entries = unzipSync(await P.savePresentation(pres));
+      const old = Object.keys(entries).find((n) => n.startsWith("ppt/media/"));
+      const raw = "图片 é.png";
+      const spell = (encoded) => (encoded ? encodeURIComponent(raw) : raw);
+      entries[`ppt/media/${spell(archiveEncoded)}`] = entries[old];
+      delete entries[old];
+      const rels = "ppt/slides/_rels/slide1.xml.rels";
+      entries[rels] = strToU8(
+        new TextDecoder()
+          .decode(entries[rels])
+          .replace(`../${old.slice(4)}`, `../media/${spell(targetEncoded)}`),
+      );
+      const types = "[Content_Types].xml";
+      entries[types] = strToU8(
+        new TextDecoder()
+          .decode(entries[types])
+          .replace(/<Override PartName="\/ppt\/media\/[^"]*"[^>]*\/>/g, "")
+          .replace(
+            "</Types>",
+            '<Default Extension="png" ContentType="image/png"/></Types>',
+          ),
+      );
+      const picture = async (bytes) =>
+        P.getShapeImageBytes(
+          P.getSlideShapes(P.getSlides(await parseDeck(bytes))[0]).find(
+            (s) => P.getShapeKind(s) === "picture",
+          ),
+        );
+      const opened = await parseDeck(zipSync(entries));
+      expect(
+        P.getShapeImageBytes(
+          P.getSlideShapes(P.getSlides(opened)[0]).find(
+            (s) => P.getShapeKind(s) === "picture",
+          ),
+        ),
+      ).toEqual(png);
+      // Deleting another slide does not take the picture for unused.
+      removeSlides(opened, [P.getSlides(opened)[1]]);
+      expect(await picture(await P.savePresentation(opened))).toEqual(png);
+    },
+  );
+  it.each(['cx="abc" cy="6858000"', 'cx="0" cy="0"'])(
+    "gives a presentation whose slide size is no size (%s) the widescreen size",
+    async (attrs) => {
+      const entries = unzipSync(await P.savePresentation(createDeck("story")));
+      const name = "ppt/presentation.xml";
+      entries[name] = strToU8(
+        new TextDecoder()
+          .decode(entries[name])
+          .replace(/<p:sldSz[^>]*\/>/, `<p:sldSz ${attrs}/>`),
+      );
+      const pres = await parseDeck(zipSync(entries));
+      expect(P.getSlideSize(pres)).toMatchObject({
+        width: 12192000,
+        height: 6858000,
+      });
+      expect(decodeURIComponent(preview(pres, P.getSlides(pres)[0]))).toContain(
+        'viewBox="0 0 1280.00 720.00"',
+      );
+    },
+  );
   it("normalizes file names without allowing path traversal", () => {
     expect(cleanName("../a\\b\u0000.pptx")).toBe(".. a b");
     expect(cleanName("")).toBe("Untitled presentation");
@@ -1325,6 +1555,35 @@ describe("paragraph levels", () => {
       firstLineEmu: null,
     });
   });
+  it("leaves a placeholder's level indents to its layout and master", () => {
+    const pres = createDeck("blank");
+    const slide = addLayoutSlide(pres, "obj");
+    const body = P.getSlideShapes(slide).find(
+      (shape) =>
+        P.getShapePlaceholderType(shape) === "body" ||
+        (P.isShapePlaceholder(shape) && !P.getShapePlaceholderType(shape)),
+    );
+    P.setShapeText(body, "Point\nSub point");
+    const inherited = P.getParagraphPropertiesEffective(pres, body, 1);
+    const paragraphs = textRuns(pres, body).map((paragraph, i) => ({
+      ...paragraph,
+      level: i,
+      levelChanged: i === 1,
+    }));
+    setRichText(body, paragraphs);
+    expect(P.getParagraphLevel(body, 1)).toBe(1);
+    expect(P.getParagraphIndent(body, 1)).toMatchObject({
+      leftEmu: null,
+      firstLineEmu: null,
+    });
+    const effective = P.getParagraphPropertiesEffective(pres, body, 1);
+    expect(effective.marL).toBeGreaterThan(inherited.marL);
+    // Back to the first level, the paragraph lines up with the first.
+    setParagraphIndentLevel(body, 1, 0, false);
+    expect(P.getParagraphPropertiesEffective(pres, body, 1).marL).toBe(
+      P.getParagraphPropertiesEffective(pres, body, 0).marL,
+    );
+  });
 });
 
 describe("paragraph properties through edits", () => {
@@ -1747,5 +2006,68 @@ describe("group rotation", () => {
     const free = shape(slide, 7, 1, 1, 1, "#000000");
     expect(ownRotation(free, 270)).toBe(270);
     expect(ownRotation(free, -90)).toBe(270);
+  });
+});
+
+describe("autofit after text edits", () => {
+  it("shrinks a placeholder's overflowing text and lets it grow back", () => {
+    const pres = createDeck("blank");
+    const slide = addLayoutSlide(pres, "obj");
+    const body = P.getSlideShapes(slide).find(
+      (shape) =>
+        P.isShapePlaceholder(shape) &&
+        P.getShapePlaceholderType(shape) !== "title",
+    );
+    // The master's body shrinks text on overflow.
+    expect(textAutofit(body)).toBe("normal");
+    P.setShapeText(body, "One point");
+    expect(fitTextToShape(pres, body)).toBe(false);
+    expect(P.getShapeTextAutoFit(body)).toBeNull();
+    P.setShapeText(
+      body,
+      Array.from({ length: 30 }, (_, i) => `Point ${i}`).join("\n"),
+    );
+    expect(fitTextToShape(pres, body)).toBe(true);
+    const shrunk = P.getShapeTextAutoFitParams(body);
+    expect(shrunk.fontScale).toBeLessThan(1);
+    expect(shrunk.lnSpcReduction).toBeGreaterThan(0);
+    // Fitting again changes nothing; less text takes the scale off.
+    expect(fitTextToShape(pres, body)).toBe(false);
+    P.setShapeText(body, "One point");
+    expect(fitTextToShape(pres, body)).toBe(true);
+    expect(P.getShapeTextAutoFitParams(body)).toMatchObject({
+      fontScale: 1,
+      lnSpcReduction: 0,
+      hasFontScale: false,
+    });
+    // The saved file carries the scale.
+    P.setShapeText(
+      body,
+      Array.from({ length: 30 }, (_, i) => `Point ${i}`).join("\n"),
+    );
+    fitTextToShape(pres, body);
+    expect(P.getSlideXmlString(slide)).toMatch(
+      /<a:normAutofit fontScale="\d+"/,
+    );
+  });
+
+  it("resizes a shape set to fit its text", () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const box = text(slide, "One line", 1, 1, 6, 0.5, 20);
+    P.setShapeTextAutoFit(box, "shape");
+    const start = P.getShapeBounds(box);
+    P.setShapeText(box, "One\nTwo\nThree\nFour\nFive");
+    expect(fitTextToShape(pres, box)).toBe(true);
+    const grown = P.getShapeBounds(box);
+    expect(grown.h).toBeGreaterThan(start.h * 3);
+    expect(grown.y).toBe(start.y);
+    P.setShapeText(box, "One");
+    expect(fitTextToShape(pres, box)).toBe(true);
+    expect(P.getShapeBounds(box).h).toBeLessThan(grown.h / 3);
+    // A box left to overflow keeps its size.
+    P.setShapeTextAutoFit(box, "none");
+    P.setShapeText(box, "One\nTwo\nThree\nFour\nFive");
+    expect(fitTextToShape(pres, box)).toBe(false);
   });
 });

@@ -1182,9 +1182,10 @@ describe("shaped spans across line-break opportunities", () => {
     const result = layoutCore(value, shaped),
       line = result.placements[0].line;
     expect(line.tokens.reduce((sum, t) => sum + t.width, 0)).toBe(23);
-    expect(line.bullet.x).toBe(17 + 20 + (100 - 20 - 23) / 2 - 20);
+    // The bullet's own width, with no space before the text.
+    expect(line.bullet.x).toBe(17 + 10 + (100 - 10 - 23) / 2 - 10);
     const svg = layoutTextSvg(value, shaped);
-    expect(svg).toContain('d="M65.5 ');
+    expect(svg).toContain('d="M60.5 ');
   });
   it("measures the complete shaped span even when wrapping is disabled", () => {
     const result = layoutCore(

@@ -170,6 +170,68 @@ test("comments: post, mention, reply and resolve, saved as threaded comments", a
   ).not.toContain("Check the date");
 });
 
+// Going to another slide rewrote every thumbnail's label, dropping the
+// comment count the thumbnails pane gives a slide with comments.
+// An edit to one slide leaves the other thumbnails as they were worked
+// out: their names, comment counts and numbers stay right.
+test("an edit on one slide leaves the other thumbnails' names and counts as they were", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = createDeck("pitch");
+  const slides = P.getSlides(pres);
+  P.setSlideCommentThreads(slides[1], [
+    { author: { name: "Grace" }, text: "On two" },
+  ]);
+  await open(page, pres);
+  const thumb = (i) => page.locator(".slide-item .slide-thumb").nth(i);
+  const labels = async () =>
+    page
+      .locator(".slide-item .slide-thumb")
+      .evaluateAll((all) => all.map((t) => t.getAttribute("aria-label")));
+  const before = await labels();
+  expect(before[1]).toMatch(/, 1 comment$/);
+  await page.locator("#slide-canvas .object-hit").first().click();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(
+    page.getByRole("button", { name: "Undo", exact: true }),
+  ).toBeEnabled();
+  await page.waitForTimeout(300);
+  expect((await labels()).slice(1)).toEqual(before.slice(1));
+  await expect(thumb(1)).toHaveAttribute("aria-label", /, 1 comment$/);
+});
+
+test("thumbnails keep their comment count in their names as slides are chosen", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = createDeck("pitch");
+  const slides = P.getSlides(pres);
+  P.setSlideCommentThreads(slides[1], [
+    { author: { name: "Grace" }, text: "On two" },
+  ]);
+  await open(page, pres);
+  const thumb = (i) => page.locator(".slide-item .slide-thumb").nth(i);
+  await expect(thumb(1)).toHaveAttribute("aria-label", /, 1 comment$/);
+  await thumb(2).click();
+  await expect(thumb(2)).toHaveAttribute("aria-current", "true");
+  await expect(thumb(1)).toHaveAttribute("aria-label", /, 1 comment$/);
+  // Chosen with others, a slide says so, and keeps its count.
+  await thumb(1).click({ modifiers: ["Shift"] });
+  await expect(thumb(1)).toHaveAttribute(
+    "aria-label",
+    /^Slide 2 \(selected\): .*, 1 comment$/,
+  );
+  await expect(thumb(2)).toHaveAttribute("aria-label", /^Slide 3 \(selected\)/);
+  await thumb(0).click();
+  await expect(thumb(1)).toHaveAttribute(
+    "aria-label",
+    /^Slide 2: .*, 1 comment$/,
+  );
+  await expect(thumb(2)).toHaveAttribute("aria-label", /^Slide 3: /);
+});
+
 test("comments: previous and next across slides, filters, and delete all", async ({
   page,
 }) => {
@@ -300,6 +362,99 @@ test("a comment on a deleted object stays put, off any new object", async ({
   await expect(anchor).toContainText("Rectangle");
 });
 
+// Ungrouping removes the group; its comment kept the group's id, which the
+// next object added was given, so the comment jumped onto that one.
+test("a comment on an ungrouped group stays put, off any new object", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "mobile", "the sheet covers the slide");
+  await stub(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const box = (x) =>
+    P.addSlideShape(slide, {
+      preset: "rect",
+      x,
+      y: 914400,
+      w: 914400,
+      h: 914400,
+    });
+  const group = P.groupShapes([box(914400), box(914400 * 3)]);
+  P.setSlideCommentThreads(slide, [
+    {
+      author: { name: "Grace" },
+      text: "Space these out",
+      shapeId: String(P.getShapeId(group)),
+    },
+  ]);
+  await open(page, pres);
+  await reviewTab(page);
+  await command(page, "show-comments");
+  const anchor = page.locator("#review-pane .comment-anchor");
+  await expect(anchor).toHaveCount(1);
+  await page.locator(".object-hit").first().click();
+  await page.keyboard.press(`${MOD}+Alt+Shift+KeyG`);
+  await expect(page.locator(".object-hit")).toHaveCount(2);
+  await expect(anchor).toHaveCount(0);
+  await page
+    .getByRole("menubar")
+    .getByRole("menuitem", { name: "Insert", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
+  await expect(page.locator(".object-hit")).toHaveCount(3);
+  await page.keyboard.press("Escape");
+  await expect(anchor).toHaveCount(0);
+  const { pres: saved } = await download(page);
+  const [thread] = P.getSlideCommentThreads(P.getSlides(saved)[0]);
+  expect(thread.shapeId).toBeNull();
+  expect(thread.pos).not.toBeNull();
+});
+
+// Duplicate Slide started the copy without the slide's comments.
+test("a duplicated slide takes its comments, anchored to the copied objects", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "mobile", "the sheet covers the slide");
+  await stub(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const shape = P.addSlideShape(slide, {
+    preset: "rect",
+    x: 914400,
+    y: 914400,
+    w: 914400 * 2,
+    h: 914400,
+  });
+  P.setSlideCommentThreads(slide, [
+    {
+      author: { name: "Grace" },
+      text: "Check this",
+      shapeId: String(P.getShapeId(shape)),
+    },
+  ]);
+  await open(page, pres);
+  await reviewTab(page);
+  await command(page, "show-comments");
+  await page
+    .getByRole("menubar")
+    .getByRole("menuitem", { name: "Insert", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Duplicate slide" }).click();
+  await expect(page.locator(".slide-thumb")).toHaveCount(2);
+  const anchor = page.locator("#review-pane .comment-anchor");
+  await expect(anchor).toContainText("Rectangle");
+  const { pres: saved } = await download(page);
+  const [a, b] = P.getSlides(saved).map((s) => P.getSlideCommentThreads(s));
+  expect(b.map((t) => t.text)).toEqual(["Check this"]);
+  expect(b[0].id).not.toBe(a[0].id);
+  expect(b[0].shapeId).toBe(
+    String(P.getShapeId(P.getSlideShapes(P.getSlides(saved)[1])[0])),
+  );
+  // Undo takes the copy away with its comments.
+  await page.keyboard.press(`${MOD}+z`);
+  await expect(page.locator(".slide-thumb")).toHaveCount(1);
+});
+
 // A change of slide size that scales the content moves the comments with it;
 // they stayed at their old places, off the content or past the slide's edge.
 test("comments move with the content when the slide size changes", async ({
@@ -424,6 +579,51 @@ test("spelling pane: change a word, ignore another", async ({ page }) => {
     P.getShapeText(s),
   );
   expect(texts).toContain("The quick brown fox");
+});
+
+// The check passed over the words of SmartArt graphics: a misspelling
+// there was never found, and Change All left it as it was.
+test("spelling pane: finds and changes words in a SmartArt graphic", async ({
+  page,
+}) => {
+  await stub(page);
+  const pres = textDeck(["The quick fox"]);
+  P.addSlideSmartArt(P.getSlides(pres)[0], {
+    model: {
+      layout: P.SMARTART_LAYOUTS[0].id,
+      items: [
+        { text: "Plan the budjet", level: 0 },
+        { text: "Ship", level: 0 },
+        { text: "Review the budjet", level: 0 },
+      ],
+      colors: P.DEFAULT_SMARTART_COLORS,
+      style: P.DEFAULT_SMARTART_STYLE,
+    },
+    x: 914400,
+    y: 914400 * 3,
+    w: 914400 * 6,
+    h: 914400 * 3,
+  });
+  await open(page, pres);
+  await page.keyboard.press("F7");
+  const pane = page.locator("#review-pane");
+  await expect(pane.locator(".spell-word")).toHaveText("budjet", {
+    timeout: 20_000,
+  });
+  await pane.getByRole("option", { name: "budget" }).click();
+  await press(pane.getByRole("button", { name: "Change", exact: true }));
+  await expect(pane.locator(".spell-word")).toHaveText("budjet");
+  await press(pane.getByRole("button", { name: "Change All" }));
+  await expect(pane).toContainText("Spelling check complete");
+  const { pres: saved } = await download(page);
+  const graphic = P.getSlideShapes(P.getSlides(saved)[0]).find((s) =>
+    P.isDiagramShape(s),
+  );
+  expect(P.getShapeSmartArt(graphic).items.map((i) => i.text)).toEqual([
+    "Plan the budget",
+    "Ship",
+    "Review the budget",
+  ]);
 });
 
 // Changing a misspelled word in the speaker notes wrote the notes back in

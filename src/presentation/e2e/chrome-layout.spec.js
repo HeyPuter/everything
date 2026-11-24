@@ -115,7 +115,11 @@ test("the Comments pane keeps the keyboard when a comment is resolved or deleted
       await page.getByRole("textbox", { name: "Your name" }).fill("Ada");
       await page.getByRole("button", { name: "Continue" }).click();
     }
-    await expect(pane.getByText(text)).toBeVisible();
+    // The posted comment, not the box it was typed in (which may still hold
+    // the text for a moment).
+    await expect(
+      pane.locator(".comment-text").getByText(text, { exact: true }),
+    ).toBeVisible();
   }
   const threads = pane.locator(".comment-thread");
   await expect(threads).toHaveCount(2);
@@ -201,7 +205,14 @@ test("menu shortcuts are written one way on a Mac", async ({ page }, info) => {
   expect(await page.evaluate(() => navigator.platform)).toMatch(/Mac/);
   await page.locator("#slide-canvas .object-hit").first().click();
   const shortcuts = [];
-  for (const name of ["Edit", "View", "Format", "Arrange", "Tools"]) {
+  for (const name of [
+    "Edit",
+    "View",
+    "Format",
+    "Arrange",
+    "Tools",
+    "Slide Show",
+  ]) {
     await page
       .getByRole("menubar")
       .getByRole("menuitem", { name, exact: true })
@@ -213,6 +224,7 @@ test("menu shortcuts are written one way on a Mac", async ({ page }, info) => {
   }
   expect(shortcuts).toContain("⌘+⌥+G");
   expect(shortcuts).toContain("⌘+T");
+  expect(shortcuts).toContain("⌥+F5");
   expect(shortcuts.filter((s) => /Alt|[⌘⌥⌃⇧](?!\+)/.test(s))).toEqual([]);
 });
 
@@ -303,4 +315,141 @@ test("menu items tell assistive technology their shortcuts", async ({
   await expect(
     page.getByRole("menuitem", { name: "Selection Pane", exact: true }),
   ).toHaveAttribute("aria-keyshortcuts", "Meta+Alt+U");
+});
+
+// The status bar names the language of the selected text, as the language
+// menu does, and follows the selection, a new language and undo.
+test("the status bar's language follows the selected text", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== "desktop",
+    "phones and tablets leave the language out",
+  );
+  await mockPuter(page);
+  await story(page);
+  const language = page.locator("#status-language");
+  await expect(language).toHaveText("English (United States)");
+  await page.locator("#slide-canvas .object-hit").first().click();
+  await language.click();
+  await page.getByRole("menu").getByText("French (France)").click();
+  await expect(language).toHaveText("French (France)");
+  // Nothing selected, then the same text again.
+  await page.keyboard.press("Escape");
+  await expect(language).toHaveText("English (United States)");
+  await page.locator("#slide-canvas .object-hit").first().click();
+  await expect(language).toHaveText("French (France)");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(language).toHaveText("English (United States)");
+});
+
+// Shift+F10 opens the shortcut menu of what has the keyboard, on a Mac too,
+// where the browser leaves the key alone.
+test("Shift+F10 opens the shortcut menu of the focused object or slide", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await story(page);
+  const object = page.locator("#slide-canvas .object-hit").first();
+  await object.click();
+  await page.keyboard.press("Shift+F10");
+  const objectMenu = page.getByRole("menu", { name: "Object options" });
+  await expect(objectMenu).toBeVisible();
+  await expect(objectMenu.getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(objectMenu).toBeHidden();
+  await expect(object).toBeFocused();
+  // A thumbnail in the navigator.
+  await page.locator(".slide-item .slide-thumb").nth(1).focus();
+  await page.keyboard.press("Shift+F10");
+  await expect(page.getByRole("menu")).toHaveCount(1);
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(
+    page.getByRole("menu").getByRole("menuitem").first(),
+  ).toBeFocused();
+});
+
+// With the system's colors forced, the current slide is still told apart in
+// the navigator and in Slide Sorter.
+test("forced colors mark the current slide", async ({ page }, info) => {
+  await page.emulateMedia({ forcedColors: "active" });
+  await mockPuter(page);
+  await story(page);
+  const border = (selector) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((node) => getComputedStyle(node).borderTopColor);
+  const current = await border(".slide-item.active .slide-thumb");
+  expect(current).not.toBe(
+    await border(".slide-item:not(.active) .slide-thumb"),
+  );
+  test.skip(info.project.name === "mobile", "Slide Sorter is in View");
+  await page.keyboard.press("ControlOrMeta+2");
+  await expect(page.locator(".sorter-card.current")).toBeVisible();
+  expect(await border(".sorter-card.current .sorter-thumb")).not.toBe(
+    await border(".sorter-card:not(.current) .sorter-thumb"),
+  );
+});
+
+// On a screen too narrow for every tab, a contextual tab arriving with the
+// selection scrolls into view as far as the chosen tab's name stays in view,
+// and the row fades out at the edge with more tabs beyond it.
+test("a contextual tab comes into view on a narrow screen", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "desktop", "every tab fits");
+  await mockPuter(page);
+  await story(page);
+  const tabs = page.getByRole("tablist", { name: "Ribbon tabs" });
+  await expect(tabs).toHaveClass(/more-after/);
+  const shown = (tab) =>
+    Promise.all([tab.boundingBox(), tabs.boundingBox()]).then(
+      ([t, row]) =>
+        !!t &&
+        !!row &&
+        t.x >= row.x - 1 &&
+        t.x + t.width <= row.x + row.width + 1,
+    );
+  const home = page.getByRole("tab", { name: "Home" });
+  const review = page.getByRole("tab", { name: "Review" });
+  const shapeFormat = page.getByRole("tab", { name: "Shape Format" });
+  const object = page.locator("#slide-canvas .object-hit").first();
+  // Home and Shape Format do not fit together: Home stays in view.
+  await object.click();
+  await expect(shapeFormat).toBeAttached();
+  await expect(home).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => shown(home)).toBe(true);
+  await expect(tabs).toHaveClass(/more-after/);
+  // From Review, both fit, and the row scrolls to show them.
+  await page.keyboard.press("Escape");
+  await expect(shapeFormat).toBeHidden();
+  await review.click();
+  await object.click();
+  await expect.poll(() => shown(shapeFormat)).toBe(true);
+  await expect.poll(() => shown(review)).toBe(true);
+  await expect(tabs).toHaveClass(/more-before/);
+});
+
+// A checked menu item stays readable on the tint of the focused item.
+test("a focused checked menu item keeps its contrast", async ({ page }) => {
+  await mockPuter(page);
+  await story(page);
+  const bar = page.getByRole("menubar");
+  if (await bar.isVisible())
+    await bar.getByRole("menuitem", { name: "View", exact: true }).click();
+  else {
+    await page.getByRole("button", { name: "File options" }).click();
+    await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  }
+  // The keyboard brings the first item, Normal (checked), the focus tint.
+  const normal = page.getByRole("menuitemcheckbox", { name: "Normal" });
+  await page.keyboard.press("End");
+  await page.keyboard.press("Home");
+  await expect(normal).toBeFocused();
+  const { violations } = await new AxeBuilder({ page })
+    .include(".menu-item.checked:focus")
+    .withRules(["color-contrast"])
+    .analyze();
+  expect(violations).toEqual([]);
 });

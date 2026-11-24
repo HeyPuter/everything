@@ -200,6 +200,21 @@ export class OpcPackage {
     return new OpcPackage(parts, contentTypes);
   }
 
+  /**
+   * A package of the given parts and content types, for an undo history's
+   * snapshot (see `snapshot`): the part records are copied, their bytes
+   * shared. Parts are replaced, never changed in place, so sharing is safe.
+   */
+  static fromParts(
+    parts: ReadonlyArray<Part>,
+    contentTypes: ContentTypes,
+  ): OpcPackage {
+    return new OpcPackage(
+      parts.map((part) => ({ ...part })),
+      structuredClone(contentTypes),
+    );
+  }
+
   /** Serialize the package to a `.pptx` byte stream. */
   save(): Uint8Array {
     const entries: ZipEntry[] = [];

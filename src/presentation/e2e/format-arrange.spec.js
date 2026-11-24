@@ -82,6 +82,65 @@ test("the Selection Pane takes the keyboard, marks the selection, and gives the 
   await expect(page.locator("#main")).toBeFocused();
 });
 
+// The pane's list was rebuilt after each change, dropping the keyboard on
+// the page: a second Alt+Down did nothing.
+test("the Selection Pane keeps the keyboard on the row it reorders, renames or hides", async ({
+  page,
+}) => {
+  await start(page);
+  for (const name of ["Rectangle", "Circle", "Triangle"])
+    await addShape(page, name);
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  const names = pane.locator(".selection-name");
+  await expect(names).toHaveText([/^Triangle/, /^Circle/, /^Rectangle/]);
+  const triangle = pane.getByRole("button", { name: /^Triangle/ });
+  await expect(triangle).toBeFocused();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(names).toHaveText([/^Circle/, /^Triangle/, /^Rectangle/]);
+  await expect(triangle).toBeFocused();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(names).toHaveText([/^Circle/, /^Rectangle/, /^Triangle/]);
+  await expect(triangle).toBeFocused();
+  await page.keyboard.press("F2");
+  await pane.getByRole("textbox").fill("Peak");
+  await page.keyboard.press("Enter");
+  await expect(names).toHaveText([/^Circle/, /^Rectangle/, "Peak"]);
+  const peak = pane.getByRole("button", { name: "Peak", exact: true });
+  await expect(peak).toBeFocused();
+  await page.keyboard.press("Tab");
+  const eye = pane.getByRole("button", { name: "Hide Peak" });
+  await expect(eye).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(pane.locator("li.hidden-object")).toHaveCount(1);
+  await expect(pane.getByRole("button", { name: "Show Peak" })).toBeFocused();
+});
+
+// Hiding the selected object kept it selected: the Format pane went on
+// showing it, and Delete removed the object no one could see.
+test("hiding the selected object in the Selection Pane deselects it", async ({
+  page,
+}) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  await addShape(page, "Circle");
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  const circle = pane.getByRole("button", { name: /^Circle/ });
+  await expect(circle).toHaveAttribute("aria-pressed", "true");
+  await pane.getByRole("button", { name: /^Hide Circle/ }).click();
+  await expect(pane.locator("li.hidden-object")).toHaveCount(1);
+  await expect(circle).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".object-hit.selected")).toHaveCount(0);
+  await page.locator("#main").focus();
+  await page.keyboard.press("Delete");
+  const { shapes } = await download(page);
+  expect(shapes).toHaveLength(2);
+  expect(shapes.filter((s) => P.isShapeHidden(s))).toHaveLength(1);
+});
+
 test("rotate, the Size and Rotation dialog, Regroup and aligning to the slide", async ({
   page,
 }) => {
@@ -145,6 +204,90 @@ test("rotate, the Size and Rotation dialog, Regroup and aligning to the slide", 
   expect(Math.min(...tops)).toBeLessThan(400000);
 });
 
+// Ungroup took apart only the group with the handles, and was off in the
+// menus for several selected groups.
+test("Ungroup takes apart every selected group", async ({ page }) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  await addShape(page, "Circle");
+  await selectAll(page);
+  await page.keyboard.press(`${mod}+Alt+g`);
+  await addShape(page, "Triangle");
+  await addShape(page, "Diamond");
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  await pane.getByRole("button", { name: /^Triangle/ }).click();
+  await pane
+    .getByRole("button", { name: /^Diamond/ })
+    .click({ modifiers: ["Shift"] });
+  await page.keyboard.press(`${mod}+Alt+g`);
+  await expect(pane.locator("li[data-depth]")).toHaveCount(4);
+  await selectAll(page);
+  const chosen = page.locator(".object-hit.selected");
+  await expect(chosen).toHaveCount(2);
+  await tab(page, "Shape Format");
+  await (await command(page, "group")).click();
+  await expect(
+    page.getByRole("menuitem", { name: /^Ungroup/ }).filter({ visible: true }),
+  ).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press(`${mod}+Alt+Shift+g`);
+  await expect(chosen).toHaveCount(4);
+  await expect(pane.locator("li[data-depth]")).toHaveCount(0);
+  const { shapes } = await download(page);
+  expect(shapes.map((s) => P.getShapeKind(s))).toEqual([
+    "shape",
+    "shape",
+    "shape",
+    "shape",
+  ]);
+});
+
+// A grouped object moved out of its group's frame left the frame behind:
+// the group's outline and handles no longer matched what it held.
+test("a group's frame follows an object moved within it", async ({ page }) => {
+  await start(page);
+  await addShape(page, "Rectangle");
+  await addShape(page, "Circle");
+  await tab(page, "Shape Format");
+  await (await command(page, "selection-pane")).click();
+  const pane = page.getByRole("complementary", { name: "Selection" });
+  // The circle steps away from the rectangle, then the two are grouped.
+  const box = (locator) =>
+    locator.evaluate((node) =>
+      ["left", "top", "width", "height"].map((k) => parseFloat(node.style[k])),
+    );
+  const onSlide = (name) =>
+    page.locator("#slide-canvas").getByRole("button", { name });
+  await pane.getByRole("button", { name: /^Circle/ }).click();
+  await onSlide(/^Circle/).focus();
+  for (let i = 0; i < 20; i++) await page.keyboard.press("Shift+ArrowRight");
+  await selectAll(page);
+  await page.keyboard.press(`${mod}+Alt+g`);
+  await expect(pane.locator("li[data-depth]")).toHaveCount(2);
+  // The circle, on its own inside the group, moves down.
+  await pane.getByRole("button", { name: /^Circle/ }).click();
+  await onSlide(/^Circle/).focus();
+  const before = await box(onSlide(/^Circle/));
+  for (let i = 0; i < 20; i++) await page.keyboard.press("Shift+ArrowDown");
+  await expect
+    .poll(async () => (await box(onSlide(/^Circle/)))[1])
+    .toBeGreaterThan(before[1] + 10);
+  await pane.getByRole("button", { name: /^Group/ }).click();
+  const hits = page.locator(".object-hit");
+  const [group, rect, circle] = await Promise.all(
+    [/^Group/, /^Rectangle/, /^Circle/].map((name) => box(onSlide(name))),
+  );
+  expect(await hits.count()).toBe(3);
+  const right = (b) => b[0] + b[2],
+    bottom = (b) => b[1] + b[3];
+  expect(group[0]).toBeCloseTo(Math.min(rect[0], circle[0]), 1);
+  expect(group[1]).toBeCloseTo(Math.min(rect[1], circle[1]), 1);
+  expect(right(group)).toBeCloseTo(Math.max(right(rect), right(circle)), 1);
+  expect(bottom(group)).toBeCloseTo(Math.max(bottom(rect), bottom(circle)), 1);
+});
+
 // Align and Distribute moved the unturned box, so Align Top put a long
 // rectangle turned upright half off the slide.
 test("a turned object aligns and distributes where the slide shows it", async ({
@@ -187,6 +330,51 @@ test("a turned object aligns and distributes where the slide shows it", async ({
   expect(Math.abs(gaps[0] - gaps[1])).toBeLessThan(2);
 });
 
+// Distribute ignored Align to Slide: it spread the objects between the two
+// at the ends, and stayed off for fewer than three.
+test("Distribute aligned to the slide spreads objects to its edges and centers one", async ({
+  page,
+}) => {
+  await start(page);
+  for (const name of ["Rectangle", "Rectangle", "Rectangle"])
+    await addShape(page, name);
+  const slideWidth = 12192000;
+  await selectAll(page);
+  await tab(page, "Shape Format");
+  await (await command(page, "align")).click();
+  await page.getByRole("menuitemcheckbox", { name: "Align to Slide" }).click();
+  await (await command(page, "align")).click();
+  await page.getByRole("menuitem", { name: "Distribute Horizontally" }).click();
+  let { shapes } = await download(page);
+  const boxes = shapes
+    .map((s) => P.getShapeBounds(s))
+    .sort((a, b) => a.x - b.x);
+  expect(boxes[0].x).toBe(0);
+  expect(Math.abs(boxes[2].x + boxes[2].w - slideWidth)).toBeLessThan(2);
+  const gaps = boxes.slice(1).map((b, i) => b.x - (boxes[i].x + boxes[i].w));
+  expect(Math.abs(gaps[0] - gaps[1])).toBeLessThan(2);
+  // One object, aligned to the slide, is centered across it: the one at
+  // the left edge joins the one already in the middle.
+  const lefts = await objects(page).evaluateAll((hits) =>
+    hits.map((hit) => parseFloat(hit.style.left)),
+  );
+  await objects(page)
+    .nth(lefts.indexOf(Math.min(...lefts)))
+    .click();
+  await expect(page.locator(".object-hit.selected")).toHaveCount(1);
+  await (await command(page, "align")).click();
+  const spread = page.getByRole("menuitem", {
+    name: "Distribute Horizontally",
+  });
+  await expect(spread).toBeEnabled();
+  await spread.click();
+  ({ shapes } = await download(page));
+  const centered = shapes
+    .map((s) => P.getShapeBounds(s))
+    .filter((b) => Math.abs(b.x + b.w / 2 - slideWidth / 2) < 2);
+  expect(centered).toHaveLength(2);
+});
+
 test("Replace Fonts, Paste Special as a picture, Repeat, and Format Object", async ({
   page,
 }) => {
@@ -216,7 +404,10 @@ test("Replace Fonts, Paste Special as a picture, Repeat, and Format Object", asy
   await paste.getByRole("button", { name: "Paste" }).click();
   await expect(objects(page)).toHaveCount(3);
   ({ shapes } = await download(page));
-  expect(shapes.filter((s) => P.getShapeKind(s) === "picture")).toHaveLength(1);
+  const pictures = shapes.filter((s) => P.getShapeKind(s) === "picture");
+  expect(pictures).toHaveLength(1);
+  // Not described as "Pasted objects.png": the check asks for words instead.
+  expect(P.getShapeDescription(pictures[0])).toBeNull();
 
   // Repeat: Change Shape on one shape, then Ctrl/⌘+Y on another.
   await selectAll(page);

@@ -59,3 +59,26 @@ describe("slide sections follow deck edits", () => {
     expect(P.getSlideSections(pres)).toEqual([]);
   });
 });
+
+// Every write gave each section a new id, so whatever kept a section by its
+// id (an editor's folded sections) lost it with each change.
+describe("section ids", () => {
+  it("keep their GUIDs through a rewrite, and new sections get unique ones", async () => {
+    const pres = deck();
+    const ids = P.getSlideSections(pres).map((sec) => sec.id);
+    expect(new Set(ids).size).toBe(2);
+    for (const id of ids)
+      expect(id).toMatch(/^\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$/);
+    const [first, second] = P.getSlideSections(pres);
+    // The sections swap places; a third, new one joins them.
+    P.setSlideSections(pres, [
+      second,
+      { ...first, slides: first.slides.slice(1) },
+      { name: "New", slides: first.slides.slice(0, 1) },
+    ]);
+    const after = P.getSlideSections(await roundTrip(pres));
+    expect(after.map((sec) => sec.id).slice(0, 2)).toEqual([ids[1], ids[0]]);
+    expect(ids).not.toContain(after[2].id);
+    expect(after[2].id).toMatch(/^\{[0-9A-F-]{36}\}$/);
+  });
+});

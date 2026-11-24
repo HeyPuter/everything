@@ -113,8 +113,10 @@ export function addNarration(P, slide, media, size) {
 }
 
 /** Sets how long a slide stays before the show moves on by itself,
- * keeping the rest of its transition. `ms` null clears it. */
+ * keeping the rest of its transition. `ms` null clears it, and the
+ * rehearsed times of its animation clicks with it. */
 export function setSlideAdvance(P, slide, ms) {
+  if (ms == null) P.setSlideClickTimings(slide, []);
   let current = null;
   try {
     current = P.getEffectiveSlideTransition(slide);

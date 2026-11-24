@@ -8,6 +8,7 @@ import {
   buildSvgTextInput,
   verticalLayoutOf,
   resolveTextRectangle,
+  resolveNumberLabels,
 } from "../lib/pptx-preview/src/render-slide.ts";
 import { layoutCore } from "../lib/pptx-preview/src/text-layout.ts";
 import { slideFontResolver } from "./fonts.js";
@@ -25,6 +26,8 @@ import {
   relsPartNameFor,
   resolveTarget,
 } from "../lib/pptx/src/internal/opc/index.ts";
+import { commitAndRefresh } from "../lib/pptx/src/api/fn/_helpers.ts";
+import { getPlaceholderInheritance } from "../lib/pptx/src/api/fn/placeholder-inheritance.ts";
 import { LEGACY_IDS, paletteEntries } from "./themes/catalog.js";
 import { applyTheme as applyCatalogTheme } from "./themes/engine.js";
 const measureText = createTextMeasurer();
@@ -85,6 +88,11 @@ export const cleanName = (
     .slice(0, maxLength)
     .replace(/[\uD800-\uDBFF]$/, "")
     .trimEnd() || "Untitled presentation";
+// A name as the start of a file's name. The browser drops dots and spaces at
+// either end of a download's name, so a name made only of them ("...")
+// would leave the extension as the whole name ("pdf.pdf").
+export const fileStem = (name) =>
+  String(name ?? "").replace(/^[.\s]+|[.\s]+$/g, "") || "Untitled presentation";
 // A name for a file inside a ZIP archive the app makes: unzipped on Windows,
 // a name holding any of these characters cannot be written, and the
 // archive fails to extract.
@@ -992,12 +1000,22 @@ export function textRuns(pres, shape) {
         }
         value.children = [{ kind: "text", data: displayed }];
       }
+      // A run's own link, read only where its properties carry one.
+      let link = null;
+      if (
+        e.kind === "r" &&
+        props?.children.some((c) => c.name?.localName === "hlinkClick")
+      )
+        try {
+          link = P.getShapeRunHyperlink(shape, pi, ri - 1);
+        } catch {}
       runs.push({
         text: displayed,
         format: { ...format },
         rpr: props,
         changes: {},
         ...(fld ? { fld } : {}),
+        ...(link ? { link } : {}),
       });
     });
     let bulleted = false;
@@ -1029,6 +1047,8 @@ export function textRuns(pres, shape) {
       bulleted,
       align: PARAGRAPH_ALIGNMENTS[effective?.align] || "left",
       list: listOf(bullet),
+      bullet,
+      rtl: !!effective?.rtl,
       // A multiple of single spacing, as the library reports it: 1.5 is 150%.
       lineSpacing:
         lines?.kind === "pct" ? Math.round(lines.value * 100) / 100 : 1,
@@ -1131,6 +1151,205 @@ export function textParagraphSpacing(pres, shape, paragraphs) {
   });
   return layoutCore(input, measureText).paragraphSpacing;
 }
+// The text body's autofit as an element's <a:bodyPr> sets it, if it does.
+const AUTOFIT_MODES = {
+  noAutofit: "none",
+  normAutofit: "normal",
+  spAutoFit: "shape",
+};
+function bodyAutofit(element) {
+  const body = element?.children?.find((c) => c.name?.localName === "txBody");
+  const props = body?.children.find((c) => c.name?.localName === "bodyPr");
+  for (const child of props?.children || [])
+    if (
+      child.name?.namespaceURI === NS_A &&
+      AUTOFIT_MODES[child.name.localName]
+    )
+      return { mode: AUTOFIT_MODES[child.name.localName], props, child };
+  return { mode: null, props, child: null };
+}
+// Shrink text on overflow, or Resize shape to fit text: the shape's own
+// choice, or else its layout's and master's placeholder's.
+export function textAutofit(shape) {
+  const own = bodyAutofit(shape[SHAPE_ELEMENT]).mode;
+  if (own) return own;
+  let chain = null;
+  try {
+    chain = getPlaceholderInheritance(shape);
+  } catch {}
+  for (const source of [chain?.layout, chain?.master]) {
+    const mode = source && bodyAutofit(source.element).mode;
+    if (mode) return mode;
+  }
+  return null;
+}
+// How tall the shape's text lays out at a font scale and line spacing
+// reduction, against the height its box gives it, both in px; null for text
+// laid out other than in plain horizontal lines.
+function textFit(pres, shape, scale, reduction) {
+  const bounds = P.getShapeBoundsResolved(pres, shape);
+  if (!bounds?.w || !bounds?.h) return null;
+  const theme = P.getPresentationTheme(pres);
+  const resolveFamily = slideFontResolver(P.getShapeSlide(shape), pres);
+  const model = resolveTextBodyModel(
+    pres,
+    shape,
+    bounds,
+    theme,
+    P.getShapePlaceholderType(shape),
+    measureText,
+    "#000000",
+    resolveFamily,
+  );
+  if (!model) return null;
+  const vert = verticalLayoutOf(
+    model.effectiveBody.vert ?? P.getShapeTextDirection(shape),
+  );
+  const columns = P.getShapeTextColumns(shape);
+  if (vert !== "none" || (columns && columns.count >= 2)) return null;
+  const rect = model.svgTextRect(vert);
+  const input = buildSvgTextInput({
+    pres,
+    shape,
+    theme,
+    paraData: model.paraData,
+    numberLabels: model.numberLabels,
+    autoFitScale: scale,
+    lineSpacingReduction: reduction,
+    defaultPt: model.defaultPt,
+    themeFace: model.themeFace,
+    defaultColor: "#000000",
+    anchor: model.anchor,
+    wrap: model.effectiveBody.wrap !== "none",
+    compatibleLineSpacing: model.effectiveBody.compatibleLineSpacing ?? true,
+    includeOuterSpacing: model.effectiveBody.includeOuterSpacing ?? false,
+    innerX: rect.x,
+    innerY: rect.y,
+    innerW: rect.w,
+    innerH: rect.h,
+    measure: measureText,
+    resolveFamily,
+    resolveKerning: resolveFontKerning,
+    vert,
+    columns: null,
+  });
+  let top = Infinity,
+    bottom = -Infinity;
+  for (const p of layoutCore(input, measureText).placements) {
+    top = Math.min(top, p.baselineY - p.line.ascent);
+    bottom = Math.max(bottom, p.baselineY + p.line.descent);
+  }
+  if (!(bottom > top)) return null;
+  return {
+    text: bottom - top,
+    box: input.boxHpx,
+    emuPerPx: rect.h / input.boxHpx || 9525,
+  };
+}
+// The font scales and line spacing reductions Shrink text on overflow tries
+// in turn, as stored in <a:normAutofit>.
+export const AUTOFIT_STEPS = [
+  [92500, 10000],
+  [85000, 20000],
+  [77500, 20000],
+  [70000, 20000],
+  [62500, 20000],
+  [55000, 20000],
+  [47500, 20000],
+  [40000, 20000],
+  [32500, 20000],
+  [25000, 20000],
+];
+// After the text changes, text set to shrink on overflow takes the largest
+// scale it fits at, and a shape set to fit its text takes the text's height.
+// Whether anything changed.
+export function fitTextToShape(pres, shape) {
+  // Measuring never stands in the way of the edit it follows.
+  try {
+    return fitText(pres, shape);
+  } catch {
+    return false;
+  }
+}
+function fitText(pres, shape) {
+  let mode = null;
+  try {
+    if (P.getShapeKind(shape) !== "shape") return false;
+    mode = textAutofit(shape);
+  } catch {
+    return false;
+  }
+  if (mode === "shape") {
+    const fit = textFit(pres, shape, 1, 0);
+    const bounds = P.getShapeBounds(shape);
+    if (!fit || !bounds) return false;
+    const h = Math.max(
+      1,
+      Math.round(bounds.h + (fit.text - fit.box) * fit.emuPerPx),
+    );
+    if (Math.abs(h - bounds.h) < fit.emuPerPx) return false;
+    P.setShapeBounds(shape, { ...bounds, h });
+    return true;
+  }
+  if (mode !== "normal") return false;
+  const fits = (scale, reduction) => {
+    const fit = textFit(pres, shape, scale, reduction);
+    return !fit || fit.text <= fit.box + 1;
+  };
+  let choice = [100000, 0];
+  if (!fits(1, 0))
+    for (const step of AUTOFIT_STEPS) {
+      choice = step;
+      if (fits(step[0] / 100000, step[1] / 100000)) break;
+    }
+  const { props, child } = bodyAutofit(shape[SHAPE_ELEMENT]);
+  const [scale, reduction] = choice;
+  // Text that fits as it is keeps its layout's autofit, with no scale of
+  // its own.
+  if (!child && scale === 100000) return false;
+  if (!props) return false;
+  const attrs = [
+    ...(scale < 100000 ? [xmlAttr("fontScale", String(scale))] : []),
+    ...(reduction ? [xmlAttr("lnSpcReduction", String(reduction))] : []),
+  ];
+  const same = (list) =>
+    list.length === attrs.length &&
+    attrs.every((a) =>
+      list.some(
+        (b) => b.name.localName === a.name.localName && b.value === a.value,
+      ),
+    );
+  if (child && same(child.attrs)) return false;
+  if (child) child.attrs = attrs;
+  else {
+    // In the schema's order: before 3-D, flat text and extensions.
+    const at = props.children.findIndex((c) =>
+      ["scene3d", "sp3d", "flatTx", "extLst"].includes(c.name?.localName),
+    );
+    props.children.splice(
+      at < 0 ? props.children.length : at,
+      0,
+      xmlNode(xmlName("a", "normAutofit", NS_A), attrs),
+    );
+  }
+  commitAndRefresh(shape);
+  return true;
+}
+// The marker each paragraph of a list shows, as the slide draws it: its
+// bullet character, or its number counted the way the slide counts it; null
+// for a paragraph outside a list. Each paragraph gives its `level` and
+// `bullet` (a paragraph's bullet as textRuns reads it).
+export function listMarkers(paragraphs) {
+  const numbers = resolveNumberLabels(
+    paragraphs.map((p) => ({ level: p.level || 0, bulletStyle: p.bullet })),
+  );
+  return paragraphs.map((p, i) => {
+    if (numbers[i] != null) return numbers[i];
+    const bullet = p.bullet;
+    if (bullet && typeof bullet === "object" && bullet.char) return bullet.char;
+    return bullet && bullet !== "none" ? "•" : null;
+  });
+}
 const PARAGRAPH_ALIGNMENTS = {
   l: "left",
   left: "left",
@@ -1159,6 +1378,22 @@ export function setParagraphIndentLevel(shape, pi, level, bulleted) {
   const node = paragraphNodes(shape)[pi];
   if (!node) return;
   const clamped = Math.max(0, Math.min(LEVEL_INDENTS.length - 1, level));
+  // A placeholder paragraph that takes its bullet from the layout and the
+  // master takes each level's indent from there too, so only its level is
+  // written (the level's setter commits the margins taken off first).
+  let own = null;
+  try {
+    own = P.getParagraphBullet(shape, pi);
+  } catch {}
+  if (own == null && P.isShapePlaceholder(shape)) {
+    const props = node.children.find((c) => c.name?.localName === "pPr");
+    if (props)
+      props.attrs = props.attrs.filter(
+        (a) => !["marL", "indent"].includes(a.name.localName),
+      );
+    P.setParagraphLevel(shape, pi, clamped);
+    return;
+  }
   P.setParagraphLevel(shape, pi, clamped);
   let pPr = node.children.find((c) => c.name?.localName === "pPr");
   if (!pPr) {
@@ -1470,6 +1705,9 @@ export function setRichText(shape, paragraphs) {
       P.setShapeRunText(shape, pi, ri, item.text);
       if (item.run.changes && Object.keys(item.run.changes).length)
         P.setShapeRunFormat(shape, pi, ri, item.run.changes);
+      // A link set on the text, or taken off it, in the editor.
+      if (item.run.linkChanged)
+        P.setShapeRunHyperlink(shape, pi, ri, item.run.link || null);
       ri++;
     }
   }
@@ -1545,6 +1783,106 @@ const SHAPE_LOCAL_NAMES = new Set([
   "cxnSp",
   "graphicFrame",
 ]);
+// Replaces in a SmartArt graphic's items, written back the way the Text
+// Pane writes them.
+export function replaceInSmartArt(shape, regex, replacement, only = null) {
+  const model = P.getShapeSmartArt(shape);
+  if (!model) return false;
+  let seen = 0;
+  let changed = false;
+  const items = model.items.map((item) => {
+    const text = item.text || "";
+    const next = text.replace(regex, (hit) => {
+      const mine = only == null || seen === only;
+      seen++;
+      return mine ? replacement : hit;
+    });
+    if (next === text) return item;
+    changed = true;
+    return { ...item, text: next };
+  });
+  if (changed) P.setShapeSmartArt(shape, { ...model, items });
+  return changed;
+}
+// A duplicated slide takes its source's comments, legacy ones too, as
+// threads of its own: new ids, the same authors, and each anchored to the
+// copy of the object its original was on (found by place in the slide).
+export function copySlideComments(source, copy) {
+  let threads;
+  try {
+    threads = P.getSlideCommentThreads(source);
+  } catch {
+    return;
+  }
+  if (!threads.length) return;
+  const from = P.getSlideShapes(source).map((s) => String(P.getShapeId(s)));
+  const to = P.getSlideShapes(copy).map((s) => String(P.getShapeId(s)));
+  const ids = new Map(from.map((id, i) => [id, to[i]]));
+  const person = (p) => ({
+    ...(p.id && !p.id.startsWith("legacy:") ? { id: p.id } : {}),
+    name: p.name,
+    initials: p.initials,
+    userId: p.userId,
+    providerId: p.providerId,
+  });
+  P.setSlideCommentThreads(
+    copy,
+    threads.map((t) => ({
+      author: person(t.author),
+      created: t.created,
+      text: t.text,
+      status: t.status,
+      shapeId: (t.shapeId != null && ids.get(String(t.shapeId))) || null,
+      pos: t.pos,
+      replies: t.replies.map((r) => ({
+        author: person(r.author),
+        created: r.created,
+        text: r.text,
+      })),
+    })),
+  );
+}
+// Comments on objects being deleted stay where their markers were, on the
+// slide itself: the next object added could be given a deleted one's id.
+// Read before the objects go; the returned step writes the comments after.
+// `children`: a group's objects go with it (not when it is ungrouped).
+export function detachShapeComments(
+  pres,
+  target,
+  ids,
+  { children = true } = {},
+) {
+  let threads;
+  try {
+    threads = P.getSlideCommentThreads(target);
+  } catch {
+    return () => {};
+  }
+  const gone = new Map();
+  const visit = (shape) => {
+    gone.set(String(P.getShapeId(shape)), shape);
+    if (children && P.getShapeKind(shape) === "group")
+      P.getGroupChildren(shape).forEach(visit);
+  };
+  for (const id of ids) {
+    const shape = P.findShapeById(target, id);
+    if (shape) visit(shape);
+  }
+  if (!threads.some((t) => t.shapeId && gone.has(String(t.shapeId))))
+    return () => {};
+  const next = threads.map((t) => {
+    const shape = t.shapeId && gone.get(String(t.shapeId));
+    if (!shape) return t;
+    const b = !t.pos && slideBounds(pres, shape);
+    return {
+      ...t,
+      shapeId: null,
+      pos:
+        t.pos || (b ? { x: Math.round(b.x + b.w), y: Math.round(b.y) } : null),
+    };
+  });
+  return () => P.setSlideCommentThreads(target, next);
+}
 // Removing a shape also removes its animations, which would otherwise point
 // at a shape the file no longer has.
 export function removeAnyShape(slide, shape) {
@@ -1593,6 +1931,322 @@ export function groupFlip(
     if (group.flip.vertical) flip.vertical = !flip.vertical;
   }
   return flip;
+}
+/* A group's frame is the box around what it holds: when an edit moves,
+ * resizes, turns, adds or removes one of its objects, the group's offset
+ * and extent (and its children's space) are worked out again, so its
+ * selection outline and handles match its contents. Nothing on the slide
+ * moves: the group keeps its scale, and a turned or mirrored group is
+ * shifted so its objects show where they did. */
+// An object's box in its group's space, as its own turn shows it.
+function ownShownBox(pres, shape) {
+  let b = P.getShapeBoundsResolved(pres, shape);
+  if (!b) return null;
+  if (P.isTableShape(shape)) {
+    const grid = tableLayout(pres, shape);
+    b = { ...b, w: grid.width || b.w, h: grid.height || b.h };
+  }
+  const rotation = P.getShapeRotation(shape) || 0;
+  if (!rotation) return b;
+  const rad = (rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad)),
+    sin = Math.abs(Math.sin(rad));
+  const w = b.w * cos + b.h * sin,
+    h = b.w * sin + b.h * cos;
+  return { x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - h / 2, w, h };
+}
+const groupKey = (group) =>
+  P.getGroupChildren(group)
+    .map((child) =>
+      [
+        P.getShapeId(child),
+        JSON.stringify(P.getShapeBounds(child)),
+        P.getShapeRotation(child) || 0,
+      ].join(":"),
+    )
+    .join("|");
+// What each group on a slide holds, read before an edit so fitGroups can
+// tell which groups it changed. Null when the slide has no groups.
+export function groupFrames(slide) {
+  let frames = null;
+  for (const shape of P.getSlideShapes(slide))
+    if (P.getShapeKind(shape) === "group")
+      (frames ??= new Map()).set(P.getShapeId(shape), groupKey(shape));
+  return frames;
+}
+function fitGroup(pres, group) {
+  const t = P.getGroupTransform(group);
+  const boxes = P.getGroupChildren(group)
+    .map((child) => ownShownBox(pres, child))
+    .filter(Boolean);
+  if (!t || !boxes.length) return;
+  const x = Math.round(Math.min(...boxes.map((b) => b.x))),
+    y = Math.round(Math.min(...boxes.map((b) => b.y)));
+  const inner = {
+    x,
+    y,
+    w: Math.round(Math.max(...boxes.map((b) => b.x + b.w))) - x,
+    h: Math.round(Math.max(...boxes.map((b) => b.y + b.h))) - y,
+  };
+  if (["x", "y", "w", "h"].every((k) => inner[k] === t.inner[k])) return;
+  const sx = t.inner.w && t.outer.w ? t.outer.w / t.inner.w : 1,
+    sy = t.inner.h && t.outer.h ? t.outer.h / t.inner.h : 1;
+  const outer = {
+    x: t.outer.x + (inner.x - t.inner.x) * sx,
+    y: t.outer.y + (inner.y - t.inner.y) * sy,
+    w: inner.w * sx,
+    h: inner.h * sy,
+  };
+  // The group mirrors and turns about its frame's center, which has moved:
+  // the frame shifts by the difference, so its objects stay put.
+  const dx = outer.x + outer.w / 2 - (t.outer.x + t.outer.w / 2),
+    dy = outer.y + outer.h / 2 - (t.outer.y + t.outer.h / 2);
+  const flip = P.getShapeFlip(group) || {};
+  const [mx, my] = [flip.horizontal ? -dx : dx, flip.vertical ? -dy : dy];
+  const [rx, ry] = turned(mx, my, 0, 0, P.getShapeRotation(group) || 0);
+  outer.x += rx - dx;
+  outer.y += ry - dy;
+  P.setGroupTransform(group, { outer, inner });
+}
+// After an edit: each group whose objects it changed, and the groups around
+// it, fitted again to what they hold, innermost first.
+export function fitGroups(pres, slide, frames) {
+  if (!frames) return;
+  const parents = groupParents(slide);
+  const groups = P.getSlideShapes(slide).filter(
+    (shape) => P.getShapeKind(shape) === "group",
+  );
+  const changed = new Set();
+  for (const group of groups) {
+    const id = P.getShapeId(group);
+    if (!frames.has(id) || frames.get(id) === groupKey(group)) continue;
+    const seen = new Set();
+    for (
+      let at = group;
+      at && !seen.has(at);
+      at = parents.get(P.getShapeId(at))
+    ) {
+      seen.add(at);
+      changed.add(at);
+    }
+  }
+  const depth = (group) => {
+    let n = 0;
+    const seen = new Set();
+    for (
+      let at = parents.get(P.getShapeId(group));
+      at && !seen.has(at);
+      at = parents.get(P.getShapeId(at))
+    ) {
+      seen.add(at);
+      n++;
+    }
+    return n;
+  };
+  for (const group of [...changed].sort((a, b) => depth(b) - depth(a)))
+    fitGroup(pres, group);
+}
+/* Connectors glued to shapes (decks made elsewhere have them) keep their
+ * ends on the shapes' connection sites when the shapes move, turn, flip or
+ * resize. An end dragged away on its own comes unglued, and so does one
+ * whose shape is deleted. */
+// How a shape shows on the slide: its box, turn and mirroring.
+function shownPlace(pres, shape, parents) {
+  const b = slideBounds(pres, shape, parents);
+  if (!b) return null;
+  const own = P.getShapeFlip(shape) || {};
+  const groups = groupFlip(shape, parents);
+  return {
+    b,
+    rotation: slideRotation(shape, parents),
+    flipH: !!own.horizontal !== groups.horizontal,
+    flipV: !!own.vertical !== groups.vertical,
+  };
+}
+const placeKey = (place) =>
+  place
+    ? [
+        place.b.x,
+        place.b.y,
+        place.b.w,
+        place.b.h,
+        place.rotation,
+        place.flipH,
+        place.flipV,
+      ]
+        .map((v) => (typeof v === "number" ? Math.round(v) : v))
+        .join()
+    : "";
+// A point of a shape's own box (origin at its top left), on the slide.
+function onSlide(place, x, y) {
+  const { b, rotation, flipH, flipV } = place;
+  let lx = x - b.w / 2,
+    ly = y - b.h / 2;
+  if (flipH) lx = -lx;
+  if (flipV) ly = -ly;
+  const rad = (rotation * Math.PI) / 180,
+    cos = Math.cos(rad),
+    sin = Math.sin(rad);
+  return {
+    x: b.x + b.w / 2 + lx * cos - ly * sin,
+    y: b.y + b.h / 2 + lx * sin + ly * cos,
+  };
+}
+// A connector's start and end on the slide.
+function connectorEnds(place) {
+  return [onSlide(place, 0, 0), onSlide(place, place.b.w, place.b.h)];
+}
+function siteOnSlide(pres, shape, site, parents) {
+  const place = shownPlace(pres, shape, parents);
+  const point =
+    place && P.getShapeConnectionSites(shape, place.b.w, place.b.h)?.[site];
+  return point ? onSlide(place, point.x, point.y) : null;
+}
+// The glued connectors on a slide, and where they and the shapes they are
+// glued to stand: read before an edit, so followConnectors can tell what
+// the edit moved. Null when the slide has none.
+export function connectorGlue(pres, slide) {
+  const connectors = [];
+  for (const shape of P.getSlideShapes(slide)) {
+    if (P.getShapeKind(shape) !== "connector") continue;
+    const glue = P.getConnectorConnections(shape);
+    if (glue.start || glue.end)
+      connectors.push({ id: P.getShapeId(shape), ...glue });
+  }
+  if (!connectors.length) return null;
+  const parents = groupParents(slide);
+  const places = new Map();
+  for (const c of connectors)
+    for (const id of [c.id, c.start?.id, c.end?.id])
+      if (id != null && !places.has(id)) {
+        const shape = P.findShapeById(slide, id);
+        places.set(id, shape ? placeKey(shownPlace(pres, shape, parents)) : "");
+      }
+  return { connectors, places };
+}
+// After an edit: each glued connector whose shapes moved is redrawn between
+// their sites, keeping its own turn; an end the edit dragged off its shape,
+// or whose shape is gone, comes unglued.
+export function followConnectors(pres, slide, glue) {
+  if (!glue) return;
+  const parents = groupParents(slide);
+  const now = new Map();
+  const placeOf = (id) => {
+    if (!now.has(id)) {
+      const shape = P.findShapeById(slide, id);
+      now.set(id, shape ? shownPlace(pres, shape, parents) : null);
+    }
+    return now.get(id);
+  };
+  const moved = (id) => placeKey(placeOf(id)) !== glue.places.get(id);
+  for (const { id, start, end } of glue.connectors) {
+    const connector = P.findShapeById(slide, id);
+    const place = connector && placeOf(id);
+    if (!place) continue;
+    const ends = { start, end };
+    const loose = {};
+    // A missing shape lets its end go.
+    for (const key of ["start", "end"])
+      if (ends[key] && !P.findShapeById(slide, ends[key].id)) loose[key] = null;
+    const glued = ["start", "end"].filter(
+      (key) => ends[key] && !(key in loose),
+    );
+    const site = (key) =>
+      siteOnSlide(
+        pres,
+        P.findShapeById(slide, ends[key].id),
+        ends[key].site,
+        parents,
+      );
+    const [s, e] = connectorEnds(place);
+    const points = { start: s, end: e };
+    if (!glued.some((key) => moved(ends[key].id))) {
+      // The connector moved by itself: an end it took off its site comes
+      // unglued.
+      if (moved(id))
+        for (const key of glued) {
+          const at = site(key);
+          if (
+            !at ||
+            Math.hypot(at.x - points[key].x, at.y - points[key].y) > 12700
+          )
+            loose[key] = null;
+        }
+      if (Object.keys(loose).length)
+        P.setConnectorConnections(connector, loose);
+      continue;
+    }
+    if (Object.keys(loose).length) P.setConnectorConnections(connector, loose);
+    for (const key of glued) {
+      const at = site(key);
+      if (at) points[key] = at;
+    }
+    // The connector keeps its turn; its box and mirroring are what take
+    // its ends from one site to the other.
+    const rad = (-place.rotation * Math.PI) / 180,
+      cos = Math.cos(rad),
+      sin = Math.sin(rad);
+    const dx = points.end.x - points.start.x,
+      dy = points.end.y - points.start.y;
+    const lx = dx * cos - dy * sin,
+      ly = dx * sin + dy * cos;
+    const w = Math.abs(lx),
+      h = Math.abs(ly);
+    const cx = (points.start.x + points.end.x) / 2,
+      cy = (points.start.y + points.end.y) / 2;
+    setSlideBounds(
+      pres,
+      connector,
+      { x: cx - w / 2, y: cy - h / 2, w, h },
+      parents,
+    );
+    const groups = groupFlip(connector, parents);
+    P.setShapeFlip(connector, {
+      horizontal: lx < 0 !== groups.horizontal,
+      vertical: ly < 0 !== groups.vertical,
+    });
+  }
+}
+// While objects are dragged: the glued connectors that follow them, with the
+// ends as drawn and where each end goes before the drag's own offset (on
+// its shape's site), and which ends ride with the drag. `moving` holds the
+// ids of the objects in motion; what their groups hold moves with them.
+export function connectorFollowers(pres, slide, moving) {
+  const parents = groupParents(slide);
+  const carried = (id) => {
+    const seen = new Set();
+    for (let at = id; at != null && !seen.has(at);) {
+      if (moving.has(at)) return true;
+      seen.add(at);
+      const group = parents.get(at);
+      at = group ? P.getShapeId(group) : null;
+    }
+    return false;
+  };
+  const out = [];
+  for (const shape of P.getSlideShapes(slide)) {
+    if (P.getShapeKind(shape) !== "connector") continue;
+    const id = P.getShapeId(shape);
+    if (carried(id)) continue;
+    const glue = P.getConnectorConnections(shape);
+    const rides = {
+      start: !!glue.start && carried(glue.start.id),
+      end: !!glue.end && carried(glue.end.id),
+    };
+    if (!rides.start && !rides.end) continue;
+    const place = shownPlace(pres, shape, parents);
+    if (!place) continue;
+    const [start, end] = connectorEnds(place);
+    const drawn = { start, end };
+    const target = { start, end };
+    for (const key of ["start", "end"]) {
+      const target_ = glue[key] && P.findShapeById(slide, glue[key].id);
+      const at = target_ && siteOnSlide(pres, target_, glue[key].site, parents);
+      if (at) target[key] = at;
+    }
+    out.push({ id, drawn, target, rides });
+  }
+  return out;
 }
 // Whether a shape's click action jumps to a slide, read from its own XML: on
 // a slide copied out of its presentation the slide is gone and the library
@@ -1936,7 +2590,11 @@ export function matchHeaderFooter(pres, slide, previous, number) {
   if (!source) return;
   const settings = P.getSlideHeaderFooter(source);
   if (settings.date || settings.footer !== null || settings.slideNumber)
-    P.applySlideHeaderFooter(slide, settings, number);
+    P.applySlideHeaderFooter(
+      slide,
+      settings,
+      P.getSlideNumber(pres, slide) ?? number,
+    );
 }
 // Removes the parts in `reached` (lowercase names) that nothing in the
 // presentation leads to any more, with their relationships.
@@ -2279,7 +2937,12 @@ export function checkPackageSize(size, before = 0) {
 export async function parseDeck(bytes, options = {}) {
   validateImportSize(bytes.byteLength);
   validateZip(bytes);
-  return restoreDeck(bytes, options);
+  const pres = await restoreDeck(bytes, options);
+  // What the file lacks that other apps cannot open it without (its
+  // package relationships, a theme, a layout) is filled in, so the copy
+  // saved here opens there.
+  P.repairPackage(pres);
+  return pres;
 }
 // Local drafts are produced by our serializer; external files use parseDeck.
 // A presentation saved as Strict Open XML names its parts' relationships in
@@ -2322,85 +2985,103 @@ export async function restoreDeck(bytes, { prepareFonts = true } = {}) {
   if (prepareFonts) await prepareDeckFonts(pres);
   return pres;
 }
+// What the history may hold beyond the open presentation: the part versions
+// its steps keep that the presentation no longer has.
+const HISTORY_BYTES = 80 * 1024 * 1024;
+// The undo history. Each step is a snapshot of the presentation's parts
+// (P.snapshotPresentation), which shares every part's bytes with the
+// presentation it was taken from, so a step holds only the parts the edits
+// after it replaced. Steps are identified by their snapshot (`step`); the
+// latest one is also kept serialized (`bytes`), the file the recovery draft
+// writes.
 export class History {
   constructor(limit = 30) {
     this.limit = limit;
     this.past = [];
     this.future = [];
+    this.step = null;
     this.bytes = null;
     this.states = new WeakMap();
   }
   get state() {
-    return this.bytes ? this.states.get(this.bytes) : null;
+    return this.step ? this.states.get(this.step) : null;
+  }
+  async #take(pres, state) {
+    this.bytes = await P.savePresentation(pres);
+    this.step = P.snapshotPresentation(pres);
+    this.states.set(this.step, state);
+    this.presentation = pres;
   }
   async reset(pres, state = null) {
-    this.bytes = await P.savePresentation(pres);
-    this.states = new WeakMap([[this.bytes, state]]);
-    this.presentation = pres;
+    this.states = new WeakMap();
+    await this.#take(pres, state);
     this.past = [];
     this.future = [];
   }
+  // The bytes the past steps hold that the latest one does not, each part
+  // version counted once however many steps share it.
+  heldBytes() {
+    const current = new Set(this.step.parts.map((part) => part.data));
+    const held = new Set();
+    let total = 0;
+    for (const step of this.past)
+      for (const { data } of step.parts)
+        if (!current.has(data) && !held.has(data)) {
+          held.add(data);
+          total += data.byteLength;
+        }
+    return total;
+  }
   async capture(pres, state = this.state) {
-    const next = await P.savePresentation(pres);
-    // State follows each snapshot without retaining discarded history bytes.
-    this.states.set(next, state);
-    this.presentation = pres;
-    this.past.push(this.bytes);
+    const previous = this.step;
+    await this.#take(pres, state);
+    this.past.push(previous);
     while (
       this.past.length > this.limit ||
-      (this.past.length > 1 &&
-        this.past.reduce((n, b) => n + b.byteLength, 0) > 80 * 1024 * 1024)
+      (this.past.length > 1 && this.heldBytes() > HISTORY_BYTES)
     )
       this.past.shift();
-    this.bytes = next;
     this.future = [];
   }
   // Fold a rapid follow-up edit into the latest snapshot so a picker drag
   // stays one undo step.
   async amend(pres, state = this.state) {
     if (!this.past.length) return this.capture(pres, state);
-    const next = await P.savePresentation(pres);
-    this.states.set(next, state);
-    this.presentation = pres;
-    this.bytes = next;
+    await this.#take(pres, state);
     this.future = [];
   }
   // Take the latest snapshot back out, as though its edit had not been made:
   // `pres` is as it was before that edit.
-  drop(pres) {
+  async drop(pres) {
     if (!this.past.length) return;
     this.presentation = pres;
-    this.bytes = this.past.pop();
+    this.step = this.past.pop();
+    this.bytes = await P.savePresentation(pres);
     this.future = [];
   }
-  async undo() {
-    if (!this.past.length) return null;
-    // These snapshots come from our own serializer, rather than file imports.
-    const pres = await P.loadPresentation(this.past.at(-1), {
-      snapshot: true,
-    });
+  // The presentation as the latest step holds it.
+  restore() {
+    return P.restorePresentation(this.step);
+  }
+  async #move(from, to) {
+    if (!from.length) return null;
+    const pres = P.restorePresentation(from.at(-1));
     P.refreshPresentationFields(
       pres,
       P.getPresentationFieldDate(this.presentation),
     );
+    const bytes = await P.savePresentation(pres);
     this.presentation = pres;
-    this.future.push(this.bytes);
-    this.bytes = this.past.pop();
+    this.bytes = bytes;
+    to.push(this.step);
+    this.step = from.pop();
     return pres;
   }
-  async redo() {
-    if (!this.future.length) return null;
-    const pres = await P.loadPresentation(this.future.at(-1), {
-      snapshot: true,
-    });
-    P.refreshPresentationFields(
-      pres,
-      P.getPresentationFieldDate(this.presentation),
-    );
-    this.presentation = pres;
-    this.past.push(this.bytes);
-    this.bytes = this.future.pop();
-    return pres;
+  undo() {
+    return this.#move(this.past, this.future);
+  }
+  redo() {
+    return this.#move(this.future, this.past);
   }
 }
 
@@ -2427,45 +3108,90 @@ export function validateZip(input) {
       );
     throw new Error("This is not a valid PPTX file.");
   }
-  if (
-    (end >= 20 && view.getUint32(end - 20, true) === 0x07064b50) ||
-    view.getUint32(end + 12, true) === 0xffffffff ||
-    view.getUint32(end + 16, true) === 0xffffffff
-  )
-    throw new Error("ZIP64 presentations are not supported.");
-  const count = view.getUint16(end + 10, true);
-  if (
-    view.getUint16(end + 4, true) !== 0 ||
-    view.getUint16(end + 6, true) !== 0 ||
-    view.getUint16(end + 8, true) !== count
-  )
-    throw new Error("The PPTX archive is damaged or spans multiple disks.");
-  let cursor = view.getUint32(end + 16, true),
-    total = 0;
-  const directoryEnd = cursor + view.getUint32(end + 12, true);
-  if (directoryEnd > end) throw new Error("The PPTX archive is damaged.");
-  if (count === 65535 || count > 12000)
-    throw new Error("This presentation contains too many archive entries.");
+  const MAX32 = 0xffffffff;
+  let count = view.getUint16(end + 10, true);
+  let directorySize = view.getUint32(end + 12, true);
+  let cursor = view.getUint32(end + 16, true);
+  // The end of the directory as far as it may reach: the ZIP64 end record,
+  // when there is one, sits between the two.
+  let limit = end;
+  const zip64 = end >= 20 && view.getUint32(end - 20, true) === 0x07064b50;
+  if (zip64) {
+    // A ZIP64 archive keeps the directory's place, size and entry count in
+    // a record of its own, found through the locator before the end record.
+    const damaged = () =>
+      new Error("The PPTX archive is damaged or spans multiple disks.");
+    const at = Number(view.getBigUint64(end - 12, true));
+    if (
+      view.getUint32(end - 16, true) !== 0 ||
+      view.getUint32(end - 4, true) !== 1 ||
+      at + 56 > end - 20 ||
+      view.getUint32(at, true) !== 0x06064b50 ||
+      view.getUint32(at + 16, true) !== 0 ||
+      view.getUint32(at + 20, true) !== 0 ||
+      view.getBigUint64(at + 24, true) !== view.getBigUint64(at + 32, true)
+    )
+      throw damaged();
+    const entries = view.getBigUint64(at + 32, true);
+    if (entries > 12000n)
+      throw new Error("This presentation contains too many archive entries.");
+    count = Number(entries);
+    directorySize = Number(view.getBigUint64(at + 40, true));
+    cursor = Number(view.getBigUint64(at + 48, true));
+    limit = at;
+  } else {
+    if (
+      view.getUint32(end + 12, true) === MAX32 ||
+      view.getUint32(end + 16, true) === MAX32
+    )
+      throw new Error("The PPTX archive is damaged.");
+    if (
+      view.getUint16(end + 4, true) !== 0 ||
+      view.getUint16(end + 6, true) !== 0 ||
+      view.getUint16(end + 8, true) !== count
+    )
+      throw new Error("The PPTX archive is damaged or spans multiple disks.");
+    if (count === 65535 || count > 12000)
+      throw new Error("This presentation contains too many archive entries.");
+  }
+  let total = 0;
+  const directoryEnd = cursor + directorySize;
+  if (directoryEnd > limit) throw new Error("The PPTX archive is damaged.");
   for (let i = 0; i < count; i++) {
     if (
       cursor + 46 > directoryEnd ||
       view.getUint32(cursor, true) !== 0x02014b50
     )
       throw new Error("The PPTX archive is damaged.");
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    let compressed = view.getUint32(cursor + 20, true);
+    let expanded = view.getUint32(cursor + 24, true);
+    // In a ZIP64 archive a size too large for its field is given in the
+    // entry's ZIP64 extra field instead, in this order.
+    if (zip64 && (compressed === MAX32 || expanded === MAX32)) {
+      let extra = cursor + 46 + nameLength;
+      const extraEnd = Math.min(extra + extraLength, directoryEnd);
+      while (extra + 4 <= extraEnd && view.getUint16(extra, true) !== 1)
+        extra += 4 + view.getUint16(extra + 2, true);
+      let field = extra + 4;
+      const next = () => {
+        if (extra + 4 > extraEnd || field + 8 > extraEnd)
+          throw new Error("The PPTX archive is damaged.");
+        const value = Number(view.getBigUint64(field, true));
+        field += 8;
+        return value;
+      };
+      if (expanded === MAX32) expanded = next();
+      if (compressed === MAX32) compressed = next();
+    }
     // The decompressor copies STORE entries using their compressed size.
-    if (
-      view.getUint16(cursor + 10, true) === 0 &&
-      view.getUint32(cursor + 20, true) !== view.getUint32(cursor + 24, true)
-    )
+    if (view.getUint16(cursor + 10, true) === 0 && compressed !== expanded)
       throw new Error("The PPTX archive has inconsistent stored entry sizes.");
-    total += view.getUint32(cursor + 24, true);
+    total += expanded;
     if (total > 200 * 1024 * 1024)
       throw new Error("This presentation expands beyond the 200 MB limit.");
-    cursor +=
-      46 +
-      view.getUint16(cursor + 28, true) +
-      view.getUint16(cursor + 30, true) +
-      view.getUint16(cursor + 32, true);
+    cursor += 46 + nameLength + extraLength + view.getUint16(cursor + 32, true);
   }
   if (cursor !== directoryEnd) throw new Error("The PPTX archive is damaged.");
 }

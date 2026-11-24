@@ -214,7 +214,10 @@ describe("placeholder inheritance identities", () => {
     "does not borrow an unrelated slot for %j",
     async (options) => {
       const f = await fixture(options);
-      expect(format(f).size).toBeUndefined();
+      // A placeholder its layout lacks still takes the master's text style
+      // for its type (as the desktop app draws it), but no slot's own
+      // properties.
+      expect(format(f).size).toBe(options.plain ? undefined : 26);
       expect(P.getShapeBoundsResolved(f.pres, f.shape)).toBeNull();
       expect(P.getShapeFillEffective(f.pres, f.shape).kind).toBe("inherit");
       expect(

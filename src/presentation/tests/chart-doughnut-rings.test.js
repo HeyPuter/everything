@@ -272,16 +272,31 @@ for (const hole of [-1, 91, NaN, Infinity])
       P._internalPackageOf(f.p).parts.map((p) => [p.name, p.data]),
     ).toEqual(before);
   });
-it("pie authoring continues to reject multiple data series", () => {
-  expect(() =>
-    chartLegendLayoutDeck({
+it("pie authoring keeps further series unplotted and editable", () => {
+  const f = chartLegendLayoutDeck({
       kind: "pie",
       series: [
         { name: "One", values: [2, 3] },
         { name: "Two", values: [3, 1] },
       ],
     }),
-  ).toThrow("pie chart requires exactly one series");
+    c = P.getSlideCharts(f.slide)[0];
+  expect(c.spec.series.map((s) => s.name)).toEqual(["One", "Two"]);
+  // An edit to the chart rebuilds it with both series.
+  P.setChartSpec(c, { ...c.spec, title: "Shares" });
+  const again = P.getSlideCharts(f.slide)[0].spec;
+  expect(again.title).toBe("Shares");
+  expect(again.series.map((s) => s.values)).toEqual([
+    [2, 3],
+    [3, 1],
+  ]);
+  // The legend names the first series' slices, not the series.
+  const svg = renderSlideToSvg(f.p, f.slide);
+  expect(svg).toContain(">North<");
+  expect(svg).not.toContain(">Two<");
+  expect(() => chartLegendLayoutDeck({ kind: "pie", series: [] })).toThrow(
+    "pie chart requires at least one series",
+  );
 });
 
 for (const kind of ["pie", "doughnut"])

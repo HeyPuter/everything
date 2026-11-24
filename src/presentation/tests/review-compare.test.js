@@ -100,4 +100,37 @@ describe("compare and accept", () => {
     expect(acceptChange(mine, theirs, item)).toBe(true);
     expect(diffDecks(mine, theirs)).toEqual([]);
   });
+
+  // The next object added is given a removed object's id, and took over the
+  // animation and comment it left behind.
+  it("takes a removed object's animation and comment off it", async () => {
+    const mine = createDeck("pitch");
+    const slide = P.getSlides(mine)[0];
+    const shape = P.getSlideShapes(slide).at(-1);
+    const id = String(P.getShapeId(shape));
+    const theirs = await copy(mine);
+    P.setSlideAnimations(slide, [
+      {
+        shapeId: id,
+        presetClass: "entr",
+        presetId: 10,
+        presetSubtype: 0,
+        start: "click",
+        delayMs: 0,
+        durationMs: 500,
+      },
+    ]);
+    P.setSlideCommentThreads(slide, [
+      { author: { name: "A" }, text: "Check this", shapeId: id },
+    ]);
+    P.removeShape(P.getSlideShapes(P.getSlides(theirs)[0]).at(-1));
+    const item = diffDecks(mine, theirs).find(
+      (i) => i.type === "objectDeleted",
+    );
+    expect(acceptChange(mine, theirs, item)).toBe(true);
+    const after = P.getSlides(mine)[0];
+    P.addSlideShape(after, { preset: "rect", x: 0, y: 0, w: 9144, h: 9144 });
+    expect(P.getSlideAnimations(after)).toEqual([]);
+    expect(P.getSlideCommentThreads(after)[0].shapeId ?? null).toBeNull();
+  });
 });

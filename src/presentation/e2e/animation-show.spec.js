@@ -255,6 +255,137 @@ test("a timed advance plays the slide's remaining click steps first", async ({
   await expect(counter).toHaveText("2 / 2");
 });
 
+// Two boxes that each fade in on a click, on a slide timed to move on.
+function twoClickDeck(advanceAfterMs) {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const boxes = [1, 4].map((x) => shape(slide, x, 1, 2, 1.5, "#2266cc"));
+  P.setSlideAnimations(
+    slide,
+    boxes.map((box) => ({
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 300,
+    })),
+  );
+  if (advanceAfterMs !== undefined)
+    P.setSlideTransition(slide, { effect: "none", advanceAfterMs });
+  P.addBlankSlide(pres);
+  return { pres, slide };
+}
+
+test("rehearsed click times play each step when it was clicked", async ({
+  page,
+}) => {
+  const { pres, slide } = twoClickDeck(8000);
+  P.setSlideClickTimings(slide, [600, 600]);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false]);
+  // Each box in turn, long before the slide's time is up.
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 4000 })
+    .toEqual([true, false]);
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 4000 })
+    .toEqual([true, true]);
+  await expect(counter).toHaveText("1 / 2");
+  // Pausing the show holds the steps too.
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false]);
+  await page.keyboard.press("s");
+  await page.waitForTimeout(1500);
+  expect(await visibleLayers(page)).toEqual([true, false]);
+  await page.keyboard.press("s");
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 4000 })
+    .toEqual([true, true]);
+});
+
+test("Presenter View pictures the next build when the next click is one", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name === "mobile",
+    "Presenter View in the show's window is a desktop flow",
+  );
+  await load(page, twoClickDeck().pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const d = page.getByRole("dialog", { name: "Presentation mode" });
+  await d
+    .locator(".presenter-stage")
+    .click({ button: "right", position: { x: 20, y: 20 } });
+  await page.getByRole("menuitem", { name: "Show Presenter View" }).click();
+  const label = d.locator(".show-console-next-label");
+  const next = d.locator(".show-console-next");
+  const src = () => next.getAttribute("src");
+  await expect(label).toContainText("animation 1 of 2");
+  await expect.poll(src).toBeTruthy();
+  const first = await src();
+  await page.keyboard.press("ArrowRight");
+  await expect(label).toContainText("animation 2 of 2");
+  await expect.poll(src).not.toBe(first);
+  const second = await src();
+  await page.keyboard.press("ArrowRight");
+  await expect(label).toHaveText("Slide 2");
+  await expect.poll(src).not.toBe(second);
+  expect(await src()).not.toBe(first);
+});
+
+test("a rehearsal keeps when each click came", async ({ page }) => {
+  await load(page, twoClickDeck().pres);
+  await page.getByRole("tab", { name: "Slide Show", exact: true }).click();
+  const direct = page
+    .getByRole("tabpanel")
+    .getByRole("button", { name: "Rehearse Timings", exact: true });
+  if (!(await direct.isVisible()))
+    await page
+      .getByRole("tabpanel")
+      .getByRole("button", { name: "Set Up", exact: true })
+      .click();
+  await page
+    .getByRole("button", { name: "Rehearse Timings", exact: true })
+    .first()
+    .click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false]);
+  await page.waitForTimeout(700);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false]);
+  await page.waitForTimeout(700);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, true]);
+  await page.waitForTimeout(1500);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 2");
+  await page.keyboard.press("Escape");
+  const prompt = page.getByRole("dialog", {
+    name: "Keep the new slide timings?",
+  });
+  await prompt.getByRole("button", { name: "Keep Timings" }).click();
+  await expect(prompt).toBeHidden();
+  // Played with the timings, the boxes come in as they were clicked, not
+  // both at the end of the slide's time.
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(counter).toHaveText("1 / 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false]);
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 2500 })
+    .toEqual([true, false]);
+  await expect(counter).toHaveText("1 / 2");
+  await expect
+    .poll(() => visibleLayers(page), { timeout: 2500 })
+    .toEqual([true, true]);
+  await expect(counter).toHaveText("1 / 2");
+  await expect(counter).toHaveText("2 / 2", { timeout: 5000 });
+});
+
 test("a timed advance waits for effects that start with the slide", async ({
   page,
 }) => {
@@ -456,4 +587,247 @@ test("the Next and Previous buttons bring back a black or white screen's slide a
     .click();
   await expect(stage).not.toHaveClass(/blank-white/);
   await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+});
+
+test("a transition shows the slide as it opens, and as it ends going back", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const second = P.addBlankSlide(pres);
+  // The red box comes in on the first click; the blue one leaves after it.
+  const red = shape(second, 1, 1, 3, 2, "#cc2222");
+  const blue = shape(second, 8, 4, 3, 2, "#2222cc");
+  const id = (s) => String(P.getShapeId(s));
+  const fade = (shapeId, presetClass, start) => ({
+    shapeId,
+    presetClass,
+    presetId: 10,
+    presetSubtype: 0,
+    start,
+    delayMs: 0,
+    durationMs: 100,
+  });
+  P.setSlideAnimations(second, [
+    fade(id(red), "entr", "click"),
+    fade(id(blue), "exit", "after"),
+  ]);
+  const third = P.addBlankSlide(pres);
+  for (const s of [second, third])
+    P.setSlideTransition(s, { effect: "fade", durationMs: 4000 });
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 3");
+  // The colour halfway through the transition at a point of the slide
+  // (fractions of its width and height).
+  const midway = async (points) => {
+    const overlay = page.locator(".presenter .slide-transition canvas");
+    await expect(overlay).toBeAttached();
+    await page.waitForTimeout(2200);
+    return page.evaluate((points) => {
+      const canvas = document.querySelector(
+        ".presenter .slide-transition canvas",
+      );
+      const ctx = canvas.getContext("2d");
+      return points.map(([x, y]) => {
+        const [r, g, b] = ctx.getImageData(
+          Math.round(x * canvas.width),
+          Math.round(y * canvas.height),
+          1,
+          1,
+        ).data;
+        return r - b > 40 ? "red" : b - r > 40 ? "blue" : "plain";
+      });
+    }, points);
+  };
+  const redAt = [2.5 / 13.333, 2 / 7.5],
+    blueAt = [9.5 / 13.333, 5 / 7.5];
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 3");
+  // The red box is still to come; the blue one is there.
+  expect(await midway([redAt, blueAt])).toEqual(["plain", "blue"]);
+  await expect(page.locator(".presenter .slide-transition")).toHaveCount(0, {
+    timeout: 8000,
+  });
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("3 / 3");
+  await expect(page.locator(".presenter .slide-transition")).toHaveCount(0, {
+    timeout: 8000,
+  });
+  // Back to the slide as it ended: the red box in, the blue one gone.
+  await page.keyboard.press("ArrowLeft");
+  await expect(counter).toHaveText("2 / 3");
+  expect(await midway([redAt, blueAt])).toEqual(["red", "plain"]);
+});
+
+test("a morph leaves out objects still to come on the slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  shape(P.getSlides(pres)[0], 0.5, 0.5, 2, 2, "#22aa22");
+  const second = P.addBlankSlide(pres);
+  shape(second, 1, 1, 2, 2, "#22aa22");
+  // The red box comes in on the first click.
+  const red = shape(second, 5, 3, 3, 2, "#cc2222");
+  P.setSlideAnimations(second, [
+    {
+      shapeId: String(P.getShapeId(red)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 100,
+    },
+  ]);
+  P.setSlideTransition(second, { effect: "morph", durationMs: 4000 });
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 2");
+  const overlay = page.locator(".presenter .slide-transition canvas");
+  await expect(overlay).toBeAttached();
+  // Late in the morph, where new objects are nearly in.
+  await page.waitForTimeout(3300);
+  const color = await page.evaluate(() => {
+    const canvas = document.querySelector(
+      ".presenter .slide-transition canvas",
+    );
+    const [r, , b] = canvas
+      .getContext("2d")
+      .getImageData(
+        Math.round((6.5 / 13.333) * canvas.width),
+        Math.round((4 / 7.5) * canvas.height),
+        1,
+        1,
+      ).data;
+    return r - b > 40 ? "red" : "plain";
+  });
+  expect(color).toBe("plain");
+});
+
+test("a click during a transition ends it and plays the slide's next step", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const second = P.addBlankSlide(pres);
+  const effects = [
+    shape(second, 5, 3, 3, 2, "#cc2222"),
+    shape(second, 1, 1, 2, 1, "#2222cc"),
+  ].map((box) => ({
+    shapeId: String(P.getShapeId(box)),
+    presetClass: "entr",
+    presetId: 10,
+    presetSubtype: 0,
+    start: "click",
+    delayMs: 0,
+    durationMs: 100,
+  }));
+  P.setSlideAnimations(second, effects);
+  P.setSlideTransition(second, { effect: "fade", durationMs: 5000 });
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect(counter).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 2");
+  const overlay = page.locator(".presenter .slide-transition");
+  await expect(overlay).toHaveCount(1);
+  await page.keyboard.press("ArrowRight");
+  // The transition ends at once and the first box comes in, to stay.
+  await expect(overlay).toHaveCount(0);
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false]);
+  await page.waitForTimeout(500);
+  expect(await visibleLayers(page)).toEqual([true, false]);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true, true]);
+  await expect(counter).toHaveText("2 / 2");
+});
+
+test("an effect set to auto-reverse ends as the object began", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const box = shape(slide, 5, 3, 3, 2, "#cc2222");
+  // Grow/Shrink, played forward and back.
+  P.setSlideAnimations(slide, [
+    {
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "emph",
+      presetId: 6,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 300,
+      autoReverse: true,
+    },
+  ]);
+  P.addBlankSlide(pres);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(page.locator(".presenter-counter")).toHaveText("1 / 2");
+  const width = () =>
+    page.evaluate(() =>
+      Math.max(
+        ...[...document.querySelectorAll(".presenter .anim-fx *")].map(
+          (node) => node.getBoundingClientRect().width,
+        ),
+      ),
+    );
+  await expect(page.locator(".presenter .anim-fx")).toHaveCount(1);
+  const before = await width();
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(1200);
+  expect(Math.abs((await width()) - before)).toBeLessThan(2);
+});
+
+test("a transition's preview on the canvas leaves out objects still to come", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== "desktop",
+    "narrower layouts fold the Transitions tab's Preview into a menu; the preview plays the same way",
+  );
+  const pres = createDeck("blank");
+  const second = P.addBlankSlide(pres);
+  const red = shape(second, 5, 3, 3, 2, "#cc2222");
+  P.setSlideAnimations(second, [
+    {
+      shapeId: String(P.getShapeId(red)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 100,
+    },
+  ]);
+  P.setSlideTransition(second, { effect: "fade", durationMs: 4000 });
+  await load(page, pres);
+  await page.locator("#slide-list .slide-thumb").nth(1).click();
+  await page.getByRole("tab", { name: "Transitions" }).click();
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  const overlay = page.locator("#slide-canvas .slide-transition canvas");
+  await expect(overlay).toBeAttached();
+  // Late in the fade, where the slide is nearly in.
+  await page.waitForTimeout(3000);
+  const color = await page.evaluate(() => {
+    const canvas = document.querySelector(
+      "#slide-canvas .slide-transition canvas",
+    );
+    const [r, , b] = canvas
+      .getContext("2d")
+      .getImageData(
+        Math.round((6.5 / 13.333) * canvas.width),
+        Math.round((4 / 7.5) * canvas.height),
+        1,
+        1,
+      ).data;
+    return r - b > 40 ? "red" : "plain";
+  });
+  expect(color).toBe("plain");
 });

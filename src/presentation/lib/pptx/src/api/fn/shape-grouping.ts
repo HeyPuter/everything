@@ -22,7 +22,14 @@ import {
   buildGroup,
   readGroupChildren,
 } from "../../internal/presentationml/index.ts";
-import { type XmlElement } from "../../internal/xml/index.ts";
+import {
+  NS,
+  type XmlElement,
+  attr,
+  elem,
+  firstChildElement,
+  qname,
+} from "../../internal/xml/index.ts";
 import {
   SHAPE_ELEMENT,
   SHAPE_SLIDE,
@@ -34,6 +41,7 @@ import {
   commitSlideData,
   nextShapeId,
   rebuildShapesFromDocument,
+  refreshSlideData,
   requireSpTree,
 } from "./_helpers.ts";
 import { getGroupTransform } from "./shape-read-base.ts";
@@ -209,4 +217,50 @@ export const ungroupShapes = (
     if (!found) throw new Error("ungroupShapes: post-condition failed");
     return found;
   });
+};
+
+/** A group's frame on its parent (`off`/`ext`) and its children's space
+ * (`chOff`/`chExt`), in EMU. */
+export interface GroupTransform {
+  readonly outer: { x: number; y: number; w: number; h: number };
+  readonly inner: { x: number; y: number; w: number; h: number };
+}
+
+/**
+ * Rewrites a group's `<a:xfrm>` offsets and extents, leaving its turn,
+ * mirroring and children as they are. Values are rounded to whole EMU.
+ * Throws if `group` isn't a group shape.
+ */
+export const setGroupTransform = (
+  group: SlideShapeData,
+  { outer, inner }: GroupTransform,
+): void => {
+  if (group[SHAPE_SNAPSHOT].kind !== "group")
+    throw new Error("setGroupTransform: shape is not a group");
+  const grpSpPr = firstChildElement(
+    group[SHAPE_ELEMENT],
+    qname("p", "grpSpPr", NS.pml),
+  );
+  if (!grpSpPr) throw new Error("setGroupTransform: group has no <p:grpSpPr>");
+  let xfrm = firstChildElement(grpSpPr, qname("a", "xfrm", NS.dml));
+  if (!xfrm) {
+    xfrm = elem(qname("a", "xfrm", NS.dml));
+    grpSpPr.children.unshift(xfrm);
+  }
+  const point = (local: string, a: string, b: string, x: number, y: number) =>
+    elem(qname("a", local, NS.dml), {
+      attrs: [
+        attr(qname("", a, ""), String(Math.round(x))),
+        attr(qname("", b, ""), String(Math.round(y))),
+      ],
+    });
+  // CT_GroupTransform2D: off, ext, chOff, chExt, in that order.
+  xfrm.children = [
+    point("off", "x", "y", outer.x, outer.y),
+    point("ext", "cx", "cy", Math.max(0, outer.w), Math.max(0, outer.h)),
+    point("chOff", "x", "y", inner.x, inner.y),
+    point("chExt", "cx", "cy", Math.max(0, inner.w), Math.max(0, inner.h)),
+  ];
+  commitSlideData(group[SHAPE_SLIDE]);
+  refreshSlideData(group[SHAPE_SLIDE]);
 };

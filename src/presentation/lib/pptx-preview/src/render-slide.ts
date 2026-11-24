@@ -16,6 +16,7 @@ import {
 import {
   type PresentationFonts,
   resolveThemeTypeface,
+  themeScriptFonts,
 } from "../../pptx/src/api/fn/theme.ts";
 import { themeForChart } from "../../pptx/src/api/fn/chart-copy.ts";
 import { chartRenderingView } from "../../pptx/src/api/fn/charts.ts";
@@ -125,6 +126,7 @@ import {
   getShapeHyperlinkTooltip,
   getShapeName,
   getShapeTextColumns,
+  getShapeText,
   getShapeTextBodyRotationDeg,
   getShapeTextDirection,
   getShapeTextUpright,
@@ -226,7 +228,6 @@ import {
   layoutCore,
   layoutTextSvg,
   measureTextBodyHeight,
-  measureTextBodyWidth,
   substituteFamily,
   type BulletInput,
   type ColumnLayout,
@@ -690,9 +691,10 @@ const renderPicture = (
         );
       }
       if (grayscale) {
-        // Luminance-preserving desaturation matrix.
+        // Luminance-preserving desaturation matrix, weighing the sRGB
+        // values as the desktop app does (not linear light).
         prims.push(
-          `<feColorMatrix type="matrix" values="0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0 0 0 1 0"/>`,
+          `<feColorMatrix type="matrix" color-interpolation-filters="sRGB" values="0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0 0 0 1 0"/>`,
         );
       }
       if (duotone && duotone.firstColor && duotone.secondColor) {
@@ -962,6 +964,12 @@ let activeDefinitionIds = sharedDefinitionIds;
 // The part of the top-level shape being drawn when a render asks for a layer
 // of the slide (RenderSlideOptions.layer); null draws shapes whole.
 let activeLayerPart: SlideShapeLayerPart | null = null;
+// A slide placeholder with no position of its own and none in its layout
+// or master (its layout lacks one of its kind) is drawn as the desktop app
+// draws it: its text from the slide's top-left corner, unwrapped, in the
+// master's text styles, with no fill or outline. Set while one is drawn.
+let activeUnplaced: { w: number; h: number } | null = null;
+let activeSlideSize: { w: number; h: number } = { w: 0, h: 0 };
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
 // How the group being drawn places its children: their boxes, in its child
@@ -1028,6 +1036,8 @@ const gradientDef = (
   bounds: { w: number; h: number } = { w: 1, h: 1 },
   allowCss = false,
   frame?: { x: number; y: number; w: number; h: number },
+  /** The paint fills a rectangle, whose outline a `shape` path follows. */
+  rectangular = false,
 ): { defs: string; fillAttr: string; cssGradient?: string } => {
   const id = mintId();
   // DrawingML lists may be authored out of order. SVG instead clamps each
@@ -1075,12 +1085,14 @@ const gradientDef = (
     stops: typeof orderedStops,
     mirroredAttributes?: string,
     power = gradientPowerTransfer(stops),
+    // A further transform of the gradient in the unit square.
+    transform = "",
   ): { defs: string; fillAttr: string } => {
     // A shape's fill spans its extents, shared by every geometry path. SVG's
     // default objectBoundingBox would restart the gradient on each face.
     const units = frame
-      ? `gradientUnits="userSpaceOnUse" gradientTransform="translate(${E(frame.x)} ${E(frame.y)}) scale(${E(frame.w)} ${E(frame.h)})"`
-      : 'gradientUnits="objectBoundingBox"';
+      ? `gradientUnits="userSpaceOnUse" gradientTransform="translate(${E(frame.x)} ${E(frame.y)}) scale(${E(frame.w)} ${E(frame.h)})${transform ? ` ${transform}` : ""}"`
+      : `gradientUnits="objectBoundingBox"${transform ? ` gradientTransform="${transform}"` : ""}`;
     const patternUnits = frame
       ? `patternUnits="userSpaceOnUse" patternContentUnits="userSpaceOnUse" width="${E(frame.w)}" height="${E(frame.h)}" patternTransform="translate(${E(frame.x)} ${E(frame.y)})"`
       : 'patternUnits="objectBoundingBox" patternContentUnits="objectBoundingBox" width="1" height="1"';
@@ -1090,8 +1102,8 @@ const gradientDef = (
       ? `width="${E(frame.w)}" height="${E(frame.h)}"`
       : 'width="1" height="1"';
     const patternGradientUnits = frame
-      ? `gradientUnits="userSpaceOnUse" gradientTransform="scale(${E(frame.w)} ${E(frame.h)})"`
-      : 'gradientUnits="objectBoundingBox"';
+      ? `gradientUnits="userSpaceOnUse" gradientTransform="scale(${E(frame.w)} ${E(frame.h)})${transform ? ` ${transform}` : ""}"`
+      : `gradientUnits="objectBoundingBox"${transform ? ` gradientTransform="${transform}"` : ""}`;
     const stopOffset = (value: number): string => {
       const rounded = value.toFixed(4);
       // DrawingML positions have 100,000 subdivisions. Retain their full
@@ -1177,10 +1189,92 @@ const gradientDef = (
       fillAttr: `url(#${id})`,
     };
   };
+  // A rectangular path: from the focus rectangle out to each edge, in four
+  // wedges cut by the lines from the focus rectangle's corners to the box's.
+  // Each wedge shades linearly towards its edge, so the contours are
+  // rectangles, with creases along the diagonals.
+  const rectPathGradient = (
+    left: number,
+    top: number,
+    right: number,
+    bottom: number,
+  ): { defs: string; fillAttr: string } => {
+    const fmt = (n: number) => String(Number(n.toFixed(6)));
+    const stopsSvg = paintStops
+      .map(
+        (stop) =>
+          `<stop offset="${String(Number(stop.offset.toFixed(6)))}" stop-color="${stop.color}"${stop.opacity !== undefined && stop.opacity !== 1 ? ` stop-opacity="${stop.opacity}"` : ""}/>`,
+      )
+      .join("");
+    let gradients = "",
+      shapes = "";
+    const wedge = (
+      points: ReadonlyArray<readonly [number, number]>,
+      from: readonly [number, number],
+      to: readonly [number, number],
+    ) => {
+      if (from[0] === to[0] && from[1] === to[1]) return;
+      const gid = mintId();
+      gradients += `<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="${fmt(from[0])}" y1="${fmt(from[1])}" x2="${fmt(to[0])}" y2="${fmt(to[1])}">${stopsSvg}</linearGradient>`;
+      // The wedges meet with equal colours along the creases; crisp edges
+      // keep anti-aliasing from showing seams there.
+      shapes += `<polygon points="${points.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ")}" fill="url(#${gid})" shape-rendering="crispEdges"/>`;
+    };
+    wedge(
+      [
+        [0, 0],
+        [1, 0],
+        [right, top],
+        [left, top],
+      ],
+      [0, top],
+      [0, 0],
+    );
+    wedge(
+      [
+        [1, 0],
+        [1, 1],
+        [right, bottom],
+        [right, top],
+      ],
+      [right, 0],
+      [1, 0],
+    );
+    wedge(
+      [
+        [1, 1],
+        [0, 1],
+        [left, bottom],
+        [right, bottom],
+      ],
+      [0, bottom],
+      [0, 1],
+    );
+    wedge(
+      [
+        [0, 1],
+        [0, 0],
+        [left, top],
+        [left, bottom],
+      ],
+      [left, 0],
+      [0, 0],
+    );
+    const first = paintStops[0];
+    if (first && right > left && bottom > top)
+      shapes += `<rect x="${fmt(left)}" y="${fmt(top)}" width="${fmt(right - left)}" height="${fmt(bottom - top)}" fill="${first.color}"${first.opacity !== undefined && first.opacity !== 1 ? ` fill-opacity="${first.opacity}"` : ""}/>`;
+    const content = frame
+      ? `<g transform="scale(${E(frame.w)} ${E(frame.h)})">${shapes}</g>`
+      : shapes;
+    const patternUnits = frame
+      ? `patternUnits="userSpaceOnUse" patternContentUnits="userSpaceOnUse" width="${E(frame.w)}" height="${E(frame.h)}" patternTransform="translate(${E(frame.x)} ${E(frame.y)})"`
+      : 'patternUnits="objectBoundingBox" patternContentUnits="objectBoundingBox" width="1" height="1"';
+    return {
+      defs: `<defs>${gradients}<pattern id="${id}" ${patternUnits}>${content}</pattern></defs>`,
+      fillAttr: `url(#${id})`,
+    };
+  };
   if (grad.path === "circle" || grad.path === "rect" || grad.path === "shape") {
-    // SVG only ships a true radial gradient; ECMA-376's `rect` and
-    // `shape` paths are close enough that we project them onto a
-    // radial fill centered on the focus rectangle.
     const focus = grad.focus ?? {
       left: 0.5,
       top: 0.5,
@@ -1189,11 +1283,46 @@ const gradientDef = (
     };
     // `<a:fillToRect>` gives insets from each edge, so the focus rectangle
     // runs from left to 1 - right and from top to 1 - bottom.
-    const cx = (focus.left + 1 - focus.right) / 2;
-    const cy = (focus.top + 1 - focus.bottom) / 2;
+    const unit = (n: number) => (Number.isFinite(n) ? n : 0);
+    const left = unit(focus.left),
+      top = unit(focus.top),
+      right = Math.max(left, 1 - unit(focus.right)),
+      bottom = Math.max(top, 1 - unit(focus.bottom));
+    const cx = (left + right) / 2;
+    const cy = (top + bottom) / 2;
+    const w = bounds.w > 0 && Number.isFinite(bounds.w) ? bounds.w : 1;
+    const h = bounds.h > 0 && Number.isFinite(bounds.h) ? bounds.h : 1;
     // ECMA-376 stops paint outward from the focus: the first stop sits at
     // the focus and the last at the edge (as desktop editors draw it), which
     // is also how SVG's radial gradient runs from cx/cy out to r.
+    if (grad.path === "rect" || (grad.path === "shape" && rectangular))
+      return rectPathGradient(left, top, right, bottom);
+    if (grad.path === "circle") {
+      // A true circle about the focus, reaching the farthest corner, as the
+      // desktop app draws it; the unit square is stretched back to the
+      // shape's proportions.
+      const reach = Math.max(
+        ...[
+          [0, 0],
+          [1, 0],
+          [0, 1],
+          [1, 1],
+        ].map(([x, y]) => Math.hypot((x! - cx) * w, (y! - cy) * h)),
+      );
+      const fmt = (n: number) => String(Number(n.toFixed(6)));
+      return finish(
+        "radialGradient",
+        `cx="${cx.toFixed(4)}" cy="${cy.toFixed(4)}" r="${(reach / w).toFixed(4)}"`,
+        paintStops,
+        undefined,
+        undefined,
+        w === h
+          ? ""
+          : `translate(${fmt(cx)} ${fmt(cy)}) scale(1 ${fmt(w / h)}) translate(${fmt(-cx)} ${fmt(-cy)})`,
+      );
+    }
+    // Another shape's own outline is projected onto an ellipse fitted to
+    // the box, which is exact for ellipses.
     return finish(
       "radialGradient",
       `cx="${cx.toFixed(4)}" cy="${cy.toFixed(4)}" r="${Math.max(0.5, Math.max(cx, cy, 1 - cx, 1 - cy)).toFixed(4)}"`,
@@ -1507,6 +1636,8 @@ interface PaintResult {
   markerSetback?: readonly [number, number];
   /** A compound outline (`<a:ln cmpd>`): two or three lines in its width. */
   compound?: "dbl" | "thickThin" | "thinThick" | "tri" | undefined;
+  /** An inset outline (`<a:ln algn="in">`), drawn inside the shape. */
+  inset?: boolean | undefined;
 }
 
 // A linear gradient that does not turn with its shape (`rotWithShape="0"`)
@@ -1539,6 +1670,24 @@ const DASH_PATTERNS: Record<string, string> = {
   sysDashDot: "3 1 1 1",
   sysDashDotDot: "3 1 1 1 1 1",
 };
+
+// DrawingML dash lengths include round and square caps; SVG adds the caps
+// to each dash. Round-capped custom dashes are also compensated, while
+// square custom dashes keep their authored lengths (native controls).
+// Lengths are in line widths, as dash/gap pairs. A pattern with no length
+// draws solid (null).
+const capCompensatedDashes = (
+  pattern: readonly number[],
+  cap: string | null | undefined,
+  kind: "preset" | "custom",
+): number[] | null =>
+  !pattern.some((length) => length > 0)
+    ? null
+    : cap === "rnd" || (kind === "preset" && cap === "sq")
+      ? pattern.map((length, i) =>
+          i % 2 ? length + 1 : Math.max(0, length - 1),
+        )
+      : [...pattern];
 
 // Line ends as the desktop presentation app draws them (measured): a head is
 // 2, 3 or 5 line widths across (`w`) and along (`len`) for small, medium and
@@ -1692,6 +1841,7 @@ const paint = (
         bounds,
         allowCss,
         fillFrame,
+        !!shape && getShapePreset(shape) === "rect",
       );
       defs = built.defs;
       fillColor = built.fillAttr;
@@ -1731,6 +1881,7 @@ const paint = (
   let strokeColor = "none";
   let strokeWidth = 0;
   let compound: PaintResult["compound"];
+  let inset = false;
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
   let markerSetback: readonly [number, number] | undefined;
@@ -1782,14 +1933,17 @@ const paint = (
       const formatting = getShapeStrokeFormattingEffective(shape);
       const dash = formatting.dash;
       if (dash) {
-        const pattern =
+        const pattern = capCompensatedDashes(
           dash.kind === "custom"
             ? dash.stops.flatMap((stop) => [stop.dash, stop.space])
             : (DASH_PATTERNS[dash.value] ?? "")
                 .split(" ")
                 .filter(Boolean)
-                .map(Number);
-        if (pattern.some((length) => length > 0)) {
+                .map(Number),
+          formatting.cap,
+          dash.kind,
+        );
+        if (pattern) {
           // Scale by stroke width in CSS pixels so the dash cadence is right.
           const swPx = strokeWidth / EMU_PER_PX;
           const arr = pattern.map((n) => (n * swPx).toFixed(2)).join(" ");
@@ -1819,6 +1973,7 @@ const paint = (
         compound = cmpd;
         strokeWidth = Math.max(strokeWidth, 19_050);
       }
+      inset = formatting.align === "in";
       const head = formatting.head;
       const tail = formatting.tail;
       const setback = [
@@ -1865,6 +2020,7 @@ const paint = (
     markerAttrs,
     ...(markerSetback ? { markerSetback } : {}),
     ...(compound ? { compound } : {}),
+    ...(inset ? { inset } : {}),
   };
 };
 
@@ -1921,8 +2077,13 @@ const placeholderDefaultPt = (phType: string | null): number => {
   return DEFAULT_BODY_PT; // 18pt
 };
 
-const bulletChar = (level: number): string =>
-  level <= 0 ? "•" : level === 1 ? "◦" : "▪";
+// A bullet the cascade names only as "•" is that dot at every level, as the
+// desktop app draws it; an implied bullet (an indented paragraph with none
+// in its cascade) takes the outline glyph of its level.
+const bulletChar = (
+  level: number,
+  style: ReturnType<typeof getParagraphBullet> | null,
+): string => (style === "bullet" || level <= 0 ? "•" : level === 1 ? "◦" : "▪");
 
 // What the bullet characters of the common symbol typefaces show, for a
 // device without the typeface (phones and tablets usually lack them). Files
@@ -2006,11 +2167,85 @@ const toAlpha = (n: number): string => {
   return out;
 };
 
-// Format an auto-number per ECMA-376 §17.18.96 `ST_TextAutoNumberScheme`.
-// Only the most common variants are implemented; unknown tokens fall back
-// to arabicPeriod-style formatting.
+// Each digit of n in another script's digits (zero first).
+const digitsIn = (n: number, zero: number): string =>
+  String(n).replace(/\d/g, (d) => String.fromCodePoint(zero + Number(d)));
+// Letters in order, cycling with the letter repeated: the 29th of 28 is the
+// first doubled.
+const repeatedLetter = (n: number, letters: readonly string[]): string =>
+  letters[(n - 1) % letters.length]!.repeat(
+    Math.floor((n - 1) / letters.length) + 1,
+  );
+const CJK_DIGITS = "〇一二三四五六七八九";
+// Chinese numerals as the desktop app writes them: digit by digit (one zero
+// two for 102), or counted in tens (二十三) below `tensBelow`.
+const cjkNumber = (n: number, tensFrom = 10, tensBelow = 10): string => {
+  if (n >= tensFrom && n < tensBelow) {
+    const tens = Math.floor(n / 10),
+      units = n % 10;
+    return `${tens > 1 ? CJK_DIGITS[tens] : ""}十${units ? CJK_DIGITS[units] : ""}`;
+  }
+  return String(n).replace(/\d/g, (d) => CJK_DIGITS[Number(d)]!);
+};
+const ARABIC_LETTERS = [..."أبتثجحخدذرزسشصضطظعغفقكلمنهوي"];
+const ABJAD_LETTERS = [..."أبجدهوزحطيكلمنسعفصقرشتثخذضظغ"];
+const HEBREW_LETTERS = [..."אבגדהוזחטיכלמנסעפצקרשת"];
+const THAI_LETTERS = [..."กขคงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ"];
+// Hebrew counts on past its last letter with that letter, once for each
+// round, before the remainder's.
+const hebrewNumber = (n: number): string => {
+  const rounds = Math.floor((n - 1) / HEBREW_LETTERS.length);
+  return "ת".repeat(rounds) + HEBREW_LETTERS[(n - 1) % HEBREW_LETTERS.length];
+};
+
+// Format an auto-number per ECMA-376 §17.18.96 `ST_TextAutoNumberScheme`,
+// as the desktop app draws each scheme. Unknown tokens, and numbers a
+// scheme cannot write, fall back to arabicPeriod-style formatting.
 const formatAutoNum = (token: string, n: number): string => {
   const arabic = String(n);
+  if (n >= 1 && Number.isSafeInteger(n))
+    switch (token) {
+      case "arabicDbPeriod":
+        return `${digitsIn(n, 0xff10)}．`;
+      case "arabicDbPlain":
+        return digitsIn(n, 0xff10);
+      case "ea1ChsPeriod":
+        return `${cjkNumber(n, 10, 100)}.`;
+      case "ea1ChsPlain":
+        return cjkNumber(n, 10, 100);
+      case "ea1ChtPeriod":
+        return `${cjkNumber(n, 10, 20)}.`;
+      case "ea1ChtPlain":
+        return cjkNumber(n, 10, 20);
+      case "ea1JpnChsDbPeriod":
+        return `${cjkNumber(n)}．`;
+      case "ea1JpnKorPeriod":
+        return `${cjkNumber(n)}.`;
+      case "ea1JpnKorPlain":
+        return cjkNumber(n);
+      case "arabic1Minus":
+        return `${repeatedLetter(n, ARABIC_LETTERS)}-`;
+      case "arabic2Minus":
+        return `${repeatedLetter(n, ABJAD_LETTERS)}-`;
+      case "hebrew2Minus":
+        return `${hebrewNumber(n)}-`;
+      case "thaiAlphaPeriod":
+        return `${repeatedLetter(n, THAI_LETTERS)}.`;
+      case "thaiAlphaParenR":
+        return `${repeatedLetter(n, THAI_LETTERS)})`;
+      case "thaiAlphaParenBoth":
+        return `(${repeatedLetter(n, THAI_LETTERS)})`;
+      case "thaiNumPeriod":
+        return `${digitsIn(n, 0xe50)}.`;
+      case "thaiNumParenR":
+        return `${digitsIn(n, 0xe50)})`;
+      case "thaiNumParenBoth":
+        return `(${digitsIn(n, 0xe50)})`;
+      case "hindiNumPeriod":
+        return `${digitsIn(n, 0x966)}.`;
+      case "hindiNumParenR":
+        return `${digitsIn(n, 0x966)})`;
+    }
   switch (token) {
     case "arabicPlain":
       return arabic;
@@ -2204,7 +2439,7 @@ type RunData = {
  * rule was independently exercised in a native reference build (bug 173712):
  * https://mid.mail-archive.com/libreoffice-bugs%40lists.freedesktop.org/msg1175617.html
  */
-const resolveNumberLabels = (
+export const resolveNumberLabels = (
   paragraphs: readonly Pick<ParaData, "level" | "bulletStyle">[],
 ): (string | null)[] => {
   const counters = new Map<
@@ -2406,61 +2641,98 @@ const textGradientFill = (
   return `url(#${entry.id})`;
 };
 
-// Shadow, glow and reflection drawn with a shape's text: the first run that
-// carries effects speaks for the text body, as WordArt styles apply to all of it.
+// A key naming a run's outer shadow and glow, shared by runs whose shadow
+// and glow are alike; null for a run without them.
+const textEffectKeys = new WeakMap<object, string | null>();
+const textEffectKey = (fmt: TextFormat | null | undefined): string | null => {
+  const effects = fmt?.effects;
+  if (!effects) return null;
+  let key = textEffectKeys.get(effects);
+  if (key === undefined) {
+    const shadow =
+      effects.shadow && !effects.shadow.inner ? effects.shadow : null;
+    const glow =
+      effects.glow && effects.glow.radiusEmu > 0 ? effects.glow : null;
+    key = null;
+    if (shadow || glow) {
+      const text = JSON.stringify([shadow, glow]);
+      let hash = 5381;
+      for (let i = 0; i < text.length; i++)
+        hash = (Math.imul(hash, 33) ^ text.charCodeAt(i)) >>> 0;
+      key = `fx${hash.toString(36)}`;
+    }
+    textEffectKeys.set(effects, key);
+  }
+  return key;
+};
+
+// Shadow, glow and reflection drawn with a shape's text. Each run's shadow
+// and glow fall from that run's own text: they are drawn from a copy of the
+// text in which only the runs carrying them show. A reflection mirrors the
+// whole text body, as WordArt styles apply to all of it.
 const wrapTextEffects = (
   svg: string,
   paraData: readonly ParaData[],
   theme: PresentationTheme | null,
   box: { x: number; y: number; w: number; h: number },
 ): string => {
-  const effects = paraData
-    .flatMap((p) => p.runs)
-    .find((run) => run.fmt?.effects)?.fmt?.effects;
-  if (
-    !effects ||
-    (!effects.shadow && !effects.glow && !effects.reflection) ||
-    !svg
-  )
-    return svg;
+  if (!svg) return svg;
+  const runs = paraData.flatMap((p) => p.runs);
+  const reflection = runs.find((run) => run.fmt?.effects?.reflection)?.fmt
+    ?.effects?.reflection;
+  const keyed = new Map<string, NonNullable<TextFormat["effects"]>>();
+  for (const run of runs) {
+    const key = textEffectKey(run.fmt);
+    if (key && !keyed.has(key)) keyed.set(key, run.fmt!.effects!);
+  }
+  if (!keyed.size && !reflection) return svg;
   const px = (emu: number) => emu / EMU_PER_PX;
   let defs = "";
   let out = svg;
-  const layers: string[] = [];
-  if (effects.glow && effects.glow.radiusEmu > 0) {
-    const r = px(effects.glow.radiusEmu);
-    layers.push(
-      `<feMorphology in="SourceAlpha" operator="dilate" radius="${PX(r / 2)}" result="gd"/><feGaussianBlur in="gd" stdDeviation="${PX(r / 2)}" result="gb"/><feFlood flood-color="${resolveColor(effects.glow.color, theme, "#000000")}" flood-opacity="${PX(effects.glow.opacity ?? 1)}"/><feComposite in2="gb" operator="in" result="glow"/>`,
-    );
-  }
-  if (effects.shadow && !effects.shadow.inner) {
-    const rad = (effects.shadow.angleDeg * Math.PI) / 180;
-    const d = px(effects.shadow.distEmu);
-    layers.push(
-      `<feGaussianBlur in="SourceAlpha" stdDeviation="${PX(px(effects.shadow.blurEmu) / 2)}" result="sb"/><feOffset in="sb" dx="${PX(Math.cos(rad) * d)}" dy="${PX(Math.sin(rad) * d)}" result="so"/><feFlood flood-color="${resolveColor(effects.shadow.color, theme, "#000000")}" flood-opacity="${PX(effects.shadow.opacity ?? 1)}"/><feComposite in2="so" operator="in" result="shadow"/>`,
-    );
-  }
-  if (layers.length) {
+  // The runs' text alone, without its definitions, decorations, highlights
+  // or pictures; the other runs' text is hidden in place.
+  const textOnly = svg
+    .replace(/<defs>.*?<\/defs>/gs, "")
+    .replace(/<(?:path|rect|image)\b[^>]*\/>/g, "");
+  const casts: string[] = [];
+  for (const [key, effects] of keyed) {
+    const layers: string[] = [];
+    if (effects.glow && effects.glow.radiusEmu > 0) {
+      const r = px(effects.glow.radiusEmu);
+      layers.push(
+        `<feMorphology in="SourceAlpha" operator="dilate" radius="${PX(r / 2)}" result="gd"/><feGaussianBlur in="gd" stdDeviation="${PX(r / 2)}" result="gb"/><feFlood flood-color="${resolveColor(effects.glow.color, theme, "#000000")}" flood-opacity="${PX(effects.glow.opacity ?? 1)}"/><feComposite in2="gb" operator="in" result="glow"/>`,
+      );
+    }
+    if (effects.shadow && !effects.shadow.inner) {
+      const rad = (effects.shadow.angleDeg * Math.PI) / 180;
+      const d = px(effects.shadow.distEmu);
+      layers.push(
+        `<feGaussianBlur in="SourceAlpha" stdDeviation="${PX(px(effects.shadow.blurEmu) / 2)}" result="sb"/><feOffset in="sb" dx="${PX(Math.cos(rad) * d)}" dy="${PX(Math.sin(rad) * d)}" result="so"/><feFlood flood-color="${resolveColor(effects.shadow.color, theme, "#000000")}" flood-opacity="${PX(effects.shadow.opacity ?? 1)}"/><feComposite in2="so" operator="in" result="shadow"/>`,
+      );
+    }
     const id = mintId();
     const merge = [
       effects.shadow && !effects.shadow.inner ? "shadow" : null,
       effects.glow && effects.glow.radiusEmu > 0 ? "glow" : null,
-      "SourceGraphic",
     ]
       .filter(Boolean)
       .map((name) => `<feMergeNode in="${name}"/>`)
       .join("");
     defs += `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">${layers.join("")}<feMerge>${merge}</feMerge></filter>`;
-    out = `<g filter="url(#${id})">${out}</g>`;
+    const own = `data-fx="${key}"`;
+    casts.push(
+      `<g filter="url(#${id})">${textOnly.replace(/<tspan ([^>]*)>/g, (tag, attrs: string) => (attrs.includes(own) ? tag : `<tspan visibility="hidden" ${attrs}>`))}</g>`,
+    );
   }
-  if (effects.reflection) {
+  out = casts.join("") + out;
+  if (reflection) {
     const id = mintId(),
       maskId = mintId(),
       gradId = mintId();
     const bottom = box.y + box.h;
-    const gap = px(effects.reflection.distEmu);
-    const size = box.h * Math.max(0.05, Math.min(1, effects.reflection.endPos));
-    defs += `<linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${PX(effects.reflection.startOpacity)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><mask id="${maskId}" maskUnits="userSpaceOnUse" x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}"><rect x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}" fill="url(#${gradId})"/></mask>`;
+    const gap = px(reflection.distEmu);
+    const size = box.h * Math.max(0.05, Math.min(1, reflection.endPos));
+    defs += `<linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${PX(reflection.startOpacity)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><mask id="${maskId}" maskUnits="userSpaceOnUse" x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}"><rect x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}" fill="url(#${gradId})"/></mask>`;
     out = `<g id="${id}">${out}</g><g mask="url(#${maskId})" data-pptx-text-reflection="1"><use href="#${id}" transform="translate(0 ${PX(2 * bottom + gap)}) scale(1 -1)"/></g>`;
   }
   return `<defs>${defs}</defs>${out}`;
@@ -2500,6 +2772,104 @@ export const verticalLayoutOf = (
   }
 };
 
+// Text in East Asian or complex scripts takes the run's East Asian (`ea`)
+// or complex-script (`cs`) typeface, or the theme's typeface for its script
+// (`<a:font script="Jpan">`), as the desktop app draws and measures it.
+const NON_LATIN_TEXT =
+  /[\u0590-\u08ff\u0900-\u0fff\u1000-\u109f\u1100-\u11ff\u1780-\u17ff\u2e80-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua960-\ua97f\uac00-\ud7ff\uf900-\ufaff\ufb1d-\ufdff\ufe30-\ufe4f\ufe70-\ufeff\uff00-\uffef]|[\u{20000}-\u{3134f}]/u;
+// ISO 15924 code of a complex-script character's script.
+const COMPLEX_SCRIPTS: ReadonlyArray<readonly [number, number, string]> = [
+  [0x0590, 0x05ff, "Hebr"],
+  [0x0600, 0x06ff, "Arab"],
+  [0x0700, 0x074f, "Syrc"],
+  [0x0750, 0x077f, "Arab"],
+  [0x0780, 0x07bf, "Thaa"],
+  [0x08a0, 0x08ff, "Arab"],
+  [0x0900, 0x097f, "Deva"],
+  [0x0980, 0x09ff, "Beng"],
+  [0x0a00, 0x0a7f, "Guru"],
+  [0x0a80, 0x0aff, "Gujr"],
+  [0x0b00, 0x0b7f, "Orya"],
+  [0x0b80, 0x0bff, "Taml"],
+  [0x0c00, 0x0c7f, "Telu"],
+  [0x0c80, 0x0cff, "Knda"],
+  [0x0d00, 0x0d7f, "Mlym"],
+  [0x0d80, 0x0dff, "Sinh"],
+  [0x0e00, 0x0e7f, "Thai"],
+  [0x0e80, 0x0eff, "Laoo"],
+  [0x0f00, 0x0fff, "Tibt"],
+  [0x1000, 0x109f, "Mymr"],
+  [0x1780, 0x17ff, "Khmr"],
+  [0xfb1d, 0xfb4f, "Hebr"],
+  [0xfb50, 0xfdff, "Arab"],
+  [0xfe70, 0xfeff, "Arab"],
+];
+type ScriptClass = "lt" | "ea" | "cs" | "neutral";
+// A character's script slot, and for complex scripts its script code; East
+// Asian characters say whether they are kana or Hangul, which name the
+// script whatever the run's language.
+const scriptOf = (cp: number): [ScriptClass, string | null] => {
+  if (
+    cp <= 0x40 ||
+    (cp >= 0x5b && cp <= 0x60) ||
+    (cp >= 0x7b && cp <= 0xbf) ||
+    (cp >= 0x2000 && cp <= 0x206f)
+  )
+    return ["neutral", null];
+  if (cp < 0x0590) return ["lt", null];
+  for (const [from, to, code] of COMPLEX_SCRIPTS)
+    if (cp >= from && cp <= to) return ["cs", code];
+  if (cp >= 0x3040 && cp <= 0x30ff) return ["ea", "Jpan"];
+  if (
+    (cp >= 0x1100 && cp <= 0x11ff) ||
+    (cp >= 0x3130 && cp <= 0x318f) ||
+    (cp >= 0xa960 && cp <= 0xa97f) ||
+    (cp >= 0xac00 && cp <= 0xd7ff)
+  )
+    return ["ea", "Hang"];
+  if (
+    (cp >= 0x2e80 && cp <= 0x33ff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe30 && cp <= 0xfe4f) ||
+    (cp >= 0xff00 && cp <= 0xffef) ||
+    (cp >= 0x20000 && cp <= 0x3134f)
+  )
+    return ["ea", null];
+  return ["lt", null];
+};
+// The East Asian script a run's language names.
+const eastAsianScriptOf = (language: string | null | undefined) => {
+  const lang = language?.toLowerCase() ?? "";
+  if (lang.startsWith("ja")) return "Jpan";
+  if (lang.startsWith("ko")) return "Hang";
+  if (/^zh-(tw|hk|mo|hant)/.test(lang)) return "Hant";
+  if (lang.startsWith("zh")) return "Hans";
+  return null;
+};
+// Splits text into stretches of one script slot; spaces, digits and
+// punctuation stay with the stretch around them.
+const scriptStretches = (
+  text: string,
+): Array<{ text: string; slot: ScriptClass; script: string | null }> => {
+  const out: Array<{ text: string; slot: ScriptClass; script: string | null }> =
+    [];
+  for (const ch of text) {
+    const [slot, script] = scriptOf(ch.codePointAt(0)!);
+    const last = out[out.length - 1];
+    if (last && (slot === "neutral" || slot === last.slot)) {
+      last.text += ch;
+      if (!last.script && script) last.script = script;
+    } else if (last && last.slot === "neutral") {
+      last.text += ch;
+      last.slot = slot;
+      last.script = script;
+    } else out.push({ text: ch, slot, script });
+  }
+  return out;
+};
+
 // Build the px-native engine input from the resolved paraData (at a.autoFitScale).
 export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
   const scale = a.autoFitScale;
@@ -2511,6 +2881,31 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
   const withKerning = <T extends FontSpec>(font: T): T => {
     const kerning = a.resolveKerning?.(font);
     return kerning && kerning !== font.kerning ? { ...font, kerning } : font;
+  };
+  // The typeface for a stretch of East Asian or complex-script text, or
+  // null to keep the run's own.
+  let scriptFonts: ReturnType<typeof themeScriptFonts> | undefined;
+  let titleText: boolean | undefined;
+  const scriptFace = (
+    fmt: TextFormat | null | undefined,
+    slot: "ea" | "cs",
+    script: string | null,
+  ): string | null => {
+    const own = slot === "ea" ? fmt?.fontEastAsian : fmt?.fontComplexScript;
+    if (own && !own.startsWith("+")) return own;
+    titleText ??= ["title", "ctrTitle"].includes(
+      getShapePlaceholderType(a.shape) ?? "",
+    );
+    const major = own ? own.startsWith("+mj") : titleText;
+    const code =
+      slot === "cs"
+        ? script
+        : (script ??
+          eastAsianScriptOf(fmt?.language) ??
+          eastAsianScriptOf(fmt?.alternateLanguage));
+    if (!code) return null;
+    scriptFonts ??= themeScriptFonts(themeForShape(a.shape)?.root);
+    return (major ? scriptFonts?.major : scriptFonts?.minor)?.[code] ?? null;
   };
   const lineFont = (format: Readonly<TextFormat>): FontSpec =>
     withKerning({
@@ -2580,6 +2975,7 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         ...(fmt?.highlight
           ? { highlightHex: resolveColor(fmt.highlight, a.theme, "#FFFF00") }
           : {}),
+        ...(textEffectKey(fmt) ? { effectKey: textEffectKey(fmt)! } : {}),
         href: run.href ?? null,
       });
       // A run's text can carry embedded '\n' only via <a:br>, already split
@@ -2613,6 +3009,29 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
               isBreak: false,
             });
           }
+        } else if (
+          NON_LATIN_TEXT.test(segText) &&
+          (() => {
+            const parts = scriptStretches(segText).map((part) => ({
+              text: part.text,
+              face:
+                part.slot === "ea" || part.slot === "cs"
+                  ? scriptFace(fmt, part.slot, part.script)
+                  : null,
+            }));
+            if (!parts.some((part) => part.face)) return false;
+            for (const part of parts)
+              pieces.push({
+                ...(part.face
+                  ? withKerning({ ...base, family: resolveFamily(part.face) })
+                  : base),
+                text: part.text,
+                isBreak: false,
+              });
+            return true;
+          })()
+        ) {
+          // Drawn stretch by stretch in each script's typeface.
         } else {
           pieces.push({ ...base, text: segText, isBreak: false });
         }
@@ -2798,7 +3217,10 @@ const buildBullet = (
       : null;
   const char = para.bulletIsPicture
     ? "■"
-    : (symbol ?? numberLabel ?? explicitChar ?? bulletChar(para.level));
+    : (symbol ??
+      numberLabel ??
+      explicitChar ??
+      bulletChar(para.level, para.bulletStyle));
   // An un-sized bullet (no buSzPct/buSzPts in the cascade) is 100% of the
   // paragraph's FIRST RUN size, not the placeholder default — a 32pt run gets a
   // 32pt bullet even on an 18pt-default body. Fall back to defaultPt only for an
@@ -2984,6 +3406,13 @@ export const resolveTextBodyModel = (
   let effectiveBody: ReturnType<typeof getShapeBodyPrEffective>;
   try {
     effectiveBody = getShapeBodyPrEffective(pres, shape);
+    if (activeUnplaced)
+      effectiveBody = {
+        ...effectiveBody,
+        wrap: "none",
+        anchor: "top",
+        anchorCenter: null,
+      };
   } catch {
     effectiveBody = {
       anchor: getShapeTextAnchor(shape),
@@ -3408,7 +3837,7 @@ const renderTextBody = (
         ? ""
         : ' target="_blank" rel="noopener noreferrer"';
       const titleAttr = run.hrefTip ? ` title="${escapeXml(run.hrefTip)}"` : "";
-      return `<a href="${escapeXml(run.href)}"${targetAttrs}${titleAttr} style="color:inherit;text-decoration:inherit">${span}</a>`;
+      return `<a href="${escapeXml(run.href)}"${targetAttrs}${titleAttr} data-pptx-link="${escapeXml(run.href)}" style="color:inherit;text-decoration:inherit">${span}</a>`;
     });
     if (!lineHasText && para.emptyLineFormat)
       runHtmls.push(
@@ -3515,7 +3944,9 @@ const renderTextBody = (
       // square so users see a distinct glyph rather than the round bullet.
       const char = para.bulletIsPicture
         ? "■"
-        : (numberLabel ?? explicitChar ?? bulletChar(para.level));
+        : (numberLabel ??
+          explicitChar ??
+          bulletChar(para.level, para.bulletStyle));
       // Bullet style overrides: color, size %, fixed pt size, font face.
       const bulletStyles: string[] = [
         `margin-right:${(0.4 * defaultPt * PX_PER_PT * autoFitScale).toFixed(2)}px`,
@@ -10043,21 +10474,17 @@ const chartOutlineStyle = (
   if (style.opacity !== 1) attrs.push(`stroke-opacity="${style.opacity}"`);
   const dash = line.dash;
   if (dash) {
-    let pattern =
+    const pattern = capCompensatedDashes(
       dash.kind === "custom"
         ? dash.stops.flatMap((stop) => [stop.dash, stop.space])
         : (DASH_PATTERNS[dash.value] ?? "")
             .split(" ")
             .filter(Boolean)
-            .map(Number);
-    // DrawingML preset lengths include caps; SVG lengths exclude them.
-    // Round-capped custom dashes are also compensated, while square
-    // custom dashes retain their authored lengths (native controls).
-    if (line.cap === "rnd" || (dash.kind === "preset" && line.cap === "sq"))
-      pattern = pattern.map((length, i) =>
-        i % 2 ? length + 1 : Math.max(0, length - 1),
-      );
-    if (pattern.some((length) => length > 0))
+            .map(Number),
+      line.cap,
+      dash.kind,
+    );
+    if (pattern)
       attrs.push(
         `stroke-dasharray="${pattern.map((length) => length * width).join(" ")}"`,
       );
@@ -11114,9 +11541,9 @@ const renderTableCellText = (
     top: number | null;
     bottom: number | null;
   },
-  vert: VerticalLayout = "none",
-  uprightEastAsian = false,
+  direction: ReturnType<typeof getTableCellTextDirection> = null,
 ): string => {
+  const vert = verticalLayoutOf(direction);
   const { paraData, hasText } = cellParaData(paragraphs, ctx);
   if (!hasText) return "";
   // CT_TableCellProperties defaults match body insets: 0.1 inch
@@ -11170,12 +11597,24 @@ const renderTableCellText = (
     // The cell's text direction (<a:tcPr vert>); the browser path below
     // still lays cells out horizontally.
     vert: ctx.mode === "svg" ? vert : "none",
-    ...(uprightEastAsian ? { uprightEastAsian: true } : {}),
+    // As in a text box: East Asian vertical text stands its ideographs
+    // upright, and Mongolian and right-to-left stacked lines follow one
+    // another left to right and right to left.
+    ...(direction === "eaVert" ? { uprightEastAsian: true } : {}),
+    ...(direction === "wordArtVertRtl" ? { stackRightToLeft: true } : {}),
+    ...(direction === "mongolianVert" ? { linesLeftToRight: true } : {}),
     columns: null,
     resolveFamily: ctx.resolveFamily,
     resolveKerning: ctx.resolveKerning,
   };
-  if (ctx.mode === "svg") return buildAndLayoutSvgText(textArgs);
+  // A cell's runs cast their own shadows and glows, as a text box's do.
+  if (ctx.mode === "svg")
+    return wrapTextEffects(buildAndLayoutSvgText(textArgs), paraData, theme, {
+      x: innerX,
+      y: innerY,
+      w: innerW,
+      h: innerH,
+    });
   const percentSpacing = measureParagraphPercentSpacing(textArgs);
 
   // foreignObject path (browser preview): one <p> per paragraph, each run
@@ -11299,15 +11738,15 @@ const measureTableLayout = (
       const width = columnWidths
         .slice(c, c + span.gridSpan)
         .reduce((a, b) => a + b, 0);
+      const vert = verticalLayoutOf(getTableCellTextDirection(cell));
+      // Turned text wraps at the row's height and never grows the row, as
+      // in the desktop app; a long label runs on in further lines.
+      if (vert === "cw90" || vert === "cw270") continue;
       const margins = getTableCellMargins(cell);
-      const left = margins.left ?? DEFAULT_INSET_X;
-      const right = margins.right ?? DEFAULT_INSET_X;
       const top = margins.top ?? DEFAULT_INSET_Y;
       const bottom = margins.bottom ?? DEFAULT_INSET_Y;
       const paragraphs = style.paragraphs(cell, style.cell(cell).textFormat);
       const { paraData } = cellParaData(paragraphs, ctx);
-      const vert = verticalLayoutOf(getTableCellTextDirection(cell));
-      const turned = vert === "cw90" || vert === "cw270";
       const input = buildSvgTextInput({
         pres,
         shape,
@@ -11325,7 +11764,12 @@ const measureTableLayout = (
         includeOuterSpacing: false,
         innerX: 0,
         innerY: 0,
-        innerW: turned ? 0 : Math.max(0, width - left - right),
+        innerW: Math.max(
+          0,
+          width -
+            (margins.left ?? DEFAULT_INSET_X) -
+            (margins.right ?? DEFAULT_INSET_X),
+        ),
         innerH: 0,
         measure: ctx.measure,
         vert: vert === "upright" ? vert : "none",
@@ -11333,11 +11777,8 @@ const measureTableLayout = (
         resolveFamily: ctx.resolveFamily,
         resolveKerning: ctx.resolveKerning,
       });
-      // Turned text runs along the row: the row grows to hold its longest
-      // line (unwrapped), between the cell's left and right insets.
-      const height = turned
-        ? measureTextBodyWidth(input, ctx.measure) * EMU_PER_PX + left + right
-        : measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
+      const height =
+        measureTextBodyHeight(input, ctx.measure) * EMU_PER_PX + top + bottom;
       if (end === r + 1) rowHeights[r] = Math.max(rowHeights[r] ?? 0, height);
       else spans.push({ start: r, end, height });
     }
@@ -11460,6 +11901,8 @@ const renderTable = (
             theme,
             { w: width, h: height },
             ctx.gradientRendering === "css",
+            undefined,
+            true,
           )
         : patternDef(fill);
     return { ...built, opacity: "" };
@@ -11582,8 +12025,7 @@ const renderTable = (
           ctx,
           vAnchor,
           cellMargins,
-          verticalLayoutOf(getTableCellTextDirection(typedCell)),
-          getTableCellTextDirection(typedCell) === "eaVert",
+          getTableCellTextDirection(typedCell),
         ),
       );
     }
@@ -11855,6 +12297,60 @@ const compoundOutline = (
   return `${fill}${mask}<g mask="url(#${id})">${line}</g>${arrows}`;
 };
 
+// An inset outline lies wholly inside its shape: the line drawn twice as wide
+// on the path, with the half outside the shape masked away. Only outlines
+// that close around filled areas have an inside.
+const closedOutline = (geometry: ShapeGeometryResolved | null): boolean =>
+  !geometry?.geometry ||
+  geometry.geometry.paths.every(
+    (path) =>
+      !path.stroke ||
+      (path.fill !== "none" && path.commands.at(-1)?.kind === "close"),
+  );
+const insetOutline = (
+  geometry: ShapeGeometryResolved | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  p: PaintResult,
+): string => {
+  const plain = { ...p, inset: undefined };
+  const fill =
+    p.fill !== "none" || p.cssGradient || p.patternFill
+      ? shapeGeometryToSvg(geometry, x, y, w, h, {
+          ...plain,
+          stroke: "none",
+          strokeWidth: 0,
+          strokeOpacity: undefined,
+          strokeAttrs: "",
+        })
+      : "";
+  const line = shapeGeometryToSvg(geometry, x, y, w, h, {
+    ...plain,
+    fill: "none",
+    fillOpacity: undefined,
+    cssGradient: undefined,
+    patternFill: undefined,
+    strokeWidth: p.strokeWidth * 2,
+  });
+  const inside = shapeGeometryToSvg(geometry, x, y, w, h, {
+    ...plain,
+    fill: "#FFFFFF",
+    fillOpacity: undefined,
+    cssGradient: undefined,
+    patternFill: undefined,
+    stroke: "none",
+    strokeWidth: 0,
+    strokeOpacity: undefined,
+    strokeAttrs: "",
+  });
+  const id = mintId();
+  const reach = Math.max(w, h) + p.strokeWidth * 4;
+  const region = `x="${E(x - reach)}" y="${E(y - reach)}" width="${E(w + 2 * reach)}" height="${E(h + 2 * reach)}"`;
+  return `${fill}<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}>${inside}</mask></defs><g mask="url(#${id})">${line}</g>`;
+};
+
 // The same outline defines a shape's fill, a picture's clipping region and
 // their strokes. Keep path evaluation and preset support consistent.
 // Preserve inexpensive SVG primitives only when the evaluated path agrees.
@@ -11939,6 +12435,14 @@ const shapeGeometryToSvg = (
 ): string => {
   if (p.compound && p.stroke !== "none" && p.strokeWidth > 0)
     return compoundOutline(geometry, x, y, w, h, p);
+  if (
+    p.inset &&
+    p.stroke !== "none" &&
+    p.strokeWidth > 0 &&
+    !p.markerAttrs &&
+    closedOutline(geometry)
+  )
+    return insetOutline(geometry, x, y, w, h, p);
   // Color alpha belongs to the fill, not the complete shape. Inheriting
   // fill-opacity within geometry preserves independent outlines, markers,
   // text and effects, including each path's own no-fill choice.
@@ -12073,7 +12577,26 @@ const renderShape = (
   // `getShapeBounds` returns null for them and the preview would hide
   // every title / body / footer slot.
   if (isShapeHidden(shape)) return "";
-  const ownBounds = getShapeBoundsResolved(pres, shape);
+  const resolvedBounds = activeUnplaced
+    ? { x: 0, y: 0, w: activeUnplaced.w, h: activeUnplaced.h }
+    : getShapeBoundsResolved(pres, shape);
+  if (
+    !resolvedBounds &&
+    !diagram &&
+    activeGroupMap === null &&
+    activeSlideSize.w > 0 &&
+    getShapeKind(shape) === "shape" &&
+    isShapePlaceholder(shape) &&
+    getShapeText(shape).trim() !== ""
+  ) {
+    activeUnplaced = activeSlideSize;
+    try {
+      return renderShape(shape, pres, theme, ctx);
+    } finally {
+      activeUnplaced = null;
+    }
+  }
+  const ownBounds = resolvedBounds as ReturnType<typeof getShapeBoundsResolved>;
   const bounds =
     ownBounds && throughActiveGroup(ownBounds, getShapeRotation(shape));
   if (!bounds && diagram && getShapeKind(shape) === "group")
@@ -12244,6 +12767,7 @@ const renderShape = (
         },
       ),
       { x, y, w, h },
+      theme,
     );
     return solid.defs + solid.svg;
   }
@@ -12491,6 +13015,16 @@ const renderShape = (
       : undefined,
     { x, y, w, h },
   );
+  if (activeUnplaced)
+    p = {
+      ...p,
+      fill: "none",
+      patternFill: undefined,
+      cssGradient: undefined,
+      stroke: "none",
+      strokeWidth: 0,
+      markerAttrs: "",
+    };
   // A shape filled with the slide background shows the background through
   // it, hiding whatever lies beneath.
   if (
@@ -12754,7 +13288,7 @@ const renderShape = (
     geomSvg = reflection.svg + geomSvg;
     fxDefs += reflection.defs;
   }
-  const solid = apply3D(shape, geomSvg, { x, y, w, h });
+  const solid = apply3D(shape, geomSvg, { x, y, w, h }, theme);
   geomSvg = solid.svg;
   fxDefs += solid.defs;
 
@@ -12884,6 +13418,7 @@ const CAMERA_ANGLES: Record<string, [number, number]> = {
   perspectiveAbove: [0, 340],
   perspectiveBelow: [0, 20],
   perspectiveRelaxed: [0, 309],
+  perspectiveRelaxedModerately: [0, 324],
   perspectiveHeroicExtremeLeftFacing: [34, 8],
   perspectiveHeroicExtremeRightFacing: [326, 8],
 };
@@ -12928,6 +13463,7 @@ const apply3D = (
   shape: SlideShapeData,
   svg: string,
   box: { x: number; y: number; w: number; h: number },
+  theme: PresentationTheme | null = null,
 ): { svg: string; defs: string; projection: string | null } => {
   let t: ReturnType<typeof getShape3D>;
   try {
@@ -12939,13 +13475,16 @@ const apply3D = (
   let defs = "";
   let out = svg;
   const bevel = t.bevelTop;
+  // The light falls at 50° on the face, so a flat face keeps its own colour
+  // (as the desktop app draws it) and only the bevel's slopes lighten or
+  // darken.
   if (bevel && bevel.widthEmu > 0 && bevel.heightEmu > 0) {
     const id = mintId();
     const depth = Math.max(0.6, Math.min(10, bevel.widthEmu / EMU_PER_PX / 2));
     const inset = bevel.preset === "divot" || bevel.preset === "relaxedInset";
     const surface =
       (inset ? -1 : 1) * Math.min(6, bevel.heightEmu / EMU_PER_PX / 2 + 1);
-    defs += `<defs><filter id="${id}" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="${PX(depth)}" result="bump"/><feSpecularLighting in="bump" surfaceScale="${PX(surface)}" specularConstant="0.8" specularExponent="20" lighting-color="#ffffff" result="spec"><feDistantLight azimuth="225" elevation="35"/></feSpecularLighting><feComposite in="spec" in2="SourceAlpha" operator="in" result="lit"/><feDiffuseLighting in="bump" surfaceScale="${PX(surface)}" diffuseConstant="1.05" lighting-color="#ffffff" result="diff"><feDistantLight azimuth="225" elevation="50"/></feDiffuseLighting><feComposite in="SourceGraphic" in2="diff" operator="arithmetic" k1="1" result="shaded"/><feComposite in="shaded" in2="SourceAlpha" operator="in" result="body"/><feComposite in="lit" in2="body" operator="arithmetic" k2="0.6" k3="1"/></filter></defs>`;
+    defs += `<defs><filter id="${id}" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="${PX(depth)}" result="bump"/><feSpecularLighting in="bump" surfaceScale="${PX(surface)}" specularConstant="0.8" specularExponent="20" lighting-color="#ffffff" result="spec"><feDistantLight azimuth="225" elevation="35"/></feSpecularLighting><feComposite in="spec" in2="SourceAlpha" operator="in" result="lit"/><feDiffuseLighting in="bump" surfaceScale="${PX(surface)}" diffuseConstant="${PX(1 / Math.sin((50 * Math.PI) / 180))}" lighting-color="#ffffff" result="diff"><feDistantLight azimuth="225" elevation="50"/></feDiffuseLighting><feComposite in="SourceGraphic" in2="diff" operator="arithmetic" k1="1" result="shaded"/><feComposite in="shaded" in2="SourceAlpha" operator="in" result="body"/><feComposite in="lit" in2="body" operator="arithmetic" k2="0.6" k3="1"/></filter></defs>`;
     out = `<g filter="url(#${id})">${out}</g>`;
   }
   const m = projectionMatrix(t);
@@ -12954,7 +13493,38 @@ const apply3D = (
     const cx = E(box.x + box.w / 2),
       cy = E(box.y + box.h / 2);
     projection = `translate(${cx} ${cy}) matrix(${m.map((n) => n.toFixed(4)).join(" ")} 0 0) translate(-${cx} -${cy})`;
-    out = `<g transform="${projection}">${out}</g>`;
+    const face = `<g transform="${projection}">${out}</g>`;
+    out = face;
+    // An extruded shape turned in 3-D shows its depth: the face swept back
+    // along the camera's depth direction in the extrusion colour (or the
+    // shape's own, darkened), drawn behind the face.
+    const preset = CAMERA_ANGLES[t.camera];
+    const depthPx = t.depthEmu / EMU_PER_PX;
+    if (preset && depthPx > 0 && Number.isFinite(depthPx)) {
+      const ax = ((preset[0] + t.rotX) * Math.PI) / 180,
+        ay = ((preset[1] + t.rotY) * Math.PI) / 180,
+        az = (t.rotZ * Math.PI) / 180;
+      const zx = Math.sin(ax),
+        zy = -Math.cos(ax) * Math.sin(ay);
+      const vx = depthPx * (zx * Math.cos(az) - zy * Math.sin(az)),
+        vy = depthPx * (zx * Math.sin(az) + zy * Math.cos(az));
+      const steps = Math.min(48, Math.ceil(Math.hypot(vx, vy)));
+      if (steps > 0) {
+        const id = mintId();
+        const color = t.depthColor
+          ? resolveColor(t.depthColor, theme, "#000000")
+          : null;
+        defs += `<defs><filter id="${id}" color-interpolation-filters="sRGB">${
+          color
+            ? `<feFlood flood-color="${color}"/><feComposite in2="SourceAlpha" operator="in"/>`
+            : '<feColorMatrix type="matrix" values="0.55 0 0 0 0 0 0.55 0 0 0 0 0 0.55 0 0 0 0 0 1 0"/>'
+        }</filter></defs>`;
+        let sweep = "";
+        for (let k = steps; k >= 1; k--)
+          sweep += `<g transform="translate(${PX((vx * k) / steps)} ${PX((vy * k) / steps)})">${face}</g>`;
+        out = `<g filter="url(#${id})">${sweep}</g>${face}`;
+      }
+    }
   }
   return { svg: out, defs, projection };
 };
@@ -13140,16 +13710,70 @@ const transformedShadows = (
       bh = box.h / EMU_PER_PX;
     const al = e.align ?? "b";
     const [fx, fy] = rectAlignment(al);
-    const ax = bx + bw * fx,
-      ay = by + bh * fy;
-    const [dx, dy] = shadowOffsetPx(e, frame);
-    // x' = a x + c y + ox, y' = b x + d y + oy, about (ax, ay).
-    const a = sx,
-      b = ty * sx,
-      c = tx * sy,
-      d = sy;
-    const ox = ax + dx - (a * ax + c * ay),
+    // x' = a x + c y + ox, y' = b x + d y + oy, about (ax, ay). Each skew
+    // slants the box as it stands, before scaling: a far edge leans by the
+    // box's own height (or width) times the skew's tangent, whatever the
+    // scale, as the desktop app draws it.
+    let a = sx,
+      b = ty,
+      c = tx,
+      d = sy,
+      ox: number,
+      oy: number;
+    const turned = frame.rotation !== 0 || frame.flipH || frame.flipV;
+    if (e.fixedToPage && frame.local && turned) {
+      // A shadow that does not turn with its shape is laid out on the page,
+      // about the turned shape's bounding box, and then drawn back in the
+      // shape's own frame: Q⁻¹·M·Q, Q being the turn and flips about the
+      // centre.
+      const cx = bx + bw / 2,
+        cy = by + bh / 2;
+      const r = (frame.rotation * Math.PI) / 180,
+        cos = Math.cos(r),
+        sin = Math.sin(r);
+      const hx = frame.flipH ? -1 : 1,
+        vy = frame.flipV ? -1 : 1;
+      const q = (x: number, y: number): [number, number] => {
+        const u = (x - cx) * hx,
+          v = (y - cy) * vy;
+        return [cx + u * cos - v * sin, cy + u * sin + v * cos];
+      };
+      const qi = (x: number, y: number): [number, number] => {
+        const u = x - cx,
+          v = y - cy;
+        return [cx + (u * cos + v * sin) * hx, cy + (-u * sin + v * cos) * vy];
+      };
+      const hw = (Math.abs(cos) * bw + Math.abs(sin) * bh) / 2,
+        hh = (Math.abs(sin) * bw + Math.abs(cos) * bh) / 2;
+      const ax = cx - hw + 2 * hw * fx,
+        ay = cy - hh + 2 * hh * fy;
+      const dist = effectLength(e.distEmu, MAX_EFFECT_DISTANCE) / EMU_PER_PX;
+      const dir = (e.angleDeg * Math.PI) / 180;
+      const dx = dist * Math.cos(dir),
+        dy = dist * Math.sin(dir);
+      const map = (x: number, y: number): [number, number] => {
+        const [px0, py0] = q(x, y);
+        return qi(
+          ax + dx + sx * (px0 - ax) + tx * (py0 - ay),
+          ay + dy + ty * (px0 - ax) + sy * (py0 - ay),
+        );
+      };
+      const [o0, o1] = map(0, 0),
+        [x0, x1] = map(1, 0),
+        [y0, y1] = map(0, 1);
+      a = x0 - o0;
+      b = x1 - o1;
+      c = y0 - o0;
+      d = y1 - o1;
+      ox = o0;
+      oy = o1;
+    } else {
+      const ax = bx + bw * fx,
+        ay = by + bh * fy;
+      const [dx, dy] = shadowOffsetPx(e, frame);
+      ox = ax + dx - (a * ax + c * ay);
       oy = ay + dy - (b * ax + d * ay);
+    }
     const blurPx = effectLength(e.blurEmu, MAX_EFFECT_BLUR) / EMU_PER_PX / 2;
     const corners = [
       [bx, by],
@@ -13245,15 +13869,17 @@ const buildEffectsFilter = (
       );
       layers.push(`glowOut${i}`);
     } else if (e.kind === "softEdge") {
-      // A soft edge fades the shape out over `rad` inward from its outline,
-      // and nothing outside it: the outline's blurred alpha, which is one
-      // half on the outline, stretched so it runs from none there to full
-      // inside. The picture or fill itself stays sharp.
+      // A soft edge fades the shape out inward from its outline, and nothing
+      // outside it. As the desktop app draws it (measured at 5, 10 and 25
+      // pt), the fade is half way 0.87 of `rad` inside the outline and
+      // spreads with a deviation of a third of `rad`: the shape's alpha
+      // shrunk by 0.87 `rad`, then blurred. The picture or fill itself
+      // stays sharp.
       const radiusPx = effectLength(e.radiusEmu, MAX_EFFECT_BLUR) / EMU_PER_PX;
       const i = primitives.length;
       primitives.push(
-        `<feGaussianBlur in="SourceAlpha" stdDeviation="${(radiusPx / 2.5).toFixed(2)}" result="softBlur${i}"/>`,
-        `<feComponentTransfer in="softBlur${i}" result="softMask${i}"><feFuncA type="linear" slope="2" intercept="-1"/></feComponentTransfer>`,
+        `<feMorphology in="SourceAlpha" operator="erode" radius="${(radiusPx * 0.87).toFixed(2)}" result="softCore${i}"/>`,
+        `<feGaussianBlur in="softCore${i}" stdDeviation="${(radiusPx * 0.33).toFixed(2)}" result="softMask${i}"/>`,
         `<feComposite in="SourceGraphic" in2="softMask${i}" operator="in" result="softOut${i}"/>`,
       );
       // The faded shape replaces the source; glows and shadows stay
@@ -13459,6 +14085,7 @@ const renderSlideSvgInContext = (
     : (getSlideSize(pres) ?? DEFAULT_SIZE);
   const W = size.width as number;
   const H = size.height as number;
+  activeSlideSize = { w: W, h: H };
   const theme = themeForSlide(slide)?.theme ?? getPresentationTheme(pres);
   activeColorMap = getEffectiveColorMap(slide);
   activeDeckTextColor = resolveDeckBodyTextColor(slide) ?? "#000000";
@@ -13547,6 +14174,8 @@ const renderSlideSvgInContext = (
         theme,
         { w: W, h: H },
         opts.gradientRendering === "css",
+        undefined,
+        true,
       );
       bgGradientDefs = built.defs;
       bgGradient = renderPaintRect(0, 0, W / EMU_PER_PX, H / EMU_PER_PX, built);

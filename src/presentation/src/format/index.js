@@ -633,6 +633,7 @@ export function createFormatTools(ctx) {
         const z = P.getShapeZIndex(first);
         for (const s of shapes)
           P.removeShape(P.findShapeById(target, P.getShapeId(s)));
+        P.pruneSlideAnimations(target);
         made.forEach((id, i) => {
           const s = P.findShapeById(target, id);
           if (s)
@@ -1001,6 +1002,7 @@ export function createFormatTools(ctx) {
   }
 
   // ---- Paste Special -------------------------------------------------------
+  const CLIPBOARD_STAMP = "web text/x-presentation-clipboard";
   async function readClipboardItems() {
     try {
       return await navigator.clipboard.read();
@@ -1009,9 +1011,15 @@ export function createFormatTools(ctx) {
     }
   }
   async function openPasteSpecial() {
-    const clip = ctx.clipboardInfo();
     const items = await readClipboardItems();
     const types = new Set(items.flatMap((i) => i.types));
+    // Objects copied in another tab of this app come along by their token.
+    const stamp = items.find((i) => i.types.includes(CLIPBOARD_STAMP));
+    if (stamp)
+      await ctx.adoptSharedCopy({
+        token: await (await stamp.getType(CLIPBOARD_STAMP)).text(),
+      });
+    const clip = ctx.clipboardInfo();
     const available = [];
     if (clip) available.push("destination", "source", "picture");
     if (clip?.text || types.has("text/plain")) available.push("text");
@@ -1080,6 +1088,9 @@ export function createFormatTools(ctx) {
         w: union.x1 - union.x0,
         h: union.y1 - union.y0,
       },
+      // Its file name says nothing worth reading out; the accessibility
+      // check asks for a description instead.
+      { describe: false },
     );
   }
   async function pasteAndMatch(value) {
@@ -1548,7 +1559,23 @@ export function createFormatTools(ctx) {
       return;
     }
     paneKey = content.key;
+    // A reorder, a rename or a change of visibility from the keyboard
+    // rebuilds the list; the keyboard stays on the same control of the
+    // same row, so Alt+Up can be pressed again.
+    const active = container.contains(document.activeElement)
+      ? document.activeElement
+      : null;
+    const row = active?.closest("li[data-id]");
+    const control = ["selection-name", "selection-eye"].find((name) =>
+      active?.classList.contains(name),
+    );
     container.replaceChildren(header, ...content.nodes);
+    if (row && control)
+      container
+        .querySelector(
+          `li[data-id="${CSS.escape(row.dataset.id)}"] .${control}`,
+        )
+        ?.focus({ preventScroll: true });
   }
   function selectionPane() {
     const target = ctx.slide();

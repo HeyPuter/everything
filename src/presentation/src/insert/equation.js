@@ -179,6 +179,7 @@ export const BUILT_IN_EQUATIONS = [
 ];
 
 const PX = 64; // pixels per em in the stored drawing
+const MAX_PNG_SIDE = 16384;
 const DEFAULT_PT = 28;
 
 export function createEquationFeatures(ctx) {
@@ -363,7 +364,10 @@ export function createEquationFeatures(ctx) {
 
   async function pictureFor(source, color, pt) {
     const { svg, width, height } = render(source, color);
-    const png = await svgToPng(svg, width * 2, height * 2);
+    // The fallback picture at twice the size, or less for a long equation:
+    // a canvas wider or taller than the browser allows draws nothing.
+    const scale = Math.min(2, MAX_PNG_SIDE / Math.max(width, height, 1));
+    const png = await svgToPng(svg, width * scale, height * scale);
     // An em of the drawing is the equation's font size on the slide.
     const emu = (px) => Math.round((px / PX) * (pt / 72) * 914400);
     return {
@@ -440,25 +444,87 @@ export function createEquationFeatures(ctx) {
       data.pt || DEFAULT_PT,
     );
     await ctx.mutateShape(obj, (target, slide) => {
-      const b = P.getShapeBounds(target);
-      // Keep the equation's scale: the new drawing grows from the same corner
-      // at the size the current one was shown.
-      const old = P.getShapeObjectData(target);
-      const scale = old?.w ? b.w / old.w : 1;
-      P.setShapeVectorPicture(target, { png: pic.png, svg: pic.svg });
-      P.setShapeBounds?.(target, {
-        x: b.x,
-        y: b.y,
-        w: Math.round(pic.w * scale),
-        h: Math.round(pic.h * scale),
-      });
-      P.setShapeObjectData(target, { ...data, type: "equation", w: pic.w });
-      // Alt text written for the equation stays; only the text made from
-      // its source follows the new source.
-      const alt = (P.getShapeDescription(target) || "").trim();
-      if (!alt || alt === `Equation: ${old?.source ?? ""}`.trim())
-        P.setShapeDescription(target, `Equation: ${data.source}`);
-      ctx.pruneMedia(slide);
+      setPicture(target, slide, pic, data);
+    });
+  }
+  // The equation drawn anew, at the scale it is shown, with `data`.
+  function setPicture(target, slide, pic, data) {
+    const b = P.getShapeBounds(target);
+    // Keep the equation's scale: the new drawing grows from the same corner
+    // at the size the current one was shown.
+    const old = P.getShapeObjectData(target);
+    const scale = old?.w ? b.w / old.w : 1;
+    P.setShapeVectorPicture(target, { png: pic.png, svg: pic.svg });
+    P.setShapeBounds?.(target, {
+      x: b.x,
+      y: b.y,
+      w: Math.round(pic.w * scale),
+      h: Math.round(pic.h * scale),
+    });
+    P.setShapeObjectData(target, { ...data, type: "equation", w: pic.w });
+    // Alt text written for the equation stays; only the text made from
+    // its source follows the new source.
+    const alt = (P.getShapeDescription(target) || "").trim();
+    if (!alt || alt === `Equation: ${old?.source ?? ""}`.trim())
+      P.setShapeDescription(target, `Equation: ${data.source}`);
+    ctx.pruneMedia(slide);
+  }
+
+  // An equation drawn in its slide's text color keeps to it when a theme or
+  // color change gives the slide another: drawn in black, it stayed black
+  // on a slide turned dark. `textColorsBefore` is read before the change and
+  // `followTextColor` after it, within the same edit.
+  const same = (a, b) =>
+    String(a || "")
+      .replace("#", "")
+      .toLowerCase() ===
+    String(b || "")
+      .replace("#", "")
+      .toLowerCase();
+  const bodyColor = (slide) => {
+    try {
+      return P.resolveDeckBodyTextColor(slide);
+    } catch {
+      return null;
+    }
+  };
+  function textColorsBefore(pres) {
+    const out = new Map();
+    for (const s of P.getSlides(pres))
+      if (P.getSlideShapes(s).some(isEquation))
+        out.set(P.getSlidePartName(s), [bodyColor(s), ctx.inkColor()]);
+    return out;
+  }
+  async function followTextColor(pres, before) {
+    if (!before?.size) return;
+    const jobs = [];
+    for (const s of P.getSlides(pres)) {
+      const was = before.get(P.getSlidePartName(s));
+      const now = was && bodyColor(s);
+      if (!now) continue;
+      for (const shape of P.getSlideShapes(s)) {
+        if (!isEquation(shape)) continue;
+        const data = P.getShapeObjectData(shape);
+        if (same(data.color, now) || !was.some((c) => c && same(c, data.color)))
+          continue;
+        jobs.push({
+          slide: s,
+          id: P.getShapeId(shape),
+          data: { ...data, color: now },
+        });
+      }
+    }
+    const pictures = await Promise.all(
+      jobs.map((j) =>
+        pictureFor(j.data.source, j.data.color, j.data.pt || DEFAULT_PT),
+      ),
+    );
+    jobs.forEach((j, i) => {
+      const slide = P.getSlides(pres).find(
+        (s) => P.getSlidePartName(s) === P.getSlidePartName(j.slide),
+      );
+      const target = slide && P.findShapeById(slide, j.id);
+      if (target) setPicture(target, slide, pictures[i], j.data);
     });
   }
 
@@ -517,6 +583,8 @@ export function createEquationFeatures(ctx) {
 
   return {
     insertEquation,
+    textColorsBefore,
+    followTextColor,
     prepareEquation,
     placeEquation,
     editEquation,

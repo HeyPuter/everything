@@ -6,6 +6,7 @@
 import { el, dialog } from "../ui.js";
 import { pickFiles, previewToPng } from "./util.js";
 import { zoomGrid } from "./geometry.js";
+import { templateStamp } from "../model.js";
 export { zoomGrid };
 
 export const ZOOM_DEFAULTS = {
@@ -218,6 +219,7 @@ export function createZoomFeatures(ctx) {
     const nextPart = slides[at + 1] && P.getSlidePartName(slides[at + 1]);
     const rest = sections.map((sec) => ({
       name: sec.name,
+      id: sec.id,
       slides: sec.slides.filter((s) => P.getSlidePartName(s) !== part),
     }));
     const before = rest.findIndex((sec) =>
@@ -268,6 +270,114 @@ export function createZoomFeatures(ctx) {
       }
       ctx.pruneMedia(slide);
     });
+  }
+
+  // Zoom pictures follow their target slides: after an edit, a zoom whose
+  // target has changed since it was last seen is drawn again, unless its
+  // picture is one the user chose. What each target looked like is kept by
+  // deck; a target first seen is taken as drawn.
+  const seen = new WeakMap();
+  const signature = (pres, slide) => {
+    const size = ctx.currentSize();
+    return `${size.cx}x${size.cy}|${templateStamp(pres, slide)}|${P.getSlideXmlString(slide)}`;
+  };
+  function zoomsIn(pres) {
+    const out = [];
+    for (const slide of P.getSlides(pres))
+      for (const shape of P.getSlideShapes(slide)) {
+        if (!isZoom(shape)) continue;
+        const link = P.getShapeClickAction(shape);
+        if (link?.kind === "slide")
+          out.push({ slide, shape, target: link.slide });
+      }
+    return out;
+  }
+  function remember(pres, list = zoomsIn(pres)) {
+    const known = new Map();
+    for (const z of list) {
+      const part = P.getSlidePartName(z.target);
+      if (!known.has(part)) known.set(part, signature(pres, z.target));
+    }
+    seen.set(pres, known);
+    return known;
+  }
+  // A deck as opened, or as undo or redo brings it back, is taken as drawn:
+  // what its zoom targets look like is noted before any edit to them.
+  function seedZooms() {
+    const pres = ctx.pres();
+    if (pres && !seen.has(pres)) remember(pres);
+  }
+  /**
+   * Draws again the zooms whose target slides changed, as part of the edit
+   * that changed them: `amends` is the history entry the redraw merges into.
+   * Resolves when done; does nothing when no zoom is stale.
+   */
+  async function refreshStale(amends) {
+    const pres = ctx.pres();
+    const list = zoomsIn(pres);
+    if (!list.length) return;
+    const known = seen.get(pres) ?? remember(pres, list);
+    const now = new Map();
+    const stale = [];
+    for (const z of list) {
+      const part = P.getSlidePartName(z.target);
+      if (!now.has(part)) now.set(part, signature(pres, z.target));
+      const was = known.get(part);
+      if (
+        was !== undefined &&
+        was !== now.get(part) &&
+        !dataOf(z.shape).customImage &&
+        part !== P.getSlidePartName(z.slide)
+      )
+        stale.push({
+          slide: P.getSlidePartName(z.slide),
+          id: P.getShapeId(z.shape),
+          target: z.target,
+        });
+    }
+    if (!stale.length) {
+      for (const [part, value] of now) known.set(part, value);
+      return;
+    }
+    const size = ctx.currentSize();
+    const pictures = new Map();
+    for (const z of stale) {
+      const part = P.getSlidePartName(z.target);
+      if (!pictures.has(part))
+        pictures.set(
+          part,
+          await previewToPng(
+            ctx.previewOf(pres, z.target),
+            640,
+            size.cx / size.cy,
+          ),
+        );
+    }
+    if (ctx.pres() !== pres) return;
+    await ctx.mutate(
+      () => {
+        const current = ctx.pres();
+        const slides = new Map(
+          P.getSlides(current).map((s) => [P.getSlidePartName(s), s]),
+        );
+        let changed = false;
+        for (const z of stale) {
+          const slide = slides.get(z.slide);
+          const obj = slide && P.findShapeById(slide, z.id);
+          if (!obj || dataOf(obj).customImage) continue;
+          P.setShapeVectorPicture(obj, {
+            png: pictures.get(P.getSlidePartName(z.target)),
+          });
+          ctx.pruneMedia(slide);
+          changed = true;
+        }
+        // What the targets look like now, the redrawn zooms included, is
+        // what the next edit is compared with.
+        remember(current);
+        if (!changed) return ctx.skip;
+      },
+      { amends },
+    );
   }
 
   const first = () => zooms()[0];
@@ -363,5 +473,14 @@ export function createZoomFeatures(ctx) {
     },
   ];
 
-  return { menu, tab, isZoom, slideZoom, sectionZoom, summaryZoom };
+  return {
+    menu,
+    tab,
+    isZoom,
+    slideZoom,
+    sectionZoom,
+    summaryZoom,
+    refreshStale,
+    seedZooms,
+  };
 }

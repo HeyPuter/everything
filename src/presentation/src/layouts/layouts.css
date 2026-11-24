@@ -182,6 +182,15 @@
 .master-pane-item.active .master-pane-thumb {
   border-color: var(--accent);
 }
+@media (forced-colors: active) {
+  .master-pane-thumb,
+  .master-pane-thumb:hover {
+    border-color: Canvas;
+  }
+  .master-pane-item.active .master-pane-thumb {
+    border-color: Highlight;
+  }
+}
 .master-pane-item.layout::before {
   content: "";
   position: absolute;

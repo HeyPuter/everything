@@ -1666,18 +1666,10 @@ puter-user-menu::part(apps-panel) {
 .inline-editor .para {
   min-height: 1.2em;
 }
-/* List paragraphs show their marker while edited; numbers count up. */
-.inline-editor {
-  counter-reset: item;
-}
-.inline-editor .para[data-list="bullet"]::before {
-  content: "•\00a0";
-}
-.inline-editor .para[data-list="number"] {
-  counter-increment: item;
-}
-.inline-editor .para[data-list="number"]::before {
-  content: counter(item) ".\00a0";
+/* List paragraphs show their marker while edited: the bullet, or the
+   number, the slide shows. */
+.inline-editor .para[data-marker]::before {
+  content: attr(data-marker) "\00a0";
 }
 .notes-area {
   background: var(--page);
@@ -2056,6 +2048,12 @@ puter-user-menu::part(apps-panel) {
 }
 .menu-item.checked {
   color: var(--accent);
+}
+/* On the tint of a hovered or focused item the accent is a shade darker,
+   to stay readable. */
+.menu-item.checked:hover,
+.menu-item.checked:focus {
+  color: color-mix(in srgb, var(--accent) 85%, var(--ink));
 }
 .menu-icon {
   width: 18px;

@@ -65,7 +65,9 @@ function slab(g, a, b, inside, light = true) {
   const aspect = g.gl.aspect;
   const e = easeInOut(g.q);
   const horizontal = o.direction === "l" || o.direction === "r";
-  const sign = o.direction === "l" || o.direction === "u" ? 1 : -1;
+  // The arriving face turns in from the side the option names: "l" and
+  // "d" are From Right and From Top.
+  const sign = o.direction === "l" || o.direction === "d" ? 1 : -1;
   const half = horizontal ? aspect : 1;
   const center = inside ? half : -half;
   const pull = -Math.sin(e * PI) * (inside ? 2.4 : 0.9);
@@ -312,8 +314,9 @@ export const EFFECTS_GL = {
     const { q, o } = g;
     flat(g, g.B);
     const aspect = g.gl.aspect;
-    const sign = o.invertX ? 1 : -1;
-    // The page curls in from the trailing edge, slightly askew, and rolls off.
+    // Left (as Double Left) turns the page toward the left: it lifts at the
+    // right edge, slightly askew, and rolls off.
+    const sign = o.invertX ? -1 : 1;
     const tilt = 0.18;
     const d = [-sign * Math.cos(tilt), Math.sin(tilt)];
     const e = easeInOut(q);

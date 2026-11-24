@@ -110,6 +110,7 @@ import {
   Table,
   Film,
   CaseSensitive,
+  WholeWord,
   ChevronUp,
   ChartColumn,
   Sparkles,
@@ -242,6 +243,7 @@ const icons = {
   Table,
   Film,
   CaseSensitive,
+  WholeWord,
   ChevronUp,
   ChartColumn,
   Sparkles,
@@ -406,7 +408,14 @@ export function toast(message) {
   // opened since it last showed.
   if (popoverOpen(node)) popover(node, "hidePopover");
   popover(node, "showPopover");
-  scheduleToast(toastDuration(message));
+  const ms = toastDuration(message);
+  // Arriving under the pointer or the keyboard, it is held as the last one
+  // was, and gets its full time once let go.
+  if (node.matches(":hover") || node.contains(document.activeElement)) {
+    clearTimeout(toastTimer);
+    toastEnds = Date.now() + ms;
+    toastHeld = ms;
+  } else scheduleToast(ms);
 }
 // `actions`, when given, replaces the cancel and confirm buttons with a
 // choice of several: [{ label, value, kind }] where kind is "primary",

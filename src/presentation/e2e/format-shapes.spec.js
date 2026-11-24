@@ -128,6 +128,35 @@ test("picture color, artistic effects, a picture style and cropping to a ratio",
   });
 });
 
+// Reset Picture took back the brightness and the crop but kept the
+// grayscale, the saturation and the artistic effect.
+test("Reset Picture discards the picture's color and effects", async ({
+  page,
+}) => {
+  await start(page);
+  await insertPicture(page);
+  await tab(page, "Picture Format");
+  await (await command(page, "picture-color")).click();
+  await page.getByRole("menuitemradio", { name: "Saturation: 200%" }).click();
+  await (await command(page, "picture-color")).click();
+  await page.getByRole("menuitemradio", { name: "Grayscale" }).click();
+  await (await command(page, "artistic-effects")).click();
+  await page.getByRole("menuitemradio", { name: "Line drawing" }).click();
+  let { shapes } = await download(page);
+  expect(P.getShapePictureRecolor(shapes[0])).toEqual({ kind: "grayscale" });
+  await tab(page, "Picture Format");
+  await (await command(page, "reset-picture")).click();
+  ({ shapes } = await download(page));
+  expect(P.getShapePictureRecolor(shapes[0])).toEqual({ kind: "none" });
+  expect(P.getShapePictureAdjustments(shapes[0])).toEqual({
+    saturation: null,
+    temperature: null,
+    sharpness: null,
+    artistic: null,
+  });
+  expect(P.getShapeImageContrast(shapes[0]) ?? 0).toBe(0);
+});
+
 test("Change Shape keeps the formatting; Edit Points reshapes a freeform", async ({
   page,
 }) => {

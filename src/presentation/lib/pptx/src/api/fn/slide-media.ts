@@ -72,6 +72,9 @@ export interface MediaOptions {
   readonly loop: boolean;
   readonly rewind: boolean;
   readonly playAcrossSlides: boolean;
+  /** A sound playing across slides stops after this many slides (counting
+   *  its own); absent, it plays to the end of the show. */
+  readonly acrossSlideCount?: number;
   readonly bookmarks: ReadonlyArray<MediaBookmark>;
 }
 
@@ -410,8 +413,11 @@ const readTiming = (
     out.hideWhileNotPlaying = ["0", "false"].includes(
       attrOf(media, "showWhenStopped") ?? "",
     );
-    out.playAcrossSlides =
-      kind === "audio" && Number(attrOf(media, "numSld") ?? "1") > 1;
+    const slides = Number(attrOf(media, "numSld") ?? "1");
+    out.playAcrossSlides = kind === "audio" && slides > 1;
+    // 999 is how files say "to the end of the show".
+    if (out.playAcrossSlides && Number.isInteger(slides) && slides < 999)
+      out.acrossSlideCount = slides;
     out.loop = attrOf(cTn, "repeatCount") === "indefinite";
     out.rewind = attrOf(cTn, "fill") === "remove";
     out.fullScreen = ["1", "true"].includes(attrOf(node, "fullScrn") ?? "");
@@ -612,7 +618,7 @@ const writeTiming = (
   }
   const vol = Math.round(Math.max(0, Math.min(1, o.volume)) * 100000);
   const node = xmlFragment(
-    `<p:${kind}${kind === "video" && o.fullScreen ? ` fullScrn="1"` : ""}><p:cMediaNode vol="${vol}"${o.muted ? ` mute="1"` : ""}${kind === "audio" && o.playAcrossSlides ? ` numSld="999"` : ""}${o.hideWhileNotPlaying ? ` showWhenStopped="0"` : ""}><p:cTn id="${++id}"${o.loop ? ` repeatCount="indefinite"` : ""} fill="${o.rewind ? "remove" : "hold"}" display="${o.hideWhileNotPlaying ? 0 : 1}"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>${o.playAcrossSlides && kind === "audio" ? `<p:endCondLst><p:cond evt="onStopAudio" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:endCondLst>` : ""}</p:cTn><p:tgtEl><p:spTgt spid="${spid}"/></p:tgtEl></p:cMediaNode></p:${kind}>`,
+    `<p:${kind}${kind === "video" && o.fullScreen ? ` fullScrn="1"` : ""}><p:cMediaNode vol="${vol}"${o.muted ? ` mute="1"` : ""}${kind === "audio" && o.playAcrossSlides ? ` numSld="${o.acrossSlideCount ?? 999}"` : ""}${o.hideWhileNotPlaying ? ` showWhenStopped="0"` : ""}><p:cTn id="${++id}"${o.loop ? ` repeatCount="indefinite"` : ""} fill="${o.rewind ? "remove" : "hold"}" display="${o.hideWhileNotPlaying ? 0 : 1}"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>${o.playAcrossSlides && kind === "audio" ? `<p:endCondLst><p:cond evt="onStopAudio" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:endCondLst>` : ""}</p:cTn><p:tgtEl><p:spTgt spid="${spid}"/></p:tgtEl></p:cMediaNode></p:${kind}>`,
   );
   list.children.push(node);
   // The main sequence, then media nodes, then click triggers, as written by

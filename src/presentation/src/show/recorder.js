@@ -8,6 +8,8 @@ import { el, openMenu } from "../ui.js";
 import { lineButton, lineIcon } from "./icons.js";
 import { showPrefs } from "./prefs.js";
 import { formatClock } from "./rehearse.js";
+import { deviceKinds, deviceProblem } from "./camera.js";
+import { createClickTimes } from "./click-timings.js";
 
 const VIDEO_TYPES = [
   "video/webm;codecs=vp9,opus",
@@ -36,6 +38,7 @@ export function createRecordingStudio(ctx, session) {
   let recorder = null; // { media, segment }
   let state = "idle"; // idle | recording | paused
   let current = -1;
+  let step = 0; // click steps played on the current slide
   let ended = false;
   let total = 0; // ms recorded in finished segments
   const finishing = [];
@@ -193,17 +196,34 @@ export function createRecordingStudio(ctx, session) {
     const ticket = ++asking;
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
-    const wantVideo = !!showPrefs.cameraOn;
-    const wantAudio = !!showPrefs.micOn;
     cameraBox.hidden = true;
-    if (!wantVideo && !wantAudio) return null;
+    if (!showPrefs.cameraOn && !showPrefs.micOn) return null;
     const media = globalThis.navigator?.mediaDevices;
     if (!media?.getUserMedia) {
       say("This browser cannot record from a camera or microphone.");
       return null;
     }
+    // Devices the browser does not list are not asked for.
+    const kinds = await deviceKinds(media);
+    if (ticket !== asking) return null;
+    const wantVideo = !!showPrefs.cameraOn && kinds?.video !== false;
+    const wantAudio = !!showPrefs.micOn && kinds?.audio !== false;
+    if (!wantVideo && !wantAudio) {
+      say(
+        deviceProblem(
+          { name: "NotFoundError" },
+          { video: !!showPrefs.cameraOn, audio: !!showPrefs.micOn },
+        ),
+      );
+      return null;
+    }
     const constraints = (id) => (id ? { deviceId: { ideal: id } } : true);
     let got = null;
+    let note = "";
+    if (showPrefs.cameraOn && !wantVideo)
+      note = "No camera was found; recording sound only.";
+    else if (showPrefs.micOn && !wantAudio)
+      note = "No microphone was found; recording the camera only.";
     try {
       got = await media.getUserMedia({
         audio: wantAudio ? constraints(showPrefs.micId) : false,
@@ -213,7 +233,7 @@ export function createRecordingStudio(ctx, session) {
             : { width: { ideal: 1280 }, height: { ideal: 720 } }
           : false,
       });
-    } catch {
+    } catch (error) {
       // The camera may be missing or refused; the microphone alone still
       // records a narration.
       if (wantVideo && wantAudio)
@@ -221,10 +241,11 @@ export function createRecordingStudio(ctx, session) {
           got = await media.getUserMedia({
             audio: constraints(showPrefs.micId),
           });
-          say("The camera is not available; recording sound only.");
+          note = `${deviceProblem(error)} Recording sound only.`;
         } catch {}
       if (!got) {
-        say("Allow the camera and microphone to record.");
+        if (ticket === asking)
+          say(deviceProblem(error, { video: wantVideo, audio: wantAudio }));
         return null;
       }
     }
@@ -233,6 +254,7 @@ export function createRecordingStudio(ctx, session) {
       return null;
     }
     stream = got;
+    say(note);
     if (stream.getVideoTracks().length) {
       preview.srcObject = stream;
       preview.play().catch(() => {});
@@ -360,7 +382,15 @@ export function createRecordingStudio(ctx, session) {
       since: performance.now(),
       poster: video ? poster() : null,
       done: null,
+      clicks: null,
     };
+    // The time of each click while the slide is recorded.
+    segment.clicks = createClickTimes(() =>
+      recorder?.segment === segment && state === "recording"
+        ? segment.ms + performance.now() - segment.since
+        : segment.ms,
+    );
+    segment.clicks.restart(step);
     segment.done = new Promise((resolve) => {
       media.ondataavailable = (e) =>
         e.data?.size && segment.chunks.push(e.data);
@@ -463,6 +493,7 @@ export function createRecordingStudio(ctx, session) {
     shown(i) {
       const moving = i !== current;
       ended = false;
+      if (moving) step = 0;
       if (moving && recorder) {
         const was = state;
         finish();
@@ -485,6 +516,16 @@ export function createRecordingStudio(ctx, session) {
     ended() {
       ended = true;
       if (recorder) stop();
+    },
+    /** A click step played (1), was taken back (-1), or the slide's
+     * opening effects started (0); `at` steps are now played. */
+    stepped(by, at, played) {
+      step = at;
+      const clicks = recorder?.segment.clicks;
+      if (!clicks) return;
+      if (by === 0) clicks.opened(played);
+      else if (by > 0) clicks.clicked(at - 1, played);
+      else clicks.back(at);
     },
     keydown(e) {
       // R starts or stops recording; K pauses (keys the show does not use).
@@ -522,6 +563,7 @@ export function createRecordingStudio(ctx, session) {
             contentType: segment.contentType,
             shape: segment.shape,
             durationMs: Math.max(100, Math.round(segment.ms)),
+            clicks: segment.clicks.times,
             data: new Uint8Array(await blob.arrayBuffer()),
             poster: segment.poster ? await segment.poster : null,
           });

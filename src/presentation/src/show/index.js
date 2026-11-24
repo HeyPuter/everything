@@ -4,7 +4,7 @@
 // rehearsed timings and recordings.
 import "./show.css";
 import "./icons.js";
-import { el, dialog, toast } from "../ui.js";
+import { el, dialog, toast, ALT_KEY } from "../ui.js";
 import {
   showPrefs,
   SPOKEN_LANGUAGES,
@@ -174,7 +174,7 @@ export function createShowFeatures(ctx) {
       }
     });
   }
-  async function keepTimings({ timings, totalMs }) {
+  async function keepTimings({ timings, totalMs, clicks }) {
     const keep = await dialog({
       title: "Keep the new slide timings?",
       body: el(
@@ -196,7 +196,10 @@ export function createShowFeatures(ctx) {
       const presentation = pres();
       for (const [partName, ms] of timings) {
         const slide = slideByPart(presentation, partName);
-        if (slide) setSlideAdvance(P, slide, Math.round(ms / 10) * 10);
+        if (!slide) continue;
+        setSlideAdvance(P, slide, Math.round(ms / 10) * 10);
+        // Each click step plays when it was clicked in the rehearsal.
+        P.setSlideClickTimings(slide, clicks?.get(partName) ?? []);
       }
       P.setSlideShowSetup(presentation, { useTimings: true });
     });
@@ -238,6 +241,7 @@ export function createShowFeatures(ctx) {
           size,
         );
         setSlideAdvance(P, slide, r.durationMs);
+        P.setSlideClickTimings(slide, r.clicks ?? []);
       }
       P.setSlideShowSetup(presentation, {
         useTimings: true,
@@ -566,7 +570,7 @@ export function createShowFeatures(ctx) {
       {
         label: "Presenter View",
         icon: "o:presenterView",
-        shortcut: "Alt+F5",
+        shortcut: `${ALT_KEY}+F5`,
         onSelect: run(presenterView),
       },
       {

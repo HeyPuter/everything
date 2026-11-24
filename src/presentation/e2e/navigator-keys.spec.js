@@ -71,3 +71,37 @@ test("Ctrl+X in the navigator leaves the selected object, and a paste there hand
   await page.keyboard.press(`${mod}+KeyX`);
   await expect(objects).toHaveCount(count);
 });
+
+// Alt with an arrow moved slides in the Slide Sorter only; in the
+// thumbnails pane it did nothing.
+test("Alt+Up and Alt+Down in the navigator move the slide, which keeps the keyboard", async ({
+  page,
+}) => {
+  await story(page);
+  const parts = () =>
+    page
+      .locator("#slide-list .slide-item")
+      .evaluateAll((rows) => rows.map((row) => row.dataset.slidePart));
+  const before = await parts();
+  await page.locator("#slide-list .slide-thumb").nth(1).click();
+  await page.locator("#slide-list .slide-thumb").nth(1).focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect
+    .poll(parts)
+    .toEqual([before[0], before[2], before[1], before[3], before[4]]);
+  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
+  const moved = page.locator(
+    `#slide-list [data-slide-part="${before[1]}"] .slide-thumb`,
+  );
+  await expect(moved).toBeFocused();
+  await page.keyboard.press("Alt+ArrowUp");
+  await page.keyboard.press("Alt+ArrowUp");
+  await expect
+    .poll(parts)
+    .toEqual([before[1], before[0], before[2], before[3], before[4]]);
+  await expect(moved).toBeFocused();
+  await page.keyboard.press(`${mod}+KeyZ`);
+  await expect
+    .poll(parts)
+    .toEqual([before[0], before[1], before[2], before[3], before[4]]);
+});

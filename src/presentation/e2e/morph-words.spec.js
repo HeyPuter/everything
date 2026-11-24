@@ -79,3 +79,113 @@ test("morph by words pairs the same words across slides", async ({ page }) => {
   expect(result.charPairs).toBeGreaterThan(10);
   expect(result.objects).toBeNull();
 });
+
+test("a morph starts and ends on exactly the slides", async ({ page }) => {
+  await page.route("https://js.puter.com/v2/", (route) =>
+    route.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const result = await page.evaluate(async () => {
+    const { P, createDeck, preview, shape, text } =
+      await import("/src/model.js");
+    const { prepareMorph, drawMorph } =
+      await import("/src/transitions/morph.js");
+    const { loadImage } = await import("/src/transitions/player.js");
+    const W = 640,
+      H = 360;
+    const canvas = (draw) => {
+      const c = document.createElement("canvas");
+      c.width = W;
+      c.height = H;
+      draw?.(c.getContext("2d"));
+      return c;
+    };
+    const differing = (a, b) => {
+      const da = a.getContext("2d").getImageData(0, 0, W, H).data;
+      const db = b.getContext("2d").getImageData(0, 0, W, H).data;
+      let n = 0;
+      for (let i = 0; i < da.length; i += 4)
+        if (
+          Math.max(
+            Math.abs(da[i] - db[i]),
+            Math.abs(da[i + 1] - db[i + 1]),
+            Math.abs(da[i + 2] - db[i + 2]),
+          ) > 40
+        )
+          n++;
+      return n;
+    };
+    const cases = {
+      // Text running out of its box travels whole.
+      overflow: (a, b) => {
+        const words = "A line of text that runs well past the right of its box";
+        text(a, words, 1, 1, 2, 0.5);
+        text(b, words, 1, 4, 2, 0.5);
+      },
+      // A circle on top of the square leaves; it is on top until it goes.
+      leavingOnTop: (a, b) => {
+        shape(a, 1, 1, 3, 3, "#cc2222");
+        shape(a, 2, 2, 3, 3, "#22cc22", "ellipse");
+        shape(b, 1, 1, 3, 3, "#cc2222");
+      },
+      // Two squares change places in the stack.
+      restacked: (a, b) => {
+        P.renameShape(shape(a, 1, 1, 3, 3, "#cc2222"), "Red");
+        P.renameShape(shape(a, 2, 2, 3, 3, "#22cc22"), "Green");
+        P.renameShape(shape(b, 2, 2, 3, 3, "#22cc22"), "Green");
+        P.renameShape(shape(b, 1, 1, 3, 3, "#cc2222"), "Red");
+      },
+    };
+    // By words: the words of a text partly covered by a square stay under
+    // it.
+    const byWord = {
+      coveredWords: (a, b) => {
+        text(a, "alpha beta gamma", 1, 1, 8, 1);
+        P.renameShape(shape(a, 1, 0.8, 2, 1.5, "#2222cc"), "Cover");
+        text(b, "alpha beta gamma", 1, 4, 8, 1);
+        P.renameShape(shape(b, 1, 3.8, 2, 1.5, "#2222cc"), "Cover");
+      },
+    };
+    const out = {};
+    for (const [name, build] of [
+      ...Object.entries(cases),
+      ...Object.entries(byWord),
+    ]) {
+      const pres = createDeck("blank");
+      const a = P.getSlides(pres)[0];
+      const b = P.addBlankSlide(pres);
+      build(a, b);
+      const scene = await prepareMorph({
+        P,
+        pres,
+        from: a,
+        to: b,
+        render: (s, layer) => preview(pres, s, layer),
+        load: loadImage,
+        W,
+        H,
+        option: name in byWord ? "byWord" : "byObject",
+      });
+      const slide = async (s) => {
+        const image = await loadImage(preview(pres, s));
+        return canvas((ctx) => ctx.drawImage(image, 0, 0, W, H));
+      };
+      const frame = (q) =>
+        canvas((ctx) => drawMorph(ctx, scene, q, W, H, canvas()));
+      out[name] = [
+        differing(frame(0), await slide(a)),
+        differing(frame(1), await slide(b)),
+      ];
+    }
+    return out;
+  });
+  expect(result).toEqual({
+    overflow: [0, 0],
+    leavingOnTop: [0, 0],
+    restacked: [0, 0],
+    coveredWords: [0, 0],
+  });
+});

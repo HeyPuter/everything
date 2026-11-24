@@ -129,11 +129,24 @@ const isTitlePh = (type) => type === "title" || type === "ctrTitle";
  * slidePosition(shape): slideBounds' x and y, at less cost.
  */
 export function findAccessibilityIssues(pres, env) {
+  return scan(pres, env, false);
+}
+/**
+ * Whether the deck has an issue other than a tip, as `findAccessibilityIssues`
+ * would find: the status bar's answer. Tips are not looked for, and the
+ * search stops at the first issue.
+ */
+export function hasAccessibilityIssues(pres, env) {
+  return scan(pres, env, true).length > 0;
+}
+function scan(pres, env, firstProblem) {
   const issues = [];
   if (!pres) return issues;
   const slides = P.getSlides(pres);
   const titles = new Map();
-  slides.forEach((slide, index) => {
+  for (let index = 0; index < slides.length; index++) {
+    if (firstProblem && issues.length) return issues;
+    const slide = slides[index];
     const part = P.getSlidePartName(slide);
     const add = (kind, shape = null, label = null) =>
       issues.push({
@@ -171,7 +184,7 @@ export function findAccessibilityIssues(pres, env) {
       }
       // Placeholders left empty, a title's among them: a slot waiting for
       // its text is a tip, as on a new presentation's first slide.
-      if (placeholder && kind === "shape") {
+      if (!firstProblem && placeholder && kind === "shape") {
         const text = (P.getShapeText(shape) || "").trim();
         if (!text && !["sldNum", "dt", "ftr", "hdr"].includes(placeholder))
           add("emptyPlaceholder", shape);
@@ -202,6 +215,7 @@ export function findAccessibilityIssues(pres, env) {
     // Decorative objects are passed over, so their place does not matter.
     // Only where each box starts counts here, which a table shows without
     // laying out its rows.
+    if (firstProblem) continue;
     const position = env.slidePosition || env.slideBounds;
     const boxes = shapes
       .filter(
@@ -236,7 +250,8 @@ export function findAccessibilityIssues(pres, env) {
           label: slideLabel(slide),
         });
     }
-  });
+  }
+  if (firstProblem && issues.length) return issues;
   for (const list of titles.values())
     if (list.length > 1)
       for (const { slide, index, part } of list)
@@ -367,6 +382,7 @@ export function createAccessibility(env, host) {
                 const target = P.findShapeById(s, issue.shapeId);
                 if (!target) return env.SKIP;
                 P.removeShape(target);
+                P.pruneSlideAnimations(s);
               }),
           },
         ];
@@ -673,8 +689,7 @@ export function createAccessibility(env, host) {
       const revision = env.revision();
       if (status.pres === pres && status.revision === revision)
         return status.text;
-      const list = issues();
-      const text = list.some((i) => i.severity !== "tip")
+      const text = hasAccessibilityIssues(pres, env)
         ? "Accessibility: Investigate"
         : "Accessibility: Good to go";
       status = { pres, revision, text };

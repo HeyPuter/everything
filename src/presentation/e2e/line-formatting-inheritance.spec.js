@@ -81,12 +81,12 @@ test("inherited line decorations match before and after clipboard transfer, edit
   await page.getByRole("button", { name: "Back to presentations" }).click();
   await load(page, destination, "Custom line destination.pptx");
   expect(await outline(page)).toEqual([
-    { dash: "6.00 18.00", cap: "round", join: "round" },
+    { dash: "0.00 24.00", cap: "round", join: "round" },
   ]);
   await page.keyboard.press("Control+v");
   await expect(page.locator(".object-hit")).toHaveCount(2);
   expect(await outline(page)).toEqual([
-    { dash: "6.00 18.00", cap: "round", join: "round" },
+    { dash: "0.00 24.00", cap: "round", join: "round" },
     expected,
   ]);
   await showFormat();

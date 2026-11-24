@@ -143,3 +143,50 @@ test("a short screen keeps its height for the slide", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.locator(".ribbon")).not.toHaveClass(/collapsed/);
 });
+
+test("a phone on its side keeps the thumbnails beside the slide", async ({
+  page,
+}) => {
+  // A phone turned sideways: wide enough for a column, too short for a strip.
+  await page.setViewportSize({ width: 750, height: 342 });
+  await stub(page);
+  await page.goto("/");
+  await expect(page.locator(".editor")).toBeVisible();
+  const slide = page.locator("#slide-canvas");
+  const area = page.locator("#canvas-area");
+  const thumbs = page.locator(".slide-sidebar");
+  // The narrow phone's size, then a wider one's (iPhone 13 in a browser).
+  for (const size of [
+    { width: 750, height: 342 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize(size);
+    await expect
+      .poll(async () => {
+        const [s, a, t] = await Promise.all([
+          slide.boundingBox(),
+          area.boundingBox(),
+          thumbs.boundingBox(),
+        ]);
+        if (!s || !a || !t) return "not laid out";
+        if (t.x + t.width > a.x + 1) return "thumbnails not beside the slide";
+        // The whole slide shows without scrolling.
+        if (s.y < a.y - 1 || s.y + s.height > a.y + a.height + 1)
+          return `slide ${s.y}-${s.y + s.height} in ${a.y}-${a.y + a.height}`;
+        return true;
+      })
+      .toBe(true);
+    await expectFits(page, `the editor on its side at ${size.width}px`);
+  }
+  // Turned upright again, the thumbnails are a strip under the slide.
+  await page.setViewportSize({ width: 390, height: 664 });
+  await expect
+    .poll(async () => {
+      const [a, t] = await Promise.all([
+        area.boundingBox(),
+        thumbs.boundingBox(),
+      ]);
+      return !!a && !!t && t.y >= a.y + a.height - 1;
+    })
+    .toBe(true);
+});

@@ -212,6 +212,55 @@ test("a kiosk's timed loop plays through before an idle restart", async ({
   await expect(counter(page)).toHaveText("1 / 4");
 });
 
+test("the show opens with the first slide's transition, from black", async ({
+  page,
+}) => {
+  await load(
+    page,
+    deck([
+      { effect: "fade", durationMs: 500, advanceAfterMs: 300 },
+      { effect: "none" },
+    ]),
+  );
+  await expect(transition(page, "fade")).toHaveCount(1);
+  await holdTransition(page);
+  // The first slide's time starts once its transition has played.
+  await page.clock.runFor(2000);
+  await expect(counter(page)).toHaveText("1 / 2");
+  await releaseTransition(page);
+  await expect(anyTransition(page)).toHaveCount(0);
+  await page.clock.runFor(299);
+  await expect(counter(page)).toHaveText("1 / 2");
+  await page.clock.runFor(1);
+  await expect(counter(page)).toHaveText("2 / 2");
+});
+
+test("a kiosk is not moved on by a swipe", async ({ page }) => {
+  const pres = deck([{ effect: "none" }, { effect: "none" }]);
+  P.setSlideShowSetup(pres, { showType: "kiosk" });
+  await load(page, pres);
+  await expect(counter(page)).toHaveText("1 / 2");
+  await page.evaluate(() => {
+    const target = document.querySelector(".presenter-slide");
+    const finger = (clientX) =>
+      new Touch({ identifier: 1, target, clientX, clientY: 150 });
+    const send = (type, touches, changedTouches) =>
+      target.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          touches,
+          targetTouches: touches,
+          changedTouches,
+        }),
+      );
+    send("touchstart", [finger(250)], [finger(250)]);
+    send("touchmove", [finger(120)], [finger(120)]);
+    send("touchend", [], [finger(120)]);
+  });
+  await page.clock.runFor(500);
+  await expect(counter(page)).toHaveText("1 / 2");
+});
+
 test("the advance clock waits for the actual incoming transition to finish", async ({
   page,
 }) => {
@@ -525,6 +574,62 @@ test("a sound playing across slides carries on when a loop comes back to its sli
   }
   await page.keyboard.press("Escape");
   await expect(page.locator("dialog.presenter")).toHaveCount(0);
+  expect(await sounding()).toBe(0);
+});
+
+test("a slide set to stop the previous sound stops a sound playing across slides", async ({
+  page,
+}) => {
+  const pres = deck([
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none", sound: { kind: "stop" } },
+  ]);
+  addLoopingSound(P.getSlides(pres)[0], { playAcrossSlides: true });
+  const sounding = await trackMedia(page);
+  await load(page, pres);
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("2 / 3");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("3 / 3");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+});
+
+test("a sound set to play across some slides stops after them", async ({
+  page,
+}) => {
+  const pres = deck([
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none" },
+  ]);
+  addLoopingSound(P.getSlides(pres)[0], { playAcrossSlides: true });
+  // As a file written elsewhere says it: across two slides.
+  const part = pres[INTERNAL_PACKAGE].getPart(
+    partName("/ppt/slides/slide1.xml"),
+  );
+  const xml = new TextDecoder().decode(part.data);
+  expect(xml).toContain('numSld="999"');
+  part.data = new TextEncoder().encode(
+    xml.replace('numSld="999"', 'numSld="2"'),
+  );
+  const sounding = await trackMedia(page);
+  await load(page, pres);
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("2 / 4");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("3 / 4");
+  await page.clock.runFor(200);
   expect(await sounding()).toBe(0);
 });
 

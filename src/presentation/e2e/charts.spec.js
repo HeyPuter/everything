@@ -205,6 +205,8 @@ test("a chart changed to a pie and back gets its other series again", async ({
   };
   await change("Pie", "Pie");
   await expect.poll(async () => (await download(page)).spec.kind).toBe("pie");
+  // The saved pie keeps them, so they come back after a reopen too.
+  expect((await download(page)).spec.series).toHaveLength(3);
   await change("Column", "Clustered Column");
   await expect
     .poll(async () => (await download(page)).spec.kind)
@@ -304,6 +306,23 @@ test("Select Data renames a series by clicking its name and typing", async ({
 
 // Closing the data sheet from the keyboard dropped the focus to the page,
 // so the next Tab started again from the top of the window.
+// A line break typed after the last category label saved an empty category.
+test("Select Data takes no empty category from a line break at the end", async ({
+  page,
+}) => {
+  await start(page);
+  await insertChart(page, "Column", "Clustered Column");
+  await page.getByRole("button", { name: "Close data sheet" }).click();
+  await ribbonCommand(page, "Chart Design", "chart-select-data");
+  const dialog = page.getByRole("dialog", { name: "Select Data" });
+  const labels = dialog.getByRole("textbox", { name: /Category labels/ });
+  await labels.fill("North\nSouth\nEast\nWest\n\n");
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await expect
+    .poll(async () => (await download(page)).spec.categories)
+    .toEqual(["North", "South", "East", "West"]);
+});
+
 test("closing the data sheet with Escape puts the keyboard back on the chart", async ({
   page,
 }) => {

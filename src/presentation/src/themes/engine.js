@@ -276,7 +276,7 @@ export const designFor = (pres, themeId, variant = 0, override) =>
  * unused. Starter-slide colors move from `from` to the theme's palette.
  * Returns the new master's part name.
  */
-export function applyTheme(
+function applyThemeNow(
   pres,
   themeId,
   { variant = 0, slides, from, override } = {},
@@ -314,7 +314,7 @@ export function applyTheme(
  * Applies the master of another file (.thmx, .pptx, .potx) to `slides` (all
  * when not given) the same way. Returns the new master.
  */
-export function applyThemeFile(pres, bytes, { slides } = {}) {
+function applyThemeFileNow(pres, bytes, { slides } = {}) {
   const targets = slides || P.getSlides(pres);
   const before = mastersOf(pres, targets);
   const masters = P.getSlideMasters(pres).map((m) => m.partName);
@@ -332,7 +332,7 @@ export function applyThemeFile(pres, bytes, { slides } = {}) {
  * background, keeping the fonts and effects they have now. Starter-slide
  * colors on `slides` follow.
  */
-export function applyVariant(pres, masters, variant, slides = []) {
+function applyVariantNow(pres, masters, variant, slides = []) {
   let changed = false;
   for (const master of masters) {
     const info = masterInfo(pres, master);
@@ -362,7 +362,7 @@ export function applyVariant(pres, masters, variant, slides = []) {
 }
 
 /** Gives `masters` the color scheme `colors` (12 slots and a name). */
-export function applyColors(pres, masters, colors, { dark, slides = [] } = {}) {
+function applyColorsNow(pres, masters, colors, { dark, slides = [] } = {}) {
   let changed = false;
   for (const master of masters) {
     const xml = P.getSlideMasterThemeXml(pres, master);
@@ -380,6 +380,87 @@ export function applyColors(pres, masters, colors, { dark, slides = [] } = {}) {
   }
   return changed;
 }
+
+// ---------------------------------------------------------------------------
+// Chart text.
+
+// A chart's text is drawn in the body text color its slide had when the
+// chart was made, to read on that slide. Where a theme, variant or color
+// change gives a slide another body color, its charts' text takes it too:
+// it stayed black on a slide turned dark. The slide's shapes include its
+// groups' members, so grouped charts are among them.
+const chartsOn = (slide) =>
+  P.getSlideShapes(slide).filter((shape) => {
+    try {
+      return P.isChartShape(shape);
+    } catch {
+      return false;
+    }
+  });
+function bodyColor(slide) {
+  try {
+    return P.resolveDeckBodyTextColor(slide);
+  } catch {
+    return null;
+  }
+}
+// The chart's definition with its text in `to` where it was in `from`, or
+// null when no text was.
+function recolorChartText(spec, from, to) {
+  let changed = false;
+  const walk = (value, text) => {
+    if (Array.isArray(value)) return value.map((v) => walk(v, text));
+    if (!value || typeof value !== "object") return value;
+    const out = {};
+    for (const [key, v] of Object.entries(value))
+      if (key === "color" && text && norm(v) === norm(from)) {
+        out[key] = to;
+        changed = true;
+      } else out[key] = walk(v, text || /Style$/.test(key));
+    return out;
+  };
+  const next = walk(spec, false);
+  return changed ? next : null;
+}
+function withChartText(pres, change) {
+  const before = new Map();
+  for (const s of P.getSlides(pres))
+    if (chartsOn(s).length) before.set(P.getSlidePartName(s), bodyColor(s));
+  const result = change();
+  if (!before.size) return result;
+  for (const s of P.getSlides(pres)) {
+    const from = before.get(P.getSlidePartName(s));
+    const to = from && bodyColor(s);
+    if (!to || norm(to) === norm(from)) continue;
+    for (const shape of chartsOn(s)) {
+      const spec = P.getShapeChartSpec(shape);
+      const next = spec && recolorChartText(spec, from, to);
+      if (next) P.setChartSpec({ shape, spec }, next);
+    }
+  }
+  return result;
+}
+
+/**
+ * Applies a built-in theme in `variant` to `slides` (all slides when not
+ * given); see applyThemeNow. Charts' text follows the new body color.
+ */
+export const applyTheme = (pres, ...args) =>
+  withChartText(pres, () => applyThemeNow(pres, ...args));
+/** Applies another file's master; see applyThemeFileNow. */
+export const applyThemeFile = (pres, ...args) =>
+  withChartText(pres, () => applyThemeFileNow(pres, ...args));
+/** Gives `masters` a variant of their theme; see applyVariantNow. */
+export const applyVariant = (pres, ...args) =>
+  withChartText(pres, () => applyVariantNow(pres, ...args));
+/** Gives `masters` a color scheme; see applyColorsNow. */
+export const applyColors = (pres, ...args) =>
+  withChartText(pres, () => applyColorsNow(pres, ...args));
+/** Moves `slides` onto `master`, their charts' text following. */
+export const moveSlidesToMaster = (pres, slides, master) =>
+  withChartText(pres, () => {
+    for (const s of slides) moveSlideToMaster(pres, s, master);
+  });
 
 /** Gives `masters` the heading and body fonts `fonts` ({ name, major, minor }). */
 export function applyFonts(pres, masters, fonts) {

@@ -2,7 +2,11 @@
 // need a browser.
 import { describe, expect, it } from "vitest";
 import { P, createDeck } from "../src/model.js";
-import { describeShape, pairShapes } from "../src/transitions/morph.js";
+import {
+  describeShape,
+  morphOrder,
+  pairShapes,
+} from "../src/transitions/morph.js";
 import {
   identifyTransition,
   transitionFor,
@@ -19,6 +23,62 @@ const item = (name, kind, extra = {}) => ({
   box: { x: 0, y: 0, w: 0.1, h: 0.1 },
   rotation: 0,
   ...extra,
+});
+
+describe("morph stacking", () => {
+  it("stacks as the leaving slide at the start and the arriving one at the end", () => {
+    const red = item("red", "shape"),
+      green = item("green", "shape"),
+      star = item("star", "shape");
+    const red2 = item("red", "shape"),
+      green2 = item("green", "shape"),
+      dot = item("dot", "shape");
+    // Leaving: red, green, star (on top). Arriving: dot (under), green, red.
+    const scene = {
+      A: { items: [red, green, star] },
+      B: { items: [dot, green2, red2] },
+      pairs: [
+        [green, green2],
+        [red, red2],
+      ],
+      gone: [star],
+      added: [dot],
+    };
+    const names = (e) =>
+      morphOrder(scene, e).map((s) => (s.a ? s.a.name : "") + (s.b ? "→" : ""));
+    // The star leaving was on top; it stays on top until it is gone.
+    expect(names(0).filter((n) => n !== "→")).toEqual([
+      "red→",
+      "green→",
+      "star",
+    ]);
+    const end = morphOrder(scene, 1).filter((s) => s.b);
+    expect(end.map((s) => s.b.name)).toEqual(["dot", "green", "red"]);
+  });
+  it("keeps words just over their own shape", () => {
+    const text = item("text", "shape"),
+      cover = item("cover", "shape");
+    const text2 = item("text", "shape"),
+      cover2 = item("cover", "shape");
+    const word = (owner) => ({ name: "word", owner });
+    const scene = {
+      A: { items: [text, cover] },
+      B: { items: [text2, cover2] },
+      pairs: [
+        [text, text2],
+        [cover, cover2],
+      ],
+      gone: [],
+      added: [],
+      words: { pairs: [[word(text), word(text2)]], gone: [], added: [] },
+    };
+    for (const e of [0, 0.5, 1])
+      expect(morphOrder(scene, e).map((s) => (s.a ?? s.b).name)).toEqual([
+        "text",
+        "word",
+        "cover",
+      ]);
+  });
 });
 
 describe("morph pairing", () => {

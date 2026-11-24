@@ -100,9 +100,14 @@ export function createAnimationTools(ctx) {
     const target = slide();
     if (!target) return Promise.resolve(false);
     return ctx
-      .mutateSlide(target, (s) => P.setSlideAnimations(s, next), {
-        coalesce,
-      })
+      .mutateSlide(
+        target,
+        (s) =>
+          P.setSlideAnimations(s, typeof next === "function" ? next(s) : next),
+        {
+          coalesce,
+        },
+      )
       .then((done) => {
         if (done && pick) {
           chosen = pick;
@@ -307,7 +312,17 @@ export function createAnimationTools(ctx) {
       toast("Select an animated object to copy its animation.");
       return;
     }
-    painter = { effects: source.map((t) => t.effect), sticky };
+    const from = slide();
+    const effects = source.map((t) => t.effect);
+    // Effect sounds live on their slide: their audio goes along to another.
+    const sounds = new Map();
+    for (const e of effects)
+      if (e.sound && !sounds.has(e.sound.relId))
+        try {
+          const data = P.getSlideAnimationSoundData(from, e.sound.relId);
+          if (data) sounds.set(e.sound.relId, data.bytes);
+        } catch {}
+    painter = { effects, sticky, from: P.getSlidePartName(from), sounds };
     ctx.canvas()?.classList.add("anim-painting");
     toast("Click an object to give it this animation.");
     ctx.refresh();
@@ -324,7 +339,26 @@ export function createAnimationTools(ctx) {
         ...(rest.text && !hasText(id) ? { text: undefined } : {}),
       };
     });
-    const next = [...list, ...copies];
+    const { from, sounds } = painter;
+    const next = (s) => {
+      if (P.getSlidePartName(s) === from) return [...list, ...copies];
+      const added = new Map();
+      return [
+        ...list,
+        ...copies.map((e) => {
+          if (!e.sound) return e;
+          const bytes = sounds.get(e.sound.relId);
+          if (!bytes) return { ...e, sound: undefined };
+          let relId = added.get(e.sound.relId);
+          if (!relId)
+            added.set(
+              e.sound.relId,
+              (relId = P.addSlideAnimationSound(s, bytes, e.sound.name)),
+            );
+          return { ...e, sound: { ...e.sound, relId } };
+        }),
+      ];
+    };
     if (!painter.sticky) {
       painter = null;
       ctx.canvas()?.classList.remove("anim-painting");

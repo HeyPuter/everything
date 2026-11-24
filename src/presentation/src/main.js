@@ -2,7 +2,7 @@ import { textEditHistory, trackTextareaEdits } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
-import { createSlideAnimator } from "./slide-animator.js";
+import { createSlideAnimator, slideStates } from "./slide-animator.js";
 import { selectionHandleLayout } from "./selection-handles.js";
 import { reflowShapeDiagram } from "../lib/pptx/src/api/fn/diagram-reflow.ts";
 import { buildDiagramDrawing } from "../lib/pptx/src/api/fn/diagram-build.ts";
@@ -43,11 +43,19 @@ import {
   slidePosition,
   tableLayout,
   setSlideBounds,
+  detachShapeComments,
+  copySlideComments,
+  replaceInSmartArt,
   slideRotation,
   ownRotation,
   carriedByGroup,
   removeAnyShape,
   groupFlip,
+  connectorGlue,
+  followConnectors,
+  groupFrames,
+  fitGroups,
+  connectorFollowers,
   hasSlideJump,
   slideTitle,
   slideDescription,
@@ -68,6 +76,10 @@ import {
   fieldFormattingRange,
   firstTextElement,
   setRichText,
+  fitTextToShape,
+  listMarkers,
+  textAutofit,
+  AUTOFIT_STEPS,
   slideNumberRun,
   splitFieldEdges,
   SOFT_BREAK,
@@ -87,6 +99,7 @@ import {
   restoreDeck,
   History,
   cleanName,
+  fileStem,
   archiveEntryName,
 } from "./model.js";
 import * as cloud from "./cloud.js";
@@ -98,6 +111,7 @@ import {
 import { hasUserMenu, syncUserMenuTheme, userMenu } from "./user-menu.js";
 import { createAssistantPanel } from "./assistant-panel.js";
 import { createRibbon } from "./ribbon/ribbon.js";
+import { shareClipboard, sharedClipboard } from "./clipboard-store.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
@@ -377,10 +391,15 @@ function renderSlideSelection() {
     const s = all[i];
     if (!s || P.getSlidePartName(s) !== row.dataset.slidePart) return;
     const chosen = many && parts.has(row.dataset.slidePart);
+    // The navigator wrote each row's label with the row; only a row whose
+    // selection changed reads differently, and the others keep theirs
+    // (reading every slide's text again on each change of slide).
+    if (row.classList.contains("selected") === chosen) return;
     row.classList.toggle("selected", chosen);
-    row
-      .querySelector(".slide-thumb")
-      ?.setAttribute("aria-label", thumbLabel(s, i, chosen));
+    const thumb = row.querySelector(".slide-thumb");
+    if (!thumb) return;
+    thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
+    review.decorateThumb(thumb, s);
   });
   updateSlideCount();
 }
@@ -793,7 +812,10 @@ async function shortcutsDialog() {
           "Tab / Shift + Tab in the outline",
           "Move a line down or up a level; a title becomes a paragraph",
         ],
-        ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
+        [
+          "Alt + arrow keys in the slide sorter or the thumbnails pane",
+          "Move the selected slides",
+        ],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
         [
@@ -810,6 +832,7 @@ async function shortcutsDialog() {
           "Ctrl / ⌘ + Shift + C, then Ctrl / ⌘ + Shift + V",
           "Copy formatting, then paste it onto the selection",
         ],
+        ["Shift + F10", "Open the shortcut menu of the focused item"],
         ["Shift + click", "Add an object to the selection"],
         [
           "Shift + click / Ctrl / ⌘ + click on a thumbnail",
@@ -822,7 +845,7 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + A in the navigator", "Select every slide"],
         ["Delete in the navigator", "Delete the selected slides"],
         ["Ctrl / ⌘ + Alt + G", "Group the selected objects"],
-        ["Ctrl / ⌘ + Alt + Shift + G", "Ungroup the selected group"],
+        ["Ctrl / ⌘ + Alt + Shift + G", "Ungroup the selected groups"],
         ["Ctrl / ⌘ + ] or [", "Bring forward or send backward"],
         ["Ctrl / ⌘ + Shift + ] or [", "Bring to front or send to back"],
         ["Enter", "Edit text of the selected object"],
@@ -1190,6 +1213,8 @@ function renderHome() {
             ),
           ),
           el("div", { id: "file-list" }),
+          // What a search found, for those who cannot see the list change.
+          el("p", { id: "library-status", class: "sr-only", role: "status" }),
         ),
       ),
       el(
@@ -1238,7 +1263,12 @@ async function newThemeDeck(key) {
 // Scrolls the library to one of its parts and puts the keyboard there.
 function homeSection(selector, focusSelector) {
   const target = document.querySelector(selector);
-  target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  // Without the glide when motion is to be reduced.
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target?.scrollIntoView({
+    block: "start",
+    behavior: reduce ? "auto" : "smooth",
+  });
   document.querySelector(focusSelector)?.focus({ preventScroll: true });
 }
 // A deck written by the AI from a description opens as a new presentation.
@@ -1377,6 +1407,15 @@ function renderFileList() {
     )
     // Pinned presentations lead the list.
     .sort((a, b) => b.pinned - a.pinned);
+  const status = document.querySelector("#library-status");
+  const found = !query.trim()
+    ? ""
+    : rows.length === 1
+      ? "1 presentation found"
+      : rows.length
+        ? `${rows.length} presentations found`
+        : "No matching presentations";
+  if (status && status.textContent !== found) status.textContent = found;
   if (!rows.length) {
     // A failed load already explains itself and offers a retry; do not also
     // claim the library is empty.
@@ -1687,32 +1726,49 @@ function libraryFileMenu(e, f) {
           pendingRecovery.request === documentRequest
         )
           documentRequest++;
+        // Another tab editing the draft would keep its edits nowhere: it
+        // writes the draft again only on its next edit, and leaving it
+        // takes the draft as already holding them.
+        if (f.kind === "draft" && !(await lockDraft(f.id))) {
+          toast(
+            "This draft is open in another tab. Close it there to delete it.",
+          );
+          return;
+        }
+        const confirmed = await dialog({
+          title: `Delete “${fileTitle(f)}”?`,
+          // A draft lives on this device only; the cloud file it may be
+          // linked to stays in Puter.
+          body: el(
+            "p",
+            { class: "dialog-body" },
+            f.kind === "draft"
+              ? "This removes the recovery draft from this device. Work that was not saved to Puter or downloaded is lost."
+              : "This removes the file from your Puter cloud permanently. This action cannot be undone.",
+          ),
+          confirm: "Delete",
+          danger: true,
+          returnFocus,
+        });
+        // The lock taken above is let go of unless this tab has it open.
         if (
-          await dialog({
-            title: `Delete “${fileTitle(f)}”?`,
-            // A draft lives on this device only; the cloud file it may be
-            // linked to stays in Puter.
-            body: el(
-              "p",
-              { class: "dialog-body" },
-              f.kind === "draft"
-                ? "This removes the recovery draft from this device. Work that was not saved to Puter or downloaded is lost."
-                : "This removes the file from your Puter cloud permanently. This action cannot be undone.",
-            ),
-            confirm: "Delete",
-            danger: true,
-            returnFocus,
-          })
+          f.kind === "draft" &&
+          (!confirmed ||
+            accountVersion !== accountRequest ||
+            deletingDrafts.has(f.id))
         ) {
+          releaseDraftLocks();
+          return;
+        }
+        if (confirmed) {
           if (f.kind === "draft") {
-            if (accountVersion !== accountRequest || deletingDrafts.has(f.id))
-              return;
             deletingDrafts.add(f.id);
             try {
               await drafts.deleteDraft(f.id);
               libraryMeta(requestOwner).forget(f);
             } finally {
               deletingDrafts.delete(f.id);
+              releaseDraftLocks();
             }
           } else
             await saveQueue.run(async () => {
@@ -1917,7 +1973,9 @@ async function openDocument(load, { pristine = false } = {}) {
     if (request !== documentRequest) return false;
     const { pres, draft = null, color = "studio" } = loaded;
     // A template or slide show opens to be edited, and saved, as a
-    // presentation (.pptx).
+    // presentation (.pptx), which cannot hold macros: a file named .pptx
+    // that still declared them would not open in other apps.
+    const removedMacros = P.removeMacros(pres);
     const kind = P.getPresentationKind(pres);
     if (kind && kind !== "presentation")
       P.setPresentationKind(pres, "presentation");
@@ -1979,6 +2037,12 @@ async function openDocument(load, { pristine = false } = {}) {
     showEditorUrl();
     focusView();
     if ((!path || draft) && !pristine) await persistDraft().catch(warnStorage);
+    if (removedMacros && request === documentRequest) {
+      doc.macrosRemoved = true;
+      toast(
+        "This presentation's macros were removed. It saves as a PowerPoint presentation (.pptx), which can't hold macros.",
+      );
+    }
     return request === documentRequest;
   } catch (error) {
     if (request === documentRequest) throw error;
@@ -2061,6 +2125,7 @@ async function recover(draft) {
 // draft holding unsaved changes to the file is offered first, unless
 // `offerDraft` is false.
 async function openCloud(file, { offerDraft = true } = {}) {
+  if (cloud.opensAsCopy(file.path || file.name)) return openCloudCopy(file);
   if (offerDraft) {
     const request = documentRequest;
     const draft = await unsavedDraftOf(file);
@@ -2125,6 +2190,28 @@ async function openCloud(file, { offerDraft = true } = {}) {
     pendingCloudOpens.delete(pending);
   }
 }
+// A slide show or template in Puter opens as a new presentation, as one
+// imported from this device does: its first save puts a presentation (.pptx)
+// where a new one goes, and the file itself stays as it was.
+async function openCloudCopy(file) {
+  const fileName = file.name || cloud.displayName(file.path);
+  return openDocument(async () => {
+    let bytes;
+    try {
+      const size = cloud.sizeOf(
+        await cloud.stat(file.path).catch(() => undefined),
+      );
+      if (size != null) validateImportSize(size);
+      bytes = await cloud.readFile(file.path, { importing: true });
+    } catch (error) {
+      throw openError(error, file);
+    }
+    return {
+      pres: await parseDeck(bytes, { prepareFonts: false }),
+      name: cloud.copyName(fileName),
+    };
+  });
+}
 // The newest recovery draft, other than the open presentation's, with
 // changes to `file` not saved to Puter.
 async function unsavedDraftOf(file) {
@@ -2149,6 +2236,7 @@ async function locateFile(pending, uid) {
     const moved = await cloud.statByUid(uid).catch(() => null);
     if (followable(moved)) {
       recent.moveRecent(pending.owner, pending.path, moved.path, moved.name);
+      forgetListed(pending.path);
       pending.name = moved.name || cloud.displayName(moved.path);
       pending.path = moved.path;
       return moved;
@@ -2181,10 +2269,17 @@ function followable(moved) {
   );
 }
 // A failed open, in words that say what happened to the file.
+// A file found gone or moved leaves the list Open recent shows at once, and
+// the folder is read again the next time the File menu opens.
+function forgetListed(path) {
+  files = files.filter((f) => f.path !== path);
+  recentListAt = 0;
+}
 function openError(error, file) {
   const name = cleanName(file.name || cloud.displayName(file.path));
   if (cloud.isNotFound(error)) {
     recent.forgetRecent(file.owner || owner(), file.path);
+    forgetListed(file.path);
     return new Error(
       `“${name}” is no longer there. It may have been moved or deleted.`,
       { cause: error },
@@ -2265,7 +2360,7 @@ function pickLocalFile(accept, handle) {
   }
 }
 function pickLocal() {
-  pickLocalFile(".pptx,.potx,.ppsx", importFile);
+  pickLocalFile(`.pptx,${cloud.OPENS_AS_COPY.join(",")}`, importFile);
 }
 function pickFont() {
   const target = doc;
@@ -2365,18 +2460,19 @@ async function embedLocalFont(file, target, request) {
   }
 }
 async function importFile(file) {
-  const extension = /\.(pptx|potx|ppsx)$/i.exec(file.name)?.[1].toLowerCase();
-  if (!extension) throw new Error("Choose a PowerPoint (.pptx) file.");
+  if (!cloud.isOpenableName(file.name))
+    throw new Error("Choose a PowerPoint (.pptx) file.");
   validateImportSize(file.size);
   if (
-    await openDocument(async () => ({
+    (await openDocument(async () => ({
       pres: await parseDeck(new Uint8Array(await file.arrayBuffer()), {
         prepareFonts: false,
       }),
       // A template starts a new, untitled presentation, as in PowerPoint; a
-      // slide show keeps its name.
-      name: extension === "potx" ? null : file.name.replace(/\.ppsx$/i, ""),
-    }))
+      // slide show or macro presentation keeps its name.
+      name: cloud.isPptxName(file.name) ? file.name : cloud.copyName(file.name),
+    }))) &&
+    !doc?.macrosRemoved
   )
     toast(
       "Imported. Complex effects may look different in preview; original content is retained in the PPTX.",
@@ -2507,27 +2603,27 @@ function mutate(
         // Color pickers fire a change per adjustment; merge a burst of edits
         // to the same property into one undo step.
         const merge =
-          (amends && history.bytes === amends) ||
+          (amends && history.step === amends) ||
           (coalesce &&
             lastCoalesce?.key === coalesce &&
             Date.now() - lastCoalesce.time < COALESCE_WINDOW);
-        const before = history.bytes;
-        if (takesBack && history.bytes === takesBack && history.past.length)
-          history.drop(doc.pres);
+        const before = history.step;
+        if (takesBack && history.step === takesBack && history.past.length)
+          await history.drop(doc.pres);
         else if (merge) {
           await history.amend(doc.pres, theme);
-          editPlaces.set(history.bytes, {
+          editPlaces.set(history.step, {
             before: editPlaces.get(before)?.before ?? placeBefore,
             after: placeAfter,
           });
         } else {
           await history.capture(doc.pres, theme);
-          editPlaces.set(history.bytes, {
+          editPlaces.set(history.step, {
             before: placeBefore,
             after: placeAfter,
           });
         }
-        onApplied?.(before, history.bytes);
+        onApplied?.(before, history.step);
         lastCoalesce = coalesce ? { key: coalesce, time: Date.now() } : null;
         revision++;
         // What is worked out once per revision (the accessibility status)
@@ -2536,6 +2632,7 @@ function mutate(
         await persistDraft().catch(warnStorage);
         updateHistoryButtons();
         scheduleSave();
+        scheduleZoomRefresh();
         return true;
       } catch (e) {
         onError(e);
@@ -2547,15 +2644,37 @@ function mutate(
   mutationTail = action;
   return action;
 }
+// Zoom pictures whose target slides an edit changed are drawn again at the
+// next idle moment, into that edit's undo step (insert/zoom.js). Text being
+// typed is waited for, as the redraw draws the slide again.
+let zoomRefresh = 0;
+function scheduleZoomRefresh() {
+  const active = doc;
+  const amends = history.bytes;
+  const idle =
+    window.requestIdleCallback ||
+    ((fn) => setTimeout(() => fn({ timeRemaining: () => 12 }), 16));
+  (window.cancelIdleCallback || clearTimeout)(zoomRefresh);
+  zoomRefresh = idle(
+    () => {
+      zoomRefresh = 0;
+      if (doc !== active || readOnlyDocument() || history.bytes !== amends)
+        return;
+      if (assistantTyping()) return scheduleZoomRefresh();
+      insertFeatures?.refreshZooms(amends).catch(() => {});
+    },
+    { timeout: 1000 },
+  );
+}
 // An edit that fails part-way leaves the presentation between two states:
 // what it had done is neither shown, nor in the history, nor in the draft,
 // and the next edit would carry it along as its own. The last snapshot, the
 // state everything else still shows, comes back.
 async function restoreSnapshot() {
   const active = doc;
-  if (!active || !history.bytes) return;
+  if (!active || !history.step) return;
   try {
-    const pres = await P.loadPresentation(history.bytes);
+    const pres = history.restore();
     if (doc !== active) return;
     const previous = active.pres;
     await prepareDeckFonts(pres, { reuseFrom: previous });
@@ -2571,9 +2690,21 @@ async function restoreSnapshot() {
 }
 function mutateSlide(target, fn, options) {
   const part = P.getSlidePartName(target);
-  return mutate(() => {
+  return mutate(async () => {
     const targetSlide = slideByPart(part);
-    return targetSlide ? fn(targetSlide) : SKIP_MUTATION;
+    if (!targetSlide) return SKIP_MUTATION;
+    // Groups fit what they hold after an edit to it, and connectors glued
+    // to the shapes an edit moves go along with them.
+    const frames = groupFrames(targetSlide);
+    const glue = connectorGlue(doc.pres, targetSlide);
+    const result = await fn(targetSlide);
+    const after =
+      (frames || glue) && result !== SKIP_MUTATION && slideByPart(part);
+    if (after) {
+      fitGroups(doc.pres, after, frames);
+      followConnectors(doc.pres, after, glue);
+    }
+    return result;
   }, options);
 }
 function mutateShape(shape, fn, options) {
@@ -3166,7 +3297,8 @@ async function slideSizeDialog(preset = null) {
           const b = slideBounds(doc.pres, obj);
           if (!b) continue;
           const next = scaled(b);
-          P.setShapeBounds(obj, next);
+          // A SmartArt graphic is laid out again for its new size.
+          setSlideBounds(doc.pres, obj, next, parents);
           if (isTable(obj)) {
             fitTableGrid(obj, next);
             for (const row of P.getTableCells(obj))
@@ -3251,7 +3383,7 @@ async function exportImages(all) {
     toast("There are no visible slides to export.");
     return;
   }
-  const name = cleanName(target.name, { maxLength: Infinity });
+  const name = fileStem(cleanName(target.name, { maxLength: Infinity }));
   if (!all) {
     const blob = await rasterizeSlide(target.pres, slides[0], target.previews);
     if (doc !== target) return;
@@ -3767,29 +3899,172 @@ function editorTopbar() {
     ),
   );
 }
-// Command search: finds any command on the ribbon by name and runs it.
+// Command search: finds any command on the ribbon or in the menu bar by name
+// and runs it. The box is a combobox: the keyboard stays in it while Up and
+// Down move through the results and Enter runs the one highlighted.
 function commandSearch() {
+  const list = el("div", {
+    // Not a .menu: the page reads an open menu from that class.
+    class: "command-results",
+    role: "listbox",
+    id: "command-results",
+    "aria-label": "Commands",
+    hidden: true,
+    // A press on a result leaves the keyboard in the box.
+    onpointerdown: (e) => e.preventDefault(),
+  });
+  // How many commands were found, said once typing pauses.
+  const status = el("span", { class: "sr-only", role: "status" });
+  let statusTimer = 0;
+  let results = [];
+  let highlighted = -1;
   const input = el("input", {
     type: "search",
     class: "command-search-input",
     placeholder: "Search",
+    role: "combobox",
     "aria-label": "Search for commands",
+    "aria-autocomplete": "list",
+    "aria-expanded": "false",
+    "aria-controls": "command-results",
     autocomplete: "off",
     spellcheck: "false",
     onkeydown: (e) => {
-      if (e.key === "Enter" || e.key === "ArrowDown") {
+      if (e.isComposing) return;
+      const open = !list.hidden;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
-        showMatches(true);
+        if (!open) showMatches();
+        move(e.key === "ArrowDown" ? 1 : -1);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (!open) showMatches();
+        choose(highlighted >= 0 ? highlighted : firstEnabled());
       } else if (e.key === "Escape") {
-        input.value = "";
-        workspace()?.focus({ preventScroll: true });
-      }
+        e.preventDefault();
+        if (open) hide();
+        else {
+          input.value = "";
+          workspace()?.focus({ preventScroll: true });
+        }
+      } else if (e.key === "Tab") hide();
     },
-    oninput: () => showMatches(false),
+    oninput: () => showMatches(),
+    // The menu bar's commands are read once the box has the keyboard, while
+    // the page is idle, as they stand for the selection the search starts
+    // from; a letter typed sooner reads them then.
+    onfocus: () => {
+      cancelIdle(menuWork);
+      menuWork = idle(() => {
+        menuWork = 0;
+        if (document.activeElement === input)
+          menuCommands ??= menuBarCommands();
+      });
+    },
+    onblur: () => {
+      cancelIdle(menuWork);
+      menuWork = 0;
+      menuCommands = null;
+      hide();
+    },
   });
-  function showMatches(focus) {
+  let menuCommands = null;
+  let menuWork = 0;
+  const idle = (fn) =>
+    window.requestIdleCallback
+      ? requestIdleCallback(fn, { timeout: 300 })
+      : setTimeout(fn, 50);
+  const cancelIdle = (id) =>
+    id &&
+    (window.cancelIdleCallback ? cancelIdleCallback(id) : clearTimeout(id));
+  // The menu bar's commands that are not on the ribbon (Print, Export, Undo,
+  // Keyboard shortcuts...), each with the menu it is in.
+  function menuBarCommands() {
+    let file = [];
+    fileMenu(input, (options) => (file = options.items));
+    const menus = [
+      ["File", file],
+      ["Edit", editItems()],
+      ["View", viewItems()],
+      ["Insert", insertItems()],
+      ["Format", formatItems()],
+      ["Arrange", arrangeMenuItems()],
+      ["Slide", slideItems()],
+      ["Tools", review.toolsMenu()],
+      ["Slide Show", slideShowMenuItems()],
+      ["Help", helpItems()],
+    ];
+    const out = [];
+    const walk = (items, menu) => {
+      for (const item of items || []) {
+        if (!item || !item.label) continue;
+        if (item.onSelect) out.push({ item, menu });
+        else if (Array.isArray(item.items)) walk(item.items, menu);
+      }
+    };
+    for (const [menu, items] of menus) walk(items, menu);
+    return out;
+  }
+  // A name as it is matched and told apart: "Text box" is "Text Box", and
+  // "Export…" is "Export".
+  const commandKey = (label) =>
+    String(label).replace(/…$/, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const firstEnabled = () => results.findIndex((entry) => !entry.disabled);
+  function hide() {
+    clearTimeout(statusTimer);
+    status.textContent = "";
+    list.hidden = true;
+    list.replaceChildren();
+    results = [];
+    highlighted = -1;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+  function highlight(at) {
+    highlighted = at;
+    list.querySelectorAll('[role="option"]').forEach((node, i) => {
+      node.classList.toggle("active", i === at);
+      node.setAttribute("aria-selected", String(i === at));
+    });
+    const node = at >= 0 ? list.children[at] : null;
+    if (node) {
+      input.setAttribute("aria-activedescendant", node.id);
+      node.scrollIntoView({ block: "nearest" });
+    } else input.removeAttribute("aria-activedescendant");
+  }
+  // Up and Down skip the commands that are off, and wrap round.
+  function move(step) {
+    const n = results.length;
+    for (let i = 1; i <= n; i++) {
+      const at =
+        ((((highlighted < 0 && step < 0 ? 0 : highlighted) + step * i) % n) +
+          n) %
+        n;
+      if (!results[at].disabled) return highlight(at);
+    }
+  }
+  function choose(at) {
+    const entry = results[at];
+    if (!entry || entry.disabled) return;
+    hide();
+    // A command with a menu (Shapes, Text Direction) opens it under the box.
+    if (entry.items)
+      openMenu({
+        anchor: wrap,
+        label: String(entry.label),
+        items: entry.items,
+        align: "end",
+        minWidth: Math.max(280, wrap.offsetWidth),
+      });
+    else entry.onSelect?.();
+  }
+  function announce(text) {
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => (status.textContent = text), 400);
+  }
+  function showMatches() {
     const query = input.value.trim().toLowerCase();
-    if (!query || !ribbon) return closeMenu();
+    if (!query || !ribbon) return hide();
     const words = query.split(/\s+/);
     const seen = new Set();
     const items = [];
@@ -3825,25 +4100,92 @@ function commandSearch() {
       items.push(entry);
       if (items.length >= 12) break;
     }
+    const ribbonNames = new Set(items.map((entry) => commandKey(entry.label)));
+    if (items.length < 12)
+      for (const { item, menu } of (menuCommands ??= menuBarCommands())) {
+        const key = commandKey(item.label);
+        if (ribbonNames.has(key) || seen.has(`menu|${key}`)) continue;
+        if (!words.every((w) => `${key} ${menu.toLowerCase()}`.includes(w)))
+          continue;
+        seen.add(`menu|${key}`);
+        items.push({
+          label: item.label,
+          hint: menu,
+          icon: item.icon,
+          checked: item.checked,
+          disabled: !!item.disabled,
+          onSelect: item.onSelect,
+        });
+        if (items.length >= 12) break;
+      }
+    results = items;
+    highlighted = -1;
+    input.removeAttribute("aria-activedescendant");
+    list.replaceChildren(
+      ...items.map((entry, i) =>
+        el(
+          "div",
+          {
+            id: `command-result-${i}`,
+            role: "option",
+            class: "menu-item",
+            "aria-selected": "false",
+            "aria-disabled": entry.disabled ? "true" : null,
+            "aria-checked":
+              entry.checked === undefined ? null : String(!!entry.checked),
+            "aria-haspopup": entry.items ? "menu" : null,
+            onclick: () => choose(i),
+            onpointermove: () => {
+              if (highlighted !== i && !entry.disabled) highlight(i);
+            },
+          },
+          el(
+            "span",
+            { class: "menu-icon", "aria-hidden": "true" },
+            entry.checked
+              ? icon("Check", 16)
+              : entry.icon && icon(entry.icon, 17),
+          ),
+          el(
+            "span",
+            { class: "menu-label" },
+            entry.label,
+            el("span", { class: "menu-hint" }, ` ${entry.hint}`),
+          ),
+        ),
+      ),
+    );
     if (!items.length)
-      items.push({
-        label: `No commands match “${input.value.trim()}”`,
-        disabled: true,
-      });
-    openMenu({
-      anchor: wrap,
-      label: "Commands",
-      items,
-      align: "end",
-      minWidth: Math.max(280, wrap.offsetWidth),
-      focusFirst: focus,
-    });
+      list.append(
+        el(
+          "div",
+          { class: "command-results-empty" },
+          `No commands match “${input.value.trim()}”`,
+        ),
+      );
+    // Under the box, its right edge on the box's.
+    const box = wrap.getBoundingClientRect();
+    list.style.top = `${box.bottom + 4}px`;
+    list.style.right = `${Math.max(8, innerWidth - box.right)}px`;
+    list.style.minWidth = `${Math.max(280, box.width)}px`;
+    list.style.maxHeight = `${Math.max(120, innerHeight - box.bottom - 12)}px`;
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    announce(
+      items.length === 1
+        ? "1 command"
+        : items.length
+          ? `${items.length} commands`
+          : "No commands match",
+    );
   }
   const wrap = el(
     "div",
     { class: "command-search desktop-only", role: "search" },
     icon("o:search", 15),
     input,
+    list,
+    status,
   );
   return wrap;
 }
@@ -3962,7 +4304,7 @@ const themeTools = createThemeTools({
   masterView: () => masterView.active,
   mutate: (fn, options) => {
     commitText();
-    return mutate(fn, options);
+    return mutate(() => followingEquations(fn), options);
   },
   skip: SKIP_MUTATION,
   palette: () => theme,
@@ -4038,8 +4380,13 @@ function mutateBackgrounds(target, fn, options) {
   const parts = partsOf(actionSlides(target));
   return mutate(() => {
     let changed = false;
-    for (const s of resolveSlides(parts))
-      if (fn(s) !== SKIP_MUTATION) changed = true;
+    for (const s of resolveSlides(parts)) {
+      // A picture the background no longer shows leaves the file with it.
+      const picture = P.getSlideBackground(s).kind === "image";
+      if (fn(s) === SKIP_MUTATION) continue;
+      changed = true;
+      if (picture) pruneUnusedMedia(doc.pres, s);
+    }
     return changed ? undefined : SKIP_MUTATION;
   }, options);
 }
@@ -4068,6 +4415,8 @@ const review = createReview({
     replaceInShape(shape, re, value, only),
   replaceInCell: (cell, re, value, only) =>
     replaceInCell(cell, re, value, only),
+  replaceInSmartArt: (shape, re, value, only) =>
+    replaceInSmartArt(shape, re, value, only),
   editor: () => richEditor,
   editShapeText: (part, id) => {
     if (P.getSlidePartName(slide()) !== part) return;
@@ -4228,9 +4577,10 @@ const formatTools = createFormatTools({
         }
       });
     }),
-  insertImageFile: (file, placement) =>
-    insertImageFile(file, placement ? { box: placement } : null),
+  insertImageFile: (file, placement, options) =>
+    insertImageFile(file, placement ? { box: placement } : null, options),
   clipboardInfo: () => clipboard,
+  adoptSharedCopy: (wanted) => adoptSharedCopy(wanted),
   pasteClipboard: (options) => pasteClipboard(options),
   pasteText: (value) => pasteText(value),
   pasteRichText: (paragraphs) => pasteRichText(paragraphs),
@@ -4353,6 +4703,7 @@ const transitionTools = createTransitionTools({
   picture: (s) => cachedPreview(doc.previews, doc.pres, s),
   render: (s, layer) => preview(doc.pres, s, layer),
   canvas: () => document.querySelector("#slide-canvas"),
+  states: (s) => slideStates(doc.pres, s),
   chooseFile: (accept) =>
     new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
   report: (error) => fail(error),
@@ -4369,7 +4720,8 @@ const insertFeatures = createInsertFeatures({
   selectedSlideParts: () => selectedSlideParts(),
   commitText: () => commitText(),
   fail: (e) => fail(e),
-  mutate: (fn) => mutate(fn),
+  mutate: (fn, options) => mutate(fn, options),
+  skip: SKIP_MUTATION,
   mutateSlide: (target, fn) => mutateSlide(target, fn),
   mutateShape: (obj, fn) => mutateShape(obj, fn),
   currentSize: () => currentSize(),
@@ -4852,6 +5204,10 @@ function updateStatusBar() {
     );
   const a11y = document.querySelector("#status-accessibility span");
   if (a11y && doc) a11y.textContent = review.accessibilityStatus();
+  // The language of the selected text, as the language menu checks it.
+  const language = document.querySelector("#status-language");
+  const name = language && languageName();
+  if (name && language.textContent !== name) language.textContent = name;
 }
 // The proofing language of the deck's text: what the browser's spell checker
 // is told, and what new text is marked with.
@@ -5172,15 +5528,63 @@ let painter = null;
 function formatPainterActive() {
   return !!painter;
 }
+// The text formatting Format Painter carries from one text to another.
+const PAINTED_TEXT_KEYS = [
+  "font",
+  "size",
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "color",
+  "underlineColor",
+  "cap",
+  "spc",
+  "kern",
+  "baseline",
+  "highlight",
+  "outline",
+  "gradient",
+  "effects",
+  "normalizeHeight",
+];
+const paintedText = (format) =>
+  Object.fromEntries(
+    PAINTED_TEXT_KEYS.map((key) => [key, format?.[key]]).filter(
+      ([, v]) => v != null,
+    ),
+  );
+// While text is edited, the formatting of the selected text is picked up.
 function pickUpFormat(obj) {
   const format = {
     part: P.getSlidePartName(P.getShapeSlide(obj)),
     id: P.getShapeId(obj),
   };
   try {
-    if (canEditText(obj)) format.text = { ...textFormat(obj) };
+    const editor = editorFor(obj);
+    if (editor) format.text = { ...editor.selectionFormat() };
+    else if (canEditText(obj)) format.text = { ...textFormat(obj) };
   } catch {}
   return format;
+}
+// Format Painter's text formatting, applied to the text selected in the
+// editor (or the word at its caret), as the brush is drawn over it.
+function paintText(editor) {
+  const change = paintedText(painter?.format.text);
+  if (!Object.keys(change).length) return false;
+  // A click paints the word it lands in or beside.
+  const sel = editor.selectionOffsets();
+  if (sel && sel[0] === sel[1]) {
+    const value = editor.text();
+    const letter = (ch) => /[\p{L}\p{M}\p{N}_'’]/u.test(ch || "");
+    let [start, end] = sel;
+    while (start > 0 && letter(value[start - 1])) start--;
+    while (end < value.length && letter(value[end])) end++;
+    if (start < end) editor.setSelection(start, end);
+  }
+  editor.apply(change);
+  if (!painter.sticky) formatPainter();
+  return true;
 }
 function formatPainter(sticky = false) {
   if (painter) {
@@ -5198,40 +5602,25 @@ function formatPainter(sticky = false) {
 function paintFormat(target) {
   if (!painter) return false;
   const { format } = painter;
-  mutateShape(target, (obj) => {
+  mutateShape(target, (target) => {
     const sourceSlide = slideByPart(format.part);
     const source = sourceSlide && P.findShapeById(sourceSlide, format.id);
     let changed = false;
-    if (source && source !== obj) changed = P.copyShapeFormatting(source, obj);
-    if (format.text && canEditText(obj)) {
-      const keys = [
-        "font",
-        "size",
-        "bold",
-        "italic",
-        "underline",
-        "strike",
-        "color",
-        "underlineColor",
-        "cap",
-        "spc",
-        "kern",
-        "baseline",
-        "highlight",
-        "outline",
-        "gradient",
-        "effects",
-        "normalizeHeight",
-      ];
-      formatText(
-        withTextBody(obj),
-        Object.fromEntries(
-          keys
-            .map((key) => [key, format.text[key]])
-            .filter(([, v]) => v != null),
-        ),
-      );
-      changed = true;
+    // A group takes the format on each object it holds.
+    const members = (s) =>
+      P.getShapeKind(s) === "group"
+        ? P.getGroupChildren(s).flatMap(members)
+        : [s];
+    for (const obj of members(target)) {
+      const itself =
+        format.part === P.getSlidePartName(P.getShapeSlide(obj)) &&
+        format.id === P.getShapeId(obj);
+      if (source && !itself)
+        changed = P.copyShapeFormatting(source, obj) || changed;
+      if (format.text && canEditText(obj)) {
+        formatText(withTextBody(obj), paintedText(format.text));
+        changed = true;
+      }
     }
     if (!changed) return SKIP_MUTATION;
   });
@@ -5270,7 +5659,31 @@ function changeCase(mode) {
   };
   const editor = editorFor(obj);
   if (editor?.transform) return editor.transform(convert);
-  if (isTable(obj)) return;
+  // In a table, the cell being worked in changes, letter by letter where
+  // the length holds, so its words keep their formatting.
+  if (isTable(obj))
+    return mutateShape(obj, (target) => {
+      const cell = cellOf(target);
+      const text = displayTableCellText(doc.pres, cell);
+      const next = convert(text);
+      if (next === text) return SKIP_MUTATION;
+      const edits = [];
+      if (next.length === text.length)
+        for (let i = 0; i < text.length;) {
+          if (text[i] === next[i]) {
+            i++;
+            continue;
+          }
+          let j = i;
+          while (j < text.length && text[j] !== next[j]) j++;
+          edits.push({ start: i, end: j, text: next.slice(i, j) });
+          i = j;
+        }
+      else edits.push({ start: 0, end: text.length, text: next });
+      // From the last edit back, so the offsets of earlier ones hold.
+      if (!editCellText(cell, edits.reverse(), next))
+        P.setTableCellText(cell, next);
+    });
   mutateShape(obj, (obj) => {
     const paragraphs = textRuns(doc.pres, obj).map((p) => ({
       ...p,
@@ -5773,10 +6186,12 @@ function tableMenu() {
 }
 function tableInsert(where) {
   const map = {
-    rowAbove: (obj, row) => P.insertTableRow(obj, row),
-    rowBelow: (obj, row) => P.insertTableRow(obj, row + 1),
-    colLeft: (obj, row, col) => P.insertTableColumn(obj, col),
-    colRight: (obj, row, col) => P.insertTableColumn(obj, col + 1),
+    rowAbove: (obj, row) => P.insertTableRow(obj, row, [], { like: row }),
+    rowBelow: (obj, row) => P.insertTableRow(obj, row + 1, [], { like: row }),
+    colLeft: (obj, row, col) =>
+      P.insertTableColumn(obj, col, undefined, { like: col }),
+    colRight: (obj, row, col) =>
+      P.insertTableColumn(obj, col + 1, undefined, { like: col }),
   };
   return tableAction(map[where]);
 }
@@ -5830,23 +6245,27 @@ function selectionSize(axis) {
   if (!b) return null;
   return Math.round(((axis === "h" ? b.h : b.w) / 914400) * 100) / 100;
 }
+// Pictures keep their proportions by default, and so does any object whose
+// aspect ratio is locked.
+const keepsProportions = (obj) =>
+  P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj);
+// The bounds with one side or corner coordinate set, in inches: a new width
+// or height scales the other side along when the object keeps proportions.
+function sizedBounds(obj, b, key, inches) {
+  const value = Math.round(inches * 914400);
+  if (key !== "w" && key !== "h") return { ...b, [key]: value };
+  const keep = keepsProportions(obj) && b.w > 0 && b.h > 0;
+  return key === "h"
+    ? { ...b, h: value, w: keep ? Math.round((b.w * value) / b.h) : b.w }
+    : { ...b, w: value, h: keep ? Math.round((b.h * value) / b.w) : b.h };
+}
 function setSelectionSize(axis, inches) {
   const obj = currentShape();
   if (!obj) return;
   mutateShape(obj, (obj) => {
     const b = slideBounds(doc.pres, obj);
     if (!b) return SKIP_MUTATION;
-    const value = Math.round(inches * 914400);
-    // Pictures keep their proportions by default.
-    const keep =
-      (P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj)) &&
-      b.w > 0 &&
-      b.h > 0;
-    const next =
-      axis === "h"
-        ? { ...b, h: value, w: keep ? Math.round((b.w * value) / b.h) : b.w }
-        : { ...b, w: value, h: keep ? Math.round((b.h * value) / b.w) : b.h };
-    setSlideBounds(doc.pres, obj, next);
+    setSlideBounds(doc.pres, obj, sizedBounds(obj, b, axis, inches));
   });
 }
 // The Section command: sections group the slides in the thumbnails pane.
@@ -5882,6 +6301,7 @@ function sectionList() {
   try {
     return (P.getSlideSections(doc.pres) || []).map((sec) => ({
       name: sec.name,
+      id: sec.id ?? null,
       slides: sec.slides.map(P.getSlidePartName),
     }));
   } catch {
@@ -5905,6 +6325,7 @@ function writeSections(list) {
       doc.pres,
       list.map((sec) => ({
         name: sec.name,
+        id: sec.id ?? null,
         slides: sec.slides.map((p) => byPart.get(p)).filter(Boolean),
       })),
     );
@@ -5944,6 +6365,9 @@ const SYMBOLS =
 async function insertSymbol() {
   const obj = currentShape();
   if (!obj || !canEditText(obj)) return;
+  // The dialog takes the focus from text being edited, which is kept; the
+  // symbol then goes in where the caret was, in the text opened again.
+  const caret = editorFor(obj)?.selectionOffsets() || null;
   let chosen = null;
   // One tab stop: the arrow keys move between the symbols (twelve a row, as
   // drawn), Home and End go to the first and the last.
@@ -5998,7 +6422,16 @@ async function insertSymbol() {
     cancel: "Cancel",
     confirm: null,
   });
-  if (chosen) insertTextAtCursor(obj, chosen);
+  if (!chosen) return;
+  if (caret && !richEditor) {
+    await settled();
+    const target = currentShape();
+    if (!target || P.getShapeId(target) !== P.getShapeId(obj)) return;
+    editText(target);
+    richEditor?.setSelection(caret[0], caret[1]);
+    return insertTextAtCursor(target, chosen);
+  }
+  insertTextAtCursor(obj, chosen);
 }
 // Text added to an object: at the cursor while it is edited, otherwise at the
 // end of its text.
@@ -6039,7 +6472,8 @@ function dateTimeMenu() {
 function insertSlideNumber() {
   const obj = currentShape();
   if (!obj) return;
-  const value = String(index + 1);
+  // The number the slide shows, which a deck may start at other than 1.
+  const value = String(P.getSlideNumber(doc.pres, slide()) ?? index + 1);
   const field = (source) => slideNumberRun(source, value);
   const editor = editorFor(obj);
   if (editor) return editor.insertField(value, field);
@@ -6398,7 +6832,7 @@ async function placeDrawn(tool, at) {
   ribbon?.select("shape-format");
   if (isText) {
     const obj = currentShape();
-    if (obj) editText(obj, null, { inserted: history.bytes });
+    if (obj) editText(obj, null, { inserted: history.step });
   }
 }
 // The ribbon's command surface: what tabs.js may call.
@@ -6923,13 +7357,13 @@ function ribbonApi() {
         {
           label: "Distribute Horizontally",
           icon: "o:distributeH",
-          disabled: count < 3,
+          disabled: count < distributeMinimum(),
           onSelect: () => distributeSelection("x"),
         },
         {
           label: "Distribute Vertically",
           icon: "o:distributeV",
-          disabled: count < 3,
+          disabled: count < distributeMinimum(),
           onSelect: () => distributeSelection("y"),
         },
       ];
@@ -7039,6 +7473,15 @@ function ribbonApi() {
       mutateShape(obj, (obj) => {
         P.setShapeImageOpacity(obj, 1);
         P.setShapeImageBrightness(obj, 0);
+        // Every correction, color change and artistic effect goes too.
+        P.setShapeImageContrast(obj, null);
+        P.setShapePictureRecolor(obj, { kind: "none" });
+        P.setShapePictureAdjustments(obj, {
+          saturation: null,
+          temperature: null,
+          sharpness: null,
+          artistic: null,
+        });
         P.setShapeImageCrop?.(obj, { left: 0, top: 0, right: 0, bottom: 0 });
         P.setShapeFlip?.(obj, { horizontal: false, vertical: false });
       });
@@ -7234,6 +7677,10 @@ const sidePanelsExclusive = () => matchMedia("(max-width: 1150px)").matches;
 function editorFontSize(points, canvas) {
   return `${Math.max(14, (points * canvas.clientWidth) / (currentSize().cx / 914400) / 72)}px`;
 }
+// The layout of a phone on its side (src/chrome/chrome.css).
+const PHONE_SIDEWAYS = matchMedia(
+  "(max-width: 760px) and (max-height: 500px) and (orientation: landscape)",
+);
 function fitCanvas() {
   const area = document.querySelector("#canvas-area");
   const canvas = document.querySelector("#slide-canvas");
@@ -7254,10 +7701,11 @@ function fitCanvas() {
     parseFloat(getComputedStyle(label).marginBottom);
   const size = currentSize();
   // Very short windows scroll rather than shrinking the slide past half width
-  // (a portrait notes or handout page, past a quarter).
+  // (a portrait notes or handout page, past a quarter). A phone on its side
+  // always shows the whole slide: the thumbnails beside it take the width.
   const fitWidth = Math.floor(
     Math.max(
-      availableWidth / (size.cy > size.cx ? 4 : 2),
+      PHONE_SIDEWAYS.matches ? 0 : availableWidth / (size.cy > size.cx ? 4 : 2),
       Math.min(availableWidth, (availableHeight * size.cx) / size.cy),
     ),
   );
@@ -7538,7 +7986,7 @@ function assistantEnv() {
     },
     whenIdle: assistantIdle,
     isTyping: assistantTyping,
-    history: () => ({ bytes: history.bytes }),
+    history: () => ({ step: history.step }),
     undoTurn: (first, count) => undoAssistantTurn(first, count),
     focusWorkspace: () => workspace()?.focus({ preventScroll: true }),
     onToggle: (open) => {
@@ -7627,10 +8075,12 @@ function recentMenuItems() {
 }
 // The File menu. The phone's File options button, the only menu button its
 // layout keeps, carries the other menus too.
-function fileMenu(anchor) {
+// With `collect`, the menu is handed to it instead of opening (the command
+// search looks through it).
+function fileMenu(anchor, collect = null) {
   const mobile = anchor.classList.contains("mobile-only");
-  loadRecentList({ again: false });
-  openMenu({
+  if (!collect) loadRecentList({ again: false });
+  (collect || openMenu)({
     anchor,
     label: "File",
     align: "auto",
@@ -8291,14 +8741,14 @@ function restoreHistory(direction, steps = 1) {
         place = null;
       // Several steps go back as one: the slide shows only where they end.
       for (let i = 0; i < steps; i++) {
-        const undone = editPlaces.get(history.bytes)?.before;
+        const undone = editPlaces.get(history.step)?.before;
         const next = await history[direction]();
         if (!next) break;
         pres = next;
         place =
           (direction === "undo"
             ? undone
-            : editPlaces.get(history.bytes)?.after) ?? null;
+            : editPlaces.get(history.step)?.after) ?? null;
       }
       if (pres) {
         const previous = active.pres;
@@ -8314,14 +8764,16 @@ function restoreHistory(direction, steps = 1) {
           P.getSlides(pres).findIndex((s) => P.getSlidePartName(s) === wanted);
         // A step that changed what is on another slide shows that slide; one
         // that added, removed or moved slides shows in the navigator, and
-        // the slide in view stays.
+        // the slide in view stays. When the step takes that slide away (a
+        // new or duplicated slide undone), the slide the edit was made from
+        // is shown, not whichever slide moved up into its place.
         const order = (deck) =>
           P.getSlides(deck).map(P.getSlidePartName).join();
         const shown =
           !masterView.active &&
           place &&
           position(place.part) >= 0 &&
-          order(pres) === order(previous)
+          (order(pres) === order(previous) || position(part) < 0)
             ? place.part
             : part;
         if (position(shown) >= 0) index = position(shown);
@@ -8346,7 +8798,7 @@ async function undoAssistantTurn(first, count) {
   // The palette goes back with the slides: the history keeps the one each
   // snapshot was taken under.
   const palette = history.states.get(first) ?? theme;
-  const pres = await P.loadPresentation(first);
+  const pres = P.restorePresentation(first);
   if (doc !== active) return false;
   P.refreshPresentationFields(pres, P.getPresentationFieldDate(doc.pres));
   return mutate(() => {
@@ -8528,8 +8980,60 @@ function slidePreview(s) {
   }
   return src;
 }
+// A slide's XML, as the navigator compares it with the render it holds.
+// Edits write a slide's XML to new bytes for its part, so while the slide
+// and its part's bytes are the ones last read, its XML is too: an edit
+// serializes the slides it changed rather than every slide of the deck.
+const navigatorXml = new WeakMap();
+function navigatorSlideXml(pkg, s, part) {
+  const data = pkg.getPart(part)?.data;
+  const hit = navigatorXml.get(s);
+  if (hit && data && hit.data === data) return hit.xml;
+  const xml = P.getSlideXmlString(s);
+  if (data) navigatorXml.set(s, { data, xml });
+  return xml;
+}
+// What each navigator row was last worked out from, by slide: its place,
+// whether it was chosen, and what its name, field, SmartArt and template
+// stamps came to. An edit that changed nothing but some slides' own XML
+// leaves every other row as it was worked out (same slide, same place, the
+// rest of the file and its field date unchanged), so those rows are not
+// worked out again.
+const navigatorRows = new WeakMap();
+let navigatorParts = null;
+// The slide parts changed since the navigator was last drawn from this
+// package, or null when anything else changed (or it is another package).
+function navigatorSlideChanges(pres, pkg) {
+  const last = navigatorParts;
+  const date = P.getPresentationFieldDate(pres).getTime();
+  navigatorParts = {
+    pkg,
+    date,
+    data: new Map(pkg.parts.map((part) => [part.name, part.data])),
+    types: new Map(pkg.parts.map((part) => [part.name, part.contentType])),
+  };
+  if (last?.pkg !== pkg || last.date !== date) return null;
+  if (last.data.size !== pkg.parts.length) return null;
+  const changed = new Set();
+  for (const part of pkg.parts) {
+    if (!last.data.has(part.name)) return null;
+    if (last.data.get(part.name) === part.data) continue;
+    if (
+      part.contentType !== SLIDE_PART_TYPE ||
+      last.types.get(part.name) !== part.contentType
+    )
+      return null;
+    changed.add(part.name);
+  }
+  return changed;
+}
+const SLIDE_PART_TYPE =
+  "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
 function renderSlideArea(refreshNavigator = true) {
   if (view !== "editor") return;
+  // A deck first shown, opened or brought back by undo: its zoom targets
+  // are noted as drawn (insert/zoom.js).
+  insertFeatures?.seedZooms();
   const focusSelection = document.activeElement?.matches(
     ".object-hit.selected",
   );
@@ -8597,15 +9101,25 @@ function renderSlideArea(refreshNavigator = true) {
         row,
       ]),
     );
+    const pkg = P._internalPackageOf(doc.pres);
+    const changedSlides = navigatorSlideChanges(doc.pres, pkg);
     all.forEach((s, i) => {
       const part = P.getSlidePartName(s);
-      const xml = P.getSlideXmlString(s);
+      const xml = navigatorSlideXml(pkg, s, part);
       const cached = previous.get(part);
       const distance = Math.abs(i - index);
-      const fields = slideFieldStamp(doc.pres, s);
-      const diagrams = slideDiagramDataStamp(doc.pres, s);
+      const chosen = chosenParts.size > 1 && chosenParts.has(part);
+      const last =
+        changedSlides && !changedSlides.has(part) && rows.has(part)
+          ? navigatorRows.get(s)
+          : null;
+      const same = !!last && last.index === i && last.chosen === chosen;
+      const fields = same ? last.fields : slideFieldStamp(doc.pres, s);
+      const diagrams = same
+        ? last.diagrams
+        : slideDiagramDataStamp(doc.pres, s);
       // A slide also redraws when its layout, master or theme changed.
-      const template = templateStamp(doc.pres, s);
+      const template = same ? last.template : templateStamp(doc.pres, s);
       const src =
         cached?.xml === xml &&
         cached.template === template &&
@@ -8622,7 +9136,6 @@ function renderSlideArea(refreshNavigator = true) {
       // Hidden slides stay editable but are skipped when presenting and
       // printing, so the navigator says so.
       const hidden = P.isSlideHidden(s);
-      const chosen = chosenParts.size > 1 && chosenParts.has(part);
       let row = rows.get(part);
       rows.delete(part);
       if (!row) row = slideRow(part);
@@ -8644,10 +9157,12 @@ function renderSlideArea(refreshNavigator = true) {
       const number = row.querySelector(".slide-number");
       if (number.textContent !== String(i + 1)) number.textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
-      const label = thumbLabel(s, i, chosen);
-      if (thumb.getAttribute("aria-label") !== label)
-        thumb.setAttribute("aria-label", label);
-      review.decorateThumb(thumb, s);
+      if (!same) {
+        const label = thumbLabel(s, i, chosen);
+        if (thumb.getAttribute("aria-label") !== label)
+          thumb.setAttribute("aria-label", label);
+        review.decorateThumb(thumb, s);
+      }
       if (i !== index) thumb.removeAttribute("aria-current");
       else if (thumb.getAttribute("aria-current") !== "true")
         thumb.setAttribute("aria-current", "true");
@@ -8657,7 +9172,8 @@ function renderSlideArea(refreshNavigator = true) {
           el("span", { class: "slide-hidden" }, icon("EyeOff", 11), "Hidden"),
         );
       else if (!hidden && badge) badge.remove();
-      transitionTools.markRow(row, s, i + 1);
+      if (!same) transitionTools.markRow(row, s, i + 1);
+      navigatorRows.set(s, { index: i, chosen, fields, diagrams, template });
       const options = row.querySelector(":scope > .icon-btn");
       if (options.getAttribute("aria-label") !== `Options for slide ${i + 1}`)
         options.setAttribute("aria-label", `Options for slide ${i + 1}`);
@@ -9143,6 +9659,7 @@ function duplicateSlides(targets) {
     const copies = [];
     for (const s of chosen) {
       const copy = P.duplicateSlide(doc.pres, s);
+      copySlideComments(s, copy);
       P.moveSlide(doc.pres, copy, at++);
       copies.push(P.getSlidePartName(copy));
     }
@@ -9225,7 +9742,7 @@ function renderSelection() {
   const size = currentSize();
   const visibleIds = new Set(visibleSlideShapes(slide()).map(P.getShapeId));
   const parents = groupParents(slide());
-  pruneSelection();
+  pruneSelection(visibleIds);
   const ids = selectionIds();
   const activePart = P.getSlidePartName(slide());
   const minimum = hitMinimum(size);
@@ -9268,7 +9785,14 @@ function renderSelection() {
       "data-object": i,
       "data-shape-id": P.getShapeId(s),
     });
-    placeHit(hit, b, size, slideRotation(s, parents), minimum);
+    placeHit(
+      hit,
+      b,
+      size,
+      slideRotation(s, parents),
+      minimum,
+      straightLine(s, parents),
+    );
     canvas.append(hit);
     if (selected === i && ids.size === 1)
       canvas.append(selectionBox(s, b, size));
@@ -9332,7 +9856,7 @@ async function fillAfter(command, place) {
   if (added.length !== 1) return;
   const id = P.getShapeId(added[0]);
   // The move into the placeholder is part of the insert's undo step.
-  const inserted = history.bytes;
+  const inserted = history.step;
   mutateSlide(
     after,
     (s) => {
@@ -9357,12 +9881,20 @@ function fillSlot(target, place, id) {
   if (filled) P.adoptPlaceholderSlot(filled, holder);
   removeAnyShape(target, P.findShapeById(target, place.id));
 }
-// Ids of objects that have gone stay out of the selection.
-function pruneSelection() {
-  const present = new Set(shapes().map(P.getShapeId));
+// Objects that have gone, or been hidden, leave the selection; when the one
+// with the handles goes, another selected object takes them.
+function pruneSelection(
+  visible = new Set(visibleSlideShapes(slide()).map(P.getShapeId)),
+) {
   const primary = currentShape();
+  if (primary && !visible.has(P.getShapeId(primary))) {
+    const next = [...extras].find((id) => visible.has(id));
+    selected =
+      next == null ? null : shapes().findIndex((s) => P.getShapeId(s) === next);
+  }
+  const kept = currentShape();
   for (const id of extras)
-    if (!present.has(id) || (primary && P.getShapeId(primary) === id))
+    if (!visible.has(id) || (kept && P.getShapeId(kept) === id))
       extras.delete(id);
 }
 // Several selected objects share one dashed outline around them all, a
@@ -9420,7 +9952,29 @@ function hitBounds(b, minimum) {
     h = Math.max(b.h, minimum);
   return { x: b.x - (w - b.w) / 2, y: b.y - (h - b.h) / 2, w, h };
 }
-function placeHit(hit, b, size, rotation, minimum = hitMinimum(size)) {
+// `line` is a straight line's run ({ rising }): its region is a strip along
+// the line rather than the box it spans, so a slanted line does not take
+// the clicks meant for what lies under its box.
+function placeHit(hit, b, size, rotation, minimum = hitMinimum(size), line) {
+  if (line && b.w > minimum && b.h > minimum) {
+    const length = Math.hypot(b.w, b.h);
+    const slope =
+      ((Math.atan2(b.h, b.w) * 180) / Math.PI) * (line.rising ? -1 : 1);
+    const region = {
+      x: b.x + b.w / 2 - length / 2,
+      y: b.y + b.h / 2 - minimum / 2,
+      w: length,
+      h: minimum,
+    };
+    Object.assign(hit.style, {
+      left: `${(region.x / size.cx) * 100}%`,
+      top: `${(region.y / size.cy) * 100}%`,
+      width: `${(region.w / size.cx) * 100}%`,
+      height: `${(region.h / size.cy) * 100}%`,
+      transform: `rotate(${rotation + slope}deg)`,
+    });
+    return;
+  }
   const region = hitBounds(b, minimum);
   Object.assign(hit.style, {
     left: `${(region.x / size.cx) * 100}%`,
@@ -9429,6 +9983,19 @@ function placeHit(hit, b, size, rotation, minimum = hitMinimum(size)) {
     height: `${(region.h / size.cy) * 100}%`,
     transform: `rotate(${rotation}deg)`,
   });
+}
+// A straight line's run as the slide shows it, or null for anything else
+// (a bent or curved connector fills more of its box).
+function straightLine(shape, parents) {
+  if (!isLine(shape)) return null;
+  const preset = P.getShapePreset(shape);
+  if (preset && !["line", "straightConnector1"].includes(preset)) return null;
+  if (!preset && P.getShapeCustomGeometry(shape)) return null;
+  const own = P.getShapeFlip(shape) || {};
+  const groups = groupFlip(shape, parents);
+  const h = !!own.horizontal !== groups.horizontal,
+    v = !!own.vertical !== groups.vertical;
+  return { rising: h !== v };
 }
 // A drag across empty canvas draws a marquee and selects what it touches;
 // with Shift the objects join the selection. Touch keeps its scrolling.
@@ -9708,12 +10275,46 @@ function settleDragLayers(image) {
       if (dragLayers === layers) clearDragLayers();
     });
 }
+// The CSS transform that takes a following connector's layer from its ends
+// as drawn to where they go: the ends that ride with the drag move by its
+// offset (dx, dy, in EMU), and the line turns and stretches between them
+// while keeping its thickness. `scale` is canvas pixels per EMU.
+function followerTransform({ drawn, target, rides }, dx, dy, scale) {
+  const goal = (key) => ({
+    x: (target[key].x + (rides[key] ? dx : 0)) * scale,
+    y: (target[key].y + (rides[key] ? dy : 0)) * scale,
+  });
+  const S = { x: drawn.start.x * scale, y: drawn.start.y * scale },
+    E = { x: drawn.end.x * scale, y: drawn.end.y * scale };
+  const S2 = goal("start"),
+    E2 = goal("end");
+  const from = Math.hypot(E.x - S.x, E.y - S.y),
+    to = Math.hypot(E2.x - S2.x, E2.y - S2.y);
+  if (from < 1 || to < 1) return `translate(${S2.x - S.x}px, ${S2.y - S.y}px)`;
+  const t1 = Math.atan2(E.y - S.y, E.x - S.x),
+    t2 = Math.atan2(E2.y - S2.y, E2.x - S2.x);
+  const k = to / from;
+  const c1 = Math.cos(t1),
+    s1 = Math.sin(t1),
+    c2 = Math.cos(t2),
+    s2 = Math.sin(t2);
+  // Turn the line onto the x axis, stretch it along there, turn it back.
+  const a = c2 * k * c1 + s2 * s1,
+    c = c2 * k * s1 - s2 * c1,
+    b = s2 * k * c1 - c2 * s1,
+    d = s2 * k * s1 + c2 * c1;
+  const e = S2.x - (a * S.x + c * S.y),
+    f = S2.y - (b * S.x + d * S.y);
+  return `matrix(${a}, ${b}, ${c}, ${d}, ${e}, ${f})`;
+}
 // `ids` are top-level objects that move together. Returns the drag's handle
 // on its layers: place(transform, origin) moves them, land(applied) hands over to
 // the slide's own picture once the edit (a mutate promise, or null for none)
 // has drawn it. Null when an object in motion lies inside a group that stays
 // put: the slide cannot be split there, and the outline moves alone.
-function liftDragLayers(canvas, s, ids) {
+// `following` are top-level connectors that each take a layer of their
+// own, which follow(id, transform) reshapes as their ends move.
+function liftDragLayers(canvas, s, ids, following = new Set()) {
   clearDragLayers();
   const parents = groupParents(s);
   const top = P.getSlideShapes(s).filter(
@@ -9724,14 +10325,25 @@ function liftDragLayers(canvas, s, ids) {
     return null;
   const runs = [];
   for (const shape of top) {
-    const moving = ids.has(key(shape));
+    const id = key(shape);
+    const kind = ids.has(id)
+      ? "moving"
+      : following.has(id)
+        ? `follow:${id}`
+        : "still";
     const last = runs.at(-1);
-    if (last?.moving === moving) last.ids.add(key(shape));
-    else runs.push({ moving, ids: new Set([key(shape)]) });
+    if (last?.kind === kind && kind !== `follow:${id}`) last.ids.add(id);
+    else
+      runs.push({
+        kind,
+        moving: kind === "moving",
+        follows: kind === "still" || kind === "moving" ? null : id,
+        ids: new Set([id]),
+      });
   }
   // The background stays put under everything.
-  if (runs[0]?.moving !== false)
-    runs.unshift({ moving: false, ids: new Set() });
+  if (runs[0]?.kind !== "still")
+    runs.unshift({ kind: "still", moving: false, ids: new Set() });
   const prompts = canvasPrompts(s);
   const images = runs.map((run, i) =>
     el("img", {
@@ -9747,6 +10359,10 @@ function liftDragLayers(canvas, s, ids) {
     }),
   );
   const moving = images.filter((_, i) => runs[i].moving);
+  const followers = new Map(
+    runs.map((run, i) => [run.follows, images[i]]).filter(([id]) => id != null),
+  );
+  const shapes = new Map();
   const layers = { canvas, images, dragging: true };
   let transform = "",
     origin = "",
@@ -9755,6 +10371,10 @@ function liftDragLayers(canvas, s, ids) {
     for (const image of moving) {
       image.style.transform = transform;
       image.style.transformOrigin = origin;
+    }
+    for (const [id, image] of followers) {
+      image.style.transform = shapes.get(id) || "";
+      image.style.transformOrigin = "0 0";
     }
   };
   // Shown once every layer can be painted; until then the outline leads.
@@ -9774,6 +10394,14 @@ function liftDragLayers(canvas, s, ids) {
       transform = nextTransform;
       origin = nextOrigin;
       if (dragLayers === layers) place();
+    },
+    follow(id, nextTransform) {
+      shapes.set(id, nextTransform);
+      const image = followers.get(id);
+      if (image && dragLayers === layers) {
+        image.style.transform = nextTransform;
+        image.style.transformOrigin = "0 0";
+      }
     },
     land(applied) {
       landed = true;
@@ -9807,8 +10435,7 @@ function startDrag(e, shape, mode = "move") {
   const rect = canvas.getBoundingClientRect();
   const startX = e.clientX,
     startY = e.clientY;
-  const keepRatio =
-    P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj);
+  const keepRatio = keepsProportions(obj);
   const line = isLine(obj);
   const rotation = slideRotation(obj);
   const target = e.currentTarget;
@@ -9914,21 +10541,30 @@ function startDrag(e, shape, mode = "move") {
   // moves on the group's layer. A resize keeps to the outline, since a
   // stretched picture would show text and lines distorted.
   let lift;
+  // Connectors glued to what moves are reshaped along with it.
+  let followers = [];
   const lifted = () => {
-    if (lift === undefined)
+    if (lift === undefined) {
+      const ids = [
+        ...(carried ? [] : [P.getShapeId(obj)]),
+        ...companions.map((c) => c.id),
+      ];
+      if (mode === "move") {
+        const parents = groupParents(slide());
+        followers = connectorFollowers(doc.pres, slide(), new Set(ids)).filter(
+          (f) => !parents.has(f.id),
+        );
+      }
       lift =
         mode === "move" || mode === "rotate"
           ? liftDragLayers(
               canvas,
               slide(),
-              new Set(
-                [
-                  ...(carried ? [] : [P.getShapeId(obj)]),
-                  ...companions.map((c) => c.id),
-                ].map(String),
-              ),
+              new Set(ids.map(String)),
+              new Set(followers.map((f) => String(f.id))),
             )
           : null;
+    }
     return lift;
   };
   const pct = (v, total) => `${(v / total) * 100}%`;
@@ -9995,11 +10631,27 @@ function startDrag(e, shape, mode = "move") {
     if (snapped) candidate = snapped.bounds;
     showGuides(canvas, snapped?.guides || [], size);
     next = mode === "move" ? withinSlide(candidate) : candidate;
-    if (mode === "move")
+    if (mode === "move") {
       lifted()?.place(
         `translate(${pct(next.x - b.x, size.cx)}, ${pct(next.y - b.y, size.cy)})`,
       );
-    placeHit(overlay, normalized(next), size, rotation);
+      const scale = rect.width / size.cx;
+      for (const f of followers)
+        lift?.follow(
+          String(f.id),
+          followerTransform(f, next.x - b.x, next.y - b.y, scale),
+        );
+    }
+    // A line's strip follows it, turning over when an end crosses the other.
+    const strip = line && straightLine(obj);
+    placeHit(
+      overlay,
+      normalized(next),
+      size,
+      rotation,
+      undefined,
+      strip && { rising: (strip.rising !== next.w < 0) !== next.h < 0 },
+    );
     if (box) placeSelection(box, normalized(next), size, rotation);
     for (const c of companions)
       placeHit(
@@ -10389,12 +11041,14 @@ function textTargets(obj) {
 // objects as one undo step, recorded when at least one of them changed.
 function textMutation(obj, fn, options) {
   const targets = textTargets(obj);
-  if (targets.length === 1)
-    return mutateShape(
-      obj,
-      (obj, targetSlide) => fn(withTextBody(obj), targetSlide),
-      options,
-    );
+  // Text set to shrink on overflow, or a shape set to fit its text, follows
+  // the change.
+  const fitted = (target, targetSlide) => {
+    const result = fn(withTextBody(target), targetSlide);
+    if (result !== SKIP_MUTATION) fitText(target);
+    return result;
+  };
+  if (targets.length === 1) return mutateShape(obj, fitted, options);
   const ids = targets.map(P.getShapeId);
   return mutateSlide(
     P.getShapeSlide(obj),
@@ -10402,7 +11056,7 @@ function textMutation(obj, fn, options) {
       let changed = false;
       for (const id of ids) {
         const target = P.findShapeById(targetSlide, id);
-        if (target && fn(withTextBody(target), targetSlide) !== SKIP_MUTATION)
+        if (target && fitted(target, targetSlide) !== SKIP_MUTATION)
           changed = true;
       }
       return changed ? undefined : SKIP_MUTATION;
@@ -10459,6 +11113,14 @@ function setText(obj, value, fields = []) {
     });
   });
   setRichText(obj, retainTextFields(paragraphs, fields, before));
+  fitText(obj);
+}
+// Shrink text on overflow and Resize shape to fit text, after the text of a
+// shape changes.
+function fitText(obj) {
+  try {
+    fitTextToShape(doc.pres, obj);
+  } catch {}
 }
 // The format of the shape's text: that of its first run or field, or for an
 // empty placeholder the format typed text would take, resolved through the
@@ -10940,18 +11602,31 @@ function formattedPaste(html, plain) {
   } catch {
     return null;
   }
-  if (!paragraphs.some((p) => p.runs.some((r) => Object.keys(r.format).length)))
+  // Plain text says as much unless the HTML has formatting, line breaks
+  // within its paragraphs, or lists.
+  if (
+    !paragraphs.some(
+      (p) =>
+        p.list ||
+        p.runs.some(
+          (r) => Object.keys(r.format).length || r.text.includes(SOFT_BREAK),
+        ),
+    )
+  )
     return null;
   const words = (text) =>
     text
+      .replaceAll(SOFT_BREAK, "\n")
       .split("\n")
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean)
       .join("\n");
+  // A paragraph's list goes with its first piece.
   const pieces = paragraphs.flatMap((p, i) =>
     p.runs.map((r, k) => ({
       text: (i && !k ? "\n" : "") + r.text,
       format: r.format,
+      ...(!k && p.list ? { list: p.list, level: p.level || 0 } : {}),
     })),
   );
   return words(pieces.map((p) => p.text).join("")) === words(plain)
@@ -11012,6 +11687,9 @@ function editText(target, event = null, { inserted = null } = {}) {
     // A field keeps its element, and goes back as a field for as long as
     // its text is left alone.
     ...(run.fld ? { fld: run.fld } : {}),
+    // A link on the text, and whether the editor set or took it off.
+    ...(run.link ? { link: run.link } : {}),
+    ...(run.linkChanged ? { linkChanged: true } : {}),
   });
   const paragraphs = textRuns(doc.pres, obj);
   let runs = [];
@@ -11046,6 +11724,8 @@ function editText(target, event = null, { inserted = null } = {}) {
     ppr: paragraph.ppr,
     align: paragraph.align || "left",
     list: paragraph.list || "none",
+    bullet: paragraph.bullet ?? null,
+    rtl: !!paragraph.rtl,
     lineSpacing: paragraph.lineSpacing || 1,
     spaceBefore: paragraph.spaceBefore || 0,
     spaceAfter: paragraph.spaceAfter || 0,
@@ -11055,7 +11735,7 @@ function editText(target, event = null, { inserted = null } = {}) {
   if (!paras.length) paras = [blank()];
   const serialize = (list, blocks) =>
     JSON.stringify([
-      list.map((run) => [run.text, run.changes]),
+      list.map((run) => [run.text, run.changes, run.link || null]),
       blocks.map((b) => [
         b.level,
         b.align,
@@ -11095,8 +11775,16 @@ function editText(target, event = null, { inserted = null } = {}) {
     contrast(luminance(color), luminance(surface)) >= 3;
   const readable = legible(format.color);
   const baseSize = format.size || 24;
+  // Text shrunk to fit its box shows at the size the slide draws it.
+  let autofit = null,
+    fontScale = 1;
+  try {
+    autofit = textAutofit(obj);
+    if (autofit === "normal")
+      fontScale = P.getShapeTextAutoFitParams(obj)?.fontScale || 1;
+  } catch {}
   // A resized group keeps its text at its point size, as the slide shows it.
-  input.dataset.points = baseSize;
+  input.dataset.points = baseSize * fontScale;
   const resolveFont = slideFontResolver(slide(), doc.pres);
   const decoration = (f) =>
     [
@@ -11112,7 +11800,7 @@ function editText(target, event = null, { inserted = null } = {}) {
     top: `${(editorRect.y / size.cy) * 100}%`,
     width: `${(editorRect.w / size.cx) * 100}%`,
     height: `${(editorRect.h / size.cy) * 100}%`,
-    fontSize: editorFontSize(baseSize, canvas),
+    fontSize: editorFontSize(baseSize * fontScale, canvas),
     fontFamily: format.font ? resolveFont(format.font) : "",
     fontWeight: format.bold ? "700" : "400",
     fontStyle: format.italic ? "italic" : "normal",
@@ -11129,6 +11817,8 @@ function editText(target, event = null, { inserted = null } = {}) {
       { ctr: "center", b: "flex-end" }[textAnchor(obj)] || "flex-start",
     color: readable ? format.color : "",
     background: readable ? surface : "",
+    // Vertical text runs down its box as the slide draws it.
+    ...editorWritingMode(obj),
     // The editor lies over the box as the slide turns it, about the same
     // center, so the text is edited where it is shown.
     transform: `rotate(${geometryTextRect?.rotation ?? slideRotation(obj)}deg)`,
@@ -11157,10 +11847,19 @@ function editText(target, event = null, { inserted = null } = {}) {
           family: resolveFont(f.font || format.font),
         }) || "auto",
       textDecoration: decoration(f),
-      fontSize:
-        f.size && Math.abs(f.size - baseSize) > 0.01
-          ? `${f.size / baseSize}em`
-          : "",
+      // Raised and lowered text shows smaller, as the slide draws it.
+      fontSize: (() => {
+        const scale =
+          (f.size ? f.size / baseSize : 1) * (f.baseline ? RAISED_SIZE : 1);
+        return Math.abs(scale - 1) > 0.0001 ? `${scale}em` : "";
+      })(),
+      verticalAlign: f.baseline > 0 ? "super" : f.baseline < 0 ? "sub" : "",
+      // Character spacing is in hundredths of a point.
+      letterSpacing: f.spc ? `${f.spc / 100 / baseSize}em` : "",
+      textTransform: f.cap === "all" ? "uppercase" : "",
+      fontVariantCaps: f.cap === "small" ? "small-caps" : "",
+      backgroundColor:
+        readable && /^#[\da-f]{6}$/i.test(f.highlight || "") ? f.highlight : "",
       fontFamily: f.font && f.font !== format.font ? resolveFont(f.font) : "",
       color:
         readable && f.color && f.color !== format.color && legible(f.color)
@@ -11176,6 +11875,17 @@ function editText(target, event = null, { inserted = null } = {}) {
     );
     const blocks = [];
     let block = null;
+    // Each list paragraph shows its bullet, or its number as the slide
+    // counts it.
+    const markers = listMarkers(
+      runParagraphs(runs).map((_, k) => {
+        const para = paras[k] || blank();
+        return {
+          level: para.level || 0,
+          bullet: listBullet(para),
+        };
+      }),
+    );
     const open = () => {
       const k = blocks.length;
       const para = paras[k] || blank();
@@ -11186,7 +11896,10 @@ function editText(target, event = null, { inserted = null } = {}) {
         "data-level": String(level),
         "data-list": para.list || "none",
       });
-      block.style.paddingLeft = level ? `${level * 1.5}em` : "";
+      if (markers[k]) block.dataset.marker = markers[k];
+      // A right-to-left paragraph reads, and moves the caret, that way.
+      if (para.rtl) block.dir = "rtl";
+      block.style.paddingInlineStart = level ? `${level * 1.5}em` : "";
       block.style.textAlign = para.align || "";
       block.style.lineHeight =
         para.lineSpacing && para.lineSpacing !== 1
@@ -11200,8 +11913,8 @@ function editText(target, event = null, { inserted = null } = {}) {
         spacing?.[k]?.afterPx != null
           ? spacing[k].afterPx * 0.75
           : para.spaceAfter;
-      block.style.marginTop = before ? `${before / baseSize}em` : "";
-      block.style.marginBottom = after ? `${after / baseSize}em` : "";
+      block.style.marginBlockStart = before ? `${before / baseSize}em` : "";
+      block.style.marginBlockEnd = after ? `${after / baseSize}em` : "";
       blocks.push(block);
     };
     open();
@@ -11216,6 +11929,11 @@ function editText(target, event = null, { inserted = null } = {}) {
           if (line) span.append(line);
         });
         styleRun(span, run.format);
+        // Linked text shows underlined, with its address on hover.
+        if (run.link) {
+          span.style.textDecoration = "underline";
+          span.title = run.link;
+        }
         block.append(span);
       });
     });
@@ -11224,7 +11942,15 @@ function editText(target, event = null, { inserted = null } = {}) {
     for (const b of blocks)
       if (!b.childNodes.length || endsWithBreak(b)) b.append(el("br"));
     input.replaceChildren(...blocks);
+    fitEditor();
   }
+  // A paragraph's bullet as read, or the list style chosen for it here.
+  const listBullet = (para) =>
+    para.list === "none"
+      ? null
+      : listOf(para.bullet) === para.list
+        ? para.bullet
+        : para.list;
   const isBlock = (node) => ["DIV", "P", "LI"].includes(node.nodeName);
   const isBreak = (node) =>
     node instanceof Element && node.matches("br[data-break]");
@@ -11409,6 +12135,31 @@ function editText(target, event = null, { inserted = null } = {}) {
       0,
       ...Array.from({ length: added }, () => ({ ...paras[at] })),
     );
+    // Pasted list paragraphs keep their list and level: the paragraphs the
+    // paste adds, and the one it lands in when that one was empty.
+    if (pieces) {
+      const value = text();
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const lineEnd = value.indexOf("\n", end);
+      const landedEmpty =
+        !value.slice(lineStart, start) &&
+        !value.slice(end, lineEnd < 0 ? value.length : lineEnd);
+      let k = 0;
+      for (const piece of pieces) {
+        if (piece.text.startsWith("\n")) k++;
+        if (!piece.list || (k === 0 && !landedEmpty)) continue;
+        const para = paras[at + k] || blank();
+        if (para.list === piece.list && (para.level || 0) === piece.level)
+          continue;
+        paras[at + k] = {
+          ...para,
+          list: piece.list,
+          listChanged: true,
+          level: piece.level,
+          changed: true,
+        };
+      }
+    }
     const from = splitAt(start),
       to = splitAt(end);
     const source = runs[from - 1] || runs[from] || base;
@@ -11569,6 +12320,88 @@ function editText(target, event = null, { inserted = null } = {}) {
     }
     setSelection(sel[0], sel[1]);
     syncToolbar();
+  }
+  // The text a link command acts on: the selection, or else the linked
+  // text the caret stands in, with the address it links to (the first run's
+  // in the selection); null with neither.
+  function linkTarget() {
+    const sel = selection();
+    if (!sel) return null;
+    const list = read().runs;
+    let pos = 0;
+    const spans = list.map((run) => {
+      const span = { run, start: pos, end: pos + run.text.length };
+      pos = span.end;
+      return span;
+    });
+    if (sel[0] !== sel[1]) {
+      const first = spans.find((s) => s.end > sel[0] && s.start < sel[1]);
+      return { start: sel[0], end: sel[1], url: first?.run.link || null };
+    }
+    const at = spans.findIndex(
+      (s) => s.run.link && s.start <= sel[0] && sel[0] <= s.end,
+    );
+    if (at < 0) return null;
+    const url = spans[at].run.link;
+    let from = at,
+      to = at;
+    while (from > 0 && spans[from - 1].run.link === url) from--;
+    while (to < spans.length - 1 && spans[to + 1].run.link === url) to++;
+    return { start: spans[from].start, end: spans[to].end, url };
+  }
+  // Links the text between two offsets to `url`, or with null takes its
+  // link off. Fields keep their own.
+  function link(start, end, url) {
+    if (start >= end) return false;
+    remember();
+    runs = readRuns();
+    const [from, to] = fieldFormattingRange(runs, start, end);
+    for (const run of runs.slice(splitAt(from), splitAt(to))) {
+      if (run.fld) continue;
+      if (url) run.link = url;
+      else delete run.link;
+      run.linkChanged = true;
+    }
+    runs = runs.filter((run) => run.text);
+    render();
+    refocusSoon([start, end]);
+    return true;
+  }
+  // Change Case: `convert` rewrites the selected text, or the word at the
+  // caret, run by run, so each part keeps its formatting. Fields keep their
+  // own text.
+  function transform(convert) {
+    const sel = selection() || [0, text().length];
+    let [start, end] = sel;
+    if (start === end) {
+      const value = textOf(read().runs);
+      const word = value && wordAround(start, value);
+      if (!word) return refocusSoon(sel);
+      [start, end] = word;
+    }
+    const list = read().runs;
+    const original = textOf(list).slice(start, end);
+    const converted = convert(original);
+    if (converted === original) return refocusSoon(sel);
+    remember();
+    runs = readRuns();
+    const changed = runs.slice(splitAt(start), splitAt(end));
+    // The whole selection converts at once, so a sentence or a word that
+    // runs across runs is seen whole; a conversion that changes the length
+    // (ß to SS) goes run by run instead.
+    let pos = 0;
+    for (const run of changed) {
+      const length = run.text.length;
+      if (!run.fld)
+        run.text =
+          converted.length === original.length
+            ? converted.slice(pos, pos + length)
+            : convert(run.text);
+      pos += length;
+    }
+    runs = runs.filter((run) => run.text);
+    render();
+    refocusSoon([start, start + textOf(changed).length]);
   }
   function toggle(key) {
     const sel = selection() || [0, text().length];
@@ -11739,7 +12572,14 @@ function editText(target, event = null, { inserted = null } = {}) {
   // formatting once composed.
   let composing = null;
   input.addEventListener("compositionstart", () => {
-    const sel = selectionOffsets();
+    let sel = selectionOffsets();
+    // A selection across paragraphs goes before the input method types over
+    // it, as typed text's does, so the paragraph joined keeps its runs.
+    const value = textOf(read().runs);
+    if (sel && value.slice(sel[0], sel[1]).includes("\n")) {
+      replaceRange(sel[0], typedOver(sel[0], sel[1], value), "");
+      sel = selectionOffsets();
+    }
     const change = caretFormat && caretFormatAt(sel, textOf(read().runs));
     composing = change ? { at: sel[0], change } : null;
     caretFormat = null;
@@ -11809,6 +12649,34 @@ function editText(target, event = null, { inserted = null } = {}) {
         return;
       }
     }
+    // Ctrl/⌘+K links the selected text, or edits the link at the caret.
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      e.code === "KeyK"
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      linkDialog().catch(fail);
+      return;
+    }
+    // Copy and paste formatting, as Format Painter does, on the text.
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      e.shiftKey &&
+      !e.altKey &&
+      (e.code === "KeyC" || (e.code === "KeyV" && painter?.format.text))
+    ) {
+      e.preventDefault();
+      if (e.code === "KeyC") {
+        painter = { format: pickUpFormat(obj), sticky: true, keyboard: true };
+        toast(
+          `Formatting copied. Select text and press Shift+${MOD_KEY}+V to apply it.`,
+        );
+      } else paintText(richEditor);
+      return;
+    }
     const style = { b: "bold", i: "italic", u: "underline" }[
       e.key.toLowerCase()
     ];
@@ -11839,9 +12707,42 @@ function editText(target, event = null, { inserted = null } = {}) {
       finish(false);
     }
   });
+  // The offsets of a deletion or of typing that takes a paragraph break
+  // with it, if it does.
+  function acrossParagraphs(e) {
+    if (
+      !/^(delete|insertText$|insertReplacementText$)/.test(e.inputType) ||
+      (e.inputType.startsWith("insert") && e.data == null)
+    )
+      return null;
+    const range = e.getTargetRanges?.()[0];
+    const sel =
+      range && input.contains(range.startContainer)
+        ? [
+            pointOffset(range.startContainer, range.startOffset),
+            pointOffset(range.endContainer, range.endOffset),
+          ]
+        : selectionOffsets();
+    if (!sel || sel[0] === sel[1]) return null;
+    const [start, end] = sel[0] <= sel[1] ? sel : [sel[1], sel[0]];
+    const value = textOf(read().runs);
+    if (!value.slice(start, end).includes("\n")) return null;
+    return [
+      start,
+      e.inputType.startsWith("insert") ? typedOver(start, end, value) : end,
+    ];
+  }
+  // Text typed over whole paragraphs, selected with the break after them as
+  // a triple click selects one, takes their place: the paragraph after stays
+  // a paragraph of its own.
+  const typedOver = (start, end, value) =>
+    value[end - 1] === "\n" && (start === 0 || value[start - 1] === "\n")
+      ? end - 1
+      : end;
   // Line breaks and pasted text go through the runs; the browser's own rich
   // formatting and drops stay out.
   input.addEventListener("beforeinput", (e) => {
+    let joined;
     // The browser's undo, asked for through its menu, is the editor's.
     if (["historyUndo", "historyRedo"].includes(e.inputType)) {
       e.preventDefault();
@@ -11864,7 +12765,16 @@ function editText(target, event = null, { inserted = null } = {}) {
       ["insertFromDrop", "insertLink", "insertFromPaste"].includes(e.inputType)
     )
       e.preventDefault();
-    else if (caretFormat && e.inputType === "insertText" && e.data) {
+    else if ((joined = acrossParagraphs(e))) {
+      // A join of paragraphs goes through the runs: the browser's own moves
+      // the text of the paragraph joined out of its run, and it took the
+      // formatting of the text before it.
+      e.preventDefault();
+      replaceRange(joined[0], joined[1], e.data || "");
+      // Typing or deleting on from here belongs to the same step.
+      typingKind = e.inputType.startsWith("delete") ? "delete" : "insert";
+      typingSince = Date.now();
+    } else if (caretFormat && e.inputType === "insertText" && e.data) {
       const sel = selectionOffsets();
       const change = caretFormatAt(sel, textOf(read().runs));
       if (change) {
@@ -11892,7 +12802,38 @@ function editText(target, event = null, { inserted = null } = {}) {
     else if (value) replaceRange(sel[0], sel[1], value);
   });
   input.addEventListener("drop", (e) => e.preventDefault());
-  input.addEventListener("input", () => syncToolbar());
+  // With Format Painter on, the text the pointer selects takes its
+  // formatting.
+  input.addEventListener("pointerup", (e) => {
+    if (e.button || !painter || painter.keyboard || richEditor?.input !== input)
+      return;
+    // The selection settles after the press ends.
+    setTimeout(() => {
+      if (!closed && painter && !painter.keyboard) paintText(richEditor);
+    });
+  });
+  // As it is typed, text set to shrink on overflow shrinks to the box, and a
+  // shape set to fit its text grows and shrinks with it; the slide takes
+  // the measured scale or size when the editor closes.
+  if (autofit === "shape") input.style.height = "auto";
+  function fitEditor() {
+    if (autofit !== "normal" || !input.isConnected) return;
+    const size = (scale) => {
+      input.dataset.points = baseSize * scale;
+      input.style.fontSize = editorFontSize(baseSize * scale, canvas);
+    };
+    const fits = () => input.scrollHeight <= input.clientHeight + 1;
+    size(1);
+    if (fits()) return;
+    for (const [scale] of AUTOFIT_STEPS) {
+      size(scale / 100000);
+      if (fits()) return;
+    }
+  }
+  input.addEventListener("input", () => {
+    fitEditor();
+    syncToolbar();
+  });
   const controls = (node) =>
     node instanceof Element &&
     node.closest(
@@ -11956,6 +12897,7 @@ function editText(target, event = null, { inserted = null } = {}) {
           paragraph.spaceAfterChanged = !!block.spaceAfterChanged;
         });
         setRichText(obj, paragraphs);
+        fitText(obj);
       });
   }
   // Focus or a press anywhere but the editor and its controls ends a
@@ -11971,6 +12913,14 @@ function editText(target, event = null, { inserted = null } = {}) {
       return;
     }
     close();
+  });
+  // A press in the text puts the caret where it lands, not back where the
+  // selection was before a control took the focus.
+  input.addEventListener("pointerdown", () => {
+    if (suspended) {
+      suspended = false;
+      saved = null;
+    }
   });
   input.addEventListener("focus", () => {
     if (suspended) {
@@ -12023,6 +12973,14 @@ function editText(target, event = null, { inserted = null } = {}) {
             .slice(sel[0], sel[1])
         : "";
     },
+    // Text put in at the caret, or over the selection: a symbol, a date.
+    insertText: (value) => {
+      const sel = selection();
+      if (!sel) return false;
+      replaceRange(sel[0], sel[1], value);
+      refocusSoon([sel[0] + value.length, sel[0] + value.length]);
+      return true;
+    },
     // A field put in at the caret, or over the selection.
     insertField: (value, field) => {
       const sel = selection();
@@ -12038,15 +12996,37 @@ function editText(target, event = null, { inserted = null } = {}) {
       saved = [sel[0], sel[0] + value.length];
       return true;
     },
+    linkTarget,
+    link,
     superscript: (from, to) => {
       setSelection(from, to);
-      apply({ baseline: 30000 }, { refocus: false });
+      apply({ baseline: 0.3 }, { refocus: false });
     },
+    transform,
   };
   review.attachEditor(richEditor);
   input.focus();
   getSelection()?.selectAllChildren(input);
 }
+// The writing mode of the text editor for a box of vertical text: lines
+// down the box, turned a quarter right ("vert", and East Asian text with
+// its letters upright), or left ("vert270"), or Mongolian columns from the
+// left.
+function editorWritingMode(obj) {
+  let vert = null;
+  try {
+    vert =
+      P.getShapeBodyPrEffective(doc.pres, obj).vert ??
+      P.getShapeTextDirection(obj);
+  } catch {}
+  if (["vert", "eaVert", "wordArtVertRtl"].includes(vert))
+    return { writingMode: "vertical-rl" };
+  if (vert === "vert270") return { writingMode: "sideways-lr" };
+  if (vert === "mongolianVert") return { writingMode: "vertical-lr" };
+  return {};
+}
+// Raised or lowered text is drawn at this share of its size.
+const RAISED_SIZE = 0.65;
 // The text editor open on the canvas, if any: the toolbar's bold, italic,
 // underline, and strikethrough act on its selection while it is.
 let richEditor = null;
@@ -12270,7 +13250,13 @@ async function readImageFile(file) {
 // `place` puts the picture in an empty placeholder, which it replaces; a
 // place with a `box` puts it there (EMU), as a picture pasted in place of
 // copied objects does.
-async function insertImageFile(file, place = null) {
+// A picture inserted from a file is described by the file's name. One
+// pasted from a screenshot or a web page arrives as "image.png", a name not
+// worth reading out, so it gets no description and the accessibility check
+// asks for one.
+const pastedImageName = (name) =>
+  /^image\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+async function insertImageFile(file, place = null, { describe = true } = {}) {
   commitText();
   const target = doc,
     part = place?.part ?? P.getSlidePartName(slide());
@@ -12305,7 +13291,7 @@ async function insertImageFile(file, place = null) {
               h: P.inches(height),
             },
     );
-    P.setShapeDescription(s, file.name);
+    if (describe) P.setShapeDescription(s, file.name);
     fillSlot(destination, place, P.getShapeId(s));
     // The same picture inserted twice travels once in the file.
     dedupeSlideMedia(doc.pres, destination);
@@ -13046,10 +14032,7 @@ function boundsInput(obj, key, label, b, size) {
     Math.round((b[key] / 914400) * 100) / 100,
     (n) =>
       mutateShape(obj, (obj) => {
-        const bounds = {
-          ...slideBounds(doc.pres, obj),
-          [key]: P.inches(n),
-        };
+        const bounds = sizedBounds(obj, slideBounds(doc.pres, obj), key, n);
         setSlideBounds(doc.pres, obj, bounds);
         fitTableGrid(obj, bounds);
       }),
@@ -13427,18 +14410,18 @@ function multiModel() {
                       "Distribute horizontally",
                       "AlignHorizontalDistributeCenter",
                       () => distributeSelection("x"),
-                      { disabled: count < 3 },
+                      { disabled: count < distributeMinimum() },
                     ),
                     iconButton(
                       "Distribute vertically",
                       "AlignVerticalDistributeCenter",
                       () => distributeSelection("y"),
-                      { disabled: count < 3 },
+                      { disabled: count < distributeMinimum() },
                     ),
                     el(
                       "span",
                       { class: "helper" },
-                      count < 3
+                      count < distributeMinimum()
                         ? "Select three or more to distribute"
                         : "Distribute evenly",
                     ),
@@ -13800,41 +14783,12 @@ function deleteObject() {
       selectIds(keep);
   });
 }
-// Comments on objects being deleted stay where their markers were, on the
-// slide itself: the next object added could be given a deleted one's id.
-// Read before the objects go; the returned step writes the comments after.
+// Comments on objects being deleted stay on the slide (model.js); the
+// returned step writes them after the objects go.
 function detachComments(target, ids) {
-  let threads;
-  try {
-    threads = P.getSlideCommentThreads(target);
-  } catch {
-    return () => {};
-  }
-  const gone = new Map();
-  const visit = (shape) => {
-    gone.set(String(P.getShapeId(shape)), shape);
-    if (P.getShapeKind(shape) === "group")
-      P.getGroupChildren(shape).forEach(visit);
-  };
-  for (const id of ids) {
-    const shape = P.findShapeById(target, id);
-    if (shape) visit(shape);
-  }
-  if (!threads.some((t) => t.shapeId && gone.has(String(t.shapeId))))
-    return () => {};
-  const next = threads.map((t) => {
-    const shape = t.shapeId && gone.get(String(t.shapeId));
-    if (!shape) return t;
-    const b = !t.pos && slideBounds(doc.pres, shape);
-    return {
-      ...t,
-      shapeId: null,
-      pos:
-        t.pos || (b ? { x: Math.round(b.x + b.w), y: Math.round(b.y) } : null),
-    };
-  });
+  const write = detachShapeComments(doc.pres, target, ids);
   return () => {
-    P.setSlideCommentThreads(target, next);
+    write();
     // The slide redraws before this edit is counted; comments read afresh.
     review.comments.invalidate();
   };
@@ -13845,7 +14799,13 @@ function detachComments(target, ids) {
  * writes into the run that holds the match, so the rest of the formatting
  * stays; a match that spans runs is found but left for a whole-text replace.
  */
-const find = { query: "", caseSensitive: false, matches: [], at: -1 };
+const find = {
+  query: "",
+  caseSensitive: false,
+  wholeWords: false,
+  matches: [],
+  at: -1,
+};
 function findBar() {
   const query = el("input", {
     class: "input find-input",
@@ -13891,6 +14851,16 @@ function findBar() {
     },
     { "aria-pressed": "false" },
   );
+  const wordsButton = iconButton(
+    "Find whole words only",
+    "WholeWord",
+    () => {
+      find.wholeWords = !find.wholeWords;
+      wordsButton.setAttribute("aria-pressed", String(find.wholeWords));
+      search();
+    },
+    { "aria-pressed": "false" },
+  );
   return el(
     "div",
     {
@@ -13913,6 +14883,7 @@ function findBar() {
       iconButton("Previous match", "ChevronUp", () => moveMatch(-1)),
       iconButton("Next match", "ChevronDown", () => moveMatch(1)),
       caseButton,
+      wordsButton,
     ),
     el(
       "div",
@@ -13978,14 +14949,32 @@ function closeFind() {
   document.querySelector("#main")?.focus({ preventScroll: true });
 }
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Whole words only: a match with no letter, digit or underscore just
+// before or after it, in any script.
+const WORD_EDGE = "[\\p{L}\\p{M}\\p{N}_]";
 function findRegExp(flags = "") {
+  const pattern = escapeRegExp(find.query);
   return new RegExp(
-    escapeRegExp(find.query),
-    `${flags}${find.caseSensitive ? "" : "i"}`,
+    find.wholeWords ? `(?<!${WORD_EDGE})${pattern}(?!${WORD_EDGE})` : pattern,
+    `${flags}${find.caseSensitive ? "" : "i"}${find.wholeWords ? "u" : ""}`,
   );
 }
+// The speaker notes Find reads, each slide's read once per revision of the
+// presentation rather than on every key typed in the find bar.
+let notesForFind = { pres: null, revision: -1, text: new Map() };
+function findNotes(target) {
+  if (notesForFind.pres !== doc.pres || notesForFind.revision !== revision)
+    notesForFind = { pres: doc.pres, revision, text: new Map() };
+  const part = P.getSlidePartName(target);
+  let text = notesForFind.text.get(part);
+  if (text == null) {
+    text = P.getSlideNotes(target) || "";
+    notesForFind.text.set(part, text);
+  }
+  return text;
+}
 // Every place the text appears, in slide order: text shapes by run and
-// table cells by cell.
+// table cells by cell, then the slide's speaker notes.
 function collectMatches() {
   const matches = [];
   if (!find.query) return matches;
@@ -14019,6 +15008,9 @@ function collectMatches() {
         for (let k = 0; k < n; k++) matches.push({ part, id, k });
       }
     }
+    // The slide's speaker notes, after its objects.
+    const n = countIn(findNotes(s));
+    for (let k = 0; k < n; k++) matches.push({ part, notes: true, k });
   }
   return matches;
 }
@@ -14031,7 +15023,11 @@ function search({ keep = false } = {}) {
   find.at = find.matches.length ? 0 : -1;
   if (keep && before) {
     const same = find.matches.findIndex(
-      (m) => m.part === before.part && m.id === before.id && m.k === before.k,
+      (m) =>
+        m.part === before.part &&
+        m.id === before.id &&
+        !!m.notes === !!before.notes &&
+        m.k === before.k,
     );
     if (same >= 0) find.at = same;
   }
@@ -14060,6 +15056,7 @@ function refreshMatches() {
         (m) =>
           m.part === before.part &&
           m.id === before.id &&
+          !!m.notes === !!before.notes &&
           m.k === before.k &&
           m.cell?.row === before.cell?.row &&
           m.cell?.col === before.cell?.col,
@@ -14101,6 +15098,7 @@ async function revealMatch(match) {
   );
   if (!target) return;
   if (P.getSlidePartName(slide()) !== match.part) await chooseSlide(target);
+  if (match.notes) return revealNotesMatch(match);
   const index = shapes().findIndex((s) => P.getShapeId(s) === match.id);
   if (index < 0) return;
   selectOnly(index);
@@ -14110,6 +15108,47 @@ async function revealMatch(match) {
   document
     .querySelector(`.object-hit[data-shape-id="${match.id}"]`)
     ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+// A match in the speaker notes is selected there, with the notes scrolled
+// to it; the keyboard stays in the find bar.
+function revealNotesMatch(match) {
+  selectIds([]);
+  renderSelection();
+  renderInspector();
+  const notes = document.querySelector("#speaker-notes");
+  if (!notes) return;
+  const hit = [...notes.value.matchAll(findRegExp("g"))][match.k];
+  if (!hit) return;
+  notes.setSelectionRange(hit.index, hit.index + hit[0].length);
+  // The line of the match comes into the notes' view.
+  const lines = notes.value.slice(0, hit.index).split("\n").length - 1;
+  const lineHeight = parseFloat(getComputedStyle(notes).lineHeight) || 18;
+  notes.scrollTop = Math.max(0, lines * lineHeight - notes.clientHeight / 2);
+  notes.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+// Replaces in a slide's speaker notes, keeping the formatting of the notes
+// around the matches.
+function replaceInNotes(target, regex, replacement, only = null) {
+  const text = P.getSlideNotes(target) || "";
+  const hits = [...text.matchAll(regex)].filter(
+    (_, i) => only == null || i === only,
+  );
+  if (!hits.length) return false;
+  let value = text;
+  // From the last match back, so each edit's offsets hold for the text the
+  // edits before it left.
+  const edits = hits.reverse().map((hit) => {
+    const edit = {
+      start: hit.index,
+      end: hit.index + hit[0].length,
+      text: replacement,
+    };
+    value = value.slice(0, edit.start) + replacement + value.slice(edit.end);
+    return edit;
+  });
+  if (value === text) return false;
+  commitNotes(target, value, text, edits);
+  return true;
 }
 // A shape's text as Find reads it: each paragraph's runs joined up to a
 // line break or a field, so text whose formatting changes part-way through
@@ -14179,27 +15218,6 @@ function smartArtItems(shape) {
     return [];
   }
 }
-// Replaces in a SmartArt graphic's items, written back the way the Text
-// Pane writes them.
-function replaceInSmartArt(shape, regex, replacement, only = null) {
-  const model = P.getShapeSmartArt(shape);
-  if (!model) return false;
-  let seen = 0;
-  let changed = false;
-  const items = model.items.map((item) => {
-    const text = item.text || "";
-    const next = text.replace(regex, (hit) => {
-      const mine = only == null || seen === only;
-      seen++;
-      return mine ? replacement : hit;
-    });
-    if (next === text) return item;
-    changed = true;
-    return { ...item, text: next };
-  });
-  if (changed) P.setShapeSmartArt(shape, { ...model, items });
-  return changed;
-}
 function replaceInCell(cell, regex, replacement, only = null) {
   const text = displayTableCellText(doc.pres, cell);
   const edits = new TextFieldEdits(
@@ -14257,12 +15275,19 @@ function replaceMatch(all) {
     let changed = false;
     const done = new Set();
     for (const match of targets) {
-      const key = `${match.part}:${match.id}:${match.cell ? `${match.cell.row},${match.cell.col}` : ""}`;
+      const key = `${match.part}:${match.notes ? "notes" : match.id}:${match.cell ? `${match.cell.row},${match.cell.col}` : ""}`;
       if (all && done.has(key)) continue;
       done.add(key);
       const target = P.getSlides(doc.pres).find(
         (s) => P.getSlidePartName(s) === match.part,
       );
+      if (match.notes) {
+        if (target)
+          changed =
+            replaceInNotes(target, regex, replacement, all ? null : match.k) ||
+            changed;
+        continue;
+      }
       const shape = target && P.findShapeById(target, match.id);
       if (!shape) continue;
       if (match.cell)
@@ -14277,10 +15302,12 @@ function replaceMatch(all) {
         changed =
           replaceInSmartArt(shape, regex, replacement, all ? null : match.k) ||
           changed;
-      else
-        changed =
-          replaceInShape(shape, regex, replacement, all ? null : match.k) ||
-          changed;
+      else if (
+        replaceInShape(shape, regex, replacement, all ? null : match.k)
+      ) {
+        fitText(shape);
+        changed = true;
+      }
     }
     if (!changed) {
       toast("That match can't be replaced here. Edit it in place instead.");
@@ -14614,9 +15641,10 @@ function editTableCell(target, row, col, { caret = null } = {}) {
         const id = P.getShapeId(obj);
         // The table holds the keyboard until the new row's first cell opens.
         focusTable();
-        tableAction((table) =>
-          P.insertTableRow(table, P.getTableDimensions(table).rows),
-        )?.then((applied) => {
+        tableAction((table) => {
+          const rows = P.getTableDimensions(table).rows;
+          P.insertTableRow(table, rows, [], { like: rows - 1 });
+        })?.then((applied) => {
           const table = currentShape();
           if (!applied || !table || P.getShapeId(table) !== id) return;
           editTableCell(table, P.getTableDimensions(table).rows - 1, 0);
@@ -14714,7 +15742,7 @@ function tableFields(obj) {
         "ArrowUp",
         () =>
           tableAction((obj, row) => {
-            P.insertTableRow(obj, row);
+            P.insertTableRow(obj, row, [], { like: row });
             tableCell = { id: P.getShapeId(obj), row: row + 1, col };
           }),
         "secondary",
@@ -14722,7 +15750,10 @@ function tableFields(obj) {
       button(
         "Row below",
         "ArrowDown",
-        () => tableAction((obj, row) => P.insertTableRow(obj, row + 1)),
+        () =>
+          tableAction((obj, row) =>
+            P.insertTableRow(obj, row + 1, [], { like: row }),
+          ),
         "secondary",
       ),
     ),
@@ -14734,7 +15765,7 @@ function tableFields(obj) {
         "ArrowLeft",
         () =>
           tableAction((obj, row, col) => {
-            P.insertTableColumn(obj, col);
+            P.insertTableColumn(obj, col, undefined, { like: col });
             tableCell = { id: P.getShapeId(obj), row, col: col + 1 };
           }),
         "secondary",
@@ -14742,7 +15773,10 @@ function tableFields(obj) {
       button(
         "Column right",
         "ArrowRight",
-        () => tableAction((obj, row, col) => P.insertTableColumn(obj, col + 1)),
+        () =>
+          tableAction((obj, row, col) =>
+            P.insertTableColumn(obj, col + 1, undefined, { like: col }),
+          ),
         "secondary",
       ),
     ),
@@ -14898,6 +15932,51 @@ function describeLink(action) {
 // A slide's name for a list: its title, or its first line of text.
 const slideLabel = (s) =>
   slideTitle(s, doc?.pres) || slideDescription(s, doc?.pres).split("\n")[0];
+// Where a slide's picture draws its linked runs: the boxes the renderer
+// marks over them, as shares of the slide, each with its link, in reading
+// order. The picture is laid out off screen without its images, so turned
+// and grouped text lands where it shows. Null when the picture can't be
+// read.
+function linkedRunRegions(src) {
+  if (!src?.startsWith("data:image/svg+xml")) return null;
+  let text;
+  try {
+    text = decodeURIComponent(src.slice(src.indexOf(",") + 1));
+  } catch {
+    return null;
+  }
+  if (!text.includes("data-pptx-link")) return [];
+  const parsed = new DOMParser().parseFromString(text, "image/svg+xml");
+  const svg = parsed.documentElement;
+  if (svg.nodeName !== "svg") return null;
+  for (const node of svg.querySelectorAll("image, script, foreignObject img"))
+    node.remove();
+  const host = el("div", {
+    "aria-hidden": "true",
+    style:
+      "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none",
+  });
+  host.append(document.importNode(svg, true));
+  document.body.append(host);
+  try {
+    const root = host.firstChild.getBoundingClientRect();
+    if (!root.width || !root.height) return null;
+    return [...host.querySelectorAll("[data-pptx-link]")]
+      .map((node) => {
+        const r = node.getBoundingClientRect();
+        return {
+          href: node.getAttribute("data-pptx-link"),
+          x: (r.left - root.left) / root.width,
+          y: (r.top - root.top) / root.height,
+          w: r.width / root.width,
+          h: r.height / root.height,
+        };
+      })
+      .filter((region) => region.w > 0 && region.h > 0);
+  } finally {
+    host.remove();
+  }
+}
 // The addresses a link may open: web pages, mail, and phone numbers. An
 // imported file can carry any address at all, and one with a "javascript:"
 // scheme would run in the page the moment it was followed while presenting.
@@ -14920,7 +15999,12 @@ async function linkDialog() {
   const obj = currentShape();
   if (!canLink(obj)) return;
   const target = doc;
-  const current = linkOf(obj);
+  // While text is edited, the selected text, or the linked text at the
+  // caret, takes a web link of its own.
+  const textLink = editorFor(obj)?.linkTarget() || null;
+  const current = textLink
+    ? textLink.url && { kind: "url", url: textLink.url }
+    : linkOf(obj);
   const slides = P.getSlides(doc.pres);
   const kind = el(
     "select",
@@ -14982,6 +16066,7 @@ async function linkDialog() {
       return;
     }
     action = action && { kind: "url", url: action };
+    if (textLink) return linkEditedText(obj, textLink, action?.url ?? null);
   } else if (kind.value.startsWith("slide:")) {
     const part = kind.value.slice("slide:".length);
     const slide = P.getSlides(doc.pres).find(
@@ -15000,8 +16085,25 @@ async function linkDialog() {
     setLink(obj, action);
   });
 }
+// A web link set on, or taken off, part of the text: the dialog closed the
+// editor, which opens again on the same text with the link applied.
+async function linkEditedText(obj, range, url) {
+  const target = doc;
+  await settled();
+  if (doc !== target) return;
+  const shape = currentShape();
+  if (!shape || P.getShapeId(shape) !== P.getShapeId(obj)) return;
+  if (!editorFor(shape)) editText(shape);
+  editorFor(shape)?.link(range.start, range.end, url);
+}
 function removeLink() {
   const obj = currentShape();
+  // While text is edited, the link of the text at the caret comes off.
+  const textLink = editorFor(obj)?.linkTarget();
+  if (textLink?.url) {
+    editorFor(obj).link(textLink.start, textLink.end, null);
+    return;
+  }
   if (!obj || !linkOf(obj)) return;
   mutateShape(obj, (obj) => setLink(obj, null));
 }
@@ -15082,10 +16184,13 @@ function alignSelection(edge) {
   });
 }
 // Three or more objects spread out with equal gaps between them; the two at
-// the ends stay where they are.
+// the ends stay where they are. Aligned to the slide, the ends go to the
+// slide's edges instead, and a single object is centered on it.
+const distributeMinimum = () => (formatTools.alignToSlide() ? 1 : 3);
 function distributeSelection(axis) {
   const items = selectedApart();
-  if (items.length < 3) return;
+  const toSlide = formatTools.alignToSlide();
+  if (items.length < distributeMinimum()) return;
   const ids = items.map(P.getShapeId);
   mutateSlide(slide(), (target) => {
     const parents = groupParents(target);
@@ -15099,16 +16204,22 @@ function distributeSelection(axis) {
         ...item,
         v: turnedBounds(item.b, slideRotation(item.s, parents)),
       }));
-    if (list.length < 3) return SKIP_MUTATION;
+    if (list.length < (toSlide ? 1 : 3)) return SKIP_MUTATION;
     const pos = axis === "x" ? "x" : "y",
       len = axis === "x" ? "w" : "h";
     list.sort((a, b) => a.v[pos] - b.v[pos]);
     const first = list[0].v,
       last = list.at(-1).v;
-    const span = last[pos] + last[len] - first[pos];
-    const gap =
-      (span - list.reduce((n, item) => n + item.v[len], 0)) / (list.length - 1);
-    let cursor = first[pos];
+    const size = currentSize();
+    const start = toSlide ? 0 : first[pos];
+    const span = toSlide
+      ? axis === "x"
+        ? size.cx
+        : size.cy
+      : last[pos] + last[len] - first[pos];
+    const room = span - list.reduce((n, item) => n + item.v[len], 0);
+    const gap = list.length > 1 ? room / (list.length - 1) : 0;
+    let cursor = list.length > 1 ? start : start + room / 2;
     let changed = false;
     for (const item of list) {
       if (Math.round(cursor) !== Math.round(item.v[pos])) {
@@ -15148,54 +16259,78 @@ function groupSelection() {
       selectIds([P.getShapeId(group)]);
   });
 }
+// Every selected group comes apart; the objects they held join the rest of
+// the selection.
+const selectedGroups = () =>
+  selectedApart().filter((s) => P.getShapeKind(s) === "group");
 function ungroupSelection() {
-  const obj = currentShape();
-  if (!obj || P.getShapeKind(obj) !== "group") return;
-  mutateShape(obj, (target, targetSlide) => {
-    // The children come back as the group held them, unturned and
-    // unmirrored; each takes the place, the turn, and the mirroring the
-    // slide showed it with, so nothing moves when the group goes.
-    const parents = groupParents(targetSlide);
-    const flip = P.getShapeFlip(target) || {};
-    const shown = new Map(
-      P.getGroupChildren(target).map((child) => [
-        P.getShapeId(child),
-        {
-          bounds: slideBounds(doc.pres, child, parents),
-          rotation: slideRotation(child, parents),
-          flip: P.getShapeFlip(child) || {},
-        },
-      ]),
-    );
-    const children = P.ungroupShapes(target);
-    for (const child of children) {
-      const was = shown.get(P.getShapeId(child));
-      if (!was) continue;
-      if (was.bounds) setSlideBounds(doc.pres, child, was.bounds);
-      const own = ownRotation(child, was.rotation);
-      if (own !== (P.getShapeRotation(child) || 0))
-        P.setShapeRotation(child, own);
-      // A group mirrored along one axis mirrors each child along it; a child
-      // mirrored the same way already comes out straight.
-      if (flip.horizontal || flip.vertical)
-        P.setShapeFlip(child, {
-          horizontal: !!was.flip.horizontal !== !!flip.horizontal,
-          vertical: !!was.flip.vertical !== !!flip.vertical,
-        });
+  const groups = selectedGroups();
+  if (!groups.length) return;
+  const ids = groups.map(P.getShapeId);
+  const others = [...selectionIds()].filter((id) => !ids.includes(id));
+  const primaryId = P.getShapeId(currentShape());
+  // Regroup puts back the group that had the handles, or else the last.
+  const remembered = ids.includes(primaryId) ? primaryId : ids.at(-1);
+  mutateSlide(slide(), (targetSlide) => {
+    const released = [];
+    let regroupIds = null;
+    for (const id of ids) {
+      const target = P.findShapeById(targetSlide, id);
+      if (!target || P.getShapeKind(target) !== "group") continue;
+      // The children come back as the group held them, unturned and
+      // unmirrored; each takes the place, the turn, and the mirroring the
+      // slide showed it with, so nothing moves when the group goes.
+      const parents = groupParents(targetSlide);
+      const flip = P.getShapeFlip(target) || {};
+      const shown = new Map(
+        P.getGroupChildren(target).map((child) => [
+          P.getShapeId(child),
+          {
+            bounds: slideBounds(doc.pres, child, parents),
+            rotation: slideRotation(child, parents),
+            flip: P.getShapeFlip(child) || {},
+          },
+        ]),
+      );
+      // The group's comments stay on the slide, and its animations go: the
+      // next object added would be given the group's id, and take them over.
+      const detach = detachShapeComments(doc.pres, targetSlide, [id], {
+        children: false,
+      });
+      const children = P.ungroupShapes(target);
+      detach();
+      for (const child of children) {
+        const was = shown.get(P.getShapeId(child));
+        if (!was) continue;
+        if (was.bounds) setSlideBounds(doc.pres, child, was.bounds);
+        const own = ownRotation(child, was.rotation);
+        if (own !== (P.getShapeRotation(child) || 0))
+          P.setShapeRotation(child, own);
+        // A group mirrored along one axis mirrors each child along it; a
+        // child mirrored the same way already comes out straight.
+        if (flip.horizontal || flip.vertical)
+          P.setShapeFlip(child, {
+            horizontal: !!was.flip.horizontal !== !!flip.horizontal,
+            vertical: !!was.flip.vertical !== !!flip.vertical,
+          });
+      }
+      const childIds = children.map(P.getShapeId);
+      released.push(...childIds);
+      if (id === remembered || !regroupIds) regroupIds = childIds;
     }
-    formatTools.rememberUngroup(
-      P.getSlidePartName(targetSlide),
-      children.map(P.getShapeId),
-    );
+    if (!released.length) return SKIP_MUTATION;
+    P.pruneSlideAnimations(targetSlide);
+    review.comments.invalidate();
+    formatTools.rememberUngroup(P.getSlidePartName(targetSlide), regroupIds);
     if (P.getSlidePartName(slide()) === P.getSlidePartName(targetSlide))
-      selectIds(children.map(P.getShapeId));
+      selectIds([...new Set([...others, ...released])]);
   });
 }
 function arrangeItems() {
   const count = selectionIds().size;
   const obj = currentShape();
   const canGroup = count > 1;
-  const canUngroup = !!obj && count === 1 && P.getShapeKind(obj) === "group";
+  const canUngroup = !!obj && selectedGroups().length > 0;
   return [
     {
       label: count > 1 ? "Align" : "Align to slide",
@@ -15210,7 +16345,7 @@ function arrangeItems() {
     {
       label: "Distribute",
       icon: "AlignHorizontalDistributeCenter",
-      disabled: count < 3,
+      disabled: count < distributeMinimum(),
       items: [
         {
           label: "Horizontally",
@@ -15349,6 +16484,53 @@ function copySelection() {
     origin: `${doc.id}:${P.getSlidePartName(source)}`,
     pastes: new Map(),
   };
+  shareCopy(clipboard);
+  return true;
+}
+// The copy is offered to this app's other tabs once the copy itself is done.
+function shareCopy(clip) {
+  setTimeout(() => {
+    if (clipboard !== clip) return;
+    P.savePresentation(clip.pkg)
+      .then((bytes) => {
+        if (clipboard !== clip) return;
+        const { ids, bounds, links, deck, token, text, origin } = clip;
+        return shareClipboard({
+          bytes,
+          ids,
+          bounds,
+          links,
+          deck,
+          token,
+          text,
+          origin,
+        });
+      })
+      .catch(() => {});
+  });
+}
+// A copy made in another tab becomes this tab's clipboard when a paste
+// brings its token, or, from a paste event that dropped the token, its text.
+// False when there is none to be had.
+const clipboardText = (value) =>
+  String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+async function adoptSharedCopy({ token = null, text = null }) {
+  if (token && clipboard?.token === token) return true;
+  let entry = null;
+  try {
+    entry = await sharedClipboard();
+  } catch {}
+  if (!entry) return false;
+  if (token ? entry.token !== token : clipboardText(entry.text) !== text)
+    return false;
+  if (entry.token === clipboard?.token) return true;
+  const pkg = await P.loadPresentation(entry.bytes);
+  const [held] = P.getSlides(pkg);
+  if (!held) return false;
+  const { bytes, ...rest } = entry;
+  clipboard = { ...rest, pkg, slide: held, pastes: new Map() };
   return true;
 }
 function importReferencedEmbeddedFonts(target, source) {
@@ -15474,15 +16656,49 @@ function focusPasted() {
 async function pasteData(data) {
   const marker =
     data.getData(CLIPBOARD_TYPE) || data.getData(`web ${CLIPBOARD_TYPE}`);
-  if (marker && clipboard && marker === clipboard.token)
+  if (marker && (await adoptSharedCopy({ token: marker })))
     return pasteClipboard();
   const image =
     [...data.files].find(isImageFile) ||
     [...data.files].find((file) => file.type.startsWith("image/"));
-  if (image) return insertImageFile(image);
+  if (image)
+    return insertImageFile(image, null, {
+      describe: !pastedImageName(image.name),
+    });
   const value = data.getData("text/plain");
+  const text = clipboardText(value);
+  if (!marker && text) {
+    // The objects last copied, here or in another tab, come back when the
+    // paste brings their text without their token.
+    if (await adoptSharedCopy({ text })) return pasteClipboard();
+  } else if (!marker) {
+    // Without text to go by, only the clipboard itself can say the copy is
+    // still on it: something copied since in another app is not.
+    const stamp = await clipboardStamp();
+    if (stamp && (await adoptSharedCopy({ token: stamp })))
+      return pasteClipboard();
+    if (stamp !== undefined) return nothingToPaste();
+  }
   if (value.trim()) return pasteText(value);
-  if (clipboard) return pasteClipboard();
+  // The copy made here last, unless the paste names another.
+  if (clipboard && !marker) return pasteClipboard();
+  nothingToPaste();
+}
+const nothingToPaste = () =>
+  toast("Nothing to paste. Copy an object, an image, or text first.");
+// The token of a copy made in this app that the system clipboard holds, read
+// directly: null when it holds something else, undefined when the browser
+// will not let it be read.
+async function clipboardStamp() {
+  let items;
+  try {
+    items = await navigator.clipboard.read();
+  } catch {
+    return undefined;
+  }
+  const type = `web ${CLIPBOARD_TYPE}`;
+  const item = items.find((entry) => entry.types.includes(type));
+  return item ? (await item.getType(type)).text() : null;
 }
 // A paste asked for through a menu or a shortcut the browser did not turn
 // into a paste event reads the clipboard directly, when allowed.
@@ -15494,9 +16710,9 @@ async function pasteFromMenu() {
   if (items) {
     for (const item of items) {
       const stamp = item.types.find((type) => type === `web ${CLIPBOARD_TYPE}`);
-      if (stamp && clipboard) {
+      if (stamp) {
         const token = await (await item.getType(stamp)).text();
-        if (token === clipboard.token) return pasteClipboard();
+        if (await adoptSharedCopy({ token })) return pasteClipboard();
       }
     }
     for (const item of items) {
@@ -15511,6 +16727,8 @@ async function pasteFromMenu() {
               type,
             },
           ),
+          null,
+          { describe: false },
         );
       }
     }
@@ -15521,7 +16739,13 @@ async function pasteFromMenu() {
     }
   }
   if (clipboard) return pasteClipboard();
-  toast("Nothing to paste. Copy an object, an image, or text first.");
+  // A clipboard the browser will not let a menu read may still hold objects
+  // copied in another tab, which the paste shortcut brings.
+  if (!items)
+    return toast(
+      `The browser did not let Paste read the clipboard. Press ${M}+V to paste.`,
+    );
+  nothingToPaste();
 }
 // Pasted objects land where the originals were on another slide, and step
 // down and to the right with each further paste onto the same slide.
@@ -15643,7 +16867,9 @@ function pasteRichText(paragraphs) {
       paragraphs.map((p, i) => {
         const base = before[i]?.runs[0] || before[0]?.runs[0];
         return {
-          level: 0,
+          level: p.level || 0,
+          levelChanged: !!p.level,
+          ...(p.list ? { list: p.list, listChanged: true } : {}),
           ppr: before[i]?.ppr ?? null,
           runs: p.runs.map((r) => ({
             text: r.text,
@@ -15894,7 +17120,9 @@ async function themeDialog() {
     confirm: "Apply theme",
   });
   if (ok && doc === target)
-    mutate(() => (recolorDeck(chosen) === false ? SKIP_MUTATION : undefined));
+    mutate(async () =>
+      (await recolorDeck(chosen)) === false ? SKIP_MUTATION : undefined,
+    );
 }
 // Recolors every slide from the current palette to `chosen`: what uses the
 // current palette's colors takes the new one's, and custom colors and
@@ -15902,7 +17130,17 @@ async function themeDialog() {
 function recolorDeck(chosen) {
   // The theme's master comes in, and what the slides paint in the current
   // palette's colors takes the new one's (themes/engine.js).
-  return themeTools.applyPalette(chosen);
+  return followingEquations(() => themeTools.applyPalette(chosen));
+}
+// A theme or color change, within an edit, after which equations drawn in
+// their slide's text color are drawn again in its new one.
+async function followingEquations(change) {
+  const equations = insertFeatures?.equations;
+  const before = equations?.textColorsBefore(doc.pres);
+  const result = await change();
+  if (result !== SKIP_MUTATION && result !== false)
+    await equations?.followTextColor(doc.pres, before);
+  return result;
 }
 const normalizeColor = (c) =>
   String(c || "")
@@ -16178,8 +17416,26 @@ async function present(options = {}) {
   function placeLinks(current) {
     links.replaceChildren();
     const parents = groupParents(current);
+    // Text linked run by run, with no link on the object as a whole, gets a
+    // region over each linked run, found where the slide draws it.
+    const runLinked = visibleSlideShapes(current).filter((shape) => {
+      try {
+        return (
+          !showInserted.claims(shape) &&
+          !P.getShapeClickAction(shape) &&
+          hasTextBody(shape) &&
+          !!P.getShapeHyperlink(shape)
+        );
+      } catch {
+        return false;
+      }
+    });
+    const runRegions = runLinked.length
+      ? linkedRunRegions(image.getAttribute("src"))
+      : null;
     for (const shape of visibleSlideShapes(current)) {
       if (showInserted.claims(shape)) continue;
+      if (runRegions && runLinked.includes(shape)) continue;
       const link = linkOf(shape);
       // An address the app would not accept in its own link dialog gets no
       // region: the file may have been written elsewhere.
@@ -16219,6 +17475,43 @@ async function present(options = {}) {
       Object.assign(node.style, style);
       links.append(node);
     }
+    for (const region of runRegions || []) {
+      const slideNumber = /^#slide-(\d+)$/.exec(region.href)?.[1];
+      const target = slideNumber && all[Number(slideNumber) - 1];
+      const link = target
+        ? { kind: "slide", slide: target }
+        : { kind: "url", url: region.href };
+      if (link.kind === "url" && !canOpenUrl(link.url)) continue;
+      if (slideNumber && !target) continue;
+      const label = describeLink(link);
+      const node =
+        link.kind === "url"
+          ? el("a", {
+              class: "presenter-link",
+              href: link.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              title: label,
+              "aria-label": `Open ${label}`,
+            })
+          : el("button", {
+              type: "button",
+              class: "presenter-link",
+              title: `Go to ${label.toLowerCase()}`,
+              "aria-label": `Go to ${label.toLowerCase()}`,
+              onclick: (e) => {
+                e.stopPropagation();
+                follow(link);
+              },
+            });
+      Object.assign(node.style, {
+        left: `${region.x * 100}%`,
+        top: `${region.y * 100}%`,
+        width: `${region.w * 100}%`,
+        height: `${region.h * 100}%`,
+      });
+      links.append(node);
+    }
   }
   // Shapes that play effects when clicked get a region of their own.
   function placeTriggers() {
@@ -16233,6 +17526,7 @@ async function present(options = {}) {
         "aria-label": `Play the effects of ${name}`,
         onclick: (e) => {
           e.stopPropagation();
+          settle();
           animator?.playTrigger(shapeId);
         },
       });
@@ -16345,6 +17639,7 @@ async function present(options = {}) {
   }
   function advance(auto = false) {
     unblank();
+    settle();
     if (!ended && animator?.next()) {
       syncPrevious();
       session?.stepped(1);
@@ -16353,6 +17648,7 @@ async function present(options = {}) {
       if (timeUp)
         if (animator.playing) advanceClock.select(0, animator.played);
         else advance(true);
+      else armStep();
       return;
     }
     show(n + 1, { step: auto ? "auto" : "click" });
@@ -16364,6 +17660,20 @@ async function present(options = {}) {
     if (animator?.playing) advanceClock.select(0, animator.played);
     else advance(true);
   });
+  // Rehearsed click times: with timings, each click step of the slide
+  // starts by itself this long after the step before it ends.
+  let stepTimes = [];
+  const stepClock = createSlideAdvanceClock(() => {
+    if (!ended && !timeUp && animator && animator.step < animator.steps)
+      advance(true);
+  });
+  function armStep() {
+    const ms = animator && !ended && !timeUp ? stepTimes[animator.step] : null;
+    if (typeof ms !== "number" || animator.step >= animator.steps)
+      return stepClock.clear();
+    stepClock.select(ms, animator.played);
+    if (advanceClock.paused) stepClock.setPaused(true);
+  }
   const pauseButton = iconButton(
     "Pause automatic advance",
     "Pause",
@@ -16382,6 +17692,7 @@ async function present(options = {}) {
     );
   function setPaused(on) {
     advanceClock.setPaused(on);
+    stepClock.setPaused(on);
     syncPause();
   }
   function restoreBlank() {
@@ -16403,9 +17714,11 @@ async function present(options = {}) {
   }
   function showPrevious() {
     unblank();
+    settle();
     if (!ended && animator?.previous()) {
       syncPrevious();
       session?.stepped(-1);
+      armStep();
       // Stepping back starts the slide's time over.
       if (timeUp) {
         timeUp = false;
@@ -16426,6 +17739,15 @@ async function present(options = {}) {
     playing?.cancel();
     playing = null;
   }
+  // Starts the slide's animations once its transition is over.
+  let beginSlide = null;
+  // A click or a trigger during the transition ends it at once, and the
+  // slide begins, so the click plays its step rather than being lost.
+  function settle() {
+    if (!beginSlide) return;
+    clearTransition();
+    beginSlide();
+  }
   // `step` marks a plain advance ("click", or "auto" from the timer), as
   // opposed to a jump to a slide.
   function show(i, { backward = false, step } = {}) {
@@ -16435,6 +17757,7 @@ async function present(options = {}) {
     if (redirected === null) return;
     i = redirected;
     timeUp = false;
+    stepClock.clear();
     laser.hide();
     clearTyped();
     const wrapped = showTiming.loop && (i < 0 || i >= all.length);
@@ -16491,30 +17814,21 @@ async function present(options = {}) {
     let readiness;
     const effect = playbackTransition?.effect || "none";
     clearTransition();
+    // What of the leaving slide is in view, for Morph.
+    const leavingParts = animator?.shownParts() ?? null;
     animator?.destroy();
     animator = null;
     const leaving = shown ? image.getAttribute("src") : null;
     const arriving =
       showInserted.imageFor(all[n]) ?? cachedPreview(previews, pres, all[n]);
-    if (
-      shown &&
-      (n !== from || wrapped) &&
-      effect !== "none" &&
-      !prefersReducedMotion()
-    ) {
-      playing = transitionTools.play({
-        host: frame,
-        fromSlide: all[from],
-        toSlide: all[n],
-        from: leaving,
-        to: arriving,
-        transition: playbackTransition,
-        backward,
-      });
-      readiness = playing.finished;
-    }
-    if (shown && !backward && (n !== from || wrapped))
+    // The show opens with its first slide's transition, from black, as the
+    // canvas preview shows it.
+    const opening = !shown;
+    if (opening || (!backward && (n !== from || wrapped))) {
       transitionTools.playArrivalSound(all[n]);
+      if (P.getEffectiveSlideTransition(all[n])?.sound?.kind === "stop")
+        showInserted.stopSounds();
+    }
     shown = true;
     // The navigator already rendered nearby slides from this same state;
     // distant ones render once here and are kept for the navigator.
@@ -16529,16 +17843,47 @@ async function present(options = {}) {
       // moves past it.
       onMedia: (effect) => timeUp || showInserted.mediaStep(effect),
     });
+    stepTimes =
+      showTiming.useTimings && plan.setup.showAnimation && animator.steps
+        ? P.getSlideClickTimings(all[n])
+        : [];
     // Set Up Show can show every slide without its animations.
-    if (backward || !plan.setup.showAnimation) animator.finish();
-    else {
+    const atEnd = backward || !plan.setup.showAnimation;
+    if (atEnd) animator.finish();
+    if (
+      (opening || n !== from || wrapped) &&
+      effect !== "none" &&
+      !prefersReducedMotion()
+    ) {
+      // The transition arrives at the slide as it will stand: objects that
+      // enter later are not in it yet.
+      playing = transitionTools.play({
+        host: frame,
+        fromSlide: opening ? null : all[from],
+        toSlide: all[n],
+        from: leaving,
+        to:
+          (atEnd ? animator.snapshot() : image.getAttribute("src")) || arriving,
+        fromParts: leavingParts,
+        toParts: animator.shownParts(),
+        transition: playbackTransition,
+        backward,
+      });
+      readiness = playing.finished;
+    }
+    if (!atEnd) {
       const playing = animator;
-      Promise.resolve(readiness).then(() => {
+      const begin = () => {
+        if (beginSlide !== begin) return;
+        beginSlide = null;
         if (animator !== playing) return;
         playing.start();
         session?.stepped(0);
-      });
-    }
+        armStep();
+      };
+      beginSlide = begin;
+      Promise.resolve(readiness).then(begin);
+    } else beginSlide = null;
     placeLinks(all[n]);
     showInserted.slideShown(all[n], n);
     placeTriggers();
@@ -16583,6 +17928,7 @@ async function present(options = {}) {
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();
+    stepClock.dispose();
     clearTransition();
     clearInterval(clock);
     clearTimeout(typedTimer);
@@ -16724,6 +18070,8 @@ async function present(options = {}) {
     currentPicture: () =>
       animator?.snapshot() ?? cachedPreview(previews, pres, all[n]),
     animationPlayed: () => animator?.played,
+    // The slide as its next click step leaves it, while one is left.
+    nextStepPicture: () => animator?.nextPicture?.() ?? null,
     title: (s) => slideTitle(s, pres),
     // Click steps of the slide's animations, and whether it opened on its
     // last one (reached by going back, or shown without animation).
@@ -16940,6 +18288,34 @@ async function present(options = {}) {
     throw error;
   }
 }
+// Shift+F10 opens the focused item's shortcut menu, as the Menu key does.
+// Other systems' browsers do this themselves; on a Mac, which has no Menu
+// key, the browser leaves Shift+F10 alone, so the app does it.
+document.addEventListener("keydown", (e) => {
+  if (
+    !IS_MAC ||
+    e.defaultPrevented ||
+    e.key !== "F10" ||
+    !e.shiftKey ||
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey
+  )
+    return;
+  const target = document.activeElement;
+  if (!(target instanceof HTMLElement) || target === document.body) return;
+  e.preventDefault();
+  const r = target.getBoundingClientRect();
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: r.left + Math.min(24, r.width / 2),
+      clientY: r.top + Math.min(24, r.height / 2),
+    }),
+  );
+});
 document.addEventListener("keydown", (e) => {
   if (
     e.defaultPrevented ||
@@ -17351,6 +18727,42 @@ document.addEventListener("keydown", (e) => {
     deleteSlides(focused ? actionSlides(focused) : selectedSlides());
     return;
   }
+  // Alt with an arrow moves the focused slide, or the selection it is part
+  // of, one place along the navigator, as in the Slide Sorter.
+  if (
+    inNavigator &&
+    e.altKey &&
+    !mod &&
+    !e.shiftKey &&
+    !masterView.active &&
+    ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)
+  ) {
+    e.preventDefault();
+    const row = e.target.closest(".slide-item");
+    const focused =
+      (row &&
+        P.getSlides(doc.pres).find(
+          (s) => P.getSlidePartName(s) === row.dataset.slidePart,
+        )) ||
+      slide();
+    const part = P.getSlidePartName(focused);
+    const current = P.getSlidePartName(slide());
+    const group = actionSlides(focused);
+    moveSlides(
+      group,
+      ["ArrowUp", "ArrowLeft"].includes(e.key) ? -1 : 1,
+      group.some((s) => P.getSlidePartName(s) === current)
+        ? [current, part]
+        : [part],
+    ).then(() =>
+      document
+        .querySelector(
+          `#slide-list [data-slide-part="${CSS.escape(part)}"] .slide-thumb`,
+        )
+        ?.focus(),
+    );
+    return;
+  }
   // In the navigator the arrows step along the slides from the focused
   // thumbnail, Home and End go to the ends, and Shift extends the selection
   // from the current slide, as a Shift-click does. The selected object on
@@ -17664,7 +19076,7 @@ function openDriveItems(items) {
     return;
   }
   const name = item.name || cloud.displayName(item.path);
-  if (cloud.isPptxName(name)) {
+  if (cloud.isOpenableName(name)) {
     openCloud({ path: item.path, name, uid: item.uid }).catch(fail);
     return;
   }
@@ -17691,7 +19103,9 @@ function openDriveItems(items) {
 async function openLaunched(items) {
   const item = items.find(
     (it) =>
-      it?.path && !cloud.isDirItem(it) && cloud.isPptxName(it.name || it.path),
+      it?.path &&
+      !cloud.isDirItem(it) &&
+      cloud.isOpenableName(it.name || it.path),
   );
   if (!item) {
     openDriveItems(items);
@@ -17802,7 +19216,9 @@ function connectCloud({ late = false } = {}) {
 async function openLateLaunch(items) {
   const item = items.find(
     (it) =>
-      it?.path && !cloud.isDirItem(it) && cloud.isPptxName(it.name || it.path),
+      it?.path &&
+      !cloud.isDirItem(it) &&
+      cloud.isOpenableName(it.name || it.path),
   );
   if (!item || view !== "editor" || !doc || untouchedLanding())
     return openDriveItems(items);

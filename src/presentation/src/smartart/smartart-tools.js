@@ -170,6 +170,7 @@ export function createSmartArtTools(h) {
         }
       }
       const shape = P.addSlideSmartArt(target, { model, ...box });
+      if (replace != null) moveComments(target, replace, P.getShapeId(shape));
       if (z >= 0) P.setShapeZIndex(shape, z);
       P.renameShape(shape, `SmartArt ${P.getShapeId(shape)}`);
       id = P.getShapeId(shape);
@@ -418,6 +419,16 @@ export function createSmartArtTools(h) {
   }
 
   /* ---------- Reset and convert ---------- */
+  // Comments left on what is converted go with it to what it becomes.
+  function moveComments(slide, from, to) {
+    const threads = P.getSlideCommentThreads(slide);
+    const on = (t) => t.shapeId != null && String(t.shapeId) === String(from);
+    if (!threads.some(on)) return;
+    P.setSlideCommentThreads(
+      slide,
+      threads.map((t) => (on(t) ? { ...t, shapeId: String(to) } : t)),
+    );
+  }
   function resetGraphic() {
     updateSelected((m) => ({
       ...m,
@@ -432,7 +443,9 @@ export function createSmartArtTools(h) {
     if (!obj) return;
     pane?.close();
     h.mutateShape(obj, (target, targetSlide) => {
+      const id = P.getShapeId(target);
       const group = P.convertSmartArtToShapes(targetSlide, target);
+      moveComments(targetSlide, id, P.getShapeId(group));
       h.selectIds([P.getShapeId(group)]);
     });
   }
@@ -456,6 +469,7 @@ export function createSmartArtTools(h) {
       lines.forEach((l, i) => h.setIndentLevel(box, i, l.level, true));
       // The text takes the graphic's place in the stack.
       const z = P.getShapeZIndex(target);
+      moveComments(targetSlide, P.getShapeId(target), P.getShapeId(box));
       h.removeShape(targetSlide, target);
       if (z >= 0) P.setShapeZIndex(box, z);
       h.selectIds([P.getShapeId(box)]);

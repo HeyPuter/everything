@@ -11,7 +11,14 @@ import {
   sourceFitsEffect,
   writeTiming,
 } from "../../internal/presentationml/animation-timing.ts";
-import { NS, type XmlElement, type XmlNode } from "../../internal/xml/index.ts";
+import {
+  NS,
+  type XmlElement,
+  type XmlNode,
+  attr,
+  elem,
+  qname,
+} from "../../internal/xml/index.ts";
 import {
   SLIDE_DOCUMENT,
   SLIDE_SHAPES,
@@ -133,6 +140,9 @@ export const setSlideAnimations = (
 ): void => {
   const lookup = shapeLookup(slide);
   const read = readSlide(slide);
+  // Rehearsed click timings stay with their steps while the slide has as
+  // many click steps as before.
+  const clickTimings = getSlideClickTimings(slide);
   const sounds = new Set(
     read.effects.flatMap((e) => (e.sound ? [e.sound.relId] : [])),
   );
@@ -161,6 +171,121 @@ export const setSlideAnimations = (
   commitSlideData(slide);
   refreshSlideData(slide);
   pruneSoundRelationships(slide, sounds);
+  if (
+    clickTimings.some((ms) => ms !== null) &&
+    clickGroupConditions(findTiming(slide)).length === clickTimings.length
+  )
+    setSlideClickTimings(slide, clickTimings);
+};
+
+// ---------------------------------------------------------------------------
+// Rehearsed click timings
+//
+// A click group of the main sequence waits for a click: its start condition
+// is delay="indefinite". A begin list may name more than one condition, and
+// the group starts at whichever comes first (ECMA-376 §19.5.29, as SMIL), so
+// a second <p:cond delay="n"/> lets the group also start on its own n ms
+// after the group before it ends. That is how a rehearsal keeps the time of
+// each click, and the show plays it when it uses timings.
+
+const pmlEl = (e: XmlElement | null | undefined, local: string) =>
+  e ? (elements(e).find((c) => isEl(c, NS.pml, local)) ?? null) : null;
+const attrValue = (e: XmlElement, local: string) =>
+  e.attrs.find((a) => a.name.namespaceURI === "" && a.name.localName === local)
+    ?.value;
+
+/** Every copy of the slide's timing (an AlternateContent may hold several). */
+const allTimings = (slide: SlideData): XmlElement[] => {
+  const { direct, alternates } = timingHolders(slide);
+  const out = direct ? [direct] : [];
+  for (const ac of alternates)
+    for (const branch of elements(ac)) {
+      const t = elements(branch).find((x) => isEl(x, NS.pml, "timing"));
+      if (t) out.push(t);
+    }
+  return out;
+};
+
+/** The start conditions of the main sequence's click groups, in order. */
+const clickGroupConditions = (timing: XmlElement | null): XmlElement[] => {
+  const rootCTn = pmlEl(pmlEl(pmlEl(timing, "tnLst"), "par"), "cTn");
+  const rootList = pmlEl(rootCTn, "childTnLst");
+  const seq = (rootList ? elements(rootList) : [])
+    .filter((c) => isEl(c, NS.pml, "seq"))
+    .find((c) => {
+      const cTn = pmlEl(c, "cTn");
+      return !!cTn && attrValue(cTn, "nodeType") === "mainSeq";
+    });
+  const groups = pmlEl(pmlEl(seq, "cTn"), "childTnLst");
+  const out: XmlElement[] = [];
+  for (const par of groups ? elements(groups) : []) {
+    if (!isEl(par, NS.pml, "par")) continue;
+    const list = pmlEl(pmlEl(par, "cTn"), "stCondLst");
+    const conds = list
+      ? elements(list).filter((c) => isEl(c, NS.pml, "cond"))
+      : [];
+    // A group that starts with the slide is not a click.
+    if (conds.some((c) => attrValue(c, "evt") !== undefined)) continue;
+    if (!conds.some((c) => attrValue(c, "delay") === "indefinite")) continue;
+    out.push(list!);
+  }
+  return out;
+};
+
+const timedCondition = (list: XmlElement) =>
+  elements(list).find(
+    (c) =>
+      isEl(c, NS.pml, "cond") &&
+      attrValue(c, "evt") === undefined &&
+      !elements(c).length &&
+      /^\d+$/.test(attrValue(c, "delay") ?? ""),
+  );
+
+/**
+ * For each click step of the slide's main sequence, how long after the step
+ * before it ends (or the slide's opening effects end) the step starts on its
+ * own when the show uses timings, or null when it waits for a click only.
+ */
+export const getSlideClickTimings = (slide: SlideData): (number | null)[] =>
+  clickGroupConditions(findTiming(slide)).map((list) => {
+    const cond = timedCondition(list);
+    return cond ? Number(attrValue(cond, "delay")) : null;
+  });
+
+/**
+ * Sets (a number of ms) or removes (null) the timing of each click step, as
+ * getSlideClickTimings lists them; steps past the end of `times` lose
+ * theirs. Returns whether anything changed.
+ */
+export const setSlideClickTimings = (
+  slide: SlideData,
+  times: readonly (number | null | undefined)[],
+): boolean => {
+  let changed = false;
+  for (const timing of allTimings(slide))
+    clickGroupConditions(timing).forEach((list, i) => {
+      const ms = times[i];
+      const want =
+        typeof ms === "number" && Number.isFinite(ms) && ms >= 0
+          ? String(Math.min(Math.round(ms), 0xffffffff))
+          : null;
+      const cond = timedCondition(list);
+      const have = cond ? attrValue(cond, "delay")! : null;
+      if (have === want) return;
+      changed = true;
+      list.children = list.children.filter((c) => c !== cond);
+      if (want !== null)
+        list.children.push(
+          elem(qname("p", "cond", NS.pml), {
+            attrs: [attr(qname("", "delay", ""), want)],
+          }),
+        );
+    });
+  if (changed) {
+    commitSlideData(slide);
+    refreshSlideData(slide);
+  }
+  return changed;
 };
 
 /**

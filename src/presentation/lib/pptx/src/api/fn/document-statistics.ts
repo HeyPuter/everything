@@ -1,7 +1,14 @@
 // Document statistics in `/docProps/app.xml`, and the package's kind
 // (presentation or template) as its main part's content type declares it.
 
-import { emptyRels, nextRelId, partName } from "../../internal/opc/index.ts";
+import {
+  emptyRels,
+  lookupContentType,
+  nextRelId,
+  partName,
+  relsPartNameFor,
+  resolveTarget,
+} from "../../internal/opc/index.ts";
 import { REL_TYPES } from "../../internal/presentationml/index.ts";
 import {
   elem,
@@ -265,4 +272,73 @@ export const setPresentationKind = (
   );
   if (override) override.contentType = contentType;
   else pkg.contentTypes.overrides.push({ partName: name, contentType });
+};
+
+// ---------------------------------------------------------------------------
+// Macros.
+
+const MACRO_CONTENT_TYPES: Readonly<Record<string, PresentationKind>> = {
+  "application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml":
+    "presentation",
+  "application/vnd.ms-powerpoint.slideshow.macroEnabled.main+xml": "slideshow",
+  "application/vnd.ms-powerpoint.template.macroEnabled.main+xml": "template",
+  "application/vnd.ms-powerpoint.addin.macroEnabled.main+xml": "presentation",
+};
+const VBA_PROJECT_REL =
+  "http://schemas.microsoft.com/office/2006/relationships/vbaProject";
+const VBA_PROJECT_TYPE = "application/vnd.ms-office.vbaProject";
+
+/**
+ * Takes the macros out of a macro-enabled package (.pptm, .ppsm, .potm), so
+ * that it is a plain presentation, template or slide show of the same kind:
+ * a file named .pptx that still declared macros would not open in other
+ * apps. The VBA project goes, with the parts only it refers to (its
+ * signatures). True when there was anything to take out.
+ */
+export const removeMacros = (pres: PresentationData): boolean => {
+  const pkg = pres[INTERNAL_PACKAGE];
+  const name = mainPartName(pres);
+  const part = pkg.getPart(name);
+  if (!part) return false;
+  let changed = false;
+  const kind = MACRO_CONTENT_TYPES[part.contentType];
+  if (kind) {
+    setPresentationKind(pres, kind);
+    changed = true;
+  }
+  const rels = pkg.getRels(name);
+  const vba = rels?.items.filter(
+    (r) => r.type === VBA_PROJECT_REL && r.targetMode !== "External",
+  );
+  if (rels && vba?.length) {
+    const remove = (target: ReturnType<typeof partName>) => {
+      const own = pkg.getRels(target);
+      for (const r of own?.items ?? [])
+        if (r.targetMode !== "External")
+          try {
+            pkg.removePart(resolveTarget(target, r.target));
+          } catch {}
+      pkg.removePart(relsPartNameFor(target));
+      pkg.removePart(target);
+    };
+    for (const r of vba)
+      try {
+        remove(resolveTarget(name, r.target));
+      } catch {}
+    rels.items = rels.items.filter((r) => !vba.includes(r));
+    pkg.setRels(name, rels);
+    changed = true;
+  }
+  // A default that typed only the project types nothing now.
+  if (changed)
+    pkg.contentTypes.defaults = pkg.contentTypes.defaults.filter(
+      (d) =>
+        d.contentType !== VBA_PROJECT_TYPE ||
+        pkg.parts.some(
+          (p) =>
+            p.name.toLowerCase().endsWith(`.${d.extension}`) &&
+            lookupContentType(pkg.contentTypes, p.name) === VBA_PROJECT_TYPE,
+        ),
+    );
+  return changed;
 };

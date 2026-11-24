@@ -13,6 +13,7 @@ import {
   SOFT_BREAK,
   removeSlides,
   matchHeaderFooter,
+  fitTextToShape,
 } from "../model.js";
 
 export const MAX_LEVEL = 9;
@@ -389,6 +390,7 @@ export function applyOutline(
     if (titleChanged && (title || entry.title)) {
       title ??= P.addSlideOutlinePlaceholder(slide, "title");
       writeParagraphs(pres, title, titleLines(entry.title));
+      fitTextToShape(pres, title);
       changed = true;
     }
     const wantedBody = entry.body.map((p) => ({
@@ -401,6 +403,8 @@ export function applyOutline(
     if (!sameBody(beforeBody, wantedBody) && (body || wantedBody.length)) {
       body ??= P.addSlideOutlinePlaceholder(slide, "body");
       writeParagraphs(pres, body, wantedBody);
+      // Text set to shrink on overflow follows what the outline wrote.
+      fitTextToShape(pres, body);
       changed = true;
     }
   });

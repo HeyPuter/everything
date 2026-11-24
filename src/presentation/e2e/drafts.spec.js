@@ -182,6 +182,73 @@ test("linking a first cloud save preserves local data and does not recreate or r
   expect(result.summaries.some((record) => "bytes" in record)).toBe(false);
 });
 
+// The page hands the database a Blob, which it copies off the page, rather
+// than the whole file as an array for each edit; drafts read back as the
+// bytes they were, older drafts stored as arrays included.
+test("drafts store their file as a Blob and read back as its bytes", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (route) =>
+    route.fulfill({ body: "" }),
+  );
+  await page.route("**/src/main.js*", (route) =>
+    route.fulfill({ contentType: "application/javascript", body: "" }),
+  );
+  await page.goto("/#/home");
+  const result = await page.evaluate(async () => {
+    const drafts = await import("/src/drafts.js");
+    const bytes = new Uint8Array(300000).map((_, i) => (i * 7) & 255);
+    await drafts.saveDraft({ id: "blob", owner: "one", name: "Blob", bytes });
+    const raw = await new Promise((resolve) => {
+      const r = indexedDB.open("presentation-drafts-v1");
+      r.onsuccess = () => {
+        const get = r.result
+          .transaction("drafts")
+          .objectStore("drafts")
+          .get("blob");
+        get.onsuccess = () => {
+          r.result.close();
+          resolve(get.result);
+        };
+      };
+    });
+    const back = await drafts.getDraft("blob");
+    // An older draft, stored as an array.
+    await new Promise((resolve) => {
+      const r = indexedDB.open("presentation-drafts-v1");
+      r.onsuccess = () => {
+        const tx = r.result.transaction("drafts", "readwrite");
+        tx.objectStore("drafts").put({ ...raw, id: "array", bytes });
+        tx.oncomplete = () => {
+          r.result.close();
+          resolve();
+        };
+      };
+    });
+    const older = await drafts.getDraft("array");
+    await drafts.deleteDraft("blob");
+    await drafts.deleteDraft("array");
+    const same = (a) =>
+      a instanceof Uint8Array &&
+      a.length === bytes.length &&
+      a.every((v, i) => v === bytes[i]);
+    return {
+      storedAsBlob: raw.bytes instanceof Blob,
+      storedSize: raw.bytes.size,
+      back: same(back.bytes),
+      older: same(older.bytes),
+      name: back.name,
+    };
+  });
+  expect(result).toEqual({
+    storedAsBlob: true,
+    storedSize: 300000,
+    back: true,
+    older: true,
+    name: "Blob",
+  });
+});
+
 test("linking a first cloud save keeps the file's baseline", async ({
   page,
 }) => {

@@ -531,3 +531,88 @@ test("the status bar switches views and the view menu lists them", async ({
   await page.keyboard.press(`${mod}+Digit2`);
   await expect(page.locator(".editor")).toHaveAttribute("data-view", "sorter");
 });
+
+// A folded section was known by its place and name: moving it up, or adding
+// a section before it, unfolded it.
+test("a folded section in the Slide Sorter stays folded when it moves or is renamed", async ({
+  page,
+}) => {
+  await page.route("https://js.puter.com/v2/", (r) =>
+    r.fulfill({
+      contentType: "application/javascript",
+      body: 'window.puter={env:"web",auth:{isSignedIn:async()=>false},ui:{onLaunchedWithItems:()=>{}}};',
+    }),
+  );
+  await page.goto("/#/home");
+  const pres = P.createPresentation();
+  const slides = [1, 2, 3, 4].map(() => P.addBlankSlide(pres));
+  P.setSlideSections(pres, [
+    { name: "Alpha", slides: slides.slice(0, 2) },
+    { name: "Beta", slides: slides.slice(2) },
+  ]);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Sections.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 4");
+  await view(page, "sorter");
+  const section = (name) =>
+    page.locator(`.sorter-section[aria-label="${name}"]`);
+  await section("Beta").locator(".sorter-toggle").click();
+  await expect(section("Beta")).toHaveClass(/collapsed/);
+  await section("Beta").locator(".sorter-section-menu").click();
+  await page.getByRole("menuitem", { name: "Move Section Up" }).click();
+  await expect(page.locator(".sorter-section").first()).toHaveAttribute(
+    "aria-label",
+    "Beta",
+  );
+  await expect(section("Beta")).toHaveClass(/collapsed/);
+  await expect(section("Alpha")).not.toHaveClass(/collapsed/);
+  await section("Beta").locator(".sorter-section-menu").click();
+  await page.getByRole("menuitem", { name: /^Rename Section/ }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("Gamma");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Rename" })
+    .click();
+  await expect(section("Gamma")).toHaveClass(/collapsed/);
+});
+
+// Removing the last guide brought back the two center guides: an empty
+// guide list was not saved, so the deck read as never having had any.
+test("the last guide removed stays removed, and a guide can be added again", async ({
+  page,
+}) => {
+  await start(page);
+  await barMenu(page, "View");
+  await page.getByRole("menuitem", { name: "Grid and Guides" }).click();
+  await page
+    .getByRole("menuitemcheckbox", { name: "Guides", exact: true })
+    .click();
+  const guides = page.locator("#slide-canvas .guide-line");
+  await expect(guides).toHaveCount(2);
+  for (const left of [1, 0]) {
+    await guides.first().focus();
+    await page.keyboard.press("Delete");
+    await expect(guides).toHaveCount(left);
+  }
+  const { p } = await download(page);
+  expect(P.getViewProperties(p)).toMatchObject({
+    guides: [],
+    guidesRecorded: true,
+  });
+  await barMenu(page, "View");
+  await page.getByRole("menuitem", { name: "Grid and Guides" }).click();
+  await page.getByRole("menuitem", { name: "Add Vertical Guide" }).click();
+  await expect(guides).toHaveCount(1);
+  await expect(guides).toHaveAttribute(
+    "aria-label",
+    "Vertical guide at the center",
+  );
+});

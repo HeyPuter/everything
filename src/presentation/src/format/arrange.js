@@ -185,7 +185,14 @@ export async function pasteSpecialDialog({ available }) {
   return ok ? choice : null;
 }
 
-/** Paragraphs of formatted runs from clipboard HTML: [{ runs: [{ text, format }] }]. */
+/**
+ * Paragraphs of formatted runs from clipboard HTML:
+ * [{ runs: [{ text, format }], list?, level? }]. A line break inside a
+ * paragraph is a soft break ("\u000B"); a list item is a paragraph of a
+ * bulleted ("bullet") or numbered ("number") list at the level its nesting
+ * gives (0 for the outermost).
+ */
+const SOFT_BREAK = "\u000B";
 export function htmlParagraphs(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const paragraphs = [];
@@ -204,9 +211,17 @@ export function htmlParagraphs(html) {
     "BLOCKQUOTE",
     "PRE",
   ]);
+  // A paragraph with no text yet passes its list on to the block inside it
+  // (<li><p>Item</p></li>).
   const flush = () => {
-    if (current.runs.some((r) => r.text.trim())) paragraphs.push(current);
-    current = { runs: [] };
+    if (current.runs.some((r) => r.text.trim())) {
+      paragraphs.push(current);
+      current = { runs: [] };
+    } else
+      current = {
+        runs: [],
+        ...(current.list ? { list: current.list, level: current.level } : {}),
+      };
   };
   const walk = (node, format) => {
     if (node.nodeType === 3) {
@@ -217,7 +232,13 @@ export function htmlParagraphs(html) {
     if (node.nodeType !== 1) return;
     const tag = node.tagName;
     if (["SCRIPT", "STYLE", "HEAD", "TITLE"].includes(tag)) return;
-    if (tag === "BR") return flush();
+    // A break within a paragraph's text breaks the line; one that ends
+    // the paragraph, or stands alone, is trimmed below.
+    if (tag === "BR") {
+      if (current.runs.some((r) => r.text.trim()))
+        current.runs.push({ text: SOFT_BREAK, format: { ...format } });
+      return;
+    }
     const next = { ...format };
     if (tag === "B" || tag === "STRONG" || /^H\d$/.test(tag)) next.bold = true;
     if (tag === "I" || tag === "EM") next.italic = true;
@@ -232,6 +253,28 @@ export function htmlParagraphs(html) {
     if (color) next.color = color[1].toUpperCase();
     const block = BLOCKS.has(tag);
     if (block) flush();
+    // A list item, or a paragraph copied from a list in this app's editor.
+    const list =
+      tag === "LI"
+        ? node.closest("ol, ul")?.tagName === "OL"
+          ? "number"
+          : "bullet"
+        : ["bullet", "number"].includes(node.dataset?.list)
+          ? node.dataset.list
+          : null;
+    if (block && list) {
+      current.list = list;
+      let level = 0;
+      if (tag === "LI") {
+        for (
+          let up = node.parentElement?.parentElement;
+          up;
+          up = up.parentElement
+        )
+          if (up.tagName === "OL" || up.tagName === "UL") level++;
+      } else level = Number(node.dataset.level) || 0;
+      current.level = Math.min(8, level);
+    }
     for (const child of node.childNodes) walk(child, next);
     if (block) flush();
   };
@@ -240,6 +283,13 @@ export function htmlParagraphs(html) {
   for (const p of paragraphs) {
     p.runs[0].text = p.runs[0].text.replace(/^\s+/, "");
     p.runs.at(-1).text = p.runs.at(-1).text.replace(/\s+$/, "");
+    p.runs = p.runs.filter((r) => r.text);
+    // Spaces around a soft break go with it.
+    p.runs.forEach((r, i) => {
+      if (r.text !== SOFT_BREAK) return;
+      if (p.runs[i - 1]) p.runs[i - 1].text = p.runs[i - 1].text.trimEnd();
+      if (p.runs[i + 1]) p.runs[i + 1].text = p.runs[i + 1].text.trimStart();
+    });
     p.runs = p.runs.filter((r) => r.text);
   }
   return paragraphs.filter((p) => p.runs.length);
@@ -378,7 +428,9 @@ export function selectionPaneContent(ctx) {
         if (done) return;
         done = true;
         const value = input.value.trim();
+        const focused = document.activeElement === input;
         input.replaceWith(name);
+        if (focused) name.focus({ preventScroll: true });
         if (save && value && value !== item.label) ctx.rename(item.id, value);
       };
       input.addEventListener("keydown", (e) => {

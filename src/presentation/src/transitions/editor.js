@@ -40,6 +40,9 @@ const AUDIO_TYPES = ".wav,.mp3,.m4a,.aif,.aiff,.ogg,audio/*";
  *   render(slide, layer) a picture URL of part of a slide
  *                  (RenderSlideOptions.layer: { background, shape })
  *   canvas()       the editing canvas element (for Preview)
+ *   states(slide)  how a slide stands as it opens and once its animations
+ *                  have played ({ opening, ending } of { picture, parts }),
+ *                  or null when it has none
  *   chooseFile(accept) → Promise<File | null>
  *   report(error)  shows an error
  */
@@ -52,6 +55,7 @@ export function createTransitionTools({
   picture,
   render,
   canvas,
+  states = () => null,
   chooseFile,
   report = (error) => console.error(error),
 }) {
@@ -226,8 +230,10 @@ export function createTransitionTools({
     ];
   }
 
-  /** Plays (or stops) the sound of the slide arriving in a show. */
-  function playArrivalSound(target) {
+  /** Plays (or stops) the sound of the slide arriving in a show. A preview
+   * plays it once, even one set to loop until the next sound, which in the
+   * editor would never come. */
+  function playArrivalSound(target, { preview = false } = {}) {
     const sound = details(target)?.sound;
     if (!sound) return;
     if (sound.kind === "stop") {
@@ -240,7 +246,8 @@ export function createTransitionTools({
     } catch {
       data = null;
     }
-    if (data) playSound(data.bytes, { loop: data.loop }).catch(() => {});
+    if (data)
+      playSound(data.bytes, { loop: data.loop && !preview }).catch(() => {});
   }
 
   /* ---------- Playing ---------- */
@@ -254,6 +261,8 @@ export function createTransitionTools({
   /**
    * Plays the change from `fromSlide` to `toSlide` over `host`, as
    * `transition` describes. Pictures default to the slides' renders.
+   * `fromParts` and `toParts` say what of each shape is in view on the
+   * two slides (a layer's shape filter; null for everything), for Morph.
    */
   function play({
     host,
@@ -263,6 +272,8 @@ export function createTransitionTools({
     backward = false,
     from = fromSlide ? picture(fromSlide) : null,
     to = picture(toSlide),
+    fromParts = null,
+    toParts = null,
   }) {
     return playTransition({
       host,
@@ -275,11 +286,16 @@ export function createTransitionTools({
       morph: async (W, H, reversed) => {
         if (!fromSlide) return null;
         const [a, b] = reversed ? [toSlide, fromSlide] : [fromSlide, toSlide];
+        const [aParts, bParts] = reversed
+          ? [toParts, fromParts]
+          : [fromParts, toParts];
         return prepareMorph({
           P,
           pres: pres(),
           from: a,
           to: b,
+          fromParts: aParts,
+          toParts: bParts,
           render,
           load: loadImage,
           W,
@@ -299,13 +315,21 @@ export function createTransitionTools({
     const slides = P.getSlides(pres());
     const at = slides.indexOf(target);
     const previous = at > 0 ? slides[at - 1] : null;
-    playArrivalSound(target);
+    playArrivalSound(target, { preview: true });
     if (prefersReducedMotion()) return null;
+    // As in the show: the previous slide as its animations left it, and
+    // this one as it opens, without the objects that enter later.
+    const leaving = previous ? states(previous)?.ending : null;
+    const arriving = states(target)?.opening;
     const playback = play({
       host,
       fromSlide: previous,
       toSlide: target,
       transition: t,
+      from: leaving?.picture,
+      to: arriving?.picture,
+      fromParts: leaving?.parts ?? null,
+      toParts: arriving?.parts ?? null,
     });
     previewing = playback;
     playback.finished.then(() => {

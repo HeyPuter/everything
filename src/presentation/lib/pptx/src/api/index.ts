@@ -145,6 +145,10 @@ export type {
   PresentationTheme,
   TableCellBorder,
   TableCellBorders,
+  TableInsertOptions,
+  ConnectorConnections,
+  ConnectorEnd,
+  GroupTransform,
   PresentationThumbnail,
   ShapeBounds,
   ShapeGeometry,
@@ -272,7 +276,11 @@ export {
   getEmptySlides,
   getGroupChildren,
   getGroupTransform,
+  getConnectorConnections,
+  setConnectorConnections,
+  getShapeConnectionSites,
   groupShapes,
+  setGroupTransform,
   ungroupShapes,
   getHiddenSlides,
   getExtendedProperties,
@@ -294,6 +302,8 @@ export {
   addSlideAnimationSound,
   getSlideAnimationSoundData,
   pruneSlideAnimations,
+  getSlideClickTimings,
+  setSlideClickTimings,
   syncSlideTextBuilds,
   getShapeBuildParagraphs,
   motionPathFor,
@@ -548,6 +558,8 @@ export {
   replaceTokensInSlide,
   reverseSlides,
   savePresentation,
+  snapshotPresentation,
+  restorePresentation,
   searchSlides,
   sendShapeBackward,
   sendShapeToBack,
@@ -734,11 +746,14 @@ export {
   updateExtendedStatistics,
   getPresentationKind,
   setPresentationKind,
+  removeMacros,
   PRESENTATION_FILE_TYPES,
   type DocumentStatistics,
   type ExtendedStatistics,
   type PresentationKind,
 } from "./fn/document-statistics.ts";
+
+export { repairPackage } from "./fn/package-repair.ts";
 
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";

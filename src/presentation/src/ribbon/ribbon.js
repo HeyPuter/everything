@@ -56,6 +56,7 @@ export function createRibbon({
     class: "ribbon-tabs",
     role: "tablist",
     "aria-label": "Ribbon tabs",
+    onscroll: () => markOverflow(tablist),
   });
   const collapse = el(
     "button",
@@ -1099,6 +1100,7 @@ export function createRibbon({
 
   // ---- Fitting: fold groups, last first, until the panel fits ----
   function fit() {
+    markOverflow(tablist);
     const panel = panels.get(active);
     if (!panel || panel.hidden || !panel.isConnected) return;
     fitGroups(panel);
@@ -1147,7 +1149,25 @@ export function createRibbon({
       }
     }
   }
-  // Which edges of a panel that scrolls sideways have more beyond them.
+  // A tab that does not fit the row (a contextual tab arriving on a tablet
+  // or a phone) is brought into view, without moving the page, as far as the
+  // chosen tab's name stays in view too; past that, the faded edge says more
+  // tabs lie beyond.
+  function reveal(button) {
+    const r = button.getBoundingClientRect();
+    const row = tablist.getBoundingClientRect();
+    const current = tabButtons.get(active)?.getBoundingClientRect();
+    if (r.right > row.right) {
+      const room = current ? Math.max(0, current.left - row.left) : Infinity;
+      tablist.scrollLeft += Math.min(r.right - row.right + 8, room);
+    } else if (r.left < row.left) {
+      const room = current ? Math.max(0, row.right - current.right) : Infinity;
+      tablist.scrollLeft -= Math.min(row.left - r.left + 8, room);
+    }
+    markOverflow(tablist);
+  }
+  // Which edges of a panel (or of the row of tabs) that scrolls sideways have
+  // more beyond them.
   function markOverflow(panel) {
     const end = panel.scrollWidth - panel.clientWidth;
     panel.classList.toggle("more-before", end > 1 && panel.scrollLeft > 1);
@@ -1161,6 +1181,8 @@ export function createRibbon({
   }
   const observer = new ResizeObserver(() => fit());
   observer.observe(body);
+  observer.observe(tablist);
+  let contextualShown = new Set();
 
   function refresh() {
     const focused = document.activeElement;
@@ -1185,6 +1207,10 @@ export function createRibbon({
       (t) => t.contextual && !tabButtons.get(t.id).hidden,
     );
     tablist.classList.toggle("has-contextual", contextual.length > 0);
+    const arrived = contextual.find((t) => !contextualShown.has(t.id));
+    contextualShown = new Set(contextual.map((t) => t.id));
+    if (arrived) reveal(tabButtons.get(arrived.id));
+    else markOverflow(tablist);
     if (activeHidden) select(tabs.find((t) => !t.contextual)?.id || "home");
     // A control switched off under the keyboard focus hands it on rather
     // than dropping it onto the page.

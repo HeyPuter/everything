@@ -184,6 +184,26 @@ test("the rail moves between the library's sections", async ({ page }) => {
   ).toBeFocused();
 });
 
+test("the rail jumps without a glide when motion is reduced", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await start(page);
+  // Read at once, the page is already where it ends up.
+  const at = await page.evaluate(() => {
+    [...document.querySelectorAll("nav button")]
+      .find((b) => b.textContent.trim() === "Recent")
+      .click();
+    return document.scrollingElement.scrollTop;
+  });
+  expect(at).toBeGreaterThan(0);
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => document.scrollingElement.scrollTop)).toBe(
+    at,
+  );
+});
+
 test("New Slide from Prompt has the assistant draft a slide after the current one", async ({
   page,
 }) => {

@@ -5,7 +5,7 @@
 import "./export.css";
 import { zipSync, strToU8 } from "fflate";
 import { el } from "../ui.js";
-import { archiveEntryName } from "../model.js";
+import { archiveEntryName, fileStem } from "../model.js";
 import {
   openModal,
   selectField,
@@ -224,7 +224,7 @@ export function createFileTools(ctx) {
   }
 
   const baseName = () =>
-    ctx.cleanName(ctx.doc().name, { maxLength: Infinity }) || "Presentation";
+    fileStem(ctx.cleanName(ctx.doc().name, { maxLength: Infinity }));
 
   function documentInfo() {
     const pres = ctx.doc().pres;
@@ -584,10 +584,11 @@ export function createFileTools(ctx) {
       if (busy) return;
       if (ctx.doc() !== target) return modal.close(null);
       const format = formatList.value();
-      const fileBase =
+      const fileBase = fileStem(
         ctx.cleanName(name.input.value.replace(EXPORT_EXTENSION, ""), {
           maxLength: Infinity,
-        }) || baseName();
+        }),
+      );
       let slides;
       try {
         slides = ["pdf", "png", "jpeg", "video", "gif"].includes(format)

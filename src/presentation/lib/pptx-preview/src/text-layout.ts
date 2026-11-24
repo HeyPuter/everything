@@ -207,6 +207,9 @@ export interface PieceInput {
   readonly kerning?: "normal" | "none";
   readonly fillHex: string;
   readonly fillOpacity?: number;
+  /** Names the run's own shadow and glow (`data-fx` on its text), so they
+   *  can be drawn for its text alone. */
+  readonly effectKey?: string;
   /** `'wavy'` covers every `ST_TextUnderlineType` wavy variant (`wavy`,
    *  `wavyDbl`, `wavyHeavy`) — SVG/resvg has no `text-decoration-style`
    *  support, so the engine draws it as an explicit path (see `wavyPath`). */
@@ -807,11 +810,12 @@ export const layoutCore = (
       const hasText = para.pieces.some((p) => !p.isBreak && p.text !== "");
       const bullet = para.bullet && hasText ? para.bullet : null;
       // Picture bullets reserve a square of `sizePx` plus a trailing space;
-      // glyph bullets reserve the measured "<glyph> " width.
+      // glyph bullets reserve their measured width: text that has no room
+      // after one starts right where it ends, as in the desktop app.
       const bulletLead = bullet
         ? bullet.imageHref
           ? bullet.sizePx + mWidth(" ", bulletSpec(bullet))
-          : mWidth(`${bullet.text} `, bulletSpec(bullet))
+          : mWidth(bullet.text, bulletSpec(bullet))
         : 0;
 
       // Break units can span formatted runs. Pre-split units wider than a full
@@ -1127,39 +1131,6 @@ export const measureTextBodyHeight = (
   measure: TextMeasurer,
 ): number => layoutCore(input, measure).requiredH;
 
-/** Width the body needs to set each paragraph's lines without wrapping:
- *  its longest line, with its indents and bullet. */
-export const measureTextBodyWidth = (
-  input: TextBodyInput,
-  measure: TextMeasurer,
-): number => {
-  const { placements } = layoutCore(
-    {
-      ...input,
-      wrap: false,
-      vert: "none",
-      columns: null,
-      paragraphs: input.paragraphs.map((p) => ({ ...p, align: "left" })),
-    },
-    measure,
-  );
-  let width = 0;
-  for (const { line } of placements) {
-    let end = line.tokens.length;
-    while (
-      end > 0 &&
-      (line.tokens[end - 1]!.isSpace || line.tokens[end - 1]!.isBreak)
-    )
-      end--;
-    let content = 0;
-    for (let i = 0; i < end; i++)
-      if (!line.tokens[i]!.isBreak) content += line.tokens[i]!.width;
-    const marR = input.paragraphs[line.paraIndex]?.marRpx ?? 0;
-    width = Math.max(width, line.anchorX - input.boxXpx + content + marR);
-  }
-  return width;
-};
-
 // Anchor the measured text block, independently of its baseline placement.
 const anchorOffsetY = (
   frameY: number,
@@ -1423,6 +1394,7 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
   return (
     emitHighlights(groups, line, x0, baselineY) +
     text +
+    emitLinks(groups, line, x0, baselineY) +
     emitWavyUnderlines(groups, line.textAnchor, x0, baselineY) +
     emitDrawnDecorations(groups, line.textAnchor, x0, baselineY)
   );
@@ -1469,6 +1441,44 @@ const emitHighlights = (
     cursor += g.width;
   }
   return parts.join("");
+};
+
+// Linked runs carry an unpainted box over their text, marked with the link,
+// so a viewer can find where on the slide each link sits. Neighbouring runs
+// with the same link share one box.
+const emitLinks = (
+  groups: readonly Group[],
+  line: Line,
+  x0: number,
+  baselineY: number,
+): string => {
+  if (!groups.some((g) => g.piece.href)) return "";
+  const total = groups.reduce((sum, g) => sum + g.width, 0);
+  const left =
+    line.textAnchor === "middle"
+      ? x0 - total / 2
+      : line.textAnchor === "end"
+        ? x0 - total
+        : x0;
+  const top = baselineY - line.ascent,
+    height = line.ascent + line.descent;
+  const boxes: { href: string; from: number; width: number }[] = [];
+  let cursor = 0;
+  for (const g of groups) {
+    const href = g.piece.href;
+    const last = boxes.at(-1);
+    if (href && last?.href === href && last.from + last.width === cursor)
+      last.width += g.width;
+    else if (href && g.width > 0)
+      boxes.push({ href, from: cursor, width: g.width });
+    cursor += g.width;
+  }
+  return boxes
+    .map(({ href, from, width }) => {
+      const x = line.rtl ? left + total - from - width : left + from;
+      return `<rect x="${fmt(x)}" y="${fmt(top)}" width="${fmt(width)}" height="${fmt(height)}" fill="none" stroke="none" data-pptx-link="${escapeXml(href)}"/>`;
+    })
+    .join("");
 };
 
 const explicitUnderline = (p: PieceInput): boolean =>
@@ -1659,11 +1669,14 @@ const wavyPath = (
   const strokeWidth =
     Math.max(WAVY_STROKE_WIDTH_MIN_PX, size * WAVY_STROKE_WIDTH_RATIO) *
     (piece.underlineHeavy ? 2 : 1);
-  return `<path d="${d}" stroke="${piece.fillHex}"${piece.fillOpacity !== undefined && piece.fillOpacity !== 1 ? ` stroke-opacity="${piece.fillOpacity}"` : ""} stroke-width="${fmt(strokeWidth)}" fill="none"/>`;
+  // An underline colour of its own (`uFill`) replaces the text's.
+  const opacity = piece.underlineHex ? undefined : piece.fillOpacity;
+  return `<path d="${d}" stroke="${piece.underlineHex ?? piece.fillHex}"${opacity !== undefined && opacity !== 1 ? ` stroke-opacity="${opacity}"` : ""} stroke-width="${fmt(strokeWidth)}" fill="none"/>`;
 };
 
 const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   a.family === b.family &&
+  a.effectKey === b.effectKey &&
   a.sizePx === b.sizePx &&
   a.bold === b.bold &&
   a.italic === b.italic &&
@@ -1735,6 +1748,7 @@ const tspan = (g: Group, dx = 0, dy = 0, rotate = 0): string => {
     `fill="${p.fillHex}"`,
   ];
   if (p.bold) attrs.push('font-weight="700"');
+  if (p.effectKey) attrs.push(`data-fx="${escapeXml(p.effectKey)}"`);
   if (p.fillOpacity !== undefined && p.fillOpacity !== 1)
     attrs.push(`fill-opacity="${p.fillOpacity}"`);
   if (p.italic) attrs.push('font-style="italic"');

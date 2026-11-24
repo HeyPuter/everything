@@ -290,6 +290,72 @@ describe("assistant tools", () => {
     expect(P.findShapeById(P.getSlides(pres)[0], id)).toBeFalsy();
   });
 
+  // The next object added is given the deleted one's id; a comment left on
+  // the deleted one went over to it.
+  it("leaves a comment on a deleted object on the slide", async () => {
+    const pres = createDeck("blank");
+    const env = envFor(pres);
+    const added = await runTool(
+      "add_shape",
+      { shape: "rect", x: 2, y: 1, w: 3, h: 1 },
+      env,
+    );
+    const id = added.target.ids[0];
+    const slide = P.getSlides(pres)[0];
+    P.setSlideCommentThreads(slide, [
+      { author: { name: "A" }, text: "Fix this", shapeId: String(id) },
+    ]);
+    await runTool("delete_objects", { ids: [id] }, env);
+    const again = await runTool(
+      "add_shape",
+      { shape: "rect", x: 0, y: 0, w: 1, h: 1 },
+      env,
+    );
+    expect(again.target.ids[0]).toBe(id);
+    const [thread] = P.getSlideCommentThreads(P.getSlides(pres)[0]);
+    expect(thread.shapeId ?? null).toBe(null);
+    expect(thread.pos).toEqual({ x: 5 * 914400, y: 914400 });
+  });
+
+  // Text in a SmartArt graphic was neither found nor replaced, though the
+  // reply said every occurrence was.
+  it("finds and replaces text in SmartArt graphics", async () => {
+    const pres = createDeck("blank");
+    const env = envFor(pres);
+    P.addSlideSmartArt(P.getSlides(pres)[0], {
+      model: {
+        layout: P.SMARTART_LAYOUTS[0].id,
+        items: [
+          { text: "Acme plan", level: 0 },
+          { text: "Ship Acme", level: 0 },
+        ],
+        colors: P.DEFAULT_SMARTART_COLORS,
+        style: P.DEFAULT_SMARTART_STYLE,
+      },
+      x: 0,
+      y: 0,
+      w: 914400 * 6,
+      h: 914400 * 3,
+    });
+    const read = await runTool("read_slide", { slide: 1 }, env);
+    expect(read.content).toContain("SmartArt items:\nAcme plan\nShip Acme");
+    const found = await runTool("find_text", { query: "acme" }, env);
+    expect(found.content).toMatch(/^2 matches/);
+    const replaced = await runTool(
+      "replace_text",
+      { find: "Acme", replace: "Globex" },
+      env,
+    );
+    expect(replaced.content).toMatch(/2 occurrences/);
+    const graphic = P.getSlideShapes(P.getSlides(pres)[0]).find((s) =>
+      P.isDiagramShape(s),
+    );
+    expect(P.getShapeSmartArt(graphic).items.map((i) => i.text)).toEqual([
+      "Globex plan",
+      "Ship Globex",
+    ]);
+  });
+
   it("builds and edits a table", async () => {
     const pres = createDeck("blank");
     const env = envFor(pres);
