@@ -480,3 +480,31 @@ test('changing the part\'s units finishes an open sketch first, so discarding it
   await expect(page.getByText('Now in inches.')).toBeVisible();
   expect(await page.evaluate(() => [(window as unknown as P).__parametric.store.doc.units, !!(window as unknown as P).__parametric.sketchEditor])).toEqual(['IPS', false]);
 });
+
+test('opening another part while a step is running keeps that step out of the new part', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'front', name: 'Stray', shapes: [{ type: 'circle', center: [0, 0], radius: 9 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  type P = { __parametric: { whenBuilt(): Promise<void>; newDocument(n: string): void; store: { doc: { name: string; features: { name: string }[] } } }; __stepWaiting?: boolean };
+  // The step waits on a slow rebuild, during which the user opens another part.
+  await page.evaluate(() => {
+    const w = window as unknown as P;
+    const app = w.__parametric;
+    const real = app.whenBuilt.bind(app);
+    app.whenBuilt = async () => { w.__stepWaiting = true; await new Promise((r) => setTimeout(r, 800)); return real(); };
+  });
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('A sketch');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as P).__stepWaiting);
+  await page.evaluate(() => (window as unknown as P).__parametric.newDocument('Other part'));
+  await expect(page.getByText('Stopped: another part was opened.')).toBeVisible();
+  await expect(page.locator('.as-step:not(.running)')).toHaveCount(1);
+  expect(await page.evaluate(() => { const d = (window as unknown as P).__parametric.store.doc; return [d.name, d.features.map((f) => f.name)]; })).toEqual(['Other part', []]);
+  await expect(page.locator('.as-step.error')).toContainText('another part was opened');
+});

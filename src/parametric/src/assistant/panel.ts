@@ -17,6 +17,7 @@ import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attach
 import { readAttachment } from './attachments';
 import { SYSTEM_PROMPT, partSnapshot } from './prompt';
 import { changesDocument, runTool, toolSpecs } from './tools';
+import { ToolError } from './units';
 
 export const ASSISTANT_MODEL = 'claude-opus-5-5';
 
@@ -57,6 +58,21 @@ export function stepLabel(name: string, a: Record<string, unknown>): string {
     case 'run_command': return a.command ? `Run ${s(a.command).replace(/_/g, ' ')}` : 'Run a command';
     default: return name;
   }
+}
+
+/**
+ * The host one step works through. Opening another part does not wait for a
+ * step that is running: from then on the step can neither read nor change the
+ * document, so it fails instead of finishing its change in the part just opened.
+ */
+function stepHost(host: AssistantHost, gone: () => boolean): AssistantHost {
+  const check = () => {
+    if (gone()) throw new ToolError('another part was opened, so this step was stopped before it could change that part.');
+  };
+  return Object.create(host, {
+    store: { get() { check(); return host.store; } },
+    prepareForEdit: { value() { check(); host.prepareForEdit(); } },
+  }) as AssistantHost;
 }
 
 interface PendingFile {
@@ -133,6 +149,8 @@ export class AssistantPanel {
   private reading = 0;
   /** Where the message being answered started in the undo history, and its undo step's name. */
   private undoRun: { mark: number; label: string } | null = null;
+  /** Counts the parts opened: a step or message begun before the latest is about a part that is gone. */
+  private opened = 0;
 
   constructor(private app: App) {
     this.host = appHost(app);
@@ -140,12 +158,14 @@ export class AssistantPanel {
       chat: (m, o) => (this.chat ?? devChat() ?? puterChat)(m, o),
       tools: toolSpecs,
       runTool: async (name, args) => {
-        const r = await runTool(this.host, name, args);
+        const opened = this.opened;
+        const r = await runTool(stepHost(this.host, () => this.opened !== opened), name, args);
         // The message's changes are folded into one undo step as they come: a long
         // build would otherwise push older history, and its own start, off the
         // bottom of the undo stack before the message ends.
         const run = this.undoRun;
-        if (run && this.app.store.undoMark > run.mark + 1) this.app.store.squash(run.mark, run.label);
+        const store = this.app.store;
+        if (run && this.opened === opened && store.undoMark > run.mark + 1) store.squash(run.mark, run.label);
         return r;
       },
       system: SYSTEM_PROMPT,
@@ -200,6 +220,7 @@ export class AssistantPanel {
     this.renderEmpty();
     app.store.on((reason) => {
       if (reason !== 'load') return;
+      this.opened++;
       // Another part was opened: the reply in progress was about the one that was closed.
       if (this.agent.busy) this.stop('Stopped: another part was opened.');
       else if (!this.agent.messages.length) this.renderEmpty();
@@ -510,6 +531,7 @@ export class AssistantPanel {
   private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
     const store = this.app.store;
     const mark = store.undoMark;
+    const opened = this.opened;
     const label = `Assistant: ${short(request, 40)}`;
     const undoRun = { mark, label };
     this.undoRun = undoRun;
@@ -564,9 +586,10 @@ export class AssistantPanel {
       res = { stopped: false, error: e as Error, steps: [] };
     }
     if (this.undoRun === undoRun) this.undoRun = null;
-    // Everything this message changed becomes one undo step, even when New chat cut it off.
+    // Everything this message changed becomes one undo step, even when New chat cut it off
+    // (not when another part was opened: the history is that part's now).
     let changed = false;
-    if (store.undoMark > mark) {
+    if (this.opened === opened && store.undoMark > mark) {
       store.squash(mark, label);
       changed = true;
     }
