@@ -581,7 +581,26 @@ export class SketchSystem {
     if (norm < TOL) return true;
     if (n === 0) return false;
     let lambda = 1e-10;
-    const A = new Float64Array(m * m);
+    // J J^T is stored by rows, each from the first row sharing a variable with
+    // it to the diagonal (its envelope, the only part the factorisation
+    // touches). A full m x m array cost hundreds of megabytes for a large
+    // connected sketch, allocated and cleared on every drag frame.
+    const first = new Int32Array(m);
+    const minRow = new Int32Array(n).fill(-1);
+    for (let i = 0; i < m; i++) {
+      let f = i;
+      for (const v of eqs[i].vars) {
+        const k = this.fixed[v] ? undefined : local.get(v);
+        if (k === undefined) continue;
+        if (minRow[k] < 0) minRow[k] = i;
+        if (minRow[k] < f) f = minRow[k];
+      }
+      first[i] = f;
+    }
+    const off = new Int32Array(m + 1);
+    for (let i = 0; i < m; i++) off[i + 1] = off[i] + i - first[i] + 1;
+    const at = (i: number, j: number) => off[i] + j - first[i];
+    const A = new Float64Array(off[m]);
     const y = new Float64Array(m);
     const dx = new Float64Array(n);
     const saved = new Float64Array(n);
@@ -596,18 +615,17 @@ export class SketchSystem {
           const ra = list[a];
           for (let b = a; b < list.length; b++) {
             const rb = list[b];
-            const p = ra.v * rb.v;
-            A[ra.row * m + rb.row] += p;
-            if (ra.row !== rb.row) A[rb.row * m + ra.row] += p;
+            // Rows are listed in order, so rb.row >= ra.row: the lower triangle.
+            A[at(rb.row, ra.row)] += ra.v * rb.v;
           }
         }
       }
       let trace = 0;
-      for (let i = 0; i < m; i++) trace += A[i * m + i];
+      for (let i = 0; i < m; i++) trace += A[at(i, i)];
       const mu = lambda * Math.max(trace / m, 1e-12);
-      for (let i = 0; i < m; i++) A[i * m + i] += mu;
+      for (let i = 0; i < m; i++) A[at(i, i)] += mu;
       y.set(r);
-      if (!cholSolve(A, y, m)) { lambda *= 100; if (lambda > 1e6) return false; continue; }
+      if (!cholSolve(A, off, first, y, m)) { lambda *= 100; if (lambda > 1e6) return false; continue; }
       dx.fill(0);
       for (let i = 0; i < m; i++) {
         const yi = y[i];
@@ -1025,42 +1043,37 @@ function bezD2(b: Vec2[], t: number): Vec2 {
 }
 
 /**
- * In-place Cholesky solve of a symmetric positive definite system.
- *
- * Entries of a row left of its first non-zero stay zero in the factor (no
- * fill-in outside the envelope), so skipping them gives exactly the dense
- * result while costing far less for the near-banded systems of chained
- * sketch geometry.
+ * In-place Cholesky solve of a symmetric positive definite system stored by
+ * rows of its lower triangle, row i holding columns first[i]..i from off[i].
+ * Nothing left of a row's first entry fills in, so the factor fits in the
+ * same storage, at a fraction of the dense cost for the near-banded systems
+ * of chained sketch geometry.
  */
-function cholSolve(A: Float64Array, b: Float64Array, n: number): boolean {
-  const first = new Int32Array(n);
+function cholSolve(A: Float64Array, off: Int32Array, first: Int32Array, b: Float64Array, n: number): boolean {
   for (let i = 0; i < n; i++) {
-    let k = 0;
-    while (k < i && A[i * n + k] === 0) k++;
-    first[i] = k;
-  }
-  for (let j = 0; j < n; j++) {
-    let s = A[j * n + j];
-    for (let k = first[j]; k < j; k++) s -= A[j * n + k] * A[j * n + k];
-    if (s <= 1e-300) return false;
-    const d = Math.sqrt(s);
-    A[j * n + j] = d;
-    for (let i = j + 1; i < n; i++) {
-      if (first[i] > j) continue;
-      let t = A[i * n + j];
-      for (let k = Math.max(first[i], first[j]); k < j; k++) t -= A[i * n + k] * A[j * n + k];
-      A[i * n + j] = t / d;
+    const fi = first[i], oi = off[i] - fi;
+    for (let j = fi; j <= i; j++) {
+      const fj = first[j], oj = off[j] - fj;
+      let s = A[oi + j];
+      for (let k = Math.max(fi, fj); k < j; k++) s -= A[oi + k] * A[oj + k];
+      if (j < i) A[oi + j] = s / A[oj + j];
+      else {
+        if (s <= 1e-300) return false;
+        A[oi + i] = Math.sqrt(s);
+      }
     }
   }
   for (let i = 0; i < n; i++) {
+    const oi = off[i] - first[i];
     let t = b[i];
-    for (let k = first[i]; k < i; k++) t -= A[i * n + k] * b[k];
-    b[i] = t / A[i * n + i];
+    for (let k = first[i]; k < i; k++) t -= A[oi + k] * b[k];
+    b[i] = t / A[oi + i];
   }
   for (let i = n - 1; i >= 0; i--) {
-    let t = b[i];
-    for (let k = i + 1; k < n; k++) if (first[k] <= i) t -= A[k * n + i] * b[k];
-    b[i] = t / A[i * n + i];
+    const oi = off[i] - first[i];
+    const xi = b[i] / A[oi + i];
+    b[i] = xi;
+    for (let k = first[i]; k < i; k++) b[k] -= A[oi + k] * xi;
   }
   return true;
 }

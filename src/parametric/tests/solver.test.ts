@@ -367,6 +367,35 @@ describe('sketch solver', () => {
     expect(ms).toBeLessThan(4000);
   });
 
+  it('keeps memory for a large connected cluster in proportion to its size', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 1000;
+    for (let i = 0; i <= N; i++) ents.push(pt(`p${i}`, i * 1.1, (i % 2) * 0.3));
+    for (let i = 0; i < N; i++) {
+      ents.push(line(`l${i}`, `p${i}`, `p${i + 1}`));
+      cons.push({ id: `h${i}`, type: 'horizontal', refs: [`l${i}`] }, dim(`d${i}`, 'distance', [`l${i}`], 2));
+    }
+    // A full m x m J J^T for this one cluster of 2000 equations is 4 million
+    // numbers; 35000 such lines took over a minute to drag and tens of gigabytes.
+    const Native = globalThis.Float64Array;
+    let largest = 0;
+    globalThis.Float64Array = new Proxy(Native, {
+      construct(target, args: unknown[]) {
+        if (typeof args[0] === 'number') largest = Math.max(largest, args[0]);
+        return Reflect.construct(target, args);
+      },
+    });
+    try {
+      const res = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: [`p${N}`], targets: [[3000, 5]] }, analyze: false });
+      expect(res.converged).toBe(true);
+    } finally {
+      globalThis.Float64Array = Native;
+    }
+    expect(P(ents, `p${N}`).x - P(ents, 'p0').x).toBeCloseTo(2 * N, 6);
+    expect(largest).toBeLessThan(50 * 2 * N);
+  });
+
   it('solves one long connected chain without a dense factorization', () => {
     const ents: SkEntity[] = [];
     const cons: SkConstraint[] = [];
