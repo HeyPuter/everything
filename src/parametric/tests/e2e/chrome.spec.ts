@@ -417,3 +417,13 @@ test('the panel splitter reports the panel width and resizes with the keyboard',
   await expect(splitter).toHaveAttribute('aria-valuenow', '200');
   expect(errors).toEqual([]);
 });
+
+test('Esc dismisses a tooltip while the pointer stays on its button', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('button', { name: 'Zoom to Fit' }).hover();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
