@@ -337,7 +337,7 @@ export class SketchEditor implements ViewportTool {
     const id = newId('p');
     sk.entities.push({ id, t: 'point', x: s.p[0], y: s.p[1] });
     if (s.kind === 'origin') sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, ORIGIN_ID] });
-    else if (s.kind === 'on' && s.curveId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, s.curveId] });
+    else if ((s.kind === 'on' || s.kind === 'h' || s.kind === 'v') && s.curveId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, s.curveId] });
     else if (s.kind === 'mid' && s.curveId) sk.constraints.push({ id: newId('r'), type: 'midpoint', refs: [id, s.curveId] });
     return id;
   }

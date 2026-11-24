@@ -38,3 +38,19 @@ it('measures nearby splines exactly while skipping far ones', () => {
   const s = snapPoint(sketch('S', ents), [33.3, poly.find((q) => Math.abs(q[0] - 33.3) < 0.5)![1] + 0.1], { tol: 1 });
   expect(s).toMatchObject({ kind: 'on', curveId: 'sp' });
 });
+
+it('ends a horizontal or vertical snap exactly where its guide crosses a nearby curve', () => {
+  const sk = sketch('S', [
+    { id: 'c', t: 'point', x: 20, y: -20 }, { id: 'd', t: 'point', x: 20, y: 20 }, { id: 'V', t: 'line', a: 'c', b: 'd' },
+    { id: 'o', t: 'point', x: 40, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 8 },
+  ]);
+  // A cursor just past the vertical line: the end used to stay where the cursor was, off the line.
+  expect(snapPoint(sk, [20.6, 5.2], { tol: 1, from: [-10, 5] })).toEqual({ p: [20, 5], raw: [20.6, 5.2], kind: 'h', curveId: 'V' });
+  const s = snapPoint(sk, [48.3, 3.1], { tol: 1.5, from: [36, 3] });
+  expect(s).toMatchObject({ kind: 'h', curveId: 'C' });
+  expect(s.p[0]).toBeCloseTo(40 + Math.sqrt(55), 12);
+  expect(s.p[1]).toBe(3);
+  // Vertical too; and away from any curve the snap is only a direction.
+  expect(snapPoint(sk, [40.2, 8.4], { tol: 1, from: [40, -2] })).toMatchObject({ p: [40, 8], kind: 'v', curveId: 'C' });
+  expect(snapPoint(sk, [5, 5.1], { tol: 1, from: [-10, 5] })).toEqual({ p: [5, 5], raw: [5, 5.1], kind: 'h', guide: undefined });
+});
