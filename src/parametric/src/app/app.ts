@@ -1174,7 +1174,9 @@ export class App {
   }
 
   onViewportContextMenu(e: VPEvent, cx: number, cy: number) {
-    const item = this.viewport.pickItem(e.x, e.y, this.pickFilter());
+    // Sketch geometry under the cursor comes before the model behind it.
+    const sketchHit = !this.panel && !!this.sketchEditor?.contextSelect(e);
+    const item = sketchHit ? null : this.viewport.pickItem(e.x, e.y, this.pickFilter());
     if (item && !this.selection.has(item) && !this.panel) this.selection.set([item]);
     const items = this.hooks.contextItems('viewport');
     if (items.length) openMenu(items, cx, cy, { label: 'Context menu' });

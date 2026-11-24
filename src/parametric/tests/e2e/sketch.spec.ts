@@ -1254,6 +1254,25 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('right-clicking a sketch line selects it so the context menu acts on it', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.dblclick(x + 100, y + 60);
+    await page.keyboard.press('Escape');
+    await page.mouse.click(x, y - 100);
+    const selected = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.map((it) => it.kind));
+    expect(await selected()).toEqual([]);
+    await page.mouse.click(x, y + 60, { button: 'right' });
+    const menu = page.getByRole('menu', { name: 'Context menu' });
+    await expect(menu.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+    expect(await selected()).toEqual(['sk']);
+    await menu.getByRole('menuitem', { name: 'Delete' }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
   test('dragging a fully defined rectangle leaves it where it is', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

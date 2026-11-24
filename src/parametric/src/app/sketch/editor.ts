@@ -570,6 +570,20 @@ export class SketchEditor implements ViewportTool {
     return false;
   }
 
+  /**
+   * Selects the sketch entity under a right-click (or touch long press) as a
+   * click would, so the context menu acts on it. False when there is none.
+   */
+  contextSelect(e: VPEvent): boolean {
+    if (this.tool) return false;
+    const raw = this.toSketch(e);
+    const hit = raw && this.pickAt(raw);
+    if (!hit) return false;
+    const it = { kind: 'sk' as const, id: hit.id };
+    if (!this.app.selection.has(it)) this.app.selection.set([it]);
+    return true;
+  }
+
   dblClick(e: VPEvent): boolean {
     const raw = this.toSketch(e);
     if (!raw) return true;
