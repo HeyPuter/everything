@@ -395,8 +395,15 @@ function splitAtJunctions(
 ): Piece[] {
   const uses = new Int32Array(verts.length);
   for (const [a, b] of curveVerts) { uses[a]++; uses[b]++; }
+  // Sorted by x, so each curve only looks at the ends within its own span.
   const loose: number[] = [];
   for (let v = 0; v < uses.length; v++) if (uses[v] === 1) loose.push(v);
+  loose.sort((p, q) => verts[p][0] - verts[q][0]);
+  const firstFrom = (x: number) => {
+    let lo = 0, hi = loose.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (verts[loose[mid]][0] < x) lo = mid + 1; else hi = mid; }
+    return lo;
+  };
   const out: Piece[] = [];
   curves.forEach((c, i) => {
     const [a, b] = curveEnds[i], [va, vb] = curveVerts[i];
@@ -408,10 +415,9 @@ function splitAtJunctions(
         const { r, c: ctr } = arcAngles(ix, c);
         x0 = ctr[0] - r; y0 = ctr[1] - r; x1 = ctr[0] + r; y1 = ctr[1] + r;
       }
-      for (const v of loose) {
-        const p = verts[v];
-        if (v === va || v === vb) continue;
-        if (p[0] < x0 - tol || p[0] > x1 + tol || p[1] < y0 - tol || p[1] > y1 + tol) continue;
+      for (let k = firstFrom(x0 - tol); k < loose.length && verts[loose[k]][0] <= x1 + tol; k++) {
+        const v = loose[k], p = verts[v];
+        if (v === va || v === vb || p[1] < y0 - tol || p[1] > y1 + tol) continue;
         const t = onCurve(ix, c, p, tol);
         if (t > 0) cuts.push({ t, v });
       }
