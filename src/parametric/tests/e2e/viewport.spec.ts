@@ -587,6 +587,31 @@ test.describe('viewport', () => {
     expect(after.z).toBeCloseTo(30, 1);
   });
 
+  test('wireframe picks faces and still picks the edges and vertices behind them', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const picks = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.commands.run('style:wireframe');
+      app.viewport.setView('trimetric', false);
+      const at = (p: [number, number, number], want: { face?: boolean; edge?: boolean; vertex?: boolean }) => {
+        const [x, y] = app.viewport.project(p);
+        const hit = app.renderer.pick(x, y, want);
+        return hit ? { kind: hit.kind, p: hit.kind === 'vertex' ? [...app.vertexAt(hit.index)!] : null, z: hit.point?.[2] ?? null } : null;
+      };
+      return {
+        // The top of the base, picking faces only (as a feature asking for a face does).
+        face: at([40, 8, 15], { face: true }),
+        // The corner at the back, behind the base.
+        vertex: at([0, 0, 0], { face: true, edge: true, vertex: true }),
+      };
+    });
+    expect(picks.face?.kind).toBe('face');
+    expect(picks.vertex).toMatchObject({ kind: 'vertex', p: [0, 0, 0] });
+  });
+
   test('picks the pixel under the pointer, not the one above it', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

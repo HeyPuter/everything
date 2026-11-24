@@ -1103,8 +1103,9 @@ export class Renderer {
     const viewport = [cam.width, cam.height];
     const clip = this.clipVec();
     const wire = this.displayStyle === 'wireframe';
-    // Faces always write depth so hidden edges are not picked (except wireframe).
-    if (!wire) {
+    // Faces always write depth so hidden edges are not picked. Wireframe shows every edge and
+    // vertex, so there faces are drawn only to be picked themselves, and the rest ignores depth.
+    if (!wire || want.face) {
       const { p, u } = this.progs.pickMesh;
       gl.useProgram(p);
       gl.uniformMatrix4fv(u.uViewProj, false, vp);
@@ -1148,8 +1149,10 @@ export class Renderer {
       gl.uniform1f(u.uSize, 11);
       gl.uniform1i(u.uClipOn, clip ? 1 : 0);
       if (clip) gl.uniform4fv(u.uClip, clip);
+      if (wire) gl.disable(gl.DEPTH_TEST);
       gl.bindVertexArray(m.verts.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, m.verts.count);
+      gl.enable(gl.DEPTH_TEST);
     }
     gl.bindVertexArray(null);
     return { x0, y0, w, h, px, py };
