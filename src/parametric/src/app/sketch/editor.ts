@@ -327,14 +327,26 @@ export class SketchEditor implements ViewportTool {
   }
 
   /** Snaps a raw sketch point using the active tool's context. */
-  snap(raw: Vec2, e?: { ctrl?: boolean }): Snap {
+  snap(raw: Vec2, e?: { ctrl?: boolean; pointerType?: string }): Snap {
     const t = this.tool;
+    if (e?.pointerType) this.coarse = e.pointerType === 'touch';
     return snapPoint(this.sketch, raw, {
       from: t?.from?.() ?? null,
       exclude: t?.exclude?.(),
       disabled: !!e?.ctrl || t?.snaps === false,
-      tol: this.px * 9,
+      tol: this.px * 9 * this.reach(),
     });
+  }
+
+  /**
+   * Whether the pointer last used is a finger. A fingertip covers far more
+   * than a mouse pointer, so snapping and picking reach twice as far with it:
+   * a mouse's radius made points and lines hard to hit by touch.
+   */
+  private coarse = false;
+
+  private reach(): number {
+    return this.coarse ? 2 : 1;
   }
 
   /** Creates (or reuses) a point for a snap result, adding relations. */
@@ -403,7 +415,7 @@ export class SketchEditor implements ViewportTool {
 
   pickAt(p: Vec2, tolPx = 7): Pickable | null {
     const sk = this.sketch;
-    const tol = this.px * tolPx;
+    const tol = this.px * tolPx * this.reach();
     let best: Pickable | null = null;
     let bd = tol;
     if (dist2(p, [0, 0]) < bd) { bd = dist2(p, [0, 0]); best = { kind: 'point', id: ORIGIN_ID }; }
@@ -427,6 +439,7 @@ export class SketchEditor implements ViewportTool {
   // ---------- ViewportTool ----------
 
   pointerDown(e: VPEvent): boolean {
+    this.coarse = e.pointerType === 'touch';
     const raw = this.toSketch(e);
     if (!raw) return false;
     if (this.tool) {
@@ -504,6 +517,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   pointerMove(e: VPEvent, dragging: boolean) {
+    this.coarse = e.pointerType === 'touch';
     const raw = this.toSketch(e);
     if (!raw) return;
     this.cursorPt = raw;
@@ -632,6 +646,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   click(e: VPEvent): boolean {
+    this.coarse = e.pointerType === 'touch';
     // A press that did not move ends any drag that pointerDown started.
     const d = this.drag;
     this.drag = null;
@@ -670,6 +685,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   dblClick(e: VPEvent): boolean {
+    this.coarse = e.pointerType === 'touch';
     const raw = this.toSketch(e);
     if (!raw) return true;
     if (this.tool) {

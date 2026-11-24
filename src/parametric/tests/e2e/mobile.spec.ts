@@ -317,3 +317,34 @@ test('the closed design tree sheet is out of reach of the keyboard and screen re
   await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): boolean } } }).__parametric.commands.run('plane'));
   await expect(sheet).toHaveJSProperty('inert', false);
 });
+
+test('a tap a finger-width from a sketch point snaps to it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.startSketchOn({ kind: 'base', plane: 'front' }));
+  await expect(page.locator('.view-label')).toHaveText('Front');
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'mark', t: 'point', x: 0, y: 15 }); });
+    a.commands.run('tool:line');
+  });
+  const at = (p: [number, number]) => page.evaluate((p) => {
+    const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+    const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+    return { x: x + box.x, y: y + box.y };
+  }, p);
+  const cdp = await page.context().newCDPSession(page);
+  const tap = async (x: number, y: number) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 0 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForTimeout(400);
+  };
+  // 13 px off the point: beyond a mouse's reach, within a fingertip's.
+  const m = await at([0, 15]);
+  await tap(m.x + 9, m.y + 9);
+  const e = await at([-30, -10]);
+  await tap(e.x, e.y);
+  const line = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.find((x) => x.t === 'line') as { a: string; b: string } | undefined);
+  await expect.poll(async () => { const l = await line(); return !!l && (l.a === 'mark' || l.b === 'mark'); }).toBe(true);
+  expect(errors).toEqual([]);
+});
