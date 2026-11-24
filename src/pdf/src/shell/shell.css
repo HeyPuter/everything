@@ -2033,6 +2033,13 @@
 .annotation-style label > span {
   white-space: nowrap;
 }
+/* A field with its unit (an angle's °) beside it. */
+.annotation-style .annotation-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
 /* A width and its height, or a line's length and its angle, read as a pair on one row. */
 .annotation-style .annotation-pair {
   grid-column-start: 1;

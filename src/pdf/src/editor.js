@@ -12025,28 +12025,34 @@ export function createEditor({
             'label',
             key === 'length' ? { class: 'annotation-pair' } : {},
             el('span', {}, shown),
-            el('input', {
-              type: 'number',
-              ...range,
-              step: 'any',
-              required: true,
-              value: Number(lineShape()[key].toFixed(key === 'angle' ? 1 : 2)),
-              'aria-label': `${entry.kind} ${spoken}`,
-              onchange: (e) => {
-                if (!e.target.reportValidity()) return;
-                const now = lineShape();
-                const next = { ...now, [key]: Number(e.target.value) };
-                if (Math.abs(next[key] - now[key]) < (key === 'angle' ? 0.05 : 0.005)) return;
-                const reach = (next.length / pagePt) * screenUnit(),
-                  turn = (next.angle * Math.PI) / 180;
-                const end = pdfPoint({
-                  x: now.start.x + reach * Math.cos(turn),
-                  y: now.start.y - reach * Math.sin(turn),
-                });
-                const [start] = entry.points;
-                apply({ points: [{ x: start.x, y: start.y }, end] });
-              },
-            }),
+            // An angle is shown in degrees, with its sign, as an object's angle is.
+            el(
+              'span',
+              { class: 'annotation-field' },
+              el('input', {
+                type: 'number',
+                ...range,
+                step: 'any',
+                required: true,
+                value: Number(lineShape()[key].toFixed(key === 'angle' ? 1 : 2)),
+                'aria-label': `${entry.kind} ${spoken}`,
+                onchange: (e) => {
+                  if (!e.target.reportValidity()) return;
+                  const now = lineShape();
+                  const next = { ...now, [key]: Number(e.target.value) };
+                  if (Math.abs(next[key] - now[key]) < (key === 'angle' ? 0.05 : 0.005)) return;
+                  const reach = (next.length / pagePt) * screenUnit(),
+                    turn = (next.angle * Math.PI) / 180;
+                  const end = pdfPoint({
+                    x: now.start.x + reach * Math.cos(turn),
+                    y: now.start.y - reach * Math.sin(turn),
+                  });
+                  const [start] = entry.points;
+                  apply({ points: [{ x: start.x, y: start.y }, end] });
+                },
+              }),
+              key === 'angle' && el('span', { 'aria-hidden': 'true' }, '°'),
+            ),
           ),
         )
       : [];

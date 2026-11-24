@@ -224,3 +224,23 @@ test('a refused size shows the comment’s own again once its field is left', as
   const [box] = await saved(page);
   near(box.rect, { x: 100, width: 120, height: 60 });
 });
+
+test('a line’s angle shows its unit, as an object’s does', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'line',
+    points: [
+      { x: 100, y: 300 },
+      { x: 300, y: 300 },
+    ],
+    text: 'Rule',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: /^Line: Rule/ }).focus();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const angle = props.locator('label', {
+    has: page.locator('[aria-label="Line angle in degrees"]'),
+  });
+  await expect(angle).toHaveText('Angle°');
+});
