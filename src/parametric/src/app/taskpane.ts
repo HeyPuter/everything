@@ -136,6 +136,11 @@ export class TaskPane {
         b.addEventListener('click', () => void this.files.openLocation(p.location, p.name, undefined, p.size));
         list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
       }
+      // The pane lists the newest; Open lists them all.
+      if (parts.length > 50) {
+        const more = parts.length - 50;
+        list.after(h('button', { class: 'btn small', type: 'button', onclick: () => this.app.commands.run('open') }, `${more} more ${more === 1 ? 'part' : 'parts'}: show all in Open`));
+      }
     } catch (e) {
       list.removeAttribute('aria-busy');
       list.removeAttribute('role');

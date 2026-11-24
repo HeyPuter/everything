@@ -632,6 +632,23 @@ test('a cloud save that cannot reach Puter offers to keep the part in this brows
   expect(errors).toEqual([]);
 });
 
+test('the Parts pane says how many older parts it leaves out, and shows them all in Open', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const files = (window as unknown as Mock).__files;
+    for (let i = 1; i <= 53; i++) files.set(`/tester/AppData/parametric/Parts/P${i}.parametric`, { text: '{}', modified: 1_600_000_000 + i });
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.openTaskPane('files'));
+  const pane = page.locator('.tp-body');
+  await expect(pane.getByRole('listitem')).toHaveCount(50);
+  await pane.getByRole('button', { name: '3 more parts: show all in Open' }).click();
+  await expect(page.getByRole('dialog', { name: 'Open' }).getByRole('listitem')).toHaveCount(53);
+  expect(errors).toEqual([]);
+});
+
 test('Open says it is loading while a slow cloud listing is pending', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);
