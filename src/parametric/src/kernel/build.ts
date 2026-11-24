@@ -1191,6 +1191,14 @@ export class ModelBuilder {
   private applyLoft(f: LoftFeature, st: State) {
     if (f.profiles.length < 2) throw new FeatureError('Select at least two profiles');
     const profs = f.profiles.map((id) => this.profileLoops(id, st));
+    // Profiles drawn in one plane make no solid; "could not be created" did not say why.
+    for (let i = 1; i < profs.length; i++) {
+      const a = profs[i - 1].frame, b = profs[i].frame;
+      const size = Math.max(1, len(a.o), len(b.o));
+      if (Math.abs(dot(a.n, b.n)) > 1 - 1e-9 && Math.abs(dot(sub(b.o, a.o), a.n)) < 1e-9 * size) {
+        throw new FeatureError(`The profiles ${nameOf(f.profiles[i - 1])} and ${nameOf(f.profiles[i])} lie in the same plane. Sketch each profile on its own plane.`);
+      }
+    }
     // Inner loops make a hollow loft when every profile has exactly one
     // (more than one cannot be matched between profiles reliably).
     const hollow = profs.every((p) => p.holes.length === 1);
@@ -1218,6 +1226,7 @@ export class ModelBuilder {
 
   private applySweep(f: SweepFeature, st: State) {
     if (!f.profile || !f.path) throw new FeatureError('Select a profile and a path');
+    if (f.profile === f.path) throw new FeatureError('The profile and the path are the same sketch. Draw the path in a sketch of its own.');
     const prof = this.profileLoops(f.profile, st);
     if (prof.extra) this.warning = ModelBuilder.EXTRA_CONTOURS;
     const pathSk = st.sketches.get(f.path);

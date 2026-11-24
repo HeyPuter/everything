@@ -353,6 +353,11 @@ describe('feature regeneration', () => {
     ]));
     expect(extra.status[3].ok).toBe(true);
     expect(extra.status[3].warning).toMatch(/first closed contour/);
+    // Profiles in one plane, and a path that is the profile's own sketch, say so.
+    const flat = await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), sketch('S2', circle(30, 0, 5)), loft]));
+    expect(flat.status[2].error).toBe('The profiles S1 and S2 lie in the same plane. Sketch each profile on its own plane.');
+    const self = await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), { id: 'SW', name: 'SW', type: 'sweep', profile: 'S1', path: 'S1', cut: false }]));
+    expect(self.status[1].error).toBe('The profile and the path are the same sketch. Draw the path in a sketch of its own.');
     // A tube profile sweeps into a pipe.
     const P = (id: string, x: number, y: number) => ({ id, t: 'point', x, y });
     const path = sketch('PA', [P('a', 0, 0), P('b', -30, 0), { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[], { kind: 'base', plane: 'right' });
