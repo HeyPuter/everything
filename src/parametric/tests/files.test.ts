@@ -138,5 +138,8 @@ describe('safeName', () => {
     expect(name).toBe(`${'a'.repeat(119)}\u{1F600}`);
     expect(safeName(`${'a'.repeat(119)} b`)).toBe('a'.repeat(119));
     expect(safeName(' a/b:c ')).toBe('a-b-c');
+    // Control characters cannot be in a file name; line breaks and tabs become spaces.
+    expect(safeName('Gear\u0000\u0007 v2\u007f\nplate\tB')).toBe('Gear v2 plate B');
+    expect(safeName('\u0001\u0002')).toBe('Untitled');
   });
 });

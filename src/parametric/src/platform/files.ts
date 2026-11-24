@@ -29,9 +29,13 @@ export interface FileEntry {
   size?: number | null;
 }
 
-/** Counted in characters, not UTF-16 units: a cut must not split an emoji into half a character. */
+/**
+ * A name usable as a file name: no path or reserved characters, no control
+ * characters (tabs and line breaks become spaces), at most 120 characters,
+ * counted as characters so a cut never splits an emoji in half.
+ */
 export const safeName = (name: string) =>
-  Array.from((name || 'Untitled').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim()).slice(0, 120).join('').trim() || 'Untitled';
+  Array.from((name || 'Untitled').replace(/\s+/g, ' ').replace(/[\x00-\x1f\x7f-\x9f]+/g, '').replace(/[\\/:*?"<>|]+/g, '-').trim()).slice(0, 120).join('').trim() || 'Untitled';
 
 // ---- Local (OPFS) ----
 
