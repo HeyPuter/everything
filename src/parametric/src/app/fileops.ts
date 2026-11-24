@@ -304,7 +304,8 @@ export class FileOps {
       // The work is still only in this tab: offer a copy on the device meanwhile,
       // or, where the file may not be changed, a copy of one's own.
       const actions = [{ label: 'Download a copy', run: () => void this.exportAs('part') }];
-      if (isPermissionError(e)) actions.unshift({ label: 'Save As...', run: () => void this.saveAs() });
+      // Signed out (in another tab, say), Save As keeps it in this browser, as the message says.
+      if (isPermissionError(e) || (app.location?.type === 'cloud' && !cloudAvailable())) actions.unshift({ label: 'Save As...', run: () => void this.saveAs() });
       toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions, timeout: 15000 });
       return false;
     });

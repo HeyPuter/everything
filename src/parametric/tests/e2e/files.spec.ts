@@ -493,6 +493,13 @@ test('after signing out, saving a cloud part asks to sign in instead of writing 
   await expect(toasts.getByText(/Sign in to Puter to save this part to your cloud/)).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as Mock).__files.size)).toBe(0);
   await expect(page).toHaveTitle('* Part1 - Parametric');
+  // The message suggests Save As to keep the part in this browser: it is offered.
+  await toasts.getByRole('button', { name: 'Save As...' }).click();
+  const ask = page.getByRole('dialog', { name: 'Save As' });
+  await ask.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location?.type)).toBe('local');
+  expect(await page.evaluate(() => (window as unknown as Mock).__files.size)).toBe(0);
   expect(errors).toEqual([]);
 });
 
