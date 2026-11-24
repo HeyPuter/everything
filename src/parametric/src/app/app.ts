@@ -284,6 +284,16 @@ export class App {
   }
 
   /**
+   * View › Design Tree: on phones the sheet opens or closes; on wider screens,
+   * where the pane is always there, its Design tree tab is shown and focused.
+   */
+  showDesignTree() {
+    if (window.matchMedia('(max-width: 760px)').matches) { this.toggleLeftPane(); return; }
+    this.showLeft('tree');
+    this.tree.el.querySelector<HTMLElement>('.ti[tabindex="0"]')?.focus();
+  }
+
+  /**
    * Phones: the closed sheet is out of sight, so out of reach of the keyboard
    * and screen readers too; focus in it moves to the Tree button that brings it back.
    */

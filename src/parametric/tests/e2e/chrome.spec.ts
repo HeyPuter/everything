@@ -679,3 +679,23 @@ test('design tree rows tell screen readers that a feature is suppressed or rolle
   await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toHaveAccessibleDescription('');
   expect(errors).toEqual([]);
 });
+
+test('View › Design Tree shows and focuses the design tree beside an open panel', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Fillet1' }).click();
+  await page.getByRole('button', { name: 'Chamfer', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'Chamfer' })).toBeVisible();
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'View' }).click();
+  await page.getByRole('menuitem', { name: 'Design Tree' }).click();
+  await expect(page.getByRole('tree', { name: 'Design tree', exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole('tree', { name: 'Design tree', exact: true })
+      .getByRole('treeitem', { name: 'Fillet1' }),
+  ).toBeFocused();
+  expect(errors).toEqual([]);
+});

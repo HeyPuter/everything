@@ -310,7 +310,7 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'theme:system', label: 'System Theme', icon: 'system', checked: () => getThemeChoice() === 'system', run: () => { setThemeChoice('system'); c.changed(); } },
     { id: 'theme:light', label: 'Light Theme', icon: 'light', checked: () => getThemeChoice() === 'light', run: () => { setThemeChoice('light'); c.changed(); } },
     { id: 'theme:dark', label: 'Dark Theme', icon: 'dark', checked: () => getThemeChoice() === 'dark', run: () => { setThemeChoice('dark'); c.changed(); } },
-    { id: 'toggleTree', label: 'Design Tree', icon: 'panelLeft', run: () => app.toggleLeftPane() },
+    { id: 'toggleTree', label: 'Design Tree', icon: 'panelLeft', run: () => app.showDesignTree() },
     { id: 'shortcutBar', label: 'Shortcut Bar', icon: 'more', shortcut: 'S', description: 'Show the most used commands at the cursor.', run: () => app.openShortcutBar() },
     // ---- help ----
     { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: 'keyboard', shortcut: 'Shift+?', run: () => shortcutsDialog(app) },
