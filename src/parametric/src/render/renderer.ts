@@ -734,6 +734,9 @@ export class Renderer {
   // ---- frame ----
 
   resize(cssW: number, cssH: number, dpr: number) {
+    // A hidden view (display: none, a minimised window) measures 0 × 0: it keeps its last size,
+    // or a zoom to fit meanwhile would put the camera infinitely far away.
+    if (!(cssW >= 1 && cssH >= 1)) return;
     this.dpr = Math.min(dpr, 2);
     const w = Math.max(1, Math.round(cssW * this.dpr));
     const h = Math.max(1, Math.round(cssH * this.dpr));

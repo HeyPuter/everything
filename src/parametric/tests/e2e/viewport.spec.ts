@@ -463,6 +463,27 @@ test.describe('viewport', () => {
     for (const px of reads) px.forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThan(3));
   });
 
+  test('a zoom to fit while the view is hidden still frames the part once it shows again', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const width = await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.width);
+    // Hidden (as in a minimised window), the view measures 0 × 0.
+    await page.evaluate(() => { (window as unknown as Win).__parametric.shell.viewport.style.display = 'none'; });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.zoomToFit(false));
+    await page.evaluate(() => { (window as unknown as Win).__parametric.shell.viewport.style.display = ''; });
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.width)).toBe(width);
+    const seen = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      return { distance: app.renderer.camera.distance, pick: app.renderer.pick(x, y, { face: true })?.kind ?? null };
+    });
+    expect(Number.isFinite(seen.distance)).toBe(true);
+    expect(seen.pick).toBe('face');
+  });
+
   test('does not pick vertices cut away by the section view', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
