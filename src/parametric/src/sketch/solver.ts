@@ -745,7 +745,7 @@ export class SketchSystem {
       // tangent and lands it far longer than it was (90 degrees more made a
       // free line half as long again, 150 degrees three times as long). Turning
       // there in steps keeps its length close to what it was.
-      converged = this.largeAngleChange() ? this.solveByContinuation(maxIter) : false;
+      converged = this.largeAngleChange() ? this.solveByContinuation(maxIter, true) : false;
       if (!converged) { this.x.set(initial); converged = this.solveAll(maxIter); }
       // A big change (a dimension well below its old value) can jump to a
       // solution where a fillet or tangent arc folds back over its line. Walk
@@ -810,7 +810,7 @@ export class SketchSystem {
    * systems f(x) - (1 - t) f(x0) for t from 0 to 1 (each solved from the last),
    * which follows the solution branch of the starting shape.
    */
-  private solveByContinuation(maxIter: number): boolean {
+  private solveByContinuation(maxIter: number, stopOnFailure = false): boolean {
     const eqs = this.eqs;
     const r0 = new Float64Array(eqs.length);
     this.residuals(eqs, r0);
@@ -819,7 +819,10 @@ export class SketchSystem {
       for (let k = 1; k < steps; k++) {
         const w = 1 - k / steps;
         this.eqs = eqs.map((e, i) => (r0[i] ? { ...e, f: (x: Float64Array) => e.f(x) - w * r0[i] } : e));
-        this.solveAll(maxIter);
+        // A step that cannot be met (conflicting constraints) will not lead
+        // anywhere better: let the caller solve directly instead of paying
+        // for every remaining step.
+        if (!this.solveAll(maxIter) && stopOnFailure) return false;
       }
     } finally {
       this.eqs = eqs;

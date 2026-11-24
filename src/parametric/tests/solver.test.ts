@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SkConstraint, SkDimension, SkEntity } from '../src/model/types';
 import { SketchSystem, solveSketch, splineSignedDist } from '../src/sketch/solver';
 import { SketchIndex, distanceToCurve } from '../src/sketch/geom';
@@ -142,6 +142,26 @@ describe('sketch solver', () => {
     const m = P(ents, 'm');
     expect(m.x).toBeCloseTo(b.x / 2, 7);
     expect(res.status).toBe('full');
+  });
+
+  it('solves a conflicting angle directly instead of stepping towards it', () => {
+    const ents: SkEntity[] = [pt('a', 0, 0), pt('b', 10, 0), line('l1', 'a', 'b'), pt('c', 0, 0), pt('d', 0, 8), line('l2', 'c', 'd')];
+    const cons: SkConstraint[] = [
+      { id: 'f', type: 'fix', refs: ['l1'] },
+      { id: 'cc', type: 'coincident', refs: ['c', 'a'] },
+      { id: 'pp', type: 'perpendicular', refs: ['l1', 'l2'] },
+      dim('ang', 'angle', ['l1', 'l2'], 30),
+    ];
+    const solveAll = vi.spyOn(SketchSystem.prototype as unknown as { solveAll(n: number): boolean }, 'solveAll');
+    try {
+      const res = solveSketch(ents, cons, { value });
+      expect(res.status).toBe('over');
+      expect(res.conflicting.size).toBeGreaterThan(0);
+      // One failed step, then the direct solve: not all sixteen steps.
+      expect(solveAll.mock.calls.length).toBeLessThan(5);
+    } finally {
+      solveAll.mockRestore();
+    }
   });
 
   it('evaluates each driving dimension once per solve, dragging included', () => {
