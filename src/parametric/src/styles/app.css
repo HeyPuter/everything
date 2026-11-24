@@ -653,3 +653,11 @@ a.icon-btn { text-decoration: none; }
 @media (max-width: 380px) {
   .tb-brand { display: none; }
 }
+/* Windows high contrast replaces backgrounds: the rollback bar is drawn in the
+   text colour, and colour swatches keep their colour (they are the content). */
+@media (forced-colors: active) {
+  .rollback-bar::before { background: CanvasText; }
+  .rollback-bar:hover::before, .rollback-bar.dragging::before { background: Highlight; }
+  .swatch { forced-color-adjust: none; }
+  .swatch[aria-pressed='true'] { outline-color: Highlight; }
+}

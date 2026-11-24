@@ -746,3 +746,23 @@ test('choosing a section plane with the keyboard keeps focus on the plane button
   await expect(plane.getByRole('button', { name: 'Top', exact: true })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('the rollback bar and colour swatches stay visible in high contrast mode', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const bar = await page
+    .locator('.rollback-bar')
+    .evaluate((el) => getComputedStyle(el, '::before').backgroundColor);
+  const canvas = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(bar).not.toBe(canvas);
+  expect(bar).not.toBe('rgba(0, 0, 0, 0)');
+  await page.evaluate(() => (window as unknown as Handle).__parametric.openTaskPane('appearance'));
+  const swatches = await page
+    .locator('.swatch')
+    .evaluateAll((els) => new Set(els.map((el) => getComputedStyle(el).backgroundColor)).size);
+  expect(swatches).toBeGreaterThan(1);
+  expect(errors).toEqual([]);
+});
