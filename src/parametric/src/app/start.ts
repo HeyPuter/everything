@@ -118,7 +118,14 @@ export async function doSignIn(app: App): Promise<boolean> {
 }
 
 async function signedIn(app: App) {
-  toast({ kind: 'success', message: 'Signed in. Your parts will now be saved to your Puter cloud.' });
+  // Save keeps a part where it is: one kept in this browser reaches the cloud with Save As.
+  const local = app.location?.type === 'local';
+  toast({
+    kind: 'success',
+    message: local ? `Signed in. New parts will be saved to your Puter cloud. "${app.store.doc.name}" stays in this browser until you save it to the cloud with Save As.` : 'Signed in. Your parts will now be saved to your Puter cloud.',
+    actions: local ? [{ label: 'Save As...', run: () => app.commands.run('saveAs') }] : undefined,
+    timeout: local ? 9000 : undefined,
+  });
   await refreshAccount(app);
   app.loadRemoteSettings();
 }

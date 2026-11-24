@@ -503,6 +503,28 @@ test('after signing out, saving a cloud part asks to sign in instead of writing 
   expect(errors).toEqual([]);
 });
 
+test('signing in with a part kept in this browser says Save As moves it to the cloud', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { puter: { auth: { isSignedIn(): boolean; signIn(): Promise<boolean> } }; signedIn: boolean };
+    w.signedIn = false;
+    w.puter.auth.isSignedIn = () => w.signedIn;
+    w.puter.auth.signIn = async () => { w.signedIn = true; return true; };
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location?.type)).toBe('local');
+  await page.getByRole('button', { name: 'Account: not signed in' }).click();
+  await page.getByRole('menuitem', { name: 'Sign in with Puter' }).click();
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts).toContainText('"Part1" stays in this browser until you save it to the cloud with Save As.');
+  await toasts.getByRole('button', { name: 'Save As...' }).click();
+  await expect.poll(() => page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Part1.parametric']);
+  expect(errors).toEqual([]);
+});
+
 test('Open says it is loading while a slow cloud listing is pending', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);
