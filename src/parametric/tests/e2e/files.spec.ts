@@ -1,34 +1,45 @@
 import { type Page, expect, test } from '@playwright/test';
 import { openApp } from './helpers';
 
-type Mock = { __files: Map<string, { text: string }>; __writeDelay: number };
+type Mock = { __files: Map<string, { text: string; modified?: number }>; __writeDelay: number };
 type AppHandle = { store: { dirty: boolean; change(label: string, fn: (d: { variables: { name: string; expr: string }[] }) => void): void }; commands: { run(id: string): boolean } };
 
 // A signed-in Puter stand-in with an in-memory file system (never a real account).
 async function mockPuter(page: Page) {
   await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
   await page.addInitScript(() => {
-    const files = new Map<string, { text: string }>();
+    const files = new Map<string, { text: string; modified?: number }>();
     const w = window as unknown as Mock & { puter: unknown };
     w.__files = files;
     w.__writeDelay = 0;
-    const item = (path: string) => ({ name: path.split('/').pop()!, path, is_dir: false, modified: Math.floor(Date.now() / 1000), size: files.get(path)?.text.length ?? 0 });
+    // Each save gets a new modified time (Puter's are in seconds; a counter keeps them apart here).
+    let clock = 1_700_000_000;
+    const item = (path: string) => {
+      const f = files.get(path);
+      if (f && !f.modified) f.modified = ++clock;
+      return { name: path.split('/').pop()!, path, is_dir: false, modified: f?.modified ?? clock, size: f?.text.length ?? 0 };
+    };
     w.puter = {
       env: 'web',
       auth: { isSignedIn: () => true, signIn: async () => true, signOut: async () => {}, getUser: async () => ({ username: 'tester', uuid: 'u1' }) },
       fs: {
-        async write(path: string, data: Blob | string) {
+        async write(path: string, data: Blob | string, opts?: { overwrite?: boolean; dedupeName?: boolean }) {
           const text = typeof data === 'string' ? data : await data.text();
           if (w.__writeDelay) await new Promise((r) => setTimeout(r, w.__writeDelay));
-          const p = path.startsWith('/') ? path : `/tester/AppData/parametric/${path}`;
-          files.set(p, { text });
+          let p = path.startsWith('/') ? path : `/tester/AppData/parametric/${path}`;
+          if (files.has(p) && opts?.overwrite === false) {
+            if (!opts.dedupeName) throw { code: 'item_with_same_name_exists', message: 'An item with that name already exists.' };
+            const m = /^(.*?)(\.[^./]*)?$/.exec(p)!;
+            for (let n = 1; files.has(p); n++) p = `${m[1]} (${n})${m[2] ?? ''}`;
+          }
+          files.set(p, { text, modified: ++clock });
           return item(p);
         },
         async read(path: string) { const f = files.get(path); if (!f) throw { code: 'subject_does_not_exist', message: 'Not found' }; return new Blob([f.text]); },
         async readdir(path: string) { const pre = `/tester/AppData/parametric/${path}/`; return [...files.keys()].filter((k) => k.startsWith(pre)).map(item); },
         async delete(path: string) { if (path.includes('Locked')) throw { message: 'Permission denied' }; files.delete(path); },
         async rename(path: string, name: string) { const np = path.replace(/[^/]+$/, name); files.set(np, files.get(path)!); files.delete(path); return item(np); },
-        async stat(path: string) { return item(path); },
+        async stat(path: string) { if (!files.has(path)) throw { code: 'subject_does_not_exist', message: 'Not found' }; return item(path); },
         async mkdir() { return {}; },
         async listShared() { return { items: [] }; },
       },
@@ -39,7 +50,7 @@ async function mockPuter(page: Page) {
           const answer = (async () => {
             const path = await (w as unknown as { __savePick: (name: string) => Promise<string | undefined> }).__savePick(name);
             if (!path) return undefined;
-            files.set(path, { text: await data.text() });
+            files.set(path, { text: await data.text(), modified: ++clock });
             return item(path);
           })();
           const cancelled = new Error('cancelled');
@@ -1601,5 +1612,84 @@ test('the Parts task pane lists a part as soon as it is saved, saved as or renam
   await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Holder');
   await page.getByRole('dialog', { name: 'Rename part' }).getByRole('button', { name: 'OK' }).click();
   await expect.poll(listed).toEqual(['Holder', 'Part1']);
+  expect(errors).toEqual([]);
+});
+
+for (const choice of ['Cancel', 'Save as a copy', 'Replace'] as const) test(`a cloud part saved elsewhere since it was opened asks before replacing that version: ${choice}`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  const path = '/tester/AppData/parametric/Parts/Part1.parametric';
+  const edit = (name: string) => page.evaluate((name) => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('E', (d) => { d.variables.push({ name, expr: '1' }); }), name);
+  const save = () => page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  const stored = (p: string) => page.evaluate((p) => (window as unknown as Mock).__files.get(p)?.text ?? null, p);
+  await edit('Mine');
+  await save();
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  // Another device (or a person it is shared with) saves the file.
+  await page.evaluate((path) => { (window as unknown as Mock).__files.set(path, { text: 'their version' }); }, path);
+  await edit('More');
+  await save();
+  const ask = page.getByRole('dialog', { name: 'Replace the saved part?' });
+  await expect(ask).toContainText('saved elsewhere');
+  await ask.getByRole('button', { name: choice, exact: true }).click();
+  if (choice === 'Cancel') {
+    await expect(page).toHaveTitle('* Part1 - Parametric');
+    expect(await stored(path)).toBe('their version');
+  } else if (choice === 'Save as a copy') {
+    await expect(page).toHaveTitle('Part1 (2) - Parametric');
+    expect(await stored(path)).toBe('their version');
+    const copy = '/tester/AppData/parametric/Parts/Part1 (2).parametric';
+    expect(JSON.parse((await stored(copy))!).variables.map((v: { name: string }) => v.name)).toEqual(['Mine', 'More']);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: copy });
+  } else {
+    await expect(page).toHaveTitle('Part1 - Parametric');
+    expect(JSON.parse((await stored(path))!).variables).toHaveLength(2);
+  }
+  if (choice !== 'Cancel') {
+    // The version just written is the one known now: saving again does not ask.
+    await edit('Again');
+    await save();
+    await expect(page).toHaveTitle(/^Part1( \(2\))? - Parametric$/);
+    await expect(ask).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('a cloud part saves as usual when whether it changed elsewhere cannot be checked', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; puter: { fs: { stat: () => Promise<unknown> } } };
+    w.puter.fs.stat = async () => { throw new TypeError('Failed to fetch'); };
+    w.__parametric.store.change('E', (d) => { d.variables.push({ name: 'Offline', expr: '1' }); });
+    w.__parametric.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('a new part never replaces a file of the same name another tab created meanwhile, and takes the name it got', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as Mock & { __parametric: AppHandle; puter: { fs: { readdir: () => Promise<unknown[]> } } };
+    // Created by another tab after this one listed the folder.
+    w.__files.set('/tester/AppData/parametric/Parts/Part1.parametric', { text: 'other tab' });
+    w.puter.fs.readdir = async () => [];
+    w.__parametric.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 (1) - Parametric');
+  const files = await page.evaluate(() => Object.fromEntries([...(window as unknown as Mock).__files].map(([k, v]) => [k, v.text.slice(0, 10)])));
+  expect(files['/tester/AppData/parametric/Parts/Part1.parametric']).toBe('other tab');
+  expect(Object.keys(files)).toContain('/tester/AppData/parametric/Parts/Part1 (1).parametric');
   expect(errors).toEqual([]);
 });

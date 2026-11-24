@@ -150,12 +150,38 @@ async function localDelete(id: string) {
 
 // ---- Cloud (Puter FS) ----
 
-async function cloudWrite(path: string, text: string) {
+async function cloudWrite(path: string, text: string, isNew: boolean) {
   const fs = puter()?.fs;
   if (!fs) throw new Error('Puter storage is not available.');
   // Signed out (in another tab, say): writing would open Puter's sign-in instead.
   if (!cloudAvailable()) throw new Error('Sign in to Puter to save this part to your cloud, or use Save As to keep it in this browser.');
-  return fs.write(path, new Blob([text], { type: 'application/json' }), { overwrite: true, createMissingParents: true });
+  const data = new Blob([text], { type: 'application/json' });
+  // A new part never replaces a file another tab created under the same name meanwhile.
+  return fs.write(path, data, isNew ? { overwrite: false, dedupeName: true, createMissingParents: true } : { overwrite: true, createMissingParents: true });
+}
+
+/** One saved version of a cloud file: it changes whenever anyone saves the file. */
+export interface FileVersion { modified: number; size: number | null }
+
+export const versionOf = (item?: { modified?: number; size?: number | null } | null): FileVersion | null =>
+  item && typeof item.modified === 'number' && Number.isFinite(item.modified) && item.modified > 0
+    ? { modified: toMs(item.modified), size: typeof item.size === 'number' ? item.size : null } : null;
+
+export const versionChanged = (now: FileVersion, then: FileVersion) =>
+  now.modified !== then.modified || (now.size != null && then.size != null && now.size !== then.size);
+
+/**
+ * A cloud file's current version: null when the file no longer exists,
+ * undefined when it could not be checked (offline, say), so callers go ahead.
+ */
+export async function cloudVersion(path: string): Promise<FileVersion | null | undefined> {
+  const fs = puter()?.fs;
+  if (!fs?.stat || !cloudAvailable()) return undefined;
+  try {
+    return versionOf(await fs.stat(path)) ?? undefined;
+  } catch (e) {
+    return isMissing(e) ? null : undefined;
+  }
 }
 
 async function cloudRead(path: string): Promise<string> {
@@ -197,17 +223,26 @@ export async function newLocation(name: string): Promise<Location> {
 
 /** Writes a part's JSON text. Returns the (possibly updated) location. */
 export async function saveText(location: Location, name: string, text: string): Promise<Location> {
+  return (await savePart(location, name, text)).location;
+}
+
+/**
+ * Writes a part's JSON text; `isNew` for a file that does not exist yet. Returns
+ * where it was written (a new cloud file can get a free name) and, for a cloud
+ * file, the version written.
+ */
+export async function savePart(location: Location, name: string, text: string, isNew = false): Promise<{ location: Location; version: FileVersion | null }> {
   if (location.type === 'cloud') {
-    const item = await cloudWrite(location.path, text);
+    const item = await cloudWrite(location.path, text, isNew);
     const loc: Location = { type: 'cloud', path: item?.path || location.path };
     rememberRecent({ location: loc, name });
     announceSaved(loc);
-    return loc;
+    return { location: loc, version: versionOf(item) ?? (await cloudVersion(loc.path)) ?? null };
   }
   await localWrite(location.id, name, text);
   rememberRecent({ location, name });
   announceSaved(location);
-  return location;
+  return { location, version: null };
 }
 
 // ---- Saves made in other tabs of this browser ----
@@ -266,6 +301,15 @@ export async function loadText(location: Location): Promise<string> {
   return location.type === 'cloud' ? cloudRead(location.path) : localRead(location.id);
 }
 
+/** A part's text and, for a cloud file, the version read (null when it could not be checked). */
+export async function loadPart(location: Location): Promise<{ text: string; version: FileVersion | null }> {
+  if (location.type !== 'cloud') return { text: await localRead(location.id), version: null };
+  // Asked first: a save landing between the two reads the safe way, as a change to confirm.
+  const version = cloudVersion(location.path);
+  const text = await cloudRead(location.path);
+  return { text, version: (await version) ?? null };
+}
+
 export async function deletePart(location: Location) {
   if (location.type === 'cloud') await puter()!.fs.delete(location.path);
   else await localDelete(location.id);
@@ -274,6 +318,11 @@ export async function deletePart(location: Location) {
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
+  return (await renameCloudPart(location, newName)).location;
+}
+
+/** Renames a cloud part's file; returns its new location and version. */
+export async function renameCloudPart(location: Location & { type: 'cloud' }, newName: string): Promise<{ location: Location; version: FileVersion | null }> {
   if (!cloudAvailable()) throw new Error('Sign in to Puter to rename parts saved in your cloud.');
   const item = await puter()!.fs.rename(location.path, `${safeName(newName)}${EXT}`);
   const renamed: Location = { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
@@ -284,7 +333,7 @@ export async function renameCloud(location: Location & { type: 'cloud' }, newNam
   } catch {
     /* other tabs are not told */
   }
-  return renamed;
+  return { location: renamed, version: versionOf(item) };
 }
 
 /**
@@ -309,6 +358,9 @@ export async function listParts(onCloudError?: (err: unknown) => void): Promise<
   out.sort((a, b) => (b.modified || 0) - (a.modified || 0));
   return out;
 }
+
+/** The part name a cloud file's name gives ('' for parts kept in this browser). */
+export const partFileName = (loc: Location) => (loc.type === 'cloud' ? (loc.path.split('/').pop() ?? '').replace(/\.(parametric|json)$/i, '') : '');
 
 export const sameLocation = (a?: Location | null, b?: Location | null) =>
   !!a && !!b && a.type === b.type && (a.type === 'cloud' ? a.path === (b as { path: string }).path : a.id === (b as { id: string }).id);
@@ -352,7 +404,7 @@ export const locationLabel = (loc?: Location | null) =>
   !loc ? 'Not saved' : loc.type === 'cloud' ? loc.path.replace(/^.*\/AppData\/[^/]+\//, '') : 'This browser';
 
 /** Opens a file chosen from Puter storage: a part, or a STEP or SolidWorks file to import. */
-export async function pickCloudFile(): Promise<{ blob: Blob; fileName: string; location: Location; name: string } | null> {
+export async function pickCloudFile(): Promise<{ blob: Blob; fileName: string; location: Location; name: string; version: FileVersion | null } | null> {
   const p = puter();
   if (!p?.ui?.showOpenFilePicker) return null;
   const pick = p.ui.showOpenFilePicker({ accept: [EXT, '.json', ...IMPORT_EXTS], path: `%appdata%/${CLOUD_DIR}` });
@@ -360,19 +412,19 @@ export async function pickCloudFile(): Promise<{ blob: Blob; fileName: string; l
   if (!item) return null;
   const file = Array.isArray(item) ? item[0] : item;
   const blob = await file.read!();
-  return { blob, fileName: file.name, location: { type: 'cloud', path: file.path }, name: file.name.replace(/\.(parametric|json)$/i, '') };
+  return { blob, fileName: file.name, location: { type: 'cloud', path: file.path }, name: file.name.replace(/\.(parametric|json)$/i, ''), version: versionOf(file) };
 }
 
 /** Save As into a user-chosen Puter folder. */
-export async function pickCloudSave(text: string, name: string): Promise<Location | null> {
+export async function pickCloudSave(text: string, name: string): Promise<{ location: Location & { type: 'cloud' }; version: FileVersion | null } | null> {
   const p = puter();
   if (!p?.ui?.showSaveFilePicker) return null;
   const pick = p.ui.showSaveFilePicker(new Blob([text], { type: 'application/json' }), `${safeName(name)}${EXT}`);
   const item = await (pick?.undefinedOnCancel ?? pick);
   if (!item) return null;
-  const location: Location = { type: 'cloud', path: item.path };
+  const location = { type: 'cloud' as const, path: item.path };
   announceSaved(location);
-  return location;
+  return { location, version: versionOf(item) ?? (await cloudVersion(item.path)) ?? null };
 }
 
 /** Reads a file from the user's device. */
