@@ -11,7 +11,11 @@ import type { App } from './app';
 import type { FileOps } from './fileops';
 import type { AssistantPanel } from '../assistant/panel';
 
-const SWATCHES = ['#b8c4d2', '#d0d3d8', '#8e9aa8', '#5d6b7c', '#3a4452', '#c9b28b', '#d48a4e', '#c45a4a', '#c9a33d', '#6aa36a', '#4f8fc0', '#7a6bc2'];
+/** Part colours, named for screen readers and tooltips (a hex code says little). */
+const SWATCHES: [string, string][] = [
+  ['#b8c4d2', 'Light steel'], ['#d0d3d8', 'Silver'], ['#8e9aa8', 'Steel grey'], ['#5d6b7c', 'Slate'], ['#3a4452', 'Charcoal'], ['#c9b28b', 'Sand'],
+  ['#d48a4e', 'Copper'], ['#c45a4a', 'Brick red'], ['#c9a33d', 'Brass'], ['#6aa36a', 'Green'], ['#4f8fc0', 'Blue'], ['#7a6bc2', 'Violet'],
+];
 
 type PaneId = 'assistant' | 'files' | 'appearance' | 'help';
 
@@ -140,8 +144,9 @@ export class TaskPane {
     const app = this.app;
     const cur = app.store.doc.color;
     const grid = h('div', { class: 'swatches', role: 'group', 'aria-label': 'Part colour' });
-    for (const c of SWATCHES) {
-      const b = h('button', { class: 'swatch', type: 'button', style: { background: c }, 'aria-label': `Colour ${c}`, 'aria-pressed': String(c === cur), 'data-color': c });
+    for (const [c, label] of SWATCHES) {
+      const b = h('button', { class: 'swatch', type: 'button', style: { background: c }, 'aria-label': label, 'aria-pressed': String(c === cur), 'data-color': c });
+      attachTooltip(b, label);
       b.addEventListener('click', () => {
         app.store.change('Appearance', (doc) => { doc.color = c; });
         app.applyModelColor();

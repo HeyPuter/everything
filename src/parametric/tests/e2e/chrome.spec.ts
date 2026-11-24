@@ -147,7 +147,7 @@ test('Undo and Redo of a part colour recolour the model and the Appearance swatc
   const before = await page.evaluate(
     () => (window as unknown as Handle).__parametric.store.doc.color,
   );
-  await page.getByRole('button', { name: 'Colour #c45a4a' }).click();
+  await page.getByRole('button', { name: 'Brick red' }).click();
   const shown = () =>
     page.evaluate(() => {
       const a = (window as unknown as Handle).__parametric;
@@ -159,15 +159,15 @@ test('Undo and Redo of a part colour recolour the model and the Appearance swatc
         )
         .join('');
       const pressed = [...document.querySelectorAll('.swatch[aria-pressed="true"]')];
-      return { model: `#${hex}`, pressed: pressed.map((b) => b.getAttribute('aria-label')) };
+      return { model: `#${hex}`, pressed: pressed.map((b) => b.getAttribute('data-color')) };
     });
   await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('undo'));
   expect(await shown()).toEqual({
     model: before ?? '#',
-    pressed: before ? [`Colour ${before}`] : [],
+    pressed: before ? [before] : [],
   });
   await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('redo'));
-  expect(await shown()).toEqual({ model: '#c45a4a', pressed: ['Colour #c45a4a'] });
+  expect(await shown()).toEqual({ model: '#c45a4a', pressed: ['#c45a4a'] });
   expect(errors).toEqual([]);
 });
 
@@ -898,5 +898,20 @@ test('Part Properties changing the name and the units is one undo step', async (
   await expect.poll(state).toEqual({ name: 'Bracket', units: 'IPS', undo: 'Part properties' });
   await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('undo'));
   expect(await state()).toMatchObject({ name: 'Part1', units: 'MMGS' });
+  expect(errors).toEqual([]);
+});
+
+test('part colour swatches have names, not hex codes', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.openTaskPane('appearance'));
+  const names = await page
+    .getByRole('group', { name: 'Part colour' })
+    .getByRole('button')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+  expect(names).toHaveLength(12);
+  for (const n of names) expect(n).not.toMatch(/#/);
+  await page.getByRole('button', { name: 'Copper' }).hover();
+  await expect(page.getByRole('tooltip')).toHaveText('Copper');
   expect(errors).toEqual([]);
 });
