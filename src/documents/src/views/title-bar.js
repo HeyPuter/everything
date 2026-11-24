@@ -69,11 +69,23 @@ export function createTitleBar({ w, c, a, local, title, status, account, menus, 
   const quick = el('div.ed-quick', { role: 'toolbar', 'aria-label': 'Quick access' });
   function renderQuick() {
     quick.replaceChildren(...chosen.map(nodeFor).filter(Boolean));
+    fitQuick();
+  }
+  // Commands that do not fit go, from the end, rather than run over the menu bar and the document's name; the
+  // Customize button's menu lists them to run from there.
+  function fitQuick() {
+    const items = [...quick.children];
+    for (const item of items) item.classList.remove('is-overflow');
+    for (let i = items.length - 1; i >= 0 && quick.isConnected && quick.scrollWidth > quick.clientWidth + 1; i--) items[i].classList.add('is-overflow');
     refreshQuickStop();
   }
+  const overflowed = () => chosen.filter(id => nodeFor(id)?.classList.contains('is-overflow'));
+  const quickButton = id => { const node = nodeFor(id); return node?.matches('button') ? node : node?.querySelector('button'); };
   for (const b of [homeButton, saveQuick, printQuick]) b.addEventListener('mousedown', e => e.preventDefault());
   const customize = el('button.ed-quick-customize', { type: 'button', 'aria-label': 'Customize Quick Access Toolbar', title: 'Customize Quick Access Toolbar', 'aria-haspopup': 'menu',
     onclick: e => openMenu({ anchor: customize, label: 'Customize Quick Access Toolbar', minWidth: 240, pointer: !!e.detail, onClose: e.detail ? focusEditor : null, items: [
+      ...(overflowed().length ? [{ header: 'No room in the title bar' },
+        ...overflowed().map(id => ({ label: LABELS[id], disabled: !!quickButton(id)?.disabled, onSelect: () => quickButton(id)?.click() })), { separator: true }] : []),
       { header: 'Show in the title bar' },
       ...available().map(id => ({ label: LABELS[id], checked: chosen.includes(id), onSelect: () => toggleQuick(id) })),
       { separator: true },
@@ -217,6 +229,10 @@ export function createTitleBar({ w, c, a, local, title, status, account, menus, 
   const right = el('div.canvas-title-actions', {}, search, modeButton, comments, share, local ? c.exportButton : account);
   const node = el('div.ed-titlebar', {}, left, middle, right);
   renderQuick();
+  // The room changes with the window and with what the rest of the title bar shows: the menu names and the actions
+  // also widen when their font arrives after the first fit. (Not the toolbar itself, which fitting resizes.)
+  const quickRoom = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => fitQuick());
+  for (const part of [node, menubar.el, right]) quickRoom?.observe(part);
 
   function refresh() {
     const searchKey = keymapShortcut('app.search');
@@ -239,7 +255,7 @@ export function createTitleBar({ w, c, a, local, title, status, account, menus, 
     focusSearch() { searchInput.focus(); searchInput.select(); },
     focusMenubar() { menubar.buttons.find(b => getComputedStyle(b).display !== 'none')?.focus() || allMenus.focus(); },
     openMenu(id) { const i = menus.findIndex(m => m.id === id); menubar.buttons[i]?.click(); },
-    destroy() { menubar.destroy(); closeMenu(); },
+    destroy() { menubar.destroy(); closeMenu(); quickRoom?.disconnect(); },
   };
 }
 

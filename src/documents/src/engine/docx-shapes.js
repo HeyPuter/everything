@@ -629,7 +629,7 @@ export function textBox(shape, readParagraph, defaults, readTextBlocks) {
   const paragraphs = blocks?.paragraphs || children(content).map(p => readParagraph(p, defaults));
   if (blocks?.tables.some(t => t.floating)) fail('floating tables inside shapes');
   const upright = ['1', 'true'].includes(body.getAttribute('upright')) && paragraphs.some(p => p.runs.some(r => r.text || r.field));
-  if (!paragraphs.length || paragraphs.some(p => p.list || p.runs.some(r => r.image?.anchor || r.link) || p.bookmarks || p.sectionEnd || p.runs.some(r => /[\f\u000e]/.test(r.text)))) fail('complex text box contents');
+  if (!paragraphs.length || paragraphs.some(p => p.list || p.runs.some(r => r.image?.anchor) || p.bookmarks || p.sectionEnd || p.runs.some(r => /[\f\u000e]/.test(r.text)))) fail('complex text box contents');
   for (const p of paragraphs) {
     // Positional tab stops have no effect until a tab character uses them.
     // The paragraph reader still validates their types and values; preserve
@@ -637,9 +637,8 @@ export function textBox(shape, readParagraph, defaults, readTextBlocks) {
     // Bar tabs draw a rule without any tab character; the shape painter does not draw them.
     const activeTabs = p.format.tabs.some(t => t.alignment === 'bar') || p.format.tabs.length && p.runs.some(r => r.text.includes('\t'));
     if (p.format.paragraphShading !== 'auto' || Object.values(p.format.paragraphBorders).some(b => !['nil', 'none'].includes(b.style)) || activeTabs) fail('decorated text box paragraphs');
-    // Script, position and width transforms share body text's measurement and
-    // glyph painter. Decorations still need their own retained-shape painter.
-    for (const r of p.runs) if (r.underline || r.strikethrough !== 'none' || r.highlight !== 'none' || r.shading !== 'auto') fail('decorated text box runs');
+    // Script, position and width transforms, underlines, strikethrough, highlight and
+    // shading share body text's layout, measurement and painters (canvas-shapes.js).
   }
   return { paragraphs, ...(upright ? { upright: true } : {}), ...(blocks ? { tables: blocks.tables, compatibilityMode: blocks.compatibilityMode } : {}), ...(autoFit ? { autoFit: true } : {}), edgeSpacing: ['1', 'true'].includes(body.getAttribute('spcFirstLastPara')), left: number(body, 'lIns', 91440), right: number(body, 'rIns', 91440), top: number(body, 'tIns', 45720), bottom: number(body, 'bIns', 45720), anchor: body.getAttribute('anchor') || 't' };
 }

@@ -49,7 +49,7 @@ export function openAppMenu(anchor, { extraItems = [], account = true } = {}) {
     { separator: true },
     ...extraItems,
     { label: 'Measurement units', icon: 'ruler', hint: unitLabel(recallUnit()), onSelect: () => openUnitsMenu(anchor) },
-    { label: 'Autocorrect as you type', checked: autocorrectEnabled(), hint: 'Smart quotes, dashes, ellipses, symbols, fractions, capital I', onSelect: () => setAutocorrectEnabled(!autocorrectEnabled()) },
+    { label: 'Autocorrect as you type', checked: autocorrectEnabled(), hint: 'Smart quotes, dashes, ellipses, symbols, fractions, capital I, common misspellings', onSelect: () => setAutocorrectEnabled(!autocorrectEnabled()) },
     { label: 'Capitalize the first letter of sentences', checked: capitalizeSentencesEnabled(), onSelect: () => setCapitalizeSentencesEnabled(!capitalizeSentencesEnabled()) },
     { label: 'Link web addresses as you type', checked: autolinkEnabled(), hint: 'URLs and emails become links on space or return', onSelect: () => setAutolinkEnabled(!autolinkEnabled()) },
     { label: 'Keyboard shortcuts', icon: 'keyboard', onSelect: openShortcuts },

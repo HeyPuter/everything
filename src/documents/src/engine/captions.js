@@ -3,7 +3,7 @@
 // field (§17.16.5.51, §17.16.5.45, §17.16.5.40) pointing at a hidden _Ref bookmark.
 import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
 import { bookmarkEntries, newBookmarkMarkers } from './bookmarks.js';
-import { outlineEntries } from './outline.js';
+import { outlineEntries, headingNumbers, numberedHeading } from './outline.js';
 import { hyperlinkId } from './hyperlinks.js';
 import { newBodyField, nextMarkerOrder } from './generated-fields.js';
 import { sequenceInstruction, updateSequenceFields } from './field-update.js';
@@ -86,7 +86,8 @@ export function insertCaption(doc, { label = 'Figure', text = '', above = false,
  */
 export function referenceTargets(doc, { notes = [] } = {}) {
   const text = doc.text, ranges = bodyFieldRanges(doc.paragraphs);
-  const headings = outlineEntries(doc.paragraphs).filter(e => e.text !== '(Empty heading)').map(e => ({ kind: 'heading', label: e.text, start: e.start, end: e.end, paragraphId: e.id }));
+  const numbers = headingNumbers(doc.paragraphs, doc.numbering);
+  const headings = outlineEntries(doc.paragraphs).filter(e => e.text !== '(Empty heading)').map(e => ({ kind: 'heading', label: numberedHeading(e, numbers), start: e.start, end: e.end, paragraphId: e.id }));
   const captions = [];
   for (const r of ranges) {
     if (r.field.type !== 'SEQ') continue;

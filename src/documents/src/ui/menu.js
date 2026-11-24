@@ -262,7 +262,8 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
   }
 
   anchor?.setAttribute?.('aria-expanded', 'true');
-  chain.push({ panel: menu, anchor: anchor || null, dispose, closeOnWindowBlur });
+  const reposition = () => { if (depth() === -1) return; menu.style.maxHeight = ''; menu.style.overflowY = ''; position(menu, anchor, x, y, align, parentPanel); };
+  chain.push({ panel: menu, anchor: anchor || null, dispose, closeOnWindowBlur, reposition });
   startListening();
   // A menu opened by the pointer starts with no item chosen, as a native context menu does; the keyboard
   // picks up from the menu itself. Focus moved from a text field would otherwise ring its first item.
@@ -273,7 +274,7 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
   return {
     close: () => { const at = depth(); if (at !== -1) closeFrom(at); }, menu,
     /** Place the menu again for content that changed size after it opened (a list filled in later). */
-    reposition: () => { if (depth() === -1) return; menu.style.maxHeight = ''; menu.style.overflowY = ''; position(menu, anchor, x, y, align, parentPanel); },
+    reposition,
   };
 }
 
@@ -338,7 +339,11 @@ function onScroll(e) {
 function onResize() {
   const field = document.activeElement?.matches?.('input, textarea, select, [contenteditable]') ? document.activeElement : null;
   const typing = window.innerWidth === openWidth && !!field && chain.some((entry) => entry.panel.contains(field));
-  if (!typing) closeMenu();
+  if (!typing) { closeMenu(); return; }
+  // It is placed again for the shorter window, scrolling within it if need be, with the field in view: left where it
+  // was, its lower part (the field itself, and its OK button) sat under the keyboard.
+  for (const entry of chain) entry.reposition();
+  field.scrollIntoView?.({ block: 'nearest' });
 }
 
 function onWindowBlur() {

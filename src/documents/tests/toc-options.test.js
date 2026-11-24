@@ -35,6 +35,19 @@ describe('table of contents options', () => {
     expect(tocInstruction(figuresOptions({ label: 'Table', includeLabel: false }))).toBe(' TOC \\a "Table" \\h \\z ');
   });
 
+  // A style named with a comma split in two in the \t list ("Notes, Appendix,2" read as "Notes" and " Appendix"), so
+  // the mapping was lost when the table was rebuilt.
+  it('keeps a style whose name holds a comma or semicolon in the style list', () => {
+    const styles = [{ name: 'Notes, Appendix', level: 2 }, { name: 'Title', level: 1 }];
+    const written = tocInstruction({ headingRange: [1, 3], styles });
+    expect(written).toBe(' TOC \\o "1-3" \\t "Notes, Appendix;2;Title;1" ');
+    expect(parseTocInstruction(written).styles).toEqual(styles);
+    // Lists other applications write with semicolons (their locale's list separator) and names holding one.
+    expect(parseTocInstruction(' TOC \\t "Title;1;Quote;2" ').styles).toEqual([{ name: 'Title', level: 1 }, { name: 'Quote', level: 2 }]);
+    const semicolon = [{ name: 'Q&A; extra', level: 3 }];
+    expect(parseTocInstruction(tocInstruction({ styles: semicolon })).styles).toEqual(semicolon);
+  });
+
   it('builds from custom styles and levels, without page numbers, and from TC entries', async () => {
     const { pkg, d } = await doc('Report\nChapter\nDetail\nAside\nEnd');
     for (const [text, name] of [['Report', 'Title'], ['Chapter', 'Heading 1'], ['Detail', 'Heading 3']]) { d.select(d.text.indexOf(text)); d.setParagraphStyle(style(d, name)); }

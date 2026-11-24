@@ -50,7 +50,10 @@ export function parseTocInstruction(instruction) {
     else if (t === '\\l') options.tcLevels = range(take()) || [1, 9];
     else if (t === '\\b') options.bookmark = take();
     else if (t === '\\t') {
-      const list = (take() || '').split(/[,;]/).map(s => s.trim());
+      // Names and levels are separated by the list separator: a comma, or a semicolon where the writer's locale uses
+      // one (and where a style's name holds a comma, tocInstruction).
+      const value = take() || '', pairs = list => list.length % 2 === 0 && list.every((item, k) => k % 2 === 0 || /^[1-9]$/.test(item));
+      const list = [',', ';'].map(separator => value.split(separator).map(s => s.trim())).find(pairs) || value.split(/[,;]/).map(s => s.trim());
       for (let k = 0; k + 1 < list.length; k += 2) if (list[k] && /^[1-9]$/.test(list[k + 1])) options.styles.push({ name: list[k], level: Number(list[k + 1]) });
     } else options.extra.push(arg !== null ? `${t} ${quote(take())}` : t);
   }
@@ -61,7 +64,11 @@ export function parseTocInstruction(instruction) {
 export function tocInstruction(options = {}) {
   const parts = ['TOC'];
   if (options.headingRange) parts.push(`\\o ${quote(options.headingRange.join('-'))}`);
-  if (options.styles?.length) parts.push(`\\t ${quote(options.styles.map(s => `${s.name},${s.level}`).join(','))}`);
+  if (options.styles?.length) {
+    // A style named with a comma ("Heading, Appendix") would split in two: the list is then separated by semicolons.
+    const separator = options.styles.some(s => s.name.includes(',')) ? ';' : ',';
+    parts.push(`\\t ${quote(options.styles.map(s => `${s.name}${separator}${s.level}`).join(separator))}`);
+  }
   if (options.caption) parts.push(`\\c ${quote(options.caption)}`);
   if (options.captionNoLabel) parts.push(`\\a ${quote(options.captionNoLabel)}`);
   if (options.tcIdentifier) parts.push(`\\f ${options.tcIdentifier}`);

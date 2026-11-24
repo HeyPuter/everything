@@ -197,9 +197,11 @@ export function continueNumbering(model) {
   if (!previous) return false;
   const original = { ...first.list };
   model.checkpoint();
+  // Its later items go too, past paragraphs between them that are no items of it: left in their own list, an item
+  // after a plain paragraph started again at 1.
   for (let i = model.paragraphs.indexOf(first); i < model.paragraphs.length; i++) {
     const p = model.paragraphs[i];
-    if (!p.list || p.list.numId !== original.numId) break;
+    if (!p.list || p.list.numId !== original.numId) continue;
     if (p !== first && p.list.level < original.level) break;
     p.list = { ...p.list, numId: previous.numId, direct: true }; p.listChanged = true;
   }

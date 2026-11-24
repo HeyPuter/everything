@@ -20,7 +20,9 @@ test.describe('on a touch screen', () => {
       const before = await bg(control);
       await control.tap();
       expect(await control.evaluate(b => b.matches(':hover'))).toBe(true);
-      expect(await bg(control)).toBe(before);
+      // The press tint stays a moment after the finger lifts (Chrome keeps a tapped control :active for at least
+      // 0.15 s, so the press is seen); a hover tint would stay on.
+      await expect.poll(() => bg(control)).toBe(before);
       if (await page.locator('#ribbon-tab-home').getAttribute('aria-selected') !== 'true') await page.locator('#ribbon-tab-home').tap();
     }
   });

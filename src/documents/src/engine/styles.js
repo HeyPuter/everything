@@ -268,6 +268,10 @@ export function editedStyle(styles, id, patch, type = 'paragraph') {
   for (const key of ['name', 'basedOn', 'next']) if (key in patch) next[key] = patch[key];
   if (typeof next.name !== 'string' || !next.name.trim() || next.name.length > 253 || /[\u0000-\u001f]/.test(next.name)) throw new Error('Enter a style name of 1–253 characters.');
   next.name = next.name.trim();
+  // A name names one style (§17.7.4.9): a second "Normal" or "Heading 1" was listed twice in the style menus, and
+  // the heading chords and pastes, which find a style by its name, could take either.
+  const named = name => typeof name === 'string' ? name.trim().toLowerCase() : null;
+  if ('name' in patch && Object.values(styles.definitions).some(style => style.id !== id && named(style.name) === next.name.toLowerCase())) throw new Error(`A style named “${next.name}” already exists. Choose another name.`);
   for (const key of ['basedOn', 'next']) if (key in patch && next[key] && styles.definitions[next[key]]?.type !== type) throw new Error(`Choose an existing ${type} style.`);
   if (type === 'paragraph') next.properties = editStyleProperties(next.properties, patch.paragraph || {});
   // The boolean alias keeps its historical single/none + automatic-color behavior.

@@ -77,8 +77,9 @@ export function textStatistics(text) {
   const passive = sentenceList.filter(isPassive).length;
   return {
     words: countWords(source),
-    characters: [...source.replace(/\n/g, '')].length,
-    charactersNoSpaces: [...source.replace(/\s/g, '')].length,
+    // Paragraph marks and page, column and line breaks are not characters (as Word counts them); tabs are.
+    characters: [...source.replace(/[\n\f\v\u000e]/g, '')].length,
+    charactersNoSpaces: [...source.replace(/[\s\u000e]/g, '')].length,
     paragraphs: paragraphList.length,
     sentences: sentencesCount,
     syllables: syllableCount,

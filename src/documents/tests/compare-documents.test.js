@@ -154,6 +154,19 @@ describe('compare documents', () => {
     expect(changes(model)).toEqual([['del', 'C\nD\n']]);
   });
 
+  // A column the revised table no longer has vanished from the comparison, which then reported no change at all.
+  it('keeps the text of a column only the original has, as deleted text in the row\'s last cell', async () => {
+    const { model, result } = await compare(p('x') + table([['a', 'b', 'c'], ['d', 'e', 'f']]) + p('y'), p('x') + table([['a', 'b'], ['d', 'e']]) + p('y'));
+    expect(model.text).toBe('x\na\nb\nc\nd\ne\nf\ny');
+    expect(changes(model)).toEqual([['del', '\nc'], ['del', '\nf']]);
+    expect(result.tables[0].rows.map(row => row.cells.length)).toEqual([2, 2]);
+    const cells = new Map(); for (const q of model.paragraphs.filter(x => x.cellId)) cells.set(q.cellId, [...(cells.get(q.cellId) || []), q.runs.map(r => r.text).join('')]);
+    expect([...cells.values()]).toEqual([['a'], ['b', 'c'], ['d'], ['e', 'f']]);
+    const accepted = new TextDocument(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets);
+    accepted.resolveRevisions(true);
+    expect(accepted.text).toBe('x\na\nb\nd\ne\ny');
+  });
+
   it('accepts to the revised text and rejects to the original when the last paragraphs change', async () => {
     const cases = [[['Intro', 'Middle part', 'Old ending'], ['Intro text']], [['Intro', 'First old', 'Second old'], ['Intro', 'Brand new closing words']],
       [['Intro'], ['Intro', 'New one', 'New two']], [['Intro', 'Old one', 'Old two'], ['Intro']], [['Intro', 'Old'], ['Intro', 'New one', 'New two']]];
@@ -218,6 +231,22 @@ it('keeps the comment, bookmark and field of a last paragraph that joins a remov
     expect(reopened.text).toBe(accept ? 'Intro\nBrand new close by Ada' : 'Intro\nZzz qqq\nXxx yyy');
     if (accept) { expect(anchored(reopened)).toEqual(['Brand new close by Ada']); expect(fields(reopened)).toEqual([['AUTHOR', 'Ada']]); }
   }
+});
+
+// The other document's text copied in where a comment started went inside it: in Compare a comment on "red", which
+// replaced "brown", came out on "brownred". A comment stays on its own words, and a point comment stays a point.
+it.each(['compare', 'combine'])('%s leaves a comment on its own words beside copied text', async mode => {
+  const original = await open(docx(p('The quick brown fox.') + p('Last one here.'))), revised = await open(docx(p('The quick red fox.') + p('Last one there.')));
+  const [base, other] = mode === 'compare' ? [revised, original] : [original, revised];
+  const doc = new TextDocument(base.paragraphs, base.pageSettings, base.numbering, base.styles, base.tables, base.assets, { comments: [] });
+  const word = mode === 'compare' ? ['red', 'there'] : ['brown', 'here'], at = w => doc.text.indexOf(w);
+  doc.addComment({ author: 'A', text: 'one', range: [at(word[0]), at(word[0]) + word[0].length] });
+  doc.addComment({ author: 'A', text: 'two', range: [at(word[1]), at(word[1]) + word[1].length] });
+  doc.addComment({ author: 'A', text: 'point', range: [at(word[1]), at(word[1])] });
+  const result = mergeDocuments({ paragraphs: doc.paragraphs, tables: base.tables }, { paragraphs: other.paragraphs, tables: other.tables }, { mode, author: 'Rev' });
+  const model = new TextDocument(result.paragraphs, base.pageSettings, base.numbering, base.styles, result.tables, base.assets, { comments: doc.comments });
+  expect(model.text).toBe('The quick brownred fox.\nLast one herethere.');
+  expect(model.commentList.map(c => [c.text, model.text.slice(c.start, c.end)]).sort()).toEqual([['one', word[0]], ['point', ''], ['two', word[1]]]);
 });
 
 describe('combine documents', () => {

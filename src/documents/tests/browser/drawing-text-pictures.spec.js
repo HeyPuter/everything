@@ -28,7 +28,7 @@ for (const fixture of [source, 'tests/fixtures/drawing-text-image-alias/control.
   const at=text.indexOf('Before');await input.evaluate((e,at)=>{e.setSelectionRange(at,at+6);e.dispatchEvent(new Event('select'));},at);await page.keyboard.insertText('Edited');
   if(drawing===0){
    await input.evaluate(e=>{const at=e.value.indexOf('\ufffc');e.setSelectionRange(at,at+1);e.dispatchEvent(new Event('select'));});
-   await dialog.getByRole('button',{name:'Resize image se',exact:true}).press('ArrowRight');
+   await dialog.getByRole('button',{name:'Resize from bottom-right corner',exact:true}).press('ArrowRight');
    await dialog.getByRole('button',{name:'Move selected image',exact:true}).press('ArrowRight');
   }
   if(drawing===0) await page.screenshot({path:info.outputPath('picture-draft.png'),fullPage:true});

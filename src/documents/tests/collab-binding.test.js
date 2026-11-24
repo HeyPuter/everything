@@ -238,6 +238,57 @@ describe('co-editing binding', () => {
     expect(ann.engine.session.body.commentIdFloor).toBeUndefined();
   });
 
+  // A thread deleted while someone else resolved or edited it came back for everyone (the edit wrote the comment
+  // again) with no anchor: missing beside the text, but listed and saved without a reference.
+  it.each(['edits', 'resolves'])('a thread deleted while someone %s it goes for everyone, with no unanchored comment left', async action => {
+    const { hub, people: [ann, bob] } = await room('Alpha beta gamma delta');
+    let id;
+    ann.engine.execute(m => { m.select(6, 10); id = m.addComment({ author: 'Ann', text: 'Check beta' }); m.select(17, 22); m.addComment({ author: 'Ann', text: 'Keep' }); });
+    await settle();
+    hub.pause();
+    ann.engine.execute(m => m.deleteComment(id));
+    bob.engine.execute(m => (action === 'edits' ? m.editComment(id, 'Edited') : m.setCommentDone(id, true)));
+    await settle();
+    hub.resume();
+    await settle();
+    for (const person of [ann, bob]) {
+      expect(person.engine.session.body.commentList.map(c => [c.text, c.start])).toEqual([['Keep', 17]]);
+    }
+    expect([...hub.doc.getMap('comments').keys()].filter(key => key !== '$part')).toHaveLength(1);
+  });
+
+  it('a reply written while its thread is deleted goes with the thread', async () => {
+    const { hub, people: [ann, bob] } = await room('Alpha beta gamma delta');
+    let id;
+    ann.engine.execute(m => { m.select(6, 10); id = m.addComment({ author: 'Ann', text: 'Check beta' }); m.select(17, 22); m.addComment({ author: 'Ann', text: 'Keep' }); });
+    await settle();
+    hub.pause();
+    ann.engine.execute(m => m.deleteComment(id));
+    bob.engine.execute(m => m.replyToComment(id, { author: 'Bob', text: 'Agreed' }));
+    await settle();
+    hub.resume();
+    await settle();
+    for (const person of [ann, bob]) expect(person.engine.session.body.commentList.map(c => c.text)).toEqual(['Keep']);
+    expect([...hub.doc.getMap('comments').keys()].filter(key => key !== '$part')).toHaveLength(1);
+  });
+
+  it('drops a comment added on words someone else deleted at the same moment, and keeps an unanchored one it had', async () => {
+    const { hub, people: [ann, bob] } = await room('Alpha beta gamma delta');
+    // A comment without an anchor from the file (as some files have) stays.
+    ann.engine.execute(m => { m.comments = [{ id: '5', author: 'Old', initials: 'O', date: '', text: 'From the file', done: false, parentId: null, paraId: null }]; });
+    await settle();
+    hub.pause();
+    ann.engine.execute(m => { m.select(6, 10); m.addComment({ author: 'Ann', text: 'On beta' }); });
+    bob.engine.execute(m => { m.select(4, 12); m.replace(''); });
+    await settle();
+    hub.resume();
+    await settle();
+    for (const person of [ann, bob]) {
+      expect(person.engine.model.text).toBe('Alphamma delta');
+      expect(person.engine.session.body.comments.map(c => c.text)).toEqual(['From the file']);
+    }
+  });
+
   it('refuses text changes from a commenter on the server side', () => {
     const doc = createSharedDoc(editorState({ session: { body: new TextDocument([paragraph('abc')]), storyEdits: {} } }));
     const copy = new Y.Doc(); Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));

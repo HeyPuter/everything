@@ -615,19 +615,24 @@ describe('revision UTC times', () => {
     expect(pkg.readOnly).toBeFalsy();
     expect(summary(model)).toEqual([['ins', 'Ada', 'added'], ['del', 'Grace', ' removed'], ['format', 'Grace', ' end.'], ['ins', 'Ada', '\n', '¶']]);
     expect(unzipSync(await save(pkg, model))).toEqual(unzipSync(source));
-    // Editing the paragraph rewrites it; each recorded revision keeps its UTC time, new ones have none.
+    // Editing the paragraph rewrites it; each recorded revision keeps its UTC time, and the new one records its own.
     model.trackChanges = true; model.select(0); model.replace('New ');
     const saved = await save(pkg, model);
-    expect(utcTimes(saved)).toEqual(['del', 'ins', 'ins', 'rPrChange']);
+    expect(utcTimes(saved)).toEqual(['del', 'ins', 'ins', 'ins', 'rPrChange']);
     const reopened = await open(saved);
     expect(reopened.pkg.readOnly).toBeFalsy();
     expect(reopened.model.revisions.find(r => r.type === 'ins' && reopened.model.text.slice(r.start, r.end) === 'added')).toBeTruthy();
   });
-  it('leaves out the UTC time when the part does not declare it ignorable', async () => {
+  // Word reads w:date as local time and shows the UTC time when there is one: a part that declared the namespace but
+  // not as ignorable lost its UTC times. It is now listed in mc:Ignorable, and the times are kept.
+  it('declares the UTC time ignorable where the part does not, and keeps the times', async () => {
     const { pkg, model } = await open(utcDocx({ ignorable: false }));
     expect(pkg.readOnly).toBeFalsy();
     model.select(0); model.replace('New ');
-    expect(utcTimes(await save(pkg, model))).toEqual([]);
+    const saved = await save(pkg, model);
+    expect(utcTimes(saved)).toEqual(['del', 'ins', 'ins', 'rPrChange']);
+    expect(strFromU8(unzipSync(saved)['word/document.xml'])).toMatch(/^<w:document [^>]*mc:Ignorable="w16du"/);
+    expect((await open(saved)).model.revisions.map(r => r.dateUtc)).toEqual(['2026-01-01T08:00:00Z', '2026-01-01T08:00:00Z', '2026-01-01T08:00:00Z', '2026-01-01T08:00:00Z']);
   });
 });
 

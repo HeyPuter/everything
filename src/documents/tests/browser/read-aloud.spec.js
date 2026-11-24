@@ -108,3 +108,20 @@ test('Read Aloud reads a Chinese paragraph in Chinese and shows each word it say
   expect(await selected(page)).toBe('北京看');
   expect(errors).toEqual([]);
 });
+
+// A paragraph the voice could not say (longer than it takes, in a language it lacks) ends with an error event and no
+// end event, as the Web Speech API says: reading stopped there with the player still showing Pause.
+test('Read Aloud goes on with the next paragraph when the voice cannot say one', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page, 'First part.\nSecond part.\nThird part.');
+  await select(input, 0);
+  await readAloud(page);
+  await expect.poll(() => spoken(page)).toEqual(['First part.']);
+  await page.evaluate(() => window.__spoken.at(-1).onerror({ error: 'text-too-long' }));
+  await expect.poll(() => spoken(page)).toEqual(['First part.', 'Second part.']);
+  // Its own cancellation (Stop, or a jump to another paragraph) is not such an error.
+  await page.evaluate(() => window.__spoken.at(-1).onerror({ error: 'interrupted' }));
+  expect(await spoken(page)).toEqual(['First part.', 'Second part.']);
+  await expect(page.getByRole('toolbar', { name: 'Read Aloud' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

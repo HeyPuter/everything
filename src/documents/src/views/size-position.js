@@ -236,7 +236,7 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     }, 'Layout');
       modal.close();
     } catch (failure) {
-      error.textContent = /pictures with|drawing|floating|unsupported|could not be created/i.test(failure.message) && !/Select|changed/.test(failure.message)
+      error.textContent = /pictures with|drawing|floating|unsupported|could not be created/i.test(failure.message) && !/^Select |^The document changed/.test(failure.message)
         ? 'This combination of position and wrapping is not available for this object. Try another wrapping style or position.' : failure.message;
       error.hidden = false;
     }

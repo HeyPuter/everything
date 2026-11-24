@@ -382,3 +382,127 @@ test('screen readers hear the table size on entering it and the row and column o
   await input(page).press('ArrowDown');
   await expect.poll(spoken).toEqual(['Table, 2 rows, 3 columns. Row 1, column 1', 'Row 1, column 2', 'Row 2, column 2', 'Out of table']);
 });
+
+test('in a header, a table’s Width box shows its column width and sets it', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await page.keyboard.type('Body');
+  await (await onTab(page, 'insert')).locator('#ribbon-panel-insert').getByRole('button', { name: 'Header', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
+  await expect(page.locator('#ribbon-tab-headerFooter')).toHaveAttribute('aria-selected', 'true');
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '2 columns, 2 rows' }).click();
+  await page.keyboard.type('Cell');
+  const layout = await onTab(page, 'tableLayout');
+  const width = layout.getByRole('spinbutton', { name: 'Width (in)', exact: true });
+  // Half of the 6.5 in between the margins, as in the body.
+  await expect(width).toHaveValue('3.25');
+  await width.fill('2'); await width.press('Enter');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.tables[0].grid)).toEqual([2880, 4680]);
+});
+
+test('Delete in the paragraph between two tables of the same columns joins them; Undo parts them again', async ({ page }) => {
+  await newTable(page, 2, 2, ['A', 'B', 'C', 'D']);
+  await input(page).press('ControlOrMeta+End');
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '2 columns, 1 row' }).click();
+  await page.keyboard.type('E');
+  expect((await model(page)).tables).toHaveLength(2);
+  // The empty paragraph between them: Delete there.
+  await input(page).evaluate(el => { const at = el.value.indexOf('D') + 2; el.setSelectionRange(at, at); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await input(page).press('Delete');
+  expect(await texts(page)).toEqual([['A', 'B'], ['C', 'D'], ['E', '']]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect((await model(page)).tables).toHaveLength(2);
+});
+
+test('the Height box shows a row breaking across pages by its height on its first page, and stepping it keeps that height', async ({ page }) => {
+  await newTable(page, 2, 2, ['A', 'B', 'C', 'D']);
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine;
+    e.execute(() => { const m = e.model, cell = m.tables[0].rows[0].cells[0]; m.selectCell(cell.id); m.replace(Array.from({ length: 90 }, (_, i) => `line ${i}`).join('\n')); return true; });
+  });
+  await goToCell(page, 0, 1);
+  const layout = await onTab(page, 'tableLayout');
+  const height = layout.getByRole('spinbutton', { name: 'Height (in)', exact: true });
+  // The row runs over several pages; the box shows its part on the first, within the box's 22 in.
+  const firstPart = await page.evaluate(() => { const e = window.__docs.current.view.engine, row = e.model.tables[0].rows[0]; return Math.max(...e.selectionLayout.cells.filter(c => c.rowId === row.id && c.page === 0).map(c => c.height)) * 15 / 1440; });
+  expect(await page.evaluate(() => new Set(window.__docs.current.view.engine.selectionLayout.cells.map(c => c.page)).size)).toBeGreaterThan(2);
+  await expect(height).toHaveValue(String(Number(firstPart.toFixed(2))));
+  await height.focus(); await height.press('ArrowUp'); await height.press('Enter');
+  const row = await page.evaluate(() => { const r = window.__docs.current.view.engine.model.tables[0].rows[0]; return { rule: r.heightRule, value: r.minHeight }; });
+  expect(row.rule).toBe('atLeast');
+  expect(Math.abs(row.value - Math.round((Number(firstPart.toFixed(2)) + 0.01) * 1440))).toBeLessThan(2);
+});
+
+test('typing in a table that AutoFits to the window keeps its columns’ proportions while the text fits', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Insert Table' });
+  await dialog.getByLabel('Number of columns').fill('3'); await dialog.getByLabel('Number of rows').fill('2');
+  await dialog.getByLabel('AutoFit to window').check();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  const widths = () => page.evaluate(() => { const e = window.__docs.current.view.engine, t = e.model.tables[0]; return t.rows[0].cells.map(c => Math.round(e.selectionLayout.cells.find(b => b.id === c.id).width)); });
+  const before = await widths();
+  await page.keyboard.type('x');
+  expect(await widths()).toEqual(before);
+  await page.keyboard.press('Tab'); await page.keyboard.type('a few short words');
+  expect(await widths()).toEqual(before);
+  // The columns share the window in percent (w:tcW pct).
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.tables[0].rows[0].cells.map(c => c.width.type))).toEqual(['pct', 'pct', 'pct']);
+});
+
+test('a whole table copied and pasted outside tables comes back as a table; Undo takes it away', async ({ page }) => {
+  await newTable(page, 3, 2, ['Name', 'Qty', 'Cost', 'Pens', '2', '4']);
+  await input(page).press('ControlOrMeta+End'); await page.keyboard.type('After');
+  await goToCell(page, 0, 0);
+  const layout = await onTab(page, 'tableLayout');
+  await layout.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Select Table' }).click();
+  const copied = await input(page).evaluate(el => {
+    const data = new DataTransfer();
+    el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+    return { text: data.getData('text/plain'), html: data.getData('text/html') };
+  });
+  expect(copied.text).toBe('Name\tQty\tCost\nPens\t2\t4');
+  // Other applications get an HTML table.
+  expect(copied.html).toMatch(/^<table[^>]*style="border-collapse:collapse"/);
+  await input(page).press('ControlOrMeta+End');
+  await input(page).evaluate((el, { text, html }) => {
+    const data = new DataTransfer(); data.setData('text/plain', text); data.setData('text/html', html);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, copied);
+  const after = await model(page);
+  expect(after.tables).toHaveLength(2);
+  expect(after.tables[1].rows.map(r => r.cells.map(c => c.text))).toEqual([['Name', 'Qty', 'Cost'], ['Pens', '2', '4']]);
+  expect(after.tables[1].grid).toEqual(after.tables[0].grid);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect((await model(page)).tables).toHaveLength(1);
+});
+
+test('a table copied from another application pastes as a table outside tables, and as text in one', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  await page.keyboard.type('Intro'); await page.keyboard.press('Enter');
+  const paste = (text, html) => input(page).evaluate((el, [text, html]) => {
+    const data = new DataTransfer(); data.setData('text/plain', text); data.setData('text/html', html);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, [text, html]);
+  const html = '<html><body><!--StartFragment--><table><tr><th>Name</th><th>Qty</th></tr><tr><td>Pens</td><td>2</td></tr></table><!--EndFragment--></body></html>';
+  await paste('Name\tQty\nPens\t2', html);
+  const after = await model(page);
+  expect(after.tables).toHaveLength(1);
+  expect(after.tables[0].rows.map(r => r.cells.map(c => c.text))).toEqual([['Name', 'Qty'], ['Pens', '2']]);
+  // In a cell, the same paste is its text.
+  await goToCell(page, 1, 1);
+  await paste('Name\tQty\nPens\t2', html);
+  expect((await model(page)).tables).toHaveLength(1);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect((await model(page)).tables).toHaveLength(0);
+});

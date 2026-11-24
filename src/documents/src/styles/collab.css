@@ -113,6 +113,8 @@
 .as-fab:focus-visible { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
 @media (hover: hover) { .as-fab:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, .18); } }
 .as-fab[aria-expanded='true'], .as-fab[hidden], .as-title-button[hidden] { display: none; }
+/* Stepped aside while the caret is near it or a phone's keyboard is up (assistant-pane.js). */
+.as-fab.is-tucked { visibility: hidden; pointer-events: none; }
 
 @media (max-width: 700px) {
   .as-title-button { display: none; }

@@ -17,7 +17,7 @@ for(const item of cases)test(item.name,async({page},info)=>{
   },{bytes:[...bytes],id:item.id});
   const exportBytes=()=>page.evaluate(async()=>{const e=window.sceneEditor,m=e.model;return [...new Uint8Array(await window.scenePackage.export(m.paragraphs,m.pageSettings,m.numbering,m.styles,m.tables,m.assets).arrayBuffer())];});
   expect(unzipSync(Uint8Array.from(await exportBytes()))).toEqual(unzipSync(bytes));
-  const handle=page.getByRole('button',{name:'Resize image se',exact:true});
+  const handle=page.getByRole('button',{name:'Resize from bottom-right corner',exact:true});
   if(item.relative){await expect(handle).toHaveCount(0);return;}
   await handle.scrollIntoViewIfNeeded();const b=await handle.boundingBox();
   await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2+24,b.y+b.height/2+7,{steps:4});await page.mouse.up();

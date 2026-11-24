@@ -77,6 +77,7 @@ import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
 import { createProofing } from './proofing.js';
 import { keyboardShortcuts } from './keyboard-shortcuts.js';
+import { attachFormatAnnouncer } from './format-announcer.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { createFormatArea } from './format-area.js';
 import { createEditCommands } from './edit-commands.js';
@@ -597,17 +598,24 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     el('option', { value: 'mixed', disabled: true }, 'Mixed levels'), el('option', { value: 'inherit' }, 'Use style level'),
     ...Array.from({ length: 9 }, (_, i) => el('option', { value: i }, `Level ${i + 1}`)), el('option', { value: 9 }, 'Body text'));
   let styleOptionsSignature = '';
+  // A new or renamed style may not take another style's name (the Styles pane's dialogs say the same).
+  const checkStyleName = (patch, id = null) => {
+    const name = typeof patch.name === 'string' ? patch.name.trim() : '';
+    if (name && Object.values(engine.model.styles.definitions).some(s => s.id !== id && String(s.name).trim().toLowerCase() === name.toLowerCase())) throw new Error(`A style named “${name}” already exists. Choose another name.`);
+  };
   const editStyle = tool('Edit paragraph style', 'pencil', () => {
     if (!engine) return; engine.finishComposition();
     const id = engine.model.paragraphStyle, style = engine.model.styles.definitions[id];
     if (!style) return;
     styleModal = openStyleEditor(style, engine.model.paragraphStyles, patch => {
+      checkStyleName(patch, id);
       const ok = engine.editParagraphStyle(id, patch); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     });
   });
   const newStyle = tool('New paragraph style', 'plus', () => {
     if (!engine) return; engine.finishComposition();
     styleModal = openStyleEditor({ basedOn: engine.model.paragraphStyle }, engine.model.paragraphStyles, patch => {
+      checkStyleName(patch);
       const ok = engine.createParagraphStyle(patch.name, patch.basedOn); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     });
   });
@@ -618,12 +626,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const id = engine.model.characterStyle, style = engine.model.styles.definitions[id];
     if (!style || style.type !== 'character') return;
     styleModal = openStyleEditor(style, engine.model.characterStyles, patch => {
+      checkStyleName(patch, id);
       const ok = engine.editCharacterStyle(id, patch); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     }, engine.model.styles.defaults.run);
   });
   const newCharacterStyle = tool('New character style', 'plus', () => {
     if (!engine) return; engine.finishComposition();
     styleModal = openStyleEditor({ type: 'character', basedOn: engine.model.characterStyle }, engine.model.characterStyles, patch => {
+      checkStyleName(patch);
       const ok = engine.createCharacterStyle(patch.name, patch.basedOn); if (ok) queueMicrotask(() => engine?.focus()); return ok;
     });
   });
@@ -878,6 +888,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (proofingButton.dataset.state !== state) { proofingButton.dataset.state = state; proofingButton.replaceChildren(commandIconEl(state === 'errors' ? 'proofingErrors' : 'proofingClean', 16)); }
   }
   const proofing = createProofing({ editor: () => engine, pkg: () => pkg, error, onState: () => { chrome?.refresh(); updateProofingStatus(); } });
+  // Named from the start: it had no name until spelling first reported, a screen reader heard a bare "button".
+  updateProofingStatus();
   Object.assign(editorCommands, {
     goTo: () => { if (engine) { engine.finishComposition(); openGoTo(engine, { onClose: () => queueMicrotask(() => engine?.focus()) }); } },
     spelling: () => proofing.openPane(),
@@ -937,8 +949,22 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // A picture dropped on the pages goes in where it lands, as Insert > Pictures puts it in. Other files
   // (a document to open) go on to the window's own drop handling.
   const pictureDrop = e => !!engine && !failed && !pkg.readOnly && !engine.viewOnly && [...(e.dataTransfer?.items || [])].some(item => item.kind === 'file' && /^image\//i.test(item.type));
-  host.addEventListener('dragover', e => { if (pictureDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  // Text dragged in from another application or page goes in where it lands, as a paste of it would (formatted
+  // where it comes with HTML); the pages took no drop of it, so nothing happened.
+  const textDrop = e => !!engine && !failed && !pkg.readOnly && !engine.viewOnly && ![...(e.dataTransfer?.types || [])].includes('Files')
+    && [...(e.dataTransfer?.types || [])].some(type => type === 'text/plain' || type === 'text/html');
+  host.addEventListener('dragover', e => { if (pictureDrop(e) || textDrop(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
   host.addEventListener('drop', async e => {
+    if (textDrop(e)) {
+      const text = e.dataTransfer.getData('text/plain'), html = e.dataTransfer.getData('text/html');
+      if (!text && !html) return;
+      e.preventDefault();
+      const editor = engine;
+      editor.finishComposition();
+      editor.model.select(editor.point(e)); editor.syncInput();
+      editor.pasteData(text, html); editor.focus();
+      return;
+    }
     const files = pictureDrop(e) ? imageFilesFrom(e.dataTransfer) : [];
     if (!files.length) return;
     e.preventDefault();
@@ -1107,7 +1133,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
           get: () => { const z = recallZoom(); return z?.fit || (z?.value ? String(z.value) : '100'); }, set: v => rememberZoom(v === '100' ? { value: 100 } : { fit: v }) },
       ] },
       { id: 'typing', label: 'AutoCorrect', note: 'These apply as you type, in every document on this device.', controls: [
-        { type: 'toggle', label: 'Autocorrect as you type', hint: 'Smart quotes, dashes, ellipses, symbols, fractions and a capital I; “- ” or “1. ” starts a list.', get: () => autocorrectEnabled(), set: on => setAutocorrectEnabled(on) },
+        { type: 'toggle', label: 'Autocorrect as you type', hint: 'Smart quotes, dashes, ellipses, symbols, fractions, a capital I and common misspellings (teh); “- ” or “1. ” starts a list.', get: () => autocorrectEnabled(), set: on => setAutocorrectEnabled(on) },
         { type: 'toggle', label: 'Capitalize the first letter of sentences', get: () => capitalizeSentencesEnabled(), set: on => setCapitalizeSentencesEnabled(on) },
         { type: 'toggle', label: 'Link web and email addresses', hint: 'Addresses become links when you type a space or Return after them.', get: () => autolinkEnabled(), set: on => setAutolinkEnabled(on) },
       ] },
@@ -1227,6 +1253,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     compare: original => openCompareDialog({ mode: 'compare', editor: () => engine, pkg: () => pkg, documentName: () => title.value, author: () => session.username, openDocument: file => importFile?.(file),
       currentBytes: async () => new Uint8Array(await exportDocxBlob().then(b => b.arrayBuffer())), error, original }) });
   if (!local) doc.versionMeta = () => ({ author: session.username });
+  // Someone who can only comment on a shared document is under comments-only protection for the Review tab too:
+  // Track Changes, Accept and Reject are refused up front, rather than tried, refused by the room and taken back.
+  const documentProtection = reviewHooks.protection;
+  reviewHooks.protection = () => {
+    const own = documentProtection?.();
+    return collab.live?.role === 'commenter' && !['readOnly', 'forms'].includes(own?.edit) ? { edit: 'comments', enforcement: true } : own;
+  };
   const assistant = createAssistantPane({ editor: () => (failed ? null : engine), pkg: () => pkg, error });
   Object.assign(editorCommands, collab.commands, assistant.commands, { autoSave: ({ enabled } = {}) => editorCommands.setAutosave?.(!!enabled) });
   if (cloud && versioning.enabled) editorCommands.versionHistory = () => versionHistory.open();
@@ -1261,7 +1294,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   backstage = createBackstage({ local, title: () => title.value, focusEditor: () => engine?.focus(),
     newDocument: () => newDoc?.(), newFromTemplate: newFromTemplate ? id => newFromTemplate(id) : null, customTemplates: cloud ? () => listCustomTemplates() : null,
     openDocument: () => openInput.click(), openPath: path => openPath?.(path), goHome: () => goHome?.(), recentDocuments: editorCommands.recentDocuments,
-    openFromCloud: cloud && P.canPickFiles() ? async () => { if (session.signedOut && !await session.signIn()) return; const picked = await P.pickFile(); if (picked && !destroyed) openPath?.(picked.path); } : null,
+    openFromCloud: cloud && P.canPickFiles() ? async () => { if (session.signedOut && !await session.signIn()) return; const picked = await P.pickFile({ accept: P.OPEN_EXTENSIONS }); if (picked && !destroyed) openPath?.(picked.path); } : null,
     readOnly: () => !engine || failed || !!pkg?.readOnly,
     properties: () => (pkg ? pkg.coreProperties : {}),
     setProperties: patch => { if (!pkg || pkg.readOnly || failed) return false; pkg.coreAuthor = session.username || pkg.coreAuthor; const changed = pkg.setCoreProperties(patch); if (changed) { doc.changed(); updateStatus(); } return changed; },
@@ -1431,6 +1464,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   if (Object.keys(keymap.custom).length) syncShortcuts();
   editorCommands.menuShortcuts = (items, prefix) => withShownShortcuts(items, prefix, shownFor);
   root.addEventListener('keydown', e => { if (!e.target.closest?.('.backstage') || e.key === 'Escape') keymap.handle(e); }, true);
+  // A notice F6 brought the keyboard to sits outside the editor: its keys (F6 on round the areas) are the editor's too.
+  document.addEventListener('keydown', e => { if (e.target.closest?.('.toast-root')) keymap.handle(e); }, { capture: true, signal: printAbort.signal });
   // Escape in the text, then Tab, goes to the ribbon (its tab row, where the arrows and Down lead into the commands),
   // as the keyboard sheet says: the next control in the page's order was the assistant button or the status bar.
   root.addEventListener('keydown', e => {
@@ -1452,11 +1487,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const styles = engine?.model.paragraphStyles || [];
     return styles.find(s => !s.error && String(s.name || '').toLowerCase() === wanted) || styles.find(s => !s.error && s.id.toLowerCase() === wanted.replace(' ', ''));
   };
-  const stepSize = dir => {
-    const size = engine.model.runCommandFormatting.fontSize;
-    if (size === null || size === undefined) return;
-    engine.setFontSize(Math.min(MAX_FONT_SIZE, stepFontSize(size, dir)));
-  };
+  const stepSize = dir => engine.stepFontSize(size => Math.min(MAX_FONT_SIZE, stepFontSize(size, dir)));
   // The conventional word-processor formatting chords, beyond the engine's own (Cmd+B, I, U, Z, Y, A,
   // K, J and Cmd+Space). Each goes through the toolbar's control, so a command disabled for this selection stays
   // inert, and only while the keyboard is in the document: the same keys mean other things in a field.
@@ -1487,6 +1518,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     return null;
   };
   // The paragraph and navigation chords run before the engine's own keys (Alt+Shift+Up moves a paragraph).
+  // Screen readers hear what a formatting key did (Bold on, Centered, Heading 1).
+  attachFormatAnnouncer(root, () => engine);
   root.addEventListener('keydown', keyboardShortcuts({ editor: () => engine, pkg: () => pkg,
     applyStyleLevel: level => { const style = !paragraphStyle.disabled && styleForLevel(level); if (style) engine?.setParagraphStyle(style.id); },
     focusFont: () => fontFamily.click(), focusSize: () => { fontSize.focus(); fontSize.select(); } }), true);
@@ -1852,6 +1885,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     showDocumentTitle();
   };
   doc.addEventListener('path', onPath);
+  const onVersions = () => backstage?.refreshVersions?.();
+  doc.addEventListener('versions', onVersions);
   const onSession = () => { account?.refresh(); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true, fresh: true }).catch(error); };
   if (!local) session.addEventListener('change', onSession);
   updateStatus();
@@ -2051,7 +2086,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // A new document starts from the page and Design defaults the user set, if any.
     // A host that already opened the file (the local playground validates it first) hands it over once.
     const handed = doc.opened; doc.opened = null;
-    const opened = handed || (doc.blob ? await openCanvasDocument(doc.blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) }) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
+    // An empty file (one made empty on the drive, as a desktop's New > Word Document does) opens as a blank document
+    // that saves into it, as a word processor opens one. It failed as an unreadable archive.
+    const bytes = doc.blob?.size === 0 ? null : doc.blob;
+    const opened = handed || (bytes ? await openCanvasDocument(bytes, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) }) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
     pkg = opened.pkg; openedAssets.set(pkg, Object.keys(pkg.assets || {}));
     // Save As copies a read-only document's own bytes, under the extension they go by.
     if (pkg.readOnly) doc.originalExtension = pkg.fileExtension;
@@ -2206,6 +2244,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       doc.removeEventListener('savefailed', onSaveFailed);
       doc.removeEventListener('status', onSaved);
       doc.removeEventListener('path', onPath);
+      doc.removeEventListener('versions', onVersions);
       session.removeEventListener('change', onSession);
       doc.destroy(); engine?.destroy();
     },

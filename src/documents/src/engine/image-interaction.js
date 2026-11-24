@@ -16,7 +16,10 @@ import { HANDLES, isCorner, resizeFromHandle, pointerAngle, rotationUnits, snapB
  * returns truthy when it applied the change itself; canRotateDrawing(image) and canCropDrawing(image)
  * widen which drawings rotate and crop; onLayoutOptions(button) opens quick wrap choices.
  */
-const NAMES = { nw: 'nw', n: 'n', ne: 'ne', e: 'e', se: 'se', s: 's', sw: 'sw', w: 'w' };
+// What a screen reader says for each handle: where it is on the frame.
+const NAMES = { nw: 'Resize from top-left corner', n: 'Resize from top edge', ne: 'Resize from top-right corner', e: 'Resize from right edge',
+  se: 'Resize from bottom-right corner', s: 'Resize from bottom edge', sw: 'Resize from bottom-left corner', w: 'Resize from left edge' };
+export const RESIZE_HANDLE_NAMES = Object.freeze(NAMES);
 const SNAP_PX = 6;
 const EDGE_PLACES = { n: { left: 'calc(50% - 6px)', top: '-6px' }, s: { left: 'calc(50% - 6px)', bottom: '-6px' }, e: { right: '-6px', top: 'calc(50% - 6px)' }, w: { left: '-6px', top: 'calc(50% - 6px)' } };
 const ROTATE_STEP = 15;
@@ -513,7 +516,7 @@ export function createImageInteraction(editor) {
     return b;
   };
   button('Move selected image');
-  for (const handle of HANDLES) button(`Resize image ${NAMES[handle]}`, handle);
+  for (const handle of HANDLES) button(NAMES[handle], handle);
   const rotateButton = make('button', 'canvas-image-rotate', { type: 'button', 'aria-label': 'Rotate image', title: 'Rotate (Shift snaps to 15°)' });
   Object.assign(rotateButton.style, { position: 'absolute', left: 'calc(50% - 9px)', top: '-34px', width: '18px', height: '18px' });
   Object.assign(optionsButton.style, { position: 'absolute', width: '24px', height: '24px' });

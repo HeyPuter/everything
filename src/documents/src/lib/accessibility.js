@@ -44,6 +44,9 @@ const UNCLEAR = /^(?:click here|here|click|link|this link|more|read more|learn m
 const ADDRESS = /^(?:https?:\/\/|www\.)\S+$/i;
 const length = p => p.runs.reduce((n, r) => n + r.text.length, 0);
 const text = p => p.runs.map(r => r.text).join('');
+// Blank: nothing but spaces and tabs. A page, column or line break is not blank, though trim() takes the form feed
+// and vertical tab: a paragraph holding a break was reported (and removed) as an empty one used for spacing.
+const blank = value => !/[^ \t\u00a0\u2000-\u200b\u3000]/.test(value);
 
 /**
  * Run every rule. model: { paragraphs, tables, pageSettings }; options.outline gives each
@@ -66,7 +69,7 @@ export function checkAccessibility({ paragraphs, tables = [], pageSettings = {} 
   paragraphs.forEach((p, index) => {
     const start = starts[index], body = text(p);
     // Empty paragraphs used as spacing (body text only; a cell may legitimately be empty).
-    if (!p.cellId && !body.trim() && !p.runs.some(r => r.image) && !p.sectionEnd && index < paragraphs.length - 1) emptyRun.push(index);
+    if (!p.cellId && blank(body) && !p.runs.some(r => r.image) && !p.sectionEnd && index < paragraphs.length - 1) emptyRun.push(index);
     else flushEmpty();
     // Heading levels that skip.
     const level = headingLevel(p);
@@ -127,7 +130,7 @@ export function checkAccessibility({ paragraphs, tables = [], pageSettings = {} 
     if (on('blankRows')) for (const row of table.rows) {
       const ids = new Set(row.cells.map(c => c.id));
       const own = [...ids].flatMap(id => cellParagraphs.get(id) || []).sort((a, b) => a - b).map(i => [paragraphs[i], i]);
-      if (own.length && own.every(([p]) => !text(p).trim() && !p.runs.some(r => r.image))) add('blankRows', starts[own[0][1]], starts[own[0][1]], 'All cells in this row are empty', { kind: 'deleteRow', cellId: own[0][0].cellId });
+      if (own.length && own.every(([p]) => blank(text(p)) && !p.runs.some(r => r.image))) add('blankRows', starts[own[0][1]], starts[own[0][1]], 'All cells in this row are empty', { kind: 'deleteRow', cellId: own[0][0].cellId });
     }
   }
   return issues.sort((a, b) => a.start - b.start || a.end - b.end);

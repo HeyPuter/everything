@@ -91,6 +91,9 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
   const n = top.length, shapes = [], gap = toEmu(0.12);
   const node = (x, y, w, h, preset, text, extra = {}) => shapes.push({ x, y, w, h, preset, role: 'node', text, level: 0, ...extra });
   const label = item => item.children.length ? `${item.text}\n${item.children.map(c => `• ${c.text}`).join('\n')}` : item.text;
+  // `source`: the item a shape's text shows and how (its text, its text and sub-items, or its sub-items only),
+  // so text edited in the shapes can be read back into the outline.
+  const labelled = item => ({ item, form: 'label' });
   // Gaps between `count` items along `length` shrink as items crowd in: together they take at most a
   // third of it, so no item is squeezed to nothing (Word's layouts space items in proportion too).
   const spacing = (length, count, preferred = gap) => count > 1 ? Math.min(preferred, length / 3 / (count - 1)) : preferred;
@@ -98,8 +101,8 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
     case 'verticalList': {
       const between = spacing(height, n), h = (height - between * (n - 1)) / n;
       top.forEach((item, i) => {
-        node(0, i * (h + between), width * 0.32, h, 'roundRect', item.text, { index: i });
-        if (item.children.length) shapes.push({ x: width * 0.32 + gap, y: i * (h + between) + h * 0.08, w: width * 0.68 - gap, h: h * 0.84, preset: 'rect', role: 'detail', text: item.children.map(c => `• ${c.text}`).join('\n'), index: i });
+        node(0, i * (h + between), width * 0.32, h, 'roundRect', item.text, { index: i, source: { item, form: 'text' } });
+        if (item.children.length) shapes.push({ x: width * 0.32 + gap, y: i * (h + between) + h * 0.08, w: width * 0.68 - gap, h: h * 0.84, preset: 'rect', role: 'detail', text: item.children.map(c => `• ${c.text}`).join('\n'), index: i, source: { item, form: 'children' } });
       });
       break;
     }
@@ -108,15 +111,15 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       const arrow = Math.min(toEmu(0.45), width / (n * 4)), side = spacing(width / 2, n), w = (width - arrow * (n - 1) - side * 2 * (n - 1)) / n, h = Math.min(height, w * 0.75), y = (height - h) / 2;
       top.forEach((item, i) => {
         const x = i * (w + arrow + side * 2);
-        node(x, y, w, h, 'roundRect', label(item), { index: i });
+        node(x, y, w, h, 'roundRect', label(item), { index: i, source: labelled(item) });
         if (i < n - 1) shapes.push({ x: x + w + side, y: height / 2 - arrow * 0.6, w: arrow, h: arrow * 1.2, preset: 'rightArrow', role: 'accent', index: i });
       });
       break;
     }
     case 'chevronProcess': {
       const overlap = Math.min(height * 0.18, width / n * 0.18), w = (width + overlap * (n - 1)) / n, h = Math.min(height * 0.5, w * 0.55), y = (height - h) / 2;
-      top.forEach((item, i) => node(i * (w - overlap) + (i ? gap / 2 : 0), y, w - (i ? gap / 2 : 0), h, i ? 'chevron' : 'homePlate', item.text, { index: i }));
-      top.forEach((item, i) => { if (item.children.length) shapes.push({ x: i * (w - overlap), y: y + h + gap, w: w - overlap, h: height - y - h - gap, preset: 'rect', role: 'detail', text: item.children.map(c => `• ${c.text}`).join('\n'), index: i }); });
+      top.forEach((item, i) => node(i * (w - overlap) + (i ? gap / 2 : 0), y, w - (i ? gap / 2 : 0), h, i ? 'chevron' : 'homePlate', item.text, { index: i, source: { item, form: 'text' } }));
+      top.forEach((item, i) => { if (item.children.length) shapes.push({ x: i * (w - overlap), y: y + h + gap, w: w - overlap, h: height - y - h - gap, preset: 'rect', role: 'detail', text: item.children.map(c => `• ${c.text}`).join('\n'), index: i, source: { item, form: 'children' } }); });
       break;
     }
     case 'timeline': {
@@ -126,7 +129,7 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
         const cx = step * (i + 0.5);
         shapes.push({ x: cx - dot / 2, y: mid - dot / 2, w: dot, h: dot, preset: 'ellipse', role: 'node', index: i, text: '' });
         const boxH = mid - dot / 2 - gap * 2, above = i % 2 === 0;
-        shapes.push({ x: cx - step * 0.48, y: above ? 0 : mid + dot / 2 + gap * 2, w: step * 0.96, h: boxH, preset: 'rect', role: 'detail', text: label(item), index: i, align: above ? 'b' : 't' });
+        shapes.push({ x: cx - step * 0.48, y: above ? 0 : mid + dot / 2 + gap * 2, w: step * 0.96, h: boxH, preset: 'rect', role: 'detail', text: label(item), index: i, align: above ? 'b' : 't', source: labelled(item) });
       });
       break;
     }
@@ -134,7 +137,7 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       const size = Math.min(width, height), r = size * 0.34, d = Math.min(size * 0.28, 2 * Math.PI * r / n * 0.62), cx = width / 2, cy = height / 2;
       top.forEach((item, i) => {
         const a = -Math.PI / 2 + i * 2 * Math.PI / n;
-        node(cx + r * Math.cos(a) - d / 2, cy + r * Math.sin(a) - d / 2, d, d, 'ellipse', item.text, { index: i });
+        node(cx + r * Math.cos(a) - d / 2, cy + r * Math.sin(a) - d / 2, d, d, 'ellipse', item.text, { index: i, source: { item, form: 'text' } });
         // A small arrow halfway to the next stage, turned along the circle.
         const b = a + Math.PI / n, s = Math.min(d * 0.45, toEmu(0.4));
         if (n > 1) shapes.push({ x: cx + r * Math.cos(b) - s / 2, y: cy + r * Math.sin(b) - s * 0.35, w: s, h: s * 0.7, preset: 'rightArrow', role: 'accent', rotation: Math.round(((b + Math.PI / 2) * 180 / Math.PI % 360 + 360) % 360 * 60000), index: i });
@@ -142,10 +145,10 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       break;
     }
     case 'orgChart': {
-      const root = top[0], kids = [...root.children, ...top.slice(1).map(item => ({ ...item }))], levels = kids.some(k => k.children.length) ? 3 : 2;
+      const root = top[0], kids = [...root.children, ...top.slice(1)], levels = kids.some(k => k.children.length) ? 3 : 2;
       const rowH = (height - gap * 2 * (levels - 1)) / levels, bar = toEmu(0.03), boxH = rowH * 0.8;
       const rootW = Math.min(width * 0.32, toEmu(2));
-      node((width - rootW) / 2, 0, rootW, boxH, 'roundRect', root.text, { index: 0 });
+      node((width - rootW) / 2, 0, rootW, boxH, 'roundRect', root.text, { index: 0, source: { item: root, form: 'text' } });
       if (!kids.length) break;
       const colW = width / kids.length, kidW = Math.min(colW - Math.min(gap * 2, colW / 3), toEmu(1.8)), y1 = rowH + gap * 2;
       // Sub-items hang from a stem inside their parent's left edge; a narrow parent brings them closer.
@@ -156,14 +159,14 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       kids.forEach((kid, i) => {
         const cx = colW * (i + 0.5);
         shapes.push({ x: cx - bar / 2, y: busY, w: bar, h: y1 - busY, preset: 'rect', role: 'connector' });
-        node(cx - kidW / 2, y1, kidW, boxH, 'roundRect', kid.text, { index: i + 1, level: 1 });
+        node(cx - kidW / 2, y1, kidW, boxH, 'roundRect', kid.text, { index: i + 1, level: 1, source: { item: kid, form: 'text' } });
         if (levels === 3 && kid.children.length) {
           const y2 = y1 + rowH + gap * 2, m = kid.children.length, between = spacing(height - y2, m), subH = Math.min(boxH, (height - y2 - between * (m - 1)) / m);
           shapes.push({ x: cx - kidW / 2 + stem, y: y1 + boxH, w: bar, h: y2 - y1 - boxH + subH * (m - 0.5) + between * (m - 1), preset: 'rect', role: 'connector' });
           kid.children.forEach((sub, j) => {
             const y = y2 + j * (subH + between);
             shapes.push({ x: cx - kidW / 2 + stem, y: y + subH / 2 - bar / 2, w: indent - stem, h: bar, preset: 'rect', role: 'connector' });
-            shapes.push({ x: cx - kidW / 2 + indent, y, w: kidW - indent, h: subH, preset: 'rect', role: 'detail', text: sub.text, index: i + 1, level: 2 });
+            shapes.push({ x: cx - kidW / 2 + indent, y, w: kidW - indent, h: subH, preset: 'rect', role: 'detail', text: sub.text, index: i + 1, level: 2, source: { item: sub, form: 'text' } });
           });
         }
       });
@@ -172,22 +175,22 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
     case 'venn': {
       const count = Math.min(n, 4), d = Math.min(height * 0.78, width / (1 + 0.62 * (count - 1)));
       const total = d * (1 + 0.62 * (count - 1)), x0 = (width - total) / 2;
-      top.slice(0, count).forEach((item, i) => node(x0 + i * d * 0.62, (height - d) / 2 + (count > 2 && i % 2 ? d * 0.12 : 0), d, d, 'ellipse', item.text, { index: i, alpha: 0.62 }));
+      top.slice(0, count).forEach((item, i) => node(x0 + i * d * 0.62, (height - d) / 2 + (count > 2 && i % 2 ? d * 0.12 : 0), d, d, 'ellipse', item.text, { index: i, alpha: 0.62, source: { item, form: 'text' } }));
       break;
     }
     case 'balance': {
       const size = Math.min(width, height), center = size * 0.3, cx = width / 2, cy = height / 2, outer = Math.min(size * 0.26, toEmu(1.3)), r = size * 0.37;
       const [hub, ...spokes] = top.length > 1 ? top : [top[0], ...top[0].children];
-      node(cx - center / 2, cy - center / 2, center, center, 'ellipse', hub.text, { index: 0 });
+      node(cx - center / 2, cy - center / 2, center, center, 'ellipse', hub.text, { index: 0, source: { item: hub, form: 'text' } });
       spokes.forEach((item, i) => {
         const a = -Math.PI / 2 + i * 2 * Math.PI / spokes.length;
-        node(cx + r * Math.cos(a) - outer / 2, cy + r * Math.sin(a) - outer / 2, outer, outer, 'ellipse', item.text, { index: i + 1, level: 1 });
+        node(cx + r * Math.cos(a) - outer / 2, cy + r * Math.sin(a) - outer / 2, outer, outer, 'ellipse', item.text, { index: i + 1, level: 1, source: { item, form: 'text' } });
       });
       break;
     }
     case 'matrix': {
       const size = Math.min(width, height), cell = (size - gap) / 2, x0 = (width - size) / 2;
-      top.slice(0, 4).forEach((item, i) => node(x0 + (i % 2) * (cell + gap), Math.floor(i / 2) * (cell + gap), cell, cell, i % 3 ? 'roundRect' : 'rect', label(item), { index: i }));
+      top.slice(0, 4).forEach((item, i) => node(x0 + (i % 2) * (cell + gap), Math.floor(i / 2) * (cell + gap), cell, cell, i % 3 ? 'roundRect' : 'rect', label(item), { index: i, source: labelled(item) }));
       break;
     }
     case 'pyramid': {
@@ -195,8 +198,8 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       top.forEach((item, i) => {
         // Each level is a band of the same triangle: its bottom width grows with its depth.
         const y = i * (h + between), w = 2 * (y + h) * slope, x = (width - w) / 2;
-        if (i === 0) node(x, y, w, h, 'triangle', item.text, { index: i });
-        else node(x, y, w, h, 'trapezoid', item.text, { index: i, adj: Math.round(h * slope / Math.min(w, h) * 100000) });
+        if (i === 0) node(x, y, w, h, 'triangle', item.text, { index: i, source: { item, form: 'text' } });
+        else node(x, y, w, h, 'trapezoid', item.text, { index: i, adj: Math.round(h * slope / Math.min(w, h) * 100000), source: { item, form: 'text' } });
       });
       break;
     }
@@ -204,7 +207,7 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       const columns = Math.min(n, n <= 4 ? n : Math.ceil(Math.sqrt(n * width / height))), rowsCount = Math.ceil(n / columns);
       const w = (width - gap * (columns - 1)) / columns, h = Math.min((height - gap * (rowsCount - 1)) / rowsCount, w * 0.7);
       const y0 = (height - (h * rowsCount + gap * (rowsCount - 1))) / 2;
-      top.forEach((item, i) => node((i % columns) * (w + gap), y0 + Math.floor(i / columns) * (h + gap), w, h, 'roundRect', label(item), { index: i }));
+      top.forEach((item, i) => node((i % columns) * (w + gap), y0 + Math.floor(i / columns) * (h + gap), w, h, 'roundRect', label(item), { index: i, source: labelled(item) }));
     }
   }
   return shapes.map(s => ({ ...s, x: Math.round(s.x), y: Math.round(s.y), w: Math.max(1, Math.round(s.w)), h: Math.max(1, Math.round(s.h)) }));
@@ -243,6 +246,47 @@ export function parseDiagramDescription(text) {
   if (!match) return null;
   const layout = DIAGRAM_LAYOUTS.find(l => l.name === match[1]), colors = DIAGRAM_COLORS.find(c => c.name === match[2]);
   return layout ? { layout: layout.id, colors: colors?.id || 'blue', items: parseOutline(match[3]), outline: match[3] } : null;
+}
+
+/**
+ * The items of a diagram whose shape text was edited in place, read back through the shapes the outline
+ * made: a shape's first line is its item and further lines its sub-items, where it shows them. Null when
+ * the drawing no longer has the outline's shapes.
+ */
+export function diagramItemsFromTexts(layoutId, items, texts) {
+  const copy = structuredClone(items);
+  const framed = diagramShapes(layoutId, copy).filter(s => s.text && s.text.trim());
+  if (framed.length !== texts.length || framed.some(s => !s.source)) return null;
+  const clean = line => line.replace(/^\s*•/, '').replace(/\s+/g, ' ').trim();
+  // Sub-items as typed, one per line: the first ones keep their own sub-items.
+  const subItems = (item, lines) => { item.children = lines.map((text, i) => item.children[i] ? { ...item.children[i], text } : { text, children: [] }); };
+  for (const [i, shape] of framed.entries()) {
+    const lines = String(texts[i]).split('\n').map(clean).filter(Boolean), { item, form } = shape.source;
+    // A shape emptied keeps its item: items are removed in Edit Diagram.
+    if (!lines.length) continue;
+    if (form === 'text') item.text = lines.join(' ');
+    else if (form === 'label') { item.text = lines[0]; subItems(item, lines.slice(1)); }
+    else subItems(item, lines);
+  }
+  return copy;
+}
+
+const WPS = 'http://schemas.microsoft.com/office/word/2010/wordprocessingShape', W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+/**
+ * The description (alternative text) of a diagram after its shapes' text was edited in place, given the
+ * drawing's new XML, so the description screen readers hear and Edit Diagram reads back says what the
+ * shapes show. Null when `alt` is not a diagram description, nothing changed or the shapes no longer match.
+ */
+export function diagramDescriptionAfterTextEdit(alt, shell) {
+  const parsed = parseDiagramDescription(alt);
+  if (!parsed || typeof shell !== 'string') return null;
+  const doc = new DOMParser().parseFromString(shell, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) return null;
+  const texts = [...doc.getElementsByTagNameNS(WPS, 'txbx')].map(box => [...box.getElementsByTagNameNS(W, 'p')]
+    .map(p => [...p.getElementsByTagNameNS(W, 't')].map(t => t.textContent).join('')).join('\n'));
+  const items = diagramItemsFromTexts(parsed.layout, parsed.items, texts);
+  const descr = items && diagramDescription(parsed.layout, items, parsed.colors);
+  return descr && descr !== alt && descr.length <= 2000 ? descr : null;
 }
 
 /** The whole `w:drawing` of a diagram, inline, at the given drawing id. Size in EMU. */

@@ -23,9 +23,9 @@ test('text behind a picture edits normally; explicit image gestures and layer me
   await page.getByRole('menuitem',{name:'Select picture behind text',exact:true}).click();
   await expect(page.getByRole('button',{name:'Move selected image',exact:true})).toBeVisible();
   await page.keyboard.down('Alt');await page.mouse.click(b.x+110,b.y+110);await page.keyboard.up('Alt');
-  await expect(page.getByRole('button',{name:'Resize image se'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Resize from bottom-right corner'})).toBeVisible();
   const frame=page.locator('.canvas-image-frame'),before=await frame.boundingBox();
-  await drag(page,page.getByRole('button',{name:'Resize image se'}),25,15);
+  await drag(page,page.getByRole('button',{name:'Resize from bottom-right corner'}),25,15);
   expect((await frame.boundingBox()).width).toBeGreaterThan(before.width);
   await drag(page,page.getByRole('button',{name:'Move selected image',exact:true}),40,20);
   const moved=await frame.boundingBox();expect(moved.x).toBeGreaterThan(before.x+30);

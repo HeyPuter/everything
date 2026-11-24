@@ -1,4 +1,5 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { IMPORTED_NUMBER_FORMATS, importedNumeral } from './list-numerals.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 
@@ -47,7 +48,25 @@ export function formatPageNumber(value, format = 'decimal') {
     if (count > 128) throw new Error('This symbol number exceeds the preview limit.');
     return ['*', '\u2020', '\u2021', '\u00a7'][(value - 1) % 4].repeat(count);
   }
+  // The other ST_NumberFormat values (§17.18.59) a document can number its pages or notes in, as lists show them:
+  // "- 1 -" (numberInDash, which Word's Page Number Format dialog offers), full-width and circled digits, words,
+  // CJK, Hebrew, Arabic and Thai numerals.
+  if (IMPORTED_NUMBER_FORMATS.includes(format)) return importedNumeral(value, format);
   throw new Error(`Unsupported page number format: ${format}.`);
+}
+
+/**
+ * A dialog's number format choices ([format, label]), with the formats a document already uses that they do not
+ * list (01, 02, 03, or one another application wrote) added, labelled as they show. Left out, such a format left
+ * the list blank, and OK then saved an empty format.
+ */
+export function formatChoices(choices, ...formats) {
+  const extra = [...new Set(formats)].filter(format => format && !choices.some(([value]) => value === format));
+  return [...choices, ...extra.map(format => {
+    let sample = format;
+    try { sample = `${[1, 2, 3].map(n => formatPageNumber(n, format)).join(', ')}, …`; } catch { /* its name */ }
+    return [format, sample];
+  })];
 }
 
 export function pageNumberSequence(pageSections, definition, approximations = []) {

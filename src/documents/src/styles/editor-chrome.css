@@ -66,6 +66,9 @@
   height: calc(40px + var(--safe-t)); padding: var(--safe-t) calc(10px + var(--safe-r)) 0 calc(8px + var(--safe-l));
 }
 .ed-quick { display: flex; align-items: center; gap: 2px; min-width: 0; }
+/* Commands that do not fit leave the end of the toolbar (title-bar.js) rather than run over the menu bar. */
+.ed-quick { overflow-x: clip; }
+.ed-quick > .is-overflow { display: none !important; }
 .ed-header .canvas-title-wrap { justify-content: center; flex: none; gap: 6px; min-width: 0; }
 .ed-header .canvas-title { font: 400 13px/1.3 var(--font); text-align: center; padding: 3px 8px; color: var(--ed-ink); }
 @media (hover: hover) { .ed-header .canvas-title:hover { background: var(--ed-hover); } }

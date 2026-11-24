@@ -44,10 +44,13 @@ export function toast(message, { icon: name = 'check', duration, action = null }
   let hovered = false;
   let focused = false;
 
+  // Where the keyboard came from when F6 brought it to the notice: it goes back there when the notice goes.
+  let cameFrom = null;
   const dismiss = () => {
     if (gone) return;
     gone = true;
     clearTimeout(timer);
+    if (node.contains(document.activeElement) && cameFrom?.isConnected) cameFrom.focus({ preventScroll: true });
     node.classList.add('leaving');
     node.addEventListener('animationend', () => node.remove(), { once: true });
     setTimeout(() => node.remove(), 400);
@@ -79,7 +82,7 @@ export function toast(message, { icon: name = 'check', duration, action = null }
   };
   node.addEventListener('pointerenter', () => { hovered = true; hold(); });
   node.addEventListener('pointerleave', () => { hovered = false; release(); });
-  node.addEventListener('focusin', () => { focused = true; hold(); });
+  node.addEventListener('focusin', (e) => { if (e.relatedTarget && !node.contains(e.relatedTarget)) cameFrom = e.relatedTarget; focused = true; hold(); });
   node.addEventListener('focusout', (e) => {
     focused = node.contains(e.relatedTarget);
     if (!focused) release();

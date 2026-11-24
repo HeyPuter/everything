@@ -6,7 +6,7 @@ import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
 import { digest } from '../src/engine/sha.js';
-import { ENCRYPTION_MATRIX, legacyPasswordKey, legacyKeyText, iteratedHash, bytesToBase64, createPasswordVerifier, verifyPassword, permissionRanges, permissionApplies, protectionGuard, ProtectionError, nextPermissionId, protectedSignature } from '../src/engine/protection.js';
+import { ENCRYPTION_MATRIX, legacyPasswordKey, legacyKeyText, iteratedHash, iteratedHashYielding, bytesToBase64, createPasswordVerifier, verifyPassword, permissionRanges, permissionApplies, protectionGuard, ProtectionError, nextPermissionId, protectedSignature } from '../src/engine/protection.js';
 import { permissionMarker } from '../src/engine/docx-permissions.js';
 import { addPermissionRange, removePermissionRanges } from '../src/engine/permission-edits.js';
 import { contentControlRanges } from '../src/engine/content-controls.js';
@@ -83,6 +83,18 @@ describe('password verifier (§17.15.1.29)', () => {
     expect(await verifyPassword('nope', direct)).toBe(false);
     expect(await verifyPassword('anything', { edit: 'readOnly' })).toBe(true);
     expect(await createPasswordVerifier('')).toBeNull();
+  });
+
+  // A check ran its 100,000 rounds in one go, and the page did not respond for about half a second.
+  it('gives the page back while checking or setting a password, with the same hashes', async () => {
+    const yielded = async promise => { let turn = false; setTimeout(() => { turn = true; }, 0); const value = await promise; return [turn, value]; };
+    const [setTurn, verifier] = await yielded(createPasswordVerifier('password', { salt: SALT }));
+    expect(setTurn).toBe(true);
+    expect(verifier.hashValue).toBe('4rOTG/MwYlSJ4565z4hrF8V/7lr1APYteXrflsxTHLojytNOf6N6lINftoVjzehQpL6IZBhd3SdxNAqIXd/mAQ==');
+    expect(await yielded(verifyPassword('password', verifier))).toEqual([true, true]);
+    expect(await yielded(verifyPassword('Password', verifier))).toEqual([true, false]);
+    expect(bytesToBase64(await iteratedHashYielding('password', { salt: SALT, legacy: false }))).toBe('x01qKaF9y9cQwPxHrE46zKhOLAHXLgmWjpZRPwqjkl6tpT1Lq9JXlHzPvHxsy/q0gWkWsUumW+mgF2sVqd4VXQ==');
+    expect(await iteratedHashYielding('élan', { salt: SALT, spinCount: 100 }, { chunk: 7 })).toEqual(iteratedHash('élan', { salt: SALT, spinCount: 100 }));
   });
 });
 
@@ -221,6 +233,20 @@ describe('enforcement', () => {
     const { s } = await session({ edit: 'none', formatting: true, enforcement: true });
     expect(tryEdit(s, m => { m.select(0); m.replace('Typed '); })).toBe(true);
     expect(tryEdit(s, m => { m.select(0, 5); m.setRunFormat({ italic: true }); })).toBe(false);
+  });
+
+  // Formatting the document already had somewhere passed: with one word bold, Bold worked on any other text.
+  it('refuses direct formatting the document already has elsewhere under a formatting restriction', async () => {
+    const { s, model } = await session({ edit: 'none', formatting: true, enforcement: true });
+    model.select(0, 5); model.setRunFormat({ bold: true }); model.setParagraphFormat({ alignment: 'center' });
+    const plain = model.text.indexOf('\n') + 1;
+    expect(tryEdit(s, m => { m.select(plain, plain + 4); m.setRunFormat({ bold: true }); })).toBe(false);
+    expect(tryEdit(s, m => { m.select(plain); m.setParagraphFormat({ alignment: 'center' }); })).toBe(false);
+    expect(model.paragraphs[1].runs.some(r => r.bold)).toBe(false);
+    // Typing beside formatted text, and clearing formatting, are still allowed.
+    expect(tryEdit(s, m => { m.select(2); m.replace('ab'); })).toBe(true);
+    expect(tryEdit(s, m => { m.select(0, 7); m.clearDirectTextFormatting(); })).toBe(true);
+    expect(model.paragraphs[0].runs.some(r => r.bold)).toBe(false);
   });
 
   it('allows only form fields (content controls) to change under a forms restriction', async () => {

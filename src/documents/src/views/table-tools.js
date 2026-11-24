@@ -79,6 +79,22 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     return heights;
   }
 
+  /**
+   * What the Height box shows for each row, as Word does: the height the row was given, or else its laid-out height on
+   * the page where it starts. A row breaking across pages is not shown as its pages' total, which could pass the box's
+   * 22 in limit (its spinner then snapped the row to 22 in).
+   */
+  function shownRowHeightsOf(engine, table) {
+    const byRow = new Map(table.rows.map((row, i) => [row.id, i])), owners = verticalMerges(table), first = new Map();
+    for (const cell of engine.selectionLayout?.cells || []) {
+      if (cell.tableId !== table.id || cell.repeatedHeader || (owners.get(cell.id)?.cells.length ?? 2) !== 1) continue;
+      const index = byRow.get(cell.rowId), seen = first.get(index);
+      if (index === undefined || seen && seen.page < cell.page) continue;
+      first.set(index, !seen || seen.page > cell.page ? { page: cell.page, height: cell.height } : { page: cell.page, height: Math.max(seen.height, cell.height) });
+    }
+    return table.rows.map((row, i) => row.heightExplicit && row.heightRule !== 'auto' && row.minHeight > 0 ? row.minHeight : Math.round((first.get(i)?.height || 0) * 15));
+  }
+
   /** Run one table command as an undoable step; errors are shown, not thrown. */
   function run(action, { focus = true } = {}) {
     const engine = ready(); if (!engine) return false;
@@ -103,7 +119,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
       m.insertTable(rows, columns, available);
       const table = m.tableContext.table;
       if (width) T.setColumnWidths(m, table, Array(columns).fill(Math.round(width * 1440)), { layout: 'fixed' });
-      if (autofit !== 'fixed') T.autofitTable(m, autofit);
+      if (autofit !== 'fixed') T.autofitTable(m, autofit, { widths: table.grid });
       return true;
     });
   }
@@ -297,7 +313,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     mergeCells: () => withTable(m => T.mergeBlock(m)),
     splitCells: splitCellsDialog,
     splitTable: () => withTable(m => T.splitTable(m)),
-    autofit: mode => withTable((m, b, engine) => mode === 'fixed' ? T.fixColumnWidths(m, { widths: widthsOf(engine, b.table) }) : T.autofitTable(m, mode)),
+    autofit: mode => withTable((m, b, engine) => mode === 'fixed' ? T.fixColumnWidths(m, { widths: widthsOf(engine, b.table) }) : T.autofitTable(m, mode, { widths: widthsOf(engine, b.table) })),
     distributeRows: () => withTable((m, b, engine) => T.distributeRows(m, { heights: rowHeightsOf(engine, b.table) })),
     distributeColumns: () => withTable((m, b, engine) => T.distributeColumns(m, { widths: widthsOf(engine, b.table) })),
     align: (vertical, horizontal) => withTable(m => T.setCellAlignment(m, { vertical, horizontal })),
@@ -418,7 +434,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
           if (document.activeElement === input) continue;
           if (!b || !engine) { input.value = ''; continue; }
           // Width: each selected cell of the top row, which is what the spinner sets.
-          const value = key === 'height' ? rowHeightsOf(engine, b.table).slice(b.top, b.bottom + 1) : (() => {
+          const value = key === 'height' ? shownRowHeightsOf(engine, b.table).slice(b.top, b.bottom + 1) : (() => {
             const w = widthsOf(engine, b.table);
             return w.length ? rowGrid(b.table.rows[b.top]).filter(c => c.column >= b.left && c.end <= b.right).map(c => w.slice(c.column, c.end).reduce((x, y) => x + y, 0)) : [];
           })();

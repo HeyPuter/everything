@@ -202,6 +202,57 @@ it('reuses table cell paragraphs that did not change, with the same layout as a 
   expect(plain(typed)).toEqual(plain(lay(doc, metrics)));
 });
 
+it('names each table cell\'s page by its table\'s page and the cell\'s geometry, not by serializing it again', () => {
+  const doc = new TextDocument([paragraph('Intro'), paragraph('')]);
+  doc.select(6); doc.insertTable(30, 3);
+  doc.paragraphs.filter(p => p.cellId).forEach((p, i) => { p.runs = [{ ...doc.paragraphs[0].runs[0], text: `Cell ${i} ${sentence(i)}` }]; });
+  // A table nested in a cell takes its cells' pages from that cell's page.
+  doc.select(doc.text.indexOf('Cell 4 ')); doc.insertTable(2, 2, 2000);
+  expect(doc.tables.some(table => table.parentCellId)).toBe(true);
+  const { measure, cache } = cachedMeasure();
+  lay(doc, measure);
+  const interned = [], intern = cache.intern.bind(cache);
+  vi.spyOn(cache, 'intern').mockImplementation(text => { interned.push(text); return intern(text); });
+  doc.select(2); doc.replace('typed ');
+  cache.nextGeneration();
+  const edited = lay(doc, measure);
+  expect(interned.length).toBeGreaterThan(0);
+  // Each of the table's 90 cells once held a serialization of the whole page, read again on every layout.
+  expect(interned.filter(text => text.startsWith('{') && text.includes('"tableDepth"'))).toEqual([]);
+  expect(plain(edited)).toEqual(plain(lay(doc, metrics)));
+  // Changing a cell's geometry (its column's width) measures its paragraphs at the new width.
+  doc.tables[0].grid = doc.tables[0].grid.map((width, i) => (i === 1 ? width / 2 : width));
+  cache.nextGeneration();
+  expect(plain(lay(doc, measure))).toEqual(plain(lay(doc, metrics)));
+});
+
+it('places the borders of tables whose cells did not change only once, with the same ink as placing them again', () => {
+  const doc = new TextDocument([paragraph('Intro'), paragraph(''), paragraph('Between'), paragraph(''), paragraph('End')]);
+  doc.select(doc.text.indexOf('Between') - 1); doc.insertTable(12, 3);
+  doc.select(doc.text.indexOf('End') - 1); doc.insertTable(8, 2);
+  doc.paragraphs.filter(p => p.cellId).forEach((p, i) => { p.runs = [{ ...doc.paragraphs[0].runs[0], text: `Cell ${i}` }]; });
+  // A merged cell in the first table, and a cell with its own border and shading in the second.
+  doc.select(doc.text.indexOf('Cell 3'), doc.text.indexOf('Cell 4') + 2); doc.mergeCells();
+  doc.select(doc.text.indexOf('Cell 40')); doc.setCellBorders({ top: { style: 'double', size: 12, color: 'CC3300' } }); doc.setCellShading('FFEEAA');
+  const { measure, cache } = cachedMeasure();
+  const ink = layout => JSON.stringify(layout.tableBorders);
+  const check = () => { cache.nextGeneration(); const layout = lay(doc, measure); expect(ink(layout)).toBe(ink(lay(doc, metrics))); return layout; };
+  const first = check();
+  const second = doc.tables[1].id, strokesOf = (layout, id) => layout.tableBorders.filter(stroke => stroke.tableId === id);
+  expect(strokesOf(first, second).length).toBeGreaterThan(10);
+  // Typing outside the tables reuses every stroke.
+  doc.select(2); doc.replace('typed ');
+  const typed = check();
+  strokesOf(typed, second).forEach((stroke, i) => expect(stroke).toBe(strokesOf(first, second)[i]));
+  // Editing a table's borders, rows or text places its borders again, and Undo brings the earlier ink back.
+  doc.select(doc.text.indexOf('Cell 41')); doc.setCellBorders({ left: { style: 'single', size: 24, color: '3366FF' } });
+  expect(strokesOf(check(), second)[0]).not.toBe(strokesOf(typed, second)[0]);
+  doc.undo(); check();
+  doc.select(doc.text.indexOf('Cell 7')); doc.insertTableRow(); check();
+  doc.select(doc.text.indexOf('Cell 7')); doc.replace('Longer text that wraps across the narrow column of the first table '); check();
+  doc.undo(); check(); doc.undo(); check(); doc.redo(); check();
+});
+
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });
 it('measures an AutoFit table\'s cells for its column widths only when they change', () => {
   const doc = new TextDocument([paragraph('Intro'), paragraph('')]);

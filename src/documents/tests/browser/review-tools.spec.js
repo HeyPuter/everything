@@ -308,7 +308,7 @@ test('tracked formatting shows in the Reviewing Pane and balloons, and rejecting
   await expect(page.locator('.ed-revision-card')).toContainText('Formatted: Bold');
   await page.screenshot({ path: info.outputPath('tracked-formatting.png') });
   const { parts } = await exported(page, info, 'tracked-formatting.docx');
-  expect(strFromU8(parts['word/document.xml'])).toMatch(/<w:rPrChange w:id="\d+" w:author="[^"]*" w:date="[^"]+"><w:rPr\/><\/w:rPrChange>/);
+  expect(strFromU8(parts['word/document.xml'])).toMatch(/<w:rPrChange w:id="\d+" w:author="[^"]*" w:date="[^"]+" w16du:dateUtc="[^"]+Z"><w:rPr\/><\/w:rPrChange>/);
   await select(input, 7);
   await page.locator('#ribbon-panel-review [aria-label="Reject"]').evaluate(button => button.click());
   await expect(pane).not.toContainText('Formatted');
@@ -724,6 +724,25 @@ test('in the app, Translate Document opens a translated copy', async ({ page }) 
   page.on('dialog', d => d.accept());
   await pane.getByRole('button', { name: 'Translate document…' }).click();
   await expect(input).toHaveValue('[Translated] Hello world.\n[Translated] Second line.', { timeout: 20000 });
+  expect(errors).toEqual([]);
+});
+
+// An answer holding an object's placeholder character (U+FFFC) put a stray, object-less character in the translated
+// document; Translate on a selection already took it out.
+test('Translate Document leaves out a stray object character in the translation', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Hello world.\nSecond line.');
+  await page.evaluate(() => { puter.ai.chat = async prompt => JSON.stringify(Array.from({ length: (String(prompt).match(/\[\d+\]/g) || []).length }, (_, i) => i ? 'Segunda línea.' : 'Hola \ufffcmundo.')); });
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Translate"][aria-haspopup="menu"]')?.click());
+  await page.getByRole('menuitem', { name: 'Translate Document' }).click();
+  const pane = page.getByRole('complementary', { name: 'Translator pane' });
+  page.on('dialog', d => d.accept());
+  await pane.getByRole('button', { name: 'Translate document…' }).click();
+  await expect(input).toHaveValue('Hola mundo.\nSegunda línea.', { timeout: 20000 });
   expect(errors).toEqual([]);
 });
 

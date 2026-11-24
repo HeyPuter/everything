@@ -28,6 +28,8 @@ describe('readability', () => {
     const s = textStatistics('One two three.\n\nFour five.');
     expect(s).toMatchObject({ words: 5, paragraphs: 2, characters: 24, charactersNoSpaces: 21 });
     expect(s.averages.wordsPerSentence).toBe(2.5);
+    // A page, column or line break is not a character, with or without spaces; a tab is one with spaces.
+    expect(textStatistics('One\ftwo\u000ethree\vfour\tfive')).toMatchObject({ words: 5, characters: 20, charactersNoSpaces: 19 });
     expect(textStatistics('').readability).toEqual({ fleschReadingEase: 0, fleschKincaidGrade: 0, passivePercent: 0 });
   });
 
@@ -95,6 +97,17 @@ describe('accessibility rules', () => {
     expect(text.slice(by('unclearLinks')[0].start, by('unclearLinks')[0].end)).toBe('here');
     // Automatic text color is readable on a dark page.
     expect(checkAccessibility({ paragraphs: [para([run('Auto')])], tables: [], pageSettings: { background: '111111' } }).filter(i => i.rule === 'lowContrast')).toEqual([]);
+  });
+
+  // A paragraph holding only a page, column or line break was reported as an empty paragraph used for spacing (the
+  // form feed and vertical tab are white space to trim()), and its quick fix joined it to the one before.
+  it('does not take a paragraph holding a break for an empty one', () => {
+    const rules = paragraphs => checkAccessibility({ paragraphs, tables: [] }).map(i => i.rule);
+    expect(rules([para([run('Intro')]), para([]), para([run('\f')]), para([run('\f')]), para([run('\u000e')]), para([run('\v')]), para([run('Next')])])).not.toContain('emptyParagraphs');
+    expect(rules([para([run('Intro')]), para([run(' \t')]), para([]), para([run('Next')])])).toContain('emptyParagraphs');
+    // A row whose cells hold a page break is not a blank row either.
+    const tables = [{ id: 't', rows: [{ header: true, cells: [{ id: 'a' }] }, { cells: [{ id: 'b' }] }] }];
+    expect(checkAccessibility({ paragraphs: [para([run('Head')], { cellId: 'a' }), para([run('\f')], { cellId: 'b' }), para([run('End')])], tables }).map(i => i.rule)).not.toContain('blankRows');
   });
 });
 

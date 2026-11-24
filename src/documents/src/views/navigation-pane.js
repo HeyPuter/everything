@@ -40,6 +40,25 @@ export function createNavigationPane(api) {
   const headingEmpty = el('p.field-hint', {}, 'Create an interactive outline of your document. It is a great way to keep track of where you are or quickly move your content around. To get started, apply heading styles to the headings in your document.');
   const pageGrid = el('div.nav-pages', { role: 'list', 'aria-label': 'Pages' });
   const resultList = el('ol.nav-results', { 'aria-label': 'Search results' });
+  // The pages and the results are each one Tab stop, as the headings are: the arrows, Home and End move along them.
+  // Tabbing through every page or result (hundreds in a long document) to leave the pane took as many presses.
+  const settle = (list, selector) => {
+    const items = [...list.querySelectorAll(selector)];
+    const stop = items.find(item => item === document.activeElement) || items.find(item => item.hasAttribute('aria-current')) || items[0];
+    for (const item of items) { const index = item === stop ? 0 : -1; if (item.tabIndex !== index) item.tabIndex = index; }
+  };
+  for (const [list, selector] of [[pageGrid, '.nav-page'], [resultList, '.nav-result']]) {
+    list.addEventListener('focusin', () => settle(list, selector));
+    list.addEventListener('keydown', e => {
+      if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const items = [...list.querySelectorAll(selector)], at = items.indexOf(document.activeElement);
+      const next = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at - 1, ArrowLeft: at - 1, Home: 0, End: items.length - 1 }[e.key];
+      if (at < 0 || next === undefined) return;
+      e.preventDefault();
+      const target = items[Math.max(0, Math.min(items.length - 1, next))];
+      target.focus(); target.scrollIntoView?.({ block: 'nearest' });
+    });
+  }
   const resultEmpty = el('p.field-hint');
   const panels = {
     headings: el('div.nav-panel', { role: 'tabpanel', id: 'nav-panel-headings', 'aria-labelledby': 'nav-tab-headings' }, headingEmpty, headingList),
@@ -264,6 +283,7 @@ export function createNavigationPane(api) {
         if (source.width) ctx.drawImage(source, 0, 0, thumb.width, thumb.height);
       });
       paintedPages.clear();
+      settle(pageGrid, '.nav-page');
     });
   }
   function renderResults() {
@@ -295,6 +315,7 @@ export function createNavigationPane(api) {
     });
     while (resultList.children.length > shown.length) resultList.lastChild.remove();
     if (focused >= 0) (resultList.querySelectorAll('.nav-result')[Math.min(focused, matches.length - 1)] || search).focus();
+    settle(resultList, '.nav-result');
   }
   function render() {
     if (node.hidden) return;

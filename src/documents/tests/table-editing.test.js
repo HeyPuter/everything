@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
-import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
+import { TextDocument, paragraph, paragraphText, locate } from '../src/engine/model.js';
 import { tableCells, verticalMerges, rowGrid, documentBlocks } from '../src/engine/tables.js';
 import * as T from '../src/engine/table-editing.js';
 import { insertQuickTable } from '../src/engine/quick-tables.js';
@@ -583,6 +583,22 @@ describe('table commands', () => {
     expect(doc.tables[0].width).toEqual({ type: 'pct', value: 5000 });
   });
 
+  it('AutoFit to window gives each column its share of the table in percent, and merges keep the shares', async () => {
+    const { pkg, doc } = tableDocument(2, 3);
+    T.autofitTable(doc, 'window', { widths: [2000, 4000, 4000] });
+    const table = doc.tables[0];
+    expect(table.rows[0].cells.map(cell => cell.width)).toEqual([{ type: 'pct', value: 1000 }, { type: 'pct', value: 2000 }, { type: 'pct', value: 2000 }]);
+    const { xml, reopened } = await roundTrip(pkg, doc);
+    expect(xml).toContain('<w:tcW w:type="pct" w:w="1000"/>');
+    expect(reopened.tables[0].rows[1].cells.map(cell => cell.width.value)).toEqual([1000, 2000, 2000]);
+    block(doc, 0, 1, 0, 3); T.mergeBlock(doc);
+    expect(table.rows[0].cells.map(cell => cell.width)).toEqual([{ type: 'pct', value: 1000 }, { type: 'pct', value: 4000 }]);
+    // Deleting a column shares the window among the columns left.
+    at(doc, 1, 0); T.deleteColumns(doc);
+    expect(table.rows[1].cells.map(cell => cell.width.value)).toEqual([2500, 2500]);
+    valid(doc);
+  });
+
   it('sets text direction, alignment, wrap and preferred cell width and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 0, 0, 0, 2);
@@ -862,6 +878,32 @@ it.each([
   expect(doc.commentList.map(c => [c.text, doc.text.slice(c.start, c.end)])).toEqual([['about before', 'Before'], ['about b1', 'b1'], ['reply', 'b1']]);
 });
 
+// A comment from text before the table into a deleted row lost its end marker: saved with its start alone and no
+// reference, it did not show in Word. Its end now closes up where the removed cells were, and likewise its start.
+it.each([
+  ['Delete Rows', doc => T.deleteRows(doc)], ['Delete Columns', doc => T.deleteColumns(doc)], ['Delete Table', doc => T.deleteTable(doc)],
+  ['deleteTablePart row', doc => doc.deleteTablePart('row')], ['deleteTablePart column', doc => doc.deleteTablePart('column')], ['deleteTablePart table', doc => doc.deleteTablePart('table')],
+])('a comment running into the cells %s removes keeps both ends', async (name, command) => {
+  const { pkg, doc } = tableDocument(2, 2, ['Before']);
+  doc.select(doc.text.length); doc.replace('After');
+  const b1 = doc.text.indexOf('b1'), a0 = doc.text.indexOf('a0'), after = doc.text.indexOf('After');
+  doc.addComment({ author: 'C', text: 'into the table', range: [doc.text.indexOf('fore'), b1 + 2] });
+  doc.addComment({ author: 'C', text: 'out of the table', range: [a0, after + 3] });
+  doc.select(b1 + 1);
+  expect(command(doc)).toBe(true);
+  const markers = doc.paragraphs.flatMap(p => (p.bookmarks || []).filter(m => m.comment).map(m => `${m.commentId}:${m.edge}`));
+  expect(markers.filter(m => m.startsWith('0:')).sort()).toEqual(['0:end', '0:start']);
+  const list = doc.commentList.map(c => [c.text, doc.text.slice(c.start, c.end)]);
+  expect(list.find(([text]) => text === 'into the table')[1]).toMatch(/^fore/);
+  if (doc.comments.some(c => c.text === 'out of the table')) expect(list.find(([text]) => text === 'out of the table')[1]).toMatch(/Aft$/);
+  const xml = strFromU8(unzipSync(new Uint8Array(await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets, undefined, doc.comments).arrayBuffer()))['word/document.xml']);
+  for (const c of doc.comments) {
+    expect(xml).toContain(`<w:commentRangeStart w:id="${c.id}"/>`);
+    expect(xml).toContain(`<w:commentRangeEnd w:id="${c.id}"/>`);
+    expect(xml).toContain(`<w:commentReference w:id="${c.id}"/>`);
+  }
+});
+
 describe('deleting a selection around tables', () => {
   const tableBetween = () => {
     const { pkg, doc } = tableDocument(2, 2, ['Before']);
@@ -935,9 +977,9 @@ describe('inserting columns into an AutoFit table', () => {
       expect(table.grid).toHaveLength(4);
       // The new column is as wide as the one it follows; the others keep their widths.
       expect(table.grid).toEqual([3120, 3120, 3120, 3120]);
-      // The table stays AutoFit to the window: the cells keep automatic widths.
+      // The table stays AutoFit to the window: the cells share it in percent, a quarter each now.
       expect([table.layout, table.width]).toEqual(['autofit', { type: 'pct', value: 5000 }]);
-      expect(tableCells(table).every(cell => cell.width?.type === 'auto')).toBe(true);
+      expect(tableCells(table).every(cell => cell.width?.type === 'pct' && cell.width.value === 1250)).toBe(true);
       const { xml } = await roundTrip(pkg, doc);
       expect(xml).not.toContain('<w:gridCol w:w="0"/>');
     }
@@ -971,5 +1013,212 @@ describe('clearing a block of cells with Track Changes on', () => {
     expect(T.clearCells(doc)).toBe(false);
     session.undo();
     expect(JSON.stringify(doc.paragraphs)).toBe(before);
+  });
+});
+
+describe('the paragraph before a table', () => {
+  it('Delete in an empty paragraph just before a table removes it, and keeps one that keeps two tables apart', async () => {
+    const { pkg, doc } = tableDocument(2, 2, ['Top', '']);
+    const empty = doc.paragraphs.findIndex(p => p.cellId) - 1;
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(1)).toBe(true);
+    expect(doc.paragraphs.map(p => p.cellId ? 'cell' : paragraphText(p))).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '']);
+    // The caret is at the start of the first cell; one undo brings the paragraph back.
+    expect(doc.range).toEqual([4, 4]);
+    expect(doc.paragraphs[locate(doc.paragraphs, doc.range[0]).index].cellId).toBe(tableCells(doc.tables[0])[0].id);
+    doc.undo();
+    expect(doc.paragraphs.map(p => p.cellId ? 'cell' : paragraphText(p))).toEqual(['Top', '', 'cell', 'cell', 'cell', 'cell', '']);
+    doc.select(doc.paragraphOffset(empty)); doc.delete(1);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(reopened.text).toBe(doc.text);
+    // The empty paragraph between two tables stays: without it they would be one table.
+    doc.select(doc.text.length); doc.insertTable(2, 2, 9000);
+    const between = doc.paragraphs.findIndex((p, i) => !p.cellId && doc.paragraphs[i - 1]?.cellId && doc.paragraphs[i + 1]?.cellId);
+    expect(between).toBeGreaterThan(0);
+    doc.select(doc.paragraphOffset(between));
+    expect(doc.delete(1)).toBe(false);
+    expect(doc.tables).toHaveLength(2);
+    valid(doc);
+  });
+
+  it('Delete keeps an empty paragraph before a table that holds a bookmark, or with Track Changes on', () => {
+    const { doc } = tableDocument(2, 2, ['Top', '']);
+    const empty = doc.paragraphs.findIndex(p => p.cellId) - 1;
+    doc.trackChanges = true;
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(1)).toBe(false);
+    doc.trackChanges = false;
+    doc.paragraphs[empty].bookmarks = [{ id: 'b1', name: 'Here', edge: 'start', offset: 0 }, { id: 'b1', name: 'Here', edge: 'end', offset: 0 }];
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(1)).toBe(false);
+    expect(doc.paragraphs[empty].cellId).toBeUndefined();
+  });
+});
+
+describe('joining tables', () => {
+  const between = doc => doc.paragraphs.findIndex((p, i) => !p.cellId && doc.paragraphs[i - 1]?.cellId && doc.paragraphs[i + 1]?.cellId);
+  it('Delete in the paragraph between two tables of the same columns joins them, one undo step', async () => {
+    const { pkg, doc } = tableDocument(3, 2);
+    at(doc, 1, 0); T.splitTable(doc);
+    expect(doc.tables).toHaveLength(2);
+    doc.select(doc.paragraphOffset(between(doc)));
+    expect(T.joinTables(doc)).toBe(true);
+    expect(doc.tables).toHaveLength(1);
+    expect(shape(doc)).toEqual(['a0 a1', 'b0 b1', 'c0 c1']);
+    // The caret is at the start of the rows that joined.
+    expect(doc.paragraphs[locate(doc.paragraphs, doc.range[0]).index].cellId).toBe(cellAt(doc, 1, 0).id);
+    valid(doc);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(shape(reopened)).toEqual(['a0 a1', 'b0 b1', 'c0 c1']);
+    doc.undo();
+    expect(doc.tables).toHaveLength(2);
+    // Two tables inserted alike (each with its own copy of the same style) join too.
+    const two = tableDocument(1, 2).doc;
+    two.select(two.text.length); two.insertTable(1, 2, 9000);
+    two.select(two.paragraphOffset(between(two)));
+    expect(T.joinTables(two)).toBe(true);
+    expect(two.tables[0].rows).toHaveLength(2);
+  });
+
+  it('joins tables of other columns on the union of their column lines, each row keeping its cells', async () => {
+    const { pkg, doc } = tableDocument(1, 2);
+    doc.select(doc.text.length); doc.insertTable(2, 3, 9000);
+    const [twoWide, threeWide] = doc.tables.map(t => t.grid.reduce((a, b) => a + b, 0));
+    doc.select(doc.paragraphOffset(between(doc)));
+    expect(T.joinTables(doc)).toBe(true);
+    expect(doc.tables).toHaveLength(1);
+    const table = doc.tables[0];
+    // Lines at a half and at thirds and two thirds: four grid columns.
+    expect(table.grid).toHaveLength(4);
+    expect(shape(doc)).toEqual(['a0:2 a1:2', ' :2 ', ' :2 ']);
+    expect(table.grid.reduce((a, b) => a + b, 0)).toBe(Math.max(twoWide, threeWide));
+    valid(doc);
+    const { reopened, xml } = await roundTrip(pkg, doc);
+    expect(shape(reopened)).toEqual(shape(doc));
+    expect(xml.match(/<w:gridCol /g)).toHaveLength(4);
+    doc.undo();
+    expect(doc.tables).toHaveLength(2);
+    expect(doc.tables[0].grid).toHaveLength(2);
+    // A narrower second table ends early: its rows leave the last grid columns empty.
+    const narrow = tableDocument(1, 2).doc;
+    narrow.select(narrow.text.length); narrow.insertTable(1, 1, 3000);
+    narrow.tables[1].grid = [3000];
+    narrow.select(narrow.paragraphOffset(between(narrow)));
+    expect(T.joinTables(narrow)).toBe(true);
+    expect(shape(narrow)).toEqual(['a0:2 a1', ' +2']);
+    valid(narrow);
+  });
+
+  it('keeps header rows of the second out of the header, and with Track Changes on refuses', () => {
+    const same = tableDocument(2, 2).doc;
+    at(same, 1, 0); T.splitTable(same);
+    same.tables[1].rows[0].header = true;
+    same.select(same.paragraphOffset(between(same)));
+    same.trackChanges = true;
+    expect(() => T.joinTables(same)).toThrow(/Track Changes/);
+    expect(same.tables).toHaveLength(2);
+    same.trackChanges = false;
+    expect(T.joinTables(same)).toBe(true);
+    // A row that headed the second table is a body row in the middle of the joined one.
+    expect(same.tables[0].rows.map(row => !!row.header)).toEqual([false, false]);
+  });
+});
+
+describe('Tab in a table', () => {
+  it('selects the contents of the cell it goes to, as Word does; an empty cell or one holding a table takes the caret', () => {
+    const { doc } = tableDocument(2, 3);
+    at(doc, 0, 0);
+    doc.moveCell(1);
+    expect(doc.text.slice(...doc.range)).toBe('a1');
+    doc.moveCell(-1);
+    expect(doc.text.slice(...doc.range)).toBe('a0');
+    // A cell of two paragraphs is selected whole.
+    at(doc, 0, 2); doc.select(doc.range[1] + 2); doc.replace('\nmore');
+    at(doc, 0, 1); doc.moveCell(1);
+    expect(doc.text.slice(...doc.range)).toBe('a2\nmore');
+    // Typing replaces what Tab selected.
+    doc.replace('x');
+    expect(shape(doc)[0]).toBe('a0 a1 x');
+    at(doc, 1, 0); doc.select(doc.range[0], doc.range[0] + 2); doc.replace('');
+    at(doc, 0, 2); doc.moveCell(1);
+    expect(doc.range[0]).toBe(doc.range[1]);
+    // A cell holding a table: the caret at its start.
+    const outer = doc.tables[0];
+    at(doc, 1, 1); doc.insertTable(1, 1, 1000);
+    doc.selectCell(cellAt(doc, 1, 0, outer).id); doc.moveCell(1);
+    expect(doc.range[0]).toBe(doc.range[1]);
+    expect(doc.paragraphs[locate(doc.paragraphs, doc.range[0]).index].cellId).toBe(cellAt(doc, 1, 1, outer).id);
+  });
+});
+
+describe('Enter at the start of a table that begins the document', () => {
+  it('puts an empty paragraph above the table, as Word does; elsewhere in the table Enter splits the cell', () => {
+    const { pkg } = tableDocument(2, 2);
+    const doc = open(pkg);
+    doc.select(0); doc.insertTable(2, 2, 9000);
+    const cells = tableCells(doc.tables[0]);
+    doc.selectCell(cells[0].id); doc.replace('x');
+    expect(doc.paragraphs[0].cellId).toBe(cells[0].id);
+    doc.select(0);
+    expect(doc.insertParagraph()).toBe(true);
+    expect(doc.paragraphs[0].cellId).toBeUndefined();
+    expect(paragraphText(doc.paragraphs[0])).toBe('');
+    expect(doc.paragraphs.filter(p => p.cellId === cells[0].id).map(paragraphText)).toEqual(['x']);
+    expect(doc.range).toEqual([0, 0]);
+    valid(doc);
+    doc.undo();
+    expect(doc.paragraphs[0].cellId).toBe(cells[0].id);
+    // After the cell's first character, or with Track Changes on, Enter splits the cell's paragraph.
+    doc.select(1); doc.insertParagraph();
+    expect(doc.paragraphs.filter(p => p.cellId === cells[0].id).map(paragraphText)).toEqual(['x', '']);
+    doc.undo();
+    doc.trackChanges = true;
+    doc.select(0); doc.insertParagraph();
+    expect(doc.paragraphs[0].cellId).toBe(cells[0].id);
+    expect(doc.paragraphs.filter(p => p.cellId === cells[0].id)).toHaveLength(2);
+  });
+});
+
+describe('the paragraph after a table', () => {
+  it('Backspace in an empty paragraph after a table removes it, keeping the one the table needs', async () => {
+    const { pkg, doc } = tableDocument(2, 2, ['Top']);
+    // Top, the table, an empty paragraph, then text.
+    doc.select(doc.text.length); doc.replace('\nBelow');
+    const kinds = () => doc.paragraphs.map(p => p.cellId ? 'cell' : paragraphText(p));
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '', 'Below']);
+    const empty = 5;
+    doc.select(doc.paragraphOffset(empty));
+    expect(doc.delete(-1)).toBe(true);
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', 'Below']);
+    // The caret is at the end of the last cell.
+    const last = doc.paragraphs[4];
+    expect(doc.range).toEqual([doc.paragraphOffset(4) + paragraphText(last).length, doc.paragraphOffset(4) + paragraphText(last).length]);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(reopened.text).toBe(doc.text);
+    doc.undo();
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '', 'Below']);
+    // The last paragraph of the document stays, as does one keeping two tables apart, and with Track Changes on.
+    doc.select(doc.paragraphOffset(6)); doc.replace('', {}); doc.select(doc.paragraphOffset(5), doc.text.length); doc.replace('');
+    expect(kinds()).toEqual(['Top', 'cell', 'cell', 'cell', 'cell', '']);
+    doc.select(doc.text.length);
+    expect(doc.delete(-1)).toBe(false);
+    doc.insertTable(1, 2, 9000);
+    const between = doc.paragraphs.findIndex((p, i) => !p.cellId && doc.paragraphs[i - 1]?.cellId && doc.paragraphs[i + 1]?.cellId);
+    doc.select(doc.paragraphOffset(between));
+    expect(doc.delete(-1)).toBe(false);
+    expect(doc.tables).toHaveLength(2);
+    valid(doc);
+  });
+
+  it('Backspace keeps an empty paragraph after a table with Track Changes on or a section break', () => {
+    const { doc } = tableDocument(2, 2, ['Top']);
+    doc.select(doc.text.length); doc.replace('\nBelow');
+    doc.trackChanges = true;
+    doc.select(doc.paragraphOffset(5));
+    expect(doc.delete(-1)).toBe(false);
+    doc.trackChanges = false;
+    doc.paragraphs[5].sectionEnd = structuredClone(doc.pageSettings);
+    expect(doc.delete(-1)).toBe(false);
+    expect(doc.paragraphs).toHaveLength(7);
   });
 });

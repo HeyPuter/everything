@@ -5,6 +5,7 @@
  */
 import { el } from '../ui/dom.js';
 import { check, field, number, openDialog, select, text } from './references-ui.js';
+import { formatChoices } from '../engine/page-numbering.js';
 
 export const NOTE_FORMAT_CHOICES = [['decimal', '1, 2, 3, …'], ['lowerLetter', 'a, b, c, …'], ['upperLetter', 'A, B, C, …'], ['lowerRoman', 'i, ii, iii, …'], ['upperRoman', 'I, II, III, …'], ['chicago', '*, †, ‡, §, …']];
 
@@ -146,7 +147,7 @@ export function createNoteCommands(ctx) {
     const endRadio = el('input', { type: 'radio', name: 'ref-note-kind', value: 'endnote', checked: kind === 'endnote', onchange: () => switchKind('endnote') });
     const footPosition = select('Footnote position', [['pageBottom', 'Bottom of page'], ['beneathText', 'Below text']], settings.footnote.position, () => remember());
     const endPosition = select('Endnote position', [['docEnd', 'End of document'], ['sectEnd', 'End of section']], settings.endnote.position, () => remember());
-    const format = select('Number format', NOTE_FORMAT_CHOICES, settings[kind].format, () => remember());
+    const format = select('Number format', formatChoices(NOTE_FORMAT_CHOICES, settings.footnote.format, settings.endnote.format), settings[kind].format, () => remember());
     const custom = text('Custom mark', '', { placeholder: 'Optional, such as *', maxLength: 10 });
     const start = number('Start at', settings[kind].start, { min: 1, max: 32767, oninput: () => remember() });
     const restart = select('Numbering', [], null, () => remember());

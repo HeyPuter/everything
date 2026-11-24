@@ -115,6 +115,7 @@ function buildParagraphProperties(p = {}, tabCache, base) {
   return out;
 }
 
+const DEFAULT_PAGE = { width: 59528, height: 84189, left: 8504, right: 8504, top: 7200, bottom: 7200, header: 3600, footer: 3600, gutter: 0 };
 export function modelToDocx(model) {
   const files = {}, types = [], parts = new Map(), media = new Map(); let drawingId = 0, headerId = 0;
   // Parsed paragraph definitions share tab arrays. Serialize each array once,
@@ -179,6 +180,8 @@ export function modelToDocx(model) {
   // box in the left margin, anchored to its paragraph at the recorded line
   // position. The DOCX lnNumType is left out so readers do not number twice.
   let lineNumbering = null;
+  // The section whose drawings are being written, for page geometry (columnWideSquare).
+  let currentSection = null;
   // Each emulated line number is a text box of a few kilobytes: a very long numbered document would swell past the output limit.
   const LINE_NUMBER_BOXES = 5000;
   let lineNumberBoxes = 0;
@@ -331,18 +334,41 @@ export function modelToDocx(model) {
     const opacity = Math.round((1 - Math.max(0, Math.min(1, line.transparency || 0))) * 100000);
     return `<a:ln w="${Math.max(0, Math.min(20116800, Math.round((line.width || 0) * 127)))}">${line.style === 'NONE' || !line.width ? '<a:noFill/>' : `<a:solidFill><a:srgbClr val="${xml(line.color || '000000')}">${opacity < 100000 ? `<a:alpha val="${opacity}"/>` : ''}</a:srgbClr></a:solidFill>`}${dash ? `<a:prstDash val="${dash}"/>` : ''}</a:ln>`;
   }
+  /**
+   * Top-and-bottom wrapping placed against the page or its margins, as square wrapping whose left and right distances
+   * reach the edges of the text column: text has no room beside the object and goes above and below it, as with
+   * top-and-bottom wrapping, in Word and in the editor alike (whose top-and-bottom wrapping follows a paragraph only;
+   * such a file opened read-only). The object's left and right distances, in Hanword units; null to keep the wrapping.
+   */
+  function columnWideSquare(run) {
+    const layout = run.layout, section = currentSection;
+    if (layout?.wrap !== 'topAndBottom' || !['page', 'margin'].includes(layout.v) || (section?.columns || 1) !== 1 || !['page', 'margin', 'column'].includes(layout.h)) return null;
+    const p = section?.page || DEFAULT_PAGE, left = (p.left || 0) + (p.gutter || 0), right = p.width - (p.right || 0);
+    const [from, span] = layout.h === 'page' ? [0, p.width] : [left, right - left], width = Number(run.width) || 0;
+    const align = ['center', 'right'].includes(layout.hAlign) && !layout.x ? layout.hAlign : null;
+    const x = align === 'center' ? from + (span - width) / 2 : align === 'right' ? from + span - width : from + (Number(layout.x) || 0);
+    const margins = layout.margins || {}, gap = (n) => Math.max(0, Math.round(n));
+    const distances = { left: Math.max(margins.left || 0, gap(x - left)), right: Math.max(margins.right || 0, gap(right - x - width)) };
+    // The editor and Word take square wrapping distances up to 22 inches (20,116,800 EMU).
+    return [distances.left, distances.right].every((n) => Number.isFinite(n) && n * 127 <= 20116800) ? distances : null;
+  }
   function drawing(run, id, graphic) {
     const cx = extent(run.width), cy = extent(run.height);
     const layout = run.layout, type = layout ? 'anchor' : 'inline';
-    const distances = ['top', 'bottom', 'left', 'right'].map((side) => `dist${side[0].toUpperCase()}="${Math.max(0, Math.min(4294967295, Math.round((layout?.margins?.[side] || 0) * 127)))}"`).join(' ');
+    const wide = columnWideSquare(run), margin = (side) => wide && ['left', 'right'].includes(side) ? wide[side] : layout?.margins?.[side] || 0;
+    const distances = ['top', 'bottom', 'left', 'right'].map((side) => `dist${side[0].toUpperCase()}="${Math.max(0, Math.min(4294967295, Math.round(margin(side) * 127)))}"`).join(' ');
     const position = (axis, relative, offset = 0, align) => {
       const emu = Math.round(offset * 127), bounded = Math.max(-2147483648, Math.min(2147483647, emu));
       if (emu !== bounded) model.warnings.add('A drawing position exceeds the supported DOCX range and was limited.');
       return `<wp:position${axis} relativeFrom="${xml(relative)}">${['center', 'right', 'bottom', 'inside', 'outside'].includes(align) && !offset ? `<wp:align>${align}</wp:align>` : `<wp:posOffset>${bounded}</wp:posOffset>`}</wp:position${axis}>`;
     };
     const positioning = layout ? '<wp:simplePos x="0" y="0"/>' + position('H', layout.h, layout.x, layout.hAlign) + position('V', layout.v, layout.y, layout.vAlign) : '';
-    const wrap = !layout ? '' : layout.wrap === 'square' ? `<wp:wrapSquare wrapText="${xml(layout.wrapText || 'bothSides')}"/>` : layout.wrap === 'topAndBottom' ? '<wp:wrapTopAndBottom/>' : '<wp:wrapNone/>';
-    return `<w:r><w:drawing><wp:${type} ${distances}${layout ? ` simplePos="0" relativeHeight="${Math.max(0, Math.min(0xffffffff, Math.round(layout.zOrder ?? id)))}" behindDoc="${layout.behind ? 1 : 0}" locked="0" layoutInCell="${layout.inCell === false ? 0 : 1}" allowOverlap="${layout.overlap === false ? 0 : 1}"` : ''}>${positioning}<wp:extent cx="${cx}" cy="${cy}"/>${wrap}<wp:docPr id="${id}" name="Object ${id}" descr="${xml(run.alt || '')}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic>${graphic}</a:graphic></wp:${type}></w:drawing></w:r>`;
+    const wrap = !layout ? '' : layout.wrap === 'square' || wide ? `<wp:wrapSquare wrapText="${xml(wide ? 'bothSides' : layout.wrapText || 'bothSides')}"/>` : layout.wrap === 'topAndBottom' ? '<wp:wrapTopAndBottom/>' : '<wp:wrapNone/>';
+    // Hanword's "allow overlap" off keeps a wrapped object from overlapping another; Word's allowOverlap (§20.4.2.3)
+    // moves it aside the same way. The editor places wrapped objects where their file puts them and refused the
+    // setting off for them (the file opened read-only); kept for objects text does not wrap around, which it reads.
+    const overlap = layout?.overlap === false && layout.wrap === 'none' ? 0 : 1;
+    return `<w:r><w:drawing><wp:${type} ${distances}${layout ? ` simplePos="0" relativeHeight="${Math.max(0, Math.min(0xffffffff, Math.round(layout.zOrder ?? id)))}" behindDoc="${layout.behind ? 1 : 0}" locked="0" layoutInCell="${layout.inCell === false ? 0 : 1}" allowOverlap="${overlap}"` : ''}>${positioning}<wp:extent cx="${cx}" cy="${cy}"/>${wrap}<wp:docPr id="${id}" name="Object ${id}" descr="${xml(run.alt || '')}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic>${graphic}</a:graphic></wp:${type}></w:drawing></w:r>`;
   }
   function shapeXml(run, owner, child = false) {
     const id = ++drawingId, cx = extent(run.width), cy = extent(run.height);
@@ -428,6 +454,16 @@ export function modelToDocx(model) {
     const color = shadow.color?.value || shadow.color || '808080';
     return { dx, dy, copy: { kind: 'shape', shape: run.kind === 'image' ? 'rect' : run.shape, path: run.path, points: run.points, coordWidth: run.coordWidth, coordHeight: run.coordHeight, roundness: run.roundness,
       rotation: run.rotation, flipH: run.flipH, flipV: run.flipV, width: run.width, height: run.height, fill: typeof color === 'string' ? color : '808080', fillAlpha: 1 - Math.max(0, Math.min(1, shadow.transparency || 0)), line: { style: 'NONE', width: 0 }, blocks: [] } };
+  }
+  /**
+   * A picture's drop shadow as its own outer shadow (§20.1.8.49 a:outerShdw), with its blur, beside its glow,
+   * reflection and soft edges: the editor paints those on a picture. As a shadow-colored copy grouped with the picture,
+   * the blur was lost, and the picture's other effects, inside a group, made the file open read-only. A skewed shadow,
+   * which the editor does not paint, keeps the copy. Null when the picture has no such shadow.
+   */
+  function pictureWithShadow(run) {
+    const effect = run.effects?.shadow;
+    return effect && effect.style !== 'INSIDE' && !run.shadow && !effect.skewX && !effect.skewY ? run : null;
   }
   function shadowed(run, owner) {
     const shadow = shadowOf(run); if (!shadow) return null;
@@ -544,7 +580,7 @@ export function modelToDocx(model) {
       if (r.kind === 'bookmark') { const name = uniqueBookmark(r.name); if (!name) return ''; const id = bookmarkId++; return `<w:bookmarkStart w:id="${id}" w:name="${xml(name)}"/><w:bookmarkEnd w:id="${id}"/>`; }
       if (r.kind === 'revisionStart') { check(revisions.length < LIMITS.depth, 'This Hanword document has too many overlapping revisions.'); revisions.push(r); return ''; }
       if (r.kind === 'revisionEnd') { const index = revisions.findLastIndex((v) => v.id === r.id); if (index >= 0) revisions.splice(index, 1); return ''; }
-      if (r.kind === 'image') return wrap(shadowed(r, owner) || picture(r, owner), r);
+      if (r.kind === 'image') { const native = pictureWithShadow(r); return wrap(native ? picture(native, owner) : shadowed(r, owner) || picture(r, owner), r); }
       if (r.kind === 'shape') return wrap(liftedGroup(r, owner) || shadowed(r, owner) || shapeXml(r, owner), r);
       if (r.kind === 'group') return wrap(groupXml(r, owner), r);
       if (r.kind === 'equation') {
@@ -804,6 +840,7 @@ export function modelToDocx(model) {
   const body = new XmlBuffer();
   const bodyStory = story();
   for (const [i, section] of model.sections.entries()) {
+    currentSection = section;
     if (section.lineNumbers) {
       const previous = lineNumbering;
       lineNumbering = { ...section.lineNumbers, countBy: Math.max(1, section.lineNumbers.countBy || 1), start: Math.max(1, section.lineNumbers.start || 1), previousY: undefined };

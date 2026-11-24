@@ -96,8 +96,7 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
   const exceptions = [['suppressLineNumbers', 'Suppress line numbers'], ['suppressAutoHyphens', 'Don’t hyphenate']].map(([key, label]) => ({ key, node: checkbox(label, f[key]) }));
   const breaksPanel = el('div', {},
     group('Pagination', el('div.fmt-checks', {}, ...flags.map(x => x.node))),
-    group('Formatting exceptions', el('div.fmt-checks', {}, ...exceptions.map(x => x.node))),
-    el('p.field-hint', {}, 'Line numbers and hyphenation are kept in the file for other word processors; this editor does not number lines or hyphenate automatically.'));
+    group('Formatting exceptions', el('div.fmt-checks', {}, ...exceptions.map(x => x.node))));
   const tabs = tabStrip('Paragraph settings', [['indents', 'Indents and Spacing', indentsPanel], ['breaks', 'Line and Page Breaks', breaksPanel]]);
 
   /* ---- Preview ---- */

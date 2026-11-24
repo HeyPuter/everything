@@ -39,7 +39,7 @@ describe('tracked formatting', () => {
     const run = model.paragraphs[0].runs.find(r => r.text === 'beta');
     expect(describeFormatChange(run)).toEqual(['Bold']);
     const xml = await documentXml(pkg, model);
-    expect(xml).toMatch(/<w:r><w:rPr><w:b w:val="1"\/><w:rPrChange w:id="\d+" w:author="Me" w:date="[^"]+"><w:rPr\/><\/w:rPrChange><\/w:rPr><w:t xml:space="preserve">beta<\/w:t><\/w:r>/);
+    expect(xml).toMatch(/<w:r><w:rPr><w:b w:val="1"\/><w:rPrChange w:id="\d+" w:author="Me" w:date="[^"]+" w16du:dateUtc="[^"]+Z"><w:rPr\/><\/w:rPrChange><\/w:rPr><w:t xml:space="preserve">beta<\/w:t><\/w:r>/);
     const again = await open(await save(pkg, model));
     expect(again.model.revisions.map(r => [r.type, again.model.text.slice(r.start, r.end)])).toEqual([['format', 'beta']]);
     again.session.run(m => m.resolveRevisions(false));
@@ -54,7 +54,7 @@ describe('tracked formatting', () => {
     session.run(m => { m.select(20); m.setParagraphFormat({ alignment: 'center' }); });
     expect(model.revisions.map(r => [r.type, model.text.slice(r.start, Math.min(r.end, model.text.length))])).toEqual([['format', 'Second paragraph']]);
     const xml = await documentXml(pkg, model);
-    expect(xml).toMatch(/<w:pPr><w:jc w:val="center"\/><w:pPrChange w:id="\d+" w:author="Me" w:date="[^"]+"><w:pPr\/><\/w:pPrChange><\/w:pPr><w:r><w:t xml:space="preserve">Second paragraph/);
+    expect(xml).toMatch(/<w:pPr><w:jc w:val="center"\/><w:pPrChange w:id="\d+" w:author="Me" w:date="[^"]+" w16du:dateUtc="[^"]+Z"><w:pPr\/><\/w:pPrChange><\/w:pPr><w:r><w:t xml:space="preserve">Second paragraph/);
     const again = await open(await save(pkg, model));
     expect(again.model.paragraphs[1].format.alignment).toBe('center');
     again.session.run(m => m.resolveRevisions(false));

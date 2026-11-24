@@ -117,6 +117,8 @@ export function openStyleDialog({ styles: getStyles, describe, usage, current = 
     if (selected) list.setAttribute('aria-activedescendant', `fmt-style-${selected}`);
     description.textContent = selected ? describe(selected) : '';
     buttons.modify.disabled = buttons.remove.disabled = !selected || actions.readOnly();
+    // Normal, the headings and the other styles that cannot go have no Delete, rather than one that only says no.
+    if (selected && actions.canRemove && !actions.canRemove(selected)) buttons.remove.disabled = true;
     buttons.create.disabled = actions.readOnly();
   }
   list.addEventListener('keydown', e => {

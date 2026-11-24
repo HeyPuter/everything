@@ -48,3 +48,22 @@ test('a template keeps its styles, lists and table through editing, export and r
   await reopenDocx(page, input(page), path, text);
   await place(page, 'Meeting notes'); await expect(style(page)).toHaveValue('Title');
 });
+
+test('Home pressed just before a new document\'s first save lands goes home, with the document saved', async ({ page }) => {
+  await page.goto('/mock.html#/new/report');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).press('End');
+  await page.keyboard.type('x');
+  const path = await page.evaluate(async () => {
+    const doc = window.__docs.current.view.doc;
+    // The address moves to Home after the write, before the save tells the app the document has a file.
+    const emit = doc._emitPath.bind(doc);
+    doc._emitPath = (...args) => { location.hash = '#/home'; emit(...args); };
+    await doc.save();
+    return doc.path;
+  });
+  expect(path).toMatch(/Report\.docx$/);
+  await expect(page.getByRole('heading', { name: 'Documents', level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(/#\/home$/);
+  await expect(page.getByText('Report', { exact: true }).first()).toBeVisible();
+});

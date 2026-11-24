@@ -7,6 +7,10 @@ import { paragraphText } from './model.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const ACCENT = '2F5597', INK = '404040', SOFT = '7F7F7F';
 export const PLACEHOLDER = '[Type here]';
+const PAGE_COUNT_FIELDS = new Set(['PAGE', 'NUMPAGES', 'SECTIONPAGES']);
+// What a paragraph holding only a page number has besides its fields: "Page", "of", spaces, tabs and the dashes,
+// bars and brackets the page number designs put around it.
+const NUMBER_WORDING = /^(?:[\s|[\]().,:–—-]|\bpage\b|\bof\b)*$/iu;
 
 /** A page field record for header/footer stories, as the DOCX reader produces one, showing `cached`. */
 export function storyPageField(type, cached = '1') {
@@ -84,16 +88,39 @@ export function writeStoryLines(model, lines, { append = false, fields = {} } = 
   return true;
 }
 
-/** Remove every paragraph holding a PAGE field from a story model. Returns whether anything changed. */
+/**
+ * Remove the page numbers from a story model: a paragraph holding only a page number (with "Page", "of" and the
+ * dashes or brackets around it) goes whole; from one with other text, only the number and those words go.
+ * Returns whether anything changed.
+ */
 export function removePageNumberParagraphs(model) {
-  let at = 0; const ranges = [];
+  let at = 0; const removals = [];
   for (const p of model.paragraphs) {
     const size = paragraphText(p).length;
-    if (p.runs.some(r => r.field?.type === 'PAGE')) ranges.push([at, at + size]);
+    if (p.runs.some(r => r.field?.type === 'PAGE')) {
+      const rest = p.runs.filter(r => !PAGE_COUNT_FIELDS.has(r.field?.type)).map(r => r.text).join('');
+      if (NUMBER_WORDING.test(rest)) removals.push({ start: at, end: at + size, paragraph: true });
+      else {
+        // Other text shares the paragraph (a title beside the number): only the page number goes, with the words
+        // around it that read it ("Page 1 of 3", "– 1 –"). Removing the paragraph took the title with it.
+        let offset = at;
+        const spans = p.runs.map(run => ({ run, start: offset, end: offset += run.text.length }));
+        spans.forEach((span, i) => {
+          if (span.run.field?.type !== 'PAGE') return;
+          let start = span.start, end = span.end;
+          const before = spans[i - 1], after = spans[i + 1], total = spans[i + 2];
+          if (before && !before.run.field) start -= /(?:\bpage\s*|[–—\-[(]\s*)$/i.exec(before.run.text)?.[0].length || 0;
+          if (after && !after.run.field && /^\s*(?:of|\/)\s*$/i.test(after.run.text) && PAGE_COUNT_FIELDS.has(total?.run.field?.type)) end = total.end;
+          else if (after && !after.run.field) end += /^(?:\s*\|\s*page\b|\s*[–—\-\])])/i.exec(after.run.text)?.[0].length || 0;
+          removals.push({ start, end });
+        });
+      }
+    }
     at += size + 1;
   }
-  if (!ranges.length) return false;
-  for (const [start, end] of ranges.reverse()) {
+  if (!removals.length) return false;
+  for (const { start, end, paragraph } of removals.reverse()) {
+    if (!paragraph) { model.select(start, end); model.replace(''); continue; }
     // A paragraph and its mark; the story keeps at least one paragraph.
     if (end < model.text.length) model.select(start, end + 1);
     else if (start > 0) model.select(start - 1, end);

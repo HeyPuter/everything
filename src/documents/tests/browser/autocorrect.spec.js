@@ -131,3 +131,18 @@ test('a capital deleted and typed again in lowercase stays lowercase', async ({ 
   await page.keyboard.type('the');
   await expect(input(page)).toHaveValue('iphone is here\nebay\napple\nYes\nThe');
 });
+
+test('a common misspelling is put right as its word ends, and Undo puts back what was typed', async ({ page }) => {
+  await blank(page);
+  await page.keyboard.type('teh cat adn I dont know');
+  await page.keyboard.press('Enter');
+  await expect(input(page)).toHaveValue('The cat and I don’t know\n');
+  await page.keyboard.press('ArrowLeft'); await page.keyboard.type(' alot');
+  await page.keyboard.press('Enter');
+  await expect(input(page)).toHaveValue('The cat and I don’t know a lot\n\n');
+  // The correction is its own step: the first Undo takes it back, the second the new paragraph.
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('The cat and I don’t know alot\n\n');
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('The cat and I don’t know alot\n');
+});

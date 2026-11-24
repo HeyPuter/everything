@@ -28,3 +28,39 @@ test('F6 and Shift+F6 move the keyboard between the title bar, the ribbon, the d
   expect(await page.evaluate(() => window.__f6.length > 0 && window.__f6.every(e => e.defaultPrevented))).toBe(true);
   await expect(text).toHaveValue('Hello');
 });
+
+// A notice with a button in it (Undo, Cancel printing, Save a Copy) could not be reached from the keyboard: F6 now
+// goes there after the status bar, and when the notice goes the keyboard is back where it was.
+test('F6 reaches a notice\'s button, and the keyboard goes back when the notice goes', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const text = page.getByRole('textbox', { name: 'Document text' });
+  await text.fill('Hello');
+  await page.evaluate(async () => {
+    const { toast } = await import('/src/ui/toast.js');
+    window.__undone = 0;
+    toast('Restored an earlier version', { action: { label: 'Undo', onClick: () => { window.__undone++; } }, duration: 60000 });
+  });
+  const undo = page.locator('.toast').getByRole('button', { name: 'Undo' });
+  const area = () => page.evaluate(() => ['.ed-titlebar', '.ed-statusbar', '.toast'].find(s => document.activeElement.closest(s)) || document.activeElement.tagName);
+  await expect(undo).toBeVisible();
+  await text.focus();
+  await page.keyboard.press('F6');
+  await expect.poll(area).toBe('.ed-statusbar');
+  await page.keyboard.press('F6');
+  await expect(undo).toBeFocused();
+  // The notice waits while it has the keyboard; Shift+F6 goes back.
+  await page.keyboard.press('Shift+F6');
+  await expect.poll(area).toBe('.ed-statusbar');
+  await page.keyboard.press('F6');
+  await expect(undo).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.toast')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__undone)).toBe(1);
+  // The keyboard went back to where F6 brought it from (the status bar), not to the page body.
+  await expect.poll(area).toBe('.ed-statusbar');
+  // With no notice, F6 from the status bar goes round to the title bar as before.
+  await page.keyboard.press('F6');
+  await expect.poll(area).toBe('.ed-titlebar');
+});

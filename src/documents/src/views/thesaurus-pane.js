@@ -80,8 +80,10 @@ export function createThesaurusPane({ editor, pkg, error }) {
     engine.finishComposition();
     if (engine.session.path !== target.path || engine.model.text.slice(target.start, target.end) !== target.word) { error(new Error('The selected word changed. Select it again and open the Thesaurus.')); return; }
     const text = insertion(word);
-    if (engine.execute(() => { engine.model.select(target.start, target.end); engine.model.replace(text); })) {
-      target = { ...target, end: target.start + text.length, word: text };
+    let end = null;
+    if (engine.execute(() => { engine.model.select(target.start, target.end); const done = engine.model.replace(text); end = engine.model.selection.focus; return done; }) && end !== null) {
+      // The new word ends at the caret: with Track Changes on, the word it replaced stays before it, struck out.
+      target = { ...target, start: end - text.length, end, word: text };
       engine.model.select(target.start, target.end); engine.focus();
     }
   }

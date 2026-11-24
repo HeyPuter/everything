@@ -73,3 +73,51 @@ test('Picture Format sizes a picture in proportion and rotates and flips it in u
   expect(xml).toMatch(/<a:xfrm[^>]*rot="5400000"/);
   expect(xml).toContain('cx="1371600"');
 });
+
+test('a text-wrapped picture stays upright and a turned one floats over the text, with no file-opening notice', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Words that flow around the picture once it floats. '.repeat(8));
+  await input.press('ControlOrMeta+Home');
+  await page.getByLabel('Insert image file').setInputFiles('icon.png');
+  await expect(page.getByRole('tab', { name: 'Picture Format' })).toHaveAttribute('aria-selected', 'true');
+  const ribbon = page.locator('.ribbon-card');
+  const openMenu = async name => { await ribbon.getByRole('button', { name, exact: true }).click(); return page.getByRole('menu'); };
+  // Turned in line, it can float in front of or behind the text but not wrap it.
+  await (await openMenu('Rotate')).getByRole('menuitem', { name: 'Rotate Right 90°', exact: true }).click();
+  let menu = await openMenu('Wrap Text');
+  for (const name of ['Square', 'Tight', 'Through', 'Top and Bottom']) {
+    const item = menu.getByRole('menuitemradio', { name: new RegExp(`^${name}`) });
+    await expect(item).toBeDisabled(); await expect(item).toContainText('Rotated pictures float in front of or behind text');
+  }
+  await expect(menu.getByRole('menuitemradio', { name: 'In Front of Text', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  menu = await openMenu('Position');
+  await expect(menu.getByRole('menuitem', { name: 'Position in Top Right with Square Text Wrapping' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  // Upright again and wrapped, it can no longer be turned: the menu says why and the rotation handle is gone.
+  await (await openMenu('Rotate')).getByRole('menuitem', { name: 'Rotate Left 90°', exact: true }).click();
+  await wrapChoice(page, 'Square');
+  menu = await openMenu('Rotate');
+  for (const name of ['Rotate Right 90°', 'Rotate Left 90°']) {
+    const item = menu.getByRole('menuitem', { name: new RegExp(`^${name}`) });
+    await expect(item).toBeDisabled(); await expect(item).toContainText('For pictures in front of or behind text');
+  }
+  await expect(menu.getByRole('menuitem', { name: 'Flip Horizontal', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.canvas-image-frame')).toBeVisible();
+  await expect(page.locator('.canvas-image-rotate')).toBeHidden();
+  // A tilted picture style is refused in plain words, not with the notice for opening a file.
+  await ribbon.locator('.pic-style-gallery').getByRole('option', { name: 'Tilted, White Frame', exact: true }).click();
+  await expect(page.getByText('Picture Styles: this formatting is not available for this object yet.')).toBeVisible();
+  await expect(page.getByText(/This document contains|has not been changed/)).toHaveCount(0);
+  const path = info.outputPath('upright-wrapped.docx');
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  const { unzipSync, strFromU8 } = await import('fflate');
+  const xml = strFromU8(unzipSync((await import('node:fs')).readFileSync(path))['word/document.xml']);
+  expect(xml).toContain('<wp:wrapSquare'); expect(xml).not.toMatch(/<a:xfrm[^>]*\brot="[1-9]/);
+  expect(errors).toEqual([]);
+});

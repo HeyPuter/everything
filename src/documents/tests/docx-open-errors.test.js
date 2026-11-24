@@ -25,6 +25,16 @@ it('says a Word 97–2003 document saved with a .docx name must be saved as .doc
   expect(error.message).not.toMatch(/invalid zip data/);
 });
 
+// An empty file (an upload or copy that never finished), a Rich Text Format document and a web page under a .docx
+// name were all "Could not read this DOCX archive: invalid zip data".
+it('says what an empty file, a Rich Text Format document or a web page named .docx is', async () => {
+  const message = async text => (await DocxPackage.open(new TextEncoder().encode(text)).catch(e => e)).message;
+  expect(await message('')).toMatch(/^This file is empty/);
+  expect(await message('{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times;}} Hello}')).toMatch(/^This is a Rich Text Format document \(\.rtf\)/);
+  expect(await message('\ufeff  <!DOCTYPE html><html><body><p>Hi</p></body></html>')).toMatch(/^This is a web page with a \.docx name\. Rename it to end in \.html/);
+  expect(await message('<?xml version="1.0"?>\n<!-- saved --><html xmlns="http://www.w3.org/1999/xhtml"><body/></html>')).toMatch(/^This is a web page/);
+});
+
 it('still reports other unreadable files as damaged archives', async () => {
   await expect(DocxPackage.open(new TextEncoder().encode('not a zip'))).rejects.toThrow('Could not read this DOCX archive');
 });
@@ -40,4 +50,12 @@ it('names an OpenDocument text, a spreadsheet or a presentation picked instead o
   expect(await message(zipSync({ 'xl/workbook.xml': strToU8('<w/>') }))).toMatch(/^This is a spreadsheet/);
   // Any other archive is still not a DOCX document.
   expect(await message(zipSync({ 'notes.txt': strToU8('hello') }))).toBe('This file is not a supported DOCX document.');
+});
+
+// A file of gigabytes chosen on the device was read into memory whole before its size was checked.
+it('refuses a file past the size limit without reading its bytes', async () => {
+  let read = false;
+  const huge = { size: 3 * 1024 ** 3, arrayBuffer: async () => { read = true; throw new RangeError('Array buffer allocation failed'); } };
+  await expect(DocxPackage.open(huge)).rejects.toThrow('This editor currently opens DOCX files up to 64 MB.');
+  expect(read).toBe(false);
 });

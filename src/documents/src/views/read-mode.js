@@ -26,8 +26,10 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
   let restoreZoom = null, wheelAt = 0, wheelTotal = 0, textInput = null, textInputTabIndex = null;
   const title = el('span.read-title');
   const counter = el('span.read-counter', { role: 'status', 'aria-live': 'polite' });
+  // A menu opened from the keyboard hands the keyboard back to its button when it closes, as every menu does; a
+  // click's menu leaves it on the pages, where the arrows turn them.
   const menuButton = (label, items) => {
-    const button = el('button.read-tool', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openMenu({ anchor: button, label, items: items(), pointer: !!e.detail, onClose: () => focusSurface() }) }, label, el('span.ribbon-caret', { 'aria-hidden': 'true' }));
+    const button = el('button.read-tool', { type: 'button', 'aria-haspopup': 'menu', onclick: e => openMenu({ anchor: button, label, items: items(), pointer: !!e.detail, onClose: e.detail ? () => focusSurface() : null }) }, label, el('span.ribbon-caret', { 'aria-hidden': 'true' }));
     return button;
   };
   const tools = menuButton('Tools', () => [
@@ -44,6 +46,23 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
   ]);
   const edit = el('button.btn.btn-outline.read-edit', { type: 'button', title: 'Back to editing (Esc)', onclick: () => exit() }, 'Edit Document');
   const toolbar = el('div.read-toolbar', { role: 'toolbar', 'aria-label': 'Read Mode' }, el('div.read-toolbar-start', {}, tools, viewMenu), title, el('div.read-toolbar-end', {}, edit));
+  // A toolbar is one Tab stop: Left, Right, Home and End move between its buttons (the pages keep the arrows for turning).
+  const toolButtons = [tools, viewMenu, edit];
+  const toolStop = button => { for (const b of toolButtons) b.tabIndex = b === button ? 0 : -1; };
+  toolStop(tools);
+  toolbar.addEventListener('focusin', e => { if (toolButtons.includes(e.target)) toolStop(e.target); });
+  toolbar.addEventListener('keydown', e => {
+    const at = toolButtons.indexOf(e.target);
+    if (at < 0 || isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: toolButtons.length - 1 }[e.key];
+    if (next === undefined) {
+      // Up and Down are not for turning pages here either.
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    toolButtons[(next + toolButtons.length) % toolButtons.length].focus();
+  });
   const arrow = (label, icon, delta) => el(`button.read-turn.read-turn-${delta < 0 ? 'back' : 'next'}`, { type: 'button', 'aria-label': label, title: label, onclick: () => turn(delta) }, commandIconEl(icon, 20));
   const back = arrow('Previous screen', 'previousArrow', -1), next = arrow('Next screen', 'nextArrow', 1);
   const footer = el('div.read-footer', {}, counter);
@@ -145,6 +164,8 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape' && !document.querySelector('.modal-root, .menu')) { e.preventDefault(); exit(); return; }
     if (mod || e.altKey) return;
+    // Enter and Space press the reading tools and the page buttons, as on any button.
+    if ((e.key === 'Enter' || e.key === ' ') && e.target?.closest?.('button')) return;
     if (focusLines && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); moveFocusLine(e.key === 'ArrowDown' ? 1 : -1); return; }
     const step = { ArrowRight: 1, ArrowDown: 1, PageDown: 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 }[e.key] ?? (e.key === ' ' ? (e.shiftKey ? -1 : 1) : null);
     if (step) { e.preventDefault(); turn(step); return; }

@@ -155,11 +155,17 @@ function contains(bytes, needle) {
   return false;
 }
 /**
- * Why bytes that are an OLE compound file ([MS-CFB] §2.2) rather than a ZIP package cannot open, or
- * null. Office keeps a password-protected document in one ([MS-OFFCRYPTO] §2.3.4.4, its
+ * Why bytes that are not a ZIP package cannot open as a document, when they say what they are, or null:
+ * an empty file, a Rich Text Format document, a web page, or an OLE compound file ([MS-CFB] §2.2). Office keeps a password-protected document in one ([MS-OFFCRYPTO] §2.3.4.4, its
  * EncryptedPackage stream), as it does a Word 97–2003 document ([MS-DOC], its WordDocument stream).
  */
 export function compoundFileProblem(bytes) {
+  // Nor is a file of no bytes (an upload or copy that never finished), a Rich Text Format document or a web page
+  // under a .docx name: each failed with "Could not read this DOCX archive: invalid zip data".
+  if (!bytes.length) return 'This file is empty: it holds no document. It may not have finished uploading or copying. Open the original again.';
+  const start = new TextDecoder().decode(bytes.subarray(0, 1024)).replace(/^\ufeff/, '').trimStart();
+  if (start.startsWith('{\\rtf')) return 'This is a Rich Text Format document (.rtf) with a .docx name. Save it as a Word Document (.docx) in the app that made it, then open it here.';
+  if (/^(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<(?:!doctype html|html)\b/i.test(start)) return 'This is a web page with a .docx name. Rename it to end in .html and open it here to import it, or save it as a Word Document (.docx) in the app that made it.';
   if (bytes.length < 512 || CFB_SIGNATURE.some((b, i) => bytes[i] !== b)) return null;
   if (contains(bytes, utf16('EncryptedPackage'))) return 'This document is protected with a password. Open it in Word, remove the password, save it, and open it here again.';
   if (contains(bytes, utf16('WordDocument'))) return 'This is a Word 97–2003 document (.doc) with a .docx name. Save it as a Word Document (.docx) in Word, then open it here.';

@@ -109,6 +109,30 @@ describe('merging to a new document', () => {
     expect(reopened.readOnly).toBeFalsy();
     expect(reopened.paragraphs.filter(p => p.sectionEnd)).toHaveLength(1);
   });
+  // Every letter carried the template's tracked changes with the same numbers and move names: accepting a move in
+  // one letter accepted it in all of them, and the numbers, which identify each change, were repeated.
+  it('gives each letter its own tracked-change numbers and move names', async () => {
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main', D = 'w:author="Ann" w:date="2026-01-01T00:00:00Z"';
+    const r = t => `<w:r><w:t xml:space="preserve">${t}</w:t></w:r>`;
+    const body = `<w:p>${r('Dear ')}<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> MERGEFIELD City </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${r('City')}<w:r><w:fldChar w:fldCharType="end"/></w:r>`
+      + `${r(' ')}<w:moveFromRangeStart w:id="7" w:name="move1" ${D}/><w:moveFrom w:id="8" ${D}>${r('moved ')}</w:moveFrom><w:moveFromRangeEnd w:id="7"/>${r('stays')}<w:ins w:id="9" ${D}>${r(' added')}</w:ins></w:p>`
+      + `<w:p>${r('End ')}<w:moveToRangeStart w:id="10" w:name="move1" ${D}/><w:moveTo w:id="11" ${D}>${r('moved ')}</w:moveTo><w:moveToRangeEnd w:id="10"/></w:p><w:sectPr/>`;
+    const source = { ...createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES).parts, 'word/document.xml': strToU8(`<w:document xmlns:w="${W}"><w:body>${body}</w:body></w:document>`) };
+    const { parts } = mergeDocumentParts(source, { data: mergeRecords({ ...list, rows: list.rows.slice(0, 2) }) });
+    const xml = strFromU8(parts['word/document.xml']);
+    const ids = [...xml.matchAll(/<w:(ins|moveFrom|moveTo|moveFromRangeStart|moveToRangeStart) w:id="(\d+)"/g)].map(m => m[2]);
+    expect(ids).toHaveLength(10);
+    expect(new Set(ids).size).toBe(10);
+    // Each range's end keeps its start's number, and each letter's move its own name.
+    expect([...xml.matchAll(/<w:moveFromRangeEnd w:id="(\d+)"/g)].map(m => m[1])).toEqual([...xml.matchAll(/<w:moveFromRangeStart w:id="(\d+)"/g)].map(m => m[1]));
+    expect([...xml.matchAll(/w:name="([^"]+)"/g)].map(m => m[1])).toEqual(['move1', 'move1', 'move1_2', 'move1_2']);
+    // Accepting the first letter's move leaves the second letter's.
+    const pkg = await DocxPackage.open(zipSync(parts)), d = model(pkg);
+    const move = d.revisions.find(c => c.type === 'ins' && c.move);
+    d.resolveRevisions(true, move.start, move.end);
+    expect(d.text).toBe('Dear Oslo stays added\nEnd moved \nDear Austin moved stays added\nEnd moved ');
+    expect(d.revisions.filter(c => c.move).map(c => d.text.slice(c.start, c.end))).toEqual(['moved ', 'moved ']);
+  });
   it('replaces a field result that spans paragraphs in every copy, keeping the text after it', () => {
     // An address block saved while previewing record 1, its lines as paragraphs, as desktop word processors save one.
     const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';

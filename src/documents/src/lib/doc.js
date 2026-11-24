@@ -20,7 +20,7 @@
 
 import * as P from './puter.js';
 import { session } from './session.js';
-import { snapshotIfDue, saveVersion, renameVersions, deleteVersions } from './versions.js';
+import { snapshotIfDue, saveVersion, renameVersions, deleteVersions, clearStaleVersions } from './versions.js';
 import { movePublication, unpublishAt } from './publish.js';
 import { moveStar } from './starred.js';
 import { forgetRoom, moveRoom } from '../collab/room-memory.js';
@@ -40,6 +40,12 @@ export const OFFLINE_SAVE = 'You are offline. Your changes will save when you re
 export const OFFLINE_SAVE_MANUAL = 'You are offline. Save again when you reconnect';
 /** Markdown, HTML, and plain text are read and converted on the main thread; a novel is about a megabyte. */
 export const MAX_TEXT_IMPORT_BYTES = 20 * 1024 * 1024;
+const TEXT_TOO_LARGE = 'This file is too large to import as text. Files up to 20 MB can be imported';
+/**
+ * The largest .docx the engine opens (engine/package-part-paths.js MAX_PACKAGE_BYTES) and the Hanword converter's file
+ * limit (lib/hwp/binary.js LIMITS.file), kept here so neither module loads with this one; tests keep them equal.
+ */
+export const OPEN_LIMITS = { docx: 64 * 1024 * 1024, hanword: 32 * 1024 * 1024 };
 /** Version snapshots after saves; tests switch them off. */
 export const versioning = { enabled: true };
 /** A published page following renames and deletions; tests switch it off. */
@@ -402,9 +408,11 @@ export class Doc extends EventTarget {
         this._unconfirmed = null;
       }
       this._written = fingerprint(blob);
+      // This save made the file: a history under its name is another document's (clearStaleVersions).
+      const made = target !== this.path;
       // A failed export or write must not advertise a file that does not exist,
       // or make a clean document's next save short-circuit as already saved.
-      if (target !== this.path) {
+      if (made) {
         // A template or other non-docx source stays where it was: the new file is a copy of it.
         const copy = !!this.path;
         this.path = target;
@@ -415,7 +423,7 @@ export class Doc extends EventTarget {
       this.size = blob?.size ?? this.size;
       this.lastSaved = Date.now();
       this._lastSaveMs = this.lastSaved - started;
-      this._snapshot(blob);
+      this._snapshot(blob, { fresh: made });
       // Edits that landed while the write was in flight keep the doc dirty, unless saving passed to another tab
       // of a shared document meanwhile (setSaving): its edits reach the file from there.
       this.savedVersion = this.writes === false ? this.version : version;
@@ -528,11 +536,19 @@ export class Doc extends EventTarget {
     return stat && await holds(sent.path, stat, sent.blob) ? sent.path : null;
   }
 
+  /**
+   * The document's version history has a new entry. A snapshot is written after the save that called for it has
+   * finished, so a history list shown meanwhile (the File view's, the Version History pane's) reads it again.
+   */
+  _versionsChanged() {
+    this.dispatchEvent(new CustomEvent('versions'));
+  }
+
   /** Leave a version snapshot when one is due. Never affects the save status. */
-  _snapshot(blob) {
+  _snapshot(blob, { fresh = false } = {}) {
     if (!versioning.enabled || !this.path || this._snapshotting) return;
-    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.(), uid: this.uid })
-      .then((t) => { this.lastVersionAt = t; })
+    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.(), uid: this.uid, fresh })
+      .then((t) => { const taken = t != null && t !== this.lastVersionAt; this.lastVersionAt = t; if (taken) this._versionsChanged(); })
       .catch((e) => { console.warn('[documents] version snapshot failed', e); })
       .finally(() => { this._snapshotting = null; });
   }
@@ -544,7 +560,7 @@ export class Doc extends EventTarget {
       if (!this.path) return null;
       if (this._snapshotting) await this._snapshotting;
       const v = await saveVersion(this.path, await this.toBlob(), { meta: { ...this.versionMeta?.(), ...meta }, uid: this.uid });
-      if (v) this.lastVersionAt = v.time;
+      if (v) { this.lastVersionAt = v.time; this._versionsChanged(); }
       return v;
     });
   }
@@ -558,7 +574,7 @@ export class Doc extends EventTarget {
     return this._withFileLock(async () => {
       if (!versioning.enabled || !this.path || this._deleted) return null;
       const v = await saveVersion(this.path, await P.readFile(this.path), { meta: { ...this.versionMeta?.(), ...meta }, uid: this.uid });
-      if (v) this.lastVersionAt = v.time;
+      if (v) { this.lastVersionAt = v.time; this._versionsChanged(); }
       return v;
     });
   }
@@ -836,6 +852,8 @@ export class Doc extends EventTarget {
       this._fileUid = written?.uid || written?.id || null;
       this._written = fingerprint(blob);
       await forgetRoom(target);
+      // No file had the name: a history under it is another document's.
+      if (versioning.enabled) await clearStaleVersions(target);
       this.size = blob?.size ?? this.size;
       this.path = target;
       this.uid = null;
@@ -896,6 +914,10 @@ export class Doc extends EventTarget {
   /* ---------- Constructors ---------- */
 
   static async fromPath(path) {
+    // A file the drive has listed as too large to open is refused before it is downloaded (P.knownFileSize).
+    const size = P.knownFileSize(path), limit = HANWORD_IMPORTABLE.test(path) ? [OPEN_LIMITS.hanword, 'Hanword imports are limited to 32 MB per file.']
+      : importKind(path) ? [MAX_TEXT_IMPORT_BYTES, TEXT_TOO_LARGE] : [OPEN_LIMITS.docx, `This editor currently opens DOCX files up to ${OPEN_LIMITS.docx / 1024 / 1024} MB.`];
+    if (size > limit[0]) throw Object.assign(new Error(limit[1]), { tooLarge: true });
     // Arm conflict detection before the first edit, including a file deleted
     // after opening. Metadata and bytes load together; a storage that cannot
     // stat must still allow reading the document.
@@ -903,7 +925,9 @@ export class Doc extends EventTarget {
       /\.docx$/i.test(path) ? P.statFile(path).catch(() => null) : null,
       P.readFile(path), P.prepareDocumentPaths(),
     ]);
-    if (HANWORD_IMPORTABLE.test(path)) return Doc.fromImportFile(new File([blob], P.displayName(path)));
+    // A Hanword, Markdown, HTML or text file on the drive (opened with this app from the Puter desktop, say) is imported
+    // as one from the device is: a new document. Opened as a .docx, it failed with "invalid zip data".
+    if (HANWORD_IMPORTABLE.test(path) || importKind(path)) return Doc.fromImportFile(new File([blob], P.displayName(path), { type: blob.type || '' }));
     return new Doc({ name: Doc.nameFor(path), path, uid: stat?.uid || stat?.id || null, blob, modified: stat?.modified });
   }
 
@@ -916,7 +940,7 @@ export class Doc extends EventTarget {
     }
     const kind = importKind(file.name, file.type);
     if (kind) {
-      if (file.size > MAX_TEXT_IMPORT_BYTES) throw new Error('This file is too large to import as text. Files up to 20 MB can be imported');
+      if (file.size > MAX_TEXT_IMPORT_BYTES) throw new Error(TEXT_TOO_LARGE);
       return Doc.fromTextImport(P.stripExtension(file.name), toInsertPayload(decodeTextFile(await file.arrayBuffer(), kind), kind));
     }
     return Doc.fromBrowserFile(file);

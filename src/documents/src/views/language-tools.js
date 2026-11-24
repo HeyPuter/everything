@@ -143,9 +143,11 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
       const paragraphs = sent.paragraphs.map((p, i) => {
         if (!texts[i].trim()) return p;
         const first = p.runs.find(r => r.text && r.revision?.type !== 'del') || p.runs[0];
-        const run = { ...structuredClone(first), text: translated[i] };
+        // As Translate inserts a selection's translation: an object's placeholder character in the answer has no
+        // object, and a line feed cannot be inside a run.
+        const run = { ...structuredClone(first), text: insertableText(translated[i]).replace(/\r\n?|\n/g, ' ') };
         delete run.revision; delete run.formatRevision; delete run.link;
-        const length = translated[i].length;
+        const length = run.text.length;
         const out = { ...structuredClone(p), runs: [run] };
         delete out.markRevision; delete out.formatRevision;
         if (out.bookmarks) out.bookmarks = out.bookmarks.map(m => ({ ...m, offset: Math.min(m.offset, length + (m.blockBoundary === 'after' ? 1 : 0)) }));

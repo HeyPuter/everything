@@ -207,7 +207,9 @@ test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift
     await page.keyboard.press('Tab');
     reached.push(await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent.trim()));
   }
-  for (const name of ['Tools', 'View', 'Edit Document', 'Next screen']) expect(reached, name).toContain(name);
+  // The toolbar is one Tab stop (its arrows move within it); the page buttons are stops of their own.
+  for (const name of ['Tools', 'Next screen']) expect(reached, name).toContain(name);
+  for (const name of ['View', 'Edit Document']) expect(reached, name).not.toContain(name);
   // Back from the toolbar to the pages, where the arrows still turn them.
   await toolbar.getByRole('button', { name: 'Tools' }).focus();
   await page.keyboard.press('Shift+Tab');
@@ -218,6 +220,84 @@ test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift
   await expect(toolbar).toBeHidden();
   // Editing again, Tab is the document's own key once more.
   await expect(input).toBeFocused();
+});
+
+test('the Read Mode toolbar\'s arrows move between its buttons and leave the pages where they are', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/Every page/);
+  await caret(input, 0);
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Read Mode' });
+  const counter = page.locator('.read-counter');
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  const tools = toolbar.getByRole('button', { name: 'Tools' }), view = toolbar.getByRole('button', { name: 'View' }), edit = toolbar.getByRole('button', { name: 'Edit Document' });
+  await tools.focus();
+  // The arrows turned the page and left the keyboard where it was.
+  await page.keyboard.press('ArrowRight');
+  await expect(view).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(edit).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(tools).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(edit).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(tools).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(edit).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(edit).toBeFocused();
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  // The toolbar is entered at the button last used.
+  await expect(edit).toHaveAttribute('tabindex', '0');
+  await expect(tools).toHaveAttribute('tabindex', '-1');
+  // On the pages the arrows still turn them.
+  await page.locator('.canvas-host').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(counter).not.toHaveText(/^Pages? 1\b/);
+});
+
+test('Enter and Space press the Read Mode tools and page buttons instead of turning pages, and Escape comes back to them', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/Every page/);
+  await caret(input, 0);
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Read Mode' });
+  const counter = page.locator('.read-counter');
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  // The page keys swallowed both: Enter did nothing and Space turned the page, so the tools could not be used
+  // from the keyboard.
+  for (const key of ['Enter', 'Space']) {
+    await toolbar.getByRole('button', { name: 'View' }).focus();
+    await page.keyboard.press(key);
+    const menu = page.getByRole('menu', { name: 'View' });
+    await expect(menu, key).toBeVisible();
+    await expect(counter).toHaveText(/^Pages? 1\b/);
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    // Escape hands the keyboard back to the button, not to the pages.
+    await expect(toolbar.getByRole('button', { name: 'View' })).toBeFocused();
+    await expect(toolbar).toBeVisible();
+  }
+  const next = page.getByRole('button', { name: 'Next screen' });
+  await next.focus();
+  await page.keyboard.press('Enter');
+  await expect(counter).not.toHaveText(/^Pages? 1\b/);
+  const second = await counter.textContent();
+  // Space on Previous screen goes back, not forward.
+  await page.getByRole('button', { name: 'Previous screen' }).focus();
+  await page.keyboard.press('Space');
+  await expect(counter).toHaveText(/^Pages? 1\b/);
+  expect(second).not.toMatch(/^Pages? 1\b/);
+  await toolbar.getByRole('button', { name: 'Edit Document' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(toolbar).toBeHidden();
 });
 
 test('views without a horizontal ruler hide its tab-type button too', async ({ page }) => {
@@ -628,4 +708,69 @@ test('Focus shows the page alone, without the rulers, and Escape brings them bac
   await input.press('Escape');
   await expect(page.locator('.ed-workspace')).not.toHaveClass(/ed-focus/);
   await expect(ruler).toBeVisible();
+});
+
+// Ctrl/Cmd + wheel (and a trackpad pinch, which arrives as one) was left to the browser in Read Mode, which zoomed the
+// whole window, toolbars and all. It zooms the reading text now, as in Word, and editing returns at the zoom it had.
+test('Ctrl + wheel in Read Mode zooms the text, which is laid out again, and editing keeps its own zoom', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toBeEditable();
+  await input.fill('Reading words go on here. '.repeat(600));
+  await caret(input, 0);
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  await expect(page.getByRole('toolbar', { name: 'Read Mode' })).toBeVisible();
+  const state = () => page.evaluate(() => { const e = window.__docs.current.view.engine; return { zoom: e.zoom, width: e.view?.width, pages: e.canvases.length }; });
+  const before = await state();
+  await page.evaluate(() => { window.__wheels = []; addEventListener('wheel', e => window.__wheels.push(e.defaultPrevented)); });
+  await page.mouse.move(500, 300);
+  await page.keyboard.down('Control');
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await expect.poll(async () => (await state()).zoom).toBeGreaterThan(1.5);
+  const after = await state();
+  // Larger text in a column as wide on screen: narrower in the document's measure, so more screens.
+  expect(after.width).toBeLessThan(before.width);
+  expect(after.pages).toBeGreaterThan(before.pages);
+  expect(await page.evaluate(() => window.__wheels.every(Boolean))).toBe(true);
+  // Smaller, but not below half size.
+  await page.keyboard.down('Control');
+  for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 200);
+  await page.keyboard.up('Control');
+  await expect.poll(async () => (await state()).zoom).toBe(0.5);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('toolbar', { name: 'Read Mode' })).toBeHidden();
+  expect((await state()).zoom).toBe(before.zoom);
+});
+
+// Outline's collapse, expand and show-level chords never worked on a Mac: Option+Shift with −, = or a digit types a
+// character there (Option+Shift+− is the em dash), so the key was typed into the heading instead. A Mac takes them
+// with Control+Shift, as Word for Mac does; elsewhere they stay on Alt+Shift. Promote to Heading 1 also named
+// Alt+Shift+1 as its chord, which shows level 1 instead.
+test('Outline view collapses, expands and shows levels from the keyboard, on a Mac with Control+Shift', async ({ page }) => {
+  await headings(page);
+  const mac = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || ''));
+  const chord = mac ? 'Control+Shift' : 'Alt+Shift';
+  await (await viewTab(page)).getByRole('button', { name: 'Outline', exact: true }).click();
+  const outline = page.getByRole('tree', { name: 'Document outline' });
+  const rows = outline.getByRole('treeitem');
+  await expect(rows).toHaveCount(6);
+  await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-text').click();
+  const before = await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-text').textContent();
+  await page.keyboard.press(`${chord}+Minus`);
+  // Introduction folds its text and Background (with its text) away.
+  await expect(rows).toHaveCount(3);
+  await page.keyboard.press(`${chord}+Equal`);
+  await expect(rows).toHaveCount(6);
+  await page.keyboard.press(`${chord}+Digit1`);
+  await expect(rows).toHaveCount(2);
+  await page.keyboard.press(`${chord}+KeyA`);
+  await expect(rows).toHaveCount(6);
+  // Nothing was typed into the heading.
+  await expect(page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-text')).toHaveText(before);
+  // The tab names the chords that work.
+  const tab = ribbon(page);
+  expect(await tab.getByRole('button', { name: 'Collapse', exact: true }).getAttribute('title')).toBe(`Collapse (${chord.replace('Control', 'Ctrl')}+Minus)`);
+  expect(await tab.getByRole('button', { name: 'Promote to Heading 1', exact: true }).getAttribute('title')).toBe('Promote to Heading 1');
 });

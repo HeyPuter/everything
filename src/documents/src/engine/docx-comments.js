@@ -53,6 +53,7 @@ export function readComments(parts) {
       if (paraId) extended.set(paraId.toUpperCase(), { parent: ex.getAttributeNS(W15, 'paraIdParent')?.toUpperCase() || null, done: ['1', 'true', 'on'].includes(ex.getAttributeNS(W15, 'done') || '') });
     }
   } catch { extended = new Map(); } // Replies and resolved state are optional companions.
+  const utc = commentUtcTimes(parts);
   const comments = [], byPara = new Map(), seen = new Set();
   for (const node of wChildren(root, 'comment')) {
     const raw = node.getAttributeNS(W, 'id');
@@ -68,6 +69,10 @@ export function readComments(parts) {
     comments.push(comment);
   }
   for (const comment of comments) {
+    // Word writes w:date in local time (and ignores its "Z" when reading, [MS-OI29500] 2.1.313); the time in UTC is
+    // the commentsExtensible entry's, kept apart so the comment is written back as it was.
+    const when = comment.paraId && utc.get(comment.paraId);
+    if (when) comment.dateUtc = when;
     const ex = comment.paraId && extended.get(comment.paraId);
     if (!ex) continue;
     comment.done = ex.done;
@@ -75,6 +80,32 @@ export function readComments(parts) {
     if (parent && parent !== comment) comment.parentId = parent.id;
   }
   return comments;
+}
+
+const COMMENTS_IDS_REL = 'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds';
+const COMMENTS_EXTENSIBLE_REL = 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible';
+/**
+ * Each comment's time in UTC by its last paragraph's identifier: commentsIds ([MS-DOCX] w16cid) gives the comment's
+ * durable identifier, and commentsExtensible (w16cex) its dateUtc. Both are optional; anything unreadable is skipped.
+ */
+function commentUtcTimes(parts) {
+  const out = new Map();
+  try {
+    const path = (rel, fallback) => { try { return relatedPartPath(parts, rel, rel) || (parts[fallback] ? fallback : null); } catch { return null; } };
+    const idsPath = path(COMMENTS_IDS_REL, 'word/commentsIds.xml'), extPath = path(COMMENTS_EXTENSIBLE_REL, 'word/commentsExtensible.xml');
+    if (!idsPath || !extPath || !parts[idsPath] || !parts[extPath]) return out;
+    const times = new Map();
+    for (const node of parseXml(parts[extPath]).getElementsByTagNameNS(W16CEX, 'commentExtensible')) {
+      const durable = node.getAttributeNS(W16CEX, 'durableId'), date = node.getAttributeNS(W16CEX, 'dateUtc');
+      if (durable && date && Number.isFinite(Date.parse(date))) times.set(durable.toUpperCase(), date);
+    }
+    for (const node of parseXml(parts[idsPath]).getElementsByTagNameNS(W16CID, 'commentId')) {
+      const paraId = node.getAttributeNS(W16CID, 'paraId'), durable = node.getAttributeNS(W16CID, 'durableId');
+      const date = paraId && durable && times.get(durable.toUpperCase());
+      if (date) out.set(paraId.toUpperCase(), date);
+    }
+  } catch { out.clear(); }
+  return out;
 }
 
 /** A new random paragraph identifier below 0x80000000, as §w14:paraId requires. */
@@ -170,6 +201,7 @@ export function writeComments(parts, comments = [], initial = '[]') {
   write(parts, path, doc);
   ensureRelationship(parts, path, COMMENTS_REL, COMMENTS_TYPE);
   writeCompanions(parts, comments, paraIds);
+  writeUtcCompanions(parts, comments, paraIds);
   if (authored) ensureCommentStyles(parts);
 }
 
@@ -242,6 +274,43 @@ function writeCompanions(parts, comments, paraIds) {
       if (changed) write(parts, file, doc);
     } catch { /* A malformed optional companion is left as it was. */ }
   }
+}
+
+const COMMENTS_IDS_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml';
+const COMMENTS_EXTENSIBLE_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml';
+/**
+ * A comment made here records its UTC time where Word looks for it ([MS-DOCX] commentsIds gives the comment a durable
+ * identifier, commentsExtensible its dateUtc), beside its local-time w:date (revisionTimes). Comments that already
+ * have an entry keep it; the parts, relationships and content types are created where missing.
+ */
+function writeUtcCompanions(parts, comments, paraIds) {
+  const wanted = comments.filter(c => c.dateUtc && paraIds.get(c.id));
+  if (!wanted.length) return;
+  const pathOf = (rel, fallback) => { try { return relatedPartPath(parts, rel, rel) || fallback; } catch { return null; } };
+  const idsPath = pathOf(COMMENTS_IDS_REL, 'word/commentsIds.xml'), extPath = pathOf(COMMENTS_EXTENSIBLE_REL, 'word/commentsExtensible.xml');
+  if (!idsPath || !extPath) return;
+  const open = (path, xml) => { try { if (parts[path]) { const doc = parseXml(parts[path]); if (!doc.getElementsByTagName('parsererror').length) return doc; } } catch { /* regenerated */ } return parseXml(xml); };
+  const ids = open(idsPath, `<w16cid:commentsIds xmlns:w16cid="${W16CID}"/>`), ext = open(extPath, `<w16cex:commentsExtensible xmlns:w16cex="${W16CEX}"/>`);
+  const durableOf = new Map([...ids.getElementsByTagNameNS(W16CID, 'commentId')].map(n => [(n.getAttributeNS(W16CID, 'paraId') || '').toUpperCase(), (n.getAttributeNS(W16CID, 'durableId') || '').toUpperCase()]));
+  const timed = new Set([...ext.getElementsByTagNameNS(W16CEX, 'commentExtensible')].map(n => (n.getAttributeNS(W16CEX, 'durableId') || '').toUpperCase()));
+  const used = new Set(durableOf.values());
+  let idsChanged = false, extChanged = false;
+  for (const comment of wanted) {
+    const paraId = paraIds.get(comment.id).toUpperCase();
+    let durable = durableOf.get(paraId);
+    if (!durable) {
+      durable = newParaId(used); durableOf.set(paraId, durable);
+      const node = ids.createElementNS(W16CID, 'w16cid:commentId');
+      node.setAttributeNS(W16CID, 'w16cid:paraId', paraId); node.setAttributeNS(W16CID, 'w16cid:durableId', durable);
+      ids.documentElement.append(node); idsChanged = true;
+    }
+    if (timed.has(durable)) continue;
+    const node = ext.createElementNS(W16CEX, 'w16cex:commentExtensible');
+    node.setAttributeNS(W16CEX, 'w16cex:durableId', durable); node.setAttributeNS(W16CEX, 'w16cex:dateUtc', comment.dateUtc);
+    ext.documentElement.append(node); timed.add(durable); extChanged = true;
+  }
+  if (idsChanged) { write(parts, idsPath, ids); ensureRelationship(parts, idsPath, COMMENTS_IDS_REL, COMMENTS_IDS_TYPE); }
+  if (extChanged) { write(parts, extPath, ext); ensureRelationship(parts, extPath, COMMENTS_EXTENSIBLE_REL, COMMENTS_EXTENSIBLE_TYPE); }
 }
 
 /** Write a comment marker as its WordprocessingML element(s). An end marker carries its reference run. */

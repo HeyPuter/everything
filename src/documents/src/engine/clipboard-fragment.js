@@ -1,7 +1,7 @@
 import { paragraphText, paragraphFormat, locate } from './model.js';
 import { physicalAlignment } from './rtl-paragraph.js';
 import { runFormat } from './formatting.js';
-import { listKind } from './numbering.js';
+import { listKind, hasListLevel } from './numbering.js';
 import { HIGHLIGHTS } from './backgrounds.js';
 import { showLink } from './link-appearance.js';
 import { normalizeCrop, FULL_TURN, OBJECT, validateImage, nextDrawingId } from './images.js';
@@ -16,6 +16,7 @@ import { commentAnchors, addCommentMarkers, removeCommentMarkers } from './comme
 // pictures, notes) keep the plain-text path.
 
 export const FRAGMENT_ATTRIBUTE = 'data-documents-fragment';
+export const TABLE_ATTRIBUTE = 'data-documents-table';
 const RUN_KEYS = ['bold', 'italic', 'underlineStyle', 'strikethrough', 'color', 'highlight', 'fontSize', 'fontAscii', 'verticalAlign', 'capitalization'];
 const MAX_RUNS = 2000;
 
@@ -97,10 +98,12 @@ export function copyFragment(model, { hidden = () => false, objects = null } = {
     paragraphs.push({ text: runs.map(r => r.text).join(''), runs, mark,
       // Alignment is relative to the paragraph's direction (rtl-paragraph.js): the two travel together.
       styleId: p.styleId || null, styleName: style?.name || null, alignment: format.alignment, ...(format.bidi ? { bidi: true } : {}),
-      list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level } : null });
+      list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level, ...(objects?.token ? { numId: p.list.numId } : {}) } : null });
   }
   if (!paragraphs.length) return null;
   const fragment = carried ? { paragraphs, objects: { token: objects.token, story: objects.story ?? null } } : { paragraphs };
+  // Which open document the copy is of: its list items go back into their own lists there (applyParagraph).
+  if (objects?.token) fragment.token = objects.token;
   // The comments on stretches of the copied text, where they are in it: a cut pasted back in this document takes
   // them along (movedComments). Text the copy leaves out would put them in the wrong place.
   const anchors = objects?.token && model.comments?.length && !skipped && !cell ? commentAnchors(model.paragraphs).filter(a => a.start < a.end && a.start >= start && a.end <= end).map(a => ({ id: a.id, start: a.start - start, end: a.end - start })) : [];
@@ -185,6 +188,83 @@ export function fragmentHtml(fragment) {
   }
   closeTo(0);
   return `<div ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}">${html}</div>`;
+}
+
+/* ---------- A table ---------- */
+
+const CSS_BORDERS = { single: 'solid', thick: 'solid', double: 'double', dotted: 'dotted', dashed: 'dashed', dashSmallGap: 'dashed', dotDash: 'dashed', dotDotDash: 'dotted', triple: 'double' };
+function borderCss(border) {
+  if (!border || ['nil', 'none'].includes(border.style)) return 'none';
+  const color = hexColor(border.color) ? `#${border.color}` : '#000000', width = Math.max(0.25, (Number(border.size) || 4) / 8);
+  return `${width}pt ${CSS_BORDERS[border.style] || 'solid'} ${color}`;
+}
+/**
+ * Whole table rows copied here (copyTableRows) as an HTML table other applications paste as a table: column widths,
+ * merged cells (colspan, rowspan), borders, shading and the cells' formatted text. The rows themselves ride along
+ * in TABLE_ATTRIBUTE for a paste in this application, which makes the same table again.
+ */
+export function tableFragmentHtml(fragment) {
+  const { table, paragraphs } = fragment, grid = table.grid || [];
+  const byCell = new Map();
+  for (const p of paragraphs) { if (!byCell.has(p.cellId)) byCell.set(p.cellId, []); byCell.get(p.cellId).push(p); }
+  // The columns each row's cells start at, to count how many rows a vertical merge spans.
+  const starts = table.rows.map(row => { let column = row.gridBefore || 0; return row.cells.map(cell => { const at = column; column += cell.span ?? 1; return at; }); });
+  const rowSpan = (r, column) => { let n = 1; while (table.rows[r + n]?.cells.some((cell, i) => cell.vMerge === 'continue' && starts[r + n][i] === column)) n++; return n; };
+  const twipsPt = twips => Math.max(0, Math.round((Number(twips) || 0) / 2) / 10);
+  const cols = grid.some(w => w > 0) ? `<colgroup>${grid.map(w => `<col style="width:${twipsPt(w)}pt">`).join('')}</colgroup>` : '';
+  const rows = table.rows.map((row, r) => `<tr>${row.cells.map((cell, i) => {
+    if (cell.vMerge === 'continue') return '';
+    const span = cell.span ?? 1, down = cell.vMerge === 'restart' ? rowSpan(r, starts[r][i]) : 1, fill = hexColor(cell.shading) || hexColor(cell.fill?.replace?.(/^#/, ''));
+    const style = ['top', 'right', 'bottom', 'left'].map(side => `border-${side}:${borderCss(cell.borders?.[side])}`);
+    if (fill) style.push(`background-color:#${fill}`);
+    if (['center', 'bottom'].includes(cell.vertical)) style.push(`vertical-align:${cell.vertical === 'center' ? 'middle' : 'bottom'}`);
+    const width = grid.slice(starts[r][i], starts[r][i] + span).reduce((a, b) => a + (Number(b) || 0), 0);
+    if (width) style.push(`width:${twipsPt(width)}pt`);
+    const text = (byCell.get(cell.id) || []).map(p => {
+      const runs = p.runs.map(run => ({ text: run.text, format: Object.fromEntries(RUN_KEYS.map(key => [key, runFormat(run)[key]])) }));
+      const align = Object.hasOwn(HTML_ALIGNMENTS, p.format?.alignment) ? `;text-align:${HTML_ALIGNMENTS[p.format.alignment]}` : '';
+      return `<p style="margin:0;white-space:pre-wrap${align}">${runs.map(runHtml).join('') || '<br>'}</p>`;
+    }).join('');
+    return `<td${span > 1 ? ` colspan="${span}"` : ''}${down > 1 ? ` rowspan="${down}"` : ''} style="${style.join(';')}">${text}</td>`;
+  }).join('')}</tr>`).join('');
+  return `<table ${TABLE_ATTRIBUTE}="${escape(JSON.stringify(fragment))}" style="border-collapse:collapse">${cols}<tbody>${rows}</tbody></table>`;
+}
+/** The rows a copy here carried (tableFragmentHtml), or null for any other HTML. */
+export function htmlTableFragment(html) {
+  if (typeof DOMParser === 'undefined' || !html || !html.includes(TABLE_ATTRIBUTE)) return null;
+  const node = new DOMParser().parseFromString(html, 'text/html').querySelector(`[${TABLE_ATTRIBUTE}]`);
+  try {
+    const fragment = JSON.parse(node?.getAttribute(TABLE_ATTRIBUTE) || 'null');
+    return fragment?.table && Array.isArray(fragment.table.rows) && Array.isArray(fragment.paragraphs) && fragment.paragraphs.every(p => Array.isArray(p.runs) && p.runs.every(r => typeof r.text === 'string')) ? fragment : null;
+  } catch { return null; }
+}
+
+/**
+ * Another application's copy that is one table and nothing else (a spreadsheet's cells, a web page's or another word
+ * processor's table): its rows of cells, each { lines, colspan, rowspan, header, fill }, for a paste that makes it a
+ * table here. Null for anything else, which pastes as formatted paragraphs.
+ */
+export function foreignHtmlTable(html) {
+  if (typeof DOMParser === 'undefined' || !html || !/<table[\s>]/i.test(html) || html.includes(TABLE_ATTRIBUTE) || html.includes(FRAGMENT_ATTRIBUTE)) return null;
+  const body = new DOMParser().parseFromString(html, 'text/html').body;
+  const tables = body.querySelectorAll('table');
+  if (tables.length !== 1) return null;
+  const table = tables[0], outside = body.textContent.replace(table.textContent, '');
+  if (outside.trim() || table.querySelector('img, table table, svg, video')) return null;
+  const rows = [...table.querySelectorAll('tr')].filter(tr => tr.closest('table') === table).map(tr => [...tr.children].filter(td => /^(TD|TH)$/.test(td.tagName)).map(td => {
+    const lines = [];
+    const blocks = td.querySelectorAll('p, div, li, h1, h2, h3, h4, h5, h6');
+    // Whitespace in the markup is one space, as a browser shows it; a <br> or a paragraph of the cell is a new line.
+    for (const part of (blocks.length ? [...blocks].filter(b => !b.querySelector('p, div, li, h1, h2, h3, h4, h5, h6')) : [td])) {
+      const clone = part.cloneNode(true); clone.querySelectorAll('br').forEach(br => br.replaceWith('\u0001'));
+      lines.push(...String(clone.textContent ?? '').replace(/\s+/g, ' ').split('\u0001').map(line => line.trim()));
+    }
+    while (lines.length > 1 && !lines.at(-1)) lines.pop();
+    const color = cssColor(td.style?.backgroundColor || td.getAttribute('bgcolor') || ''), fill = color !== 'FFFFFF' && color;
+    const span = name => Math.max(1, Math.min(63, parseInt(td.getAttribute(name), 10) || 1));
+    return { lines: lines.length ? lines : [''], colspan: span('colspan'), rowspan: span('rowspan'), header: td.tagName === 'TH' || !!td.closest('thead'), ...(fill ? { fill } : {}) };
+  })).filter(cells => cells.length);
+  return rows.length ? rows : null;
 }
 
 /* ---------- A picture ---------- */
@@ -489,7 +569,7 @@ function continueList(model, p, lists) {
   lists.set(p.list.id, model.selectedParagraphs[0].list?.numId);
 }
 
-function applyParagraph(model, p, foreign, lists = new Map()) {
+function applyParagraph(model, p, foreign, lists = new Map(), own = false) {
   const style = styleFor(model, p);
   if (style) attempt(() => model.setParagraphStyle(style));
   else if (!foreign && p.styleId === null) attempt(() => model.setParagraphStyle(''));
@@ -511,6 +591,12 @@ function applyParagraph(model, p, foreign, lists = new Map()) {
       if (model.selectedParagraphs[0]?.list?.level === level) break;
     }
     continueList(model, p, lists);
+    // Copied in this document, an item stays in its own list, as in Word: pasted after a paragraph that ends the
+    // list, or above it, it numbers on with the list rather than starting a new one at 1.
+    const target = model.selectedParagraphs[0], kept = own && p.list.numId != null ? { numId: p.list.numId, level: target?.list?.level ?? p.list.level } : null;
+    if (kept && target?.list && target.list.numId !== kept.numId && hasListLevel(model.numbering, kept) && listKind(model.numbering, kept) === p.list.kind) {
+      target.list = { ...target.list, numId: kept.numId, level: kept.level, direct: true }; target.listChanged = true;
+    }
   } else if (current === 'bullet' || current === 'number') attempt(() => model.toggleList(current));
 }
 
@@ -560,7 +646,7 @@ export function pasteFragment(model, fragment, { token = null, story = null } = 
   model.checkpoint = () => {};
   // Formatting leaves the pasted text as it is: commands need not join or count through it each time.
   try {
-    model.withFixedText(() => applyFragment(model, fragment, start));
+    model.withFixedText(() => applyFragment(model, fragment, start, !fragment.foreign && !!token && fragment.token === token));
     // Before objects take their places: a stand-in that cannot become its object again goes, and the comments with the rest.
     if (fragment.comments?.token === token && token && (fragment.comments.story ?? null) === story) movedComments(model, fragment.comments.anchors, start, text.length);
     if (carried) placeObjects(model, fragment, start);
@@ -658,12 +744,12 @@ export function formattedPasteFits(fragment) {
  */
 const MAX_RUN_STEPS = 1000000;
 
-function applyFragment(model, fragment, start) {
+function applyFragment(model, fragment, start, own = false) {
   const after = start + fragment.paragraphs.reduce((n, p) => n + p.text.length + 1, -1);
   let at = start, steps = 0;
   const lists = new Map();
   for (const p of fragment.paragraphs) {
-    if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign, lists); }
+    if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign, lists, own); }
     let offset = at;
     let applied = appliedRuns(fragment, p);
     const cost = applied.length * p.runs.length;

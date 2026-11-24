@@ -199,3 +199,61 @@ test.describe('on a touch screen', () => {
     await expect(page.getByRole('menu', { name: 'Heading 1' })).toBeVisible();
   });
 });
+
+// Delete was offered for Normal and the built-in headings, and choosing it only said they cannot be deleted. It is
+// unavailable for them now, as in Word, and still there for a style of the document's own.
+test('the Styles pane offers no Delete for a style that cannot be deleted', async ({ page }) => {
+  const { input, errors } = await blank(page, 'Chapter one\nBody text here');
+  await page.getByRole('button', { name: 'Styles Pane' }).click();
+  const pane = page.getByRole('complementary', { name: 'Styles pane' });
+  for (const name of ['Normal', 'Heading 1', 'Title']) {
+    await pane.getByRole('button', { name: `${name} options`, exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: `Delete ${name}…` })).toBeDisabled();
+    await page.keyboard.press('Escape');
+  }
+  await select(input, 'Body text here');
+  await pane.getByRole('button', { name: 'New Style…' }).click();
+  const create = page.getByRole('dialog', { name: 'Create New Style from Formatting' });
+  await create.getByLabel('Name').fill('Aside');
+  await create.getByRole('button', { name: 'OK' }).click();
+  await pane.getByRole('button', { name: 'Aside options' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Delete Aside…' })).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test('Format › Style… offers no Delete for a style that cannot be deleted', async ({ page }) => {
+  const { input, errors } = await blank(page, 'Chapter one\nBody text here');
+  await select(input, 'Chapter one');
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'Format', exact: true }).click();
+  await page.getByRole('menu', { name: 'Format', exact: true }).getByRole('menuitem', { name: /^Style…/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Style' });
+  const list = dialog.getByRole('listbox', { name: 'Styles' });
+  await expect(list.getByRole('option', { name: /^Normal/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+  await list.getByRole('option', { name: /^Heading 1/ }).click();
+  await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+  // Modify stays.
+  await expect(dialog.getByRole('button', { name: 'Modify…' })).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+// The Style Inspector's sections ran out of the pane on the right: "Clear Paragraph Formatting" and "Reset to Normal"
+// were cut off at the window's edge. The long names wrap inside the pane.
+test('the Style Inspector fits its sections and buttons inside the pane', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toBeEditable();
+  await input.fill('Title text\nBody here');
+  await select(input, 'Title');
+  await input.press('ControlOrMeta+Alt+1');
+  await page.getByRole('button', { name: 'Styles Pane' }).click();
+  const pane = page.getByRole('complementary', { name: 'Styles pane' });
+  await pane.getByRole('tab', { name: 'Style Inspector' }).click();
+  await expect(pane.getByRole('button', { name: 'Clear Paragraph Formatting' })).toBeVisible();
+  const overflow = await page.evaluate(() => {
+    const right = document.querySelector('.styles-pane').getBoundingClientRect().right;
+    return [...document.querySelectorAll('.styles-inspector-section, .styles-inspector-row > *')].filter(n => n.getBoundingClientRect().right > right + 0.5).map(n => n.textContent.trim());
+  });
+  expect(overflow).toEqual([]);
+});

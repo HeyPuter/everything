@@ -177,7 +177,11 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
         // With text selected, the columns go to that text alone, between two continuous section breaks.
         onSelect: () => { const current = settings(); setPage({ columns: presetColumns(id, writingWidth(current), current.columns?.space || 720) }, selected ? { scope: 'selection', breakType: 'continuous' } : undefined); },
       })), { separator: true },
-      { label: 'Line Between', checked: !!s?.columns?.separator, disabled: !ready() || (s?.columns?.count || 1) < 2, onSelect: () => setPage({ columns: { ...settings().columns, separator: !settings().columns.separator } }) },
+      // Each selected section keeps its own columns; one without columns has no line to draw.
+      { label: 'Line Between', checked: !!s?.columns?.separator, disabled: !ready() || (s?.columns?.count || 1) < 2, onSelect: () => {
+        const on = !settings().columns.separator;
+        setPage(current => (current.columns?.count || 1) < 2 ? {} : { columns: { ...current.columns, separator: on } });
+      } },
       { label: 'More Columns…', icon: 'columnsDialog', disabled: !ready(), onSelect: () => commands.columnsDialog() }];
     },
     breakItems() {

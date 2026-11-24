@@ -353,6 +353,46 @@ test('a KeyTip letter that goes nowhere is ignored, and the letters typed before
   expect((await engine(page)).bold).toBe(false);
 });
 
+test('KeyTips typed faster than a frame (Alt, H, B at once) still run the command', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Keys');
+  await select(page, 0, 4);
+  // All in one task, as a quick typist's keys can arrive before the next frame: the tab's letters were only
+  // shown after a frame, so B fell on the tabs' level (where it means nothing) and was lost.
+  await page.evaluate(() => {
+    const key = (type, key, code) => window.dispatchEvent(new KeyboardEvent(type, { key, code, bubbles: true }));
+    key('keydown', 'Alt', 'AltLeft'); key('keyup', 'Alt', 'AltLeft');
+    key('keydown', 'h', 'KeyH'); key('keyup', 'h', 'KeyH');
+    key('keydown', 'b', 'KeyB'); key('keyup', 'b', 'KeyB');
+  });
+  await expect.poll(async () => (await engine(page)).bold).toBe(true);
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+});
+
+test('an auto-hidden ribbon shows its tabs for the KeyTips, and hides them again after', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Keys');
+  await page.getByRole('button', { name: 'Ribbon display options' }).click();
+  await page.getByRole('menuitemradio', { name: 'Auto-hide the Ribbon' }).click();
+  const home = page.locator('#ribbon-tab-home');
+  await expect(home).toBeHidden();
+  await select(page, 0, 4);
+  // The tabs' letters were given to hidden tabs, so none showed: only the quick access numbers did.
+  await page.keyboard.press('Alt');
+  await expect(page.locator('.ed-keytip', { hasText: /^H$/ })).toBeVisible();
+  await expect(home).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+  await expect(home).toBeHidden();
+  await expect(text(page)).toBeFocused();
+  // A tab's letter keeps the ribbon out for its commands, as before.
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  await expect(page.locator('.ed-keytip', { hasText: /^B$/ })).toBeVisible();
+  await page.keyboard.press('b');
+  await expect.poll(async () => (await engine(page)).bold).toBe(true);
+});
+
 test('Escape in the text, then Tab, goes to the ribbon, and Escape there comes back', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Words');
@@ -723,4 +763,145 @@ test('contrast themes show which way the AutoSave and Preferences switches are s
   const off = await look(autosave);
   expect(off.knob).not.toBe(off.track);
   expect(off.track).not.toBe(on.track);
+});
+
+test('quick access commands that do not fit leave the title bar and are listed in its Customize menu', async ({ page }) => {
+  await openEditor(page, 1280);
+  // Every command the toolbar offers: they ran over the menu bar (File and Edit under their icons, Help cut off)
+  // and, on a phone, over the account button.
+  await page.evaluate(() => localStorage.setItem('documents:quick-access', JSON.stringify(['home', 'save', 'undo', 'redo', 'print', 'new', 'open', 'find',
+    'spelling', 'pdf', 'marks', 'comment', 'track', 'wordCount', 'readAloud', 'repeat'])));
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const quick = page.getByRole('toolbar', { name: 'Quick access' });
+  const layout = () => page.evaluate(() => {
+    const shown = [...document.querySelectorAll('.ed-quick > *')].filter(n => n.getClientRects().length);
+    const help = document.querySelector('.ed-menubar .menu-btn:last-child').getBoundingClientRect();
+    const bar = document.querySelector('.ed-menubar').getBoundingClientRect();
+    return { shown: shown.length, lastRight: Math.max(...shown.map(n => n.getBoundingClientRect().right)), barLeft: bar.left, helpWhole: help.right <= bar.right + 0.5 };
+  });
+  const wide = await layout();
+  expect(wide.shown).toBeLessThan(16);
+  expect(wide.lastRight).toBeLessThanOrEqual(wide.barLeft);
+  expect(wide.helpWhole).toBe(true);
+  await expect(quick.getByRole('button', { name: 'Repeat' })).toBeHidden();
+  // The menu names widen after the first fit (their font arriving late, as on Linux): commands make way again.
+  await page.addStyleTag({ content: '.ed-header .ed-menubar .menu-btn { letter-spacing: 1px; }' });
+  await expect.poll(async () => { const now = await layout(); return now.lastRight <= now.barLeft && now.helpWhole; }).toBe(true);
+  await page.addStyleTag({ content: '.ed-header .ed-menubar .menu-btn { letter-spacing: 0; }' });
+  // The Customize menu offers the ones left out; Word Count runs from there.
+  await page.getByRole('button', { name: 'Customize Quick Access Toolbar' }).click();
+  const menu = page.getByRole('menu', { name: 'Customize Quick Access Toolbar' });
+  await expect(menu.getByText('No room in the title bar')).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Word Count', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Word Count' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // The arrow keys pass over the hidden ones.
+  await quick.getByRole('button', { name: 'All Documents' }).focus();
+  await page.keyboard.press('End');
+  expect(await page.evaluate(() => document.activeElement.getClientRects().length > 0 && !!document.activeElement.closest('.ed-quick'))).toBe(true);
+  // A wider window shows them all again.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await expect(quick.getByRole('button', { name: 'Repeat' })).toBeVisible();
+  await expect.poll(async () => (await layout()).shown).toBe(16);
+  // A phone keeps its account button and some of the name clear of them.
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect.poll(() => page.evaluate(() => {
+    const shown = [...document.querySelectorAll('.ed-quick > *')].filter(n => n.getClientRects().length);
+    const name = document.querySelector('.ed-header .canvas-title').getBoundingClientRect();
+    return Math.max(...shown.map(n => n.getBoundingClientRect().right)) <= name.left && name.width >= 40 && document.documentElement.scrollWidth <= 390;
+  })).toBe(true);
+});
+
+test('a tab half out of view in a narrow window keeps its KeyTip in the window', async ({ page }) => {
+  await openEditor(page, 760);
+  await text(page).fill('Cells');
+  await page.evaluate(() => window.__docs.current.view.engine.insertTable(3, 3));
+  const layoutTab = page.getByRole('tab', { name: 'Table Layout' });
+  await expect(layoutTab).toBeAttached();
+  // The tab names' widths vary with the platform's fonts: the window's edge is put through the middle of the tab.
+  const at = await layoutTab.boundingBox();
+  const width = Math.round(at.x + at.width / 2);
+  await page.setViewportSize({ width, height: 900 });
+  await expect.poll(async () => { const now = await layoutTab.boundingBox(); return now.x < width && now.x + now.width > width; }).toBe(true);
+  await text(page).focus();
+  await page.keyboard.press('Alt');
+  // Centred under the whole tab, the badge sat past the window's right edge, where nothing showed it.
+  const tip = page.locator('.ed-keytip', { hasText: /^JL$/ });
+  await expect(tip).toBeVisible();
+  const [box, tab, row] = await Promise.all([tip.boundingBox(), layoutTab.boundingBox(), page.locator('.ribbon-tabs').boundingBox()]);
+  expect(box.x + box.width).toBeLessThanOrEqual(width);
+  expect(box.x + box.width / 2).toBeGreaterThanOrEqual(tab.x);
+  expect(box.x + box.width / 2).toBeLessThanOrEqual(row.x + row.width);
+  await page.keyboard.press('j');
+  await page.keyboard.press('l');
+  await expect(layoutTab).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+});
+
+test('Alt in Focus, where there is nothing to label, leaves the next keys to the document', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Write');
+  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Exit Focus' })).toBeVisible();
+  await text(page).focus();
+  await text(page).press('End');
+  // An empty KeyTips layer took every key typed after it, unseen, until Escape.
+  await page.keyboard.press('Alt');
+  await page.keyboard.type(' here');
+  await expect(text(page)).toHaveValue('Write here');
+  await expect(page.locator('.ed-keytips')).toHaveCount(0);
+});
+
+// The letter KeyTips gave a control, read from the badge drawn on it.
+const tipOn = (page, locator) => locator.evaluate(node => {
+  const box = node.getBoundingClientRect();
+  return [...document.querySelectorAll('.ed-keytip')].find(tip => Math.abs(parseFloat(tip.style.left) - (box.left + box.width / 2)) < 2
+    && parseFloat(tip.style.top) >= box.top - 1 && parseFloat(tip.style.top) <= box.bottom)?.textContent || null;
+});
+const typeTip = async (page, code) => { for (const ch of code) await page.keyboard.press(ch.toLowerCase()); };
+
+test('KeyTips reach a split button\'s arrow and the commands of a folded group', async ({ page }) => {
+  await openEditor(page, 1440);
+  await text(page).fill('Keys');
+  await select(page, 0, 4);
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  // The commands keep their letters; the arrows, which had none, take letters of their own.
+  await expect(page.locator('.ed-keytip', { hasText: /^B$/ })).toBeVisible();
+  await expect(page.locator('.ed-keytip', { hasText: /^QB$/ })).toBeVisible();
+  const arrow = page.getByRole('button', { name: 'Underline options' });
+  const code = await tipOn(page, arrow);
+  expect(code).toBeTruthy();
+  await typeTip(page, code);
+  // It opens the underline styles, as a click on it does.
+  const styles = page.locator('.menu, .modal-panel').first();
+  await expect(styles).toBeVisible();
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(styles).toBeHidden();
+
+  // A narrow window folds Paragraph: its letter opens it and labels the commands inside.
+  await page.setViewportSize({ width: 760, height: 900 });
+  const paragraph = page.locator('#ribbon-panel-home .ribbon-collapsed[aria-label="Paragraph"]');
+  await expect(paragraph).toBeVisible();
+  await select(page, 0, 4);
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  await typeTip(page, await tipOn(page, paragraph));
+  const flyout = page.locator('.ribbon-flyout');
+  await expect(flyout).toBeVisible();
+  const center = flyout.getByRole('button', { name: 'Align center', exact: true });
+  const centerCode = await tipOn(page, center);
+  expect(centerCode).toBeTruthy();
+  // Escape goes back to the tab's letters and puts the drop-down away.
+  await page.keyboard.press('Escape');
+  await expect(flyout).toHaveCount(0);
+  await expect(page.locator('.ed-keytip').first()).toBeVisible();
+  await typeTip(page, await tipOn(page, paragraph));
+  await typeTip(page, centerCode);
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.paragraphFormatting.alignment)).toBe('center');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
 });

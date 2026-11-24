@@ -185,11 +185,18 @@ export function layoutWithFootnotes(plan, layout, measure, numbering, options, f
     const next = needed(placed, pages), key = JSON.stringify(next);
     if (key === JSON.stringify(reserve)) break;
     if (seen.has(key) || attempt === 7) {
-      const union = { ...reserve };
-      for (const [page, height] of Object.entries(next)) union[page] = Math.max(union[page] || 0, height);
-      reserve = union;
-      placed = layout(reserve);
-      pages = assignFootnotes(placed, plan.refs);
+      // The union moves references too, so a page can then hold notes taller than its share of the union:
+      // grow it until every page has room for its notes, or the body would be drawn over them.
+      let more = next;
+      for (let grow = 0; grow < 8; grow++) {
+        const union = { ...reserve };
+        for (const [page, height] of Object.entries(more)) union[page] = Math.max(union[page] || 0, height);
+        reserve = union;
+        placed = layout(reserve);
+        pages = assignFootnotes(placed, plan.refs);
+        more = needed(placed, pages);
+        if (Object.entries(more).every(([page, height]) => height <= (reserve[page] || 0))) break;
+      }
       break;
     }
     seen.add(JSON.stringify(reserve));

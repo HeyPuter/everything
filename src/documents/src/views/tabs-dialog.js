@@ -94,8 +94,13 @@ export function openTabsDialog({ tabs: initial, defaultTabStop, unit = 'in', app
   );
   const modal = openFormatDialog({ title: 'Tabs', className: 'fmt-tabs-dialog', onClose, body: [body, clearedNote],
     submit: () => {
-      // Pending text in the position field is set, as the dialog's OK does on desktop word processors.
-      if (position.value.trim() && !stops.some(s => { try { return s.position === readPosition(); } catch { return false; } })) set();
+      // Pending text in the position field is set, as the dialog's OK does on desktop word processors: a new stop, or
+      // a listed one given another alignment or leader (choosing it and then Right, without Set, was lost).
+      const pending = () => { try { const at = readPosition(); return stops.find(s => s.position === at) || null; } catch { return null; } };
+      if (position.value.trim()) {
+        const stop = pending();
+        if (!stop || stop.alignment !== chosen(kinds) || (stop.leader || 'none') !== chosen(leaders)) set();
+      }
       const tabs = changed ? normalizeTabStops(stops.map(s => ({ position: s.position, alignment: s.alignment, ...(s.leader !== 'none' ? { leader: s.leader } : {}), ...(s.numberingOnly ? { numberingOnly: true } : {}) }))) : undefined;
       const interval_ = interval.read();
       if (!interval_ || interval_ < 1) throw new Error('Enter a default tab interval greater than zero.');

@@ -70,9 +70,13 @@ describe('Hanword picture fidelity', () => {
   it('retains links, alt text, wrap side, overlap, stacking, flips and bounded rotation', () => {
     const model = parseHwpx(imageHwpx(picture('<hp:sz width="7200" height="3600"/><hp:pos treatAsChar="0" allowOverlap="0" flowWithText="0"/><hp:rotationInfo angle="-90"/><hp:flip horizontal="1"/><hp:shapeComment>한글 &amp; photo</hp:shapeComment>', 'href="https://example.com/image" textWrap="SQUARE" textFlow="LEFT_ONLY" zOrder="42"')));
     const d = doc(model), anchor = elements(d, 'anchor')[0];
-    expect(anchor.getAttribute('relativeHeight')).toBe('42'); expect(anchor.getAttribute('allowOverlap')).toBe('0'); expect(anchor.getAttribute('layoutInCell')).toBe('0');
+    expect(anchor.getAttribute('relativeHeight')).toBe('42'); expect(anchor.getAttribute('allowOverlap')).toBe('1'); expect(anchor.getAttribute('layoutInCell')).toBe('0');
     expect(elements(d, 'wrapSquare')[0].getAttribute('wrapText')).toBe('left'); expect(elements(d, 'docPr')[0].getAttribute('descr')).toBe('한글 & photo');
     expect(elements(d, 'xfrm')[0].getAttribute('rot')).toBe('16200000'); expect(elements(d, 'xfrm')[0].getAttribute('flipH')).toBe('1'); expect(elements(d, 'hyperlink')).toHaveLength(1);
+    // "Allow overlap" off is kept for an object text does not wrap around, which the editor reads; a wrapped one is
+    // written where Hanword placed it, overlap allowed, or the file opens read-only.
+    const front = doc(parseHwpx(imageHwpx(picture('<hp:sz width="7200" height="3600"/><hp:pos treatAsChar="0" allowOverlap="0"/>', 'textWrap="IN_FRONT_OF_TEXT"'))));
+    expect(elements(front, 'anchor')[0].getAttribute('allowOverlap')).toBe('0');
   });
   it('maps picture adjustments and borders into native DrawingML', () => {
     const input = picture('<hp:lineShape color="#123456" width="100" style="DASH" alpha="0.25"/>').replace('<hp:img ', '<hp:img bright="20" contrast="-30" effect="GRAY_SCALE" alpha="0.5" ');
@@ -102,9 +106,11 @@ describe('Hanword picture fidelity', () => {
   });
   it('preserves an independently authored Hanword picture fixture', () => {
     const model = parseHwpx(readFileSync('tests/fixtures/hwpx/SimplePicture.hwpx')), d = doc(model);
-    // The shadow is emulated: a shadow-colored rectangle offset by its 600-unit distance sits behind the picture in a group.
-    expect(elements(d, 'pic')).toHaveLength(1); expect(elements(d, 'wgp')).toHaveLength(1); expect(elements(d, 'extent')[0].getAttribute('cx')).toBe(String(3294634 + 76200)); expect(elements(d, 'docPr')[0].getAttribute('descr')).toContain('544pixel');
-    expect(elements(d, 'outerShdw')).toHaveLength(0); expect(elements(d, 'wsp')).toHaveLength(1); expect(elements(d, 'glow')[0].getAttribute('rad')).toBe('63500'); expect(elements(d, 'satMod')[0].getAttribute('val')).toBe('175000');
+    // The shadow is the picture's own outer shadow, 600 units to the left with its blur, beside its other effects: as a
+    // shadow-colored rectangle grouped with the picture, the blur was lost and the file opened read-only.
+    expect(elements(d, 'pic')).toHaveLength(1); expect(elements(d, 'wgp')).toHaveLength(0); expect(elements(d, 'extent')[0].getAttribute('cx')).toBe('3294634'); expect(elements(d, 'docPr')[0].getAttribute('descr')).toContain('544pixel');
+    const shadow = elements(d, 'outerShdw')[0];
+    expect([shadow.getAttribute('dist'), shadow.getAttribute('dir'), shadow.getAttribute('blurRad')]).toEqual(['76200', '10800000', '76200']); expect(elements(d, 'wsp')).toHaveLength(0); expect(elements(d, 'glow')[0].getAttribute('rad')).toBe('63500'); expect(elements(d, 'satMod')[0].getAttribute('val')).toBe('175000');
     expect(elements(d, 'softEdge')[0].getAttribute('rad')).toBe('38100'); expect(elements(d, 'reflection')[0].getAttribute('endA')).toBe('300');
   });
   it('reads binary effect tails before explicit crop dimensions', () => {

@@ -89,6 +89,8 @@ export function createBackstage(api) {
     if (focus) { tabs.get(id).focus(); tabs.get(id).scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }
   }
   const stillShowing = request => request === token && !root.hidden;
+  // Reads the Info page's version list again, while it is the page on show (refreshVersions).
+  let reloadVersions = null;
   const heading = (text, sub) => [el('h1.bs-title', {}, text), sub ? el('p.bs-sub', {}, sub) : null];
   const tile = (label, icon, onclick, { hint, disabled = false, primary = false } = {}) => el(`button.bs-tile${primary ? '.is-primary' : ''}`, { type: 'button', disabled, onclick },
     el('span.bs-tile-icon', {}, commandIconEl(icon, 32)), el('span.bs-tile-label', {}, label), hint ? el('span.bs-tile-hint', {}, hint) : null);
@@ -179,7 +181,7 @@ export function createBackstage(api) {
           el('button.btn.btn-sm.btn-outline', { type: 'button', disabled: readOnly, onclick: () => api.restoreVersion(v) }, 'Restore'))) : [el('p.bs-muted', {}, 'No earlier versions yet.')]));
       }).catch(() => { if (stillShowing(req)) versions.replaceChildren(el('p.bs-muted', {}, 'Could not load the version history.')); });
     };
-    if (versionsSection) loadVersions(request);
+    if (versionsSection) { loadVersions(request); reloadVersions = () => { if (stillShowing(request)) loadVersions(request); }; }
     return [...heading('Info', api.title?.()),
       el('div.bs-columns', {},
         el('section.bs-section.bs-card', {}, el('h2', {}, 'Properties'), form),
@@ -338,7 +340,9 @@ export function createBackstage(api) {
     api.onClose?.();
     if (focus) { if (opener?.isConnected && opener !== document.body && !opener.closest('.backstage')) opener.focus(); else api.focusEditor?.(); }
   }
-  return { el: root, open, close, get isOpen() { return !root.hidden; }, get current() { return current; } };
+  // A version written after the Info page opened (the snapshot a save leaves comes once the save is done) is listed.
+  const refreshVersions = () => reloadVersions?.();
+  return { el: root, open, close, refreshVersions, get isOpen() { return !root.hidden; }, get current() { return current; } };
 }
 
 /** Pages from "1-3, 5" within 1..total, in order and without repeats; null when the text is not a range. */

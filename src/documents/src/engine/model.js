@@ -40,7 +40,7 @@ import { checkedCharacterSpacing } from './character-spacing.js';
 import { checkedHighlight, checkedShading, cellShadingFill } from './backgrounds.js';
 import { checkedVerticalAlign, checkedBaselineShift } from './vertical-align.js';
 import { normalizeColor } from './colors.js';
-import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, documentBlocks, cellSpan, rowGrid, spanWidth } from './tables.js';
+import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, documentBlocks, cellSpan, rowGrid, spanWidth, windowShared, windowShares } from './tables.js';
 import { normalizeCellBlock, cellBlockPlacements } from './table-selection.js';
 import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, resolveCharacterRun, paragraphRunStyle } from './styles.js';
 import { emptyNumbering, hasListLevel, hasNumberingDefinition, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
@@ -50,7 +50,7 @@ import { sectionColumnIntervals } from './section-columns.js';
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
-import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange, sharedRevision, sameRevision } from './revisions.js';
+import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange, sharedRevision, sameRevision, revisionTimes } from './revisions.js';
 import { footnoteReferenceRun } from './footnotes.js';
 import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers, commentThread, checkedCommentText, initialsFor } from './comments.js';
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
@@ -150,13 +150,19 @@ function tableContent(doc, table) {
     byCell.get(owner).push(p); count++;
   }
   const selection = Object.fromEntries(Object.entries(doc.selection).map(([key, value]) => { const at = locate(doc.paragraphs, value); return [key, { id: doc.paragraphs[at.index].id, offset: at.offset }]; }));
-  const comments = doc.comments?.length ? new Set(commentAnchors(doc.paragraphs).map(a => a.id)) : null;
-  return { start, count, byCell, selection, bookmarks: bookmarkStructureState(doc.paragraphs, doc.tables), comments };
+  return { start, count, byCell, selection, bookmarks: bookmarkStructureState(doc.paragraphs, doc.tables), comments: doc.comments?.length ? commentEdges(doc.paragraphs) : null };
 }
-/**
- * A comment anchored only in cells a table edit removed goes with them (and its replies), as in Word: left
- * without an anchor it could not be reached and was written to the file again on every save.
- */
+/** Where each comment's markers are: { edges: id → { start, end } as { index, marker }, order: the paragraphs' ids }. */
+function commentEdges(paragraphs) {
+  const edges = new Map();
+  paragraphs.forEach((p, index) => {
+    for (const marker of p.bookmarks || []) if (marker.comment) {
+      if (!edges.has(marker.commentId)) edges.set(marker.commentId, {});
+      edges.get(marker.commentId)[marker.edge] = { index, marker };
+    }
+  });
+  return { edges, order: paragraphs.map(p => p.id) };
+}
 /**
  * Make room for an object character inserted at `offset` of paragraph `p`: markers after it move on. A
  * field that starts there (empty or not) starts after the object, which goes before it rather than into
@@ -169,10 +175,38 @@ function shiftMarkersPastObject(p, offset, { commentEnds = false } = {}) {
   const starting = new Set(p.fieldMarkers.filter(m => m.type === 'start' && m.offset === offset).map(m => m.field.id));
   for (const marker of p.fieldMarkers) if (marker.offset > offset || marker.offset === offset && starting.has(marker.field.id)) marker.offset++;
 }
+/**
+ * A comment anchored only in cells a table edit removed goes with them (and its replies), as in Word: left
+ * without an anchor it could not be reached and was written to the file again on every save. `anchored` is
+ * commentEdges() from before the edit. A comment that lost only one end (it ran from text outside the table
+ * into a deleted row or column) keeps the rest of its range: the end goes to the end of the last paragraph
+ * before the removed content that is still there, the start to the beginning of the first one after it. With
+ * one marker it was saved without its reference, and Word showed no comment.
+ */
 function removeUnanchoredComments(doc, anchored) {
-  if (!anchored?.size || !doc.comments) return;
-  const kept = new Set(commentAnchors(doc.paragraphs).map(a => a.id)), gone = new Set([...anchored].filter(id => !kept.has(id)));
+  if (!anchored?.edges.size || !doc.comments) return;
+  const now = new Map();
+  for (const p of doc.paragraphs) for (const marker of p.bookmarks || []) if (marker.comment) {
+    if (!now.has(marker.commentId)) now.set(marker.commentId, {});
+    now.get(marker.commentId)[marker.edge] = true;
+  }
+  const gone = new Set([...anchored.edges.keys()].filter(id => !now.has(id)));
   if (gone.size) doc.comments = doc.comments.filter(c => !gone.has(c.id) && !gone.has(c.parentId));
+  let indices = null;
+  for (const [id, was] of anchored.edges) {
+    const has = now.get(id);
+    if (!has) continue;
+    for (const edge of ['start', 'end']) {
+      if (has[edge] || !was[edge]) continue;
+      indices ||= new Map(doc.paragraphs.map((p, i) => [p.id, i]));
+      const step = edge === 'end' ? -1 : 1;
+      let target;
+      for (let i = was[edge].index; target === undefined && i >= 0 && i < anchored.order.length; i += step) target = indices.get(anchored.order[i]);
+      if (target === undefined) continue;
+      const p = doc.paragraphs[target];
+      (p.bookmarks ||= []).push({ ...was[edge].marker, offset: edge === 'end' ? paragraphLength(p) : 0 });
+    }
+  }
 }
 function removeOrphanedTables(doc) {
   for (;;) {
@@ -555,6 +589,7 @@ export class TextDocument {
     const targets = this.selectedParagraphs.map(p => { const format = paragraphFormat(p, this.numbering); return { p, from: format.alignment, to: physicalAlignment(side, format.bidi) }; }).filter(t => t.from !== t.to);
     if (!targets.length) return false;
     this.checkpoint();
+    this.formatChanges?.push({ paragraph: { alignment: side } });
     for (const { p, to } of targets) {
       p.format = { ...PARAGRAPH_FORMAT, ...p.format, alignment: to };
       p.formatOverrides = { ...p.formatOverrides, alignment: to };
@@ -652,6 +687,7 @@ export class TextDocument {
     }
     if (targets.every(p => !['Before', 'After'].some(side => Object.hasOwn(patch, 'space' + side) && p.format?.['autoSpace' + side]) && Object.entries(patch).every(([key, value]) => key === 'paragraphBorders' ? Object.entries(value).every(([side, border]) => sameValue(paragraphFormat(p, this.numbering).paragraphBorders[side], border)) : sameValue(paragraphFormat(p, this.numbering)[key], value)))) return false;
     this.checkpoint();
+    this.formatChanges?.push({ paragraph: patch });
     for (const p of targets) {
       const borders = patch.paragraphBorders && { ...p.format?.paragraphBorders, ...copy(patch.paragraphBorders) };
       const borderOverrides = patch.paragraphBorders && { ...p.formatOverrides?.paragraphBorders, ...copy(patch.paragraphBorders) };
@@ -691,6 +727,7 @@ export class TextDocument {
     const values = current.map(value => validateIndent(delta < 0 ? Math.max(Math.min(value, 0), value + delta) : value + delta));
     if (!delta || values.every((value, i) => value === current[i])) return false;
     this.checkpoint();
+    this.formatChanges?.push({ paragraph: { indentLeft: values[0] } });
     targets.forEach((p, i) => {
       p.format = { ...PARAGRAPH_FORMAT, ...p.format, indentLeft: values[i] };
       p.formatOverrides = { ...p.formatOverrides, indentLeft: values[i] };
@@ -712,6 +749,7 @@ export class TextDocument {
     if (targets.every(p => effective(p.styleId || '') === effective(id || ''))) return false;
     const next = targets.map(p => resolveStyledParagraph({ ...copy(p), styleId: id || null, styleChanged: true }, this.styles, this.numbering));
     this.checkpoint(); targets.forEach((p, i) => Object.assign(p, next[i]));
+    this.formatChanges?.push({ style: id || normal });
     this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false; this.stylesEnabled = true; this.didChange(); return true;
   }
   editParagraphStyle(id, patch) { return this.editNamedStyle(id, patch, 'paragraph'); }
@@ -750,6 +788,7 @@ export class TextDocument {
     }
     const targets = this.selectedParagraphs, remove = cells ? cells.remove : this.listFormatting === kind;
     this.checkpoint();
+    this.formatChanges?.push({ list: remove ? null : kind });
     let numId = cells?.numId;
     if (!remove && !numId) {
       // The selected paragraphs start at the range's start (selectedParagraphs).
@@ -759,8 +798,10 @@ export class TextDocument {
       if (cells) cells.numId = numId;
     }
     for (const p of targets) {
-      // A direct numId=0 overrides inherited numbering when removing a list.
-      p.list = remove ? null : { numId, level: listKind(this.numbering, p.list) === kind ? p.list.level : 0, direct: true };
+      // A direct numId=0 overrides inherited numbering when removing a list. An item of another list keeps its level
+      // where the list it joins has one: bullets made numbers (or numbers bullets) stay nested as they were.
+      const level = p.list && hasListLevel(this.numbering, { numId, level: p.list.level }) ? p.list.level : 0;
+      p.list = remove ? null : { numId, level, direct: true };
       p.listChanged = true;
     }
     this.didChange(); return true;
@@ -839,16 +880,22 @@ export class TextDocument {
     const counters = listMarkers(this.paragraphs, this.numbering)[this.paragraphs.indexOf(first)].counters;
     const originalList = { ...first.list }, next = copy(this.numbering), numId = restartList(next, first.list, start, counters);
     this.checkpoint(); this.numbering = next;
-    // Restart the contiguous remainder of this list, including nested items.
+    // Restart the remainder of this list, including nested items and those after paragraphs between them that are no
+    // items of it (left in the old list, they went on from its count, and Continue Numbering left them behind).
     for (let i = this.paragraphs.indexOf(first); i < this.paragraphs.length; i++) {
       const p = this.paragraphs[i];
-      if (!p.list || p.list.numId !== originalList.numId) break;
+      if (!p.list || p.list.numId !== originalList.numId) continue;
       if (p !== first && p.list.level < originalList.level) break;
       p.list = { ...p.list, numId, direct: true }; p.listChanged = true;
     }
     this.didChange(); return true;
   }
   insertParagraph() {
+    // Enter at the very start of a table that begins the document (or the header, footer or note) puts an empty
+    // paragraph above the table, as in Word: there is no other place to type before it. With Track Changes on that
+    // paragraph would not be a tracked change, so the cell takes the new paragraph as usual.
+    const first = this.paragraphs[0];
+    if (this.range[0] === 0 && this.range[1] === 0 && first?.cellId && !cellContext(this.tables, first.cellId)?.table.parentCellId && !(this.trackChanges && !this.trackingInternal)) return this.insertTableParagraph(false);
     const p = this.selectedParagraphs[0];
     if (this.range[0] === this.range[1] && p.list && !paragraphText(p)) {
       // An empty nested item steps out one level, as in other word processors; only at the top level does
@@ -1338,6 +1385,16 @@ export class TextDocument {
     this.select(this.paragraphOffset(index)); return true;
   }
   /**
+   * Tab and Shift+Tab select the contents of the cell they go to, as in Word, so typing replaces them; an empty cell
+   * takes the caret. A cell holding a table keeps the caret at its start: typing there would replace that table.
+   */
+  selectCellContents(id) {
+    const first = this.paragraphs.findIndex(p => p.cellId === id), last = this.paragraphs.findLastIndex(p => p.cellId === id);
+    if (first < 0) return false;
+    if (this.tables.some(table => table.parentCellId === id)) return this.selectCell(id);
+    this.select(this.paragraphOffset(first), this.paragraphOffset(last) + paragraphLength(this.paragraphs[last])); return true;
+  }
+  /**
    * Where Tab (1) or Shift+Tab (-1) goes from the caret's cell: { cell } to select, { addRow } after the last
    * cell, or { before } the table, out of its first cell. Only adding a row changes the document.
    */
@@ -1349,7 +1406,7 @@ export class TextDocument {
   }
   moveCell(direction, move = this.cellMove(direction)) {
     if (!move) return false;
-    if (move.cell) { this.selectCell(move.cell); return false; }
+    if (move.cell) { this.selectCellContents(move.cell); return false; }
     if (move.addRow) return this.insertTableRow();
     const p = this.paragraphs.findIndex(p => p.cellId === move.before);
     this.select(Math.max(0, this.paragraphOffset(p) - 1)); return false;
@@ -1445,6 +1502,8 @@ export class TextDocument {
       if (row === context.row) selected = cell.id;
     }
     table.grid = grid; table.gridChanged = true;
+    // A table sharing the window in percent (AutoFit to window) shares it among its columns again.
+    if (automatic && windowShared(table) && grid.every(w => w > 0)) windowShares(table, grid);
     if (!automatic) { setCellWidths(table, grid); table.width = { type: 'dxa', value: total }; table.widthChanged = true; }
     applyTableContent(this, table, state);
     this.selectCell(selected); this.didChange(); return true;
@@ -1487,6 +1546,40 @@ export class TextDocument {
     if (!this.paragraphs.length) this.paragraphs.push(paragraph());
     if (kind === 'table') { repairStructuralBookmarks(this.paragraphs, state.bookmarks, this.tables, table.id); normalizeBlockBookmarkScopes(this.paragraphs, this.tables); removeUnanchoredComments(this, state.comments); }
     this.select(this.paragraphOffset(Math.max(0, Math.min(first, this.paragraphs.length - 1)))); this.didChange(); return true;
+  }
+  /**
+   * Delete in an empty paragraph just before a table removes that paragraph, as in Word: the table moves up and the
+   * caret goes to its first cell. A paragraph holding a section break, a bookmark, a comment, a field or a content
+   * control stays, as does one after another table at its level (the two tables would join into one).
+   */
+  removeParagraphBeforeTable(index) {
+    const p = this.paragraphs[index], next = this.paragraphs[index + 1], before = this.paragraphs[index - 1], level = p.cellId || null;
+    if (!next?.cellId || next.cellId === p.cellId || p.sectionEnd || p.bookmarks?.length || p.fieldMarkers?.length || p.blockControls?.length || p.markRevision) return false;
+    if (this.trackChanges && !this.trackingInternal) return false;
+    // The tables a paragraph is in, from its own cell's outwards: the one at `level` is the table it belongs to there.
+    const tableAt = cellId => { for (let at = cellId && cellContext(this.tables, cellId); at; at = at.table.parentCellId && cellContext(this.tables, at.table.parentCellId)) if ((at.table.parentCellId || null) === level) return at.table; return null; };
+    const table = tableAt(next.cellId);
+    if (!table || before && (before.cellId || null) !== level && tableAt(before.cellId)) return false;
+    try { documentBlocks(this.paragraphs.filter(other => other !== p), this.tables); } catch { return false; }
+    this.checkpoint(); this.paragraphs.splice(index, 1);
+    this.select(this.paragraphOffset(index)); this.didChange(); return true;
+  }
+  /**
+   * Backspace in an empty paragraph just after a table removes that paragraph, as in Word, the caret going to the end
+   * of the table's last cell. The paragraph a table needs after it stays: the last one of the document or cell, one
+   * before another table at its level (the two would join), and one holding a section break, bookmark, comment, field
+   * or control. With Track Changes on nothing changes.
+   */
+  removeParagraphAfterTable(index) {
+    const p = this.paragraphs[index], next = this.paragraphs[index + 1], before = this.paragraphs[index - 1], level = p.cellId || null;
+    if (!before?.cellId || before.cellId === p.cellId || !next || (next.cellId || null) !== level) return false;
+    if (p.sectionEnd || p.bookmarks?.length || p.fieldMarkers?.length || p.blockControls?.length || p.markRevision || p.list) return false;
+    if (this.trackChanges && !this.trackingInternal) return false;
+    const tableAt = cellId => { for (let at = cellId && cellContext(this.tables, cellId); at; at = at.table.parentCellId && cellContext(this.tables, at.table.parentCellId)) if ((at.table.parentCellId || null) === level) return at.table; return null; };
+    if (!tableAt(before.cellId)) return false;
+    try { documentBlocks(this.paragraphs.filter(other => other !== p), this.tables); } catch { return false; }
+    this.checkpoint(); this.paragraphs.splice(index, 1);
+    this.select(this.paragraphOffset(index) - 1); this.didChange(); return true;
   }
   insertTableParagraph(after = true) {
     const context = this.tableContext; if (!context) return false;
@@ -1722,16 +1815,18 @@ export class TextDocument {
     while (b < text.length && word.test(after(b))) b += after(b).length;
     return [points.findLast(p => p <= a) ?? 0, points.find(p => p >= b) ?? text.length];
   }
-  addComment({ author = '', initials, text = '', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z'), range } = {}) {
+  addComment({ author = '', initials, text = '', date, dateUtc, range } = {}) {
+    if (date === undefined) { const now = revisionTimes(); date = now.date; dateUtc ??= now.dateUtc; }
     this.comments ||= [];
     const body = checkedCommentText(text), id = nextCommentId(this.comments, this.commentIdFloor);
     const [start, end] = range || this.commentRange();
     this.checkpoint();
     addCommentMarkers(this.paragraphs, id, start, end);
-    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, text: body, done: false, parentId: null, paraId: null });
+    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, ...(dateUtc ? { dateUtc } : {}), text: body, done: false, parentId: null, paraId: null });
     this.didChange(); return id;
   }
-  replyToComment(parentId, { author = '', initials, text = '', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z') } = {}) {
+  replyToComment(parentId, { author = '', initials, text = '', date, dateUtc } = {}) {
+    if (date === undefined) { const now = revisionTimes(); date = now.date; dateUtc ??= now.dateUtc; }
     const parent = this.comments?.find(c => c.id === parentId);
     if (!parent) throw new Error('That comment no longer exists.');
     const root = parent.parentId && this.comments.some(c => c.id === parent.parentId) ? parent.parentId : parent.id;
@@ -1740,7 +1835,7 @@ export class TextDocument {
     this.checkpoint();
     // Each reply is anchored on its parent's range.
     if (anchor) addCommentMarkers(this.paragraphs, id, anchor.start, anchor.end);
-    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, text: body, done: false, parentId: root, paraId: null });
+    this.comments.push({ id, author, initials: initials ?? initialsFor(author), date, ...(dateUtc ? { dateUtc } : {}), text: body, done: false, parentId: root, paraId: null });
     this.didChange(); return id;
   }
   editComment(id, text) {
@@ -2086,11 +2181,13 @@ export class TextDocument {
     for (const p of this.paragraphs) for (const run of p.runs) if (run.image === image) run.image = updated;
     this.didChange(); return true;
   }
-  replaceDrawingText(expected, assetId, shell) {
+  replaceDrawingText(expected, assetId, shell, alt = null) {
     const image = this.selectedImage;
     if (image !== expected || !image?.retainedDrawing || !this.assets[assetId]?.scene || typeof shell !== 'string' || !shell) throw new Error('The selected drawing changed before its text could be applied.');
     this.checkpoint();
-    for (const p of this.paragraphs) for (const run of p.runs) if (run.image === image) run.image = { ...image, assetId, shell };
+    // `alt`: a description that follows the text (a diagram's outline), written into the shell's wp:docPr too.
+    const next = typeof alt === 'string' ? { ...image, assetId, shell, alt } : { ...image, assetId, shell };
+    for (const p of this.paragraphs) for (const run of p.runs) if (run.image === image) run.image = next;
     this.didChange(); return true;
   }
   get bold() { return this.runFormatting.bold === true; }
@@ -2124,6 +2221,52 @@ export class TextDocument {
     this.didChange(); return true;
   }
   setFontSize(fontSize) { return this.setRunFormat({ fontSize, fontSizeCs: fontSize }); }
+  /**
+   * Increase or Decrease Font Size: `next(size)` is the size a step from `size`. A selection of several sizes steps
+   * each stretch from its own size, as Word does, keeping the differences between them; with no one size to step
+   * from, the command did nothing.
+   */
+  stepFontSize(next) {
+    const pass = this.blockCellPass(() => this.stepFontSize(next));
+    if (pass !== undefined) return pass;
+    const size = this.runCommandFormatting.fontSize, [start, end] = this.textFormattingRange;
+    if (size !== null && size !== undefined) return this.setFontSize(next(size));
+    if (start === end) return false;
+    // Stretches of one size within each paragraph.
+    const stretches = [], first = this.locate(start);
+    let at = start - first.offset;
+    for (let i = first.index; i < this.paragraphs.length && at <= end; i++) {
+      let last = null;
+      for (const run of this.paragraphs[i].runs) {
+        const a = Math.max(start, at), b = Math.min(end, at + run.text.length), runSize = commandRunFormat(run).fontSize;
+        if (a < b) {
+          if (last && last.size === runSize && last.end === a) last.end = b;
+          else stretches.push(last = { start: a, end: b, size: runSize });
+        }
+        at += run.text.length;
+      }
+      at++;
+    }
+    const selection = { ...this.selection }, cellBlock = this.cellBlock, own = Object.hasOwn(this, 'checkpoint') ? this.checkpoint : null;
+    let changed = false;
+    // One undo step for them all.
+    this.checkpoint();
+    this.checkpoint = () => {};
+    try {
+      // Only formatting changes: each stretch's paragraph is found from the paragraphs' starts (withFixedText).
+      this.withFixedText(() => {
+        for (const stretch of stretches) {
+          this.selection = { anchor: stretch.start, focus: stretch.end }; this.cellBlock = null;
+          if (this.setFontSize(next(stretch.size))) changed = true;
+        }
+      });
+    } finally {
+      if (own) this.checkpoint = own; else delete this.checkpoint;
+      this.selection = selection; this.cellBlock = cellBlock;
+    }
+    if (!changed) this.history.pop();
+    return changed;
+  }
   /**
    * `mark: false` formats the selected text alone. Formatting that belongs to the text itself (a link's look,
    * a pasted run) must not reach the paragraph mark, which a list label and the next paragraph take their format from.
@@ -2185,9 +2328,11 @@ export class TextDocument {
     }
     if (start === end && this.paragraphs[locate(this.paragraphs, start).index].runs.length) {
       this.typingFormat = { ...this.typingFormat, ...patch };
+      this.formatChanges?.push({ run: patch });
       return false;
     }
     this.checkpoint();
+    this.formatChanges?.push({ run: patch });
     // Paragraphs before the one holding the start, and after the end, are left as they are.
     const first = this.locate(start);
     let at = start - first.offset;
@@ -2433,7 +2578,7 @@ export class TextDocument {
     }
     return true;
   }
-  newRevision(type) { return { type, author: this.revisionAuthor || 'Author', date: new Date().toISOString().replace(/\.\d+Z$/, 'Z') }; }
+  newRevision(type) { return { type, author: this.revisionAuthor || 'Author', ...revisionTimes() }; }
   trackedReplace(text, { checkpoint = true, ...rest } = {}) {
     const [start, end] = this.range, backward = this.selection.focus < this.selection.anchor;
     if (checkpoint) this.checkpoint();
@@ -2467,7 +2612,7 @@ export class TextDocument {
         // as typing extends an insertion, so it stays one change even when it crosses a clock second.
         const now = Date.now();
         const continued = nearbyRevisionRanges(this.paragraphs, start, end).find(r => r.type === 'del' && !r.move && r.author === me && (r.end === start || r.start === end) && now - Date.parse(r.date) < 60000);
-        if (continued) deletion.date = continued.date;
+        if (continued) { deletion.date = continued.date; if (continued.dateUtc) deletion.dateUtc = continued.dateUtc; else delete deletion.dateUtc; }
         // A paragraph mark that ends a table cell (or sits before or after a table) cannot be deleted.
         let boundaries;
         const boundary = paragraph => (boundaries ||= new Set(this.paragraphs.filter((p, i) => (p.cellId || '') !== (this.paragraphs[i + 1]?.cellId || '')).map(p => p.id))).has(paragraph.id);
@@ -2508,7 +2653,7 @@ export class TextDocument {
             Object.assign(insertion, { move: true, moveName: name });
           }
         }
-        if (continued && !insertion.move) insertion.date = continued.date;
+        if (continued && !insertion.move) { insertion.date = continued.date; if (continued.dateUtc) insertion.dateUtc = continued.dateUtc; else delete insertion.dateUtc; }
         eachRevisionTarget(this.paragraphs, insertAt, insertAt + inserted, ({ paragraph, run, mark }) => {
           if (mark) paragraph.markRevision = { ...insertion }; else { run.revision = { ...insertion }; delete run.formatRevision; }
         });
@@ -3110,6 +3255,7 @@ export class TextDocument {
         return changed;
       } catch (error) { this.selection = selection; throw error; }
     }
+    if (!paragraphLength(p) && (direction > 0 ? this.removeParagraphBeforeTable(location.index) : this.removeParagraphAfterTable(location.index))) return true;
     const sectionBeforeTable = direction > 0 && !p.cellId && p.sectionEnd && other.cellId;
     if ((p.cellId || '') !== (other.cellId || '') && !sectionBeforeTable) return false;
     if (this.hasPictureControls) checkPictureControlEdit(this.paragraphs, [Math.min(start, target), Math.max(start, target)]);

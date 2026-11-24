@@ -491,3 +491,21 @@ function fitSpanWidths(base, spans, key, weights, total, integer = false) {
 }
 
 export const minimumSpanWidth = (lower, spans, key) => spanPrefixes(lower, spans, key).at(-1);
+
+/**
+ * AutoFit to window, as Word does it: each column's preferred width becomes its share of the table's (w:tcW pct,
+ * §17.4.71, in fiftieths of a percent), so the columns keep their proportions as text is typed until content no
+ * longer fits. Automatic widths let one short word in a column widen it at the others' expense.
+ */
+export const windowShared = table => table.width?.type === 'pct' && tableCells(table).some(cell => cell.width?.type === 'pct');
+export function windowShares(table, widths) {
+  const positive = widths.map(w => Math.max(1, w)), total = positive.reduce((a, b) => a + b, 0);
+  let running = 0, previous = 0;
+  const shares = positive.map(w => { running += w; const next = Math.round(running * 5000 / total), share = next - previous; previous = next; return share; });
+  const share = (from, span) => shares.slice(from, from + span).reduce((a, b) => a + b, 0);
+  for (const row of table.rows) {
+    for (const { cell, column, span } of rowGrid(row)) { cell.width = { type: 'pct', value: share(column, span) }; cell.widthChanged = true; }
+    if (row.gridBefore) { row.widthBefore = { type: 'pct', value: share(0, row.gridBefore) }; row.widthBeforeChanged = true; }
+    if (row.gridAfter) { row.widthAfter = { type: 'pct', value: share(shares.length - row.gridAfter, row.gridAfter) }; row.widthAfterChanged = true; }
+  }
+}

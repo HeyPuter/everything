@@ -28,7 +28,9 @@ test('edits imported cells with styles, cell navigation and pagination, then sav
   expect(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionStart + 7))).toBe('Details');
   await page.getByRole('combobox', { name: 'Zoom' }).selectOption('1');
   await select('Product', 0, 0); await expect(actions).toBeEnabled();
-  await input.press('Tab'); expect(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionStart + 7))).toBe('Details');
+  // Tab selects the next cell's contents, as in Word; Backspace at the start of a cell then leaves the cells as they are.
+  await input.press('Tab'); expect(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('Details');
+  await input.press('ArrowLeft');
   const before = await input.inputValue(); await input.press('Backspace'); await expect(input).toHaveValue(before);
   await input.press('Shift+Tab'); expect(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionStart + 7))).toBe('Product');
   await select('Alpha', 5, 0); await page.keyboard.insertText(' revised');

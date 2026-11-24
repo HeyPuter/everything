@@ -6,6 +6,7 @@ import { el, listItem, relativeTime } from '../ui/dom.js';
 import { sidePane, preference } from './review-ui.js';
 import { commentThreads, avatarColor } from './review.js';
 import { initialsFor } from '../engine/comments.js';
+import { revisionTime } from '../engine/revisions.js';
 import { mentionsIn, renderMentions } from './mentions.js';
 
 const SHOW_RESOLVED = preference('documents:comments-pane-resolved', true);
@@ -44,7 +45,7 @@ export function createCommentsPane({ editor, review, people }) {
     const active = review.commands.activeThread()?.id;
     newComment.disabled = !review.commands.canComment();
     list.replaceChildren(...shown.map(t => {
-      const when = Date.parse(t.root.date);
+      const when = revisionTime(t.root);
       return listItem(el(`button.rv-comment${t.root.done ? '.is-resolved' : ''}`, { type: 'button', 'aria-current': String(t.id === active), onclick: () => review.commands.selectThreadById(t.id) },
         el('span.rv-comment-head', {}, el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(t.root.author) } }, (t.root.initials || initialsFor(t.root.author) || '?').slice(0, 2)),
           el('strong', {}, t.root.author || 'Unknown author'), el('span.rv-comment-date', {}, Number.isFinite(when) ? relativeTime(when) : ''), t.root.done ? el('span.rv-badge', {}, 'Resolved') : null),

@@ -430,11 +430,30 @@ describe('table cell budgets', () => {
 });
 
 describe('opening converted Hanword documents', () => {
-  it.each(['ChangeTrack', 'PageFunctions', 'SimpleCompose', 'SimpleEquation'])('opens %s.hwpx for editing, not as a read-only preview', async (name) => {
+  it.each(['ChangeTrack', 'PageFunctions', 'SimpleCompose', 'SimpleEquation', 'SimplePicture'])('opens %s.hwpx for editing, not as a read-only preview', async (name) => {
     globalThis.XMLSerializer ??= new JSDOM('').window.XMLSerializer;
     const { DocxPackage } = await import('../src/engine/docx.js');
     const { blob } = await convertHanword(file(readFileSync(`tests/fixtures/hwpx/${name}.hwpx`), `${name}.hwpx`));
     const pkg = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()), { bestEffort: true });
+    expect(pkg.previewIssues || []).toEqual([]);
+    expect(pkg.readOnly).toBeFalsy();
+  });
+  // Top-and-bottom wrapping placed against the page, and "allow overlap" turned off for a wrapped object, made the
+  // converted file one the editor opened read-only: it now writes column-wide square wrapping (text goes above and
+  // below, as before) and leaves overlap to the objects' placement.
+  it('opens page-placed top-and-bottom and no-overlap wrapped drawings for editing', async () => {
+    globalThis.XMLSerializer ??= new JSDOM('').window.XMLSerializer;
+    const { DocxPackage } = await import('../src/engine/docx.js');
+    const rect = (wrap, pos) => `<hp:rect textWrap="${wrap}"><hp:sz width="7200" height="3600"/><hp:pos treatAsChar="0" ${pos}/><hp:lineShape width="100" color="#000000"/></hp:rect>`;
+    const bytes = hwpx({ sections: [`<hp:p><hp:run>${rect('TOP_AND_BOTTOM', 'horzRelTo="PAPER" vertRelTo="PAPER" horzOffset="20000" vertOffset="30000"')}${rect('SQUARE', 'horzRelTo="COLUMN" vertRelTo="PARA" horzOffset="0" vertOffset="0" allowOverlap="0"')}<hp:t>Body text</hp:t></hp:run></hp:p>`] });
+    const { blob } = await convertHanword(file(bytes, 'Placed.hwpx'));
+    const converted = new Uint8Array(await blob.arrayBuffer());
+    const xml = strFromU8(unzipSync(converted)['word/document.xml']);
+    // The page is 59528 wide with 8504 margins: the band reaches both edges of the text column.
+    expect(xml).toContain(`distL="${(20000 - 8504) * 127}" distR="${(59528 - 8504 - 20000 - 7200) * 127}"`);
+    expect(xml).not.toContain('wrapTopAndBottom');
+    expect(xml).not.toContain('allowOverlap="0"');
+    const pkg = await DocxPackage.open(converted, { bestEffort: true });
     expect(pkg.previewIssues || []).toEqual([]);
     expect(pkg.readOnly).toBeFalsy();
   });

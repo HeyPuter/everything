@@ -40,7 +40,7 @@ test('Page Number > Current Position in the body shows the section\'s numbering'
   await page.getByRole('menuitem', { name: 'Current Position', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Plain Number', exact: true }).click();
   await expect.poll(() => firstParagraph(page)).toBe(`${before}ii`);
-  // Update Fields leaves body page numbers as they are (their result is the page they were inserted on).
+  // Update Fields gives it the number of the page it is on, which is still ii.
   await page.keyboard.press('F9');
   await page.waitForTimeout(300);
   expect(await firstParagraph(page)).toBe(`${before}ii`);

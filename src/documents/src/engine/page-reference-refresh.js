@@ -28,12 +28,38 @@ export function pageReferencePlan(model, layout, definition, ids) {
   const numbers = pageNumberSequence(layout.pageSections, definition, layout.numberingApproximations);
   const links = hyperlinkRanges(model.paragraphs);
   const changes = [], issues = [];
+  // The pages each section has a part of, as a header's SECTIONPAGES counts them (page-story-layout.js).
+  let pageCounts = null;
+  const sectionPages = section => {
+    if (!pageCounts) {
+      pageCounts = new Map();
+      layout.pageSections.forEach((owner, page) => {
+        for (const value of layout.pageRegions?.[page] ? new Set(layout.pageRegions[page].map(r => r.section)) : [owner]) if (value !== null) pageCounts.set(value, (pageCounts.get(value) || 0) + 1);
+      });
+    }
+    return pageCounts.get(section) || 1;
+  };
   for (const range of ranges) {
-    if (range.field.type !== 'PAGEREF' || ids && !ids.has(range.field.id)) continue;
+    // PAGE and SECTIONPAGES fields only when asked for by id (refreshPageReferences `pageFields`).
+    if (!(range.field.type === 'PAGEREF' || ['PAGE', 'SECTIONPAGES'].includes(range.field.type) && ids) || ids && !ids.has(range.field.id)) continue;
     let owner = range;
     while (owner && !owner.field.locked) owner = byId.get(owner.parentId);
     if (owner?.field.locked) continue;
     try {
+      if (range.field.type !== 'PAGEREF') {
+        // A PAGE field in the text shows the number of the page it is on, as its section numbers pages, and
+        // SECTIONPAGES the number of pages of its section; one inside another field (an IF, a formula) is that
+        // field's to evaluate.
+        if (range.parentId) continue;
+        const line = lineFor(layout, range.start, range.startParagraph);
+        if (!line || numbers[line.page] == null) throw new Error(`The ${range.field.type} field has no resolved text page; its cached result is retained.`);
+        const section = line.region === undefined ? layout.pageSections[line.page] : layout.pageRegions[line.page]?.[line.region]?.section;
+        let options;
+        try { options = pageFieldInstruction(range.field.instruction); } catch { throw new Error(`This ${range.field.type} field uses switches that cannot be refreshed yet; its cached result is retained.`); }
+        const text = pageFieldValue(options, { pageNumber: numbers[line.page], sectionPageCount: sectionPages(section), pageNumbering: definition?.sections[section]?.pageNumbering });
+        if (text !== null && (model.text.slice(range.start, range.end) !== text || range.field.dirty)) changes.push({ ...range, text });
+        continue;
+      }
       if (ranges.some(child => child.parentId === range.field.id)) throw new Error('A PAGEREF with nested result fields cannot be refreshed yet; its cached result is retained.');
       const options = referenceOptions(range.field), bookmark = bookmarkNamed(bookmarks, range.field.bookmark);
       let text, link;
@@ -93,9 +119,11 @@ function cleanDirty(field) {
 }
 
 /** Recompute against actual pagination until field widths and bookmark pages settle. */
-export function refreshPageReferences(model, layoutOf, definition, { dirtyOnly = false, checkpoint = true, only = null } = {}) {
+export function refreshPageReferences(model, layoutOf, definition, { dirtyOnly = false, checkpoint = true, only = null, pageFields = false } = {}) {
   if (!model.hasBodyFields) return { changed: 0, issues: [] };
-  const ids = new Set(bodyFieldRanges(model.paragraphs).filter(r => r.field.type === 'PAGEREF' && (!dirtyOnly || r.field.dirty) && (!only || only.has(r.field.id))).map(r => r.field.id));
+  // `pageFields`: PAGE and SECTIONPAGES fields in the text are computed from the pages too, as Update Fields (F9) does.
+  const types = pageFields ? ['PAGEREF', 'PAGE', 'SECTIONPAGES'] : ['PAGEREF'];
+  const ids = new Set(bodyFieldRanges(model.paragraphs).filter(r => types.includes(r.field.type) && (!dirtyOnly || r.field.dirty) && (!only || only.has(r.field.id))).map(r => r.field.id));
   if (!ids.size) return { changed: 0, issues: [] };
   const before = model.snapshot(), revision = model.revision, history = [...model.history], future = [...model.future];
   let anchor = before.selection.anchor, focus = before.selection.focus, recorded = false;

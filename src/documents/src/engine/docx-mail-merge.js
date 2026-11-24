@@ -365,13 +365,25 @@ export function mergeDocumentParts(sourceParts, { data, mapping = {}, answers = 
     }
     kind.part.documentElement.append(note); e.setAttributeNS(W, 'w:id', id); kind.changed = true;
   };
+  // Tracked changes and editing permissions are numbered annotations (§17.13.5, §17.13.7): each later copy gets its
+  // own numbers and its own move names. Sharing them, accepting a move in one letter accepted it in every letter.
+  const annotations = new Set(['ins', 'del', 'moveFrom', 'moveTo', 'moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd', 'rPrChange', 'pPrChange', 'sectPrChange', 'tblPrChange', 'trPrChange', 'tcPrChange', 'tblGridChange', 'numberingChange', 'cellIns', 'cellDel', 'cellMerge', 'permStart', 'permEnd']);
+  const annotated = e => e.namespaceURI === W && annotations.has(e.localName) && e.hasAttributeNS(W, 'id');
+  let nextAnnotation = 1 + Math.max(0, ...template.flatMap(n => [n, ...documentOrder(n)]).filter(annotated).map(e => Number(e.getAttributeNS(W, 'id'))).filter(Number.isSafeInteger));
   const output = [];
   plan.forEach((copy, index) => {
     const nodes = template.map(n => n.cloneNode(true));
     const fields = xmlMergeFields(nodes), all = nodes.flatMap(n => [n, ...documentOrder(n)]), dropped = new Set();
     fields.forEach((field, i) => { if (copy.results[i] !== null && copy.results[i] !== undefined) replaceField(doc, field, copy.results[i], all, dropped); });
     if (dropped.size) nodes.splice(0, nodes.length, ...nodes.filter(n => !dropped.has(n)));
+    const renumbered = new Map();
     if (index) for (const n of nodes) for (const e of [n, ...documentOrder(n)]) {
+      if (annotated(e)) {
+        const id = e.getAttributeNS(W, 'id');
+        if (!renumbered.has(id)) renumbered.set(id, String(nextAnnotation++));
+        e.setAttributeNS(W, 'w:id', renumbered.get(id));
+        if (/^move(From|To)RangeStart$/.test(e.localName) && e.hasAttributeNS(W, 'name')) e.setAttributeNS(W, 'w:name', `${e.getAttributeNS(W, 'name')}_${index + 1}`);
+      }
       // Later copies drop bookmarks and comment anchors whose ids and names must stay unique.
       if (['bookmarkStart', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'].some(name => isW(e, name))) e.remove();
       else if (isW(e, 'r') && child(e, 'commentReference')) e.remove();

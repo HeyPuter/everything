@@ -16,7 +16,7 @@ import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
 import { TEMPLATES } from '../lib/templates.js';
-import { deleteVersions, renameVersions } from '../lib/versions.js';
+import { clearStaleVersions, deleteVersions, renameVersions } from '../lib/versions.js';
 import { movePublication, unpublishAt } from '../lib/publish.js';
 import { moveGoal, rememberGoal } from '../lib/goal.js';
 import { movePosition, forgetPosition } from '../lib/position.js';
@@ -242,7 +242,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
 
   async function openFromPuter() {
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
-    const picked = await P.pickFile();
+    const picked = await P.pickFile({ accept: P.OPEN_EXTENSIONS });
     if (!destroyed && picked) openPath(picked.path);
   }
 
@@ -351,6 +351,8 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       const path = await P.createFile(`${P.FOLDER}/${name}`, blob);
       // A copy is a document of its own, not one that was shared and deleted under its name: it must not join that room.
       await forgetRoom(path);
+      // Nor does it take the history of a document that had its name.
+      await clearStaleVersions(path);
       keepFocus = { path, control: 'file-menu-btn' };
       toast('Duplicated');
       load();

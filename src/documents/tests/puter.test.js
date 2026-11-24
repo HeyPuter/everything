@@ -63,6 +63,9 @@ describe('files', () => {
     const files = await P.listFiles();
     expect(files.map((f) => f.name)).toEqual(['a.docx', 'old.dotx', 'b.docx']);
     expect(files[0].path).toBe('Documents/a.docx');
+    // Their sizes are noted, so opening one too large is refused before it downloads (Doc.fromPath).
+    expect(P.knownFileSize('Documents/a.docx')).toBe(20);
+    expect(P.knownFileSize('Documents/b.docx')).toBe(10);
   });
 
   it('treats a missing folder as empty', async () => {

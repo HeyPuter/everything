@@ -17,6 +17,9 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
   const watermarks = [];
   const borderMargins = [];
   const positions = [];
+  // Each story's laid-out column widths (twips / 15), by table id: the ribbon's Width box, border drags and
+  // column commands read them as they do the body's.
+  const tableWidths = {};
   if (!definition) return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, watermarks };
   const resolved = new Map(), storyKeys = new WeakMap();
   // A measurer that remembers stories resolves their styles only when it measures one it has not seen.
@@ -82,6 +85,7 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
         resolveDrawingCollisions(objects, body.pages);
         objects.sort((a, b) => a.image.anchor.order - b.image.anchor.order);
         lines.push(...storyLines); cells.push(...storyCells); floatingObjects.push(...objects);
+        Object.assign(tableWidths[path] ||= {}, placed.tableWidths);
         tableBorders.push(...placed.tableBorders.map(border => ({ ...shifted(border),
           ...(border.clip ? { clip: border.clip.map(([x, top]) => [x, top + y]) } : {}) })));
         for (const border of placed.paragraphBorders) borders.push({ ...shifted(border),
@@ -112,6 +116,7 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
         const top = y, shifted = item => ({ ...item, page: area.page, pageStory: note.path, y: item.y + top, ...(item.cellClip ? { cellClip: shiftCellClip(item.cellClip, top) } : {}) });
         lines.push(...placed.lines.map(line => ({ ...shifted(line), storyGeometry, baseline: line.baseline + top })));
         cells.push(...placed.cells.map(shifted));
+        Object.assign(tableWidths[note.path] ||= {}, placed.tableWidths);
         tableBorders.push(...placed.tableBorders.map(border => ({ ...shifted(border), ...(border.clip ? { clip: border.clip.map(([x, t]) => [x, t + top]) } : {}) })));
         for (const border of placed.paragraphBorders) borders.push({ ...shifted(border), ...(border.clip ? { clip: border.clip.map(([x, t]) => [x, t + top]) } : {}) });
         y += placed.endY;
@@ -121,5 +126,5 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       }
     }
   }
-  return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, positions, watermarks, pageVariants };
+  return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, positions, watermarks, pageVariants, tableWidths };
 }

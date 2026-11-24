@@ -69,7 +69,11 @@ export function textLayer(fragments, pageHeightPx, astral = new Map()) {
     const size = Math.max(1, f.fontSize || 12), width = Math.max(1, f.width * PT_PER_PX);
     // Each code advances half an em in the text font; horizontal scaling fits the run's painted width.
     const scale = Math.max(1, Math.min(10000, width / ([...text].length * size * 0.5) * 100));
-    ops.push(`/F1 ${size.toFixed(2)} Tf ${scale.toFixed(2)} Tz 1 0 0 1 ${(f.x * PT_PER_PX).toFixed(2)} ${((pageHeightPx - f.baseline) * PT_PER_PX).toFixed(2)} Tm <${codeHex(text, astral)}> Tj`);
+    // Text in a drawing may be turned, flipped or scaled: `matrix` [a, b, c, d, x, baseline] maps its own
+    // pixels onto the page's (y down); the PDF's y axis points up.
+    const [a, b, c, d] = f.matrix || [1, 0, 0, 1], x = f.matrix ? f.matrix[4] : f.x, baseline = f.matrix ? f.matrix[5] : f.baseline;
+    const linear = f.matrix ? [a, -b, -c, d].map(v => +v.toFixed(5)).join(' ') : '1 0 0 1';
+    ops.push(`/F1 ${size.toFixed(2)} Tf ${scale.toFixed(2)} Tz ${linear} ${(x * PT_PER_PX).toFixed(2)} ${((pageHeightPx - baseline) * PT_PER_PX).toFixed(2)} Tm <${codeHex(text, astral)}> Tj`);
   }
   ops.push('ET');
   return ops.join('\n');
@@ -291,12 +295,14 @@ export async function exportPdf(engine, { title, batch = PDF_BATCH_PAGES } = {})
     return { layout, lines: [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])], links, outline };
   };
   const release = sheets => { for (const canvas of sheets) if (canvas) canvas.width = canvas.height = 0; };
-  const encode = async (sheets, { layout, lines, links }, pages) => {
+  // The text drawn inside text boxes and shapes on the sheets just painted (canvas-editor paint).
+  const drawn = () => new Map(engine.printTextRuns || []);
+  const encode = async (sheets, { layout, lines, links }, pages, drawingText = new Map()) => {
     try {
       for (const [index, canvas] of sheets.entries()) {
         if (!canvas) continue;
         const geometry = layout.pages[index] || layout.page;
-        pages.push({ widthPx: geometry.width, heightPx: geometry.height, jpeg: await jpegOf(canvas), imageWidth: canvas.width, imageHeight: canvas.height, fragments: pageFragments(lines, index), links: links.filter(link => link.page === index) });
+        pages.push({ widthPx: geometry.width, heightPx: geometry.height, jpeg: await jpegOf(canvas), imageWidth: canvas.width, imageHeight: canvas.height, fragments: [...pageFragments(lines, index), ...(drawingText.get(index) || [])], links: links.filter(link => link.page === index) });
         canvas.width = canvas.height = 0;
       }
     } finally { release(sheets); }
@@ -306,18 +312,18 @@ export async function exportPdf(engine, { title, batch = PDF_BATCH_PAGES } = {})
   for (let start = 0; start < count && !whole; start += batch) {
     // Encoding a page lets the user type. Pages painted before an edit must not be mixed with pages painted after it.
     if (painted && state().some((value, i) => value !== painted[i])) { whole = true; break; }
-    const sheets = engine.printSheets(Array.from({ length: Math.min(batch, count - start) }, (_, i) => start + i));
+    const sheets = engine.printSheets(Array.from({ length: Math.min(batch, count - start) }, (_, i) => start + i)), drawingText = drawn();
     if (!first) { first = printed(); painted = state(); }
     else if ((engine.printedLayout || engine).layout !== first.layout) { release(sheets); whole = true; break; }
-    await encode(sheets, first, pages);
+    await encode(sheets, first, pages, drawingText);
   }
   // The document changed between batches: its pages are painted all at once, as they were before batches,
   // so the PDF is the document as it is now. Memory is then what it always was; only this rare case pays it.
   if (whole) {
     pages = [];
-    const sheets = engine.printSheets();
+    const sheets = engine.printSheets(), drawingText = drawn();
     first = printed();
-    await encode(sheets, first, pages);
+    await encode(sheets, first, pages, drawingText);
   }
   return new Blob([buildPdf(pages, { title, outline: first?.outline || [] })], { type: 'application/pdf' });
 }

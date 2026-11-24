@@ -76,8 +76,15 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     return set.length > 1 ? set : selected() ? [selected()] : [];
   };
   const fail = e => { error(e instanceof Error ? e : new Error(String(e))); editor()?.focus(); };
-  const friendly = (e, label) => /could not be created|pictures with|drawing|unsupported/i.test(e?.message || '') && !/Select|changed/.test(e.message)
+  // A drawing the reader refuses after an edit raises the file-opening notice ("This document contains …
+  // The original file has not been changed."); "Select the … again" and "The document changed while …" stay as they are.
+  const friendly = (e, label) => /could not be created|pictures with|drawing|unsupported/i.test(e?.message || '') && !/^Select |^The document changed/.test(e.message)
     ? new Error(`${label}: this formatting is not available for this object yet.`) : e;
+  // A picture is either turned or wrapped with text, not both (the reader keeps text-wrapped pictures upright):
+  // a turned one floats in front of or behind the text.
+  const TURNED_WRAP_HINT = 'Rotated pictures float in front of or behind text';
+  const pictureTurned = image => isPicture(image) && (!!normalizedRotation(image.rotation) || (image.retainedDrawing || image.shell) && !!((describe(image)?.transform?.rotation || 0) % 360));
+  const textWrappedPicture = image => isPicture(image) && !!image.anchor && image.anchor.wrap !== 'none';
 
   /**
    * Rewrite the selected drawing (or `image`) with `edit(drawing, context)`; reports failures. Edits run
@@ -201,6 +208,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   }
   async function rotateBy(degrees, label) {
     const image = selected(), engine = ready(); if (!engine || !image) return false;
+    if (textWrappedPicture(image)) { fail(new Error('To rotate this picture, set its wrapping to In Front of Text or Behind Text.')); return false; }
     if (!image.retainedDrawing && image.kind !== 'chart' && !image.shell && formattableModel(image)) {
       engine.finishComposition();
       return engine.execute(() => engine.model.setImageProperties({ rotation: (((image.rotation || 0) + degrees * 60000) % 21600000 + 21600000) % 21600000 }));
@@ -222,7 +230,8 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const locked = keepAspect ?? (image.aspectLocked !== false && (isPicture(image) || image.aspectLocked));
     const patch = { [key]: value, [other]: locked && image[key] ? Math.max(1, Math.round(value * image[other] / image[key])) : image[other] };
     if (patch.width > 22 * IN || patch.height > 22 * IN) { fail(new Error('Sizes must be at most 22 inches.')); return false; }
-    if (!image.retainedDrawing && !image.shell) { engine.finishComposition(); return engine.execute(() => engine.model.setImageProperties(patch)); }
+    // A chart's frame (a graphic frame without shape properties) is sized as its handles size it.
+    if (!image.retainedDrawing && (!image.shell || image.kind === 'chart')) { engine.finishComposition(); return engine.execute(() => engine.model.setImageProperties(patch)); }
     return apply('Size', props((sp, parts) => resizeFrame(parts.frame, sp, patch.width, patch.height)));
   }
 
@@ -639,8 +648,9 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   function wrapItems() {
     const image = selected(), mode = wrapModeOf(image), ok = !!image && editable();
     const chartLike = !!image && !formattable(image), cell = inTableCell(image);
-    const option = (label, value, icon) => ({ label, icon, radio: true, checked: mode === value, disabled: !ok || chartLike && !['inline', 'square', 'topAndBottom', 'behind', 'front'].includes(value) || cell && WRAPPING.includes(value) && mode !== value,
-      ...(cell && WRAPPING.includes(value) && mode !== value ? { hint: CELL_HINT } : {}), onSelect: () => setWrap(value) });
+    const turned = WRAPPING.includes(mode) ? false : pictureTurned(image);
+    const option = (label, value, icon) => ({ label, icon, radio: true, checked: mode === value, disabled: !ok || chartLike && !['inline', 'square', 'topAndBottom', 'behind', 'front'].includes(value) || (cell || turned) && WRAPPING.includes(value) && mode !== value,
+      ...(cell && WRAPPING.includes(value) && mode !== value ? { hint: CELL_HINT } : turned && WRAPPING.includes(value) ? { hint: TURNED_WRAP_HINT } : {}), onSelect: () => setWrap(value) });
     const moves = movesWithText(image);
     const canFix = !!image?.anchor && image.anchor.wrap === 'none';
     return [option('In Line with Text', 'inline', 'wrapInline'), option('Square', 'square', 'wrapSquare'), option('Tight', 'tight', 'wrapTight'), option('Through', 'through', 'wrapThrough'),
@@ -651,11 +661,11 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       { separator: true }, { label: 'More Layout Options…', icon: 'position', disabled: !ok, onSelect: () => openSizePosition('wrapping') }];
   }
   function positionItems() {
-    const image = selected(), ok = !!image && editable() && formattable(image) && !inTableCell(image);
+    const image = selected(), turned = pictureTurned(image), ok = !!image && editable() && formattable(image) && !inTableCell(image) && !turned;
     const grid = el('div.menu-custom-grid.pic-position-grid', { role: 'group', 'aria-label': 'With Text Wrapping', dataset: { columns: '3' } },
       ...POSITION_PRESETS.map(preset => el('button.swatch.pic-position-item', { type: 'button', role: 'menuitem', tabindex: -1, disabled: !ok, 'aria-label': `Position in ${preset[1]} with Square Text Wrapping`, title: `Position in ${preset[1]} with Square Text Wrapping`,
         onclick: () => { closeMenu(); positionPreset(preset); } }, positionThumb(preset[2], preset[3]))));
-    return [{ label: 'In Line with Text', radio: true, checked: wrapModeOf(image) === 'inline', disabled: !image || !editable() || !formattable(image), onSelect: () => setWrap('inline') }, { header: inTableCell(image) ? `With Text Wrapping (${CELL_HINT.toLowerCase()})` : 'With Text Wrapping' }, { custom: grid },
+    return [{ label: 'In Line with Text', radio: true, checked: wrapModeOf(image) === 'inline', disabled: !image || !editable() || !formattable(image), onSelect: () => setWrap('inline') }, { header: inTableCell(image) ? `With Text Wrapping (${CELL_HINT.toLowerCase()})` : turned ? `With Text Wrapping (${TURNED_WRAP_HINT.toLowerCase()})` : 'With Text Wrapping' }, { custom: grid },
       { separator: true }, { label: 'More Layout Options…', disabled: !image || !editable(), onSelect: () => openSizePosition('position') }];
   }
   const floating = () => !!selected() && isPositionedImage(selected()) && editable();
@@ -696,7 +706,8 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   }
   function rotateItems() {
     const image = selected(), ok = editable() && !!image && image.kind !== 'chart' && (formattable(image) || !image.retainedDrawing);
-    return [{ label: 'Rotate Right 90°', icon: 'rotateRight', disabled: !ok, onSelect: () => rotateBy(90, 'Rotate') }, { label: 'Rotate Left 90°', icon: 'rotateLeft', disabled: !ok, onSelect: () => rotateBy(-90, 'Rotate') },
+    const upright = textWrappedPicture(image), turn = { disabled: !ok || upright, ...(ok && upright ? { hint: 'For pictures in front of or behind text' } : {}) };
+    return [{ label: 'Rotate Right 90°', icon: 'rotateRight', ...turn, onSelect: () => rotateBy(90, 'Rotate') }, { label: 'Rotate Left 90°', icon: 'rotateLeft', ...turn, onSelect: () => rotateBy(-90, 'Rotate') },
       { label: 'Flip Vertical', icon: 'flipVertical', disabled: !ok, onSelect: () => (image.shell || image.retainedDrawing ? flip('flipV') : flipModel('flipV')) },
       { label: 'Flip Horizontal', icon: 'flipHorizontal', disabled: !ok, onSelect: () => (image.shell || image.retainedDrawing ? flip('flipH') : flipModel('flipH')) },
       { separator: true }, { label: 'More Rotation Options…', disabled: !ok, onSelect: () => openSizePosition('size') }];
@@ -810,9 +821,14 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     };
     const sizeGroup = (id, priority, { crop = false, noun = 'Picture' } = {}) => {
       const spin = (key, label) => {
+        // Enter applies the amount, and the browser's own change event for the same amount (on Enter or when the
+        // field is left) does not apply it a second time.
+        let entered = null;
+        const commit = () => { if (!amountInRange(input)) { input.reportValidity(); return; } setSize(key, Number(input.value)); };
         const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `${noun} ${label.toLowerCase()} (in)`,
-          onchange: () => { if (!amountInRange(input)) { input.reportValidity(); return; } setSize(key, Number(input.value)); },
-          onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
+          oninput: () => { entered = null; },
+          onchange: () => { if (entered !== null && input.value === entered) { entered = null; return; } entered = null; commit(); },
+          onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); entered = input.value; commit(); } } });
         states.push(input);
         sizeInputs.push({ input, key });
         return el('label.ribbon-spin', { title: label }, kit.commandIconEl(key === 'height' ? 'shapeHeight' : 'shapeWidth', 16), el('span.ribbon-spin-label.visually-hidden', {}, label), input, el('span.ribbon-spin-unit', {}, 'in'));
@@ -1011,7 +1027,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
         return false;
       };
       engine.canRotateDrawing = image => !!image && image.kind !== 'chart' && !image.flatLine && !image.flatGroup && !image.anchor?.relativeSize
-        && (!image.anchor || isPositionedImage(image)) && (!image.retainedDrawing && !image.shell || formattable(image));
+        && (!image.anchor || isPositionedImage(image)) && (!image.retainedDrawing && !image.shell || formattable(image)) && !textWrappedPicture(image);
       engine.canCropDrawing = image => isPicture(image) && formattable(image) && engine.session.path === null && !(describe(image)?.transform?.rotation);
       engine.cropInfo = image => {
         const info = describe(image) || {};

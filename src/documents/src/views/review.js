@@ -7,7 +7,7 @@ import { el, listItem, isComposing, relativeTime, MOD_KEY, shortcutCode, typesCh
 import { clipText } from '../core/text.js';
 import { openMenu } from '../ui/menu.js';
 import { initialsFor } from '../engine/comments.js';
-import { revisionView, registerRevisionAuthors, describeFormatChange } from '../engine/revisions.js';
+import { revisionView, registerRevisionAuthors, describeFormatChange, revisionTime } from '../engine/revisions.js';
 import { createReadAloud } from './read-aloud.js';
 import { renderMentions } from './mentions.js';
 
@@ -368,7 +368,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   }
 
   /* ---- Cards ---- */
-  const time = date => { const ms = Date.parse(date); return Number.isFinite(ms) ? relativeTime(ms) : ''; };
+  // A comment's or change's time: the UTC time Word writes beside its local-time w:date, when there is one.
+  const time = item => { const ms = revisionTime(item); return Number.isFinite(ms) ? relativeTime(ms) : ''; };
   function avatar(name, initials) {
     return el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(name) } }, (initials || initialsFor(name) || '?').slice(0, 2));
   }
@@ -440,7 +441,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
         ...(isRoot ? [{ label: thread.root.done ? 'Reopen thread' : 'Resolve thread', onSelect: () => { run(() => editor().session.body.setCommentDone(thread.id, !thread.root.done)); refresh(true); } }] : []),
       ] }) }, '⋯');
     const head = el('div.wcc-head', {}, avatar(comment.author, comment.initials),
-      el('div.wcc-meta', {}, el('span.wcc-author', {}, comment.author || 'Unknown author'), el('span.wcc-date', { title: comment.date ? new Date(comment.date).toLocaleString() : '' }, time(comment.date))), more);
+      el('div.wcc-meta', {}, el('span.wcc-author', {}, comment.author || 'Unknown author'), el('span.wcc-date', { title: Number.isFinite(revisionTime(comment)) ? new Date(revisionTime(comment)).toLocaleString() : '' }, time(comment))), more);
     const body = editing === comment.id
       ? textEditor({ value: comment.text, key: `edit:${comment.id}`, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; const ok = run(() => editor().session.body.editComment(comment.id, text)); if (!ok) editing = comment.id; refresh(true); return ok; }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
       // Only text with an @ can mention anyone.
@@ -523,7 +524,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const editable = resolvable();
     const act = accept => { body.select(change.start, Math.min(change.end, body.text.length)); commands.resolve(accept, 'here', { change }); };
     return el('article.ed-comment-card.ed-revision-card', { dataset: { anchor: String(change.start), kind: change.type }, 'aria-label': `${change.type === 'format' ? 'Formatted' : 'Deleted'} by ${change.author || 'unknown author'}` },
-      el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change.date))),
+      el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change))),
         el('button.icon-btn.wcc-more', { type: 'button', title: 'Accept', 'aria-label': 'Accept change', disabled: !editable, onclick: () => act(true) }, '✓'),
         el('button.icon-btn.wcc-more', { type: 'button', title: 'Reject', 'aria-label': 'Reject change', disabled: !editable, onclick: () => act(false) }, '✕')),
       el('div.wcc-text.is-clamped', {}, el('span.ed-revision-kind', {}, change.type === 'format' ? 'Formatted: ' : 'Deleted: '), change.type === 'format' ? text : el('del', {}, clipText(text, 160))));

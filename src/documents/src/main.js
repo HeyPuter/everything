@@ -57,7 +57,7 @@ function go(hash, { newDocument = false } = {}) {
 }
 
 /** Why a document could not be opened, in the user's terms. */
-const openFailureMessage = (e) => (P.isNotFound(e) ? 'That file no longer exists' : e?.name === 'HwpError' ? e.message : 'Could not open the file');
+const openFailureMessage = (e) => (P.isNotFound(e) ? 'That file no longer exists' : e?.name === 'HwpError' || e?.tooLarge ? e.message : 'Could not open the file');
 
 /** The URL that shows a document: its file, the invitation to the shared document it is, or the template it is being written from. */
 const docHash = (doc) => (doc.path ? `#/edit/${encodeURIComponent(doc.path)}` : doc.collab?.hash ? doc.collab.hash : doc.template ? `#/new/${encodeURIComponent(doc.template)}` : '#/new');
@@ -288,14 +288,26 @@ const nav = {
 function openEditor(doc) {
   const view = editorView({ doc, ...nav });
   mount('editor', view);
-  // Once an unsaved document gets a file, the URL follows so a reload reopens it.
+  // Once an unsaved document gets a file, the URL follows so a reload reopens it. The URL must still show this
+  // document: Home or a link pressed as a save lands has moved it before the browser reports the change, and
+  // replacing it then put the document back and dropped where the user was going.
+  let shown = null, shownPath = doc.path;
+  const showsDocument = (hash, path) => {
+    if (hash === shown) return true;
+    const { route: r, path: p } = parseHash(hash);
+    return r === 'edit' ? p === path : r === 'new' && !path;
+  };
   doc.addEventListener('path', () => {
-    if (doc.path && current?.view === view && !routing) {
+    const was = shownPath;
+    shownPath = doc.path;
+    if (doc.path && current?.view === view && !routing && showsDocument(location.hash, was)) {
       history.replaceState(null, '', `#/edit/${encodeURIComponent(doc.path)}`);
+      shown = location.hash;
     }
   });
   if (doc.path) history.replaceState(null, '', `#/edit/${encodeURIComponent(doc.path)}`);
   else if (doc.importInfo) history.replaceState(null, '', '#/new');
+  shown = location.hash;
 }
 
 let routing = false;
@@ -428,6 +440,7 @@ async function start() {
   P.onLaunchedWithItems((items) => {
     const first = items.find((it) => it?.path);
     if (!first) return;
+    P.noteFileSize(first.path, first.size);
     if (booted) nav.openPath(first.path);
     else launchedPath = first.path;
   });

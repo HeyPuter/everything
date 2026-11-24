@@ -5,7 +5,7 @@ import { openMenu } from '../ui/menu.js';
 import { styleRun } from '../engine/styles.js';
 import { canvasFontFamily } from '../engine/font-families.js';
 import { displayedFont } from '../engine/font-availability.js';
-import { styleUsage } from '../engine/style-management.js';
+import { styleUsage, styleDeletionBlocker } from '../engine/style-management.js';
 import { revealFormatting, styleInspection } from '../engine/format-inspection.js';
 import { styleDisplayName } from '../lib/style-names.js';
 
@@ -149,7 +149,8 @@ export function createStylesPane({ editor, readOnly, actions }) {
       { label: `Select All ${count} Instance${count === 1 ? '' : 's'}`, disabled: !count, onSelect: () => actions.selectAll(style.id) },
       { label: 'Update to Match Selection', disabled: ro || style.type !== 'paragraph', onSelect: () => actions.updateToMatch(style.id) },
       { separator: true },
-      { label: `Delete ${styleDisplayName(style.name)}…`, disabled: ro, onSelect: () => actions.remove(style.id) },
+      // A style that cannot go (Normal, a heading, Title…) offers no Delete, as in Word, rather than one that only says no.
+      { label: `Delete ${styleDisplayName(style.name)}…`, disabled: ro || !!styleDeletionBlocker(e.model, style.id), onSelect: () => actions.remove(style.id) },
     ] });
   }
 

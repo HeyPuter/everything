@@ -24,6 +24,7 @@ import * as Y from 'yjs';
 import { TextDocument } from '../engine/model.js';
 import { decodeImage } from '../engine/images.js';
 import { readState, writeState, unsupportedReason, checkedSharedState } from './shared-doc.js';
+import { commentAnchors, commentThread } from '../engine/comments.js';
 
 export const REMOTE = 'remote';
 const json = value => JSON.stringify(value);
@@ -403,6 +404,7 @@ export class CollabBinding extends EventTarget {
       if (!state) return;
     } catch (error) { this.onError(error); return; }
     const session = engine.session, body = session.body;
+    if (!own) this.dropOrphanedComments(state, body);
     const before = selection;
     // Pictures first: the paragraphs that show them may arrive in the same update.
     this.applyAssets();
@@ -447,6 +449,31 @@ export class CollabBinding extends EventTarget {
     finally { this.applying = false; }
     this.refreshHistory();
     this.onApplied();
+  }
+
+  /**
+   * A comment thread someone deleted while someone else edited, resolved or answered it came back (the edit wrote the
+   * comment again) without its anchors, which the deletion had taken out of the text; one added on words someone else
+   * deleted at the same moment lost its anchors with them. Such a thread could not be shown beside the text or chosen,
+   * yet stayed in the lists and was saved without a reference. It goes, for everyone, as its deletion meant. A comment
+   * that never had an anchor (some files have them) stays.
+   */
+  dropOrphanedComments(state, body) {
+    if (this.mode !== 'shared' || this.role === 'viewer' || !state.comments?.length) return;
+    const ids = new Set(state.comments.map(c => c.id)), anchored = new Set(commentAnchors(state.paragraphs).map(a => a.id));
+    const loose = state.comments.filter(c => (!c.parentId || !ids.has(c.parentId)) && !anchored.has(c.id));
+    // A reply written while its thread was deleted outlived the thread, as a comment of its own.
+    const had = new Set((body.comments || []).map(c => c.id));
+    const stray = state.comments.filter(c => c.parentId && !ids.has(c.parentId) && had.has(c.parentId));
+    if (!loose.length && !stray.length) return;
+    // Only a thread this person sees anchored now (or whose first comment they had): whoever had it (the one who added
+    // it, the one who edited or answered it) removes it, and the removal reaches the others.
+    const wasAnchored = loose.length ? new Set(commentAnchors(body.paragraphs).map(a => a.id)) : new Set();
+    const gone = new Set([...loose.filter(c => wasAnchored.has(c.id)), ...stray].flatMap(c => commentThread(state.comments, c.id)));
+    if (!gone.size) return;
+    const map = this.ydoc.getMap('comments');
+    this.ydoc.transact(() => { for (const id of gone) if (map.has(String(id))) map.delete(String(id)); }, this.repairOrigin);
+    state.comments = state.comments.filter(c => !gone.has(c.id));
   }
 
   applyStories(stories) {

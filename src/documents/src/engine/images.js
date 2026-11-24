@@ -296,8 +296,17 @@ export function paintDecodedImage(ctx, image, x, y, width, height, fieldContext)
     const sy = image.frameHeight ? height / image.frameHeight : width / image.frameWidth;
     if (image.smoothingQuality) ctx.save();
     if (image.smoothingQuality) ctx.imageSmoothingQuality = image.smoothingQuality;
-    ctx.drawImage(image.bitmap, x + image.left * sx, y + image.top * sy, image.width * sx, image.height * sy);
+    const dx = x + image.left * sx, dy = y + image.top * sy, dw = image.width * sx, dh = image.height * sy;
+    ctx.drawImage(image.bitmap, dx, dy, dw, dh);
     if (image.smoothingQuality) ctx.restore();
+    // A drawing's text, where it lands on the canvas, for a text layer laid over the printed page (PDF export).
+    if (fieldContext?.textSink && image.textRuns && image.bitmap.width && image.bitmap.height) {
+      const m = ctx.getTransform().translate(dx, dy).scale(dw / image.bitmap.width, dh / image.bitmap.height);
+      for (const run of image.textRuns) {
+        const [a, b, c, d, e, f] = run.matrix;
+        fieldContext.textSink({ ...run, matrix: [m.a * a + m.c * b, m.b * a + m.d * b, m.a * c + m.c * d, m.b * c + m.d * d, m.a * e + m.c * f + m.e, m.b * e + m.d * f + m.f] });
+      }
+    }
   } else if (fieldContext?.bitmapDisplayScale) paintDisplayImage(ctx, image, x, y, width, height, fieldContext.bitmapDisplayScale);
   else paintImage(ctx, image, x, y, width, height);
 }

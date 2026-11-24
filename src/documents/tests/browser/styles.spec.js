@@ -85,6 +85,26 @@ test('creates a reusable style, edits it and follows the next style on Enter', a
   await page.locator('canvas.canvas-page').first().screenshot({ path: testInfo.outputPath('new-styles-page.png'), animations: 'disabled' });
 });
 
+test('refuses a new or renamed style that takes another style\'s name', async ({ page }) => {
+  await page.goto('/playground.html'); await showAllTools(page); await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' }), style = page.getByRole('combobox', { name: 'Paragraph style', exact: true });
+  await input.fill('Body text');
+  await page.getByRole('button', { name: 'New paragraph style', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New paragraph style' });
+  await dialog.getByRole('textbox', { name: 'Style name', exact: true }).fill('heading 1');
+  await dialog.getByRole('button', { name: 'Create style', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('A style named “heading 1” already exists. Choose another name.');
+  await dialog.getByRole('textbox', { name: 'Style name', exact: true }).fill('Review body');
+  await dialog.getByRole('button', { name: 'Create style', exact: true }).click(); await expect(dialog).toHaveCount(0); await expect(style).toHaveValue('CanvasStyle1');
+  await page.getByRole('button', { name: 'Edit paragraph style', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit paragraph style' });
+  await edit.getByRole('textbox', { name: 'Style name', exact: true }).fill(' Normal ');
+  await edit.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(edit.getByRole('alert')).toHaveText('A style named “Normal” already exists. Choose another name.');
+  await edit.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await style.locator('option').evaluateAll(options => options.map(o => o.textContent).filter(t => /^(Normal|Heading 1)$/.test(t)))).toEqual(['Normal', 'Heading 1']);
+});
+
 test('keeps style actions visible while fields scroll in a short narrow viewport', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 600 }); await page.goto('/playground.html'); await showAllTools(page);
   await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/character-spacing.docx');

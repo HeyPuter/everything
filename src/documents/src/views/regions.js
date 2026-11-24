@@ -2,7 +2,7 @@
  * F6 and Shift+F6 move the keyboard between the editor's areas, as in Word: the title bar, the ribbon, a message
  * above the document, the panes beside it and the document itself in the order they sit, and the status bar. Each
  * area is entered where its keyboard starts: the ribbon at its chosen tab, the document at its caret, the others at
- * their first control. Areas that are hidden, or have nothing to focus, are passed over.
+ * their first control. Areas that are hidden, or have nothing to focus, are passed over. Notices with a button come last.
  */
 
 const TABBABLE = 'a[href], button, input, select, textarea, iframe, [tabindex]';
@@ -37,6 +37,9 @@ export function editorRegions(root, { focusDocument }) {
     else add([area]);
   }
   add(one('.ed-statusbar'));
+  // A notice with something to do in it (Undo, Cancel printing, Save a Copy) is the last area, as Word's message
+  // bars are one: its button was out of the keyboard's reach.
+  add([...root.ownerDocument.querySelectorAll('.toast-root > .toast:not(.leaving)')].filter(toast => shown(toast) && firstTabbable(toast)));
   return regions;
 }
 

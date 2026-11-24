@@ -40,6 +40,21 @@ describe('Page Setup dialog', () => {
     submit();
     expect(apply.mock.calls[0][0]).toMatchObject({ orientation: 'landscape', width: 15840, height: 12240, bookFoldPrinting: true });
   });
+  it('turns the margins with the page when the orientation changes, as Layout > Orientation does', () => {
+    const apply = vi.fn(() => true);
+    const settings = validatePageSettings({ ...DEFAULT_PAGE_SETTINGS, top: 1440, bottom: 2880, left: 720, right: 1080 });
+    openPageSetup(settings, apply, { unit: 'in' });
+    set('Page orientation', 'landscape');
+    expect(['Top', 'Bottom', 'Left', 'Right'].map(side => field(`${side} margin (in)`).value)).toEqual(['0.5', '0.75', '2', '1']);
+    // Turned back, nothing has changed.
+    set('Page orientation', 'portrait');
+    submit();
+    expect(apply).not.toHaveBeenCalled();
+    openPageSetup(settings, apply, { unit: 'in' });
+    set('Page orientation', 'landscape');
+    submit();
+    expect(apply.mock.calls[0][0]).toEqual({ orientation: 'landscape', width: 15840, height: 12240, top: 720, bottom: 1080, left: 2880, right: 1440 });
+  });
   it('reports settings that leave no room to write and keeps the dialog open', () => {
     const apply = vi.fn(() => true);
     openPageSetup(DEFAULT_PAGE_SETTINGS, apply, { unit: 'in' });
