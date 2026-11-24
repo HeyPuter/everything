@@ -14,6 +14,7 @@ import type {
   HoleFeature, Id, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature, PlaneRef, RevolveFeature,
   ShellFeature, SketchFeature, SweepFeature, UnitSystem, Variable,
 } from '../model/types';
+import { sketchPoints } from '../sketch/profiles';
 import { h } from '../ui/dom';
 import type { App } from './app';
 import {
@@ -404,6 +405,16 @@ export class DraftPanel extends FeaturePanel<DraftFeature> {
 
 // ---------- hole ----------
 
+/**
+ * A positions sketch with the number of holes it places: its points that are
+ * not construction or curve ends, as the hole is built (every point or every
+ * entity was counted, so a dimensioned sketch claimed holes it did not make).
+ */
+function holeCount(sk: SketchFeature): string {
+  const n = sketchPoints(sk.entities).length;
+  return `${sk.name} (${n} ${n === 1 ? 'hole' : 'holes'})`;
+}
+
 export class HolePanel extends FeaturePanel<HoleFeature> {
   /** Sketch created by this panel to hold hole positions. */
   private createdSketch: Id | null = null;
@@ -436,7 +447,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     // A damaged or hand-edited file can point the hole at a feature that is not a sketch.
     const ref = f.sketch ? this.app.store.feature(f.sketch) : null;
     const sk = ref?.type === 'sketch' ? ref : null;
-    if (sk) positions.setItems([{ item: null, data: sk.id, label: `${sk.name} (${sk.entities.filter((e) => e.t === 'point').length} points)` }]);
+    if (sk) positions.setItems([{ item: null, data: sk.id, label: holeCount(sk) }]);
     return [
       section('Hole Type', [
         selectField('Type', f.kind, kinds, (v) => { f.kind = v; sync(); this.changed(); }, 'hole'),
@@ -459,7 +470,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
       const sk = this.app.store.feature(it.id);
       if (sk?.type !== 'sketch') return null;
       f.sketch = sk.id;
-      return { item: it, data: sk.id, label: sk.name };
+      return { item: it, data: sk.id, label: holeCount(sk) };
     }
     if (it.kind !== 'face') return null;
     const face = this.app.faces[it.index];
@@ -490,7 +501,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     }
     const sk = app.store.feature<SketchFeature>(f.sketch)!;
     void dot; void sub;
-    return { item: null, data: sk.id, label: `${sk.name} (${sk.entities.length} points)` };
+    return { item: null, data: sk.id, label: holeCount(sk) };
   }
 
   cancel() {

@@ -710,3 +710,21 @@ test('a revolve angle over 360 degrees is refused in the field', async ({ page }
   expect(await angle.getAttribute('aria-invalid')).not.toBe('true');
   expect(errors).toEqual([]);
 });
+
+test('the Hole panel counts the holes its positions sketch makes', async ({ page }) => {
+  // A construction line added to place the holes is not a hole: every point (or entity) was counted.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => {
+    type Doc = { features: { id: string; entities?: unknown[] }[] };
+    const app = (window as unknown as { __parametric: { store: { change(l: string, fn: (d: Doc) => void): void } } }).__parametric;
+    app.store.change('Guide', (d) => {
+      d.features.find((f) => f.id === 's2')!.entities!.push(
+        { id: 'g1', t: 'point', x: 24, y: -5 }, { id: 'g2', t: 'point', x: 48, y: -5 }, { id: 'g3', t: 'line', a: 'g1', b: 'g2', construction: true });
+    });
+  });
+  await page.getByRole('treeitem', { name: 'Hole1' }).dblclick();
+  await expect(page.getByRole('group', { name: 'Positions' })).toContainText('Sketch2 (2 holes)');
+  expect(errors).toEqual([]);
+});
