@@ -95,7 +95,9 @@ export class Camera {
     return to ? { target: [...to.target] as Vec3, distance: to.distance, rot: [...to.rot] as Quat, ortho: to.ortho } : this.state();
   }
 
+  /** Jumps to a state; a view animation still running would otherwise carry on from there. */
   setState(s: CameraState) {
+    this.anim = null;
     this.target = [...s.target] as Vec3;
     this.distance = s.distance;
     this.rot = [...s.rot] as Quat;
@@ -222,8 +224,8 @@ export class Camera {
     a.to = move(a.to);
   }
 
-  /** Target state that frames a bounding sphere. */
-  fitState(center: Vec3, radius: number, rot: Quat = this.rot): CameraState {
+  /** Target state that frames a bounding sphere (seen as a running view animation will end). */
+  fitState(center: Vec3, radius: number, rot: Quat = this.goal().rot): CameraState {
     const r = Math.max(radius, 1e-3);
     const aspect = this.width / Math.max(1, this.height);
     const half = Math.tan(this.fov / 2) * Math.min(1, aspect);

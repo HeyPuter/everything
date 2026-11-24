@@ -75,6 +75,28 @@ describe('camera', () => {
     expect(c.rot).toEqual(VIEWS.front);
   });
 
+  it('jumps to a state set during a view animation and stays there', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.setState({ target: [0, 0, 0], distance: 100, rot: VIEWS.front, ortho: true });
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    c.animateTo({ target: [1, 2, 3], distance: 50, rot: VIEWS.top, ortho: true });
+    vi.unstubAllGlobals();
+    const t0 = performance.now();
+    c.tick(t0 + 50);
+    // A part opened, or a fit without animation, mid-way.
+    c.setState({ target: [9, 9, 9], distance: 10, rot: VIEWS.right, ortho: true });
+    expect(c.animating).toBe(false);
+    expect(c.tick(t0 + 1000)).toBe(false);
+    expect(c.state()).toEqual({ target: [9, 9, 9], distance: 10, rot: VIEWS.right, ortho: true });
+    // A fit made during a turn frames the view the turn ends on.
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    c.animateTo({ target: [0, 0, 0], distance: 50, rot: VIEWS.top, ortho: true });
+    vi.unstubAllGlobals();
+    c.tick(performance.now() + 50);
+    expect(c.fitState([0, 0, 0], 10).rot).toEqual(VIEWS.top);
+  });
+
   it('keeps a view animation running through a zoom or pan', () => {
     const c = new Camera();
     c.width = 800; c.height = 600;
