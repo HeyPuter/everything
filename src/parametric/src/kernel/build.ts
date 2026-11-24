@@ -654,6 +654,7 @@ export class ModelBuilder {
     d1 = total;
     const draft = num(f.draft || 0);
     if (draft < 0) throw new FeatureError('The draft angle cannot be negative. Use Draft outward to taper the other way.');
+    if (draft >= 90) throw new FeatureError('The draft angle must be less than 90 degrees');
     const extrudeAll = (from: number, length: number, d: Vec3): Sh => {
       const pieces: Sh[] = [];
       for (const r of regions) {
@@ -1222,6 +1223,8 @@ export class ModelBuilder {
     if (!st.body) throw new FeatureError('There is no body to draft');
     if (!f.faces.length) throw new FeatureError('Select faces to draft');
     const fr = this.resolvePlane(f.neutral, st);
+    const angle = num(f.angle);
+    if (!(Math.abs(angle) < 90)) throw new FeatureError('The draft angle must be between -90 and 90 degrees');
     const oc = getOc();
     const dir = scale(fr.n, f.flip ? -1 : 1);
     const selected = f.faces.map((r) => st.faces[this.resolveFace(r, st)]);
@@ -1231,7 +1234,7 @@ export class ModelBuilder {
     let body: Sh;
     try {
       for (const sel of selected) {
-        builder.Add(sel.shape.wrapped, gd, (num(f.angle) * Math.PI) / 180, pln, true);
+        builder.Add(sel.shape.wrapped, gd, (angle * Math.PI) / 180, pln, true);
         if (!builder.AddDone()) throw new FeatureError('Draft cannot be applied to one of the faces');
       }
       builder.Build();

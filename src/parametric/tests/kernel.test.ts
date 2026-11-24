@@ -169,6 +169,10 @@ describe('feature regeneration', () => {
     const neg = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { draft: -5 })]));
     expect(neg.status[1].ok).toBe(false);
     expect(neg.status[1].error).toMatch(/draft angle/i);
+    for (const draft of [90, 100]) {
+      const steep = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 1, { draft })]));
+      expect(steep.status[1].error).toBe('The draft angle must be less than 90 degrees');
+    }
     const d2 = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { dir2: { end: 'blind', depth: 0 } })]));
     expect(d2.status[1].ok).toBe(false);
     expect(d2.status[1].error).toMatch(/Direction 2/);
@@ -779,6 +783,18 @@ describe('feature regeneration', () => {
     expect(step).toContain('ISO-10303-21');
     const stl = b.exportStl(1);
     expect(new DataView(stl.buffer).getUint32(80, true)).toBe(12);
+  });
+
+  it('reports draft angles of 90 degrees or more by name', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10, 'r')), extrude('E1', 'S1', 10)];
+    const f = (await b.build(req(base))).faces.find((x) => x.name === 'E1:side:rl1')!;
+    const draft = (angle: number): Feature => ({
+      id: 'D1', name: 'D1', type: 'draft', neutral: { kind: 'base', plane: 'front' }, angle, flip: false,
+      faces: [{ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }],
+    });
+    for (const angle of [95, -90]) expect((await b.build(req([...base, draft(angle)]))).status[2].error).toMatch(/between -90 and 90 degrees/);
+    expect((await b.build(req([...base, draft(-5)]))).status[2].ok).toBe(true);
   });
 
   it('frees the points and directions it hands to OpenCascade', async () => {
