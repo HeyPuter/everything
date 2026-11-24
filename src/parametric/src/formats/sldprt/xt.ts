@@ -56,7 +56,11 @@ class Reader {
   pos = 0;
   private dv: DataView;
   constructor(private b: Uint8Array) { this.dv = new DataView(b.buffer, b.byteOffset, b.byteLength); }
-  private need(n: number) { if (this.pos + n > this.b.length) throw new XtError('The Parasolid data is truncated.'); }
+  // A negative length would move back and could read the same records forever.
+  private need(n: number) {
+    if (!(n >= 0)) throw new XtError('The Parasolid data is damaged.');
+    if (this.pos + n > this.b.length) throw new XtError('The Parasolid data is truncated.');
+  }
   get eof() { return this.pos >= this.b.length; }
   u8() { this.need(1); return this.b[this.pos++]; }
   i16() { this.need(2); const v = this.dv.getInt16(this.pos); this.pos += 2; return v; }

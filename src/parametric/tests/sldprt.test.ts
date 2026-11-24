@@ -8,7 +8,7 @@ import init from 'replicad-opencascadejs';
 import { SolidWorksError, solidWorksToStep } from '../src/formats/sldprt';
 import { readStreams } from '../src/formats/sldprt/container';
 import { Graph, GeomError, nurbsCurve } from '../src/formats/sldprt/geom';
-import type { XtNode } from '../src/formats/sldprt/xt';
+import { type XtNode, XtError, parseTransmit } from '../src/formats/sldprt/xt';
 import { ModelBuilder } from '../src/kernel/build';
 import { setOc } from '../src/kernel/occ';
 import { req } from './helpers';
@@ -94,5 +94,21 @@ describe('SolidWorks parts', () => {
     nodes.set(4, { type: 0, name: 'KNOT_SET', id: 4, f: { knots: [0, 1] } });
     nodes.set(5, { type: 0, name: 'KNOT_MULT', id: 5, f: { mult: [3, 3] } });
     expect(nurbsCurve(new Graph(nodes), nodes.get(1)!).knots).toEqual([0, 0, 0, 1, 1, 1]);
+  });
+
+  it('stops at a negative length instead of reading the same records again', () => {
+    const b: number[] = [];
+    const str = (s: string) => [...s].map((c) => c.charCodeAt(0));
+    const i16 = (v: number) => b.push((v >> 8) & 0xff, v & 0xff);
+    const i32 = (v: number) => b.push((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff);
+    b.push(...str('PS'), 0, 0, 0, 1, ...str('v'), 0, 0, 0, 9, ...str('SCH_13006'));
+    i16(9000); i16(0); b.push(0, 0);
+    // A type of its own with one variable-length text field, then a node of it
+    // whose length steps back to the start of its own record.
+    i16(8000); b.push(1, 1, ...str('X'), 1, ...str('x'), 1, ...str('s')); i16(0); i16(2); b.push(1, ...str('c'), 1);
+    i32(0); i16(5);
+    i16(8000); i32(-8); i16(6);
+    i16(1);
+    expect(() => parseTransmit(new Uint8Array(b))).toThrow(XtError);
   });
 });
