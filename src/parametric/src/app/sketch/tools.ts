@@ -748,12 +748,16 @@ export function dimensionTool(ed: SketchEditor): SkTool {
     hint: 'Click one or two entities, then click where to place the dimension.',
     picks: true,
     move(s) {
-      if (picked.length) preview(s.p);
-      else {
-        const hit = ed.pickAt(s.p, 8);
-        ed.hovered = hit;
-        ed.queueRender();
+      const hit = ed.pickAt(s.p, 8);
+      // Over another entity a click picks it (as click() does) rather than
+      // placing the dimension: light it up instead of previewing a placement.
+      const pickable = !!hit && picked.length < 2 && !(picked.length === 1 && picked[0] === hit.id);
+      ed.hovered = pickable ? hit : null;
+      if (picked.length) {
+        if (pickable) ed.setPreview([]);
+        else preview(s.p);
       }
+      ed.queueRender();
     },
     click(s, e: VPEvent) {
       void e;

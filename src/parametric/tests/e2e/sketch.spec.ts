@@ -1282,6 +1282,38 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Smart Dimension lights up a second entity it would pick instead of previewing a placement there', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add lines', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: -30, y: 0 }, { id: 'b', t: 'point', x: 30, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' });
+        sk.entities.push({ id: 'c', t: 'point', x: -30, y: 20 }, { id: 'd', t: 'point', x: 30, y: 25 }, { id: 'k', t: 'line', a: 'c', b: 'd' });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { hovered: a.sketchEditor!.hovered?.id ?? null, preview: (a.renderer as unknown as { lines: Map<string, unknown> }).lines.has('sk-preview') };
+    });
+    await page.locator('[data-cmd="tool:smartDimension"]').click();
+    const h = await screen([10, 0]);
+    await page.mouse.click(h.x, h.y);
+    const k = await screen([0, 22.5]);
+    await page.mouse.move(k.x, k.y - 4);
+    await page.mouse.move(k.x, k.y);
+    await expect.poll(state).toEqual({ hovered: 'k', preview: false });
+    const away = await screen([0, -12]);
+    await page.mouse.move(away.x, away.y);
+    await expect.poll(state).toEqual({ hovered: null, preview: true });
+    expect(errors).toEqual([]);
+  });
+
   test('Trim highlights only the piece a click would remove', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
