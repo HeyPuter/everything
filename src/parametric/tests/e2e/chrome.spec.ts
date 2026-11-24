@@ -455,3 +455,28 @@ test('a value field labelled by an icon shows its unit', async ({ page }) => {
   await expect(depth.locator('xpath=..').locator('.unit')).toHaveText('mm');
   expect(errors).toEqual([]);
 });
+
+test('the arrow keys move between a design tree row and its children', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  // From a top-level feature, Left goes to the part.
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('treeitem', { name: 'Mounting Bracket' })).toBeFocused();
+  expect(errors).toEqual([]);
+});

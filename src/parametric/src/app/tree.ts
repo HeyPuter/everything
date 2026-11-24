@@ -282,12 +282,21 @@ export class FeatureTree {
       case 'ArrowUp': e.preventDefault(); go(cur - 1); break;
       case 'Home': e.preventDefault(); go(0); break;
       case 'End': e.preventDefault(); go(items.length - 1); break;
-      case 'ArrowRight':
-        if (items[cur].getAttribute('aria-expanded') === 'false') { e.preventDefault(); this.toggle(key); this.focus(key); }
+      // As in any tree: Right opens a row, then moves to its first child; Left
+      // closes it, or moves from a child to its parent.
+      case 'ArrowRight': {
+        const expanded = items[cur].getAttribute('aria-expanded');
+        if (expanded === 'false') { e.preventDefault(); this.toggle(key); this.focus(key); }
+        else if (expanded === 'true') { e.preventDefault(); go(cur + 1); }
         break;
-      case 'ArrowLeft':
-        if (items[cur].getAttribute('aria-expanded') === 'true') { e.preventDefault(); this.toggle(key); this.focus(key); }
+      }
+      case 'ArrowLeft': {
+        if (items[cur].getAttribute('aria-expanded') === 'true') { e.preventDefault(); this.toggle(key); this.focus(key); break; }
+        const level = Number(items[cur].getAttribute('aria-level'));
+        const parent = items.slice(0, cur).findLastIndex((x) => x.classList.contains('ti') && Number(x.getAttribute('aria-level')) < level);
+        if (parent >= 0) { e.preventDefault(); go(parent); }
         break;
+      }
       // These re-render the rows, so the app-wide shortcut handler would see a
       // detached target and treat the key as a global shortcut (Space opening
       // the view menu, Enter closing the panel just opened).
