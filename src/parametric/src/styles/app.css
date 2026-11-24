@@ -657,6 +657,8 @@ a.icon-btn { text-decoration: none; }
 /* Small phones: the part name needs the logo's room more than the logo. */
 @media (max-width: 380px) {
   .tb-brand { display: none; }
+  /* The equations table keeps its Delete buttons inside the dialog. */
+  .table th, .table td { padding: 6px 4px; }
 }
 /* Windows high contrast replaces backgrounds: the rollback bar is drawn in the
    text colour, and colour swatches keep their colour (they are the content). */
