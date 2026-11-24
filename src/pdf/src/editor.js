@@ -1178,7 +1178,11 @@ export function createEditor({
                         tabs.length
                     ];
             if (!next) return;
-            showSidebarTab(next.dataset.tab);
+            // With the panel closed the keys only move between the tabs: a tab chosen there
+            // showed nothing, and was taken as open. Enter or Space opens the one with the focus.
+            if (editorRoot.classList.contains('hide-pages')) {
+              for (const tab of tabs) tab.tabIndex = tab === next ? 0 : -1;
+            } else showSidebarTab(next.dataset.tab);
             next.focus();
           },
         },
@@ -3808,6 +3812,11 @@ export function createEditor({
       toggleToolsPanel(false);
     editorRoot.classList.toggle('hide-pages', !show);
     pagesButton.setAttribute('aria-expanded', String(show));
+    // The tab of the panel shown takes the keyboard's stop again, wherever the arrow keys moved
+    // it while the panel was closed.
+    if (show)
+      for (const tab of sidebarTabs.querySelectorAll('[role="tab"]'))
+        tab.tabIndex = tab.dataset.tab === sidebarTab ? 0 : -1;
     // A control inside a panel that just closed would leave focus on nothing; hand it back to
     // the toggle that opens the panel again.
     if (!show && hadFocus) pagesButton.focus({ preventScroll: true });

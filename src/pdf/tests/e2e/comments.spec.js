@@ -164,6 +164,31 @@ test('a PDF without comments says so, and the tabs cycle with the arrow keys', a
   await expect(pagesTab).toHaveAttribute('aria-selected', 'true');
 });
 
+// With the panel closed, the arrow keys chose a tab whose panel nothing showed, and a screen
+// reader said it was selected. They now move between the tabs; Enter opens the one reached.
+test('with the side panel closed the arrow keys move between its tabs without choosing one', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await openPdf(page, doc);
+  const tabs = await showSidebar(page);
+  await page.getByRole('button', { name: 'Close pages panel', exact: true }).click();
+  const pagesTab = tabs.getByRole('tab', { name: 'Pages', exact: true });
+  const commentsTab = tabs.getByRole('tab', { name: /Comments/ });
+  await pagesTab.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(commentsTab).toBeFocused();
+  await expect(commentsTab).toHaveAttribute('tabindex', '0');
+  await expect(pagesTab).toHaveAttribute('aria-selected', 'true');
+  await expect(commentsTab).toHaveAttribute('aria-selected', 'false');
+  await page.keyboard.press('Enter');
+  await expect(commentsTab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('No comments yet.')).toBeVisible();
+});
+
 test('a PDF with more comments than the list holds says so', async ({ page }) => {
   await mockPuter(page);
   await page.goto('/#library');
