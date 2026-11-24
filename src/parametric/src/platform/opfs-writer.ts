@@ -9,11 +9,28 @@ interface WriteRequest {
   text: string;
 }
 
-interface SyncAccessHandle {
+export interface SyncAccessHandle {
+  getSize(): number | Promise<number>;
   truncate(size: number): void | Promise<void>;
   write(data: Uint8Array, options: { at: number }): number | Promise<number>;
   flush(): void | Promise<void>;
   close(): void | Promise<void>;
+}
+
+/**
+ * Replaces the file's contents. The room for the new contents is taken
+ * before the old ones are touched, so a full disk fails the write and leaves
+ * the file as it was, instead of emptied or cut short.
+ */
+export async function writeAll(handle: SyncAccessHandle, data: Uint8Array) {
+  if (data.length > (await handle.getSize())) await handle.truncate(data.length);
+  for (let at = 0; at < data.length;) {
+    const n = await handle.write(data.subarray(at), { at });
+    if (!(n > 0)) throw new Error('The file could not be written.');
+    at += n;
+  }
+  await handle.truncate(data.length);
+  await handle.flush();
 }
 
 self.onmessage = async (e: MessageEvent<WriteRequest>) => {
@@ -27,14 +44,7 @@ self.onmessage = async (e: MessageEvent<WriteRequest>) => {
       file as unknown as { createSyncAccessHandle(): Promise<SyncAccessHandle> }
     ).createSyncAccessHandle();
     try {
-      const data = new TextEncoder().encode(text);
-      await handle.truncate(0);
-      for (let at = 0; at < data.length;) {
-        const n = await handle.write(data.subarray(at), { at });
-        if (!(n > 0)) throw new Error('The file could not be written.');
-        at += n;
-      }
-      await handle.flush();
+      await writeAll(handle, new TextEncoder().encode(text));
     } finally {
       await handle.close();
     }
