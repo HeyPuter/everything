@@ -870,15 +870,26 @@ export class SketchEditor implements ViewportTool {
    * had when it stopped driving. A value linked by an expression keeps its link.
    */
   setDriven(dimId: Id, driven: boolean) {
+    // Problems the sketch already had are not this dimension's fault.
+    const badBefore = new Set(this.solve?.badConstraints ?? []);
+    let refused = false;
     this.edit(driven ? 'Make dimension driven' : 'Make dimension driving', (sk) => {
       const d = sk.constraints.find((c) => c.id === dimId);
       if (!d || !isDimension(d)) return;
+      const was = d.value;
       if (!driven && d.driven && typeof d.value === 'number') {
         const v = round(measureDimension(sk, d));
         if (d.type === 'angle' ? v >= 0 && v <= 180 : v > 0) d.value = v;
       }
       d.driven = driven || undefined;
+      if (driven) return;
+      // A dimension whose size the other constraints already set would
+      // over-define the sketch as soon as it drives: it stays driven, as a
+      // new dimension does, instead of turning the sketch red.
+      const res = solveSketch(structuredClone(sk.entities), sk.constraints, { value: this.dimValue });
+      if ([...res.badConstraints].some((id) => !badBefore.has(id))) { d.driven = true; d.value = was; refused = true; }
     });
+    if (refused) toast({ kind: 'warning', title: 'Driven dimension', message: 'Driving this dimension would over-define the sketch, so it stays driven (reference). Delete a constraint or dimension that sets the same size first.' });
   }
 
   /** Floating box to edit a dimension value (accepts expressions and units). */

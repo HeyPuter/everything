@@ -998,6 +998,36 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a driven dimension that would over-define the sketch stays driven when made driving', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const id = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      a.commands.run('tool:rectangle');
+      const click = (p: [number, number]) => ed.tool!.click!({ p, raw: p, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      click([0, 0]);
+      click([40, 30]);
+      ed.setTool(null);
+      const [bottom, , top] = ed.sketch.entities.filter((e) => e.t === 'line');
+      ed.addDimension({ type: 'distance', refs: [bottom.id], value: 40 }, [20, -10], false);
+      // The top's length is the bottom's: a dimension on it can only be driven.
+      return ed.addDimension({ type: 'distance', refs: [top.id], value: 40 }, [20, 40], false)!;
+    });
+    await page.getByText('This dimension would over-define the sketch').waitFor();
+    await page.locator('.dim-label', { hasText: '(40.00)' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Make Driving' }).click();
+    // It turned driving and the sketch over defined, in red.
+    await expect(page.getByText('Driving this dimension would over-define the sketch')).toBeVisible();
+    const state = await page.evaluate((id) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const d = a.sketchEditor!.sketch.constraints.find((c) => c.id === id) as import('../../src/model/types').SkDimension;
+      return { driven: !!d.driven, status: a.sketchEditor!.solve!.status, undo: a.store.undoLabel };
+    }, id);
+    expect(state).toEqual({ driven: true, status: 'under', undo: 'Add dimension' });
+    expect(errors).toEqual([]);
+  });
+
   test('a new dimension stays driving when the sketch was already over defined elsewhere', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
