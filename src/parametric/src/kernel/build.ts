@@ -1105,7 +1105,9 @@ export class ModelBuilder {
     st.tools.set(featId, { shape: tool, cut: parts.every((p) => p.cut), faces: allNamed, ...(mixed ? { parts } : {}) });
   }
 
-  private dirVector(d: PatternDir, st: State): Vec3 {
+  private dirVector(d: PatternDir, st: State, which: string): Vec3 {
+    // "Select a direction or axis" did not say which of the two directions lacks one.
+    if (!d.ref) throw new FeatureError(`Select a direction for ${which}`);
     const ax = this.resolveAxis(d.ref, st);
     return scale(ax.d, d.flip ? -1 : 1);
   }
@@ -1114,7 +1116,7 @@ export class ModelBuilder {
     const seeds = this.seedTools(f.id, f.seeds, st);
     const n1 = Math.round(num(f.dir1.count));
     if (n1 < 1 || n1 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
-    const v1 = scale(this.dirVector(f.dir1, st), num(f.dir1.spacing));
+    const v1 = scale(this.dirVector(f.dir1, st, 'Direction 1'), num(f.dir1.spacing));
     // Zero spacing stacks every instance on the seed: nothing would change.
     if (n1 > 1 && len(v1) < 1e-9) throw new FeatureError('Direction 1 spacing must not be zero');
     let n2 = 1;
@@ -1122,7 +1124,7 @@ export class ModelBuilder {
     if (f.dir2) {
       n2 = Math.round(num(f.dir2.count));
       if (n2 < 1 || n2 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
-      v2 = scale(this.dirVector(f.dir2, st), num(f.dir2.spacing));
+      v2 = scale(this.dirVector(f.dir2, st, 'Direction 2'), num(f.dir2.spacing));
       if (n2 > 1 && len(v2) < 1e-9) throw new FeatureError('Direction 2 spacing must not be zero');
     }
     if (n1 * n2 > 2000) throw new FeatureError('Too many instances (maximum 2000)');

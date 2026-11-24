@@ -708,6 +708,9 @@ describe('feature regeneration', () => {
     expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
     const one = { ...lin(10), dir1: { ...(lin(10) as LinearPatternFeature).dir1, count: 1 } } as Feature;
     expect((await b.build(req([...base, one]))).status[4].error).toMatch(/only the original. Set 2 or more instances/);
+    // Direction 2 turned on without a direction says so.
+    const noDir2 = { ...lin(10), dir2: { ref: null, spacing: 5, count: 2, flip: false } } as Feature;
+    expect((await b.build(req([...base, noDir2]))).status[4].error).toBe('Select a direction for Direction 2');
     for (const p of [circ(360, true), circ(-360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
     // A full turn the other way makes the same four holes.
     await b.build(req([...base, circ(-360, true)]));

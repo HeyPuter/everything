@@ -542,6 +542,7 @@ export class LinearPatternPanel extends FeaturePanel<LinearPatternFeature> {
 
   protected validate() {
     if (!this.f.dir1.ref) return 'Select a direction';
+    if (this.f.dir2 && !this.f.dir2.ref) return 'Select a direction for Direction 2, or turn Direction 2 off';
     return this.f.seeds.length ? null : 'Select features to pattern';
   }
 
