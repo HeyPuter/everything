@@ -376,8 +376,7 @@ export class DrawingWorkspace {
    * dragged off could not be seen or found again). A view larger than the
    * border slides until its edges reach it.
    */
-  private onSheet(id: string, x: number, y: number): [number, number] {
-    const d = this.doc;
+  private onSheet(id: string, x: number, y: number, d = this.doc): [number, number] {
     const v = d?.views.find((q) => q.id === id);
     if (!d || !v) return [x, y];
     const { w, h } = sheetDims(d);
@@ -386,6 +385,11 @@ export class DrawingWorkspace {
     const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y] : [0, 0, 0, 0];
     const fit = (c: number, lo: number, hi: number) => Math.min(Math.max(c, Math.min(lo, hi)), Math.max(lo, hi));
     return [fit(x, MARGIN + l, w - MARGIN - r), fit(y, MARGIN + t, h - MARGIN - b)];
+  }
+
+  /** After the sheet got smaller or turned: views that would hang off it move back on. */
+  keepOnSheet(d: DrawingDoc) {
+    for (const v of d.views) [v.x, v.y] = this.onSheet(v.id, v.x, v.y, d);
   }
 
   /** Selects a view from the keyboard (the Views list) and focuses the sheet so arrow keys move it. */
@@ -484,7 +488,7 @@ export class DrawingPanel extends PropertyPanel {
     const ws = this.ws;
     const d = ws.doc;
     if (!d) return [];
-    const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; }, 'Sheet size'));
+    const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; ws.keepOnSheet(x); }, 'Sheet size'));
     const scales = STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }));
     if (!scales.some((s) => Number(s.value) === d.scale)) scales.push({ value: String(d.scale), label: scaleLabel(d.scale) });
     const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { x.scale = Number(v); }, 'Sheet scale'));
@@ -502,7 +506,7 @@ export class DrawingPanel extends PropertyPanel {
     return [
       section('Sheet', [
         sheet,
-        checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; }, 'Sheet orientation')),
+        checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; ws.keepOnSheet(x); }, 'Sheet orientation')),
         scale,
         h('button', { class: 'btn small', type: 'button', onclick: () => ws.relayout() }, icon('reset', 14), 'Arrange standard views'),
       ]),

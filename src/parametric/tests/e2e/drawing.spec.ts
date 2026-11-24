@@ -217,6 +217,31 @@ test('a view dragged or nudged toward the edge of the sheet stays on it', async 
   await expect.poll(async () => (await frame()).x1).toBeCloseTo(after.x1 - 10, 0);
 });
 
+test('views stay on a sheet made smaller or turned, in the same undo step', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type Frame = { id: string; x0: number; y0: number; x1: number; y1: number };
+  type A = { store: { undoDepth: number }; drawing: { frames: Frame[]; update(fn: (d: { views: { id: string; x: number; y: number }[] }) => void): void } };
+  const iso = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.drawing.frames.find((f) => f.id === 'v4')!);
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.undoDepth);
+  const sheetSize = page.getByRole('combobox', { name: 'Sheet size' });
+  await sheetSize.selectOption('A3');
+  // On the A3 sheet, the isometric view moved out to its far corner.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.drawing.update((d) => { const v = d.views.find((q) => q.id === 'v4')!; v.x = 380; v.y = 260; }));
+  await expect.poll(async () => (await iso()).x0).toBeGreaterThan(297);
+  const d0 = await depth();
+  await sheetSize.selectOption('A4');
+  // Back inside the A4 border (10 mm in from 297 x 210), in the step that changed the sheet.
+  await expect.poll(async () => { const f = await iso(); return f.x1 <= 287.001 && f.y1 <= 200.001 && f.x0 >= 10 && f.y0 >= 10; }).toBe(true);
+  expect(await depth()).toBe(d0 + 1);
+  // Turned to portrait (210 mm wide), it moves in again.
+  await page.getByRole('checkbox', { name: 'Landscape' }).uncheck();
+  await expect.poll(async () => (await iso()).x1).toBeLessThanOrEqual(200.001);
+});
+
 test.describe('in a time zone behind UTC', () => {
   test.use({ timezoneId: 'Pacific/Pago_Pago' });
   test('the title block shows the local date', async ({ page }) => {
