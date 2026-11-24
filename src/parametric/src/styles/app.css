@@ -223,6 +223,17 @@ a.icon-btn { text-decoration: none; }
   scrollbar-width: none;
 }
 .cm-tools::-webkit-scrollbar { display: none; }
+/* Buttons over the ends of a clipped CommandManager (shell.ts, ribbonScroller): a fade says more is there. */
+.cm-bar { position: relative; }
+.cm-scroll {
+  position: absolute; top: 0; bottom: 0; z-index: 2; width: 28px; display: grid; place-items: center; padding: 0;
+  border: 0; color: var(--text-2); cursor: pointer;
+}
+.cm-scroll.to-start { left: 0; background: linear-gradient(to right, var(--chrome) 55%, transparent); }
+.cm-scroll.to-end { right: 0; background: linear-gradient(to left, var(--chrome) 55%, transparent); }
+.cm-scroll:hover { color: var(--text); }
+.cm-scroll[hidden] { display: none; }
+@media (forced-colors: active) { .cm-scroll { background: Canvas; border-inline: 1px solid CanvasText; } }
 .cm-group { display: flex; align-items: stretch; gap: 1px; padding: 0 4px; border-right: 1px solid var(--border); flex: none; }
 .cm-group:last-child { border-right: 0; }
 .cm-stack { display: flex; flex-direction: column; justify-content: center; gap: 1px; }

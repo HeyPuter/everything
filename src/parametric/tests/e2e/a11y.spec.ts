@@ -615,3 +615,45 @@ test('the task pane and left pane tabs each control a tab panel named by the cho
   }
   expect(await seriousViolations(page)).toEqual([]);
 });
+
+test('a clipped CommandManager shows scroll buttons at its ends, and only then', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const cm = page.getByRole('region', { name: 'CommandManager' });
+  const left = cm.getByRole('button', { name: 'Scroll commands left' });
+  const right = cm.getByRole('button', { name: 'Scroll commands right' });
+  const tools = page.getByRole('toolbar', { name: 'Commands' });
+  const scroll = () => tools.evaluate((el) => el.scrollLeft);
+  // Wide enough: no buttons.
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await expect(left).toBeHidden();
+  await expect(right).toBeHidden();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(right).toBeVisible();
+  await expect(left).toBeHidden();
+  // From the keyboard: Shift+Tab from the tabs below reaches the button at the end.
+  await page.getByRole('tab', { name: 'Features', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(right).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(scroll).toBeGreaterThan(0);
+  // Scrolled to the end, it goes, and focus moves to the last tool rather than to the page.
+  await expect(right).toBeHidden();
+  await expect(tools.getByRole('button').last()).toBeFocused();
+  const b = (await tools.getByRole('button').last().boundingBox())!;
+  expect(b.x + b.width).toBeLessThanOrEqual(1024);
+  await expect(left).toBeVisible();
+  // A narrow button at the edge (it once took the start screen's styles, sharing its class).
+  expect((await left.boundingBox())!.width).toBeLessThanOrEqual(32);
+  await expect(page.locator('.start')).toHaveCount(0);
+  await left.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(scroll).toBe(0);
+  await expect(left).toBeHidden();
+  // A tool reached with the keyboard under the button at the end comes out from under it.
+  const hidden = await tools.getByRole('button').evaluateAll((els) => els.findIndex((el) => el.getBoundingClientRect().right > window.innerWidth - 28));
+  await tools.getByRole('button').nth(hidden).focus();
+  await expect.poll(scroll).toBeGreaterThan(0);
+  const r = (await tools.getByRole('button').nth(hidden).boundingBox())!;
+  expect(r.x + r.width).toBeLessThanOrEqual(1024);
+});
