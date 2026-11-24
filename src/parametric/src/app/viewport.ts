@@ -61,6 +61,8 @@ interface PlaneVis {
 }
 
 const DRAG_PX = 4;
+/** Turn of two fingers (radians) before the view rolls with them. */
+const TWIST = 0.2;
 
 export class Viewport {
   readonly canvas: HTMLCanvasElement;
@@ -70,6 +72,9 @@ export class Viewport {
   private gesture: Gesture = { kind: 'none' };
   private touches = new Map<number, { x: number; y: number }>();
   private touchState: { dist: number; cx: number; cy: number; angle: number } | null = null;
+  /** How far two fingers turned before the view started to roll with them. */
+  private twist = 0;
+  private rolling = false;
   private hoverQueued: { x: number; y: number } | null = null;
   private hoverRaf = 0;
   private lastTap = { t: 0, x: 0, y: 0 };
@@ -227,6 +232,8 @@ export class Viewport {
         clearTimeout(this.longPress);
         this.gesture = { kind: 'touch' };
         this.touchState = this.touchMetrics();
+        this.twist = 0;
+        this.rolling = false;
         const r = this.canvas.getBoundingClientRect();
         this.focusZoomAt(this.touchState.cx - r.left, this.touchState.cy - r.top);
         return;
@@ -284,7 +291,13 @@ export class Viewport {
         let da = m.angle - prev.angle;
         if (da > Math.PI) da -= 2 * Math.PI;
         if (da < -Math.PI) da += 2 * Math.PI;
-        if (Math.abs(da) > 0.004 && !this.app.inSketch) this.camera.roll(-da);
+        if (!this.app.inSketch && !this.rolling) {
+          // Fingers wobble while pinching: the view rolls only once they clearly turn, and from
+          // there on with them, or every pinch zoom would tilt a standard view a little.
+          this.twist += da;
+          if (Math.abs(this.twist) > TWIST) { this.rolling = true; da = this.twist - Math.sign(this.twist) * TWIST; }
+        }
+        if (this.rolling && !this.app.inSketch) this.camera.roll(-da);
         this.touchState = m;
         return;
       }

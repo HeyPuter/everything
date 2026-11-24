@@ -1352,6 +1352,39 @@ test.describe('viewport', () => {
       expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
     });
 
+    test('a pinch zoom with wobbling fingers keeps the view upright, a clear twist rolls it', async ({ page }) => {
+      await openApp(page);
+      await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+      await waitForFeature(page, 'Fillet1');
+      await page.evaluate(() => (window as unknown as Win).__parametric.viewport.setView('front', false));
+      const gesture = (turn: number, wobble: number) => page.evaluate(([turn, wobble]) => {
+        const c = document.querySelector('canvas.gl') as HTMLCanvasElement;
+        // Synthetic pointers cannot be captured; the gesture logic is what is under test.
+        c.setPointerCapture = () => {};
+        c.releasePointerCapture = () => {};
+        const r = c.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const P = (type: string, id: number, x: number, y: number) => c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, buttons: type === 'pointerup' ? 0 : 1 }));
+        const at = (i: number, k: number) => {
+          // Spreading from 60 to 140 px apart while turning by `turn`, each finger off by up to `wobble` px.
+          const half = 30 + i, a = (turn * k) / 40 + (i % 2 ? 1 : -1) * Math.atan2(wobble, half);
+          return [cx + Math.cos(a) * half, cy + Math.sin(a) * half, cx - Math.cos(a) * half, cy - Math.sin(a) * half];
+        };
+        let p = at(0, 0);
+        P('pointerdown', 21, p[0], p[1]);
+        P('pointerdown', 22, p[2], p[3]);
+        for (let i = 1; i <= 40; i++) { p = at(i, i); P('pointermove', 21, p[0], p[1]); P('pointermove', 22, p[2], p[3]); }
+        P('pointerup', 21, p[0], p[1]);
+        P('pointerup', 22, p[2], p[3]);
+        const cam = (window as unknown as Win).__parametric.renderer.camera;
+        return { view: cam.viewName(), upX: cam.up[0] };
+      }, [turn, wobble]);
+      expect(await gesture(0, 1.5)).toMatchObject({ view: 'front' });
+      const twisted = await gesture(Math.PI / 4, 0);
+      expect(twisted.view).toBeNull();
+      expect(Math.abs(twisted.upX)).toBeGreaterThan(0.3);
+    });
+
     test('lifting one of three fingers does not make the view jump', async ({ page }) => {
       await openApp(page);
       await page.getByRole('button', { name: /Mounting Bracket/ }).click();
