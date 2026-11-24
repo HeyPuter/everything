@@ -162,7 +162,7 @@ export type WorkerRequest =
   | { id: number; type: 'mass' }
   | { id: number; type: 'project'; views: ProjectionRequest[] }
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
-  | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number }
+  | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number; name?: string }
   | { id: number; type: 'checkImport'; format: 'step'; text: string }
   | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string }
   /** Development builds only: fail on purpose to test recovery. */

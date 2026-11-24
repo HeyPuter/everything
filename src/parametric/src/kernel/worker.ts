@@ -90,7 +90,7 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
         return;
       case 'export': {
         if (msg.format === 'brep') { reply({ id: msg.id, ok: true, result: builder.exportBrep() }); return; }
-        const data = msg.format === 'step' ? builder.exportStep() : builder.exportStl(msg.quality);
+        const data = msg.format === 'step' ? builder.exportStep(msg.name) : builder.exportStl(msg.quality);
         reply({ id: msg.id, ok: true, result: data }, [data.buffer as ArrayBuffer]);
         return;
       }

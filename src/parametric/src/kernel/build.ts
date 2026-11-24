@@ -1607,7 +1607,8 @@ export class ModelBuilder {
     }
   }
 
-  exportStep(): Uint8Array {
+  /** A STEP file of the current body; its product (what other CAD systems list the body as) is named `name`. */
+  exportStep(name?: string): Uint8Array {
     const body = this.current.body;
     if (!body) throw new FeatureError('There is no geometry to export');
     const oc = getOc();
@@ -1621,7 +1622,7 @@ export class ModelBuilder {
       if (done !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new FeatureError('STEP export failed');
       const data: Uint8Array = oc.FS.readFile('/export.step');
       oc.FS.unlink('/export.step');
-      return data;
+      return name ? namedStep(data, name) : data;
     } finally {
       writer.delete();
       progress.delete();
@@ -1688,6 +1689,36 @@ export class ModelBuilder {
   topologyHash(): number {
     return this.current.body ? hashOf(this.current.body.wrapped) : 0;
   }
+}
+
+/**
+ * The writer names the product (and the file) after itself ("Open CASCADE
+ * STEP translator 8.0 1"), which other CAD systems then show as the part's
+ * name. Only the header and the product entity carry these strings.
+ */
+function namedStep(data: Uint8Array, name: string): Uint8Array {
+  const text = new TextDecoder().decode(data);
+  const value = stepString(name);
+  const named = text
+    .replace(/'Open CASCADE STEP translator [^']*'/g, () => value)
+    .replace(/FILE_NAME\('Open CASCADE Shape Model',('[^']*'),\('Author'\)/, (_m, time: string) => `FILE_NAME(${value},${time},('')`);
+  return new TextEncoder().encode(named);
+}
+
+/** A STEP string literal: quotes and backslashes doubled, other than printable ASCII as \X2\ (UTF-16) hex. */
+export function stepString(s: string): string {
+  let out = '';
+  let wide = '';
+  const flush = () => { if (wide) { out += `\\X2\\${wide}\\X0\\`; wide = ''; } };
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0x20 && c <= 0x7e) {
+      flush();
+      out += c === 0x27 ? "''" : c === 0x5c ? '\\\\' : s[i];
+    } else if (c >= 0x20) wide += c.toString(16).toUpperCase().padStart(4, '0');
+  }
+  flush();
+  return `'${out}'`;
 }
 
 /**

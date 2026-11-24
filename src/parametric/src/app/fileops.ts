@@ -664,7 +664,7 @@ export class FileOps {
       await app.whenBuilt();
       if (documentVersion !== this.documentVersion) return;
       if (!app.bbox) { toast({ kind: 'warning', message: 'There is no geometry to export yet.' }); return; }
-      const data = await app.kernel.exportFile(format, Math.max(1, app.settings.quality));
+      const data = await app.kernel.exportFile(format, Math.max(1, app.settings.quality), app.store.doc.name);
       if (documentVersion !== this.documentVersion) return;
       const blob = new Blob([data as BlobPart], { type: format === 'step' ? 'model/step' : 'model/stl' });
 

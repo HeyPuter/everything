@@ -2,7 +2,7 @@
 // is the only way to know the modeling features actually produce solids.
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
-import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
+import { ModelBuilder, checkStep, errorText, isFatal, stepString } from '../src/kernel/build';
 import * as R from 'replicad';
 import { type Sh, getOc, isValid, mirrored, rotated, setOc, subShapes } from '../src/kernel/occ';
 import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SkEntity, SketchFeature } from '../src/model/types';
@@ -1032,6 +1032,20 @@ describe('feature regeneration', () => {
     expect(step).toContain('ISO-10303-21');
     const stl = b.exportStl(1);
     expect(new DataView(stl.buffer).getUint32(80, true)).toBe(12);
+  });
+
+  it('names the exported STEP product and file after the part', async () => {
+    const b = new ModelBuilder();
+    await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const step = new TextDecoder().decode(b.exportStep("O'Brien \\ Bracket \u00e9 $& v2"));
+    expect(step).not.toContain('Open CASCADE STEP translator');
+    expect(step).toMatch(/FILE_NAME\('O''Brien \\\\ Bracket \\X2\\00E9\\X0\\ \$& v2','[^']*',\(''\)/);
+    expect(step).toMatch(/PRODUCT\('O''Brien \\\\ Bracket \\X2\\00E9\\X0\\ \$& v2',\s*'O''Brien/);
+    // It still reads back as the same solid.
+    const imported = new ModelBuilder();
+    await imported.build(req([{ id: 'I1', name: 'Import1', type: 'import', format: 'step', blob: 'b1', fileName: 'x.step' }], { blobs: { b1: step } }));
+    expect(imported.massProperties()!.volume).toBeCloseTo(1000, 5);
+    expect(stepString('Straße 🙂')).toBe("'Stra\\X2\\00DF\\X0\\e \\X2\\D83DDE42\\X0\\'");
   });
 
   it('reports draft angles of 90 degrees or more by name', async () => {

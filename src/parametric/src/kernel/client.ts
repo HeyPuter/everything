@@ -256,8 +256,9 @@ export class KernelClient {
     return this.call({ type: 'measure', a, b });
   }
 
-  exportFile(format: 'step' | 'stl', quality = 1): Promise<Uint8Array> {
-    return this.call({ type: 'export', format, quality });
+  /** `name` is the part's name, written into a STEP file as its product's name. */
+  exportFile(format: 'step' | 'stl', quality = 1, name?: string): Promise<Uint8Array> {
+    return this.call({ type: 'export', format, quality, name });
   }
 
   exportBrep(): Promise<string> {
