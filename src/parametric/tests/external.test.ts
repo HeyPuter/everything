@@ -54,6 +54,22 @@ describe('projection', () => {
     expect(validSketch(sk)).toBe(true);
   });
 
+  it('turns an edge projected for a constraint into real geometry when it is converted', () => {
+    const sk = sketch('S', []);
+    const newId = idFactory(sk);
+    const edge = line('E1:a|E1:b', [0, 0, 0], [10, 0, 0]);
+    const ref = projectEdgeInto(sk, front, edge, newId, { construction: true })!;
+    expect(sk.entities.find((e) => e.id === ref)?.construction).toBe(true);
+    // A later constraint keeps it as it is; Convert Entities makes it solid.
+    expect(projectEdgeInto(sk, front, edge, newId, { construction: true })).toBe(ref);
+    expect(sk.entities.find((e) => e.id === ref)?.construction).toBe(true);
+    expect(projectEdgeInto(sk, front, edge, newId)).toBe(ref);
+    expect(sk.entities.find((e) => e.id === ref)?.construction).toBeUndefined();
+    expect(projectEdgeInto(sk, front, edge, newId, { construction: true })).toBe(ref);
+    expect(sk.entities.find((e) => e.id === ref)?.construction).toBeUndefined();
+    expect(sk.entities.filter((e) => e.t === 'line')).toHaveLength(1);
+  });
+
   it('projects a vertex as a point found again from the edges that meet there', () => {
     const edges = [line('A', [0, 0, 0], [10, 0, 0]), line('B', [10, 0, 0], [10, 10, 0]), line('C', [10, 10, 0], [0, 10, 0])];
     expect(edgesAtVertex(edges, [10, 0, 0]).map((x) => x.edge.name).sort()).toEqual(['A', 'B']);

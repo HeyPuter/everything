@@ -88,7 +88,12 @@ export function projectEdgeInto(sk: SketchFeature, fr: Frame, edge: NamedModelEd
   const existing = sk.entities.find((e) => e.ext?.kind === 'edge' && e.ext.edge.name === edge.name);
   const pr = projectEdge(fr, edge);
   if (!pr) return null;
-  if (existing && existing.t === pr.t) return existing.id;
+  if (existing && existing.t === pr.t) {
+    // A constraint to a model edge projects it as reference geometry; Convert
+    // Entities on that edge afterwards asks for real geometry (a profile).
+    if (!opts.construction && existing.construction) delete existing.construction;
+    return existing.id;
+  }
   const ext: ExtRef = { kind: 'edge', edge: edgeRefOf(edge) };
   const construction = opts.construction || undefined;
   // End points shared by projected curves are one point, so a projected
