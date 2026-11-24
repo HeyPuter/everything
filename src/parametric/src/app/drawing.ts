@@ -38,6 +38,8 @@ export class DrawingWorkspace {
   private panelChanging = false;
   private layoutPending = false;
   private sheetW = 297;
+  /** Says the views are being projected, when that takes a moment (a large part takes seconds). */
+  private busy = h('div', { class: 'drawing-busy', role: 'status' });
   private sheetH = 210;
 
   constructor(private app: App) {
@@ -50,7 +52,8 @@ export class DrawingWorkspace {
       class: 'drawing-ws', hidden: true, tabindex: '0', role: 'application',
       'aria-label': 'Drawing. Drag views to move them, or select one in the Views list of the Drawing panel and move it with the arrow keys; Escape deselects it and Delete removes it. With no view selected the arrow keys move the sheet; plus and minus zoom.',
     }, this.host,
-      h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
+      h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'),
+      this.busy);
     app.shell.viewport.append(this.el);
     this.bind();
     // A drawing made before the part had a solid is laid out when the solid exists, even
@@ -182,6 +185,9 @@ export class DrawingWorkspace {
     });
     if (need.length && this.app.bbox) {
       this.pending = true;
+      // A sheet opened for the first time shows its border and title block meanwhile, not nothing.
+      if (!this.paper.firstChild) this.render();
+      const slow = setTimeout(() => { this.busy.textContent = 'Projecting the views…'; }, 300);
       try {
         const res = await this.app.kernel.project(need.map((v) => ({ id: v.id, ...VIEW_DIRS[v.kind] })));
         for (const r of res) {
@@ -192,6 +198,8 @@ export class DrawingWorkspace {
         toast({ kind: 'error', title: 'Could not project the views', message: (e as Error).message });
       } finally {
         this.pending = false;
+        clearTimeout(slow);
+        this.busy.textContent = '';
       }
       // The model or the views may have changed while projecting.
       if (version !== this.app.geometryVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }

@@ -666,3 +666,25 @@ test('the drawing is not projected again after a change that leaves the body as 
   await expect.poll(async () => (await state()).projections).toBeGreaterThan(0);
   await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
 });
+
+test('a drawing whose views take a while to project shows its sheet and says it is projecting them', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { kernel: { project(v: unknown): Promise<unknown> } };
+  // A slow projection (a large part takes seconds), held until the test lets it go.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const w = window as unknown as { __release: () => void };
+    const project = a.kernel.project.bind(a.kernel);
+    a.kernel.project = async (v) => { await new Promise<void>((r) => { w.__release = r; }); return project(v); };
+  });
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Projecting the views…' })).toBeVisible();
+  // The sheet's border and title block are there meanwhile.
+  await expect(page.locator('.paper svg rect').first()).toBeAttached();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __release: () => void }).__release());
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await expect(page.locator('.drawing-busy')).toHaveText('');
+});

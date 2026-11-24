@@ -437,6 +437,8 @@ a.icon-btn { text-decoration: none; }
 .paper { position: relative; background: #fff; outline: 1px solid var(--border-strong); }
 .paper svg { display: block; }
 .view-sel { position: absolute; border: 1px dashed var(--accent); pointer-events: none; }
+.drawing-busy:empty { padding: 0; border: 0; }
+.drawing-busy { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 12px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); color: var(--text-2); font-size: var(--fs-sm); pointer-events: none; }
 .drawing-empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 10px 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); color: var(--text-2); }
 .sheet-tabs { display: flex; align-items: stretch; height: 100%; margin-right: 6px; }
 .sheet-tabs [role='tab'] { border: 0; border-right: 1px solid var(--border); background: none; padding: 0 12px; font-size: var(--fs-sm); color: var(--text-2); }
