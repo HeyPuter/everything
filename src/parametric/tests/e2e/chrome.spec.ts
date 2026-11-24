@@ -800,3 +800,20 @@ test("the view toolbar's menu buttons have tooltips like its other buttons", asy
   await expect(page.getByRole('tooltip')).toHaveText('Standard views');
   expect(errors).toEqual([]);
 });
+
+test('a count typed with a fraction is pointed out, not rounded quietly', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).click();
+  await page.getByRole('button', { name: 'Linear Pattern', exact: true }).click();
+  const count = page.getByRole('textbox', { name: 'Number of instances' }).first();
+  await count.fill('2.5');
+  await count.press('Tab');
+  await expect(count).toHaveAttribute('aria-invalid', 'true');
+  await expect(count).toHaveAttribute('title', 'Enter a whole number');
+  await count.fill('3');
+  await count.press('Tab');
+  await expect(count).not.toHaveAttribute('aria-invalid', 'true');
+  expect(errors).toEqual([]);
+});

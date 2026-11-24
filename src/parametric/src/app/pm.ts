@@ -183,7 +183,7 @@ export function unitSuffix(kind: ParamKind, ctx: UnitContext): string {
 }
 
 /** Parses typed text into a Param (number in mm/deg, or an "=expr" string). */
-export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allowExpr = true): { ok: true; value: Param; num: number } | { ok: false; error: string } {
+export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allowExpr = true, whole = false): { ok: true; value: Param; num: number } | { ok: false; error: string } {
   const t = text.trim();
   const isExpr = t.startsWith('=');
   try {
@@ -192,6 +192,8 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
       bareScale: kind === 'length' ? UNIT_SYSTEMS[ctx.units].scale : 1,
       lookup: (n) => ctx.variables().get(n),
     });
+    // A typed count of 2.5 is a slip to point out, not to round quietly (an equation's result is rounded).
+    if (whole && kind === 'count' && !isExpr && !Number.isInteger(num)) return { ok: false, error: 'Enter a whole number' };
     const n = kind === 'count' ? Math.round(num) : num;
     if (isExpr && allowExpr) return { ok: true, value: t, num: n };
     return { ok: true, value: n, num: n };
@@ -240,7 +242,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     // Removed controls may still have a debounce or native change queued.
     // They no longer own the model state (e.g. after Undo rebuilt the panel).
     if (composing || retired || !input.isConnected) return;
-    const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false);
+    const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false, true);
     if (!r.ok) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
