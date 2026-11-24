@@ -1790,3 +1790,25 @@ test('device file pickers name the media types of the files they open, and accep
     await context.close();
   }
 });
+
+test('a hole whose positions point at a feature that is not a sketch can still be edited', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  const opened = await page.evaluate(async (urls) => {
+    const { EXAMPLES } = await import(urls[0]);
+    const { parseDocument, serializeDocument } = await import(urls[1]);
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const doc = JSON.parse(serializeDocument(EXAMPLES[0].make()));
+    const hole = doc.features.find((f: { type: string }) => f.type === 'hole');
+    // A damaged or hand-edited file: the hole's positions are the hole itself.
+    hole.sketch = hole.id;
+    a.loadDocument(parseDocument(JSON.stringify(doc)), null);
+    await a.whenBuilt();
+    a.editFeature(hole.id);
+    return !!a.panel;
+  }, ['/src/app/examples.ts', '/src/model/document.ts']);
+  expect(opened).toBe(true);
+  await expect(page.locator('.pm')).toContainText('Positions');
+  expect(errors).toEqual([]);
+});

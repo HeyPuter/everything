@@ -429,7 +429,9 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     };
     sync();
     const positions = new SelectionBox(this, 'Positions', { face: true, planarOnly: true, feature: true }, (it) => this.pickPosition(it), () => this.changed(), { placeholder: 'Click a planar face to place a hole', icon: 'point', single: true });
-    const sk = f.sketch ? this.app.store.feature<SketchFeature>(f.sketch) : null;
+    // A damaged or hand-edited file can point the hole at a feature that is not a sketch.
+    const ref = f.sketch ? this.app.store.feature(f.sketch) : null;
+    const sk = ref?.type === 'sketch' ? ref : null;
     if (sk) positions.setItems([{ item: null, data: sk.id, label: `${sk.name} (${sk.entities.filter((e) => e.t === 'point').length} points)` }]);
     return [
       section('Hole Type', [
