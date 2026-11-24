@@ -959,7 +959,10 @@ class Toolkit {
     if (a.arrange === true) { ui.arrangeDrawing(); done.push('standard views arranged'); }
     for (const v of list(a.add_views).map(str)) {
       if (!['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric'].includes(v)) throw new ToolError(`add_views: unknown view ${v}`);
+      const before = this.doc.drawing?.views.length ?? 0;
       ui.addDrawingView(v as DrawingViewKind);
+      // Without a solid no view is added: it was reported as added all the same.
+      if ((this.doc.drawing?.views.length ?? 0) === before) throw new ToolError(`add_views: the ${v} view could not be added, there is no solid to draw${done.length ? ` (done before that: ${done.join(', ')})` : ''}`);
       done.push(`added ${v} view`);
     }
     const patch: Obj = {};

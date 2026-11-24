@@ -852,3 +852,29 @@ test('the assistant keeps drawing views on the sheet when it scales the sheet up
   // Every view inside the border of the 297 x 210 sheet (the isometric view grew off its top).
   await expect.poll(async () => { const s = await state(); return s.frames.length === 4 && s.frames.every((f) => f.x0 >= 9.999 && f.y0 >= 9.999 && f.x1 <= 287.001 && f.y1 <= 200.001); }).toBe(true);
 });
+
+test('the assistant says a drawing view could not be added when the part has no solid', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __results: string[] };
+    w.__results = [];
+    w.__assistantChat = async function* (messages: { role: string; content: unknown }[]) {
+      const round = messages.filter((m) => m.role === 'assistant').length;
+      if (round === 0) yield { type: 'tool', id: 'c1', name: 'drawing', input: { add_views: ['front'] } };
+      else { w.__results.push(JSON.stringify(messages.at(-1))); yield { type: 'text', text: 'Understood.' }; }
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  // A drawing exists, then the solid goes (everything rolled back).
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await page.getByRole('tab', { name: 'Model' }).click();
+  await page.evaluate(() => { const app = (window as unknown as { __parametric: { store: { change(l: string, f: (d: { rollback: number | null }) => void): void } } }).__parametric; app.store.change('Roll back', (d) => { d.rollback = 0; }); });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: { bbox: unknown } }).__parametric.bbox)).toBeNull();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Add a front view');
+  await box.press('Enter');
+  await expect(page.getByText('Understood.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.as-step.error')).toContainText('no solid to draw');
+});
