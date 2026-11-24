@@ -109,12 +109,13 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const menubar = h('nav', { class: 'menubar', role: 'menubar', 'aria-label': 'Main menu' });
   const menuButtons: HTMLButtonElement[] = [];
   let menuOpenIndex = -1;
-  const openAt = (i: number) => {
+  const openAt = (i: number, last = false) => {
     const b = menuButtons[(i + menuButtons.length) % menuButtons.length];
     const idx = menuButtons.indexOf(b);
     menuOpenIndex = idx;
     dropdown(b, menus[idx].items(), {
       label: menus[idx].label,
+      focusLast: last,
       onNavigate: (d) => { closeMenus(); openAt(idx + d); },
       onClose: () => { if (menuOpenIndex === idx) menuOpenIndex = -1; },
     });
@@ -123,10 +124,16 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
     const b = h('button', { role: 'menuitem', 'aria-haspopup': 'menu', 'aria-expanded': 'false', type: 'button', tabindex: i === 0 ? '0' : '-1' }, m.label) as HTMLButtonElement;
     b.addEventListener('click', () => openAt(i));
     b.addEventListener('pointerenter', () => { if (menuOpenIndex >= 0 && menuOpenIndex !== i) { closeMenus(); openAt(i); } });
+    // One tab stop: the menu last moved to (Shift+Tab from Edit leaves the menubar instead of going to File).
+    b.addEventListener('focus', () => menuButtons.forEach((x) => x.setAttribute('tabindex', x === b ? '0' : '-1')));
     b.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowRight') { e.preventDefault(); menuButtons[(i + 1) % menuButtons.length].focus(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); menuButtons[(i - 1 + menuButtons.length) % menuButtons.length].focus(); }
+      if (e.key === 'Home') { e.preventDefault(); menuButtons[0].focus(); }
+      if (e.key === 'End') { e.preventDefault(); menuButtons[menuButtons.length - 1].focus(); }
       if (e.key === 'ArrowDown') { e.preventDefault(); openAt(i); }
+      // Up opens the menu at its last item, as in any menubar.
+      if (e.key === 'ArrowUp') { e.preventDefault(); openAt(i, true); }
     });
     menuButtons.push(b);
     menubar.append(b);

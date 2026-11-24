@@ -165,6 +165,31 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
 
+  test('the menubar is one tab stop, and Up opens a menu at its last item', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const bar = page.getByRole('menubar');
+    await bar.getByRole('menuitem', { name: 'File' }).focus();
+    await page.keyboard.press('ArrowRight');
+    const edit = bar.getByRole('menuitem', { name: 'Edit' });
+    await expect(edit).toBeFocused();
+    // Leaving and coming back lands on Edit, and Shift+Tab leaves the menubar.
+    await expect(bar.locator('[tabindex="0"]')).toHaveCount(1);
+    await expect(edit).toHaveAttribute('tabindex', '0');
+    await page.keyboard.press('Shift+Tab');
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="menubar"]'))).toBe(false);
+    await edit.focus();
+    await page.keyboard.press('End');
+    await expect(bar.getByRole('menuitem', { name: 'Help' })).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(bar.getByRole('menuitem', { name: 'File' })).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    const menu = page.getByRole('menu', { name: 'File' });
+    await expect(menu).toBeVisible();
+    const items = menu.locator('button:not([aria-disabled="true"])');
+    await expect(items.last()).toBeFocused();
+  });
+
   test('the design tree keeps keyboard focus and a rename survives hovering the model', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

@@ -38,6 +38,8 @@ export interface MenuOptions {
   onNavigate?: (dir: -1 | 1) => void;
   level?: number;
   focusFirst?: boolean;
+  /** Focus starts on the last item (Up on a menubar's menu). */
+  focusLast?: boolean;
   label?: string;
 }
 
@@ -164,7 +166,9 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   stack.push({ el, close: closeThis });
   open = { el, close: closeThis, parent: opts.anchor };
   setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
-  if (opts.focusFirst !== false) (buttons.find((b) => b.getAttribute('aria-disabled') !== 'true') ?? el).focus({ preventScroll: true });
+  const usable = (b: HTMLElement) => b.getAttribute('aria-disabled') !== 'true';
+  if (opts.focusLast) (buttons.findLast(usable) ?? el).focus({ preventScroll: true });
+  else if (opts.focusFirst !== false) (buttons.find(usable) ?? el).focus({ preventScroll: true });
   else el.focus({ preventScroll: true });
   return el;
 }
