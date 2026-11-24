@@ -383,8 +383,19 @@ export async function loadPart(location: Location): Promise<{ text: string; vers
 async function trashCloud(path: string) {
   const fs = puter()!.fs;
   if (typeof fs.move !== 'function') return fs.delete(path);
-  // A name given skips the SDK's check of the destination; another part of the same name may be there already.
-  await fs.move(path, '~/Trash', { newName: path.split('/').pop(), dedupeName: true });
+  // A name given skips the SDK's check of the destination. Puter gives a part
+  // whose name is in the Trash already a free one ("Bracket (1).parametric")
+  // and records where it came from, as for the desktop's own Delete.
+  try {
+    await fs.move(path, '~/Trash', { newName: path.split('/').pop(), dedupeName: true });
+  } catch (e) {
+    if (!isMissing(e)) throw e;
+    // Gone already (deleted elsewhere): it is deleted. Otherwise the Trash is
+    // missing, and the part stays rather than being deleted for good.
+    const left = await cloudEntry(path);
+    if (left === null) return;
+    throw new Error('The part was not deleted: your Puter Trash could not be found.');
+  }
 }
 
 export async function deletePart(location: Location) {

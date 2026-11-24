@@ -762,6 +762,45 @@ test('parts are deleted from the Open dialog with a button, and stay listed when
   await expect(dialog.getByRole('button', { name: /^Locked/ })).toBeVisible();
 });
 
+test('parts of the same name all go to the Trash, a gone part counts as deleted, and none is deleted without a Trash', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const files = (window as unknown as Mock).__files;
+    const part = (n: string) => ({ text: JSON.stringify({ format: 'parametric-part', version: 1, name: n, units: 'MMGS', features: [] }) });
+    files.set('/tester/AppData/parametric/Parts/Bracket.parametric', part('Bracket'));
+    files.set('/tester/Trash/Bracket.parametric', part('Bracket'));
+    files.set('/tester/AppData/parametric/Parts/Gone.parametric', part('Gone'));
+    files.set('/tester/AppData/parametric/Parts/Kept.parametric', part('Kept'));
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('open'));
+  const dialog = page.getByRole('dialog', { name: 'Open' });
+  const remove = async (name: string) => {
+    await dialog.getByRole('button', { name: `Delete ${name}` }).click();
+    await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
+  };
+  // One of that name is in the Trash already: Puter gives this one a free name.
+  await remove('Bracket');
+  await expect(dialog.getByRole('button', { name: /^Bracket/ })).toHaveCount(0);
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()].filter((k) => k.startsWith('/tester/Trash/')).sort())).toEqual(['/tester/Trash/Bracket (1).parametric', '/tester/Trash/Bracket.parametric']);
+  // Deleted elsewhere meanwhile: it leaves the list without an error.
+  await page.evaluate(() => (window as unknown as Mock).__files.delete('/tester/AppData/parametric/Parts/Gone.parametric'));
+  await remove('Gone');
+  await expect(dialog.getByRole('button', { name: /^Gone/ })).toHaveCount(0);
+  // Without a Trash the part is not deleted for good.
+  await page.evaluate(() => {
+    const w = window as unknown as Mock & { puter: { fs: { move: () => Promise<unknown> } } };
+    w.puter.fs.move = async () => { throw { code: 'subject_does_not_exist', message: 'Not found' }; };
+  });
+  await remove('Kept');
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('The part was not deleted: your Puter Trash could not be found.');
+  await expect(dialog.getByRole('button', { name: /^Kept/ })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as Mock).__files.has('/tester/AppData/parametric/Parts/Kept.parametric'))).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('opening a part puts it first in the recent parts', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
