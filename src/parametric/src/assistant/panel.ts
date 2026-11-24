@@ -243,6 +243,8 @@ export class AssistantPanel {
       this.opened++;
       // A failed reply asked again would go on without a description of this part, about the one closed.
       for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
+      // Nor can what an earlier message changed be undone: the history is the new part's.
+      for (const b of this.log.querySelectorAll('.as-undo')) b.remove();
       // Another part was opened: the reply in progress was about the one that was closed.
       if (this.agent.busy) this.stop('Stopped: another part was opened.');
       else if (!this.agent.messages.length) this.renderEmpty();
@@ -650,7 +652,7 @@ export class AssistantPanel {
       turn.foot.append(error, retry);
     }
     if (changed) {
-      const undo = h('button', { class: 'btn small', type: 'button' }, icon('undo', 14), 'Undo changes');
+      const undo = h('button', { class: 'btn small as-undo', type: 'button' }, icon('undo', 14), 'Undo changes');
       undo.addEventListener('click', (e) => {
         if (store.undoMark !== after || store.undoLabel !== label) {
           toast({ kind: 'info', message: 'The part changed since; use Edit > Undo to step back.' });

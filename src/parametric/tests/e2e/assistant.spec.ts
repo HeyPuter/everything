@@ -529,6 +529,24 @@ test('a failed reply about a part that was then closed cannot be tried again on 
   await expect(page.locator('.as-error')).toBeVisible();
 });
 
+test('what a message changed in a part that was then closed is not offered for undoing in the part opened', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'set_variables', input: { set: [{ name: 'W', value: 5 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Add a variable');
+  await box.press('Enter');
+  await expect(page.getByRole('button', { name: 'Undo changes' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __parametric: { newDocument(n: string): void } }).__parametric.newDocument('Other part'));
+  await expect(page.getByRole('button', { name: 'Undo changes' })).toHaveCount(0);
+  await expect(page.getByText('Done.')).toBeVisible();
+});
+
 test('a reply cut off at the length limit says so', async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
