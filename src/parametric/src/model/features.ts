@@ -45,6 +45,35 @@ export const PARAM_FIELDS: Partial<Record<FeatureType, { path: string; kind: Par
   draft: [{ path: 'angle', kind: 'angle', label: 'Draft angle' }],
 };
 
+/**
+ * Whether a feature uses a parameter in its current mode (the property panel
+ * hides the ones it does not). A value it does not use, such as Distance 2 of
+ * an equal-distance chamfer, cannot fail it, whatever its expression says.
+ */
+export function paramActive(f: Feature, path: string): boolean {
+  switch (f.type) {
+    case 'extrude':
+      if (path === 'depth') return f.end !== 'throughAll';
+      if (path === 'dir2.depth') return !!f.dir2 && f.end !== 'midPlane' && f.dir2.end !== 'throughAll';
+      // As the panel shows it: an equation ("=Angle") or a positive number turns the draft on.
+      if (path === 'draft') return String(f.draft).trim().startsWith('=') || Number(f.draft) > 0;
+      return true;
+    case 'chamfer':
+      if (path === 'distance2') return f.mode === 'twoDistance';
+      if (path === 'angle') return f.mode === 'distanceAngle';
+      return true;
+    case 'hole':
+      if (path === 'depth') return f.end !== 'throughAll';
+      if (path === 'cbDiameter' || path === 'cbDepth') return f.kind === 'counterbore';
+      if (path === 'csDiameter' || path === 'csAngle') return f.kind === 'countersink';
+      return true;
+    case 'linearPattern':
+      return !path.startsWith('dir2.') || !!f.dir2;
+    default:
+      return true;
+  }
+}
+
 const BASE_NAMES: Record<FeatureType, string> = {
   sketch: 'Sketch',
   extrude: 'Extrude',

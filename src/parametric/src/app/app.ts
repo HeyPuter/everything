@@ -795,14 +795,17 @@ export class App {
       const sk = resolved.features.find((f) => f.id === this.sketchEditor!.sketchId) ?? null;
       preview = sk;
     }
-    const key = JSON.stringify([upTo, this.settings.quality, preview, resolved.features.slice(0, upTo)]);
+    // Sketches keep the shape they were last solved to; other features with
+    // a value that cannot be evaluated fail rather than build with zero.
+    const invalid = Object.fromEntries([...resolved.errors].filter(([id]) => this.store.feature(id)?.type !== 'sketch'));
+    const key = JSON.stringify([upTo, this.settings.quality, preview, resolved.features.slice(0, upTo), invalid]);
     if (key === this.lastBuildKey) return;
     this.lastBuildKey = key;
     const t0 = performance.now();
     const documentSignal = this.documentSignal;
     let res: BuildResult;
     try {
-      res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview });
+      res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview, invalid });
       // A build of the part that was open before New or Open finishes first:
       // its body, errors and framing must not be shown for the new part.
       if (documentSignal.aborted) return;

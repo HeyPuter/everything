@@ -15,6 +15,11 @@ export interface BuildRequest {
   blobs: Record<Id, string>;
   /** Mesh quality: 0 coarse, 1 normal, 2 fine. */
   quality: number;
+  /**
+   * Features with a value whose expression could not be evaluated, with the
+   * message. They fail without building (their values stand at zero).
+   */
+  invalid?: Record<Id, string>;
   /** Optional preview: build this feature on top of the result without caching. */
   preview?: ResolvedFeature | null;
 }

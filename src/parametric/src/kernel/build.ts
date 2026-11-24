@@ -200,7 +200,8 @@ export class ModelBuilder {
       const suppressed = !!f.suppressed || dependencies(f).some((d) => off.has(d));
       if (suppressed) off.add(f.id);
       const imported = f.type === 'import' ? ':' + this.importVersion(f.blob, req.blobs[f.blob]) : '';
-      const key = hashString(chain + '\u0000' + stepText(f) + imported);
+      const invalid = suppressed ? undefined : req.invalid?.[f.id];
+      const key = hashString(chain + '\u0000' + stepText(f) + imported + (invalid ? '\u0000!' + invalid : ''));
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
@@ -211,7 +212,10 @@ export class ModelBuilder {
       this.steps.length = i;
       const next = cloneState(state);
       let st: FeatureStatus = suppressed ? { id: f.id, ok: true, suppressed: true } : { id: f.id, ok: true };
-      if (!suppressed) {
+      // A value that could not be evaluated stands at zero: building with it
+      // gave later features the wrong geometry under a feature marked failed.
+      if (invalid) st = { id: f.id, ok: false, error: invalid };
+      else if (!suppressed) {
         try {
           this.warning = null;
           this.at = i;

@@ -212,6 +212,16 @@ describe('feature regeneration', () => {
     const d2 = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { dir2: { end: 'blind', depth: 0 } })]));
     expect(d2.status[1].ok).toBe(false);
     expect(d2.status[1].error).toMatch(/Direction 2/);
+    // Values the end conditions do not use are not checked.
+    const unused = [
+      extrude('E1', 'S1', 0, { end: 'throughAll', cut: true }),
+      extrude('E1', 'S1', 10, { end: 'midPlane', dir2: { end: 'blind', depth: -1 } }),
+      extrude('E1', 'S1', 10, { dir2: { end: 'throughAll', depth: 0 }, cut: true }),
+    ];
+    for (const f of unused) {
+      const r = await b.build(req([sketch('S0', rect(-20, -20, 20, 20)), extrude('E0', 'S0', 5, { end: 'midPlane' }), sketch('S1', rect(0, 0, 10, 10)), f]));
+      expect(r.status[3].error).toBeUndefined();
+    }
   });
 
   it('revolves a profile about a centerline', async () => {
@@ -979,6 +989,25 @@ describe('feature regeneration', () => {
     // From the top the hole is hidden: two hidden lines.
     expect(top.bounds![3] - top.bounds![1]).toBeCloseTo(10, 3);
     expect(top.hidden.length).toBeGreaterThan(0);
+  });
+
+  it('fails a feature whose value could not be evaluated instead of building it with zero', async () => {
+    const b = new ModelBuilder();
+    const feats: Feature[] = [
+      sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10),
+      { id: 'P1', name: 'P1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 0, flip: false },
+      sketch('S2', rect(2, 2, 4, 4), { kind: 'feature', id: 'P1' }), extrude('E2', 'S2', 3, { flip: true }),
+    ];
+    // The plane's offset expression failed (its value stands at 0): the plane
+    // fails and the boss on it is not built at the wrong height.
+    const res = await b.build(req(feats, { invalid: { P1: 'Offset: Unknown name "Gap"' } }));
+    expect(res.status[2]).toEqual({ id: 'P1', ok: false, error: 'Offset: Unknown name "Gap"' });
+    expect(res.status[4].ok).toBe(false);
+    expect(volume(b)).toBeCloseTo(1000, 6);
+    // Fixed again (an offset of 20), both build.
+    const fixed = await b.build(req(feats.map((f) => (f.id === 'P1' ? { ...f, offset: 20 } : f))));
+    expect(fixed.status.every((s) => s.ok)).toBe(true);
+    expect(volume(b)).toBeCloseTo(1012, 6);
   });
 
   it('honours the rollback position', async () => {
