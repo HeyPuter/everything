@@ -657,3 +657,25 @@ test('OK in Equations marks and focuses the field at fault', async ({ page }) =>
   await expect(second).not.toHaveAttribute('aria-invalid');
   expect(errors).toEqual([]);
 });
+
+test('design tree rows tell screen readers that a feature is suppressed or rolled back', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    const hole = a.store.doc.features.find((f) => f.name === 'Hole1')!;
+    a.toggleSuppress([hole.id], true);
+    a.setRollback(a.store.indexOf(a.store.doc.features.find((f) => f.name === 'Fillet1')!.id));
+  });
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toHaveAccessibleDescription(
+    'Suppressed',
+  );
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toHaveAccessibleDescription(
+    'Rolled back',
+  );
+  await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toHaveAccessibleDescription('');
+  expect(errors).toEqual([]);
+});

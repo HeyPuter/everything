@@ -119,13 +119,19 @@ export class FeatureTree {
         titleWhenClipped(label);
         el.append(label);
       }
+      // What grey text and badges show is told to screen readers too.
+      const states: string[] = [];
+      if (f?.suppressed || status?.suppressed) states.push('Suppressed');
+      if (f && index >= built) states.push('Rolled back');
       if (status && !status.ok) {
         const b = h('span', { class: 'badge', title: status.error ?? 'Error' }, icon('error', 14));
         el.append(b);
-        el.setAttribute('aria-description', `Error: ${status.error ?? ''}`);
+        states.push(`Error: ${status.error ?? ''}`);
       } else if (f && app.featureWarning(f.id)) {
         el.append(h('span', { class: 'badge warn', title: app.featureWarning(f.id)! }, icon('warning', 14)));
+        states.push(`Warning: ${app.featureWarning(f.id)}`);
       }
+      if (states.length) el.setAttribute('aria-description', states.join('. '));
       el.addEventListener('click', (e) => this.onClick(r, e));
       el.addEventListener('dblclick', () => this.onDouble(r));
       el.addEventListener('contextmenu', (e) => {
