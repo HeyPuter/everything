@@ -1,6 +1,6 @@
 // Popup menus (dropdowns, context menus, menubar) with full keyboard support.
 
-import { h, formatShortcut } from './dom';
+import { h, formatShortcut, ancestors, refocus } from './dom';
 import { icon } from './icons';
 
 export interface MenuItem {
@@ -49,11 +49,13 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   const buttons: HTMLElement[] = [];
   // Focus goes back where it came from, so a command run from the menu (and
   // any dialog it opens) does not leave keyboard focus on the page body.
+  // A design tree row re-rendered while its context menu is open has a replacement.
   const returnFocus = opts.anchor ?? (level === 0 ? document.activeElement as HTMLElement | null : null);
+  const returnParents = ancestors(returnFocus);
   const closeThis = () => {
     const hadFocus = el.contains(document.activeElement);
     el.remove();
-    if (hadFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    if (hadFocus) refocus(returnFocus, returnParents, true);
     opts.anchor?.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', outside, true);
     opts.onClose?.();

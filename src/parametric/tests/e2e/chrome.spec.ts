@@ -168,3 +168,25 @@ test('Undo and Redo of a part colour recolour the model and the Appearance swatc
   expect(await shown()).toEqual({ model: '#c45a4a', pressed: ['Colour #c45a4a'] });
   expect(errors).toEqual([]);
 });
+
+test("closing a design tree row's context menu returns focus to the row after the tree was redrawn", async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Fillet1' }).focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menu', { name: 'Feature menu' })).toBeVisible();
+  // A rebuild finishing while the menu is open redraws the rows.
+  await page.evaluate(() => (window as unknown as Handle).__parametric.renderTrees());
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeFocused();
+  // So does a command run from it, and the dialog it opens.
+  await page.keyboard.press('Shift+F10');
+  await page.evaluate(() => (window as unknown as Handle).__parametric.renderTrees());
+  await page.getByRole('menuitem', { name: 'Delete' }).press('Enter');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).press('Enter');
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeFocused();
+  expect(errors).toEqual([]);
+});
