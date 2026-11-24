@@ -119,7 +119,9 @@ export class Camera {
       const h = this.distance * Math.tan(this.fov / 2);
       return ortho(-h * aspect, h * aspect, -h, h, -far, far);
     }
-    const near = Math.max(this.distance - r * 2, this.distance * 0.01, 0.01);
+    // Relative to the distance only: zoomed in closer than 0.01 mm, a fixed floor clipped away
+    // the surface being looked at.
+    const near = Math.max(this.distance - r * 2, this.distance * 0.01);
     return perspective(this.fov, aspect, near, far);
   }
 

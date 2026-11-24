@@ -164,6 +164,19 @@ describe('camera zoom limits', () => {
     c.zoomAt(2, 400, 300);
     expect(c.distance).toBe(1e7);
   });
+
+  it('keeps the surface looked at in perspective inside the clip range at the zoom-in limit', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.sceneRadius = 100;
+    c.setState({ target: [30, 4, 30], distance: 1, rot: VIEWS.front, ortho: false });
+    for (const d of [0.05, 0.008, 0.001]) {
+      c.zoomAt(d / c.distance, 400, 300);
+      const z = c.project([30, 4, 30])[2];
+      expect(z).toBeGreaterThan(-1);
+      expect(z).toBeLessThan(1);
+    }
+  });
 });
 
 describe('command registry', () => {
