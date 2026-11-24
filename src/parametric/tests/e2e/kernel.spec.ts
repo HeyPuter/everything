@@ -162,3 +162,69 @@ test('a geometry worker replaced for its memory leaves the part as it was, witho
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('a worker that dies mid-build is replaced, the part rebuilt, and nothing stays waiting', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type K = Kernel & { busy: boolean; restart(reason?: string): void; recycleBytes: number; baseHeap: number; worker: unknown };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; bbox: { max: number[] } | null; store: { change(l: string, fn: (d: { features: { id: string; depth?: number }[] }) => void): void } } };
+  // Killed while rebuilding an edit: the edit is built on the new worker.
+  const top = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    await app.whenBuilt();
+    app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = 60; });
+    while (!app.kernel.busy) await new Promise((r) => setTimeout(r, 0));
+    app.kernel.restart('of a test');
+    await app.whenBuilt();
+    return app.bbox?.max[2];
+  });
+  expect(top).toBeCloseTo(60, 6);
+  await expect(page.locator('.toast', { hasText: 'Geometry engine restarted' })).toBeVisible();
+  expect(await volume(page)).toBeGreaterThan(0);
+  // Killed while a worker replaced for its memory rebuilds the part on its own:
+  // no edit is waiting on that build, and the part is still built again.
+  const v = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    app.kernel.recycleBytes = 1;
+    app.kernel.baseHeap = 1;
+    const first = app.kernel.worker;
+    app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = 50; });
+    await app.whenBuilt();
+    while (app.kernel.worker === first) await new Promise((r) => setTimeout(r, 0));
+    app.kernel.restart('of a test');
+    await new Promise((r) => setTimeout(r, 50));
+    await app.whenBuilt();
+    while (app.kernel.busy) await new Promise((r) => setTimeout(r, 10));
+    return (await app.kernel.massProperties())?.volume ?? null;
+  });
+  expect(v).toBeGreaterThan(0);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('quick successive edits show the last one, never an older result after a newer one', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: { whenBuilt(): Promise<void>; bbox: { max: number[] } | null; applyBuild(res: { bbox: { max: number[] } | null }, ms: number): void; store: { change(l: string, fn: (d: { features: { id: string; depth?: number }[] }) => void): void } } };
+  const shown = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    await app.whenBuilt();
+    const tops: number[] = [];
+    const apply = app.applyBuild.bind(app);
+    app.applyBuild = (res, ms) => { tops.push(res.bbox?.max[2] ?? 0); apply(res, ms); };
+    // As typing 31, 32 ... 45 a keystroke at a time, without waiting for rebuilds.
+    for (let depth = 31; depth <= 45; depth++) {
+      app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = depth; });
+      await new Promise((r) => setTimeout(r, depth % 3 ? 0 : 15));
+    }
+    await app.whenBuilt();
+    return { tops, final: app.bbox?.max[2] };
+  });
+  expect(shown.final).toBeCloseTo(45, 6);
+  expect(shown.tops[shown.tops.length - 1]).toBeCloseTo(45, 6);
+  // Each shown result is newer than the one before.
+  for (let i = 1; i < shown.tops.length; i++) expect(shown.tops[i]).toBeGreaterThan(shown.tops[i - 1]);
+  expect(errors).toEqual([]);
+});

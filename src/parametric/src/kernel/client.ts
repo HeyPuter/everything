@@ -40,6 +40,8 @@ export class KernelClient {
   private nextId = 1;
   private pending = new Map<number, Call>();
   private building = false;
+  /** Whether a caller waits on the build in flight (the rebuild of a replacing worker has none). */
+  private buildAwaited = false;
   private queued: { req: BuildRequest; waiters: Pending[] } | null = null;
   /** Imported file data the current worker already holds, by blob id. */
   private sentBlobs = new Map<Id, string>();
@@ -62,7 +64,7 @@ export class KernelClient {
   private baseHeap = 0;
   private recycleWanted = false;
   readonly ready: Promise<void>;
-  /** Called after the worker was replaced; `building` tells whether a rebuild was cut short. */
+  /** Called after the worker was replaced; `building` tells whether a rebuild someone waits on was cut short. */
   onRestart: (reason: string, building: boolean) => void = () => {};
   /** Called when a request has gone unanswered for a while, and again (false) once it settles. */
   onStall: (stalled: boolean) => void = () => {};
@@ -120,7 +122,9 @@ export class KernelClient {
     const old = this.worker;
     old.onmessage = old.onerror = old.onmessageerror = null;
     old.terminate();
-    const building = this.building;
+    // The caller of a build cut short tries it again; a build nobody waits on
+    // (a replacing worker's first) is not, so the caller must rebuild.
+    const building = this.building && this.buildAwaited;
     const err = new KernelRestartError(`The geometry engine was restarted because ${reason}. Try again.`);
     const calls = [...this.pending.values()];
     this.pending.clear();
@@ -181,6 +185,7 @@ export class KernelClient {
 
   private run(req: BuildRequest, waiters: Pending[]) {
     this.building = true;
+    this.buildAwaited = waiters.length > 0;
     this.lastReq = req;
     // Imported files can be tens of MB: send each one to the worker once
     // rather than copying all of them with every rebuild.

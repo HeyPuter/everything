@@ -160,6 +160,24 @@ describe('kernel memory', () => {
     expect(workers).toHaveLength(2);
   });
 
+  it('asks for a rebuild when the replacing worker dies during its own first build', async () => {
+    // Nobody waits on that build, so nobody would try it again.
+    const { client, workers, restarts, last } = setup({ recycleBytes: 1000 });
+    last().answer('init');
+    await client.ready;
+    let p = client.build(req(1));
+    workers[0].answer('build', { heap: 500 });
+    await p;
+    await flush();
+    p = client.build(req(2));
+    workers[0].reply({ id: workers[0].sent.filter((m) => m.type === 'build').pop()!.id, ok: true, result: { heap: 5000 } });
+    await p;
+    await flush();
+    expect(workers).toHaveLength(2);
+    workers[1].crash();
+    expect(restarts).toEqual([['of an error (boom)', false]]);
+  });
+
   it('waits for requests in flight before replacing the worker', async () => {
     const { client, workers, last } = setup({ recycleBytes: 1000 });
     last().answer('init');
