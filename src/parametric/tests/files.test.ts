@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { deletePart, listParts, recentParts, rememberRecent } from '../src/platform/files';
+import { deletePart, listParts, recentParts, rememberRecent, safeName } from '../src/platform/files';
 import { setPuterForTests, storageError } from '../src/platform/puter';
 
 // Browser storage stand-in: the local part index lives in localStorage.
@@ -117,5 +117,14 @@ describe('damaged browser file lists', () => {
     ]);
     expect(() => rememberRecent({ location: { type: 'local', id: 'new' }, name: 'New' })).not.toThrow();
     expect(recentParts().map((p) => p.name)).toEqual(['New', 'Kept', 'Also kept']);
+  });
+});
+
+describe('safeName', () => {
+  it('shortens long names without splitting a character in two', () => {
+    const name = safeName(`${'a'.repeat(119)}\u{1F600}tail`);
+    expect(name).toBe(`${'a'.repeat(119)}\u{1F600}`);
+    expect(safeName(`${'a'.repeat(119)} b`)).toBe('a'.repeat(119));
+    expect(safeName(' a/b:c ')).toBe('a-b-c');
   });
 });

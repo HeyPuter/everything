@@ -26,8 +26,9 @@ export interface FileEntry {
   size?: number | null;
 }
 
+/** Counted in characters, not UTF-16 units: a cut must not split an emoji into half a character. */
 export const safeName = (name: string) =>
-  (name || 'Untitled').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Untitled';
+  Array.from((name || 'Untitled').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim()).slice(0, 120).join('').trim() || 'Untitled';
 
 // ---- Local (OPFS) ----
 
