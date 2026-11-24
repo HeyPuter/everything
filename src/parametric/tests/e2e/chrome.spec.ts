@@ -726,3 +726,23 @@ test('a model command run from the drawing goes back to the model to show its pa
   );
   expect(errors).toEqual([]);
 });
+
+test('choosing a section plane with the keyboard keeps focus on the plane buttons', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('sectionView'));
+  const plane = page.getByRole('group', { name: 'Section plane' });
+  // Focus arrives from the keyboard.
+  await page.keyboard.press('Shift');
+  await plane.getByRole('button', { name: 'Top', exact: true }).focus();
+  await page.keyboard.press('Space');
+  await expect(plane.getByRole('button', { name: 'Top', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(plane.getByRole('button', { name: 'Top', exact: true })).toBeFocused();
+  expect(errors).toEqual([]);
+});

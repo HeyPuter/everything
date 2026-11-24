@@ -65,6 +65,22 @@ export interface AppHooks {
   saveSettings?: (s: Settings) => void;
 }
 
+/**
+ * Runs `replace`, which redraws `box` (a panel shown again after a plane or
+ * units change), and gives focus to the redrawn control that stands where the
+ * focused one did (same kind, label and place), not to the page.
+ */
+function keepFocus(box: HTMLElement, replace: () => void) {
+  const prev = document.activeElement instanceof HTMLElement && box.contains(document.activeElement) ? document.activeElement : null;
+  const sig = (el: Element) => `${el.getAttribute('role') ?? ''}|${el.getAttribute('aria-label') ?? el.textContent?.trim() ?? ''}`;
+  const like = () => (prev ? [...box.querySelectorAll<HTMLElement>(prev.tagName)].filter((x) => sig(x) === sig(prev)) : []);
+  const at = like().indexOf(prev!);
+  replace();
+  if (!prev || prev.isConnected) return;
+  const matches = like();
+  (matches[at] ?? matches[0])?.focus({ preventScroll: true });
+}
+
 export class App {
   readonly store = new DocStore();
   readonly kernel: KernelClient;
@@ -268,7 +284,8 @@ export class App {
       body.replaceChildren(this.tree.el);
       this.tree.render();
     } else if (this.panel) {
-      body.replaceChildren(this.panelElement(this.panel));
+      const panel = this.panel;
+      keepFocus(body, () => body.replaceChildren(this.panelElement(panel)));
     } else {
       body.replaceChildren(h('div', { class: 'pm-msg info', style: { margin: '12px' } }, 'Start a command to see its properties here.'));
     }
