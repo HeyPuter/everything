@@ -992,3 +992,35 @@ test('selected rows, chosen tabs and pressed buttons stand out in high contrast 
   expect(await fill(perspective, 3)).not.toBe(before);
   expect(errors).toEqual([]);
 });
+
+test("a sketch a feature absorbed offers Show in its context menu, and Hide acts on every selected sketch", async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const tree = page.getByRole('tree', { name: 'Design tree' });
+  for (const name of ['Extrude1', 'Hole1']) {
+    const row = tree.getByRole('treeitem', { name });
+    await row.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(row).toHaveAttribute('aria-expanded', 'true');
+    // The redrawn row takes focus on the next frame: wait for it before moving on.
+    await expect(row).toBeFocused();
+  }
+  const sketches = tree.locator('[role="treeitem"][aria-level="3"]');
+  await expect(sketches).toHaveCount(2);
+  const hidden = () => page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.features.filter((f) => f.type === 'sketch').map((f) => (window as unknown as Handle).__parametric.isShown(f)));
+  expect(await hidden()).toEqual([false, false]);
+  await sketches.first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Show' }).click();
+  expect(await hidden()).toEqual([true, false]);
+  await sketches.last().click({ modifiers: ['ControlOrMeta'] });
+  await sketches.last().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Show' }).click();
+  expect(await hidden()).toEqual([true, true]);
+  await sketches.first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Hide' }).click();
+  expect(await hidden()).toEqual([false, false]);
+  expect(errors).toEqual([]);
+});

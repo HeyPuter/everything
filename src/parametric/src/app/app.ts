@@ -1603,14 +1603,16 @@ export class App {
     });
   }
 
-  toggleHidden(ids: Id[]) {
+  /** Whether a sketch or plane is shown in the model: a sketch a feature was built from is hidden until shown. */
+  isShown(f: Feature, doc = this.store.doc): boolean {
+    const consumed = f.type === 'sketch' && doc.features.some((x) => consumedSketches(x).includes(f.id));
+    return f.hidden === false || (f.hidden === undefined && !consumed);
+  }
+
+  /** Hides (or with `hide` false, shows) the features; without `hide` each one is toggled. */
+  toggleHidden(ids: Id[], hide?: boolean) {
     this.store.change('Hide/Show', (doc) => {
-      for (const f of doc.features) {
-        if (!ids.includes(f.id)) continue;
-        const consumed = doc.features.some((x) => consumedSketches(x).includes(f.id));
-        const visible = f.hidden === false || (f.hidden === undefined && !(f.type === 'sketch' && consumed));
-        f.hidden = visible;
-      }
+      for (const f of doc.features) if (ids.includes(f.id)) f.hidden = hide ?? this.isShown(f, doc);
     });
   }
 
