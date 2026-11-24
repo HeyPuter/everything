@@ -1053,6 +1053,8 @@ export class ModelBuilder {
       if (n2 > 1 && len(v2) < 1e-9) throw new FeatureError('Direction 2 spacing must not be zero');
     }
     if (n1 * n2 > 2000) throw new FeatureError('Too many instances (maximum 2000)');
+    // "Between 1 and 1000" allows 1 in one direction; the pattern needs a copy somewhere.
+    if (n1 * n2 === 1) throw new FeatureError('The pattern has only the original. Set 2 or more instances.');
     const tfs: ((s: Sh) => Sh)[] = [];
     for (let i = 0; i < n1; i++) {
       for (let j = 0; j < n2; j++) {

@@ -5,7 +5,7 @@ import init from 'replicad-opencascadejs';
 import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
 import * as R from 'replicad';
 import { type Sh, getOc, isValid, mirrored, rotated, setOc } from '../src/kernel/occ';
-import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
+import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
 import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
@@ -615,6 +615,8 @@ describe('feature regeneration', () => {
       expect(res.status[4].error).toMatch(/on top of each other/);
     }
     expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
+    const one = { ...lin(10), dir1: { ...(lin(10) as LinearPatternFeature).dir1, count: 1 } } as Feature;
+    expect((await b.build(req([...base, one]))).status[4].error).toMatch(/only the original. Set 2 or more instances/);
     for (const p of [circ(360, true), circ(-360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
     // A full turn the other way makes the same four holes.
     await b.build(req([...base, circ(-360, true)]));
