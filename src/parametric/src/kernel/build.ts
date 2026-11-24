@@ -125,6 +125,15 @@ function boxOf(shape: Sh): ReturnType<typeof bbox> {
   return b;
 }
 
+const volumes = new WeakMap<Sh, number>();
+
+/** Volume of a body, computed once per shape (each body is compared with the next one). */
+function volumeOfBody(shape: Sh): number {
+  let v = volumes.get(shape);
+  if (v === undefined) volumes.set(shape, (v = volumeOf(shape)));
+  return v;
+}
+
 /** 53-bit FNV-1a style hash of a string, as base36. */
 export function hashString(s: string, seed = 0): string {
   let h1 = 0x811c9dc5 ^ seed, h2 = 0x1b873593 ^ seed;
@@ -536,16 +545,19 @@ export class ModelBuilder {
   }
 
   /** Combines a tool with the body and renames faces. */
-  private applyTool(featId: Id, st: State, tool: Sh, toolFaces: NamedFace[], isCut: boolean) {
+  private applyTool(featId: Id, st: State, tool: Sh, toolFaces: NamedFace[], isCut: boolean, noGain = 'The feature adds no material: it lies inside the part. Check its direction.') {
     let body: Sh;
     if (isCut) {
       if (!st.body) throw new FeatureError('There is no material to cut');
       body = cut(st.body, tool);
       if (isEmpty(body)) throw new FeatureError('The cut removes all material');
-      const v0 = volumeOf(st.body);
-      if (v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The cut does not remove any material. Check its direction.';
+      const v0 = volumeOfBody(st.body);
+      if (v0 > 0 && volumeOfBody(body) >= v0 * (1 - 1e-9)) this.warning = 'The cut does not remove any material. Check its direction.';
     } else {
       body = st.body ? fuse(st.body, tool) : tool;
+      // A boss extruded into the part (Reverse direction by mistake) changed nothing, without a word.
+      const v0 = st.body ? volumeOfBody(st.body) : 0;
+      if (v0 > 0 && volumeOfBody(body) <= v0 * (1 + 1e-9)) this.warning = noGain;
     }
     st.faces = this.nameFaces(featId, body, st, toolFaces);
     st.body = body;
@@ -1092,9 +1104,9 @@ export class ModelBuilder {
       const tool = inst.length === 1 ? inst[0] : compound(inst);
       if (seed.cut) {
         if (!body) throw new FeatureError('There is no material to cut');
-        const v0 = volumeOf(body);
+        const v0 = volumeOfBody(body);
         body = cut(body, tool);
-        if (v0 > 0 && !isEmpty(body) && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
+        if (v0 > 0 && !isEmpty(body) && volumeOfBody(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
       } else body = body ? fuse(body, tool) : fuseAll([tool]);
       parts.push({ shape: tool, cut: seed.cut, faces: named });
     }
@@ -1173,7 +1185,7 @@ export class ModelBuilder {
       // Name mirrored faces after their originals.
       const orig = st.faces;
       tf.forEach((t, k) => { if (orig[k]) t.name = `${orig[k].name}@${f.id}`; });
-      this.applyTool(f.id, st, m, tf, false);
+      this.applyTool(f.id, st, m, tf, false, 'The mirror adds no material: the part is already symmetric about the mirror plane.');
       return;
     }
     this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
@@ -1331,7 +1343,7 @@ export class ModelBuilder {
       this.importCache.set(f.blob, shape);
     }
     const named = this.nameTool(f.id, shape, (_d, k) => `i${k}`);
-    this.applyTool(f.id, st, shape, named, false);
+    this.applyTool(f.id, st, shape, named, false, 'The imported body adds no material: it lies inside the part.');
   }
 
   // ---- output ----

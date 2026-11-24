@@ -313,6 +313,20 @@ describe('feature regeneration', () => {
     expect((await b.build(req(base, { preview: extrude('E2', 'S2', 5, { cut: true, end: 'throughAll', flip: true }) }))).previewWarning).toBeUndefined();
   });
 
+  it('warns when a boss or mirror adds no material', async () => {
+    // A boss sketched on the base and extruded into the box (Reverse direction) changed nothing, silently.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', circle(0, 0, 3))];
+    const inside = await b.build(req([...base, extrude('E2', 'S2', 5)]));
+    expect(inside.status[3]).toMatchObject({ ok: true, warning: 'The feature adds no material: it lies inside the part. Check its direction.' });
+    expect((await b.build(req([...base, extrude('E2', 'S2', 5, { flip: true })]))).status[3]).toEqual({ id: 'E2', ok: true });
+    // Half inside still adds the other half.
+    expect((await b.build(req([...base, extrude('E2', 'S2', 5, { end: 'midPlane' })]))).status[3]).toEqual({ id: 'E2', ok: true });
+    const mirror = (plane: 'right' | 'top'): Feature => ({ id: 'M', name: 'M', type: 'mirror', seeds: [], plane: { kind: 'base', plane } });
+    expect((await b.build(req([...base.slice(0, 2), mirror('right')]))).status[2]).toMatchObject({ ok: true, warning: expect.stringMatching(/already symmetric/) });
+    expect((await b.build(req([sketch('S1', rect(0, -10, 10, 10)), extrude('E1', 'S1', 10), mirror('right')]))).status[2]).toEqual({ id: 'M', ok: true });
+  });
+
   it('sweeps along path segments drawn in any order', async () => {
     const P = (id: string, x: number, y: number) => ({ id, t: 'point', x, y });
     const L = (id: string, a: string, b: string) => ({ id, t: 'line', a, b });
