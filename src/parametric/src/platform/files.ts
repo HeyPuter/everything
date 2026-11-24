@@ -501,6 +501,9 @@ async function localParts() {
 /** The part name a cloud file's name gives ('' for parts kept in this browser). */
 export const partFileName = (loc: Location) => (loc.type === 'cloud' ? (loc.path.split('/').pop() ?? '').replace(/\.(parametric|json)$/i, '') : '');
 
+/** The names of the parts listed in this browser. */
+export const localPartNames = () => readIndex().map((p) => p.name);
+
 /** The browser-storage listing of a part kept in this browser. */
 export const readIndexEntry = (id: string) => readIndex().find((p) => p.id === id) ?? null;
 

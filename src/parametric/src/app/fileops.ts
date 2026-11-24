@@ -7,7 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, claimRecovery, orphanRecoveries, removeRecovery, safeName, writeRecovery, writeRecoveryOnUnload, type FileEntry, deletePart, forgetRecent, rememberRecent,
-  newLocalLocation, onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
+  newLocalLocation, localPartNames, onPartDeleted, onRenamedElsewhere, recentParts, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
 import { type PuterFSItem, cloudAvailable, env, isMissing, isNetworkError, isPermissionError, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -261,7 +261,7 @@ export class FileOps {
 
   async newPart() {
     if (!(await this.confirmDiscard('start a new part'))) return;
-    this.app.newDocument(nextUntitled());
+    this.app.newDocument(nextUntitled(this.app.store.doc.name));
     await this.clearRecoveryCopies();
   }
 
@@ -997,8 +997,16 @@ function parsePart(text: string): PartDocument | null {
 }
 
 let untitled = 1;
-function nextUntitled(): string {
-  return `Part${++untitled}`;
+/**
+ * The next PartN of this session that no part open, recently opened or kept
+ * in this browser has, so a new part does not take the name of one it would
+ * be confused with (or, saved, get "Part2 (2)").
+ */
+function nextUntitled(current: string): string {
+  const taken = new Set([current, ...recentParts().map((r) => r.name), ...localPartNames()].map((n) => n.toLowerCase()));
+  let name: string;
+  do name = `Part${++untitled}`; while (taken.has(name.toLowerCase()));
+  return name;
 }
 
 const iconCloud = () => h('span', { 'aria-hidden': 'true', style: { color: 'var(--accent)' } }, icon('cloud', 18));

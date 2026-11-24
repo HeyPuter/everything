@@ -802,6 +802,25 @@ test('parts of the same name all go to the Trash, a gone part counts as deleted,
   expect(errors).toEqual([]);
 });
 
+test('File New names the part after the parts already open, recent or kept here', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('parametric:recent', JSON.stringify([{ location: { type: 'cloud', path: '/tester/AppData/parametric/Parts/Part2.parametric' }, name: 'Part2', opened: 1 }]));
+    localStorage.setItem('parametric:local-parts', JSON.stringify([{ id: 'part-x', name: 'part3', modified: 1, size: 1 }]));
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+  await expect(page).toHaveTitle('Part4 - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+  await expect(page).toHaveTitle('Part5 - Parametric');
+  expect(errors).toEqual([]);
+});
+
 test('opening a part puts it first in the recent parts', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
