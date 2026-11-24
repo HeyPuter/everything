@@ -281,6 +281,31 @@ test('a dialog opened from the command search with Enter stays open', async ({ p
   await expect(page.getByRole('dialog', { name: 'Equations and Global Variables' })).toBeVisible();
 });
 
+test('leaving the command search gives keyboard focus back to where it was', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const row = page.getByRole('treeitem', { name: 'Hole1' });
+  await row.focus();
+  const search = page.getByRole('combobox', { name: 'Search commands' });
+  await search.click();
+  await page.keyboard.type('equ');
+  // A rebuild redraws the tree meanwhile: focus goes to the row's replacement.
+  await page.evaluate(() => (window as unknown as { __parametric: { renderTrees(): void } }).__parametric.renderTrees());
+  await page.keyboard.press('Escape');
+  await expect(search).toHaveValue('');
+  await expect(row).toBeFocused();
+  // A command run from the search, and the dialog it opens, give focus back there too.
+  await search.click();
+  await page.keyboard.type('equations');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Equations and Global Variables' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(row).toBeFocused();
+});
+
+
 test('focus returns to the re-rendered tree row after a dialog closes', async ({ page }) => {
   await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();

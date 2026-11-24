@@ -15,7 +15,7 @@ import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
 import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
-import { announce, formatShortcut, h, isTextInput, titleWhenClipped } from '../ui/dom';
+import { ancestors, announce, formatShortcut, h, isTextInput, refocus, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
@@ -645,12 +645,27 @@ export class App {
       s.search.setAttribute('aria-expanded', 'false');
       s.search.removeAttribute('aria-activedescendant');
     };
+    // Leaving the search (Esc, or a command run from it) gives keyboard focus
+    // back to where it was before, instead of dropping it to the page.
+    let returnTo: HTMLElement | null = null;
+    let returnParents: HTMLElement[] = [];
+    s.search.addEventListener('focus', (e) => {
+      returnTo = e.relatedTarget instanceof HTMLElement ? e.relatedTarget : null;
+      returnParents = ancestors(returnTo);
+    });
+    const leave = () => {
+      const back = returnTo;
+      returnTo = null;
+      // A design tree row redrawn meanwhile (a rebuild) has a replacement.
+      if (back && !(back.isConnected && (!back.getClientRects().length || back.closest('[inert]')))) refocus(back, returnParents, true);
+      if (document.activeElement === s.search) s.search.blur();
+    };
     const run = (id: string) => {
       // A disabled result keeps the list open and the status bar says why nothing ran.
       if (!this.commands.isEnabled(id)) { this.setStatus(`${this.commands.get(id)?.label} is not available right now.`, true); return; }
       s.search.value = '';
       hide();
-      s.search.blur();
+      leave();
       this.commands.run(id);
     };
     s.search.addEventListener('input', show);
@@ -672,9 +687,10 @@ export class App {
         const list = this.commands.search(s.search.value);
         if (list[active]) run(list[active].id);
       } else if (e.key === 'Escape') {
+        e.preventDefault();
         s.search.value = '';
         hide();
-        s.search.blur();
+        leave();
       }
     });
     s.docTitle.addEventListener('click', () => this.commands.run('rename'));
