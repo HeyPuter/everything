@@ -525,6 +525,27 @@ test('signing in with a part kept in this browser says Save As moves it to the c
   expect(errors).toEqual([]);
 });
 
+test('a recent cloud part chosen while signed out offers to sign in, then opens', async ({ page }) => {
+  await mockPuter(page);
+  const path = '/tester/AppData/parametric/Parts/Bracket.parametric';
+  await page.addInitScript((path) => {
+    const w = window as unknown as Mock & { puter: { auth: { isSignedIn(): boolean; signIn(): Promise<boolean> } }; signedIn: boolean };
+    w.signedIn = false;
+    w.puter.auth.isSignedIn = () => w.signedIn;
+    w.puter.auth.signIn = async () => { w.signedIn = true; return true; };
+    w.__files.set(path, { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Bracket', units: 'MMGS', features: [] }) });
+    localStorage.setItem('parametric:recent', JSON.stringify([{ location: { type: 'cloud', path }, name: 'Bracket', opened: 1 }]));
+  }, path);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /^Bracket/ }).click();
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts).toContainText('Sign in to Puter to open parts saved in your cloud.');
+  await toasts.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveTitle('Bracket - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path });
+  expect(errors).toEqual([]);
+});
+
 test('Open says it is loading while a slow cloud listing is pending', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);

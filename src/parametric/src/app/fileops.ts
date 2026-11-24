@@ -15,6 +15,7 @@ import { icon } from '../ui/icons';
 import { confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
 import { sharedWithMe } from './share';
+import { doSignIn } from './start';
 
 export class FileOps {
   /** Adjacent Save requests share a write until that write starts. */
@@ -413,7 +414,13 @@ export class FileOps {
       if (missing) forgetRecent(loc);
       // A part kept in this browser whose file is gone leaves the parts lists too.
       if (missing && loc.type === 'local') void deletePart(loc).catch(() => {});
-      toast({ kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e) });
+      // A recent cloud part chosen while signed out opens after signing in.
+      const signInFirst = loc.type === 'cloud' && !cloudAvailable() && !!puter();
+      toast({
+        kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e),
+        actions: signInFirst ? [{ label: 'Sign in', primary: true, run: () => void doSignIn(this.app).then((ok) => { if (ok) void this.openLocation(loc, name); }) }] : undefined,
+        timeout: signInFirst ? 9000 : undefined,
+      });
       return;
     } finally {
       clearTimeout(slow);
