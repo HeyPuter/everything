@@ -445,3 +445,26 @@ test('sharing a part kept in this browser offers to save a copy to the cloud, th
   expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: 'Parts/Shared copy.parametric' });
   expect(errors).toEqual([]);
 });
+
+test('shares with a team or with anyone who has the link are listed without person controls', async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown> } } };
+    const w = window as unknown as W;
+    w.puter.fs.getShares = async () => [
+      { holder: null, holderTeam: { uid: 't1', name: 'Design', handle: 'design' }, mode: 'write' },
+      { holder: null, anyone: true, mode: 'read' },
+      { holder: 'friend', mode: 'read' },
+    ];
+    w.__parametric.commands.run('share');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  const rows = dialog.getByRole('row');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.nth(1)).toHaveText('Team DesignCan edit');
+  await expect(rows.nth(2)).toHaveText('Anyone with the linkCan view');
+  await expect(dialog.getByRole('combobox', { name: /^Access for/ })).toHaveCount(1);
+  await expect(dialog.getByRole('button', { name: /^Remove/ })).toHaveCount(1);
+  await expect(dialog.getByRole('combobox', { name: 'Access for friend', exact: true })).toHaveValue('read');
+  expect(errors).toEqual([]);
+});

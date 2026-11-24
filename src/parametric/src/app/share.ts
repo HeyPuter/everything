@@ -18,6 +18,10 @@ interface ShareRecord {
   mode: string;
   pending?: boolean;
   inheritedFrom?: string | null;
+  /** A share with a team, which has no holder. */
+  holderTeam?: { name?: string | null; handle?: string | null } | null;
+  /** A share with every signed-in account that has the link. */
+  anyone?: boolean;
 }
 
 type ShareFS = {
@@ -114,6 +118,12 @@ export async function shareDialog(app: App, files: FileOps) {
     const seen = new Set<string>();
     const rows = direct.map((s) => {
       const name = holderName(s);
+      // Shares with a team or with anyone who has the link are made and
+      // changed in Puter: they are listed, without controls that need a person.
+      if (!name) {
+        const who = s.anyone ? 'Anyone with the link' : s.holderTeam ? `Team ${s.holderTeam.name || s.holderTeam.handle || ''}`.trim() : 'Someone';
+        return h('tr', {}, h('td', {}, who), h('td', {}, MODES.find(([v]) => v === s.mode)?.[1] ?? (s.mode === 'manage' ? 'Can edit and share' : s.mode)), h('td', {}));
+      }
       seen.add(name);
       const previous = accessRows.get(name);
       // Refreshes started before a row's operation settled cannot replace
