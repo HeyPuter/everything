@@ -592,6 +592,9 @@ export class FileOps {
     if (name == null || documentVersion !== this.documentVersion) return;
     return this.fileOperation(async () => {
       if (documentVersion !== this.documentVersion) return;
+      // As for Save As: discarding an open sketch's changes later would
+      // otherwise restore the old name, while the file keeps the new one.
+      if (app.sketchEditor) app.exitSketch(true);
       const clean = safeName(name);
       app.store.change('Rename part', (doc) => { doc.name = clean; });
       const loc = app.location;

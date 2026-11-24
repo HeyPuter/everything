@@ -957,6 +957,34 @@ for (const command of ['importStep', 'openDevice'] as const) for (const stage of
   expect(errors).toEqual([]);
 });
 
+test('a cloud part renamed while a sketch is open keeps its new name when the sketch changes are discarded', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.startSketchOn({ kind: 'base', plane: 'front' });
+    void a.commands.run('rename');
+  });
+  await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Renamed');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('* Renamed - Parametric');
+  // The sketch was finished for the rename: the name stays that of the renamed file.
+  expect(await page.evaluate(() => !!(window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor)).toBe(false);
+  await page.evaluate(() => { void (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.discardSketch(); });
+  await expect(page).toHaveTitle('* Renamed - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({
+    type: 'cloud', path: '/tester/AppData/parametric/Parts/Renamed.parametric',
+  });
+  expect(errors).toEqual([]);
+});
+
 test('a delayed cloud rename does not attach its file to a new part', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);
