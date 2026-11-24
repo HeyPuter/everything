@@ -755,3 +755,23 @@ test('text of nothing but spaces and line breaks leaves no empty gap in the repl
   await expect(page.locator('.as-bot .as-text')).toHaveCount(1);
   await expect(page.locator('.as-bot .as-body > *').first()).toHaveClass(/as-steps/);
 });
+
+test('double-clicking Send sends once and does not stop the reply it started', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sends: number; __assistantChat: unknown };
+    w.__sends = 0;
+    w.__assistantChat = async function* () {
+      w.__sends++;
+      await new Promise((r) => setTimeout(r, 300));
+      yield { type: 'text', text: 'Answered in full.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Hello');
+  await page.getByRole('button', { name: 'Send' }).dblclick();
+  await expect(page.getByText('Answered in full.')).toBeVisible();
+  await expect(page.locator('.as-bot .as-foot')).not.toContainText('Stopped');
+  expect(await page.evaluate(() => (window as unknown as { __sends: number }).__sends)).toBe(1);
+});

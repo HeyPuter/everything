@@ -216,7 +216,10 @@ export class AssistantPanel {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !touchOnly()) { e.preventDefault(); void this.submit(); }
       else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.stop(); }
     });
-    this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.stop() : void this.submit()));
+    this.sendBtn.addEventListener('click', (e) => {
+      // Send turns into Stop as it is pressed: the second click of a double-click is still the send.
+      if (this.agent.busy) { if (e.detail < 2) this.stop(); } else void this.submit();
+    });
     // Files go with a message: picked with the paperclip, pasted into the box, or dropped on the panel.
     this.fileInput = h('input', { type: 'file', multiple: true, accept: ATTACH_ACCEPT, hidden: true, tabindex: '-1', 'aria-hidden': 'true' }) as HTMLInputElement;
     this.fileInput.addEventListener('change', () => {
