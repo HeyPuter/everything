@@ -881,3 +881,22 @@ test('the spin arrows leave a value driven by an equation alone', async ({ page 
   await expect(radius).toHaveValue('4');
   expect(errors).toEqual([]);
 });
+
+test('Part Properties changing the name and the units is one undo step', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('properties'));
+  const dialog = page.getByRole('dialog', { name: 'Part Properties' });
+  await dialog.getByRole('textbox', { name: 'Part name' }).fill('Bracket');
+  await dialog.getByRole('combobox', { name: 'Unit system' }).selectOption('IPS');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  const state = () =>
+    page.evaluate(() => {
+      const a = (window as unknown as Handle).__parametric;
+      return { name: a.store.doc.name, units: a.store.doc.units, undo: a.store.undoLabel };
+    });
+  await expect.poll(state).toEqual({ name: 'Bracket', units: 'IPS', undo: 'Part properties' });
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('undo'));
+  expect(await state()).toMatchObject({ name: 'Part1', units: 'MMGS' });
+  expect(errors).toEqual([]);
+});

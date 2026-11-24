@@ -261,14 +261,24 @@ export async function propertiesDialog(app: App, rename?: (name: string) => Prom
   if (v !== 'ok' || signal.aborted) return;
   let unlinked: string[] = [];
   const newName = name.value.trim();
+  const oldName = app.store.doc.name;
+  const renaming = !!rename && newName !== oldName;
+  // One undo step for the dialog: the rename (done as Rename Part does it, with
+  // a file-safe name and the saved file renamed) joins the units change.
+  app.store.beginBatch('Part properties');
   app.store.change('Part properties', (d) => {
     if (!rename) d.name = newName;
     // Expressions are written in the part's units: they are converted so the geometry keeps its size.
     unlinked = changeUnits(d, units.value as UnitSystem);
     d.decimals = Number(decimals.value);
   });
-  // As Rename Part does: a file-safe name, and the saved file renamed with it.
-  if (rename && newName !== app.store.doc.name) void rename(newName);
+  if (renaming) {
+    // The batch closes as soon as the name changes, not after the cloud file is renamed.
+    let open = true;
+    const end = () => { if (!open) return; open = false; off(); app.store.endBatch(); };
+    const off = app.store.on(() => { if (app.store.doc.name !== oldName) end(); });
+    void Promise.resolve(rename!(newName)).finally(end);
+  } else app.store.endBatch();
   unitsChanged(app, unlinked);
 }
 
