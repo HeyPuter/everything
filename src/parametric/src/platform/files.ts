@@ -132,6 +132,22 @@ async function localWrite(id: string, name: string, text: string) {
   const list = readIndex().filter((p) => p.id !== id);
   list.unshift({ id, name, modified: Date.now(), size: text.length });
   writeIndex(list);
+  keepStorage();
+}
+
+let persistAsked = false;
+/**
+ * Asks once for this site's storage to be kept: otherwise the browser may
+ * clear it when the device runs short of space, and the parts in it with it.
+ */
+function keepStorage() {
+  if (persistAsked) return;
+  persistAsked = true;
+  const storage = typeof navigator === 'undefined' ? undefined : navigator.storage;
+  if (typeof storage?.persist !== 'function') return;
+  void Promise.resolve(storage.persisted?.())
+    .then((kept) => (kept ? true : storage.persist()))
+    .catch(() => {});
 }
 
 async function localRead(id: string): Promise<string> {

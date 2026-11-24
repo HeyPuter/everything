@@ -154,3 +154,27 @@ test('a part whose file is deleted, here or in another tab, stays open as unsave
   await expect(second.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Part1 This browser/ })).toHaveCount(1);
   expect(errors).toEqual([]);
 });
+
+test('saving a part in this browser asks for the browser storage to be kept', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { persistCalls: number };
+    w.persistCalls = 0;
+    navigator.storage.persisted = async () => false;
+    navigator.storage.persist = async () => { w.persistCalls++; return true; };
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: unknown }).__parametric);
+  expect(await page.evaluate(() => (window as unknown as { persistCalls: number }).persistCalls)).toBe(0);
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('E', (d) => { d.variables.push({ id: `v${d.variables.length + 1}`, name: `V${d.variables.length}`, expr: '1' }); });
+      a.commands.run('save');
+    });
+    await expect(page).toHaveTitle('Part1 - Parametric');
+  }
+  // Asked once, not on every save.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { persistCalls: number }).persistCalls)).toBe(1);
+  expect(errors).toEqual([]);
+});
