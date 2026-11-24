@@ -655,6 +655,11 @@ export class AssistantPanel {
     if (changed) {
       const undo = h('button', { class: 'btn small as-undo', type: 'button' }, icon('undo', 14), 'Undo changes');
       undo.addEventListener('click', (e) => {
+        // The reply being written builds on these changes, and its own would no longer make one undo step.
+        if (this.agent.busy) {
+          toast({ kind: 'info', message: 'The assistant is still working. Stop it or wait for it to finish, then undo.' });
+          return;
+        }
         if (store.undoMark !== after || store.undoLabel !== label) {
           toast({ kind: 'info', message: 'The part changed since; use Edit > Undo to step back.' });
           return;

@@ -664,3 +664,34 @@ test('each step says whether it was done, failed or not run, and why, without ho
   await expect(steps.nth(2)).toContainText('Skipped: Set variables');
   await expect(steps.nth(2).locator('.as-step-detail')).toHaveText('Not run: an earlier change in this reply failed.');
 });
+
+test('an earlier message is not undone while the assistant works on the next one', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __go?: () => void; __waiting?: boolean };
+    w.__assistantChat = async function* (messages: { role: string; content: unknown }[]) {
+      const users = messages.filter((m) => m.role === 'user').length;
+      const last = messages.at(-1)!;
+      if (last.role !== 'user') { yield { type: 'text', text: `Done ${users}.` }; return; }
+      if (users === 2) { w.__waiting = true; await new Promise<void>((r) => { w.__go = r; }); }
+      yield { type: 'tool', id: `a${users}`, name: 'set_variables', input: { set: [{ name: `A${users}`, value: 1 }] } };
+      yield { type: 'tool', id: `b${users}`, name: 'set_variables', input: { set: [{ name: `B${users}`, value: 1 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('First');
+  await box.press('Enter');
+  await expect(page.getByText('Done 1.')).toBeVisible();
+  await box.fill('Second');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as { __waiting?: boolean }).__waiting);
+  await page.getByRole('button', { name: 'Undo changes' }).click();
+  await expect(page.getByText('The assistant is still working.')).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __go: () => void }).__go());
+  await expect(page.getByText('Done 2.')).toBeVisible();
+  type P = { __parametric: { store: { doc: { variables: { name: string }[] }; undoDepth: number } } };
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['A1', 'B1', 'A2', 'B2']);
+  // One undo step per message.
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.undoDepth)).toBe(2);
+});
