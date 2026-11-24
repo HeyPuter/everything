@@ -323,6 +323,35 @@ test('the sheet zooms and pans from the keyboard, and Zoom In and Out zoom the s
   expect(s1.distance).toBe(s0.distance);
 });
 
+test('commands for the 3D view are disabled while the drawing sheet is shown', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { inDrawing: boolean; commands: { isEnabled(id: string): boolean }; renderer: { section: unknown; displayStyle: string; camera: { ortho: boolean; rot: number[] } } };
+  const ids = ['previousView', 'perspective', 'viewFront', 'viewIsometric', 'normalTo', 'viewOrientation', 'displayStyle', 'style:wireframe', 'sectionView', 'toggleVisibility', 'measure'];
+  const enabled = () => page.evaluate((ids) => { const a = (window as unknown as { __parametric: A }).__parametric; return ids.filter((id) => a.commands.isEnabled(id)); }, ids);
+  await expect.poll(enabled).toEqual(ids);
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  expect(await enabled()).toEqual([]);
+  const view = () => page.evaluate(() => { const r = (window as unknown as { __parametric: A }).__parametric.renderer; return JSON.stringify([r.camera.rot, r.camera.ortho, r.displayStyle, r.section]); });
+  const before = await view();
+  // Their shortcuts do nothing to the hidden view, and their menu items show as unavailable.
+  await page.locator('.drawing-ws').focus();
+  await page.keyboard.press('Control+1');
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('menu', { name: 'View orientation' })).toHaveCount(0);
+  expect(await view()).toBe(before);
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'View' }).click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Perspective' }).or(page.getByRole('menuitem', { name: 'Perspective' }))).toBeDisabled();
+  await page.keyboard.press('Escape');
+  // Zoom to Fit fits the sheet.
+  await page.keyboard.press('f');
+  // Back on the model, they work again.
+  await page.getByRole('tab', { name: 'Model' }).click();
+  expect(await enabled()).toEqual(ids);
+});
+
 test.describe('in a time zone behind UTC', () => {
   test.use({ timezoneId: 'Pacific/Pago_Pago' });
   test('the title block shows the local date', async ({ page }) => {

@@ -57,6 +57,8 @@ export function registerCommands(app: App, files: FileOps) {
   const inSketch = () => !!app.sketchEditor;
   const noModes = () => !app.panel;
   const hasBody = () => !!app.bbox;
+  // Commands that act on the 3D view, hidden while the drawing sheet is shown.
+  const in3d = () => !app.inDrawing;
   // A feature panel holds a copy of its feature: OK after a Redo would write
   // that copy back over the redone change, so the panel is cancelled first.
   // While the assistant changes the part, its changes become one undo step at the end: a step
@@ -96,12 +98,14 @@ export function registerCommands(app: App, files: FileOps) {
 
   const view = (name: ViewName, label: string, iconName: string, shortcut?: string): Command => ({
     id: `view${name[0].toUpperCase()}${name.slice(1)}`, label, icon: iconName, shortcut, keywords: 'view orientation standard',
+    enabled: in3d,
     run: () => app.viewport.setView(name),
   });
 
   const style = (s: DisplayStyle, label: string, iconName: string): Command => ({
     id: `style:${s}`, label, icon: iconName, keywords: 'display style render',
     checked: () => app.renderer.displayStyle === s,
+    enabled: in3d,
     run: () => { app.renderer.displayStyle = s; app.renderer.requestRender(); c.changed(); },
   });
 
@@ -240,11 +244,12 @@ export function registerCommands(app: App, files: FileOps) {
     feature('mirror', 'Mirror', 'mirror', 'Mirror features or the body about a plane.', { needsBody: true, keywords: 'symmetry' }),
     feature('plane', 'Plane', 'plane', 'Create a reference plane offset from a plane or face.', { keywords: 'reference geometry datum' }),
     // ---- evaluate ----
-    { id: 'measure', label: 'Measure', icon: 'measure', keywords: 'distance length angle area', description: 'Measure distances, lengths, angles and areas.', enabled: hasBody, run: () => { void app.openPanel(new MeasurePanel(app)); } },
+    { id: 'measure', label: 'Measure', icon: 'measure', keywords: 'distance length angle area', description: 'Measure distances, lengths, angles and areas.', enabled: () => hasBody() && in3d(), run: () => { void app.openPanel(new MeasurePanel(app)); } },
     { id: 'massProperties', label: 'Mass Properties', icon: 'massProperties', keywords: 'volume weight inertia center of mass', description: 'Volume, mass, centre of mass and inertia.', enabled: hasBody, run: () => massPropertiesDialog(app) },
     {
       id: 'sectionView', label: 'Section View', icon: 'sectionView', keywords: 'cut clip', description: 'Show the part cut by a plane.',
       checked: () => !!app.renderer.section,
+      enabled: in3d,
       run: () => {
         if (app.renderer.section && !(app.panel instanceof SectionPanel)) { app.renderer.section = null; app.renderer.requestRender(); c.changed(); return; }
         void app.openPanel(new SectionPanel(app));
@@ -264,7 +269,7 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => (app.inDrawing ? app.drawing.zoomBy(1.25) : app.viewport.zoomBy(0.8)) },
     { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => (app.inDrawing ? app.drawing.zoomBy(0.8) : app.viewport.zoomBy(1.25)) },
     // No shortcut: Ctrl+Shift+Z is Redo.
-    { id: 'previousView', label: 'Previous View', icon: 'previousView', run: () => app.viewport.previousView() },
+    { id: 'previousView', label: 'Previous View', icon: 'previousView', enabled: in3d, run: () => app.viewport.previousView() },
     view('front', 'Front', 'viewFront', 'Ctrl+1'),
     view('back', 'Back', 'viewBack', 'Ctrl+2'),
     view('left', 'Left', 'viewLeft', 'Ctrl+3'),
@@ -276,6 +281,7 @@ export function registerCommands(app: App, files: FileOps) {
     view('dimetric', 'Dimetric', 'viewIso'),
     {
       id: 'normalTo', label: 'Normal To', icon: 'normalTo', shortcut: 'Ctrl+8', description: 'Look straight at the selected plane, face or the sketch plane.',
+      enabled: in3d,
       run: () => {
         const ref = app.selectedPlaneRef();
         const fr = ref ? app.frameOfPlane(ref) : app.sketchEditor?.frame ?? null;
@@ -283,9 +289,9 @@ export function registerCommands(app: App, files: FileOps) {
         else app.setStatus('Select a plane or planar face first.', true);
       },
     },
-    { id: 'viewOrientation', label: 'View Orientation', icon: 'viewOrientation', shortcut: 'Space', run: () => app.openViewMenu() },
-    { id: 'displayStyle', label: 'Display Style', icon: 'shadedEdges', run: () => app.cycleDisplayStyle() },
-    { id: 'toggleVisibility', label: 'Hide/Show Items', icon: 'eye', run: () => app.openVisibilityMenu() },
+    { id: 'viewOrientation', label: 'View Orientation', icon: 'viewOrientation', shortcut: 'Space', enabled: in3d, run: () => app.openViewMenu() },
+    { id: 'displayStyle', label: 'Display Style', icon: 'shadedEdges', enabled: in3d, run: () => app.cycleDisplayStyle() },
+    { id: 'toggleVisibility', label: 'Hide/Show Items', icon: 'eye', enabled: in3d, run: () => app.openVisibilityMenu() },
     style('shadedEdges', 'Shaded With Edges', 'shadedEdges'),
     style('shaded', 'Shaded', 'shaded'),
     style('hiddenRemoved', 'Hidden Lines Removed', 'hiddenRemoved'),
@@ -293,6 +299,7 @@ export function registerCommands(app: App, files: FileOps) {
     style('wireframe', 'Wireframe', 'wireframe'),
     {
       id: 'perspective', label: 'Perspective', icon: 'perspective', checked: () => !app.renderer.camera.ortho,
+      enabled: in3d,
       run: () => { const cam = app.renderer.camera; cam.ortho = !cam.ortho; cam.onChange(); c.changed(); },
     },
     toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => app.changeSettings({ showPlanes: v })),
