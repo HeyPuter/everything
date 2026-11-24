@@ -197,3 +197,29 @@ test('a part listed in this browser whose file is gone says so and leaves the li
   await expect(page.getByRole('dialog', { name: 'Open' })).toContainText('No parts saved in this browser yet.');
   expect(errors).toEqual([]);
 });
+
+test('a part saved in this browser stays listed when the list of parts was lost', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    a.store.change('Name', (d) => { d.name = 'Unlisted'; });
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Unlisted - Parametric');
+  // The list could not be written (localStorage full or cleared on its own).
+  await page.evaluate(() => localStorage.removeItem('parametric:local-parts'));
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  const dialog = page.getByRole('dialog', { name: 'Open' });
+  await expect(dialog.getByRole('button', { name: /^Unlisted This browser/ })).toBeVisible();
+  // It is back in the list, and opens.
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:local-parts') || '[]').map((p: { name: string }) => p.name))).toEqual(['Unlisted']);
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.newDocument('Other'); });
+  await expect(dialog).toHaveCount(0);
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await dialog.getByRole('button', { name: /^Unlisted This browser/ }).click();
+  await expect(page).toHaveTitle('Unlisted - Parametric');
+  expect(errors).toEqual([]);
+});

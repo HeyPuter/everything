@@ -460,9 +460,42 @@ export async function listParts(onCloudError?: (err: unknown) => void): Promise<
       if (!isMissing(err)) onCloudError?.(err);
     }
   }
-  for (const p of readIndex()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
+  for (const p of await localParts()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
   out.sort((a, b) => (b.modified || 0) - (a.modified || 0));
   return out;
+}
+
+/**
+ * The parts kept in this browser: its list of them, and any part file in
+ * browser storage the list lacks (a list that could not be written, say), so
+ * a saved part never becomes impossible to find. Those join the list.
+ */
+async function localParts() {
+  const index = readIndex();
+  const dir = await opfsDir();
+  if (!dir) return index;
+  const known = new Set(index.map((p) => p.id));
+  const found: typeof index = [];
+  try {
+    for await (const [file, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+      const m = /^(part-[\w-]+)\.parametric$/.exec(file);
+      if (!m || known.has(m[1]) || handle.kind !== 'file') continue;
+      const f = await (handle as FileSystemFileHandle).getFile();
+      if (!f.size) continue;
+      let name = 'Untitled';
+      try {
+        const parsed = JSON.parse(await f.text()) as { name?: unknown };
+        if (typeof parsed?.name === 'string' && parsed.name) name = parsed.name;
+      } catch {
+        /* listed all the same: opening it says what is wrong */
+      }
+      found.push({ id: m[1], name, modified: f.lastModified, size: f.size });
+    }
+  } catch {
+    return index;
+  }
+  if (found.length) writeIndex([...index, ...found]);
+  return [...index, ...found];
 }
 
 /** The part name a cloud file's name gives ('' for parts kept in this browser). */
