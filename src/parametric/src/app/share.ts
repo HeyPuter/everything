@@ -69,6 +69,8 @@ export async function shareDialog(app: App, files: FileOps) {
     const ok = await files.save();
     if (signal.aborted || app.store.doc.name !== name) return;
     if (originalLocation?.type === 'cloud' && (app.location?.type !== 'cloud' || app.location.path !== originalLocation.path)) return;
+    // A part already in the cloud whose save was cancelled or failed (and said why) needs no other advice.
+    if (!ok && originalLocation?.type === 'cloud') return;
     if (!ok || app.location?.type !== 'cloud') {
       // Save keeps a part where it is: a part kept in this browser needs Save As to reach the cloud.
       const local = ok && app.location?.type === 'local';
