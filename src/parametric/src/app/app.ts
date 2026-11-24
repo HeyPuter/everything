@@ -1255,17 +1255,33 @@ export class App {
     if (!buttons.length) return;
     const bar = h('div', { class: 'ctx-toolbar', role: 'toolbar', 'aria-label': label });
     const els: HTMLButtonElement[] = [];
+    // Keyboard focus leaves the bar (Esc, or a command chosen in it) for where it was
+    // when the bar opened (a design tree row for S pressed there), else the graphics area.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const openerParents = ancestors(opener);
+    const leave = () => {
+      if (opener && opener !== document.body && !bar.contains(opener)) refocus(opener, openerParents, true);
+      if (bar.contains(document.activeElement) || document.activeElement === document.body) this.viewport.canvas.focus({ preventScroll: true });
+    };
     for (const b of buttons) {
       const el = h('button', { class: 'icon-btn', type: 'button', 'aria-label': b.label, title: b.label, tabindex: els.length ? '-1' : '0' }, b.glyph ?? icon(b.icon, 18)) as HTMLButtonElement;
-      el.addEventListener('click', () => { this.hideContextToolbar(); b.run(); });
+      el.addEventListener('click', () => {
+        const hadFocus = bar.contains(document.activeElement);
+        this.hideContextToolbar();
+        b.run();
+        // A command that does not move focus itself (a panel takes it) would leave it on the page.
+        if (hadFocus) requestAnimationFrame(() => { if (document.activeElement === document.body) leave(); });
+      });
       els.push(el);
       bar.append(el);
     }
     bar.addEventListener('keydown', (ev) => {
       const i = els.indexOf(document.activeElement as HTMLButtonElement);
-      if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') { ev.preventDefault(); els[(i + 1) % els.length].focus(); }
-      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') { ev.preventDefault(); els[(i - 1 + els.length) % els.length].focus(); }
-      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); this.hideContextToolbar(); this.viewport.canvas.focus(); }
+      const to = (j: number) => { els.forEach((x, k) => x.setAttribute('tabindex', k === j ? '0' : '-1')); els[j].focus(); };
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') { ev.preventDefault(); to((i + 1) % els.length); }
+      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') { ev.preventDefault(); to((i - 1 + els.length) % els.length); }
+      else if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); to(ev.key === 'Home' ? 0 : els.length - 1); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); if (bar.contains(document.activeElement)) leave(); this.hideContextToolbar(); }
     });
     this.shell.viewport.append(bar);
     const w = this.shell.viewport.clientWidth, hgt = this.shell.viewport.clientHeight;

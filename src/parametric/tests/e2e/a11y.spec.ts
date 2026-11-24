@@ -553,3 +553,27 @@ test('the mouse wheel scrolls a CommandManager clipped by a narrow window', asyn
   const last = page.locator('.cm-tools .cm-group').last();
   expect((await last.boundingBox())!.x + (await last.boundingBox())!.width).toBeLessThanOrEqual(900);
 });
+
+test('the shortcut bar gives keyboard focus back to where S was pressed', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const row = page.getByRole('treeitem', { name: 'Hole1' });
+  await row.focus();
+  await page.keyboard.press('s');
+  const bar = page.getByRole('toolbar', { name: 'Shortcut bar' });
+  await expect(bar.getByRole('button').first()).toBeFocused();
+  // The arrow keys move the bar's one tab stop.
+  await page.keyboard.press('End');
+  await expect(bar.getByRole('button').last()).toBeFocused();
+  await expect(bar.locator('[tabindex="0"]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(bar).toHaveCount(0);
+  await expect(row).toBeFocused();
+  // A command that keeps focus where it is (Zoom to Fit) leaves it there too, not on the page.
+  await page.keyboard.press('s');
+  await bar.getByRole('button', { name: 'Zoom to Fit' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(bar).toHaveCount(0);
+  await expect(row).toBeFocused();
+});
