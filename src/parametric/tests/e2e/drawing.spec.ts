@@ -52,6 +52,9 @@ test('two fingers zoom the sheet, ending a view drag as one undo step', async ({
     const ws = app.drawing, box = ws.el.getBoundingClientRect(), f = ws.frames[0];
     return { zoom: ws.zoom, depth: app.store.undoDepth, cx: box.left + ws.pan.x + ((f.x0 + f.x1) / 2) * ws.zoom, cy: box.top + ws.pan.y + ((f.y0 + f.y1) / 2) * ws.zoom };
   });
+  // Opening the drawing fits the sheet to the view in the next frame, which on a loaded
+  // machine can come after the views are projected: start from the fitted sheet.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const s0 = await state();
   const cdp = await page.context().newCDPSession(page);
   const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: [number, number][]) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
