@@ -15,6 +15,7 @@ import { uniqueId } from '../model/ids';
 import { idFactory, mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
 import { SketchIndex, tessellate } from '../sketch/geom';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
+import type { Settings } from './settings';
 import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
@@ -329,10 +330,13 @@ export async function optionsDialog(app: App) {
   const theme = segmented<ThemeChoice>('Theme', getThemeChoice(), [
     { value: 'system', label: 'System', icon: 'system' }, { value: 'light', label: 'Light', icon: 'light' }, { value: 'dark', label: 'Dark', icon: 'dark' },
   ], (v) => setThemeChoice(v));
-  const units = selectField('Default units for new parts', s.defaultUnits, Object.values(UNIT_SYSTEMS).map((u) => ({ value: u.id, label: u.label })), (v) => app.changeSettings({ defaultUnits: v }));
-  const quality = selectField('Image quality', String(s.quality) as '0' | '1' | '2', [{ value: '0', label: 'Fast (coarse tessellation)' }, { value: '1', label: 'Normal' }, { value: '2', label: 'Fine (smooth curves)' }], (v) => app.changeSettings({ quality: Number(v) }));
-  const normal = checkbox('Rotate view normal to the sketch plane when editing a sketch', s.autoNormalTo, (v) => app.changeSettings({ autoNormalTo: v }));
-  const zoom = checkbox('Reverse mouse wheel zoom direction', s.invertZoom, (v) => app.changeSettings({ invertZoom: v }));
+  // Each change is saved as it is made, as the theme is: closing the tab with
+  // Options still open keeps it, and other tabs follow at once.
+  const change = (patch: Partial<Settings>) => { app.changeSettings(patch); app.saveSettings(); };
+  const units = selectField('Default units for new parts', s.defaultUnits, Object.values(UNIT_SYSTEMS).map((u) => ({ value: u.id, label: u.label })), (v) => change({ defaultUnits: v }));
+  const quality = selectField('Image quality', String(s.quality) as '0' | '1' | '2', [{ value: '0', label: 'Fast (coarse tessellation)' }, { value: '1', label: 'Normal' }, { value: '2', label: 'Fine (smooth curves)' }], (v) => change({ quality: Number(v) }));
+  const normal = checkbox('Rotate view normal to the sketch plane when editing a sketch', s.autoNormalTo, (v) => change({ autoNormalTo: v }));
+  const zoom = checkbox('Reverse mouse wheel zoom direction', s.invertZoom, (v) => change({ invertZoom: v }));
   const off = app.commands.onChange(() => {
     units.querySelector('select')!.value = app.settings.defaultUnits;
     quality.querySelector('select')!.value = String(app.settings.quality);

@@ -190,3 +190,17 @@ test('preferences and the theme changed in another tab apply here and are not ov
   expect(await b.page.evaluate(() => JSON.parse(localStorage.getItem('parametric:settings')!))).toMatchObject({ showPlanes: true, showOrigin: true });
   expect([...a.errors, ...b.errors]).toEqual([]);
 });
+
+test('Options saves each change as it is made, before the dialog is closed', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as SettingsWindow).__parametric.commands.run('options'));
+  const dialog = page.getByRole('dialog', { name: 'Options' });
+  await dialog.getByLabel('Default units for new parts').selectOption('IPS');
+  await dialog.getByLabel('Reverse mouse wheel zoom direction').check();
+  // A tab closed now (or another tab reading the preferences) has them.
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:settings') || '{}'));
+  expect(saved).toMatchObject({ defaultUnits: 'IPS', invertZoom: true });
+  await expect(dialog).toBeVisible();
+  expect(errors).toEqual([]);
+});
