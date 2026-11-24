@@ -1087,7 +1087,7 @@ export class ModelBuilder {
         const v0 = volumeOf(body);
         body = cut(body, tool);
         if (v0 > 0 && !isEmpty(body) && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
-      } else body = body ? fuse(body, tool) : tool;
+      } else body = body ? fuse(body, tool) : fuseAll([tool]);
       parts.push({ shape: tool, cut: seed.cut, faces: named });
     }
     if (!body || isEmpty(body)) throw new FeatureError('The pattern removed all material');

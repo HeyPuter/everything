@@ -56,10 +56,10 @@ const downcastFn = (k: TopoKind) => ({ face: 'Face', edge: 'Edge', vertex: 'Vert
  * Unique sub-shapes of a kind, in exploration order. Deduplicates with a
  * hash table (IsSame within buckets) so large models stay linear.
  */
-export function subShapes(shape: Sh, kind: TopoKind): Sh[] {
+export function subShapes(shape: Sh, kind: TopoKind, avoid?: TopoKind): Sh[] {
   const out: Sh[] = [];
   const buckets = new Map<number, any[]>();
-  const ex = new oc.TopExp_Explorer(shape.wrapped, kindEnum(kind), oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  const ex = new oc.TopExp_Explorer(shape.wrapped, kindEnum(kind), avoid ? kindEnum(avoid) : oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
   const cast = oc.TopoDS[downcastFn(kind)];
   try {
     while (ex.More()) {
@@ -399,7 +399,25 @@ function runBoolean(builder: any): Sh {
 }
 
 export function fuse(a: Sh, b: Sh): Sh {
+  if (isCompound(a) || isCompound(b)) return fuseAll([a, b]);
   return runBoolean(new oc.BRepAlgoAPI_Fuse(a.wrapped, b.wrapped));
+}
+
+const isCompound = (s: Sh) => s.wrapped.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_COMPOUND;
+
+/**
+ * The shapes with every compound opened into its solids, free shells and
+ * free faces. A boolean does not intersect the pieces of one compound with
+ * each other, so overlapping holes or pattern copies passed as one compound
+ * fused or cut wrongly: a hole drilled twice at a point cut nothing, and
+ * overlapping copies left gaps or an invalid body.
+ */
+function pieces(shapes: Sh[]): Sh[] {
+  return shapes.flatMap((s) => {
+    if (!isCompound(s)) return [s];
+    const out = [...subShapes(s, 'solid'), ...subShapes(s, 'shell', 'solid'), ...subShapes(s, 'face', 'shell')];
+    return out.length ? out : [s];
+  });
 }
 
 /**
@@ -408,6 +426,8 @@ export function fuse(a: Sh, b: Sh): Sh {
  * regions (a plate split by many lines).
  */
 export function fuseAll(shapes: Sh[]): Sh {
+  if (shapes.length === 1 && !isCompound(shapes[0])) return shapes[0];
+  shapes = pieces(shapes);
   if (shapes.length === 1) return shapes[0];
   const args = new oc.NCollection_List_TopoDS_Shape(), tools = new oc.NCollection_List_TopoDS_Shape();
   try {
@@ -424,7 +444,20 @@ export function fuseAll(shapes: Sh[]): Sh {
 }
 
 export function cut(a: Sh, b: Sh): Sh {
-  return runBoolean(new oc.BRepAlgoAPI_Cut(a.wrapped, b.wrapped));
+  if (!isCompound(b)) return runBoolean(new oc.BRepAlgoAPI_Cut(a.wrapped, b.wrapped));
+  // Each piece of a compound tool as a tool of its own (see pieces).
+  const args = new oc.NCollection_List_TopoDS_Shape(), tools = new oc.NCollection_List_TopoDS_Shape();
+  try {
+    args.Append(a.wrapped);
+    for (const t of pieces([b])) tools.Append(t.wrapped);
+    const builder = new oc.BRepAlgoAPI_Cut();
+    builder.SetArguments(args);
+    builder.SetTools(tools);
+    return runBoolean(builder);
+  } finally {
+    args.delete();
+    tools.delete();
+  }
 }
 
 export function common(a: Sh, b: Sh): Sh {

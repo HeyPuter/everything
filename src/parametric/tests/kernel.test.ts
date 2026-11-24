@@ -718,6 +718,37 @@ describe('feature regeneration', () => {
     expect(off.status[4].warning).toMatch(/do not remove any material/);
   });
 
+  it('cuts and adds overlapping holes and pattern copies as their union', async () => {
+    // The copies went to the boolean as one compound, whose pieces it does
+    // not intersect with each other: two holes at one point cut nothing,
+    // overlapping holes cut one, and overlapping boss copies left a gap.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20)), extrude('E1', 'S1', 10)];
+    const holes = (pts: [number, number][]): Feature[] => [
+      sketch('S2', pts.map(([x, y], i) => ({ id: `hp${i}`, t: 'point', x, y }))),
+      { id: 'H', name: 'H', type: 'hole', sketch: 'S2', kind: 'simple', diameter: 5, end: 'throughAll', depth: 10, cbDiameter: 9, cbDepth: 3, csDiameter: 10, csAngle: 90, flip: true },
+    ];
+    const one = Math.PI * 6.25 * 10;
+    let res = await b.build(req([...base, ...holes([[10, 10], [10, 10]])]));
+    expect(res.status[3]).toEqual({ id: 'H', ok: true });
+    expect(8000 - volume(b)).toBeCloseTo(one, 3);
+    // Two holes 2 mm apart: the union of two 2.5 mm circles.
+    const lens = 2 * 6.25 * Math.acos(0.4) - Math.sqrt(21);
+    await b.build(req([...base, ...holes([[10, 10], [12, 10]])]));
+    expect(8000 - volume(b)).toBeCloseTo(2 * one - lens * 10, 3);
+    const lin = (seed: string, spacing: number): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: [seed], dir1: { ref: { kind: 'base', axis: 'x' }, spacing, count: 3, flip: false }, dir2: null });
+    res = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), lin('E1', 5)]));
+    expect(volume(b)).toBeCloseTo(2000, 3);
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
+    // Eight slots round a centre overlap there: a valid body with the union cut.
+    const circ: Feature = { id: 'P', name: 'P', type: 'circularPattern', seeds: ['E3'], axis: { kind: 'base', axis: 'z' }, count: 8, angle: 360, equal: true, flip: false };
+    res = await b.build(req([sketch('S1', rect(-50, -50, 50, 50)), extrude('E1', 'S1', 10), sketch('S3', rect(-5, 0, 5, 30)), extrude('E3', 'S3', 5, { cut: true, flip: true }), circ]));
+    expect(res.status[4]).toEqual({ id: 'P', ok: true });
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
+    // Each slot overlaps the others over 5 / tan(22.5°) of its 5 mm half-width at the centre.
+    expect(100000 - volume(b)).toBeCloseTo((8 * 10 * 30 - 8 * 5 * 5 / Math.tan(Math.PI / 8)) * 5, 3);
+  });
+
   it('suppresses the features built on a suppressed feature instead of failing them', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(0, 0, 50, 10)), extrude('E1', 'S1', 5)];
