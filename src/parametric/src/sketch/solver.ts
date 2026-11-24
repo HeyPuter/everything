@@ -49,6 +49,8 @@ interface Eq {
 }
 
 const TOL = 1e-9;
+/** A residual above this means a constraint is not met (reported as conflicting). */
+const CONFLICT_TOL = 1e-6;
 
 type PtAcc = (x: Float64Array) => Vec2;
 type RAcc = (x: Float64Array) => number;
@@ -768,6 +770,12 @@ export class SketchSystem {
           folded = cusps;
         }
       }
+      // Constraints that cannot all be met (a relation or dimension that
+      // conflicts with the others) leave their geometry where it was, as the
+      // cusps above do. A least-squares compromise between them distorted the
+      // whole shape (a rectangle no longer square, its sides at odd lengths)
+      // and spread the blame over every constraint it bent.
+      if (!converged) this.keepUnsolvedClusters(initial);
     }
     // Overflow (e.g. from an absurd dimension value) must never reach the
     // document as NaN coordinates: keep the geometry as it was instead.
@@ -779,7 +787,7 @@ export class SketchSystem {
     const r = new Float64Array(this.eqs.length);
     const residual = this.residuals(this.eqs, r);
     const conflicting = new Set<Id>();
-    for (let i = 0; i < this.eqs.length; i++) if (Math.abs(r[i]) > 1e-6 && this.eqs[i].cid) conflicting.add(this.eqs[i].cid!);
+    for (let i = 0; i < this.eqs.length; i++) if (Math.abs(r[i]) > CONFLICT_TOL && this.eqs[i].cid) conflicting.add(this.eqs[i].cid!);
     for (const id of folded) conflicting.add(id);
     for (const id of this.unresolved) conflicting.add(id);
 
@@ -795,6 +803,16 @@ export class SketchSystem {
     if (this.opts.analyze !== false) this.analyze(res);
     if (conflicting.size) res.status = 'over';
     return res;
+  }
+
+  /** Puts every cluster that still misses one of its equations back where it started. */
+  private keepUnsolvedClusters(initial: Float64Array) {
+    for (const c of this.clusters()) {
+      if (!c.vars.length) continue;
+      const r = new Float64Array(c.eqs.length);
+      this.residuals(c.eqs, r);
+      if (r.some((v) => Math.abs(v) > CONFLICT_TOL)) for (const v of c.vars) this.x[v] = initial[v];
+    }
   }
 
   /** Whether an angle dimension is far (over 10 degrees) from its value. */

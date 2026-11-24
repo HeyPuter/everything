@@ -475,7 +475,8 @@ describe('assistant tools', () => {
     await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }], dimensions: [{ refs: ['r_l0'], value: 40 }] });
     // The sizes came from the failed solve's half-way state: "[r_l0] 35 mm".
     const r = await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_p0', 'r_p1'], type: 'hdistance', value: 30 }] }, false);
-    expect(r.content).toMatch(/Problem constraints: d6 D1 distance \[r_l0\] 40 mm; d1 D2 hdistance \[r_p0, r_p1\] 40 mm\./);
+    // Only the new dimension conflicts: the sketch keeps its shape rather than bending both.
+    expect(r.content).toMatch(/Problem constraints: d1 D2 hdistance \[r_p0, r_p1\] 40 mm\./);
   });
 
   it('refuses a length, radius or diameter of zero or less', async () => {
