@@ -82,6 +82,29 @@ describe('feature regeneration', () => {
     expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
   });
 
+  it('builds the same box when lines, points or projected edges only touch the profile', async () => {
+    // Sketches that built a profile before curves were split at T junctions.
+    const P = (id: string, x: number, y: number, extra: Partial<SkEntity> = {}) => ({ id, t: 'point', x, y, ...extra }) as SkEntity;
+    const L = (id: string, a: string, b: string, extra: Partial<SkEntity> = {}) => ({ id, t: 'line', a, b, ...extra }) as SkEntity;
+    const ext = { ext: { kind: 'edge', edge: { name: 'X1:side:l|X1:cap1', sig: { type: 'line', m: [0, 0, 0], len: 10 } } } } as Partial<SkEntity>;
+    const cases: [string, SkEntity[], boolean][] = [
+      ['a line from an edge going in', [P('t1', 10, 0), P('t2', 10, 8), L('tl', 't1', 't2')], true],
+      ['a line from an edge going out', [P('t1', 10, 0), P('t2', 10, -8), L('tl', 't1', 't2')], true],
+      ['a construction line ending on an edge', [P('t1', 10, 0), P('t2', 10, 20), L('tl', 't1', 't2', { construction: true })], false],
+      ['a point on an edge', [P('pt', 10, 0)], false],
+      ['a projected edge ending on an edge', [P('x1', 20, 10), P('x2', 30, 10), L('xl', 'x1', 'x2', ext)], true],
+      ['a projected edge lying on an edge', [P('x1', 5, 0), P('x2', 15, 0), L('xl', 'x1', 'x2', ext)], false],
+    ];
+    for (const [label, extra, warns] of cases) {
+      const b = new ModelBuilder();
+      const res = await b.build(req([sketch('S1', [...rect(0, 0, 20, 20, 'r'), ...extra]), extrude('E1', 'S1', 2)]));
+      expect(res.status[1].ok, label).toBe(true);
+      expect(!!res.status[1].warning, label).toBe(warns);
+      expect(volume(b), label).toBeCloseTo(800, 6);
+      expect(res.faces.map((f) => f.name).sort(), label).toEqual(['E1:cap0', 'E1:cap1', 'E1:side:rl0', 'E1:side:rl1', 'E1:side:rl2', 'E1:side:rl3']);
+    }
+  });
+
   it('extrudes the same spline region and hole in either drawing direction', async () => {
     const volumes: number[] = [];
     for (const clockwise of [false, true]) {
