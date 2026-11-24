@@ -1428,7 +1428,10 @@ export class ModelBuilder {
       const iyz = moment([0, s, s]) - (iyy + izz) / 2;
       const ixz = moment([s, 0, s]) - (ixx + izz) / 2;
       const inertia = [ixx, ixy, ixz, ixy, iyy, iyz, ixz, iyz, izz];
-      return { volume: props.Mass(), area: sprops.Mass(), center, inertia, principal: eigenSym3(inertia) };
+      const volume = props.Mass();
+      const b = boxOf(body);
+      const solid = volume > (b ? dist(b.min, b.max) : 1) ** 3 * 1e-12;
+      return { solid, volume, area: sprops.Mass(), center, inertia, principal: eigenSym3(inertia) };
     } finally {
       props.delete();
       sprops.delete();

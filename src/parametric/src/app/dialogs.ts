@@ -310,22 +310,27 @@ export async function massPropertiesDialog(app: App) {
   const inertiaScale = (density * 1e-9) / u.massScale / (s * s);
   const tensor = mp.inertia.map((x) => x * inertiaScale);
   const principal = mp.principal.moments.map((x) => x * inertiaScale);
+  // A body of surfaces only (an imported shell) has no mass: its zeros and a
+  // centre at the origin would read as measurements.
+  const none = 'Not applicable: the part has no closed solid';
   const rows: [string, string][] = [
     ['Material', doc.material ? `${doc.material.name} (${density} kg/m³)` : `Not specified (using ${density} kg/m³)`],
-    ['Mass', `${fmt(mass)} ${u.mass}`],
-    ['Volume', `${fmt(mp.volume / s ** 3)} ${L}³`],
+    ['Mass', mp.solid ? `${fmt(mass)} ${u.mass}` : none],
+    ['Volume', mp.solid ? `${fmt(mp.volume / s ** 3)} ${L}³` : none],
     ['Surface area', `${fmt(mp.area / s ** 2)} ${L}²`],
-    ['Center of mass', mp.center.map((c) => fmt(c / s)).join(', ') + ` ${L}`],
+    ['Center of mass', mp.solid ? mp.center.map((c) => fmt(c / s)).join(', ') + ` ${L}` : none],
   ];
   const t = (i: number) => fmt(tensor[i], 3);
   const text = [
     `Mass properties of ${doc.name}`,
     ...rows.map(([k, v]) => `${k}: ${v}`),
-    `Moments of inertia about the center of mass (${u.mass}·${L}²):`,
-    `Ixx ${t(0)}  Ixy ${t(1)}  Ixz ${t(2)}`,
-    `Iyx ${t(3)}  Iyy ${t(4)}  Iyz ${t(5)}`,
-    `Izx ${t(6)}  Izy ${t(7)}  Izz ${t(8)}`,
-    `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`,
+    ...(mp.solid ? [
+      `Moments of inertia about the center of mass (${u.mass}·${L}²):`,
+      `Ixx ${t(0)}  Ixy ${t(1)}  Ixz ${t(2)}`,
+      `Iyx ${t(3)}  Iyy ${t(4)}  Iyz ${t(5)}`,
+      `Izx ${t(6)}  Izy ${t(7)}  Izz ${t(8)}`,
+      `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`,
+    ] : []),
   ].join('\n');
   const copy = h('button', { class: 'btn small', type: 'button' }, icon('copy', 14), 'Copy');
   const copyError = h('div', { class: 'field-label', role: 'alert', hidden: true, style: { color: 'var(--danger)' } },
@@ -350,10 +355,12 @@ export async function massPropertiesDialog(app: App) {
     wide: true,
     body: [
       h('table', { class: 'table' }, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))),
-      h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, aligned with the part axes (${u.mass}·${L}²)`),
-      h('table', { class: 'table' }, h('tbody', {},
-        [0, 1, 2].map((r) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[r]}${'xyz'[c]} = ${t(r * 3 + c)}`)))))),
-      h('div', { class: 'field-label' }, `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`),
+      ...(mp.solid ? [
+        h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, aligned with the part axes (${u.mass}·${L}²)`),
+        h('table', { class: 'table' }, h('tbody', {},
+          [0, 1, 2].map((r) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[r]}${'xyz'[c]} = ${t(r * 3 + c)}`)))))),
+        h('div', { class: 'field-label' }, `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`),
+      ] : []),
       copy, copyError,
     ],
     buttons: [{ label: 'Close', value: 'ok', primary: true }],

@@ -572,6 +572,7 @@ class Toolkit {
     const mp = await this.host.massProperties();
     if (!mp) return 'Mass properties are not available for this body.';
     const u = this.u;
+    if (!mp.solid) return `The body has no closed solid (only surfaces), so it has no volume, mass or centre of mass. Surface area ${u.area(mp.area)}.\n${this.ins.bodyText()}`;
     const us = UNIT_SYSTEMS[this.doc.units];
     const lines = [`Volume ${u.volume(mp.volume)}; surface area ${u.area(mp.area)}; centre of mass ${u.pt(mp.center)}.`];
     const m = this.doc.material;

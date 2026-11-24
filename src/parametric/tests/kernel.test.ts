@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
 import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
 import * as R from 'replicad';
-import { type Sh, getOc, isValid, mirrored, rotated, setOc } from '../src/kernel/occ';
+import { type Sh, getOc, isValid, mirrored, rotated, setOc, subShapes } from '../src/kernel/occ';
 import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SkEntity, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
 import { solveSketch } from '../src/sketch/solver';
@@ -812,6 +812,7 @@ describe('feature regeneration', () => {
     const b = new ModelBuilder();
     await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
     const mp = b.massProperties()!;
+    expect(mp.solid).toBe(true);
     expect(mp.center[0]).toBeCloseTo(5, 6);
     expect(mp.center[2]).toBeCloseTo(5, 6);
     expect(mp.area).toBeCloseTo(600, 4);
@@ -834,6 +835,16 @@ describe('feature regeneration', () => {
     });
     for (const angle of [95, -90]) expect((await b.build(req([...base, draft(angle)]))).status[2].error).toMatch(/between -90 and 90 degrees/);
     expect((await b.build(req([...base, draft(-5)]))).status[2].ok).toBe(true);
+  });
+
+  it('says a body of surfaces only has no mass instead of a centre at the origin', async () => {
+    const face = subShapes(R.makeBox([0, 0, 0], [10, 10, 10]) as unknown as Sh, 'face')[0];
+    const b = new ModelBuilder();
+    const res = await b.build(req([{ id: 'I1', name: 'I1', type: 'import', format: 'brep', blob: 'f', fileName: 'f.brep' }], { blobs: { f: getOc().BRepToolsWrapper.Write(face.wrapped) } }));
+    expect(res.status[0].ok).toBe(true);
+    const mp = b.massProperties()!;
+    expect(mp.solid).toBe(false);
+    expect(mp.area).toBeCloseTo(100, 6);
   });
 
   it('frees the points and directions it hands to OpenCascade', async () => {

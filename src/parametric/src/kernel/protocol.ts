@@ -101,6 +101,11 @@ export interface BuildResult {
 }
 
 export interface MassProperties {
+  /**
+   * The body has closed solid volume. Without it (only surfaces) there is no
+   * mass, centre of mass or inertia to report: those values are zero.
+   */
+  solid: boolean;
   volume: number;
   area: number;
   center: Vec3;
