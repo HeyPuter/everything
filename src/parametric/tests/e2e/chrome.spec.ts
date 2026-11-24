@@ -582,3 +582,24 @@ test('a menu item clipped by an ellipsis shows its whole label as a tooltip', as
   await expect(label).toHaveAttribute('title', new RegExp(`^${long}`));
   expect(errors).toEqual([]);
 });
+
+test('running Mass Properties again while it calculates opens one dialog', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await expect
+    .poll(() => page.evaluate(() => !!(window as unknown as Handle).__parametric.bbox))
+    .toBe(true);
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    a.commands.run('massProperties');
+    a.commands.run('massProperties');
+  });
+  await expect(page.getByRole('dialog', { name: 'Mass Properties' })).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(page.getByRole('dialog', { name: 'Mass Properties' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.statusbar .msg')).not.toHaveText('Calculating mass properties...');
+  expect(errors).toEqual([]);
+});

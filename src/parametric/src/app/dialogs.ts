@@ -317,7 +317,15 @@ export function formatGroup(vs: number[], d: number): string[] {
   return places > 8 ? clean.map((v) => (v ? v.toExponential(3) : '0')) : clean.map((v) => formatNumber(v, places));
 }
 
+/** Set while mass properties are calculated: running the command again then opens no second dialog. */
+let massCalculating = false;
+
 export async function massPropertiesDialog(app: App) {
+  if (massCalculating) return;
+  massCalculating = true;
+  // A large part takes a while: say so rather than seem to ignore the click.
+  const busy = 'Calculating mass properties...';
+  app.setStatus(busy);
   let replaced = false;
   const off = app.store.on((reason) => { if (reason === 'load') replaced = true; });
   let mp: MassProperties | null = null;
@@ -339,6 +347,8 @@ export async function massPropertiesDialog(app: App) {
       if (version === app.buildVersion) break;
     }
   } finally {
+    massCalculating = false;
+    app.clearStatus(busy);
     off();
   }
   const doc = app.store.doc;
