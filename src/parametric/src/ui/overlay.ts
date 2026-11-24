@@ -214,6 +214,8 @@ export function attachTooltip(el: HTMLElement, title: string, shortcut?: string,
         document.addEventListener('pointerover', (e) => {
           if (tip && (!tipOwner?.isConnected || !tipOwner.contains(e.target as Node))) hideTooltip();
         }, true);
+        // Escape dismisses it without moving the pointer or focus (and still does what else it does).
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTooltip(); }, true);
       }
       tip = h('div', { class: 'tooltip', role: 'tooltip' }, h('div', { class: 'tt-title' }, h('span', {}, title), shortcut ? h('span', { class: 'kbd' }, formatShortcut(shortcut)) : null), desc ? h('div', { class: 'tt-desc' }, desc) : null);
       document.body.append(tip);
