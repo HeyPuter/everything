@@ -909,54 +909,94 @@ export class SketchSystem {
    * A row that reduces to zero is redundant and is blamed on the later
    * constraint. Clears `undetermined` for the variables the cluster fixes and
    * returns its rank.
+   *
+   * The basis is kept fully reduced (a pivot column is zero in every other
+   * basis row) and sparse. Pivots go to a column no basis row uses yet when
+   * one is large enough, so reducing the basis adds no entries: always taking
+   * the largest entry filled every row of a long dimensioned chain, which took
+   * seconds and hundreds of megabytes per edit at a thousand lines.
    */
   private analyzeCluster(eqs: Eq[], vars: number[], res: SolveResult, undetermined: Uint8Array): number {
     const local = new Map<number, number>();
     vars.forEach((v, i) => local.set(v, i));
     const n = vars.length;
     const { cols, vals } = this.jacobian(eqs, local);
-    const basis: { row: Float64Array; pivot: number }[] = [];
+    const bCols: number[][] = [], bVals: number[][] = [], pivots: number[] = [];
+    const pivotRow = new Int32Array(n).fill(-1);
+    /** Basis rows with a non-zero in each (non-pivot) column. */
+    const holders: Set<number>[] = Array.from({ length: n }, () => new Set<number>());
+    const row = new Float64Array(n);
+    const mark = new Uint8Array(n);
+    const touched: number[] = [];
+    const touch = (c: number) => { if (!mark[c]) { mark[c] = 1; touched.push(c); } };
+    const clear = () => { for (const c of touched) { row[c] = 0; mark[c] = 0; } touched.length = 0; };
     for (let i = 0; i < eqs.length; i++) {
-      const row = new Float64Array(n);
-      for (let k = 0; k < cols[i].length; k++) row[cols[i][k]] += vals[i][k];
+      for (let k = 0; k < cols[i].length; k++) { touch(cols[i][k]); row[cols[i][k]] += vals[i][k]; }
       let scale = 0;
-      for (let k = 0; k < n; k++) scale = Math.max(scale, Math.abs(row[k]));
+      for (const c of touched) scale = Math.max(scale, Math.abs(row[c]));
       if (scale < 1e-12) {
         if (eqs[i].cid) res.badConstraints.add(eqs[i].cid!);
+        clear();
         continue;
       }
-      for (const b of basis) {
-        const f = row[b.pivot];
-        if (f !== 0) {
-          const br = b.row;
-          for (let k = 0; k < n; k++) row[k] -= f * br[k];
-        }
+      // Subtracting a basis row adds entries only in non-pivot columns, so
+      // the pivot columns the row starts with are all there is to clear.
+      for (const c of touched.slice()) {
+        const bi = pivotRow[c], f = row[c];
+        if (bi < 0 || f === 0) continue;
+        const bc = bCols[bi], bv = bVals[bi];
+        for (let k = 0; k < bc.length; k++) { touch(bc[k]); row[bc[k]] -= f * bv[k]; }
+        row[c] = 0;
       }
-      let piv = -1, best = 0;
-      for (let k = 0; k < n; k++) { const a = Math.abs(row[k]); if (a > best) { best = a; piv = k; } }
+      let best = 0;
+      for (const c of touched) best = Math.max(best, Math.abs(row[c]));
       if (best < 1e-8 * scale) {
         if (eqs[i].cid) res.badConstraints.add(eqs[i].cid!);
+        clear();
         continue;
       }
+      let piv = -1, pivUsers = Infinity, pivMag = 0;
+      for (const c of touched) {
+        const a = Math.abs(row[c]);
+        if (a < 0.1 * best) continue;
+        const users = holders[c].size;
+        if (users < pivUsers || (users === pivUsers && a > pivMag)) { piv = c; pivUsers = users; pivMag = a; }
+      }
       const inv = 1 / row[piv];
-      for (let k = 0; k < n; k++) row[k] *= inv;
-      // Keep the basis fully reduced so the pivot column is zero elsewhere.
-      for (const b of basis) {
-        const f = b.row[piv];
-        if (f !== 0) for (let k = 0; k < n; k++) b.row[k] -= f * row[k];
+      const nc: number[] = [], nv: number[] = [];
+      for (const c of touched) {
+        if (c === piv) { nc.push(c); nv.push(1); } else if (row[c] !== 0) { nc.push(c); nv.push(row[c] * inv); }
       }
-      basis.push({ row, pivot: piv });
+      clear();
+      const idx = pivots.length;
+      // Keep the basis fully reduced: clear the new pivot column elsewhere.
+      for (const bi of [...holders[piv]]) {
+        const bc = bCols[bi], bv = bVals[bi];
+        const f = bv[bc.indexOf(piv)];
+        for (let k = 0; k < bc.length; k++) { touch(bc[k]); row[bc[k]] = bv[k]; }
+        for (let k = 0; k < nc.length; k++) { touch(nc[k]); row[nc[k]] -= f * nv[k]; }
+        row[piv] = 0;
+        const oc: number[] = [], ov: number[] = [];
+        for (const c of touched) if (row[c] !== 0) { oc.push(c); ov.push(row[c]); }
+        for (const c of bc) if (c !== pivots[bi]) holders[c].delete(bi);
+        for (const c of oc) if (c !== pivots[bi]) holders[c].add(bi);
+        bCols[bi] = oc;
+        bVals[bi] = ov;
+        clear();
+      }
+      bCols.push(nc);
+      bVals.push(nv);
+      pivots.push(piv);
+      pivotRow[piv] = idx;
+      for (const c of nc) if (c !== piv) holders[c].add(idx);
     }
-    const isPivot = new Uint8Array(n);
-    for (const b of basis) isPivot[b.pivot] = 1;
-    for (const b of basis) {
+    for (let bi = 0; bi < pivots.length; bi++) {
+      const bc = bCols[bi], bv = bVals[bi];
       let free = false;
-      for (let k = 0; k < n; k++) {
-        if (!isPivot[k] && Math.abs(b.row[k]) > 1e-7) { free = true; break; }
-      }
-      if (!free) undetermined[vars[b.pivot]] = 0;
+      for (let k = 0; k < bc.length; k++) if (bc[k] !== pivots[bi] && Math.abs(bv[k]) > 1e-7) { free = true; break; }
+      if (!free) undetermined[vars[pivots[bi]]] = 0;
     }
-    return basis.length;
+    return pivots.length;
   }
 
   /** Writes solved coordinates back into the entity objects. */

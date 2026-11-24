@@ -396,6 +396,39 @@ describe('sketch solver', () => {
     expect(largest).toBeLessThan(50 * 2 * N);
   });
 
+  it('analyses a long dimensioned chain without filling the reduced rows', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 600;
+    for (let i = 0; i <= N; i++) ents.push(pt(`p${i}`, i * 2, 0));
+    for (let i = 0; i < N; i++) {
+      ents.push(line(`l${i}`, `p${i}`, `p${i + 1}`));
+      cons.push({ id: `h${i}`, type: 'horizontal', refs: [`l${i}`] }, dim(`d${i}`, 'distance', [`l${i}`], 2));
+    }
+    cons.push({ id: 'twice', type: 'horizontal', refs: ['p0', `p${N}`] });
+    // Dense rows as wide as the cluster, filled in by every pivot: 1.4 million
+    // numbers here, and seconds per edit for 2000 lines.
+    const Native = globalThis.Float64Array;
+    let total = 0;
+    globalThis.Float64Array = new Proxy(Native, {
+      construct(target, args: unknown[]) {
+        if (typeof args[0] === 'number') total += args[0];
+        return Reflect.construct(target, args);
+      },
+    });
+    let res: ReturnType<typeof solveSketch>;
+    try {
+      res = solveSketch(ents, cons, { value });
+    } finally {
+      globalThis.Float64Array = Native;
+    }
+    // The horizontal chain already holds the end points level.
+    expect([...res.badConstraints]).toEqual(['twice']);
+    expect(res.dof).toBe(2);
+    expect(res.freeEntities.size).toBe(ents.length);
+    expect(total).toBeLessThan(20 * 2 * N);
+  });
+
   it('solves one long connected chain without a dense factorization', () => {
     const ents: SkEntity[] = [];
     const cons: SkConstraint[] = [];
