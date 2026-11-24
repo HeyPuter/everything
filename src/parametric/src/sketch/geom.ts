@@ -87,11 +87,14 @@ export function splineBeziers(pts: Vec2[]): Vec2[][] {
   }
   const out: Vec2[][] = [];
   const ext = (p: Vec2, q: Vec2): Vec2 => [2 * p[0] - q[0], 2 * p[1] - q[1]];
+  // A closed spline (ending where it starts) runs smoothly through that
+  // point, as through the others, instead of making a corner there.
+  const closed = n >= 4 && pts[0][0] === pts[n - 1][0] && pts[0][1] === pts[n - 1][1];
   for (let i = 0; i < n - 1; i++) {
-    const p0 = i === 0 ? ext(pts[0], pts[1]) : pts[i - 1];
+    const p0 = i > 0 ? pts[i - 1] : closed ? pts[n - 2] : ext(pts[0], pts[1]);
     const p1 = pts[i];
     const p2 = pts[i + 1];
-    const p3 = i + 2 < n ? pts[i + 2] : ext(pts[n - 1], pts[n - 2]);
+    const p3 = i + 2 < n ? pts[i + 2] : closed ? pts[1] : ext(pts[n - 1], pts[n - 2]);
     const d1 = Math.pow(Math.max(dist2(p0, p1), 1e-12), 0.5);
     const d2 = Math.pow(Math.max(dist2(p1, p2), 1e-12), 0.5);
     const d3 = Math.pow(Math.max(dist2(p2, p3), 1e-12), 0.5);
