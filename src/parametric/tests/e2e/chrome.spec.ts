@@ -529,3 +529,38 @@ test('the status bar keeps significant digits for a small edge in metres', async
   await expect(page.locator('.statusbar .msg')).toContainText(`Length ${length.toFixed(digits)} m`);
   expect(errors).toEqual([]);
 });
+
+test('a rollback bar drag released outside the window stops following the pointer', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const bar = (await page.locator('.rollback-bar').boundingBox())!;
+  const hole = (await page.getByRole('treeitem', { name: 'Hole1' }).boundingBox())!;
+  const extrude = (await page.getByRole('treeitem', { name: 'Extrude1' }).boundingBox())!;
+  await page.mouse.move(bar.x + 20, bar.y + bar.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hole.x + 20, hole.y + 2, { steps: 4 });
+  const rollback = () =>
+    page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.rollback);
+  const rolled = await rollback();
+  expect(rolled).not.toBeNull();
+  // The button comes up outside the window: the next move has no button down.
+  await page.evaluate(
+    ({ x, y }) =>
+      window.dispatchEvent(
+        new PointerEvent('pointermove', {
+          pointerId: 1,
+          pointerType: 'mouse',
+          buttons: 0,
+          clientX: x,
+          clientY: y,
+        }),
+      ),
+    { x: extrude.x + 20, y: extrude.y + 2 },
+  );
+  expect(await rollback()).toBe(rolled);
+  await expect(page.locator('.rollback-bar.dragging')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -173,6 +173,9 @@ export class FeatureTree {
       // follows the pointer on the window rather than on the bar.
       const move = (ev: PointerEvent) => {
         if (ev.pointerId !== e.pointerId) return;
+        // Released where no pointerup arrives (outside the window, after the
+        // redrawn bar lost the capture): the drag ends instead of following the pointer.
+        if (e.pointerType === 'mouse' && !(ev.buttons & 1)) { this.app.store.endBatch(); return; }
         // Find the feature row under the pointer.
         const items = [...this.list.querySelectorAll<HTMLElement>('.ti[aria-level="2"]')].filter((x) => this.app.store.feature(x.dataset.key!));
         let idx = this.app.store.doc.features.length;
