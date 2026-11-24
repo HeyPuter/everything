@@ -182,6 +182,7 @@ uniform vec2 uViewport;
 uniform float uDepthBias;
 out vec4 vColor;
 out vec2 vUv;
+out vec3 vWorld;
 flat out int vStyle;
 void main() {
   vec4 c = uViewProj * vec4(aPos, 1.0);
@@ -190,6 +191,7 @@ void main() {
   gl_Position = c;
   vColor = aColor;
   vUv = aCorner;
+  vWorld = aPos;
   vStyle = int(aSizeStyle.y + 0.5);
 }`;
 
@@ -197,9 +199,13 @@ const PT_FS = `#version 300 es
 precision highp float;
 in vec4 vColor;
 in vec2 vUv;
+in vec3 vWorld;
 flat in int vStyle;
+uniform vec4 uClip;
+uniform int uClipOn;
 out vec4 outColor;
 void main() {
+  if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   float r = length(vUv);
   if (vStyle == 1 && r > 1.0) discard;
   if (vStyle == 2 && (r > 1.0 || r < 0.55)) discard;
@@ -927,7 +933,7 @@ export class Renderer {
     }
 
     for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, b.clip === false ? null : clip);
-    for (const b of ordered(this.points, 'test')) this.drawPointBatch(b, vp, viewport);
+    for (const b of ordered(this.points, 'test')) this.drawPointBatch(b, vp, viewport, clip);
 
     // Translucent geometry: tool preview and plane fills, without depth writes.
     gl.enable(gl.BLEND);
@@ -943,7 +949,7 @@ export class Renderer {
     for (const b of ordered(this.tris, 'always')) this.drawTriBatch(b, vp);
     gl.depthMask(true);
     for (const b of ordered(this.lines, 'always')) this.drawLineBatch(b, vp, viewport, null);
-    for (const b of ordered(this.points, 'always')) this.drawPointBatch(b, vp, viewport);
+    for (const b of ordered(this.points, 'always')) this.drawPointBatch(b, vp, viewport, null);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
   }
@@ -1098,7 +1104,8 @@ export class Renderer {
     this.drawSegs(b.gpu, vp, viewport, clip, { width: b.width, color: [0, 0, 0, 1], dash: b.dash, useState: false, bias: b.bias ?? 4e-5, useColor: true });
   }
 
-  private drawPointBatch(b: PointBatch & { gpu?: { vao: WebGLVertexArrayObject; count: number } }, vp: Float32Array, viewport: number[]) {
+  /** `clip`: the section plane, which cuts depth-tested points (shown sketches) like their lines. */
+  private drawPointBatch(b: PointBatch & { gpu?: { vao: WebGLVertexArrayObject; count: number } }, vp: Float32Array, viewport: number[], clip: number[] | null) {
     if (!b.gpu) return;
     const gl = this.gl;
     const { p, u } = this.progs.pt;
@@ -1106,6 +1113,8 @@ export class Renderer {
     gl.uniformMatrix4fv(u.uViewProj, false, vp);
     gl.uniform2fv(u.uViewport, viewport);
     gl.uniform1f(u.uDepthBias, 1e-4);
+    gl.uniform1i(u.uClipOn, clip ? 1 : 0);
+    if (clip) gl.uniform4fv(u.uClip, clip);
     gl.bindVertexArray(b.gpu.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, b.gpu.count);
     gl.bindVertexArray(null);

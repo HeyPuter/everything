@@ -1101,6 +1101,38 @@ test.describe('viewport', () => {
     expect(c.line).toEqual(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.theme.selection.map((v) => Math.round(v * 255))));
   });
 
+  test('the section view cuts away the points of a shown sketch with its lines', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.store.change('Add sketch', (doc) => {
+        doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [{ id: 'p', t: 'point', x: 20, y: 30 }], constraints: [] });
+      });
+    });
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.boundsOf(['points:sketchPts']) !== null)).toBe(true);
+    const pixel = () => page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      const [x, y] = app.viewport.project([20, 30, 0]);
+      const img = new Image();
+      img.src = r.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / r.camera.width;
+      const px = [...ctx.getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data].slice(0, 3);
+      const bg = r.theme.background.map((v) => Math.round(v * 255));
+      return Math.max(...px.map((v, i) => Math.abs(v - bg[i])));
+    });
+    expect(await pixel()).toBeGreaterThan(30);
+    // Everything in front of z = 5 is cut away, the sketch on the Front Plane with it.
+    await page.evaluate(() => { (window as unknown as Win).__parametric.renderer.section = { normal: [0, 0, -1], offset: -5 }; });
+    expect(await pixel()).toBeLessThan(12);
+  });
+
   test('a pointer leaving the view before its hover is picked leaves nothing hovered', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
