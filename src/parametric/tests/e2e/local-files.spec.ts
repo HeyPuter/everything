@@ -85,3 +85,37 @@ test('saving a part that another tab saved since asks before replacing that vers
   await expect(ask).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('parts are saved in this browser where pages cannot write files there themselves', async ({ page }) => {
+  // Safari before 26 has browser storage but no createWritable().
+  await page.addInitScript(() => { delete (FileSystemFileHandle.prototype as { createWritable?: unknown }).createWritable; });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Work', (d) => { d.variables.push({ id: 'v1', name: 'Width', expr: '17' }); });
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await expect(page.getByText('Saved to This browser')).toBeVisible();
+  const saved = await page.evaluate(async (url) => {
+    const { loadText } = await import(url);
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return JSON.parse(await loadText(a.location));
+  }, '/src/platform/files.ts');
+  expect(saved.variables[0]).toMatchObject({ name: 'Width', expr: '17' });
+  // Saving again replaces the whole file, including when it gets shorter.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Less', (d) => { d.variables = []; });
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  const again = await page.evaluate(async (url) => {
+    const { loadText } = await import(url);
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return JSON.parse(await loadText(a.location));
+  }, '/src/platform/files.ts');
+  expect(again.variables).toEqual([]);
+  expect(errors).toEqual([]);
+});

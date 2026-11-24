@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { openApp, waitForFeature } from './helpers';
 
 test('mass properties opened right after a change describe the rebuilt part', async ({ page }) => {
@@ -137,5 +138,27 @@ for (const failure of ['denied', 'unavailable'] as const) test(`mass report Copy
   const text = await page.evaluate(() => (window as unknown as { copiedReport: string }).copiedReport);
   expect(text).toContain('Mass properties of Mounting Bracket');
   for (const label of ['Material:', 'Mass:', 'Volume:', 'Surface area:', 'Center of mass:', 'Ixx', 'Iyy', 'Izz', 'Principal moments:']) expect(text).toContain(label);
+  expect(errors).toEqual([]);
+});
+
+test('a part of surfaces only reports no mass or centre of mass instead of zeros', async ({ page }) => {
+  const errors = await openApp(page);
+  const face = new TextDecoder().decode(readFileSync(new URL('../fixtures/square-face.brep', import.meta.url)));
+  await page.evaluate(async ({ face, url }) => {
+    const { newDocument } = await import(url);
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const doc = newDocument('Surface');
+    doc.features = [{ id: 'f1', name: 'Imported1', type: 'import', format: 'brep', blob: 'b1', fileName: 'face.brep' }];
+    doc.blobs = { b1: face };
+    doc.nextId = 2;
+    a.loadDocument(doc, null);
+    await a.whenBuilt();
+    a.commands.run('massProperties');
+  }, { face, url: '/src/model/document.ts' });
+  const dialog = page.getByRole('dialog', { name: 'Mass Properties', exact: true });
+  const cell = (name: string) => dialog.getByRole('row').filter({ has: page.getByRole('rowheader', { name, exact: true }) }).getByRole('cell');
+  for (const name of ['Mass', 'Volume', 'Center of mass']) await expect(cell(name)).toHaveText('Not applicable: the part has no closed solid');
+  await expect(cell('Surface area')).toHaveText('100.00 mm²');
+  await expect(dialog).not.toContainText('Principal moments');
   expect(errors).toEqual([]);
 });

@@ -164,11 +164,18 @@ export function isMissing(err: unknown): boolean {
   return /subject_does_not_exist|not_found|does not exist|404/i.test(String(code)) || e?.status === 404 || e?.name === 'NotFoundError';
 }
 
+/** True when Puter refused a change for lack of permission (a share made view only, say). */
+export function isPermissionError(err: unknown): boolean {
+  const e = err as { code?: string; status?: number } | null;
+  return e?.status === 403 || /^(forbidden|access_denied|permission_denied|not_authorized)$/.test(String(e?.code ?? ''));
+}
+
 /** Human readable error text for storage failures. */
 export function storageError(err: unknown): string {
   const e = err as { code?: string; message?: string; status?: number; name?: string };
   if (e?.code === 'storage_limit_reached' || e?.status === 413) return 'Your Puter storage is full. Free up space or upgrade your plan, then save again.';
   if (e?.status === 429 || e?.code === 'too_many_requests') return 'Too many requests right now. Wait a moment and try again.';
+  if (isPermissionError(err)) return 'You do not have permission to change this file (it may be shared with you as view only). Save your own copy with Save As.';
   // fetch() failures: Chrome, Firefox and Safari wording.
   if (err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message ?? '')) return 'Puter could not be reached. Check your connection and try again.';
   if (e?.name === 'QuotaExceededError') return 'This browser has run out of storage space for parts. Delete parts you no longer need, download this one, or sign in to save it to your Puter cloud.';

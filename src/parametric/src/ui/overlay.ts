@@ -1,6 +1,6 @@
 // Dialogs (modal, focus trapped), toasts and tooltips.
 
-import { h, nextDomId, formatShortcut, announce } from './dom';
+import { h, nextDomId, formatShortcut, announce, ancestors, refocus } from './dom';
 import { icon } from './icons';
 
 // ---------- Dialogs ----------
@@ -26,8 +26,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
   if (o.signal?.aborted) return Promise.resolve(null);
   return new Promise((resolve) => {
     const prevFocus = document.activeElement as HTMLElement | null;
-    const prevParents: HTMLElement[] = [];
-    for (let p = prevFocus?.parentElement; p && p !== document.body; p = p.parentElement) prevParents.push(p);
+    const prevParents = ancestors(prevFocus);
     const titleId = nextDomId('dlg');
     const body = h('div', { class: 'dialog-body' }, ...(Array.isArray(o.body) ? o.body : [o.body]));
     const foot = h('div', { class: 'dialog-foot' });
@@ -43,7 +42,8 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
       o.signal?.removeEventListener('abort', cancel);
       backdrop.remove();
       openDialogs.splice(openDialogs.indexOf(backdrop), 1);
-      restoreFocus(prevFocus, prevParents);
+      // Focus goes back to the dialog's opener, or to its replacement if it was re-rendered.
+      refocus(prevFocus, prevParents);
       resolve(v);
     };
     const cancel = () => finish(null);
@@ -94,24 +94,6 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
       if (!done && !dialog.contains(document.activeElement)) focusEl.focus();
     });
   });
-}
-
-/**
- * Focus goes back to the dialog's opener. When the opener was re-rendered
- * meanwhile (a design tree row after a rebuild), its replacement (same
- * data-key) or else the current tab stop of its nearest remaining container
- * gets focus, instead of the page body.
- */
-function restoreFocus(prev: HTMLElement | null, parents: HTMLElement[]) {
-  if (!prev?.focus) return;
-  if (prev.isConnected) { prev.focus(); return; }
-  const box = parents.find((p) => p.isConnected);
-  if (!box) return;
-  const key = prev.dataset.key;
-  const target = (key ? box.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`) : null)
-    ?? box.querySelector<HTMLElement>('[tabindex="0"]')
-    ?? box.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea');
-  target?.focus();
 }
 
 export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false, signal?: AbortSignal): Promise<boolean> {
@@ -214,6 +196,8 @@ export function attachTooltip(el: HTMLElement, title: string, shortcut?: string,
         document.addEventListener('pointerover', (e) => {
           if (tip && (!tipOwner?.isConnected || !tipOwner.contains(e.target as Node))) hideTooltip();
         }, true);
+        // Escape dismisses it without moving the pointer or focus (and still does what else it does).
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTooltip(); }, true);
       }
       tip = h('div', { class: 'tooltip', role: 'tooltip' }, h('div', { class: 'tt-title' }, h('span', {}, title), shortcut ? h('span', { class: 'kbd' }, formatShortcut(shortcut)) : null), desc ? h('div', { class: 'tt-desc' }, desc) : null);
       document.body.append(tip);

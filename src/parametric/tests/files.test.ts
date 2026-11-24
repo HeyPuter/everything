@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { deletePart, listParts, recentParts, rememberRecent } from '../src/platform/files';
+import { deletePart, listParts, recentParts, rememberRecent, safeName } from '../src/platform/files';
 import { setPuterForTests, storageError } from '../src/platform/puter';
 
 // Browser storage stand-in: the local part index lives in localStorage.
@@ -36,6 +36,18 @@ describe('listParts', () => {
     expect(errors).toHaveLength(1);
   });
 
+  it('lists cloud parts whose extension is in capitals', async () => {
+    setPuterForTests({
+      env: 'web',
+      auth: { isSignedIn: () => true },
+      fs: { readdir: async () => [
+        { name: 'Gear.PARAMETRIC', path: '/u/AppData/x/Parts/Gear.PARAMETRIC', modified: 2 },
+        { name: 'notes.txt', path: '/u/AppData/x/Parts/notes.txt', modified: 1 },
+      ] },
+    } as never);
+    expect((await listParts()).map((p) => p.name)).toEqual(['Gear']);
+  });
+
   it('treats a missing cloud folder as no cloud parts, not as an error', async () => {
     setPuterForTests({
       env: 'web',
@@ -54,6 +66,7 @@ describe('storageError', () => {
     expect(storageError(new DOMException('The operation failed because it would cause the application to exceed its storage quota.', 'QuotaExceededError'))).toMatch(/run out of storage space/);
     expect(storageError({ code: 'storage_limit_reached' })).toMatch(/Puter storage is full/);
     expect(storageError(new Error('Permission denied'))).toBe('Permission denied');
+    for (const e of [{ status: 403, message: 'Forbidden' }, { code: 'forbidden' }, { code: 'access_denied', message: 'Access denied' }]) expect(storageError(e)).toMatch(/do not have permission.*Save As/);
   });
 });
 
@@ -117,5 +130,17 @@ describe('damaged browser file lists', () => {
     ]);
     expect(() => rememberRecent({ location: { type: 'local', id: 'new' }, name: 'New' })).not.toThrow();
     expect(recentParts().map((p) => p.name)).toEqual(['New', 'Kept', 'Also kept']);
+  });
+});
+
+describe('safeName', () => {
+  it('shortens long names without splitting a character in two', () => {
+    const name = safeName(`${'a'.repeat(119)}\u{1F600}tail`);
+    expect(name).toBe(`${'a'.repeat(119)}\u{1F600}`);
+    expect(safeName(`${'a'.repeat(119)} b`)).toBe('a'.repeat(119));
+    expect(safeName(' a/b:c ')).toBe('a-b-c');
+    // Control characters cannot be in a file name; line breaks and tabs become spaces.
+    expect(safeName('Gear\u0000\u0007 v2\u007f\nplate\tB')).toBe('Gear v2 plate B');
+    expect(safeName('\u0001\u0002')).toBe('Untitled');
   });
 });

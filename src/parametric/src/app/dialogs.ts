@@ -76,6 +76,7 @@ export async function equationsDialog(app: App) {
         // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
         // They follow from the name they still use, so a slip (an invalid or taken name) fixed later keeps them.
         const was = linked.get(v)!;
+        name.removeAttribute('aria-invalid');
         v.name = name.value.trim();
         const renamed = new Map([[was, v.name]]);
         const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name || linked.get(r) === v.name));
@@ -124,15 +125,26 @@ export async function equationsDialog(app: App) {
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
     onAction: (a) => {
       if (a !== 'ok') return;
+      // The field at fault is marked and focused, not only named in the message.
+      for (const input of tbody.querySelectorAll('td:first-child input')) input.removeAttribute('aria-invalid');
+      const fault = (r: Variable, field: 'name' | 'expr', message: string) => {
+        err.textContent = message;
+        const input = field === 'expr' ? cells.get(r)?.expr : tbody.rows[rows.indexOf(r)]?.querySelector('input');
+        if (field === 'name') input?.setAttribute('aria-invalid', 'true');
+        input?.focus();
+        return false;
+      };
       const names = rows.map((r) => r.name);
-      const bad = names.find((n) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(n));
-      if (bad !== undefined) { err.textContent = `"${bad}" is not a valid name. Use letters, digits and underscores, starting with a letter.`; return false; }
+      const bad = rows.find((r) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.name));
+      if (bad) return fault(bad, 'name', `"${bad.name}" is not a valid name. Use letters, digits and underscores, starting with a letter.`);
       // Checked for new and renamed variables only, so a part saved with such a name still opens here.
       const taken = rows.find((r) => originalNames.get(r.id) !== r.name && reservedName(r.name));
-      if (taken) { err.textContent = `"${taken.name}" is a constant, unit or function name. Choose another name.`; return false; }
-      if (new Set(names).size !== names.length) { err.textContent = 'Variable names must be unique.'; return false; }
+      if (taken) return fault(taken, 'name', `"${taken.name}" is a constant, unit or function name. Choose another name.`);
+      const twin = rows.find((r, i) => names.indexOf(r.name) !== i);
+      if (twin) return fault(twin, 'name', 'Variable names must be unique.');
       const { errors } = evaluateVariables(rows);
-      if (errors.size) { err.textContent = `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`; return false; }
+      const broken = rows.find((r) => errors.has(r.name));
+      if (broken) return fault(broken, 'expr', `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`);
     },
   });
   if (v === 'ok' && !signal.aborted) {
@@ -213,7 +225,8 @@ export async function materialDialog(app: App) {
 
 // ---------- part properties ----------
 
-export async function propertiesDialog(app: App) {
+/** Part name, units and precision; a new name is given to `rename`, which renames the saved file too. */
+export async function propertiesDialog(app: App, rename?: (name: string) => Promise<void> | void) {
   const signal = app.documentSignal;
   const doc = app.store.doc;
   const name = h('input', { class: 'input', value: doc.name, 'aria-label': 'Part name' }) as HTMLInputElement;
@@ -223,23 +236,63 @@ export async function propertiesDialog(app: App) {
     if (u.id === doc.units) o.selected = true;
     units.append(o);
   }
-  const decimals = h('input', { class: 'input', type: 'number', min: '0', max: '6', value: String(doc.decimals), 'aria-label': 'Decimal places' }) as HTMLInputElement;
+  const decimals = h('input', { class: 'input', type: 'number', min: '0', max: '6', step: '1', value: String(doc.decimals), 'aria-label': 'Decimal places' }) as HTMLInputElement;
+  const error = h('div', { id: nextDomId('props-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
+  // An empty name or a precision out of range is said, not quietly replaced.
+  const invalid = (): HTMLInputElement | null => {
+    for (const x of [name, decimals]) x.removeAttribute('aria-invalid');
+    const places = decimals.value.trim() === '' ? NaN : Number(decimals.value);
+    const bad = !name.value.trim() ? name : !(Number.isInteger(places) && places >= 0 && places <= 6) ? decimals : null;
+    error.textContent = bad === name ? 'Enter a name.' : bad ? 'Enter a whole number of decimal places from 0 to 6.' : '';
+    bad?.setAttribute('aria-invalid', 'true');
+    bad?.setAttribute('aria-describedby', error.id);
+    return bad;
+  };
   const v = await showDialog({
     title: 'Part Properties', signal,
     body: [h('div', { class: 'grid-form' }, h('label', {}, 'Name'), name, h('label', {}, 'Units'), units, h('label', {}, 'Decimal places'), decimals),
-      h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
+      error, h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
+    onAction: (a) => {
+      const bad = a === 'ok' ? invalid() : null;
+      if (bad) { bad.focus(); return false; }
+    },
   });
   if (v !== 'ok' || signal.aborted) return;
   let unlinked: string[] = [];
+  const newName = name.value.trim();
+  const oldName = app.store.doc.name;
+  const renaming = !!rename && newName !== oldName;
+  // One undo step for the dialog: the rename (done as Rename Part does it, with
+  // a file-safe name and the saved file renamed) joins the units change.
+  app.store.beginBatch('Part properties');
   app.store.change('Part properties', (d) => {
-    d.name = name.value.trim() || d.name;
+    if (!rename) d.name = newName;
     // Expressions are written in the part's units: they are converted so the geometry keeps its size.
     unlinked = changeUnits(d, units.value as UnitSystem);
-    d.decimals = Math.max(0, Math.min(6, Math.round(Number(decimals.value) || 0)));
+    d.decimals = Number(decimals.value);
   });
+  if (renaming) {
+    // The batch closes as soon as the name changes, not after the cloud file is renamed.
+    let open = true;
+    const end = () => { if (!open) return; open = false; off(); app.store.endBatch(); };
+    const off = app.store.on(() => { if (app.store.doc.name !== oldName) end(); });
+    void Promise.resolve(rename!(newName)).finally(end);
+  } else app.store.endBatch();
+  unitsChanged(app, unlinked);
+}
+
+function unitsChanged(app: App, unlinked: string[]) {
   if (unlinked.length) toast({ kind: 'warning', title: 'Some equations were replaced by their values', message: `These could not be converted to the new units and keep their size as plain numbers: ${unlinked.join(', ')}.`, timeout: 9000 });
   app.sketchEditor?.render();
+}
+
+/** Changes the part's unit system (the status bar's units menu); the geometry keeps its size. */
+export function setPartUnits(app: App, units: UnitSystem) {
+  if (units === app.store.doc.units) return;
+  let unlinked: string[] = [];
+  app.store.change('Units', (d) => { unlinked = changeUnits(d, units); });
+  unitsChanged(app, unlinked);
 }
 
 // ---------- options ----------
@@ -273,7 +326,28 @@ export async function optionsDialog(app: App) {
 
 // ---------- mass properties ----------
 
+/**
+ * Values formatted together (a vector, a tensor) with d decimals; values under
+ * 1 keep three significant digits (a part's volume in m³, a 5 mm edge in m)
+ * instead of showing 0.00. Numerical noise next to the largest value of the
+ * group (an off-diagonal 1e-20) still shows as 0.
+ */
+export function formatGroup(vs: number[], d: number): string[] {
+  const big = Math.max(...vs.map(Math.abs));
+  const places = big > 0 && big < 1 ? Math.max(d, 2 - Math.floor(Math.log10(big))) : d;
+  const clean = vs.map((v) => (Math.abs(v) < big * 1e-9 ? 0 : v));
+  return places > 8 ? clean.map((v) => (v ? v.toExponential(3) : '0')) : clean.map((v) => formatNumber(v, places));
+}
+
+/** Set while mass properties are calculated: running the command again then opens no second dialog. */
+let massCalculating = false;
+
 export async function massPropertiesDialog(app: App) {
+  if (massCalculating) return;
+  massCalculating = true;
+  // A large part takes a while: say so rather than seem to ignore the click.
+  const busy = 'Calculating mass properties...';
+  app.setStatus(busy);
   let replaced = false;
   const off = app.store.on((reason) => { if (reason === 'load') replaced = true; });
   let mp: MassProperties | null = null;
@@ -295,6 +369,8 @@ export async function massPropertiesDialog(app: App) {
       if (version === app.buildVersion) break;
     }
   } finally {
+    massCalculating = false;
+    app.clearStatus(busy);
     off();
   }
   const doc = app.store.doc;
@@ -305,27 +381,35 @@ export async function massPropertiesDialog(app: App) {
   const dec = Math.max(2, doc.decimals);
   const massKg = (mp.volume * 1e-9) * density;
   const mass = massKg / u.massScale;
-  const fmt = (v: number, d = dec) => formatNumber(v, d);
+  const group = (vs: number[], d = dec) => formatGroup(vs, d);
+  const fmt = (v: number, d = dec) => group([v], d)[0];
   // Inertia per unit density (mm^5) to mass units * length^2.
   const inertiaScale = (density * 1e-9) / u.massScale / (s * s);
   const tensor = mp.inertia.map((x) => x * inertiaScale);
   const principal = mp.principal.moments.map((x) => x * inertiaScale);
+  // A body of surfaces only (an imported shell) has no mass: its zeros and a
+  // centre at the origin would read as measurements.
+  const none = 'Not applicable: the part has no closed solid';
   const rows: [string, string][] = [
     ['Material', doc.material ? `${doc.material.name} (${density} kg/m³)` : `Not specified (using ${density} kg/m³)`],
-    ['Mass', `${fmt(mass)} ${u.mass}`],
-    ['Volume', `${fmt(mp.volume / s ** 3)} ${L}³`],
+    ['Mass', mp.solid ? `${fmt(mass)} ${u.mass}` : none],
+    ['Volume', mp.solid ? `${fmt(mp.volume / s ** 3)} ${L}³` : none],
     ['Surface area', `${fmt(mp.area / s ** 2)} ${L}²`],
-    ['Center of mass', mp.center.map((c) => fmt(c / s)).join(', ') + ` ${L}`],
+    ['Center of mass', mp.solid ? group(mp.center.map((c) => c / s)).join(', ') + ` ${L}` : none],
   ];
-  const t = (i: number) => fmt(tensor[i], 3);
+  const tensorText = group(tensor, 3);
+  const principalText = group(principal, 3).join(', ');
+  const t = (i: number) => tensorText[i];
   const text = [
     `Mass properties of ${doc.name}`,
     ...rows.map(([k, v]) => `${k}: ${v}`),
-    `Moments of inertia about the center of mass (${u.mass}·${L}²):`,
-    `Ixx ${t(0)}  Ixy ${t(1)}  Ixz ${t(2)}`,
-    `Iyx ${t(3)}  Iyy ${t(4)}  Iyz ${t(5)}`,
-    `Izx ${t(6)}  Izy ${t(7)}  Izz ${t(8)}`,
-    `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`,
+    ...(mp.solid ? [
+      `Moments of inertia about the center of mass (${u.mass}·${L}²):`,
+      `Ixx ${t(0)}  Ixy ${t(1)}  Ixz ${t(2)}`,
+      `Iyx ${t(3)}  Iyy ${t(4)}  Iyz ${t(5)}`,
+      `Izx ${t(6)}  Izy ${t(7)}  Izz ${t(8)}`,
+      `Principal moments: ${principalText}`,
+    ] : []),
   ].join('\n');
   const copy = h('button', { class: 'btn small', type: 'button' }, icon('copy', 14), 'Copy');
   const copyError = h('div', { class: 'field-label', role: 'alert', hidden: true, style: { color: 'var(--danger)' } },
@@ -350,10 +434,12 @@ export async function massPropertiesDialog(app: App) {
     wide: true,
     body: [
       h('table', { class: 'table' }, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))),
-      h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, aligned with the part axes (${u.mass}·${L}²)`),
-      h('table', { class: 'table' }, h('tbody', {},
-        [0, 1, 2].map((r) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[r]}${'xyz'[c]} = ${t(r * 3 + c)}`)))))),
-      h('div', { class: 'field-label' }, `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`),
+      ...(mp.solid ? [
+        h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, aligned with the part axes (${u.mass}·${L}²)`),
+        h('table', { class: 'table' }, h('tbody', {},
+          [0, 1, 2].map((r) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[r]}${'xyz'[c]} = ${t(r * 3 + c)}`)))))),
+        h('div', { class: 'field-label' }, `Principal moments: ${principalText}`),
+      ] : []),
       copy, copyError,
     ],
     buttons: [{ label: 'Close', value: 'ok', primary: true }],
@@ -459,8 +545,10 @@ export class MeasurePanel extends PropertyPanel {
     const seq = ++this.seq;
     const u = UNIT_SYSTEMS[app.store.doc.units];
     const dec = Math.max(2, app.store.doc.decimals);
-    const L = (v: number) => `${formatNumber(v / u.scale, dec)} ${u.length}`;
-    const A = (v: number) => `${formatNumber(v / u.scale ** 2, dec)} ${u.length}²`;
+    // Small values keep significant digits (a 5 mm edge in metres is 0.00500 m, not 0.01 m).
+    const xyz = (p: readonly number[]) => formatGroup(p.map((c) => c / u.scale), dec).join(', ');
+    const L = (v: number) => `${formatGroup([v / u.scale], dec)[0]} ${u.length}`;
+    const A = (v: number) => `${formatGroup([v / u.scale ** 2], dec)[0]} ${u.length}²`;
     const items = this.box.items.map((i) => i.data as SelItem);
     const lines: [string, string][] = [];
     const normalOf = (it: SelItem): Vec3 | null => {
@@ -475,14 +563,14 @@ export class MeasurePanel extends PropertyPanel {
         if (!e) continue;
         lines.push(['Edge length', L(e.length)]);
         if (e.radius) lines.push(['Radius', L(e.radius)], ['Diameter', L(e.radius * 2)]);
-        if (e.center) lines.push(['Center', e.center.map((c) => formatNumber(c / u.scale, dec)).join(', ')]);
+        if (e.center) lines.push(['Center', xyz(e.center)]);
       } else if (it.kind === 'face') {
         const f = app.faces[it.index];
         if (!f) continue;
         lines.push(['Face area', A(f.area)]);
         if (f.radius) lines.push(['Radius', L(f.radius)], ['Diameter', L(f.radius * 2)]);
       } else if (it.kind === 'vertex') {
-        lines.push(['X, Y, Z', it.p.map((c) => formatNumber(c / u.scale, dec)).join(', ')]);
+        lines.push(['X, Y, Z', xyz(it.p)]);
       }
     }
     if (items.length === 2) {
@@ -524,7 +612,7 @@ export class MeasurePanel extends PropertyPanel {
           if (seq !== this.seq) return;
           lines.push(['Distance', L(r.distance)]);
           const d = sub(r.p2, r.p1);
-          lines.push(['dX, dY, dZ', d.map((x) => formatNumber(Math.abs(x) / u.scale, dec)).join(', ')]);
+          lines.push(['dX, dY, dZ', xyz(d.map(Math.abs))]);
           this.showLeader(r.p1, r.p2);
         } catch (e) {
           if (seq !== this.seq) return;
@@ -687,9 +775,13 @@ export class OffsetPanel extends NumericToolPanel {
     if (!ed) return true;
     const ids = ed.selectedIds();
     if (!ids.length) { this.setMessage('error', 'Select sketch curves to offset first.'); return false; }
+    // Splines are left out of an offset: say so rather than blame the distance.
+    const kinds = new Set(ed.sketch.entities.filter((e) => ids.includes(e.id) && e.t !== 'point').map((e) => e.t));
+    if (kinds.size === 1 && kinds.has('spline')) { this.setMessage('error', "Splines can't be offset yet. Select lines, arcs or circles."); return false; }
     let created: string[] = [];
     ed.edit('Offset entities', (sk, newId) => { created = offsetCurves(sk, ids, this.reverse ? -this.distance : this.distance, newId); });
     if (!created.length) toast({ kind: 'warning', message: 'Nothing could be offset with that distance.' });
+    else if (kinds.has('spline')) toast({ kind: 'warning', message: "Splines can't be offset yet; the other selected curves were offset." });
     return true;
   }
 }

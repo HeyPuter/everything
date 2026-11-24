@@ -3,7 +3,7 @@
 
 import { listParts, locationLabel, onPartsChanged, recentParts } from '../platform/files';
 import { cloudAvailable, storageError } from '../platform/puter';
-import { h } from '../ui/dom';
+import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
 import { selectTabs, tabKeys } from '../ui/tabs';
@@ -11,7 +11,11 @@ import type { App } from './app';
 import type { FileOps } from './fileops';
 import type { AssistantPanel } from '../assistant/panel';
 
-const SWATCHES = ['#b8c4d2', '#d0d3d8', '#8e9aa8', '#5d6b7c', '#3a4452', '#c9b28b', '#d48a4e', '#c45a4a', '#c9a33d', '#6aa36a', '#4f8fc0', '#7a6bc2'];
+/** Part colours, named for screen readers and tooltips (a hex code says little). */
+const SWATCHES: [string, string][] = [
+  ['#b8c4d2', 'Light steel'], ['#d0d3d8', 'Silver'], ['#8e9aa8', 'Steel grey'], ['#5d6b7c', 'Slate'], ['#3a4452', 'Charcoal'], ['#c9b28b', 'Sand'],
+  ['#d48a4e', 'Copper'], ['#c45a4a', 'Brick red'], ['#c9a33d', 'Brass'], ['#6aa36a', 'Green'], ['#4f8fc0', 'Blue'], ['#7a6bc2', 'Violet'],
+];
 
 type PaneId = 'assistant' | 'files' | 'appearance' | 'help';
 
@@ -33,7 +37,11 @@ export class TaskPane {
     app.toggleTaskPane = (id) => this.toggle(id as PaneId);
     app.taskPaneOpen = () => this.current;
     onPartsChanged(() => this.refreshFiles());
+    // Undo, Redo, the assistant or another part change the colour shown as chosen.
+    app.store.on(() => { if (this.current === 'appearance') this.syncAppearance(); });
   }
+
+  private syncAppearance = () => {};
 
   /** Lists the parts again after a save, rename or delete while Parts is open. */
   private refreshFiles() {
@@ -121,8 +129,8 @@ export class TaskPane {
       for (const p of parts.slice(0, 50)) {
         // Buttons keep their role; list items wrap them (as in the Open dialog).
         const b = h('button', { class: 'file-item', type: 'button' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
-          h('span', { class: 'txt' }, h('span', { class: 'n' }, p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
-        b.addEventListener('click', () => void this.files.openLocation(p.location, p.name));
+          h('span', { class: 'txt' }, clippedName(p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
+        b.addEventListener('click', () => void this.files.openLocation(p.location, p.name, undefined, p.size));
         list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
       }
     } catch (e) {
@@ -136,8 +144,9 @@ export class TaskPane {
     const app = this.app;
     const cur = app.store.doc.color;
     const grid = h('div', { class: 'swatches', role: 'group', 'aria-label': 'Part colour' });
-    for (const c of SWATCHES) {
-      const b = h('button', { class: 'swatch', type: 'button', style: { background: c }, 'aria-label': `Colour ${c}`, 'aria-pressed': String(c === cur) });
+    for (const [c, label] of SWATCHES) {
+      const b = h('button', { class: 'swatch', type: 'button', style: { background: c }, 'aria-label': label, 'aria-pressed': String(c === cur), 'data-color': c });
+      attachTooltip(b, label);
       b.addEventListener('click', () => {
         app.store.change('Appearance', (doc) => { doc.color = c; });
         app.applyModelColor();
@@ -148,12 +157,24 @@ export class TaskPane {
       grid.append(b);
     }
     const custom = h('input', { type: 'color', value: cur, 'aria-label': 'Custom colour', style: { width: '100%', height: '32px', border: '0', background: 'none' } }) as HTMLInputElement;
+    this.syncAppearance = () => {
+      const c = app.store.doc.color;
+      for (const x of grid.children) x.setAttribute('aria-pressed', String(x.getAttribute('data-color') === c));
+      if (c && custom.value !== c) custom.value = c;
+    };
     custom.addEventListener('change', () => {
       app.store.change('Appearance', (doc) => { doc.color = custom.value; });
       app.applyModelColor();
     });
     body.append(h('div', { class: 'field-label' }, 'Part colour'), grid, h('label', { class: 'field-label' }, 'Custom colour'), custom);
   }
+}
+
+/** A part's name in a list, in full as a tooltip when it is clipped. */
+function clippedName(name: string): HTMLElement {
+  const el = h('span', { class: 'n' }, name);
+  titleWhenClipped(el);
+  return el;
 }
 
 export function renderHelp(body: HTMLElement) {

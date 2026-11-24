@@ -17,11 +17,16 @@ import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attach
 import { readAttachment } from './attachments';
 import { SYSTEM_PROMPT, partSnapshot } from './prompt';
 import { changesDocument, runTool, toolSpecs } from './tools';
+import { ToolError } from './units';
 
 export const ASSISTANT_MODEL = 'claude-opus-5-5';
+const BUSY_UNDO = 'The assistant is still working. Stop it or wait for it to finish, then undo.';
 
 /** Development builds and browser tests may stand in for Puter AI with window.__assistantChat. */
 const devChat = (): ChatFn | null => (import.meta.env.DEV ? (window as unknown as { __assistantChat?: ChatFn }).__assistantChat ?? null : null);
+
+/** A touch screen is the only pointer (a phone or tablet without a mouse or trackpad). */
+const touchOnly = () => !!globalThis.matchMedia?.('(pointer: coarse) and (hover: none)').matches;
 
 const short = (s: string, n: number) => {
   const t = s.replace(/\s+/g, ' ').trim();
@@ -57,6 +62,21 @@ export function stepLabel(name: string, a: Record<string, unknown>): string {
     case 'run_command': return a.command ? `Run ${s(a.command).replace(/_/g, ' ')}` : 'Run a command';
     default: return name;
   }
+}
+
+/**
+ * The host one step works through. Opening another part does not wait for a
+ * step that is running: from then on the step can neither read nor change the
+ * document, so it fails instead of finishing its change in the part just opened.
+ */
+function stepHost(host: AssistantHost, gone: () => boolean): AssistantHost {
+  const check = () => {
+    if (gone()) throw new ToolError('another part was opened, so this step was stopped before it could change that part.');
+  };
+  return Object.create(host, {
+    store: { get() { check(); return host.store; } },
+    prepareForEdit: { value() { check(); host.prepareForEdit(); } },
+  }) as AssistantHost;
 }
 
 interface PendingFile {
@@ -133,23 +153,30 @@ export class AssistantPanel {
   private reading = 0;
   /** Where the message being answered started in the undo history, and its undo step's name. */
   private undoRun: { mark: number; label: string } | null = null;
+  /** Counts the parts opened: a step or message begun before the latest is about a part that is gone. */
+  private opened = 0;
 
   constructor(private app: App) {
     this.host = appHost(app);
+    // Edit > Undo and Redo (menu, toolbar and keys) wait too: see the Undo changes button.
+    app.historyBusy = () => (this.agent.busy ? BUSY_UNDO : null);
     this.agent = createAgent({
       chat: (m, o) => (this.chat ?? devChat() ?? puterChat)(m, o),
       tools: toolSpecs,
       runTool: async (name, args) => {
-        const r = await runTool(this.host, name, args);
+        const opened = this.opened;
+        const r = await runTool(stepHost(this.host, () => this.opened !== opened), name, args);
         // The message's changes are folded into one undo step as they come: a long
         // build would otherwise push older history, and its own start, off the
         // bottom of the undo stack before the message ends.
         const run = this.undoRun;
-        if (run && this.app.store.undoMark > run.mark + 1) this.app.store.squash(run.mark, run.label);
+        const store = this.app.store;
+        if (run && this.opened === opened && store.undoMark > run.mark + 1) store.squash(run.mark, run.label);
         return r;
       },
       system: SYSTEM_PROMPT,
       snapshot: () => partSnapshot(this.host),
+      ready: () => this.host.settle(),
       model: () => ASSISTANT_MODEL,
       changes: changesDocument,
     });
@@ -160,7 +187,22 @@ export class AssistantPanel {
 
     this.log = h('div', { class: 'as-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversation' });
     // Follow new content only while the user is at the bottom; scrolling up to read stops it.
-    this.log.addEventListener('scroll', () => { const l = this.log; this.stick = l.scrollHeight - l.scrollTop - l.clientHeight < 40; }, { passive: true });
+    this.log.addEventListener('scroll', () => {
+      const l = this.log;
+      // A pane that is closed or switched away from has no height: that is not the user scrolling.
+      if (!l.clientHeight) return;
+      this.stick = l.scrollHeight - l.scrollTop - l.clientHeight < 40;
+      this.readAt = l.scrollTop;
+    }, { passive: true });
+    // Closing the pane or switching to another one resets the conversation's scroll to its
+    // top: shown again, it goes back to where the user was, or to the end while it follows.
+    // The message box growing keeps the end in view too.
+    new ResizeObserver(() => {
+      const l = this.log;
+      if (!l.clientHeight) return;
+      if (this.stick) l.scrollTop = l.scrollHeight;
+      else if (l.scrollTop !== this.readAt) l.scrollTop = this.readAt;
+    }).observe(this.log);
     this.input = h('textarea', { class: 'as-input', rows: 1, placeholder: 'Describe a part or a change…', 'aria-label': 'Message the assistant' }) as HTMLTextAreaElement;
     this.sendBtn = h('button', { class: 'as-send', type: 'button', 'aria-label': 'Send' }, icon('send', 16)) as HTMLButtonElement;
     this.status = h('div', { class: 'as-status', role: 'status' });
@@ -169,10 +211,15 @@ export class AssistantPanel {
     this.input.addEventListener('input', () => { this.grow(); this.checkLength(); });
     this.input.addEventListener('keydown', (e) => {
       // keyCode 229: Safari's Enter that commits an IME composition comes with isComposing false.
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); void this.submit(); }
+      // On a touch screen with no keyboard of its own, Enter starts a new line and Send sends, as in
+      // other chats there: an on-screen Enter has no Shift beside it to make a line break.
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !touchOnly()) { e.preventDefault(); void this.submit(); }
       else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.stop(); }
     });
-    this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.stop() : void this.submit()));
+    this.sendBtn.addEventListener('click', (e) => {
+      // Send turns into Stop as it is pressed: the second click of a double-click is still the send.
+      if (this.agent.busy) { if (e.detail < 2) this.stop(); } else void this.submit();
+    });
     // Files go with a message: picked with the paperclip, pasted into the box, or dropped on the panel.
     this.fileInput = h('input', { type: 'file', multiple: true, accept: ATTACH_ACCEPT, hidden: true, tabindex: '-1', 'aria-hidden': 'true' }) as HTMLInputElement;
     this.fileInput.addEventListener('change', () => {
@@ -199,7 +246,17 @@ export class AssistantPanel {
     this.bindDrop();
     this.renderEmpty();
     app.store.on((reason) => {
-      if (reason !== 'load') return;
+      if (reason !== 'load') {
+        // The ideas offered before a message is sent follow the part: new parts, or changes to this one.
+        const empty = this.log.childElementCount === 1 && this.log.firstElementChild?.classList.contains('as-empty');
+        if (empty && this.ideasFor !== this.app.store.doc.features.length > 0 && !this.log.contains(document.activeElement)) this.renderEmpty();
+        return;
+      }
+      this.opened++;
+      // A failed reply asked again would go on without a description of this part, about the one closed.
+      for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
+      // Nor can what an earlier message changed be undone: the history is the new part's.
+      for (const b of this.log.querySelectorAll('.as-undo')) b.remove();
       // Another part was opened: the reply in progress was about the one that was closed.
       if (this.agent.busy) this.stop('Stopped: another part was opened.');
       else if (!this.agent.messages.length) this.renderEmpty();
@@ -262,8 +319,12 @@ export class AssistantPanel {
     else this.focusInput();
   }
 
+  /** Whether the ideas shown are for a part that has features. */
+  private ideasFor = false;
+
   private renderEmpty() {
     const hasFeatures = this.app.store.doc.features.length > 0;
+    this.ideasFor = hasFeatures;
     const ideas = hasFeatures
       ? ['Explain how this part is built', 'Round all the outer edges with 1 mm fillets', 'Make the main sizes parametric with global variables', 'What does it weigh in aluminium?']
       : ['A 100 × 60 × 8 mm mounting plate with four M5 holes and rounded corners', 'A flanged bushing: 40 mm flange, 20 mm shaft, 10 mm bore', 'An enclosure box 80 × 50 × 30 mm with 2 mm walls, open on top', 'A spur-gear-like disc: 60 mm across with 12 teeth and a 8 mm bore'];
@@ -333,6 +394,8 @@ export class AssistantPanel {
 
   /** Whether the conversation follows new content (the user has not scrolled up from the bottom). */
   private stick = true;
+  /** Where the user left the conversation scrolled. */
+  private readAt = 0;
 
   private scroll(force = false) {
     // Judged by where the user left it, not by the distance now: one piece of text
@@ -510,6 +573,7 @@ export class AssistantPanel {
   private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
     const store = this.app.store;
     const mark = store.undoMark;
+    const opened = this.opened;
     const label = `Assistant: ${short(request, 40)}`;
     const undoRun = { mark, label };
     this.undoRun = undoRun;
@@ -529,6 +593,8 @@ export class AssistantPanel {
       res = await go((e) => {
         if (this.turn !== turn) return;
         if (e.type === 'text') {
+          // Line breaks before a step or more text would make an empty block: a gap in the reply.
+          if (!turn.text && !e.text.trim()) return;
           if (!turn.text) {
             turn.text = { el: h('div', { class: 'as-text' }), src: '' };
             turn.body.append(turn.text.el);
@@ -564,9 +630,10 @@ export class AssistantPanel {
       res = { stopped: false, error: e as Error, steps: [] };
     }
     if (this.undoRun === undoRun) this.undoRun = null;
-    // Everything this message changed becomes one undo step, even when New chat cut it off.
+    // Everything this message changed becomes one undo step, even when New chat cut it off
+    // (not when another part was opened: the history is that part's now).
     let changed = false;
-    if (store.undoMark > mark) {
+    if (this.opened === opened && store.undoMark > mark) {
       store.squash(mark, label);
       changed = true;
     }
@@ -578,6 +645,10 @@ export class AssistantPanel {
     turn.el.removeAttribute('aria-busy');
     const after = store.undoMark;
     if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, this.stopReason));
+    // The model is told; without this the reply just stops mid-sentence on screen.
+    else if (res.cut && !res.error) {
+      turn.foot.append(h('span', { class: 'as-meta' }, 'Cut off: the reply reached its length limit. Ask the assistant to go on.'));
+    }
     if (res.error) {
       const retry = h('button', { class: 'btn small as-retry', type: 'button' }, 'Try again');
       const error = h('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`);
@@ -595,8 +666,13 @@ export class AssistantPanel {
       turn.foot.append(error, retry);
     }
     if (changed) {
-      const undo = h('button', { class: 'btn small', type: 'button' }, icon('undo', 14), 'Undo changes');
+      const undo = h('button', { class: 'btn small as-undo', type: 'button' }, icon('undo', 14), 'Undo changes');
       undo.addEventListener('click', (e) => {
+        // The reply being written builds on these changes, and its own would no longer make one undo step.
+        if (this.agent.busy) {
+          toast({ kind: 'info', message: BUSY_UNDO });
+          return;
+        }
         if (store.undoMark !== after || store.undoLabel !== label) {
           toast({ kind: 'info', message: 'The part changed since; use Edit > Undo to step back.' });
           return;
@@ -641,12 +717,14 @@ export class AssistantPanel {
     const mark = step.status === 'running' ? h('span', { class: 'spinner', 'aria-hidden': 'true' })
       : icon(step.status === 'done' ? 'check' : step.status === 'error' ? 'error' : 'close', 14);
     el.className = `as-step ${step.status}`;
-    const label = h('span', { class: 'as-step-label' }, stepLabel(step.name, step.args));
-    const children: (HTMLElement | SVGElement)[] = [h('span', { class: 'as-step-mark' }, mark), label];
-    el.replaceChildren(...children);
+    const label = stepLabel(step.name, step.args);
+    // The mark's colour and glyph are all that tell a step done, failed or not run: read out too.
+    const state = h('span', { class: 'sr-only' }, step.status === 'running' ? 'Running: ' : step.status === 'done' ? 'Done: ' : step.status === 'error' ? 'Failed: ' : 'Skipped: ');
+    el.replaceChildren(h('span', { class: 'as-step-mark' }, mark), h('span', { class: 'as-step-label' }, state, label));
     if (step.summary && step.status !== 'running') {
       el.title = step.summary;
-      if (step.status === 'error') el.append(h('div', { class: 'as-step-detail' }, short(step.summary, 220)));
+      // Why a step failed or was not run is shown, not only on hover (which touch screens lack).
+      if (step.status === 'error' || step.status === 'skipped') el.append(h('div', { class: 'as-step-detail' }, short(step.summary, 220)));
     }
     if (step.image) {
       const img = h('img', { class: 'as-shot', src: step.image, alt: 'What the assistant saw' }) as HTMLImageElement;

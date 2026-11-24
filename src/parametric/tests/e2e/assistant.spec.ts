@@ -41,7 +41,7 @@ test('the assistant builds a part with tools, shows its steps and undoes it in o
 
   // The reply is held from screen readers while it streams and released when complete.
   await expect(page.locator('.as-bot')).toHaveAttribute('aria-busy', 'true');
-  await expect(page.getByText('Done: a', { exact: false })).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.as-bot').getByText('plate with four holes')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('.as-bot[aria-busy]')).toHaveCount(0);
   for (const name of ['Plate', 'Holes', 'Corners']) await expect(page.getByRole('treeitem', { name })).toBeVisible();
   const steps = page.locator('.as-step');
@@ -371,6 +371,8 @@ test('Enter that commits an IME composition does not send', async ({ page }) => 
   await box.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true, cancelable: true })));
   await box.press('Enter');
   await expect(page.locator('.as-user')).toHaveText(['にほんご']);
+  // The request goes once the part is rebuilt, a moment after the message shows.
+  await expect(page.getByText('ok', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __sends: number }).__sends)).toBe(1);
 });
 
@@ -479,4 +481,349 @@ test('changing the part\'s units finishes an open sketch first, so discarding it
   await box.press('Enter');
   await expect(page.getByText('Now in inches.')).toBeVisible();
   expect(await page.evaluate(() => [(window as unknown as P).__parametric.store.doc.units, !!(window as unknown as P).__parametric.sketchEditor])).toEqual(['IPS', false]);
+});
+
+test('opening another part while a step is running keeps that step out of the new part', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __asked?: boolean };
+    w.__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done.' }; return; }
+      w.__asked = true;
+      yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'front', name: 'Stray', shapes: [{ type: 'circle', center: [0, 0], radius: 9 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  type P = { __parametric: { whenBuilt(): Promise<void>; newDocument(n: string): void; store: { doc: { name: string; features: { name: string }[] } } }; __stepWaiting?: boolean; __asked?: boolean };
+  // The step waits on a slow rebuild, during which the user opens another part.
+  await page.evaluate(() => {
+    const w = window as unknown as P;
+    const app = w.__parametric;
+    const real = app.whenBuilt.bind(app);
+    app.whenBuilt = async () => {
+      if (!w.__asked) return real();
+      w.__stepWaiting = true;
+      await new Promise((r) => setTimeout(r, 800));
+      return real();
+    };
+  });
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('A sketch');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as P).__stepWaiting);
+  await page.evaluate(() => (window as unknown as P).__parametric.newDocument('Other part'));
+  await expect(page.getByText('Stopped: another part was opened.')).toBeVisible();
+  await expect(page.locator('.as-step:not(.running)')).toHaveCount(1);
+  expect(await page.evaluate(() => { const d = (window as unknown as P).__parametric.store.doc; return [d.name, d.features.map((f) => f.name)]; })).toEqual(['Other part', []]);
+  await expect(page.locator('.as-step.error')).toContainText('another part was opened');
+});
+
+test('a failed reply about a part that was then closed cannot be tried again on the part opened', async ({ page }) => {
+  await page.addInitScript(() => {
+    let n = 0;
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      if (n++ === 0) throw new Error('The request was refused');
+      yield { type: 'tool', id: `c${n}`, name: 'delete_features', input: { features: ['Sketch1'] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Delete Sketch1');
+  await box.press('Enter');
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  // The retry would carry on with no description of the part now open.
+  await page.evaluate(() => (window as unknown as { __parametric: { newDocument(n: string): void } }).__parametric.newDocument('Other part'));
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(page.locator('.as-error')).toBeVisible();
+});
+
+test('what a message changed in a part that was then closed is not offered for undoing in the part opened', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'set_variables', input: { set: [{ name: 'W', value: 5 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Add a variable');
+  await box.press('Enter');
+  await expect(page.getByRole('button', { name: 'Undo changes' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __parametric: { newDocument(n: string): void } }).__parametric.newDocument('Other part'));
+  await expect(page.getByRole('button', { name: 'Undo changes' })).toHaveCount(0);
+  await expect(page.getByText('Done.')).toBeVisible();
+});
+
+test('a reply cut off at the length limit says so', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      yield { type: 'text', text: 'The plate is 100 mm wide and its holes are' };
+      yield { type: 'cut' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Describe the plate in detail');
+  await box.press('Enter');
+  await expect(page.getByText('its holes are')).toBeVisible();
+  await expect(page.locator('.as-bot .as-foot')).toContainText('Cut off: the reply reached its length limit.');
+});
+
+test('the conversation keeps its place when the pane is closed or switched and shown again', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      yield { type: 'text', text: Array.from({ length: 80 }, (_, i) => `Line ${i}`).join('\n\n') };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('A long answer');
+  await box.press('Enter');
+  await expect(page.locator('.as-bot[aria-busy]')).toHaveCount(0);
+  const log = page.locator('.as-log');
+  const fromEnd = () => log.evaluate((l) => l.scrollHeight - l.clientHeight - l.scrollTop);
+  await expect.poll(fromEnd).toBeLessThan(2);
+  const tab = (pane: string) => page.locator(`.tp-strip [data-pane="${pane}"]`);
+  await tab('files').click();
+  await tab('assistant').click();
+  await expect.poll(fromEnd).toBeLessThan(2);
+  await page.getByRole('button', { name: 'Close task pane' }).click();
+  await tab('assistant').click();
+  await expect.poll(fromEnd).toBeLessThan(2);
+  // Scrolled up to read, it comes back where it was.
+  await log.evaluate((l) => { l.scrollTop = 300; });
+  await tab('files').click();
+  await tab('assistant').click();
+  await expect.poll(() => log.evaluate((l) => Math.round(l.scrollTop))).toBe(300);
+});
+
+test('the ideas offered before the first message follow whether the part has features yet', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await expect(page.locator('.as-empty')).toContainText('Describe a part to design');
+  type P = { __parametric: { store: { change(l: string, f: (d: { features: unknown[] }) => void): void; undo(): void } } };
+  await page.evaluate(() => (window as unknown as P).__parametric.store.change('Sketch', (d) => {
+    d.features.push({ id: 's1', type: 'sketch', name: 'Sketch1', plane: { kind: 'base', plane: 'top' }, entities: [], constraints: [] });
+  }));
+  await expect(page.locator('.as-empty')).toContainText('Change or ask about this part');
+  await expect(page.getByRole('button', { name: 'Explain how this part is built' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as P).__parametric.store.undo());
+  await expect(page.locator('.as-empty')).toContainText('Describe a part to design');
+});
+
+test('the assistant reads the part as rebuilt, not as it was before a rebuild that is still running', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __results: string[]; __assistantChat: unknown };
+    w.__results = [];
+    w.__assistantChat = async function* (messages: { role: string; content: unknown }[]) {
+      const round = messages.filter((m) => m.role === 'assistant').length;
+      if (round === 0) {
+        w.__results.push(String(messages[1].content));
+        yield { type: 'tool', id: 'c1', name: 'find_geometry', input: { kind: 'faces', limit: 1 } };
+        return;
+      }
+      w.__results.push(String(messages.at(-1)!.content));
+      yield { type: 'text', text: 'Read it.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  // Sent while the part opened is still being built.
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('What is this?');
+  await box.press('Enter');
+  await expect(page.getByText('Read it.')).toBeVisible({ timeout: 60_000 });
+  const [snapshot, found] = await page.evaluate(() => (window as unknown as { __results: string[] }).__results);
+  expect(snapshot).not.toContain('Body: none yet');
+  expect(snapshot).not.toContain('not built yet');
+  expect(found).toMatch(/^\d+ of \d+ faces match \(showing 1\)/);
+});
+
+test('each step says whether it was done, failed or not run, and why, without hovering', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'set_variables', input: { set: [{ name: 'W', value: 5 }] } };
+      yield { type: 'tool', id: 'c2', name: 'add_fillet', input: { edges: ['no-such-edge'], radius: 1 } };
+      yield { type: 'tool', id: 'c3', name: 'set_variables', input: { set: [{ name: 'H', value: 5 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Go');
+  await box.press('Enter');
+  await expect(page.getByText('Done.')).toBeVisible();
+  const steps = page.locator('.as-step');
+  await expect(steps.nth(0)).toHaveText(/^Done: Set variables$/);
+  await expect(steps.nth(1)).toContainText('Failed: Add fillet');
+  await expect(steps.nth(2)).toContainText('Skipped: Set variables');
+  await expect(steps.nth(2).locator('.as-step-detail')).toHaveText('Not run: an earlier change in this reply failed.');
+});
+
+test('an earlier message is not undone while the assistant works on the next one', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __go?: () => void; __waiting?: boolean };
+    w.__assistantChat = async function* (messages: { role: string; content: unknown }[]) {
+      const users = messages.filter((m) => m.role === 'user').length;
+      const last = messages.at(-1)!;
+      if (last.role !== 'user') { yield { type: 'text', text: `Done ${users}.` }; return; }
+      if (users === 2) { w.__waiting = true; await new Promise<void>((r) => { w.__go = r; }); }
+      yield { type: 'tool', id: `a${users}`, name: 'set_variables', input: { set: [{ name: `A${users}`, value: 1 }] } };
+      yield { type: 'tool', id: `b${users}`, name: 'set_variables', input: { set: [{ name: `B${users}`, value: 1 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('First');
+  await box.press('Enter');
+  await expect(page.getByText('Done 1.')).toBeVisible();
+  await box.fill('Second');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as { __waiting?: boolean }).__waiting);
+  await page.getByRole('button', { name: 'Undo changes' }).click();
+  await expect(page.getByText('The assistant is still working.')).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __go: () => void }).__go());
+  await expect(page.getByText('Done 2.')).toBeVisible();
+  type P = { __parametric: { store: { doc: { variables: { name: string }[] }; undoDepth: number } } };
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['A1', 'B1', 'A2', 'B2']);
+  // One undo step per message.
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.undoDepth)).toBe(2);
+});
+
+test('Edit > Undo and its keys wait while the assistant changes the part, so the message stays one undo step', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __go?: () => void; __waiting?: boolean };
+    w.__assistantChat = async function* (messages: { role: string }[]) {
+      const rounds = messages.filter((m) => m.role === 'assistant').length;
+      if (rounds === 0) { yield { type: 'tool', id: 'a', name: 'set_variables', input: { set: [{ name: 'A', value: 1 }] } }; return; }
+      if (rounds === 1) {
+        w.__waiting = true;
+        await new Promise<void>((r) => { w.__go = r; });
+        yield { type: 'tool', id: 'b', name: 'set_variables', input: { set: [{ name: 'B', value: 1 }] } };
+        return;
+      }
+      yield { type: 'text', text: 'Both set.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  type P = { __parametric: { store: { doc: { variables: { name: string }[] }; undoDepth: number; undoLabel: string } } };
+  const names = () => page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name));
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Two variables');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as { __waiting?: boolean }).__waiting);
+  expect(await names()).toEqual(['A']);
+  // The shortcut, away from the message box (whose own Undo is the text's).
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Meta+z');
+  await expect(page.getByText('The assistant is still working.').first()).toBeVisible();
+  expect(await names()).toEqual(['A']);
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Edit' }).click();
+  await page.getByRole('menuitem', { name: /^Undo/ }).click();
+  expect(await names()).toEqual(['A']);
+  await page.evaluate(() => (window as unknown as { __go: () => void }).__go());
+  await expect(page.getByText('Both set.')).toBeVisible();
+  expect(await names()).toEqual(['A', 'B']);
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.undoDepth)).toBe(1);
+  // Once it is done, Undo works as always, the whole message at once.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Meta+z');
+  await expect.poll(names).toEqual([]);
+});
+
+test('text of nothing but spaces and line breaks leaves no empty gap in the reply', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: '\n\n' }; yield { type: 'text', text: 'Done.' }; return; }
+      yield { type: 'text', text: '\n\n ' };
+      yield { type: 'tool', id: 'c1', name: 'calculate', input: { expressions: ['1+1'] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Add');
+  await box.press('Enter');
+  await expect(page.getByText('Done.')).toBeVisible();
+  await expect(page.locator('.as-bot .as-text')).toHaveCount(1);
+  await expect(page.locator('.as-bot .as-body > *').first()).toHaveClass(/as-steps/);
+});
+
+test('double-clicking Send sends once and does not stop the reply it started', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sends: number; __assistantChat: unknown };
+    w.__sends = 0;
+    w.__assistantChat = async function* () {
+      w.__sends++;
+      await new Promise((r) => setTimeout(r, 300));
+      yield { type: 'text', text: 'Answered in full.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Hello');
+  await page.getByRole('button', { name: 'Send' }).dblclick();
+  await expect(page.getByText('Answered in full.')).toBeVisible();
+  await expect(page.locator('.as-bot .as-foot')).not.toContainText('Stopped');
+  expect(await page.evaluate(() => (window as unknown as { __sends: number }).__sends)).toBe(1);
+});
+
+test('Stop while the reply streams keeps what was written; Stop while a step runs lets it finish and skips the rest', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown; __asked?: boolean; __n: number };
+    w.__n = 0;
+    w.__assistantChat = async function* (_m: unknown, opts: { signal?: AbortSignal }) {
+      w.__n++;
+      if (w.__n === 1) {
+        yield { type: 'text', text: 'The first half of' };
+        await new Promise((r) => opts.signal?.addEventListener('abort', r));
+        return;
+      }
+      w.__asked = true;
+      yield { type: 'tool', id: 'a', name: 'set_variables', input: { set: [{ name: 'A', value: 1 }] } };
+      yield { type: 'tool', id: 'b', name: 'set_variables', input: { set: [{ name: 'B', value: 1 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Explain');
+  await box.press('Enter');
+  await expect(page.getByText('The first half of')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.locator('.as-bot').first().locator('.as-foot')).toHaveText('Stopped.');
+  await expect(page.getByText('The first half of')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+
+  // A slow rebuild keeps the first step running when Stop is pressed.
+  type P = { __parametric: { whenBuilt(): Promise<void>; store: { doc: { variables: { name: string }[] } } }; __asked?: boolean; __stepRunning?: boolean };
+  await page.evaluate(() => {
+    const w = window as unknown as P;
+    const app = w.__parametric;
+    const real = app.whenBuilt.bind(app);
+    app.whenBuilt = async () => {
+      if (w.__asked) { w.__stepRunning = true; await new Promise((r) => setTimeout(r, 600)); }
+      return real();
+    };
+  });
+  await box.fill('Two variables');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as P).__stepRunning);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.locator('.as-status')).toHaveText('Stopping…');
+  const turn = page.locator('.as-bot').nth(1);
+  await expect(turn.locator('.as-foot')).toContainText('Stopped.');
+  await expect(turn.locator('.as-step.done')).toHaveCount(1);
+  await expect(turn.locator('.as-step.skipped')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['A']);
+  await turn.getByRole('button', { name: 'Undo changes' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.length)).toBe(0);
 });

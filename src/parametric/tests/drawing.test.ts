@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PdfPage, arcToCubics, parseSvgPath, pdfString, textWidth } from '../src/drawing/pdf';
-import { SHEETS, STANDARD_SCALES, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
+import { SHEETS, STANDARD_SCALES, buildSheet, placeView, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
 import type { Vec3 } from '../src/math/vec';
 import type { DrawingDoc, SheetSize } from '../src/model/types';
 
@@ -90,6 +90,60 @@ describe('sheet layout', () => {
     expect(pdf).toContain('(Plate) Tj');
   });
 
+  it('moves the arrows and value of a dimension too short to hold them outside its lines', () => {
+    const doc: DrawingDoc = {
+      sheet: 'A4', landscape: true, scale: 1, title: '', drawnBy: '', notes: '',
+      views: [{ id: 'v1', kind: 'front', x: 120, y: 80, hidden: false, dims: true }],
+    };
+    // A 150 x 3 bar: the height dimension is 3 mm long on the sheet.
+    const proj = new Map([['v1', { id: 'v1', visible: ['M 0 0 H 150 V -3 H 0 Z'], hidden: [], bounds: [0, -3, 150, 0] as [number, number, number, number] }]]);
+    const sheet = buildSheet(doc, proj, { partName: 'Bar', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: (v) => v.toFixed(2) });
+    const f = sheet.frames[0];
+    type Text = Extract<(typeof sheet.items)[number], { t: 'text' }>;
+    type Tri = Extract<(typeof sheet.items)[number], { t: 'tri' }>;
+    const texts = sheet.items.filter((i) => i.t === 'text') as Text[];
+    const height = texts.find((t) => t.s === '3.00')!, width = texts.find((t) => t.s === '150.00')!;
+    // The long one keeps its value centred between its lines.
+    expect(width).toMatchObject({ anchor: 'middle', x: (f.x0 + f.x1) / 2 });
+    // The short one's value reads upward below the lower end, clear of the span between the lines.
+    const tw = textWidth('3.00', height.size);
+    expect(height.rotate).toBe(-90);
+    expect(height.anchor).toBe('end');
+    expect(height.y).toBeGreaterThan(f.y1 + 2.4);
+    expect(height.y + tw).toBeLessThan(f.y1 + 16);
+    // Its arrowheads sit outside the lines, pointing in, and do not overlap.
+    const tris = (sheet.items.filter((i) => i.t === 'tri') as Tri[]).filter((t) => t.a[0] === f.x0 - 8);
+    expect(tris.length).toBe(2);
+    const span = (t: Tri) => [Math.min(t.a[1], t.b[1], t.c[1]), Math.max(t.a[1], t.b[1], t.c[1])];
+    const [s1, s2] = tris.map(span).sort((p, q) => p[0] - q[0]);
+    expect(s1[1]).toBeLessThanOrEqual(f.y0 + 1e-9);
+    expect(s2[0]).toBeGreaterThanOrEqual(f.y1 - 1e-9);
+  });
+
+  it('places an added view in free room, clear of the other views, their dimensions and the title block', () => {
+    const sheet = { w: 297, h: 210 };
+    const frame = (id: string, x0: number, y0: number, x1: number, y1: number) => ({ frame: { id, x0, y0, x1, y1 }, dims: true });
+    // An empty sheet: top left, with room for the height dimension left of it.
+    const [x, y] = placeView(sheet, 60, 40, true, []);
+    expect(x - 30 - 12).toBeGreaterThanOrEqual(10);
+    expect(y - 20).toBeGreaterThanOrEqual(10);
+    expect(x - 30 - 12).toBeLessThan(20);
+    // Next to views across the top and left, not on them or on their dimensions and labels.
+    const others = [frame('a', 25, 15, 125, 75), frame('b', 25, 110, 85, 150), frame('c', 150, 15, 200, 60)];
+    const [x2, y2] = placeView(sheet, 60, 40, true, others);
+    const box = [x2 - 30 - 12, y2 - 22, x2 + 32, y2 + 20 + 18];
+    for (const { frame: f } of others) {
+      const o = [f.x0 - 12, f.y0 - 2, f.x1 + 2, f.y1 + 18];
+      expect(box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1], f.id).toBe(false);
+    }
+    // Clear of the title block and inside the border.
+    expect(box[3] <= 210 - 10 - 32 || box[2] <= 297 - 10 - 170).toBe(true);
+    expect(box[2]).toBeLessThanOrEqual(287);
+    expect(box[3]).toBeLessThanOrEqual(200);
+    // No room anywhere: the middle of the sheet.
+    expect(placeView(sheet, 60, 40, true, [frame('all', 10, 10, 287, 200)])).toEqual([148.5, 105]);
+  });
+
   it('keeps the SVG well-formed when a title holds control characters', () => {
     const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: 'Bra\u0007cket \ud83d\udd27 <A&B>\u0000\ud800', drawnBy: 'Tab\tbed', notes: 'x\u001by', views: [] };
     const sheet = buildSheet(doc, new Map(), { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: String });
@@ -134,6 +188,19 @@ describe('sheet layout', () => {
     expect(textWidth('FRONT', 1)).toBeCloseTo(3.444, 3);
     expect(textWidth('60.00', 1)).toBeCloseTo(2.502, 3);
     expect(textWidth('W', 1, true)).toBeCloseTo(0.944, 3);
+  });
+
+  it('measures accented letters and symbols as the PDF draws them', () => {
+    // Helvetica's widths for the WinAnsiEncoding characters beyond ASCII.
+    expect(textWidth('É', 1)).toBeCloseTo(0.667, 3);
+    expect(textWidth('é', 1)).toBeCloseTo(0.556, 3);
+    expect(textWidth('Ø°±', 1)).toBeCloseTo(0.778 + 0.4 + 0.584, 3);
+    expect(textWidth('—€…', 1)).toBeCloseTo(1 + 0.556 + 1, 3);
+    expect(textWidth('ÜÆ', 1, true)).toBeCloseTo(0.722 + 1, 3);
+    expect(textWidth('ü', 1, true)).toBeCloseTo(0.611, 3);
+    // A character the encoding lacks is drawn, and measured, as '?'.
+    expect(textWidth('中', 1)).toBeCloseTo(textWidth('?', 1), 6);
+    expect(textWidth('中', 1, true)).toBeCloseTo(textWidth('?', 1, true), 6);
   });
 
   // Rectangle outlines the size of each view's box projection, centred on 0.

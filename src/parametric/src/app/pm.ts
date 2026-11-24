@@ -87,11 +87,17 @@ export abstract class PropertyPanel {
   syncExpressions(): string[] | null { return null; }
 
   mount(): HTMLElement {
+    // Mounted again (back from the design tree tab, after a units change): the
+    // box that took picks still does, in its new controls.
+    const previous = this.activeBox;
+    const index = previous ? this.boxes.indexOf(previous) : -1;
     this.boxes = [];
     this.msgEl = h('div', { class: 'pm-msg', role: 'status', hidden: true });
     const body = this.render();
     this.el = h('div', { class: 'pm-content' }, this.msgEl, ...body);
-    if (!this.activeBox) this.activeBox = this.boxes[0] ?? null;
+    if (!previous || !this.boxes.includes(previous)) {
+      this.activeBox = (previous && (this.boxes.find((b) => b.label === previous.label) ?? this.boxes[index])) || (this.boxes[0] ?? null);
+    }
     this.boxes.forEach((b) => b.setActive(b === this.activeBox));
     return this.el;
   }
@@ -177,7 +183,7 @@ export function unitSuffix(kind: ParamKind, ctx: UnitContext): string {
 }
 
 /** Parses typed text into a Param (number in mm/deg, or an "=expr" string). */
-export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allowExpr = true): { ok: true; value: Param; num: number } | { ok: false; error: string } {
+export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allowExpr = true, whole = false): { ok: true; value: Param; num: number } | { ok: false; error: string } {
   const t = text.trim();
   const isExpr = t.startsWith('=');
   try {
@@ -186,6 +192,8 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
       bareScale: kind === 'length' ? UNIT_SYSTEMS[ctx.units].scale : 1,
       lookup: (n) => ctx.variables().get(n),
     });
+    // A typed count of 2.5 is a slip to point out, not to round quietly (an equation's result is rounded).
+    if (whole && kind === 'count' && !isExpr && !Number.isInteger(num)) return { ok: false, error: 'Enter a whole number' };
     const n = kind === 'count' ? Math.round(num) : num;
     if (isExpr && allowExpr) return { ok: true, value: t, num: n };
     return { ok: true, value: n, num: n };
@@ -224,6 +232,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     'aria-label': o.label,
     value: paramText(o.value, o.kind, o.ctx),
   }) as HTMLInputElement;
+  const limitText = (v: number) => `${paramText(v, o.kind, o.ctx)}${unitSuffix(o.kind, o.ctx) ? ` ${unitSuffix(o.kind, o.ctx)}` : ''}`;
   let current: Param = o.value;
   const mark = () => input.classList.toggle('expr', typeof current === 'string');
   mark();
@@ -233,7 +242,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     // Removed controls may still have a debounce or native change queued.
     // They no longer own the model state (e.g. after Undo rebuilt the panel).
     if (composing || retired || !input.isConnected) return;
-    const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false);
+    const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false, true);
     if (!r.ok) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
@@ -243,13 +252,14 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     if (o.min !== undefined && r.num < o.min) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
-      input.title = `Must be at least ${paramText(o.min, o.kind, o.ctx)}`;
+      // A tiny minimum stands for "more than zero" (1e-6 mm reads 3.937007874015748e-8 in inches).
+      input.title = o.min > 0 && o.min <= 1e-6 ? 'Must be greater than 0' : `Must be at least ${limitText(o.min)}`;
       return;
     }
     if (o.max !== undefined && r.num > o.max) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
-      input.title = `Must be at most ${paramText(o.max, o.kind, o.ctx)}`;
+      input.title = `Must be at most ${limitText(o.max)}`;
       return;
     }
     input.classList.remove('invalid');
@@ -280,7 +290,10 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   // take back it goes on to the panel or tool (which it cancels).
   let atFocus: Param = current;
   input.addEventListener('focus', () => { atFocus = current; input.select(); });
+  // A value linked to an equation (=Width/2) is not stepped: that would replace the equation with a number.
+  const linked = () => input.value.trim().startsWith('=');
   const step = (dir: number) => {
+    if (linked()) return;
     const r = parseParam(input.value, o.kind, o.ctx, false);
     const base = r.ok ? r.num : 0;
     const scale = o.kind === 'length' ? UNIT_SYSTEMS[o.ctx.units].scale : 1;
@@ -302,6 +315,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
       e.preventDefault();
       cancelPending();
       input.value = text;
+      syncLinked();
       input.classList.remove('invalid');
       input.removeAttribute('aria-invalid');
       input.title = '';
@@ -309,9 +323,26 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
       if (current !== atFocus) { current = atFocus; mark(); o.onChange(atFocus); }
     }
   });
-  const spin = h('div', { class: 'spin' }, input, h('div', { class: 'spin-btns' },
-    h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12)),
-    h('button', { type: 'button', tabindex: '-1', 'aria-label': `Decrease ${o.label}`, onclick: () => step(-1) }, icon('chevronDown', 12))));
+  // A field labelled by an icon has no "Depth (mm)" label above it: its unit shows beside the value.
+  const unit = o.icon && unitSuffix(o.kind, o.ctx);
+  const unitEl = unit ? h('span', { class: 'unit', id: nextDomId('unit') }, unit) : null;
+  if (unitEl) input.setAttribute('aria-describedby', unitEl.id);
+  const up = h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12));
+  const down = h('button', { type: 'button', tabindex: '-1', 'aria-label': `Decrease ${o.label}`, onclick: () => step(-1) }, icon('chevronDown', 12));
+  const spinBtns = h('div', { class: 'spin-btns' }, up, down);
+  const syncLinked = () => {
+    const on = linked();
+    for (const b of [up, down]) {
+      if (on) b.setAttribute('aria-disabled', 'true');
+      else b.removeAttribute('aria-disabled');
+    }
+    if (on) spinBtns.title = 'Driven by an equation: edit the equation to change the value';
+    else spinBtns.removeAttribute('title');
+  };
+  syncLinked();
+  input.addEventListener('input', syncLinked);
+  input.addEventListener('change', syncLinked);
+  const spin = h('div', { class: 'spin' }, input, unitEl, spinBtns);
   const label = h('label', { class: 'sr-only', for: id }, o.label);
   const row = h('div', { class: 'row' }, label);
   if (o.icon) {

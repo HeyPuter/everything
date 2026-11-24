@@ -68,6 +68,11 @@ export interface AgentOptions {
   runTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   system: string;
   snapshot: () => string;
+  /**
+   * Resolves once the part is built as it is (a change just made or a part just
+   * opened may still be rebuilding): a message's snapshot is taken then.
+   */
+  ready?: () => Promise<void>;
   model: () => string;
   /** Whether a tool changes the part: after one fails, the reply's later ones are not run. */
   changes?: (name: string) => boolean;
@@ -214,7 +219,8 @@ export function createAgent(o: AgentOptions) {
   let transcript: ChatMessage[] = [];
   let running: { stopped: boolean; stop(): void } | null = null;
 
-  async function exchange(onEvent: (e: AgentEvent) => void): Promise<ExchangeResult> {
+  /** start adds the user's message: to this conversation, even when New chat begins another meanwhile. */
+  async function exchange(onEvent: (e: AgentEvent) => void, start?: (messages: ChatMessage[]) => void): Promise<ExchangeResult> {
     const messages = transcript;
     const emit = (e: AgentEvent) => { try { onEvent(e); } catch (err) { console.error(err); } };
     let stopResolve!: (v: typeof STOP) => void;
@@ -226,6 +232,12 @@ export function createAgent(o: AgentOptions) {
     /** The message whose files were left out of a request that then went through (-1: none tried). */
     let noFilesAt = -1;
     try {
+      if (start) {
+        // Stop does not wait for the rebuild; the message joins the conversation either way.
+        if (o.ready) await Promise.race([o.ready().catch(() => {}), stopSignal]);
+        start(messages);
+        if (run.stopped) return { stopped: true, steps };
+      }
       // No limit on rounds: the model works until it answers, or the user presses Stop.
       for (let round = 0; ; round++) {
         if (round) emit({ type: 'round' });
@@ -369,18 +381,19 @@ export function createAgent(o: AgentOptions) {
     /** Sends what the user wrote, with the part's snapshot as it is now and any files they attached. */
     send(text: string, onEvent: (e: AgentEvent) => void, { attachments = [] as Attachment[] } = {}): Promise<ExchangeResult> {
       if (running) throw new Error('The assistant is still answering');
-      // A turn that failed before the model answered is closed first, so roles keep alternating.
-      const lastMsg = transcript.at(-1);
-      if (lastMsg && lastMsg.role !== 'assistant') transcript.push({ role: 'assistant', content: '(My previous reply did not finish.)' });
-      const content = userContent(text, o.snapshot(), attachments);
-      transcript.push(attachments.length ? { role: 'user', content, attachments: attachments.map(attachmentMeta) } : { role: 'user', content });
-      // A screenshot goes only with the round that took it.
-      releaseShots(transcript);
-      // Files older than the turns they go with are never sent again, only named: their data is let go.
-      for (const m of transcript.filter((x): x is UserMessage => isTurn(x)).slice(0, -ATTACHMENT_TURNS)) {
-        if (m.attachments && Array.isArray(m.content) && m.content.length > 1) m.content = [m.content[0]];
-      }
-      return exchange(onEvent);
+      return exchange(onEvent, (messages) => {
+        // A turn that failed before the model answered is closed first, so roles keep alternating.
+        const lastMsg = messages.at(-1);
+        if (lastMsg && lastMsg.role !== 'assistant') messages.push({ role: 'assistant', content: '(My previous reply did not finish.)' });
+        const content = userContent(text, o.snapshot(), attachments);
+        messages.push(attachments.length ? { role: 'user', content, attachments: attachments.map(attachmentMeta) } : { role: 'user', content });
+        // A screenshot goes only with the round that took it.
+        releaseShots(messages);
+        // Files older than the turns they go with are never sent again, only named: their data is let go.
+        for (const m of messages.filter((x): x is UserMessage => isTurn(x)).slice(0, -ATTACHMENT_TURNS)) {
+          if (m.attachments && Array.isArray(m.content) && m.content.length > 1) m.content = [m.content[0]];
+        }
+      });
     },
     /** Ask again after a reply that failed: the transcript is where the failure left it. */
     retry(onEvent: (e: AgentEvent) => void): Promise<ExchangeResult> {

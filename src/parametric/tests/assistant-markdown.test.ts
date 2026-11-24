@@ -34,4 +34,28 @@ describe('assistant markdown', () => {
     html(`a | b\n-${' '.repeat(50000)}x`);
     expect(performance.now() - t0).toBeLessThan(500);
   });
+
+  it('renders links to web pages and e-mail only, and backslash escapes as the character', () => {
+    expect(html('See [the guide](https://example.com/a_b) or [mail](mailto:a@b.c).')).toBe(
+      '<p>See <a href="https://example.com/a_b" target="_blank" rel="noopener noreferrer">the guide</a> or '
+      + '<a href="mailto:a@b.c" target="_blank" rel="noopener noreferrer">mail</a>.</p>');
+    expect(html('[x](javascript:alert`1`) [y](data:text/html,hi) [z](/files/part)')).toBe('<p>x y z</p>');
+    expect(html('2 \\* 3 \\* 4, hole\\_dia and \\[not a link\\](x)')).toBe('<p>2 * 3 * 4, hole_dia and [not a link](x)</p>');
+    expect(html('***Note:*** done')).toBe('<p><strong><em>Note:</em></strong> done</p>');
+    expect(html('A [fillet](https://en.wikipedia.org/wiki/Fillet_(mechanics)) (rounded edge).')).toBe(
+      '<p>A <a href="https://en.wikipedia.org/wiki/Fillet_(mechanics)" target="_blank" rel="noopener noreferrer">fillet</a> (rounded edge).</p>');
+    // Runs of brackets are rejected as quickly as any other text.
+    const t0 = performance.now();
+    html(`${'[a]('.repeat(20000)}\n${'['.repeat(20000)}${']('.repeat(5000)}\n[a](${'(x'.repeat(20000)}\n[a](x${'()'.repeat(20000)}`);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  it('renders quotes and rules, and leaves a bullet that is not a rule a bullet', () => {
+    expect(html('Done.\n\n---\n\n> **Note:** check the\n> wall thickness\n\nNext')).toBe(
+      '<p>Done.</p><hr><blockquote><p><strong>Note:</strong> check the<br>wall thickness</p></blockquote><p>Next</p>');
+    expect(html('* * *\n* item')).toBe('<hr><ul><li>item</li></ul>');
+    // Quotes nest a few levels deep; past that the marks are text.
+    const deep = html(`${'>'.repeat(5000)} x`);
+    expect(deep.match(/<blockquote>/g)).toHaveLength(3);
+  });
 });

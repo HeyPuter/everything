@@ -3,7 +3,7 @@
 // geometry worker.
 
 import { convertExpressionUnits, evaluate, evaluateVariables, renameReferences, variableReferenceChanges } from './expr';
-import { FEATURE_LABELS, PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
+import { FEATURE_LABELS, PARAM_FIELDS, type ParamKind, getPath, paramActive, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem, Variable } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
@@ -504,7 +504,8 @@ export class DocStore {
           try {
             setPath(out, fd.path, this.evalParam(v, fd.kind, values));
           } catch (e) {
-            errors.set(f.id, `${fd.label}: ${(e as Error).message}`);
+            // An unused value (hidden in the panel) fails neither the tree status nor the build.
+            if (paramActive(f, fd.path)) errors.set(f.id, `${fd.label}: ${(e as Error).message}`);
             setPath(out, fd.path, 0);
           }
         }

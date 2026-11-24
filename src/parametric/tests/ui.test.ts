@@ -108,6 +108,23 @@ describe('tooltips', () => {
       vi.useRealTimers();
     }
   });
+
+  it('close on Escape', () => {
+    vi.useFakeTimers();
+    try {
+      const a = document.createElement('button');
+      document.body.append(a);
+      attachTooltip(a, 'A');
+      a.dispatchEvent(new Event('pointerenter'));
+      vi.advanceTimersByTime(1000);
+      expect(document.querySelector('.tooltip')?.textContent).toBe('A');
+      a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(document.querySelector('.tooltip')).toBeNull();
+      a.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('dialogs and toasts', () => {

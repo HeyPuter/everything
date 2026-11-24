@@ -37,6 +37,10 @@ test('a view added while the others are still being projected is drawn too', asy
   expect(pending).toBe(true);
   await expect(page.locator('.paper g[data-view]')).toHaveCount(5);
   await expect(page.locator('.paper g[data-view="v5"] path').first()).toBeAttached();
+  // Placed in free room, not on top of the views that were still being projected.
+  const frames = await page.evaluate(() => (window as unknown as { __parametric: { drawing: { frames: { id: string; x0: number; y0: number; x1: number; y1: number }[] } } }).__parametric.drawing.frames);
+  const added = frames.find((f) => f.id === 'v5')!;
+  for (const f of frames.filter((q) => q !== added)) expect(added.x0 < f.x1 && added.x1 > f.x0 && added.y0 < f.y1 && added.y1 > f.y0, f.id).toBe(false);
 });
 
 test('two fingers zoom the sheet, ending a view drag as one undo step', async ({ page }) => {
@@ -52,6 +56,9 @@ test('two fingers zoom the sheet, ending a view drag as one undo step', async ({
     const ws = app.drawing, box = ws.el.getBoundingClientRect(), f = ws.frames[0];
     return { zoom: ws.zoom, depth: app.store.undoDepth, cx: box.left + ws.pan.x + ((f.x0 + f.x1) / 2) * ws.zoom, cy: box.top + ws.pan.y + ((f.y0 + f.y1) / 2) * ws.zoom };
   });
+  // Opening the drawing fits the sheet to the view in the next frame, which on a loaded
+  // machine can come after the views are projected: start from the fitted sheet.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const s0 = await state();
   const cdp = await page.context().newCDPSession(page);
   const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: [number, number][]) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
@@ -172,6 +179,199 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await expect(page.getByRole('button', { name: 'Delete Right view' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', { name: 'Add view' })).toBeFocused();
+});
+
+test('a view dragged or nudged toward the edge of the sheet stays on it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  // The isometric view's outline on the sheet, in millimetres (the sheet's SVG units).
+  const frame = () => page.evaluate(() => {
+    const svg = document.querySelector<SVGSVGElement>('.paper svg')!;
+    const b = svg.querySelector<SVGGElement>('g[data-view="v4"]')!.getBoundingClientRect(), s = svg.getBoundingClientRect();
+    const k = 297 / s.width;
+    return { x0: (b.left - s.left) * k, y0: (b.top - s.top) * k, x1: (b.right - s.left) * k, y1: (b.bottom - s.top) * k };
+  });
+  const before = await frame();
+  const box = (await page.locator('.paper g[data-view="v4"]').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2 - 100, { steps: 4 });
+  await page.mouse.move(box.x + box.width / 2 + 600, box.y + box.height / 2 - 400, { steps: 4 });
+  await page.mouse.up();
+  // Stopped with its outline against the border (10 mm in from the edge), not dragged off the sheet.
+  const after = await frame();
+  expect(after.x1).toBeCloseTo(297 - 10, 0);
+  expect(after.y0).toBeCloseTo(10, 0);
+  expect(after.x1 - after.x0).toBeCloseTo(before.x1 - before.x0, 3);
+  // Against the border, an arrow key toward it moves nothing and adds no undo step.
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: { store: { undoDepth: number } } }).__parametric.store.undoDepth);
+  const d0 = await depth();
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowUp');
+  expect(await depth()).toBe(d0);
+  expect(await frame()).toEqual(after);
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(async () => (await frame()).x1).toBeCloseTo(after.x1 - 10, 0);
+});
+
+test('views stay on a sheet made smaller or turned, in the same undo step', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type Frame = { id: string; x0: number; y0: number; x1: number; y1: number };
+  type A = { store: { undoDepth: number }; drawing: { frames: Frame[]; update(fn: (d: { views: { id: string; x: number; y: number }[] }) => void): void } };
+  const iso = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.drawing.frames.find((f) => f.id === 'v4')!);
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.undoDepth);
+  const sheetSize = page.getByRole('combobox', { name: 'Sheet size' });
+  await sheetSize.selectOption('A3');
+  // On the A3 sheet, the isometric view moved out to its far corner.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.drawing.update((d) => { const v = d.views.find((q) => q.id === 'v4')!; v.x = 380; v.y = 260; }));
+  await expect.poll(async () => (await iso()).x0).toBeGreaterThan(297);
+  const d0 = await depth();
+  await sheetSize.selectOption('A4');
+  // Back inside the A4 border (10 mm in from 297 x 210), in the step that changed the sheet.
+  await expect.poll(async () => { const f = await iso(); return f.x1 <= 287.001 && f.y1 <= 200.001 && f.x0 >= 10 && f.y0 >= 10; }).toBe(true);
+  expect(await depth()).toBe(d0 + 1);
+  // Turned to portrait (210 mm wide), it moves in again.
+  await page.getByRole('checkbox', { name: 'Landscape' }).uncheck();
+  await expect.poll(async () => (await iso()).x1).toBeLessThanOrEqual(200.001);
+});
+
+test('a larger drawing scale moves the views apart and keeps them on the sheet, in one undo step', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type Frame = { id: string; x0: number; y0: number; x1: number; y1: number };
+  type A = { store: { undoDepth: number; doc: { drawing: { scale: number } } }; drawing: { frames: Frame[] } };
+  const frames = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.drawing.frames);
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.undoDepth);
+  await page.getByRole('combobox', { name: 'Sheet size' }).selectOption('A3');
+  const before = await frames();
+  const d0 = await depth();
+  await page.getByRole('combobox', { name: 'Scale' }).selectOption('2');
+  await expect.poll(async () => { const f = (await frames()).find((q) => q.id === 'v1')!; return f.x1 - f.x0; }).toBeCloseTo(2 * (before.find((q) => q.id === 'v1')!.x1 - before.find((q) => q.id === 'v1')!.x0), 3);
+  expect(await depth()).toBe(d0 + 1);
+  const after = await frames();
+  // Twice the size, not on top of each other, and with their dimensions on the A3 sheet (420 x 297, 10 mm border).
+  for (const a of after) {
+    for (const b of after) if (a !== b) expect(a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0, `${a.id} ${b.id}`).toBe(false);
+    const dims = a.id !== 'v4';
+    expect(a.x0 - (dims ? 12 : 0)).toBeGreaterThanOrEqual(10 - 1e-6);
+    expect(a.y0).toBeGreaterThanOrEqual(10 - 1e-6);
+    expect(a.x1).toBeLessThanOrEqual(410 + 1e-6);
+    expect(a.y1 + (dims ? 10.5 : 0)).toBeLessThanOrEqual(287 + 1e-6);
+  }
+});
+
+test('opening the drawing does not mark the part edited until the drawing is changed', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { store: { dirty: boolean; undoDepth: number; doc: { drawing?: { views: { x: number }[] } } } };
+  const state = () => page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    // What saving writes, from the app's own module (served by the dev server).
+    const url = '/src/model/document.ts';
+    const { serializeDocument } = (await import(/* @vite-ignore */ url)) as typeof import('../../src/model/document');
+    return { dirty: app.store.dirty, depth: app.store.undoDepth, saved: !!JSON.parse(serializeDocument(app.store.doc as never)).drawing };
+  });
+  const s0 = await state();
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await expect(page.locator('.doc-state')).not.toHaveText('Edited');
+  expect(await state()).toMatchObject({ dirty: s0.dirty, depth: s0.depth });
+  // Moving a view is an edit: one undo step, and the drawing is saved with the part.
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).click();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.doc-state')).toHaveText('Edited');
+  expect(await state()).toEqual({ dirty: true, depth: s0.depth + 1, saved: true });
+  // Undoing it leaves the drawing as it was opened, still open.
+  await page.keyboard.press('Meta+Z');
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  expect((await state()).depth).toBe(s0.depth);
+});
+
+test('the sheet zooms and pans from the keyboard, and Zoom In and Out zoom the sheet', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = { drawing: { zoom: number; pan: { x: number; y: number } }; renderer: { camera: { distance: number } } };
+  const state = () => page.evaluate(() => { const a = (window as unknown as { __parametric: A }).__parametric; return { zoom: a.drawing.zoom, pan: { ...a.drawing.pan }, distance: a.renderer.camera.distance }; });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.locator('.drawing-ws').focus();
+  const s0 = await state();
+  await page.keyboard.press('+');
+  expect((await state()).zoom).toBeCloseTo(s0.zoom * 1.25, 6);
+  await page.keyboard.press('-');
+  expect((await state()).zoom).toBeCloseTo(s0.zoom, 6);
+  // With no view selected, arrow keys move the sheet.
+  await page.keyboard.press('ArrowLeft');
+  expect((await state()).pan.x).toBeCloseTo(s0.pan.x + 40, 6);
+  // Zoom Out (Z) zooms the sheet, not the hidden 3D view.
+  await page.keyboard.press('z');
+  const s1 = await state();
+  expect(s1.zoom).toBeCloseTo(s0.zoom * 0.8, 6);
+  expect(s1.distance).toBe(s0.distance);
+});
+
+test('commands for the 3D view are disabled while the drawing sheet is shown', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { inDrawing: boolean; commands: { isEnabled(id: string): boolean }; renderer: { section: unknown; displayStyle: string; camera: { ortho: boolean; rot: number[] } } };
+  const ids = ['previousView', 'perspective', 'viewFront', 'viewIsometric', 'normalTo', 'viewOrientation', 'displayStyle', 'style:wireframe', 'sectionView', 'toggleVisibility', 'measure'];
+  const enabled = () => page.evaluate((ids) => { const a = (window as unknown as { __parametric: A }).__parametric; return ids.filter((id) => a.commands.isEnabled(id)); }, ids);
+  await expect.poll(enabled).toEqual(ids);
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  expect(await enabled()).toEqual([]);
+  const view = () => page.evaluate(() => { const r = (window as unknown as { __parametric: A }).__parametric.renderer; return JSON.stringify([r.camera.rot, r.camera.ortho, r.displayStyle, r.section]); });
+  const before = await view();
+  // Their shortcuts do nothing to the hidden view, and their menu items show as unavailable.
+  await page.locator('.drawing-ws').focus();
+  await page.keyboard.press('Control+1');
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('menu', { name: 'View orientation' })).toHaveCount(0);
+  expect(await view()).toBe(before);
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'View' }).click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Perspective' }).or(page.getByRole('menuitem', { name: 'Perspective' }))).toBeDisabled();
+  await page.keyboard.press('Escape');
+  // Zoom to Fit fits the sheet.
+  await page.keyboard.press('f');
+  // Back on the model, they work again.
+  await page.getByRole('tab', { name: 'Model' }).click();
+  expect(await enabled()).toEqual(ids);
+});
+
+test('undoing a model edit made before the drawing was opened keeps the drawing open', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { inDrawing: boolean; store: { undoDepth: number; change(l: string, fn: (d: { features: { type: string; depth?: number }[] }) => void): void; doc: { drawing?: unknown; features: { type: string; depth?: number }[] } } };
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Depth', (d) => { d.features.find((f) => f.type === 'extrude')!.depth = 34; }));
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  const state = () => page.evaluate(() => { const a = (window as unknown as { __parametric: A }).__parametric; return { inDrawing: a.inDrawing, drawing: !!a.store.doc.drawing, depth: a.store.doc.features.find((f) => f.type === 'extrude')!.depth, undo: a.store.undoDepth }; });
+  const s0 = await state();
+  await page.locator('.drawing-ws').focus();
+  await page.keyboard.press('Meta+Z');
+  // The edit is undone, with no extra undo step, and the drawing stays on screen.
+  await expect.poll(async () => (await state()).depth).toBe(30);
+  expect(await state()).toEqual({ inDrawing: true, drawing: true, depth: 30, undo: s0.undo - 1 });
+  await expect(page.locator('.sheet-tabs').getByRole('tab', { name: 'Drawing' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  await page.keyboard.press('Meta+Shift+Z');
+  await expect.poll(async () => (await state()).depth).toBe(34);
+  expect((await state()).inDrawing).toBe(true);
 });
 
 test.describe('in a time zone behind UTC', () => {

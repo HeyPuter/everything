@@ -5,7 +5,7 @@
 import type { ProjectionResult } from '../kernel/protocol';
 import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
-import { SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
+import { DIM_BELOW, DIM_LEFT, MARGIN, SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
 import { download, safeName } from '../platform/files';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -44,13 +44,20 @@ export class DrawingWorkspace {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
     this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
-    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel to zoom. Arrow keys move the selected view and Delete removes it.' }, this.host,
+    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel or plus and minus to zoom. Arrow keys move the selected view, or else the sheet, and Delete removes the view.' }, this.host,
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();
     // A drawing made before the part had a solid is laid out when the solid exists, even
     // if the drawing was left meanwhile; not once another document replaced that part.
-    app.store.on((reason) => { if (reason === 'load') this.layoutPending = false; });
+    app.store.on((reason) => {
+      if (reason === 'load') { this.layoutPending = false; this.untouched = ''; }
+      // Undoing an edit made before the drawing was first shown takes the drawing out of the
+      // part with it. A drawing nobody changed was never an edit: on screen, it stays.
+      else if ((reason === 'undo' || reason === 'redo') && this.active && !app.store.doc.drawing && this.untouched) {
+        app.store.doc.drawing = JSON.parse(this.untouched) as DrawingDoc;
+      }
+    });
   }
 
   get doc(): DrawingDoc | null {
@@ -81,13 +88,18 @@ export class DrawingWorkspace {
     const layout = b ? standardLayout(sheetDims({ sheet: size, landscape: true }), b.min, b.max) : { scale: 1, views: [] };
     // Opened before the first rebuild finished: lay out once the solid exists.
     this.layoutPending = !b;
-    this.app.store.change('Create drawing', (d) => {
-      d.drawing = {
-        sheet: size, landscape: true, scale: layout.scale,
-        views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })), title: '', drawnBy: '', notes: '',
-      };
-    });
+    // Only looking at the drawing does not edit the part: it is neither marked edited nor
+    // given an undo step until the drawing is changed (and is saved with the part from then).
+    const drawing: DrawingDoc = {
+      sheet: size, landscape: true, scale: layout.scale,
+      views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })), title: '', drawnBy: '', notes: '',
+    };
+    this.app.store.doc.drawing = drawing;
+    this.untouched = JSON.stringify(drawing);
   }
+
+  /** The drawing as created, until it is changed. */
+  private untouched = '';
 
   /** Re-lays out the standard views (keeps sheet settings). */
   relayout() {
@@ -95,10 +107,16 @@ export class DrawingWorkspace {
     const d = this.doc;
     if (!b || !d) return;
     const layout = standardLayout(sheetDims(d), b.min, b.max);
-    this.app.store.change('Arrange views', (doc) => {
-      doc.drawing!.scale = layout.scale;
-      doc.drawing!.views = layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` }));
-    });
+    const arrange = (x: DrawingDoc) => {
+      x.scale = layout.scale;
+      x.views = layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` }));
+    };
+    // A drawing nobody changed yet is still not an edit of the part.
+    if (JSON.stringify(d) === this.untouched) {
+      arrange(d);
+      this.untouched = JSON.stringify(d);
+      void this.refresh();
+    } else this.app.store.change('Arrange views', (doc) => arrange(doc.drawing!));
   }
 
   update(fn: (d: DrawingDoc) => void, label = 'Edit drawing') {
@@ -234,6 +252,16 @@ export class DrawingWorkspace {
     Object.assign(this.selBox.style, { left: `${f.x0 - pad}px`, top: `${f.y0 - pad}px`, width: `${f.x1 - f.x0 + 2 * pad}px`, height: `${f.y1 - f.y0 + 2 * pad}px` });
   }
 
+  /** Zooms the sheet by f about the middle of the view. */
+  zoomBy(f: number) {
+    const r = this.el.getBoundingClientRect();
+    const mx = r.width / 2, my = r.height / 2;
+    const nz = Math.max(0.1, Math.min(40, this.zoom * f));
+    this.pan = { x: mx - ((mx - this.pan.x) * nz) / this.zoom, y: my - ((my - this.pan.y) * nz) / this.zoom };
+    this.zoom = nz;
+    this.applyTransform();
+  }
+
   /** Fits the sheet into the visible area. */
   fit() {
     const r = this.el.getBoundingClientRect();
@@ -316,7 +344,8 @@ export class DrawingWorkspace {
         this.pan = { x: drag.ox + dx, y: drag.oy + dy };
         this.applyTransform();
       } else {
-        const id = drag.id!, nx = drag.ox + dx / this.zoom, ny = drag.oy + dy / this.zoom;
+        const id = drag.id!;
+        const [nx, ny] = this.onSheet(id, drag.ox + dx / this.zoom, drag.oy + dy / this.zoom);
         // The change re-renders the sheet (App refreshes the drawing on every document change).
         this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x = nx; v.y = ny; } }, 'Move view');
       }
@@ -352,16 +381,72 @@ export class DrawingWorkspace {
         const store = this.app.store;
         const join = e.repeat && nudge?.id === id && nudge.last === store.undoMark ? nudge : null;
         const mark = join ? join.mark : store.undoMark;
-        this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x += dx; v.y += dy; } }, 'Move view');
+        const v = this.doc?.views.find((q) => q.id === id);
+        if (!v) return;
+        // Held against the edge of the sheet: nothing to move (and no empty undo step).
+        const [nx, ny] = this.onSheet(id, v.x + dx, v.y + dy);
+        if (nx === v.x && ny === v.y) return;
+        this.update((d) => { const q = d.views.find((x) => x.id === id); if (q) { q.x = nx; q.y = ny; } }, 'Move view');
         if (join) store.squash(mark, 'Move view');
         nudge = { id, mark, last: store.undoMark };
       };
-      if (e.key === 'ArrowLeft') move(-step, 0);
-      else if (e.key === 'ArrowRight') move(step, 0);
-      else if (e.key === 'ArrowUp') move(0, -step);
-      else if (e.key === 'ArrowDown') move(0, step);
+      const pan = (dx: number, dy: number) => {
+        e.preventDefault();
+        this.pan = { x: this.pan.x + dx, y: this.pan.y + dy };
+        this.applyTransform();
+      };
+      // Arrow keys move the selected view, else the sheet; + and - zoom it (as the wheel does).
+      const d = this.selected ? null : 40 * (e.shiftKey ? 4 : 1);
+      const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (e.key === 'ArrowLeft') d ? pan(d, 0) : move(-step, 0);
+      else if (e.key === 'ArrowRight') d ? pan(-d, 0) : move(step, 0);
+      else if (e.key === 'ArrowUp') d ? pan(0, d) : move(0, -step);
+      else if (e.key === 'ArrowDown') d ? pan(0, -d) : move(0, step);
+      else if (plain && (e.key === '+' || e.key === '=')) { e.preventDefault(); this.zoomBy(1.25); }
+      else if (plain && (e.key === '-' || e.key === '_')) { e.preventDefault(); this.zoomBy(0.8); }
     });
     new ResizeObserver(() => { if (this.active) this.applyTransform(); }).observe(this.el);
+  }
+
+  /**
+   * Where a view moved to (x, y) stays: with its dimensions inside the sheet's border, where it
+   * shows and is exported (the sheet clips what lies off it, so a view
+   * dragged off could not be seen or found again). A view larger than the
+   * border slides until its edges reach it.
+   */
+  private onSheet(id: string, x: number, y: number, d = this.doc, k = 1): [number, number] {
+    const v = d?.views.find((q) => q.id === id);
+    if (!d || !v) return [x, y];
+    const { w, h } = sheetDims(d);
+    // The view's reach from its centre (none while it is still being projected), at k times the scale drawn.
+    const f = this.frames.find((q) => q.id === id);
+    const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y].map((q) => q * k) : [0, 0, 0, 0];
+    // Its dimensions, left of and below it, stay on the sheet too.
+    const [dl, db] = v.dims && v.kind !== 'isometric' ? [DIM_LEFT, DIM_BELOW] : [0, 0];
+    const fit = (c: number, lo: number, hi: number) => Math.min(Math.max(c, Math.min(lo, hi)), Math.max(lo, hi));
+    return [fit(x, MARGIN + l + dl, w - MARGIN - r), fit(y, MARGIN + t, h - MARGIN - b - db)];
+  }
+
+  /**
+   * After the scale changed from `old` to d.scale: views stay on the sheet. Growing, the
+   * layout grows from its top left corner, so the views move apart as they grow instead
+   * of running into each other; shrinking, each view keeps its place.
+   */
+  rescaleViews(d: DrawingDoc, old: number) {
+    const k = d.scale / old;
+    if (!(k > 0) || k === 1) return;
+    const fs = this.frames.filter((f) => d.views.some((v) => v.id === f.id));
+    const ax = Math.min(...fs.map((f) => f.x0)), ay = Math.min(...fs.map((f) => f.y0));
+    const moved = d.views.map((v) => {
+      const [x, y] = k > 1 && fs.length ? [ax + (v.x - ax) * k, ay + (v.y - ay) * k] : [v.x, v.y];
+      return this.onSheet(v.id, x, y, d, k);
+    });
+    d.views.forEach((v, i) => { [v.x, v.y] = moved[i]; });
+  }
+
+  /** After the sheet got smaller or turned: views that would hang off it move back on. */
+  keepOnSheet(d: DrawingDoc) {
+    for (const v of d.views) [v.x, v.y] = this.onSheet(v.id, v.x, v.y, d);
   }
 
   /** Selects a view from the keyboard (the Views list) and focuses the sheet so arrow keys move it. */
@@ -385,18 +470,23 @@ export class DrawingWorkspace {
     const b = this.app.bbox;
     if (!d || !b) return;
     const [w, hh] = projectedSize(kind, b.min, b.max);
-    const sheet = sheetDims(d);
-    // Place it in the first free spot along the top row.
-    let x = 40 + (w * d.scale) / 2, y = 30 + (hh * d.scale) / 2;
-    for (let tries = 0; tries < 20 && this.frames.some((f) => x + (w * d.scale) / 2 > f.x0 && x - (w * d.scale) / 2 < f.x1 && y + (hh * d.scale) / 2 > f.y0 && y - (hh * d.scale) / 2 < f.y1); tries++) {
-      x += 30;
-      if (x > sheet.w - 30) { x = 40; y += 30; }
-    }
+    const dims = kind !== 'isometric';
+    // In free room on the sheet, not on top of the other views or their dimensions
+    // (a view still being projected takes the room of its bounding box's projection).
+    const others = d.views.map((v) => {
+      let frame = this.frames.find((f) => f.id === v.id);
+      if (!frame) {
+        const [vw, vh] = projectedSize(v.kind, b.min, b.max).map((k) => (k * d.scale) / 2);
+        frame = { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
+      }
+      return { frame, dims: v.dims && v.kind !== 'isometric' };
+    });
+    const [x, y] = placeView(sheetDims(d), w * d.scale, hh * d.scale, dims, others);
     let n = d.views.length + 1;
     while (d.views.some((v) => v.id === `v${n}`)) n++;
     const id = `v${n}`;
     this.selected = id;
-    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: kind !== 'isometric', dims: kind !== 'isometric' }); }, 'Add view');
+    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: dims, dims }); }, 'Add view');
   }
 
   // ---------- export ----------
@@ -455,10 +545,10 @@ export class DrawingPanel extends PropertyPanel {
     const ws = this.ws;
     const d = ws.doc;
     if (!d) return [];
-    const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; }, 'Sheet size'));
+    const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; ws.keepOnSheet(x); }, 'Sheet size'));
     const scales = STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }));
     if (!scales.some((s) => Number(s.value) === d.scale)) scales.push({ value: String(d.scale), label: scaleLabel(d.scale) });
-    const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { x.scale = Number(v); }, 'Sheet scale'));
+    const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { const old = x.scale; x.scale = Number(v); ws.rescaleViews(x, old); }, 'Sheet scale'));
     const views = h('div', { class: 'relations-list' });
     for (const v of d.views) views.append(this.viewRow(v));
     const addSel = h('select', { class: 'input', 'aria-label': 'View to add' }) as HTMLSelectElement;
@@ -473,7 +563,7 @@ export class DrawingPanel extends PropertyPanel {
     return [
       section('Sheet', [
         sheet,
-        checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; }, 'Sheet orientation')),
+        checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; ws.keepOnSheet(x); }, 'Sheet orientation')),
         scale,
         h('button', { class: 'btn small', type: 'button', onclick: () => ws.relayout() }, icon('reset', 14), 'Arrange standard views'),
       ]),

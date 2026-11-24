@@ -3,7 +3,7 @@ import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   addRelations, availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
-  offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, zeroDimensionReason,
+  extendPreview, filletPreview, offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, trimPreview, zeroDimensionReason,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
 import { buildProfiles } from '../src/sketch/profiles';
@@ -20,6 +20,28 @@ describe('relations', () => {
     expect(availableRelations(s, ['rl0', 'circ'])).toContain('tangent');
     expect(availableRelations(s, ['rp0', 'rl1'])).toEqual(['coincident', 'midpoint', 'fix']);
     expect(availableRelations(s, ['O'])).toEqual([]);
+  });
+
+  it('offers nothing that ties a curve to its own end point or centre', () => {
+    const s = sk([
+      ...rect(0, 0, 10, 5, 'r'), { id: 'c0', t: 'point', x: 2, y: 2 }, { id: 'circ', t: 'circle', c: 'c0', r: 1 },
+      { id: 'ac', t: 'point', x: 20, y: 0 }, { id: 'aa', t: 'point', x: 25, y: 0 }, { id: 'ab', t: 'point', x: 20, y: 5 }, { id: 'arc', t: 'arc', c: 'ac', a: 'aa', b: 'ab' },
+    ]);
+    // Midpoint at its own end collapsed the line; a centre on its circle, the circle.
+    expect(availableRelations(s, ['rp1', 'rl1'])).toEqual(['fix']);
+    expect(availableRelations(s, ['rl0', 'rp1'])).toEqual(['fix']);
+    expect(availableRelations(s, ['c0', 'circ'])).toEqual(['fix']);
+    expect(availableRelations(s, ['ac', 'arc'])).toEqual(['fix']);
+    expect(availableRelations(s, ['aa', 'arc'])).toEqual(['fix']);
+    // Other points still fit.
+    expect(availableRelations(s, ['rp0', 'circ'])).toEqual(['coincident', 'concentric', 'fix']);
+    expect(availableRelations(s, ['c0', 'arc'])).toEqual(['coincident', 'concentric', 'fix']);
+    expect(availableRelations(s, ['rp0', 'rp1', 'rl0'])).toEqual(['fix']);
+    // Nor the ends of one line, or an arc's centre and end, made one point.
+    expect(availableRelations(s, ['rp0', 'rp1'])).toEqual(['horizontal', 'vertical', 'fix']);
+    expect(availableRelations(s, ['ac', 'ab'])).toEqual(['horizontal', 'vertical', 'fix']);
+    expect(availableRelations(s, ['rp0', 'rp2'])).toEqual(['horizontal', 'vertical', 'coincident', 'fix']);
+    expect(availableRelations(s, ['rp0', 'rp2', 'rl0'])).toContain('symmetric');
   });
 
   it.each([['axis', 'l1', 'l2'], ['l1', 'axis', 'l2'], ['l1', 'l2', 'axis'], ['axis', 'p', 'q'], ['p', 'axis', 'q']])('makes %s, %s, %s symmetric about the centerline whatever the selection order', (...ids) => {
@@ -225,6 +247,86 @@ describe('editing tools', () => {
     const lengths = lines.map((l) => Math.abs(ix.pt(l.b)[0] - ix.pt(l.a)[0])).sort();
     expect(lengths[0]).toBeCloseTo(3, 9);
     expect(lengths[1]).toBeCloseTo(3, 9);
+  });
+
+  it('trims a circle between lines that end where they touch it', () => {
+    for (const [r, ang] of [[3.1, 1.1], [10, 0], [12.7, 2.2], [0.37, 0.7]]) {
+      // Two tangent lines ending on opposite sides of the circle, as a slot drawn with circles.
+      const c: [number, number] = [1.234, -5.678];
+      const n: [number, number] = [Math.cos(ang), Math.sin(ang)], t: [number, number] = [-n[1], n[0]];
+      const P = [c[0] + r * n[0], c[1] + r * n[1]], Q = [c[0] - r * n[0], c[1] - r * n[1]];
+      const s = sk([
+        { id: 'c', t: 'point', x: c[0], y: c[1] }, { id: 'C', t: 'circle', c: 'c', r },
+        { id: 'a1', t: 'point', x: P[0] + 20 * t[0], y: P[1] + 20 * t[1] }, { id: 'a2', t: 'point', x: P[0], y: P[1] }, { id: 'L1', t: 'line', a: 'a1', b: 'a2' },
+        { id: 'b1', t: 'point', x: Q[0], y: Q[1] }, { id: 'b2', t: 'point', x: Q[0] + 20 * t[0], y: Q[1] + 20 * t[1] }, { id: 'L2', t: 'line', a: 'b1', b: 'b2' },
+      ]);
+      // The half away from the lines goes; it used to take the whole circle when a touch was missed.
+      expect(trimAt(s, 'C', [c[0] - r * t[0], c[1] - r * t[1]], idFactory(s))).toBe(true);
+      const arc = s.entities.find((e) => e.id === 'C');
+      expect(arc?.t).toBe('arc');
+      const ix = new SketchIndex(s.entities);
+      expect(arcAngles(ix, arc as Extract<SkEntity, { t: 'arc' }>).sweep).toBeCloseTo(Math.PI, 6);
+    }
+  });
+
+  it('stops a trim at sketch points lying on a circle or arc, as on a line', () => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 10 },
+      { id: 'q1', t: 'point', x: 10, y: 0 }, { id: 'q2', t: 'point', x: 0, y: 10 },
+    ]);
+    s.constraints.push({ id: 'k1', type: 'coincident', refs: ['q1', 'C'] }, { id: 'k2', type: 'coincident', refs: ['q2', 'C'] });
+    // Clicking between the two points removes the quarter between them, not the whole circle.
+    expect(trimAt(s, 'C', [7.07, 7.07], idFactory(s))).toBe(true);
+    const arc = s.entities.find((e) => e.id === 'C') as Extract<SkEntity, { t: 'arc' }>;
+    expect(arc.t).toBe('arc');
+    const ix = new SketchIndex(s.entities);
+    expect(arcAngles(ix, arc).sweep).toBeCloseTo(1.5 * Math.PI, 9);
+    // And on that arc, a point between its ends splits it there.
+    s.entities.push({ id: 'q3', t: 'point', x: -10, y: 0 });
+    expect(trimAt(s, 'C', [0, -10], idFactory(s))).toBe(true);
+    const left = s.entities.filter((e) => e.t === 'arc');
+    expect(left).toHaveLength(1);
+    expect(arcAngles(new SketchIndex(s.entities), left[0] as Extract<SkEntity, { t: 'arc' }>).sweep).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('previews exactly the piece a trim removes', () => {
+    const ents = (): SkEntity[] => [
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 3, y: -6 }, { id: 'd', t: 'point', x: 3, y: 6 }, { id: 'v1', t: 'line', a: 'c', b: 'd' },
+      { id: 'e', t: 'point', x: 7, y: -6 }, { id: 'f', t: 'point', x: 7, y: 6 }, { id: 'v2', t: 'line', a: 'e', b: 'f' },
+      { id: 'o', t: 'point', x: 20, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 4 },
+      { id: 'g', t: 'point', x: 22, y: -6 }, { id: 'i', t: 'point', x: 22, y: 6 }, { id: 'v3', t: 'line', a: 'g', b: 'i' },
+      { id: 'j', t: 'point', x: 18, y: -6 }, { id: 'k', t: 'point', x: 18, y: 6 }, { id: 'v4', t: 'line', a: 'j', b: 'k' },
+      { id: 'lone', t: 'point', x: 40, y: 0 }, { id: 'p2', t: 'point', x: 50, y: 0 }, { id: 'away', t: 'line', a: 'lone', b: 'p2' },
+    ];
+    const s = sk(ents());
+    const close = (got: [number, number][] | null, want: [number, number][]) => {
+      expect(got).not.toBeNull();
+      expect(got!).toHaveLength(want.length);
+      got!.forEach((p, i) => { expect(p[0]).toBeCloseTo(want[i][0], 9); expect(p[1]).toBeCloseTo(want[i][1], 9); });
+    };
+    // Between the two crossing lines, and from a crossing to the end.
+    close(trimPreview(s, 'h', [5, 0]), [[3, 0], [7, 0]]);
+    close(trimPreview(s, 'h', [9.5, 0]), [[7, 0], [10, 0]]);
+    // A curve with nothing crossing it goes whole; a click on a cut trims nothing.
+    close(trimPreview(s, 'away', [45, 0]), [[40, 0], [50, 0]]);
+    expect(trimPreview(s, 'h', [3, 0])).toBeNull();
+    // A circle loses the arc between the cuts either side of the click.
+    const arc = trimPreview(s, 'circ', [24, 0])!;
+    for (const p of arc) { expect(Math.hypot(p[0] - 20, p[1])).toBeCloseTo(4, 9); expect(p[0]).toBeGreaterThan(22 - 1e-9); }
+    expect(Math.max(...arc.map((p) => p[0]))).toBeCloseTo(24, 1);
+    // And trimming there leaves the rest: the arc runs from where the piece ended to where it began.
+    expect(trimAt(s, 'circ', [24, 0], idFactory(s))).toBe(true);
+    const ix = new SketchIndex(s.entities);
+    const left = ix.get('circ') as Extract<SkEntity, { t: 'arc' }>;
+    expect(ix.pt(left.a)[0]).toBeCloseTo(arc[arc.length - 1][0], 9);
+    expect(ix.pt(left.a)[1]).toBeCloseTo(arc[arc.length - 1][1], 9);
+    expect(ix.pt(left.b)[0]).toBeCloseTo(arc[0][0], 9);
+    expect(ix.pt(left.b)[1]).toBeCloseTo(arc[0][1], 9);
+    // An arc previews only its part between the cuts.
+    const part = trimPreview(s, 'circ', [16, 0])!;
+    for (const p of part) { expect(Math.hypot(p[0] - 20, p[1])).toBeCloseTo(4, 9); expect(p[0]).toBeLessThan(18 + 1e-9); }
+    expect(Math.min(...part.map((p) => p[0]))).toBeCloseTo(16, 1);
   });
 
   it.each([10, 1e6, 1e9])('trims one unit from either end of a line of length %s', (length) => {
@@ -616,6 +718,9 @@ describe('editing tools', () => {
       { id: 'c', t: 'point', x: 9, y: -5 }, { id: 'd', t: 'point', x: 9, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
     ]);
     s.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'o', type: 'coincident', refs: ['a', 'O'] });
+    // The preview is the segment the click adds; nothing lies beyond the other end.
+    expect(extendPreview(s, 'h', [3.9, 0])).toEqual([[4, 0], [9, 0]]);
+    expect(extendPreview(s, 'h', [0.1, 0])).toBeNull();
     expect(extendAt(s, 'h', [3.9, 0], idFactory(s))).toBe(true);
     // Moving the boundary line carries the extended end with it.
     const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['c', 'd'], targets: [[12, -5], [12, 5]] } });
@@ -696,7 +801,8 @@ describe('editing tools', () => {
       { id: 'v', t: 'line', a: 'b', b: 'corner', construction: second },
       { id: 'c', t: 'point', x: 1, y: 0 }, { id: 'd', t: 'point', x: 0, y: 1 }, { id: 'chord', t: 'line', a: 'c', b: 'd' },
     ]);
-    expect(buildProfiles(s.entities).regions).toHaveLength(0);
+    // Solid corner lines close a triangle with the chord, whose ends lie on them.
+    expect(buildProfiles(s.entities).regions).toHaveLength(!first && !second ? 1 : 0);
     expect(filletCorner(s, 'corner', 1, idFactory(s))).toBeNull();
     // A construction fillet must not close an otherwise open solid profile.
     expect(buildProfiles(s.entities).regions).toHaveLength(first && second ? 0 : 1);
@@ -704,6 +810,20 @@ describe('editing tools', () => {
     expect(s.entities.find((e) => e.id === 'h')?.construction).toBe(first);
     expect(s.entities.find((e) => e.id === 'v')?.construction).toBe(second);
     expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+  });
+
+  it('previews the arc a corner fillet makes, and nothing where it cannot', () => {
+    const s = sk(rect(0, 0, 20, 10, 'f'));
+    const arc = filletPreview(s, 'fp2', 3)!;
+    // Corner (20, 10): the arc runs from one tangent point to the other around (17, 7).
+    for (const p of arc) expect(Math.hypot(p[0] - 17, p[1] - 7)).toBeCloseTo(3, 9);
+    const ends = [arc[0], arc[arc.length - 1]].map((p) => p.map((v) => Math.round(v * 1e6) / 1e6)).sort();
+    expect(ends).toEqual([[17, 10], [20, 7]]);
+    expect(filletPreview(s, 'fp2', 30)).toBeNull();
+    expect(filletCorner(s, 'fp2', 3, idFactory(s))).toBeNull();
+    const made = s.entities.find((e) => e.t === 'arc') as Extract<SkEntity, { t: 'arc' }>;
+    const ix = new SketchIndex(s.entities);
+    expect(arcAngles(ix, made).sweep).toBeCloseTo(Math.PI / 2, 9);
   });
 
   it('keeps a dimensioned rectangle in shape when a corner is filleted', () => {

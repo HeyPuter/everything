@@ -63,6 +63,8 @@ export class SketchSystem {
   private nVars = 0;
   /** Variables owned by each entity (for definition status). */
   private entityVars = new Map<Id, number[]>();
+  /** Driving dimensions whose value is not a finite number (an expression that does not evaluate). */
+  private unresolved = new Set<Id>();
 
   constructor(private entities: SkEntity[], private constraints: SkConstraint[], private opts: SolveOptions) {
     // Origin point is two fixed variables at zero.
@@ -422,7 +424,13 @@ export class SketchSystem {
   }
 
   private buildDimension(d: SkDimension) {
-    const val = () => this.opts.value(d);
+    // Evaluated once per solve: an expression's value cannot change while
+    // solving, and re-evaluating it (and the variables it uses) in every
+    // residual and Jacobian column made each drag frame pay for it thousands
+    // of times. A value that cannot be resolved holds nothing and is reported.
+    const value = this.opts.value(d);
+    if (!Number.isFinite(value)) { this.unresolved.add(d.id); return; }
+    const val = () => value;
     const id = d.id;
     const refs = d.refs;
     const kinds = refs.map((r) => this.kind(r));
@@ -573,7 +581,26 @@ export class SketchSystem {
     if (norm < TOL) return true;
     if (n === 0) return false;
     let lambda = 1e-10;
-    const A = new Float64Array(m * m);
+    // J J^T is stored by rows, each from the first row sharing a variable with
+    // it to the diagonal (its envelope, the only part the factorisation
+    // touches). A full m x m array cost hundreds of megabytes for a large
+    // connected sketch, allocated and cleared on every drag frame.
+    const first = new Int32Array(m);
+    const minRow = new Int32Array(n).fill(-1);
+    for (let i = 0; i < m; i++) {
+      let f = i;
+      for (const v of eqs[i].vars) {
+        const k = this.fixed[v] ? undefined : local.get(v);
+        if (k === undefined) continue;
+        if (minRow[k] < 0) minRow[k] = i;
+        if (minRow[k] < f) f = minRow[k];
+      }
+      first[i] = f;
+    }
+    const off = new Int32Array(m + 1);
+    for (let i = 0; i < m; i++) off[i + 1] = off[i] + i - first[i] + 1;
+    const at = (i: number, j: number) => off[i] + j - first[i];
+    const A = new Float64Array(off[m]);
     const y = new Float64Array(m);
     const dx = new Float64Array(n);
     const saved = new Float64Array(n);
@@ -588,18 +615,17 @@ export class SketchSystem {
           const ra = list[a];
           for (let b = a; b < list.length; b++) {
             const rb = list[b];
-            const p = ra.v * rb.v;
-            A[ra.row * m + rb.row] += p;
-            if (ra.row !== rb.row) A[rb.row * m + ra.row] += p;
+            // Rows are listed in order, so rb.row >= ra.row: the lower triangle.
+            A[at(rb.row, ra.row)] += ra.v * rb.v;
           }
         }
       }
       let trace = 0;
-      for (let i = 0; i < m; i++) trace += A[i * m + i];
+      for (let i = 0; i < m; i++) trace += A[at(i, i)];
       const mu = lambda * Math.max(trace / m, 1e-12);
-      for (let i = 0; i < m; i++) A[i * m + i] += mu;
+      for (let i = 0; i < m; i++) A[at(i, i)] += mu;
       y.set(r);
-      if (!cholSolve(A, y, m)) { lambda *= 100; if (lambda > 1e6) return false; continue; }
+      if (!cholSolve(A, off, first, y, m)) { lambda *= 100; if (lambda > 1e6) return false; continue; }
       dx.fill(0);
       for (let i = 0; i < m; i++) {
         const yi = y[i];
@@ -635,7 +661,8 @@ export class SketchSystem {
   }
 
   /** Splits equations into clusters connected through free variables. */
-  private clusters(): { eqs: Eq[]; vars: number[] }[] {
+  /** `eqs` in solving order; `added` in the order the equations were built (for blame). */
+  private clusters(): { eqs: Eq[]; vars: number[]; added: Eq[] }[] {
     const parent = new Int32Array(this.nVars).map((_, i) => i);
     const find = (a: number): number => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
     for (const eq of this.eqs) {
@@ -656,8 +683,17 @@ export class SketchSystem {
       g.eqs.push(eq);
       for (const v of free) g.vars.add(v);
     }
-    const out = [...groups.values()].map((g) => ({ eqs: g.eqs, vars: [...g.vars] }));
-    if (orphan.length) out.push({ eqs: orphan, vars: [] });
+    // Equations in the order of the geometry they act on: neighbouring rows
+    // of J J^T then overlap, which keeps its envelope (all the Cholesky
+    // factorisation touches) narrow. In the order the constraints were added
+    // it could span the whole cluster: 2000 chained lines took over a second
+    // per drag frame.
+    const first = (eq: Eq) => { let m = Infinity; for (const v of eq.vars) if (!this.fixed[v] && v < m) m = v; return m; };
+    const out = [...groups.values()].map((g) => {
+      const keyed = g.eqs.map((eq) => ({ eq, k: first(eq) })).sort((a, b) => a.k - b.k);
+      return { eqs: keyed.map((x) => x.eq), vars: [...g.vars], added: g.eqs };
+    });
+    if (orphan.length) out.push({ eqs: orphan, vars: [], added: orphan });
     return out;
   }
 
@@ -705,7 +741,12 @@ export class SketchSystem {
         }
       }
     } else {
-      converged = this.solveAll(maxIter);
+      // A large angle change solved in one go swings the line along its
+      // tangent and lands it far longer than it was (90 degrees more made a
+      // free line half as long again, 150 degrees three times as long). Turning
+      // there in steps keeps its length close to what it was.
+      converged = this.largeAngleChange() ? this.solveByContinuation(maxIter, true) : false;
+      if (!converged) { this.x.set(initial); converged = this.solveAll(maxIter); }
       // A big change (a dimension well below its old value) can jump to a
       // solution where a fillet or tangent arc folds back over its line. Walk
       // there in small steps from the old shape instead; if the shape still
@@ -740,6 +781,7 @@ export class SketchSystem {
     const conflicting = new Set<Id>();
     for (let i = 0; i < this.eqs.length; i++) if (Math.abs(r[i]) > 1e-6 && this.eqs[i].cid) conflicting.add(this.eqs[i].cid!);
     for (const id of folded) conflicting.add(id);
+    for (const id of this.unresolved) conflicting.add(id);
 
     const res: SolveResult = {
       converged,
@@ -755,12 +797,20 @@ export class SketchSystem {
     return res;
   }
 
+  /** Whether an angle dimension is far (over 10 degrees) from its value. */
+  private largeAngleChange(): boolean {
+    const angles = new Set<Id>();
+    for (const c of this.constraints) if (isDimension(c) && c.type === 'angle' && !c.driven) angles.add(c.id);
+    if (!angles.size) return false;
+    return this.eqs.some((e) => e.cid !== null && angles.has(e.cid) && Math.abs(e.f(this.x)) > (10 * Math.PI) / 180);
+  }
+
   /**
    * Solves from the current values towards the real system through blended
    * systems f(x) - (1 - t) f(x0) for t from 0 to 1 (each solved from the last),
    * which follows the solution branch of the starting shape.
    */
-  private solveByContinuation(maxIter: number): boolean {
+  private solveByContinuation(maxIter: number, stopOnFailure = false): boolean {
     const eqs = this.eqs;
     const r0 = new Float64Array(eqs.length);
     this.residuals(eqs, r0);
@@ -769,7 +819,10 @@ export class SketchSystem {
       for (let k = 1; k < steps; k++) {
         const w = 1 - k / steps;
         this.eqs = eqs.map((e, i) => (r0[i] ? { ...e, f: (x: Float64Array) => e.f(x) - w * r0[i] } : e));
-        this.solveAll(maxIter);
+        // A step that cannot be met (conflicting constraints) will not lead
+        // anywhere better: let the caller solve directly instead of paying
+        // for every remaining step.
+        if (!this.solveAll(maxIter) && stopOnFailure) return false;
       }
     } finally {
       this.eqs = eqs;
@@ -839,60 +892,114 @@ export class SketchSystem {
 
   /** Rank analysis: redundant constraints, free variables and entity status. */
   private analyze(res: SolveResult) {
-    const freeVars: number[] = [];
-    for (let v = 0; v < this.nVars; v++) if (!this.fixed[v]) freeVars.push(v);
-    const local = new Map<number, number>();
-    freeVars.forEach((v, i) => local.set(v, i));
-    const n = freeVars.length;
-    const { cols, vals } = this.jacobian(this.eqs, local);
-    // Incremental row reduction: a row that reduces to zero is redundant and
-    // is blamed on the later constraint.
-    const basis: { row: Float64Array; pivot: number }[] = [];
-    const undetermined = new Uint8Array(n);
-    for (let i = 0; i < this.eqs.length; i++) {
-      const row = new Float64Array(n);
-      for (let k = 0; k < cols[i].length; k++) row[cols[i][k]] += vals[i][k];
-      let scale = 0;
-      for (let k = 0; k < n; k++) scale = Math.max(scale, Math.abs(row[k]));
-      if (scale < 1e-12) {
-        if (this.eqs[i].cid) res.badConstraints.add(this.eqs[i].cid!);
-        continue;
-      }
-      for (const b of basis) {
-        const f = row[b.pivot];
-        if (f !== 0) {
-          const br = b.row;
-          for (let k = 0; k < n; k++) row[k] -= f * br[k];
-        }
-      }
-      let piv = -1, best = 0;
-      for (let k = 0; k < n; k++) { const a = Math.abs(row[k]); if (a > best) { best = a; piv = k; } }
-      if (best < 1e-8 * scale) {
-        if (this.eqs[i].cid) res.badConstraints.add(this.eqs[i].cid!);
-        continue;
-      }
-      const inv = 1 / row[piv];
-      for (let k = 0; k < n; k++) row[k] *= inv;
-      // Keep the basis fully reduced so the pivot column is zero elsewhere.
-      for (const b of basis) {
-        const f = b.row[piv];
-        if (f !== 0) for (let k = 0; k < n; k++) b.row[k] -= f * row[k];
-      }
-      basis.push({ row, pivot: piv });
-    }
-    const isPivot = new Uint8Array(n);
-    for (const b of basis) isPivot[b.pivot] = 1;
-    for (let k = 0; k < n; k++) if (!isPivot[k]) undetermined[k] = 1;
-    for (const b of basis) {
-      for (let k = 0; k < n; k++) {
-        if (!isPivot[k] && Math.abs(b.row[k]) > 1e-7) { undetermined[b.pivot] = 1; break; }
-      }
-    }
-    res.dof = n - basis.length;
+    // Clusters share no free variable, so each is analysed on its own columns
+    // (the same reduction as over the whole sketch, block by block). Rows as
+    // wide as every free variable of the sketch made each edit of a sketch
+    // with a thousand separate shapes take most of a second.
+    const undetermined = new Uint8Array(this.nVars);
+    let rank = 0, n = 0;
+    for (let v = 0; v < this.nVars; v++) if (!this.fixed[v]) { n++; undetermined[v] = 1; }
+    for (const c of this.clusters()) rank += this.analyzeCluster(c.added, c.vars, res, undetermined);
+    res.dof = n - rank;
     for (const [id, vs] of this.entityVars) {
-      if (vs.some((v) => !this.fixed[v] && undetermined[local.get(v)!])) res.freeEntities.add(id);
+      if (vs.some((v) => !this.fixed[v] && undetermined[v])) res.freeEntities.add(id);
     }
     res.status = res.badConstraints.size ? 'over' : res.dof === 0 ? 'full' : 'under';
+  }
+
+  /**
+   * Row-reduces one cluster's Jacobian in the order its equations were built.
+   * A row that reduces to zero is redundant and is blamed on the later
+   * constraint. Clears `undetermined` for the variables the cluster fixes and
+   * returns its rank.
+   *
+   * The basis is kept fully reduced (a pivot column is zero in every other
+   * basis row) and sparse. Pivots go to a column no basis row uses yet when
+   * one is large enough, so reducing the basis adds no entries: always taking
+   * the largest entry filled every row of a long dimensioned chain, which took
+   * seconds and hundreds of megabytes per edit at a thousand lines.
+   */
+  private analyzeCluster(eqs: Eq[], vars: number[], res: SolveResult, undetermined: Uint8Array): number {
+    const local = new Map<number, number>();
+    vars.forEach((v, i) => local.set(v, i));
+    const n = vars.length;
+    const { cols, vals } = this.jacobian(eqs, local);
+    const bCols: number[][] = [], bVals: number[][] = [], pivots: number[] = [];
+    const pivotRow = new Int32Array(n).fill(-1);
+    /** Basis rows with a non-zero in each (non-pivot) column. */
+    const holders: Set<number>[] = Array.from({ length: n }, () => new Set<number>());
+    const row = new Float64Array(n);
+    const mark = new Uint8Array(n);
+    const touched: number[] = [];
+    const touch = (c: number) => { if (!mark[c]) { mark[c] = 1; touched.push(c); } };
+    const clear = () => { for (const c of touched) { row[c] = 0; mark[c] = 0; } touched.length = 0; };
+    for (let i = 0; i < eqs.length; i++) {
+      for (let k = 0; k < cols[i].length; k++) { touch(cols[i][k]); row[cols[i][k]] += vals[i][k]; }
+      let scale = 0;
+      for (const c of touched) scale = Math.max(scale, Math.abs(row[c]));
+      if (scale < 1e-12) {
+        if (eqs[i].cid) res.badConstraints.add(eqs[i].cid!);
+        clear();
+        continue;
+      }
+      // Subtracting a basis row adds entries only in non-pivot columns, so
+      // the pivot columns the row starts with are all there is to clear.
+      for (const c of touched.slice()) {
+        const bi = pivotRow[c], f = row[c];
+        if (bi < 0 || f === 0) continue;
+        const bc = bCols[bi], bv = bVals[bi];
+        for (let k = 0; k < bc.length; k++) { touch(bc[k]); row[bc[k]] -= f * bv[k]; }
+        row[c] = 0;
+      }
+      let best = 0;
+      for (const c of touched) best = Math.max(best, Math.abs(row[c]));
+      if (best < 1e-8 * scale) {
+        if (eqs[i].cid) res.badConstraints.add(eqs[i].cid!);
+        clear();
+        continue;
+      }
+      let piv = -1, pivUsers = Infinity, pivMag = 0;
+      for (const c of touched) {
+        const a = Math.abs(row[c]);
+        if (a < 0.1 * best) continue;
+        const users = holders[c].size;
+        if (users < pivUsers || (users === pivUsers && a > pivMag)) { piv = c; pivUsers = users; pivMag = a; }
+      }
+      const inv = 1 / row[piv];
+      const nc: number[] = [], nv: number[] = [];
+      for (const c of touched) {
+        if (c === piv) { nc.push(c); nv.push(1); } else if (row[c] !== 0) { nc.push(c); nv.push(row[c] * inv); }
+      }
+      clear();
+      const idx = pivots.length;
+      // Keep the basis fully reduced: clear the new pivot column elsewhere.
+      for (const bi of [...holders[piv]]) {
+        const bc = bCols[bi], bv = bVals[bi];
+        const f = bv[bc.indexOf(piv)];
+        for (let k = 0; k < bc.length; k++) { touch(bc[k]); row[bc[k]] = bv[k]; }
+        for (let k = 0; k < nc.length; k++) { touch(nc[k]); row[nc[k]] -= f * nv[k]; }
+        row[piv] = 0;
+        const oc: number[] = [], ov: number[] = [];
+        for (const c of touched) if (row[c] !== 0) { oc.push(c); ov.push(row[c]); }
+        for (const c of bc) if (c !== pivots[bi]) holders[c].delete(bi);
+        for (const c of oc) if (c !== pivots[bi]) holders[c].add(bi);
+        bCols[bi] = oc;
+        bVals[bi] = ov;
+        clear();
+      }
+      bCols.push(nc);
+      bVals.push(nv);
+      pivots.push(piv);
+      pivotRow[piv] = idx;
+      for (const c of nc) if (c !== piv) holders[c].add(idx);
+    }
+    for (let bi = 0; bi < pivots.length; bi++) {
+      const bc = bCols[bi], bv = bVals[bi];
+      let free = false;
+      for (let k = 0; k < bc.length; k++) if (bc[k] !== pivots[bi] && Math.abs(bv[k]) > 1e-7) { free = true; break; }
+      if (!free) undetermined[vars[pivots[bi]]] = 0;
+    }
+    return pivots.length;
   }
 
   /** Writes solved coordinates back into the entity objects. */
@@ -979,42 +1086,37 @@ function bezD2(b: Vec2[], t: number): Vec2 {
 }
 
 /**
- * In-place Cholesky solve of a symmetric positive definite system.
- *
- * Entries of a row left of its first non-zero stay zero in the factor (no
- * fill-in outside the envelope), so skipping them gives exactly the dense
- * result while costing far less for the near-banded systems of chained
- * sketch geometry.
+ * In-place Cholesky solve of a symmetric positive definite system stored by
+ * rows of its lower triangle, row i holding columns first[i]..i from off[i].
+ * Nothing left of a row's first entry fills in, so the factor fits in the
+ * same storage, at a fraction of the dense cost for the near-banded systems
+ * of chained sketch geometry.
  */
-function cholSolve(A: Float64Array, b: Float64Array, n: number): boolean {
-  const first = new Int32Array(n);
+function cholSolve(A: Float64Array, off: Int32Array, first: Int32Array, b: Float64Array, n: number): boolean {
   for (let i = 0; i < n; i++) {
-    let k = 0;
-    while (k < i && A[i * n + k] === 0) k++;
-    first[i] = k;
-  }
-  for (let j = 0; j < n; j++) {
-    let s = A[j * n + j];
-    for (let k = first[j]; k < j; k++) s -= A[j * n + k] * A[j * n + k];
-    if (s <= 1e-300) return false;
-    const d = Math.sqrt(s);
-    A[j * n + j] = d;
-    for (let i = j + 1; i < n; i++) {
-      if (first[i] > j) continue;
-      let t = A[i * n + j];
-      for (let k = Math.max(first[i], first[j]); k < j; k++) t -= A[i * n + k] * A[j * n + k];
-      A[i * n + j] = t / d;
+    const fi = first[i], oi = off[i] - fi;
+    for (let j = fi; j <= i; j++) {
+      const fj = first[j], oj = off[j] - fj;
+      let s = A[oi + j];
+      for (let k = Math.max(fi, fj); k < j; k++) s -= A[oi + k] * A[oj + k];
+      if (j < i) A[oi + j] = s / A[oj + j];
+      else {
+        if (s <= 1e-300) return false;
+        A[oi + i] = Math.sqrt(s);
+      }
     }
   }
   for (let i = 0; i < n; i++) {
+    const oi = off[i] - first[i];
     let t = b[i];
-    for (let k = first[i]; k < i; k++) t -= A[i * n + k] * b[k];
-    b[i] = t / A[i * n + i];
+    for (let k = first[i]; k < i; k++) t -= A[oi + k] * b[k];
+    b[i] = t / A[oi + i];
   }
   for (let i = n - 1; i >= 0; i--) {
-    let t = b[i];
-    for (let k = i + 1; k < n; k++) if (first[k] <= i) t -= A[k * n + i] * b[k];
-    b[i] = t / A[i * n + i];
+    const oi = off[i] - first[i];
+    const xi = b[i] / A[oi + i];
+    b[i] = xi;
+    for (let k = first[i]; k < i; k++) b[k] -= A[oi + k] * xi;
   }
   return true;
 }

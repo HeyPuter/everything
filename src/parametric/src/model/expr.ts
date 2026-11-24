@@ -229,10 +229,12 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
 /** Names referenced by an expression (for dependency ordering). */
 export function referencedNames(src: string): string[] {
   try {
-    return tokenize(src)
-      .filter((t): t is { k: 'name'; v: string } => t.k === 'name')
-      .map((t) => t.v)
-      .filter((n) => !Object.hasOwn(CONSTS, n) && !Object.hasOwn(FUNCS, n.toLowerCase()) && !Object.hasOwn(LENGTH_SUFFIX, n) && !Object.hasOwn(ANGLE_SUFFIX, n));
+    const toks = tokenize(src);
+    // A function name is one only when called: a variable may be named "Max" (=Max*2).
+    const call = (i: number) => { const t = toks[i + 1]; return t?.k === 'op' && t.v === '('; };
+    return toks
+      .flatMap((t, i) => (t.k === 'name' && !(call(i) && Object.hasOwn(FUNCS, t.v.toLowerCase())) ? [t.v] : []))
+      .filter((n) => !Object.hasOwn(CONSTS, n) && !Object.hasOwn(LENGTH_SUFFIX, n) && !Object.hasOwn(ANGLE_SUFFIX, n));
   } catch {
     return [];
   }
@@ -479,13 +481,16 @@ export function evaluateVariables(vars: { name: string; expr: string }[]): {
   const errors = new Map<string, string>();
   const byName = new Map(vars.map((v) => [v.name, v]));
   const state = new Map<string, 'visiting' | 'done'>();
+  const path: string[] = [];
   const visit = (name: string): number | undefined => {
     if (values.has(name)) return values.get(name);
     const v = byName.get(name);
     if (!v) return undefined;
-    if (state.get(name) === 'visiting') { errors.set(name, 'Circular reference'); return undefined; }
+    // Every variable of the loop is circular (not one circular and the rest "has an error").
+    if (state.get(name) === 'visiting') { for (const n of path.slice(path.indexOf(name))) errors.set(n, 'Circular reference'); return undefined; }
     if (state.get(name) === 'done') return undefined;
     state.set(name, 'visiting');
+    path.push(name);
     try {
       const r = evaluate(v.expr.replace(/^=/, ''), {
         lookup: (n) => {
@@ -500,6 +505,7 @@ export function evaluateVariables(vars: { name: string; expr: string }[]): {
       if (!errors.has(name)) errors.set(name, (e as Error).message);
       return undefined;
     } finally {
+      path.pop();
       state.set(name, 'done');
     }
   };

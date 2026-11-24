@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DocStore, changeFeatureUnits, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
-import { defaultName, dependencies, newExtrude } from '../src/model/features';
-import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
+import { defaultName, dependencies, newChamfer, newExtrude, newHole } from '../src/model/features';
+import type { ChamferFeature, ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
 import { EXAMPLES } from '../src/app/examples';
 import { rect, sketch } from './helpers';
 
@@ -131,6 +131,31 @@ describe('document store', () => {
     doc.features = [sketch('s1', rect(0, 0, 1, 1)), { ...newExtrude('e1', 'E', 's1', false, 10), depth: '=Missing+1' }];
     const r = new DocStore(doc).resolve();
     expect(r.errors.get('e1')).toMatch(/Unknown name/);
+  });
+
+  it('reports a parameter error only for values the feature uses in its mode', () => {
+    const errorOf = (f: Feature) => {
+      const doc = newDocument();
+      doc.features = [sketch('s1', rect(0, 0, 1, 1)), f];
+      return new DocStore(doc).resolve().errors.get(f.id);
+    };
+    const bad = '=Missing+1';
+    const ext = (extra: Partial<ExtrudeFeature>): ExtrudeFeature => ({ ...newExtrude('e1', 'E', 's1', false, 10), ...extra });
+    // Extrude: depth under Through All, direction 2 under Mid Plane or Through All, draft turned off.
+    expect(errorOf(ext({ end: 'throughAll', depth: bad }))).toBeUndefined();
+    expect(errorOf(ext({ end: 'midPlane', dir2: { end: 'blind', depth: bad } }))).toBeUndefined();
+    expect(errorOf(ext({ dir2: { end: 'throughAll', depth: bad } }))).toBeUndefined();
+    expect(errorOf(ext({ draft: 'Missing' }))).toBeUndefined();
+    expect(errorOf(ext({ dir2: { end: 'blind', depth: bad } }))).toMatch(/Depth \(Direction 2\): Unknown name/);
+    expect(errorOf(ext({ draft: bad }))).toMatch(/Draft angle: Unknown name/);
+    // Chamfer: Distance 2 and Angle count only in the modes that use them.
+    const ch = (mode: ChamferFeature['mode']): ChamferFeature => ({ ...newChamfer('c1', 'C', 1), mode, distance2: bad, angle: bad });
+    expect(errorOf(ch('distance'))).toBeUndefined();
+    expect(errorOf(ch('twoDistance'))).toMatch(/Distance 2: Unknown name/);
+    expect(errorOf(ch('distanceAngle'))).toMatch(/Angle: Unknown name/);
+    // Hole: counterbore values of a countersunk hole.
+    expect(errorOf({ ...newHole('h1', 'H', 's1', 5), kind: 'countersink', cbDepth: bad })).toBeUndefined();
+    expect(errorOf({ ...newHole('h1', 'H', 's1', 5), kind: 'counterbore', cbDepth: bad })).toMatch(/Counterbore depth/);
   });
 
   it('round-trips through serialization and validates input', () => {

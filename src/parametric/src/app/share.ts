@@ -2,7 +2,7 @@
 // person opens it from "Shared with me" in the Open dialog; with edit access
 // their saves update the same file.
 
-import { EXT, type FileEntry } from '../platform/files';
+import { EXT, type FileEntry, isPartFile } from '../platform/files';
 import { cloudAvailable, puter, signIn, storageError, toMs } from '../platform/puter';
 import { h, clear } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -237,7 +237,7 @@ export async function sharedWithMe(): Promise<(FileEntry & { owner: string; mode
     for (let page = 0; page < 50; page++) {
       const res: { items: SharedItem[]; cursor?: string | null } = await fs.listShared({ cursor, limit: 100 });
       for (const i of res.items ?? []) {
-        if (i.is_dir || i.isDir || !i.name.endsWith(EXT)) continue;
+        if (i.is_dir || i.isDir || !isPartFile(i.name)) continue;
         out.push({
           name: i.name.slice(0, -EXT.length),
           location: { type: 'cloud', path: i.path },

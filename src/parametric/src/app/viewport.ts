@@ -99,6 +99,8 @@ export class Viewport {
   /** Binds input once the renderer exists. */
   init() {
     this.bind();
+    // Previous View steps back through views of this part, not of the one it replaced.
+    this.app.store.on((reason) => { if (reason === 'load') this.history = []; });
   }
 
   get renderer() {
@@ -149,9 +151,32 @@ export class Viewport {
       this.app.onViewportDoubleClick(ev);
     });
     c.addEventListener('keydown', (e) => this.onKey(e));
+    // A lost graphics context that the browser does not give back within a few seconds leaves
+    // a blank view: say what happened and how to get the view back.
+    let lostTimer = 0;
+    c.addEventListener('webglcontextlost', () => {
+      clearTimeout(lostTimer);
+      lostTimer = window.setTimeout(() => this.showContextLost(this.renderer.lost), 3000);
+    });
+    c.addEventListener('webglcontextrestored', () => { clearTimeout(lostTimer); this.showContextLost(false); });
     new ResizeObserver(() => this.resize()).observe(this.root);
     this.watchPixelRatio();
     this.resize();
+  }
+
+  private lostNotice: HTMLElement | null = null;
+
+  private showContextLost(on: boolean) {
+    this.lostNotice?.remove();
+    this.lostNotice = null;
+    if (!on) return;
+    const reload = h('button', { class: 'btn small', type: 'button' }, 'Reload');
+    reload.addEventListener('click', () => location.reload());
+    this.lostNotice = h('div', { class: 'viewport-empty' },
+      h('div', { class: 'pm-msg error', role: 'alert', style: { pointerEvents: 'auto', maxWidth: '360px', display: 'grid', gap: '8px', justifyItems: 'start' } },
+        h('div', {}, 'The 3D view stopped working because the graphics processor was reset. Your part is not affected: save your changes, then reload to get the view back.'),
+        reload));
+    this.root.append(this.lostNotice);
   }
 
   /**
@@ -195,6 +220,8 @@ export class Viewport {
         clearTimeout(this.longPress);
         this.gesture = { kind: 'touch' };
         this.touchState = this.touchMetrics();
+        const r = this.canvas.getBoundingClientRect();
+        this.focusZoomAt(this.touchState.cx - r.left, this.touchState.cy - r.top);
         return;
       }
       if (this.touches.size > 2) return;
@@ -204,7 +231,10 @@ export class Viewport {
     if (e.button === 1 || e.button === 2) {
       e.preventDefault();
       if (e.button === 1 && ev.ctrl) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
-      else if (e.button === 1 && ev.shift) this.gesture = { kind: 'zoom', x: ev.x, y: ev.y, ox: ev.x, oy: ev.y };
+      else if (e.button === 1 && ev.shift) {
+        this.gesture = { kind: 'zoom', x: ev.x, y: ev.y, ox: ev.x, oy: ev.y };
+        this.focusZoomAt(ev.x, ev.y);
+      }
       else if (e.button === 2 && (ev.ctrl || ev.shift)) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
       else this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button: e.button, id: e.pointerId, e: ev };
       return;
@@ -364,8 +394,23 @@ export class Viewport {
       return;
     }
     if (this.invertZoom) dy = -dy;
+    // Once per burst of wheel events, or when the pointer moved on to something else.
+    const w = this.lastWheel;
+    if (e.timeStamp - w.t > 250 || Math.hypot(ev.x - w.x, ev.y - w.y) > DRAG_PX) {
+      this.focusZoomAt(ev.x, ev.y);
+      this.lastWheel = { t: e.timeStamp, x: ev.x, y: ev.y };
+    } else w.t = e.timeStamp;
     const k = e.ctrlKey ? 0.01 : 0.0018;
     this.camera.zoomAt(Math.exp(Math.max(-0.5, Math.min(0.5, dy * k))), ev.x, ev.y);
+  }
+
+  private lastWheel = { t: -Infinity, x: 0, y: 0 };
+
+  /** In perspective, zooms at (x, y) close in on the surface there (see Camera.focusDepth). */
+  private focusZoomAt(x: number, y: number) {
+    if (this.camera.ortho || this.camera.animating) return;
+    const p = this.renderer.pick(x, y, { face: true }, 0)?.point;
+    if (p) this.camera.focusDepth(p);
   }
 
   private onKey(e: KeyboardEvent) {
@@ -385,8 +430,8 @@ export class Viewport {
     else if (e.key === 'ArrowRight') this.rotateView('up', step);
     else if (e.key === 'ArrowUp') this.rotateView('right', -step);
     else if (e.key === 'ArrowDown') this.rotateView('right', step);
-    else if (e.key === '+' || e.key === '=') cam.zoomAt(0.8, cam.width / 2, cam.height / 2);
-    else if (e.key === '-' || e.key === '_') cam.zoomAt(1.25, cam.width / 2, cam.height / 2);
+    else if (e.key === '+' || e.key === '=') this.zoomBy(0.8);
+    else if (e.key === '-' || e.key === '_') this.zoomBy(1.25);
     else handled = false;
     if (handled) e.preventDefault();
   }
@@ -707,11 +752,13 @@ export class Viewport {
 
   previousView() {
     const s = this.history.pop();
-    if (s) this.camera.animateTo(s);
+    // Orientation, position and zoom go back; the projection is a display setting and stays.
+    if (s) this.camera.animateTo({ ...s, ortho: this.camera.ortho });
   }
 
-  setView(name: ViewName, animate = true) {
-    this.pushHistory();
+  /** `remember` false: the view the camera leaves is not one to go back to (a part just opened). */
+  setView(name: ViewName, animate = true, remember = true) {
+    if (remember) this.pushHistory();
     const st = this.camera.fitState(this.modelCenter(), this.modelRadius(), VIEWS[name]);
     if (animate) this.camera.animateTo(st);
     else this.camera.setState(st);
@@ -727,8 +774,8 @@ export class Viewport {
     return Math.max(r, b || drawn ? 1e-3 : 50);
   }
 
-  zoomToFit(animate = true) {
-    this.pushHistory();
+  zoomToFit(animate = true, remember = true) {
+    if (remember) this.pushHistory();
     let center = this.modelCenter();
     let radius = this.modelRadius();
     const sk = this.app.sketchEditor?.bounds();
@@ -750,7 +797,9 @@ export class Viewport {
   }
 
   zoomBy(f: number) {
-    this.camera.zoomAt(f, this.camera.width / 2, this.camera.height / 2);
+    const cam = this.camera;
+    this.focusZoomAt(cam.width / 2, cam.height / 2);
+    cam.zoomAt(f, cam.width / 2, cam.height / 2);
   }
 
   // ---------- triad and label ----------

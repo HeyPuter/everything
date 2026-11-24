@@ -6,7 +6,7 @@ import type { Feature, Id } from '../model/types';
 import { consumedSketches, featureIcon } from '../model/features';
 import { BASE_PLANE_NAMES } from '../model/planes';
 import type { BasePlane } from '../model/types';
-import { h } from '../ui/dom';
+import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import type { App } from './app';
 import type { SelItem } from './selection';
@@ -34,14 +34,25 @@ export class FeatureTree {
   private renameEl: HTMLInputElement | null = null;
   private rendering = false;
   private draggingBar = false;
+  /** Said when the filter matches no feature or plane (only the part row is left). */
+  private noMatch = h('div', { class: 'pm-msg info', role: 'status', style: { margin: '0 8px 4px' }, hidden: true }, 'Nothing in the design tree matches the filter.');
 
   constructor(private app: App, flyout = false) {
     const filterInput = h('input', { type: 'search', placeholder: 'Filter', 'aria-label': 'Filter the design tree' }) as HTMLInputElement;
     filterInput.addEventListener('input', () => { this.filter = filterInput.value.trim().toLowerCase(); this.render(); });
+    // Down from the filter goes to the first row it matches (the part row stays first).
+    filterInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' || e.isComposing) return;
+      const rows = [...this.list.querySelectorAll<HTMLElement>('.ti')];
+      const target = (this.filter ? rows[1] : null) ?? rows[0];
+      if (!target) return;
+      e.preventDefault();
+      this.focus(target.dataset.key!);
+    });
     this.list = h('div', { class: 'tree', role: 'tree', 'aria-label': 'Design tree', 'aria-multiselectable': 'true' });
     this.list.addEventListener('keydown', (e) => this.onKey(e));
     if (flyout) this.list.setAttribute('aria-label', 'Design tree (flyout)');
-    this.el = flyout ? h('div', {}, this.list) : h('div', {}, h('div', { class: 'tree-filter' }, icon('search', 14), filterInput), this.list);
+    this.el = flyout ? h('div', {}, this.list) : h('div', {}, h('div', { class: 'tree-filter' }, icon('search', 14), filterInput), this.noMatch, this.list);
   }
 
   private rows(): Row[] {
@@ -114,14 +125,24 @@ export class FeatureTree {
       twisty.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(r.key); });
       el.append(twisty, icon(r.icon, 16));
       if (this.renaming && this.renaming === f?.id) el.append(this.renameInput(f));
-      else el.append(h('span', { class: 'label' }, r.label, r.muted ? h('span', { class: 'muted' }, r.muted) : null));
+      else {
+        const label = h('span', { class: 'label' }, r.label, r.muted ? h('span', { class: 'muted' }, r.muted) : null);
+        titleWhenClipped(label);
+        el.append(label);
+      }
+      // What grey text and badges show is told to screen readers too.
+      const states: string[] = [];
+      if (f?.suppressed || status?.suppressed) states.push('Suppressed');
+      if (f && index >= built) states.push('Rolled back');
       if (status && !status.ok) {
         const b = h('span', { class: 'badge', title: status.error ?? 'Error' }, icon('error', 14));
         el.append(b);
-        el.setAttribute('aria-description', `Error: ${status.error ?? ''}`);
+        states.push(`Error: ${status.error ?? ''}`);
       } else if (f && app.featureWarning(f.id)) {
         el.append(h('span', { class: 'badge warn', title: app.featureWarning(f.id)! }, icon('warning', 14)));
+        states.push(`Warning: ${app.featureWarning(f.id)}`);
       }
+      if (states.length) el.setAttribute('aria-description', states.join('. '));
       el.addEventListener('click', (e) => this.onClick(r, e));
       el.addEventListener('dblclick', () => this.onDouble(r));
       el.addEventListener('contextmenu', (e) => {
@@ -136,6 +157,7 @@ export class FeatureTree {
       this.list.append(el);
     }
     if (!rollbackPlaced) this.list.append(this.rollbackBar());
+    this.noMatch.hidden = !this.filter || rows.length > 1;
     if (hadFocus) {
       const target = this.renaming && this.renameEl?.isConnected ? this.renameEl
         : barFocused ? this.list.querySelector<HTMLElement>('.rollback-bar')
@@ -169,6 +191,9 @@ export class FeatureTree {
       // follows the pointer on the window rather than on the bar.
       const move = (ev: PointerEvent) => {
         if (ev.pointerId !== e.pointerId) return;
+        // Released where no pointerup arrives (outside the window, after the
+        // redrawn bar lost the capture): the drag ends instead of following the pointer.
+        if (e.pointerType === 'mouse' && !(ev.buttons & 1)) { this.app.store.endBatch(); return; }
         // Find the feature row under the pointer.
         const items = [...this.list.querySelectorAll<HTMLElement>('.ti[aria-level="2"]')].filter((x) => this.app.store.feature(x.dataset.key!));
         let idx = this.app.store.doc.features.length;
@@ -278,12 +303,21 @@ export class FeatureTree {
       case 'ArrowUp': e.preventDefault(); go(cur - 1); break;
       case 'Home': e.preventDefault(); go(0); break;
       case 'End': e.preventDefault(); go(items.length - 1); break;
-      case 'ArrowRight':
-        if (items[cur].getAttribute('aria-expanded') === 'false') { e.preventDefault(); this.toggle(key); this.focus(key); }
+      // As in any tree: Right opens a row, then moves to its first child; Left
+      // closes it, or moves from a child to its parent.
+      case 'ArrowRight': {
+        const expanded = items[cur].getAttribute('aria-expanded');
+        if (expanded === 'false') { e.preventDefault(); this.toggle(key); this.focus(key); }
+        else if (expanded === 'true') { e.preventDefault(); go(cur + 1); }
         break;
-      case 'ArrowLeft':
-        if (items[cur].getAttribute('aria-expanded') === 'true') { e.preventDefault(); this.toggle(key); this.focus(key); }
+      }
+      case 'ArrowLeft': {
+        if (items[cur].getAttribute('aria-expanded') === 'true') { e.preventDefault(); this.toggle(key); this.focus(key); break; }
+        const level = Number(items[cur].getAttribute('aria-level'));
+        const parent = items.slice(0, cur).findLastIndex((x) => x.classList.contains('ti') && Number(x.getAttribute('aria-level')) < level);
+        if (parent >= 0) { e.preventDefault(); go(parent); }
         break;
+      }
       // These re-render the rows, so the app-wide shortcut handler would see a
       // detached target and treat the key as a global shortcut (Space opening
       // the view menu, Enter closing the panel just opened).
@@ -291,6 +325,9 @@ export class FeatureTree {
         e.preventDefault();
         e.stopPropagation();
         if (this.app.store.feature(key)) this.app.editFeature(key);
+        // As a click on Material or a double click on the part does.
+        else if (key === 'material') this.app.commands.run('material');
+        else if (key === 'part') this.app.commands.run('properties');
         break;
       case ' ':
         e.preventDefault();
@@ -311,7 +348,18 @@ export class FeatureTree {
         break;
       case 'Delete':
       case 'Backspace':
-        if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); void this.app.deleteFeatures(this.targets(key)); }
+        if (this.app.store.feature(key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          // Focus moves on to the row after the deleted ones (else before), not back to the top.
+          const keys = items.map((x) => x.dataset.key);
+          const order = [...keys.slice(cur + 1), ...keys.slice(0, cur).reverse()];
+          void this.app.deleteFeatures(this.targets(key)).then(() => {
+            if (this.app.store.feature(key) || !this.list.contains(document.activeElement)) return;
+            const next = order.find((k) => k && this.list.querySelector(`[data-key="${CSS.escape(k)}"]`));
+            if (next) this.focus(next);
+          });
+        }
         break;
     }
   }

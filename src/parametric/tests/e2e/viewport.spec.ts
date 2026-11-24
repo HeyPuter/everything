@@ -376,6 +376,25 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('says how to get the view back when the WebGL context stays lost', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const ext = (window as unknown as Win).__parametric.renderer.gl.getExtension('WEBGL_lose_context')!;
+      (window as unknown as { __lose: WEBGL_lose_context }).__lose = ext;
+      ext.loseContext();
+    });
+    const alert = page.locator('.viewport').getByRole('alert');
+    // Not while the browser may still give the context back by itself.
+    await page.waitForTimeout(1500);
+    await expect(alert).toHaveCount(0);
+    await expect(alert).toContainText('graphics processor was reset', { timeout: 5000 });
+    await expect(alert.getByRole('button', { name: 'Reload' })).toBeVisible();
+    await page.evaluate(() => (window as unknown as { __lose: WEBGL_lose_context }).__lose.restoreContext());
+    await expect(alert).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('repeated arrow keys add up their rotations', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
@@ -508,6 +527,131 @@ test.describe('viewport', () => {
     expect(await normal()).toEqual([0, 0, 1]);
     await planes.getByRole('button', { name: 'Current' }).click();
     expect(await normal()).toEqual([0.707, 0.707, 0]);
+  });
+
+  for (const next of ['open', 'new'] as const) test(`Previous View does not go back to views of the part before (${next})`, async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.evaluate(() => { const v = (window as unknown as Win).__parametric.viewport; v.setView('front', false); v.setView('top', false); });
+    await page.evaluate(async (next) => {
+      const app = (window as unknown as Win).__parametric;
+      if (next === 'new') app.newDocument();
+      else app.loadDocument({ ...structuredClone(app.store.doc), name: 'Other' }, null);
+      await app.whenBuilt();
+    }, next);
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(next === 'open');
+    const state = () => page.evaluate(() => JSON.stringify((window as unknown as Win).__parametric.renderer.camera.goal()));
+    const before = await state();
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('previousView'));
+    expect(await state()).toBe(before);
+    await expect(page.locator('.view-label')).toHaveText('Trimetric');
+  });
+
+  test('Previous View keeps the perspective projection chosen since', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.setView('front', false));
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('perspective'));
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('previousView'));
+    await expect(page.locator('.view-label')).toHaveText('Trimetric');
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
+  });
+
+  for (const how of ['wheel', 'keys'] as const) test(`${how === 'wheel' ? 'wheel zoom' : 'zoom keys'} in perspective close in on the face there instead of passing through it`, async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // The front face of the base, well in front of the target at the middle of the part: under
+    // the pointer, or for the keys (which zoom at the middle of the view) panned to the middle.
+    const p: [number, number, number] = [55, 4, 30];
+    await expect.poll(() => page.evaluate(([p, how]) => {
+      const app = (window as unknown as Win).__parametric;
+      if (!app.bbox) return null;
+      app.viewport.setView('trimetric', false);
+      const cam = app.renderer.camera;
+      cam.ortho = false;
+      let [x, y] = app.viewport.project(p);
+      if (how === 'keys') { cam.pan(cam.width / 2 - x, cam.height / 2 - y); [x, y] = [cam.width / 2, cam.height / 2]; }
+      return app.renderer.pick(x, y, { face: true }, 0)?.point?.[2];
+    }, [p, how] as const)).toBeCloseTo(30, 1);
+    const at = await page.evaluate(([p, how]) => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      const r = app.viewport.canvas.getBoundingClientRect();
+      // The pointer is on a whole pixel of the page: zooms keep that point in place.
+      let [x, y] = app.viewport.project(p);
+      if (how === 'keys') [x, y] = [cam.width / 2, cam.height / 2];
+      else [x, y] = [Math.round(r.left + x) - r.left, Math.round(r.top + y) - r.top];
+      return { x, y, cx: r.left + x, cy: r.top + y, q: app.renderer.pick(x, y, { face: true }, 0)!.point! };
+    }, [p, how] as const);
+    if (how === 'wheel') {
+      await page.mouse.move(at.cx, at.cy);
+      for (let i = 0; i < 25; i++) await page.mouse.wheel(0, -100);
+    } else {
+      await page.locator('canvas.gl').focus();
+      for (let i = 0; i < 25; i++) await page.keyboard.press('+');
+    }
+    const after = await page.evaluate((q) => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera, e = cam.eye, b = cam.back;
+      const [x, y] = app.viewport.project(q);
+      const hit = app.renderer.pick(x, y, { face: true });
+      return { ahead: -((q[0] - e[0]) * b[0] + (q[1] - e[1]) * b[1] + (q[2] - e[2]) * b[2]), distance: cam.distance, x, y, z: hit?.point?.[2] ?? null };
+    }, at.q);
+    // Zoomed in a long way, with the face still in front of the eye and where it was on screen.
+    expect(after.distance).toBeLessThan(5);
+    expect(after.ahead).toBeGreaterThan(0);
+    expect(Math.hypot(after.x - at.x, after.y - at.y)).toBeLessThan(2);
+    expect(after.z).toBeCloseTo(30, 1);
+  });
+
+  test('wireframe picks faces and still picks the edges and vertices behind them', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const picks = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.commands.run('style:wireframe');
+      app.viewport.setView('trimetric', false);
+      const at = (p: [number, number, number], want: { face?: boolean; edge?: boolean; vertex?: boolean }) => {
+        const [x, y] = app.viewport.project(p);
+        const hit = app.renderer.pick(x, y, want);
+        return hit ? { kind: hit.kind, p: hit.kind === 'vertex' ? [...app.vertexAt(hit.index)!] : null, z: hit.point?.[2] ?? null } : null;
+      };
+      return {
+        // The top of the base, picking faces only (as a feature asking for a face does).
+        face: at([40, 8, 15], { face: true }),
+        // The corner at the back, behind the base.
+        vertex: at([0, 0, 0], { face: true, edge: true, vertex: true }),
+      };
+    });
+    expect(picks.face?.kind).toBe('face');
+    expect(picks.vertex).toMatchObject({ kind: 'vertex', p: [0, 0, 0] });
+  });
+
+  test('picks the pixel under the pointer, not the one above it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const rows = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.setView('front', false);
+      const b = app.bbox!, cam = app.renderer.camera;
+      // The top of the upright, seen from the front: put it a quarter pixel above row k's top,
+      // so pixel row k (centre at k + 0.5) is on the face and row k - 1 (centre k - 0.5) is not.
+      const top: [number, number, number] = [b.min[0] + 2, b.max[1], b.max[2]];
+      const [x, y0] = app.viewport.project(top);
+      const k = Math.round(y0) + 10;
+      cam.pan(0, k - 0.25 - y0);
+      const [, y] = app.viewport.project(top);
+      const at = (row: number) => app.renderer.pick(Math.floor(x), row, { face: true })?.kind ?? null;
+      return { edge: y - k, k: at(k), above: at(k - 1) };
+    });
+    expect(rows.edge).toBeCloseTo(-0.25, 3);
+    expect(rows).toMatchObject({ k: 'face', above: null });
   });
 
   test('zoomed in past a face, picking still finds where it was clicked', async ({ page }) => {

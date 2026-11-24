@@ -19,9 +19,9 @@ import type {
   FilletFeature, HoleFeature, Id, ImportFeature, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature,
   PlaneRef, RevolveFeature, ShellFeature, SkDimension, SketchFeature, SweepFeature,
 } from '../model/types';
-import { dependencies } from '../model/features';
+import { dependencies, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
-import { type Region, type Seg2, buildProfiles, inRegion, pointInPoly, segPolyline, sketchPoints } from '../sketch/profiles';
+import { type Region, type Seg2, buildProfiles, hasOverlappingLines, holesMayTouch, inRegion, pointInPoly, reverseLoop, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
 import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
@@ -31,8 +31,8 @@ import type {
   ProjectionRequest, ProjectionResult,
 } from './protocol';
 import {
-  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, getOc, gdir,
-  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, subShapes, translated,
+  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
+  hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -153,11 +153,41 @@ export class ModelBuilder {
   }
 
   /** Position and type of every feature of the request being built. */
-  private order = new Map<Id, { index: number; type: Feature['type'] }>();
+  private order = new Map<Id, { index: number; type: Feature['type']; name: string }>();
+
+  /** A status with the features its message names under their names in this request. */
+  private named(st: FeatureStatus): FeatureStatus {
+    const text = (m: string | undefined) => m?.replace(NAME_REF, (_, id: string) => this.order.get(id)?.name ?? id);
+    if (!st.error?.includes('\u0001') && !st.warning?.includes('\u0001')) return st;
+    return { ...st, ...(st.error ? { error: text(st.error) } : {}), ...(st.warning ? { warning: text(st.warning) } : {}) };
+  }
+  /** Position of the feature being applied (a preview goes at the build position). */
+  private at = 0;
+
+  /**
+   * Why a feature or sketch a feature uses is not there, naming it: in a long
+   * tree "the profile sketch is missing" did not say which one to look at.
+   */
+  private missing(id: Id | null | undefined, what: string): FeatureError {
+    const at = id ? this.order.get(id) : undefined;
+    if (!id) return new FeatureError(`Select the ${what}`);
+    if (!at) return new FeatureError(`The ${what} no longer exists`);
+    if (at.index >= this.at) return new FeatureError(`The ${what} (${nameOf(id)}) comes after this feature in the tree`);
+    return new FeatureError(`The ${what} (${nameOf(id)}) failed to build`);
+  }
+
+  /** The feature that made a named face or edge, for messages. */
+  private maker(name: string): string {
+    for (const id of refFeatureIds(name)) {
+      const f = this.order.get(id);
+      if (f) return ` (made by ${nameOf(id)})`;
+    }
+    return '';
+  }
 
   async build(req: BuildRequest): Promise<BuildResult> {
     const t0 = performance.now();
-    this.order = new Map(req.features.map((f, index) => [f.id, { index, type: f.type }]));
+    this.order = new Map(req.features.map((f, index) => [f.id, { index, type: f.type, name: f.name }]));
     let state = emptyState();
     let chain = 'root';
     const status: FeatureStatus[] = [];
@@ -170,20 +200,25 @@ export class ModelBuilder {
       const suppressed = !!f.suppressed || dependencies(f).some((d) => off.has(d));
       if (suppressed) off.add(f.id);
       const imported = f.type === 'import' ? ':' + this.importVersion(f.blob, req.blobs[f.blob]) : '';
-      const key = hashString(chain + '\u0000' + stepText(f) + imported);
+      const invalid = suppressed ? undefined : req.invalid?.[f.id];
+      const key = hashString(chain + '\u0000' + stepText(f) + imported + (invalid ? '\u0000!' + invalid : ''));
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
-        status.push(cached.status);
+        status.push(this.named(cached.status));
         chain = key;
         continue;
       }
       this.steps.length = i;
       const next = cloneState(state);
       let st: FeatureStatus = suppressed ? { id: f.id, ok: true, suppressed: true } : { id: f.id, ok: true };
-      if (!suppressed) {
+      // A value that could not be evaluated stands at zero: building with it
+      // gave later features the wrong geometry under a feature marked failed.
+      if (invalid) st = { id: f.id, ok: false, error: invalid };
+      else if (!suppressed) {
         try {
           this.warning = null;
+          this.at = i;
           await this.apply(f, next, req);
           if (this.warning) st = { id: f.id, ok: true, warning: this.warning };
         } catch (e) {
@@ -197,7 +232,7 @@ export class ModelBuilder {
       }
       this.steps[i] = { key, state: next, status: st };
       state = next;
-      status.push(st);
+      status.push(this.named(st));
       chain = key;
     }
     for (let i = upTo; i < req.features.length; i++) status.push({ id: req.features[i].id, ok: true });
@@ -242,9 +277,10 @@ export class ModelBuilder {
       const p = cloneState(state);
       try {
         this.warning = null;
+        this.at = upTo;
         const kind = await this.apply(req.preview, p, req);
         // Shown while the feature is edited, when it can still be fixed.
-        if (this.warning) result.previewWarning = this.warning;
+        if (this.warning) result.previewWarning = this.named({ id: '', ok: true, warning: this.warning }).warning;
         if (kind === 'tool') {
           const tool = p.tools.get(req.preview.id);
           if (tool) result.preview = this.meshBody(tool.shape, req.quality);
@@ -263,7 +299,7 @@ export class ModelBuilder {
         }
       } catch (e) {
         if (isFatal(e)) throw e;
-        result.previewError = errorText(e);
+        result.previewError = this.named({ id: '', ok: false, error: errorText(e) }).error;
       }
     }
     return result;
@@ -336,7 +372,7 @@ export class ModelBuilder {
     if (ref.kind === 'base') return BASE_FRAMES[ref.plane];
     if (ref.kind === 'feature') {
       const f = st.frames.get(ref.id);
-      if (!f) throw new FeatureError('The reference plane is missing or failed to build');
+      if (!f) throw this.missing(ref.id, 'reference plane');
       return f;
     }
     const i = this.resolveFace(ref.face, st);
@@ -369,7 +405,7 @@ export class ModelBuilder {
       .filter(({ f }) => fits(f.desc) && dist(f.desc.center, ref.sig.c) < lim);
     if (alt.length) return near(alt.map((a) => a.i));
     if (cands.length === 1) return cands[0];
-    throw new FeatureError('A referenced face no longer exists');
+    throw new FeatureError(`A referenced face${this.maker(ref.name)} no longer exists. Edit the feature and select it again.`);
   }
 
   resolveEdge(ref: EdgeRef, st: State): number {
@@ -385,7 +421,7 @@ export class ModelBuilder {
     const lim = b ? dist(b.min, b.max) * 0.02 : 1;
     const alt = edges.flatMap((e, i) => (e.desc.type === ref.sig.type && dist(e.desc.mid, ref.sig.m) < lim ? [i] : []));
     if (alt.length) return near(alt);
-    throw new FeatureError('A referenced edge no longer exists');
+    throw new FeatureError(`A referenced edge${this.maker(ref.name)} no longer exists. Edit the feature and select it again.`);
   }
 
   /** Point and unit direction of an axis reference. */
@@ -408,7 +444,7 @@ export class ModelBuilder {
       case 'sketchLine': {
         const sk = st.sketches.get(ref.sketch);
         const fr = st.frames.get(ref.sketch);
-        if (!sk || !fr) throw new FeatureError('The axis sketch is missing');
+        if (!sk || !fr) throw this.missing(ref.sketch, 'axis sketch');
         const ix = new SketchIndex(sk.entities);
         const l = ix.get(ref.entity);
         if (!l || l.t !== 'line') throw new FeatureError('The axis line is missing');
@@ -451,32 +487,37 @@ export class ModelBuilder {
   private nameFaces(featId: Id, body: Sh, st: State, tool: NamedFace[], fallback?: (d: SurfDesc, k: number) => string): NamedFace[] {
     const tol = Math.max(this.tol(st), 1e-6);
     const prev = st.faces;
-    let k = 0;
     const score = (d: SurfDesc, c: NamedFace) => dist(d.center, c.desc.center) / Math.sqrt(Math.max(c.desc.area, 1e-12));
     // Faces without an exact descriptor are compared by centre, which moves
     // when a later feature trims them: then their surface tells.
+    const surfaces = new SurfaceCache();
     const same = (shape: Sh, d: SurfDesc, c: NamedFace) =>
-      sameSurface(d, c.desc, tol) || (!EXACT_SURFACES.has(d.type) && d.type === c.desc.type && sharesSurface(shape, c.shape));
-    return subShapes(body, 'face').map((shape) => {
-      const desc = describeFace(shape);
-      let best: NamedFace | null = null, bestS = Infinity;
-      for (const c of prev) {
-        if (!same(shape, desc, c)) continue;
-        const s = score(desc, c);
-        if (s < bestS) { bestS = s; best = c; }
-      }
-      if (!best) {
-        for (const c of tool) {
+      sameSurface(d, c.desc, tol) || (!EXACT_SURFACES.has(d.type) && d.type === c.desc.type && sharesSurface(shape, c.shape, surfaces));
+    let k = 0;
+    try {
+      return subShapes(body, 'face').map((shape) => {
+        const desc = describeFace(shape);
+        let best: NamedFace | null = null, bestS = Infinity;
+        for (const c of prev) {
           if (!same(shape, desc, c)) continue;
           const s = score(desc, c);
           if (s < bestS) { bestS = s; best = c; }
         }
-      }
-      if (best) return { shape, desc, name: best.name, feature: best.feature };
-      const name = fallback ? fallback(desc, k) : `${featId}:n${k}`;
-      k++;
-      return { shape, desc, name, feature: featId };
-    });
+        if (!best) {
+          for (const c of tool) {
+            if (!same(shape, desc, c)) continue;
+            const s = score(desc, c);
+            if (s < bestS) { bestS = s; best = c; }
+          }
+        }
+        if (best) return { shape, desc, name: best.name, feature: best.feature };
+        const name = fallback ? fallback(desc, k) : `${featId}:n${k}`;
+        k++;
+        return { shape, desc, name, feature: featId };
+      });
+    } finally {
+      surfaces.dispose();
+    }
   }
 
   private nameTool(featId: Id, tool: Sh, classify: (d: SurfDesc, k: number, shape: Sh) => string): NamedFace[] {
@@ -512,14 +553,17 @@ export class ModelBuilder {
   private sketchRegions(sketchId: Id, st: State, picks?: Vec2[]): { regions: Region[]; frame: Frame; sketch: SketchFeature } {
     const sketch = st.sketches.get(sketchId);
     const frame = st.frames.get(sketchId);
-    if (!sketch || !frame) throw new FeatureError('The profile sketch is missing or failed to build');
+    if (!sketch || !frame) throw this.missing(sketchId, 'profile sketch');
     const prof = buildProfiles(sketch.entities, picks);
     // Selected regions are kept as points inside them; a sketch edit can
     // move a region off its point.
     const lost = picks?.length ? picks.filter((p) => !prof.all.some((r) => inRegion(p, r))).length : 0;
     if (lost && lost === picks!.length && prof.all.length) throw new FeatureError('The selected regions are no longer in the sketch. Edit the feature and select them again.');
     if (!prof.regions.length) {
-      throw new FeatureError(prof.openEnds.length ? 'The sketch has open contours. Close the profile to use it.' : 'The sketch has no closed profile');
+      if (prof.openEnds.length) throw new FeatureError('The sketch has open contours. Close the profile to use it.');
+      // Contours drawn over each other in part make no faces, which said nothing about why.
+      if (hasOverlappingLines(sketch.entities)) throw new FeatureError('Lines in the sketch lie over each other. Trim them where they meet, or delete the copies.');
+      throw new FeatureError('The sketch has no closed profile');
     }
     if (lost) this.warning = 'A selected region is no longer in the sketch and was left out. Edit the feature and select the regions again.';
     else if (prof.openEnds.length && !picks?.length) this.warning = 'Open contours in the sketch were ignored';
@@ -551,10 +595,22 @@ export class ModelBuilder {
     return face;
   }
 
-  private fuseAll(shapes: Sh[]): Sh {
-    let acc = shapes[0];
-    for (let i = 1; i < shapes.length; i++) acc = fuse(acc, shapes[i]);
-    return acc;
+  /**
+   * The solid a region sweeps (make turns a face into it). A hole touching its
+   * outline or another hole (a circle tangent to an edge) makes an invalid face
+   * and so an invalid solid, which later features fail on: then the holes'
+   * solids are cut from the outline's instead, which the boolean keeps valid.
+   */
+  /** Set when a region's holes were cut out because they touch (see regionSolid). */
+  private touchingHoles = false;
+
+  private regionSolid(r: Region, fr: Frame, make: (face: any) => Sh): Sh {
+    const face = this.regionFace(r, fr);
+    if (!holesMayTouch(r) || isValid(face as Sh)) return make(face);
+    this.touchingHoles = true;
+    const outer = make(R.makeFace(this.loopWire(r.outer.segs, fr)));
+    const holes = r.holes.map((h) => make(R.makeFace(this.loopWire(reverseLoop(h).segs, fr))));
+    return cut(outer, fuseAll(holes));
   }
 
   /** Nearest profile segment to a sketch-plane point: used to name side faces. */
@@ -617,15 +673,15 @@ export class ModelBuilder {
     d1 = total;
     const draft = num(f.draft || 0);
     if (draft < 0) throw new FeatureError('The draft angle cannot be negative. Use Draft outward to taper the other way.');
+    if (draft >= 90) throw new FeatureError('The draft angle must be less than 90 degrees');
     const extrudeAll = (from: number, length: number, d: Vec3): Sh => {
       const pieces: Sh[] = [];
       for (const r of regions) {
-        const face = this.regionFace(r, frame);
-        let solid: Sh = R.basicFaceExtrusion(face, new R.Vector(scale(d, length))) as unknown as Sh;
+        let solid = this.regionSolid(r, frame, (face) => R.basicFaceExtrusion(face, new R.Vector(scale(d, length))) as unknown as Sh);
         if (from !== 0) solid = translated(solid, scale(d, from));
         pieces.push(solid);
       }
-      return pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
+      return pieces.length === 1 ? pieces[0] : fuseAll(pieces);
     };
     let tool: Sh;
     if (draft > 1e-9) {
@@ -640,10 +696,17 @@ export class ModelBuilder {
       // Both directions taper away from the sketch plane, which keeps the
       // sketched profile (like other CAD systems do).
       const angle = draft * (f.draftOutward ? -1 : 1);
-      tool = this.draftLateral(extrudeAll(0, total + start, dir), frame, dir, 0, angle);
-      if (start < 0) {
-        const back = scale(dir, -1);
-        tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
+      this.touchingHoles = false;
+      try {
+        tool = this.draftLateral(extrudeAll(0, total + start, dir), frame, dir, 0, angle);
+        if (start < 0) {
+          const back = scale(dir, -1);
+          tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
+        }
+      } catch (e) {
+        // The faces of a hole touching the outline meet at a single line, which cannot be tapered.
+        if (this.touchingHoles) throw new FeatureError('The draft cannot taper a hole that touches the outline or another hole. Move the hole off it, or extrude without draft.');
+        throw e;
       }
     } else tool = extrudeAll(start, d1, dir);
     const classify = (d: SurfDesc, _k: number, shape: Sh) => {
@@ -693,9 +756,10 @@ export class ModelBuilder {
       const a = toWorld(frame, ix.pt(cl.a)), b = toWorld(frame, ix.pt(cl.b));
       axis = { p: a, d: normalize(sub(b, a)) };
     }
-    let angle = num(f.angle);
+    const angle = num(f.angle);
     if (angle <= 0) throw new FeatureError('Angle must be greater than zero');
-    angle = Math.min(angle, 360);
+    // More than a turn used to be cut to one without a word.
+    if (angle > 360 + 1e-9) throw new FeatureError('The angle cannot be more than 360 degrees');
     // Map a 3D point back into the sketch plane by undoing the rotation.
     const a2 = toLocal(frame, axis.p);
     const b2 = toLocal(frame, add(axis.p, axis.d));
@@ -719,12 +783,11 @@ export class ModelBuilder {
     const d = scale(axis.d, sgn);
     const pieces: Sh[] = [];
     for (const r of regions) {
-      const face = this.regionFace(r, frame);
-      let solid = R.revolution(face, axis.p, d, angle) as unknown as Sh;
+      let solid = this.regionSolid(r, frame, (face) => R.revolution(face, axis.p, d, angle) as unknown as Sh);
       if (f.end === 'midPlane' && angle < 360) solid = rotated(solid, axis.p, d, (-angle * Math.PI) / 360);
       pieces.push(solid);
     }
-    const tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
+    const tool = pieces.length === 1 ? pieces[0] : fuseAll(pieces);
     const s0 = regions[0].sample;
     const side = Math.sign((s0[0] - a2[0]) * perp[0] + (s0[1] - a2[1]) * perp[1]) || 1;
     // Mid-plane revolves were turned back by half the angle; undo that to
@@ -934,7 +997,7 @@ export class ModelBuilder {
   private applyHole(f: HoleFeature, st: State) {
     const sketch = st.sketches.get(f.sketch);
     const frame = st.frames.get(f.sketch);
-    if (!sketch || !frame) throw new FeatureError('The hole position sketch is missing');
+    if (!sketch || !frame) throw this.missing(f.sketch, 'hole position sketch');
     const pts = sketchPoints(sketch.entities);
     if (!pts.length) throw new FeatureError('Add sketch points to place holes');
     const r = num(f.diameter) / 2;
@@ -990,9 +1053,9 @@ export class ModelBuilder {
       // that adds no tool body.
       const at = this.order.get(id);
       if (at === undefined) throw new FeatureError('A seed feature no longer exists');
-      if (at.index > (this.order.get(featId)?.index ?? Infinity)) throw new FeatureError('A seed feature comes after this feature in the tree');
-      if (SEED_TYPES.has(at.type)) throw new FeatureError('A seed feature failed to build');
-      throw new FeatureError('A seed feature cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)');
+      if (at.index > (this.order.get(featId)?.index ?? Infinity)) throw new FeatureError(`The seed feature ${nameOf(id)} comes after this feature in the tree`);
+      if (SEED_TYPES.has(at.type)) throw new FeatureError(`The seed feature ${nameOf(id)} failed to build`);
+      throw new FeatureError(`${nameOf(id)} cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)`);
     });
   }
 
@@ -1053,6 +1116,8 @@ export class ModelBuilder {
       if (n2 > 1 && len(v2) < 1e-9) throw new FeatureError('Direction 2 spacing must not be zero');
     }
     if (n1 * n2 > 2000) throw new FeatureError('Too many instances (maximum 2000)');
+    // "Between 1 and 1000" allows 1 in one direction; the pattern needs a copy somewhere.
+    if (n1 * n2 === 1) throw new FeatureError('The pattern has only the original. Set 2 or more instances.');
     const tfs: ((s: Sh) => Sh)[] = [];
     for (let i = 0; i < n1; i++) {
       for (let j = 0; j < n2; j++) {
@@ -1070,7 +1135,8 @@ export class ModelBuilder {
     const n = Math.round(num(f.count));
     if (n < 2 || n > 1000) throw new FeatureError('Instance count must be between 2 and 1000');
     const total = num(f.angle);
-    const step = f.equal ? (Math.abs(total - 360) < 1e-9 ? total / n : total / (n - 1)) : total;
+    // A full turn either way spaces the instances round the whole circle.
+    const step = f.equal ? (Math.abs(Math.abs(total) - 360) < 1e-9 ? total / n : total / (n - 1)) : total;
     const d = scale(ax.d, f.flip ? -1 : 1);
     const tfs: ((s: Sh) => Sh)[] = [];
     for (let i = 1; i < n; i++) {
@@ -1141,7 +1207,7 @@ export class ModelBuilder {
     if (prof.extra) this.warning = ModelBuilder.EXTRA_CONTOURS;
     const pathSk = st.sketches.get(f.path);
     const pathFr = st.frames.get(f.path);
-    if (!pathSk || !pathFr) throw new FeatureError('The path sketch is missing');
+    if (!pathSk || !pathFr) throw this.missing(f.path, 'path sketch');
     const ix = new SketchIndex(pathSk.entities);
     // Path pieces with their sketch end points (none for closed curves).
     const pieces: { edges: any[]; a?: Vec2; b?: Vec2 }[] = [];
@@ -1182,6 +1248,8 @@ export class ModelBuilder {
     if (!st.body) throw new FeatureError('There is no body to draft');
     if (!f.faces.length) throw new FeatureError('Select faces to draft');
     const fr = this.resolvePlane(f.neutral, st);
+    const angle = num(f.angle);
+    if (!(Math.abs(angle) < 90)) throw new FeatureError('The draft angle must be between -90 and 90 degrees');
     const oc = getOc();
     const dir = scale(fr.n, f.flip ? -1 : 1);
     const selected = f.faces.map((r) => st.faces[this.resolveFace(r, st)]);
@@ -1191,7 +1259,7 @@ export class ModelBuilder {
     let body: Sh;
     try {
       for (const sel of selected) {
-        builder.Add(sel.shape.wrapped, gd, (num(f.angle) * Math.PI) / 180, pln, true);
+        builder.Add(sel.shape.wrapped, gd, (angle * Math.PI) / 180, pln, true);
         if (!builder.AddDone()) throw new FeatureError('Draft cannot be applied to one of the faces');
       }
       builder.Build();
@@ -1388,7 +1456,10 @@ export class ModelBuilder {
       const iyz = moment([0, s, s]) - (iyy + izz) / 2;
       const ixz = moment([s, 0, s]) - (ixx + izz) / 2;
       const inertia = [ixx, ixy, ixz, ixy, iyy, iyz, ixz, iyz, izz];
-      return { volume: props.Mass(), area: sprops.Mass(), center, inertia, principal: eigenSym3(inertia) };
+      const volume = props.Mass();
+      const b = boxOf(body);
+      const solid = volume > (b ? dist(b.min, b.max) : 1) ** 3 * 1e-12;
+      return { solid, volume, area: sprops.Mass(), center, inertia, principal: eigenSym3(inertia) };
     } finally {
       props.delete();
       sprops.delete();
@@ -1614,6 +1685,14 @@ function shellError(st: State, t: number): FeatureError {
     ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
     : 'The shell could not be created. Try a smaller thickness.');
 }
+
+/**
+ * A feature named in a message. Steps are cached by geometry, not by name,
+ * so the name is put in when the status is sent: renaming the feature must
+ * not leave its old name in a cached message.
+ */
+const nameOf = (id: Id) => `\u0001${id}\u0002`;
+const NAME_REF = /\u0001([^\u0002]*)\u0002/g;
 
 /** Surface types that sameSurface compares exactly. */
 const EXACT_SURFACES = new Set(['plane', 'cylinder', 'sphere']);

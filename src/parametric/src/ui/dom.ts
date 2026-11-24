@@ -40,6 +40,38 @@ export function announce(text: string) {
   setTimeout(() => { r.textContent = text; }, 30);
 }
 
+/** Gives an element whose text an ellipsis may clip its full text as a tooltip, while it is clipped. */
+export function titleWhenClipped(el: HTMLElement) {
+  el.addEventListener('pointerenter', () => {
+    if (el.scrollWidth > el.clientWidth + 1) el.title = el.textContent ?? '';
+    else el.removeAttribute('title');
+  });
+}
+
+/** An element's ancestors, kept to find it again if it is re-rendered meanwhile (see refocus). */
+export function ancestors(el: Element | null): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) out.push(p);
+  return out;
+}
+
+/**
+ * Focuses an element again. When it was re-rendered meanwhile (a design tree
+ * row after a rebuild), its replacement (same data-key) or else the current
+ * tab stop of its nearest remaining ancestor gets focus, instead of the page body.
+ */
+export function refocus(prev: HTMLElement | null, parents: HTMLElement[], preventScroll = false) {
+  if (!prev?.focus) return;
+  if (prev.isConnected) { prev.focus({ preventScroll }); return; }
+  const box = parents.find((p) => p.isConnected);
+  if (!box) return;
+  const key = prev.dataset.key;
+  const target = (key ? box.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`) : null)
+    ?? box.querySelector<HTMLElement>('[tabindex="0"]')
+    ?? box.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea');
+  target?.focus({ preventScroll });
+}
+
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** Formats a shortcut like "Ctrl+S" for the platform ("Control+" is the Control key, ⌃ on macOS). */

@@ -28,11 +28,18 @@ test('tablet title bar keeps every control on screen', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
-  const offscreen = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.titlebar button, .titlebar a, .titlebar input')]
-    .filter((el) => el.offsetParent && el.getBoundingClientRect().right > window.innerWidth)
-    .map((el) => el.getAttribute('aria-label') ?? el.textContent));
-  expect(offscreen).toEqual([]);
-  expect((await page.locator('.doc-title').boundingBox())!.width).toBeGreaterThan(40);
+  // Up to the widths where the menu bar shows again, and the brand name after it.
+  for (const width of [768, 1000, 1024, 1100, 1240, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    // puter.js's user menu (Upgrade, Sign in) keeps its buttons in a shadow root.
+    const offscreen = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.titlebar button, .titlebar a, .titlebar input, .titlebar puter-user-menu')]
+      .filter((el) => el.getClientRects().length && el.getBoundingClientRect().right > window.innerWidth)
+      .map((el) => el.getAttribute('aria-label') ?? el.textContent ?? el.tagName));
+    expect(offscreen, `at ${width} px`).toEqual([]);
+    // "Part1" whole: the part name is not squeezed to its first letters.
+    expect((await page.locator('.doc-title').boundingBox())!.width, `at ${width} px`).toBeGreaterThan(45);
+  }
+  await page.setViewportSize({ width: 768, height: 1024 });
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible();
 });
@@ -95,10 +102,12 @@ test('a feature panel sheet shrinks to show the preview above it', async ({ page
   await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
   const sheet = page.locator('.leftpane');
   const full = (await sheet.boundingBox())!.height;
-  const peek = page.getByRole('button', { name: 'Expand panel' });
+  const peek = page.locator('.lp-peek');
   await expect(peek).toHaveAttribute('aria-expanded', 'true');
+  await expect(peek).toHaveAccessibleName('Collapse panel');
   await peek.click();
   await expect(peek).toHaveAttribute('aria-expanded', 'false');
+  await expect(peek).toHaveAccessibleName('Expand panel');
   await expect.poll(async () => (await sheet.boundingBox())!.height).toBeLessThan(full / 2);
   // Title and OK/Cancel stay on screen.
   await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeInViewport();
@@ -241,4 +250,105 @@ test('a long press opens a design tree row\'s context menu without the browser\'
   await touch('pointerup');
   expect(await menus()).toBe(3);
   await expect(page.getByRole('menu')).toHaveCount(0);
+});
+
+test('on a phone Enter starts a new line in the assistant\'s message and Send sends it', async ({ page }) => {
+  await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sent: string[]; __assistantChat: unknown };
+    w.__sent = [];
+    w.__assistantChat = async function* (messages: { content: unknown }[]) {
+      w.__sent.push(String(messages.at(-1)!.content));
+      yield { type: 'text', text: 'Got it.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).tap();
+  await page.locator('.titlebar [data-cmd="assistant"]').tap();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.tap();
+  await page.keyboard.type('A plate');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('with four holes');
+  await expect(box).toHaveValue('A plate\nwith four holes');
+  await expect(page.locator('.as-user')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Send' }).tap();
+  await expect(page.getByText('Got it.')).toBeVisible();
+  expect((await page.evaluate(() => (window as unknown as { __sent: string[] }).__sent))[0]).toMatch(/A plate\nwith four holes$/);
+});
+
+test('the closed design tree sheet leaves the whole status bar to taps', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const blocked = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.statusbar button, .statusbar [role="tab"]')]
+    .filter((el) => el.getClientRects().length)
+    .flatMap((el) => {
+      const b = el.getBoundingClientRect();
+      // Near the top, the middle and the bottom of each control.
+      return [b.top + 3, b.top + b.height / 2, b.bottom - 3].map((y) => document.elementFromPoint(b.left + b.width / 2, y))
+        .filter((hit) => !el.contains(hit)).map(() => el.textContent);
+    }));
+  expect(blocked).toEqual([]);
+});
+
+test('a small phone\'s title bar shows the whole default part name', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const title = page.locator('.doc-title');
+  await expect(title).toHaveText('Part1');
+  expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test('the closed design tree sheet is out of reach of the keyboard and screen readers', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const sheet = page.locator('.leftpane');
+  await expect(sheet).toHaveJSProperty('inert', true);
+  await page.locator('.tree [data-key="part"]').evaluate((el: HTMLElement) => el.focus());
+  await expect(page.locator('.tree [data-key="part"]')).not.toBeFocused();
+  await page.locator('.statusbar').getByRole('button', { name: 'Tree' }).click();
+  await expect(sheet).toHaveJSProperty('inert', false);
+  await page.getByRole('treeitem', { name: 'Origin' }).focus();
+  await expect(page.getByRole('treeitem', { name: 'Origin' })).toBeFocused();
+  // Closing it hands focus to the button that opens it again.
+  await page.getByRole('button', { name: 'Close panel' }).click();
+  await expect(sheet).toHaveJSProperty('inert', true);
+  // A panel opens the sheet and takes focus there.
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): boolean } } }).__parametric.commands.run('plane'));
+  await expect(sheet).toHaveJSProperty('inert', false);
+});
+
+test('a tap a finger-width from a sketch point snaps to it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.startSketchOn({ kind: 'base', plane: 'front' }));
+  await expect(page.locator('.view-label')).toHaveText('Front');
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'mark', t: 'point', x: 0, y: 15 }); });
+    a.commands.run('tool:line');
+  });
+  const at = (p: [number, number]) => page.evaluate((p) => {
+    const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+    const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+    return { x: x + box.x, y: y + box.y };
+  }, p);
+  const cdp = await page.context().newCDPSession(page);
+  const tap = async (x: number, y: number) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 0 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForTimeout(400);
+  };
+  // 13 px off the point: beyond a mouse's reach, within a fingertip's.
+  const m = await at([0, 15]);
+  await tap(m.x + 9, m.y + 9);
+  // With no hover, the tap shows the line's start straight away.
+  expect(await page.evaluate(() => ((window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.renderer as unknown as { points: Map<string, unknown> }).points.has('sk-preview-pts'))).toBe(true);
+  const e = await at([-30, -10]);
+  await tap(e.x, e.y);
+  const line = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.find((x) => x.t === 'line') as { a: string; b: string } | undefined);
+  await expect.poll(async () => { const l = await line(); return !!l && (l.a === 'mark' || l.b === 'mark'); }).toBe(true);
+  expect(errors).toEqual([]);
 });

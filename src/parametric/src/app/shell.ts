@@ -3,7 +3,7 @@
 // puter.js's <puter-user-menu> in place of the last two), CommandManager
 // (tool groups and tabs), left pane, viewport host, task pane and status bar.
 
-import { h, formatShortcut } from '../ui/dom';
+import { h, formatShortcut, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
 import { dropdown, type MenuItem, closeMenus } from '../ui/menu';
@@ -49,7 +49,7 @@ export interface Shell {
   tpStrip: HTMLElement;
   tpPanel: HTMLElement;
   statusMsg: HTMLElement;
-  statusSketch: HTMLButtonElement;
+  statusSketch: HTMLElement;
   statusUnits: HTMLButtonElement;
   statusRebuild: HTMLElement;
   statusCoords: HTMLElement;
@@ -83,12 +83,25 @@ export function commandButton(cmds: CommandRegistry, id: string, variant: 'icon'
 }
 
 export function syncCommandButtons(root: ParentNode, cmds: CommandRegistry) {
+  const focused = document.activeElement;
+  let lostFocus: HTMLButtonElement | null = null;
   for (const b of root.querySelectorAll<HTMLButtonElement>('[data-cmd]')) {
     const id = b.dataset.cmd!;
     const c = cmds.get(id);
     if (!c) continue;
     b.disabled = !cmds.isEnabled(id);
+    if (b.disabled && b === focused) lostFocus = b;
     if (c.checked) b.setAttribute('aria-pressed', String(cmds.isChecked(id)));
+  }
+  // A disabled button drops keyboard focus to the page (Undo pressed until
+  // there is nothing left to undo): it moves on to its toolbar's next button.
+  if (lostFocus) {
+    const bar = lostFocus.closest<HTMLElement>('[role="toolbar"]') ?? lostFocus.parentElement;
+    const all = [...(bar?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
+    const i = all.indexOf(lostFocus);
+    const usable = all.filter((x) => !x.disabled && x.getClientRects().length);
+    const next = usable.find((x) => all.indexOf(x) > i) ?? usable.findLast((x) => all.indexOf(x) < i);
+    next?.focus({ preventScroll: true });
   }
 }
 
@@ -137,7 +150,8 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const docState = h('span', { class: 'doc-state', 'aria-live': 'polite' });
   const search = h('input', { type: 'search', placeholder: 'Search commands', 'aria-label': 'Search commands', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'cmd-results', 'aria-autocomplete': 'list' }) as HTMLInputElement;
   const searchResults = h('div', { class: 'cmd-results', role: 'listbox', id: 'cmd-results', hidden: true });
-  const github = h('a', { class: 'icon-btn', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub' }, icon('github', 18));
+  // Narrow windows leave its room to the part name: Help › Source Code on GitHub has it too.
+  const github = h('a', { class: 'icon-btn hide-tablet', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub' }, icon('github', 18));
   attachTooltip(github, 'Source code on GitHub');
   const apps = appsButton();
   const account = h('button', { class: 'avatar-btn', type: 'button', 'aria-label': 'Account', 'aria-haspopup': 'menu' }) as HTMLButtonElement;
@@ -183,9 +197,11 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
 
   const treeToggle = h('button', { class: 'cell mobile-only', type: 'button', 'aria-label': 'Show design tree', 'aria-expanded': 'false', 'aria-controls': 'left-panel' }, icon('tree', 14), 'Tree') as HTMLButtonElement;
   const statusMsg = h('span', { class: 'msg', role: 'status', 'aria-live': 'polite' });
+  titleWhenClipped(statusMsg);
   const statusCoords = h('span', { class: 'cell hide-mobile', 'aria-live': 'off' });
   const statusRebuild = h('span', { class: 'cell hide-mobile', title: 'Time of the last rebuild' });
-  const statusSketch = h('button', { class: 'cell', type: 'button', hidden: true }) as HTMLButtonElement;
+  // The sketch's definition status: text, not a button (it has no action).
+  const statusSketch = h('span', { class: 'cell', hidden: true });
   const statusUnits = h('button', { class: 'cell', type: 'button', 'aria-haspopup': 'menu', title: 'Unit system' }, 'MMGS') as HTMLButtonElement;
   const statusbar = h('footer', { class: 'statusbar' }, treeToggle, statusMsg, statusCoords, statusSketch, statusRebuild, statusUnits);
 

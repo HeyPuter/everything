@@ -216,6 +216,37 @@ describe('assistant agent', () => {
     expect(agent.messages).toEqual([]);
   });
 
+  it('takes the snapshot once the part is rebuilt, and Stop or New chat cut that wait short', async () => {
+    let built!: () => void;
+    let state = 'before the rebuild';
+    const requests: ChatMessage[][] = [];
+    const agent = createAgent({
+      chat: (messages) => { requests.push(structuredClone(messages)); return (async function* () { yield { type: 'text' as const, text: 'ok' }; })(); },
+      tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', model: () => 'm',
+      snapshot: () => state,
+      ready: () => new Promise<void>((r) => { built = () => { state = 'rebuilt'; r(); }; }),
+    });
+    const p = agent.send('look', () => {});
+    expect(agent.busy).toBe(true);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(requests).toHaveLength(0);
+    built();
+    await p;
+    expect(String(requests[0][1].content)).toContain('rebuilt');
+    // Stopped while waiting: nothing is asked, and the message stays in the conversation.
+    state = 'before the rebuild';
+    const stopped = agent.send('again', () => {});
+    agent.stop();
+    expect((await stopped).stopped).toBe(true);
+    expect(requests).toHaveLength(1);
+    expect(agent.messages.at(-1)).toMatchObject({ role: 'user' });
+    // New chat while waiting: the message does not join the new conversation.
+    const cut = agent.send('third', () => {});
+    agent.reset();
+    expect((await cut).stopped).toBe(true);
+    expect(agent.messages).toEqual([]);
+  });
+
   it('sends attached files with their message, then only names them after a few turns', async () => {
     const photo: Attachment = { name: 'sketch.jpg', kind: 'image', size: 10, blocks: [imageBlock('image/jpeg', 'IMG')] };
     const drawing: Attachment = { name: 'drawing.pdf', kind: 'pdf', size: 10, pages: 2, blocks: [pdfBlock('PDF')] };

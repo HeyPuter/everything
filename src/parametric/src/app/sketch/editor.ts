@@ -36,6 +36,8 @@ export interface SkTool {
   dbl?(s: Snap, e: VPEvent): boolean;
   /** Point the cursor snaps relative to (for horizontal/vertical inference). */
   from?(): Vec2 | null;
+  /** The end point a line chain in progress continues from (a tangent arc can carry on from it). */
+  chainEnd?(): Id | null;
   /** Ids excluded from snapping (e.g. the point being placed). */
   exclude?(): Set<Id>;
   /** Enter: finish the current operation. Return true if there was one. */
@@ -73,11 +75,16 @@ interface DragState {
   circle?: Id;
   boxStart?: { x: number; y: number };
   dimId?: Id;
+  /** Points held where they started (an arc's centre while its size changes). */
+  pinned?: Set<Id>;
+  /** Arc whose radius the drag changes: the dragged ends move along their radii. */
+  arc?: { c: Id };
   moved: boolean;
 }
 
 const STATUS_TEXT: Record<SolveResult['status'], string> = { under: 'Under Defined', full: 'Fully Defined', over: 'Over Defined' };
 const FIXED_DRAG_NOTICE = 'This geometry is fully defined, so it cannot be dragged.';
+const PROJECTED_DRAG_NOTICE = 'Projected geometry follows its model edge, so it cannot be dragged. Unlink it in the PropertyManager to move it freely.';
 
 export class SketchEditor implements ViewportTool {
   readonly sketchId: Id;
@@ -86,6 +93,8 @@ export class SketchEditor implements ViewportTool {
   tool: SkTool | null = null;
   hovered: Pickable | null = null;
   private preview: { lines: Vec2[][]; points: Vec2[]; dashed: Vec2[][]; guides: Vec2[][] } = { lines: [], points: [], dashed: [], guides: [] };
+  /** Part of the sketch an editing tool would act on (the piece Trim removes). */
+  private highlight: Vec2[][] = [];
   private drag: DragState | null = null;
   private boxEl: HTMLElement | null = null;
   private tipEl: HTMLElement;
@@ -103,6 +112,8 @@ export class SketchEditor implements ViewportTool {
   /** Cursor position in sketch coordinates. */
   cursorPt: Vec2 | null = null;
   private lastSnap: Snap | null = null;
+  /** The pointer event behind `lastSnap`, to snap again once the tool state changes. */
+  private lastToolEvent: VPEvent | null = null;
   private renderQueued = 0;
   private disposed = false;
   private unsubscribe: () => void;
@@ -134,6 +145,8 @@ export class SketchEditor implements ViewportTool {
       variables = structuredClone(app.store.doc.variables);
       if (reason === 'undo' || reason === 'redo') {
         if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
+        // It showed a piece of the geometry that was just replaced.
+        this.setHighlight([]);
         this.modifyRevert = null;
         this.closeModify();
       } else {
@@ -176,7 +189,18 @@ export class SketchEditor implements ViewportTool {
 
   // ---------- model changes ----------
 
-  dimValue = (d: SkDimension): number => this.app.store.dimensionValue(d);
+  /**
+   * Value of a driving dimension. One whose expression no longer evaluates (a
+   * variable missing from an opened file) is NaN, which the solver reports as
+   * a conflict, instead of an exception that aborted every sketch edit.
+   */
+  dimValue = (d: SkDimension): number => {
+    try {
+      return this.app.store.dimensionValue(d);
+    } catch {
+      return NaN;
+    }
+  };
 
   /** Projected entities whose model edge or vertex the last rebuild did not find. */
   lostExternal = new Set<Id>();
@@ -303,14 +327,26 @@ export class SketchEditor implements ViewportTool {
   }
 
   /** Snaps a raw sketch point using the active tool's context. */
-  snap(raw: Vec2, e?: { ctrl?: boolean }): Snap {
+  snap(raw: Vec2, e?: { ctrl?: boolean; pointerType?: string }): Snap {
     const t = this.tool;
+    if (e?.pointerType) this.coarse = e.pointerType === 'touch';
     return snapPoint(this.sketch, raw, {
       from: t?.from?.() ?? null,
       exclude: t?.exclude?.(),
       disabled: !!e?.ctrl || t?.snaps === false,
-      tol: this.px * 9,
+      tol: this.px * 9 * this.reach(),
     });
+  }
+
+  /**
+   * Whether the pointer last used is a finger. A fingertip covers far more
+   * than a mouse pointer, so snapping and picking reach twice as far with it:
+   * a mouse's radius made points and lines hard to hit by touch.
+   */
+  private coarse = false;
+
+  private reach(): number {
+    return this.coarse ? 2 : 1;
   }
 
   /** Creates (or reuses) a point for a snap result, adding relations. */
@@ -319,7 +355,7 @@ export class SketchEditor implements ViewportTool {
     const id = newId('p');
     sk.entities.push({ id, t: 'point', x: s.p[0], y: s.p[1] });
     if (s.kind === 'origin') sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, ORIGIN_ID] });
-    else if (s.kind === 'on' && s.curveId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, s.curveId] });
+    else if ((s.kind === 'on' || s.kind === 'h' || s.kind === 'v') && s.curveId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, s.curveId] });
     else if (s.kind === 'mid' && s.curveId) sk.constraints.push({ id: newId('r'), type: 'midpoint', refs: [id, s.curveId] });
     return id;
   }
@@ -327,7 +363,12 @@ export class SketchEditor implements ViewportTool {
   setTool(tool: SkTool | null) {
     this.tool?.cancel();
     this.tool = tool;
+    this.lastToolEvent = null;
+    // Picking tools (trim, dimension...) highlight the curve under the cursor;
+    // drawing tools never clear that, so it stayed lit in their colours.
+    this.hovered = null;
     this.preview = { lines: [], points: [], dashed: [], guides: [] };
+    this.highlight = [];
     this.tipEl.hidden = true;
     this.app.viewport.canvas.style.cursor = tool ? 'crosshair' : 'default';
     this.app.setStatus(tool ? tool.hint : 'Select sketch entities, drag them, or pick a sketch tool.');
@@ -338,7 +379,28 @@ export class SketchEditor implements ViewportTool {
 
   setPreview(lines: Vec2[][], points: Vec2[] = [], dashed: Vec2[][] = []) {
     this.preview = { lines, points, dashed, guides: this.preview.guides };
+    // A cleared preview means the tool finished or dropped what it was
+    // drawing: the inference guide and length tip measured from its start
+    // point would otherwise stay on screen until the pointer moves again.
+    if (!lines.length && !points.length && !dashed.length) this.resnapCursor();
     this.queueRender();
+  }
+
+  /** Highlights what the active tool would act on, in the hover colour. */
+  setHighlight(lines: Vec2[][]) {
+    if (!lines.length && !this.highlight.length) return;
+    this.highlight = lines;
+    this.queueRender();
+  }
+
+  /** Snaps the last cursor position again for the tool state (its start point may be gone). */
+  private resnapCursor() {
+    const t = this.tool, e = this.lastToolEvent, last = this.lastSnap;
+    if (!t || !e || !last || t.picks) return;
+    const s = this.snap(last.raw, e);
+    this.lastSnap = s;
+    this.updateGuides(s);
+    if (!this.tipEl.hidden) this.showTip(e, s);
   }
 
   // ---------- picking ----------
@@ -353,7 +415,7 @@ export class SketchEditor implements ViewportTool {
 
   pickAt(p: Vec2, tolPx = 7): Pickable | null {
     const sk = this.sketch;
-    const tol = this.px * tolPx;
+    const tol = this.px * tolPx * this.reach();
     let best: Pickable | null = null;
     let bd = tol;
     if (dist2(p, [0, 0]) < bd) { bd = dist2(p, [0, 0]); best = { kind: 'point', id: ORIGIN_ID }; }
@@ -368,7 +430,7 @@ export class SketchEditor implements ViewportTool {
     bd = tol;
     for (const e of sk.entities) {
       if (e.t === 'point') continue;
-      const r = distanceToCurve(ix, e as SkCurve, p);
+      const r = distanceToCurve(ix, e as SkCurve, p, bd);
       if (r.d < bd) { bd = r.d; best = { kind: 'curve', id: e.id }; }
     }
     return best;
@@ -377,6 +439,7 @@ export class SketchEditor implements ViewportTool {
   // ---------- ViewportTool ----------
 
   pointerDown(e: VPEvent): boolean {
+    this.coarse = e.pointerType === 'touch';
     const raw = this.toSketch(e);
     if (!raw) return false;
     if (this.tool) {
@@ -397,7 +460,18 @@ export class SketchEditor implements ViewportTool {
         // A circle whose radius is fixed (a diameter dimension, an equal
         // relation) keeps it, and the drag moves it by its centre if it can.
         const ids = !free || free.has(ent.c) ? [ent.c] : [];
+        // Nothing about it can move: say so, as for other geometry.
+        if (!ids.length) this.app.setStatus(ent.ext ? PROJECTED_DRAG_NOTICE : FIXED_DRAG_NOTICE, true);
+        else { this.app.clearStatus(FIXED_DRAG_NOTICE); this.app.clearStatus(PROJECTED_DRAG_NOTICE); }
         this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, circle: ent.id, moved: false };
+      } else if (ent.t === 'arc' && hit.kind === 'curve' && (!free || free.has(ent.id)) && !this.tangentTo(ent.id)
+        && [ent.a, ent.b].some((id) => !free || free.has(id)) && !this.arcRadiusLocked(ent)) {
+        // Like a circle's edge: dragging an arc changes its radius about its
+        // centre (the ends slide along their radii) instead of moving it.
+        const ends = [ent.a, ent.b].filter((id) => !free || free.has(id));
+        const ids = [...ends, ent.c];
+        this.app.clearStatus(FIXED_DRAG_NOTICE);
+        this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, pinned: new Set([ent.c]), arc: { c: ent.c }, moved: false };
       } else {
         // Drag every selected point (and curves' points) together.
         const ids = new Set<Id>();
@@ -415,9 +489,25 @@ export class SketchEditor implements ViewportTool {
         // The notice is transient: it clears on its own, and a drag that can
         // move something replaces it, so it never outlives the press that
         // caused it.
-        if (ids.size && !list.length) this.app.setStatus(FIXED_DRAG_NOTICE, true);
-        else if (list.length) this.app.clearStatus(FIXED_DRAG_NOTICE);
-        this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
+        if (ids.size && !list.length) {
+          // Projected geometry is held by the model, not by its constraints.
+          const projected = externalPointIds(sk.entities);
+          this.app.setStatus([...ids].every((id) => projected.has(id)) ? PROJECTED_DRAG_NOTICE : FIXED_DRAG_NOTICE, true);
+        } else if (list.length) {
+          this.app.clearStatus(FIXED_DRAG_NOTICE);
+          this.app.clearStatus(PROJECTED_DRAG_NOTICE);
+        }
+        // An arc's end dragged on its own resizes the arc about its centre,
+        // which stays (the other end slides along its radius); a tangent
+        // arc (a fillet) still follows the curves it meets.
+        const pinned = new Set<Id>();
+        if (hit.kind === 'point' && list.length === 1 && list[0] === hit.id) {
+          for (const a of sk.entities) {
+            if (a.t === 'arc' && (a.a === hit.id || a.b === hit.id) && (!free || free.has(a.c)) && !this.tangentTo(a.id)) pinned.add(a.c);
+          }
+        }
+        const all = [...list, ...[...pinned].filter((id) => !list.includes(id))];
+        this.drag = { kind: 'points', ids: all, start: all.map((id) => ix.pt(id)), grab: raw, pinned, moved: false };
       }
       this.app.store.beginBatch('Drag sketch geometry', () => { this.drag = null; });
       return true;
@@ -427,12 +517,16 @@ export class SketchEditor implements ViewportTool {
   }
 
   pointerMove(e: VPEvent, dragging: boolean) {
+    this.coarse = e.pointerType === 'touch';
     const raw = this.toSketch(e);
     if (!raw) return;
     this.cursorPt = raw;
     if (this.tool) {
       const s = this.tool.picks ? { p: raw, raw, kind: 'none' as const } : this.snap(raw, e);
       this.lastSnap = s;
+      this.lastToolEvent = e;
+      // The status bar shows where a click would put the point (as the tip does).
+      this.cursorPt = s.p;
       this.tool.move?.(s, e, dragging);
       this.updateGuides(s);
       this.showTip(e, s);
@@ -461,13 +555,36 @@ export class SketchEditor implements ViewportTool {
       }, 'sketch');
     } else if (d.kind === 'points' && d.ids!.length) {
       const dx = raw[0] - d.grab![0], dy = raw[1] - d.grab![1];
-      const targets = d.start!.map((p) => [p[0] + dx, p[1] + dy] as Vec2);
+      const c = d.arc ? d.start![d.ids!.indexOf(d.arc.c)] : null;
+      const r = c ? Math.max(dist2(c, raw), this.px) : 0;
+      const targets = d.start!.map((p, i) => {
+        if (d.pinned?.has(d.ids![i])) return p;
+        if (c) { const l = dist2(p, c) || 1; return [c[0] + ((p[0] - c[0]) / l) * r, c[1] + ((p[1] - c[1]) / l) * r] as Vec2; }
+        return [p[0] + dx, p[1] + dy] as Vec2;
+      });
       this.app.store.change('Drag', (doc) => {
         const s2 = doc.features.find((f) => f.id === this.sketchId) as SketchFeature;
         this.keepAnalysis(solveSketch(s2.entities, s2.constraints, { value: this.dimValue, drag: { kind: 'points', ids: d.ids!, targets }, analyze: false }));
       }, 'sketch');
     }
     this.queueRender();
+  }
+
+  /** Whether the relations and dimensions keep an arc's radius (about its centre) from changing. */
+  private arcRadiusLocked(arc: Extract<SkEntity, { t: 'arc' }>): boolean {
+    const sk = this.sketch;
+    const entities = structuredClone(sk.entities);
+    const ix = new SketchIndex(entities);
+    const c = ix.pt(arc.c), r = dist2(c, ix.pt(arc.a)), grown = r * 1.25 + this.px * 10;
+    const out = (id: Id): Vec2 => { const p = ix.pt(id), l = dist2(p, c) || 1; return [c[0] + ((p[0] - c[0]) / l) * grown, c[1] + ((p[1] - c[1]) / l) * grown]; };
+    solveSketch(entities, sk.constraints, { value: this.dimValue, drag: { kind: 'points', ids: [arc.a, arc.b, arc.c], targets: [out(arc.a), out(arc.b), c] }, analyze: false });
+    const after = new SketchIndex(entities);
+    return Math.abs(dist2(after.pt(arc.c), after.pt(arc.a)) - r) < 1e-6 * Math.max(1, r);
+  }
+
+  /** Whether a tangent relation ties the curve to another (a fillet follows the curves it meets). */
+  private tangentTo(id: Id): boolean {
+    return this.sketch.constraints.some((k) => k.type === 'tangent' && k.refs.includes(id));
   }
 
   /** Whether the relations and dimensions keep a circle's radius from changing. */
@@ -529,6 +646,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   click(e: VPEvent): boolean {
+    this.coarse = e.pointerType === 'touch';
     // A press that did not move ends any drag that pointerDown started.
     const d = this.drag;
     this.drag = null;
@@ -538,6 +656,9 @@ export class SketchEditor implements ViewportTool {
     if (this.tool) {
       const s = this.tool.picks ? { p: raw, raw, kind: 'none' as const } : this.snap(raw, e);
       this.tool.click?.(s, e);
+      // A finger does not hover: show at once what the tap started (a line's
+      // start point, a circle's centre) instead of nothing until the next tap.
+      if (e.pointerType === 'touch' && this.tool) this.tool.move?.(s, e, false);
       return true;
     }
     const hit = this.pickAt(raw);
@@ -552,7 +673,22 @@ export class SketchEditor implements ViewportTool {
     return false;
   }
 
+  /**
+   * Selects the sketch entity under a right-click (or touch long press) as a
+   * click would, so the context menu acts on it. False when there is none.
+   */
+  contextSelect(e: VPEvent): boolean {
+    if (this.tool) return false;
+    const raw = this.toSketch(e);
+    const hit = raw && this.pickAt(raw);
+    if (!hit) return false;
+    const it = { kind: 'sk' as const, id: hit.id };
+    if (!this.app.selection.has(it)) this.app.selection.set([it]);
+    return true;
+  }
+
   dblClick(e: VPEvent): boolean {
+    this.coarse = e.pointerType === 'touch';
     const raw = this.toSketch(e);
     if (!raw) return true;
     if (this.tool) {
@@ -572,6 +708,7 @@ export class SketchEditor implements ViewportTool {
   leave() {
     this.tipEl.hidden = true;
     if (this.hovered) { this.hovered = null; this.queueRender(); }
+    this.setHighlight([]);
   }
 
   private hoverAt(raw: Vec2) {
@@ -653,6 +790,12 @@ export class SketchEditor implements ViewportTool {
     const items = picked.map((id) => ({ kind: 'sk' as const, id }));
     if (additive) items.forEach((it) => this.app.selection.add(it));
     else this.app.selection.set(items);
+  }
+
+  /** Selects every curve and standalone point of the sketch (the end points come with their curves, as in a box selection). */
+  selectAll() {
+    const used = usedPoints(this.sketch.entities);
+    this.app.selection.set(this.sketch.entities.filter((e) => e.t !== 'point' || !used.has(e.id)).map((e) => ({ kind: 'sk' as const, id: e.id })));
   }
 
   // ---------- deletion and construction ----------
@@ -975,6 +1118,9 @@ export class SketchEditor implements ViewportTool {
     const pv = this.app.colors.sketchUnder;
     for (const l of this.preview.lines) for (let i = 0; i + 1 < l.length; i++) push(prev, pc, toWorld(fr, l[i]), toWorld(fr, l[i + 1]), pv);
     r.setLines('sk-preview', prev.length ? { positions: new Float32Array(prev), colors: new Uint8Array(pc), width: 1.6, depth: 'always', order: 13 } : null);
+    const hpos: number[] = [], hcol: number[] = [];
+    for (const l of this.highlight) for (let i = 0; i + 1 < l.length; i++) push(hpos, hcol, toWorld(fr, l[i]), toWorld(fr, l[i + 1]), this.app.colors.hover);
+    r.setLines('sk-highlight', hpos.length ? { positions: new Float32Array(hpos), colors: new Uint8Array(hcol), width: 3, depth: 'always', order: 13 } : null);
     const gpos: number[] = [], gcol: number[] = [];
     for (const l of [...this.preview.dashed, ...this.preview.guides]) for (let i = 0; i + 1 < l.length; i++) push(gpos, gcol, toWorld(fr, l[i]), toWorld(fr, l[i + 1]), this.app.colors.sketchConstruction, 220);
     r.setLines('sk-guides', gpos.length ? { positions: new Float32Array(gpos), colors: new Uint8Array(gcol), width: 1, depth: 'always', dash: 3, order: 13 } : null);
@@ -986,6 +1132,7 @@ export class SketchEditor implements ViewportTool {
 
     this.renderDimensions();
     this.renderRelations();
+    this.syncTabStops();
     this.app.updateSketchStatus();
   }
 
@@ -1041,6 +1188,7 @@ export class SketchEditor implements ViewportTool {
 
   private makeLabel(id: Id): HTMLElement {
     const el = h('div', { class: 'dim-label', role: 'button', tabindex: '-1' });
+    this.keyboardItem(el, id, 'skdim');
     let start: { x: number; y: number; at: Vec2 } | null = null;
     let moved = false;
     el.addEventListener('pointerdown', (e) => {
@@ -1145,8 +1293,54 @@ export class SketchEditor implements ViewportTool {
     return c.refs.map(at).filter((p): p is Vec2 => !!p);
   }
 
+  /** The dimension or constraint the keyboard last focused (the overlay's one Tab stop). */
+  private rovingId: Id | null = null;
+
+  /**
+   * Keyboard access to a dimension label or constraint badge. The overlay is
+   * one Tab stop; the arrow keys move between its items, focusing one selects
+   * it (so Delete removes it), Enter edits a dimension's value and the context
+   * menu key (or Shift+F10) opens its menu.
+   */
+  private keyboardItem(el: HTMLElement, id: Id, kind: 'skdim' | 'skrel') {
+    el.addEventListener('focus', () => {
+      this.rovingId = id;
+      // From the keyboard only: a click already selected (or Shift-click deselected) it.
+      if (el.matches(':focus-visible') && !this.app.selection.has({ kind, id })) this.app.selection.set([{ kind, id }]);
+      this.syncTabStops();
+    });
+    el.addEventListener('keydown', (e) => {
+      const items = [...this.app.viewport.overlay.querySelectorAll<HTMLElement>('.dim-label, .rel-badge')];
+      const i = items.indexOf(el);
+      const go = (j: number) => { const t = items[(j + items.length) % items.length]; t?.focus(); };
+      let handled = true;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(i + 1);
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') go(i - 1);
+      else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(items.length - 1);
+      else if (e.key === 'Enter' && kind === 'skdim') this.openModify(id);
+      else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+        const r = el.getBoundingClientRect();
+        if (kind === 'skdim') this.app.openDimensionMenu(id, r.left, r.bottom);
+        else this.app.openRelationMenu(id, r.left, r.bottom);
+      } else handled = false;
+      if (handled) { e.preventDefault(); e.stopPropagation(); }
+    });
+  }
+
+  /** Keeps exactly one dimension label or badge in the Tab order. */
+  private syncTabStops() {
+    const items = [...this.app.viewport.overlay.querySelectorAll<HTMLElement>('.dim-label, .rel-badge')];
+    const current = (this.rovingId && (this.labels.get(this.rovingId) ?? this.badges.get(this.rovingId)?.[0])) || items[0];
+    for (const el of items) {
+      const want = el === current ? '0' : '-1';
+      if (el.getAttribute('tabindex') !== want) el.setAttribute('tabindex', want);
+    }
+  }
+
   private makeBadge(id: Id, type: string): HTMLElement {
     const el = h('div', { class: 'rel-badge', role: 'button', tabindex: '-1', title: type[0].toUpperCase() + type.slice(1), 'aria-label': `${type} constraint` }, relationGlyph(type, 12));
+    this.keyboardItem(el, id, 'skrel');
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       if (e.shiftKey || e.ctrlKey || e.metaKey) this.app.selection.toggle({ kind: 'skrel', id });
@@ -1228,7 +1422,7 @@ export class SketchEditor implements ViewportTool {
     for (const el of this.labels.values()) el.remove();
     for (const els of this.badges.values()) els.forEach((x) => x.remove());
     const r = this.app.renderer;
-    for (const k of ['sk-active', 'sk-construction', 'sk-preview', 'sk-guides', 'sk-dims']) r.setLines(k, null);
+    for (const k of ['sk-active', 'sk-construction', 'sk-preview', 'sk-highlight', 'sk-guides', 'sk-dims']) r.setLines(k, null);
     for (const k of ['sk-points', 'sk-preview-pts']) r.setPoints(k, null);
     this.app.viewport.canvas.style.cursor = 'default';
   }

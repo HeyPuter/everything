@@ -13,9 +13,12 @@ export const IMPORT_EXTS = ['.step', '.stp', '.sldprt'];
 export const isStepFile = (name: string) => /\.(step|stp)$/i.test(name);
 export const isSolidWorksFile = (name: string) => /\.(sldprt|sldasm|slddrw)$/i.test(name);
 export const CLOUD_DIR = 'Parts';
+/** A part file's name, whatever the case of its extension. */
+export const isPartFile = (name: string) => name.toLowerCase().endsWith(EXT);
 const LOCAL_DIR = 'parametric-parts';
 const LOCAL_INDEX = 'parametric:local-parts';
 const RECENT_KEY = 'parametric:recent';
+const NO_LOCAL_STORAGE = 'This browser cannot store parts locally. Download the part or sign in to save it to your Puter cloud.';
 
 export type Location = { type: 'cloud'; path: string } | { type: 'local'; id: string };
 
@@ -26,8 +29,13 @@ export interface FileEntry {
   size?: number | null;
 }
 
+/**
+ * A name usable as a file name: no path or reserved characters, no control
+ * characters (tabs and line breaks become spaces), at most 120 characters,
+ * counted as characters so a cut never splits an emoji in half.
+ */
 export const safeName = (name: string) =>
-  (name || 'Untitled').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Untitled';
+  Array.from((name || 'Untitled').replace(/\s+/g, ' ').replace(/[\x00-\x1f\x7f-\x9f]+/g, '').replace(/[\\/:*?"<>|]+/g, '-').trim()).slice(0, 120).join('').trim() || 'Untitled';
 
 // ---- Local (OPFS) ----
 
@@ -73,6 +81,7 @@ export const localAvailable = async () => !!(await opfsDir());
 
 async function writeFile(dir: FileSystemDirectoryHandle, name: string, text: string) {
   const fh = await dir.getFileHandle(name, { create: true });
+  if (typeof fh.createWritable !== 'function') return writeInWorker(name, text);
   const w = await fh.createWritable();
   try {
     await w.write(text);
@@ -84,9 +93,41 @@ async function writeFile(dir: FileSystemDirectoryHandle, name: string, text: str
   }
 }
 
+// Safari before 26 reads browser storage from the page but writes it only
+// from a worker (see opfs-writer.ts).
+let writer: Worker | null = null;
+let writeRequests = 0;
+const pendingWrites = new Map<number, { resolve: () => void; reject: (e: Error) => void }>();
+
+function writeInWorker(name: string, text: string): Promise<void> {
+  if (typeof Worker !== 'function') return Promise.reject(new Error(NO_LOCAL_STORAGE));
+  if (!writer) {
+    writer = new Worker(new URL('./opfs-writer.ts', import.meta.url), { type: 'module', name: 'storage' });
+    writer.onmessage = (e: MessageEvent<{ id: number; ok: boolean; name?: string; message?: string }>) => {
+      const req = pendingWrites.get(e.data.id);
+      pendingWrites.delete(e.data.id);
+      if (!req) return;
+      if (e.data.ok) req.resolve();
+      else req.reject(Object.assign(new Error(e.data.name === 'TypeError' ? NO_LOCAL_STORAGE : e.data.message || NO_LOCAL_STORAGE), { name: e.data.name ?? 'Error' }));
+    };
+    // A worker that cannot start fails every write waiting for it.
+    writer.onerror = () => {
+      for (const req of pendingWrites.values()) req.reject(new Error(NO_LOCAL_STORAGE));
+      pendingWrites.clear();
+      writer = null;
+    };
+  }
+  const id = ++writeRequests;
+  const w = writer;
+  return new Promise<void>((resolve, reject) => {
+    pendingWrites.set(id, { resolve, reject });
+    w.postMessage({ id, dir: LOCAL_DIR, name, text });
+  });
+}
+
 async function localWrite(id: string, name: string, text: string) {
   const dir = await opfsDir();
-  if (!dir) throw new Error('This browser cannot store parts locally. Download the part or sign in to save it to your Puter cloud.');
+  if (!dir) throw new Error(NO_LOCAL_STORAGE);
   await writeFile(dir, `${id}${EXT}`, text);
   const list = readIndex().filter((p) => p.id !== id);
   list.unshift({ id, name, modified: Date.now(), size: text.length });
@@ -115,12 +156,38 @@ async function localDelete(id: string) {
 
 // ---- Cloud (Puter FS) ----
 
-async function cloudWrite(path: string, text: string) {
+async function cloudWrite(path: string, text: string, isNew: boolean) {
   const fs = puter()?.fs;
   if (!fs) throw new Error('Puter storage is not available.');
   // Signed out (in another tab, say): writing would open Puter's sign-in instead.
   if (!cloudAvailable()) throw new Error('Sign in to Puter to save this part to your cloud, or use Save As to keep it in this browser.');
-  return fs.write(path, new Blob([text], { type: 'application/json' }), { overwrite: true, createMissingParents: true });
+  const data = new Blob([text], { type: 'application/json' });
+  // A new part never replaces a file another tab created under the same name meanwhile.
+  return fs.write(path, data, isNew ? { overwrite: false, dedupeName: true, createMissingParents: true } : { overwrite: true, createMissingParents: true });
+}
+
+/** One saved version of a cloud file: it changes whenever anyone saves the file. */
+export interface FileVersion { modified: number; size: number | null }
+
+export const versionOf = (item?: { modified?: number; size?: number | null } | null): FileVersion | null =>
+  item && typeof item.modified === 'number' && Number.isFinite(item.modified) && item.modified > 0
+    ? { modified: toMs(item.modified), size: typeof item.size === 'number' ? item.size : null } : null;
+
+export const versionChanged = (now: FileVersion, then: FileVersion) =>
+  now.modified !== then.modified || (now.size != null && then.size != null && now.size !== then.size);
+
+/**
+ * A cloud file's current version: null when the file no longer exists,
+ * undefined when it could not be checked (offline, say), so callers go ahead.
+ */
+export async function cloudVersion(path: string): Promise<FileVersion | null | undefined> {
+  const fs = puter()?.fs;
+  if (!fs?.stat || !cloudAvailable()) return undefined;
+  try {
+    return versionOf(await fs.stat(path)) ?? undefined;
+  } catch (e) {
+    return isMissing(e) ? null : undefined;
+  }
 }
 
 async function cloudRead(path: string): Promise<string> {
@@ -162,17 +229,26 @@ export async function newLocation(name: string): Promise<Location> {
 
 /** Writes a part's JSON text. Returns the (possibly updated) location. */
 export async function saveText(location: Location, name: string, text: string): Promise<Location> {
+  return (await savePart(location, name, text)).location;
+}
+
+/**
+ * Writes a part's JSON text; `isNew` for a file that does not exist yet. Returns
+ * where it was written (a new cloud file can get a free name) and, for a cloud
+ * file, the version written.
+ */
+export async function savePart(location: Location, name: string, text: string, isNew = false): Promise<{ location: Location; version: FileVersion | null }> {
   if (location.type === 'cloud') {
-    const item = await cloudWrite(location.path, text);
+    const item = await cloudWrite(location.path, text, isNew);
     const loc: Location = { type: 'cloud', path: item?.path || location.path };
     rememberRecent({ location: loc, name });
     announceSaved(loc);
-    return loc;
+    return { location: loc, version: versionOf(item) ?? (await cloudVersion(loc.path)) ?? null };
   }
   await localWrite(location.id, name, text);
   rememberRecent({ location, name });
   announceSaved(location);
-  return location;
+  return { location, version: null };
 }
 
 // ---- Saves made in other tabs of this browser ----
@@ -231,6 +307,15 @@ export async function loadText(location: Location): Promise<string> {
   return location.type === 'cloud' ? cloudRead(location.path) : localRead(location.id);
 }
 
+/** A part's text and, for a cloud file, the version read (null when it could not be checked). */
+export async function loadPart(location: Location): Promise<{ text: string; version: FileVersion | null }> {
+  if (location.type !== 'cloud') return { text: await localRead(location.id), version: null };
+  // Asked first: a save landing between the two reads the safe way, as a change to confirm.
+  const version = cloudVersion(location.path);
+  const text = await cloudRead(location.path);
+  return { text, version: (await version) ?? null };
+}
+
 export async function deletePart(location: Location) {
   if (location.type === 'cloud') await puter()!.fs.delete(location.path);
   else await localDelete(location.id);
@@ -239,6 +324,11 @@ export async function deletePart(location: Location) {
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
+  return (await renameCloudPart(location, newName)).location;
+}
+
+/** Renames a cloud part's file; returns its new location and version. */
+export async function renameCloudPart(location: Location & { type: 'cloud' }, newName: string): Promise<{ location: Location; version: FileVersion | null }> {
   if (!cloudAvailable()) throw new Error('Sign in to Puter to rename parts saved in your cloud.');
   const item = await puter()!.fs.rename(location.path, `${safeName(newName)}${EXT}`);
   const renamed: Location = { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
@@ -249,7 +339,7 @@ export async function renameCloud(location: Location & { type: 'cloud' }, newNam
   } catch {
     /* other tabs are not told */
   }
-  return renamed;
+  return { location: renamed, version: versionOf(item) };
 }
 
 /**
@@ -263,7 +353,8 @@ export async function listParts(onCloudError?: (err: unknown) => void): Promise<
     try {
       const items = await puter()!.fs.readdir(CLOUD_DIR);
       for (const it of items) {
-        if (it.is_dir || it.isDir || !it.name.endsWith(EXT)) continue;
+        // Renamed on the desktop, a part's extension can be in capitals.
+        if (it.is_dir || it.isDir || !isPartFile(it.name)) continue;
         out.push({ name: it.name.slice(0, -EXT.length), location: { type: 'cloud', path: it.path }, modified: toMs(it.modified), size: it.size });
       }
     } catch (err) {
@@ -274,6 +365,12 @@ export async function listParts(onCloudError?: (err: unknown) => void): Promise<
   out.sort((a, b) => (b.modified || 0) - (a.modified || 0));
   return out;
 }
+
+/** The part name a cloud file's name gives ('' for parts kept in this browser). */
+export const partFileName = (loc: Location) => (loc.type === 'cloud' ? (loc.path.split('/').pop() ?? '').replace(/\.(parametric|json)$/i, '') : '');
+
+/** The browser-storage listing of a part kept in this browser. */
+export const readIndexEntry = (id: string) => readIndex().find((p) => p.id === id) ?? null;
 
 export const sameLocation = (a?: Location | null, b?: Location | null) =>
   !!a && !!b && a.type === b.type && (a.type === 'cloud' ? a.path === (b as { path: string }).path : a.id === (b as { id: string }).id);
@@ -317,7 +414,7 @@ export const locationLabel = (loc?: Location | null) =>
   !loc ? 'Not saved' : loc.type === 'cloud' ? loc.path.replace(/^.*\/AppData\/[^/]+\//, '') : 'This browser';
 
 /** Opens a file chosen from Puter storage: a part, or a STEP or SolidWorks file to import. */
-export async function pickCloudFile(): Promise<{ blob: Blob; fileName: string; location: Location; name: string } | null> {
+export async function pickCloudFile(): Promise<{ blob: Blob; fileName: string; location: Location; name: string; version: FileVersion | null } | null> {
   const p = puter();
   if (!p?.ui?.showOpenFilePicker) return null;
   const pick = p.ui.showOpenFilePicker({ accept: [EXT, '.json', ...IMPORT_EXTS], path: `%appdata%/${CLOUD_DIR}` });
@@ -325,19 +422,33 @@ export async function pickCloudFile(): Promise<{ blob: Blob; fileName: string; l
   if (!item) return null;
   const file = Array.isArray(item) ? item[0] : item;
   const blob = await file.read!();
-  return { blob, fileName: file.name, location: { type: 'cloud', path: file.path }, name: file.name.replace(/\.(parametric|json)$/i, '') };
+  return { blob, fileName: file.name, location: { type: 'cloud', path: file.path }, name: file.name.replace(/\.(parametric|json)$/i, ''), version: versionOf(file) };
 }
 
 /** Save As into a user-chosen Puter folder. */
-export async function pickCloudSave(text: string, name: string): Promise<Location | null> {
+export async function pickCloudSave(text: string, name: string): Promise<{ location: Location & { type: 'cloud' }; version: FileVersion | null } | null> {
   const p = puter();
   if (!p?.ui?.showSaveFilePicker) return null;
   const pick = p.ui.showSaveFilePicker(new Blob([text], { type: 'application/json' }), `${safeName(name)}${EXT}`);
   const item = await (pick?.undefinedOnCancel ?? pick);
   if (!item) return null;
-  const location: Location = { type: 'cloud', path: item.path };
+  const location = { type: 'cloud' as const, path: item.path };
   announceSaved(location);
-  return location;
+  return { location, version: versionOf(item) ?? (await cloudVersion(item.path)) ?? null };
+}
+
+/** File types for a file input: the extensions, plus the media types they are known by. */
+export function acceptList(exts: string[]): string {
+  const types = new Set<string>(exts);
+  for (const ext of exts) {
+    if (ext === EXT || ext === '.json') types.add('application/json');
+    if (isStepFile(`x${ext}`)) { types.add('model/step'); types.add('application/step'); }
+  }
+  // iPhone and iPad pickers grey out files of types they do not know
+  // (.parametric, .sldprt): there, any file can be picked and is checked after.
+  const nav = typeof navigator === 'undefined' ? null : navigator;
+  if (nav && (/iPhone|iPad|iPod/.test(nav.userAgent) || (/Macintosh/.test(nav.userAgent) && nav.maxTouchPoints > 1))) types.add('application/octet-stream');
+  return [...types].join(',');
 }
 
 /** Reads a file from the user's device. */

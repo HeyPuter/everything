@@ -102,6 +102,24 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Offset says splines cannot be offset yet instead of blaming the distance', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add spline', (sk) => {
+        sk.entities.push({ id: 's0', t: 'point', x: 0, y: 0 }, { id: 's1', t: 'point', x: 10, y: 6 }, { id: 's2', t: 'point', x: 20, y: 0 }, { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] });
+      });
+      a.selection.set([{ kind: 'sk', id: 'sp' }]);
+      a.commands.run('offset');
+    });
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).fill('2');
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await expect(page.getByText("Splines can't be offset yet. Select lines, arcs or circles.")).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(4);
+    expect(errors).toEqual([]);
+  });
+
   for (const shape of ['semicircle', 'lens'] as const) test(`an impossible inward ${shape} offset leaves the sketch and Redo unchanged`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
@@ -1132,6 +1150,168 @@ test.describe('sketching', () => {
     await expect.poll(dangling).toEqual({ lines: 1, dangling: 0 });
     expect(errors).toEqual([]);
   });
+
+  test('dimensions and constraints are reachable by keyboard: one Tab stop, arrows, Enter to edit, Delete', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned lines', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: -20, y: 0 }, { id: 'b', t: 'point', x: 20, y: 0 }, { id: 'L', t: 'line', a: 'a', b: 'b' });
+        sk.entities.push({ id: 'c', t: 'point', x: -20, y: 20 }, { id: 'd', t: 'point', x: 10, y: 20 }, { id: 'M', t: 'line', a: 'c', b: 'd' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['L'], value: 40, at: [0, -6], name: 'D1' }, { id: 'E', type: 'distance', refs: ['M'], value: 30, at: [-5, 26], name: 'D2' });
+        sk.constraints.push({ id: 'H', type: 'horizontal', refs: ['L'] });
+      });
+    });
+    const tabbable = () => page.locator('.dim-label[tabindex="0"], .rel-badge[tabindex="0"]');
+    await expect(tabbable()).toHaveCount(1);
+    await page.locator('.dim-label').first().focus();
+    await page.keyboard.press('ArrowRight');
+    const sel = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.map((it) => `${it.kind}:${'id' in it ? it.id : ''}`));
+    // Focus moved on, selecting what it reached, which stays the one Tab stop.
+    await expect.poll(sel).toEqual(['skdim:E']);
+    await expect(tabbable()).toHaveCount(1);
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Modify D2' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.locator('.rel-badge').first().focus();
+    await expect.poll(sel).toEqual(['skrel:H']);
+    await page.keyboard.press('Delete');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints.map((c) => c.id))).toEqual(['D', 'E']);
+    expect(errors).toEqual([]);
+  });
+
+  test('Ctrl+A is the browser select-all outside a sketch and in text fields', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.getSelection()?.removeAllRanges(); });
+    await page.keyboard.press('ControlOrMeta+a');
+    // Select All applies only in a sketch: it no longer swallows the key elsewhere.
+    expect(await page.evaluate(() => (window.getSelection()?.toString() ?? '').length)).toBeGreaterThan(0);
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    // Other disabled commands keep their keys: Redo with nothing to redo (Cmd+Y opens the history)
+    // and a standard view on the drawing sheet (Cmd+1 switches browser tabs).
+    const held = () => page.evaluate(() => ['y', '1'].map((key) => {
+      const e = new KeyboardEvent('keydown', { key, code: key === '1' ? 'Digit1' : 'KeyY', metaKey: true, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(e);
+      return e.defaultPrevented;
+    }));
+    expect(await held()).toEqual([true, true]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.openDrawing());
+    await expect(page.locator('.drawing-ws')).toBeVisible();
+    expect(await held()).toEqual([true, true]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.closeDrawing());
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.view-label')).toHaveText('Front');
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned line', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'L', t: 'line', a: 'a', b: 'b' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['L'], value: 10, at: [5, 5], name: 'D1' });
+      });
+      a.sketchEditor!.openModify('D');
+    });
+    const input = page.getByRole('dialog', { name: 'Modify D1' }).getByRole('textbox');
+    await expect(input).toBeFocused();
+    await input.evaluate((el: HTMLInputElement) => el.setSelectionRange(1, 1));
+    await page.keyboard.press('ControlOrMeta+a');
+    expect(await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 2]);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.length)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('pressing A while drawing lines carries on with a tangent arc from the chain end', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 120, y + 30);
+    await page.mouse.click(x, y + 30);
+    // The line tool says how; typing an A into a field is only text.
+    await expect(page.locator('.statusbar .msg')).toContainText('Press A to carry on with a tangent arc');
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned line', (sk) => {
+        sk.entities.push({ id: 'qa', t: 'point', x: 30, y: 30 }, { id: 'qb', t: 'point', x: 40, y: 30 }, { id: 'Q', t: 'line', a: 'qa', b: 'qb' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['Q'], value: 10, at: [35, 35], name: 'D1' });
+      });
+      a.sketchEditor!.openModify('D');
+    });
+    const box = page.getByRole('dialog', { name: 'Modify D1' }).getByRole('textbox');
+    await expect(box).toBeFocused();
+    await box.press('a');
+    await box.press('Escape');
+    const tool = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.tool?.id);
+    expect(await tool()).toBe('line');
+    await page.keyboard.press('a');
+    await expect(page.locator('.statusbar .msg')).toHaveText('Click where the arc should end. Press Esc to start from another end point.');
+    await page.mouse.move(x + 50, y - 10);
+    await page.mouse.click(x + 60, y - 20);
+    const made = () => page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      const line = sk.entities.find((e) => e.t === 'line') as { id: string; b: string } | undefined;
+      const arc = sk.entities.find((e) => e.t === 'arc') as { id: string; a: string; b: string } | undefined;
+      return { tool: (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.tool?.id, shared: !!line && !!arc && (arc.a === line.b || arc.b === line.b), tangent: sk.constraints.some((c) => c.type === 'tangent') };
+    });
+    await expect.poll(made).toEqual({ tool: 'tangentArc', shared: true, tangent: true });
+    expect(errors).toEqual([]);
+  });
+
+  test('Ctrl+A selects all the sketch geometry, which Delete then removes', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x - 80, y - 40);
+    await page.mouse.click(x + 80, y + 40);
+    await page.locator('[data-cmd="tool:point"]').click();
+    await page.mouse.click(x + 120, y - 90);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.mouse.click(x, y - 150);
+    await page.keyboard.press('ControlOrMeta+a');
+    const selected = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.length);
+    // Four lines and the standalone point (corner points come with their lines).
+    await expect.poll(selected).toBe(5);
+    await page.keyboard.press('Delete');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('the status bar shows the snapped position while drawing', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const origin = await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen([0, 0]), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    });
+    await page.locator('[data-cmd="tool:line"]').click();
+    // A few pixels off the origin: the point would go on the origin, and the status says so.
+    await page.mouse.move(origin.x + 4, origin.y - 3);
+    await page.mouse.move(origin.x + 3, origin.y - 2);
+    await expect(page.locator('.statusbar')).toContainText('0.00mm  0.00mm');
+    expect(errors).toEqual([]);
+  });
+
+  test('Esc on a line in progress clears its inference guide and length tip', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 40);
+    // Close to horizontal: the horizontal guide runs from the start point.
+    await page.mouse.move(x + 50, y + 41);
+    const guides = () => page.evaluate(() => (window as unknown as { __parametric: { renderer: { lines: Map<string, unknown> } } }).__parametric.renderer.lines.has('sk-guides'));
+    await expect.poll(guides).toBe(true);
+    await expect(page.locator('.cursor-tip')).toContainText('L ');
+    await page.keyboard.press('Escape');
+    // The tool stays active, with nothing measured from the dropped start point.
+    await expect.poll(guides).toBe(false);
+    await expect(page.locator('.cursor-tip')).not.toContainText('L ');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { tool: { id: string } | null } } }).__parametric.sketchEditor.tool?.id)).toBe('line');
+    expect(errors).toEqual([]);
+  });
+
   test('leaving a sketch with a tool still active leaves no sketch drawn over the model', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
@@ -1232,6 +1412,273 @@ test.describe('sketching', () => {
     await touch('touchStart', [[x + 100, y]]);
     await touch('touchEnd', []);
     await expect.poll(async () => (await state()).sel).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
+  test('a dimension linked to a missing variable shows as a conflict and the sketch stays editable', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    // As a part file written elsewhere can arrive: the variable is not defined.
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const id = a.sketchEditor!.sketchId;
+      a.store.change('Add linked line', (doc) => {
+        const sk = doc.features.find((f) => f.id === id) as SketchFeature;
+        sk.entities.push({ id: 'a', t: 'point', x: -20, y: 30 }, { id: 'b', t: 'point', x: 20, y: 30 }, { id: 'L', t: 'line', a: 'a', b: 'b' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['L'], value: '=Missing', at: [0, 40], name: 'D1' });
+      }, 'sketch');
+    });
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { kinds: a.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').map((e) => e.t).join(), undo: a.store.undoLabel };
+    });
+    await page.locator('[data-cmd="tool:circle"]').click();
+    await page.mouse.click(x, y + 60);
+    await page.mouse.click(x + 40, y + 60);
+    await expect.poll(state).toEqual({ kinds: 'line,circle', undo: 'Add circle' });
+    await expect(page.locator('.status-over')).toBeVisible();
+    await expect(page.locator('.dim-label.bad')).toHaveCount(1);
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect.poll(state).toEqual({ kinds: 'line', undo: 'Add linked line' });
+    expect(errors).toEqual([]);
+  });
+
+  for (const tool of ['polygon', 'centerRectangle'] as const) test(`the ${tool} corner clicked on an existing point shares it`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'mark', t: 'point', x: 25, y: 15 }); });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    await page.locator(`[data-cmd="tool:${tool}"]`).click();
+    const c = await screen([5, 5]);
+    await page.mouse.move(c.x - 3, c.y);
+    await page.mouse.click(c.x, c.y);
+    // A few pixels off: the cursor snaps to the point (and says so).
+    const m = await screen([25, 15]);
+    await page.mouse.move(m.x + 3, m.y + 2);
+    await page.mouse.click(m.x + 3, m.y + 2);
+    const used = await page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      return { lines: sk.entities.filter((e) => e.t === 'line' && !e.construction && (e.a === 'mark' || e.b === 'mark')).length, points: sk.entities.filter((e) => e.t === 'point' && Math.hypot(e.x - 25, e.y - 15) < 1e-6).length };
+    });
+    expect(used).toEqual({ lines: 2, points: 1 });
+    expect(errors).toEqual([]);
+  });
+
+  test('a 3 point arc drawn through an existing point keeps it on the arc', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'mark', t: 'point', x: 3, y: 12 }); });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    await page.locator('[data-cmd="tool:arc3"]').click();
+    for (const p of [[-20, 1], [20, 1], [3, 12]] as [number, number][]) {
+      const q = await screen(p);
+      await page.mouse.move(q.x + 2, q.y + 2);
+      await page.mouse.click(q.x + 2, q.y + 2);
+    }
+    const cons = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints.map((c) => `${c.type}:${c.refs.join()}`));
+    await expect.poll(cons).toEqual([expect.stringMatching(/^coincident:mark,a\d+$/)]);
+    expect(errors).toEqual([]);
+  });
+
+  test('Smart Dimension lights up a second entity it would pick instead of previewing a placement there', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add lines', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: -30, y: 0 }, { id: 'b', t: 'point', x: 30, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' });
+        sk.entities.push({ id: 'c', t: 'point', x: -30, y: 20 }, { id: 'd', t: 'point', x: 30, y: 25 }, { id: 'k', t: 'line', a: 'c', b: 'd' });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { hovered: a.sketchEditor!.hovered?.id ?? null, preview: (a.renderer as unknown as { lines: Map<string, unknown> }).lines.has('sk-preview') };
+    });
+    await page.locator('[data-cmd="tool:smartDimension"]').click();
+    const h = await screen([10, 0]);
+    await page.mouse.click(h.x, h.y);
+    const k = await screen([0, 22.5]);
+    await page.mouse.move(k.x, k.y - 4);
+    await page.mouse.move(k.x, k.y);
+    await expect.poll(state).toEqual({ hovered: 'k', preview: false });
+    const away = await screen([0, -12]);
+    await page.mouse.move(away.x, away.y);
+    await expect.poll(state).toEqual({ hovered: null, preview: true });
+    expect(errors).toEqual([]);
+  });
+
+  test('Trim explains that a crossed spline cannot be trimmed, and removes an uncrossed one', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add splines', (sk) => {
+        sk.entities.push({ id: 's0', t: 'point', x: -30, y: 0 }, { id: 's1', t: 'point', x: 0, y: 6 }, { id: 's2', t: 'point', x: 30, y: 0 }, { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] });
+        sk.entities.push({ id: 'c', t: 'point', x: 0, y: -20 }, { id: 'd', t: 'point', x: 0, y: 20 }, { id: 'v', t: 'line', a: 'c', b: 'd' });
+        sk.entities.push({ id: 'u0', t: 'point', x: -30, y: -30 }, { id: 'u1', t: 'point', x: -20, y: -25 }, { id: 'u2', t: 'point', x: -10, y: -30 }, { id: 'lone', t: 'spline', pts: ['u0', 'u1', 'u2'] });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const ids = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').map((e) => e.id).sort());
+    await page.locator('[data-cmd="tool:trim"]').click();
+    const onSpline = await page.evaluate(async () => {
+      const geom = '/src/sketch/geom.ts';
+      const { tessellate, SketchIndex } = await import(/* @vite-ignore */ geom) as typeof import('../../src/sketch/geom');
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      const ix = new SketchIndex(sk.entities);
+      const at = (id: string, x: number) => tessellate(ix, ix.get(id) as never, 0.01).find((q) => Math.abs(q[0] - x) < 0.5)!;
+      return [at('sp', 15), at('lone', -15)];
+    });
+    const p = await screen(onSpline[0] as [number, number]);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.click(p.x, p.y);
+    await expect(page.getByText("A spline that other curves cross can't be trimmed yet")).toBeVisible();
+    expect(await ids()).toEqual(['lone', 'sp', 'v']);
+    const q = await screen(onSpline[1] as [number, number]);
+    await page.mouse.move(q.x, q.y);
+    await page.mouse.click(q.x, q.y);
+    await expect.poll(ids).toEqual(['sp', 'v']);
+    expect(errors).toEqual([]);
+  });
+
+  test('Trim highlights only the piece a click would remove', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add crossing lines', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: -30, y: 0 }, { id: 'b', t: 'point', x: 30, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' });
+        sk.entities.push({ id: 'c', t: 'point', x: 0, y: -20 }, { id: 'd', t: 'point', x: 0, y: 20 }, { id: 'v', t: 'line', a: 'c', b: 'd' });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const hl = (a.renderer as unknown as { lines: Map<string, { positions: Float32Array }> }).lines.get('sk-highlight');
+      return { hovered: a.sketchEditor!.hovered?.id ?? null, xs: hl ? [...hl.positions].filter((_, i) => i % 3 === 0).map(Math.round) : [] };
+    });
+    await page.locator('[data-cmd="tool:trim"]').click();
+    const p = await screen([15, 0]);
+    await page.mouse.move(p.x, p.y - 4);
+    await page.mouse.move(p.x, p.y);
+    // The right half of the horizontal line, not the whole line.
+    await expect.poll(state).toEqual({ hovered: null, xs: [0, 30] });
+    await page.mouse.click(p.x, p.y);
+    await expect.poll(state).toEqual({ hovered: null, xs: [] });
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'line').length)).toBe(2);
+    const q = await screen([0, 10]);
+    await page.mouse.move(q.x, q.y);
+    // Nothing crosses the vertical line now but the remaining half's end: its upper part goes.
+    await expect.poll(async () => (await state()).xs.length).toBeGreaterThan(0);
+    await page.keyboard.press('Escape');
+    await expect.poll(state).toEqual({ hovered: null, xs: [] });
+    expect(errors).toEqual([]);
+  });
+
+  test('a curve highlighted by Extend does not stay highlighted in the next tool', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y - 40);
+    await page.mouse.dblclick(x + 100, y - 40);
+    const hovered = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.hovered?.kind ?? null);
+    await page.locator('[data-cmd="tool:extend"]').click();
+    await page.mouse.move(x, y - 45);
+    await page.mouse.move(x, y - 40);
+    await expect.poll(hovered).toBe('curve');
+    await page.keyboard.press('c');
+    await page.mouse.move(x, y + 80);
+    await expect.poll(hovered).toBe(null);
+    expect(errors).toEqual([]);
+  });
+
+  test('right-clicking a sketch line selects it so the context menu acts on it', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.dblclick(x + 100, y + 60);
+    await page.keyboard.press('Escape');
+    await page.mouse.click(x, y - 100);
+    const selected = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.map((it) => it.kind));
+    expect(await selected()).toEqual([]);
+    await page.mouse.click(x, y + 60, { button: 'right' });
+    const menu = page.getByRole('menu', { name: 'Context menu' });
+    await expect(menu.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+    expect(await selected()).toEqual(['sk']);
+    await menu.getByRole('menuitem', { name: 'Delete' }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('dragging an arc or its end resizes it about its centre; a fixed radius moves it instead', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add arc', (sk) => {
+        sk.entities.push({ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 20, y: 0 }, { id: 'b', t: 'point', x: 0, y: 20 }, { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const drag = async (from: [number, number], to: [number, number]) => {
+      const p = await screen(from), q = await screen(to);
+      await page.mouse.move(p.x, p.y);
+      await page.mouse.down();
+      await page.mouse.move(q.x, q.y, { steps: 4 });
+      await page.mouse.up();
+    };
+    const pts = () => page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      const at = (id: string) => { const e = sk.entities.find((x) => x.id === id) as { x: number; y: number }; return [Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100]; };
+      return { c: at('c'), a: at('a'), b: at('b') };
+    });
+    // The curve: radius 20 becomes 30 along both radii, the centre stays.
+    const mid = 20 * Math.SQRT1_2, far = 30 * Math.SQRT1_2;
+    await drag([mid, mid], [far, far]);
+    await expect.poll(pts).toEqual({ c: [0, 0], a: [30, 0], b: [0, 30] });
+    // An end: the centre stays and the other end follows the new radius.
+    await drag([30, 0], [36, 0]);
+    await expect.poll(pts).toEqual({ c: [0, 0], a: [36, 0], b: [0, 36] });
+    // With its radius dimensioned the curve drag moves the arc instead.
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Dimension', (sk) => { sk.constraints.push({ id: 'R', type: 'radius', refs: ['arc'], value: 36, at: [40, 40], name: 'D1' }); });
+    });
+    const m2 = 36 * Math.SQRT1_2;
+    await drag([m2, m2], [m2 + 5, m2]);
+    await expect.poll(pts).toEqual({ c: [5, 0], a: [41, 0], b: [5, 36] });
     expect(errors).toEqual([]);
   });
 
@@ -1533,7 +1980,8 @@ test('the fully defined drag notice clears once geometry that can move is dragge
     const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
     a.sketchEditor!.edit('Add geometry', (sk) => {
       sk.entities.push({ id: 'fixed', t: 'point', x: 20, y: 20 }, { id: 'free', t: 'point', x: -20, y: -20 });
-      sk.constraints.push({ id: 'fx', type: 'fix', refs: ['fixed'] });
+      sk.entities.push({ id: 'cc', t: 'point', x: 20, y: -20 }, { id: 'circle', t: 'circle', c: 'cc', r: 6 });
+      sk.constraints.push({ id: 'fx', type: 'fix', refs: ['fixed'] }, { id: 'fc', type: 'fix', refs: ['circle'] });
     });
   });
   const screen = (p: [number, number]) => page.evaluate((p) => {
@@ -1553,6 +2001,23 @@ test('the fully defined drag notice clears once geometry that can move is dragge
   await expect(status).toHaveText('This geometry is fully defined, so it cannot be dragged.');
   await drag([-20, -20], [-30, -10]);
   // Straight away, not when the notice's own timer runs out.
+  await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
+  // A fixed circle dragged by its edge says so too.
+  await drag([26, -20], [32, -12]);
+  await expect(status).toHaveText('This geometry is fully defined, so it cannot be dragged.');
+  await drag([-30, -10], [-20, -20]);
+  await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
+  // Projected geometry is held by its model edge, which the notice says.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add projected line', (sk) => {
+      sk.entities.push({ id: 'ea', t: 'point', x: -20, y: 20 }, { id: 'eb', t: 'point', x: -10, y: 20 });
+      sk.entities.push({ id: 'proj', t: 'line', a: 'ea', b: 'eb', ext: { kind: 'edge', edge: { name: 'E1', sig: { type: 'line', m: [-15, 20, 0], len: 10 } } } });
+    });
+  });
+  await drag([-15, 20], [-15, 26]);
+  await expect(status).toHaveText(/^Projected geometry follows its model edge, so it cannot be dragged/);
+  await drag([-20, -20], [-25, -15]);
   await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
   expect(errors).toEqual([]);
 });

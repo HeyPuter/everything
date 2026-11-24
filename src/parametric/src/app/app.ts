@@ -9,13 +9,13 @@ import { evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { BASE_FRAMES, BASE_PLANE_NAMES } from '../model/planes';
 import type { BasePlane, Feature, Id, PlaneRef, SkEntity, SketchFeature } from '../model/types';
-import { UNIT_SYSTEMS, formatLength } from '../model/units';
+import { UNIT_SYSTEMS } from '../model/units';
 import { Renderer, type Theme } from '../render/renderer';
 import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
 import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
-import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
+import { announce, formatShortcut, h, isTextInput, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
@@ -27,6 +27,7 @@ import { SketchEditor } from './sketch/editor';
 import { sketchDefinitionStatus } from './sketch/panel';
 import { FeatureTree } from './tree';
 import { DrawingPanel, DrawingWorkspace } from './drawing';
+import { formatGroup, setPartUnits } from './dialogs';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
@@ -45,8 +46,9 @@ export interface Colors {
 }
 
 /** Controls whose own keyboard activation must win over global shortcuts. */
-const ACTIVATES_ON_ENTER = 'button, a[href], summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
-const ACTIVATES_ON_SPACE = 'input[type="checkbox"], input[type="radio"], select, [role="checkbox"], [role="switch"], [role="radio"]';
+const ACTIVATES_ON_ENTER = 'button, a[href], summary, input[type="color"], [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
+/** The colour input opens its picker on Space or Enter (Appearance › Custom colour). */
+const ACTIVATES_ON_SPACE = 'input[type="checkbox"], input[type="radio"], input[type="color"], select, [role="checkbox"], [role="switch"], [role="radio"]';
 
 /** Hooks implemented by the feature/command modules (set up in main). */
 export interface AppHooks {
@@ -61,6 +63,22 @@ export interface AppHooks {
   recent?: () => MenuItem[];
   gettingStarted?: () => void;
   saveSettings?: (s: Settings) => void;
+}
+
+/**
+ * Runs `replace`, which redraws `box` (a panel shown again after a plane or
+ * units change), and gives focus to the redrawn control that stands where the
+ * focused one did (same kind, label and place), not to the page.
+ */
+function keepFocus(box: HTMLElement, replace: () => void) {
+  const prev = document.activeElement instanceof HTMLElement && box.contains(document.activeElement) ? document.activeElement : null;
+  const sig = (el: Element) => `${el.getAttribute('role') ?? ''}|${el.getAttribute('aria-label') ?? el.textContent?.trim() ?? ''}`;
+  const like = () => (prev ? [...box.querySelectorAll<HTMLElement>(prev.tagName)].filter((x) => sig(x) === sig(prev)) : []);
+  const at = like().indexOf(prev!);
+  replace();
+  if (!prev || prev.isConnected) return;
+  const matches = like();
+  (matches[at] ?? matches[0])?.focus({ preventScroll: true });
 }
 
 export class App {
@@ -218,8 +236,12 @@ export class App {
     this.renderer.requestRender();
   }
 
+  /** The part colour the renderer shows. */
+  private shownColor: string | null | undefined;
+
   applyModelColor() {
     const c = this.store.doc.color;
+    this.shownColor = c;
     this.renderer.modelColor = c ? parseColor(c) : null;
     this.renderer.requestRender();
   }
@@ -239,7 +261,7 @@ export class App {
     this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
     // Phones: the sheet can shrink to its tabs, title and OK/Cancel so the
     // preview of a feature being edited is visible above it.
-    const peek = h('button', { class: 'icon-btn mobile-only lp-peek', type: 'button', 'aria-label': 'Expand panel', 'aria-expanded': 'true', 'aria-controls': 'left-panel' }, icon('chevronDown', 16));
+    const peek = h('button', { class: 'icon-btn mobile-only lp-peek', type: 'button', 'aria-label': 'Collapse panel', 'aria-expanded': 'true', 'aria-controls': 'left-panel' }, icon('chevronDown', 16));
     peek.addEventListener('click', () => this.setLeftPanePeek(!this.shell.leftpane.classList.contains('peek')));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
@@ -251,6 +273,8 @@ export class App {
     const b = this.shell.lpTabs.querySelector<HTMLElement>('.lp-peek');
     if (!b) return;
     b.setAttribute('aria-expanded', String(!peek));
+    // It says what a press does: "Expand panel, collapsed" rather than "Expand panel, expanded".
+    b.setAttribute('aria-label', peek ? 'Expand panel' : 'Collapse panel');
     b.replaceChildren(icon(peek ? 'chevronUp' : 'chevronDown', 16));
   }
 
@@ -258,15 +282,27 @@ export class App {
     this.leftTab = tab;
     selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === tab);
     const body = this.shell.lpBody;
+    // A panel opens at its top, not at the scroll position of the tree it
+    // replaces; the tree comes back where it was.
+    const before = this.leftShown.get(body.firstElementChild as Element);
+    const next = tab === 'tree' ? this.tree : this.panel;
+    if (before === this.tree && next !== this.tree) this.treeScroll = body.scrollTop;
     if (tab === 'tree') {
       body.replaceChildren(this.tree.el);
       this.tree.render();
     } else if (this.panel) {
-      body.replaceChildren(this.panelElement(this.panel));
+      const panel = this.panel;
+      keepFocus(body, () => body.replaceChildren(this.panelElement(panel)));
     } else {
       body.replaceChildren(h('div', { class: 'pm-msg info', style: { margin: '12px' } }, 'Start a command to see its properties here.'));
     }
+    if (body.firstElementChild) this.leftShown.set(body.firstElementChild, next);
+    if (before !== next) body.scrollTop = next === this.tree ? this.treeScroll : 0;
   }
+
+  /** What the left pane shows (the tree or a panel), to tell a new view from a redrawn one. */
+  private leftShown = new WeakMap<Element, unknown>();
+  private treeScroll = 0;
 
   toggleLeftPane(open?: boolean) {
     const lp = this.shell.leftpane;
@@ -274,10 +310,34 @@ export class App {
     lp.classList.toggle('open', v);
     if (!v) this.setLeftPanePeek(false);
     this.shell.treeToggle.setAttribute('aria-expanded', String(v));
+    this.syncSheetInert();
+  }
+
+  /**
+   * View › Design Tree: on phones the sheet opens or closes; on wider screens,
+   * where the pane is always there, its Design tree tab is shown and focused.
+   */
+  showDesignTree() {
+    if (window.matchMedia('(max-width: 760px)').matches) { this.toggleLeftPane(); return; }
+    this.showLeft('tree');
+    this.tree.el.querySelector<HTMLElement>('.ti[tabindex="0"]')?.focus();
+  }
+
+  /**
+   * Phones: the closed sheet is out of sight, so out of reach of the keyboard
+   * and screen readers too; focus in it moves to the Tree button that brings it back.
+   */
+  syncSheetInert() {
+    const lp = this.shell.leftpane;
+    const hidden = window.matchMedia('(max-width: 760px)').matches && !lp.classList.contains('open');
+    if (hidden && lp.contains(document.activeElement)) this.shell.treeToggle.focus({ preventScroll: true });
+    lp.inert = hidden;
   }
 
   private panelElement(p: PropertyPanel): HTMLElement {
-    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2', tabindex: '-1' }, p.title));
+    const title = h('div', { class: 'title', role: 'heading', 'aria-level': '2', tabindex: '-1' }, p.title);
+    titleWhenClipped(title);
+    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), title);
     const actions = h('div', { class: 'pm-actions' });
     if (p.confirm) {
       actions.append(
@@ -324,7 +384,9 @@ export class App {
     };
     const split = (cmd: string, items: () => MenuItem[], label: string) => {
       const main = this.commandIcon(cmd);
-      const caret = h('button', { class: 'icon-btn caret', type: 'button', 'aria-label': label, 'aria-haspopup': 'menu' }, icon('chevronDown', 12));
+      const caret = h('button', { class: 'icon-btn caret', type: 'button', 'aria-label': label, 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('chevronDown', 12));
+      // Icon-only, like the buttons beside it: it says what it opens.
+      attachTooltip(caret, label);
       caret.addEventListener('click', () => {
         const r = caret.getBoundingClientRect();
         openMenu(items(), r.left - 20, r.bottom + 4, { anchor: caret, label });
@@ -429,6 +491,8 @@ export class App {
   /** Opens a task pane panel by id (set up by the task pane module). */
   openTaskPane: (id: string) => void = () => {};
   toggleTaskPane: (id: string) => void = () => {};
+  /** Why Undo and Redo must wait (the assistant is changing the part), or null. Set by the assistant. */
+  historyBusy: () => string | null = () => null;
   /** The open task pane panel, if any. */
   taskPaneOpen: () => string | null = () => null;
 
@@ -523,6 +587,8 @@ export class App {
   private bindShell() {
     const s = this.shell;
     s.treeToggle.addEventListener('click', () => this.toggleLeftPane());
+    window.matchMedia('(max-width: 760px)').addEventListener('change', () => this.syncSheetInert());
+    this.syncSheetInert();
     s.treeToggle.addEventListener('click', this.uncoverWorkspace);
     s.cmTools.addEventListener('click', this.uncoverWorkspace);
     // Splitter resize.
@@ -545,10 +611,15 @@ export class App {
     });
     s.splitter.addEventListener('keydown', (e) => {
       const w = s.leftpane.getBoundingClientRect().width;
-      if (e.key === 'ArrowLeft') s.leftpane.style.width = `${Math.max(200, w - 20)}px`;
-      if (e.key === 'ArrowRight') s.leftpane.style.width = `${Math.min(520, w + 20)}px`;
-      s.splitter.setAttribute('aria-valuenow', String(Math.round(s.leftpane.getBoundingClientRect().width)));
+      const to = e.key === 'ArrowLeft' ? w - 20 : e.key === 'ArrowRight' ? w + 20 : e.key === 'Home' ? 200 : e.key === 'End' ? 520 : null;
+      if (to === null) return;
+      e.preventDefault();
+      s.leftpane.style.width = `${Math.max(200, Math.min(520, to))}px`;
     });
+    // The width it reports follows the panel, also where narrow windows set it.
+    new ResizeObserver(() => {
+      if (s.leftpane.offsetWidth) s.splitter.setAttribute('aria-valuenow', String(Math.round(s.leftpane.getBoundingClientRect().width)));
+    }).observe(s.leftpane);
     // Command search.
     let active = 0;
     const results = s.searchResults;
@@ -602,6 +673,14 @@ export class App {
       }
     });
     s.docTitle.addEventListener('click', () => this.commands.run('rename'));
+    // The units shown in the status bar are a menu of the unit systems, as Part Properties has.
+    s.statusUnits.addEventListener('click', () => {
+      const r = s.statusUnits.getBoundingClientRect();
+      const items: MenuItem[] = Object.values(UNIT_SYSTEMS).map((u) => ({
+        label: u.label, checked: u.id === this.store.doc.units, radio: true, run: () => setPartUnits(this, u.id),
+      }));
+      openMenu(items, r.left, r.top, { anchor: s.statusUnits, label: 'Unit system' });
+    });
   }
 
   // ---------- status ----------
@@ -643,7 +722,12 @@ export class App {
     syncCommandButtons(this.shell.root, this.commands);
     const doc = this.store.doc;
     this.shell.docTitle.textContent = doc.name;
+    // The flyout tree over a panel is headed by the part's name too.
+    const flyoutLabel = this.flyoutEl?.querySelector('button > span');
+    if (flyoutLabel) flyoutLabel.textContent = doc.name;
     this.shell.docTitle.setAttribute('aria-label', `${doc.name}, rename part`);
+    // The name may be clipped by an ellipsis: the tooltip has all of it.
+    this.shell.docTitle.title = `Rename ${doc.name}`;
     this.shell.docState.textContent = this.store.dirty ? 'Edited' : this.location ? 'Saved' : '';
     this.shell.statusUnits.textContent = doc.units;
     document.title = `${this.store.dirty ? '* ' : ''}${doc.name} - Parametric`;
@@ -669,7 +753,7 @@ export class App {
     this.store.load(doc);
     this.selection.clear();
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
-    this.viewport.setView('trimetric', false);
+    this.viewport.setView('trimetric', false, false);
     this.lastBuildKey = '';
     this.hooks.afterLoad?.();
   }
@@ -716,6 +800,8 @@ export class App {
       this.sketchEditor?.resolve();
       this.refreshSketchPanel();
     }
+    // Undo, Redo and the assistant change the colour too.
+    if (this.store.doc.color !== this.shownColor) this.applyModelColor();
     if (reason !== 'sketch') this.requestRebuild();
     else {
       this.syncChrome();
@@ -793,14 +879,17 @@ export class App {
       const sk = resolved.features.find((f) => f.id === this.sketchEditor!.sketchId) ?? null;
       preview = sk;
     }
-    const key = JSON.stringify([upTo, this.settings.quality, preview, resolved.features.slice(0, upTo)]);
+    // Sketches keep the shape they were last solved to; other features with
+    // a value that cannot be evaluated fail rather than build with zero.
+    const invalid = Object.fromEntries([...resolved.errors].filter(([id]) => this.store.feature(id)?.type !== 'sketch'));
+    const key = JSON.stringify([upTo, this.settings.quality, preview, resolved.features.slice(0, upTo), invalid]);
     if (key === this.lastBuildKey) return;
     this.lastBuildKey = key;
     const t0 = performance.now();
     const documentSignal = this.documentSignal;
     let res: BuildResult;
     try {
-      res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview });
+      res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview, invalid });
       // A build of the part that was open before New or Open finishes first:
       // its body, errors and framing must not be shown for the new part.
       if (documentSignal.aborted) return;
@@ -901,7 +990,7 @@ export class App {
     }
     if (this.fitOnNextBuild) {
       this.fitOnNextBuild = false;
-      if (res.bbox) this.viewport.zoomToFit(false);
+      if (res.bbox) this.viewport.zoomToFit(false, false);
     }
     const r = res.bbox ? Math.hypot(res.bbox.max[0] - res.bbox.min[0], res.bbox.max[1] - res.bbox.min[1], res.bbox.max[2] - res.bbox.min[2]) : 100;
     this.renderer.camera.sceneRadius = Math.max(r, 100);
@@ -1032,20 +1121,22 @@ export class App {
   }
 
   describe(it: SelItem): string {
-    const units = this.store.doc.units, dec = this.store.doc.decimals;
+    const u = UNIT_SYSTEMS[this.store.doc.units], dec = this.store.doc.decimals;
+    // Small values keep significant digits (a 5 mm edge in metres is 0.00500 m, not 0.01 m).
+    const len = (v: number) => `${formatGroup([v / u.scale], dec)[0]} ${u.length}`;
     switch (it.kind) {
       case 'face': {
         const f = this.faces[it.index];
         if (!f) return 'Face';
         const owner = this.store.feature(f.feature);
-        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}² equivalent`;
+        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatGroup([f.area / u.scale ** 2], dec)[0]} ${u.length}²`;
       }
       case 'edge': {
         const e = this.edges[it.index];
         if (!e) return 'Edge';
-        return `Edge (${e.type})  Length ${formatLength(e.length, units, dec, true)}${e.radius ? `  Radius ${formatLength(e.radius, units, dec, true)}` : ''}`;
+        return `Edge (${e.type})  Length ${len(e.length)}${e.radius ? `  Radius ${len(e.radius)}` : ''}`;
       }
-      case 'vertex': return `Vertex  ${it.p.map((v) => formatLength(v, units, dec)).join(', ')}`;
+      case 'vertex': return `Vertex  ${formatGroup(it.p.map((v) => v / u.scale), dec).join(', ')}`;
       case 'plane': return it.ref.kind === 'base' ? BASE_PLANE_NAMES[it.ref.plane] : this.store.feature(it.ref.id)?.name ?? 'Plane';
       case 'origin': return 'Origin';
       case 'feature': return this.store.feature(it.id)?.name ?? '';
@@ -1085,7 +1176,9 @@ export class App {
   }
 
   onViewportContextMenu(e: VPEvent, cx: number, cy: number) {
-    const item = this.viewport.pickItem(e.x, e.y, this.pickFilter());
+    // Sketch geometry under the cursor comes before the model behind it.
+    const sketchHit = !this.panel && !!this.sketchEditor?.contextSelect(e);
+    const item = sketchHit ? null : this.viewport.pickItem(e.x, e.y, this.pickFilter());
     if (item && !this.selection.has(item) && !this.panel) this.selection.set([item]);
     const items = this.hooks.contextItems('viewport');
     if (items.length) openMenu(items, cx, cy, { label: 'Context menu' });
@@ -1188,6 +1281,8 @@ export class App {
   // ---------- panels ----------
 
   async openPanel(p: PropertyPanel) {
+    // A model command run in the drawing (a shortcut, the command search) works on the model, shown again.
+    this.closeDrawing();
     if (this.panel) await this.closePanel(false);
     this.hideContextToolbar();
     this.panel = p;
@@ -1195,13 +1290,14 @@ export class App {
     // tree, so keyboard focus moves to the panel instead of being lost.
     const fromPane = this.shell.leftpane.contains(document.activeElement);
     this.showLeft('pm');
+    // Open (on phones, no longer inert) before the panel takes focus.
+    this.toggleLeftPane(true);
     if (fromPane || document.activeElement === document.body) this.shell.lpBody.querySelector<HTMLElement>('.pm-head .title')?.focus();
     this.shell.confirm.hidden = !p.confirm;
     this.renderConfirmCorner();
     this.setStatus(p.title);
     this.updateFlyout();
     this.viewport.refreshStates();
-    this.toggleLeftPane(true);
     this.requestRebuild(true);
     this.commands.changed();
   }
@@ -1295,6 +1391,7 @@ export class App {
   editSketch(id: Id, restore?: () => void, undoFloor = this.store.undoMark) {
     const sk = this.store.feature<SketchFeature>(id);
     if (!sk) return;
+    this.closeDrawing();
     if (this.panel) void this.closePanel(false);
     if (this.sketchEditor) this.exitSketch(true);
     const frame = this.frameOfSketch(sk) ?? BASE_FRAMES.front;
@@ -1399,6 +1496,11 @@ export class App {
     if (p) void this.openPanel(p);
   }
 
+  /** Starts renaming a feature in the design tree on screen: the flyout while a panel covers the tree. */
+  startRename(id: Id) {
+    (this.tree.el.isConnected || !this.panel || !this.flyoutOpen ? this.tree : this.flyout).startRename(id);
+  }
+
   renameFeature(id: Id, name: string) {
     this.store.change('Rename', (doc) => {
       const f = doc.features.find((x) => x.id === id);
@@ -1442,6 +1544,8 @@ export class App {
       : `Delete ${names.join(', ')}?`;
     if (!(await confirmDialog('Delete', msg, 'Delete', true, signal)) || signal.aborted) return;
     if (this.sketchEditor && del.has(this.sketchEditor.sketchId)) this.exitSketch(false);
+    // A panel editing a deleted feature (deleted from the flyout tree) has nothing left to edit.
+    if (this.panel?.editingId && del.has(this.panel.editingId)) await this.closePanel(false);
     this.store.change('Delete', (d) => {
       const before = d.features.length;
       const builtBefore = this.store.builtCount;
@@ -1558,7 +1662,9 @@ export class App {
     }
     if (target === this.viewport.canvas && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '-', '='].includes(e.key) && !(e.ctrlKey && /\d/.test(e.key))) return;
     const cmd = this.commands.match(e);
-    if (cmd) {
+    // A disabled Select All leaves its key to the browser, so select-all
+    // still works where the command does not apply.
+    if (cmd && (!cmd.releaseShortcut || this.commands.isEnabled(cmd.id))) {
       e.preventDefault();
       this.commands.run(cmd.id);
     }

@@ -367,7 +367,7 @@ test('picking a colour and closing the task pane keep keyboard focus', async ({ 
   await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
-  const swatch = page.getByRole('button', { name: 'Colour #4f8fc0' });
+  const swatch = page.getByRole('button', { name: 'Blue', exact: true });
   await swatch.focus();
   await page.keyboard.press('Enter');
   await expect(swatch).toHaveAttribute('aria-pressed', 'true');

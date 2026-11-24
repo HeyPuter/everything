@@ -198,8 +198,12 @@ abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
   ok(): boolean {
     const err = this.validate();
     if (err) { this.setMessage('error', err); return false; }
-    if (this.editingId) this.app.replaceFeature(this.f);
-    else this.app.insertFeature(this.f);
+    if (this.editingId) {
+      // The name, suppression and visibility belong to the design tree, which
+      // stays usable (in the flyout) while the panel is open: keep its changes.
+      const cur = this.app.store.feature(this.editingId);
+      this.app.replaceFeature(cur ? { ...this.f, name: cur.name, suppressed: cur.suppressed, hidden: cur.hidden } : this.f);
+    } else this.app.insertFeature(this.f);
     return true;
   }
 
@@ -275,7 +279,7 @@ export class RevolvePanel extends FeaturePanel<RevolveFeature> {
     const sketch = this.sketchBox('Profile sketch', () => f.sketch, (id) => { f.sketch = id ?? ''; });
     const axis = new SelectionBox(this, 'Axis of revolution', { edge: true, face: true }, toAxis(this.app), (items) => { f.axis = (items[0]?.data as AxisRef) ?? null; this.changed(); }, { single: true, placeholder: 'Uses the sketch centerline (or pick an edge)', icon: 'axis' });
     if (f.axis) axis.setItems([{ item: axisItem(this.app, f.axis), data: f.axis, label: axisLabel(this.app, f.axis) }]);
-    const angle = numberField({ label: 'Angle', icon: 'revolve', value: f.angle, kind: 'angle', ctx, min: 1e-6, onChange: (v) => { f.angle = v; this.changed(); } });
+    const angle = numberField({ label: 'Angle', icon: 'revolve', value: f.angle, kind: 'angle', ctx, min: 1e-6, max: 360, onChange: (v) => { f.angle = v; this.changed(); } });
     return [
       section('Profile', [sketch.el]),
       section('Axis', [axis.el]),
@@ -429,7 +433,9 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     };
     sync();
     const positions = new SelectionBox(this, 'Positions', { face: true, planarOnly: true, feature: true }, (it) => this.pickPosition(it), () => this.changed(), { placeholder: 'Click a planar face to place a hole', icon: 'point', single: true });
-    const sk = f.sketch ? this.app.store.feature<SketchFeature>(f.sketch) : null;
+    // A damaged or hand-edited file can point the hole at a feature that is not a sketch.
+    const ref = f.sketch ? this.app.store.feature(f.sketch) : null;
+    const sk = ref?.type === 'sketch' ? ref : null;
     if (sk) positions.setItems([{ item: null, data: sk.id, label: `${sk.name} (${sk.entities.filter((e) => e.t === 'point').length} points)` }]);
     return [
       section('Hole Type', [

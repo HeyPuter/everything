@@ -5,7 +5,7 @@
 
 import type { Id, SkCurve, SketchFeature } from '../../model/types';
 import { type Vec2, dist2 } from '../../math/vec';
-import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf } from '../../sketch/geom';
+import { ORIGIN_ID, type Prim, SketchIndex, distanceToCurve, intersectPrims, pointIdsOf, primsOf } from '../../sketch/geom';
 
 export type SnapKind = 'none' | 'point' | 'origin' | 'mid' | 'on' | 'h' | 'v' | 'alignX' | 'alignY' | 'center';
 
@@ -14,6 +14,7 @@ export interface Snap {
   raw: Vec2;
   kind: SnapKind;
   pointId?: Id;
+  /** The curve the point lies on ('on' snaps, and direction snaps that end on one). */
   curveId?: Id;
   /** For alignment: the point aligned with (dotted guide). */
   guide?: Vec2;
@@ -44,7 +45,11 @@ export function snapPoint(sk: SketchFeature, raw: Vec2, o: SnapOptions): Snap {
   for (const e of sk.entities) {
     if (e.t !== 'point' || ex.has(e.id)) continue;
     const d = dist2(raw, [e.x, e.y]);
-    if (d < bestD) { bestD = d; best = { p: [e.x, e.y], raw, kind: centerIds.has(e.id) ? 'center' : 'point', pointId: e.id }; }
+    // A real point at the origin (a chain's first point) wins over the origin
+    // itself, so drawing back to it closes the chain instead of adding a
+    // second point there.
+    const atOrigin = best?.kind === 'origin' && Math.hypot(e.x, e.y) <= tol * 1e-6;
+    if (d < bestD || atOrigin) { bestD = d; best = { p: [e.x, e.y], raw, kind: centerIds.has(e.id) ? 'center' : 'point', pointId: e.id }; }
   }
   if (best) return best;
   // 2. Midpoints of lines.
@@ -75,8 +80,27 @@ export function snapPoint(sk: SketchFeature, raw: Vec2, o: SnapOptions): Snap {
     let on: Snap | null = null;
     for (const e of sk.entities) {
       if (e.t === 'point' || ex.has(e.id) || pointIdsOf(e).some((id) => ex.has(id))) continue;
-      const r = distanceToCurve(ix, e as SkCurve, raw);
+      const r = distanceToCurve(ix, e as SkCurve, raw, bd);
       if (r.d < bd) { bd = r.d; on = { p: r.q, raw, kind: 'on', curveId: e.id }; }
+    }
+    if (on) return on;
+  } else if (o.from) {
+    // A direction snap near a curve lands where the guide crosses it, so the
+    // point lies exactly on the curve (and is kept there): taken straight
+    // from the cursor it stopped a little short of or past the curve, which
+    // left a gap that kept the profile from closing.
+    let bd = tol * 0.8;
+    let on: Snap | null = null;
+    const guide: Prim = { kind: 'seg', a: o.from, b: kind === 'h' ? [o.from[0] + 1, o.from[1]] : [o.from[0], o.from[1] + 1] };
+    for (const e of sk.entities) {
+      if (e.t === 'point' || ex.has(e.id) || pointIdsOf(e).some((id) => ex.has(id))) continue;
+      if (!(distanceToCurve(ix, e as SkCurve, raw, bd).d < bd)) continue;
+      for (const prim of primsOf(ix, e as SkCurve)) {
+        for (const q of intersectPrims(guide, prim, true)) {
+          const d = dist2(q, raw);
+          if (d < bd) { bd = d; on = { p: q, raw, kind, curveId: e.id }; }
+        }
+      }
     }
     if (on) return on;
   }

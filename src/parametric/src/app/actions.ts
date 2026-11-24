@@ -40,7 +40,7 @@ const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: str
   circle: { label: 'Circle', shortcut: 'C', desc: 'Sketch a circle from its centre and radius.', make: (ed) => circleTool(ed) },
   perimeterCircle: { label: 'Perimeter Circle', desc: 'Sketch a circle through three points.', make: (ed) => perimeterCircleTool(ed) },
   centerArc: { label: 'Centerpoint Arc', desc: 'Sketch an arc from its centre, start and end.', make: (ed) => centerArcTool(ed) },
-  tangentArc: { label: 'Tangent Arc', shortcut: 'A', desc: 'Sketch an arc tangent to the end of a line or arc.', make: (ed) => tangentArcTool(ed) },
+  tangentArc: { label: 'Tangent Arc', shortcut: 'A', desc: 'Sketch an arc tangent to the end of a line or arc. Press A while drawing lines to carry on from the last point.', make: (ed) => tangentArcTool(ed, ed.tool?.chainEnd?.()) },
   arc3: { label: '3 Point Arc', desc: 'Sketch an arc through its ends and a point on it.', make: (ed) => threePointArcTool(ed) },
   polygon: { label: 'Polygon', desc: 'Sketch a regular polygon.', make: (ed) => polygonTool(ed) },
   slot: { label: 'Straight Slot', desc: 'Sketch a slot with rounded ends.', make: (ed) => slotTool(ed) },
@@ -57,9 +57,18 @@ export function registerCommands(app: App, files: FileOps) {
   const inSketch = () => !!app.sketchEditor;
   const noModes = () => !app.panel;
   const hasBody = () => !!app.bbox;
+  // Commands that act on the 3D view, hidden while the drawing sheet is shown.
+  const in3d = () => !app.inDrawing;
   // A feature panel holds a copy of its feature: OK after a Redo would write
   // that copy back over the redone change, so the panel is cancelled first.
-  const redo = () => { if (app.panel?.preview()) void app.closePanel(false); app.store.redo(); };
+  // While the assistant changes the part, its changes become one undo step at the end: a step
+  // undone or redone meanwhile would split that, and pull the part from under the reply.
+  const historyFree = () => {
+    const busy = app.historyBusy();
+    if (busy) toast({ kind: 'info', message: busy });
+    return !busy;
+  };
+  const redo = () => { if (!historyFree()) return; if (app.panel?.preview()) void app.closePanel(false); app.store.redo(); };
   const feature = (type: Feature['type'], label: string, iconName: string, desc: string, opts: { cut?: boolean; needsBody?: boolean; shortcut?: string; keywords?: string } = {}): Command => ({
     id: opts.cut ? `${type}Cut` : type,
     label,
@@ -89,12 +98,14 @@ export function registerCommands(app: App, files: FileOps) {
 
   const view = (name: ViewName, label: string, iconName: string, shortcut?: string): Command => ({
     id: `view${name[0].toUpperCase()}${name.slice(1)}`, label, icon: iconName, shortcut, keywords: 'view orientation standard',
+    enabled: in3d,
     run: () => app.viewport.setView(name),
   });
 
   const style = (s: DisplayStyle, label: string, iconName: string): Command => ({
     id: `style:${s}`, label, icon: iconName, keywords: 'display style render',
     checked: () => app.renderer.displayStyle === s,
+    enabled: in3d,
     run: () => { app.renderer.displayStyle = s; app.renderer.requestRender(); c.changed(); },
   });
 
@@ -144,11 +155,11 @@ export function registerCommands(app: App, files: FileOps) {
       checked: () => app.taskPaneOpen() === 'assistant', run: () => app.toggleTaskPane('assistant'),
     },
     { id: 'share', label: 'Share...', icon: 'share', keywords: 'collaborate invite team access', description: 'Let other Puter users view or edit this part.', run: () => shareDialog(app, files) },
-    { id: 'properties', label: 'Part Properties...', icon: 'part', keywords: 'units decimals', description: 'Name, units and precision.', run: () => propertiesDialog(app) },
+    { id: 'properties', label: 'Part Properties...', icon: 'part', keywords: 'units decimals', description: 'Name, units and precision.', run: () => propertiesDialog(app, (name) => files.rename(name)) },
     // ---- edit ----
     {
       id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.canUndo,
-      run: () => { if (app.panel) void app.closePanel(false); app.store.undo(); },
+      run: () => { if (!historyFree()) return; if (app.panel) void app.closePanel(false); app.store.undo(); },
     },
     { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },
@@ -166,11 +177,11 @@ export function registerCommands(app: App, files: FileOps) {
     },
     {
       id: 'suppress', label: 'Suppress', icon: 'eyeOff', enabled: () => !!selectedFeature(app),
-      run: () => app.toggleSuppress(app.selection.ofKind('feature').map((x) => x.id), true),
+      run: () => app.toggleSuppress(selectedFeatureIds(app), true),
     },
     {
       id: 'unsuppress', label: 'Unsuppress', icon: 'eye', enabled: () => !!selectedFeature(app)?.suppressed,
-      run: () => app.toggleSuppress(app.selection.ofKind('feature').map((x) => x.id), false),
+      run: () => app.toggleSuppress(selectedFeatureIds(app), false),
     },
     { id: 'rollToEnd', label: 'Roll to End', icon: 'downToLine', enabled: () => app.store.doc.rollback != null, run: () => app.setRollback(null) },
     { id: 'material', label: 'Edit Material...', icon: 'material', keywords: 'density steel aluminum', run: () => materialDialog(app) },
@@ -200,6 +211,7 @@ export function registerCommands(app: App, files: FileOps) {
       description: 'Project model edges, faces or vertices into the sketch. The projected geometry stays linked to the model and follows it when it changes.',
       enabled: inSketch, checked: () => app.sketchEditor?.tool?.id === 'convertEntities', run: () => convertEntities(app),
     },
+    { id: 'selectAll', label: 'Select All', icon: 'select', shortcut: 'Ctrl+A', releaseShortcut: true, description: 'Select all the geometry of the sketch being edited.', enabled: inSketch, run: () => app.sketchEditor?.selectAll() },
     { id: 'construction', label: 'Construction Geometry', icon: 'construction', shortcut: 'Q', description: 'Toggle selected sketch entities between normal and construction geometry.', enabled: inSketch, run: () => app.sketchEditor?.toggleConstruction() },
     {
       id: 'addRelation', label: 'Add Constraint', icon: 'relation', keywords: 'relation constrain geometric', description: 'Add geometric constraints between selected sketch entities.', enabled: inSketch,
@@ -233,11 +245,12 @@ export function registerCommands(app: App, files: FileOps) {
     feature('mirror', 'Mirror', 'mirror', 'Mirror features or the body about a plane.', { needsBody: true, keywords: 'symmetry' }),
     feature('plane', 'Plane', 'plane', 'Create a reference plane offset from a plane or face.', { keywords: 'reference geometry datum' }),
     // ---- evaluate ----
-    { id: 'measure', label: 'Measure', icon: 'measure', keywords: 'distance length angle area', description: 'Measure distances, lengths, angles and areas.', enabled: hasBody, run: () => { void app.openPanel(new MeasurePanel(app)); } },
+    { id: 'measure', label: 'Measure', icon: 'measure', keywords: 'distance length angle area', description: 'Measure distances, lengths, angles and areas.', enabled: () => hasBody() && in3d(), run: () => { void app.openPanel(new MeasurePanel(app)); } },
     { id: 'massProperties', label: 'Mass Properties', icon: 'massProperties', keywords: 'volume weight inertia center of mass', description: 'Volume, mass, centre of mass and inertia.', enabled: hasBody, run: () => massPropertiesDialog(app) },
     {
       id: 'sectionView', label: 'Section View', icon: 'sectionView', keywords: 'cut clip', description: 'Show the part cut by a plane.',
       checked: () => !!app.renderer.section,
+      enabled: in3d,
       run: () => {
         if (app.renderer.section && !(app.panel instanceof SectionPanel)) { app.renderer.section = null; app.renderer.requestRender(); c.changed(); return; }
         void app.openPanel(new SectionPanel(app));
@@ -254,10 +267,10 @@ export function registerCommands(app: App, files: FileOps) {
     })),
     { id: 'drawing:pdf', label: 'Export PDF', icon: 'download', keywords: 'print drawing', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportPdf() },
     { id: 'drawing:svg', label: 'Export SVG', icon: 'download', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportSvg() },
-    { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => app.viewport.zoomBy(0.8) },
-    { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => app.viewport.zoomBy(1.25) },
+    { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => (app.inDrawing ? app.drawing.zoomBy(1.25) : app.viewport.zoomBy(0.8)) },
+    { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => (app.inDrawing ? app.drawing.zoomBy(0.8) : app.viewport.zoomBy(1.25)) },
     // No shortcut: Ctrl+Shift+Z is Redo.
-    { id: 'previousView', label: 'Previous View', icon: 'previousView', run: () => app.viewport.previousView() },
+    { id: 'previousView', label: 'Previous View', icon: 'previousView', enabled: in3d, run: () => app.viewport.previousView() },
     view('front', 'Front', 'viewFront', 'Ctrl+1'),
     view('back', 'Back', 'viewBack', 'Ctrl+2'),
     view('left', 'Left', 'viewLeft', 'Ctrl+3'),
@@ -269,6 +282,7 @@ export function registerCommands(app: App, files: FileOps) {
     view('dimetric', 'Dimetric', 'viewIso'),
     {
       id: 'normalTo', label: 'Normal To', icon: 'normalTo', shortcut: 'Ctrl+8', description: 'Look straight at the selected plane, face or the sketch plane.',
+      enabled: in3d,
       run: () => {
         const ref = app.selectedPlaneRef();
         const fr = ref ? app.frameOfPlane(ref) : app.sketchEditor?.frame ?? null;
@@ -276,9 +290,9 @@ export function registerCommands(app: App, files: FileOps) {
         else app.setStatus('Select a plane or planar face first.', true);
       },
     },
-    { id: 'viewOrientation', label: 'View Orientation', icon: 'viewOrientation', shortcut: 'Space', run: () => app.openViewMenu() },
-    { id: 'displayStyle', label: 'Display Style', icon: 'shadedEdges', run: () => app.cycleDisplayStyle() },
-    { id: 'toggleVisibility', label: 'Hide/Show Items', icon: 'eye', run: () => app.openVisibilityMenu() },
+    { id: 'viewOrientation', label: 'View Orientation', icon: 'viewOrientation', shortcut: 'Space', enabled: in3d, run: () => app.openViewMenu() },
+    { id: 'displayStyle', label: 'Display Style', icon: 'shadedEdges', enabled: in3d, run: () => app.cycleDisplayStyle() },
+    { id: 'toggleVisibility', label: 'Hide/Show Items', icon: 'eye', enabled: in3d, run: () => app.openVisibilityMenu() },
     style('shadedEdges', 'Shaded With Edges', 'shadedEdges'),
     style('shaded', 'Shaded', 'shaded'),
     style('hiddenRemoved', 'Hidden Lines Removed', 'hiddenRemoved'),
@@ -286,6 +300,7 @@ export function registerCommands(app: App, files: FileOps) {
     style('wireframe', 'Wireframe', 'wireframe'),
     {
       id: 'perspective', label: 'Perspective', icon: 'perspective', checked: () => !app.renderer.camera.ortho,
+      enabled: in3d,
       run: () => { const cam = app.renderer.camera; cam.ortho = !cam.ortho; cam.onChange(); c.changed(); },
     },
     toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => app.changeSettings({ showPlanes: v })),
@@ -296,7 +311,7 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'theme:system', label: 'System Theme', icon: 'system', checked: () => getThemeChoice() === 'system', run: () => { setThemeChoice('system'); c.changed(); } },
     { id: 'theme:light', label: 'Light Theme', icon: 'light', checked: () => getThemeChoice() === 'light', run: () => { setThemeChoice('light'); c.changed(); } },
     { id: 'theme:dark', label: 'Dark Theme', icon: 'dark', checked: () => getThemeChoice() === 'dark', run: () => { setThemeChoice('dark'); c.changed(); } },
-    { id: 'toggleTree', label: 'Design Tree', icon: 'panelLeft', run: () => app.toggleLeftPane() },
+    { id: 'toggleTree', label: 'Design Tree', icon: 'panelLeft', run: () => app.showDesignTree() },
     { id: 'shortcutBar', label: 'Shortcut Bar', icon: 'more', shortcut: 'S', description: 'Show the most used commands at the cursor.', run: () => app.openShortcutBar() },
     // ---- help ----
     { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: 'keyboard', shortcut: 'Shift+?', run: () => shortcutsDialog(app) },
@@ -322,6 +337,13 @@ function selectedFeature(app: App): Feature | undefined {
   const face = app.selection.items.find((x) => x.kind === 'face') as { index: number } | undefined;
   if (face) return app.store.feature(app.faces[face.index]?.feature ?? '');
   return undefined;
+}
+
+/** The features Suppress acts on: the selected features, else those that made the selected faces. */
+function selectedFeatureIds(app: App): Id[] {
+  const ids = app.selection.ofKind('feature').map((x) => x.id);
+  if (ids.length) return ids;
+  return [...new Set(app.selection.ofKind('face').map((x) => app.faces[x.index]?.feature).filter((x): x is Id => !!x))];
 }
 
 // ---------- layout ----------
@@ -482,7 +504,7 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
       ...used.map((sk): MenuItem => ({ label: used.length === 1 ? 'Edit Sketch' : `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) })),
-      { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.tree.startRename(id) },
+      { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(id) },
       sep,
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: f.hidden ? 'Show' : 'Hide', icon: f.hidden ? 'eye' : 'eyeOff', run: () => app.toggleHidden([id]) } as MenuItem] : []),
       { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },

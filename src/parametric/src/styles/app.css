@@ -341,9 +341,12 @@ a.icon-btn { text-decoration: none; }
 .input.expr { color: var(--accent); }
 .spin { display: flex; align-items: stretch; min-width: 0; flex: 1; }
 .spin .input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.spin .unit { display: flex; align-items: center; padding: 0 6px; border: 1px solid var(--border-strong); border-left: 0; background: var(--panel-2); color: var(--text-2); font-size: var(--fs-xs); white-space: nowrap; }
 .spin .spin-btns { display: flex; flex-direction: column; border: 1px solid var(--border-strong); border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; overflow: hidden; }
 .spin .spin-btns button { flex: 1; width: 18px; border: 0; background: var(--panel-2); padding: 0; display: grid; place-items: center; color: var(--text-2); }
 .spin .spin-btns button:hover { background: var(--hover); color: var(--text); }
+.spin .spin-btns button[aria-disabled='true'] { opacity: 0.4; cursor: default; }
+.spin .spin-btns button[aria-disabled='true']:hover { background: var(--panel-2); color: var(--text-2); }
 .check { display: flex; align-items: center; gap: 7px; font-size: var(--fs); }
 .check input { margin: 0; width: 15px; height: 15px; accent-color: var(--accent); }
 .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
@@ -400,6 +403,7 @@ a.icon-btn { text-decoration: none; }
 .dim-label.bad { color: var(--sketch-over); }
 .dim-label.expr::before { content: 'Σ '; color: var(--accent); }
 .dim-label:hover, .dim-label.selected { color: var(--sketch-selected); }
+.dim-label:focus-visible, .rel-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rel-badge {
   position: absolute; transform: translate(-50%, -50%); width: 18px; height: 18px; display: grid; place-items: center; pointer-events: auto; cursor: pointer;
   border-radius: 3px; background: color-mix(in srgb, var(--viewport) 82%, transparent); border: 1px solid var(--border-strong); color: var(--text-2);
@@ -563,15 +567,20 @@ a.icon-btn { text-decoration: none; }
 .start-foot a { color: var(--text-2); }
 
 /* ---------- Responsive ---------- */
+/* The title bar leaves the part name room: what the menus also have goes first. */
+@media (max-width: 1240px) {
+  .tb-brand .name { display: none; }
+}
 @media (max-width: 1180px) {
   :root { --left-w: 250px; }
-  .cmd-search input { width: 150px; }
-  .tb-brand .name { display: none; }
+  .cmd-search input { width: 130px; }
+  .titlebar .hide-tablet { display: none; }
 }
 @media (max-width: 980px) {
   .taskpane .tp-panel { position: absolute; right: var(--taskpane-w); top: 0; bottom: 0; z-index: 12; border-left: 1px solid var(--border); background: var(--panel); }
-  .quick .hide-tablet { display: none; }
   .doc-state { display: none; }
+}
+@media (max-width: 1023px) {
   /* The menu bar does not fit beside the quick access buttons and search:
      it collapses into the menu button, as on phones. */
   .menubar, .titlebar > .tb-sep { display: none; }
@@ -599,6 +608,8 @@ a.icon-btn { text-decoration: none; }
     border-right: 0; border-top: 1px solid var(--border-strong); border-radius: 12px 12px 0 0; transform: translateY(105%); transition: transform 0.18s ease, height 0.18s ease;
   }
   .leftpane.open { transform: none; }
+  /* The closed sheet hides below the graphics area, not over the status bar's taps. */
+  .workspace { overflow: hidden; }
   .leftpane.peek { height: 132px; }
   .leftpane .lp-tabs::before { content: ''; position: absolute; left: 50%; top: 4px; width: 36px; height: 4px; border-radius: 4px; background: var(--border-strong); transform: translateX(-50%); }
   .leftpane .lp-tabs { position: relative; padding-top: 12px; }
@@ -640,4 +651,16 @@ a.icon-btn { text-decoration: none; }
   .check { min-height: 24px; }
   .check input { width: 18px; height: 18px; }
   .pm-section > .sec-head-check input[type='checkbox'] { width: 20px; height: 20px; margin-right: 4px; }
+}
+/* Small phones: the part name needs the logo's room more than the logo. */
+@media (max-width: 380px) {
+  .tb-brand { display: none; }
+}
+/* Windows high contrast replaces backgrounds: the rollback bar is drawn in the
+   text colour, and colour swatches keep their colour (they are the content). */
+@media (forced-colors: active) {
+  .rollback-bar::before { background: CanvasText; }
+  .rollback-bar:hover::before, .rollback-bar.dragging::before { background: Highlight; }
+  .swatch { forced-color-adjust: none; }
+  .swatch[aria-pressed='true'] { outline-color: Highlight; }
 }

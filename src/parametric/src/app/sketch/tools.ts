@@ -4,7 +4,7 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { PROJECTED_LOCKED, extendAt, filletCorner, smartDimension, trimAt, zeroDimensionReason } from '../../sketch/ops';
+import { PROJECTED_LOCKED, extendAt, extendPreview, filletCorner, filletPreview, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
 import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
@@ -64,8 +64,9 @@ export function lineTool(ed: SketchEditor, construction = false): SkTool {
   return {
     id: construction ? 'centerline' : 'line',
     label: construction ? 'Centerline' : 'Line',
-    hint: 'Click to start a line, click again to add segments. Double-click or press Esc to finish.',
+    hint: 'Click to start a line, click again to add segments. Double-click or press Esc to finish. Press A to carry on with a tangent arc.',
     from: () => start?.p ?? null,
+    chainEnd: () => (chain > 0 && start?.id) || null,
     exclude: () => new Set<Id>(),
     down(s, e) {
       downAt = { x: e.x, y: e.y };
@@ -138,7 +139,8 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
     ed.edit(centered ? 'Add center rectangle' : 'Add rectangle', (sk, newId) => {
       const ids: Id[] = cs.map((p, i) => {
         if (!centered && i === 0) return ed.commitPoint(sk, first!, newId);
-        if (!centered && i === 2) return ed.commitPoint(sk, second, newId);
+        // The clicked corner keeps what it snapped to (a point, a curve), as the cursor showed.
+        if (i === 2) return ed.commitPoint(sk, second, newId);
         const id = newId('p');
         sk.entities.push({ id, t: 'point', x: p[0], y: p[1] });
         return id;
@@ -385,6 +387,9 @@ export function threePointArcTool(ed: SketchEditor): SkTool {
         sk.entities.push({ id: ic, t: 'point', x: g.c[0], y: g.c[1] });
         const id = newId('a');
         sk.entities.push(g.ccw ? { id, t: 'arc', c: ic, a: ia, b: ib } : { id, t: 'arc', c: ic, a: ib, b: ia });
+        // A point the arc was drawn through stays on it, as for a perimeter circle.
+        const on = snappedPoint(s);
+        if (on) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [on, id] });
       });
       return true;
     },
@@ -393,8 +398,29 @@ export function threePointArcTool(ed: SketchEditor): SkTool {
 }
 
 /** Arc tangent to the line or arc ending at the start point. */
-export function tangentArcTool(ed: SketchEditor): SkTool {
+export function tangentArcTool(ed: SketchEditor, from?: Id | null): SkTool {
   let start: { id: Id; p: Vec2; t: Vec2; curve: Id } | null = null;
+  /** Starts at the end point of a line or arc (the last one drawn to it), leaving it tangentially. */
+  const begin = (pointId: Id): boolean => {
+    const sk = ed.sketch;
+    const ix = new SketchIndex(sk.entities);
+    const owner = [...sk.entities].reverse().find((e) => (e.t === 'line' || e.t === 'arc') && (e.a === pointId || e.b === pointId)) as SkLine | SkArc | undefined;
+    if (!owner) return false;
+    let t: Vec2;
+    if (owner.t === 'line') {
+      const other = owner.a === pointId ? owner.b : owner.a;
+      t = norm2(sub2(ix.pt(pointId), ix.pt(other)));
+    } else {
+      const c = ix.pt(owner.c);
+      const r = sub2(ix.pt(pointId), c);
+      // Leaving the arc's end continues counter-clockwise; leaving its start goes clockwise.
+      t = owner.b === pointId ? norm2([-r[1], r[0]]) : norm2([r[1], -r[0]]);
+    }
+    start = { id: pointId, p: ix.pt(pointId), t, curve: owner.id };
+    return true;
+  };
+  // Switched to from a line chain: carry on from its end.
+  const carried = !!from && begin(from);
   const geometry = (p: Vec2, t: Vec2, q: Vec2) => {
     // Centre lies on the normal at p and is equidistant to p and q.
     const n: Vec2 = [-t[1], t[0]];
@@ -409,7 +435,7 @@ export function tangentArcTool(ed: SketchEditor): SkTool {
   return {
     id: 'tangentArc',
     label: 'Tangent Arc',
-    hint: 'Click the end point of a line or arc, then where the arc should end.',
+    hint: carried ? 'Click where the arc should end. Press Esc to start from another end point.' : 'Click the end point of a line or arc, then where the arc should end.',
     from: () => null,
     move(s) {
       if (!start) return;
@@ -421,23 +447,8 @@ export function tangentArcTool(ed: SketchEditor): SkTool {
       ed.setPreview([arcPts(g.c, g.r, a0, sw)], [start.p]);
     },
     click(s) {
-      const sk = ed.sketch;
       if (!start) {
-        if (s.kind !== 'point' || !s.pointId) { ed.app.setStatus('Start the tangent arc on the end point of a line or arc.'); return true; }
-        const ix = new SketchIndex(sk.entities);
-        const owner = sk.entities.find((e) => (e.t === 'line' || e.t === 'arc') && (e.a === s.pointId || e.b === s.pointId)) as SkLine | SkArc | undefined;
-        if (!owner) { ed.app.setStatus('Start the tangent arc on the end point of a line or arc.'); return true; }
-        let t: Vec2;
-        if (owner.t === 'line') {
-          const other = owner.a === s.pointId ? owner.b : owner.a;
-          t = norm2(sub2(ix.pt(s.pointId), ix.pt(other)));
-        } else {
-          const c = ix.pt(owner.c);
-          const r = sub2(ix.pt(s.pointId), c);
-          // Leaving the arc's end continues counter-clockwise; leaving its start goes clockwise.
-          t = owner.b === s.pointId ? norm2([-r[1], r[0]]) : norm2([r[1], -r[0]]);
-        }
-        start = { id: s.pointId, p: s.p, t, curve: owner.id };
+        if (s.kind !== 'point' || !s.pointId || !begin(s.pointId)) ed.app.setStatus('Start the tangent arc on the end point of a line or arc.');
         return true;
       }
       const g = geometry(start.p, start.t, s.p);
@@ -489,7 +500,13 @@ export function polygonTool(ed: SketchEditor): SkTool {
       ed.setPreview([]);
       ed.edit('Add polygon', (sk, newId) => {
         const cid = ed.commitPoint(sk, c, newId);
-        const ids = v.map((p) => { const id = newId('p'); sk.entities.push({ id, t: 'point', x: p[0], y: p[1] }); return id; });
+        // The clicked vertex keeps what it snapped to (a point, a curve), as the cursor showed.
+        const ids = v.map((p, i) => {
+          if (i === 0) return ed.commitPoint(sk, { ...s, p }, newId);
+          const id = newId('p');
+          sk.entities.push({ id, t: 'point', x: p[0], y: p[1] });
+          return id;
+        });
         const circ = newId('c');
         sk.entities.push({ id: circ, t: 'circle', c: cid, r: dist2(c.p, s.p), construction: true });
         const lines = ids.map((id, i) => { const lid = newId('l'); sk.entities.push({ id: lid, t: 'line', a: id, b: ids[(i + 1) % ids.length] }); return lid; });
@@ -654,11 +671,20 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
     label: 'Sketch Fillet',
     hint: 'Click a corner where two lines meet to round it.',
     picks: true,
+    move(s) {
+      // The arc a click would make, on the corner under the cursor.
+      const hit = ed.pickAt(s.p, 9);
+      const arc = hit?.kind === 'point' ? filletPreview(ed.sketch, hit.id, radius, Math.max(ed.px * 0.4, 1e-5)) : null;
+      ed.hovered = arc ? hit : null;
+      ed.setHighlight(arc ? [arc] : []);
+      ed.queueRender();
+    },
     click(s) {
       const hit = ed.pickAt(s.p, 9);
       if (!hit || hit.kind !== 'point') { ed.app.setStatus('Click the corner point shared by two lines.'); return true; }
       let err: string | null = null;
       ed.edit('Sketch fillet', (sk, newId) => { err = filletCorner(sk, hit.id, radius, newId); });
+      ed.setHighlight([]);
       if (err) toast({ kind: 'warning', message: err });
       return true;
     },
@@ -670,23 +696,36 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
 }
 
 export function trimTool(ed: SketchEditor): SkTool {
+  // Only the piece a click removes lights up, not the whole curve: a curve
+  // crossed by others loses just the part between its nearest cuts.
+  const show = (p: Vec2) => {
+    const hit = ed.pickAt(p, 8);
+    const part = hit?.kind === 'curve' && !isExternal(ed.sketch, hit.id) ? trimPreview(ed.sketch, hit.id, p, Math.max(ed.px * 0.4, 1e-5)) : null;
+    // Projected geometry cannot be trimmed: it lights up whole, and a click explains.
+    ed.hovered = hit?.kind === 'curve' && !part ? hit : null;
+    ed.setHighlight(part ? [part] : []);
+    ed.queueRender();
+  };
   return {
     id: 'trim',
     label: 'Trim Entities',
     hint: 'Click the part of a curve to remove (up to its nearest intersections).',
     picks: true,
     move(s) {
-      const hit = ed.pickAt(s.p, 8);
-      ed.hovered = hit && hit.kind === 'curve' ? hit : null;
-      ed.queueRender();
+      show(s.p);
     },
     click(s) {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
       if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
+      const spline = ed.sketch.entities.find((e) => e.id === hit.id)?.t === 'spline';
       let changed = false;
       ed.edit('Trim', (sk, newId) => { changed = trimAt(sk, hit.id, s.p, newId); });
+      // A spline runs through its points: cutting one where a curve crosses it would reshape the rest.
+      if (!changed && spline) toast({ kind: 'warning', message: "A spline that other curves cross can't be trimmed yet: cutting it would change its shape. Delete it, or draw it as separate splines." });
       ed.app.setStatus(changed ? this.hint : 'Nothing trimmed. Click between intersections on a line, arc, or circle.');
+      // What the next click here would remove.
+      show(s.p);
       return true;
     },
     cancel: () => false,
@@ -702,6 +741,9 @@ export function extendTool(ed: SketchEditor): SkTool {
     move(s) {
       const hit = ed.pickAt(s.p, 8);
       ed.hovered = hit && hit.kind === 'curve' ? hit : null;
+      // Where the line would grow to, from the end nearest the cursor.
+      const add = hit?.kind === 'curve' && !isExternal(ed.sketch, hit.id) ? extendPreview(ed.sketch, hit.id, s.p) : null;
+      ed.setHighlight(add ? [add] : []);
       ed.queueRender();
     },
     click(s) {
@@ -710,6 +752,7 @@ export function extendTool(ed: SketchEditor): SkTool {
       if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
       let ok = false;
       ed.edit('Extend', (sk, newId) => { ok = extendAt(sk, hit.id, s.p, newId); });
+      ed.setHighlight([]);
       if (!ok) ed.app.setStatus('Nothing to extend to in that direction.');
       return true;
     },
@@ -734,12 +777,16 @@ export function dimensionTool(ed: SketchEditor): SkTool {
     hint: 'Click one or two entities, then click where to place the dimension.',
     picks: true,
     move(s) {
-      if (picked.length) preview(s.p);
-      else {
-        const hit = ed.pickAt(s.p, 8);
-        ed.hovered = hit;
-        ed.queueRender();
+      const hit = ed.pickAt(s.p, 8);
+      // Over another entity a click picks it (as click() does) rather than
+      // placing the dimension: light it up instead of previewing a placement.
+      const pickable = !!hit && picked.length < 2 && !(picked.length === 1 && picked[0] === hit.id);
+      ed.hovered = pickable ? hit : null;
+      if (picked.length) {
+        if (pickable) ed.setPreview([]);
+        else preview(s.p);
       }
+      ed.queueRender();
     },
     click(s, e: VPEvent) {
       void e;

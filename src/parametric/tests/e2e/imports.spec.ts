@@ -94,3 +94,19 @@ test('opening a STEP file makes a new part from it instead of adding it to the o
   expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.location)).toBeNull();
   expect(errors).toEqual([]);
 });
+
+test('a body imported while a sketch is open stays when the sketch changes are discarded later', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.startSketchOn({ kind: 'base', plane: 'front' }));
+  const chooser = page.waitForEvent('filechooser');
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.commands.run('importStep'));
+  await (await chooser).setFiles(decodeURIComponent(new URL('../fixtures/sldprt/cube-hole-sw2022.sldprt', import.meta.url).pathname));
+  await expect(page.getByRole('treeitem', { name: 'Imported1' })).toBeVisible();
+  // The sketch was finished for the import, so nothing is left to discard.
+  expect(await page.evaluate(() => !!(window as unknown as { __parametric: A }).__parametric.sketchEditor)).toBe(false);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.discardSketch(); });
+  await expect(page.getByRole('treeitem', { name: 'Imported1' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -4,8 +4,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
 import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
 import * as R from 'replicad';
-import { type Sh, getOc, mirrored, rotated, setOc } from '../src/kernel/occ';
-import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
+import { type Sh, getOc, isValid, mirrored, rotated, setOc, subShapes } from '../src/kernel/occ';
+import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SkEntity, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
 import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
@@ -57,6 +57,76 @@ describe('feature regeneration', () => {
       expect(res.status[1]).toMatchObject({ ok: true, warning: expect.stringMatching(/cross each other/) });
       expect(volume(b)).toBeCloseTo(800 + Math.PI * 12.5, 3);
     }
+  });
+
+  it('extrudes rectangles sharing a side into one valid solid', async () => {
+    // The shared side is drawn twice: it made faces of no area and an invalid solid.
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', [...rect(0, 0, 10, 10), ...rect(10, 0, 20, 10)]), extrude('E1', 'S1', 1)]));
+    expect(res.status.every((s) => s.ok && !s.warning)).toBe(true);
+    expect(volume(b)).toBeCloseTo(200, 6);
+    expect(res.faces).toHaveLength(6);
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
+  });
+
+  it('extrudes a rectangle divided by many lines into one plain box', async () => {
+    // The regions between the dividers are fused in one boolean (one by one was
+    // several times slower), and the result is the box with its six faces.
+    const ents: SkEntity[] = [...rect(0, 0, 60, 10, 't')];
+    for (let i = 1; i < 30; i++) ents.push({ id: `a${i}`, t: 'point', x: i * 2, y: 0 }, { id: `b${i}`, t: 'point', x: i * 2, y: 10 }, { id: `d${i}`, t: 'line', a: `a${i}`, b: `b${i}` });
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', ents), extrude('E1', 'S1', 5)]));
+    expect(res.status[1]).toEqual({ id: 'E1', ok: true });
+    expect(volume(b)).toBeCloseTo(3000, 6);
+    expect(res.faces).toHaveLength(6);
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
+  });
+
+  it('builds the same box when lines, points or projected edges only touch the profile', async () => {
+    // Sketches that built a profile before curves were split at T junctions.
+    const P = (id: string, x: number, y: number, extra: Partial<SkEntity> = {}) => ({ id, t: 'point', x, y, ...extra }) as SkEntity;
+    const L = (id: string, a: string, b: string, extra: Partial<SkEntity> = {}) => ({ id, t: 'line', a, b, ...extra }) as SkEntity;
+    const ext = { ext: { kind: 'edge', edge: { name: 'X1:side:l|X1:cap1', sig: { type: 'line', m: [0, 0, 0], len: 10 } } } } as Partial<SkEntity>;
+    const cases: [string, SkEntity[], boolean][] = [
+      ['a line from an edge going in', [P('t1', 10, 0), P('t2', 10, 8), L('tl', 't1', 't2')], true],
+      ['a line from an edge going out', [P('t1', 10, 0), P('t2', 10, -8), L('tl', 't1', 't2')], true],
+      ['a construction line ending on an edge', [P('t1', 10, 0), P('t2', 10, 20), L('tl', 't1', 't2', { construction: true })], false],
+      ['a point on an edge', [P('pt', 10, 0)], false],
+      ['a projected edge ending on an edge', [P('x1', 20, 10), P('x2', 30, 10), L('xl', 'x1', 'x2', ext)], true],
+      ['a projected edge lying on an edge', [P('x1', 5, 0), P('x2', 15, 0), L('xl', 'x1', 'x2', ext)], false],
+    ];
+    for (const [label, extra, warns] of cases) {
+      const b = new ModelBuilder();
+      const res = await b.build(req([sketch('S1', [...rect(0, 0, 20, 20, 'r'), ...extra]), extrude('E1', 'S1', 2)]));
+      expect(res.status[1].ok, label).toBe(true);
+      expect(!!res.status[1].warning, label).toBe(warns);
+      expect(volume(b), label).toBeCloseTo(800, 6);
+      expect(res.faces.map((f) => f.name).sort(), label).toEqual(['E1:cap0', 'E1:cap1', 'E1:side:rl0', 'E1:side:rl1', 'E1:side:rl2', 'E1:side:rl3']);
+    }
+  });
+
+  it('builds a valid solid when a hole touches its outline or another hole at a point', async () => {
+    // The face of such a region is invalid, and so was every solid made from it.
+    const body = (b: ModelBuilder) => (b as unknown as { current: { body: Sh } }).current.body;
+    const cases: [string, SkEntity[], number][] = [
+      ['a circle touching an edge', [...rect(0, 0, 20, 20, 'r'), ...circle(10, 3, 3, 'c')], 400 - Math.PI * 9],
+      ['a circle touching the circle round it', [...circle(0, 0, 10, 'o'), ...circle(5, 0, 5, 'i')], Math.PI * 75],
+      ['two circles touching', [...rect(-20, -10, 20, 10, 'r'), ...circle(-3, 0, 3, 'a'), ...circle(3, 0, 3, 'b')], 800 - Math.PI * 18],
+    ];
+    for (const [label, ents, area] of cases) {
+      const b = new ModelBuilder();
+      const res = await b.build(req([sketch('S1', ents), extrude('E1', 'S1', 2)]));
+      expect(res.status[1], label).toEqual({ id: 'E1', ok: true });
+      expect(volume(b), label).toBeCloseTo(area * 2, 6);
+      expect(isValid(body(b)), label).toBe(true);
+    }
+    // The inner circle's face is named after it, not after the outer one.
+    const ring = await new ModelBuilder().build(req([sketch('S1', cases[1][1]), extrude('E1', 'S1', 2)]));
+    expect(ring.faces.map((f) => f.name).sort()).toEqual(['E1:cap0', 'E1:cap1', 'E1:side:i', 'E1:side:o']);
+    // A taper cannot follow the faces meeting at the touching point: say why.
+    const b = new ModelBuilder();
+    const drafted = await b.build(req([sketch('S1', cases[0][1]), extrude('E1', 'S1', 1, { draft: 2 })]));
+    expect(drafted.status[1].error).toMatch(/cannot taper a hole that touches the outline/);
   });
 
   it('extrudes the same spline region and hole in either drawing direction', async () => {
@@ -159,9 +229,23 @@ describe('feature regeneration', () => {
     const neg = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { draft: -5 })]));
     expect(neg.status[1].ok).toBe(false);
     expect(neg.status[1].error).toMatch(/draft angle/i);
+    for (const draft of [90, 100]) {
+      const steep = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 1, { draft })]));
+      expect(steep.status[1].error).toBe('The draft angle must be less than 90 degrees');
+    }
     const d2 = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { dir2: { end: 'blind', depth: 0 } })]));
     expect(d2.status[1].ok).toBe(false);
     expect(d2.status[1].error).toMatch(/Direction 2/);
+    // Values the end conditions do not use are not checked.
+    const unused = [
+      extrude('E1', 'S1', 0, { end: 'throughAll', cut: true }),
+      extrude('E1', 'S1', 10, { end: 'midPlane', dir2: { end: 'blind', depth: -1 } }),
+      extrude('E1', 'S1', 10, { dir2: { end: 'throughAll', depth: 0 }, cut: true }),
+    ];
+    for (const f of unused) {
+      const r = await b.build(req([sketch('S0', rect(-20, -20, 20, 20)), extrude('E0', 'S0', 5, { end: 'midPlane' }), sketch('S1', rect(0, 0, 10, 10)), f]));
+      expect(r.status[3].error).toBeUndefined();
+    }
   });
 
   it('revolves a profile about a centerline', async () => {
@@ -173,6 +257,8 @@ describe('feature regeneration', () => {
     ] as any[];
     await b.build(req([sketch('S1', ents), revolve('R1', 'S1')]));
     expect(volume(b)).toBeCloseTo(Math.PI * (100 - 25) * 20, 0);
+    const over = await b.build(req([sketch('S1', ents), revolve('R1', 'S1', 400)]));
+    expect(over.status[1].error).toBe('The angle cannot be more than 360 degrees');
   });
 
   it('rejects a revolve profile that crosses its axis with a readable error', async () => {
@@ -605,7 +691,12 @@ describe('feature regeneration', () => {
       expect(res.status[4].error).toMatch(/on top of each other/);
     }
     expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
-    for (const p of [circ(360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
+    const one = { ...lin(10), dir1: { ...(lin(10) as LinearPatternFeature).dir1, count: 1 } } as Feature;
+    expect((await b.build(req([...base, one]))).status[4].error).toMatch(/only the original. Set 2 or more instances/);
+    for (const p of [circ(360, true), circ(-360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
+    // A full turn the other way makes the same four holes.
+    await b.build(req([...base, circ(-360, true)]));
+    expect(volume(b)).toBeCloseTo(40 * 40 * 10 - 4 * Math.PI * 4 * 10, 3);
     // Copies of a cut that all land off the part do nothing: say so.
     const off = await b.build(req([...base, lin(100)]));
     expect(off.status[4].ok).toBe(true);
@@ -683,6 +774,27 @@ describe('feature regeneration', () => {
     expect(await error([...base, extrude('E2', 'S2', 5, { cut: true, flip: true }), pattern('E2')])).toBeUndefined();
   });
 
+  it('names the sketch, plane or feature whose face a feature is missing', async () => {
+    const b = new ModelBuilder();
+    const named = (f: Feature, name: string) => ({ ...f, name });
+    const status = async (feats: Feature[], id: string) => (await b.build(req(feats))).status.find((s) => s.id === id)!.error;
+    const open = named(sketch('S1', [{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 5, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }]), 'Sketch1');
+    const plane = named({ id: 'P1', name: '', type: 'plane', ref: { kind: 'feature', id: 'gone' }, offset: 5, flip: false }, 'Plane1');
+    // A sketch that failed (on a plane that failed), and one after the feature.
+    expect(await status([plane, named(sketch('S1', rect(0, 0, 5, 5), { kind: 'feature', id: 'P1' }), 'Sketch1'), extrude('E1', 'S1', 5)], 'E1'))
+      .toBe('The profile sketch (Sketch1) failed to build');
+    // Renaming changes no geometry (the steps stay cached), but the message follows the name.
+    expect(await status([plane, named(sketch('S1', rect(0, 0, 5, 5), { kind: 'feature', id: 'P1' }), 'Profile'), extrude('E1', 'S1', 5)], 'E1'))
+      .toBe('The profile sketch (Profile) failed to build');
+    expect(await status([plane], 'P1')).toBe('The reference plane no longer exists');
+    expect(await status([extrude('E1', 'S1', 5), open], 'E1')).toBe('The profile sketch (Sketch1) comes after this feature in the tree');
+    expect(await status([extrude('E1', '', 5)], 'E1')).toBe('Select the profile sketch');
+    // A face reference says which feature made the face.
+    const base: Feature[] = [named(sketch('S2', rect(0, 0, 10, 10)), 'Sketch2'), named(extrude('E2', 'S2', 10), 'Boss')];
+    const gone: ShellFeature = { id: 'SH', name: 'SH', type: 'shell', thickness: 1, outward: false, faces: [{ name: 'E2:side:zz', sig: { type: 'cone', c: [99, 99, 99], area: 1 } }] };
+    expect(await status([...base, gone], 'SH')).toBe('A referenced face (made by Boss) no longer exists. Edit the feature and select it again.');
+  });
+
   it('reports selected regions that a sketch edit moved away', async () => {
     const b = new ModelBuilder();
     const two = (bx: number) => sketch('S1', [...circle(0, 0, 5, 'ca'), ...circle(bx, 0, 5, 'cb')]);
@@ -708,6 +820,9 @@ describe('feature regeneration', () => {
     expect(res.status[1].error).toMatch(/open/i);
     expect(res.status[3].ok).toBe(true);
     expect(volume(b)).toBeCloseTo(125, 3);
+    // Untrimmed contours lying over each other say so.
+    const corner = await b.build(req([sketch('S1', [...rect(0, 0, 20, 20), ...rect(0, 0, 5, 5)]), extrude('E1', 'S1', 5)]));
+    expect(corner.status[1].error).toMatch(/lie over each other. Trim them/);
   });
 
   it('reuses cached steps when only later features change', async () => {
@@ -733,6 +848,7 @@ describe('feature regeneration', () => {
     const b = new ModelBuilder();
     await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
     const mp = b.massProperties()!;
+    expect(mp.solid).toBe(true);
     expect(mp.center[0]).toBeCloseTo(5, 6);
     expect(mp.center[2]).toBeCloseTo(5, 6);
     expect(mp.area).toBeCloseTo(600, 4);
@@ -743,6 +859,28 @@ describe('feature regeneration', () => {
     expect(step).toContain('ISO-10303-21');
     const stl = b.exportStl(1);
     expect(new DataView(stl.buffer).getUint32(80, true)).toBe(12);
+  });
+
+  it('reports draft angles of 90 degrees or more by name', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10, 'r')), extrude('E1', 'S1', 10)];
+    const f = (await b.build(req(base))).faces.find((x) => x.name === 'E1:side:rl1')!;
+    const draft = (angle: number): Feature => ({
+      id: 'D1', name: 'D1', type: 'draft', neutral: { kind: 'base', plane: 'front' }, angle, flip: false,
+      faces: [{ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }],
+    });
+    for (const angle of [95, -90]) expect((await b.build(req([...base, draft(angle)]))).status[2].error).toMatch(/between -90 and 90 degrees/);
+    expect((await b.build(req([...base, draft(-5)]))).status[2].ok).toBe(true);
+  });
+
+  it('says a body of surfaces only has no mass instead of a centre at the origin', async () => {
+    const face = subShapes(R.makeBox([0, 0, 0], [10, 10, 10]) as unknown as Sh, 'face')[0];
+    const b = new ModelBuilder();
+    const res = await b.build(req([{ id: 'I1', name: 'I1', type: 'import', format: 'brep', blob: 'f', fileName: 'f.brep' }], { blobs: { f: getOc().BRepToolsWrapper.Write(face.wrapped) } }));
+    expect(res.status[0].ok).toBe(true);
+    const mp = b.massProperties()!;
+    expect(mp.solid).toBe(false);
+    expect(mp.area).toBeCloseTo(100, 6);
   });
 
   it('frees the points and directions it hands to OpenCascade', async () => {
@@ -772,6 +910,34 @@ describe('feature regeneration', () => {
     }
     expect(made.length).toBeGreaterThan(0);
     expect(made.filter((o) => !o.isDeleted())).toHaveLength(0);
+  });
+
+  it('frees the surfaces it looks up to name trimmed spline faces', async () => {
+    const b = new ModelBuilder();
+    const loft: Feature[] = [
+      sketch('A', rect(-10, -10, 10, 10)),
+      { id: 'P1', name: 'P1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 20, flip: false },
+      sketch('B', circle(0, 0, 5), { kind: 'feature', id: 'P1' }),
+      { id: 'L', name: 'L', type: 'loft', profiles: ['A', 'B'], cut: false, ruled: false },
+      sketch('S9', circle(0, -8, 2), { kind: 'base', plane: 'top' }),
+      extrude('E9', 'S9', 50, { cut: true, end: 'throughAll', dir2: { end: 'throughAll', depth: 0 } }),
+    ];
+    // A surface handle keeps its surface alive: count the ones left.
+    const tool = getOc().BRep_Tool;
+    const surface = tool.Surface;
+    const made: { isDeleted(): boolean }[] = [];
+    // The bindings look up their overloads on the function they find there: give it them.
+    tool.Surface = Object.assign((...args: unknown[]) => { const s = surface.apply(tool, args); made.push(s); return s; }, surface);
+    try {
+      const res = await b.build(req(loft));
+      expect(res.status.every((s) => s.ok)).toBe(true);
+      // The trimmed loft faces keep their names (the surfaces were compared).
+      expect(res.faces.filter((f) => f.type === 'bspline').map((f) => f.name).sort()).toEqual(['L:l0', 'L:l1', 'L:l2', 'L:l3', 'L:l4']);
+    } finally {
+      tool.Surface = surface;
+    }
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.filter((s) => !s.isDeleted())).toHaveLength(0);
   });
 
   it('measures the minimum distance between faces, edges and points', async () => {
@@ -847,6 +1013,25 @@ describe('feature regeneration', () => {
     // From the top the hole is hidden: two hidden lines.
     expect(top.bounds![3] - top.bounds![1]).toBeCloseTo(10, 3);
     expect(top.hidden.length).toBeGreaterThan(0);
+  });
+
+  it('fails a feature whose value could not be evaluated instead of building it with zero', async () => {
+    const b = new ModelBuilder();
+    const feats: Feature[] = [
+      sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10),
+      { id: 'P1', name: 'P1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 0, flip: false },
+      sketch('S2', rect(2, 2, 4, 4), { kind: 'feature', id: 'P1' }), extrude('E2', 'S2', 3, { flip: true }),
+    ];
+    // The plane's offset expression failed (its value stands at 0): the plane
+    // fails and the boss on it is not built at the wrong height.
+    const res = await b.build(req(feats, { invalid: { P1: 'Offset: Unknown name "Gap"' } }));
+    expect(res.status[2]).toEqual({ id: 'P1', ok: false, error: 'Offset: Unknown name "Gap"' });
+    expect(res.status[4].ok).toBe(false);
+    expect(volume(b)).toBeCloseTo(1000, 6);
+    // Fixed again (an offset of 20), both build.
+    const fixed = await b.build(req(feats.map((f) => (f.id === 'P1' ? { ...f, offset: 20 } : f))));
+    expect(fixed.status.every((s) => s.ok)).toBe(true);
+    expect(volume(b)).toBeCloseTo(1012, 6);
   });
 
   it('honours the rollback position', async () => {

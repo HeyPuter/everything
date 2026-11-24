@@ -239,24 +239,36 @@ export function sameSurface(a: SurfDesc, b: SurfDesc, tol: number): boolean {
   }
 }
 
-const surfaces = new WeakMap<Sh, any>();
+/**
+ * The faces' own surfaces (null when a face is moved by a location), looked
+ * up once per comparison pass. The handles keep their surfaces alive, so they
+ * are freed together when the pass is done (cached on the faces, they kept
+ * every compared spline surface in memory for the life of the worker).
+ */
+export class SurfaceCache {
+  private handles = new Map<Sh, any>();
 
-/** The face's own surface (null when the face is moved by a location). */
-function surfaceHandle(face: Sh): any {
-  let s = surfaces.get(face);
-  if (s === undefined) {
-    const loc = new oc.TopLoc_Location();
-    try {
-      s = oc.BRep_Tool.Surface(face.wrapped, loc);
-      if (!loc.IsIdentity()) { s.delete(); s = null; }
-    } catch {
-      s = null;
-    } finally {
-      loc.delete();
+  get(face: Sh): any {
+    let s = this.handles.get(face);
+    if (s === undefined) {
+      const loc = new oc.TopLoc_Location();
+      try {
+        s = oc.BRep_Tool.Surface(face.wrapped, loc);
+        if (!loc.IsIdentity()) { s.delete(); s = null; }
+      } catch {
+        s = null;
+      } finally {
+        loc.delete();
+      }
+      this.handles.set(face, s);
     }
-    surfaces.set(face, s);
+    return s;
   }
-  return s;
+
+  dispose() {
+    for (const s of this.handles.values()) s?.delete();
+    this.handles.clear();
+  }
 }
 
 /**
@@ -264,8 +276,8 @@ function surfaceHandle(face: Sh): any {
  * keeps its surface. Spline, torus and cone faces have no exact descriptor,
  * so this is how a trimmed one is told apart from a new face.
  */
-export function sharesSurface(a: Sh, b: Sh): boolean {
-  const sa = surfaceHandle(a), sb = surfaceHandle(b);
+export function sharesSurface(a: Sh, b: Sh, cache: SurfaceCache): boolean {
+  const sa = cache.get(a), sb = cache.get(b);
   return !!sa && !!sb && sa.isAliasOf(sb);
 }
 
@@ -388,6 +400,27 @@ function runBoolean(builder: any): Sh {
 
 export function fuse(a: Sh, b: Sh): Sh {
   return runBoolean(new oc.BRepAlgoAPI_Fuse(a.wrapped, b.wrapped));
+}
+
+/**
+ * One boolean of many shapes: fusing them one by one compares each new piece
+ * with the whole result so far, about six times slower for a profile of many
+ * regions (a plate split by many lines).
+ */
+export function fuseAll(shapes: Sh[]): Sh {
+  if (shapes.length === 1) return shapes[0];
+  const args = new oc.NCollection_List_TopoDS_Shape(), tools = new oc.NCollection_List_TopoDS_Shape();
+  try {
+    args.Append(shapes[0].wrapped);
+    for (let i = 1; i < shapes.length; i++) tools.Append(shapes[i].wrapped);
+    const builder = new oc.BRepAlgoAPI_Fuse();
+    builder.SetArguments(args);
+    builder.SetTools(tools);
+    return runBoolean(builder);
+  } finally {
+    args.delete();
+    tools.delete();
+  }
 }
 
 export function cut(a: Sh, b: Sh): Sh {

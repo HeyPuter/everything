@@ -44,6 +44,24 @@ describe('camera', () => {
     expect(c.distance).toBeCloseTo(50, 9);
   });
 
+  it('zooms in perspective onto a surface nearer than the target, not through it', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.setState({ target: [0, 0, 0], distance: 100, rot: VIEWS.front, ortho: false });
+    // A surface at z = 40, between the target and the eye, under the cursor.
+    const [x, y] = c.project([10, 5, 40]);
+    const view = [...c.view()], seen = c.project([-20, 30, -10]);
+    c.focusDepth([10, 5, 40]);
+    // The view itself does not change (only the depth range follows the new distance).
+    close([...c.view()], view);
+    c.project([-20, 30, -10]).slice(0, 2).forEach((v, i) => expect(v).toBeCloseTo(seen[i], 6));
+    expect(c.distance).toBeCloseTo(60, 9);
+    for (let i = 0; i < 60; i++) c.zoomAt(0.8, x, y);
+    // Still in front of the eye and under the cursor.
+    expect(c.eye[2]).toBeGreaterThan(40);
+    c.project([10, 5, 40]).slice(0, 2).forEach((v, i) => expect(v).toBeCloseTo([x, y][i], 6));
+  });
+
   it('reports the end of a running animation as its goal', () => {
     const c = new Camera();
     c.width = 800; c.height = 600;

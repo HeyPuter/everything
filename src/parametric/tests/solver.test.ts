@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SkConstraint, SkDimension, SkEntity } from '../src/model/types';
-import { solveSketch, splineSignedDist } from '../src/sketch/solver';
+import { SketchSystem, solveSketch, splineSignedDist } from '../src/sketch/solver';
 import { SketchIndex, distanceToCurve } from '../src/sketch/geom';
 
 const pt = (id: string, x: number, y: number): SkEntity => ({ id, t: 'point', x, y });
@@ -144,6 +144,86 @@ describe('sketch solver', () => {
     expect(res.status).toBe('full');
   });
 
+  it('solves a conflicting angle directly instead of stepping towards it', () => {
+    const ents: SkEntity[] = [pt('a', 0, 0), pt('b', 10, 0), line('l1', 'a', 'b'), pt('c', 0, 0), pt('d', 0, 8), line('l2', 'c', 'd')];
+    const cons: SkConstraint[] = [
+      { id: 'f', type: 'fix', refs: ['l1'] },
+      { id: 'cc', type: 'coincident', refs: ['c', 'a'] },
+      { id: 'pp', type: 'perpendicular', refs: ['l1', 'l2'] },
+      dim('ang', 'angle', ['l1', 'l2'], 30),
+    ];
+    const solveAll = vi.spyOn(SketchSystem.prototype as unknown as { solveAll(n: number): boolean }, 'solveAll');
+    try {
+      const res = solveSketch(ents, cons, { value });
+      expect(res.status).toBe('over');
+      expect(res.conflicting.size).toBeGreaterThan(0);
+      // One failed step, then the direct solve: not all sixteen steps.
+      expect(solveAll.mock.calls.length).toBeLessThan(5);
+    } finally {
+      solveAll.mockRestore();
+    }
+  });
+
+  it('evaluates each driving dimension once per solve, dragging included', () => {
+    const ents = rectangle();
+    const cons: SkConstraint[] = [
+      { id: 'c1', type: 'horizontal', refs: ['l1'] },
+      { id: 'c3', type: 'vertical', refs: ['l2'] },
+      dim('d1', 'distance', ['l1'], 30),
+      dim('d2', 'distance', ['l2'], 20),
+      dim('d3', 'distance', ['l3'], 25, { driven: true }),
+    ];
+    // An expression value re-evaluates every variable it uses: evaluating it in
+    // each residual and Jacobian column made drag frames many times slower.
+    const calls = new Map<string, number>();
+    const counted = (d: SkDimension) => { calls.set(d.id, (calls.get(d.id) ?? 0) + 1); return value(d); };
+    solveSketch(ents, cons, { value: counted });
+    expect(Object.fromEntries(calls)).toEqual({ d1: 1, d2: 1 });
+    calls.clear();
+    solveSketch(ents, cons, { value: counted, drag: { kind: 'points', ids: ['p3'], targets: [[50, 40]] }, analyze: false });
+    expect(Object.fromEntries(calls)).toEqual({ d1: 1, d2: 1 });
+    expect(Math.hypot(P(ents, 'p2').x - P(ents, 'p1').x, P(ents, 'p2').y - P(ents, 'p1').y)).toBeCloseTo(30, 6);
+  });
+
+  it('reports a dimension whose value does not resolve as a conflict and solves the rest', () => {
+    const ents = rectangle();
+    const cons: SkConstraint[] = [
+      { id: 'c1', type: 'horizontal', refs: ['l1'] },
+      { id: 'c2', type: 'horizontal', refs: ['l3'] },
+      { id: 'c3', type: 'vertical', refs: ['l2'] },
+      { id: 'c4', type: 'vertical', refs: ['l4'] },
+      dim('d1', 'distance', ['l1'], 30),
+      dim('d2', 'distance', ['l2'], NaN),
+    ];
+    const res = solveSketch(ents, cons, { value });
+    expect(res.status).toBe('over');
+    expect([...res.conflicting]).toEqual(['d2']);
+    expect(P(ents, 'p2').x - P(ents, 'p1').x).toBeCloseTo(30, 6);
+    expect(P(ents, 'p1').y).toBeCloseTo(P(ents, 'p2').y, 9);
+    expect(ents.every((e) => e.t !== 'point' || (Number.isFinite(e.x) && Number.isFinite(e.y)))).toBe(true);
+  });
+
+  it('turns a free line to a much larger angle without stretching it', () => {
+    for (const [v, sector] of [[90, 0], [150, 0], [180, 0], [5, 0], [170, 1]] as const) {
+      const ents: SkEntity[] = [pt('a', 0, 0), pt('b', 10, 0), line('l1', 'a', 'b'), pt('c', 0, 0), pt('d', 8, 5), line('l2', 'c', 'd')];
+      const cons: SkConstraint[] = [
+        { id: 'f', type: 'fix', refs: ['l1'] },
+        { id: 'cc', type: 'coincident', refs: ['c', 'a'] },
+        dim('ang', 'angle', ['l1', 'l2'], v, { sector }),
+      ];
+      const before = Math.hypot(8, 5);
+      const res = solveSketch(ents, cons, { value });
+      expect(res.converged).toBe(true);
+      expect(res.status).toBe('under');
+      const d = P(ents, 'd');
+      // Solved in one step, 150 degrees landed the end three times as far out.
+      expect(Math.hypot(d.x, d.y) / before).toBeGreaterThan(0.9);
+      expect(Math.hypot(d.x, d.y) / before).toBeLessThan(1.25);
+      const ang = (Math.abs(Math.atan2(d.y, d.x)) * 180) / Math.PI;
+      expect(sector ? 180 - ang : ang).toBeCloseTo(v, 6);
+    }
+  });
+
   it('enforces symmetry about a centerline', () => {
     const ents: SkEntity[] = [
       pt('a', 0, -10), pt('b', 0, 10), { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
@@ -242,6 +322,131 @@ describe('sketch solver', () => {
     expect(res.status).toBe('full');
     expect(P(ents, `p${N}`).x).toBeCloseTo(2 * N, 6);
     expect(ms).toBeLessThan(1500);
+  });
+
+  it('orders a cluster so the factorisation stays narrow whatever order constraints were added in', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 600;
+    for (let i = 0; i < N; i++) ents.push(pt(`p${i}`, 40 * Math.cos((i / N) * 2 * Math.PI), 40 * Math.sin((i / N) * 2 * Math.PI)));
+    for (let i = 0; i < N; i++) ents.push(line(`l${i}`, `p${i}`, `p${(i + 1) % N}`));
+    for (let i = 0; i < N; i += 2) cons.push({ id: `e${i}`, type: 'equal', refs: [`l${i}`, `l${i + 1}`] });
+    for (let i = 0; i < N; i += 4) cons.push({ id: `h${i}`, type: 'horizontal', refs: [`l${i}`] });
+    cons.reverse();
+    const sys = new SketchSystem(ents, cons, { value });
+    const clusters = (sys as unknown as { clusters(): { eqs: { vars: number[] }[] }[] }).clusters();
+    expect(clusters).toHaveLength(1);
+    // Rows of J J^T reach back to the first earlier row sharing a variable; the
+    // Cholesky factor fills everything in between. In the order added (equal
+    // relations, then horizontals) that reached across the whole chain, and a
+    // drag frame of 2000 such lines took over a second.
+    const eqs = clusters[0].eqs;
+    const seen = new Map<number, number>();
+    let envelope = 0;
+    eqs.forEach((eq, i) => {
+      let first = i;
+      for (const v of eq.vars) first = Math.min(first, seen.get(v) ?? i);
+      for (const v of eq.vars) if (!seen.has(v)) seen.set(v, i);
+      envelope += i - first;
+    });
+    expect(envelope).toBeLessThan(10 * eqs.length);
+    const res = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: ['p1'], targets: [[41, 3]] }, analyze: false });
+    expect(res.converged).toBe(true);
+  });
+
+  it('analyses separate shapes each on their own, with the same verdicts', () => {
+    const shape = (k: number, extra: SkConstraint[] = []) => {
+      const ents = rectangle().map((e) => (e.t === 'point' ? { ...e, id: `${e.id}_${k}`, x: e.x + 40 * k } : e.t === 'line' ? { ...e, id: `${e.id}_${k}`, a: `${e.a}_${k}`, b: `${e.b}_${k}` } : e));
+      const cons: SkConstraint[] = [
+        { id: `h1_${k}`, type: 'horizontal', refs: [`l1_${k}`] }, { id: `h2_${k}`, type: 'horizontal', refs: [`l3_${k}`] },
+        { id: `v1_${k}`, type: 'vertical', refs: [`l2_${k}`] }, { id: `v2_${k}`, type: 'vertical', refs: [`l4_${k}`] },
+        ...extra,
+      ];
+      return { ents, cons };
+    };
+    // Fully defined and fixed; with a redundant length; free to move.
+    const a = shape(0, [{ id: 'fix0', type: 'fix', refs: ['p1_0'] }, dim('w0', 'distance', ['l1_0'], 30), dim('t0', 'distance', ['l2_0'], 20)]);
+    const b = shape(1, [dim('w1', 'distance', ['l1_1'], 30), dim('w1b', 'distance', ['l3_1'], 30)]);
+    const c = shape(2);
+    const ents = [...a.ents, ...b.ents, ...c.ents, pt('q', 200, 5)];
+    // A dimension between two fixed things holds nothing either.
+    const cons = [...a.cons, ...b.cons, ...c.cons, { id: 'fixq', type: 'fix', refs: ['q'] } as SkConstraint, dim('qq', 'distance', ['q', 'p1_0'], Math.hypot(200, 5))];
+    const res = solveSketch(ents, cons, { value });
+    expect([...res.badConstraints].sort()).toEqual(['qq', 'w1b']);
+    expect(res.dof).toBe(3 + 4);
+    expect(['l1_0', 'l2_0', 'l3_0', 'l4_0', 'q'].some((id) => res.freeEntities.has(id))).toBe(false);
+    expect(['l1_1', 'l2_1', 'l1_2', 'p3_2'].every((id) => res.freeEntities.has(id))).toBe(true);
+    // Many separate shapes: each edit of such a sketch analysed rows as wide
+    // as the whole sketch (over 800 ms for 1200 rectangles on a fast machine).
+    const many: SkEntity[] = [], manyCons: SkConstraint[] = [];
+    for (let k = 0; k < 1200; k++) { const s = shape(k, [dim(`w${k}`, 'distance', [`l1_${k}`], 30)]); many.push(...s.ents); manyCons.push(...s.cons); }
+    const t0 = performance.now();
+    const big = solveSketch(many, manyCons, { value });
+    const ms = performance.now() - t0;
+    expect(big.dof).toBe(1200 * 3);
+    expect(ms).toBeLessThan(4000);
+  });
+
+  it('keeps memory for a large connected cluster in proportion to its size', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 1000;
+    for (let i = 0; i <= N; i++) ents.push(pt(`p${i}`, i * 1.1, (i % 2) * 0.3));
+    for (let i = 0; i < N; i++) {
+      ents.push(line(`l${i}`, `p${i}`, `p${i + 1}`));
+      cons.push({ id: `h${i}`, type: 'horizontal', refs: [`l${i}`] }, dim(`d${i}`, 'distance', [`l${i}`], 2));
+    }
+    // A full m x m J J^T for this one cluster of 2000 equations is 4 million
+    // numbers; 35000 such lines took over a minute to drag and tens of gigabytes.
+    const Native = globalThis.Float64Array;
+    let largest = 0;
+    globalThis.Float64Array = new Proxy(Native, {
+      construct(target, args: unknown[]) {
+        if (typeof args[0] === 'number') largest = Math.max(largest, args[0]);
+        return Reflect.construct(target, args);
+      },
+    });
+    try {
+      const res = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: [`p${N}`], targets: [[3000, 5]] }, analyze: false });
+      expect(res.converged).toBe(true);
+    } finally {
+      globalThis.Float64Array = Native;
+    }
+    expect(P(ents, `p${N}`).x - P(ents, 'p0').x).toBeCloseTo(2 * N, 6);
+    expect(largest).toBeLessThan(50 * 2 * N);
+  });
+
+  it('analyses a long dimensioned chain without filling the reduced rows', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 600;
+    for (let i = 0; i <= N; i++) ents.push(pt(`p${i}`, i * 2, 0));
+    for (let i = 0; i < N; i++) {
+      ents.push(line(`l${i}`, `p${i}`, `p${i + 1}`));
+      cons.push({ id: `h${i}`, type: 'horizontal', refs: [`l${i}`] }, dim(`d${i}`, 'distance', [`l${i}`], 2));
+    }
+    cons.push({ id: 'twice', type: 'horizontal', refs: ['p0', `p${N}`] });
+    // Dense rows as wide as the cluster, filled in by every pivot: 1.4 million
+    // numbers here, and seconds per edit for 2000 lines.
+    const Native = globalThis.Float64Array;
+    let total = 0;
+    globalThis.Float64Array = new Proxy(Native, {
+      construct(target, args: unknown[]) {
+        if (typeof args[0] === 'number') total += args[0];
+        return Reflect.construct(target, args);
+      },
+    });
+    let res: ReturnType<typeof solveSketch>;
+    try {
+      res = solveSketch(ents, cons, { value });
+    } finally {
+      globalThis.Float64Array = Native;
+    }
+    // The horizontal chain already holds the end points level.
+    expect([...res.badConstraints]).toEqual(['twice']);
+    expect(res.dof).toBe(2);
+    expect(res.freeEntities.size).toBe(ents.length);
+    expect(total).toBeLessThan(20 * 2 * N);
   });
 
   it('solves one long connected chain without a dense factorization', () => {

@@ -47,10 +47,18 @@ export interface Nurbs {
   rational: boolean;
 }
 
-function knotVector(g: Graph, owner: XtNode, knotsField: string, multField: string): number[] {
+/** The expanded knot vector, which must have `count` knots. */
+function knotVector(g: Graph, owner: XtNode, knotsField: string, multField: string, count: number): number[] {
   const ks = g.ref(owner, knotsField)?.f.knots as number[] | undefined;
   const ms = g.ref(owner, multField)?.f.mult as number[] | undefined;
   if (!ks || !ms || ks.length !== ms.length) throw new GeomError('Bad B-spline knots');
+  // Checked before expanding: a damaged file's multiplicities could ask for billions of knots.
+  let total = 0;
+  for (const m of ms) {
+    if (!Number.isInteger(m) || m < 0) throw new GeomError('Bad B-spline knots');
+    total += m;
+  }
+  if (total !== count) throw new GeomError('Bad B-spline knot count');
   const out: number[] = [];
   ks.forEach((k, i) => { for (let j = 0; j < ms[i]; j++) out.push(k); });
   return out;
@@ -63,8 +71,7 @@ export function nurbsCurve(g: Graph, bcurve: XtNode): Nurbs {
   const flat = g.ref(nc, 'bspline_vertices')?.f.vertices as number[] | undefined;
   if (!flat || flat.length < n * dim) throw new GeomError('Bad B-curve vertices');
   const ctrl = Array.from({ length: n }, (_, i) => flat.slice(i * dim, i * dim + dim));
-  const knots = knotVector(g, nc, 'knots', 'knot_mult');
-  if (knots.length !== n + degree + 1) throw new GeomError('Bad B-curve knot count');
+  const knots = knotVector(g, nc, 'knots', 'knot_mult', n + degree + 1);
   return { degree, knots, ctrl, rational: !!nc.f.rational };
 }
 
@@ -86,8 +93,7 @@ export function nurbsSurface(g: Graph, bsurf: XtNode): NurbsSurf {
   if (!flat || flat.length < nu * nv * dim) throw new GeomError('Bad B-surface vertices');
   // Stored with v varying fastest.
   const ctrl = Array.from({ length: nu }, (_, iu) => Array.from({ length: nv }, (_, iv) => flat.slice((iu * nv + iv) * dim, (iu * nv + iv) * dim + dim)));
-  const uk = knotVector(g, ns, 'u_knots', 'u_knot_mult'), vk = knotVector(g, ns, 'v_knots', 'v_knot_mult');
-  if (uk.length !== nu + du + 1 || vk.length !== nv + dv + 1) throw new GeomError('Bad B-surface knot count');
+  const uk = knotVector(g, ns, 'u_knots', 'u_knot_mult', nu + du + 1), vk = knotVector(g, ns, 'v_knots', 'v_knot_mult', nv + dv + 1);
   return { du, dv, uk, vk, nu, nv, ctrl, rational: !!ns.f.rational };
 }
 
