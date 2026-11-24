@@ -9,7 +9,7 @@ import {
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, type FileEntry, deletePart, forgetRecent, rememberRecent,
   onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
-import { type PuterFSItem, cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
+import { type PuterFSItem, cloudAvailable, env, isMissing, isPermissionError, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../ui/overlay';
@@ -281,8 +281,11 @@ export class FileOps {
       }
       return true;
     }).catch((e) => {
-      // The work is still only in this tab: offer a copy on the device meanwhile.
-      toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
+      // The work is still only in this tab: offer a copy on the device meanwhile,
+      // or, where the file may not be changed, a copy of one's own.
+      const actions = [{ label: 'Download a copy', run: () => void this.exportAs('part') }];
+      if (isPermissionError(e)) actions.unshift({ label: 'Save As...', run: () => void this.saveAs() });
+      toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions, timeout: 15000 });
       return false;
     });
     this.queuedSave = { documentVersion, result };

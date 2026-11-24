@@ -66,6 +66,7 @@ describe('storageError', () => {
     expect(storageError(new DOMException('The operation failed because it would cause the application to exceed its storage quota.', 'QuotaExceededError'))).toMatch(/run out of storage space/);
     expect(storageError({ code: 'storage_limit_reached' })).toMatch(/Puter storage is full/);
     expect(storageError(new Error('Permission denied'))).toBe('Permission denied');
+    for (const e of [{ status: 403, message: 'Forbidden' }, { code: 'forbidden' }, { code: 'access_denied', message: 'Access denied' }]) expect(storageError(e)).toMatch(/do not have permission.*Save As/);
   });
 });
 

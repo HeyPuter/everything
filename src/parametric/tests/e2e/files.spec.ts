@@ -1812,3 +1812,26 @@ test('a hole whose positions point at a feature that is not a sketch can still b
   await expect(page.locator('.pm')).toContainText('Positions');
   expect(errors).toEqual([]);
 });
+
+test('a save Puter refuses for lack of permission says so and offers Save As', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; puter: { fs: { write: () => Promise<unknown> } }; __savePick: () => Promise<string> };
+    // The owner made the share view only.
+    w.puter.fs.write = async () => { throw { status: 403, code: 'forbidden', message: 'Forbidden' }; };
+    w.__savePick = async () => '/tester/Documents/My copy.parametric';
+    w.__parametric.store.change('E', (d) => { d.variables.push({ name: 'Mine', expr: '1' }); });
+    w.__parametric.commands.run('save');
+  });
+  const alert = page.getByRole('alert').filter({ hasText: 'Could not save' });
+  await expect(alert).toContainText('You do not have permission to change this file');
+  await alert.getByRole('button', { name: 'Save As...' }).click();
+  await expect(page).toHaveTitle('My copy - Parametric');
+  expect(await page.evaluate(() => JSON.parse((window as unknown as Mock).__files.get('/tester/Documents/My copy.parametric')!.text).variables[0].name)).toBe('Mine');
+  expect(errors).toEqual([]);
+});
