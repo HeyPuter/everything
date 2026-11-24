@@ -12139,6 +12139,13 @@ export function createEditor({
         reply: reply.startsWith(sent) ? reply.slice(sent.length) : reply,
       };
     };
+    // A number a field refused (0 for a width, or nothing) went on showing once the field was
+    // left, while the comment kept the value it had: left, the field shows that value again.
+    panel.addEventListener('focusout', (e) => {
+      const field = e.target;
+      if (field instanceof HTMLInputElement && field.type === 'number' && !field.checkValidity())
+        field.value = field.defaultValue;
+    });
     // Escape lets go of the comment from its settings too, as from the comment itself; words
     // typed into its text are kept.
     panel.addEventListener('keydown', (e) => {

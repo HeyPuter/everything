@@ -201,3 +201,26 @@ test('a comment’s number fields are drawn as the panel’s others in dark mode
   });
   expect(field).toBe(surface);
 });
+
+// A size the field refused went on showing once the field was left, while the comment kept its
+// own: the settings said 0 for a 120 pt wide box.
+test('a refused size shows the comment’s own again once its field is left', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 500, width: 120, height: 60 },
+    text: 'Box',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Rectangle: Box' }).focus();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const width = props.getByLabel('Rectangle width in points');
+  for (const refused of ['0', '']) {
+    await width.fill(refused);
+    await width.press('Tab');
+    await expect(width).toHaveValue('120');
+  }
+  const [box] = await saved(page);
+  near(box.rect, { x: 100, width: 120, height: 60 });
+});
