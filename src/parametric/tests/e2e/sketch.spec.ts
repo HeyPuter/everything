@@ -1643,6 +1643,18 @@ test('the fully defined drag notice clears once geometry that can move is dragge
   await expect(status).toHaveText('This geometry is fully defined, so it cannot be dragged.');
   await drag([-30, -10], [-20, -20]);
   await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
+  // Projected geometry is held by its model edge, which the notice says.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add projected line', (sk) => {
+      sk.entities.push({ id: 'ea', t: 'point', x: -20, y: 20 }, { id: 'eb', t: 'point', x: -10, y: 20 });
+      sk.entities.push({ id: 'proj', t: 'line', a: 'ea', b: 'eb', ext: { kind: 'edge', edge: { name: 'E1', sig: { type: 'line', m: [-15, 20, 0], len: 10 } } } });
+    });
+  });
+  await drag([-15, 20], [-15, 26]);
+  await expect(status).toHaveText(/^Projected geometry follows its model edge, so it cannot be dragged/);
+  await drag([-20, -20], [-25, -15]);
+  await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
   expect(errors).toEqual([]);
 });
 

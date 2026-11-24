@@ -78,6 +78,7 @@ interface DragState {
 
 const STATUS_TEXT: Record<SolveResult['status'], string> = { under: 'Under Defined', full: 'Fully Defined', over: 'Over Defined' };
 const FIXED_DRAG_NOTICE = 'This geometry is fully defined, so it cannot be dragged.';
+const PROJECTED_DRAG_NOTICE = 'Projected geometry follows its model edge, so it cannot be dragged. Unlink it in the PropertyManager to move it freely.';
 
 export class SketchEditor implements ViewportTool {
   readonly sketchId: Id;
@@ -429,8 +430,8 @@ export class SketchEditor implements ViewportTool {
         // relation) keeps it, and the drag moves it by its centre if it can.
         const ids = !free || free.has(ent.c) ? [ent.c] : [];
         // Nothing about it can move: say so, as for other geometry.
-        if (!ids.length) this.app.setStatus(FIXED_DRAG_NOTICE, true);
-        else this.app.clearStatus(FIXED_DRAG_NOTICE);
+        if (!ids.length) this.app.setStatus(ent.ext ? PROJECTED_DRAG_NOTICE : FIXED_DRAG_NOTICE, true);
+        else { this.app.clearStatus(FIXED_DRAG_NOTICE); this.app.clearStatus(PROJECTED_DRAG_NOTICE); }
         this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, circle: ent.id, moved: false };
       } else {
         // Drag every selected point (and curves' points) together.
@@ -449,8 +450,14 @@ export class SketchEditor implements ViewportTool {
         // The notice is transient: it clears on its own, and a drag that can
         // move something replaces it, so it never outlives the press that
         // caused it.
-        if (ids.size && !list.length) this.app.setStatus(FIXED_DRAG_NOTICE, true);
-        else if (list.length) this.app.clearStatus(FIXED_DRAG_NOTICE);
+        if (ids.size && !list.length) {
+          // Projected geometry is held by the model, not by its constraints.
+          const projected = externalPointIds(sk.entities);
+          this.app.setStatus([...ids].every((id) => projected.has(id)) ? PROJECTED_DRAG_NOTICE : FIXED_DRAG_NOTICE, true);
+        } else if (list.length) {
+          this.app.clearStatus(FIXED_DRAG_NOTICE);
+          this.app.clearStatus(PROJECTED_DRAG_NOTICE);
+        }
         this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
       }
       this.app.store.beginBatch('Drag sketch geometry', () => { this.drag = null; });
