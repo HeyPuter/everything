@@ -998,6 +998,38 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a centerpoint arc ends on a snapped point only when it lies on the arc', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      ed.edit('Add points', (sk) => { sk.entities.push({ id: 'far', t: 'point', x: 0, y: 30 }, { id: 'on', t: 'point', x: 40, y: 0 }); });
+      type S = import('../../src/app/sketch/inference').Snap;
+      const ev = {} as import('../../src/app/viewport').VPEvent;
+      const click = (s: S) => ed.tool!.click!(s, ev);
+      a.commands.run('tool:centerArc');
+      // Ending on a point three times the radius away pulled that point (or the arc) to meet.
+      click({ p: [0, 0], raw: [0, 0], kind: 'none' });
+      click({ p: [10, 0], raw: [10, 0], kind: 'none' });
+      click({ p: [0, 30], raw: [0, 30], kind: 'point', pointId: 'far' });
+      // A point on the circle is still joined.
+      click({ p: [50, 0], raw: [50, 0], kind: 'none' });
+      click({ p: [60, 0], raw: [60, 0], kind: 'none' });
+      click({ p: [40, 0], raw: [40, 0], kind: 'point', pointId: 'on' });
+      const ix = new Map(ed.sketch.entities.map((e) => [e.id, e]));
+      const pt = (id: string) => { const e = ix.get(id) as { x: number; y: number }; return [Math.round(e.x * 1e6) / 1e6, Math.round(e.y * 1e6) / 1e6]; };
+      const arcs = ed.sketch.entities.filter((e) => e.t === 'arc') as { a: string; b: string }[];
+      return { far: pt('far'), first: [arcs[0].a, arcs[0].b].includes('far'), second: [arcs[1].a, arcs[1].b].includes('on'), status: ed.solve!.status, ends: [pt(arcs[0].a), pt(arcs[0].b)] };
+    });
+    expect(result.far).toEqual([0, 30]);
+    expect(result.first).toBe(false);
+    expect(result.second).toBe(true);
+    expect(result.ends).toContainEqual([0, 10]);
+    expect(result.status).toBe('under');
+    expect(errors).toEqual([]);
+  });
+
   test('the point tool does not stack a second point on a sketch point', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

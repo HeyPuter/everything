@@ -330,10 +330,16 @@ export function centerArcTool(ed: SketchEditor): SkTool {
       const end: Vec2 = [c.p[0] + r * Math.cos(ang), c.p[1] + r * Math.sin(ang)];
       if (dist2(end, a.p) < ed.px * 2 || (s.kind === 'point' && s.pointId && s.pointId === a.pointId)) return true;
       const cc = c, aa = a;
+      // The end lies on the arc's circle, where the cursor's direction meets
+      // it. It joins what the cursor snapped to (a point, a curve) only when
+      // that is there too: joining a point off the circle made the solver drag
+      // the point or the arc to meet.
+      const joins = dist2(end, s.p) <= ed.snapTolerance;
+      const last: Snap = joins ? s : { p: end, raw: s.raw, kind: 'none' };
       ed.edit('Add arc', (sk, newId) => {
         const cid = ed.commitPoint(sk, cc, newId);
         const pa = ed.commitPoint(sk, aa, newId);
-        const pb = s.kind === 'point' && s.pointId ? s.pointId : ed.commitPoint(sk, { ...s, p: end }, newId);
+        const pb = joins && s.kind === 'point' && s.pointId ? s.pointId : ed.commitPoint(sk, { ...last, p: end }, newId);
         const id = newId('a');
         sk.entities.push(sweepSign > 0 ? { id, t: 'arc', c: cid, a: pa, b: pb } : { id, t: 'arc', c: cid, a: pb, b: pa });
       });
