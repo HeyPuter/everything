@@ -191,6 +191,23 @@ export class Camera {
   }
 
   /**
+   * Moves the target along the line of sight to the depth of `p`, with the
+   * same eye and view. Perspective zoom moves the eye toward the plane
+   * through the target: with that plane at the surface under the cursor, the
+   * zoom closes in on the surface instead of flying through it (or stopping
+   * short of it).
+   */
+  focusDepth(p: Vec3) {
+    const d = dot(sub(p, this.target), this.back);
+    const nd = this.distance - d;
+    // Behind or at the eye: nothing to focus on.
+    if (!(nd > 1e-3) || this.anim) return;
+    this.target = add(this.target, scale(this.back, d));
+    this.distance = nd;
+    this.onChange();
+  }
+
+  /**
    * Applies a pan or zoom made during a view animation to both of its ends,
    * so the animation keeps turning and still lands on its orientation (with
    * the pan or zoom applied) instead of freezing part-way.

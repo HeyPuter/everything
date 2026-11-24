@@ -520,6 +520,42 @@ test.describe('viewport', () => {
     expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
   });
 
+  test('wheel zoom in perspective closes in on the face under the pointer instead of passing through it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // The front face of the base, well in front of the target at the middle of the part.
+    const p: [number, number, number] = [55, 4, 30];
+    // Once built (the opened part is framed then), seen in perspective.
+    await expect.poll(() => page.evaluate((p) => {
+      const app = (window as unknown as Win).__parametric;
+      if (!app.bbox) return null;
+      app.viewport.setView('trimetric', false);
+      app.renderer.camera.ortho = false;
+      const [x, y] = app.viewport.project(p);
+      return app.renderer.pick(x, y, { face: true })?.point?.[2];
+    }, p)).toBeCloseTo(30, 1);
+    const at = await page.evaluate((p) => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project(p);
+      const r = app.viewport.canvas.getBoundingClientRect();
+      return { x: r.left + x, y: r.top + y };
+    }, p);
+    await page.mouse.move(at.x, at.y);
+    for (let i = 0; i < 25; i++) await page.mouse.wheel(0, -100);
+    const after = await page.evaluate((p) => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera, e = cam.eye, b = cam.back;
+      const [x, y] = app.viewport.project(p);
+      const hit = app.renderer.pick(x, y, { face: true });
+      return { ahead: -((p[0] - e[0]) * b[0] + (p[1] - e[1]) * b[1] + (p[2] - e[2]) * b[2]), distance: cam.distance, z: hit?.point?.[2] ?? null };
+    }, p);
+    // Zoomed in a long way, with the face still in front of the eye and under the pointer.
+    expect(after.distance).toBeLessThan(5);
+    expect(after.ahead).toBeGreaterThan(0);
+    expect(after.z).toBeCloseTo(30, 1);
+  });
+
   test('picks the pixel under the pointer, not the one above it', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

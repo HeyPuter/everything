@@ -195,6 +195,8 @@ export class Viewport {
         clearTimeout(this.longPress);
         this.gesture = { kind: 'touch' };
         this.touchState = this.touchMetrics();
+        const r = this.canvas.getBoundingClientRect();
+        this.focusZoomAt(this.touchState.cx - r.left, this.touchState.cy - r.top);
         return;
       }
       if (this.touches.size > 2) return;
@@ -204,7 +206,10 @@ export class Viewport {
     if (e.button === 1 || e.button === 2) {
       e.preventDefault();
       if (e.button === 1 && ev.ctrl) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
-      else if (e.button === 1 && ev.shift) this.gesture = { kind: 'zoom', x: ev.x, y: ev.y, ox: ev.x, oy: ev.y };
+      else if (e.button === 1 && ev.shift) {
+        this.gesture = { kind: 'zoom', x: ev.x, y: ev.y, ox: ev.x, oy: ev.y };
+        this.focusZoomAt(ev.x, ev.y);
+      }
       else if (e.button === 2 && (ev.ctrl || ev.shift)) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
       else this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button: e.button, id: e.pointerId, e: ev };
       return;
@@ -364,8 +369,23 @@ export class Viewport {
       return;
     }
     if (this.invertZoom) dy = -dy;
+    // Once per burst of wheel events, or when the pointer moved on to something else.
+    const w = this.lastWheel;
+    if (e.timeStamp - w.t > 250 || Math.hypot(ev.x - w.x, ev.y - w.y) > DRAG_PX) {
+      this.focusZoomAt(ev.x, ev.y);
+      this.lastWheel = { t: e.timeStamp, x: ev.x, y: ev.y };
+    } else w.t = e.timeStamp;
     const k = e.ctrlKey ? 0.01 : 0.0018;
     this.camera.zoomAt(Math.exp(Math.max(-0.5, Math.min(0.5, dy * k))), ev.x, ev.y);
+  }
+
+  private lastWheel = { t: -Infinity, x: 0, y: 0 };
+
+  /** In perspective, zooms at (x, y) close in on the surface there (see Camera.focusDepth). */
+  private focusZoomAt(x: number, y: number) {
+    if (this.camera.ortho || this.camera.animating) return;
+    const p = this.renderer.pick(x, y, { face: true }, 0)?.point;
+    if (p) this.camera.focusDepth(p);
   }
 
   private onKey(e: KeyboardEvent) {
