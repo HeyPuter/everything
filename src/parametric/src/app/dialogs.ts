@@ -385,6 +385,10 @@ export async function massPropertiesDialog(app: App) {
   const L = u.length;
   const s = u.scale;
   const dec = Math.max(2, doc.decimals);
+  // The density in the part's own units too: an inch part's mass is in pounds,
+  // its density was only shown in kg/m³ (Steel, 7800 kg/m³ is 0.282 lb/in³).
+  const ownDensity = density / u.massScale * (u.scale / 1000) ** 3;
+  const densityText = doc.units === 'IPS' || doc.units === 'CGS' ? `${density} kg/m³ = ${formatGroup([ownDensity], 3)[0]} ${u.mass}/${L}³` : `${density} kg/m³`;
   const massKg = (mp.volume * 1e-9) * density;
   const mass = massKg / u.massScale;
   const group = (vs: number[], d = dec) => formatGroup(vs, d);
@@ -397,7 +401,7 @@ export async function massPropertiesDialog(app: App) {
   // centre at the origin would read as measurements.
   const none = 'Not applicable: the part has no closed solid';
   const rows: [string, string][] = [
-    ['Material', doc.material ? `${doc.material.name} (${density} kg/m³)` : `Not specified (using ${density} kg/m³)`],
+    ['Material', doc.material ? `${doc.material.name} (${densityText})` : `Not specified (using ${densityText})`],
     ['Mass', mp.solid ? `${fmt(mass)} ${u.mass}` : none],
     ['Volume', mp.solid ? `${fmt(mp.volume / s ** 3)} ${L}³` : none],
     ['Surface area', `${fmt(mp.area / s ** 2)} ${L}²`],
