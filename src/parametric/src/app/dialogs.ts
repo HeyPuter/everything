@@ -257,8 +257,20 @@ export async function propertiesDialog(app: App, rename?: (name: string) => Prom
   });
   // As Rename Part does: a file-safe name, and the saved file renamed with it.
   if (rename && newName !== app.store.doc.name) void rename(newName);
+  unitsChanged(app, unlinked);
+}
+
+function unitsChanged(app: App, unlinked: string[]) {
   if (unlinked.length) toast({ kind: 'warning', title: 'Some equations were replaced by their values', message: `These could not be converted to the new units and keep their size as plain numbers: ${unlinked.join(', ')}.`, timeout: 9000 });
   app.sketchEditor?.render();
+}
+
+/** Changes the part's unit system (the status bar's units menu); the geometry keeps its size. */
+export function setPartUnits(app: App, units: UnitSystem) {
+  if (units === app.store.doc.units) return;
+  let unlinked: string[] = [];
+  app.store.change('Units', (d) => { unlinked = changeUnits(d, units); });
+  unitsChanged(app, unlinked);
 }
 
 // ---------- options ----------

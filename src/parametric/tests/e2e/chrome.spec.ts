@@ -362,3 +362,23 @@ test("the status bar gives a selected face's area in square units", async ({ pag
   await expect(page.locator('.statusbar .msg')).toContainText(`Area ${area} mm²`);
   expect(errors).toEqual([]);
 });
+
+test('the units in the status bar open a menu that changes the unit system', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.locator('.statusbar').getByRole('button', { name: 'MMGS' }).click();
+  const menu = page.getByRole('menu', { name: 'Unit system' });
+  await expect(menu.getByRole('menuitemradio', { name: /^MMGS/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await menu.getByRole('menuitemradio', { name: /^IPS/ }).click();
+  await expect(page.locator('.statusbar').getByRole('button', { name: 'IPS' })).toBeFocused();
+  expect(
+    await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.units),
+  ).toBe('IPS');
+  // One undo step.
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('undo'));
+  await expect(page.locator('.statusbar').getByRole('button', { name: 'MMGS' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

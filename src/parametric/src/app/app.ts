@@ -27,6 +27,7 @@ import { SketchEditor } from './sketch/editor';
 import { sketchDefinitionStatus } from './sketch/panel';
 import { FeatureTree } from './tree';
 import { DrawingPanel, DrawingWorkspace } from './drawing';
+import { setPartUnits } from './dialogs';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
@@ -610,6 +611,14 @@ export class App {
       }
     });
     s.docTitle.addEventListener('click', () => this.commands.run('rename'));
+    // The units shown in the status bar are a menu of the unit systems, as Part Properties has.
+    s.statusUnits.addEventListener('click', () => {
+      const r = s.statusUnits.getBoundingClientRect();
+      const items: MenuItem[] = Object.values(UNIT_SYSTEMS).map((u) => ({
+        label: u.label, checked: u.id === this.store.doc.units, radio: true, run: () => setPartUnits(this, u.id),
+      }));
+      openMenu(items, r.left, r.top, { anchor: s.statusUnits, label: 'Unit system' });
+    });
   }
 
   // ---------- status ----------
