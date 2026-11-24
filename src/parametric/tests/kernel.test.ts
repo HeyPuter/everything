@@ -1214,6 +1214,26 @@ describe('feature regeneration', () => {
     }
   });
 
+  it('draws the whole outline of a ring in every view, also where it runs along the seam', async () => {
+    const b = new ModelBuilder();
+    // A ring: a circle of radius 5, 20 from the Y axis, revolved about it. Its seam (where the circle
+    // was) lies along the outline seen from the front and back, which lost its right (left) half.
+    const ring: SkEntity[] = [
+      { id: 'c', t: 'point', x: 20, y: 0 }, { id: 'cc', t: 'circle', c: 'c', r: 5 },
+      { id: 'p1', t: 'point', x: 0, y: -10 }, { id: 'p2', t: 'point', x: 0, y: 10 }, { id: 'ax', t: 'line', a: 'p1', b: 'p2', construction: true },
+    ];
+    expect((await b.build(req([sketch('S1', ring), revolve('R1', 'S1')]))).status.every((s) => s.ok)).toBe(true);
+    const side = [-25, -5, 25, 5], plan = [-25, -25, 25, 25];
+    const views: [string, Vec3, Vec3, number[]][] = [
+      ['front', [0, 0, 1], [1, 0, 0], side], ['back', [0, 0, -1], [-1, 0, 0], side], ['right', [1, 0, 0], [0, 0, -1], side],
+      ['left', [-1, 0, 0], [0, 0, 1], side], ['top', [0, 1, 0], [1, 0, 0], plan], ['bottom', [0, -1, 0], [1, 0, 0], plan],
+    ];
+    for (const [id, dir, x, want] of views) {
+      const [v] = b.project([{ id, dir, x }]);
+      v.bounds!.forEach((q, i) => expect(Math.abs(q - want[i]), `${id} bound ${i}`).toBeLessThan(1e-6));
+    }
+  });
+
   it('fails a feature whose value could not be evaluated instead of building it with zero', async () => {
     const b = new ModelBuilder();
     const feats: Feature[] = [

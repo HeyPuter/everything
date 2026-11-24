@@ -1526,7 +1526,7 @@ export class ModelBuilder {
     const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;
     return views.map((v) => {
       if (!body) return { id: v.id, visible: [], hidden: [], bounds: null };
-      return { id: v.id, ...projectShape(body, v.dir, v.x, tol) };
+      return { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10) };
     });
   }
 

@@ -484,26 +484,132 @@ function compoundPaths(comp: any, tol: number, box: number[] | null): string[] {
 }
 
 /**
+ * The seams of closed faces (where a revolved face's profile was) that lie along the silhouette
+ * seen from `dir`. The hidden-line algorithm draws no seam and finds no outline along one on a
+ * torus (or another surface it outlines numerically): a ring seen from the side lost half its
+ * outline. Each such seam comes back as fine line segments a hair outside the surface (on its own
+ * surface the algorithm hides it all), to be drawn as lines of their own; null when there are none.
+ */
+function silhouetteSeams(shape: Sh, dir: Vec3, hair: number): any | null {
+  const T = oc.TopAbs_ShapeEnum;
+  const gs = oc.GeomAbs_SurfaceType;
+  const seen: any[] = [];
+  const builder = new oc.TopoDS_Builder();
+  const out = new oc.TopoDS_Compound();
+  builder.MakeCompound(out);
+  let any = false;
+  const fx = new oc.TopExp_Explorer(shape.wrapped, T.TopAbs_FACE, T.TopAbs_SHAPE);
+  try {
+    for (; fx.More(); fx.Next()) {
+      const fc = fx.Current();
+      const face = oc.TopoDS.Face(fc);
+      // Planes, cylinders, cones and spheres are outlined exactly, also along their seams.
+      const sa = new oc.BRepAdaptor_Surface(face, false);
+      const st = sa.GetType();
+      sa.delete();
+      if ([gs.GeomAbs_Plane, gs.GeomAbs_Cylinder, gs.GeomAbs_Cone, gs.GeomAbs_Sphere].includes(st)) { face.delete(); fc.delete(); continue; }
+      const ex = new oc.TopExp_Explorer(face, T.TopAbs_EDGE, T.TopAbs_SHAPE);
+      const gf = new oc.BRepGProp_Face(face, false);
+      const p = new oc.gp_Pnt(), nv = new oc.gp_Vec();
+      try {
+        for (; ex.More(); ex.Next()) {
+          const ec = ex.Current();
+          const edge = oc.TopoDS.Edge(ec);
+          ec.delete();
+          // A seam is in its face twice (once each way).
+          if (!oc.BRep_Tool.IsClosed(edge, face) || seen.some((e) => e.IsSame(edge))) { edge.delete(); continue; }
+          seen.push(edge);
+          const c2 = new oc.BRepAdaptor_Curve2d(edge, face);
+          const qs: Vec3[] = [], ns: Vec3[] = [];
+          try {
+            const f = c2.FirstParameter(), l = c2.LastParameter();
+            for (let i = 0; i <= 128; i++) {
+              const uv = c2.Value(f + ((l - f) * i) / 128);
+              gf.Normal(uv.X(), uv.Y(), p, nv);
+              uv.delete();
+              const nrm = xyz(nv), m = len(nrm);
+              // At a pole the normal has no length and says nothing.
+              if (m > 1e-12 && Math.abs(dot(nrm, dir)) > 1e-6 * m) { qs.length = 0; break; }
+              qs.push(xyz(p));
+              ns.push(m > 1e-12 ? scale(nrm, 1 / m) : [0, 0, 0]);
+            }
+          } finally {
+            c2.delete();
+          }
+          if (qs.length < 2) continue;
+          // Out by the hair, and by as much again as the curve sags between the points, so the
+          // segments between them stay outside the surface too.
+          let sag = 0;
+          for (let i = 1; i + 1 < qs.length; i++) {
+            const a = qs[i - 1], b = qs[i + 1], d = sub(b, a), t = Math.max(0, Math.min(1, dot(sub(qs[i], a), d) / Math.max(dot(d, d), 1e-30)));
+            sag = Math.max(sag, dist3(qs[i], [a[0] + t * d[0], a[1] + t * d[1], a[2] + t * d[2]]));
+          }
+          const pts = qs.map((q, i) => [q[0] + (hair + sag) * ns[i][0], q[1] + (hair + sag) * ns[i][1], q[2] + (hair + sag) * ns[i][2]] as Vec3);
+          const add = (e: any) => { builder.Add(out, e); e.delete(); any = true; };
+          const ad = new oc.BRepAdaptor_Curve(edge);
+          try {
+            if (ad.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+              // A circle (a revolved arc's seam, a ring's) stays one: the same circle grown or shrunk by the hair.
+              const c = ad.Circle(), pos = c.Position(), loc = pos.Location();
+              const r = dist3(add3(qs[64], scale(ns[64], hair)), xyz(loc));
+              const circ = new oc.gp_Circ(pos, r);
+              const mk = new oc.BRepBuilderAPI_MakeEdge(circ, ad.FirstParameter(), ad.LastParameter());
+              add(mk.Edge());
+              mk.delete(); circ.delete(); loc.delete(); pos.delete(); c.delete();
+            } else {
+              for (let i = 1; i < pts.length; i++) {
+                if (dist3(pts[i - 1], pts[i]) < 1e-9) continue;
+                const a = pnt(pts[i - 1]), b = pnt(pts[i]);
+                const mk = new oc.BRepBuilderAPI_MakeEdge(a, b);
+                add(mk.Edge());
+                mk.delete(); a.delete(); b.delete();
+              }
+            }
+          } finally {
+            ad.delete();
+          }
+        }
+      } finally {
+        ex.delete(); gf.delete(); p.delete(); nv.delete(); face.delete(); fc.delete();
+      }
+    }
+  } finally {
+    fx.delete();
+    for (const e of seen) e.delete();
+    builder.delete();
+  }
+  if (any) return out;
+  out.delete();
+  return null;
+}
+
+const dist3 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const add3 = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+/**
  * Visible and hidden lines of a shape seen from `dir` (toward the viewer) with `xAxis` across
  * the paper, as SVG path data in model units with y pointing down, and the visible lines' extent.
  * Native objects are freed here, not left to the garbage collector: the projections of a whole
  * part take megabytes that the geometry worker would otherwise keep for as long as it runs.
  */
-export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number): { visible: string[]; hidden: string[]; bounds: [number, number, number, number] | null } {
+export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number, hair: number): { visible: string[]; hidden: string[]; bounds: [number, number, number, number] | null } {
   const origin = pnt([0, 0, 0]), n = gdir(dir), vx = gdir(xAxis);
   const ax = new oc.gp_Ax2(origin, n, vx);
   const projector = new oc.HLRAlgo_Projector(ax);
   const algo = new oc.HLRBRep_Algo();
   let toShape: any = null;
+  let seams: any = null;
   try {
     algo.Add(shape.wrapped, 0);
+    seams = silhouetteSeams(shape, dir, hair);
+    if (seams) algo.Add(seams, 0);
     algo.Projector(projector);
     algo.Update();
     algo.Hide();
     toShape = new oc.HLRBRep_HLRToShape(algo);
     const box = [Infinity, Infinity, -Infinity, -Infinity];
-    const lines = (names: string[], b: number[] | null) => names.flatMap((name) => {
-      const comp = toShape[name]();
+    const lines = (names: string[], b: number[] | null, of?: any) => names.flatMap((name) => {
+      const comp = of ? toShape[name](of) : toShape[name]();
       try {
         return compoundPaths(comp, tol, b);
       } finally {
@@ -511,17 +617,28 @@ export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number): { 
       }
     });
     // Sharp edges, smooth (tangent) edges and silhouettes.
-    const visible = lines(['VCompound', 'Rg1LineVCompound', 'OutLineVCompound'], box);
-    const hidden = lines(['HCompound', 'Rg1LineHCompound', 'OutLineHCompound'], null);
+    const visible = lines(['VCompound', 'Rg1LineVCompound', 'OutLineVCompound'], box, shape.wrapped);
+    const hidden = lines(['HCompound', 'Rg1LineHCompound', 'OutLineHCompound'], null, shape.wrapped);
+    if (seams) {
+      // The seams along the silhouette, drawn the hair outside it: their extent, less the hair, is the part's.
+      const seamBox = [Infinity, Infinity, -Infinity, -Infinity];
+      visible.push(...lines(['VCompound'], seamBox, seams));
+      hidden.push(...lines(['HCompound'], null, seams));
+      if (seamBox[0] <= seamBox[2]) {
+        box[0] = Math.min(box[0], seamBox[0] + hair); box[1] = Math.min(box[1], seamBox[1] + hair);
+        box[2] = Math.max(box[2], seamBox[2] - hair); box[3] = Math.max(box[3], seamBox[3] - hair);
+      }
+    }
     return { visible, hidden, bounds: box[0] <= box[2] ? [box[0], box[1], box[2], box[3]] : null };
   } finally {
     // The extraction keeps the algorithm alive after both are deleted (the bindings never let
     // go of its handle), and with it the hidden-line data of the whole part: dropping the shape
     // from it frees that.
     if (toShape) {
-      algo.Remove(1);
+      for (let i = algo.NbShapes(); i >= 1; i--) algo.Remove(i);
       toShape.delete();
     }
+    seams?.delete();
     algo.delete();
     projector.delete();
     ax.delete();
