@@ -1282,6 +1282,34 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  for (const tool of ['polygon', 'centerRectangle'] as const) test(`the ${tool} corner clicked on an existing point shares it`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'mark', t: 'point', x: 25, y: 15 }); });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    await page.locator(`[data-cmd="tool:${tool}"]`).click();
+    const c = await screen([5, 5]);
+    await page.mouse.move(c.x - 3, c.y);
+    await page.mouse.click(c.x, c.y);
+    // A few pixels off: the cursor snaps to the point (and says so).
+    const m = await screen([25, 15]);
+    await page.mouse.move(m.x + 3, m.y + 2);
+    await page.mouse.click(m.x + 3, m.y + 2);
+    const used = await page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      return { lines: sk.entities.filter((e) => e.t === 'line' && !e.construction && (e.a === 'mark' || e.b === 'mark')).length, points: sk.entities.filter((e) => e.t === 'point' && Math.hypot(e.x - 25, e.y - 15) < 1e-6).length };
+    });
+    expect(used).toEqual({ lines: 2, points: 1 });
+    expect(errors).toEqual([]);
+  });
+
   test('Smart Dimension lights up a second entity it would pick instead of previewing a placement there', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

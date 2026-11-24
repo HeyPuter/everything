@@ -138,7 +138,8 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
     ed.edit(centered ? 'Add center rectangle' : 'Add rectangle', (sk, newId) => {
       const ids: Id[] = cs.map((p, i) => {
         if (!centered && i === 0) return ed.commitPoint(sk, first!, newId);
-        if (!centered && i === 2) return ed.commitPoint(sk, second, newId);
+        // The clicked corner keeps what it snapped to (a point, a curve), as the cursor showed.
+        if (i === 2) return ed.commitPoint(sk, second, newId);
         const id = newId('p');
         sk.entities.push({ id, t: 'point', x: p[0], y: p[1] });
         return id;
@@ -489,7 +490,13 @@ export function polygonTool(ed: SketchEditor): SkTool {
       ed.setPreview([]);
       ed.edit('Add polygon', (sk, newId) => {
         const cid = ed.commitPoint(sk, c, newId);
-        const ids = v.map((p) => { const id = newId('p'); sk.entities.push({ id, t: 'point', x: p[0], y: p[1] }); return id; });
+        // The clicked vertex keeps what it snapped to (a point, a curve), as the cursor showed.
+        const ids = v.map((p, i) => {
+          if (i === 0) return ed.commitPoint(sk, { ...s, p }, newId);
+          const id = newId('p');
+          sk.entities.push({ id, t: 'point', x: p[0], y: p[1] });
+          return id;
+        });
         const circ = newId('c');
         sk.entities.push({ id: circ, t: 'circle', c: cid, r: dist2(c.p, s.p), construction: true });
         const lines = ids.map((id, i) => { const lid = newId('l'); sk.entities.push({ id: lid, t: 'line', a: id, b: ids[(i + 1) % ids.length] }); return lid; });
