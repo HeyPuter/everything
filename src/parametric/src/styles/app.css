@@ -401,6 +401,7 @@ a.icon-btn { text-decoration: none; }
 .dim-label.bad { color: var(--sketch-over); }
 .dim-label.expr::before { content: 'Σ '; color: var(--accent); }
 .dim-label:hover, .dim-label.selected { color: var(--sketch-selected); }
+.dim-label:focus-visible, .rel-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rel-badge {
   position: absolute; transform: translate(-50%, -50%); width: 18px; height: 18px; display: grid; place-items: center; pointer-events: auto; cursor: pointer;
   border-radius: 3px; background: color-mix(in srgb, var(--viewport) 82%, transparent); border: 1px solid var(--border-strong); color: var(--text-2);

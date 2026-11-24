@@ -1151,6 +1151,36 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('dimensions and constraints are reachable by keyboard: one Tab stop, arrows, Enter to edit, Delete', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned lines', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: -20, y: 0 }, { id: 'b', t: 'point', x: 20, y: 0 }, { id: 'L', t: 'line', a: 'a', b: 'b' });
+        sk.entities.push({ id: 'c', t: 'point', x: -20, y: 20 }, { id: 'd', t: 'point', x: 10, y: 20 }, { id: 'M', t: 'line', a: 'c', b: 'd' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['L'], value: 40, at: [0, -6], name: 'D1' }, { id: 'E', type: 'distance', refs: ['M'], value: 30, at: [-5, 26], name: 'D2' });
+        sk.constraints.push({ id: 'H', type: 'horizontal', refs: ['L'] });
+      });
+    });
+    const tabbable = () => page.locator('.dim-label[tabindex="0"], .rel-badge[tabindex="0"]');
+    await expect(tabbable()).toHaveCount(1);
+    await page.locator('.dim-label').first().focus();
+    await page.keyboard.press('ArrowRight');
+    const sel = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.map((it) => `${it.kind}:${'id' in it ? it.id : ''}`));
+    // Focus moved on, selecting what it reached, which stays the one Tab stop.
+    await expect.poll(sel).toEqual(['skdim:E']);
+    await expect(tabbable()).toHaveCount(1);
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Modify D2' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.locator('.rel-badge').first().focus();
+    await expect.poll(sel).toEqual(['skrel:H']);
+    await page.keyboard.press('Delete');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints.map((c) => c.id))).toEqual(['D', 'E']);
+    expect(errors).toEqual([]);
+  });
+
   test('Ctrl+A is the browser select-all outside a sketch and in text fields', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

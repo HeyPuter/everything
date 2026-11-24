@@ -1113,6 +1113,7 @@ export class SketchEditor implements ViewportTool {
 
     this.renderDimensions();
     this.renderRelations();
+    this.syncTabStops();
     this.app.updateSketchStatus();
   }
 
@@ -1168,6 +1169,7 @@ export class SketchEditor implements ViewportTool {
 
   private makeLabel(id: Id): HTMLElement {
     const el = h('div', { class: 'dim-label', role: 'button', tabindex: '-1' });
+    this.keyboardItem(el, id, 'skdim');
     let start: { x: number; y: number; at: Vec2 } | null = null;
     let moved = false;
     el.addEventListener('pointerdown', (e) => {
@@ -1272,8 +1274,54 @@ export class SketchEditor implements ViewportTool {
     return c.refs.map(at).filter((p): p is Vec2 => !!p);
   }
 
+  /** The dimension or constraint the keyboard last focused (the overlay's one Tab stop). */
+  private rovingId: Id | null = null;
+
+  /**
+   * Keyboard access to a dimension label or constraint badge. The overlay is
+   * one Tab stop; the arrow keys move between its items, focusing one selects
+   * it (so Delete removes it), Enter edits a dimension's value and the context
+   * menu key (or Shift+F10) opens its menu.
+   */
+  private keyboardItem(el: HTMLElement, id: Id, kind: 'skdim' | 'skrel') {
+    el.addEventListener('focus', () => {
+      this.rovingId = id;
+      // From the keyboard only: a click already selected (or Shift-click deselected) it.
+      if (el.matches(':focus-visible') && !this.app.selection.has({ kind, id })) this.app.selection.set([{ kind, id }]);
+      this.syncTabStops();
+    });
+    el.addEventListener('keydown', (e) => {
+      const items = [...this.app.viewport.overlay.querySelectorAll<HTMLElement>('.dim-label, .rel-badge')];
+      const i = items.indexOf(el);
+      const go = (j: number) => { const t = items[(j + items.length) % items.length]; t?.focus(); };
+      let handled = true;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(i + 1);
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') go(i - 1);
+      else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(items.length - 1);
+      else if (e.key === 'Enter' && kind === 'skdim') this.openModify(id);
+      else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+        const r = el.getBoundingClientRect();
+        if (kind === 'skdim') this.app.openDimensionMenu(id, r.left, r.bottom);
+        else this.app.openRelationMenu(id, r.left, r.bottom);
+      } else handled = false;
+      if (handled) { e.preventDefault(); e.stopPropagation(); }
+    });
+  }
+
+  /** Keeps exactly one dimension label or badge in the Tab order. */
+  private syncTabStops() {
+    const items = [...this.app.viewport.overlay.querySelectorAll<HTMLElement>('.dim-label, .rel-badge')];
+    const current = (this.rovingId && (this.labels.get(this.rovingId) ?? this.badges.get(this.rovingId)?.[0])) || items[0];
+    for (const el of items) {
+      const want = el === current ? '0' : '-1';
+      if (el.getAttribute('tabindex') !== want) el.setAttribute('tabindex', want);
+    }
+  }
+
   private makeBadge(id: Id, type: string): HTMLElement {
     const el = h('div', { class: 'rel-badge', role: 'button', tabindex: '-1', title: type[0].toUpperCase() + type.slice(1), 'aria-label': `${type} constraint` }, relationGlyph(type, 12));
+    this.keyboardItem(el, id, 'skrel');
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       if (e.shiftKey || e.ctrlKey || e.metaKey) this.app.selection.toggle({ kind: 'skrel', id });
