@@ -799,8 +799,16 @@ export class Viewport {
     const now = this.camera.goal();
     let s = this.history.pop();
     while (s && sameView(s, now)) s = this.history.pop();
+    if (!s) return;
+    // A view left in orthographic, seen now in perspective: framed at the surface in the middle as
+    // when switching projection (its target may lie deep inside the part, the eye with it).
+    if (s.ortho && !this.camera.ortho) {
+      this.camera.setState(s);
+      this.togglePerspective();
+      return;
+    }
     // Orientation, position and zoom go back; the projection is a display setting and stays.
-    if (s) this.camera.animateTo({ ...s, ortho: this.camera.ortho });
+    this.camera.animateTo({ ...s, ortho: this.camera.ortho });
   }
 
   /** `remember` false: the view the camera leaves is not one to go back to (a part just opened). */
