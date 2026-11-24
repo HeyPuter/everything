@@ -209,3 +209,28 @@ test('deleting a feature from the design tree with the keyboard moves focus to t
   await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('a selection box keeps taking picks after the PropertyManager is shown again', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Handle).__parametric.edges.length))
+    .toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Chamfer', exact: true }).first().click();
+  const box = page.getByRole('group', { name: 'Items to chamfer' });
+  await expect(box).toHaveClass(/active/);
+  await page.getByRole('tab', { name: 'Design tree' }).click();
+  await page.getByRole('tab', { name: 'PropertyManager' }).click();
+  await expect(box).toHaveClass(/active/);
+  // A pick in the graphics area goes to the box on screen.
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    const i = a.edges.findIndex((e) => e.type === 'line');
+    a.panel!.onPick({ kind: 'edge', index: i, name: a.edges[i].name }, false);
+  });
+  await expect(box.locator('.item')).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

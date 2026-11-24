@@ -87,11 +87,17 @@ export abstract class PropertyPanel {
   syncExpressions(): string[] | null { return null; }
 
   mount(): HTMLElement {
+    // Mounted again (back from the design tree tab, after a units change): the
+    // box that took picks still does, in its new controls.
+    const previous = this.activeBox;
+    const index = previous ? this.boxes.indexOf(previous) : -1;
     this.boxes = [];
     this.msgEl = h('div', { class: 'pm-msg', role: 'status', hidden: true });
     const body = this.render();
     this.el = h('div', { class: 'pm-content' }, this.msgEl, ...body);
-    if (!this.activeBox) this.activeBox = this.boxes[0] ?? null;
+    if (!previous || !this.boxes.includes(previous)) {
+      this.activeBox = (previous && (this.boxes.find((b) => b.label === previous.label) ?? this.boxes[index])) || (this.boxes[0] ?? null);
+    }
     this.boxes.forEach((b) => b.setActive(b === this.activeBox));
     return this.el;
   }
