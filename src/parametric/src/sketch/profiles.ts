@@ -8,8 +8,8 @@
 // material and empty by nesting depth (even-odd), which matches what people
 // expect from nested profiles. Explicit sample points can pick regions instead.
 
-import type { SkCurve, SkEntity, SkPoint } from '../model/types';
-import { type Vec2, angle2, dist2, sub2 } from '../math/vec';
+import type { SkArc, SkCurve, SkEntity, SkPoint } from '../model/types';
+import { type Vec2, angle2, dist2, sub2, wrap2Pi } from '../math/vec';
 import { SketchIndex, arcAngles, splineBeziers, tessellate } from './geom';
 
 /** Oriented profile segment. `src` is the sketch entity it came from. */
@@ -108,22 +108,29 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     if (cells) indexVertex(verts.length - 1);
     return verts.length - 1;
   };
-  const ends = openCurves.map((c) => {
-    const [a, b] = endPoints(ix, c);
-    return [vertexOf(a), vertexOf(b)] as [number, number];
-  });
+  const curveEnds = openCurves.map((c) => endPoints(ix, c));
+  const curveVerts = curveEnds.map(([a, b]) => [vertexOf(a), vertexOf(b)] as [number, number]);
+
+  // A curve end lying on another line or arc (a T junction, as Extend and
+  // snapping onto a curve make) splits that curve there: otherwise the
+  // contour it closes was pruned as open.
+  const pieces = splitAtJunctions(ix, openCurves, curveEnds, curveVerts, verts, mergeTol);
+  const ends = pieces.map((p) => [p.va, p.vb] as [number, number]);
 
   // Peel dangling edges from their end vertices. Each edge is visited a
   // bounded number of times, even when a long chain is ordered centre-out.
-  const alive = openCurves.map((_, i) => ends[i][0] !== ends[i][1] || openCurves[i].t === 'spline');
+  // A curve drawn twice (two rectangles sharing a side) counts once: the
+  // copies made faces of no area between them and broke the loops.
+  const duplicate = duplicatePieces(ix, pieces, mergeTol);
+  const alive = pieces.map((p, i) => !duplicate[i] && (p.va !== p.vb || p.c.t === 'spline'));
   const degree = new Int32Array(verts.length);
-  openCurves.forEach((_, i) => { if (alive[i]) { degree[ends[i][0]]++; degree[ends[i][1]]++; } });
+  pieces.forEach((_, i) => { if (alive[i]) { degree[ends[i][0]]++; degree[ends[i][1]]++; } });
   const pending: number[] = [];
   for (let i = 0; i < degree.length; i++) if (degree[i] === 1) pending.push(i);
   // Closed profiles need no adjacency lists or pruning work.
   if (pending.length) {
     const incident: number[][] = verts.map(() => []);
-    openCurves.forEach((_, i) => {
+    pieces.forEach((_, i) => {
       if (alive[i]) { incident[ends[i][0]].push(i); incident[ends[i][1]].push(i); }
     });
     for (let at = 0; at < pending.length; at++) {
@@ -138,8 +145,8 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
   }
   const openEnds: Vec2[] = [];
   const reported = new Uint8Array(verts.length);
-  openCurves.forEach((_, i) => {
-    if (alive[i]) return;
+  pieces.forEach((_, i) => {
+    if (alive[i] || duplicate[i]) return;
     // Different vertex ids are already farther apart than the merge tolerance.
     for (const v of ends[i]) if (degree[v] <= 0 && !reported[v]) {
       reported[v] = 1;
@@ -147,15 +154,16 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     }
   });
 
-  // Half-edges.
+  // Half-edges. A curve split where nothing else is left meeting it (the
+  // curve ending there was open) is whole again.
+  const edges = rejoinPieces(pieces, alive, degree);
   const hes: HalfEdge[] = [];
-  openCurves.forEach((c, i) => {
-    if (!alive[i]) return;
-    const [a, b] = ends[i];
-    const [ta, tb] = endTangents(ix, c);
+  edges.forEach((p, i) => {
+    const [ta, tb] = pieceTangents(ix, p);
     const h0 = hes.length;
-    hes.push({ curve: i, from: a, to: b, forward: true, angle: angle2(ta), twin: h0 + 1, next: -1, used: false });
-    hes.push({ curve: i, from: b, to: a, forward: false, angle: angle2(tb), twin: h0, next: -1, used: false });
+    const half = (from: number, to: number, forward: boolean, t: Vec2, twin: number): HalfEdge =>
+      ({ curve: i, from, to, forward, angle: angle2(t), twin, next: -1, used: false });
+    hes.push(half(p.va, p.vb, true, ta, h0 + 1), half(p.vb, p.va, false, tb, h0));
   });
   const outgoing: number[][] = verts.map(() => []);
   hes.forEach((h, i) => outgoing[h.from].push(i));
@@ -177,7 +185,7 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     while (!hes[j].used && guard++ < hes.length + 2) {
       hes[j].used = true;
       const h = hes[j];
-      segs.push(...curveSegs(ix, openCurves[h.curve], h.forward));
+      segs.push(...pieceSegs(ix, edges[h.curve], h.forward));
       j = h.next;
     }
     if (j !== i || !segs.length) continue;
@@ -322,6 +330,153 @@ function curveSegs(ix: SketchIndex, c: SkCurve, forward: boolean): Seg2[] {
       return segs.reverse().map((s) => ({ k: 'bez', p: [...(s as { p: Vec2[] }).p].reverse(), src: c.id }));
     }
   }
+}
+
+function pieceTangents(ix: SketchIndex, p: Piece): [Vec2, Vec2] {
+  if (p.c.t === 'line') return [sub2(p.b, p.a), sub2(p.a, p.b)];
+  if (p.whole || p.c.t !== 'arc') return endTangents(ix, p.c);
+  const { c, r } = arcAngles(ix, p.c);
+  const ra = sub2(p.a, c), rb = sub2(p.b, c);
+  const poly = segPolyline({ k: 'arc', c, r, a: p.a, b: p.b, ccw: true });
+  const n = poly.length;
+  return [
+    blend([-ra[1], ra[0]], sub2(poly[1], poly[0])),
+    blend([rb[1], -rb[0]], sub2(poly[n - 2], poly[n - 1])),
+  ];
+}
+
+function pieceSegs(ix: SketchIndex, p: Piece, forward: boolean): Seg2[] {
+  if (p.whole) return curveSegs(ix, p.c, forward);
+  const [a, b] = forward ? [p.a, p.b] : [p.b, p.a];
+  if (p.c.t === 'line') return [{ k: 'line', a, b, src: p.c.id }];
+  const { c, r } = arcAngles(ix, p.c as SkArc);
+  return [{ k: 'arc', c, r, a, b, ccw: forward, src: p.c.id }];
+}
+
+/** An open curve, or the part of a line or arc between two points on it. */
+interface Piece {
+  c: SkCurve;
+  a: Vec2;
+  b: Vec2;
+  va: number;
+  vb: number;
+  /** The whole curve, not split. */
+  whole: boolean;
+  /** Pieces of one curve are consecutive and numbered from 0. */
+  part: number;
+  parts: number;
+}
+
+/** Parameter (0 to 1) of a point strictly inside a line or arc, or -1 when it is not on it. */
+function onCurve(ix: SketchIndex, c: SkCurve, p: Vec2, tol: number): number {
+  if (c.t === 'line') {
+    const a = ix.pt(c.a), d = sub2(ix.pt(c.b), a), l = Math.hypot(d[0], d[1]);
+    if (l <= tol) return -1;
+    const t = ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / (l * l);
+    const off = Math.abs((p[0] - a[0]) * d[1] - (p[1] - a[1]) * d[0]) / l;
+    return t > 0 && t < 1 && off <= tol ? t : -1;
+  }
+  if (c.t === 'arc') {
+    const { start, sweep, r, c: ctr } = arcAngles(ix, c);
+    if (Math.abs(dist2(p, ctr) - r) > tol) return -1;
+    const u = wrap2Pi(angle2(sub2(p, ctr)) - start);
+    return u > 0 && u < sweep ? u / sweep : -1;
+  }
+  return -1;
+}
+
+function splitAtJunctions(
+  ix: SketchIndex,
+  curves: SkCurve[],
+  curveEnds: [Vec2, Vec2][],
+  curveVerts: [number, number][],
+  verts: Vec2[],
+  tol: number,
+): Piece[] {
+  const uses = new Int32Array(verts.length);
+  for (const [a, b] of curveVerts) { uses[a]++; uses[b]++; }
+  const loose: number[] = [];
+  for (let v = 0; v < uses.length; v++) if (uses[v] === 1) loose.push(v);
+  const out: Piece[] = [];
+  curves.forEach((c, i) => {
+    const [a, b] = curveEnds[i], [va, vb] = curveVerts[i];
+    const cuts: { t: number; v: number }[] = [];
+    if (loose.length && (c.t === 'line' || c.t === 'arc') && va !== vb) {
+      let x0 = Math.min(a[0], b[0]), y0 = Math.min(a[1], b[1]);
+      let x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]);
+      if (c.t === 'arc') {
+        const { r, c: ctr } = arcAngles(ix, c);
+        x0 = ctr[0] - r; y0 = ctr[1] - r; x1 = ctr[0] + r; y1 = ctr[1] + r;
+      }
+      for (const v of loose) {
+        const p = verts[v];
+        if (v === va || v === vb) continue;
+        if (p[0] < x0 - tol || p[0] > x1 + tol || p[1] < y0 - tol || p[1] > y1 + tol) continue;
+        const t = onCurve(ix, c, p, tol);
+        if (t > 0) cuts.push({ t, v });
+      }
+    }
+    if (!cuts.length) {
+      out.push({ c, a, b, va, vb, whole: true, part: 0, parts: 1 });
+      return;
+    }
+    cuts.sort((p, q) => p.t - q.t);
+    const stops = [{ p: a, v: va }, ...cuts.map((k) => ({ p: verts[k.v], v: k.v })), { p: b, v: vb }];
+    const parts = stops.length - 1;
+    for (let k = 0; k < parts; k++) {
+      const s = stops[k], e = stops[k + 1];
+      out.push({ c, a: s.p, b: e.p, va: s.v, vb: e.v, whole: false, part: k, parts });
+    }
+  });
+  return out;
+}
+
+/** Pieces that repeat an earlier one: the same curve between the same two points. */
+function duplicatePieces(ix: SketchIndex, pieces: Piece[], tol: number): boolean[] {
+  const seen = new Map<string, number[]>();
+  const circle = (p: Piece) => (p.c.t === 'arc' ? arcAngles(ix, p.c) : null);
+  const same = (p: Piece, q: Piece): boolean => {
+    if (p.c.t !== q.c.t) return false;
+    if (p.c.t === 'line') return true;
+    if (p.c.t === 'arc') {
+      // Arcs run counter-clockwise: the other way round they are the rest of the circle.
+      const cp = circle(p)!, cq = circle(q)!;
+      return p.va === q.va && dist2(cp.c, cq.c) <= tol && Math.abs(cp.r - cq.r) <= tol;
+    }
+    if (p.c.t === 'spline' && q.c.t === 'spline') {
+      const pp = p.c.pts.map((id) => ix.pt(id)), qq = q.c.pts.map((id) => ix.pt(id));
+      if (pp.length !== qq.length) return false;
+      if (p.va !== q.va) qq.reverse();
+      return pp.every((x, k) => dist2(x, qq[k]) <= tol);
+    }
+    return false;
+  };
+  return pieces.map((p, i) => {
+    if (p.va === p.vb) return false;
+    const key = p.va < p.vb ? `${p.va},${p.vb}` : `${p.vb},${p.va}`;
+    const list = seen.get(key);
+    if (list?.some((j) => same(pieces[j], p))) return true;
+    if (list) list.push(i);
+    else seen.set(key, [i]);
+    return false;
+  });
+}
+
+/** Live pieces, with the pieces of a curve joined again where only they meet. */
+function rejoinPieces(pieces: Piece[], alive: boolean[], degree: Int32Array): Piece[] {
+  const out: Piece[] = [];
+  for (let i = 0; i < pieces.length; i++) {
+    if (!alive[i]) continue;
+    const first = pieces[i];
+    let last = first;
+    while (last.part + 1 < last.parts && alive[i + 1] && degree[last.vb] === 2) last = pieces[++i];
+    if (last === first) out.push(first);
+    else {
+      const whole = first.part === 0 && last.part === last.parts - 1;
+      out.push({ ...first, b: last.b, vb: last.vb, part: first.part, whole });
+    }
+  }
+  return out;
 }
 
 export function segPolyline(s: Seg2): Vec2[] {

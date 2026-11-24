@@ -94,6 +94,48 @@ describe('sketch profiles', () => {
     expect(split.crossing).toBe(false);
   });
 
+  it('closes a contour whose ends lie on another curve (a T junction)', () => {
+    const P = (id: string, x: number, y: number): SkEntity => ({ id, t: 'point', x, y });
+    const L = (id: string, a: string, b: string): SkEntity => ({ id, t: 'line', a, b });
+    // A U standing on a longer line: its ends were pruned as open.
+    const u = buildProfiles([
+      P('a', 0, 0), P('b', 30, 0), L('base', 'a', 'b'),
+      P('u1', 5, 0), P('u2', 5, 10), P('u3', 15, 10), P('u4', 15, 0),
+      L('l1', 'u1', 'u2'), L('l2', 'u2', 'u3'), L('l3', 'u3', 'u4'),
+    ]);
+    expect(u.regions).toHaveLength(1);
+    expect(u.regions[0].outer.area).toBeCloseTo(100, 9);
+    expect(u.regions[0].outer.segs.map((s) => s.src).sort()).toEqual(['base', 'l1', 'l2', 'l3']);
+    // The base's tails beyond the U stay open.
+    expect(u.openEnds).toHaveLength(2);
+    // On an arc: a semicircle closed by a line longer than its chord.
+    const d = buildProfiles([
+      P('c', 0, 0), P('e0', 5, 0), P('e1', -5, 0), { id: 'arc', t: 'arc', c: 'c', a: 'e0', b: 'e1' },
+      P('l0', -10, 0), P('l1', 10, 0), L('chord', 'l0', 'l1'),
+    ]);
+    expect(d.regions).toHaveLength(1);
+    expect(d.regions[0].outer.area).toBeCloseTo((Math.PI * 25) / 2, 1);
+    // A dangling line ending on an edge does not split the edge.
+    const tail = buildProfiles([
+      ...rect(0, 0, 20, 20, 't'), P('t1', 10, 0), P('t2', 10, -5), L('tl', 't1', 't2'),
+    ]);
+    expect(tail.regions).toHaveLength(1);
+    expect(tail.regions[0].outer.segs).toHaveLength(4);
+  });
+
+  it('counts a curve drawn twice once', () => {
+    // Two rectangles sharing a side, and a rectangle drawn over itself.
+    for (const [ents, areas] of [
+      [[...rect(0, 0, 10, 10), ...rect(10, 0, 20, 10)], [100, 100]],
+      [[...rect(0, 0, 10, 10), ...rect(0, 0, 10, 10)], [100]],
+    ] as [SkEntity[], number[]][]) {
+      const p = buildProfiles(ents);
+      const found = p.regions.map((r) => r.outer.area).sort((a, b) => a - b);
+      expect(found).toEqual(areas.map((a) => expect.closeTo(a, 9)));
+      expect(p.openEnds).toHaveLength(0);
+    }
+  });
+
   it('handles a closed polygon with many sides', () => {
     const pts: [number, number][] = Array.from({ length: 12 }, (_, i) => [Math.cos((i / 12) * 2 * Math.PI) * 10, Math.sin((i / 12) * 2 * Math.PI) * 10]);
     const p = buildProfiles(polygon(pts));
@@ -176,7 +218,8 @@ describe('large sketch profile graphs', () => {
       { id: `l${i}`, t: 'line', a: `a${i}`, b: `b${i}` },
     );
     entities.push(...rect(-0.1e-6, 0, 2, 2, 'box'));
-    entities.push({ id: 'close', t: 'point', x: -0.1e-6 + gap, y: 0 });
+    // Beyond the corner: a point on the bottom edge would close the box as a T junction.
+    entities.push({ id: 'close', t: 'point', x: -0.1e-6 - gap, y: 0 });
     const closing = entities.find((e) => e.id === 'boxl3');
     if (closing?.t !== 'line') throw new Error('Missing closing edge');
     closing.b = 'close';

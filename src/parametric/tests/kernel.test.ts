@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
 import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
 import * as R from 'replicad';
-import { type Sh, getOc, mirrored, rotated, setOc } from '../src/kernel/occ';
+import { type Sh, getOc, isValid, mirrored, rotated, setOc } from '../src/kernel/occ';
 import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
 import { solveSketch } from '../src/sketch/solver';
@@ -57,6 +57,16 @@ describe('feature regeneration', () => {
       expect(res.status[1]).toMatchObject({ ok: true, warning: expect.stringMatching(/cross each other/) });
       expect(volume(b)).toBeCloseTo(800 + Math.PI * 12.5, 3);
     }
+  });
+
+  it('extrudes rectangles sharing a side into one valid solid', async () => {
+    // The shared side is drawn twice: it made faces of no area and an invalid solid.
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', [...rect(0, 0, 10, 10), ...rect(10, 0, 20, 10)]), extrude('E1', 'S1', 1)]));
+    expect(res.status.every((s) => s.ok && !s.warning)).toBe(true);
+    expect(volume(b)).toBeCloseTo(200, 6);
+    expect(res.faces).toHaveLength(6);
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
   });
 
   it('extrudes the same spline region and hole in either drawing direction', async () => {

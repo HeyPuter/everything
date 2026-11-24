@@ -696,7 +696,8 @@ describe('editing tools', () => {
       { id: 'v', t: 'line', a: 'b', b: 'corner', construction: second },
       { id: 'c', t: 'point', x: 1, y: 0 }, { id: 'd', t: 'point', x: 0, y: 1 }, { id: 'chord', t: 'line', a: 'c', b: 'd' },
     ]);
-    expect(buildProfiles(s.entities).regions).toHaveLength(0);
+    // Solid corner lines close a triangle with the chord, whose ends lie on them.
+    expect(buildProfiles(s.entities).regions).toHaveLength(!first && !second ? 1 : 0);
     expect(filletCorner(s, 'corner', 1, idFactory(s))).toBeNull();
     // A construction fillet must not close an otherwise open solid profile.
     expect(buildProfiles(s.entities).regions).toHaveLength(first && second ? 0 : 1);
