@@ -242,3 +242,28 @@ test('a long press opens a design tree row\'s context menu without the browser\'
   expect(await menus()).toBe(3);
   await expect(page.getByRole('menu')).toHaveCount(0);
 });
+
+test('on a phone Enter starts a new line in the assistant\'s message and Send sends it', async ({ page }) => {
+  await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sent: string[]; __assistantChat: unknown };
+    w.__sent = [];
+    w.__assistantChat = async function* (messages: { content: unknown }[]) {
+      w.__sent.push(String(messages.at(-1)!.content));
+      yield { type: 'text', text: 'Got it.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).tap();
+  await page.locator('.titlebar [data-cmd="assistant"]').tap();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.tap();
+  await page.keyboard.type('A plate');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('with four holes');
+  await expect(box).toHaveValue('A plate\nwith four holes');
+  await expect(page.locator('.as-user')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Send' }).tap();
+  await expect(page.getByText('Got it.')).toBeVisible();
+  expect((await page.evaluate(() => (window as unknown as { __sent: string[] }).__sent))[0]).toMatch(/A plate\nwith four holes$/);
+});

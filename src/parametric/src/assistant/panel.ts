@@ -25,6 +25,9 @@ const BUSY_UNDO = 'The assistant is still working. Stop it or wait for it to fin
 /** Development builds and browser tests may stand in for Puter AI with window.__assistantChat. */
 const devChat = (): ChatFn | null => (import.meta.env.DEV ? (window as unknown as { __assistantChat?: ChatFn }).__assistantChat ?? null : null);
 
+/** A touch screen is the only pointer (a phone or tablet without a mouse or trackpad). */
+const touchOnly = () => !!globalThis.matchMedia?.('(pointer: coarse) and (hover: none)').matches;
+
 const short = (s: string, n: number) => {
   const t = s.replace(/\s+/g, ' ').trim();
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
@@ -208,7 +211,9 @@ export class AssistantPanel {
     this.input.addEventListener('input', () => { this.grow(); this.checkLength(); });
     this.input.addEventListener('keydown', (e) => {
       // keyCode 229: Safari's Enter that commits an IME composition comes with isComposing false.
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); void this.submit(); }
+      // On a touch screen with no keyboard of its own, Enter starts a new line and Send sends, as in
+      // other chats there: an on-screen Enter has no Shift beside it to make a line break.
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !touchOnly()) { e.preventDefault(); void this.submit(); }
       else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.stop(); }
     });
     this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.stop() : void this.submit()));
