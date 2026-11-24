@@ -131,3 +131,34 @@ test('a part opened again while its first build runs shows its body', async ({ p
   expect(shown).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('a geometry worker replaced for its memory leaves the part as it was, without a word', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type K = Kernel & { worker: unknown; recycleBytes: number; baseHeap: number; busy: boolean };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; renderer: { modelMesh: unknown }; store: { change(l: string, fn: (d: { features: { type: string; radius?: number }[] }) => void): void } } };
+  const v0 = await volume(page);
+  const replaced = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    const first = app.kernel.worker;
+    // As if the kernel had grown far past what the part needs.
+    app.kernel.recycleBytes = 1;
+    app.kernel.baseHeap = 1;
+    app.store.change('Radius', (d) => { d.features.find((f) => f.type === 'fillet')!.radius = 2; });
+    await app.whenBuilt();
+    while (app.kernel.busy) await new Promise((r) => setTimeout(r, 10));
+    return app.kernel.worker !== first;
+  });
+  expect(replaced).toBe(true);
+  // The new worker has the part: an edit and the mass properties work on it.
+  const v1 = await volume(page);
+  // The inside corner fillet adds material: a smaller one less.
+  expect(v1).toBeLessThan(v0!);
+  await page.evaluate(() => (window as unknown as A).__parametric.store.change('Radius', (d) => { d.features.find((f) => f.type === 'fillet')!.radius = 4; }));
+  expect(await volume(page)).toBeCloseTo(v0!, 3);
+  expect(await page.evaluate(() => !!(window as unknown as A).__parametric.renderer.modelMesh)).toBe(true);
+  await expect(page.locator('.toast', { hasText: 'restarted' })).toHaveCount(0);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

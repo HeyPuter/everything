@@ -103,6 +103,8 @@ export interface BuildResult {
   previewError?: string;
   /** Non-fatal problem of the previewed feature (a cut that removes nothing...). */
   previewWarning?: string;
+  /** Bytes of WebAssembly memory the kernel holds after the build (it never shrinks). */
+  heap?: number;
 }
 
 export interface MassProperties {

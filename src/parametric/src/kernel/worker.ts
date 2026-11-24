@@ -12,6 +12,8 @@ import type { BuildResult, MeshData, WorkerRequest, WorkerResponse } from './pro
 declare const self: DedicatedWorkerGlobalScope;
 
 let ready: Promise<void> | null = null;
+/** The WebAssembly memory of the OpenCascade module, to report its size. */
+let memory: { buffer: ArrayBuffer } | undefined;
 const builder = new ModelBuilder();
 /** Imported file data of the open part, by blob id. */
 const blobs: Record<string, string> = {};
@@ -26,6 +28,7 @@ function load(): Promise<void> {
     ready = (async () => {
       const oc = await init({ locateFile: () => wasmUrl, onAbort: () => { aborted = true; } } as never);
       setOc(oc);
+      memory = (oc as { wasmMemory?: { buffer: ArrayBuffer } }).wasmMemory;
     })();
   }
   return ready;
@@ -69,6 +72,7 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
         const same = !!res.mesh && res.mesh === sentMesh;
         sentMesh = res.mesh;
         const out: BuildResult = same ? { ...res, mesh: null, meshUnchanged: true } : { ...res, mesh: copy(res.mesh) };
+        if (memory) out.heap = memory.buffer.byteLength;
         const transfer: Transferable[] = [];
         meshTransfers(out.mesh, transfer);
         meshTransfers(out.preview, transfer);

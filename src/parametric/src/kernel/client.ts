@@ -29,6 +29,8 @@ export interface KernelClientOptions {
   stallMs?: number;
   /** A request unanswered this long restarts the worker on its own. */
   hangMs?: number;
+  /** Kernel memory above which an idle worker is replaced (see recycle). */
+  recycleBytes?: number;
 }
 
 const defaultWorker = () => new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name: 'geometry' });
@@ -53,6 +55,12 @@ export class KernelClient {
   private readonly createWorker: () => Worker;
   private readonly stallMs: number;
   private readonly hangMs: number;
+  private readonly recycleBytes: number;
+  /** The last rebuild requested, which a replacing worker builds first. */
+  private lastReq: BuildRequest | null = null;
+  /** Kernel memory after the current worker's first build: what the part needs. */
+  private baseHeap = 0;
+  private recycleWanted = false;
   readonly ready: Promise<void>;
   /** Called after the worker was replaced; `building` tells whether a rebuild was cut short. */
   onRestart: (reason: string, building: boolean) => void = () => {};
@@ -65,6 +73,7 @@ export class KernelClient {
     // Large imports can legitimately take minutes; the user is offered a
     // restart from stallMs on, so only give up on our own much later.
     this.hangMs = opts.hangMs ?? 10 * 60_000;
+    this.recycleBytes = opts.recycleBytes ?? 2 ** 30;
     this.spawn();
     this.ready = this.call({ type: 'init' }).then(() => { this.started = true; });
   }
@@ -74,6 +83,7 @@ export class KernelClient {
     this.worker = w;
     this.sentBlobs.clear();
     this.lastMesh = null;
+    this.baseHeap = 0;
     w.onmessage = (ev: MessageEvent<WorkerResponse>) => {
       const r = ev.data;
       const p = this.pending.get(r.id);
@@ -171,6 +181,7 @@ export class KernelClient {
 
   private run(req: BuildRequest, waiters: Pending[]) {
     this.building = true;
+    this.lastReq = req;
     // Imported files can be tens of MB: send each one to the worker once
     // rather than copying all of them with every rebuild.
     const fresh: Record<Id, string> = {};
@@ -180,6 +191,10 @@ export class KernelClient {
     this.call<BuildResult>({ type: 'build', req: { ...req, blobs: fresh }, blobs: ids })
       .then((res) => {
         if (!res.meshUnchanged) this.lastMesh = res.mesh;
+        if (res.heap) {
+          this.baseHeap ||= res.heap;
+          if (res.heap > Math.max(this.recycleBytes, 2 * this.baseHeap)) this.recycleWanted = true;
+        }
         for (const w of waiters) w.resolve(res);
       })
       .catch((e) => { for (const w of waiters) w.reject(e); })
@@ -188,7 +203,27 @@ export class KernelClient {
         const q = this.queued;
         this.queued = null;
         if (q) this.run(q.req, q.waiters);
+        else if (this.recycleWanted) this.recycle();
       });
+  }
+
+  /**
+   * Replaces a worker whose kernel memory has grown far past what the part
+   * needs, while nothing waits on it. OpenCascade's booleans leak a little
+   * memory every time and WebAssembly memory never shrinks, so a long session
+   * grew the tab by gigabytes until the browser killed it or the kernel ran
+   * out. The new worker builds the last request first, so whatever is asked
+   * next finds the part as it was.
+   */
+  private recycle() {
+    this.recycleWanted = false;
+    if (this.pending.size || !this.lastReq) return;
+    const old = this.worker;
+    old.onmessage = old.onerror = old.onmessageerror = null;
+    old.terminate();
+    this.spawn();
+    this.call({ type: 'init' }).catch(() => undefined);
+    this.run(this.lastReq, []);
   }
 
   get busy(): boolean {
