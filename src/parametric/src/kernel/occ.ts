@@ -340,6 +340,195 @@ export function vertexPoint(w: Sh): Vec3 {
   return out;
 }
 
+// ---- Hidden-line projection ----
+
+type P2 = [number, number];
+/** One projected edge as path commands from its start (fwd) and from its end (rev). */
+interface PathPiece { a: P2; b: P2; fwd: string; rev: string }
+
+const fmt = (v: number) => {
+  const s = String(Math.round(v * 1e4) / 1e4);
+  return s === '-0' ? '0' : s;
+};
+const ptText = (p: P2) => `${fmt(p[0])} ${fmt(p[1])}`;
+
+/**
+ * A projected edge (in the projection plane, z = 0) as SVG path pieces with y pointing down:
+ * lines and arcs of circles and ellipses exactly, other curves as polylines within `tol`.
+ * Grows `box` ([minX, minY, maxX, maxY]) by the edge's exact extent when given.
+ */
+function edgePiece(edge: any, tol: number, box: number[] | null): PathPiece | null {
+  const gc = oc.GeomAbs_CurveType;
+  const ad = new oc.BRepAdaptor_Curve(edge);
+  const grow = (p: P2) => {
+    if (!box) return;
+    box[0] = Math.min(box[0], p[0]); box[1] = Math.min(box[1], p[1]);
+    box[2] = Math.max(box[2], p[0]); box[3] = Math.max(box[3], p[1]);
+  };
+  const at = (u: number): P2 => {
+    const p = ad.Value(u);
+    const out: P2 = [p.X(), -p.Y()];
+    p.delete();
+    return out;
+  };
+  try {
+    const f = ad.FirstParameter(), l = ad.LastParameter();
+    if (!(l > f)) return null;
+    const t = ad.GetType();
+    if (t === gc.GeomAbs_Line) {
+      const a = at(f), b = at(l);
+      grow(a); grow(b);
+      return { a, b, fwd: `L${ptText(b)}`, rev: `L${ptText(a)}` };
+    }
+    if (t === gc.GeomAbs_Circle || t === gc.GeomAbs_Ellipse) {
+      const conic = t === gc.GeomAbs_Circle ? ad.Circle() : ad.Ellipse();
+      const pos = conic.Position();
+      const loc = pos.Location(), xd = pos.XDirection(), yd = pos.YDirection();
+      const ra = t === gc.GeomAbs_Circle ? conic.Radius() : conic.MajorRadius();
+      const rb = t === gc.GeomAbs_Circle ? ra : conic.MinorRadius();
+      // On paper (y down): p(u) = c + ra cos(u) X + rb sin(u) Y.
+      const c: P2 = [loc.X(), -loc.Y()], X: P2 = [xd.X(), -xd.Y()], Y: P2 = [yd.X(), -yd.Y()];
+      loc.delete(); xd.delete(); yd.delete(); pos.delete(); conic.delete();
+      const p = (u: number): P2 => [c[0] + ra * Math.cos(u) * X[0] + rb * Math.sin(u) * Y[0], c[1] + ra * Math.cos(u) * X[1] + rb * Math.sin(u) * Y[1]];
+      // The extremes along x and y, where they fall within the arc.
+      for (const u0 of [Math.atan2(rb * Y[0], ra * X[0]), Math.atan2(rb * Y[1], ra * X[1])]) {
+        for (let u = u0 - 2 * Math.PI * Math.ceil((u0 - f) / (2 * Math.PI) + 1); u <= l; u += Math.PI) if (u >= f) grow(p(u));
+      }
+      const a = p(f), b = p(l);
+      grow(a); grow(b);
+      // From X toward Y is SVG's direction of positive angles (sweep flag 1) when X x Y > 0.
+      const sweep = X[0] * Y[1] - X[1] * Y[0] > 0 ? 1 : 0;
+      const rot = fmt((Math.atan2(X[1], X[0]) * 180) / Math.PI);
+      const arc = (from: number, to: number, s: number) => {
+        const large = Math.abs(to - from) > Math.PI ? 1 : 0;
+        return `A${fmt(ra)} ${fmt(rb)} ${rot} ${large} ${s} ${ptText(p(to))}`;
+      };
+      if (l - f < 1.5 * Math.PI) return { a, b, fwd: arc(f, l, sweep), rev: arc(l, f, 1 - sweep) };
+      // A whole circle or ellipse is two arcs (one arc cannot end where it starts).
+      const m = (f + l) / 2;
+      return { a, b, fwd: arc(f, m, sweep) + arc(m, l, sweep), rev: arc(l, m, 1 - sweep) + arc(m, f, 1 - sweep) };
+    }
+    const pts: P2[] = [];
+    const us: number[] = [];
+    const td = new oc.GCPnts_TangentialDeflection(ad, f, l, 0.1, tol, 2, 1e-9, 1e-7);
+    try {
+      for (let i = 1; i <= td.NbPoints(); i++) {
+        const q = td.Value(i);
+        pts.push([q.X(), -q.Y()]);
+        us.push(td.Parameter(i));
+        q.delete();
+      }
+    } finally {
+      td.delete();
+    }
+    if (pts.length < 2) return null;
+    pts.forEach(grow);
+    if (box) {
+      // The curve's extremes lie between the points drawn: find them (the overall dimensions
+      // must not read short by the chord's sag).
+      for (const [axis, sign] of [[0, 1], [0, -1], [1, 1], [1, -1]]) {
+        let i = 0;
+        pts.forEach((q, j) => { if (sign * q[axis] > sign * pts[i][axis]) i = j; });
+        let lo = us[Math.max(0, i - 1)], hi = us[Math.min(us.length - 1, i + 1)];
+        for (let k = 0; k < 60 && hi - lo > 1e-12; k++) {
+          const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+          if (sign * at(m1)[axis] < sign * at(m2)[axis]) lo = m1;
+          else hi = m2;
+        }
+        grow(at((lo + hi) / 2));
+      }
+    }
+    return {
+      a: pts[0], b: pts[pts.length - 1],
+      fwd: pts.slice(1).map((q) => `L${ptText(q)}`).join(''),
+      rev: pts.slice(0, -1).reverse().map((q) => `L${ptText(q)}`).join(''),
+    };
+  } finally {
+    ad.delete();
+  }
+}
+
+/** The edges of a compound as SVG paths, joining edges that run on from one another. */
+function compoundPaths(comp: any, tol: number, box: number[] | null): string[] {
+  const paths: string[] = [];
+  if (comp.IsNull()) return paths;
+  const ex = new oc.TopExp_Explorer(comp, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  let path = '';
+  let end: P2 | null = null;
+  const near = (p: P2, q: P2) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+  try {
+    for (; ex.More(); ex.Next()) {
+      const cur = ex.Current();
+      const e = oc.TopoDS.Edge(cur);
+      let piece: PathPiece | null = null;
+      try {
+        piece = edgePiece(e, tol, box);
+      } finally {
+        e.delete();
+        cur.delete();
+      }
+      if (!piece) continue;
+      if (end && near(end, piece.a)) { path += piece.fwd; end = piece.b; }
+      else if (end && near(end, piece.b)) { path += piece.rev; end = piece.a; }
+      else {
+        if (path) paths.push(path);
+        path = `M${ptText(piece.a)}${piece.fwd}`;
+        end = piece.b;
+      }
+    }
+  } finally {
+    ex.delete();
+  }
+  if (path) paths.push(path);
+  return paths;
+}
+
+/**
+ * Visible and hidden lines of a shape seen from `dir` (toward the viewer) with `xAxis` across
+ * the paper, as SVG path data in model units with y pointing down, and the visible lines' extent.
+ * Native objects are freed here, not left to the garbage collector: the projections of a whole
+ * part take megabytes that the geometry worker would otherwise keep for as long as it runs.
+ */
+export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number): { visible: string[]; hidden: string[]; bounds: [number, number, number, number] | null } {
+  const origin = pnt([0, 0, 0]), n = gdir(dir), vx = gdir(xAxis);
+  const ax = new oc.gp_Ax2(origin, n, vx);
+  const projector = new oc.HLRAlgo_Projector(ax);
+  const algo = new oc.HLRBRep_Algo();
+  let toShape: any = null;
+  try {
+    algo.Add(shape.wrapped, 0);
+    algo.Projector(projector);
+    algo.Update();
+    algo.Hide();
+    toShape = new oc.HLRBRep_HLRToShape(algo);
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    const lines = (names: string[], b: number[] | null) => names.flatMap((name) => {
+      const comp = toShape[name]();
+      try {
+        return compoundPaths(comp, tol, b);
+      } finally {
+        comp.delete();
+      }
+    });
+    // Sharp edges, smooth (tangent) edges and silhouettes.
+    const visible = lines(['VCompound', 'Rg1LineVCompound', 'OutLineVCompound'], box);
+    const hidden = lines(['HCompound', 'Rg1LineHCompound', 'OutLineHCompound'], null);
+    return { visible, hidden, bounds: box[0] <= box[2] ? [box[0], box[1], box[2], box[3]] : null };
+  } finally {
+    // The extraction keeps the algorithm alive after both are deleted (the bindings never let
+    // go of its handle), and with it the hidden-line data of the whole part: dropping the shape
+    // from it frees that.
+    if (toShape) {
+      algo.Remove(1);
+      toShape.delete();
+    }
+    algo.delete();
+    projector.delete();
+    ax.delete();
+    origin.delete(); n.delete(); vx.delete();
+  }
+}
+
 // ---- Transforms ----
 
 export function transformShape(shape: Sh, trsf: any): Sh {

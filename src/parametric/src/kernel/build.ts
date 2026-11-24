@@ -32,7 +32,7 @@ import type {
 } from './protocol';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
-  hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
+  hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -1521,24 +1521,12 @@ export class ModelBuilder {
   /** Hidden-line removal projections of the current body. */
   project(views: ProjectionRequest[]): ProjectionResult[] {
     const body = this.current.body;
+    const b = body ? boxOf(body) : null;
+    // Curves other than lines and arcs are drawn within a thousandth of the part's size.
+    const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;
     return views.map((v) => {
       if (!body) return { id: v.id, visible: [], hidden: [], bounds: null };
-      const cam = new R.ProjectionCamera([0, 0, 0], v.dir, v.x);
-      try {
-        const { visible, hidden } = R.drawProjection(body as unknown as R.AnyShape, cam);
-        const flat = (p: string[] | string[][]) => (p as (string | string[])[]).flat();
-        let bounds: ProjectionResult['bounds'] = null;
-        try {
-          const b = visible.boundingBox.bounds;
-          // Drawing y is up; SVG paths are emitted with y down.
-          bounds = [b[0][0], -b[1][1], b[1][0], -b[0][1]];
-        } catch {
-          bounds = null;
-        }
-        return { id: v.id, visible: flat(visible.toSVGPaths()), hidden: flat(hidden.toSVGPaths()), bounds };
-      } finally {
-        cam.delete();
-      }
+      return { id: v.id, ...projectShape(body, v.dir, v.x, tol) };
     });
   }
 

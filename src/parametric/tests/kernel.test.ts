@@ -7,7 +7,7 @@ import * as R from 'replicad';
 import { type Sh, getOc, isValid, mirrored, rotated, setOc, subShapes } from '../src/kernel/occ';
 import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SkEntity, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
-import type { Vec3 } from '../src/math/vec';
+import { type Vec3, normalize } from '../src/math/vec';
 import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
 
@@ -1191,6 +1191,27 @@ describe('feature regeneration', () => {
     // From the top the hole is hidden: two hidden lines.
     expect(top.bounds![3] - top.bounds![1]).toBeCloseTo(10, 3);
     expect(top.hidden.length).toBeGreaterThan(0);
+  });
+
+  it('projects views without hidden lines (a ball), with arcs drawn exactly', async () => {
+    const b = new ModelBuilder();
+    // A half disc revolved about its straight side: a ball of radius 10.
+    const half: SkEntity[] = [
+      { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 },
+      { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'ab', t: 'line', a: 'b', b: 'a' },
+      { id: 'p1', t: 'point', x: 0, y: -20 }, { id: 'p2', t: 'point', x: 0, y: 20 }, { id: 'ax', t: 'line', a: 'p1', b: 'p2', construction: true },
+    ];
+    expect((await b.build(req([sketch('S1', half), revolve('R1', 'S1')]))).status.every((s) => s.ok)).toBe(true);
+    // Every view failed when one had no hidden lines at all.
+    const views = b.project([
+      { id: 'front', dir: [0, 0, 1], x: [1, 0, 0] },
+      { id: 'iso', dir: normalize([1, 1, 1]), x: normalize([1, 0, -1]) },
+    ]);
+    for (const v of views) {
+      expect(v.hidden).toEqual([]);
+      expect(v.visible.join('')).toMatch(/A10 10 /);
+      v.bounds!.forEach((x, i) => expect(x).toBeCloseTo(i < 2 ? -10 : 10, 6));
+    }
   });
 
   it('fails a feature whose value could not be evaluated instead of building it with zero', async () => {
