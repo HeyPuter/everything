@@ -34,4 +34,17 @@ describe('assistant markdown', () => {
     html(`a | b\n-${' '.repeat(50000)}x`);
     expect(performance.now() - t0).toBeLessThan(500);
   });
+
+  it('renders links to web pages and e-mail only, and backslash escapes as the character', () => {
+    expect(html('See [the guide](https://example.com/a_b) or [mail](mailto:a@b.c).')).toBe(
+      '<p>See <a href="https://example.com/a_b" target="_blank" rel="noopener noreferrer">the guide</a> or '
+      + '<a href="mailto:a@b.c" target="_blank" rel="noopener noreferrer">mail</a>.</p>');
+    expect(html('[x](javascript:alert`1`) [y](data:text/html,hi) [z](/files/part)')).toBe('<p>x y z</p>');
+    expect(html('2 \\* 3 \\* 4, hole\\_dia and \\[not a link\\](x)')).toBe('<p>2 * 3 * 4, hole_dia and [not a link](x)</p>');
+    expect(html('***Note:*** done')).toBe('<p><strong><em>Note:</em></strong> done</p>');
+    // Runs of brackets are rejected as quickly as any other text.
+    const t0 = performance.now();
+    html(`${'[a]('.repeat(20000)}\n${'['.repeat(20000)}${']('.repeat(5000)}`);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
 });

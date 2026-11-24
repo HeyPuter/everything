@@ -1,17 +1,39 @@
 // Light Markdown for assistant replies, built as DOM nodes (never HTML text):
-// paragraphs, bullet and numbered lists, tables, fenced code, `code`, **bold**
-// and *italic*.
+// paragraphs, bullet and numbered lists, tables, fenced code, `code`, **bold**,
+// *italic*, links and backslash escapes.
+
+/** A link the reply may open: web pages and e-mail addresses only (never javascript: or data:). */
+function link(text: string, url: string): Node {
+  // Absolute addresses only: a relative one would open a page of this app.
+  if (!/^(?:https?:\/\/|mailto:)/i.test(url)) return document.createTextNode(text);
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.append(...inline(text));
+  return a;
+}
 
 function inline(text: string): Node[] {
   const out: Node[] = [];
+  // A backslash-escaped mark is that character itself (\* is not an emphasis mark).
+  // A link's text and address hold no brackets, so a run of them is not scanned again from each one.
   // _emphasis_ only between word boundaries, so names like hole_dia keep their underscores.
-  const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*|(?<![\p{L}\p{N}_])_[^_\s][^_\n]*_(?![\p{L}\p{N}_]))/gu;
+  const re = /(\\[\\`*_{}[\]()#+\-.!|>~]|`[^`\n]+`|\[[^[\]\n]+\]\([^\s()[\]]+\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*|(?<![\p{L}\p{N}_])_[^_\s][^_\n]*_(?![\p{L}\p{N}_]))/gu;
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index! > last) out.push(document.createTextNode(text.slice(last, m.index)));
     const t = m[0];
     let el: HTMLElement;
+    if (t.startsWith('\\')) { out.push(document.createTextNode(t[1])); last = m.index! + t.length; continue; }
+    if (t.startsWith('[')) {
+      const at = t.lastIndexOf('](');
+      out.push(link(t.slice(1, at), t.slice(at + 2, -1)));
+      last = m.index! + t.length;
+      continue;
+    }
     if (t.startsWith('`')) { el = document.createElement('code'); el.textContent = t.slice(1, -1); }
+    else if (t.startsWith('***')) { el = document.createElement('strong'); const em = document.createElement('em'); em.append(...inline(t.slice(3, -3))); el.append(em); }
     else if (t.startsWith('**')) { el = document.createElement('strong'); el.append(...inline(t.slice(2, -2))); }
     else { el = document.createElement('em'); el.textContent = t.slice(1, -1); }
     out.push(el);
