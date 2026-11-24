@@ -168,6 +168,17 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await page.keyboard.up('ArrowRight');
   await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 16, 6);
   expect(await depth()).toBe(d0 + 1);
+  // Escape lets go of the view: the arrow keys move the sheet again, not the view.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.view-sel')).toBeHidden();
+  const pan = () => page.locator('.sheet-host').evaluate((el) => (el as HTMLElement).style.transform);
+  const t0 = await pan();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(pan).not.toBe(t0);
+  expect((await front())!.x).toBeCloseTo(x0 + 16, 6);
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.drawing-ws')).toBeFocused();
   await page.keyboard.press('Delete');
   await expect.poll(front).toBeUndefined();
   // Deleting from the Views list keeps keyboard focus there: on the row that moved up, then Add view.

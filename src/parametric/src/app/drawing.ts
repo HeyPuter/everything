@@ -44,7 +44,7 @@ export class DrawingWorkspace {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
     this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
-    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel or plus and minus to zoom. Arrow keys move the selected view, or else the sheet, and Delete removes the view.' }, this.host,
+    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel or plus and minus to zoom. Arrow keys move the selected view, or else the sheet; Escape deselects the view and Delete removes it.' }, this.host,
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();
@@ -467,6 +467,15 @@ export class DrawingWorkspace {
     this.drawSelection();
     this.syncPanel();
     this.el.focus({ preventScroll: true });
+  }
+
+  /** Esc: the arrow keys go back to moving the sheet. */
+  deselect(): boolean {
+    if (!this.selected) return false;
+    this.selected = null;
+    this.drawSelection();
+    this.syncPanel();
+    return true;
   }
 
   deleteSelected(): boolean {

@@ -1640,6 +1640,7 @@ export class App {
         return;
       }
       if (this.panel) { void this.closePanel(false); e.preventDefault(); return; }
+      if (this.inDrawing && this.drawing.deselect()) { e.preventDefault(); return; }
       if (this.selection.items.length) { this.selection.clear(); e.preventDefault(); return; }
       return;
     }
