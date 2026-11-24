@@ -1117,3 +1117,21 @@ test('renaming a feature to a base plane name is refused, as the assistant refus
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('the command search placeholder fits its box at every title bar width', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const search = page.getByRole('combobox', { name: 'Search commands' });
+  for (const width of [1024, 1180, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 800 });
+    // The placeholder follows a media query, whose change event comes after the resize.
+    await expect.poll(() => search.evaluate((el: HTMLInputElement) => {
+      const cs = getComputedStyle(el);
+      const c = document.createElement('canvas').getContext('2d')!;
+      c.font = `${cs.fontSize} ${cs.fontFamily}`;
+      const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      return c.measureText(el.placeholder).width <= room;
+    }), { message: `at ${width}px` }).toBe(true);
+  }
+  expect(errors).toEqual([]);
+});

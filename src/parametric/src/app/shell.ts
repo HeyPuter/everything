@@ -156,6 +156,14 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const docTitle = h('button', { class: 'doc-title', type: 'button', title: 'Rename part' }, 'Part1') as HTMLButtonElement;
   const docState = h('span', { class: 'doc-state', 'aria-live': 'polite' });
   const search = h('input', { type: 'search', placeholder: 'Search commands', 'aria-label': 'Search commands', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'cmd-results', 'aria-autocomplete': 'list' }) as HTMLInputElement;
+  // The narrow box of tablet-width title bars (130px, see app.css) clips "Search commands"
+  // in most fonts: it says "Search" there. Its name stays "Search commands".
+  if (typeof matchMedia !== 'undefined') {
+    const narrow = matchMedia('(max-width: 1180px)');
+    const sync = () => { search.placeholder = narrow.matches ? 'Search' : 'Search commands'; };
+    narrow.addEventListener?.('change', sync);
+    sync();
+  }
   const searchResults = h('div', { class: 'cmd-results', role: 'listbox', id: 'cmd-results', hidden: true });
   // Narrow windows leave its room to the part name: Help › Source Code on GitHub has it too.
   const github = h('a', { class: 'icon-btn hide-tablet', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub' }, icon('github', 18));
