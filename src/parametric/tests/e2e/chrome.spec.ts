@@ -382,3 +382,16 @@ test('the units in the status bar open a menu that changes the unit system', asy
   await expect(page.locator('.statusbar').getByRole('button', { name: 'MMGS' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('the status bar has no button without an action', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    a.editSketch(a.store.doc.features.find((f) => f.type === 'sketch')!.id);
+  });
+  await expect(page.locator('.statusbar')).toContainText('Defined');
+  await expect(page.locator('.statusbar').getByRole('button', { name: /Defined/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -49,7 +49,7 @@ export interface Shell {
   tpStrip: HTMLElement;
   tpPanel: HTMLElement;
   statusMsg: HTMLElement;
-  statusSketch: HTMLButtonElement;
+  statusSketch: HTMLElement;
   statusUnits: HTMLButtonElement;
   statusRebuild: HTMLElement;
   statusCoords: HTMLElement;
@@ -200,7 +200,8 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   titleWhenClipped(statusMsg);
   const statusCoords = h('span', { class: 'cell hide-mobile', 'aria-live': 'off' });
   const statusRebuild = h('span', { class: 'cell hide-mobile', title: 'Time of the last rebuild' });
-  const statusSketch = h('button', { class: 'cell', type: 'button', hidden: true }) as HTMLButtonElement;
+  // The sketch's definition status: text, not a button (it has no action).
+  const statusSketch = h('span', { class: 'cell', hidden: true });
   const statusUnits = h('button', { class: 'cell', type: 'button', 'aria-haspopup': 'menu', title: 'Unit system' }, 'MMGS') as HTMLButtonElement;
   const statusbar = h('footer', { class: 'statusbar' }, treeToggle, statusMsg, statusCoords, statusSketch, statusRebuild, statusUnits);
 
