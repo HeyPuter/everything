@@ -22,6 +22,24 @@ describe('relations', () => {
     expect(availableRelations(s, ['O'])).toEqual([]);
   });
 
+  it('offers nothing that ties a curve to its own end point or centre', () => {
+    const s = sk([
+      ...rect(0, 0, 10, 5, 'r'), { id: 'c0', t: 'point', x: 2, y: 2 }, { id: 'circ', t: 'circle', c: 'c0', r: 1 },
+      { id: 'ac', t: 'point', x: 20, y: 0 }, { id: 'aa', t: 'point', x: 25, y: 0 }, { id: 'ab', t: 'point', x: 20, y: 5 }, { id: 'arc', t: 'arc', c: 'ac', a: 'aa', b: 'ab' },
+    ]);
+    // Midpoint at its own end collapsed the line; a centre on its circle, the circle.
+    expect(availableRelations(s, ['rp1', 'rl1'])).toEqual(['fix']);
+    expect(availableRelations(s, ['rl0', 'rp1'])).toEqual(['fix']);
+    expect(availableRelations(s, ['c0', 'circ'])).toEqual(['fix']);
+    expect(availableRelations(s, ['ac', 'arc'])).toEqual(['fix']);
+    expect(availableRelations(s, ['aa', 'arc'])).toEqual(['fix']);
+    // Other points still fit.
+    expect(availableRelations(s, ['rp0', 'circ'])).toEqual(['coincident', 'concentric', 'fix']);
+    expect(availableRelations(s, ['c0', 'arc'])).toEqual(['coincident', 'concentric', 'fix']);
+    expect(availableRelations(s, ['rp0', 'rp1', 'rl0'])).toEqual(['fix']);
+    expect(availableRelations(s, ['rp0', 'rp2', 'rl0'])).toContain('symmetric');
+  });
+
   it.each([['axis', 'l1', 'l2'], ['l1', 'axis', 'l2'], ['l1', 'l2', 'axis'], ['axis', 'p', 'q'], ['p', 'axis', 'q']])('makes %s, %s, %s symmetric about the centerline whatever the selection order', (...ids) => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: -20 }, { id: 'b', t: 'point', x: 0, y: 20 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },

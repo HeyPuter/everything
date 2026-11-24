@@ -108,14 +108,19 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
     out.push('equal');
     if (n === 2) out.push('concentric', 'tangent');
   } else if (n === 2 && lines === 1 && circs === 1) out.push('tangent');
-  else if (n === 2 && pts === 1 && lines === 1) out.push('coincident', 'midpoint');
-  else if (n === 2 && pts === 1 && circs === 1) out.push('coincident', 'concentric');
-  else if (n === 2 && pts === 1 && count('spline') === 1) {
-    // A spline already passes through its own points.
-    const sp = sk.entities.find((e) => e.t === 'spline' && ids.includes(e.id));
-    if (sp?.t === 'spline' && !ids.some((id) => sp.pts.includes(id))) out.push('coincident');
+  else if (n === 2 && pts === 1 && (lines === 1 || circs === 1 || count('spline') === 1)) {
+    // A curve's own points already lie where these would put them, or
+    // cannot: a line's end point at its midpoint, or a circle's centre on
+    // it, collapses the curve to nothing.
+    const curve = sk.entities.find((e) => e.t !== 'point' && ids.includes(e.id));
+    const own = !!curve && pointIdsOf(curve).some((p) => ids.includes(p));
+    if (!own) out.push(...(lines ? ['coincident', 'midpoint'] as const : circs ? ['coincident', 'concentric'] as const : ['coincident'] as const));
   }
-  else if (n === 3 && pts === 2 && lines === 1) out.push('symmetric');
+  else if (n === 3 && pts === 2 && lines === 1) {
+    // A line's own two ends mirrored about it would shrink it to nothing.
+    const axis = sk.entities.find((e) => e.t === 'line' && ids.includes(e.id)) as SkLine;
+    if (!(ids.includes(axis.a) && ids.includes(axis.b))) out.push('symmetric');
+  }
   else if (n === 3 && circs === 2 && lines === 1) out.push('symmetric');
   if (!ids.includes(ORIGIN_ID)) out.push('fix');
   return out;
