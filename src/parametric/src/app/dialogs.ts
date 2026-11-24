@@ -484,6 +484,8 @@ export async function shortcutsDialog(app: App) {
   add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar, notifications)', 'F6, Shift + F6');
   add('Rename the feature in the design tree', 'F2');
   add('Context menu of the feature in the design tree', 'Shift + F10');
+  // macOS keeps Ctrl + Space (input sources) and ⌘ + Space (Spotlight) for itself.
+  add('Select several rows of the design tree', isMac ? 'Shift + Up/Down' : 'Shift + Up/Down, Ctrl + Space');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });
 }
 

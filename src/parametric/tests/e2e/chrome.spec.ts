@@ -934,3 +934,31 @@ test("the assistant's message box shows focus, also in high contrast mode", asyn
   }
   expect(errors).toEqual([]);
 });
+
+test('design tree rows are selected as a range with Shift, and several from the keyboard', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const row = (name: string) => page.getByRole('tree', { name: 'Design tree' }).getByRole('treeitem', { name });
+  const selected = () => page.getByRole('tree', { name: 'Design tree' }).locator('[aria-selected="true"]');
+  await row('Extrude1').click();
+  await row('Fillet1').click({ modifiers: ['Shift'] });
+  await expect(selected()).toHaveText(['Extrude1', 'Hole1', 'Fillet1']);
+  // Shift with the arrow keys extends from the row selected first.
+  await row('Top Plane').click();
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(selected()).toHaveText(['Top Plane', 'Right Plane', 'Origin']);
+  await expect(row('Origin')).toBeFocused();
+  // Space selects the focused row alone; Ctrl (Command) with Space adds one.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Space');
+  await expect(selected()).toHaveText(['Extrude1']);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ControlOrMeta+Space');
+  await expect(selected()).toHaveText(['Extrude1', 'Fillet1']);
+  expect(errors).toEqual([]);
+});

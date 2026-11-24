@@ -34,6 +34,9 @@ export class FeatureTree {
   private renameEl: HTMLInputElement | null = null;
   private rendering = false;
   private draggingBar = false;
+  /** The rows last drawn, and the row a Shift range selection starts from. */
+  private shown: Row[] = [];
+  private anchor: string | null = null;
   /** Said when the filter matches no feature or plane (only the part row is left). */
   private noMatch = h('div', { class: 'pm-msg info', role: 'status', style: { margin: '0 8px 4px' }, hidden: true }, 'Nothing in the design tree matches the filter.');
 
@@ -89,6 +92,7 @@ export class FeatureTree {
     const doc = app.store.doc;
     const built = app.store.builtCount;
     const rows = this.rows();
+    this.shown = rows;
     const sel = app.selection;
     // Rows are rebuilt; keyboard focus inside the tree moves to the new rows.
     const active = document.activeElement;
@@ -264,8 +268,20 @@ export class FeatureTree {
     if (!r.item) return;
     const app = this.app;
     if (app.panel && app.panel.onPick(r.item, true)) { this.render(); return; }
-    if (e.ctrlKey || e.metaKey || e.shiftKey) app.selection.toggle(r.item);
+    if (e.shiftKey && this.selectRange(r.key)) return;
+    this.anchor = r.key;
+    if (e.ctrlKey || e.metaKey) app.selection.toggle(r.item);
     else app.selection.set([r.item]);
+  }
+
+  /** Shift selects the rows from the last one clicked to this one, as in a file list. */
+  private selectRange(key: string): boolean {
+    const rows = this.shown;
+    const a = rows.findIndex((r) => r.key === this.anchor && r.item);
+    const b = rows.findIndex((r) => r.key === key);
+    if (a < 0 || b < 0) return false;
+    this.app.selection.set(rows.slice(Math.min(a, b), Math.max(a, b) + 1).flatMap((r) => (r.item ? [r.item] : [])));
+    return true;
   }
 
   private onDouble(r: Row) {
@@ -298,9 +314,18 @@ export class FeatureTree {
       items.forEach((x) => x.setAttribute('tabindex', x === t ? '0' : '-1'));
       t.focus();
     };
+    // Shift with Up or Down extends the selection from the row it started at.
+    const extend = (i: number) => {
+      const from = this.shown.find((r) => r.key === key);
+      const anchor = this.shown.find((r) => r.key === this.anchor);
+      if (from?.item && !(anchor?.item && this.app.selection.has(anchor.item))) this.anchor = key;
+      go(i);
+      const to = this.focusKey;
+      if (!this.app.panel && to && this.shown.some((r) => r.key === to && r.item)) this.selectRange(to);
+    };
     switch (e.key) {
-      case 'ArrowDown': e.preventDefault(); go(cur + 1); break;
-      case 'ArrowUp': e.preventDefault(); go(cur - 1); break;
+      case 'ArrowDown': e.preventDefault(); if (e.shiftKey) extend(cur + 1); else go(cur + 1); break;
+      case 'ArrowUp': e.preventDefault(); if (e.shiftKey) extend(cur - 1); else go(cur - 1); break;
       case 'Home': e.preventDefault(); go(0); break;
       case 'End': e.preventDefault(); go(items.length - 1); break;
       // As in any tree: Right opens a row, then moves to its first child; Left
@@ -332,7 +357,8 @@ export class FeatureTree {
       case ' ':
         e.preventDefault();
         e.stopPropagation();
-        items[cur].click();
+        // Ctrl (Command) adds the row to the selection or takes it out, Shift selects up to it, as a click does.
+        items[cur].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey }));
         break;
       // The keyboard context menu: browsers on macOS never fire contextmenu for Shift+F10.
       case 'F10':
