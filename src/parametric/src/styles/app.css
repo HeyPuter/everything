@@ -301,6 +301,7 @@ a.icon-btn { text-decoration: none; }
 .ti .badge.warn { color: var(--warning); }
 .ti.editing { background: var(--accent-weak); }
 .ti input.rename { height: 20px; border: 1px solid var(--accent); border-radius: 2px; padding: 0 4px; background: var(--panel); min-width: 80px; }
+.ti input.rename[aria-invalid='true'] { border-color: var(--danger); outline-color: var(--danger); }
 .rollback-bar { height: 8px; margin: 2px 6px; position: relative; cursor: ns-resize; touch-action: none; border: 0; background: none; padding: 0; width: calc(100% - 12px); display: block; }
 .rollback-bar::before { content: ''; position: absolute; left: 0; right: 0; top: 3px; height: 3px; background: var(--accent); border-radius: 2px; }
 .rollback-bar:hover::before, .rollback-bar.dragging::before { background: var(--accent-hover); height: 4px; top: 2px; }

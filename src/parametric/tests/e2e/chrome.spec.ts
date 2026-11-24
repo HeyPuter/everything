@@ -1039,3 +1039,29 @@ test("the status bar's unit menu opens above its button, which closes it again",
   await expect(units).toHaveAttribute('aria-expanded', 'false');
   expect(errors).toEqual([]);
 });
+
+test("renaming a feature to another feature's name is refused and says why", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  await page.keyboard.press('F2');
+  const input = page.getByRole('textbox', { name: 'Feature name' });
+  await expect(input).toBeFocused();
+  await input.fill('fillet1');
+  await page.keyboard.press('Enter');
+  // The field stays open, marked, to choose another name.
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('.statusbar .msg')).toContainText('"Fillet1" is already the name of another feature');
+  await input.fill('Mounting holes');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('treeitem', { name: 'Mounting holes' })).toBeFocused();
+  // Leaving the field with a taken name keeps the old one.
+  await page.keyboard.press('F2');
+  await input.fill('Extrude1');
+  await page.getByRole('treeitem', { name: 'Origin' }).click();
+  await expect(page.getByRole('treeitem', { name: 'Mounting holes' })).toBeVisible();
+  const names = await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.features.map((f) => f.name));
+  expect(names.filter((n) => n.toLowerCase() === 'extrude1')).toHaveLength(1);
+  expect(errors).toEqual([]);
+});

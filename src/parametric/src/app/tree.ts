@@ -230,19 +230,40 @@ export class FeatureTree {
     if (this.renameEl?.dataset.id === f.id) return this.renameEl;
     const input = h('input', { class: 'rename', value: f.name, 'aria-label': 'Feature name', 'data-id': f.id }) as HTMLInputElement;
     this.renameEl = input;
+    // Another feature's name (in any case) is refused: the assistant and the
+    // menus find features by name, and would find that one instead.
+    const taken = (name: string) => this.app.store.doc.features.find((x) => x.id !== f.id && x.name.toLowerCase() === name.toLowerCase());
     const finish = (save: boolean) => {
       if (this.renaming !== f.id) return;
       this.renaming = null;
       this.renameEl = null;
       const name = input.value.trim();
-      if (save && name && name !== f.name) this.app.renameFeature(f.id, name);
+      const other = save && name ? taken(name) : undefined;
+      if (other) this.app.setStatus(`"${other.name}" is already the name of another feature. Choose another name.`, true);
+      if (save && name && name !== f.name && !other) this.app.renameFeature(f.id, name);
       else this.render();
       this.focus(f.id);
     };
+    input.addEventListener('input', () => {
+      input.removeAttribute('aria-invalid');
+      input.removeAttribute('title');
+    });
     input.addEventListener('keydown', (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       e.stopPropagation();
-      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Enter') {
+        // Enter keeps the field open to choose another name; leaving it keeps the old one.
+        const other = taken(input.value.trim());
+        if (other) {
+          const msg = `"${other.name}" is already the name of another feature. Choose another name.`;
+          input.setAttribute('aria-invalid', 'true');
+          input.title = msg;
+          this.app.setStatus(msg, true);
+          input.select();
+          return;
+        }
+        finish(true);
+      }
       if (e.key === 'Escape') finish(false);
     });
     input.addEventListener('blur', () => { if (!this.rendering && input.isConnected) finish(true); });
@@ -303,7 +324,11 @@ export class FeatureTree {
 
   focus(key: string) {
     this.focusKey = key;
-    requestAnimationFrame(() => this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus());
+    requestAnimationFrame(() => {
+      // A rename started meanwhile (F2 straight after the last one) keeps its field.
+      if (this.renameEl?.isConnected) return;
+      this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus();
+    });
   }
 
   private onKey(e: KeyboardEvent) {
