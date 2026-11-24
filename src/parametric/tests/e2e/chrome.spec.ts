@@ -941,8 +941,10 @@ test('design tree rows are selected as a range with Shift, and several from the 
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
   await waitForFeature(page, 'Fillet1');
-  const row = (name: string) => page.getByRole('tree', { name: 'Design tree' }).getByRole('treeitem', { name });
-  const selected = () => page.getByRole('tree', { name: 'Design tree' }).locator('[aria-selected="true"]');
+  const row = (name: string) =>
+    page.getByRole('tree', { name: 'Design tree' }).getByRole('treeitem', { name });
+  const selected = () =>
+    page.getByRole('tree', { name: 'Design tree' }).locator('[aria-selected="true"]');
   await row('Extrude1').click();
   await row('Fillet1').click({ modifiers: ['Shift'] });
   await expect(selected()).toHaveText(['Extrude1', 'Hole1', 'Fillet1']);
@@ -977,13 +979,21 @@ test('selected rows, chosen tabs and pressed buttons stand out in high contrast 
   const fill = async (l: import('@playwright/test').Locator, dx = -6) => {
     const b = (await l.boundingBox())!;
     const x = dx < 0 ? b.x + b.width + dx - 2 : b.x + dx;
-    return (await page.screenshot({ clip: { x, y: b.y + 3, width: 2, height: 2 } })).toString('base64');
+    return (await page.screenshot({ clip: { x, y: b.y + 3, width: 2, height: 2 } })).toString(
+      'base64',
+    );
   };
   const tree = page.getByRole('tree', { name: 'Design tree' });
-  expect(await fill(tree.getByRole('treeitem', { name: 'Hole1' }))).not.toBe(await fill(tree.getByRole('treeitem', { name: 'Fillet1' })));
+  expect(await fill(tree.getByRole('treeitem', { name: 'Hole1' }))).not.toBe(
+    await fill(tree.getByRole('treeitem', { name: 'Fillet1' })),
+  );
   const tabs = page.getByRole('tablist', { name: 'Command groups' });
-  expect(await fill(tabs.getByRole('tab', { name: 'Features' }), 3)).not.toBe(await fill(tabs.getByRole('tab', { name: 'Sketch' }), 3));
-  const perspective = page.getByRole('toolbar', { name: 'View' }).getByRole('button', { name: 'Perspective' });
+  expect(await fill(tabs.getByRole('tab', { name: 'Features' }), 3)).not.toBe(
+    await fill(tabs.getByRole('tab', { name: 'Sketch' }), 3),
+  );
+  const perspective = page
+    .getByRole('toolbar', { name: 'View' })
+    .getByRole('button', { name: 'Perspective' });
   const before = await fill(perspective, 3);
   const pressed = await perspective.getAttribute('aria-pressed');
   await perspective.click();
@@ -993,7 +1003,7 @@ test('selected rows, chosen tabs and pressed buttons stand out in high contrast 
   expect(errors).toEqual([]);
 });
 
-test("a sketch a feature absorbed offers Show in its context menu, and Hide acts on every selected sketch", async ({
+test('a sketch a feature absorbed offers Show in its context menu, and Hide acts on every selected sketch', async ({
   page,
 }) => {
   const errors = await openApp(page);
@@ -1010,7 +1020,12 @@ test("a sketch a feature absorbed offers Show in its context menu, and Hide acts
   }
   const sketches = tree.locator('[role="treeitem"][aria-level="3"]');
   await expect(sketches).toHaveCount(2);
-  const hidden = () => page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.features.filter((f) => f.type === 'sketch').map((f) => (window as unknown as Handle).__parametric.isShown(f)));
+  const hidden = () =>
+    page.evaluate(() =>
+      (window as unknown as Handle).__parametric.store.doc.features
+        .filter((f) => f.type === 'sketch')
+        .map((f) => (window as unknown as Handle).__parametric.isShown(f)),
+    );
   expect(await hidden()).toEqual([false, false]);
   await sketches.first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Show' }).click();
@@ -1025,7 +1040,9 @@ test("a sketch a feature absorbed offers Show in its context menu, and Hide acts
   expect(errors).toEqual([]);
 });
 
-test("the status bar's unit menu opens above its button, which closes it again", async ({ page }) => {
+test("the status bar's unit menu opens above its button, which closes it again", async ({
+  page,
+}) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
   const units = page.locator('.statusbar').getByRole('button', { name: 'MMGS' });
@@ -1052,7 +1069,9 @@ test("renaming a feature to another feature's name is refused and says why", asy
   await page.keyboard.press('Enter');
   // The field stays open, marked, to choose another name.
   await expect(input).toHaveAttribute('aria-invalid', 'true');
-  await expect(page.locator('.statusbar .msg')).toContainText('"Fillet1" is already the name of another feature');
+  await expect(page.locator('.statusbar .msg')).toContainText(
+    '"Fillet1" is already the name of another feature',
+  );
   await input.fill('Mounting holes');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('treeitem', { name: 'Mounting holes' })).toBeFocused();
@@ -1061,7 +1080,9 @@ test("renaming a feature to another feature's name is refused and says why", asy
   await input.fill('Extrude1');
   await page.getByRole('treeitem', { name: 'Origin' }).click();
   await expect(page.getByRole('treeitem', { name: 'Mounting holes' })).toBeVisible();
-  const names = await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.features.map((f) => f.name));
+  const names = await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.doc.features.map((f) => f.name),
+  );
   expect(names.filter((n) => n.toLowerCase() === 'extrude1')).toHaveLength(1);
   expect(errors).toEqual([]);
 });
