@@ -41,7 +41,7 @@ test('the assistant builds a part with tools, shows its steps and undoes it in o
 
   // The reply is held from screen readers while it streams and released when complete.
   await expect(page.locator('.as-bot')).toHaveAttribute('aria-busy', 'true');
-  await expect(page.getByText('Done: a', { exact: false })).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.as-bot').getByText('plate with four holes')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('.as-bot[aria-busy]')).toHaveCount(0);
   for (const name of ['Plate', 'Holes', 'Corners']) await expect(page.getByRole('treeitem', { name })).toBeVisible();
   const steps = page.locator('.as-step');
@@ -641,4 +641,26 @@ test('the assistant reads the part as rebuilt, not as it was before a rebuild th
   expect(snapshot).not.toContain('Body: none yet');
   expect(snapshot).not.toContain('not built yet');
   expect(found).toMatch(/^\d+ of \d+ faces match \(showing 1\)/);
+});
+
+test('each step says whether it was done, failed or not run, and why, without hovering', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'set_variables', input: { set: [{ name: 'W', value: 5 }] } };
+      yield { type: 'tool', id: 'c2', name: 'add_fillet', input: { edges: ['no-such-edge'], radius: 1 } };
+      yield { type: 'tool', id: 'c3', name: 'set_variables', input: { set: [{ name: 'H', value: 5 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Go');
+  await box.press('Enter');
+  await expect(page.getByText('Done.')).toBeVisible();
+  const steps = page.locator('.as-step');
+  await expect(steps.nth(0)).toHaveText(/^Done: Set variables$/);
+  await expect(steps.nth(1)).toContainText('Failed: Add fillet');
+  await expect(steps.nth(2)).toContainText('Skipped: Set variables');
+  await expect(steps.nth(2).locator('.as-step-detail')).toHaveText('Not run: an earlier change in this reply failed.');
 });

@@ -699,12 +699,14 @@ export class AssistantPanel {
     const mark = step.status === 'running' ? h('span', { class: 'spinner', 'aria-hidden': 'true' })
       : icon(step.status === 'done' ? 'check' : step.status === 'error' ? 'error' : 'close', 14);
     el.className = `as-step ${step.status}`;
-    const label = h('span', { class: 'as-step-label' }, stepLabel(step.name, step.args));
-    const children: (HTMLElement | SVGElement)[] = [h('span', { class: 'as-step-mark' }, mark), label];
-    el.replaceChildren(...children);
+    const label = stepLabel(step.name, step.args);
+    // The mark's colour and glyph are all that tell a step done, failed or not run: read out too.
+    const state = h('span', { class: 'sr-only' }, step.status === 'running' ? 'Running: ' : step.status === 'done' ? 'Done: ' : step.status === 'error' ? 'Failed: ' : 'Skipped: ');
+    el.replaceChildren(h('span', { class: 'as-step-mark' }, mark), h('span', { class: 'as-step-label' }, state, label));
     if (step.summary && step.status !== 'running') {
       el.title = step.summary;
-      if (step.status === 'error') el.append(h('div', { class: 'as-step-detail' }, short(step.summary, 220)));
+      // Why a step failed or was not run is shown, not only on hover (which touch screens lack).
+      if (step.status === 'error' || step.status === 'skipped') el.append(h('div', { class: 'as-step-detail' }, short(step.summary, 220)));
     }
     if (step.image) {
       const img = h('img', { class: 'as-shot', src: step.image, alt: 'What the assistant saw' }) as HTMLImageElement;
