@@ -190,6 +190,19 @@ describe('sheet layout', () => {
     expect(textWidth('W', 1, true)).toBeCloseTo(0.944, 3);
   });
 
+  it('measures accented letters and symbols as the PDF draws them', () => {
+    // Helvetica's widths for the WinAnsiEncoding characters beyond ASCII.
+    expect(textWidth('É', 1)).toBeCloseTo(0.667, 3);
+    expect(textWidth('é', 1)).toBeCloseTo(0.556, 3);
+    expect(textWidth('Ø°±', 1)).toBeCloseTo(0.778 + 0.4 + 0.584, 3);
+    expect(textWidth('—€…', 1)).toBeCloseTo(1 + 0.556 + 1, 3);
+    expect(textWidth('ÜÆ', 1, true)).toBeCloseTo(0.722 + 1, 3);
+    expect(textWidth('ü', 1, true)).toBeCloseTo(0.611, 3);
+    // A character the encoding lacks is drawn, and measured, as '?'.
+    expect(textWidth('中', 1)).toBeCloseTo(textWidth('?', 1), 6);
+    expect(textWidth('中', 1, true)).toBeCloseTo(textWidth('?', 1, true), 6);
+  });
+
   // Rectangle outlines the size of each view's box projection, centred on 0.
   const boxProjections = (doc: DrawingDoc, min: Vec3, max: Vec3) =>
     new Map(doc.views.map((v) => {
