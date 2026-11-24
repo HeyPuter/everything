@@ -466,18 +466,32 @@ export class ModelBuilder {
   }
 
   resolveEdge(ref: EdgeRef, st: State): number {
+    return this.resolveEdgePieces(ref, st, false)[0];
+  }
+
+  /**
+   * The edges a reference stands for now. split: an edge an upstream feature
+   * cut in two (its name gained #0, #1...) is all its pieces, as a fillet or
+   * chamfer on it should round all of it (it rounded the nearest half). An
+   * edge found only by its place, its name gone, is said in a warning: the
+   * fillet moved onto a neighbouring edge without a word.
+   */
+  private resolveEdgePieces(ref: EdgeRef, st: State, split: boolean): number[] {
     const edges = this.edgesOf(st);
     const exact = edges.flatMap((e, i) => (e.name === ref.name ? [i] : []));
     const near = (list: number[]) =>
       list.reduce((best, i) => (best < 0 || dist(edges[i].desc.mid, ref.sig.m) < dist(edges[best].desc.mid, ref.sig.m) ? i : best), -1);
-    if (exact.length === 1) return exact[0];
+    if (exact.length === 1) return exact;
     const base = ref.name.replace(/#\d+$/, '');
     const same = edges.flatMap((e, i) => (e.name.replace(/#\d+$/, '') === base ? [i] : []));
-    if (same.length) return near(same);
+    if (same.length) return split && base === ref.name ? same : [near(same)];
     const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.02 : 1;
     const alt = edges.flatMap((e, i) => (e.desc.type === ref.sig.type && dist(e.desc.mid, ref.sig.m) < lim ? [i] : []));
-    if (alt.length) return near(alt);
+    if (alt.length) {
+      if (split) this.warning = `A selected edge${this.maker(ref.name)} is gone; the edge nearest its place was used. Check the result, or edit the feature and select the edge again.`;
+      return [near(alt)];
+    }
     throw new FeatureError(`A referenced edge${this.maker(ref.name)} no longer exists. Edit the feature and select it again.`);
   }
 
@@ -908,7 +922,7 @@ export class ModelBuilder {
   private collectEdges(st: State, edges: EdgeRef[], faces: FaceRef[], from?: Map<number, number>): number[] {
     const all = this.edgesOf(st);
     const set = new Set<number>();
-    for (const e of edges) set.add(this.resolveEdge(e, st));
+    for (const e of edges) for (const i of this.resolveEdgePieces(e, st, true)) set.add(i);
     for (const fr of faces) {
       const fi = this.resolveFace(fr, st);
       all.forEach((e, i) => { if (e.faces.includes(fi)) { set.add(i); from?.set(i, fi); } });

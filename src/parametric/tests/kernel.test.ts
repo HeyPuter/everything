@@ -448,6 +448,25 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(30 * 20 * 25 - 4 * (4 - Math.PI) * 25, 2);
   });
 
+  it('rounds all of an edge an upstream cut split, and says when its edge is gone', async () => {
+    // A notch cut through the edge rounded only the half nearest its middle;
+    // a step cut along the whole edge moved the fillet to the next edge without a word.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20, 'b')), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const e = r0.edges.find((x) => x.type === 'line' && Math.abs(x.mid[1]) < 1e-6 && Math.abs(x.mid[2] - 10) < 1e-6)!;
+    const fillet: Feature = { id: 'F', name: 'F', type: 'fillet', edges: [{ name: e.name, sig: { type: 'line', m: e.mid, len: e.length } }], faces: [], radius: 2 };
+    const notch: Feature[] = [sketch('S2', rect(18, -1, 22, 5, 'n')), extrude('E2', 'S2', 20, { cut: true, end: 'throughAll', flip: true })];
+    await b.build(req([...base, ...notch]));
+    const before = volume(b);
+    const r = await b.build(req([...base, ...notch, fillet]));
+    expect(r.status[4]).toEqual({ id: 'F', ok: true });
+    expect(before - volume(b)).toBeCloseTo((4 - Math.PI) * 36, 3);
+    const top = { kind: 'face' as const, face: { name: 'E1:cap1', sig: { type: 'plane', c: [20, 10, 10] as Vec3, n: [0, 0, 1] as Vec3, area: 800 } } };
+    const step: Feature[] = [sketch('S3', rect(-1, -1, 41, 3, 's'), top), extrude('E3', 'S3', 0.5, { cut: true })];
+    expect((await b.build(req([...base, ...step, fillet]))).status[4]).toMatchObject({ ok: true, warning: expect.stringMatching(/A selected edge \(made by E1\) is gone; the edge nearest its place was used/) });
+  });
+
   it('names the side face of a wide arc after the arc, not after a nearby line', async () => {
     const b = new ModelBuilder();
     // A 270 degree arc closed by two radii: the arc face's centroid lies nearer the radii.
