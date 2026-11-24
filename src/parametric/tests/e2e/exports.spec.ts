@@ -86,3 +86,24 @@ test('export while editing a feature says to finish it instead of exporting the 
   expect(downloads).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('an export of a rolled-back part says the features below the rollback bar are left out', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const downloads: string[] = [];
+  page.on('download', (d) => downloads.push(d.suggestedFilename()));
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.get('exportStl')!.run());
+  await expect.poll(() => downloads.length).toBe(1);
+  await expect(page.getByText(/is rolled back/)).toHaveCount(0);
+  const count = await page.evaluate(() => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    app.store.change('Roll back', (d) => { d.rollback = 2; });
+    return app.store.doc.features.length - 2;
+  });
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.get('exportStep')!.run());
+  await expect.poll(() => downloads.length).toBe(2);
+  await expect(toasts).toContainText(`the ${count} features below the rollback bar are not in the exported file`);
+  expect(errors).toEqual([]);
+});

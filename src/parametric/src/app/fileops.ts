@@ -696,6 +696,9 @@ export class FileOps {
       const blob = new Blob([data as BlobPart], { type: format === 'step' ? 'model/step' : 'model/stl' });
 
       download(blob, `${name}.${format === 'step' ? 'step' : 'stl'}`);
+      // The file has what the model shows: say so when the rollback bar leaves features out.
+      const left = app.store.doc.features.length - app.store.builtCount;
+      if (left > 0) toast({ kind: 'warning', message: `The part is rolled back, so the ${left === 1 ? 'feature' : `${left} features`} below the rollback bar ${left === 1 ? 'is' : 'are'} not in the exported file. Move the rollback bar to the end to export the whole part.`, timeout: 9000 });
     } catch (e) {
       if (documentVersion === this.documentVersion) toast({ kind: 'error', title: 'Export failed', message: (e as Error).message });
     }
