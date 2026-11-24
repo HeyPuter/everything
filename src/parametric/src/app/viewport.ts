@@ -11,7 +11,7 @@ import { cssColor } from '../platform/theme';
 import { Camera, VIEWS, VIEW_LABELS, type ViewName } from '../render/camera';
 import { STATE_HOVER, STATE_SELECTED, type PickHit } from '../render/renderer';
 import { SketchIndex, tessellate } from '../sketch/geom';
-import { h } from '../ui/dom';
+import { h, isMac } from '../ui/dom';
 import type { App } from './app';
 import type { PickFilter } from './pm';
 import type { SelItem } from './selection';
@@ -242,18 +242,21 @@ export class Viewport {
     }
     const ev = this.ev(e);
     this.canvas.setPointerCapture(e.pointerId);
-    if (e.button === 1 || e.button === 2) {
+    // macOS: Control-click is the secondary click and opens the context menu, as in the design tree.
+    if (isMac && e.pointerType === 'mouse' && e.button === 0 && e.ctrlKey && !e.metaKey) { ev.button = 2; ev.ctrl = false; }
+    const button = ev.button;
+    if (button === 1 || button === 2) {
       e.preventDefault();
-      if (e.button === 1 && ev.ctrl) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
-      else if (e.button === 1 && ev.shift) {
+      if (button === 1 && ev.ctrl) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
+      else if (button === 1 && ev.shift) {
         this.gesture = { kind: 'zoom', x: ev.x, y: ev.y, ox: ev.x, oy: ev.y };
         this.focusZoomAt(ev.x, ev.y);
       }
-      else if (e.button === 2 && (ev.ctrl || ev.shift)) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
-      else this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button: e.button, id: e.pointerId, e: ev };
+      else if (button === 2 && (ev.ctrl || ev.shift)) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
+      else this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button, id: e.pointerId, e: ev };
       return;
     }
-    if (e.button !== 0) return;
+    if (button !== 0) return;
     if (this.tool?.pointerDown?.(ev)) {
       const g = this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
       if (e.pointerType === 'touch' && this.tool.longPress) {
@@ -360,7 +363,7 @@ export class Viewport {
     const ev = this.ev(e);
     const g = this.gesture;
     this.gesture = { kind: 'none' };
-    if (e.button === 0) this.clicks = [this.clicks[1], !cancelled && (g.kind === 'pending' || (g.kind === 'tool' && !g.moved))];
+    if (e.button === 0) this.clicks = [this.clicks[1], !cancelled && ((g.kind === 'pending' && g.button === 0) || (g.kind === 'tool' && !g.moved))];
     try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
     if (g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') this.rehoverSoon();
     if (cancelled) {

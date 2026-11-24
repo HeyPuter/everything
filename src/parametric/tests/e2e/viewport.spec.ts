@@ -1319,6 +1319,23 @@ test.describe('viewport', () => {
     await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
   });
 
+  test('Control-click on macOS opens the context menu of what is under the pointer', async ({ page }) => {
+    await openApp(page);
+    // Headless Chromium reports macOS.
+    test.skip(!(await page.evaluate(() => /Mac/.test(navigator.platform))), 'macOS only');
+    const [x, y] = await countDoubleClicks(page);
+    for (let i = 0; i < 2; i++) {
+      await page.keyboard.down('Control');
+      await page.mouse.click(x, y);
+      await page.keyboard.up('Control');
+      await expect(page.getByRole('menu', { name: 'Context menu' })).toBeVisible();
+      await page.keyboard.press('Escape');
+    }
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.selection.items.map((it) => it.kind))).toEqual(['face']);
+    // Two of them in a row are not a double click.
+    expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(0);
+  });
+
   test('orbiting right after a click is not a double click', async ({ page }) => {
     await openApp(page);
     const [x, y] = await countDoubleClicks(page);
