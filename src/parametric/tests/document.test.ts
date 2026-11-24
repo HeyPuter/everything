@@ -133,6 +133,14 @@ describe('document store', () => {
     expect(r.errors.get('e1')).toMatch(/Unknown name/);
   });
 
+  it('names the sketch dimension whose equation fails', () => {
+    const doc = newDocument();
+    const s = sketch('s1', rect(0, 0, 1, 1));
+    s.constraints.push({ id: 'd1', type: 'distance', refs: [s.entities.find((e) => e.t === 'line')!.id], value: '=Missing*2', at: [0, 0], name: 'D7' });
+    doc.features = [s];
+    expect(new DocStore(doc).resolve().errors.get('s1')).toBe('D7: Unknown name "Missing"');
+  });
+
   it('reports a parameter error only for values the feature uses in its mode', () => {
     const errorOf = (f: Feature) => {
       const doc = newDocument();

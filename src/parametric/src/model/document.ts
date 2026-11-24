@@ -513,7 +513,12 @@ export class DocStore {
       if (f.type === 'sketch' && f.constraints.some((c) => isDimension(c) && typeof c.value === 'string')) {
         const sk = structuredClone(f) as SketchFeature;
         try {
-          solveSketch(sk.entities, sk.constraints, { value: (d) => this.dimensionValue(d, values), analyze: false });
+          // Name the dimension, as feature values name their field ("Depth: ..."):
+          // "Unknown name" alone did not say which of the sketch's dimensions to fix.
+          const value = (d: SkDimension) => {
+            try { return this.dimensionValue(d, values); } catch (e) { throw new Error(`${d.name}: ${(e as Error).message}`); }
+          };
+          solveSketch(sk.entities, sk.constraints, { value, analyze: false });
           // The geometry worker solves again sketches whose projected model
           // geometry moved; it has no variables, so it gets the values.
           if (hasExternal(sk)) for (const c of sk.constraints) if (isDimension(c) && typeof c.value === 'string') c.value = this.dimensionValue(c, values);
