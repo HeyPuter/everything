@@ -9,7 +9,7 @@ describe('sharedWithMe', () => {
     const pages: Record<string, { items: unknown[]; cursor: string | null }> = {
       start: { items: [{ name: 'Bracket.parametric', path: '/alice/Parts/Bracket.parametric', modified: 1700000000, owner: { username: 'alice' }, mode: 'write' }], cursor: 'p2' },
       p2: { items: [], cursor: 'p3' },
-      p3: { items: [{ name: 'notes.txt', path: '/bob/notes.txt' }, { name: 'Parts', path: '/bob/Parts', is_dir: true }, { name: 'Flange.parametric', path: '/bob/Flange.parametric', owner: 'bob' }], cursor: null },
+      p3: { items: [{ name: 'notes.txt', path: '/bob/notes.txt' }, { name: 'Parts', path: '/bob/Parts', is_dir: true }, { name: 'Flange.Parametric', path: '/bob/Flange.Parametric', owner: 'bob' }], cursor: null },
     };
     const calls: (string | null | undefined)[] = [];
     setPuterForTests({

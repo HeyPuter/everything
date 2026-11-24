@@ -36,6 +36,18 @@ describe('listParts', () => {
     expect(errors).toHaveLength(1);
   });
 
+  it('lists cloud parts whose extension is in capitals', async () => {
+    setPuterForTests({
+      env: 'web',
+      auth: { isSignedIn: () => true },
+      fs: { readdir: async () => [
+        { name: 'Gear.PARAMETRIC', path: '/u/AppData/x/Parts/Gear.PARAMETRIC', modified: 2 },
+        { name: 'notes.txt', path: '/u/AppData/x/Parts/notes.txt', modified: 1 },
+      ] },
+    } as never);
+    expect((await listParts()).map((p) => p.name)).toEqual(['Gear']);
+  });
+
   it('treats a missing cloud folder as no cloud parts, not as an error', async () => {
     setPuterForTests({
       env: 'web',

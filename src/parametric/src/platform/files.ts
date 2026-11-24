@@ -13,6 +13,8 @@ export const IMPORT_EXTS = ['.step', '.stp', '.sldprt'];
 export const isStepFile = (name: string) => /\.(step|stp)$/i.test(name);
 export const isSolidWorksFile = (name: string) => /\.(sldprt|sldasm|slddrw)$/i.test(name);
 export const CLOUD_DIR = 'Parts';
+/** A part file's name, whatever the case of its extension. */
+export const isPartFile = (name: string) => name.toLowerCase().endsWith(EXT);
 const LOCAL_DIR = 'parametric-parts';
 const LOCAL_INDEX = 'parametric:local-parts';
 const RECENT_KEY = 'parametric:recent';
@@ -347,7 +349,8 @@ export async function listParts(onCloudError?: (err: unknown) => void): Promise<
     try {
       const items = await puter()!.fs.readdir(CLOUD_DIR);
       for (const it of items) {
-        if (it.is_dir || it.isDir || !it.name.endsWith(EXT)) continue;
+        // Renamed on the desktop, a part's extension can be in capitals.
+        if (it.is_dir || it.isDir || !isPartFile(it.name)) continue;
         out.push({ name: it.name.slice(0, -EXT.length), location: { type: 'cloud', path: it.path }, modified: toMs(it.modified), size: it.size });
       }
     } catch (err) {
