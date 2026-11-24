@@ -664,7 +664,16 @@ export class SketchSystem {
       g.eqs.push(eq);
       for (const v of free) g.vars.add(v);
     }
-    const out = [...groups.values()].map((g) => ({ eqs: g.eqs, vars: [...g.vars] }));
+    // Equations in the order of the geometry they act on: neighbouring rows
+    // of J J^T then overlap, which keeps its envelope (all the Cholesky
+    // factorisation touches) narrow. In the order the constraints were added
+    // it could span the whole cluster: 2000 chained lines took over a second
+    // per drag frame.
+    const first = (eq: Eq) => { let m = Infinity; for (const v of eq.vars) if (!this.fixed[v] && v < m) m = v; return m; };
+    const out = [...groups.values()].map((g) => {
+      const keyed = g.eqs.map((eq) => ({ eq, k: first(eq) })).sort((a, b) => a.k - b.k);
+      return { eqs: keyed.map((x) => x.eq), vars: [...g.vars] };
+    });
     if (orphan.length) out.push({ eqs: orphan, vars: [] });
     return out;
   }

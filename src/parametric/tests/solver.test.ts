@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkConstraint, SkDimension, SkEntity } from '../src/model/types';
-import { solveSketch, splineSignedDist } from '../src/sketch/solver';
+import { SketchSystem, solveSketch, splineSignedDist } from '../src/sketch/solver';
 import { SketchIndex, distanceToCurve } from '../src/sketch/geom';
 
 const pt = (id: string, x: number, y: number): SkEntity => ({ id, t: 'point', x, y });
@@ -302,6 +302,36 @@ describe('sketch solver', () => {
     expect(res.status).toBe('full');
     expect(P(ents, `p${N}`).x).toBeCloseTo(2 * N, 6);
     expect(ms).toBeLessThan(1500);
+  });
+
+  it('orders a cluster so the factorisation stays narrow whatever order constraints were added in', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 600;
+    for (let i = 0; i < N; i++) ents.push(pt(`p${i}`, 40 * Math.cos((i / N) * 2 * Math.PI), 40 * Math.sin((i / N) * 2 * Math.PI)));
+    for (let i = 0; i < N; i++) ents.push(line(`l${i}`, `p${i}`, `p${(i + 1) % N}`));
+    for (let i = 0; i < N; i += 2) cons.push({ id: `e${i}`, type: 'equal', refs: [`l${i}`, `l${i + 1}`] });
+    for (let i = 0; i < N; i += 4) cons.push({ id: `h${i}`, type: 'horizontal', refs: [`l${i}`] });
+    cons.reverse();
+    const sys = new SketchSystem(ents, cons, { value });
+    const clusters = (sys as unknown as { clusters(): { eqs: { vars: number[] }[] }[] }).clusters();
+    expect(clusters).toHaveLength(1);
+    // Rows of J J^T reach back to the first earlier row sharing a variable; the
+    // Cholesky factor fills everything in between. In the order added (equal
+    // relations, then horizontals) that reached across the whole chain, and a
+    // drag frame of 2000 such lines took over a second.
+    const eqs = clusters[0].eqs;
+    const seen = new Map<number, number>();
+    let envelope = 0;
+    eqs.forEach((eq, i) => {
+      let first = i;
+      for (const v of eq.vars) first = Math.min(first, seen.get(v) ?? i);
+      for (const v of eq.vars) if (!seen.has(v)) seen.set(v, i);
+      envelope += i - first;
+    });
+    expect(envelope).toBeLessThan(10 * eqs.length);
+    const res = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: ['p1'], targets: [[41, 3]] }, analyze: false });
+    expect(res.converged).toBe(true);
   });
 
   it('solves one long connected chain without a dense factorization', () => {
