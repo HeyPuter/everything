@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { closeMenus, openMenu } from '../src/ui/menu';
+import { closeMenus, dropdown, openMenu } from '../src/ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../src/ui/overlay';
-import { numberField, parseParam, paramText, retireNumberFields, type UnitContext } from '../src/app/pm';
+import { numberField, parseParam, paramText, retireNumberFields, SelectionBox, type PropertyPanel, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
 import { sketchDefinitionStatus } from '../src/app/sketch/panel';
 import type { SolveResult } from '../src/sketch/solver';
@@ -63,6 +63,20 @@ describe('menus', () => {
     expect((document.activeElement as HTMLElement).textContent).toContain('Gamma');
     key(menu, 'Escape');
     expect(document.querySelector('.menu')).toBeNull();
+  });
+});
+
+describe('menu buttons', () => {
+  it('close their open menu when clicked again, and open another menu in its place', () => {
+    const [a, b] = ['A', 'B'].map((t) => { const x = document.createElement('button'); x.textContent = t; document.body.append(x); return x; });
+    dropdown(a, [{ label: 'One' }]);
+    expect(a.getAttribute('aria-expanded')).toBe('true');
+    dropdown(a, [{ label: 'One' }]);
+    expect(document.querySelector('.menu')).toBeNull();
+    expect(a.getAttribute('aria-expanded')).toBe('false');
+    dropdown(a, [{ label: 'One' }]);
+    dropdown(b, [{ label: 'Two' }]);
+    expect([...document.querySelectorAll('.menu')].map((m) => m.textContent)).toEqual(['Two']);
   });
 });
 
@@ -151,6 +165,25 @@ describe('dialogs and toasts', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('stays open for the second click of the double click that opened it, and closes on a later click outside', async () => {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const p = showDialog({ title: 'Options', body: [] });
+      const backdrop = document.querySelector('.dialog-backdrop')!;
+      const press = () => backdrop.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      now += 200;
+      press();
+      expect(dialogOpen()).toBe(true);
+      now += 800;
+      press();
+      expect(await p).toBe(null);
+      expect(dialogOpen()).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('validates prompt input', async () => {
     const p = promptDialog('Name', 'Name', 'abc', (v) => (v.length < 2 ? 'Too short' : null));
     const input = document.querySelector('[role="dialog"] input') as HTMLInputElement;
@@ -221,6 +254,21 @@ describe('PropertyManager number fields', () => {
     key(input, 'Enter');
     expect(onChange).toHaveBeenLastCalledWith('=Len+1');
     expect(input.classList.contains('expr')).toBe(true);
+  });
+
+  it('steps down to a minimum, but not onto the tiny one that stands for more than zero', () => {
+    const onChange = vi.fn();
+    const radius = numberField({ label: 'Radius', value: 0.5, kind: 'length', ctx: ctx(), min: 1e-6, onChange });
+    const count = numberField({ label: 'Sides', value: 4, kind: 'count', ctx: ctx(), min: 3, onChange });
+    document.body.append(radius, count);
+    const [r, c] = [radius.querySelector('input')!, count.querySelector('input')!];
+    key(r, 'ArrowDown');
+    expect(r.value).toBe('0.5');
+    key(r, 'ArrowUp');
+    expect(r.value).toBe('1.5');
+    key(c, 'ArrowDown');
+    key(c, 'ArrowDown');
+    expect(c.value).toBe('3');
   });
 
   it.each(['retired', 'removed'])('ignores delayed edits and change events from a %s numeric field', (state) => {
@@ -396,5 +444,32 @@ describe('sketch definition status', () => {
     expect(sketchDefinitionStatus(st(['a'], [])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) are redundant/);
     expect(sketchDefinitionStatus(st(['a'], ['a'])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) conflict\./);
     expect(sketchDefinitionStatus(st(['a', 'b'], ['a'])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) conflict and 1 are redundant/);
+  });
+});
+
+describe('selection boxes', () => {
+  it('take out the focused item, or from the box the last one, with Delete or Backspace, and keep the key from the app', () => {
+    const panel = { boxes: [], activate() {} } as unknown as PropertyPanel;
+    const onChange = vi.fn();
+    const box = new SelectionBox(panel, 'Edges', { edge: true }, () => null, onChange);
+    box.setItems(['A', 'B', 'C'].map((label) => ({ item: null, data: label, label })));
+    document.body.append(box.el);
+    const outside = vi.fn();
+    document.addEventListener('keydown', outside);
+    try {
+      const rm = box.el.querySelector<HTMLElement>('[aria-label="Remove B"]')!;
+      rm.focus();
+      key(rm, 'Delete');
+      expect(box.items.map((x) => x.label)).toEqual(['A', 'C']);
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Remove C');
+      const list = box.el.querySelector<HTMLElement>('.selbox')!;
+      list.focus();
+      key(list, 'Backspace');
+      expect(box.items.map((x) => x.label)).toEqual(['A']);
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(outside).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', outside);
+    }
   });
 });

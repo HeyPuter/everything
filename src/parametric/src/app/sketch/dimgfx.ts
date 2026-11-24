@@ -92,12 +92,14 @@ export function dimGraphics(sk: SketchFeature, d: Pick<SkDimension, 'type' | 're
       const u = norm2(sub2(at, c));
       const dir: Vec2 = u[0] === 0 && u[1] === 0 ? [1, 0] : u;
       const edge: Vec2 = [c[0] + dir[0] * r, c[1] + dir[1] * r];
+      // A label inside the circle still has the line reach the arrow on its edge.
+      const reach: Vec2 = Math.hypot(at[0] - c[0], at[1] - c[1]) < r ? edge : at;
       const lines: Vec2[][] = [];
       if (d.type === 'diameter') {
         const opp: Vec2 = [c[0] - dir[0] * r, c[1] - dir[1] * r];
-        lines.push([opp, at], ...arrow(edge, dir), ...arrow(opp, [-dir[0], -dir[1]]));
+        lines.push([opp, reach], ...arrow(edge, dir), ...arrow(opp, [-dir[0], -dir[1]]));
       } else {
-        lines.push([c, at], ...arrow(edge, dir));
+        lines.push([c, reach], ...arrow(edge, dir));
       }
       return { lines, label: at };
     }

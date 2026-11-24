@@ -7,17 +7,13 @@
 
 import type { EdgeInfo, FaceInfo } from '../kernel/protocol';
 import type { Frame } from '../math/vec';
-import { BASE_FRAMES } from '../model/planes';
-import type { AxisRef, BasePlane, EdgeRef, FaceRef, Feature, Id, PlaneRef, SketchFeature } from '../model/types';
-import { edgeRef, faceRef } from '../app/selection';
+import { BASE_FRAMES, BASE_PLANE_ALIASES, planeFrame } from '../model/planes';
+import type { AxisRef, EdgeRef, FaceRef, Feature, Id, PlaneRef, SketchFeature } from '../model/types';
+import { edgeRef, facePlaneRef, faceRef } from '../app/selection';
 import type { AssistantHost } from './host';
 import { ToolError } from './units';
 
-const BASE_ALIASES: Record<string, BasePlane> = {
-  front: 'front', 'front plane': 'front', xy: 'front',
-  top: 'top', 'top plane': 'top', xz: 'top', zx: 'top',
-  right: 'right', 'right plane': 'right', yz: 'right', zy: 'right',
-};
+const BASE_ALIASES = BASE_PLANE_ALIASES;
 
 const AXIS_ALIASES: Record<string, 'x' | 'y' | 'z'> = { x: 'x', 'x axis': 'x', 'x-axis': 'x', y: 'y', 'y axis': 'y', 'y-axis': 'y', z: 'z', 'z axis': 'z', 'z-axis': 'z' };
 
@@ -133,7 +129,7 @@ export class Refs {
     const face = this.host.faces.find((x) => x.name === s);
     if (face) {
       if (face.type !== 'plane') throw new ToolError(`${what}: face ${s} is ${face.type}, not planar`);
-      return { kind: 'face', face: faceRef(face) };
+      return facePlaneRef(face);
     }
     throw new ToolError(`${what}: "${s}" is not a base plane (front, top, right), a reference plane or a face of the current model`);
   }
@@ -174,7 +170,8 @@ export class Refs {
   planeFrame(ref: PlaneRef): Frame | null {
     if (ref.kind === 'base') return BASE_FRAMES[ref.plane];
     if (ref.kind === 'feature') return this.host.frames[ref.id] ?? null;
-    return this.host.faces.find((x) => x.name === ref.face.name)?.frame ?? null;
+    const fr = this.host.faces.find((x) => x.name === ref.face.name)?.frame;
+    return fr ? (ref.x ? planeFrame(fr.o, fr.n, ref.x) : fr) : null;
   }
 
   sketchFrame(sk: SketchFeature): Frame | null {

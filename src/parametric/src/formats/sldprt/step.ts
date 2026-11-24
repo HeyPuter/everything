@@ -552,18 +552,28 @@ function emitBodies(w: Writer, g: Graph, bodies: XtNode[], tol: number, res: Ste
 
   // ---- topology ----
 
+  /**
+   * The half-edges of a loop in order; none when the loop does not close.
+   * In a damaged file the chain can run into a cycle that misses its start:
+   * followed to the cap, that made a loop of 100000 edges, which the
+   * geometry worker then could not build for minutes.
+   */
   const loopHalfedges = (lp: XtNode): XtNode[] => {
     const out: XtNode[] = [];
+    const seen = new Set<XtNode>();
     const first = g.ref(lp, 'halfedge');
-    for (let h = first; h && out.length < 100000; h = g.ref(h, 'forward')) {
+    for (let h = first; h; h = g.ref(h, 'forward')) {
+      if (seen.has(h) || out.length >= 100000) return [];
+      seen.add(h);
       out.push(h);
-      if (g.ref(h, 'forward') === first) break;
+      if (g.ref(h, 'forward') === first) return out;
     }
-    return out;
+    return [];
   };
   const faceLoops = (f: XtNode): XtNode[] => {
     const out: XtNode[] = [];
-    for (let lp = g.ref(f, 'loop'); lp && out.length < 100000; lp = g.ref(lp, 'next')) out.push(lp);
+    const seen = new Set<XtNode>();
+    for (let lp = g.ref(f, 'loop'); lp && !seen.has(lp) && out.length < 100000; lp = g.ref(lp, 'next')) { seen.add(lp); out.push(lp); }
     return out;
   };
 
@@ -644,6 +654,7 @@ function emitBodies(w: Writer, g: Graph, bodies: XtNode[], tol: number, res: Ste
     const bounds: number[] = [];
     for (const lp of faceLoops(f)) {
       const hs = loopHalfedges(lp);
+      if (!hs.length) { res.problems.push(`face ${f.id}: a loop of its edges does not close`); return null; }
       if (hs.length === 1 && !g.ref(hs[0], 'edge')) {
         const v = g.ref(hs[0], 'vertex'), p = pointOf(v);
         if (v && p) bounds.push(w.add(`FACE_BOUND('',${ref(w.add(`VERTEX_LOOP('',${ref(vertexOut(v, p))})`))},.T.)`));

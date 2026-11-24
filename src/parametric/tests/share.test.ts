@@ -33,6 +33,15 @@ describe('sharedWithMe', () => {
     expect((await sharedWithMe()).map((i) => i.name)).toEqual(['A']);
   });
 
+  it('names a part the listing leaves unnamed after its path, and skips rows without one', async () => {
+    setPuterForTests({
+      env: 'app',
+      fs: { listShared: async () => ({ items: [{ name: null, path: '/alice/Parts/Hinge.parametric', size: 42 }, { name: 'Lost.parametric', path: null }, { name: 'Clip.parametric', path: '/bob/Clip.parametric' }] }) },
+    } as never);
+    const items = await sharedWithMe();
+    expect(items.map((i) => [i.name, i.size])).toEqual([['Hinge', 42], ['Clip', null]]);
+  });
+
   it('returns nothing without cloud storage', async () => {
     expect(await sharedWithMe()).toEqual([]);
   });

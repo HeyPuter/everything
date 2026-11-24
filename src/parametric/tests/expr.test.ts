@@ -104,6 +104,31 @@ describe('expression evaluator', () => {
     expect(() => evaluate('W / (N - 1)', { lookup: (n) => (n === 'W' ? 10 : 1) })).toThrow('Division by zero');
     expect(() => evaluate('1 / (1 / 0)')).toThrow('Division by zero');
     expect(evaluate('0 / 5')).toBe(0);
+    // The tangent of a right angle has no value either.
+    for (const a of ['90', '-90', '270', '450']) expect(() => evaluate(`10 * tan(${a})`)).toThrow(`tan(${a}) is undefined`);
+    expect(evaluate('tan(45)')).toBeCloseTo(1, 12);
+    expect(evaluate('tan(180)')).toBeCloseTo(0, 12);
+  });
+
+  it('reads minus, times and division signs pasted from documents', () => {
+    // "−5" (U+2212) copied from a PDF or a spreadsheet was refused as unexpected text.
+    expect(evaluate('\u22125')).toBe(-5);
+    expect(evaluate('10 \u2212 2 \u00D7 3 \u00F7 2')).toBe(7);
+    expect(evaluate('\u00A012\u2013 2')).toBe(10);
+    expect(evaluate('\u22121 in', { kind: 'length' })).toBeCloseTo(-25.4, 9);
+    expect(referencedNames('W \u2212 2')).toEqual(['W']);
+  });
+
+  it('names the function a value is out of range for', () => {
+    expect(() => evaluate('sqrt(-4)')).toThrow('sqrt() of a negative number');
+    expect(() => evaluate('asin(2)')).toThrow('asin() takes a value from -1 to 1');
+    expect(() => evaluate('acos(-1.5)')).toThrow('acos() takes a value from -1 to 1');
+    expect(evaluate('acos(-1)')).toBeCloseTo(180, 9);
+    expect(() => evaluate('(-8)^(1/3)')).toThrow('A negative number cannot be raised to a fractional power');
+    expect(evaluate('(-2)^3')).toBe(-8);
+    expect(() => evaluate('1/(0^-1)')).toThrow('Division by zero');
+    expect(() => evaluate('10^400')).toThrow('Result is too large');
+    expect(() => evaluate('1e400 - 1e400')).toThrow('The number 1e400 is too large');
   });
 
   it('says a unit cannot be used where a plain number goes', () => {

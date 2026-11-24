@@ -118,6 +118,14 @@ function build() {
     e.stopPropagation();
     closeAppsPanel({ focus: true });
   });
+  // Keyboard focus moving on to the page (Tab, Shift+Tab past its ends) closes it,
+  // as a press outside does. Focus going into the embed stays in it; focus that
+  // leaves the window (null) leaves it open.
+  p.addEventListener('focusout', (e) => {
+    const to = e.relatedTarget as Node | null;
+    if (!to || p.contains(to) || trigger?.contains(to)) return;
+    closeAppsPanel();
+  });
   // Bound before src is set, so a fast (cached) load can't slip past.
   f.addEventListener('load', () => body.classList.remove('is-loading'), { once: true });
   panel = p;

@@ -710,3 +710,136 @@ test('a revolve angle over 360 degrees is refused in the field', async ({ page }
   expect(await angle.getAttribute('aria-invalid')).not.toBe('true');
   expect(errors).toEqual([]);
 });
+
+test('the Hole panel counts the holes its positions sketch makes', async ({ page }) => {
+  // A construction line added to place the holes is not a hole: every point (or entity) was counted.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => {
+    type Doc = { features: { id: string; entities?: unknown[] }[] };
+    const app = (window as unknown as { __parametric: { store: { change(l: string, fn: (d: Doc) => void): void } } }).__parametric;
+    app.store.change('Guide', (d) => {
+      d.features.find((f) => f.id === 's2')!.entities!.push(
+        { id: 'g1', t: 'point', x: 24, y: -5 }, { id: 'g2', t: 'point', x: 48, y: -5 }, { id: 'g3', t: 'line', a: 'g1', b: 'g2', construction: true });
+    });
+  });
+  await page.getByRole('treeitem', { name: 'Hole1' }).dblclick();
+  await expect(page.getByRole('group', { name: 'Positions' })).toContainText('Sketch2 (2 holes)');
+  expect(errors).toEqual([]);
+});
+
+test('turning on Direction 2 of an extrude uses the depth and end its controls show', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const dir2 = () => page.evaluate(() => (window as unknown as { __parametric: { panel: { f: { dir2: { end: string; depth: number } | null } } } }).__parametric.panel.f.dir2);
+  const sec1 = page.locator('.pm-section', { has: page.getByRole('button', { name: 'Direction 1' }) });
+  const sec2 = page.locator('.pm-section', { has: page.getByRole('button', { name: 'Direction 2' }) });
+  await sec1.getByRole('textbox', { name: 'Depth' }).fill('20');
+  await sec1.getByRole('textbox', { name: 'Depth' }).press('Enter');
+  const enable = page.getByRole('checkbox', { name: 'Enable Direction 2' });
+  await enable.check();
+  const depth2 = sec2.getByRole('textbox', { name: 'Depth' });
+  expect((await dir2())?.depth).toBe(Number(await depth2.inputValue()));
+  // Through All picked, Direction 2 turned off and on again: still Through All, as the control shows.
+  await sec2.getByRole('combobox', { name: 'End condition' }).selectOption('throughAll');
+  await expect(depth2).toBeHidden();
+  await enable.uncheck();
+  await enable.check();
+  expect((await dir2())?.end).toBe('throughAll');
+  await expect(sec2.getByRole('combobox', { name: 'End condition' })).toHaveValue('throughAll');
+  expect(errors).toEqual([]);
+});
+
+test('turning an extrude draft off and on again keeps the angle its field shows', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const draft = () => page.evaluate(() => (window as unknown as { __parametric: { panel: { f: { draft: number } } } }).__parametric.panel.f.draft);
+  const check = page.getByRole('checkbox', { name: 'Draft', exact: true });
+  await check.check();
+  const angle = page.getByRole('textbox', { name: 'Draft angle' });
+  await angle.fill('7');
+  await angle.press('Enter');
+  expect(await draft()).toBe(7);
+  await check.uncheck();
+  expect(await draft()).toBe(0);
+  await check.check();
+  await expect(angle).toHaveValue('7');
+  expect(await draft()).toBe(7);
+  expect(errors).toEqual([]);
+});
+
+test('deleting a plane a sketch is on, or suppressing a sketch a feature uses, reports it accurately and Undo restores it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type F = { id: string; name: string; type: string; [k: string]: unknown };
+  type A = { __parametric: {
+    whenBuilt(): Promise<void>; featureStatus(id: string): { ok: boolean; error?: string; suppressed?: boolean } | null;
+    store: { doc: { features: F[] }; change(l: string, fn: (d: { features: F[] }) => void): void; undo(): void };
+    deleteFeatures(ids: string[]): Promise<void>; toggleSuppress(ids: string[], s?: boolean): void;
+  } };
+  // A boss on an offset plane: Plane1, Sketch3 on it, Extrude2 of Sketch3.
+  await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    app.store.change('Add', (d) => {
+      d.features.push({ id: 'p9', name: 'Plane1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 40, flip: false });
+      d.features.push({ id: 's9', name: 'Sketch3', type: 'sketch', plane: { kind: 'feature', id: 'p9' }, constraints: [], entities: [
+        { id: 'c', t: 'point', x: 20, y: 20 }, { id: 'k', t: 'circle', c: 'c', r: 4 }] });
+      d.features.push({ id: 'e9', name: 'Extrude2', type: 'extrude', sketch: 's9', cut: false, end: 'blind', depth: 5, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null });
+    });
+    await app.whenBuilt();
+  });
+  const status = (id: string) => page.evaluate(async (id) => { const app = (window as unknown as A).__parametric; await app.whenBuilt(); return app.featureStatus(id); }, id);
+  expect(await status('e9')).toMatchObject({ ok: true });
+  // Delete the plane: the dialog names what depends on it.
+  void page.evaluate(() => (window as unknown as A).__parametric.deleteFeatures(['p9']));
+  const dialog = page.getByRole('dialog', { name: 'Delete' });
+  await expect(dialog).toContainText('These features depend on it and will fail to rebuild: Sketch3');
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await status('s9')).toMatchObject({ ok: false, error: 'The reference plane no longer exists' });
+  expect(await status('e9')).toMatchObject({ ok: false, error: 'The profile sketch (Sketch3) failed to build' });
+  await page.evaluate(() => (window as unknown as A).__parametric.store.undo());
+  expect(await status('s9')).toMatchObject({ ok: true });
+  expect(await status('e9')).toMatchObject({ ok: true });
+  // Suppress the sketch: the extrude is suppressed with it, not failed; Undo brings both back.
+  await page.evaluate(() => (window as unknown as A).__parametric.toggleSuppress(['s9'], true));
+  expect(await status('e9')).toMatchObject({ ok: true, suppressed: true });
+  await expect(page.getByRole('treeitem', { name: 'Extrude2' })).toHaveClass(/suppressed/);
+  await page.evaluate(() => (window as unknown as A).__parametric.store.undo());
+  expect(await status('e9')).toEqual({ id: 'e9', ok: true });
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('new features in an inch part get defaults sized to the part, not 1 in or more', async ({ page }) => {
+  // The defaults were at least one display unit: a 1 in fillet and a 2 in hole on a 2 in bracket.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: { whenBuilt(): Promise<void>; commands: { run(id: string): boolean }; panel: { f: Record<string, unknown> } | null; closePanel(ok: boolean): Promise<void>; store: { change(l: string, fn: (d: { units: string }) => void): void } } };
+  const defaults = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    app.store.change('Units', (d) => { d.units = 'IPS'; });
+    await app.whenBuilt();
+    const out: Record<string, number> = {};
+    for (const [cmd, key] of [['fillet', 'radius'], ['chamfer', 'distance'], ['shell', 'thickness'], ['hole', 'diameter']]) {
+      app.commands.run(cmd);
+      while (!app.panel) await new Promise((r) => setTimeout(r, 10));
+      out[cmd] = app.panel.f[key] as number;
+      await app.closePanel(false);
+    }
+    return out;
+  });
+  // The bracket is about 2.4 in across.
+  expect(defaults.fillet).toBeLessThan(0.2 * 25.4);
+  expect(defaults.chamfer).toBeLessThan(0.2 * 25.4);
+  expect(defaults.shell).toBeLessThan(0.1 * 25.4);
+  expect(defaults.hole).toBeLessThan(0.5 * 25.4);
+  expect(errors).toEqual([]);
+});

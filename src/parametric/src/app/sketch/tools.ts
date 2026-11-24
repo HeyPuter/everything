@@ -4,7 +4,7 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { PROJECTED_LOCKED, extendAt, extendPreview, filletCorner, filletPreview, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
+import { PROJECTED_LOCKED, usedPoints, extendAt, extendPreview, filletCorner, filletPreview, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
 import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
@@ -330,10 +330,16 @@ export function centerArcTool(ed: SketchEditor): SkTool {
       const end: Vec2 = [c.p[0] + r * Math.cos(ang), c.p[1] + r * Math.sin(ang)];
       if (dist2(end, a.p) < ed.px * 2 || (s.kind === 'point' && s.pointId && s.pointId === a.pointId)) return true;
       const cc = c, aa = a;
+      // The end lies on the arc's circle, where the cursor's direction meets
+      // it. It joins what the cursor snapped to (a point, a curve) only when
+      // that is there too: joining a point off the circle made the solver drag
+      // the point or the arc to meet.
+      const joins = dist2(end, s.p) <= ed.snapTolerance;
+      const last: Snap = joins ? s : { p: end, raw: s.raw, kind: 'none' };
       ed.edit('Add arc', (sk, newId) => {
         const cid = ed.commitPoint(sk, cc, newId);
         const pa = ed.commitPoint(sk, aa, newId);
-        const pb = s.kind === 'point' && s.pointId ? s.pointId : ed.commitPoint(sk, { ...s, p: end }, newId);
+        const pb = joins && s.kind === 'point' && s.pointId ? s.pointId : ed.commitPoint(sk, { ...last, p: end }, newId);
         const id = newId('a');
         sk.entities.push(sweepSign > 0 ? { id, t: 'arc', c: cid, a: pa, b: pb } : { id, t: 'arc', c: cid, a: pb, b: pa });
       });
@@ -590,11 +596,13 @@ export function slotTool(ed: SketchEditor): SkTool {
 
 export function splineTool(ed: SketchEditor): SkTool {
   const pts: Snap[] = [];
-  const finish = () => {
+  const finish = (closed = false) => {
     if (pts.length >= 2) {
       const list = [...pts];
-      ed.edit('Add spline', (sk, newId) => {
+      ed.edit(closed ? 'Add closed spline' : 'Add spline', (sk, newId) => {
         const ids = list.map((s) => ed.commitPoint(sk, s, newId));
+        // A closed spline ends on the point it started from (a profile of its own).
+        if (closed) ids.push(ids[0]);
         sk.entities.push({ id: newId('s'), t: 'spline', pts: ids });
       });
     }
@@ -606,17 +614,26 @@ export function splineTool(ed: SketchEditor): SkTool {
     for (const b of splineBeziers(list)) for (let i = 0; i <= 16; i++) out.push(bezierPoint(b, i / 16));
     return out;
   };
+  /**
+   * Whether a point closes the spline on its first point. The points placed so
+   * far do not exist in the sketch yet, so snapping cannot find that one.
+   */
+  const closes = (s: Snap) => pts.length >= 3 && dist2(pts[0].p, s.raw) < ed.snapTolerance;
   return {
     id: 'spline',
     label: 'Spline',
-    hint: 'Click points along the curve. Double-click or press Enter to finish.',
+    hint: 'Click points along the curve. Click the first point again to close it. Double-click or press Enter to finish.',
     from: () => null,
     move(s) {
       if (!pts.length) return;
-      ed.setPreview([curve([...pts.map((p) => p.p), s.p])], pts.map((p) => p.p));
+      const at = closes(s) ? pts[0].p : s.p;
+      ed.setPreview([curve([...pts.map((p) => p.p), at])], pts.map((p) => p.p));
     },
     click(s) {
       if (pts.length && dist2(pts[pts.length - 1].p, s.p) < ed.px * 2) return true;
+      if (closes(s)) { finish(true); return true; }
+      // Back on the first point with too few points for a loop: not a new point.
+      if (pts.length && dist2(pts[0].p, s.p) < ed.px * 2) return true;
       pts.push(s);
       return true;
     },
@@ -648,6 +665,13 @@ export function pointTool(ed: SketchEditor): SkTool {
     label: 'Point',
     hint: 'Click to place sketch points (used to position holes).',
     click(s) {
+      // A sketch point already there (or a double-click) would stack a second
+      // one on it, and a hole on that position would be made twice.
+      const there = s.kind === 'point' && s.pointId ? ed.sketch.entities.find((e) => e.id === s.pointId) : undefined;
+      if (there && !there.ext && !usedPoints(ed.sketch.entities).has(there.id)) {
+        ed.app.setStatus('There is already a sketch point here.', true);
+        return true;
+      }
       ed.edit('Add point', (sk, newId) => {
         const id = newId('p');
         sk.entities.push({ id, t: 'point', x: s.p[0], y: s.p[1] });
@@ -669,7 +693,7 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
   return {
     id: 'sketchFillet',
     label: 'Sketch Fillet',
-    hint: 'Click a corner where two lines meet to round it.',
+    hint: 'Click a corner where two lines or arcs meet to round it.',
     picks: true,
     move(s) {
       // The arc a click would make, on the corner under the cursor.
@@ -681,7 +705,7 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       const hit = ed.pickAt(s.p, 9);
-      if (!hit || hit.kind !== 'point') { ed.app.setStatus('Click the corner point shared by two lines.'); return true; }
+      if (!hit || hit.kind !== 'point') { ed.app.setStatus('Click the corner point shared by two lines or arcs.'); return true; }
       let err: string | null = null;
       ed.edit('Sketch fillet', (sk, newId) => { err = filletCorner(sk, hit.id, radius, newId); });
       ed.setHighlight([]);

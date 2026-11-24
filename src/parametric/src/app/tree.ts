@@ -4,7 +4,7 @@
 
 import type { Feature, Id } from '../model/types';
 import { consumedSketches, featureIcon } from '../model/features';
-import { BASE_PLANE_NAMES } from '../model/planes';
+import { BASE_PLANE_ALIASES, BASE_PLANE_NAMES } from '../model/planes';
 import type { BasePlane } from '../model/types';
 import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -34,6 +34,9 @@ export class FeatureTree {
   private renameEl: HTMLInputElement | null = null;
   private rendering = false;
   private draggingBar = false;
+  /** The rows last drawn, and the row a Shift range selection starts from. */
+  private shown: Row[] = [];
+  private anchor: string | null = null;
   /** Said when the filter matches no feature or plane (only the part row is left). */
   private noMatch = h('div', { class: 'pm-msg info', role: 'status', style: { margin: '0 8px 4px' }, hidden: true }, 'Nothing in the design tree matches the filter.');
 
@@ -89,6 +92,7 @@ export class FeatureTree {
     const doc = app.store.doc;
     const built = app.store.builtCount;
     const rows = this.rows();
+    this.shown = rows;
     const sel = app.selection;
     // Rows are rebuilt; keyboard focus inside the tree moves to the new rows.
     const active = document.activeElement;
@@ -150,6 +154,9 @@ export class FeatureTree {
         if (r.item && !sel.has(r.item)) sel.set([r.item]);
         if (f) app.openFeatureMenu(f.id, e.clientX, e.clientY);
         else if (r.item) app.openReferenceMenu(r.item, e.clientX, e.clientY);
+        // The part and Material rows have menus too (Shift+F10 on them did nothing).
+        else if (r.key === 'part') app.openCommandMenu(['properties', 'rename', 'equations', 'appearance'], e.clientX, e.clientY, 'Part menu');
+        else if (r.key === 'material') app.openCommandMenu(['material'], e.clientX, e.clientY, 'Material menu');
       });
       el.addEventListener('pointerenter', () => { if (r.item) sel.setHover(r.item); });
       el.addEventListener('pointerleave', () => { if (r.item) sel.setHover(null); });
@@ -223,19 +230,46 @@ export class FeatureTree {
     if (this.renameEl?.dataset.id === f.id) return this.renameEl;
     const input = h('input', { class: 'rename', value: f.name, 'aria-label': 'Feature name', 'data-id': f.id }) as HTMLInputElement;
     this.renameEl = input;
+    // Another feature's name or id (in any case), or a base plane's name, is
+    // refused, as the assistant refuses it: references by name would find that one instead.
+    const refusal = (name: string): string | null => {
+      const low = name.toLowerCase();
+      if (!low || low === f.name.toLowerCase()) return null;
+      const plane = BASE_PLANE_ALIASES[low];
+      if (plane) return `"${name}" names the ${BASE_PLANE_NAMES[plane]}. Choose another name.`;
+      const other = this.app.store.doc.features.find((x) => x.id !== f.id && (x.name.toLowerCase() === low || x.id.toLowerCase() === low));
+      return other ? `"${other.name.toLowerCase() === low ? other.name : name}" is already the name of another feature. Choose another name.` : null;
+    };
     const finish = (save: boolean) => {
       if (this.renaming !== f.id) return;
       this.renaming = null;
       this.renameEl = null;
       const name = input.value.trim();
-      if (save && name && name !== f.name) this.app.renameFeature(f.id, name);
+      const msg = save && name ? refusal(name) : null;
+      if (msg) this.app.setStatus(msg, true);
+      if (save && name && name !== f.name && !msg) this.app.renameFeature(f.id, name);
       else this.render();
       this.focus(f.id);
     };
+    input.addEventListener('input', () => {
+      input.removeAttribute('aria-invalid');
+      input.removeAttribute('title');
+    });
     input.addEventListener('keydown', (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       e.stopPropagation();
-      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Enter') {
+        // Enter keeps the field open to choose another name; leaving it keeps the old one.
+        const msg = refusal(input.value.trim());
+        if (msg) {
+          input.setAttribute('aria-invalid', 'true');
+          input.title = msg;
+          this.app.setStatus(msg, true);
+          input.select();
+          return;
+        }
+        finish(true);
+      }
       if (e.key === 'Escape') finish(false);
     });
     input.addEventListener('blur', () => { if (!this.rendering && input.isConnected) finish(true); });
@@ -264,8 +298,20 @@ export class FeatureTree {
     if (!r.item) return;
     const app = this.app;
     if (app.panel && app.panel.onPick(r.item, true)) { this.render(); return; }
-    if (e.ctrlKey || e.metaKey || e.shiftKey) app.selection.toggle(r.item);
+    if (e.shiftKey && this.selectRange(r.key)) return;
+    this.anchor = r.key;
+    if (e.ctrlKey || e.metaKey) app.selection.toggle(r.item);
     else app.selection.set([r.item]);
+  }
+
+  /** Shift selects the rows from the last one clicked to this one, as in a file list. */
+  private selectRange(key: string): boolean {
+    const rows = this.shown;
+    const a = rows.findIndex((r) => r.key === this.anchor && r.item);
+    const b = rows.findIndex((r) => r.key === key);
+    if (a < 0 || b < 0) return false;
+    this.app.selection.set(rows.slice(Math.min(a, b), Math.max(a, b) + 1).flatMap((r) => (r.item ? [r.item] : [])));
+    return true;
   }
 
   private onDouble(r: Row) {
@@ -284,7 +330,19 @@ export class FeatureTree {
 
   focus(key: string) {
     this.focusKey = key;
-    requestAnimationFrame(() => this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus());
+    const row = () => this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
+    // At once when the row is there, and again on the next frame for a tree
+    // redrawn meanwhile (its focused row replaced, focus fallen to the page).
+    row()?.focus();
+    const at = document.activeElement;
+    requestAnimationFrame(() => {
+      // A rename started meanwhile (F2 straight after the last one) keeps its field,
+      // and a key pressed meanwhile (a second arrow) keeps the row it moved to.
+      if (this.renameEl?.isConnected) return;
+      const now = document.activeElement;
+      if (now !== at && now && now !== document.body && now.isConnected) return;
+      row()?.focus();
+    });
   }
 
   private onKey(e: KeyboardEvent) {
@@ -298,9 +356,18 @@ export class FeatureTree {
       items.forEach((x) => x.setAttribute('tabindex', x === t ? '0' : '-1'));
       t.focus();
     };
+    // Shift with Up or Down extends the selection from the row it started at.
+    const extend = (i: number) => {
+      const from = this.shown.find((r) => r.key === key);
+      const anchor = this.shown.find((r) => r.key === this.anchor);
+      if (from?.item && !(anchor?.item && this.app.selection.has(anchor.item))) this.anchor = key;
+      go(i);
+      const to = this.focusKey;
+      if (!this.app.panel && to && this.shown.some((r) => r.key === to && r.item)) this.selectRange(to);
+    };
     switch (e.key) {
-      case 'ArrowDown': e.preventDefault(); go(cur + 1); break;
-      case 'ArrowUp': e.preventDefault(); go(cur - 1); break;
+      case 'ArrowDown': e.preventDefault(); if (e.shiftKey) extend(cur + 1); else go(cur + 1); break;
+      case 'ArrowUp': e.preventDefault(); if (e.shiftKey) extend(cur - 1); else go(cur - 1); break;
       case 'Home': e.preventDefault(); go(0); break;
       case 'End': e.preventDefault(); go(items.length - 1); break;
       // As in any tree: Right opens a row, then moves to its first child; Left
@@ -332,7 +399,8 @@ export class FeatureTree {
       case ' ':
         e.preventDefault();
         e.stopPropagation();
-        items[cur].click();
+        // Ctrl (Command) adds the row to the selection or takes it out, Shift selects up to it, as a click does.
+        items[cur].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey }));
         break;
       // The keyboard context menu: browsers on macOS never fire contextmenu for Shift+F10.
       case 'F10':

@@ -103,6 +103,8 @@ export interface BuildResult {
   previewError?: string;
   /** Non-fatal problem of the previewed feature (a cut that removes nothing...). */
   previewWarning?: string;
+  /** Bytes of WebAssembly memory the kernel holds after the build (it never shrinks). */
+  heap?: number;
 }
 
 export interface MassProperties {
@@ -136,6 +138,8 @@ export interface ProjectionRequest {
   dir: Vec3;
   /** Paper x axis in model space. */
   x: Vec3;
+  /** Whether to find the hidden lines too (default true). */
+  hidden?: boolean;
 }
 
 export interface ProjectionResult {
@@ -158,7 +162,7 @@ export type WorkerRequest =
   | { id: number; type: 'mass' }
   | { id: number; type: 'project'; views: ProjectionRequest[] }
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
-  | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number }
+  | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number; name?: string }
   | { id: number; type: 'checkImport'; format: 'step'; text: string }
   | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string }
   /** Development builds only: fail on purpose to test recovery. */

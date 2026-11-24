@@ -10,7 +10,7 @@ import { isDimension } from '../model/types';
 import { SketchSystem } from './solver';
 import { type Vec2, angle2, cross2, dist2, dot2, norm2, sub2, wrap2Pi } from '../math/vec';
 import {
-  ORIGIN_ID, SketchIndex, arcAngles, arcRadius, closestOnSegment, curveParam, intersectPrims, pointIdsOf, primsOf, segmentsFor, tessellate,
+  ORIGIN_ID, type Prim, SketchIndex, arcAngles, arcRadius, closestOnSegment, curveParam, distanceToCurve, intersectPrims, pointIdsOf, primsOf, segmentsFor, tessellate,
 } from './geom';
 
 export class IdGen {
@@ -407,10 +407,10 @@ export function lineIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | nul
 // ---------- trim / extend ----------
 
 /** All cut points on curve `e` from other non-construction... curves. */
-function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
+function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id; at?: Id }[] {
   const ix = new SketchIndex(sk.entities);
   const mine = primsOf(ix, e);
-  const pts: { p: Vec2; by?: Id }[] = [];
+  const pts: { p: Vec2; by?: Id; at?: Id }[] = [];
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === e.id) continue;
     // `by`: the cutting curve, which the new end point is kept on.
@@ -418,27 +418,40 @@ function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
     for (const p of mine) for (const q of primsOf(ix, o as SkCurve)) for (const x of intersectPrims(p, q)) pts.push({ p: x, by });
   }
   // Points lying on the curve (e.g. end points of other curves) also cut.
-  const centers = new Set(sk.entities.flatMap((x) => (x.t === 'circle' || x.t === 'arc' ? [x.c] : [])));
+  // Another circle's or arc's centre is not a boundary drawn on the curve (a
+  // line through a hole's centre trims from one side of the hole to the
+  // other), unless a curve also ends there.
+  const ends = new Set(sk.entities.flatMap((x) => (x.t === 'line' || x.t === 'arc' ? [x.a, x.b] : x.t === 'spline' ? x.pts : [])));
+  const centers = new Set(sk.entities.flatMap((x) => (x.t === 'circle' || x.t === 'arc') && !ends.has(x.c) ? [x.c] : []));
   for (const o of sk.entities) {
-    if (o.t !== 'point') continue;
+    if (o.t !== 'point' || centers.has(o.id)) continue;
     if (pointIdsOf(e).includes(o.id)) continue;
     const p: Vec2 = [o.x, o.y];
     for (const prim of mine) {
-      if (prim.kind === 'seg' && closestOnSegment(p, prim.a!, prim.b!).d < 1e-7) pts.push({ p });
-      // On a circle or arc too (within its sweep), as on a line; another
-      // circle's centre there is not a boundary drawn on it.
-      else if (prim.kind === 'circ' && !centers.has(o.id) && Math.abs(dist2(p, prim.c!) - prim.r!) < 1e-7 + 1e-12 * prim.r!
-        && (prim.start === undefined || wrap2Pi(angle2(sub2(p, prim.c!)) - prim.start) <= prim.sweep! + 1e-9)) pts.push({ p });
+      if (prim.kind === 'seg' && closestOnSegment(p, prim.a!, prim.b!).d < 1e-7) pts.push({ p, at: o.id });
+      // On a circle or arc too (within its sweep), as on a line.
+      else if (prim.kind === 'circ' && Math.abs(dist2(p, prim.c!) - prim.r!) < 1e-7 + 1e-12 * prim.r!
+        && (prim.start === undefined || wrap2Pi(angle2(sub2(p, prim.c!)) - prim.start) <= prim.sweep! + 1e-9)) pts.push({ p, at: o.id });
     }
   }
   return pts;
 }
 
-/** New end point at a cut, kept on the curve that made the cut. */
-function cutEnd(sk: SketchFeature, cut: { p: Vec2; by?: Id }, newId: (p: string) => Id): Id {
+/**
+ * New end point of `curve` at a cut, kept on the curve that made the cut, or
+ * on the sketch point it was made at (a hole's position stays a point of its own).
+ */
+function cutEnd(sk: SketchFeature, cut: { p: Vec2; by?: Id; at?: Id }, newId: (p: string) => Id, curve: Id): Id {
   const id = newId('p');
   sk.entities.push({ id, t: 'point', x: cut.p[0], y: cut.p[1] });
   if (cut.by) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, cut.by] });
+  else if (cut.at) {
+    // That point now lies at the curve's end, so its own relation putting it
+    // on the curve would count twice (over defined).
+    const at = cut.at;
+    sk.constraints = sk.constraints.filter((k) => !(k.type === 'coincident' && k.refs.length === 2 && k.refs.includes(at) && k.refs.includes(curve)));
+    sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, at] });
+  }
   return id;
 }
 
@@ -461,7 +474,7 @@ function dropLengthDimensions(sk: SketchFeature, lineId: Id) {
   });
 }
 
-type Cut = { p: Vec2; by?: Id; t: number };
+type Cut = { p: Vec2; by?: Id; at?: Id; t: number };
 
 /**
  * What trimming a curve at `at` removes: nothing, the whole curve, the part
@@ -560,7 +573,7 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
     if (e.t === 'line') dropLengthDimensions(sk, e.id);
     if (before && after) {
       // Split: keep [start, before] on this entity and add [after, end].
-      const p1 = cutEnd(sk, before, newId), p2 = cutEnd(sk, after, newId);
+      const p1 = cutEnd(sk, before, newId, e.id), p2 = cutEnd(sk, after, newId, e.id);
       const copy = { ...e, id: newId(e.t === 'line' ? 'l' : 'a'), a: p2, b: endId } as SkLine | SkArc;
       e.b = p1;
       sk.entities.push(copy);
@@ -572,10 +585,10 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
       return true;
     }
     if (before) {
-      e.b = cutEnd(sk, before, newId);
+      e.b = cutEnd(sk, before, newId, e.id);
       dropOrphan(sk, endId);
     } else if (after) {
-      e.a = cutEnd(sk, after, newId);
+      e.a = cutEnd(sk, after, newId, e.id);
       dropOrphan(sk, startId);
     }
     cleanupConstraints(sk);
@@ -584,7 +597,7 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
   const { e, lo, hi } = plan;
   const c = ix.pt(e.c);
   const on = (cut: Cut): Cut => ({ ...cut, p: [c[0] + e.r * Math.cos(cut.t), c[1] + e.r * Math.sin(cut.t)] });
-  const ia = cutEnd(sk, on(hi), newId), ib = cutEnd(sk, on(lo), newId);
+  const ia = cutEnd(sk, on(hi), newId, e.id), ib = cutEnd(sk, on(lo), newId, e.id);
   const idx = sk.entities.indexOf(e);
   const arc: SkArc = { id: e.id, t: 'arc', c: e.c, a: ia, b: ib, construction: e.construction };
   sk.entities[idx] = arc;
@@ -658,23 +671,118 @@ export function extendPreview(sk: SketchFeature, lineId: Id, at: Vec2): [Vec2, V
 export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: string) => Id): boolean {
   const plan = extendPlan(sk, lineId, at);
   if (!plan) return false;
-  const pt = sk.entities.find((e) => e.id === plan.pid) as SkPoint;
-  pt.x = plan.to[0];
-  pt.y = plan.to[1];
+  const line = sk.entities.find((e) => e.id === lineId) as SkLine;
+  const end = line.a === plan.pid ? 'a' : 'b';
   dropLengthDimensions(sk, lineId);
-  if (newId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [plan.pid, plan.by.id] });
+  // An end another curve also uses (a rectangle's corner) stays where it is
+  // with that curve: moving it slanted the other side. The line leaves it on
+  // a new end point, as an end coincident with another point leaves that one.
+  const shared = sk.entities.some((e) => e.t !== 'point' && e.id !== lineId && pointIdsOf(e).includes(plan.pid));
+  let pid = plan.pid;
+  if (shared) {
+    pid = (newId ?? idFactory(sk))('p');
+    sk.entities.push({ id: pid, t: 'point', x: plan.to[0], y: plan.to[1] });
+    line[end] = pid;
+  } else {
+    const pt = sk.entities.find((e) => e.id === plan.pid) as SkPoint;
+    pt.x = plan.to[0];
+    pt.y = plan.to[1];
+    // The end leaves the curves and points it lay on (a line drawn up to a
+    // circle, extended across it): relations holding it there would drag them
+    // along to the new end.
+    const ix = new SketchIndex(sk.entities);
+    sk.constraints = sk.constraints.filter((k) => {
+      if ((k.type !== 'coincident' && k.type !== 'midpoint') || k.refs.length !== 2 || !k.refs.includes(pid)) return true;
+      const otherId = k.refs[0] === pid ? k.refs[1] : k.refs[0];
+      if (otherId === ORIGIN_ID) return dist2(plan.to, [0, 0]) < 1e-9;
+      const other = ix.get(otherId);
+      if (!other) return true;
+      if (other.t === 'point') return k.type !== 'coincident' || dist2(plan.to, [other.x, other.y]) < 1e-9;
+      return k.type === 'coincident' && distanceToCurve(ix, other, plan.to).d < 1e-7 * (1 + Math.hypot(plan.to[0], plan.to[1]));
+    });
+  }
+  if (newId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pid, plan.by.id] });
   return true;
 }
 
 // ---------- fillet ----------
 
-/** Where a fillet of `radius` at a corner shared by two lines goes, or why it cannot. */
-function filletGeometry(sk: SketchFeature, ix: SketchIndex, pointId: Id, radius: number): { lines: SkLine[]; t1: Vec2; t2: Vec2; c: Vec2 } | string {
+/**
+ * Where a fillet of `radius` goes at a corner where a line and an arc, or two
+ * arcs, meet: the centre where the curves' offsets by the radius cross, whose
+ * tangent points lie on both curves, nearest the corner.
+ */
+function curvedFilletGeometry(ix: SketchIndex, pointId: Id, curves: (SkLine | SkArc)[], radius: number): { t1: Vec2; t2: Vec2; c: Vec2 } | string {
+  const corner = ix.pt(pointId);
+  const offsets = (e: SkLine | SkArc): Prim[] => {
+    if (e.t === 'line') {
+      const a = ix.pt(e.a), b = ix.pt(e.b), u = norm2(sub2(b, a)), n: Vec2 = [-u[1], u[0]];
+      return [radius, -radius].map((k): Prim => ({ kind: 'seg', a: [a[0] + n[0] * k, a[1] + n[1] * k], b: [b[0] + n[0] * k, b[1] + n[1] * k] }));
+    }
+    const c = ix.pt(e.c), r = arcRadius(ix, e);
+    return [r + radius, r - radius].filter((x) => x > 1e-9 * Math.max(1, r)).map((x): Prim => ({ kind: 'circ', c, r: x }));
+  };
+  // Where a circle about `o` touches the curve, if on it and not at the corner itself.
+  const touch = (e: SkLine | SkArc, o: Vec2): Vec2 | null => {
+    const tol = 1e-7 * Math.max(1, radius);
+    let t: Vec2;
+    if (e.t === 'line') {
+      t = closestOnSegment(o, ix.pt(e.a), ix.pt(e.b)).q;
+      if (Math.abs(dist2(o, t) - radius) > tol) return null;
+    } else {
+      const c = ix.pt(e.c), r = arcRadius(ix, e), v = norm2(sub2(o, c));
+      t = [c[0] + v[0] * r, c[1] + v[1] * r];
+      if (distanceToCurve(ix, e, t).d > tol) return null;
+    }
+    return dist2(t, corner) > tol ? t : null;
+  };
+  // Direction along a curve at a point of it, heading for the corner.
+  const towards = (e: SkLine | SkArc, t: Vec2): Vec2 => {
+    if (e.t === 'line') return norm2(sub2(corner, t));
+    const r = sub2(t, ix.pt(e.c));
+    // Arcs run counter-clockwise from a to b.
+    return norm2(e.b === pointId ? [-r[1], r[0]] : [r[1], -r[0]]);
+  };
+  // The round belongs to this corner: not past where the curves cross again.
+  let reach = Infinity;
+  for (const x of intersectPrims(primsOf(ix, curves[0])[0], primsOf(ix, curves[1])[0])) {
+    const d = dist2(x, corner);
+    if (d > 1e-7 * Math.max(1, radius)) reach = Math.min(reach, d);
+  }
+  let best: { t1: Vec2; t2: Vec2; c: Vec2 } | null = null, bestD = Infinity;
+  for (const p of offsets(curves[0])) for (const q of offsets(curves[1])) {
+    const centres = p.kind === 'seg' ? intersectPrims(p, q, true) : q.kind === 'seg' ? intersectPrims(q, p, true) : intersectPrims(p, q);
+    for (const o of centres) {
+      const t1 = touch(curves[0], o), t2 = touch(curves[1], o);
+      if (!t1 || !t2 || dist2(o, corner) >= bestD || dist2(t1, corner) >= reach || dist2(t2, corner) >= reach) continue;
+      // The round must carry on the way the first curve heads for the corner
+      // and leave along the second one: a circle touching both from outside
+      // the corner would reverse at both ends.
+      const ccw = cross2(sub2(t1, o), sub2(t2, o)) > 0;
+      const along = (t: Vec2): Vec2 => { const r = sub2(t, o); return ccw ? [-r[1], r[0]] : [r[1], -r[0]]; };
+      if (dot2(along(t1), towards(curves[0], t1)) <= 0 || dot2(along(t2), towards(curves[1], t2)) >= 0) continue;
+      bestD = dist2(o, corner);
+      best = { t1, t2, c: o };
+    }
+  }
+  return best ?? 'The fillet radius is too large for these curves, or they already meet smoothly';
+}
+
+/** Where a fillet of `radius` at a corner shared by two lines, a line and an arc, or two arcs goes, or why it cannot. */
+function filletGeometry(sk: SketchFeature, ix: SketchIndex, pointId: Id, radius: number): { lines: (SkLine | SkArc)[]; t1: Vec2; t2: Vec2; c: Vec2 } | string {
   let lines = sk.entities.filter((e): e is SkLine => e.t === 'line' && (e.a === pointId || e.b === pointId));
   // Construction lines ending at the corner (a center rectangle's diagonals,
   // the full length an earlier fillet keeps) stay on the virtual sharp.
   if (lines.length > 2 && lines.filter((l) => !l.construction).length === 2) lines = lines.filter((l) => !l.construction);
-  if (lines.length !== 2) return 'Select a corner where exactly two lines meet';
+  if (lines.length !== 2) {
+    // A line and an arc, or two arcs, meeting at their ends.
+    let curves = sk.entities.filter((e): e is SkLine | SkArc => (e.t === 'line' || e.t === 'arc') && (e.a === pointId || e.b === pointId));
+    if (curves.length > 2) curves = curves.filter((e) => !e.construction);
+    if (curves.length !== 2) return 'Select a corner where exactly two lines or arcs meet';
+    if (curves.some((e) => e.ext)) return PROJECTED_LOCKED;
+    const g = curvedFilletGeometry(ix, pointId, curves, radius);
+    return typeof g === 'string' ? g : { lines: curves, ...g };
+  }
   if (lines.some((l) => l.ext)) return PROJECTED_LOCKED;
   const corner = ix.pt(pointId);
   const far = lines.map((l) => ix.pt(l.a === pointId ? l.b : l.a));
@@ -703,7 +811,7 @@ export function filletPreview(sk: SketchFeature, pointId: Id, radius: number, to
   return Array.from({ length: n + 1 }, (_, i) => [g.c[0] + radius * Math.cos(a0 + (sweep * i) / n), g.c[1] + radius * Math.sin(a0 + (sweep * i) / n)] as Vec2);
 }
 
-/** Rounds the corner at a point shared by two lines. */
+/** Rounds the corner at a point shared by two lines, a line and an arc, or two arcs. */
 export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, newId: (p: string) => Id): string | null {
   const ix = new SketchIndex(sk.entities);
   const g = filletGeometry(sk, ix, pointId, radius);
@@ -722,6 +830,7 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   const usesEnds = (k: SkConstraint, id: Id) => !isDimension(k)
     && (k.type === 'equal' || k.type === 'midpoint' ? k.refs.includes(id) : k.type === 'symmetric' && k.refs.slice(0, -1).includes(id));
   lines.forEach((l, i) => {
+    if (l.t !== 'line') return;
     const farId = l.a === (i === 0 ? p1 : p2) ? l.b : l.a;
     for (const k of sk.constraints) {
       if (isDimension(k) && k.refs.length === 1 && k.refs[0] === l.id && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')) k.refs = [farId, pointId];

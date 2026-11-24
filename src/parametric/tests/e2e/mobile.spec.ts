@@ -352,3 +352,14 @@ test('a tap a finger-width from a sketch point snaps to it', async ({ page }) =>
   await expect.poll(async () => { const l = await line(); return !!l && (l.a === 'mark' || l.b === 'mark'); }).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('a small phone shows the equations table, Delete buttons included, without scrolling sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('equations'));
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  await dialog.getByRole('button', { name: 'Add variable' }).click();
+  await expect(dialog.getByRole('button', { name: 'Delete Var1' })).toBeVisible();
+  expect(await dialog.locator('.dialog-body').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});

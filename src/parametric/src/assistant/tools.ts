@@ -14,6 +14,7 @@ import { MATERIALS } from '../model/materials';
 import { uniqueId } from '../model/ids';
 import type { DrawingViewKind, Feature, FeatureType, Id, PartDocument, SketchFeature, UnitSystem } from '../model/types';
 import { UNIT_SYSTEMS } from '../model/units';
+import { safeName } from '../platform/files';
 import type { ViewName } from '../render/camera';
 import type { DisplayStyle } from '../render/renderer';
 import type { SelItem } from '../app/selection';
@@ -202,7 +203,7 @@ const TOOLS: ToolDef[] = [
       set_radius: ARR(obj({ circle: S('Circle id'), radius: N('New radius') }, ['circle', 'radius']), 'Resize circles (an existing radius/diameter dimension wins; change it with set_dimensions instead)'),
       construction: NAMES('Entity ids to make construction geometry'),
       normal: NAMES('Entity ids to make normal (not construction) geometry'),
-      fillets: ARR(obj({ point: S('Corner point id where exactly two lines meet'), radius: N('Fillet radius') }, ['point', 'radius']), 'Round sketch corners'),
+      fillets: ARR(obj({ point: S('Corner point id where exactly two lines or arcs meet'), radius: N('Fillet radius') }, ['point', 'radius']), 'Round sketch corners'),
       offsets: ARR(obj({ curves: NAMES('Line, arc or circle ids (a connected chain offsets as one)'), distance: N('Distance; closed chains grow for positive, shrink for negative') }, ['curves', 'distance']), 'Offset curves'),
       mirrors: ARR(obj({ entities: NAMES('Entity ids to mirror'), axis: S('Line id to mirror about') }, ['entities', 'axis']), 'Mirror entities about a line'),
       set_dimensions: ARR(obj({ dimension: S('Dimension id or name'), value: PARAM('New value'), driven: B('Make it a reference (true) or driving (false) dimension') }, ['dimension']), 'Change dimension values'),
@@ -599,11 +600,14 @@ class Toolkit {
   }
 
   async capture(a: Obj): Promise<ToolResult> {
+    // An orientation or style it does not know was ignored: the current view came back as if it were the one asked for.
+    if (a.orientation != null && !VIEWS.includes(a.orientation as ViewName)) throw new ToolError(`orientation: one of ${VIEWS.join(', ')}`);
+    if (a.style != null && !STYLES.includes(a.style as DisplayStyle)) throw new ToolError(`style: one of ${STYLES.join(', ')}`);
     const ui = this.host.ui;
     if (!ui) return { ok: false, content: 'Error: there is no view to capture here.' };
     await this.host.settle();
-    const orientation = VIEWS.includes(a.orientation as ViewName) ? (a.orientation as ViewName) : undefined;
-    const style = STYLES.includes(a.style as DisplayStyle) ? (a.style as DisplayStyle) : undefined;
+    const orientation = (a.orientation ?? undefined) as ViewName | undefined;
+    const style = (a.style ?? undefined) as DisplayStyle | undefined;
     const image = ui.capture({ orientation, style });
     if (!image) return { ok: false, content: 'Error: the view could not be captured.' };
     return { ok: true, content: `Screenshot of the ${orientation ?? 'current'} view${style ? ` (${style})` : ''} attached below. Axes: X red, Y green (up), Z blue.`, image };
@@ -866,7 +870,7 @@ class Toolkit {
 
   async setPart(a: Obj): Promise<string> {
     const patch: Partial<PartDocument> = {};
-    if (a.name != null) { const n = str(a.name); if (!n) throw new ToolError('name: cannot be empty'); patch.name = n.slice(0, 120); }
+    if (a.name != null) { const n = str(a.name); if (!n) throw new ToolError('name: cannot be empty'); patch.name = safeName(n); }
     if (a.units != null) {
       const un = str(a.units).toUpperCase() as UnitSystem;
       if (!(un in UNIT_SYSTEMS)) throw new ToolError('units: MMGS, CGS, MKS or IPS');
@@ -898,9 +902,16 @@ class Toolkit {
     if (!Object.keys(patch).length) return 'Nothing to change.';
     // Like every change: an open sketch is finished first, so discarding it later cannot undo this too.
     this.host.prepareForEdit();
-    const { units, ...rest } = patch;
+    const { units, name, ...rest } = patch;
+    // As Rename Part: a saved part's file is renamed too, or the next save kept the old file name
+    // and the part opened under it again.
+    if (name != null && name !== this.doc.name) {
+      if (this.host.ui) await this.host.ui.renamePart(name);
+      else this.store.change('Rename part', (doc) => { doc.name = name; });
+      this.changed = true;
+    }
     let unlinked: string[] = [];
-    this.store.change('Part properties', (doc) => {
+    if (Object.keys(rest).length || units) this.store.change('Part properties', (doc) => {
       Object.assign(doc, rest);
       // Expressions are in display units: convert them so the geometry keeps its size.
       if (units) unlinked = changeUnits(doc, units);
@@ -956,10 +967,18 @@ class Toolkit {
       ui.showDrawing(true);
       done.push('showing the drawing');
     }
-    if (a.arrange === true) { ui.arrangeDrawing(); done.push('standard views arranged'); }
+    if (a.arrange === true) {
+      // Without a solid nothing is arranged: it was reported as done all the same.
+      if (!this.host.bbox) throw new ToolError(`arrange: there is no solid to draw${done.length ? ` (done before that: ${done.join(', ')})` : ''}`);
+      ui.arrangeDrawing();
+      done.push('standard views arranged');
+    }
     for (const v of list(a.add_views).map(str)) {
       if (!['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric'].includes(v)) throw new ToolError(`add_views: unknown view ${v}`);
+      const before = this.doc.drawing?.views.length ?? 0;
       ui.addDrawingView(v as DrawingViewKind);
+      // Without a solid no view is added: it was reported as added all the same.
+      if ((this.doc.drawing?.views.length ?? 0) === before) throw new ToolError(`add_views: the ${v} view could not be added, there is no solid to draw${done.length ? ` (done before that: ${done.join(', ')})` : ''}`);
       done.push(`added ${v} view`);
     }
     const patch: Obj = {};
@@ -972,7 +991,13 @@ class Toolkit {
     if (Object.keys(patch).length) {
       if (!this.doc.drawing) throw new ToolError('there is no drawing yet; set show: true first');
       this.host.prepareForEdit();
-      this.store.change('Edit drawing', (doc) => { if (doc.drawing) Object.assign(doc.drawing, patch); });
+      this.store.change('Edit drawing', (doc) => {
+        if (!doc.drawing) return;
+        const old = doc.drawing.scale;
+        Object.assign(doc.drawing, patch);
+        // As the drawing panel does: views stay on a smaller or turned sheet, and apart at a larger scale.
+        ui.fitDrawingViews(doc.drawing, old);
+      });
       this.changed = true;
       done.push(`set ${Object.keys(patch).join(', ')}`);
     }

@@ -27,6 +27,9 @@ export interface Command {
   releaseShortcut?: boolean;
 }
 
+/** Commands Repeat Last Command (Enter) does not run again. */
+const NOT_REPEATED = new Set(['repeat', 'undo', 'redo', 'redo2', 'delete']);
+
 export class CommandRegistry {
   private map = new Map<string, Command>();
   private listeners = new Set<() => void>();
@@ -56,7 +59,9 @@ export class CommandRegistry {
   run(id: string): boolean {
     const c = this.map.get(id);
     if (!c || (c.enabled && !c.enabled())) return false;
-    if (!['repeat', 'undo', 'redo'].includes(id)) this.lastRun = id;
+    // Enter repeats the last command: never a history step, nor Delete, which
+    // took whatever was selected next without asking.
+    if (!NOT_REPEATED.has(id)) this.lastRun = id;
     void Promise.resolve(c.run()).catch((e) => console.error(e));
     this.changed();
     return true;

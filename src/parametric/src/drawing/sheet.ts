@@ -338,10 +338,11 @@ const esc = (s: string) =>
     .replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 /** SVG document (millimetre units). */
-export function toSvg(items: Item[], w: number, h: number, opts: { background?: string; ink?: string } = {}): string {
+export function toSvg(items: Item[], w: number, h: number, opts: { background?: string; ink?: string; title?: string } = {}): string {
   const ink = opts.ink ?? '#000';
   const parts: string[] = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}mm" height="${h}mm" viewBox="0 0 ${w} ${h}" font-family="Helvetica, Arial, sans-serif">`);
+  if (opts.title) parts.push(`<title>${esc(opts.title)}</title>`);
   parts.push(`<rect x="0" y="0" width="${w}" height="${h}" fill="${opts.background ?? '#fff'}"/>`);
   let view: string | undefined;
   for (const it of items) {

@@ -10,16 +10,17 @@ import { BASE_PLANE_NAMES } from '../model/planes';
 import { changeFeatureUnits } from '../model/document';
 import { evaluateVariables, variableReferenceChanges } from '../model/expr';
 import type {
-  AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeFeature, FaceRef, Feature, FilletFeature,
+  AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeDir2, ExtrudeFeature, FaceRef, Feature, FilletFeature,
   HoleFeature, Id, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature, PlaneRef, RevolveFeature,
   ShellFeature, SketchFeature, SweepFeature, UnitSystem, Variable,
 } from '../model/types';
+import { sketchPoints } from '../sketch/profiles';
 import { h } from '../ui/dom';
 import type { App } from './app';
 import {
   PropertyPanel, SelectionBox, type SelBoxItem, checkbox, flipButton, numberField, section, selectField, settleNumberFields,
 } from './pm';
-import { type SelItem, edgeRef, faceRef } from './selection';
+import { type SelItem, edgeRef, facePlaneRef, faceRef } from './selection';
 
 // ---------- conversions from picks ----------
 
@@ -57,7 +58,7 @@ export const toPlane = (app: App) => (it: SelItem): SelBoxItem | null => {
   if (it.kind === 'face') {
     const f = app.faces[it.index];
     if (f?.type !== 'plane') return null;
-    return { item: it, data: { kind: 'face', face: faceRef(f) } as PlaneRef, label: faceLabel(app, it.index) };
+    return { item: it, data: facePlaneRef(f), label: faceLabel(app, it.index) };
   }
   return null;
 };
@@ -233,7 +234,9 @@ export class ExtrudePanel extends FeaturePanel<ExtrudeFeature> {
     depth.hidden = f.end === 'throughAll';
     // A draft linked to an equation ("=Angle") is on too.
     const hasDraft = String(f.draft).trim().startsWith('=') || Number(f.draft) > 0;
-    const draftAngle = numberField({ label: 'Draft angle', icon: 'draft', value: f.draft || 3, kind: 'angle', ctx, min: 0, onChange: (v) => { f.draft = v; this.changed(); } });
+    // What the angle field shows, which turning the draft on again uses (it went back to 3 under a field showing another angle).
+    let draft = f.draft || 3;
+    const draftAngle = numberField({ label: 'Draft angle', icon: 'draft', value: draft, kind: 'angle', ctx, min: 0, onChange: (v) => { draft = v; f.draft = v; this.changed(); } });
     draftAngle.hidden = !hasDraft;
     const outward = checkbox('Draft outward', f.draftOutward, (v) => { f.draftOutward = v; this.changed(); });
     outward.hidden = !hasDraft;
@@ -247,20 +250,27 @@ export class ExtrudePanel extends FeaturePanel<ExtrudeFeature> {
         }))),
       depth,
       checkbox('Draft', hasDraft, (v) => {
-        f.draft = v ? 3 : 0;
+        f.draft = v ? draft : 0;
         draftAngle.hidden = !v;
         outward.hidden = !v;
         this.changed();
       }),
       draftAngle, outward,
     ]);
-    const d2depth = numberField({ label: 'Depth', icon: 'ruler', value: f.dir2?.depth ?? f.depth, kind: 'length', ctx, min: 1e-6, onChange: (v) => { if (f.dir2) { f.dir2.depth = v; this.changed(); } } });
+    // The controls show and edit this one, so turning Direction 2 on uses what
+    // they show (a new one made then took the depth typed for Direction 1
+    // since, and Blind after Through All was picked, under controls showing otherwise).
+    const dir2: ExtrudeDir2 = f.dir2 ?? { end: 'blind', depth: f.depth };
+    const d2depth = numberField({ label: 'Depth', icon: 'ruler', value: dir2.depth, kind: 'length', ctx, min: 1e-6, onChange: (v) => { dir2.depth = v; if (f.dir2) this.changed(); } });
+    d2depth.hidden = dir2.end === 'throughAll';
     const dir2sec = section('Direction 2', [
-      selectField('End condition', f.dir2?.end ?? 'blind', [{ value: 'blind' as const, label: 'Blind' }, { value: 'throughAll' as const, label: 'Through All' }], (v) => {
-        if (f.dir2) { f.dir2.end = v; d2depth.hidden = v === 'throughAll'; this.changed(); }
+      selectField('End condition', dir2.end, [{ value: 'blind' as const, label: 'Blind' }, { value: 'throughAll' as const, label: 'Through All' }], (v) => {
+        dir2.end = v;
+        d2depth.hidden = v === 'throughAll';
+        if (f.dir2) this.changed();
       }),
       d2depth,
-    ], { collapsed: !f.dir2, checkbox: { checked: !!f.dir2, onChange: (v) => { f.dir2 = v ? { end: 'blind', depth: f.depth } : null; this.changed(); } } });
+    ], { collapsed: !f.dir2, checkbox: { checked: !!f.dir2, onChange: (v) => { f.dir2 = v ? dir2 : null; this.changed(); } } });
     dir2sec.hidden = f.end === 'midPlane';
     return [section('Profile', [sketch.el]), dir1, dir2sec];
   }
@@ -404,6 +414,16 @@ export class DraftPanel extends FeaturePanel<DraftFeature> {
 
 // ---------- hole ----------
 
+/**
+ * A positions sketch with the number of holes it places: its points that are
+ * not construction or curve ends, as the hole is built (every point or every
+ * entity was counted, so a dimensioned sketch claimed holes it did not make).
+ */
+function holeCount(sk: SketchFeature): string {
+  const n = sketchPoints(sk.entities).length;
+  return `${sk.name} (${n} ${n === 1 ? 'hole' : 'holes'})`;
+}
+
 export class HolePanel extends FeaturePanel<HoleFeature> {
   /** Sketch created by this panel to hold hole positions. */
   private createdSketch: Id | null = null;
@@ -436,7 +456,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     // A damaged or hand-edited file can point the hole at a feature that is not a sketch.
     const ref = f.sketch ? this.app.store.feature(f.sketch) : null;
     const sk = ref?.type === 'sketch' ? ref : null;
-    if (sk) positions.setItems([{ item: null, data: sk.id, label: `${sk.name} (${sk.entities.filter((e) => e.t === 'point').length} points)` }]);
+    if (sk) positions.setItems([{ item: null, data: sk.id, label: holeCount(sk) }]);
     return [
       section('Hole Type', [
         selectField('Type', f.kind, kinds, (v) => { f.kind = v; sync(); this.changed(); }, 'hole'),
@@ -459,7 +479,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
       const sk = this.app.store.feature(it.id);
       if (sk?.type !== 'sketch') return null;
       f.sketch = sk.id;
-      return { item: it, data: sk.id, label: sk.name };
+      return { item: it, data: sk.id, label: holeCount(sk) };
     }
     if (it.kind !== 'face') return null;
     const face = this.app.faces[it.index];
@@ -471,7 +491,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     if (!f.sketch || !this.createdSketch) {
       const id = app.store.nextId('s');
       const name = defaultName(app.store.doc, 'sketch');
-      const sk = newSketch(id, name, { kind: 'face', face: faceRef(face) });
+      const sk = newSketch(id, name, facePlaneRef(face));
       sk.frame = frame;
       sk.entities.push({ id: 'p1', t: 'point', x: local[0], y: local[1] });
       app.insertFeature(sk);
@@ -490,7 +510,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     }
     const sk = app.store.feature<SketchFeature>(f.sketch)!;
     void dot; void sub;
-    return { item: null, data: sk.id, label: `${sk.name} (${sk.entities.length} points)` };
+    return { item: null, data: sk.id, label: holeCount(sk) };
   }
 
   cancel() {
@@ -542,6 +562,7 @@ export class LinearPatternPanel extends FeaturePanel<LinearPatternFeature> {
 
   protected validate() {
     if (!this.f.dir1.ref) return 'Select a direction';
+    if (this.f.dir2 && !this.f.dir2.ref) return 'Select a direction for Direction 2, or turn Direction 2 off';
     return this.f.seeds.length ? null : 'Select features to pattern';
   }
 
@@ -682,6 +703,8 @@ export function panelFor(app: App, f: Feature, editing: boolean): PropertyPanel 
 export function startFeature(app: App, type: Feature['type'], opts: { cut?: boolean } = {}): PropertyPanel | null {
   const doc = app.store.doc;
   const id = app.store.nextId('f');
+  // Defaults are at least 1 mm (2 mm for a hole), not one display unit: an
+  // inch part got a 1 in fillet and a 2 in hole, a metre part 1 m.
   const size = app.typicalSize();
   const sel = app.selection.items;
   const selSketch = (() => {
@@ -705,10 +728,10 @@ export function startFeature(app: App, type: Feature['type'], opts: { cut?: bool
       break;
     }
     case 'revolve': f = newRevolve(id, name, selSketch ?? '', !!opts.cut); break;
-    case 'fillet': { const x = newFillet(id, name, Math.max(size / 10, app.store.unitScale)); x.edges = edges; x.faces = faces; f = x; break; }
-    case 'chamfer': { const x = newChamfer(id, name, Math.max(size / 10, app.store.unitScale)); x.edges = edges; x.faces = faces; f = x; break; }
-    case 'shell': { const x = newShell(id, name, shellThickness(app, Math.max(size / 20, app.store.unitScale))); x.faces = faces; f = x; break; }
-    case 'hole': f = newHole(id, name, '', Math.max(size / 5, app.store.unitScale * 2)); break;
+    case 'fillet': { const x = newFillet(id, name, Math.max(size / 10, 1)); x.edges = edges; x.faces = faces; f = x; break; }
+    case 'chamfer': { const x = newChamfer(id, name, Math.max(size / 10, 1)); x.edges = edges; x.faces = faces; f = x; break; }
+    case 'shell': { const x = newShell(id, name, shellThickness(app, Math.max(size / 20, 1))); x.faces = faces; f = x; break; }
+    case 'hole': f = newHole(id, name, '', Math.max(size / 5, 2)); break;
     case 'linearPattern': {
       const x = newLinearPattern(id, name, seeds, size);
       const e = app.selection.ofKind('edge')[0];

@@ -98,3 +98,15 @@ it('stops waiting for the SDK once its script failed to load', async () => {
     g.window = previous;
   }
 });
+
+it('explains the errors the SDK rejects with when Puter cannot be reached', async () => {
+  const { storageError } = await import('../src/platform/puter');
+  const reach = 'Puter could not be reached. Check your connection and try again.';
+  // A request that got no answer: the SDK rejects with its XMLHttpRequest.
+  expect(storageError({ readyState: 4, status: 0, responseText: '' })).toBe(reach);
+  expect(storageError(new TypeError('Failed to fetch'))).toBe(reach);
+  expect(storageError({ message: 'Request timed out.', code: 'request_timeout' })).toMatch(/took too long/);
+  expect(storageError({ status: 401, message: 'Unauthorized' })).toMatch(/session has ended/);
+  // Error bodies keep their own messages.
+  expect(storageError({ code: 'item_with_same_name_exists', message: 'An entry named `a` already exists' })).toBe('An entry named `a` already exists');
+});

@@ -3,7 +3,7 @@ import { createAgent, requestMessages } from '../src/assistant/agent';
 import { type ChatMessage, type StreamPart, aiError, isTransientError, puterChat, wellFormed, withCacheBreakpoints } from '../src/platform/ai';
 import type { ToolResult } from '../src/assistant/tools';
 import { decodeText, readAttachment } from '../src/assistant/attachments';
-import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
+import { type Attachment, MAX_TEXT_CHARS, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
 
 type Reply = StreamPart[] | Error;
 
@@ -372,6 +372,42 @@ describe('assistant agent', () => {
     expect(decodeText(new TextEncoder().encode('Ø 12 mm, 0.5"\n'))).toBe('Ø 12 mm, 0.5"\n');
     expect(decodeText(new Uint8Array([0x44, 0x49, 0x41, 0xd8, 0x20, 0x31, 0x32]))).toBe('DIAØ 12');
     expect(decodeText(new Uint8Array([0x41]))).toBe('A');
+  });
+
+  it('sends a DXF saved by a CAD program with its geometry, not only the bookkeeping before it', async () => {
+    const pairs = (...p: (string | number)[]) => p.map(String);
+    const filler: string[] = [];
+    // Tables, classes and objects of the kind a CAD program writes, well over the text limit.
+    for (let i = 0; i < 4000; i++) filler.push(...pairs(0, 'LAYER', 5, (1000 + i).toString(16), 330, '2', 100, 'AcDbSymbolTableRecord', 100, 'AcDbLayerTableRecord', 2, `Layer${i}`, 70, 0, 62, 7, 6, 'Continuous'));
+    const lines = [
+      ...pairs(0, 'SECTION', 2, 'HEADER', 9, '$ACADVER', 1, 'AC1032', 9, '$DWGCODEPAGE', 3, 'ANSI_1252', 9, '$INSUNITS', 70, 4, 9, '$LTSCALE', 40, 1, 0, 'ENDSEC'),
+      ...pairs(0, 'SECTION', 2, 'TABLES', 0, 'TABLE', 2, 'LAYER'), ...filler, ...pairs(0, 'ENDTAB', 0, 'ENDSEC'),
+      ...pairs(0, 'SECTION', 2, 'ENTITIES'),
+      ...pairs(0, 'LWPOLYLINE', 5, 'A1', 330, '1F', 100, 'AcDbEntity', 8, '0', 100, 'AcDbPolyline', 90, 2, 70, 1, 10, 0, 20, 0, 42, 1, 10, 40, 20, 0, 42, 1),
+      ...pairs(0, 'ARC', 5, 'A2', 102, '{ACAD_REACTORS', 330, 'A9', 102, '}', 100, 'AcDbEntity', 8, '0', 100, 'AcDbCircle', 10, 20, 20, 30, 30, 0, 40, 5, 100, 'AcDbArc', 50, 0, 51, 90, 1001, 'ACAD', 1000, 'note'),
+      ...pairs(0, 'ENDSEC', 0, 'SECTION', 2, 'OBJECTS'), ...filler, ...pairs(0, 'ENDSEC', 0, 'EOF'),
+    ];
+    const text = `\uFEFF${lines.map((l, i) => (i % 2 ? l : l.padStart(3))).join('\r\n')}\r\n`;
+    expect(text.length).toBeGreaterThan(MAX_TEXT_CHARS * 3);
+    const a = await readAttachment(new File([text], 'outline.dxf', { type: 'image/vnd.dxf' }));
+    const sent = (a.blocks[0] as { text: string }).text;
+    // The entities, with the polyline's bulges and the arc, and the units.
+    expect(sent).toContain('0 LWPOLYLINE\n8 0\n90 2\n70 1\n10 0\n20 0\n42 1\n10 40\n20 0\n42 1');
+    expect(sent).toContain('0 ARC\n8 0\n10 20\n20 30\n30 0\n40 5\n50 0\n51 90');
+    expect(sent).toContain('9 $INSUNITS\n70 4');
+    expect(sent).not.toMatch(/Only the first|AcDb|ACAD_REACTORS|\$LTSCALE|Layer1\b/);
+    expect(a.chars).toBeLessThan(1000);
+  });
+
+  it('refuses a binary DXF and binary data named as text, and sends CSV as it is', async () => {
+    const binary = new Uint8Array([...new TextEncoder().encode('AutoCAD Binary DXF\r\n'), 0x1a, 0, 0, 0, 2, 0x53, 0x45]);
+    await expect(readAttachment(new File([binary], 'plate.dxf'))).rejects.toThrow(/plate\.dxf is a binary DXF.*ASCII DXF/);
+    const junk = new Uint8Array(4096).map((_, i) => (i * 37) % 256);
+    await expect(readAttachment(new File([junk], 'sizes.csv', { type: 'text/csv' }))).rejects.toThrow(/sizes\.csv is not a text file/);
+    const csv = '\uFEFFpart,size,"note, with comma"\r\nM5,"5,5",ok\r\n';
+    const a = await readAttachment(new File([csv], 'sizes.csv', { type: 'text/csv' }));
+    expect((a.blocks[0] as { text: string }).text).toContain('part,size,"note, with comma"\r\nM5,"5,5",ok');
+    await expect(readAttachment(new File(['\r\n  \r\n'], 'empty.csv', { type: 'text/csv' }))).rejects.toThrow(/empty\.csv is empty/);
   });
 
   it('refuses a file named .pdf that is not a PDF, which would fail the messages it goes with', async () => {

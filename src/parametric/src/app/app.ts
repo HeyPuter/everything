@@ -1,13 +1,13 @@
 // The application hub: document store, geometry worker, renderer, viewport,
 // selection, PropertyManager panels, sketch mode and the rebuild loop.
 
-import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus } from '../kernel/protocol';
+import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MeshData } from '../kernel/protocol';
 import { KernelClient, KernelRestartError } from '../kernel/client';
 import type { Frame, Vec3 } from '../math/vec';
 import { DocStore, newDocument } from '../model/document';
 import { evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
-import { BASE_FRAMES, BASE_PLANE_NAMES } from '../model/planes';
+import { BASE_FRAMES, BASE_PLANE_NAMES, planeFrame } from '../model/planes';
 import type { BasePlane, Feature, Id, PlaneRef, SkEntity, SketchFeature } from '../model/types';
 import { UNIT_SYSTEMS } from '../model/units';
 import { Renderer, type Theme } from '../render/renderer';
@@ -15,13 +15,13 @@ import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
 import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
-import { announce, formatShortcut, h, isTextInput, titleWhenClipped } from '../ui/dom';
+import { ancestors, announce, formatShortcut, h, isTextInput, refocus, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, retireNumberFields, type UnitContext } from './pm';
-import { Selection, faceRef, remapItem, type SelItem } from './selection';
+import { Selection, facePlaneRef, faceRef, remapItem, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
 import { sketchDefinitionStatus } from './sketch/panel';
@@ -30,6 +30,7 @@ import { DrawingPanel, DrawingWorkspace } from './drawing';
 import { formatGroup, setPartUnits } from './dialogs';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
+import { setWindowTitle } from '../platform/puter';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
 export { DEFAULT_SETTINGS, type Settings } from './settings';
 
@@ -122,6 +123,8 @@ export class App {
   /** Command to resume after leaving a sketch started for it. */
   pendingAfterSketch: string | null = null;
   onDocumentChanged: (reason: string) => void = () => {};
+  /** Renames the part and its saved file, as Rename Part does (set by the file operations). */
+  renamePart: ((name: string) => Promise<void>) | null = null;
 
   constructor() {
     this.kernel = new KernelClient();
@@ -253,7 +256,7 @@ export class App {
     // The tablist holds only the tabs; the phone sheet's close button sits beside it.
     const list = h('div', { class: 'lp-tablist', role: 'tablist', 'aria-label': 'Panels' });
     for (const [id, ic, label] of tabs) {
-      const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(id === this.leftTab), 'aria-controls': 'left-panel', 'aria-label': label, title: label, 'data-tab': id }, icon(ic, 16));
+      const b = h('button', { role: 'tab', type: 'button', id: `left-tab-${id}`, 'aria-selected': String(id === this.leftTab), 'aria-controls': 'left-panel', 'aria-label': label, title: label, 'data-tab': id }, icon(ic, 16));
       b.addEventListener('click', () => this.showLeft(id as 'tree' | 'pm'));
       list.append(b);
     }
@@ -282,6 +285,7 @@ export class App {
     this.leftTab = tab;
     selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === tab);
     const body = this.shell.lpBody;
+    body.setAttribute('aria-labelledby', `left-tab-${tab}`);
     // A panel opens at its top, not at the scroll position of the tree it
     // replaces; the tree comes back where it was.
     const before = this.leftShown.get(body.firstElementChild as Element);
@@ -397,7 +401,7 @@ export class App {
       b('zoomFit'), b('previousView', 'hide-mobile'), b('sectionView'),
       h('span', { class: 'sep' }),
       split('viewOrientation', () => this.viewMenuItems(), 'Standard views'),
-      split('displayStyle', () => this.displayMenuItems(), 'Display style'),
+      split('displayStyle', () => this.displayMenuItems(), 'Display style options'),
       split('toggleVisibility', () => this.visibilityMenuItems(), 'Hide or show items'),
       h('span', { class: 'sep hide-mobile' }),
       b('perspective', 'hide-mobile'), b('normalTo'),
@@ -643,12 +647,27 @@ export class App {
       s.search.setAttribute('aria-expanded', 'false');
       s.search.removeAttribute('aria-activedescendant');
     };
+    // Leaving the search (Esc, or a command run from it) gives keyboard focus
+    // back to where it was before, instead of dropping it to the page.
+    let returnTo: HTMLElement | null = null;
+    let returnParents: HTMLElement[] = [];
+    s.search.addEventListener('focus', (e) => {
+      returnTo = e.relatedTarget instanceof HTMLElement ? e.relatedTarget : null;
+      returnParents = ancestors(returnTo);
+    });
+    const leave = () => {
+      const back = returnTo;
+      returnTo = null;
+      // A design tree row redrawn meanwhile (a rebuild) has a replacement.
+      if (back && !(back.isConnected && (!back.getClientRects().length || back.closest('[inert]')))) refocus(back, returnParents, true);
+      if (document.activeElement === s.search) s.search.blur();
+    };
     const run = (id: string) => {
       // A disabled result keeps the list open and the status bar says why nothing ran.
       if (!this.commands.isEnabled(id)) { this.setStatus(`${this.commands.get(id)?.label} is not available right now.`, true); return; }
       s.search.value = '';
       hide();
-      s.search.blur();
+      leave();
       this.commands.run(id);
     };
     s.search.addEventListener('input', show);
@@ -664,12 +683,16 @@ export class App {
         opts.forEach((o, i) => o.setAttribute('aria-selected', String(i === active)));
         s.search.setAttribute('aria-activedescendant', `cmdopt-${active}`);
       } else if (e.key === 'Enter') {
+        // Else the key's keypress reaches the dialog the command opens, and
+        // presses its focused button (OK) at once.
+        e.preventDefault();
         const list = this.commands.search(s.search.value);
         if (list[active]) run(list[active].id);
       } else if (e.key === 'Escape') {
+        e.preventDefault();
         s.search.value = '';
         hide();
-        s.search.blur();
+        leave();
       }
     });
     s.docTitle.addEventListener('click', () => this.commands.run('rename'));
@@ -731,6 +754,7 @@ export class App {
     this.shell.docState.textContent = this.store.dirty ? 'Edited' : this.location ? 'Saved' : '';
     this.shell.statusUnits.textContent = doc.units;
     document.title = `${this.store.dirty ? '* ' : ''}${doc.name} - Parametric`;
+    setWindowTitle(document.title);
   }
 
   private showLoading(on: boolean) {
@@ -915,9 +939,13 @@ export class App {
   }
 
   private lastBuildResult: BuildResult | null = null;
+  /** The body mesh the viewport shows. */
+  private shownMesh: MeshData | null = null;
 
-  /** Incremented after every rebuild (drawings re-project when it changes). */
+  /** Incremented after every rebuild. */
   buildVersion = 0;
+  /** Incremented after a rebuild that changed the body (drawings re-project when it changes). */
+  geometryVersion = 0;
   drawing!: DrawingWorkspace;
 
   get inDrawing(): boolean {
@@ -974,6 +1002,8 @@ export class App {
 
   private applyBuild(res: BuildResult, ms: number) {
     this.buildVersion++;
+    // The same body (a rename, a suppressed sketch, a colour) needs no new drawing projections.
+    if (!res.meshUnchanged) this.geometryVersion++;
     this.statuses = new Map(res.status.map((s) => [s.id, s]));
     for (const [id, err] of this.resolveErrors) {
       // A suppressed feature is not built, so its values are not used either.
@@ -984,13 +1014,14 @@ export class App {
     this.frames = res.frames;
     this.linkedSketches = res.sketches ?? {};
     this.bbox = res.bbox;
-    if (!res.meshUnchanged) {
-      this.vertices = res.mesh?.vertices ?? new Float32Array(0);
-      this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
-    }
-    if (this.fitOnNextBuild) {
-      this.fitOnNextBuild = false;
-      if (res.bbox) this.viewport.zoomToFit(false, false);
+    // An unchanged mesh is the one the worker last sent, which is not the one
+    // shown when its result was dropped (a part opened again while its first
+    // build ran): show that one then.
+    const mesh = res.meshUnchanged ? this.kernel.lastMesh : res.mesh;
+    if (!res.meshUnchanged || mesh !== this.shownMesh) {
+      this.shownMesh = mesh;
+      this.vertices = mesh?.vertices ?? new Float32Array(0);
+      this.renderer.setModel(mesh, res.faces.length, res.edges.length);
     }
     const r = res.bbox ? Math.hypot(res.bbox.max[0] - res.bbox.min[0], res.bbox.max[1] - res.bbox.min[1], res.bbox.max[2] - res.bbox.min[2]) : 100;
     this.renderer.camera.sceneRadius = Math.max(r, 100);
@@ -1011,6 +1042,12 @@ export class App {
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;
     this.viewport.refreshStates();
+    // After the sketches shown with the solid are drawn for this build: zoom to fit frames them too
+    // (and a part with only sketches).
+    if (this.fitOnNextBuild) {
+      this.fitOnNextBuild = false;
+      if (res.bbox || this.renderer.camera.sceneBounds) this.viewport.zoomToFit(false, false);
+    }
     this.viewport.rehoverSoon();
     this.renderTrees();
     // Expression errors replace the kernel's view of the same feature.
@@ -1051,7 +1088,8 @@ export class App {
     if (ref.kind === 'base') return BASE_FRAMES[ref.plane];
     if (ref.kind === 'feature') return this.frames[ref.id] ?? null;
     const f = this.faces.find((x) => x.name === ref.face.name);
-    return f?.frame ?? null;
+    // With the kept axis direction, as the kernel resolves it.
+    return f?.frame ? (ref.x ? planeFrame(f.frame.o, f.frame.n, ref.x) : f.frame) : null;
   }
 
   /**
@@ -1188,6 +1226,15 @@ export class App {
     openMenu(this.hooks.contextItems('feature', id), x, y, { label: 'Feature menu' });
   }
 
+  /** The design tree's part and Material rows: the commands their double click or Enter run, and related ones. */
+  openCommandMenu(ids: string[], x: number, y: number, label: string) {
+    const c = this.commands;
+    openMenu(ids.map((id) => {
+      const cmd = c.get(id)!;
+      return { label: cmd.label, icon: cmd.icon, shortcut: cmd.shortcut, disabled: !c.isEnabled(id), run: () => c.run(id) };
+    }), x, y, { label });
+  }
+
   openReferenceMenu(item: SelItem, x: number, y: number) {
     void item;
     openMenu(this.hooks.contextItems('reference'), x, y, { label: 'Reference menu' });
@@ -1222,17 +1269,33 @@ export class App {
     if (!buttons.length) return;
     const bar = h('div', { class: 'ctx-toolbar', role: 'toolbar', 'aria-label': label });
     const els: HTMLButtonElement[] = [];
+    // Keyboard focus leaves the bar (Esc, or a command chosen in it) for where it was
+    // when the bar opened (a design tree row for S pressed there), else the graphics area.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const openerParents = ancestors(opener);
+    const leave = () => {
+      if (opener && opener !== document.body && !bar.contains(opener)) refocus(opener, openerParents, true);
+      if (bar.contains(document.activeElement) || document.activeElement === document.body) this.viewport.canvas.focus({ preventScroll: true });
+    };
     for (const b of buttons) {
       const el = h('button', { class: 'icon-btn', type: 'button', 'aria-label': b.label, title: b.label, tabindex: els.length ? '-1' : '0' }, b.glyph ?? icon(b.icon, 18)) as HTMLButtonElement;
-      el.addEventListener('click', () => { this.hideContextToolbar(); b.run(); });
+      el.addEventListener('click', () => {
+        const hadFocus = bar.contains(document.activeElement);
+        this.hideContextToolbar();
+        b.run();
+        // A command that does not move focus itself (a panel takes it) would leave it on the page.
+        if (hadFocus) requestAnimationFrame(() => { if (document.activeElement === document.body) leave(); });
+      });
       els.push(el);
       bar.append(el);
     }
     bar.addEventListener('keydown', (ev) => {
       const i = els.indexOf(document.activeElement as HTMLButtonElement);
-      if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') { ev.preventDefault(); els[(i + 1) % els.length].focus(); }
-      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') { ev.preventDefault(); els[(i - 1 + els.length) % els.length].focus(); }
-      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); this.hideContextToolbar(); this.viewport.canvas.focus(); }
+      const to = (j: number) => { els.forEach((x, k) => x.setAttribute('tabindex', k === j ? '0' : '-1')); els[j].focus(); };
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') { ev.preventDefault(); to((i + 1) % els.length); }
+      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') { ev.preventDefault(); to((i - 1 + els.length) % els.length); }
+      else if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); to(ev.key === 'Home' ? 0 : els.length - 1); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); if (bar.contains(document.activeElement)) leave(); this.hideContextToolbar(); }
     });
     this.shell.viewport.append(bar);
     const w = this.shell.viewport.clientWidth, hgt = this.shell.viewport.clientHeight;
@@ -1286,6 +1349,9 @@ export class App {
     if (this.panel) await this.closePanel(false);
     this.hideContextToolbar();
     this.panel = p;
+    // What can be picked changed: the hover under a resting pointer is picked again.
+    p.onFilterChange = () => this.viewport.rehoverSoon();
+    this.viewport.rehoverSoon();
     // Opened from the design tree with the keyboard: the panel replaces the
     // tree, so keyboard focus moves to the panel instead of being lost.
     const fromPane = this.shell.leftpane.contains(document.activeElement);
@@ -1319,6 +1385,7 @@ export class App {
     } else p.cancel();
     p.dispose();
     this.panel = null;
+    this.viewport.rehoverSoon();
     if (ok) this.selection.clear();
     this.updateFlyout();
     this.renderer.setPreview(null);
@@ -1570,14 +1637,16 @@ export class App {
     });
   }
 
-  toggleHidden(ids: Id[]) {
+  /** Whether a sketch or plane is shown in the model: a sketch a feature was built from is hidden until shown. */
+  isShown(f: Feature, doc = this.store.doc): boolean {
+    const consumed = f.type === 'sketch' && doc.features.some((x) => consumedSketches(x).includes(f.id));
+    return f.hidden === false || (f.hidden === undefined && !consumed);
+  }
+
+  /** Hides (or with `hide` false, shows) the features; without `hide` each one is toggled. */
+  toggleHidden(ids: Id[], hide?: boolean) {
     this.store.change('Hide/Show', (doc) => {
-      for (const f of doc.features) {
-        if (!ids.includes(f.id)) continue;
-        const consumed = doc.features.some((x) => consumedSketches(x).includes(f.id));
-        const visible = f.hidden === false || (f.hidden === undefined && !(f.type === 'sketch' && consumed));
-        f.hidden = visible;
-      }
+      for (const f of doc.features) if (ids.includes(f.id)) f.hidden = hide ?? this.isShown(f, doc);
     });
   }
 
@@ -1619,8 +1688,11 @@ export class App {
       return;
     }
     if (e.key === 'Escape') {
-      // A number field passes on an Esc it had nothing to take back for (pm.ts).
-      if (inText && (e.defaultPrevented || !target.closest('.spin'))) return;
+      // A number field passes on an Esc it had nothing to take back for (pm.ts),
+      // and a panel's dropdown (closed: an open one takes its own Esc) passes it on
+      // to cancel the panel, as its checkboxes and buttons do.
+      const passesEsc = !!target.closest('.spin') || (target instanceof HTMLSelectElement && !!target.closest('.pm'));
+      if (inText && (e.defaultPrevented || !passesEsc)) return;
       closeMenus();
       this.hideContextToolbar();
       if (this.sketchEditor?.modifyOpen) { this.sketchEditor.closeModify(); return; }
@@ -1630,6 +1702,7 @@ export class App {
         return;
       }
       if (this.panel) { void this.closePanel(false); e.preventDefault(); return; }
+      if (this.inDrawing && this.drawing.deselect()) { e.preventDefault(); return; }
       if (this.selection.items.length) { this.selection.clear(); e.preventDefault(); return; }
       return;
     }
@@ -1692,7 +1765,7 @@ export class App {
     if (it.kind === 'plane') return it.ref;
     if (it.kind === 'face') {
       const f = this.faces[it.index];
-      if (f?.type === 'plane') return { kind: 'face', face: faceRef(f) };
+      if (f?.type === 'plane') return facePlaneRef(f);
     }
     if (it.kind === 'feature') {
       const f = this.store.feature(it.id);
@@ -1707,8 +1780,9 @@ export class App {
     const s = this.sketchEditor?.bounds();
     const d = b ? Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) : s ? s.radius * 2 : 50;
     const unit = this.store.unitScale;
-    // Round to a friendly number in display units.
-    const v = Math.max(d / 4, unit);
+    // Round to a friendly number in display units. At least 1 mm, not one
+    // display unit: an inch or metre part got 1 in or 1 m defaults whatever its size.
+    const v = Math.max(d / 4, 1);
     const mag = Math.pow(10, Math.floor(Math.log10(v / unit)));
     return Math.round(v / unit / mag) * mag * unit;
   }

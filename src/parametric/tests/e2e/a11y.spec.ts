@@ -28,6 +28,33 @@ test.describe('accessibility', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('the drawing sheet and its panel have no serious violations, with a view selected', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('tab', { name: 'Drawing' }).click();
+    await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+    await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).click();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
+  test('the assistant with a reply and its steps has no serious violations', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+        if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Done: **a plate**.\n\n- one\n- two' }; return; }
+        yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'top', shapes: [{ type: 'rectangle', center: [0, 0], width: 40, height: 20 }] } };
+        yield { type: 'tool', id: 'c2', name: 'add_extrude', input: { sketch: 'nope', depth: 5 } };
+      };
+    });
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const box = page.getByRole('textbox', { name: 'Message the assistant' });
+    await box.fill('A plate');
+    await box.press('Enter');
+    await expect(page.locator('.as-bot').getByText('a plate')).toBeVisible({ timeout: 30_000 });
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test('feature panels with selection boxes pass axe in the dark theme', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
     await openApp(page);
@@ -138,6 +165,31 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
 
+  test('the menubar is one tab stop, and Up opens a menu at its last item', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const bar = page.getByRole('menubar');
+    await bar.getByRole('menuitem', { name: 'File' }).focus();
+    await page.keyboard.press('ArrowRight');
+    const edit = bar.getByRole('menuitem', { name: 'Edit' });
+    await expect(edit).toBeFocused();
+    // Leaving and coming back lands on Edit, and Shift+Tab leaves the menubar.
+    await expect(bar.locator('[tabindex="0"]')).toHaveCount(1);
+    await expect(edit).toHaveAttribute('tabindex', '0');
+    await page.keyboard.press('Shift+Tab');
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="menubar"]'))).toBe(false);
+    await edit.focus();
+    await page.keyboard.press('End');
+    await expect(bar.getByRole('menuitem', { name: 'Help' })).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(bar.getByRole('menuitem', { name: 'File' })).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    const menu = page.getByRole('menu', { name: 'File' });
+    await expect(menu).toBeVisible();
+    const items = menu.locator('button:not([aria-disabled="true"])');
+    await expect(items.last()).toBeFocused();
+  });
+
   test('the design tree keeps keyboard focus and a rename survives hovering the model', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
@@ -241,6 +293,43 @@ test.describe('accessibility', () => {
   });
 });
 
+test('a dialog opened from the command search with Enter stays open', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const search = page.getByRole('combobox', { name: 'Search commands' });
+  await search.click();
+  await page.keyboard.type('equations');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Equations and Global Variables' })).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.getByRole('dialog', { name: 'Equations and Global Variables' })).toBeVisible();
+});
+
+test('leaving the command search gives keyboard focus back to where it was', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const row = page.getByRole('treeitem', { name: 'Hole1' });
+  await row.focus();
+  const search = page.getByRole('combobox', { name: 'Search commands' });
+  await search.click();
+  await page.keyboard.type('equ');
+  // A rebuild redraws the tree meanwhile: focus goes to the row's replacement.
+  await page.evaluate(() => (window as unknown as { __parametric: { renderTrees(): void } }).__parametric.renderTrees());
+  await page.keyboard.press('Escape');
+  await expect(search).toHaveValue('');
+  await expect(row).toBeFocused();
+  // A command run from the search, and the dialog it opens, give focus back there too.
+  await search.click();
+  await page.keyboard.type('equations');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Equations and Global Variables' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(row).toBeFocused();
+});
+
 
 test('focus returns to the re-rendered tree row after a dialog closes', async ({ page }) => {
   await openApp(page);
@@ -253,6 +342,24 @@ test('focus returns to the re-rendered tree row after a dialog closes', async ({
   await page.evaluate(() => (window as unknown as { __parametric: { renderTrees(): void } }).__parametric.renderTrees());
   await page.keyboard.press('Escape');
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+});
+
+test('the part and Material rows of the design tree have context menus too', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const part = page.getByRole('treeitem', { name: 'Mounting Bracket' });
+  await part.focus();
+  await page.keyboard.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: 'Part menu' });
+  await expect(menu.getByRole('menuitem', { name: 'Part Properties...' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(part).toBeFocused();
+  await page.getByRole('treeitem', { name: /Aluminum 6061/ }).click({ button: 'right' });
+  await page.getByRole('menu', { name: 'Material menu' }).getByRole('menuitem', { name: 'Edit Material...' }).click();
+  await expect(page.getByRole('dialog', { name: 'Material' })).toBeVisible();
 });
 
 test('Shift+F10 opens the context menu of the focused tree row', async ({ page }) => {
@@ -463,4 +570,90 @@ test('the mouse wheel scrolls a CommandManager clipped by a narrow window', asyn
   // The last tool is now fully in view.
   const last = page.locator('.cm-tools .cm-group').last();
   expect((await last.boundingBox())!.x + (await last.boundingBox())!.width).toBeLessThanOrEqual(900);
+});
+
+test('the shortcut bar gives keyboard focus back to where S was pressed', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const row = page.getByRole('treeitem', { name: 'Hole1' });
+  await row.focus();
+  await page.keyboard.press('s');
+  const bar = page.getByRole('toolbar', { name: 'Shortcut bar' });
+  await expect(bar.getByRole('button').first()).toBeFocused();
+  // The arrow keys move the bar's one tab stop.
+  await page.keyboard.press('End');
+  await expect(bar.getByRole('button').last()).toBeFocused();
+  await expect(bar.locator('[tabindex="0"]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(bar).toHaveCount(0);
+  await expect(row).toBeFocused();
+  // A command that keeps focus where it is (Zoom to Fit) leaves it there too, not on the page.
+  await page.keyboard.press('s');
+  await bar.getByRole('button', { name: 'Zoom to Fit' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(bar).toHaveCount(0);
+  await expect(row).toBeFocused();
+});
+
+test("the start screen's units field is named by its visible label", async ({ page }) => {
+  await openApp(page);
+  const start = page.getByRole('dialog', { name: 'Parametric' });
+  await start.getByText('Units for new parts', { exact: true }).click();
+  await expect(start.getByRole('combobox', { name: 'Units for new parts', exact: true })).toBeFocused();
+});
+
+test('the task pane and left pane tabs each control a tab panel named by the chosen tab', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  for (const [list, tab] of [['Task pane', 'Appearance'], ['Task pane', 'Getting started'], ['Panels', 'PropertyManager'], ['Panels', 'Design tree']] as const) {
+    const t = page.getByRole('tablist', { name: list }).getByRole('tab', { name: tab, exact: true });
+    await t.click();
+    const panel = page.locator(`#${await t.getAttribute('aria-controls')}`);
+    await expect(panel).toHaveAttribute('role', 'tabpanel');
+    await expect(page.getByRole('tabpanel', { name: tab, exact: true })).toBeVisible();
+  }
+  expect(await seriousViolations(page)).toEqual([]);
+});
+
+test('a clipped CommandManager shows scroll buttons at its ends, and only then', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const cm = page.getByRole('region', { name: 'CommandManager' });
+  const left = cm.getByRole('button', { name: 'Scroll commands left' });
+  const right = cm.getByRole('button', { name: 'Scroll commands right' });
+  const tools = page.getByRole('toolbar', { name: 'Commands' });
+  const scroll = () => tools.evaluate((el) => el.scrollLeft);
+  // Wide enough: no buttons.
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await expect(left).toBeHidden();
+  await expect(right).toBeHidden();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(right).toBeVisible();
+  await expect(left).toBeHidden();
+  // From the keyboard: Shift+Tab from the tabs below reaches the button at the end.
+  await page.getByRole('tab', { name: 'Features', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(right).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(scroll).toBeGreaterThan(0);
+  // Scrolled to the end, it goes, and focus moves to the last tool rather than to the page.
+  await expect(right).toBeHidden();
+  await expect(tools.getByRole('button').last()).toBeFocused();
+  const b = (await tools.getByRole('button').last().boundingBox())!;
+  expect(b.x + b.width).toBeLessThanOrEqual(1024);
+  await expect(left).toBeVisible();
+  // A narrow button at the edge (it once took the start screen's styles, sharing its class).
+  expect((await left.boundingBox())!.width).toBeLessThanOrEqual(32);
+  await expect(page.locator('.start')).toHaveCount(0);
+  await left.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(scroll).toBe(0);
+  await expect(left).toBeHidden();
+  // A tool reached with the keyboard under the button at the end comes out from under it.
+  const hidden = await tools.getByRole('button').evaluateAll((els) => els.findIndex((el) => el.getBoundingClientRect().right > window.innerWidth - 28));
+  await tools.getByRole('button').nth(hidden).focus();
+  await expect.poll(scroll).toBeGreaterThan(0);
+  const r = (await tools.getByRole('button').nth(hidden).boundingBox())!;
+  expect(r.x + r.width).toBeLessThanOrEqual(1024);
 });

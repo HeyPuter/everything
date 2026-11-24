@@ -38,7 +38,22 @@ async function mockPuter(page: Page) {
         async read(path: string) { const f = files.get(path); if (!f) throw { code: 'subject_does_not_exist', message: 'Not found' }; return new Blob([f.text]); },
         async readdir(path: string) { const pre = `/tester/AppData/parametric/${path}/`; return [...files.keys()].filter((k) => k.startsWith(pre)).map(item); },
         async delete(path: string) { if (path.includes('Locked')) throw { message: 'Permission denied' }; files.delete(path); },
-        async rename(path: string, name: string) { const np = path.replace(/[^/]+$/, name); files.set(np, files.get(path)!); files.delete(path); return item(np); },
+        async move(path: string, to: string, opts?: { newName?: string; dedupeName?: boolean }) {
+          if (path.includes('Locked')) throw { message: 'Permission denied' };
+          const f = files.get(path);
+          if (!f) throw { code: 'subject_does_not_exist', message: 'Not found' };
+          let np = `${to.replace(/^~/, '/tester')}/${opts?.newName ?? path.split('/').pop()}`;
+          for (let n = 1; files.has(np) && opts?.dedupeName; n++) np = np.replace(/( \(\d+\))?(\.[^./]*)?$/, ` (${n})$2`);
+          files.delete(path);
+          files.set(np, f);
+          return item(np);
+        },
+        async rename(path: string, name: string) {
+          const np = path.replace(/[^/]+$/, name);
+          // As Puter's rename answers (its writes and moves say item_with_same_name_exists).
+          if (np !== path && files.has(np)) throw { code: 'conflict', message: `An entry named \`${name}\` already exists` };
+          files.set(np, files.get(path)!); files.delete(path); return item(np);
+        },
         async stat(path: string) { if (!files.has(path)) throw { code: 'subject_does_not_exist', message: 'Not found' }; return item(path); },
         async mkdir() { return {}; },
         async listShared() { return { items: [] }; },
@@ -348,7 +363,9 @@ test('a cloud part renamed in another tab is saved under its new name, not again
   await a.evaluate(() => { void (window as unknown as W).__parametric.commands.get('rename')!.run(); });
   await a.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Renamed');
   await a.getByRole('button', { name: 'OK', exact: true }).click();
-  await expect(b).toHaveTitle(/Renamed - Parametric/);
+  // Nothing was changed in this tab: the part is still what its file holds.
+  await expect(b).toHaveTitle('Renamed - Parametric');
+  expect(await b.evaluate(() => (window as unknown as W).__parametric.store.dirty)).toBe(false);
   await b.evaluate(() => { (window as unknown as W).__files.delete('/tester/AppData/parametric/Parts/Part1.parametric'); (window as unknown as W).__parametric.commands.run('save'); });
   await expect.poll(() => b.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Renamed.parametric']);
 });
@@ -371,6 +388,32 @@ test('a cloud part renamed in Part Properties is saved under its new name, like 
   await expect.poll(() => page.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Holder- v2.parametric']);
 });
 
+test('a cloud part the assistant renames is saved under its new name, like Rename Part', async ({ page }) => {
+  type W = Mock & { __parametric: import('../../src/app/app').App };
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Renamed.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'set_part', input: { name: 'Holder: v2' } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => { const p = (window as unknown as W).__parametric; p.store.change('X', (d) => { d.variables.push({ id: 'v1', name: 'X', expr: '1' }); }); p.commands.run('save'); });
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.store.dirty)).toBe(false);
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Call it Holder: v2');
+  await box.press('Enter');
+  await expect(page.getByText('Renamed.')).toBeVisible();
+  await expect(page).toHaveTitle(/Holder- v2 - Parametric/);
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/AppData/parametric/Parts/Holder- v2.parametric' });
+  await page.evaluate(() => (window as unknown as W).__parametric.commands.run('save'));
+  await expect.poll(() => page.evaluate(() => [...(window as unknown as W).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Holder- v2.parametric']);
+  // The rename is part of the message's one undo step.
+  await expect(page.getByRole('button', { name: 'Undo changes' })).toBeVisible();
+});
+
 test('a pending recovery copy is written as soon as the tab is hidden', async ({ page }) => {
   await mockPuter(page);
   await openApp(page);
@@ -383,6 +426,78 @@ test('a pending recovery copy is written as soon as the tab is hidden', async ({
   });
   // Well before the usual few seconds after the last change.
   await expect.poll(() => page.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 1500 }).toContain('"name":"Hidden"');
+});
+
+for (const how of ['closed', 'reloaded'] as const) test(`changes made just before the tab is ${how} are offered for recovery`, async ({ context }) => {
+  const first = await context.newPage();
+  await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  // Closed or reloaded right away, before browser storage could be written.
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Last', expr: '1' }); }));
+  let page = first;
+  if (how === 'closed') {
+    await first.close({ runBeforeUnload: false });
+    page = await context.newPage();
+    await openApp(page);
+  } else {
+    first.on('dialog', (d) => void d.accept());
+    await first.reload();
+  }
+  const offer = page.getByRole('dialog', { name: 'Recover unsaved work?' });
+  await offer.getByRole('button', { name: 'Restore' }).click();
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['Last']);
+  // Restored, the closing tab's quick copy is gone too, and the copy is not offered again.
+  const quickCopies = (p: typeof page) => p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('parametric:recovery-unload:')));
+  await expect.poll(() => quickCopies(page)).toEqual([]);
+  await page.evaluate(() => { (window as unknown as { __parametric: AppHandle }).__parametric.store.dirty = false; });
+  const next = await context.newPage();
+  await openApp(next);
+  await expect(next.getByRole('button', { name: /New part/ })).toBeVisible();
+  await expect(next.getByRole('dialog', { name: 'Recover unsaved work?' })).toHaveCount(0);
+});
+
+test('the quick copy a closing tab keeps goes when it is discarded, or when its tab saves after all', async ({ context }) => {
+  const quickCopies = (p: import('@playwright/test').Page) => p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('parametric:recovery-unload:')));
+  const first = await context.newPage();
+  await mockPuter(first);
+  await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Gone', expr: '1' }); }));
+  // The tab is hidden and comes back (a page kept for Back, say), then saves.
+  await first.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+  expect(await quickCopies(first)).toHaveLength(1);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect.poll(() => quickCopies(first)).toEqual([]);
+  // Closed with changes, then discarded in the next tab.
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('B', (d) => { d.variables.push({ name: 'Again', expr: '1' }); }));
+  await first.close({ runBeforeUnload: false });
+  const next = await context.newPage();
+  await mockPuter(next);
+  await openApp(next);
+  expect(await quickCopies(next)).toHaveLength(1);
+  await next.getByRole('dialog', { name: 'Recover unsaved work?' }).getByRole('button', { name: 'Discard' }).click();
+  await expect.poll(() => quickCopies(next)).toEqual([]);
+});
+
+test('unsaved work left by a closed tab is offered in one tab, not in every tab opened at the same time', async ({ context }) => {
+  const first = await context.newPage();
+  await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Left', expr: '1' }); }));
+  await first.close({ runBeforeUnload: false });
+  // A browser restoring its tabs opens several at once.
+  const [a, b] = [await context.newPage(), await context.newPage()];
+  await Promise.all([openApp(a), openApp(b)]);
+  const offers = async () => (await a.getByRole('dialog', { name: 'Recover unsaved work?' }).count()) + (await b.getByRole('dialog', { name: 'Recover unsaved work?' }).count());
+  await expect.poll(offers).toBe(1);
+  // The other tab carries on to its start screen.
+  const other = (await a.getByRole('dialog', { name: 'Recover unsaved work?' }).count()) ? b : a;
+  await expect(other.getByRole('button', { name: /New part/ })).toBeVisible();
+  expect(await offers()).toBe(1);
 });
 
 test('the start screen gives way to work started behind it, which an example then does not replace silently', async ({ page }) => {
@@ -461,6 +576,103 @@ test('after signing out, saving a cloud part asks to sign in instead of writing 
   await expect(toasts.getByText(/Sign in to Puter to save this part to your cloud/)).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as Mock).__files.size)).toBe(0);
   await expect(page).toHaveTitle('* Part1 - Parametric');
+  // The message suggests Save As to keep the part in this browser: it is offered.
+  await toasts.getByRole('button', { name: 'Save As...' }).click();
+  const ask = page.getByRole('dialog', { name: 'Save As' });
+  await ask.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location?.type)).toBe('local');
+  expect(await page.evaluate(() => (window as unknown as Mock).__files.size)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('signing in with a part kept in this browser says Save As moves it to the cloud', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { puter: { auth: { isSignedIn(): boolean; signIn(): Promise<boolean> } }; signedIn: boolean };
+    w.signedIn = false;
+    w.puter.auth.isSignedIn = () => w.signedIn;
+    w.puter.auth.signIn = async () => { w.signedIn = true; return true; };
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location?.type)).toBe('local');
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.openTaskPane('files'));
+  await expect(page.locator('.tp-body')).toContainText('Parts in this browser');
+  await page.getByRole('button', { name: 'Account: not signed in' }).click();
+  await page.getByRole('menuitem', { name: 'Sign in with Puter' }).click();
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts).toContainText('"Part1" stays in this browser until you save it to the cloud with Save As.');
+  // The Parts pane, open meanwhile, now lists the cloud parts too.
+  await expect(page.locator('.tp-body')).toContainText('Your parts');
+  await toasts.getByRole('button', { name: 'Save As...' }).click();
+  await expect.poll(() => page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Part1.parametric']);
+  expect(errors).toEqual([]);
+});
+
+test('a recent cloud part chosen while signed out offers to sign in, then opens', async ({ page }) => {
+  await mockPuter(page);
+  const path = '/tester/AppData/parametric/Parts/Bracket.parametric';
+  await page.addInitScript((path) => {
+    const w = window as unknown as Mock & { puter: { auth: { isSignedIn(): boolean; signIn(): Promise<boolean> } }; signedIn: boolean };
+    w.signedIn = false;
+    w.puter.auth.isSignedIn = () => w.signedIn;
+    w.puter.auth.signIn = async () => { w.signedIn = true; return true; };
+    w.__files.set(path, { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Bracket', units: 'MMGS', features: [] }) });
+    localStorage.setItem('parametric:recent', JSON.stringify([{ location: { type: 'cloud', path }, name: 'Bracket', opened: 1 }]));
+  }, path);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /^Bracket/ }).click();
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts).toContainText('Sign in to Puter to open parts saved in your cloud.');
+  await toasts.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveTitle('Bracket - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path });
+  expect(errors).toEqual([]);
+});
+
+test('a cloud save that cannot reach Puter offers to keep the part in this browser', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; puter: { fs: { write: () => Promise<unknown> } } };
+    // Offline: puter.js rejects with the request that got no answer.
+    w.puter.fs.write = async () => { throw { readyState: 4, status: 0, responseText: '' }; };
+    w.__parametric.store.change('Work', (d) => { d.variables.push({ name: 'Offline', expr: '1' }); });
+    w.__parametric.commands.run('save');
+  });
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts).toContainText('Puter could not be reached. Check your connection and try again.');
+  await toasts.getByRole('button', { name: 'Save in this browser' }).click();
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await expect(toasts).toContainText('Saved in this browser.');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location?.type)).toBe('local');
+  const stored = await page.evaluate(async (url) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return JSON.parse(await (await import(url)).loadText(a.location)).variables.map((v: { name: string }) => v.name);
+  }, '/src/platform/files.ts');
+  expect(stored).toEqual(['Offline']);
+  expect(errors).toEqual([]);
+});
+
+test('the Parts pane says how many older parts it leaves out, and shows them all in Open', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const files = (window as unknown as Mock).__files;
+    for (let i = 1; i <= 53; i++) files.set(`/tester/AppData/parametric/Parts/P${i}.parametric`, { text: '{}', modified: 1_600_000_000 + i });
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.openTaskPane('files'));
+  const pane = page.locator('.tp-body');
+  await expect(pane.getByRole('listitem')).toHaveCount(50);
+  await pane.getByRole('button', { name: '3 more parts: show all in Open' }).click();
+  await expect(page.getByRole('dialog', { name: 'Open' }).getByRole('listitem')).toHaveCount(53);
   expect(errors).toEqual([]);
 });
 
@@ -509,6 +721,25 @@ test('closing the Puter desktop window asks about unsaved changes first', async 
   await expect.poll(exited).toBe(1);
 });
 
+test('the Puter desktop window is titled with the part and its unsaved changes', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { puter: { env: string; ui: { setWindowTitle(t: string): void } }; __titles: string[] };
+    w.__titles = [];
+    w.puter.env = 'app';
+    w.puter.ui.setWindowTitle = (t) => { w.__titles.push(t); };
+  });
+  await openApp(page);
+  await app(page);
+  const titles = () => page.evaluate(() => (window as unknown as { __titles: string[] }).__titles);
+  await expect.poll(async () => (await titles()).at(-1)).toBe('Part1 - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
+  await expect.poll(async () => (await titles()).at(-1)).toBe('* Part1 - Parametric');
+  // Told only when the title changes.
+  const list = await titles();
+  expect(list.filter((t, i) => t === list[i - 1])).toEqual([]);
+});
+
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
@@ -524,11 +755,70 @@ test('parts are deleted from the Open dialog with a button, and stay listed when
   await dialog.getByRole('button', { name: 'Delete Bracket' }).click();
   await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
   await expect(dialog.getByRole('button', { name: /^Bracket/ })).toHaveCount(0);
-  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Locked.parametric']);
+  // As the question said, it went to the Puter Trash, where it can be restored from.
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Locked.parametric', '/tester/Trash/Bracket.parametric']);
   await dialog.getByRole('button', { name: 'Delete Locked' }).click();
   await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByRole('region', { name: 'Notifications' }).getByText('Permission denied')).toBeVisible();
   await expect(dialog.getByRole('button', { name: /^Locked/ })).toBeVisible();
+});
+
+test('parts of the same name all go to the Trash, a gone part counts as deleted, and none is deleted without a Trash', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const files = (window as unknown as Mock).__files;
+    const part = (n: string) => ({ text: JSON.stringify({ format: 'parametric-part', version: 1, name: n, units: 'MMGS', features: [] }) });
+    files.set('/tester/AppData/parametric/Parts/Bracket.parametric', part('Bracket'));
+    files.set('/tester/Trash/Bracket.parametric', part('Bracket'));
+    files.set('/tester/AppData/parametric/Parts/Gone.parametric', part('Gone'));
+    files.set('/tester/AppData/parametric/Parts/Kept.parametric', part('Kept'));
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('open'));
+  const dialog = page.getByRole('dialog', { name: 'Open' });
+  const remove = async (name: string) => {
+    await dialog.getByRole('button', { name: `Delete ${name}` }).click();
+    await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
+  };
+  // One of that name is in the Trash already: Puter gives this one a free name.
+  await remove('Bracket');
+  await expect(dialog.getByRole('button', { name: /^Bracket/ })).toHaveCount(0);
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()].filter((k) => k.startsWith('/tester/Trash/')).sort())).toEqual(['/tester/Trash/Bracket (1).parametric', '/tester/Trash/Bracket.parametric']);
+  // Deleted elsewhere meanwhile: it leaves the list without an error.
+  await page.evaluate(() => (window as unknown as Mock).__files.delete('/tester/AppData/parametric/Parts/Gone.parametric'));
+  await remove('Gone');
+  await expect(dialog.getByRole('button', { name: /^Gone/ })).toHaveCount(0);
+  // Without a Trash the part is not deleted for good.
+  await page.evaluate(() => {
+    const w = window as unknown as Mock & { puter: { fs: { move: () => Promise<unknown> } } };
+    w.puter.fs.move = async () => { throw { code: 'subject_does_not_exist', message: 'Not found' }; };
+  });
+  await remove('Kept');
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('The part was not deleted: your Puter Trash could not be found.');
+  await expect(dialog.getByRole('button', { name: /^Kept/ })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as Mock).__files.has('/tester/AppData/parametric/Parts/Kept.parametric'))).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('File New names the part after the parts already open, recent or kept here', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('parametric:recent', JSON.stringify([{ location: { type: 'cloud', path: '/tester/AppData/parametric/Parts/Part2.parametric' }, name: 'Part2', opened: 1 }]));
+    localStorage.setItem('parametric:local-parts', JSON.stringify([{ id: 'part-x', name: 'part3', modified: 1, size: 1 }]));
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+  await expect(page).toHaveTitle('Part4 - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+  await expect(page).toHaveTitle('Part5 - Parametric');
+  expect(errors).toEqual([]);
 });
 
 test('opening a part puts it first in the recent parts', async ({ page }) => {
@@ -823,6 +1113,33 @@ test('a part launched from the desktop asks before replacing unsaved work', asyn
   expect(errors).toEqual([]);
 });
 
+test('a part launched from the desktop by its home-folder path opens under its full path, once', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    type Item = { name: string; path: string; size: string; modified: string };
+    type Launch = (items: Item[]) => Promise<void>;
+    const w = window as unknown as Mock & { puter: { fs: { stat(p: string): Promise<unknown>; read(p: string): Promise<Blob> }; ui: { onLaunchedWithItems(fn: Launch): void } }; launchPart: Launch };
+    w.puter.ui.onLaunchedWithItems = (fn) => { w.launchPart = fn; };
+    // Puter reads ~ as the home folder, and stat names the file by its full path.
+    const { stat, read } = w.puter.fs;
+    w.puter.fs.stat = (p) => stat.call(w.puter.fs, p.replace(/^~/, '/tester'));
+    w.puter.fs.read = (p) => read.call(w.puter.fs, p.replace(/^~/, '/tester'));
+    w.__files.set('/tester/Documents/Opened.parametric', { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Opened', features: [] }) });
+  });
+  const errors = await openApp(page);
+  await app(page);
+  // As puter.js hands them over from the launch URL: size and time as text.
+  const launch = () => page.evaluate(() => (window as unknown as { launchPart(items: unknown[]): Promise<void> }).launchPart([{ name: 'Opened.parametric', path: '~/Documents/Opened.parametric', size: '80', modified: '1700000000' }]));
+  await launch();
+  await expect(page).toHaveTitle('Opened - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/Documents/Opened.parametric' });
+  await launch();
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('"Opened" is already open.');
+  const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
+  expect(recent.map((r: { location: { path: string } }) => r.location.path)).toEqual(['/tester/Documents/Opened.parametric']);
+  expect(errors).toEqual([]);
+});
+
 test('a cloud part renamed on the Puter desktop opens under its file name', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
@@ -1036,6 +1353,29 @@ test('a cloud part renamed while a sketch is open keeps its new name when the sk
   expect(errors).toEqual([]);
 });
 
+test('a cloud part whose file cannot take the new name keeps its name, and says why', async ({ page }) => {
+  type W = Mock & { __parametric: import('../../src/app/app').App };
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as W;
+    w.__files.set('/tester/AppData/parametric/Parts/Bracket.parametric', { text: '{}' });
+    w.__parametric.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => { void (window as unknown as W).__parametric.commands.run('rename'); });
+  await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Bracket');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page.getByText('A file named "Bracket.parametric" already exists in this folder. Choose another name.')).toBeVisible();
+  // Opened again, a cloud part takes its file's name: the part keeps the name the file has.
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as W).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/AppData/parametric/Parts/Part1.parametric' });
+  expect(await page.evaluate(() => (window as unknown as W).__files.get('/tester/AppData/parametric/Parts/Bracket.parametric')!.text)).toBe('{}');
+  expect(errors).toEqual([]);
+});
+
 test('renaming a cloud part to the name it already has leaves its file alone', async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);
@@ -1070,6 +1410,8 @@ test('a delayed cloud rename does not attach its file to a new part', async ({ p
     a.commands.run('save');
   });
   await expect(page).toHaveTitle('Part1 - Parametric');
+  // Unsaved work, so New asks while the rename is pending.
+  await page.evaluate(() => { (window as unknown as { __parametric: AppHandle }).__parametric.store.change('Edit', (d) => { d.variables[0].expr = '11'; }); });
   await page.evaluate(() => {
     type W = { __parametric: import('../../src/app/app').App; puter: { fs: { rename: (...args: unknown[]) => Promise<unknown> } }; renameStarted: boolean; releaseRename: () => void; pendingRename: Promise<void> };
     const w = window as unknown as W;
@@ -1176,9 +1518,19 @@ for (const next of ['close', 'save', 'retry backup', 'discard'] as const) test(`
   await recover.getByRole('button', { name: 'Restore', exact: true }).click();
   expect(await b.evaluate(() => (window as unknown as { pendingRecovery: Promise<boolean> }).pendingRecovery)).toBe(true);
   await expect(b).toHaveTitle('* Keep backup - Parametric');
-  const retained = await b.evaluate(async (url) => (await import(url)).orphanRecoveries(), '/src/platform/files.ts');
+  // The backup is kept in browser storage, and other tabs do not offer it while this one holds it.
+  const retained = await b.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('parametric-parts');
+    const texts: string[] = [];
+    for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemFileHandle]> }).entries()) {
+      if (name.startsWith('recovery-')) texts.push(await (await handle.getFile()).text());
+    }
+    // The failed write leaves this tab's own file empty.
+    return texts.filter(Boolean);
+  });
   expect(retained).toHaveLength(1);
-  expect(retained[0].text).toContain('Keep backup');
+  expect(retained[0]).toContain('Keep backup');
+  expect(await b.evaluate(async (url) => (await import(url)).orphanRecoveries(), '/src/platform/files.ts')).toHaveLength(0);
   if (next !== 'close') {
     await b.evaluate(() => (window as unknown as { restoreWrites: () => void }).restoreWrites());
     if (next === 'save') {
@@ -1704,7 +2056,8 @@ for (const later of [false, true]) test(`recovering work on a cloud part ${later
   await first.getByRole('button', { name: /New part/ }).click();
   await app(first);
   await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
-  await expect(first).toHaveTitle('Part1 - Parametric');
+  // A new part's title has no edit mark before the save either: wait for the file.
+  await expect.poll(() => first.evaluate((path) => (window as unknown as Mock).__files.has(path), path)).toBe(true);
   const saved = await first.evaluate((path) => (window as unknown as Mock).__files.get(path)!, path);
   await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('E', (d) => { d.variables.push({ name: 'Unsaved', expr: '1' }); }));
   await expect.poll(() => first.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 10_000 }).toContain('"name":"Unsaved"');

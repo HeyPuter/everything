@@ -2,11 +2,12 @@
 // is the only way to know the modeling features actually produce solids.
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
-import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
+import { ModelBuilder, checkStep, errorText, isFatal, stepString } from '../src/kernel/build';
 import * as R from 'replicad';
 import { type Sh, getOc, isValid, mirrored, rotated, setOc, subShapes } from '../src/kernel/occ';
 import type { Feature, FilletFeature, LinearPatternFeature, ShellFeature, SkDimension, SkEntity, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
+import { type Vec3, normalize } from '../src/math/vec';
 import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
 
@@ -174,6 +175,9 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(1000 + Math.PI * 4 * 10, 3);
     r = await b.build(req(pin({ flip: true })));
     expect(r.status[3].error).toMatch(/no body to extrude through/);
+    // Direction 2 through all, away from the body, says it is Direction 2.
+    r = await b.build(req(pin({ dir2: { end: 'throughAll', depth: 1 } })));
+    expect(r.status[3].error).toBe('There is no body to extrude through in Direction 2. Use Blind for it, or turn Direction 2 off.');
     r = await b.build(req([sketch('S2', circle(5, 15, 2)), extrude('E2', 'S2', 1, { end: 'throughAll' })]));
     expect(r.status[1].error).toMatch(/needs a body/);
   });
@@ -261,6 +265,21 @@ describe('feature regeneration', () => {
     expect(over.status[1].error).toBe('The angle cannot be more than 360 degrees');
   });
 
+  it('revolves about the free-standing centerline, not a construction diagonal of the profile', async () => {
+    const b = new ModelBuilder();
+    const ents = [
+      ...rect(5, 0, 10, 20, 'r'),
+      // A center rectangle's diagonal, listed before the axis.
+      { id: 'dg', t: 'line', a: 'rp0', b: 'rp2', construction: true },
+      { id: 'a1', t: 'point', x: 0, y: -5 }, { id: 'a2', t: 'point', x: 0, y: 25 },
+      { id: 'axis', t: 'line', a: 'a1', b: 'a2', construction: true },
+    ] as any[];
+    // It revolved about the diagonal, which crosses the profile.
+    const res = await b.build(req([sketch('S1', ents), revolve('R1', 'S1')]));
+    expect(res.status[1].error).toBeUndefined();
+    expect(volume(b)).toBeCloseTo(Math.PI * (100 - 25) * 20, 0);
+  });
+
   it('rejects a revolve profile that crosses its axis with a readable error', async () => {
     const b = new ModelBuilder();
     const axis = [
@@ -296,6 +315,25 @@ describe('feature regeneration', () => {
     const preview = await b.build(req(base, { preview: extrude('E2', 'S2', 5, { cut: true, end: 'throughAll' }) }));
     expect(preview.previewWarning).toMatch(/does not remove any material/);
     expect((await b.build(req(base, { preview: extrude('E2', 'S2', 5, { cut: true, end: 'throughAll', flip: true }) }))).previewWarning).toBeUndefined();
+  });
+
+  it('warns when a boss or mirror adds no material', async () => {
+    // A boss sketched on the base and extruded into the box (Reverse direction) changed nothing, silently.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', circle(0, 0, 3))];
+    const inside = await b.build(req([...base, extrude('E2', 'S2', 5)]));
+    expect(inside.status[3]).toMatchObject({ ok: true, warning: 'The feature adds no material: it lies inside the part. Check its direction.' });
+    expect((await b.build(req([...base, extrude('E2', 'S2', 5, { flip: true })]))).status[3]).toEqual({ id: 'E2', ok: true });
+    // Half inside still adds the other half.
+    expect((await b.build(req([...base, extrude('E2', 'S2', 5, { end: 'midPlane' })]))).status[3]).toEqual({ id: 'E2', ok: true });
+    const mirror = (plane: 'right' | 'top'): Feature => ({ id: 'M', name: 'M', type: 'mirror', seeds: [], plane: { kind: 'base', plane } });
+    expect((await b.build(req([...base.slice(0, 2), mirror('right')]))).status[2]).toMatchObject({ ok: true, warning: expect.stringMatching(/already symmetric/) });
+    expect((await b.build(req([sketch('S1', rect(0, -10, 10, 10)), extrude('E1', 'S1', 10), mirror('right')]))).status[2]).toEqual({ id: 'M', ok: true });
+    // Copies of a boss that all land inside the part.
+    const boss: Feature[] = [...base, extrude('E2', 'S2', 5, { flip: true })];
+    const lin = (spacing: number): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'z' }, spacing, count: 2, flip: false }, dir2: null });
+    expect((await b.build(req([...boss, lin(8)]))).status[4]).toMatchObject({ ok: true, warning: expect.stringMatching(/copies add no material/) });
+    expect((await b.build(req([...boss, lin(-8)]))).status[4]).toEqual({ id: 'P', ok: true });
   });
 
   it('sweeps along path segments drawn in any order', async () => {
@@ -338,6 +376,11 @@ describe('feature regeneration', () => {
     ]));
     expect(extra.status[3].ok).toBe(true);
     expect(extra.status[3].warning).toMatch(/first closed contour/);
+    // Profiles in one plane, and a path that is the profile's own sketch, say so.
+    const flat = await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), sketch('S2', circle(30, 0, 5)), loft]));
+    expect(flat.status[2].error).toBe('The profiles S1 and S2 lie in the same plane. Sketch each profile on its own plane.');
+    const self = await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), { id: 'SW', name: 'SW', type: 'sweep', profile: 'S1', path: 'S1', cut: false }]));
+    expect(self.status[1].error).toBe('The profile and the path are the same sketch. Draw the path in a sketch of its own.');
     // A tube profile sweeps into a pipe.
     const P = (id: string, x: number, y: number) => ({ id, t: 'point', x, y });
     const path = sketch('PA', [P('a', 0, 0), P('b', -30, 0), { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[], { kind: 'base', plane: 'right' });
@@ -403,6 +446,25 @@ describe('feature regeneration', () => {
     const r2 = await b.build(req(taller));
     expect(r2.status.every((s) => s.ok)).toBe(true);
     expect(volume(b)).toBeCloseTo(30 * 20 * 25 - 4 * (4 - Math.PI) * 25, 2);
+  });
+
+  it('rounds all of an edge an upstream cut split, and says when its edge is gone', async () => {
+    // A notch cut through the edge rounded only the half nearest its middle;
+    // a step cut along the whole edge moved the fillet to the next edge without a word.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20, 'b')), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const e = r0.edges.find((x) => x.type === 'line' && Math.abs(x.mid[1]) < 1e-6 && Math.abs(x.mid[2] - 10) < 1e-6)!;
+    const fillet: Feature = { id: 'F', name: 'F', type: 'fillet', edges: [{ name: e.name, sig: { type: 'line', m: e.mid, len: e.length } }], faces: [], radius: 2 };
+    const notch: Feature[] = [sketch('S2', rect(18, -1, 22, 5, 'n')), extrude('E2', 'S2', 20, { cut: true, end: 'throughAll', flip: true })];
+    await b.build(req([...base, ...notch]));
+    const before = volume(b);
+    const r = await b.build(req([...base, ...notch, fillet]));
+    expect(r.status[4]).toEqual({ id: 'F', ok: true });
+    expect(before - volume(b)).toBeCloseTo((4 - Math.PI) * 36, 3);
+    const top = { kind: 'face' as const, face: { name: 'E1:cap1', sig: { type: 'plane', c: [20, 10, 10] as Vec3, n: [0, 0, 1] as Vec3, area: 800 } } };
+    const step: Feature[] = [sketch('S3', rect(-1, -1, 41, 3, 's'), top), extrude('E3', 'S3', 0.5, { cut: true })];
+    expect((await b.build(req([...base, ...step, fillet]))).status[4]).toMatchObject({ ok: true, warning: expect.stringMatching(/A selected edge \(made by E1\) is gone; the edge nearest its place was used/) });
   });
 
   it('names the side face of a wide arc after the arc, not after a nearby line', async () => {
@@ -509,6 +571,15 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(6000 - 28 * 18 * 9, 1);
   });
 
+  it('says to remove fewer faces when the faces a shell opens leave nothing to hold its walls', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20)), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const sides = r0.faces.filter((f) => f.name.includes(':side:')).map((f) => ({ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }));
+    const r = await b.build(req([...base, { id: 'SH', name: 'SH', type: 'shell', faces: sides, thickness: 1, outward: false }]));
+    expect(r.status[2].error).toBe('The shell could not be created. Try a smaller thickness, or remove fewer faces.');
+  });
+
   it('shells a box with no faces removed into a closed hollow part', async () => {
     const b = new ModelBuilder();
     const base = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];
@@ -576,6 +647,9 @@ describe('feature regeneration', () => {
     r = await b.build(req([...base, pos, hole('throughAll', 0, 5)]));
     expect(r.status[3].ok).toBe(true);
     expect(4800 - volume(b)).toBeCloseTo(Math.PI * 16 * 3, 3);
+    // No hole of the hole diameter is left, which is likely a slip: said.
+    expect(r.status[3].warning).toBe('The counterbore goes through the part, so no hole of the hole diameter is left. Check its depth.');
+    expect((await b.build(req([...base, pos, hole('throughAll', 0, 1)]))).status[3]).toEqual({ id: 'H', ok: true });
     // A blind countersunk hole ending inside its 2 mm deep countersink.
     const sink = (depth: number): Feature => ({ ...hole('blind', depth, 1), kind: 'countersink' } as Feature);
     r = await b.build(req([...base, pos, sink(2.5)]));
@@ -693,6 +767,9 @@ describe('feature regeneration', () => {
     expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
     const one = { ...lin(10), dir1: { ...(lin(10) as LinearPatternFeature).dir1, count: 1 } } as Feature;
     expect((await b.build(req([...base, one]))).status[4].error).toMatch(/only the original. Set 2 or more instances/);
+    // Direction 2 turned on without a direction says so.
+    const noDir2 = { ...lin(10), dir2: { ref: null, spacing: 5, count: 2, flip: false } } as Feature;
+    expect((await b.build(req([...base, noDir2]))).status[4].error).toBe('Select a direction for Direction 2');
     for (const p of [circ(360, true), circ(-360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
     // A full turn the other way makes the same four holes.
     await b.build(req([...base, circ(-360, true)]));
@@ -701,6 +778,37 @@ describe('feature regeneration', () => {
     const off = await b.build(req([...base, lin(100)]));
     expect(off.status[4].ok).toBe(true);
     expect(off.status[4].warning).toMatch(/do not remove any material/);
+  });
+
+  it('cuts and adds overlapping holes and pattern copies as their union', async () => {
+    // The copies went to the boolean as one compound, whose pieces it does
+    // not intersect with each other: two holes at one point cut nothing,
+    // overlapping holes cut one, and overlapping boss copies left a gap.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20)), extrude('E1', 'S1', 10)];
+    const holes = (pts: [number, number][]): Feature[] => [
+      sketch('S2', pts.map(([x, y], i) => ({ id: `hp${i}`, t: 'point', x, y }))),
+      { id: 'H', name: 'H', type: 'hole', sketch: 'S2', kind: 'simple', diameter: 5, end: 'throughAll', depth: 10, cbDiameter: 9, cbDepth: 3, csDiameter: 10, csAngle: 90, flip: true },
+    ];
+    const one = Math.PI * 6.25 * 10;
+    let res = await b.build(req([...base, ...holes([[10, 10], [10, 10]])]));
+    expect(res.status[3]).toEqual({ id: 'H', ok: true });
+    expect(8000 - volume(b)).toBeCloseTo(one, 3);
+    // Two holes 2 mm apart: the union of two 2.5 mm circles.
+    const lens = 2 * 6.25 * Math.acos(0.4) - Math.sqrt(21);
+    await b.build(req([...base, ...holes([[10, 10], [12, 10]])]));
+    expect(8000 - volume(b)).toBeCloseTo(2 * one - lens * 10, 3);
+    const lin = (seed: string, spacing: number): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: [seed], dir1: { ref: { kind: 'base', axis: 'x' }, spacing, count: 3, flip: false }, dir2: null });
+    res = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), lin('E1', 5)]));
+    expect(volume(b)).toBeCloseTo(2000, 3);
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
+    // Eight slots round a centre overlap there: a valid body with the union cut.
+    const circ: Feature = { id: 'P', name: 'P', type: 'circularPattern', seeds: ['E3'], axis: { kind: 'base', axis: 'z' }, count: 8, angle: 360, equal: true, flip: false };
+    res = await b.build(req([sketch('S1', rect(-50, -50, 50, 50)), extrude('E1', 'S1', 10), sketch('S3', rect(-5, 0, 5, 30)), extrude('E3', 'S3', 5, { cut: true, flip: true }), circ]));
+    expect(res.status[4]).toEqual({ id: 'P', ok: true });
+    expect(isValid((b as unknown as { current: { body: Sh } }).current.body)).toBe(true);
+    // Each slot overlaps the others over 5 / tan(22.5°) of its 5 mm half-width at the centre.
+    expect(100000 - volume(b)).toBeCloseTo((8 * 10 * 30 - 8 * 5 * 5 / Math.tan(Math.PI / 8)) * 5, 3);
   });
 
   it('suppresses the features built on a suppressed feature instead of failing them', async () => {
@@ -736,6 +844,55 @@ describe('feature regeneration', () => {
     r = await b.build(req(feats));
     expect(r.status.every((s) => s.ok && !s.suppressed)).toBe(true);
     expect(volume(b)).toBeCloseTo(50 * 10 * 5 - 2 * Math.PI * 4 * 5 + 10 * 10 * 5, 1);
+  });
+
+  it('names the faces of pattern copies after their copy even where they lie level with the seed', async () => {
+    // The copies' top faces took the seed's name: a fillet round one went to
+    // another copy when the spacing changed, and stayed on when the pattern
+    // was suppressed.
+    const b = new ModelBuilder();
+    const top = { kind: 'face' as const, face: { name: 'E1:cap1', sig: { type: 'plane', c: [50, 10, 5] as Vec3, n: [0, 0, 1] as Vec3, area: 2000 } } };
+    const base: Feature[] = [sketch('S1', rect(0, 0, 100, 20)), extrude('E1', 'S1', 5), sketch('S2', rect(2, 2, 12, 12), top), extrude('E2', 'S2', 5)];
+    const lin = (spacing: number, suppressed = false): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing, count: 4, flip: false }, dir2: null, suppressed });
+    let r = await b.build(req([...base, lin(20)]));
+    const tops = r.faces.filter((f) => f.type === 'plane' && Math.abs(f.center[2] - 10) < 1e-6).map((f) => f.name).sort();
+    expect(tops).toEqual(['E2:cap1', 'E2:cap1@P.1', 'E2:cap1@P.2', 'E2:cap1@P.3']);
+    const copy = r.faces.find((f) => f.name === 'E2:cap1@P.2')!;
+    const round = (name: string): FilletFeature => ({ id: 'F', name: 'F', type: 'fillet', edges: [], radius: 1, faces: [{ name, sig: { type: 'plane', c: copy.center, n: copy.normal, area: copy.area } }] });
+    const filleted = () => r.faces.filter((f) => f.name.startsWith('F:')).map((f) => f.center[0]);
+    // Spacing 20 to 30: the fillet stays on the second copy, now 20 mm further on.
+    r = await b.build(req([...base, lin(30), round(copy.name)]));
+    expect(r.status.every((s) => s.ok)).toBe(true);
+    for (const x of filleted()) expect(Math.abs(x - 67)).toBeLessThan(6);
+    // Suppressing the pattern suppresses what was built on its copy.
+    r = await b.build(req([...base, lin(20, true), round(copy.name)]));
+    expect(r.status.slice(4)).toEqual([{ id: 'P', ok: true, suppressed: true }, { id: 'F', ok: true, suppressed: true }]);
+    // A reference saved under the old naming (the seed's name, the copy's place) still finds the copy.
+    r = await b.build(req([...base, lin(20), round('E2:cap1')]));
+    expect(r.status.every((s) => s.ok)).toBe(true);
+    expect(filleted().length).toBeGreaterThan(0);
+    for (const x of filleted()) expect(Math.abs(x - 47)).toBeLessThan(6);
+  });
+
+  it('keeps a sketch on a face from turning when an upstream edit tilts the face', async () => {
+    // A draft of 8 degrees on the +X face kept the sketch's x axis along -Z;
+    // 9 degrees crossed the threshold of the axis choice and turned it to -Y.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20)), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const side = r0.faces.find((f) => f.normal && f.normal[0] > 0.9)!;
+    const draft = (angle: number): Feature => ({ id: 'D', name: 'D', type: 'draft', faces: [{ name: side.name, sig: { type: 'plane', c: side.center, n: side.normal, area: side.area } }], neutral: { kind: 'base', plane: 'top' }, angle, flip: false });
+    const r8 = await b.build(req([...base, draft(8)]));
+    const face = r8.faces.find((f) => f.name === `D:d:${side.name}`)!;
+    const onFace = (x?: Vec3) => sketch('S2', circle(5, 3, 1), { kind: 'face', face: { name: face.name, sig: { type: 'plane', c: face.center, n: face.normal, area: face.area } }, ...(x ? { x } : {}) });
+    const xAxis = async (angle: number, x?: Vec3) => (await b.build(req([...base, draft(angle), onFace(x)]))).frames.S2.x;
+    // Picked at 8 degrees, the face keeps the direction its frame was made from.
+    const kept: Vec3 = [0, 0, -1];
+    expect(r8.faces.find((f) => f.name === face.name)!.frame!.x[2]).toBeCloseTo(-1, 2);
+    for (const angle of [8, 9, 12]) expect((await xAxis(angle, kept))[2]).toBeLessThan(-0.95);
+    // Without it (parts saved before), the axis is chosen again as it always was.
+    expect((await xAxis(8))[2]).toBeLessThan(-0.95);
+    expect((await xAxis(9))[1]).toBeLessThan(-0.95);
   });
 
   it('mirrors and patterns a pattern of a boss and a cut as a boss and a cut', async () => {
@@ -788,11 +945,21 @@ describe('feature regeneration', () => {
       .toBe('The profile sketch (Profile) failed to build');
     expect(await status([plane], 'P1')).toBe('The reference plane no longer exists');
     expect(await status([extrude('E1', 'S1', 5), open], 'E1')).toBe('The profile sketch (Sketch1) comes after this feature in the tree');
+    // Deleting that sketch changes nothing before the extrude, but its message must follow.
+    expect(await status([extrude('E1', 'S1', 5)], 'E1')).toBe('The profile sketch no longer exists');
+    const lin: Feature = { id: 'LP', name: 'LP', type: 'linearPattern', seeds: ['E3'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 5, count: 3, flip: false }, dir2: null };
+    const seed: Feature[] = [named(sketch('S1', rect(0, 0, 5, 5)), 'Sketch1'), named(extrude('E3', 'S1', 5), 'Boss')];
+    expect(await status([lin, ...seed], 'LP')).toBe('The seed feature Boss comes after this feature in the tree');
+    expect(await status([lin], 'LP')).toBe('A seed feature no longer exists');
     expect(await status([extrude('E1', '', 5)], 'E1')).toBe('Select the profile sketch');
     // A face reference says which feature made the face.
     const base: Feature[] = [named(sketch('S2', rect(0, 0, 10, 10)), 'Sketch2'), named(extrude('E2', 'S2', 10), 'Boss')];
     const gone: ShellFeature = { id: 'SH', name: 'SH', type: 'shell', thickness: 1, outward: false, faces: [{ name: 'E2:side:zz', sig: { type: 'cone', c: [99, 99, 99], area: 1 } }] };
     expect(await status([...base, gone], 'SH')).toBe('A referenced face (made by Boss) no longer exists. Edit the feature and select it again.');
+    // A pattern copy that is gone was made by the pattern.
+    const pattern: Feature = named({ id: 'LP', name: '', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 20, count: 2, flip: false }, dir2: null }, 'Row');
+    const copy: ShellFeature = { ...gone, faces: [{ name: 'E2:side:zz@LP.5', sig: { type: 'cone', c: [99, 99, 99], area: 1 } }] };
+    expect(await status([...base, pattern, copy], 'SH')).toBe('A referenced face (made by Row) no longer exists. Edit the feature and select it again.');
   });
 
   it('reports selected regions that a sketch edit moved away', async () => {
@@ -842,6 +1009,12 @@ describe('feature regeneration', () => {
     expect(r2.mesh).toBe(r1.mesh);
     // The exact bounding box (slow for filleted bodies) is not computed again.
     expect(r2.bbox).toBe(r1.bbox);
+    // Opening and closing a sketch builds up to before it, then past it: the
+    // body is the same and is not meshed again.
+    const withSketch = [...feats, sketch('S3', circle(5, 5, 1))];
+    const open = await b.build({ ...req(withSketch), upTo: 2, preview: withSketch[2] });
+    expect(open.mesh).toBe(r1.mesh);
+    expect((await b.build(req(withSketch))).mesh).toBe(r1.mesh);
   });
 
   it('computes mass properties and exports STEP and STL', async () => {
@@ -861,6 +1034,20 @@ describe('feature regeneration', () => {
     expect(new DataView(stl.buffer).getUint32(80, true)).toBe(12);
   });
 
+  it('names the exported STEP product and file after the part', async () => {
+    const b = new ModelBuilder();
+    await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const step = new TextDecoder().decode(b.exportStep("O'Brien \\ Bracket \u00e9 $& v2"));
+    expect(step).not.toContain('Open CASCADE STEP translator');
+    expect(step).toMatch(/FILE_NAME\('O''Brien \\\\ Bracket \\X2\\00E9\\X0\\ \$& v2','[^']*',\(''\)/);
+    expect(step).toMatch(/PRODUCT\('O''Brien \\\\ Bracket \\X2\\00E9\\X0\\ \$& v2',\s*'O''Brien/);
+    // It still reads back as the same solid.
+    const imported = new ModelBuilder();
+    await imported.build(req([{ id: 'I1', name: 'Import1', type: 'import', format: 'step', blob: 'b1', fileName: 'x.step' }], { blobs: { b1: step } }));
+    expect(imported.massProperties()!.volume).toBeCloseTo(1000, 5);
+    expect(stepString('Straße 🙂')).toBe("'Stra\\X2\\00DF\\X0\\e \\X2\\D83DDE42\\X0\\'");
+  });
+
   it('reports draft angles of 90 degrees or more by name', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10, 'r')), extrude('E1', 'S1', 10)];
@@ -871,6 +1058,11 @@ describe('feature regeneration', () => {
     });
     for (const angle of [95, -90]) expect((await b.build(req([...base, draft(angle)]))).status[2].error).toMatch(/between -90 and 90 degrees/);
     expect((await b.build(req([...base, draft(-5)]))).status[2].ok).toBe(true);
+    // A draft of 0 degrees changes nothing: said, as for other features that change nothing.
+    expect((await b.build(req([...base, draft(0)]))).status[2]).toEqual({ id: 'D1', ok: true, warning: 'A draft angle of 0 degrees changes nothing. Enter an angle.' });
+    expect(volume(b)).toBeCloseTo(4000, 6);
+    // A value that is not a number (a damaged file) is named.
+    expect((await b.build(req([...base, { ...draft(5), angle: 'x' } as Feature]))).status[2].error).toBe('Draft angle has an invalid value');
   });
 
   it('says a body of surfaces only has no mass instead of a centre at the origin', async () => {
@@ -1013,6 +1205,51 @@ describe('feature regeneration', () => {
     // From the top the hole is hidden: two hidden lines.
     expect(top.bounds![3] - top.bounds![1]).toBeCloseTo(10, 3);
     expect(top.hidden.length).toBeGreaterThan(0);
+    // A view drawn without hidden lines is projected without them.
+    const [bare] = b.project([{ id: 'top', dir: [0, 1, 0], x: [1, 0, 0], hidden: false }]);
+    expect(bare.hidden).toEqual([]);
+    expect(bare.visible).toEqual(top.visible);
+  });
+
+  it('projects views without hidden lines (a ball), with arcs drawn exactly', async () => {
+    const b = new ModelBuilder();
+    // A half disc revolved about its straight side: a ball of radius 10.
+    const half: SkEntity[] = [
+      { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 },
+      { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'ab', t: 'line', a: 'b', b: 'a' },
+      { id: 'p1', t: 'point', x: 0, y: -20 }, { id: 'p2', t: 'point', x: 0, y: 20 }, { id: 'ax', t: 'line', a: 'p1', b: 'p2', construction: true },
+    ];
+    expect((await b.build(req([sketch('S1', half), revolve('R1', 'S1')]))).status.every((s) => s.ok)).toBe(true);
+    // Every view failed when one had no hidden lines at all.
+    const views = b.project([
+      { id: 'front', dir: [0, 0, 1], x: [1, 0, 0] },
+      { id: 'iso', dir: normalize([1, 1, 1]), x: normalize([1, 0, -1]) },
+    ]);
+    for (const v of views) {
+      expect(v.hidden).toEqual([]);
+      expect(v.visible.join('')).toMatch(/A10 10 /);
+      v.bounds!.forEach((x, i) => expect(x).toBeCloseTo(i < 2 ? -10 : 10, 6));
+    }
+  });
+
+  it('draws the whole outline of a ring in every view, also where it runs along the seam', async () => {
+    const b = new ModelBuilder();
+    // A ring: a circle of radius 5, 20 from the Y axis, revolved about it. Its seam (where the circle
+    // was) lies along the outline seen from the front and back, which lost its right (left) half.
+    const ring: SkEntity[] = [
+      { id: 'c', t: 'point', x: 20, y: 0 }, { id: 'cc', t: 'circle', c: 'c', r: 5 },
+      { id: 'p1', t: 'point', x: 0, y: -10 }, { id: 'p2', t: 'point', x: 0, y: 10 }, { id: 'ax', t: 'line', a: 'p1', b: 'p2', construction: true },
+    ];
+    expect((await b.build(req([sketch('S1', ring), revolve('R1', 'S1')]))).status.every((s) => s.ok)).toBe(true);
+    const side = [-25, -5, 25, 5], plan = [-25, -25, 25, 25];
+    const views: [string, Vec3, Vec3, number[]][] = [
+      ['front', [0, 0, 1], [1, 0, 0], side], ['back', [0, 0, -1], [-1, 0, 0], side], ['right', [1, 0, 0], [0, 0, -1], side],
+      ['left', [-1, 0, 0], [0, 0, 1], side], ['top', [0, 1, 0], [1, 0, 0], plan], ['bottom', [0, -1, 0], [1, 0, 0], plan],
+    ];
+    for (const [id, dir, x, want] of views) {
+      const [v] = b.project([{ id, dir, x }]);
+      v.bounds!.forEach((q, i) => expect(Math.abs(q - want[i]), `${id} bound ${i}`).toBeLessThan(1e-6));
+    }
   });
 
   it('fails a feature whose value could not be evaluated instead of building it with zero', async () => {
@@ -1039,6 +1276,20 @@ describe('feature regeneration', () => {
     const feats: Feature[] = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', rect(0, 0, 5, 5)), extrude('E2', 'S2', 20)];
     await b.build({ ...req(feats), upTo: 2 });
     expect(volume(b)).toBeCloseTo(1000, 4);
+  });
+
+  it('shows the frames of rolled-back planes of this part, not of a part opened before', async () => {
+    // The steps beyond the rollback bar were trusted whatever part built them.
+    const b = new ModelBuilder();
+    const plane = (offset: number): Feature => ({ id: 'P1', name: 'P1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset, flip: false });
+    const head: Feature[] = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)];
+    const s2 = sketch('S2', rect(0, 0, 5, 5), { kind: 'feature', id: 'P1' });
+    const part = (offset: number): Feature[] => [...head, plane(offset), s2];
+    await b.build(req(part(10)));
+    // Rolled back to before the plane, the same part shows where its plane was built.
+    expect((await b.build({ ...req(part(10)), upTo: 2 })).frames.P1.o[2]).toBeCloseTo(10, 9);
+    // Another part whose plane sits elsewhere does not show the first part's.
+    expect((await b.build({ ...req(part(30)), upTo: 2 })).frames.P1).toBeUndefined();
   });
 });
 

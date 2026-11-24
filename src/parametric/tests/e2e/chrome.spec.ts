@@ -934,3 +934,267 @@ test("the assistant's message box shows focus, also in high contrast mode", asyn
   }
   expect(errors).toEqual([]);
 });
+
+test('design tree rows are selected as a range with Shift, and several from the keyboard', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const row = (name: string) =>
+    page.getByRole('tree', { name: 'Design tree' }).getByRole('treeitem', { name });
+  const selected = () =>
+    page.getByRole('tree', { name: 'Design tree' }).locator('[aria-selected="true"]');
+  await row('Extrude1').click();
+  await row('Fillet1').click({ modifiers: ['Shift'] });
+  await expect(selected()).toHaveText(['Extrude1', 'Hole1', 'Fillet1']);
+  // Shift with the arrow keys extends from the row selected first.
+  await row('Top Plane').click();
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(selected()).toHaveText(['Top Plane', 'Right Plane', 'Origin']);
+  await expect(row('Origin')).toBeFocused();
+  // Space selects the focused row alone; Ctrl (Command) with Space adds one.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Space');
+  await expect(selected()).toHaveText(['Extrude1']);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ControlOrMeta+Space');
+  await expect(selected()).toHaveText(['Extrude1', 'Fillet1']);
+  expect(errors).toEqual([]);
+});
+
+test('selected rows, chosen tabs and pressed buttons stand out in high contrast mode', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).click();
+  await page.mouse.move(600, 600);
+  // High contrast replaces the colours computed styles report: compare what is drawn, at
+  // a spot inside each element away from its text and border.
+  const fill = async (l: import('@playwright/test').Locator, dx = -6) => {
+    const b = (await l.boundingBox())!;
+    const x = dx < 0 ? b.x + b.width + dx - 2 : b.x + dx;
+    return (await page.screenshot({ clip: { x, y: b.y + 3, width: 2, height: 2 } })).toString(
+      'base64',
+    );
+  };
+  const tree = page.getByRole('tree', { name: 'Design tree' });
+  expect(await fill(tree.getByRole('treeitem', { name: 'Hole1' }))).not.toBe(
+    await fill(tree.getByRole('treeitem', { name: 'Fillet1' })),
+  );
+  const tabs = page.getByRole('tablist', { name: 'Command groups' });
+  expect(await fill(tabs.getByRole('tab', { name: 'Features' }), 3)).not.toBe(
+    await fill(tabs.getByRole('tab', { name: 'Sketch' }), 3),
+  );
+  const perspective = page
+    .getByRole('toolbar', { name: 'View' })
+    .getByRole('button', { name: 'Perspective' });
+  const before = await fill(perspective, 3);
+  const pressed = await perspective.getAttribute('aria-pressed');
+  await perspective.click();
+  await expect(perspective).toHaveAttribute('aria-pressed', String(pressed !== 'true'));
+  await page.mouse.move(600, 600);
+  expect(await fill(perspective, 3)).not.toBe(before);
+  expect(errors).toEqual([]);
+});
+
+test('a sketch a feature absorbed offers Show in its context menu, and Hide acts on every selected sketch', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const tree = page.getByRole('tree', { name: 'Design tree' });
+  for (const name of ['Extrude1', 'Hole1']) {
+    const row = tree.getByRole('treeitem', { name });
+    await row.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(row).toHaveAttribute('aria-expanded', 'true');
+    // The redrawn row takes focus on the next frame: wait for it before moving on.
+    await expect(row).toBeFocused();
+  }
+  const sketches = tree.locator('[role="treeitem"][aria-level="3"]');
+  await expect(sketches).toHaveCount(2);
+  const hidden = () =>
+    page.evaluate(() =>
+      (window as unknown as Handle).__parametric.store.doc.features
+        .filter((f) => f.type === 'sketch')
+        .map((f) => (window as unknown as Handle).__parametric.isShown(f)),
+    );
+  expect(await hidden()).toEqual([false, false]);
+  await sketches.first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Show' }).click();
+  expect(await hidden()).toEqual([true, false]);
+  await sketches.last().click({ modifiers: ['ControlOrMeta'] });
+  await sketches.last().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Show' }).click();
+  expect(await hidden()).toEqual([true, true]);
+  await sketches.first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Hide' }).click();
+  expect(await hidden()).toEqual([false, false]);
+  expect(errors).toEqual([]);
+});
+
+test("the status bar's unit menu opens above its button, which closes it again", async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const units = page.locator('.statusbar').getByRole('button', { name: 'MMGS' });
+  await units.click();
+  const menu = page.getByRole('menu', { name: 'Unit system' });
+  await expect(menu).toBeVisible();
+  const [m, b] = [(await menu.boundingBox())!, (await units.boundingBox())!];
+  expect(m.y + m.height).toBeLessThanOrEqual(b.y);
+  await units.click();
+  await expect(menu).toHaveCount(0);
+  await expect(units).toHaveAttribute('aria-expanded', 'false');
+  expect(errors).toEqual([]);
+});
+
+test("renaming a feature to another feature's name is refused and says why", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  await page.keyboard.press('F2');
+  const input = page.getByRole('textbox', { name: 'Feature name' });
+  await expect(input).toBeFocused();
+  await input.fill('fillet1');
+  await page.keyboard.press('Enter');
+  // The field stays open, marked, to choose another name.
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('.statusbar .msg')).toContainText(
+    '"Fillet1" is already the name of another feature',
+  );
+  await input.fill('Mounting holes');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('treeitem', { name: 'Mounting holes' })).toBeFocused();
+  // Leaving the field with a taken name keeps the old one.
+  await page.keyboard.press('F2');
+  await input.fill('Extrude1');
+  await page.getByRole('treeitem', { name: 'Origin' }).click();
+  await expect(page.getByRole('treeitem', { name: 'Mounting holes' })).toBeVisible();
+  const names = await page.evaluate(() =>
+    (window as unknown as Handle).__parametric.store.doc.features.map((f) => f.name),
+  );
+  expect(names.filter((n) => n.toLowerCase() === 'extrude1')).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
+
+test("the view toolbar's buttons have names that tell them apart", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const names = await page
+    .getByRole('toolbar', { name: 'View' })
+    .getByRole('button')
+    .evaluateAll((els) => els.map((el) => (el.getAttribute('aria-label') ?? '').toLowerCase()));
+  expect(new Set(names).size).toBe(names.length);
+  await page.getByRole('button', { name: 'Display style options' }).click();
+  await expect(page.getByRole('menu', { name: 'Display style options' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('renaming a feature to a base plane name is refused, as the assistant refuses it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  await page.keyboard.press('F2');
+  const input = page.getByRole('textbox', { name: 'Feature name' });
+  for (const name of ['Front', 'top plane', 'XY']) {
+    await input.fill(name);
+    await page.keyboard.press('Enter');
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.locator('.statusbar .msg')).toContainText(`"${name}" names the`);
+  }
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test('the command search placeholder fits its box at every title bar width', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const search = page.getByRole('combobox', { name: 'Search commands' });
+  for (const width of [1024, 1180, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 800 });
+    // The placeholder follows a media query, whose change event comes after the resize.
+    await expect.poll(() => search.evaluate((el: HTMLInputElement) => {
+      const cs = getComputedStyle(el);
+      const c = document.createElement('canvas').getContext('2d')!;
+      c.font = `${cs.fontSize} ${cs.fontFamily}`;
+      const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      return c.measureText(el.placeholder).width <= room;
+    }), { message: `at ${width}px` }).toBe(true);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('Measure tells screen readers its results', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Handle).__parametric.edges.length))
+    .toBeGreaterThan(0);
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('measure'));
+  const status = page.locator('.pm').getByRole('status').filter({ hasText: /Edge length/ });
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    const i = a.edges.findIndex((e) => e.type === 'line');
+    a.panel!.onPick({ kind: 'edge', index: i, name: a.edges[i].name }, false);
+  });
+  await expect(status).toHaveText(/^Edge length: [\d.]+ mm$/);
+  await expect(status).toHaveAttribute('aria-live', 'polite');
+  expect(errors).toEqual([]);
+});
+
+test('Esc in a feature panel takes back a typed value first, then cancels the panel, also from a dropdown', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const before = await page.evaluate(() => JSON.stringify((window as unknown as Handle).__parametric.store.doc.features));
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const pm = page.locator('.pm');
+  const end = pm.getByRole('combobox', { name: 'End condition' }).first();
+  await expect(end).toBeVisible();
+  await end.focus();
+  await page.keyboard.press('Escape');
+  await expect(pm).toHaveCount(0);
+  // A number field: the first Esc takes the typed text back, the second cancels.
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const depth = pm.getByRole('textbox').first();
+  const was = await depth.inputValue();
+  await depth.fill('77');
+  await page.keyboard.press('Escape');
+  await expect(depth).toHaveValue(was);
+  await expect(pm).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(pm).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.stringify((window as unknown as Handle).__parametric.store.doc.features))).toBe(before);
+  expect(errors).toEqual([]);
+});
+
+
+test('arrow keys pressed in quick succession in the design tree keep focus where they moved it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const extrude = page.getByRole('treeitem', { name: 'Extrude1' });
+  await extrude.focus();
+  // Both keys before the next frame: opening the row must not pull focus back to it afterwards.
+  await page.evaluate(() => {
+    for (let i = 0; i < 2; i++) {
+      document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    }
+  });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeFocused();
+  expect(errors).toEqual([]);
+});

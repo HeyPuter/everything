@@ -18,7 +18,7 @@ export interface MenuItem {
 }
 
 let open: { el: HTMLElement; close: () => void; parent?: HTMLElement | null } | null = null;
-const stack: { el: HTMLElement; close: () => void }[] = [];
+const stack: { el: HTMLElement; close: () => void; anchor?: HTMLElement | null }[] = [];
 
 export function closeMenus() {
   while (stack.length) stack.pop()!.close();
@@ -38,12 +38,20 @@ export interface MenuOptions {
   onNavigate?: (dir: -1 | 1) => void;
   level?: number;
   focusFirst?: boolean;
+  /** Focus starts on the last item (Up on a menubar's menu). */
+  focusLast?: boolean;
   label?: string;
 }
 
-/** Opens a menu at a viewport position (x, y = top-left preference). */
+/**
+ * Opens a menu at a viewport position (x, y = top-left preference). A menu
+ * button clicked again while its menu is open closes it instead (the closed
+ * menu is returned).
+ */
 export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOptions = {}): HTMLElement {
   const level = opts.level ?? 0;
+  const shown = stack[0];
+  if (level === 0 && opts.anchor && shown?.anchor === opts.anchor) { closeMenus(); return shown.el; }
   while (stack.length > level) stack.pop()!.close();
   const el = h('div', { class: 'menu', role: 'menu', 'aria-label': opts.label ?? 'Menu', tabindex: '-1' });
   const buttons: HTMLElement[] = [];
@@ -157,14 +165,20 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   // A submenu that does not fit on the right opens to the left of its parent menu.
   const parentLeft = level > 0 ? opts.anchor?.closest('.menu')?.getBoundingClientRect().left : undefined;
   if (left + r.width > vw - 8) left = Math.max(8, parentLeft !== undefined ? parentLeft - r.width + 2 : vw - r.width - 8);
-  if (top + r.height > vh - 8) top = Math.max(8, vh - r.height - 8);
+  if (top + r.height > vh - 8) {
+    // No room below its button (the status bar's): it opens above it rather than over it.
+    const a = level === 0 ? opts.anchor?.getBoundingClientRect() : undefined;
+    top = a && a.top - r.height - 2 >= 8 ? a.top - r.height - 2 : Math.max(8, vh - r.height - 8);
+  }
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
   opts.anchor?.setAttribute('aria-expanded', 'true');
-  stack.push({ el, close: closeThis });
+  stack.push({ el, close: closeThis, anchor: opts.anchor });
   open = { el, close: closeThis, parent: opts.anchor };
   setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
-  if (opts.focusFirst !== false) (buttons.find((b) => b.getAttribute('aria-disabled') !== 'true') ?? el).focus({ preventScroll: true });
+  const usable = (b: HTMLElement) => b.getAttribute('aria-disabled') !== 'true';
+  if (opts.focusLast) (buttons.findLast(usable) ?? el).focus({ preventScroll: true });
+  else if (opts.focusFirst !== false) (buttons.find(usable) ?? el).focus({ preventScroll: true });
   else el.focus({ preventScroll: true });
   return el;
 }

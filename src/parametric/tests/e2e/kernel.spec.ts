@@ -101,3 +101,193 @@ test('a rebuild that leaves the body unchanged does not resend or re-upload its 
   expect(await uploads()).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('a part opened again while its first build runs shows its body', async ({ page }) => {
+  // The first build's result was dropped (another open replaced the part), but
+  // the worker counted its mesh as sent: the second build said "unchanged" and
+  // the empty part's view stayed under a full design tree.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = W['__parametric'] & {
+    renderer: { modelMesh: unknown };
+    kernel: { busy: boolean };
+    store: { doc: unknown };
+    newDocument(n: string): void;
+    loadDocument(doc: unknown, location: null): void;
+  };
+  const shown = await page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    await app.whenBuilt();
+    const doc = JSON.stringify(app.store.doc);
+    app.newDocument('Empty');
+    await app.whenBuilt();
+    app.loadDocument(JSON.parse(doc), null);
+    while (!app.kernel.busy) await new Promise((r) => setTimeout(r, 0));
+    app.loadDocument(JSON.parse(doc), null);
+    await app.whenBuilt();
+    return !!app.renderer.modelMesh;
+  });
+  expect(shown).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('a geometry worker replaced for its memory leaves the part as it was, without a word', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type K = Kernel & { worker: unknown; recycleBytes: number; baseHeap: number; busy: boolean };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; renderer: { modelMesh: unknown }; store: { change(l: string, fn: (d: { features: { type: string; radius?: number }[] }) => void): void } } };
+  const v0 = await volume(page);
+  const replaced = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    const first = app.kernel.worker;
+    // As if the kernel had grown far past what the part needs.
+    app.kernel.recycleBytes = 1;
+    app.kernel.baseHeap = 1;
+    app.store.change('Radius', (d) => { d.features.find((f) => f.type === 'fillet')!.radius = 2; });
+    await app.whenBuilt();
+    while (app.kernel.busy) await new Promise((r) => setTimeout(r, 10));
+    return app.kernel.worker !== first;
+  });
+  expect(replaced).toBe(true);
+  // The new worker has the part: an edit and the mass properties work on it.
+  const v1 = await volume(page);
+  // The inside corner fillet adds material: a smaller one less.
+  expect(v1).toBeLessThan(v0!);
+  await page.evaluate(() => (window as unknown as A).__parametric.store.change('Radius', (d) => { d.features.find((f) => f.type === 'fillet')!.radius = 4; }));
+  expect(await volume(page)).toBeCloseTo(v0!, 3);
+  expect(await page.evaluate(() => !!(window as unknown as A).__parametric.renderer.modelMesh)).toBe(true);
+  await expect(page.locator('.toast', { hasText: 'restarted' })).toHaveCount(0);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('a worker that dies mid-build is replaced, the part rebuilt, and nothing stays waiting', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type K = Kernel & { busy: boolean; restart(reason?: string): void; recycleBytes: number; baseHeap: number; worker: unknown };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; bbox: { max: number[] } | null; store: { change(l: string, fn: (d: { features: { id: string; depth?: number }[] }) => void): void } } };
+  // Killed while rebuilding an edit: the edit is built on the new worker.
+  const top = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    await app.whenBuilt();
+    app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = 60; });
+    while (!app.kernel.busy) await new Promise((r) => setTimeout(r, 0));
+    app.kernel.restart('of a test');
+    await app.whenBuilt();
+    return app.bbox?.max[2];
+  });
+  expect(top).toBeCloseTo(60, 6);
+  await expect(page.locator('.toast', { hasText: 'Geometry engine restarted' })).toBeVisible();
+  expect(await volume(page)).toBeGreaterThan(0);
+  // Killed while a worker replaced for its memory rebuilds the part on its own:
+  // no edit is waiting on that build, and the part is still built again.
+  const v = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    app.kernel.recycleBytes = 1;
+    app.kernel.baseHeap = 1;
+    const first = app.kernel.worker;
+    app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = 50; });
+    await app.whenBuilt();
+    while (app.kernel.worker === first) await new Promise((r) => setTimeout(r, 0));
+    app.kernel.restart('of a test');
+    await new Promise((r) => setTimeout(r, 50));
+    await app.whenBuilt();
+    while (app.kernel.busy) await new Promise((r) => setTimeout(r, 10));
+    return (await app.kernel.massProperties())?.volume ?? null;
+  });
+  expect(v).toBeGreaterThan(0);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('quick successive edits show the last one, never an older result after a newer one', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: { whenBuilt(): Promise<void>; bbox: { max: number[] } | null; applyBuild(res: { bbox: { max: number[] } | null }, ms: number): void; store: { change(l: string, fn: (d: { features: { id: string; depth?: number }[] }) => void): void } } };
+  const shown = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    await app.whenBuilt();
+    const tops: number[] = [];
+    const apply = app.applyBuild.bind(app);
+    app.applyBuild = (res, ms) => { tops.push(res.bbox?.max[2] ?? 0); apply(res, ms); };
+    // As typing 31, 32 ... 45 a keystroke at a time, without waiting for rebuilds.
+    for (let depth = 31; depth <= 45; depth++) {
+      app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = depth; });
+      await new Promise((r) => setTimeout(r, depth % 3 ? 0 : 15));
+    }
+    await app.whenBuilt();
+    return { tops, final: app.bbox?.max[2] };
+  });
+  expect(shown.final).toBeCloseTo(45, 6);
+  expect(shown.tops[shown.tops.length - 1]).toBeCloseTo(45, 6);
+  // Each shown result is newer than the one before.
+  for (let i = 1; i < shown.tops.length; i++) expect(shown.tops[i]).toBeGreaterThan(shown.tops[i - 1]);
+  expect(errors).toEqual([]);
+});
+
+test('a kernel that aborts in the middle of a rebuild is replaced and the edit built', async ({ page }) => {
+  // The aborted build was rejected as an ordinary failure: "Rebuild failed",
+  // and the new worker was left without the part until the next edit.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type K = Kernel & { worker: { onmessage: ((ev: MessageEvent) => void) | null } };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; bbox: { max: number[] } | null; store: { change(l: string, fn: (d: { features: { id: string; depth?: number }[] }) => void): void } } };
+  const top = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    await app.whenBuilt();
+    // The next build reply comes back as from an aborted WebAssembly module.
+    const w = app.kernel.worker;
+    const handle = w.onmessage!;
+    w.onmessage = (ev) => {
+      const r = ev.data as { id: number; result?: { status?: unknown } };
+      if (r.result?.status) { w.onmessage = handle; handle({ data: { id: r.id, ok: false, error: 'The geometry kernel failed', fatal: true } } as MessageEvent); return; }
+      handle(ev);
+    };
+    app.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = 60; });
+    await new Promise((r) => setTimeout(r, 50));
+    await app.whenBuilt();
+    return app.bbox?.max[2];
+  });
+  expect(top).toBeCloseTo(60, 6);
+  expect(await volume(page)).toBeGreaterThan(0);
+  await expect(page.locator('.toast', { hasText: 'Rebuild failed' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('an imported SolidWorks part rebuilds on a worker replaced for its memory and after a crash', async ({ page }) => {
+  const errors = await openApp(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open from device/ }).click();
+  await (await chooser).setFiles(decodeURIComponent(new URL('../fixtures/sldprt/cube-hole-sw2022.sldprt', import.meta.url).pathname));
+  await waitForFeature(page, 'Imported1');
+  const v0 = await volume(page);
+  expect(v0).toBeGreaterThan(0);
+  type K = Kernel & { worker: unknown; recycleBytes: number; baseHeap: number; busy: boolean };
+  type A = { __parametric: { kernel: K; whenBuilt(): Promise<void>; store: { change(l: string, fn: (d: { color: string }) => void): void } } };
+  // Replaced for its memory: the new worker gets the file data again and builds it.
+  const replaced = await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    const first = app.kernel.worker;
+    app.kernel.recycleBytes = 1;
+    app.kernel.baseHeap = 1;
+    app.store.change('Colour', (d) => { d.color = '#c08040'; });
+    await app.whenBuilt();
+    (window as unknown as { __parametric: { requestRebuild(f: boolean): void } }).__parametric.requestRebuild(true);
+    await app.whenBuilt();
+    while (app.kernel.busy) await new Promise((r) => setTimeout(r, 10));
+    return app.kernel.worker !== first;
+  });
+  expect(replaced).toBe(true);
+  expect(await volume(page)).toBeCloseTo(v0!, 3);
+  // A crash: the restarted worker gets it again too.
+  await page.evaluate(() => (window as unknown as A).__parametric.kernel.debugFail('crash').catch(() => undefined));
+  await expect(page.locator('.toast', { hasText: 'Geometry engine restarted' })).toBeVisible();
+  expect(await volume(page)).toBeCloseTo(v0!, 3);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -21,9 +21,11 @@ export function appHost(app: App): AssistantHost {
     capture(o) {
       const r = app.renderer;
       const cam = r.camera;
+      // A view the assistant just set may still be turning: capture (and leave the user with)
+      // the view it is heading to, not the frame it has reached.
+      if (cam.animating) cam.setState(cam.goal());
       const saved = cam.state();
       const savedStyle = r.displayStyle;
-      cam.stopAnimation();
       try {
         if (o.orientation) {
           cam.setState(cam.fitState(app.viewport.modelCenter(), app.viewport.modelRadius(), VIEWS[o.orientation]));
@@ -55,6 +57,14 @@ export function appHost(app: App): AssistantHost {
     showDrawing: (on) => (on ? app.openDrawing() : app.closeDrawing()),
     arrangeDrawing: () => app.drawing.relayout(),
     addDrawingView: (kind) => app.drawing.addView(kind),
+    fitDrawingViews(d, oldScale) {
+      app.drawing.rescaleViews(d, oldScale);
+      app.drawing.keepOnSheet(d);
+    },
+    async renamePart(name) {
+      if (app.renamePart) await app.renamePart(name);
+      else app.store.change('Rename part', (doc) => { doc.name = name; });
+    },
     runCommand(id) {
       if (!app.commands.get(id) || !app.commands.isEnabled(id)) return false;
       return app.commands.run(id);

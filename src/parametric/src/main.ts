@@ -6,8 +6,9 @@ import { StartScreen, bindAccountMenu, bindUserMenu, refreshAccount } from './ap
 import { TaskPane, recentItems } from './app/taskpane';
 import { AssistantPanel } from './assistant/panel';
 import { normalizeSettings } from './app/settings';
-import { KV_SETTINGS_KEY, kvGet, kvSet, loadPuter, puter } from './platform/puter';
+import { KV_SETTINGS_KEY, kvGet, kvSet, loadPuter, puter, setWindowTitle } from './platform/puter';
 import { applyTheme } from './platform/theme';
+import { storeLocally } from './platform/files';
 import { installLongPressContextMenu } from './ui/longpress';
 import { toast } from './ui/overlay';
 
@@ -26,6 +27,7 @@ async function boot() {
   const root = document.getElementById('app')!;
   const app = new App();
   const files = new FileOps(app);
+  app.renamePart = (name) => files.rename(name);
   registerCommands(app, files);
   const hooks = makeHooks(app);
   let start: StartScreen | null = null;
@@ -33,7 +35,7 @@ async function boot() {
   hooks.gettingStarted = () => app.openTaskPane('help');
   hooks.afterLoad = () => start?.hide();
   hooks.saveSettings = (s) => {
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
+    storeLocally(SETTINGS_KEY, JSON.stringify(s));
     // One small KV entry for all settings, written only on change.
     void kvSet(KV_SETTINGS_KEY, s);
   };
@@ -70,6 +72,7 @@ async function boot() {
   const startupDocument = app.documentSignal;
 
   await loadPuter();
+  setWindowTitle(document.title);
   void refreshAccount(app);
   void app.loadRemoteSettings();
   files.handleLaunchItems();

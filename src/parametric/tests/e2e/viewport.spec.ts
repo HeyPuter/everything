@@ -194,6 +194,23 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the wheel zooms over a sketch dimension label and over the triad', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.evaluate(() => (window as unknown as Win).__parametric.editSketch('s1'));
+    const label = page.locator('.dim-label').first();
+    await expect(label).toBeVisible();
+    const distance = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.distance);
+    for (const target of [label, page.locator('svg.triad')]) {
+      const b = (await target.boundingBox())!;
+      const before = await distance();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await page.mouse.wheel(0, -200);
+      await expect.poll(distance).toBeLessThan(before * 0.9);
+    }
+  });
+
   test('relation badges do not swallow clicks while a sketch tool is active', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
@@ -395,6 +412,41 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Ctrl or Cmd with plus or minus is left to the browser to zoom the page', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.locator('canvas.gl').focus();
+    await page.evaluate(() => {
+      const w = window as unknown as { __prevented: boolean[] };
+      w.__prevented = [];
+      window.addEventListener('keydown', (e) => { if (e.key === '-' || e.key === '=') w.__prevented.push(e.defaultPrevented); });
+    });
+    const distance = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.distance);
+    const d0 = await distance();
+    for (const key of ['Control+-', 'Meta+-', 'Control+=', 'Meta+=']) {
+      await page.keyboard.press(key);
+      expect(await distance()).toBe(d0);
+    }
+    expect(await page.evaluate(() => (window as unknown as { __prevented: boolean[] }).__prevented)).toEqual([false, false, false, false]);
+    // Without the modifier they zoom the model.
+    await page.keyboard.press('=');
+    await expect.poll(distance).toBeLessThan(d0);
+  });
+
+  test('the 3D view names the pan key of the platform, and that key pans', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+    const canvas = page.locator('canvas.gl');
+    // macOS keeps Control with the arrow keys for switching spaces.
+    await expect(canvas).toHaveAttribute('aria-label', new RegExp(`${mac ? 'Command' : 'Ctrl'} and arrow keys to pan`));
+    await canvas.focus();
+    const target = () => page.evaluate(() => [...(window as unknown as Win).__parametric.renderer.camera.target]);
+    const t0 = await target();
+    await page.keyboard.press(mac ? 'Meta+ArrowLeft' : 'Control+ArrowLeft');
+    expect(await target()).not.toEqual(t0);
+  });
+
   test('repeated arrow keys add up their rotations', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
@@ -461,6 +513,94 @@ test.describe('viewport', () => {
     const bg = await page.evaluate(() => (window as unknown as Win).__parametric.renderer.theme.background.map((v) => Math.round(v * 255)));
     const reads = await page.evaluate(() => (window as unknown as { __reads: number[][] }).__reads);
     for (const px of reads) px.forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThan(3));
+  });
+
+  test('a zoom to fit while the view is hidden still frames the part once it shows again', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const width = await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.width);
+    // Hidden (as in a minimised window), the view measures 0 × 0.
+    await page.evaluate(() => { (window as unknown as Win).__parametric.shell.viewport.style.display = 'none'; });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.zoomToFit(false));
+    await page.evaluate(() => { (window as unknown as Win).__parametric.shell.viewport.style.display = ''; });
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.width)).toBe(width);
+    const seen = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      return { distance: app.renderer.camera.distance, pick: app.renderer.pick(x, y, { face: true })?.kind ?? null };
+    });
+    expect(Number.isFinite(seen.distance)).toBe(true);
+    expect(seen.pick).toBe('face');
+  });
+
+  test('the section cap hides the edges of a hole behind it and is picked where it is', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // The base is cut at z = 20; the through hole (r 3 about x 24, z 15) lies behind the cap.
+    // Its bottom circle, nearest point (24, 0, 18), is seen through the cap.
+    const probe = () => page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      r.section = { normal: [0, 0, 1], offset: 20 };
+      const [x, y] = app.viewport.project([24, 0, 18]);
+      const hit = r.pick(x, y, { face: true, edge: true, vertex: true });
+      const img = new Image();
+      img.src = r.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / r.camera.width;
+      const pixel = [...ctx.getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data].slice(0, 3);
+      return { kind: hit?.kind ?? null, z: hit?.point?.[2] ?? null, pixel, cap: r.theme.cap.map((v) => Math.round(v * 255)) };
+    });
+    const seen = await probe();
+    expect(seen.kind).not.toBe('edge');
+    // Picked on the cap (where a zoom closes in or an orbit turns about), not on the hole behind.
+    expect(seen.z).toBeCloseTo(20, 1);
+    seen.pixel.forEach((v, i) => expect(Math.abs(v - seen.cap[i])).toBeLessThan(25));
+  });
+
+  test('the section view shows its cut face only where the part is cut', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // Cut at x = 24 (keeping x < 24), seen from the isometric view: the cut face is the base's
+    // cross-section there. Nowhere else, such as along the outline of the part, shows its colour.
+    const stray = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      app.viewport.setView('isometric', false);
+      r.section = { normal: [1, 0, 0], offset: 24 };
+      const img = new Image();
+      img.src = r.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / r.camera.width;
+      const data = ctx.getImageData(0, 0, img.width, img.height).data;
+      // Screen box of the cross-section (with the counterbore it is smaller still), plus a margin.
+      const corners = [[24, 0, 0], [24, 8, 0], [24, 8, 30], [24, 0, 30]].map((p) => app.viewport.project(p as [number, number, number]).map((v) => v * k));
+      const x0 = Math.min(...corners.map((q) => q[0])) - 3, x1 = Math.max(...corners.map((q) => q[0])) + 3;
+      const y0 = Math.min(...corners.map((q) => q[1])) - 3, y1 = Math.max(...corners.map((q) => q[1])) + 3;
+      let n = 0;
+      for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+        if (x >= x0 && x <= x1 && y >= y0 && y <= y1) continue;
+        const i = (y * img.width + x) * 4;
+        if (data[i] - Math.max(data[i + 1], data[i + 2]) > 6) n++;
+      }
+      return n;
+    });
+    expect(stray).toBe(0);
   });
 
   test('does not pick vertices cut away by the section view', async ({ page }) => {
@@ -548,6 +688,44 @@ test.describe('viewport', () => {
     await expect(page.locator('.view-label')).toHaveText('Trimetric');
   });
 
+  test('Previous View after zooming to fit twice goes back to the view before', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const distance = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.goal().distance);
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.setView('front', false);
+      app.renderer.camera.zoomAt(0.25, 300, 300);
+    });
+    const zoomed = await distance();
+    await page.evaluate(() => { const v = (window as unknown as Win).__parametric.viewport; v.zoomToFit(false); v.zoomToFit(false); });
+    expect(await distance()).not.toBeCloseTo(zoomed, 3);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('previousView'));
+    expect(await distance()).toBeCloseTo(zoomed, 6);
+  });
+
+  for (const orientation of [null, 'front'] as const) test(`an assistant capture right after it sets a view leaves that view (capture orientation ${orientation})`, async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const shot = await page.evaluate(async (orientation) => {
+      const path = '/src/app/assistant-host.ts';
+      const { appHost } = (await import(/* @vite-ignore */ path)) as typeof import('../../src/app/assistant-host');
+      const app = (window as unknown as Win).__parametric;
+      const host = appHost(app).ui!;
+      app.viewport.setView('trimetric', false);
+      // The view turns to Top over a few frames; the capture comes before it gets there.
+      host.setView({ orientation: 'top' });
+      return !!host.capture(orientation ? { orientation } : {});
+    }, orientation);
+    expect(shot).toBe(true);
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.viewName())).toBe('top');
+  });
+
   test('Previous View keeps the perspective projection chosen since', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
@@ -556,6 +734,81 @@ test.describe('viewport', () => {
     await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('previousView'));
     await expect(page.locator('.view-label')).toHaveText('Trimetric');
     expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
+  });
+
+  test('Previous View to a view zoomed in orthographic, now in perspective, keeps the face framed', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const probe = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      const p = app.renderer.pick(cam.width / 2, cam.height / 2, { face: true }, 0)?.point ?? null;
+      const a = p && cam.project(p), b = p && cam.project([p[0] + 1, p[1], p[2]]);
+      return { z: p?.[2] ?? null, pxPerMm: a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : null };
+    });
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.setView('front', false);
+      const cam = app.renderer.camera;
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      cam.pan(cam.width / 2 - x, cam.height / 2 - y);
+      cam.zoomAt(1 / 300, cam.width / 2, cam.height / 2);
+    });
+    const before = await probe();
+    await page.evaluate(() => { const app = (window as unknown as Win).__parametric; app.viewport.setView('isometric', false); app.commands.run('perspective'); app.commands.run('previousView'); });
+    const after = await probe();
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.ortho)).toBe(false);
+    expect(after.z).toBeCloseTo(30, 2);
+    expect(after.pxPerMm! / before.pxPerMm!).toBeCloseTo(1, 2);
+  });
+
+  test('reversing the wheel zoom direction does not reverse a trackpad pinch', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const zoomed = (ctrlKey: boolean) => page.evaluate((ctrlKey) => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.invertZoom = true;
+      const cam = app.renderer.camera;
+      const before = cam.distance;
+      const r = app.viewport.canvas.getBoundingClientRect();
+      // Spreading two fingers (or turning the wheel away, which reversed zooms out).
+      app.viewport.canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -20, ctrlKey, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+      return cam.distance / before;
+    }, ctrlKey);
+    expect(await zoomed(true)).toBeLessThan(1);
+    expect(await zoomed(false)).toBeGreaterThan(1);
+  });
+
+  test('switching to perspective while zoomed in keeps the face in the middle of the view framed', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // Front view, orthographic, zoomed far in on the front face of the base (z = 30), in front
+    // of the target zoom to fit put in the middle of the part (z = 15).
+    const probe = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      const p = app.renderer.pick(cam.width / 2, cam.height / 2, { face: true }, 0)?.point ?? null;
+      const a = p && cam.project(p), b = p && cam.project([p[0] + 1, p[1], p[2]]);
+      return { z: p?.[2] ?? null, pxPerMm: a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : null };
+    });
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.setView('front', false);
+      const cam = app.renderer.camera;
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      cam.pan(cam.width / 2 - x, cam.height / 2 - y);
+      cam.zoomAt(1 / 300, cam.width / 2, cam.height / 2);
+    });
+    const before = await probe();
+    expect(before.z).toBeCloseTo(30, 2);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('perspective'));
+    const after = await probe();
+    expect(after.z).toBeCloseTo(30, 2);
+    expect(after.pxPerMm! / before.pxPerMm!).toBeCloseTo(1, 2);
   });
 
   for (const how of ['wheel', 'keys'] as const) test(`${how === 'wheel' ? 'wheel zoom' : 'zoom keys'} in perspective close in on the face there instead of passing through it`, async ({ page }) => {
@@ -939,6 +1192,95 @@ test.describe('viewport', () => {
     }
   });
 
+  test('the points of a selected sketch are highlighted with its lines', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.store.change('Add sketch', (doc) => {
+        doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [
+          { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 40, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }, { id: 'p', t: 'point', x: 20, y: 30 },
+        ], constraints: [] });
+      });
+    });
+    await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeVisible();
+    const colours = () => page.evaluate(() => {
+      const r = (window as unknown as Win).__parametric.renderer as unknown as { lines: Map<string, { colors: Uint8Array }>; points: Map<string, { colors: Uint8Array }> };
+      return { line: [...r.lines.get('sketches')!.colors.slice(0, 3)], point: [...r.points.get('sketchPts')!.colors.slice(0, 3)] };
+    });
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.boundsOf(['points:sketchPts']) !== null)).toBe(true);
+    const shown = await colours();
+    expect(shown.point).toEqual(shown.line);
+    await page.evaluate(() => (window as unknown as Win).__parametric.selection.set([{ kind: 'feature', id: 's1' }]));
+    const c = await colours();
+    expect(c.point).toEqual(c.line);
+    expect(c.line).toEqual(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.theme.selection.map((v) => Math.round(v * 255))));
+  });
+
+  test('the section view cuts away the points of a shown sketch with its lines', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.store.change('Add sketch', (doc) => {
+        doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [{ id: 'p', t: 'point', x: 20, y: 30 }], constraints: [] });
+      });
+    });
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.boundsOf(['points:sketchPts']) !== null)).toBe(true);
+    const pixel = () => page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      const [x, y] = app.viewport.project([20, 30, 0]);
+      const img = new Image();
+      img.src = r.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / r.camera.width;
+      const px = [...ctx.getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data].slice(0, 3);
+      const bg = r.theme.background.map((v) => Math.round(v * 255));
+      return Math.max(...px.map((v, i) => Math.abs(v - bg[i])));
+    });
+    expect(await pixel()).toBeGreaterThan(30);
+    // Everything in front of z = 5 is cut away, the sketch on the Front Plane with it.
+    await page.evaluate(() => { (window as unknown as Win).__parametric.renderer.section = { normal: [0, 0, -1], offset: -5 }; });
+    expect(await pixel()).toBeLessThan(12);
+  });
+
+  test('the hover under a resting pointer follows what the active selection box can pick', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // A point on the wall of a counterbore (a cylinder, not a planar face).
+    const at = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.viewport.canvas.getBoundingClientRect();
+      for (let dx = -6; dx <= 6; dx += 0.5) for (let dz = -6; dz <= 6; dz += 0.5) for (const y0 of [4, 5, 6, 7]) {
+        const [x, y] = app.viewport.project([24 + dx, y0, 15 + dz]);
+        // Clear of edges, which the hover would prefer.
+        const hit = app.renderer.pick(Math.round(x), Math.round(y), { face: true, edge: true, vertex: true }, 7);
+        if (hit?.kind === 'face' && app.faces[hit.index]?.type === 'cylinder') return [r.left + Math.round(x), r.top + Math.round(y)];
+      }
+      return null;
+    });
+    expect(at).not.toBeNull();
+    await page.mouse.move(at![0], at![1]);
+    await page.mouse.move(at![0] + 1, at![1]);
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.selection.hover?.kind ?? null)).toBe('face');
+    // Mirror starts on its plane box, which takes planar faces only; the pointer does not move.
+    const hover = () => page.evaluate(() => (window as unknown as Win).__parametric.selection.hover?.kind ?? null);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('mirror'));
+    await expect.poll(hover).toBeNull();
+    // Tabbing to the features box, which takes any face, picks the face again.
+    await page.getByRole('group', { name: 'Features to mirror' }).focus();
+    await expect.poll(hover).toBe('face');
+    await page.getByRole('group', { name: 'Mirror plane' }).focus();
+    await expect.poll(hover).toBeNull();
+  });
+
   test('a pointer leaving the view before its hover is picked leaves nothing hovered', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
@@ -995,6 +1337,25 @@ test.describe('viewport', () => {
     });
     expect(d.length).toBeGreaterThan(0);
     for (const v of d) expect(v).toBeLessThan(40);
+  });
+
+  test('the triad is hidden from assistive technology and names the shortcut of each axis view', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const triad = page.locator('svg.triad');
+    await expect(triad).toHaveAttribute('aria-hidden', 'true');
+    await expect(triad).not.toHaveAttribute('role', /./);
+    const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+    await expect(triad.locator('[data-axis="x"] > title')).toHaveText(`Look along X: Right view (${mac ? '⌘4' : 'Ctrl+4'})`);
+    await expect(triad.locator('[data-axis="y"] > title')).toHaveText(/Top view/);
+    await expect(triad.locator('[data-axis="z"] > title')).toHaveText(/Front view/);
+    // The named shortcut gives the view clicking the axis does.
+    await page.locator('canvas.gl').focus();
+    await page.keyboard.press(mac ? 'Meta+4' : 'Control+4');
+    await expect(page.locator('.view-label')).toHaveText('Right');
+    await triad.locator('[data-axis="y"] line').last().click({ force: true });
+    await expect(page.locator('.view-label')).toHaveText('Top');
   });
 
   test('the triad letters are readable in both themes', async ({ page }) => {
@@ -1150,6 +1511,81 @@ test.describe('viewport', () => {
     })).toBe(true);
   });
 
+  test('zoom to fit in a new, empty sketch keeps a view of a useful size', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('sketch'));
+    await expect(page.locator('.statusbar')).toContainText('Editing sketch');
+    // Only the sketch origin is drawn: a point, not something to zoom in on.
+    const height = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.zoomToFit(false);
+      const cam = app.renderer.camera;
+      return cam.pixelSize * cam.height;
+    });
+    expect(height).toBeGreaterThan(20);
+    expect(height).toBeLessThan(1000);
+  });
+
+  test('opening a part that has only sketches frames them', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const doc = structuredClone(app.store.doc);
+      const pts = [[300, 200], [800, 200], [800, 500], [300, 500]];
+      const entities: import('../../src/model/types').SkEntity[] = pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point', x, y }));
+      pts.forEach((_, i) => entities.push({ id: `l${i}`, t: 'line', a: `p${i}`, b: `p${(i + 1) % 4}` }));
+      doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities, constraints: [] });
+      app.loadDocument(doc, null);
+    });
+    await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      return [[300, 200, 0], [800, 500, 0]].every((p) => {
+        const [x, y] = app.viewport.project(p as [number, number, number]);
+        return x >= 0 && x <= cam.width && y >= 0 && y <= cam.height;
+      });
+    })).toBe(true);
+  });
+
+  test('zoom to fit frames the sketches shown beside the solid', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // A part with a sketch no feature uses, far to the right of the solid, opened.
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const doc = structuredClone(app.store.doc);
+      doc.features.push({ id: 's9', name: 'Sketch9', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [{ id: 'c', t: 'point', x: 400, y: 0 }, { id: 'k', t: 'circle', c: 'c', r: 20 }], constraints: [] });
+      app.loadDocument(doc, null);
+    });
+    await expect(page.getByRole('treeitem', { name: 'Sketch9' })).toBeVisible();
+    const framed = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      return [[0, 0, 0], [60, 40, 30], [420, 0, 0], [380, -20, 0]].every((p) => {
+        const [x, y] = app.viewport.project(p as [number, number, number]);
+        return x >= 0 && x <= cam.width && y >= 0 && y <= cam.height;
+      });
+    });
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    await expect.poll(framed).toBe(true);
+    await page.evaluate(() => { const app = (window as unknown as Win).__parametric; app.viewport.setView('front', false); app.renderer.camera.zoomAt(0.2, 0, 0); });
+    expect(await framed()).toBe(false);
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.zoomToFit(false));
+    expect(await framed()).toBe(true);
+    // Also while that sketch is being edited (it is drawn by the sketch editor then).
+    await page.evaluate(() => (window as unknown as Win).__parametric.editSketch('s9'));
+    await expect(page.locator('.statusbar')).toContainText('Under Defined');
+    await page.evaluate(() => { const app = (window as unknown as Win).__parametric; app.viewport.setView('front', false); app.renderer.camera.zoomAt(0.2, 0, 0); });
+    expect(await framed()).toBe(false);
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.zoomToFit(false));
+    expect(await framed()).toBe(true);
+  });
+
   const countDoubleClicks = async (page: import('@playwright/test').Page) => {
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
     await waitForFeature(page, 'Fillet1');
@@ -1174,6 +1610,41 @@ test.describe('viewport', () => {
     await openApp(page);
     const [x, y] = await countDoubleClicks(page);
     await page.mouse.dblclick(x, y);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
+  });
+
+  test('Control-click on macOS opens the context menu of what is under the pointer', async ({ page }) => {
+    await openApp(page);
+    // Headless Chromium reports macOS.
+    test.skip(!(await page.evaluate(() => /Mac/.test(navigator.platform))), 'macOS only');
+    const [x, y] = await countDoubleClicks(page);
+    for (let i = 0; i < 2; i++) {
+      await page.keyboard.down('Control');
+      await page.mouse.click(x, y);
+      await page.keyboard.up('Control');
+      await expect(page.getByRole('menu', { name: 'Context menu' })).toBeVisible();
+      await page.keyboard.press('Escape');
+    }
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.selection.items.map((it) => it.kind))).toEqual(['face']);
+    // Two of them in a row are not a double click.
+    expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(0);
+  });
+
+  test('orbiting right after a click is not a double click', async ({ page }) => {
+    await openApp(page);
+    const [x, y] = await countDoubleClicks(page);
+    await page.mouse.click(x, y);
+    // The second press within the double-click time drags: the browser still counts it as a
+    // second click and sends a dblclick on release.
+    const cdp = await page.context().newCDPSession(page);
+    const send = (type: string, px: number, py: number, extra: object) => cdp.send('Input.dispatchMouseEvent', { type: type as 'mouseMoved', x: px, y: py, button: 'left', ...extra });
+    await send('mousePressed', x, y, { clickCount: 2, buttons: 1 });
+    for (let i = 1; i <= 8; i++) await send('mouseMoved', x + i * 10, y + i * 3, { buttons: 1 });
+    await send('mouseReleased', x + 80, y + 24, { clickCount: 2, buttons: 0 });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(0);
+    // A real double click afterwards still counts.
+    await page.mouse.dblclick(x + 80, y + 24);
     await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
   });
 
@@ -1219,6 +1690,39 @@ test.describe('viewport', () => {
       }
       await page.waitForTimeout(500);
       expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
+    });
+
+    test('a pinch zoom with wobbling fingers keeps the view upright, a clear twist rolls it', async ({ page }) => {
+      await openApp(page);
+      await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+      await waitForFeature(page, 'Fillet1');
+      await page.evaluate(() => (window as unknown as Win).__parametric.viewport.setView('front', false));
+      const gesture = (turn: number, wobble: number) => page.evaluate(([turn, wobble]) => {
+        const c = document.querySelector('canvas.gl') as HTMLCanvasElement;
+        // Synthetic pointers cannot be captured; the gesture logic is what is under test.
+        c.setPointerCapture = () => {};
+        c.releasePointerCapture = () => {};
+        const r = c.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const P = (type: string, id: number, x: number, y: number) => c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, buttons: type === 'pointerup' ? 0 : 1 }));
+        const at = (i: number, k: number) => {
+          // Spreading from 60 to 140 px apart while turning by `turn`, each finger off by up to `wobble` px.
+          const half = 30 + i, a = (turn * k) / 40 + (i % 2 ? 1 : -1) * Math.atan2(wobble, half);
+          return [cx + Math.cos(a) * half, cy + Math.sin(a) * half, cx - Math.cos(a) * half, cy - Math.sin(a) * half];
+        };
+        let p = at(0, 0);
+        P('pointerdown', 21, p[0], p[1]);
+        P('pointerdown', 22, p[2], p[3]);
+        for (let i = 1; i <= 40; i++) { p = at(i, i); P('pointermove', 21, p[0], p[1]); P('pointermove', 22, p[2], p[3]); }
+        P('pointerup', 21, p[0], p[1]);
+        P('pointerup', 22, p[2], p[3]);
+        const cam = (window as unknown as Win).__parametric.renderer.camera;
+        return { view: cam.viewName(), upX: cam.up[0] };
+      }, [turn, wobble]);
+      expect(await gesture(0, 1.5)).toMatchObject({ view: 'front' });
+      const twisted = await gesture(Math.PI / 4, 0);
+      expect(twisted.view).toBeNull();
+      expect(Math.abs(twisted.upX)).toBeGreaterThan(0.3);
     });
 
     test('lifting one of three fingers does not make the view jump', async ({ page }) => {

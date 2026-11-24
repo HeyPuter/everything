@@ -11,11 +11,22 @@ test('makes a drawing with standard views and exports a PDF', async ({ page }) =
   // Front, top, right and isometric views are projected by the geometry engine.
   await expect(page.locator('.relations-list > *')).toHaveCount(4, { timeout: 30_000 });
   await expect(paper.locator('svg path').first()).toBeAttached({ timeout: 30_000 });
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Bracket, rev B');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).press('Tab');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PDF', exact: true }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('Mounting Bracket.pdf');
   expect(await file.failure()).toBeNull();
+  // The document's title is the title block's, as on the sheet (UTF-16 hex in the PDF).
+  const fs = await import('node:fs');
+  const pdf = new TextDecoder('latin1').decode(fs.readFileSync(await file.path()));
+  const hex = `FEFF${[...'Bracket, rev B'].map((c) => c.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()).join('')}`;
+  expect(pdf).toContain(`/Title <${hex}>`);
+  const svgDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'SVG', exact: true }).click();
+  const svg = new TextDecoder().decode(fs.readFileSync(await (await svgDownload).path()));
+  expect(svg).toContain('<title>Bracket, rev B</title>');
   await page.getByRole('tab', { name: 'Model' }).click();
   await expect(page.locator('canvas.gl')).toBeVisible();
   expect(errors).toEqual([]);
@@ -154,6 +165,8 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('.drawing-ws')).toBeFocused();
+  // Screen readers pass the arrow keys to it, and read its name and how to use it.
+  await expect(page.getByRole('application', { name: /^Drawing\. .*arrow keys/ })).toBeFocused();
   await expect(page.locator('.view-sel')).toBeVisible();
   await expect(page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Shift+ArrowRight');
@@ -168,6 +181,17 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await page.keyboard.up('ArrowRight');
   await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 16, 6);
   expect(await depth()).toBe(d0 + 1);
+  // Escape lets go of the view: the arrow keys move the sheet again, not the view.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.view-sel')).toBeHidden();
+  const pan = () => page.locator('.sheet-host').evaluate((el) => (el as HTMLElement).style.transform);
+  const t0 = await pan();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(pan).not.toBe(t0);
+  expect((await front())!.x).toBeCloseTo(x0 + 16, 6);
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.drawing-ws')).toBeFocused();
   await page.keyboard.press('Delete');
   await expect.poll(front).toBeUndefined();
   // Deleting from the Views list keeps keyboard focus there: on the row that moved up, then Add view.
@@ -605,4 +629,99 @@ test('drawing pinch stops when a touch loses capture and a fresh pinch still wor
   await touch('touchEnd', null);
   expect((await state()).zoom).toBeCloseTo(interrupted.zoom * 2, 6);
   expect(errors).toEqual([]);
+});
+
+test('the drawing is not projected again after a change that leaves the body as it was', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = {
+    buildVersion: number; whenBuilt(): Promise<void>; kernel: { project(v: unknown): Promise<unknown> };
+    store: { change(l: string, f: (d: { features: { name: string; hidden?: boolean; type: string }[] }) => void): void };
+  };
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A; __projections: number }).__parametric;
+    const w = window as unknown as { __projections: number };
+    w.__projections = 0;
+    const project = a.kernel.project.bind(a.kernel);
+    a.kernel.project = (v) => { w.__projections++; return project(v); };
+  });
+  const state = () => page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    await a.whenBuilt();
+    return { builds: a.buildVersion, projections: (window as unknown as { __projections: number }).__projections };
+  });
+  const s0 = await state();
+  // A feature renamed and a sketch hidden: rebuilt, with the same body.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Rename', (d) => { d.features[1].name = 'Base plate'; }));
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Hide', (d) => { d.features.find((f) => f.type === 'sketch')!.hidden = true; }));
+  await expect.poll(async () => (await state()).builds).toBeGreaterThan(s0.builds);
+  await page.waitForTimeout(300);
+  expect((await state()).projections).toBe(0);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  // A change to the body is projected again.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Depth', (d) => { const e = d.features.find((f) => f.type === 'extrude') as unknown as { depth: number }; e.depth += 5; }));
+  await expect.poll(async () => (await state()).projections).toBeGreaterThan(0);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+});
+
+test('a drawing whose views take a while to project shows its sheet and says it is projecting them', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { kernel: { project(v: unknown): Promise<unknown> } };
+  // A slow projection (a large part takes seconds), held until the test lets it go.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const w = window as unknown as { __release: () => void };
+    const project = a.kernel.project.bind(a.kernel);
+    a.kernel.project = async (v) => { await new Promise<void>((r) => { w.__release = r; }); return project(v); };
+  });
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Projecting the views…' })).toBeVisible();
+  // The sheet's border and title block are there meanwhile.
+  await expect(page.locator('.paper svg rect').first()).toBeAttached();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __release: () => void }).__release());
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await expect(page.locator('.drawing-busy')).toHaveText('');
+});
+
+test('hidden lines turned on for the isometric view are projected and drawn', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = { store: { doc: { drawing: { views: { id: string; kind: string }[] } } } };
+  const iso = await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.doc.drawing.views.find((v) => v.kind === 'isometric')!.id);
+  const dashed = () => page.locator(`.paper g[data-view="${iso}"] path[stroke-dasharray]`).count();
+  // Shown without hidden lines, it is projected without them.
+  expect(await dashed()).toBe(0);
+  await page.getByRole('checkbox', { name: 'Hidden lines in Isometric view' }).check();
+  await expect.poll(dashed).toBeGreaterThan(0);
+  await page.getByRole('checkbox', { name: 'Hidden lines in Isometric view' }).uncheck();
+  await expect.poll(dashed).toBe(0);
+});
+
+test('the sheet follows the wheel zoom direction setting, but not for a trackpad pinch', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.getByRole('img', { name: 'Drawing sheet' })).toBeVisible();
+  const zoomed = (ctrlKey: boolean) => page.evaluate((ctrlKey) => {
+    type Ws = { el: HTMLElement; zoom: number };
+    const app = (window as unknown as { __parametric: { drawing: Ws; viewport: { invertZoom: boolean } } }).__parametric;
+    app.viewport.invertZoom = true;
+    const ws = app.drawing, before = ws.zoom;
+    const r = ws.el.getBoundingClientRect();
+    // Spreading two fingers, or turning the wheel away (reversed: zoom out).
+    ws.el.dispatchEvent(new WheelEvent('wheel', { deltaY: -20, ctrlKey, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+    return ws.zoom / before;
+  }, ctrlKey);
+  expect(await zoomed(false)).toBeLessThan(1);
+  expect(await zoomed(true)).toBeGreaterThan(1);
 });

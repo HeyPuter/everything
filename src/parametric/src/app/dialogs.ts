@@ -7,14 +7,15 @@ import type { MassProperties } from '../kernel/protocol';
 import { dist, dot, normalize, sub } from '../math/vec';
 import { evaluateVariables, referencedNames, renameReferences, reservedName, variableReferenceChanges } from '../model/expr';
 import { changeUnits, mapExpressions } from '../model/document';
-import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
+import type { MaterialRef, SkCurve, SkDimension, UnitSystem, Variable } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
 import { MATERIALS } from '../model/materials';
 import { uniqueId } from '../model/ids';
-import { mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
-import { SketchIndex } from '../sketch/geom';
+import { idFactory, mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
+import { SketchIndex, tessellate } from '../sketch/geom';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
+import type { Settings } from './settings';
 import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
@@ -48,7 +49,27 @@ export async function equationsDialog(app: App) {
   const cells = new Map<Variable, { expr: HTMLInputElement; result: HTMLElement; del: HTMLElement }>();
   // The name the other equations use for each row, while its typed name is not usable yet.
   const linked = new Map<Variable, string>();
+  /** Shows what every row evaluates to with `trial` (the rows, or what is being typed in one). */
+  const showResults = (trial: Variable[]) => {
+    const { values, errors } = evaluateVariables(trial);
+    trial.forEach((t, i) => {
+      const c = cells.get(rows[i]);
+      if (!c) return;
+      const val = values.get(t.name);
+      const e = errors.get(t.name);
+      c.result.textContent = e ? e : val !== undefined ? formatNumber(val, 4) : '';
+      c.result.style.color = e ? 'var(--danger)' : '';
+    });
+  };
+  // While a value is typed its result (and those of the equations using it) follows,
+  // without taking the value until the field is left.
+  let typing = 0;
+  const preview = (v: Variable, text: string) => {
+    clearTimeout(typing);
+    typing = window.setTimeout(() => showResults(rows.map((r) => (r === v ? { ...r, expr: text.trim() } : r))), 250);
+  };
   const refresh = () => {
+    clearTimeout(typing);
     const { values, errors } = evaluateVariables(rows);
     for (const v of rows) {
       const c = cells.get(v)!;
@@ -87,6 +108,7 @@ export async function equationsDialog(app: App) {
         refresh();
       });
       expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });
+      expr.addEventListener('input', () => preview(v, expr.value));
       const result = h('td', { class: 'num', id: nextDomId('eq-result') });
       expr.setAttribute('aria-describedby', result.id);
       const del = h('button', { class: 'icon-btn', type: 'button' }, icon('trash', 16));
@@ -172,6 +194,12 @@ export async function equationsDialog(app: App) {
 
 // ---------- material ----------
 
+/** A visible label that focuses its field when clicked (the field's name stays its aria-label). */
+function fieldLabel(text: string, field: HTMLElement): HTMLElement {
+  if (!field.id) field.id = nextDomId('field');
+  return h('label', { for: field.id }, text);
+}
+
 
 export async function materialDialog(app: App) {
   const signal = app.documentSignal;
@@ -187,7 +215,7 @@ export async function materialDialog(app: App) {
   select.append(h('option', { value: '__custom' }, 'Custom...'));
   const customName = h('input', { class: 'input', value: cur && !preset ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
   const customDensity = h('input', { class: 'input', type: 'number', min: '0', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
-  const custom = h('div', { class: 'grid-form' }, h('label', {}, 'Name'), customName, h('label', {}, 'Density (kg/m³)'), customDensity);
+  const custom = h('div', { class: 'grid-form' }, fieldLabel('Name', customName), customName, fieldLabel('Density (kg/m³)', customDensity), customDensity);
   if (cur && !preset) select.value = '__custom';
   const error = h('div', { id: nextDomId('density-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   customDensity.setAttribute('aria-describedby', error.id);
@@ -250,7 +278,7 @@ export async function propertiesDialog(app: App, rename?: (name: string) => Prom
   };
   const v = await showDialog({
     title: 'Part Properties', signal,
-    body: [h('div', { class: 'grid-form' }, h('label', {}, 'Name'), name, h('label', {}, 'Units'), units, h('label', {}, 'Decimal places'), decimals),
+    body: [h('div', { class: 'grid-form' }, fieldLabel('Name', name), name, fieldLabel('Unit system', units), units, fieldLabel('Decimal places', decimals), decimals),
       error, h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
     onAction: (a) => {
@@ -302,10 +330,13 @@ export async function optionsDialog(app: App) {
   const theme = segmented<ThemeChoice>('Theme', getThemeChoice(), [
     { value: 'system', label: 'System', icon: 'system' }, { value: 'light', label: 'Light', icon: 'light' }, { value: 'dark', label: 'Dark', icon: 'dark' },
   ], (v) => setThemeChoice(v));
-  const units = selectField('Default units for new parts', s.defaultUnits, Object.values(UNIT_SYSTEMS).map((u) => ({ value: u.id, label: u.label })), (v) => app.changeSettings({ defaultUnits: v }));
-  const quality = selectField('Image quality', String(s.quality) as '0' | '1' | '2', [{ value: '0', label: 'Fast (coarse tessellation)' }, { value: '1', label: 'Normal' }, { value: '2', label: 'Fine (smooth curves)' }], (v) => app.changeSettings({ quality: Number(v) }));
-  const normal = checkbox('Rotate view normal to the sketch plane when editing a sketch', s.autoNormalTo, (v) => app.changeSettings({ autoNormalTo: v }));
-  const zoom = checkbox('Reverse mouse wheel zoom direction', s.invertZoom, (v) => app.changeSettings({ invertZoom: v }));
+  // Each change is saved as it is made, as the theme is: closing the tab with
+  // Options still open keeps it, and other tabs follow at once.
+  const change = (patch: Partial<Settings>) => { app.changeSettings(patch); app.saveSettings(); };
+  const units = selectField('Default units for new parts', s.defaultUnits, Object.values(UNIT_SYSTEMS).map((u) => ({ value: u.id, label: u.label })), (v) => change({ defaultUnits: v }));
+  const quality = selectField('Image quality', String(s.quality) as '0' | '1' | '2', [{ value: '0', label: 'Fast (coarse tessellation)' }, { value: '1', label: 'Normal' }, { value: '2', label: 'Fine (smooth curves)' }], (v) => change({ quality: Number(v) }));
+  const normal = checkbox('Rotate view normal to the sketch plane when editing a sketch', s.autoNormalTo, (v) => change({ autoNormalTo: v }));
+  const zoom = checkbox('Reverse mouse wheel zoom direction', s.invertZoom, (v) => change({ invertZoom: v }));
   const off = app.commands.onChange(() => {
     units.querySelector('select')!.value = app.settings.defaultUnits;
     quality.querySelector('select')!.value = String(app.settings.quality);
@@ -374,11 +405,21 @@ export async function massPropertiesDialog(app: App) {
     off();
   }
   const doc = app.store.doc;
+  // The kernel measures the body it shows: rolled back (by the bar, or to a
+  // sketch or feature being edited) it leaves out the features from there on,
+  // which the report did not say.
+  const limit = app.buildLimit();
+  const rolledTo = limit < doc.features.length ? doc.features[limit] : null;
+  const rolledBack = rolledTo ? `The part is rolled back to before ${rolledTo.name}: it and the features after it are not included.` : null;
   const u = UNIT_SYSTEMS[doc.units];
   const density = doc.material?.density ?? 1000;
   const L = u.length;
   const s = u.scale;
   const dec = Math.max(2, doc.decimals);
+  // The density in the part's own units too: an inch part's mass is in pounds,
+  // its density was only shown in kg/m³ (Steel, 7800 kg/m³ is 0.282 lb/in³).
+  const ownDensity = density / u.massScale * (u.scale / 1000) ** 3;
+  const densityText = doc.units === 'IPS' || doc.units === 'CGS' ? `${density} kg/m³ = ${formatGroup([ownDensity], 3)[0]} ${u.mass}/${L}³` : `${density} kg/m³`;
   const massKg = (mp.volume * 1e-9) * density;
   const mass = massKg / u.massScale;
   const group = (vs: number[], d = dec) => formatGroup(vs, d);
@@ -391,7 +432,7 @@ export async function massPropertiesDialog(app: App) {
   // centre at the origin would read as measurements.
   const none = 'Not applicable: the part has no closed solid';
   const rows: [string, string][] = [
-    ['Material', doc.material ? `${doc.material.name} (${density} kg/m³)` : `Not specified (using ${density} kg/m³)`],
+    ['Material', doc.material ? `${doc.material.name} (${densityText})` : `Not specified (using ${densityText})`],
     ['Mass', mp.solid ? `${fmt(mass)} ${u.mass}` : none],
     ['Volume', mp.solid ? `${fmt(mp.volume / s ** 3)} ${L}³` : none],
     ['Surface area', `${fmt(mp.area / s ** 2)} ${L}²`],
@@ -402,6 +443,7 @@ export async function massPropertiesDialog(app: App) {
   const t = (i: number) => tensorText[i];
   const text = [
     `Mass properties of ${doc.name}`,
+    ...(rolledBack ? [rolledBack] : []),
     ...rows.map(([k, v]) => `${k}: ${v}`),
     ...(mp.solid ? [
       `Moments of inertia about the center of mass (${u.mass}·${L}²):`,
@@ -433,6 +475,7 @@ export async function massPropertiesDialog(app: App) {
     onReady: (close) => { stopWatching = app.store.on((reason) => { if (reason !== 'saved') close(null); }); },
     wide: true,
     body: [
+      ...(rolledBack ? [h('p', { class: 'pm-msg warn' }, rolledBack)] : []),
       h('table', { class: 'table' }, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))),
       ...(mp.solid ? [
         h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, aligned with the part axes (${u.mass}·${L}²)`),
@@ -472,6 +515,8 @@ export async function shortcutsDialog(app: App) {
   add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar, notifications)', 'F6, Shift + F6');
   add('Rename the feature in the design tree', 'F2');
   add('Context menu of the feature in the design tree', 'Shift + F10');
+  // macOS keeps Ctrl + Space (input sources) and ⌘ + Space (Spotlight) for itself.
+  add('Select several rows of the design tree', isMac ? 'Shift + Up/Down' : 'Shift + Up/Down, Ctrl + Space');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });
 }
 
@@ -495,6 +540,8 @@ export class MeasurePanel extends PropertyPanel {
   icon = 'measure';
   confirm = false;
   private out = h('div', { class: 'sec-body' });
+  /** The results, told to screen readers when they change (picks are made in the graphics area). */
+  private spoken = h('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
   private box!: SelectionBox;
 
   constructor(private app: App) {
@@ -509,7 +556,7 @@ export class MeasurePanel extends PropertyPanel {
     }, { placeholder: 'Select one or two faces, edges, vertices or planes', icon: 'measure' });
     const pre = app.selection.items.map((it) => this.convert(it)).filter((x): x is SelBoxItem => !!x).slice(0, 2);
     if (pre.length) { this.box.setItems(pre); void this.measure(); }
-    return [section('Selections', [this.box.el]), h('section', { class: 'pm-section' }, this.out)];
+    return [section('Selections', [this.box.el]), h('section', { class: 'pm-section' }, this.out, this.spoken)];
   }
 
   private convert(it: SelItem): SelBoxItem | null {
@@ -622,6 +669,9 @@ export class MeasurePanel extends PropertyPanel {
       }
     } else this.showLeader(null, null);
     this.out.textContent = '';
+    // Said once per change: a rebuild measuring the same again stays quiet.
+    const said = lines.map(([k, v]) => `${k}: ${v}`).join('. ');
+    if (said !== this.spoken.textContent) this.spoken.textContent = said;
     if (!lines.length) this.out.append(h('div', { class: 'field-label' }, 'Select entities to measure.'));
     else this.out.append(h('table', { class: 'table' }, h('tbody', {}, lines.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))));
   }
@@ -755,19 +805,55 @@ export class OffsetPanel extends NumericToolPanel {
   private distance: number;
   private reverse = false;
 
+  private count: HTMLElement | null = null;
+  private unsubscribe: () => void;
+
   constructor(app: App) {
     super(app);
     this.distance = app.typicalSize() / 5;
     this.helpText = 'Select a chain of sketch curves before starting, then set the distance.';
+    // The preview and the count follow the selection while the panel is open.
+    this.unsubscribe = app.selection.on((hoverOnly) => { if (!hoverOnly) this.showPreview(); });
   }
 
   render(): HTMLElement[] {
-    const ids = this.app.sketchEditor?.selectedIds() ?? [];
-    return [section('Parameters', [
-      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = this.app.store.evalParam(v, 'length'); } }),
-      checkbox('Reverse (inward)', this.reverse, (v) => { this.reverse = v; }),
-      h('div', { class: 'field-label' }, `${ids.length} entities selected`),
+    this.count = h('div', { class: 'field-label' });
+    const out = [section('Parameters', [
+      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = this.app.store.evalParam(v, 'length'); this.showPreview(); } }),
+      checkbox('Reverse (inward)', this.reverse, (v) => { this.reverse = v; this.showPreview(); }),
+      this.count,
     ])];
+    this.showPreview();
+    return out;
+  }
+
+  /**
+   * Draws the curves OK would make, so the side and the distance can be seen
+   * before they are applied (an open chain goes to the left of how it was
+   * drawn, which nothing showed).
+   */
+  private showPreview() {
+    const ed = this.app.sketchEditor;
+    if (!ed) return;
+    const ids = ed.selectedIds();
+    if (this.count) this.count.textContent = `${ids.length} entities selected`;
+    const copy = structuredClone(ed.sketch);
+    let made: string[] = [];
+    try {
+      made = ids.length && this.distance > 0 ? offsetCurves(copy, ids, this.reverse ? -this.distance : this.distance, idFactory(copy)) : [];
+    } catch { /* nothing to show */ }
+    const ix = new SketchIndex(copy.entities);
+    const tol = Math.max(ed.px * 0.4, 1e-5);
+    ed.setPreview(made.map((id) => ix.get(id)).filter((e): e is SkCurve => !!e && e.t !== 'point').map((e) => tessellate(ix, e, tol)));
+  }
+
+  cancel() {
+    this.app.sketchEditor?.setPreview([]);
+  }
+
+  dispose() {
+    this.unsubscribe();
+    this.app.sketchEditor?.setPreview([]);
   }
 
   ok() {

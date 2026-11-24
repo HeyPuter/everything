@@ -19,10 +19,10 @@ import type {
   FilletFeature, HoleFeature, Id, ImportFeature, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature,
   PlaneRef, RevolveFeature, ShellFeature, SkDimension, SketchFeature, SweepFeature,
 } from '../model/types';
-import { dependencies, refFeatureIds } from '../model/features';
+import { PARAM_FIELDS, dependencies, getPath, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
 import { type Region, type Seg2, buildProfiles, hasOverlappingLines, holesMayTouch, inRegion, pointInPoly, reverseLoop, segPolyline, sketchPoints } from '../sketch/profiles';
-import { SketchIndex, splineBeziers } from '../sketch/geom';
+import { SketchIndex, pointIdsOf, splineBeziers } from '../sketch/geom';
 import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
 import { measureDimension } from '../sketch/ops';
@@ -32,7 +32,7 @@ import type {
 } from './protocol';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
-  hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
+  hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -95,9 +95,15 @@ const cloneState = (s: State): State => ({
   tools: new Map(s.tools),
 });
 
-const num = (p: unknown): number => {
+/** A feature's numeric value at a path (dir1.count), named by its label when it is not a number. */
+const num = (f: Feature, path: string): number => {
+  const p = getPath(f, path);
   const v = typeof p === 'number' ? p : Number(p);
-  if (!Number.isFinite(v)) throw new FeatureError('A parameter has an invalid value');
+  if (!Number.isFinite(v)) {
+    // Only a damaged or hand-edited file gets here; "A parameter" did not say which.
+    const label = PARAM_FIELDS[f.type]?.find((x) => x.path === path)?.label ?? path;
+    throw new FeatureError(`${label} has an invalid value`);
+  }
   return v;
 };
 
@@ -125,6 +131,23 @@ function boxOf(shape: Sh): ReturnType<typeof bbox> {
   return b;
 }
 
+const volumes = new WeakMap<Sh, number>();
+
+/** Volume of a body, computed once per shape (each body is compared with the next one). */
+function volumeOfBody(shape: Sh): number {
+  let v = volumes.get(shape);
+  if (v === undefined) volumes.set(shape, (v = volumeOf(shape)));
+  return v;
+}
+
+/** Whether the bounding boxes of two shapes meet (within tol). */
+function touching(a: Sh, b: Sh, tol: number): boolean {
+  const p = boxOf(a), q = boxOf(b);
+  if (!p || !q) return true;
+  for (let k = 0; k < 3; k++) if (p.min[k] > q.max[k] + tol || q.min[k] > p.max[k] + tol) return false;
+  return true;
+}
+
 /** 53-bit FNV-1a style hash of a string, as base36. */
 export function hashString(s: string, seed = 0): string {
   let h1 = 0x811c9dc5 ^ seed, h2 = 0x1b873593 ^ seed;
@@ -141,12 +164,19 @@ export function hashString(s: string, seed = 0): string {
 export class ModelBuilder {
   private steps: Step[] = [];
   private current: State = emptyState();
-  private meshKey = '';
+  /**
+   * What the cached mesh was made from. Keyed by the body and its faces, not
+   * by the chain of steps: a sketch or plane leaves the body as it was, yet
+   * opening or closing it (which builds up to before it, then past it)
+   * meshed the whole part again and sent it to the GPU, 0.6 s on a plate of
+   * 400 holes.
+   */
+  private meshKey: { body: Sh | null; faces: NamedFace[]; quality: number } | null = null;
   private meshCache: { mesh: MeshData | null; faces: FaceInfo[]; edges: EdgeInfo[] } | null = null;
 
   reset() {
     this.steps = [];
-    this.meshKey = '';
+    this.meshKey = null;
     this.meshCache = null;
     this.importCache.clear();
     this.importVersions.clear();
@@ -178,9 +208,12 @@ export class ModelBuilder {
 
   /** The feature that made a named face or edge, for messages. */
   private maker(name: string): string {
-    for (const id of refFeatureIds(name)) {
-      const f = this.order.get(id);
-      if (f) return ` (made by ${nameOf(id)})`;
+    for (const part of name.split('|')) {
+      // A copy ("f3:cap1@f7.4") was made by its pattern or mirror, not by the seed:
+      // a copy gone after its pattern lost instances named the seed feature.
+      const ids = refFeatureIds(part);
+      const id = ids[ids.length - 1];
+      if (id && this.order.has(id)) return ` (made by ${nameOf(id)})`;
     }
     return '';
   }
@@ -195,13 +228,23 @@ export class ModelBuilder {
     // Suppressed features, and features built on them (their children are
     // suppressed with them rather than failing for want of their parent).
     const off = new Set<Id>();
-    for (let i = 0; i < upTo; i++) {
+    /** Cache key of feature i after the chain of keys before it; notes whether it is suppressed. */
+    const keyOf = (i: number, chain: string) => {
       const f = req.features[i];
-      const suppressed = !!f.suppressed || dependencies(f).some((d) => off.has(d));
+      const deps = dependencies(f);
+      const suppressed = !!f.suppressed || deps.some((d) => off.has(d));
       if (suppressed) off.add(f.id);
       const imported = f.type === 'import' ? ':' + this.importVersion(f.blob, req.blobs[f.blob]) : '';
       const invalid = suppressed ? undefined : req.invalid?.[f.id];
-      const key = hashString(chain + '\u0000' + stepText(f) + imported + (invalid ? '\u0000!' + invalid : ''));
+      // Features it uses that come after it, or are gone, are not in the chain
+      // but decide its message: deleting a sketch that came after it left
+      // "comes after this feature" in place of "no longer exists".
+      const refs = deps.map((d) => { const o = this.order.get(d); return !o ? '-' : o.index < i ? '' : '+' + o.type; }).join(',');
+      const key = hashString(chain + '\u0000' + stepText(f) + imported + (invalid ? '\u0000!' + invalid : '') + '\u0000' + refs);
+      return { f, key, suppressed, invalid };
+    };
+    for (let i = 0; i < upTo; i++) {
+      const { f, key, suppressed, invalid } = keyOf(i, chain);
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
@@ -246,10 +289,10 @@ export class ModelBuilder {
       for (const blob of this.importVersions.keys()) if (!(blob in req.blobs) && !referenced.has(blob)) this.importVersions.delete(blob);
     }
 
-    const meshKey = chain + ':' + req.quality;
-    if (meshKey !== this.meshKey || !this.meshCache) {
+    const k = this.meshKey;
+    if (!k || k.body !== state.body || k.faces !== state.faces || k.quality !== req.quality || !this.meshCache) {
       this.meshCache = this.meshState(state, req.quality);
-      this.meshKey = meshKey;
+      this.meshKey = { body: state.body, faces: state.faces, quality: req.quality };
     }
     const frames: Record<Id, Frame> = {};
     for (const [k, v] of state.frames) frames[k] = v;
@@ -257,8 +300,15 @@ export class ModelBuilder {
     const linked = (s: State, id: Id, sk: SketchFeature) => { if (hasExternal(sk)) sketches[id] = { entities: sk.entities, lost: s.lostRefs.get(id) ?? [] }; };
     for (const [k, v] of state.sketches) linked(state, k, v);
     // Frames of features beyond the rollback bar that were built before stay
-    // useful for display; take them from the deepest cached step.
-    const last = this.steps[this.steps.length - 1]?.state;
+    // useful for display; take them from the deepest cached step that is
+    // still this part's. The deepest step whatever it was could be left from
+    // another part opened before, with features of the same ids elsewhere.
+    let last: State | null = null;
+    for (let i = upTo, key = chain; i < Math.min(this.steps.length, req.features.length); i++) {
+      key = keyOf(i, key).key;
+      if (this.steps[i].key !== key) break;
+      last = this.steps[i].state;
+    }
     if (last) for (const [k, v] of last.frames) if (!(k in frames)) frames[k] = v;
 
     const result: BuildResult = {
@@ -378,7 +428,7 @@ export class ModelBuilder {
     const i = this.resolveFace(ref.face, st);
     const d = st.faces[i].desc;
     if (d.type !== 'plane') throw new FeatureError('The selected face is not planar');
-    return planarFaceFrame(d);
+    return planarFaceFrame(d, ref.x);
   }
 
   private tol(st: State): number {
@@ -390,6 +440,13 @@ export class ModelBuilder {
   resolveFace(ref: FaceRef, st: State): number {
     const cands: number[] = [];
     st.faces.forEach((f, i) => { if (f.name === ref.name) cands.push(i); });
+    // A copy's face level with its original's used to take the original's name
+    // (see nameFaces): a reference saved then to a copy carries the original's
+    // name and the copy's place. When the one face of that name is not there,
+    // its copies ("name@pattern.n") are candidates too.
+    if (cands.length === 1 && !ref.name.includes('@') && dist(st.faces[cands[0]].desc.center, ref.sig.c) > this.tol(st) * 10) {
+      st.faces.forEach((f, i) => { if (f.name.startsWith(ref.name + '@')) cands.push(i); });
+    }
     const near = (list: number[]) =>
       list.reduce((best, i) => (best < 0 || dist(st.faces[i].desc.center, ref.sig.c) < dist(st.faces[best].desc.center, ref.sig.c) ? i : best), -1);
     const fits = (d: SurfDesc) => d.type === ref.sig.type && (!ref.sig.n || dot(d.d, ref.sig.n) > 0.999);
@@ -409,18 +466,32 @@ export class ModelBuilder {
   }
 
   resolveEdge(ref: EdgeRef, st: State): number {
+    return this.resolveEdgePieces(ref, st, false)[0];
+  }
+
+  /**
+   * The edges a reference stands for now. split: an edge an upstream feature
+   * cut in two (its name gained #0, #1...) is all its pieces, as a fillet or
+   * chamfer on it should round all of it (it rounded the nearest half). An
+   * edge found only by its place, its name gone, is said in a warning: the
+   * fillet moved onto a neighbouring edge without a word.
+   */
+  private resolveEdgePieces(ref: EdgeRef, st: State, split: boolean): number[] {
     const edges = this.edgesOf(st);
     const exact = edges.flatMap((e, i) => (e.name === ref.name ? [i] : []));
     const near = (list: number[]) =>
       list.reduce((best, i) => (best < 0 || dist(edges[i].desc.mid, ref.sig.m) < dist(edges[best].desc.mid, ref.sig.m) ? i : best), -1);
-    if (exact.length === 1) return exact[0];
+    if (exact.length === 1) return exact;
     const base = ref.name.replace(/#\d+$/, '');
     const same = edges.flatMap((e, i) => (e.name.replace(/#\d+$/, '') === base ? [i] : []));
-    if (same.length) return near(same);
+    if (same.length) return split && base === ref.name ? same : [near(same)];
     const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.02 : 1;
     const alt = edges.flatMap((e, i) => (e.desc.type === ref.sig.type && dist(e.desc.mid, ref.sig.m) < lim ? [i] : []));
-    if (alt.length) return near(alt);
+    if (alt.length) {
+      if (split) this.warning = `A selected edge${this.maker(ref.name)} is gone; the edge nearest its place was used. Check the result, or edit the feature and select the edge again.`;
+      return [near(alt)];
+    }
     throw new FeatureError(`A referenced edge${this.maker(ref.name)} no longer exists. Edit the feature and select it again.`);
   }
 
@@ -484,7 +555,16 @@ export class ModelBuilder {
 
   // ---- naming ----
 
-  private nameFaces(featId: Id, body: Sh, st: State, tool: NamedFace[], fallback?: (d: SurfDesc, k: number) => string): NamedFace[] {
+  /**
+   * copies: the tool faces are copies (pattern or mirror) placed elsewhere. A
+   * copy's face lying on the surface of a face of the body (a copy's top face
+   * level with its seed's) took the body face's name: two faces of one name,
+   * found again only by position (a sketch on a copy went to another copy when
+   * the spacing changed) and with no sign of the pattern (suppressing it left
+   * that sketch on the seed). Such a face keeps the body face's name only when
+   * the two touch.
+   */
+  private nameFaces(featId: Id, body: Sh, st: State, tool: NamedFace[], fallback?: (d: SurfDesc, k: number) => string, copies = false): NamedFace[] {
     const tol = Math.max(this.tol(st), 1e-6);
     const prev = st.faces;
     const score = (d: SurfDesc, c: NamedFace) => dist(d.center, c.desc.center) / Math.sqrt(Math.max(c.desc.area, 1e-12));
@@ -500,6 +580,7 @@ export class ModelBuilder {
         let best: NamedFace | null = null, bestS = Infinity;
         for (const c of prev) {
           if (!same(shape, desc, c)) continue;
+          if (copies && !touching(shape, c.shape, tol) && tool.some((t) => same(shape, desc, t))) continue;
           const s = score(desc, c);
           if (s < bestS) { bestS = s; best = c; }
         }
@@ -528,18 +609,21 @@ export class ModelBuilder {
   }
 
   /** Combines a tool with the body and renames faces. */
-  private applyTool(featId: Id, st: State, tool: Sh, toolFaces: NamedFace[], isCut: boolean) {
+  private applyTool(featId: Id, st: State, tool: Sh, toolFaces: NamedFace[], isCut: boolean, noGain = 'The feature adds no material: it lies inside the part. Check its direction.', copies = false) {
     let body: Sh;
     if (isCut) {
       if (!st.body) throw new FeatureError('There is no material to cut');
       body = cut(st.body, tool);
       if (isEmpty(body)) throw new FeatureError('The cut removes all material');
-      const v0 = volumeOf(st.body);
-      if (v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The cut does not remove any material. Check its direction.';
+      const v0 = volumeOfBody(st.body);
+      if (v0 > 0 && volumeOfBody(body) >= v0 * (1 - 1e-9)) this.warning = 'The cut does not remove any material. Check its direction.';
     } else {
       body = st.body ? fuse(st.body, tool) : tool;
+      // A boss extruded into the part (Reverse direction by mistake) changed nothing, without a word.
+      const v0 = st.body ? volumeOfBody(st.body) : 0;
+      if (v0 > 0 && volumeOfBody(body) <= v0 * (1 + 1e-9)) this.warning = noGain;
     }
-    st.faces = this.nameFaces(featId, body, st, toolFaces);
+    st.faces = this.nameFaces(featId, body, st, toolFaces, undefined, copies);
     st.body = body;
     st.edges = null;
     st.tools.set(featId, { shape: tool, cut: isCut, faces: toolFaces });
@@ -633,7 +717,7 @@ export class ModelBuilder {
 
   private applyPlane(f: PlaneFeature, st: State) {
     const base = this.resolvePlane(f.ref, st);
-    const off = num(f.offset) * (f.flip ? -1 : 1);
+    const off = num(f, 'offset') * (f.flip ? -1 : 1);
     st.frames.set(f.id, { ...base, o: add(base.o, scale(base.n, off)) });
   }
 
@@ -659,19 +743,20 @@ export class ModelBuilder {
     const { regions, frame } = this.sketchRegions(f.sketch, st, f.contours);
     const sign = (f.cut ? -1 : 1) * (f.flip ? -1 : 1);
     const dir = scale(frame.n, sign);
-    let d1 = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, dir, f.cut) : num(f.depth);
+    let d1 = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, dir, f.cut) : num(f, 'depth');
     const noBody = 'There is no body to extrude through in this direction. Reverse the direction or use Blind.';
     if (d1 <= 0) throw new FeatureError(f.end === 'throughAll' ? noBody : 'Depth must be greater than zero');
     let start = 0;
     let total = d1;
     if (f.end === 'midPlane') { start = -d1 / 2; total = d1; }
     else if (f.dir2) {
-      const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1), f.cut) : num(f.dir2.depth);
-      if (!(d2 > 0)) throw new FeatureError(f.dir2.end === 'throughAll' ? noBody : 'Direction 2 depth must be greater than zero');
+      const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1), f.cut) : num(f, 'dir2.depth');
+      // Reversing Direction 1 cannot fix Direction 2: say which one has no body.
+      if (!(d2 > 0)) throw new FeatureError(f.dir2.end === 'throughAll' ? 'There is no body to extrude through in Direction 2. Use Blind for it, or turn Direction 2 off.' : 'Direction 2 depth must be greater than zero');
       start = -d2; total = d1 + d2;
     }
     d1 = total;
-    const draft = num(f.draft || 0);
+    const draft = f.draft ? num(f, 'draft') : 0;
     if (draft < 0) throw new FeatureError('The draft angle cannot be negative. Use Draft outward to taper the other way.');
     if (draft >= 90) throw new FeatureError('The draft angle must be less than 90 degrees');
     const extrudeAll = (from: number, length: number, d: Vec3): Sh => {
@@ -751,12 +836,17 @@ export class ModelBuilder {
     if (f.axis) axis = this.resolveAxis(f.axis, st);
     else {
       const ix = new SketchIndex(sketch.entities);
-      const cl = sketch.entities.find((e) => e.t === 'line' && e.construction);
+      const lines = sketch.entities.filter((e) => e.t === 'line' && e.construction);
+      // Construction lines ending on the profile (a center rectangle's
+      // diagonals, the full length a sketch fillet keeps) are part of the
+      // shape: a centerline standing free of it is the axis, wherever it is listed.
+      const onProfile = new Set(sketch.entities.flatMap((e) => (e.t !== 'point' && !e.construction ? pointIdsOf(e) : [])));
+      const cl = lines.find((l) => l.t === 'line' && !l.ext && !onProfile.has(l.a) && !onProfile.has(l.b)) ?? lines[0];
       if (!cl || cl.t !== 'line') throw new FeatureError('Select an axis of revolution (or add a centerline to the sketch)');
       const a = toWorld(frame, ix.pt(cl.a)), b = toWorld(frame, ix.pt(cl.b));
       axis = { p: a, d: normalize(sub(b, a)) };
     }
-    const angle = num(f.angle);
+    const angle = num(f, 'angle');
     if (angle <= 0) throw new FeatureError('Angle must be greater than zero');
     // More than a turn used to be cut to one without a word.
     if (angle > 360 + 1e-9) throw new FeatureError('The angle cannot be more than 360 degrees');
@@ -832,7 +922,7 @@ export class ModelBuilder {
   private collectEdges(st: State, edges: EdgeRef[], faces: FaceRef[], from?: Map<number, number>): number[] {
     const all = this.edgesOf(st);
     const set = new Set<number>();
-    for (const e of edges) set.add(this.resolveEdge(e, st));
+    for (const e of edges) for (const i of this.resolveEdgePieces(e, st, true)) set.add(i);
     for (const fr of faces) {
       const fi = this.resolveFace(fr, st);
       all.forEach((e, i) => { if (e.faces.includes(fi)) { set.add(i); from?.set(i, fi); } });
@@ -843,7 +933,7 @@ export class ModelBuilder {
 
   private applyFillet(f: FilletFeature, st: State) {
     if (!st.body) throw new FeatureError('There is no body to fillet');
-    const r = num(f.radius);
+    const r = num(f, 'radius');
     if (r <= 0) throw new FeatureError('Radius must be greater than zero');
     const ids = this.collectEdges(st, f.edges, f.faces);
     const all = this.edgesOf(st);
@@ -869,11 +959,11 @@ export class ModelBuilder {
 
   private applyChamfer(f: ChamferFeature, st: State) {
     if (!st.body) throw new FeatureError('There is no body to chamfer');
-    const d1 = num(f.distance);
+    const d1 = num(f, 'distance');
     if (d1 <= 0) throw new FeatureError('Distance must be greater than zero');
-    const d2 = f.mode === 'twoDistance' ? num(f.distance2) : d1;
+    const d2 = f.mode === 'twoDistance' ? num(f, 'distance2') : d1;
     if (d2 <= 0) throw new FeatureError('Distance 2 must be greater than zero');
-    const angle = f.mode === 'distanceAngle' ? num(f.angle) : 45;
+    const angle = f.mode === 'distanceAngle' ? num(f, 'angle') : 45;
     if (!(angle > 0 && angle < 90)) throw new FeatureError('The chamfer angle must be between 0 and 90 degrees');
     const from = new Map<number, number>();
     const ids = this.collectEdges(st, f.edges, f.faces, from);
@@ -913,7 +1003,7 @@ export class ModelBuilder {
 
   private applyShell(f: ShellFeature, st: State) {
     if (!st.body) throw new FeatureError('There is no body to shell');
-    const t = num(f.thickness);
+    const t = num(f, 'thickness');
     if (t <= 0) throw new FeatureError('Thickness must be greater than zero');
     const removed = f.faces.map((r) => st.faces[this.resolveFace(r, st)].shape);
     const solids = subShapes(st.body, 'solid');
@@ -966,7 +1056,7 @@ export class ModelBuilder {
         }
         body = outward ? cut(offset, solid) : cut(solid, offset);
       } catch {
-        throw shellError(st, t);
+        throw shellError(st, t, removed.length);
       } finally {
         builder.delete();
         progress.delete();
@@ -980,7 +1070,7 @@ export class ModelBuilder {
         builder.Build();
         body = wrap(builder.Shape());
       } catch {
-        throw shellError(st, t);
+        throw shellError(st, t, removed.length);
       } finally {
         builder.delete();
         list.delete();
@@ -990,7 +1080,7 @@ export class ModelBuilder {
     // unchanged solid instead of an error. An inward shell always removes
     // material (an outward one is only the new walls, so any size goes).
     const v0 = volumeOf(solid);
-    if (degenerate(body, solid) || (!outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw shellError(st, t);
+    if (degenerate(body, solid) || (!outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw shellError(st, t, removed.length);
     return body;
   }
 
@@ -1000,30 +1090,36 @@ export class ModelBuilder {
     if (!sketch || !frame) throw this.missing(f.sketch, 'hole position sketch');
     const pts = sketchPoints(sketch.entities);
     if (!pts.length) throw new FeatureError('Add sketch points to place holes');
-    const r = num(f.diameter) / 2;
+    const r = num(f, 'diameter') / 2;
     if (r <= 0) throw new FeatureError('Diameter must be greater than zero');
-    const depth = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(frame.n, f.flip ? 1 : -1)) : num(f.depth);
+    const depth = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(frame.n, f.flip ? 1 : -1)) : num(f, 'depth');
     if (depth <= 0) throw new FeatureError('Depth must be greater than zero');
     // Profile in (radius, depth) coordinates, revolved around the hole axis.
     const prof: [number, number][] = [];
+    // A counterbore or countersink as deep as the part leaves no hole below it
+    // (a depth typed in the wrong unit): the part's far side along the hole.
+    const far = st.body ? this.throughAllDepth(st, frame.o, scale(frame.n, f.flip ? 1 : -1), false) : 0;
+    const through = (d: number, what: string) => { if (far > 0 && d >= far * (1 - 1e-9)) this.warning = `The ${what} goes through the part, so no hole of the hole diameter is left. Check its depth.`; };
     if (f.kind === 'counterbore') {
-      const cr = num(f.cbDiameter) / 2, cd = num(f.cbDepth);
+      const cr = num(f, 'cbDiameter') / 2, cd = num(f, 'cbDepth');
       if (cr <= r) throw new FeatureError('The counterbore diameter must be larger than the hole');
       if (cd <= 0) throw new FeatureError('Counterbore depth must be greater than zero');
       // A shallower hole would turn the profile back on itself and leave a
       // ring of material in the counterbore.
       if (f.end !== 'throughAll' && depth <= cd) throw new FeatureError('The hole depth must be greater than the counterbore depth');
+      through(cd, 'counterbore');
       const d = Math.max(depth, cd + 1e-3);
       prof.push([0, 0], [cr, 0], [cr, cd], [r, cd], [r, d], [0, d]);
     } else if (f.kind === 'countersink') {
-      const sr = num(f.csDiameter) / 2;
-      const half = (num(f.csAngle) * Math.PI) / 360;
+      const sr = num(f, 'csDiameter') / 2;
+      const half = (num(f, 'csAngle') * Math.PI) / 360;
       if (sr <= r) throw new FeatureError('The countersink diameter must be larger than the hole');
       if (half <= 0 || half >= Math.PI / 2) throw new FeatureError('The countersink angle must be between 0 and 180 degrees');
       const sd = (sr - r) / Math.tan(half);
       // Like a counterbore: a blind hole ending inside its countersink was
       // silently made deeper than asked.
       if (f.end !== 'throughAll' && depth <= sd) throw new FeatureError('The hole depth must be greater than the countersink depth');
+      through(sd, 'countersink');
       prof.push([0, 0], [sr, 0], [r, sd], [r, Math.max(depth, sd + 1e-3)], [0, Math.max(depth, sd + 1e-3)]);
     } else prof.push([0, 0], [r, 0], [r, depth], [0, depth]);
     // Small tip so the top face sits slightly above the surface for a clean cut.
@@ -1079,15 +1175,19 @@ export class ModelBuilder {
       const tool = inst.length === 1 ? inst[0] : compound(inst);
       if (seed.cut) {
         if (!body) throw new FeatureError('There is no material to cut');
-        const v0 = volumeOf(body);
+        const v0 = volumeOfBody(body);
         body = cut(body, tool);
-        if (v0 > 0 && !isEmpty(body) && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
-      } else body = body ? fuse(body, tool) : tool;
+        if (v0 > 0 && !isEmpty(body) && volumeOfBody(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
+      } else if (body) {
+        const v0 = volumeOfBody(body);
+        body = fuse(body, tool);
+        if (v0 > 0 && volumeOfBody(body) <= v0 * (1 + 1e-9)) this.warning = 'The copies add no material: they lie inside the part. Check the direction and spacing.';
+      } else body = fuseAll([tool]);
       parts.push({ shape: tool, cut: seed.cut, faces: named });
     }
     if (!body || isEmpty(body)) throw new FeatureError('The pattern removed all material');
     const allNamed = parts.flatMap((p) => p.faces);
-    st.faces = this.nameFaces(featId, body, st, allNamed);
+    st.faces = this.nameFaces(featId, body, st, allNamed, undefined, true);
     st.body = body;
     st.edges = null;
     const tool = parts.length === 1 ? parts[0].shape : compound(parts.map((p) => p.shape));
@@ -1095,24 +1195,26 @@ export class ModelBuilder {
     st.tools.set(featId, { shape: tool, cut: parts.every((p) => p.cut), faces: allNamed, ...(mixed ? { parts } : {}) });
   }
 
-  private dirVector(d: PatternDir, st: State): Vec3 {
+  private dirVector(d: PatternDir, st: State, which: string): Vec3 {
+    // "Select a direction or axis" did not say which of the two directions lacks one.
+    if (!d.ref) throw new FeatureError(`Select a direction for ${which}`);
     const ax = this.resolveAxis(d.ref, st);
     return scale(ax.d, d.flip ? -1 : 1);
   }
 
   private applyLinearPattern(f: LinearPatternFeature, st: State) {
     const seeds = this.seedTools(f.id, f.seeds, st);
-    const n1 = Math.round(num(f.dir1.count));
+    const n1 = Math.round(num(f, 'dir1.count'));
     if (n1 < 1 || n1 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
-    const v1 = scale(this.dirVector(f.dir1, st), num(f.dir1.spacing));
+    const v1 = scale(this.dirVector(f.dir1, st, 'Direction 1'), num(f, 'dir1.spacing'));
     // Zero spacing stacks every instance on the seed: nothing would change.
     if (n1 > 1 && len(v1) < 1e-9) throw new FeatureError('Direction 1 spacing must not be zero');
     let n2 = 1;
     let v2: Vec3 = [0, 0, 0];
     if (f.dir2) {
-      n2 = Math.round(num(f.dir2.count));
+      n2 = Math.round(num(f, 'dir2.count'));
       if (n2 < 1 || n2 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
-      v2 = scale(this.dirVector(f.dir2, st), num(f.dir2.spacing));
+      v2 = scale(this.dirVector(f.dir2, st, 'Direction 2'), num(f, 'dir2.spacing'));
       if (n2 > 1 && len(v2) < 1e-9) throw new FeatureError('Direction 2 spacing must not be zero');
     }
     if (n1 * n2 > 2000) throw new FeatureError('Too many instances (maximum 2000)');
@@ -1132,9 +1234,9 @@ export class ModelBuilder {
   private applyCircularPattern(f: CircularPatternFeature, st: State) {
     const seeds = this.seedTools(f.id, f.seeds, st);
     const ax = this.resolveAxis(f.axis, st);
-    const n = Math.round(num(f.count));
+    const n = Math.round(num(f, 'count'));
     if (n < 2 || n > 1000) throw new FeatureError('Instance count must be between 2 and 1000');
-    const total = num(f.angle);
+    const total = num(f, 'angle');
     // A full turn either way spaces the instances round the whole circle.
     const step = f.equal ? (Math.abs(Math.abs(total) - 360) < 1e-9 ? total / n : total / (n - 1)) : total;
     const d = scale(ax.d, f.flip ? -1 : 1);
@@ -1158,7 +1260,7 @@ export class ModelBuilder {
       // Name mirrored faces after their originals.
       const orig = st.faces;
       tf.forEach((t, k) => { if (orig[k]) t.name = `${orig[k].name}@${f.id}`; });
-      this.applyTool(f.id, st, m, tf, false);
+      this.applyTool(f.id, st, m, tf, false, 'The mirror adds no material: the part is already symmetric about the mirror plane.', true);
       return;
     }
     this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
@@ -1176,6 +1278,14 @@ export class ModelBuilder {
   private applyLoft(f: LoftFeature, st: State) {
     if (f.profiles.length < 2) throw new FeatureError('Select at least two profiles');
     const profs = f.profiles.map((id) => this.profileLoops(id, st));
+    // Profiles drawn in one plane make no solid; "could not be created" did not say why.
+    for (let i = 1; i < profs.length; i++) {
+      const a = profs[i - 1].frame, b = profs[i].frame;
+      const size = Math.max(1, len(a.o), len(b.o));
+      if (Math.abs(dot(a.n, b.n)) > 1 - 1e-9 && Math.abs(dot(sub(b.o, a.o), a.n)) < 1e-9 * size) {
+        throw new FeatureError(`The profiles ${nameOf(f.profiles[i - 1])} and ${nameOf(f.profiles[i])} lie in the same plane. Sketch each profile on its own plane.`);
+      }
+    }
     // Inner loops make a hollow loft when every profile has exactly one
     // (more than one cannot be matched between profiles reliably).
     const hollow = profs.every((p) => p.holes.length === 1);
@@ -1203,6 +1313,7 @@ export class ModelBuilder {
 
   private applySweep(f: SweepFeature, st: State) {
     if (!f.profile || !f.path) throw new FeatureError('Select a profile and a path');
+    if (f.profile === f.path) throw new FeatureError('The profile and the path are the same sketch. Draw the path in a sketch of its own.');
     const prof = this.profileLoops(f.profile, st);
     if (prof.extra) this.warning = ModelBuilder.EXTRA_CONTOURS;
     const pathSk = st.sketches.get(f.path);
@@ -1248,11 +1359,13 @@ export class ModelBuilder {
     if (!st.body) throw new FeatureError('There is no body to draft');
     if (!f.faces.length) throw new FeatureError('Select faces to draft');
     const fr = this.resolvePlane(f.neutral, st);
-    const angle = num(f.angle);
+    const angle = num(f, 'angle');
     if (!(Math.abs(angle) < 90)) throw new FeatureError('The draft angle must be between -90 and 90 degrees');
     const oc = getOc();
     const dir = scale(fr.n, f.flip ? -1 : 1);
     const selected = f.faces.map((r) => st.faces[this.resolveFace(r, st)]);
+    // It built without a word, like other features that change nothing used to.
+    if (Math.abs(angle) < 1e-9) { this.warning = 'A draft angle of 0 degrees changes nothing. Enter an angle.'; return; }
     const builder = new oc.BRepOffsetAPI_DraftAngle(st.body.wrapped);
     const pln = plane(fr.o, dir);
     const gd = gdir(dir);
@@ -1307,7 +1420,7 @@ export class ModelBuilder {
       this.importCache.set(f.blob, shape);
     }
     const named = this.nameTool(f.id, shape, (_d, k) => `i${k}`);
-    this.applyTool(f.id, st, shape, named, false);
+    this.applyTool(f.id, st, shape, named, false, 'The imported body adds no material: it lies inside the part.');
   }
 
   // ---- output ----
@@ -1408,24 +1521,12 @@ export class ModelBuilder {
   /** Hidden-line removal projections of the current body. */
   project(views: ProjectionRequest[]): ProjectionResult[] {
     const body = this.current.body;
+    const b = body ? boxOf(body) : null;
+    // Curves other than lines and arcs are drawn within a thousandth of the part's size.
+    const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;
     return views.map((v) => {
       if (!body) return { id: v.id, visible: [], hidden: [], bounds: null };
-      const cam = new R.ProjectionCamera([0, 0, 0], v.dir, v.x);
-      try {
-        const { visible, hidden } = R.drawProjection(body as unknown as R.AnyShape, cam);
-        const flat = (p: string[] | string[][]) => (p as (string | string[])[]).flat();
-        let bounds: ProjectionResult['bounds'] = null;
-        try {
-          const b = visible.boundingBox.bounds;
-          // Drawing y is up; SVG paths are emitted with y down.
-          bounds = [b[0][0], -b[1][1], b[1][0], -b[0][1]];
-        } catch {
-          bounds = null;
-        }
-        return { id: v.id, visible: flat(visible.toSVGPaths()), hidden: flat(hidden.toSVGPaths()), bounds };
-      } finally {
-        cam.delete();
-      }
+      return { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10, v.hidden !== false) };
     });
   }
 
@@ -1506,7 +1607,8 @@ export class ModelBuilder {
     }
   }
 
-  exportStep(): Uint8Array {
+  /** A STEP file of the current body; its product (what other CAD systems list the body as) is named `name`. */
+  exportStep(name?: string): Uint8Array {
     const body = this.current.body;
     if (!body) throw new FeatureError('There is no geometry to export');
     const oc = getOc();
@@ -1520,7 +1622,7 @@ export class ModelBuilder {
       if (done !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new FeatureError('STEP export failed');
       const data: Uint8Array = oc.FS.readFile('/export.step');
       oc.FS.unlink('/export.step');
-      return data;
+      return name ? namedStep(data, name) : data;
     } finally {
       writer.delete();
       progress.delete();
@@ -1587,6 +1689,36 @@ export class ModelBuilder {
   topologyHash(): number {
     return this.current.body ? hashOf(this.current.body.wrapped) : 0;
   }
+}
+
+/**
+ * The writer names the product (and the file) after itself ("Open CASCADE
+ * STEP translator 8.0 1"), which other CAD systems then show as the part's
+ * name. Only the header and the product entity carry these strings.
+ */
+function namedStep(data: Uint8Array, name: string): Uint8Array {
+  const text = new TextDecoder().decode(data);
+  const value = stepString(name);
+  const named = text
+    .replace(/'Open CASCADE STEP translator [^']*'/g, () => value)
+    .replace(/FILE_NAME\('Open CASCADE Shape Model',('[^']*'),\('Author'\)/, (_m, time: string) => `FILE_NAME(${value},${time},('')`);
+  return new TextEncoder().encode(named);
+}
+
+/** A STEP string literal: quotes and backslashes doubled, other than printable ASCII as \X2\ (UTF-16) hex. */
+export function stepString(s: string): string {
+  let out = '';
+  let wide = '';
+  const flush = () => { if (wide) { out += `\\X2\\${wide}\\X0\\`; wide = ''; } };
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0x20 && c <= 0x7e) {
+      flush();
+      out += c === 0x27 ? "''" : c === 0x5c ? '\\\\' : s[i];
+    } else if (c >= 0x20) wide += c.toString(16).toUpperCase().padStart(4, '0');
+  }
+  flush();
+  return `'${out}'`;
 }
 
 /**
@@ -1679,11 +1811,13 @@ function chainPieces<T extends { a?: Vec2; b?: Vec2 }>(pieces: T[]): T[] {
  * Why a shell failed. A wall as thick as a fillet's radius (or any round
  * face's) collapses that face when it is offset, which OpenCascade cannot do.
  */
-function shellError(st: State, t: number): FeatureError {
+function shellError(st: State, t: number, opened: number): FeatureError {
   const round = st.faces.some((f) => (f.desc.type === 'cylinder' || f.desc.type === 'sphere') && f.desc.r <= t * (1 + 1e-9));
+  // Opening faces that leave walls with nothing between them (all four sides
+  // of a box) fails at any thickness, where "a smaller thickness" misled.
   return new FeatureError(round
     ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
-    : 'The shell could not be created. Try a smaller thickness.');
+    : opened > 1 ? 'The shell could not be created. Try a smaller thickness, or remove fewer faces.' : 'The shell could not be created. Try a smaller thickness.');
 }
 
 /**

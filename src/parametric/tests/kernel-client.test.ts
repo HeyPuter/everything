@@ -20,7 +20,7 @@ class FakeWorker {
   crash(message = 'boom') { this.onerror?.({ message, preventDefault() {} } as ErrorEvent); }
 }
 
-function setup(opts: { stallMs?: number; hangMs?: number } = {}) {
+function setup(opts: { stallMs?: number; hangMs?: number; recycleBytes?: number } = {}) {
   const workers: FakeWorker[] = [];
   const client = new KernelClient({ ...opts, createWorker: () => { const w = new FakeWorker(); workers.push(w); return w as unknown as Worker; } });
   const restarts: [string, boolean][] = [];
@@ -61,6 +61,8 @@ describe('kernel client recovery', () => {
     const id = workers[0].sent.find((m) => m.type === 'export')!.id;
     workers[0].reply({ id, ok: false, error: 'The geometry kernel failed', fatal: true });
     await expect(exp).rejects.toThrow('The geometry kernel failed');
+    // Cut short by the restart, as any request in flight then (a rebuild is tried again).
+    await expect(exp).rejects.toBeInstanceOf(KernelRestartError);
     expect(workers).toHaveLength(2);
     expect(restarts).toEqual([['the OpenCascade kernel failed', false]]);
   });
@@ -125,6 +127,75 @@ describe('kernel client recovery', () => {
     workers[1].answer('init');
     await vi.advanceTimersByTimeAsync(0);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('kernel memory', () => {
+  it('replaces a worker whose memory grew far past what the part needs once it is idle, rebuilding the part first', async () => {
+    // OpenCascade's booleans leak a little each time and WebAssembly memory never shrinks.
+    const { client, workers, restarts, last } = setup({ recycleBytes: 1000 });
+    last().answer('init');
+    await client.ready;
+    const build = async (heap: number, upTo = 1) => {
+      const p = client.build(req(upTo));
+      const m = last().sent.filter((x) => x.type === 'build').pop()!;
+      last().reply({ id: m.id, ok: true, result: { heap } });
+      await p;
+      await flush();
+    };
+    // The first build sets what the part needs: twice that is still fine, even above the limit.
+    await build(800);
+    await build(1600);
+    expect(workers).toHaveLength(1);
+    await build(1700, 7);
+    expect(workers).toHaveLength(2);
+    expect(workers[0].terminated).toBe(true);
+    // The new worker builds the last request before anything else, and nobody is told of a restart.
+    expect(workers[1].sent.map((m) => m.type)).toEqual(['init', 'build']);
+    expect((workers[1].sent[1] as { req: BuildRequest }).req.upTo).toBe(7);
+    expect(restarts).toEqual([]);
+    // A part that needs that much memory from the start is not rebuilt over and over.
+    workers[1].answer('init');
+    workers[1].reply({ id: workers[1].sent[1].id, ok: true, result: { heap: 1500 } });
+    await flush();
+    await build(2900);
+    expect(workers).toHaveLength(2);
+  });
+
+  it('asks for a rebuild when the replacing worker dies during its own first build', async () => {
+    // Nobody waits on that build, so nobody would try it again.
+    const { client, workers, restarts, last } = setup({ recycleBytes: 1000 });
+    last().answer('init');
+    await client.ready;
+    let p = client.build(req(1));
+    workers[0].answer('build', { heap: 500 });
+    await p;
+    await flush();
+    p = client.build(req(2));
+    workers[0].reply({ id: workers[0].sent.filter((m) => m.type === 'build').pop()!.id, ok: true, result: { heap: 5000 } });
+    await p;
+    await flush();
+    expect(workers).toHaveLength(2);
+    workers[1].crash();
+    expect(restarts).toEqual([['of an error (boom)', false]]);
+  });
+
+  it('waits for requests in flight before replacing the worker', async () => {
+    const { client, workers, last } = setup({ recycleBytes: 1000 });
+    last().answer('init');
+    await client.ready;
+    let p = client.build(req(1));
+    workers[0].answer('build', { heap: 500 });
+    await p;
+    await flush();
+    const mass = client.massProperties();
+    p = client.build(req(2));
+    workers[0].reply({ id: workers[0].sent.filter((m) => m.type === 'build').pop()!.id, ok: true, result: { heap: 5000 } });
+    await p;
+    await flush();
+    expect(workers).toHaveLength(1);
+    workers[0].answer('mass', null);
+    await expect(mass).resolves.toBeNull();
   });
 });
 

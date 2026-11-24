@@ -60,7 +60,7 @@ for (const fails of [false, true]) test(`later preference changes remain saved w
     };
   }, fails);
   const errors = await openApp(page);
-  const units = page.getByLabel('Units for the new part', { exact: true });
+  const units = page.getByLabel('Units for new parts', { exact: true });
   await units.selectOption('IPS');
   await page.waitForFunction(() => (window as unknown as { writeStarted: boolean }).writeStarted);
   await units.selectOption('MKS');
@@ -135,7 +135,7 @@ test('an earlier account-settings response cannot replace a later load', async (
 test('the start screen reflects account units that arrive after it opens', async ({ page }) => {
   await delayedAccountSettings(page);
   const errors = await openApp(page);
-  const units = page.getByLabel('Units for the new part', { exact: true });
+  const units = page.getByLabel('Units for new parts', { exact: true });
   await expect(units).toHaveValue('MMGS');
   await page.evaluate(() => (window as unknown as SettingsWindow).releaseSettings());
   await expect(units).toHaveValue('CGS');
@@ -189,4 +189,18 @@ test('preferences and the theme changed in another tab apply here and are not ov
   await b.page.evaluate(() => (window as unknown as W).__parametric.commands.run('showOrigin'));
   expect(await b.page.evaluate(() => JSON.parse(localStorage.getItem('parametric:settings')!))).toMatchObject({ showPlanes: true, showOrigin: true });
   expect([...a.errors, ...b.errors]).toEqual([]);
+});
+
+test('Options saves each change as it is made, before the dialog is closed', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as SettingsWindow).__parametric.commands.run('options'));
+  const dialog = page.getByRole('dialog', { name: 'Options' });
+  await dialog.getByLabel('Default units for new parts').selectOption('IPS');
+  await dialog.getByLabel('Reverse mouse wheel zoom direction').check();
+  // A tab closed now (or another tab reading the preferences) has them.
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:settings') || '{}'));
+  expect(saved).toMatchObject({ defaultUnits: 'IPS', invertZoom: true });
+  await expect(dialog).toBeVisible();
+  expect(errors).toEqual([]);
 });

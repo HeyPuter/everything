@@ -223,6 +223,17 @@ a.icon-btn { text-decoration: none; }
   scrollbar-width: none;
 }
 .cm-tools::-webkit-scrollbar { display: none; }
+/* Buttons over the ends of a clipped CommandManager (shell.ts, ribbonScroller): a fade says more is there. */
+.cm-bar { position: relative; }
+.cm-scroll {
+  position: absolute; top: 0; bottom: 0; z-index: 2; width: 28px; display: grid; place-items: center; padding: 0;
+  border: 0; color: var(--text-2); cursor: pointer;
+}
+.cm-scroll.to-start { left: 0; background: linear-gradient(to right, var(--chrome) 55%, transparent); }
+.cm-scroll.to-end { right: 0; background: linear-gradient(to left, var(--chrome) 55%, transparent); }
+.cm-scroll:hover { color: var(--text); }
+.cm-scroll[hidden] { display: none; }
+@media (forced-colors: active) { .cm-scroll { background: Canvas; border-inline: 1px solid CanvasText; } }
 .cm-group { display: flex; align-items: stretch; gap: 1px; padding: 0 4px; border-right: 1px solid var(--border); flex: none; }
 .cm-group:last-child { border-right: 0; }
 .cm-stack { display: flex; flex-direction: column; justify-content: center; gap: 1px; }
@@ -301,6 +312,7 @@ a.icon-btn { text-decoration: none; }
 .ti .badge.warn { color: var(--warning); }
 .ti.editing { background: var(--accent-weak); }
 .ti input.rename { height: 20px; border: 1px solid var(--accent); border-radius: 2px; padding: 0 4px; background: var(--panel); min-width: 80px; }
+.ti input.rename[aria-invalid='true'] { border-color: var(--danger); outline-color: var(--danger); }
 .rollback-bar { height: 8px; margin: 2px 6px; position: relative; cursor: ns-resize; touch-action: none; border: 0; background: none; padding: 0; width: calc(100% - 12px); display: block; }
 .rollback-bar::before { content: ''; position: absolute; left: 0; right: 0; top: 3px; height: 3px; background: var(--accent); border-radius: 2px; }
 .rollback-bar:hover::before, .rollback-bar.dragging::before { background: var(--accent-hover); height: 4px; top: 2px; }
@@ -437,6 +449,8 @@ a.icon-btn { text-decoration: none; }
 .paper { position: relative; background: #fff; outline: 1px solid var(--border-strong); }
 .paper svg { display: block; }
 .view-sel { position: absolute; border: 1px dashed var(--accent); pointer-events: none; }
+.drawing-busy:empty { padding: 0; border: 0; }
+.drawing-busy { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 12px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); color: var(--text-2); font-size: var(--fs-sm); pointer-events: none; }
 .drawing-empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 10px 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); color: var(--text-2); }
 .sheet-tabs { display: flex; align-items: stretch; height: 100%; margin-right: 6px; }
 .sheet-tabs [role='tab'] { border: 0; border-right: 1px solid var(--border); background: none; padding: 0 12px; font-size: var(--fs-sm); color: var(--text-2); }
@@ -655,6 +669,8 @@ a.icon-btn { text-decoration: none; }
 /* Small phones: the part name needs the logo's room more than the logo. */
 @media (max-width: 380px) {
   .tb-brand { display: none; }
+  /* The equations table keeps its Delete buttons inside the dialog. */
+  .table th, .table td { padding: 6px 4px; }
 }
 /* Windows high contrast replaces backgrounds: the rollback bar is drawn in the
    text colour, and colour swatches keep their colour (they are the content). */
@@ -663,4 +679,12 @@ a.icon-btn { text-decoration: none; }
   .rollback-bar:hover::before, .rollback-bar.dragging::before { background: Highlight; }
   .swatch { forced-color-adjust: none; }
   .swatch[aria-pressed='true'] { outline-color: Highlight; }
+  /* Selected rows and options, pressed buttons and the chosen tabs are shown by
+     colours high contrast replaces: they take the system's selection colours. */
+  :root :is(.ti[aria-selected='true'], .cmd-results [role='option'][aria-selected='true'], [role='tab'][aria-selected='true'],
+    .icon-btn[aria-pressed='true'], .tool[aria-pressed='true'], .seg button[aria-pressed='true']) {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+  :root :is(.ti[aria-selected='true'], .cmd-results [role='option'][aria-selected='true'], [role='tab'][aria-selected='true'],
+    .icon-btn[aria-pressed='true'], .tool[aria-pressed='true'], .seg button[aria-pressed='true']) * { color: inherit; }
 }

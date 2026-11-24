@@ -144,6 +144,33 @@ describe('sketch solver', () => {
     expect(res.status).toBe('full');
   });
 
+  it('keeps a shape that a conflicting relation cannot be added to, and blames only that relation', () => {
+    const ents: SkEntity[] = [
+      pt('p1', 0, 0), pt('p2', 20, 0), pt('p3', 20, 10), pt('p4', 0, 10),
+      line('l1', 'p1', 'p2'), line('l2', 'p2', 'p3'), line('l3', 'p3', 'p4'), line('l4', 'p4', 'p1'),
+      // A separate shape whose dimension changed still solves.
+      pt('q1', 40, 0), pt('q2', 45, 0), line('m', 'q1', 'q2'),
+    ];
+    const cons: SkConstraint[] = [
+      { id: 'h1', type: 'horizontal', refs: ['l1'] }, { id: 'h2', type: 'horizontal', refs: ['l3'] },
+      { id: 'v1', type: 'vertical', refs: ['l2'] }, { id: 'v2', type: 'vertical', refs: ['l4'] },
+      { id: 'o', type: 'coincident', refs: ['p1', 'O'] },
+      dim('w', 'distance', ['l1'], 20), dim('h', 'distance', ['l2'], 10),
+      { id: 'eq', type: 'equal', refs: ['l1', 'l2'] },
+      dim('m', 'distance', ['m'], 8),
+    ];
+    const res = solveSketch(ents, cons, { value });
+    expect(res.status).toBe('over');
+    // It made the rectangle 16.7 by 13.3, a compromise that also blamed both dimensions.
+    expect([...res.conflicting]).toEqual(['eq']);
+    expect(['p1', 'p2', 'p3', 'p4'].map((id) => [P(ents, id).x, P(ents, id).y])).toEqual([[0, 0], [20, 0], [20, 10], [0, 10]]);
+    expect(Math.hypot(P(ents, 'q2').x - P(ents, 'q1').x, P(ents, 'q2').y - P(ents, 'q1').y)).toBeCloseTo(8, 9);
+    // Nor does dragging it pull it into that compromise.
+    const drag = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: ['p3'], targets: [[25, 14]] }, analyze: false });
+    expect([...drag.conflicting]).toEqual(['eq']);
+    expect(['p1', 'p2', 'p3', 'p4'].map((id) => [P(ents, id).x, P(ents, id).y])).toEqual([[0, 0], [20, 0], [20, 10], [0, 10]]);
+  });
+
   it('solves a conflicting angle directly instead of stepping towards it', () => {
     const ents: SkEntity[] = [pt('a', 0, 0), pt('b', 10, 0), line('l1', 'a', 'b'), pt('c', 0, 0), pt('d', 0, 8), line('l2', 'c', 'd')];
     const cons: SkConstraint[] = [

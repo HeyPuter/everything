@@ -120,6 +120,31 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Offset previews the curves it would make on the side Reverse picks, and Cancel clears them', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add line', (sk) => {
+        sk.entities.push({ id: 'la', t: 'point', x: 0, y: 0 }, { id: 'lb', t: 'point', x: 20, y: 0 }, { id: 'l', t: 'line', a: 'la', b: 'lb' });
+      });
+      a.selection.set([{ kind: 'sk', id: 'l' }]);
+      a.commands.run('offset');
+    });
+    // Nothing showed which side an open chain would go to before OK.
+    const preview = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { preview: { lines: [number, number][][] } } } }).__parametric.sketchEditor.preview.lines
+      .map((l) => l.map((p) => p.map((v) => Math.round(v * 1000) / 1000))));
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).fill('3');
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).press('Tab');
+    await expect.poll(preview).toEqual([[[0, 3], [20, 3]]]);
+    await page.getByRole('checkbox', { name: 'Reverse (inward)' }).check();
+    await expect.poll(preview).toEqual([[[0, -3], [20, -3]]]);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+    await expect.poll(preview).toEqual([]);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(3);
+    expect(errors).toEqual([]);
+  });
+
   for (const shape of ['semicircle', 'lens'] as const) test(`an impossible inward ${shape} offset leaves the sketch and Redo unchanged`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
@@ -973,6 +998,112 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a centerpoint arc ends on a snapped point only when it lies on the arc', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      ed.edit('Add points', (sk) => { sk.entities.push({ id: 'far', t: 'point', x: 0, y: 30 }, { id: 'on', t: 'point', x: 40, y: 0 }); });
+      type S = import('../../src/app/sketch/inference').Snap;
+      const ev = {} as import('../../src/app/viewport').VPEvent;
+      const click = (s: S) => ed.tool!.click!(s, ev);
+      a.commands.run('tool:centerArc');
+      // Ending on a point three times the radius away pulled that point (or the arc) to meet.
+      click({ p: [0, 0], raw: [0, 0], kind: 'none' });
+      click({ p: [10, 0], raw: [10, 0], kind: 'none' });
+      click({ p: [0, 30], raw: [0, 30], kind: 'point', pointId: 'far' });
+      // A point on the circle is still joined.
+      click({ p: [50, 0], raw: [50, 0], kind: 'none' });
+      click({ p: [60, 0], raw: [60, 0], kind: 'none' });
+      click({ p: [40, 0], raw: [40, 0], kind: 'point', pointId: 'on' });
+      const ix = new Map(ed.sketch.entities.map((e) => [e.id, e]));
+      const pt = (id: string) => { const e = ix.get(id) as { x: number; y: number }; return [Math.round(e.x * 1e6) / 1e6, Math.round(e.y * 1e6) / 1e6]; };
+      const arcs = ed.sketch.entities.filter((e) => e.t === 'arc') as { a: string; b: string }[];
+      return { far: pt('far'), first: [arcs[0].a, arcs[0].b].includes('far'), second: [arcs[1].a, arcs[1].b].includes('on'), status: ed.solve!.status, ends: [pt(arcs[0].a), pt(arcs[0].b)] };
+    });
+    expect(result.far).toEqual([0, 30]);
+    expect(result.first).toBe(false);
+    expect(result.second).toBe(true);
+    expect(result.ends).toContainEqual([0, 10]);
+    expect(result.status).toBe('under');
+    expect(errors).toEqual([]);
+  });
+
+  test('the point tool does not stack a second point on a sketch point', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const points = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'point').length);
+    await page.locator('[data-cmd="tool:point"]').click();
+    // A double-click made two points there, so a hole on it was made twice.
+    await page.mouse.dblclick(x + 60, y - 40);
+    expect(await points()).toBe(1);
+    await page.mouse.click(x + 60, y - 40);
+    expect(await points()).toBe(1);
+    await expect(page.locator('.statusbar')).toContainText('There is already a sketch point here.');
+    // A point on a line's end is still placed (a hole at a corner).
+    await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      ed.edit('Add line', (sk) => { sk.entities.push({ id: 'a1', t: 'point', x: -20, y: 0 }, { id: 'a2', t: 'point', x: -10, y: 0 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' }); });
+    });
+    const end = await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.toScreen([-10, 0]));
+    const box = (await page.locator('canvas.gl').boundingBox())!;
+    await page.mouse.click(box.x + end[0], box.y + end[1]);
+    expect(await points()).toBe(4);
+    expect(errors).toEqual([]);
+  });
+
+  test('the Modify box says a variable in a circular reference is circular, not unknown', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Variables', (doc) => { doc.variables.push({ id: 'va', name: 'Loop', expr: 'Loop2+1' }, { id: 'vb', name: 'Loop2', expr: 'Loop*2' }); });
+      a.sketchEditor!.edit('Add line', (sk) => {
+        sk.entities.push({ id: 'a1', t: 'point', x: 0, y: 0 }, { id: 'a2', t: 'point', x: 10, y: 0 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['A'], value: 10, at: [5, -5], name: 'D1' });
+      });
+      a.sketchEditor!.openModify('D');
+    });
+    const box = page.getByRole('dialog', { name: 'Modify D1' });
+    await box.getByRole('textbox').fill('=Loop/2');
+    // It said 'Unknown name "Loop"' for a variable listed in the equations.
+    await expect(box.getByRole('alert')).toHaveText('Variable "Loop": Circular reference');
+    await box.getByRole('textbox').fill('=Nope');
+    await expect(box.getByRole('alert')).toHaveText('Unknown name "Nope"');
+    expect(errors).toEqual([]);
+  });
+
+  test('a driven dimension that would over-define the sketch stays driven when made driving', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const id = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      a.commands.run('tool:rectangle');
+      const click = (p: [number, number]) => ed.tool!.click!({ p, raw: p, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      click([0, 0]);
+      click([40, 30]);
+      ed.setTool(null);
+      const [bottom, , top] = ed.sketch.entities.filter((e) => e.t === 'line');
+      ed.addDimension({ type: 'distance', refs: [bottom.id], value: 40 }, [20, -10], false);
+      // The top's length is the bottom's: a dimension on it can only be driven.
+      return ed.addDimension({ type: 'distance', refs: [top.id], value: 40 }, [20, 40], false)!;
+    });
+    await page.getByText('This dimension would over-define the sketch').waitFor();
+    await page.locator('.dim-label', { hasText: '(40.00)' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Make Driving' }).click();
+    // It turned driving and the sketch over defined, in red.
+    await expect(page.getByText('Driving this dimension would over-define the sketch')).toBeVisible();
+    const state = await page.evaluate((id) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const d = a.sketchEditor!.sketch.constraints.find((c) => c.id === id) as import('../../src/model/types').SkDimension;
+      return { driven: !!d.driven, status: a.sketchEditor!.solve!.status, undo: a.store.undoLabel };
+    }, id);
+    expect(state).toEqual({ driven: true, status: 'under', undo: 'Add dimension' });
+    expect(errors).toEqual([]);
+  });
+
   test('a new dimension stays driving when the sketch was already over defined elsewhere', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
@@ -1128,6 +1259,113 @@ test.describe('sketching', () => {
     await page.keyboard.press('Enter');
     await expect.poll(kinds).toBe('spline,spline');
     expect(await tool()).toBe('spline');
+    expect(errors).toEqual([]);
+  });
+
+  test('clicking the first point of a spline again closes it', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const splines = () => page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      return sk.entities.filter((e) => e.t === 'spline').map((e) => (e as { pts: string[] }).pts);
+    });
+    await page.locator('[data-cmd="tool:spline"]').click();
+    // Too few points for a loop: the first point again is not a new point.
+    await page.mouse.click(x - 100, y);
+    await page.mouse.click(x, y - 60);
+    await page.mouse.click(x - 100, y);
+    await page.mouse.click(x + 100, y);
+    // It added a fourth point beside the first, which did not exist yet to snap to: the curve stayed open.
+    await page.mouse.click(x - 97, y + 3);
+    await expect.poll(splines).toHaveLength(1);
+    const [pts] = await splines();
+    expect(pts).toHaveLength(4);
+    expect(pts[3]).toBe(pts[0]);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.tool?.id)).toBe('spline');
+    expect(errors).toEqual([]);
+  });
+
+  test('Enter in the middle of a circle or a constraint keeps the tool and what it started', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const tool = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { tool: { id: string } | null } } }).__parametric.sketchEditor.tool?.id);
+    await page.locator('[data-cmd="tool:circle"]').click();
+    await page.mouse.click(x, y);
+    // Enter repeated the last command, the circle tool itself, which turned it off and dropped the centre.
+    await page.keyboard.press('Enter');
+    expect(await tool()).toBe('circle');
+    await page.mouse.click(x + 60, y);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { sketch: { entities: { t: string }[] } } } }).__parametric.sketchEditor.sketch.entities.filter((e) => e.t === 'circle').length)).toBe(1);
+    await page.keyboard.press('Escape');
+    await page.locator('[data-cmd="constraint:horizontal"]').click();
+    await page.keyboard.press('Enter');
+    expect(await tool()).toBe('constraint:horizontal');
+    expect(errors).toEqual([]);
+  });
+
+  test('Enter does not repeat Delete or Redo on what is selected next', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const lines = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'line').map((e) => e.id).join());
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add lines', (sk) => {
+        sk.entities.push({ id: 'a1', t: 'point', x: 0, y: 0 }, { id: 'a2', t: 'point', x: 10, y: 0 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' });
+        sk.entities.push({ id: 'b1', t: 'point', x: 0, y: 10 }, { id: 'b2', t: 'point', x: 10, y: 10 }, { id: 'B', t: 'line', a: 'b1', b: 'b2' });
+      });
+      a.selection.set([{ kind: 'sk', id: 'A' }]);
+      // Edit > Delete, from the menu.
+      a.commands.run('delete');
+      a.selection.set([{ kind: 'sk', id: 'B' }]);
+    });
+    expect(await lines()).toBe('B');
+    await page.locator('canvas.gl').focus();
+    // Enter deleted the line selected next.
+    await page.keyboard.press('Enter');
+    expect(await lines()).toBe('B');
+    await page.keyboard.press('Meta+z');
+    expect(await lines()).toBe('A,B');
+    await page.keyboard.press('Meta+Shift+z');
+    await page.keyboard.press('Meta+z');
+    // Nor does it redo what was just undone.
+    await page.keyboard.press('Enter');
+    expect(await lines()).toBe('A,B');
+    expect(errors).toEqual([]);
+  });
+
+  test('moving the pointer while drawing redraws only the preview, not the whole sketch', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add line', (sk) => {
+        sk.entities.push({ id: 'a1', t: 'point', x: -30, y: -20 }, { id: 'a2', t: 'point', x: -10, y: -20 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['A'], value: 20, at: [-20, -25], name: 'D1' });
+      });
+      const w = window as unknown as { layers: string[] };
+      w.layers = [];
+      const set = a.renderer.setLines.bind(a.renderer);
+      a.renderer.setLines = (k: string, v: Parameters<typeof set>[1]) => { w.layers.push(k); return set(k, v); };
+    });
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x, y);
+    await page.evaluate(() => { (window as unknown as { layers: string[] }).layers = []; });
+    for (let i = 1; i <= 6; i++) await page.mouse.move(x + i * 15, y - i * 4);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const layers = await page.evaluate(() => (window as unknown as { layers: string[] }).layers);
+    // Every move rebuilt the sketch's lines, points, dimensions and badges.
+    expect(layers).toContain('sk-preview');
+    expect(layers).not.toContain('sk-active');
+    expect(layers).not.toContain('sk-dims');
+    // The rubber band still follows the pointer, and the status bar the snapped position.
+    const preview = await page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { preview: { lines: [number, number][][] } } } }).__parametric.sketchEditor.preview.lines.length);
+    expect(preview).toBe(1);
+    const coords = page.locator('.statusbar .cell.hide-mobile').first();
+    const before = await coords.textContent();
+    await page.mouse.move(x + 120, y - 40);
+    await expect(coords).not.toHaveText(before ?? '');
+    await page.mouse.click(x + 90, y - 24);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'line').length)).toBe(2);
     expect(errors).toEqual([]);
   });
 

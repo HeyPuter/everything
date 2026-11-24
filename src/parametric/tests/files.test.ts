@@ -144,3 +144,57 @@ describe('safeName', () => {
     expect(safeName('\u0001\u0002')).toBe('Untitled');
   });
 });
+
+describe('recovery copies of closing tabs', () => {
+  /** A localStorage whose values together may hold `quota` characters. */
+  function quotaStorage(quota: number) {
+    const m = new Map<string, string>();
+    const used = () => [...m].reduce((n, [k, v]) => n + k.length + v.length, 0);
+    (globalThis as unknown as { localStorage: Storage }).localStorage = {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        const before = m.get(k);
+        m.set(k, v);
+        if (used() > quota) {
+          if (before === undefined) m.delete(k); else m.set(k, before);
+          throw Object.assign(new Error('Quota exceeded'), { name: 'QuotaExceededError' });
+        }
+      },
+      removeItem: (k: string) => void m.delete(k),
+      clear: () => m.clear(),
+      key: (i: number) => [...m.keys()][i] ?? null,
+      get length() { return m.size; },
+    } as Storage;
+    return m;
+  }
+  const copy = (savedAt: number, size: number) => JSON.stringify({ savedAt, doc: { name: 'x' }, pad: 'p'.repeat(size) });
+
+  it('keep all copies together within their limit, dropping the oldest of other tabs', async () => {
+    const m = quotaStorage(10_000_000);
+    const { writeRecoveryOnUnload } = await import('../src/platform/files');
+    m.set('parametric:recovery-unload:old', copy(1, 450_000));
+    m.set('parametric:recovery-unload:newer', copy(2, 450_000));
+    expect(writeRecoveryOnUnload(copy(3, 300_000))).toBe(true);
+    expect([...m.keys()].filter((k) => k.startsWith('parametric:recovery-unload:')).length).toBe(2);
+    expect(m.has('parametric:recovery-unload:old')).toBe(false);
+    // One copy larger than the limit is not written at all.
+    expect(writeRecoveryOnUnload(copy(4, 1_100_000))).toBe(false);
+  });
+
+  it('give way when the list of parts would not fit beside them', async () => {
+    const m = quotaStorage(1_000_000);
+    const { rememberRecent, recentParts: recent } = await import('../src/platform/files');
+    m.set('parametric:recovery-unload:other', copy(1, 999_900));
+    rememberRecent({ location: { type: 'local', id: 'part-1' }, name: 'Kept' });
+    expect(recent().map((r) => r.name)).toEqual(['Kept']);
+    expect(m.has('parametric:recovery-unload:other')).toBe(false);
+  });
+
+  it('are removed with the recovery copy they belong to', async () => {
+    const m = quotaStorage(10_000_000);
+    const { removeRecovery } = await import('../src/platform/files');
+    m.set('parametric:recovery-unload:abc', copy(1, 10));
+    await removeRecovery('recovery-abc.json');
+    expect(m.has('parametric:recovery-unload:abc')).toBe(false);
+  });
+});

@@ -42,6 +42,8 @@ export abstract class PropertyPanel {
   private msgEl: HTMLElement | null = null;
   /** Which selection box receives viewport picks. */
   activeBox: SelectionBox | null = null;
+  /** Called when another selection box becomes active, which changes what can be picked. */
+  onFilterChange: () => void = () => {};
   boxes: SelectionBox[] = [];
   /** Show OK/Cancel in the confirmation corner. */
   confirm = true;
@@ -124,8 +126,10 @@ export abstract class PropertyPanel {
   }
 
   activate(box: SelectionBox) {
+    const changed = box !== this.activeBox;
     this.activeBox = box;
     this.boxes.forEach((b) => b.setActive(b === box));
+    if (changed) this.onFilterChange();
   }
 }
 
@@ -299,7 +303,9 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     const scale = o.kind === 'length' ? UNIT_SYSTEMS[o.ctx.units].scale : 1;
     const inc = o.kind === 'count' ? 1 : o.kind === 'angle' ? 1 : o.ctx.units === 'IPS' ? 0.1 * scale : o.ctx.units === 'MKS' ? 0.01 * scale : 1 * scale;
     let next = base + dir * inc;
-    if (o.min !== undefined) next = Math.max(o.min, next);
+    // A tiny minimum stands for "more than zero": stepping below it keeps the
+    // value rather than landing on 0.000001 (and Up then on 1.000001).
+    if (o.min !== undefined && next < o.min) next = o.min > 0 && o.min <= 1e-6 ? Math.max(base, o.min) : o.min;
     if (o.max !== undefined) next = Math.min(o.max, next);
     input.value = paramText(next, o.kind, o.ctx);
     commit();
@@ -429,6 +435,21 @@ export class SelectionBox {
     this.list = h('div', { class: 'selbox', role: 'group', tabindex: '0', 'aria-label': label });
     this.list.addEventListener('click', () => panel.activate(this));
     this.list.addEventListener('focus', () => panel.activate(this));
+    // Delete or Backspace takes out the item whose Remove button has focus, or
+    // from the box itself the last item picked (as in a list of tags).
+    this.list.addEventListener('keydown', (e) => {
+      if ((e.key !== 'Delete' && e.key !== 'Backspace') || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const rm = (e.target as Element).closest<HTMLElement>('.rm');
+      if (!rm && e.target !== this.list) return;
+      // Not also the app's Delete (which would delete the sketch geometry selected).
+      e.preventDefault();
+      e.stopPropagation();
+      if (rm) { rm.click(); return; }
+      if (!this.items.length) return;
+      this.items.pop();
+      this.draw();
+      this.onChange(this.items);
+    });
     const head = h('div', { class: 'row' }, opts.icon ? h('span', { class: 'row-icon', 'aria-hidden': 'true' }, icon(opts.icon, 18)) : null, h('span', { class: 'field-label' }, label));
     this.el = h('div', {}, head, this.list);
     panel.boxes.push(this);

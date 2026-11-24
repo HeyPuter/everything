@@ -110,3 +110,29 @@ test('a body imported while a sketch is open stays when the sketch changes are d
   await expect(page.getByRole('treeitem', { name: 'Imported1' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('Import refuses a file that is not a STEP or SolidWorks model, saying what it takes', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  const chooser = page.waitForEvent('filechooser');
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.commands.run('importStep'));
+  const text = JSON.stringify({ format: 'parametric-part', version: 1, name: 'Other', units: 'MMGS', features: [] });
+  await (await chooser).setFiles({ name: 'Other.parametric', mimeType: 'application/json', buffer: (globalThis as unknown as { Buffer: { from(s: string): never } }).Buffer.from(text) });
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('Other.parametric is not a STEP file (.step, .stp) or a SolidWorks part (.sldprt). To work on a part file, open it with Open.');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.doc.features.length)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('Open from device refuses a file Parametric does not open, saying which files it opens', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  const chooser = page.waitForEvent('filechooser');
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.commands.run('openDevice'));
+  await (await chooser).setFiles({ name: 'bracket.stl', mimeType: 'model/stl', buffer: (globalThis as unknown as { Buffer: { from(s: string): never } }).Buffer.from('solid x\nendsolid x\n') });
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('bracket.stl is not a file Parametric opens. Choose a part (.parametric), a STEP file (.step, .stp) or a SolidWorks part (.sldprt).');
+  expect(errors).toEqual([]);
+});

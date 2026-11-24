@@ -162,3 +162,36 @@ test('a part of surfaces only reports no mass or centre of mass instead of zeros
   await expect(dialog).not.toContainText('Principal moments');
   expect(errors).toEqual([]);
 });
+
+test('mass properties of a rolled-back part say which features they leave out', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: { setRollback(i: number | null): void; commands: { run(id: string): void }; whenBuilt(): Promise<void> } };
+  const dialog = page.getByRole('dialog', { name: 'Mass Properties' });
+  await page.evaluate(async () => { const app = (window as unknown as A).__parametric; await app.whenBuilt(); app.commands.run('massProperties'); });
+  await expect(dialog).toContainText('Mass');
+  await expect(dialog).not.toContainText('rolled back');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
+  await page.evaluate(async () => { const app = (window as unknown as A).__parametric; app.setRollback(3); await app.whenBuilt(); app.commands.run('massProperties'); });
+  await expect(dialog).toContainText('The part is rolled back to before Hole1: it and the features after it are not included.');
+  expect(errors).toEqual([]);
+});
+
+test('mass properties of an inch part give its mass in pounds and its density in lb/in³ too', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: { whenBuilt(): Promise<void>; commands: { run(id: string): boolean }; store: { change(l: string, fn: (d: { units: string; material: unknown }) => void): void } } };
+  await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    app.store.change('Units', (d) => { d.units = 'IPS'; d.material = { name: 'Plain Carbon Steel', density: 7800 }; });
+    await app.whenBuilt();
+    app.commands.run('massProperties');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Mass Properties' });
+  await expect(dialog).toContainText('Plain Carbon Steel (7800 kg/m³ = 0.282 lb/in³)');
+  await expect(dialog).toContainText(' lb');
+  await expect(dialog).toContainText('in³');
+  expect(errors).toEqual([]);
+});

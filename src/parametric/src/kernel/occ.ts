@@ -5,7 +5,8 @@
 
 import * as R from 'replicad';
 import type { Frame, Vec3 } from '../math/vec';
-import { cross, dot, frameFrom, len, normalize, scale, sub } from '../math/vec';
+import { cross, dot, len, normalize, scale, sub } from '../math/vec';
+import { planeFrame } from '../model/planes';
 
 export type OC = any;
 let oc: OC = null;
@@ -56,10 +57,10 @@ const downcastFn = (k: TopoKind) => ({ face: 'Face', edge: 'Edge', vertex: 'Vert
  * Unique sub-shapes of a kind, in exploration order. Deduplicates with a
  * hash table (IsSame within buckets) so large models stay linear.
  */
-export function subShapes(shape: Sh, kind: TopoKind): Sh[] {
+export function subShapes(shape: Sh, kind: TopoKind, avoid?: TopoKind): Sh[] {
   const out: Sh[] = [];
   const buckets = new Map<number, any[]>();
-  const ex = new oc.TopExp_Explorer(shape.wrapped, kindEnum(kind), oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  const ex = new oc.TopExp_Explorer(shape.wrapped, kindEnum(kind), avoid ? kindEnum(avoid) : oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
   const cast = oc.TopoDS[downcastFn(kind)];
   try {
     while (ex.More()) {
@@ -281,13 +282,9 @@ export function sharesSurface(a: Sh, b: Sh, cache: SurfaceCache): boolean {
   return !!sa && !!sb && sa.isAliasOf(sb);
 }
 
-/** Sketch frame for a planar face: origin is the projected world origin. */
-export function planarFaceFrame(desc: SurfDesc): Frame {
-  const n = desc.d;
-  const o = sub([0, 0, 0], scale(n, dot(sub([0, 0, 0], desc.p), n)));
-  // Prefer world X projected into the plane, else world Z.
-  const cand: Vec3 = Math.abs(n[0]) < 0.99 ? [1, 0, 0] : [0, 0, -Math.sign(n[0])];
-  return frameFrom(o, cand, n);
+/** Sketch frame for a planar face: origin is the projected world origin (see planeFrame). */
+export function planarFaceFrame(desc: SurfDesc, x?: Vec3): Frame {
+  return planeFrame(desc.p, desc.d, x);
 }
 
 export interface EdgeDesc {
@@ -341,6 +338,314 @@ export function vertexPoint(w: Sh): Vec3 {
   const out = xyz(p);
   p.delete();
   return out;
+}
+
+// ---- Hidden-line projection ----
+
+type P2 = [number, number];
+/** One projected edge as path commands from its start (fwd) and from its end (rev). */
+interface PathPiece { a: P2; b: P2; fwd: string; rev: string }
+
+const fmt = (v: number) => {
+  const s = String(Math.round(v * 1e4) / 1e4);
+  return s === '-0' ? '0' : s;
+};
+const ptText = (p: P2) => `${fmt(p[0])} ${fmt(p[1])}`;
+
+/**
+ * A projected edge (in the projection plane, z = 0) as SVG path pieces with y pointing down:
+ * lines and arcs of circles and ellipses exactly, other curves as polylines within `tol`.
+ * Grows `box` ([minX, minY, maxX, maxY]) by the edge's exact extent when given.
+ */
+function edgePiece(edge: any, tol: number, box: number[] | null): PathPiece | null {
+  const gc = oc.GeomAbs_CurveType;
+  const ad = new oc.BRepAdaptor_Curve(edge);
+  const grow = (p: P2) => {
+    if (!box) return;
+    box[0] = Math.min(box[0], p[0]); box[1] = Math.min(box[1], p[1]);
+    box[2] = Math.max(box[2], p[0]); box[3] = Math.max(box[3], p[1]);
+  };
+  const at = (u: number): P2 => {
+    const p = ad.Value(u);
+    const out: P2 = [p.X(), -p.Y()];
+    p.delete();
+    return out;
+  };
+  try {
+    const f = ad.FirstParameter(), l = ad.LastParameter();
+    if (!(l > f)) return null;
+    const t = ad.GetType();
+    if (t === gc.GeomAbs_Line) {
+      const a = at(f), b = at(l);
+      grow(a); grow(b);
+      return { a, b, fwd: `L${ptText(b)}`, rev: `L${ptText(a)}` };
+    }
+    if (t === gc.GeomAbs_Circle || t === gc.GeomAbs_Ellipse) {
+      const conic = t === gc.GeomAbs_Circle ? ad.Circle() : ad.Ellipse();
+      const pos = conic.Position();
+      const loc = pos.Location(), xd = pos.XDirection(), yd = pos.YDirection();
+      const ra = t === gc.GeomAbs_Circle ? conic.Radius() : conic.MajorRadius();
+      const rb = t === gc.GeomAbs_Circle ? ra : conic.MinorRadius();
+      // On paper (y down): p(u) = c + ra cos(u) X + rb sin(u) Y.
+      const c: P2 = [loc.X(), -loc.Y()], X: P2 = [xd.X(), -xd.Y()], Y: P2 = [yd.X(), -yd.Y()];
+      loc.delete(); xd.delete(); yd.delete(); pos.delete(); conic.delete();
+      const p = (u: number): P2 => [c[0] + ra * Math.cos(u) * X[0] + rb * Math.sin(u) * Y[0], c[1] + ra * Math.cos(u) * X[1] + rb * Math.sin(u) * Y[1]];
+      // The extremes along x and y, where they fall within the arc.
+      for (const u0 of [Math.atan2(rb * Y[0], ra * X[0]), Math.atan2(rb * Y[1], ra * X[1])]) {
+        for (let u = u0 - 2 * Math.PI * Math.ceil((u0 - f) / (2 * Math.PI) + 1); u <= l; u += Math.PI) if (u >= f) grow(p(u));
+      }
+      const a = p(f), b = p(l);
+      grow(a); grow(b);
+      // From X toward Y is SVG's direction of positive angles (sweep flag 1) when X x Y > 0.
+      const sweep = X[0] * Y[1] - X[1] * Y[0] > 0 ? 1 : 0;
+      const rot = fmt((Math.atan2(X[1], X[0]) * 180) / Math.PI);
+      const arc = (from: number, to: number, s: number) => {
+        const large = Math.abs(to - from) > Math.PI ? 1 : 0;
+        return `A${fmt(ra)} ${fmt(rb)} ${rot} ${large} ${s} ${ptText(p(to))}`;
+      };
+      if (l - f < 1.5 * Math.PI) return { a, b, fwd: arc(f, l, sweep), rev: arc(l, f, 1 - sweep) };
+      // A whole circle or ellipse is two arcs (one arc cannot end where it starts).
+      const m = (f + l) / 2;
+      return { a, b, fwd: arc(f, m, sweep) + arc(m, l, sweep), rev: arc(l, m, 1 - sweep) + arc(m, f, 1 - sweep) };
+    }
+    const pts: P2[] = [];
+    const us: number[] = [];
+    const td = new oc.GCPnts_TangentialDeflection(ad, f, l, 0.1, tol, 2, 1e-9, 1e-7);
+    try {
+      for (let i = 1; i <= td.NbPoints(); i++) {
+        const q = td.Value(i);
+        pts.push([q.X(), -q.Y()]);
+        us.push(td.Parameter(i));
+        q.delete();
+      }
+    } finally {
+      td.delete();
+    }
+    if (pts.length < 2) return null;
+    pts.forEach(grow);
+    if (box) {
+      // The curve's extremes lie between the points drawn: find them (the overall dimensions
+      // must not read short by the chord's sag).
+      for (const [axis, sign] of [[0, 1], [0, -1], [1, 1], [1, -1]]) {
+        let i = 0;
+        pts.forEach((q, j) => { if (sign * q[axis] > sign * pts[i][axis]) i = j; });
+        let lo = us[Math.max(0, i - 1)], hi = us[Math.min(us.length - 1, i + 1)];
+        for (let k = 0; k < 60 && hi - lo > 1e-12; k++) {
+          const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+          if (sign * at(m1)[axis] < sign * at(m2)[axis]) lo = m1;
+          else hi = m2;
+        }
+        grow(at((lo + hi) / 2));
+      }
+    }
+    return {
+      a: pts[0], b: pts[pts.length - 1],
+      fwd: pts.slice(1).map((q) => `L${ptText(q)}`).join(''),
+      rev: pts.slice(0, -1).reverse().map((q) => `L${ptText(q)}`).join(''),
+    };
+  } finally {
+    ad.delete();
+  }
+}
+
+/** The edges of a compound as SVG paths, joining edges that run on from one another. */
+function compoundPaths(comp: any, tol: number, box: number[] | null): string[] {
+  const paths: string[] = [];
+  if (comp.IsNull()) return paths;
+  const ex = new oc.TopExp_Explorer(comp, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  let path = '';
+  let end: P2 | null = null;
+  const near = (p: P2, q: P2) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+  try {
+    for (; ex.More(); ex.Next()) {
+      const cur = ex.Current();
+      const e = oc.TopoDS.Edge(cur);
+      let piece: PathPiece | null = null;
+      try {
+        piece = edgePiece(e, tol, box);
+      } finally {
+        e.delete();
+        cur.delete();
+      }
+      if (!piece) continue;
+      if (end && near(end, piece.a)) { path += piece.fwd; end = piece.b; }
+      else if (end && near(end, piece.b)) { path += piece.rev; end = piece.a; }
+      else {
+        if (path) paths.push(path);
+        path = `M${ptText(piece.a)}${piece.fwd}`;
+        end = piece.b;
+      }
+    }
+  } finally {
+    ex.delete();
+  }
+  if (path) paths.push(path);
+  return paths;
+}
+
+/**
+ * The seams of closed faces (where a revolved face's profile was) that lie along the silhouette
+ * seen from `dir`. The hidden-line algorithm draws no seam and finds no outline along one on a
+ * torus (or another surface it outlines numerically): a ring seen from the side lost half its
+ * outline. Each such seam comes back as fine line segments a hair outside the surface (on its own
+ * surface the algorithm hides it all), to be drawn as lines of their own; null when there are none.
+ */
+function silhouetteSeams(shape: Sh, dir: Vec3, hair: number): any | null {
+  const T = oc.TopAbs_ShapeEnum;
+  const gs = oc.GeomAbs_SurfaceType;
+  const seen: any[] = [];
+  const builder = new oc.TopoDS_Builder();
+  const out = new oc.TopoDS_Compound();
+  builder.MakeCompound(out);
+  let any = false;
+  const fx = new oc.TopExp_Explorer(shape.wrapped, T.TopAbs_FACE, T.TopAbs_SHAPE);
+  try {
+    for (; fx.More(); fx.Next()) {
+      const fc = fx.Current();
+      const face = oc.TopoDS.Face(fc);
+      // Planes, cylinders, cones and spheres are outlined exactly, also along their seams.
+      const sa = new oc.BRepAdaptor_Surface(face, false);
+      const st = sa.GetType();
+      sa.delete();
+      if ([gs.GeomAbs_Plane, gs.GeomAbs_Cylinder, gs.GeomAbs_Cone, gs.GeomAbs_Sphere].includes(st)) { face.delete(); fc.delete(); continue; }
+      const ex = new oc.TopExp_Explorer(face, T.TopAbs_EDGE, T.TopAbs_SHAPE);
+      const gf = new oc.BRepGProp_Face(face, false);
+      const p = new oc.gp_Pnt(), nv = new oc.gp_Vec();
+      try {
+        for (; ex.More(); ex.Next()) {
+          const ec = ex.Current();
+          const edge = oc.TopoDS.Edge(ec);
+          ec.delete();
+          // A seam is in its face twice (once each way).
+          if (!oc.BRep_Tool.IsClosed(edge, face) || seen.some((e) => e.IsSame(edge))) { edge.delete(); continue; }
+          seen.push(edge);
+          const c2 = new oc.BRepAdaptor_Curve2d(edge, face);
+          const qs: Vec3[] = [], ns: Vec3[] = [];
+          try {
+            const f = c2.FirstParameter(), l = c2.LastParameter();
+            for (let i = 0; i <= 128; i++) {
+              const uv = c2.Value(f + ((l - f) * i) / 128);
+              gf.Normal(uv.X(), uv.Y(), p, nv);
+              uv.delete();
+              const nrm = xyz(nv), m = len(nrm);
+              // At a pole the normal has no length and says nothing.
+              if (m > 1e-12 && Math.abs(dot(nrm, dir)) > 1e-6 * m) { qs.length = 0; break; }
+              qs.push(xyz(p));
+              ns.push(m > 1e-12 ? scale(nrm, 1 / m) : [0, 0, 0]);
+            }
+          } finally {
+            c2.delete();
+          }
+          if (qs.length < 2) continue;
+          // Out by the hair, and by as much again as the curve sags between the points, so the
+          // segments between them stay outside the surface too.
+          let sag = 0;
+          for (let i = 1; i + 1 < qs.length; i++) {
+            const a = qs[i - 1], b = qs[i + 1], d = sub(b, a), t = Math.max(0, Math.min(1, dot(sub(qs[i], a), d) / Math.max(dot(d, d), 1e-30)));
+            sag = Math.max(sag, dist3(qs[i], [a[0] + t * d[0], a[1] + t * d[1], a[2] + t * d[2]]));
+          }
+          const pts = qs.map((q, i) => [q[0] + (hair + sag) * ns[i][0], q[1] + (hair + sag) * ns[i][1], q[2] + (hair + sag) * ns[i][2]] as Vec3);
+          const add = (e: any) => { builder.Add(out, e); e.delete(); any = true; };
+          const ad = new oc.BRepAdaptor_Curve(edge);
+          try {
+            if (ad.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+              // A circle (a revolved arc's seam, a ring's) stays one: the same circle grown or shrunk by the hair.
+              const c = ad.Circle(), pos = c.Position(), loc = pos.Location();
+              const r = dist3(add3(qs[64], scale(ns[64], hair)), xyz(loc));
+              const circ = new oc.gp_Circ(pos, r);
+              const mk = new oc.BRepBuilderAPI_MakeEdge(circ, ad.FirstParameter(), ad.LastParameter());
+              add(mk.Edge());
+              mk.delete(); circ.delete(); loc.delete(); pos.delete(); c.delete();
+            } else {
+              for (let i = 1; i < pts.length; i++) {
+                if (dist3(pts[i - 1], pts[i]) < 1e-9) continue;
+                const a = pnt(pts[i - 1]), b = pnt(pts[i]);
+                const mk = new oc.BRepBuilderAPI_MakeEdge(a, b);
+                add(mk.Edge());
+                mk.delete(); a.delete(); b.delete();
+              }
+            }
+          } finally {
+            ad.delete();
+          }
+        }
+      } finally {
+        ex.delete(); gf.delete(); p.delete(); nv.delete(); face.delete(); fc.delete();
+      }
+    }
+  } finally {
+    fx.delete();
+    for (const e of seen) e.delete();
+    builder.delete();
+  }
+  if (any) return out;
+  out.delete();
+  return null;
+}
+
+const dist3 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const add3 = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+/**
+ * Visible and hidden lines of a shape seen from `dir` (toward the viewer) with `xAxis` across
+ * the paper, as SVG path data in model units with y pointing down, and the visible lines' extent.
+ * Native objects are freed here, not left to the garbage collector: the projections of a whole
+ * part take megabytes that the geometry worker would otherwise keep for as long as it runs.
+ */
+export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number, hair: number, withHidden = true): { visible: string[]; hidden: string[]; bounds: [number, number, number, number] | null } {
+  const origin = pnt([0, 0, 0]), n = gdir(dir), vx = gdir(xAxis);
+  const ax = new oc.gp_Ax2(origin, n, vx);
+  const projector = new oc.HLRAlgo_Projector(ax);
+  const algo = new oc.HLRBRep_Algo();
+  let toShape: any = null;
+  let seams: any = null;
+  try {
+    algo.Add(shape.wrapped, 0);
+    seams = silhouetteSeams(shape, dir, hair);
+    if (seams) algo.Add(seams, 0);
+    algo.Projector(projector);
+    algo.Update();
+    algo.Hide();
+    toShape = new oc.HLRBRep_HLRToShape(algo);
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    const lines = (names: string[], b: number[] | null, of?: any) => names.flatMap((name) => {
+      const comp = of ? toShape[name](of) : toShape[name]();
+      try {
+        return compoundPaths(comp, tol, b);
+      } finally {
+        comp.delete();
+      }
+    });
+    // Sharp edges, smooth (tangent) edges and silhouettes.
+    const visible = lines(['VCompound', 'Rg1LineVCompound', 'OutLineVCompound'], box, shape.wrapped);
+    // A view drawn without hidden lines does not extract them: it takes time, and the
+    // extraction of hidden sharp edges keeps some memory each time (inside OpenCascade).
+    const hidden = withHidden ? lines(['HCompound', 'Rg1LineHCompound', 'OutLineHCompound'], null, shape.wrapped) : [];
+    if (seams) {
+      // The seams along the silhouette, drawn the hair outside it: their extent, less the hair, is the part's.
+      const seamBox = [Infinity, Infinity, -Infinity, -Infinity];
+      visible.push(...lines(['VCompound'], seamBox, seams));
+      if (withHidden) hidden.push(...lines(['HCompound'], null, seams));
+      if (seamBox[0] <= seamBox[2]) {
+        box[0] = Math.min(box[0], seamBox[0] + hair); box[1] = Math.min(box[1], seamBox[1] + hair);
+        box[2] = Math.max(box[2], seamBox[2] - hair); box[3] = Math.max(box[3], seamBox[3] - hair);
+      }
+    }
+    return { visible, hidden, bounds: box[0] <= box[2] ? [box[0], box[1], box[2], box[3]] : null };
+  } finally {
+    // The extraction keeps the algorithm alive after both are deleted (the bindings never let
+    // go of its handle), and with it the hidden-line data of the whole part: dropping the shape
+    // from it frees that.
+    if (toShape) {
+      for (let i = algo.NbShapes(); i >= 1; i--) algo.Remove(i);
+      toShape.delete();
+    }
+    seams?.delete();
+    algo.delete();
+    projector.delete();
+    ax.delete();
+    origin.delete(); n.delete(); vx.delete();
+  }
 }
 
 // ---- Transforms ----
@@ -399,7 +704,25 @@ function runBoolean(builder: any): Sh {
 }
 
 export function fuse(a: Sh, b: Sh): Sh {
+  if (isCompound(a) || isCompound(b)) return fuseAll([a, b]);
   return runBoolean(new oc.BRepAlgoAPI_Fuse(a.wrapped, b.wrapped));
+}
+
+const isCompound = (s: Sh) => s.wrapped.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_COMPOUND;
+
+/**
+ * The shapes with every compound opened into its solids, free shells and
+ * free faces. A boolean does not intersect the pieces of one compound with
+ * each other, so overlapping holes or pattern copies passed as one compound
+ * fused or cut wrongly: a hole drilled twice at a point cut nothing, and
+ * overlapping copies left gaps or an invalid body.
+ */
+function pieces(shapes: Sh[]): Sh[] {
+  return shapes.flatMap((s) => {
+    if (!isCompound(s)) return [s];
+    const out = [...subShapes(s, 'solid'), ...subShapes(s, 'shell', 'solid'), ...subShapes(s, 'face', 'shell')];
+    return out.length ? out : [s];
+  });
 }
 
 /**
@@ -408,6 +731,8 @@ export function fuse(a: Sh, b: Sh): Sh {
  * regions (a plate split by many lines).
  */
 export function fuseAll(shapes: Sh[]): Sh {
+  if (shapes.length === 1 && !isCompound(shapes[0])) return shapes[0];
+  shapes = pieces(shapes);
   if (shapes.length === 1) return shapes[0];
   const args = new oc.NCollection_List_TopoDS_Shape(), tools = new oc.NCollection_List_TopoDS_Shape();
   try {
@@ -424,7 +749,20 @@ export function fuseAll(shapes: Sh[]): Sh {
 }
 
 export function cut(a: Sh, b: Sh): Sh {
-  return runBoolean(new oc.BRepAlgoAPI_Cut(a.wrapped, b.wrapped));
+  if (!isCompound(b)) return runBoolean(new oc.BRepAlgoAPI_Cut(a.wrapped, b.wrapped));
+  // Each piece of a compound tool as a tool of its own (see pieces).
+  const args = new oc.NCollection_List_TopoDS_Shape(), tools = new oc.NCollection_List_TopoDS_Shape();
+  try {
+    args.Append(a.wrapped);
+    for (const t of pieces([b])) tools.Append(t.wrapped);
+    const builder = new oc.BRepAlgoAPI_Cut();
+    builder.SetArguments(args);
+    builder.SetTools(tools);
+    return runBoolean(builder);
+  } finally {
+    args.delete();
+    tools.delete();
+  }
 }
 
 export function common(a: Sh, b: Sh): Sh {

@@ -8,7 +8,7 @@ import { dist2, toLocal, toWorld } from '../../math/vec';
 import type { Id, Param, RelationType, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
 import { isDimension } from '../../model/types';
 import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
-import { evaluate, evaluateVariables, variableReferenceChanges } from '../../model/expr';
+import { ExprError, evaluate, evaluateVariables, variableReferenceChanges } from '../../model/expr';
 import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
@@ -326,6 +326,11 @@ export class SketchEditor implements ViewportTool {
     return this.app.selection.items.filter((x) => (kinds as string[]).includes(x.kind)).map((x) => (x as { id: Id }).id);
   }
 
+  /** How far from a point the cursor snaps to it, in sketch units. */
+  get snapTolerance(): number {
+    return this.px * 9 * this.reach();
+  }
+
   /** Snaps a raw sketch point using the active tool's context. */
   snap(raw: Vec2, e?: { ctrl?: boolean; pointerType?: string }): Snap {
     const t = this.tool;
@@ -334,7 +339,7 @@ export class SketchEditor implements ViewportTool {
       from: t?.from?.() ?? null,
       exclude: t?.exclude?.(),
       disabled: !!e?.ctrl || t?.snaps === false,
-      tol: this.px * 9 * this.reach(),
+      tol: this.snapTolerance,
     });
   }
 
@@ -383,14 +388,14 @@ export class SketchEditor implements ViewportTool {
     // drawing: the inference guide and length tip measured from its start
     // point would otherwise stay on screen until the pointer moves again.
     if (!lines.length && !points.length && !dashed.length) this.resnapCursor();
-    this.queueRender();
+    this.queueRender(true);
   }
 
   /** Highlights what the active tool would act on, in the hover colour. */
   setHighlight(lines: Vec2[][]) {
     if (!lines.length && !this.highlight.length) return;
     this.highlight = lines;
-    this.queueRender();
+    this.queueRender(true);
   }
 
   /** Snaps the last cursor position again for the tool state (its start point may be gone). */
@@ -865,15 +870,26 @@ export class SketchEditor implements ViewportTool {
    * had when it stopped driving. A value linked by an expression keeps its link.
    */
   setDriven(dimId: Id, driven: boolean) {
+    // Problems the sketch already had are not this dimension's fault.
+    const badBefore = new Set(this.solve?.badConstraints ?? []);
+    let refused = false;
     this.edit(driven ? 'Make dimension driven' : 'Make dimension driving', (sk) => {
       const d = sk.constraints.find((c) => c.id === dimId);
       if (!d || !isDimension(d)) return;
+      const was = d.value;
       if (!driven && d.driven && typeof d.value === 'number') {
         const v = round(measureDimension(sk, d));
         if (d.type === 'angle' ? v >= 0 && v <= 180 : v > 0) d.value = v;
       }
       d.driven = driven || undefined;
+      if (driven) return;
+      // A dimension whose size the other constraints already set would
+      // over-define the sketch as soon as it drives: it stays driven, as a
+      // new dimension does, instead of turning the sketch red.
+      const res = solveSketch(structuredClone(sk.entities), sk.constraints, { value: this.dimValue });
+      if ([...res.badConstraints].some((id) => !badBefore.has(id))) { d.driven = true; d.value = was; refused = true; }
     });
+    if (refused) toast({ kind: 'warning', title: 'Driven dimension', message: 'Driving this dimension would over-define the sketch, so it stays driven (reference). Delete a constraint or dimension that sets the same size first.' });
   }
 
   /** Floating box to edit a dimension value (accepts expressions and units). */
@@ -924,7 +940,14 @@ export class SketchEditor implements ViewportTool {
         const num = evaluate(s.replace(/^=/, ''), {
           kind: d.type === 'angle' ? 'angle' : 'length',
           bareScale: scale,
-          lookup: (n) => this.app.variables().get(n),
+          lookup: (n) => {
+            const v = this.app.variables().get(n);
+            // A variable that exists but cannot be evaluated (a circular
+            // reference) is not an unknown name: say what is wrong with it.
+            const bad = v === undefined ? evaluateVariables(this.app.store.doc.variables).errors.get(n) : undefined;
+            if (bad) throw new ExprError(`Variable "${n}": ${bad}`);
+            return v;
+          },
         });
         if (!(num > 0) && d.type !== 'angle') return { ok: false, e: 'Value must be greater than zero' };
         // The angle between two lines is 0 to 180 degrees; the label side picks the sector.
@@ -1041,11 +1064,21 @@ export class SketchEditor implements ViewportTool {
 
   // ---------- rendering ----------
 
-  queueRender() {
+  /** Whether the queued redraw must redraw the sketch itself, not only the tool preview. */
+  private fullRender = false;
+
+  /**
+   * Redraws on the next frame. `previewOnly`: only the tool preview, guides
+   * and highlight changed (a pointer move while drawing), so the sketch's own
+   * geometry, dimensions and badges are not rebuilt for it.
+   */
+  queueRender(previewOnly = false) {
+    if (!previewOnly) this.fullRender = true;
     if (this.renderQueued || this.disposed) return;
     this.renderQueued = requestAnimationFrame(() => {
       this.renderQueued = 0;
-      this.render();
+      if (this.fullRender) this.render();
+      else this.renderPreview();
     });
   }
 
@@ -1064,6 +1097,7 @@ export class SketchEditor implements ViewportTool {
   render() {
     const sk = this.sketch;
     if (!sk || this.disposed) return;
+    this.fullRender = false;
     const r = this.app.renderer;
     const fr = this.frame;
     const ix = new SketchIndex(sk.entities);
@@ -1113,6 +1147,22 @@ export class SketchEditor implements ViewportTool {
     psz.push(9, 2);
     r.setPoints('sk-points', { positions: new Float32Array(ppos), colors: new Uint8Array(pcol), sizeStyle: new Float32Array(psz), depth: 'always', order: 12 });
 
+    this.renderPreview(false);
+    this.renderDimensions();
+    this.renderRelations();
+    this.syncTabStops();
+    this.app.updateSketchStatus();
+  }
+
+  /** Draws the tool preview, inference guides and highlight (and, alone, the status bar position). */
+  private renderPreview(alone = true) {
+    if (!this.sketch || this.disposed) return;
+    const r = this.app.renderer;
+    const fr = this.frame;
+    const push = (arr: number[], carr: number[], a: Vec3, b: Vec3, c: number[], alpha = 255) => {
+      arr.push(...a, ...b);
+      carr.push(c[0] * 255, c[1] * 255, c[2] * 255, alpha);
+    };
     // Tool preview and inference guides.
     const prev: number[] = [], pc: number[] = [];
     const pv = this.app.colors.sketchUnder;
@@ -1129,11 +1179,7 @@ export class SketchEditor implements ViewportTool {
       colors: new Uint8Array(this.preview.points.length * 4).map((_, i) => [pv[0] * 255, pv[1] * 255, pv[2] * 255, 255][i % 4]),
       sizeStyle: new Float32Array(this.preview.points.length * 2).map((_, i) => (i % 2 ? 0 : 6)), depth: 'always', order: 14,
     } : null);
-
-    this.renderDimensions();
-    this.renderRelations();
-    this.syncTabStops();
-    this.app.updateSketchStatus();
+    if (alone) this.app.updateSketchStatus();
   }
 
   private renderDimensions() {
@@ -1366,7 +1412,7 @@ export class SketchEditor implements ViewportTool {
     const from = this.tool?.from?.();
     if (from && (s.kind === 'h' || s.kind === 'v')) guides.push([from, s.p]);
     this.preview.guides = guides;
-    this.queueRender();
+    this.queueRender(true);
   }
 
   private showTip(e: VPEvent, s: Snap | null) {

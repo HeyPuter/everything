@@ -6,6 +6,7 @@ import { setOc } from '../src/kernel/occ';
 import type { SketchFeature } from '../src/model/types';
 import { TestHost } from './assistant-host';
 import { toolSpecs } from '../src/assistant/tools';
+import { buildProfiles } from '../src/sketch/profiles';
 
 beforeAll(async () => {
   setOc(await init());
@@ -138,6 +139,48 @@ describe('assistant tools', () => {
     const hole = h.store.doc.features.at(-1)!.id;
     await h.call('add_circular_pattern', { features: [hole], axis: 'y', count: 6 });
     expect(await h.volume()).toBeCloseTo(Math.PI * 1600 * 8 - 6 * Math.PI * 6.25 * 8, 0);
+  });
+
+  it('refuses a view orientation or style it does not know instead of capturing the current view', async () => {
+    const h = new TestHost();
+    expect((await h.call('capture_view', { orientation: 'side' }, false)).content).toMatch(/^Error: orientation: one of front, back/);
+    expect((await h.call('capture_view', { style: 'xray' }, false)).content).toMatch(/^Error: style: one of shadedEdges/);
+  });
+
+  it('reports the exact area of profiles bounded by circles, arcs and splines', async () => {
+    const h = new TestHost();
+    const r = await h.call('create_sketch', { plane: 'front', shapes: [
+      { type: 'rectangle', corner1: [0, 0], corner2: [60, 40] }, { type: 'circle', center: [15, 20], radius: 10 },
+      { type: 'slot', center: [100, 20], length: 20, width: 6 },
+      { type: 'spline', id: 'sp', points: [[0, 100], [10, 110], [20, 100]] }, { type: 'line', from: [20, 100], to: [0, 100] },
+    ] });
+    // 60 x 40 less a circle of radius 10 (its polygon made it 2086.065), and a 20 x 6 slot.
+    expect(r.content).toContain(`area ${Number((2400 - Math.PI * 100).toFixed(3))} mm², x 0 to 60`);
+    expect(r.content).toContain(`area ${Number((120 + Math.PI * 9).toFixed(3))} mm², x 87 to 113`);
+    // The spline's region, by the area of its Beziers' polygon drawn finely.
+    const sk = h.store.feature<SketchFeature>('s1')!;
+    const region = buildProfiles(sk.entities).regions.find((g) => g.outer.segs.some((x) => x.k === 'bez'))!;
+    const fine = region.outer.segs.flatMap((x) => (x.k === 'bez' ? Array.from({ length: 2001 }, (_, i) => { const t = i / 2000, u = 1 - t; return [0, 1].map((d) => u * u * u * x.p[0][d] + 3 * u * u * t * x.p[1][d] + 3 * u * t * t * x.p[2][d] + t * t * t * x.p[3][d]); }) : [x.k === 'line' ? x.a : [0, 0]]));
+    const polyArea = Math.abs(fine.reduce((n, p, i) => { const q = fine[(i + 1) % fine.length]; return n + p[0] * q[1] - q[0] * p[1]; }, 0) / 2);
+    const shown = Number(/area ([\d.]+) mm², x 0 to 20/.exec(r.content)![1]);
+    expect(shown).toBeCloseTo(polyArea, 2);
+  });
+
+  it('refuses a fractional number of pattern instances instead of rounding it', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 40 }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 8 });
+    await h.call('add_hole', { on: h.faces.find((f) => f.name.endsWith(':cap1'))!.name, points: [[30, 8, 0]], diameter: 5 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    const volume = await h.volume();
+    for (const count of [2.5, '=7/2']) {
+      const r = await h.call('add_circular_pattern', { features: [hole], axis: 'y', count }, false);
+      expect(r.ok).toBe(false);
+      expect(r.content).toMatch(/count: a whole number of instances, not (2\.5|3\.5)/);
+    }
+    expect(h.store.doc.features.at(-1)!.id).toBe(hole);
+    expect(await h.volume()).toBeCloseTo(volume, 6);
+    await h.call('add_circular_pattern', { features: [hole], axis: 'y', count: '=6' });
   });
 
   it('works in the part\'s units', async () => {
@@ -475,7 +518,8 @@ describe('assistant tools', () => {
     await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }], dimensions: [{ refs: ['r_l0'], value: 40 }] });
     // The sizes came from the failed solve's half-way state: "[r_l0] 35 mm".
     const r = await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_p0', 'r_p1'], type: 'hdistance', value: 30 }] }, false);
-    expect(r.content).toMatch(/Problem constraints: d6 D1 distance \[r_l0\] 40 mm; d1 D2 hdistance \[r_p0, r_p1\] 40 mm\./);
+    // Only the new dimension conflicts: the sketch keeps its shape rather than bending both.
+    expect(r.content).toMatch(/Problem constraints: d1 D2 hdistance \[r_p0, r_p1\] 40 mm\./);
   });
 
   it('refuses a length, radius or diameter of zero or less', async () => {

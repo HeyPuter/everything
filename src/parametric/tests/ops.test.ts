@@ -6,6 +6,7 @@ import {
   extendPreview, filletPreview, offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, trimPreview, zeroDimensionReason,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
+import { dist2 } from '../src/math/vec';
 import { buildProfiles } from '../src/sketch/profiles';
 import { rect, sketch } from './helpers';
 
@@ -287,6 +288,54 @@ describe('editing tools', () => {
     const left = s.entities.filter((e) => e.t === 'arc');
     expect(left).toHaveLength(1);
     expect(arcAngles(new SketchIndex(s.entities), left[0] as Extract<SkEntity, { t: 'arc' }>).sweep).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('keeps a curve trimmed at a sketch point ending on that point', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' },
+      { id: 'q', t: 'point', x: 4, y: 0 },
+      { id: 'o', t: 'point', x: 30, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 5 },
+      { id: 'q1', t: 'point', x: 35, y: 0 }, { id: 'q2', t: 'point', x: 25, y: 0 },
+    ]);
+    s.constraints.push(
+      { id: 'k', type: 'coincident', refs: ['q', 'l'] },
+      { id: 'k1', type: 'coincident', refs: ['q1', 'C'] }, { id: 'k2', type: 'coincident', refs: ['q2', 'C'] },
+    );
+    expect(trimAt(s, 'l', [8, 0], idFactory(s))).toBe(true);
+    expect(trimAt(s, 'C', [30, 5], idFactory(s))).toBe(true);
+    // The point stays a point of its own (a hole's position), and the new end stays on it.
+    expect(s.entities.filter((e) => e.t !== 'point').map((e) => e.id)).toEqual(['l', 'C']);
+    const ends = (id: string) => { const e = s.entities.find((x) => x.id === id) as SkLine; return [e.a, e.b]; };
+    const tied = (p: string) => s.constraints.some((c) => c.type === 'coincident' && c.refs.includes(p) && c.refs.some((r) => ends('l').includes(r) || ends('C').includes(r)));
+    expect(['q', 'q1', 'q2'].every(tied)).toBe(true);
+    // Its old place on the curve now follows from the end: kept, it would over-define the sketch.
+    expect(s.constraints.some((c) => ['k', 'k1', 'k2'].includes(c.id))).toBe(false);
+    const r = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['q', 'q1'], targets: [[5, 1], [30, 5]] } });
+    expect(r.badConstraints.size).toBe(0);
+    const ix = new SketchIndex(s.entities);
+    expect(ix.pt(ends('l')[1])[0]).toBeCloseTo(5, 6);
+    expect(ix.pt(ends('l')[1])[1]).toBeCloseTo(1, 6);
+    expect(dist2(ix.pt(ends('C')[0]), [30, 5]) < 1e-6 || dist2(ix.pt(ends('C')[1]), [30, 5]) < 1e-6).toBe(true);
+  });
+
+  it('trims a line across a hole from one side to the other, not to the hole centre on it', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: -10, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 3 },
+    ]);
+    s.constraints.push({ id: 'm', type: 'midpoint', refs: ['o', 'h'] });
+    expect(trimPreview(s, 'h', [1, 0])).toEqual([[-3, 0], [3, 0]]);
+    expect(trimAt(s, 'h', [1, 0], idFactory(s))).toBe(true);
+    const ix = new SketchIndex(s.entities);
+    const spans = s.entities.filter((e): e is SkLine => e.t === 'line').map((l) => [ix.pt(l.a)[0], ix.pt(l.b)[0]].sort((p, q) => p - q));
+    expect(spans.map((x) => x.map((v) => Math.round(v * 1e9) / 1e9))).toEqual([[-10, -3], [3, 10]]);
+    // A line that ends at the centre still stops a trim there.
+    const t = sk([
+      { id: 'a', t: 'point', x: -10, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'C', t: 'circle', c: 'o', r: 3 },
+      { id: 'up', t: 'point', x: 0, y: 2 }, { id: 'radius', t: 'line', a: 'o', b: 'up' },
+    ]);
+    expect(trimPreview(t, 'h', [1, 0])).toEqual([[0, 0], [3, 0]]);
   });
 
   it('previews exactly the piece a trim removes', () => {
@@ -728,6 +777,53 @@ describe('editing tools', () => {
     expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(12, 6);
   });
 
+  it('lets go of the curve an extended end lay on instead of dragging it along', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 5, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'w1a', t: 'point', x: 5, y: -5 }, { id: 'w1b', t: 'point', x: 5, y: 5 }, { id: 'w1', t: 'line', a: 'w1a', b: 'w1b' },
+      { id: 'w2a', t: 'point', x: 10, y: -5 }, { id: 'w2b', t: 'point', x: 10, y: 5 }, { id: 'w2', t: 'line', a: 'w2a', b: 'w2b' },
+    ]);
+    s.constraints.push(
+      { id: 'k', type: 'coincident', refs: ['b', 'w1'] }, { id: 'v1', type: 'vertical', refs: ['w1'] }, { id: 'v2', type: 'vertical', refs: ['w2'] },
+      { id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'oc', type: 'coincident', refs: ['a', 'O'] },
+    );
+    expect(extendAt(s, 'h', [4.9, 0], idFactory(s))).toBe(true);
+    expect(s.constraints.some((c) => c.id === 'k')).toBe(false);
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.badConstraints.size).toBe(0);
+    // Neither wall moved: the end now lies on the far one.
+    const ix = new SketchIndex(s.entities);
+    expect([ix.pt('w1a')[0], ix.pt('w2a')[0], ix.pt('b')[0]]).toEqual([5, 10, 10]);
+  });
+
+  it('extends a rectangle side from its corner without slanting the side that shares it', () => {
+    const s = sk([
+      ...rect(0, 0, 10, 5, 'r'),
+      { id: 'w1', t: 'point', x: 20, y: -10 }, { id: 'w2', t: 'point', x: 20, y: 10 }, { id: 'w', t: 'line', a: 'w1', b: 'w2' },
+      { id: 'q1', t: 'point', x: 2, y: 8 }, { id: 'q2', t: 'point', x: 6, y: 8 }, { id: 'q', t: 'line', a: 'q1', b: 'q2' },
+      { id: 'z1', t: 'point', x: 6, y: 8 }, { id: 'z2', t: 'point', x: 6, y: 12 }, { id: 'z', t: 'line', a: 'z1', b: 'z2' },
+    ]);
+    s.constraints.push(
+      { id: 'h1', type: 'horizontal', refs: ['rl0'] }, { id: 'h2', type: 'horizontal', refs: ['rl2'] },
+      { id: 'v1', type: 'vertical', refs: ['rl1'] }, { id: 'v2', type: 'vertical', refs: ['rl3'] },
+      { id: 'o', type: 'coincident', refs: ['rp0', 'O'] }, { id: 'vw', type: 'vertical', refs: ['w'] },
+      // A chain joined by a coincident relation instead of a shared point.
+      { id: 'j', type: 'coincident', refs: ['q2', 'z1'] }, { id: 'hq', type: 'horizontal', refs: ['q'] }, { id: 'vz', type: 'vertical', refs: ['z'] },
+    );
+    // It moved the shared corner to x=20, taking the right side with it.
+    expect(extendAt(s, 'rl0', [9.9, 0], idFactory(s))).toBe(true);
+    expect(extendAt(s, 'q', [5.9, 8], idFactory(s))).toBe(true);
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.badConstraints.size).toBe(0);
+    const ix = new SketchIndex(s.entities);
+    const l = s.entities.find((e) => e.id === 'rl0') as SkLine;
+    expect(l.a).toBe('rp0');
+    expect(ix.pt(l.b)).toEqual([20, 0]);
+    expect([ix.pt('rp1'), ix.pt('rp2')]).toEqual([[10, 0], [10, 5]]);
+    expect(ix.pt('q2')).toEqual([20, 8]);
+    expect([ix.pt('z1'), ix.pt('z2')]).toEqual([[6, 8], [6, 12]]);
+  });
+
   it('keeps a line extended or trimmed at a spline on the spline', () => {
     const spline = (): SkEntity[] => [
       { id: 's0', t: 'point', x: 9, y: -6 }, { id: 's1', t: 'point', x: 10, y: 0 }, { id: 's2', t: 'point', x: 9, y: 6 },
@@ -766,6 +862,70 @@ describe('editing tools', () => {
     const res = solveSketch(s.entities, s.constraints, { value });
     expect(res.converged).toBe(true);
     expect(filletCorner(s, 'rp0', 50, idFactory(s))).toMatch(/too large/);
+  });
+
+  // A slot's straight side meeting its end arc at a corner (not tangent), and two arcs meeting at a point.
+  it.each(['line-arc', 'arc-arc'] as const)('fillets a corner where a %s meet, tangent to both', (kind) => {
+    const s = sk(kind === 'line-arc' ? [
+      { id: 'a', t: 'point', x: -10, y: 0 }, { id: 'k', t: 'point', x: 0, y: 0 }, { id: 'L', t: 'line', a: 'a', b: 'k' },
+      // Arc of radius 5 about (3,-4) from the corner (0,0) round to (8,-4), leaving it up and to the right.
+      { id: 'c', t: 'point', x: 3, y: -4 }, { id: 'e', t: 'point', x: 8, y: -4 }, { id: 'A', t: 'arc', c: 'c', a: 'e', b: 'k' },
+    ] : [
+      { id: 'c1', t: 'point', x: -5, y: 0 }, { id: 's1', t: 'point', x: -5, y: -5 }, { id: 'k', t: 'point', x: 0, y: 0 }, { id: 'L', t: 'arc', c: 'c1', a: 's1', b: 'k' },
+      { id: 'c', t: 'point', x: 3, y: -4 }, { id: 'e', t: 'point', x: 8, y: -4 }, { id: 'A', t: 'arc', c: 'c', a: 'e', b: 'k' },
+    ]);
+    s.constraints.push({ id: 'R', type: 'radius', refs: ['A'], value: 5, at: [0, 0], name: 'D1' });
+    expect(filletPreview(s, 'k', 1)).not.toBeNull();
+    expect(filletCorner(s, 'k', 1, idFactory(s))).toBeNull();
+    const ix = new SketchIndex(s.entities);
+    const fillet = s.entities.find((e) => e.t === 'arc' && !['L', 'A'].includes(e.id)) as Extract<SkEntity, { t: 'arc' }>;
+    expect(arcRadius(ix, fillet)).toBeCloseTo(1, 9);
+    // Inside the corner: between the way back along the first curve and the way along the second.
+    const inside = kind === 'line-arc' ? [-0.2, 0.6] : [0.8, -0.4];
+    expect(ix.pt(fillet.c)[0] * inside[0] + ix.pt(fillet.c)[1] * inside[1]).toBeGreaterThan(0);
+    // It meets each curve at a shared end, tangentially: the radii there are in line.
+    const at = (id: string) => s.entities.find((e) => e.id === id) as Extract<SkEntity, { t: 'arc' | 'line' }>;
+    for (const id of ['L', 'A']) {
+      const e = at(id);
+      const end = [e.a, e.b].find((p) => p === fillet.a || p === fillet.b)!;
+      expect(end).toBeDefined();
+      const p = ix.pt(end), f = ix.pt(fillet.c);
+      if (e.t === 'line') {
+        const d = [ix.pt(e.b)[0] - ix.pt(e.a)[0], ix.pt(e.b)[1] - ix.pt(e.a)[1]];
+        expect((p[0] - f[0]) * d[0] + (p[1] - f[1]) * d[1]).toBeCloseTo(0, 9);
+      } else {
+        const c = ix.pt(e.c);
+        expect((p[0] - c[0]) * (f[1] - c[1]) - (p[1] - c[1]) * (f[0] - c[0])).toBeCloseTo(0, 9);
+      }
+    }
+    // The arc kept its radius, and the solved sketch keeps the shape.
+    expect(arcRadius(ix, at('A') as Extract<SkEntity, { t: 'arc' }>)).toBeCloseTo(5, 9);
+    const before = JSON.stringify(s.entities);
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.badConstraints.size).toBe(0);
+    expect(JSON.parse(JSON.stringify(s.entities)).map((e: SkEntity) => (e.t === 'point' ? [Math.round(e.x * 1e6), Math.round(e.y * 1e6)] : e.id)))
+      .toEqual(JSON.parse(before).map((e: SkEntity) => (e.t === 'point' ? [Math.round(e.x * 1e6), Math.round(e.y * 1e6)] : e.id)));
+    expect(filletCorner(sk(structuredClone(s.entities)), 'k', 1, idFactory(s))).toMatch(/exactly two/);
+  });
+
+  it('rounds a line and an arc only up to where they cross again', () => {
+    // The line runs back through the arc a little way from the corner: the
+    // only fillet that fits lies at that other crossing, not at this corner.
+    const s = sk([
+      { id: 'f', t: 'point', x: -3.1046642053640845, y: -8.288687752898703 }, { id: 'k', t: 'point', x: 0, y: 0 }, { id: 'L', t: 'line', a: 'f', b: 'k' },
+      { id: 'c', t: 'point', x: 4.593259813354362, y: -3.7191238499832937 }, { id: 'e', t: 'point', x: 4.763516663993176, y: -9.626824801224924 },
+      { id: 'A', t: 'arc', c: 'c', a: 'k', b: 'e' },
+    ]);
+    expect(filletCorner(s, 'k', 0.3, idFactory(s))).toMatch(/too large/);
+  });
+
+  it('refuses a fillet too large for a line and an arc', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: -10, y: 0 }, { id: 'k', t: 'point', x: 0, y: 0 }, { id: 'L', t: 'line', a: 'a', b: 'k' },
+      { id: 'c', t: 'point', x: 3, y: -4 }, { id: 'e', t: 'point', x: 8, y: -4 }, { id: 'A', t: 'arc', c: 'c', a: 'e', b: 'k' },
+    ]);
+    expect(filletCorner(s, 'k', 200, idFactory(s))).toMatch(/too large/);
+    expect(s.entities).toHaveLength(6);
   });
 
   it.each(['circle', 'spline', 'arc'] as const)('keeps a fillet virtual corner shared with a %s at the line intersection', (other) => {

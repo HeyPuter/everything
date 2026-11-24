@@ -7,8 +7,8 @@
 // most that size. A phone photo is routinely 3-12 MB and 4000 px or more.
 
 import {
-  type Attachment, MAX_PDF_PAGES, MAX_TEXT_CHARS, VISION_TYPES, attachmentKind, attachmentProblem, estimatePdfPages, imageBlock, imageType, pdfBlock,
-  textBlock,
+  type Attachment, MAX_PDF_PAGES, MAX_TEXT_CHARS, VISION_TYPES, attachmentKind, attachmentProblem, condenseDxf, estimatePdfPages, imageBlock, imageType,
+  isBinaryDxf, pdfBlock, textBlock,
 } from './attach';
 
 // The API's 5 MB is the base64 it is sent as, a third larger than the image.
@@ -230,7 +230,15 @@ export async function readAttachment(file: File): Promise<Attachment> {
     if (pages > MAX_PDF_PAGES) throw new AttachmentError(`${base.name} has about ${pages} pages; the assistant reads at most ${MAX_PDF_PAGES}. Attach the pages you need as a shorter PDF.`);
     return { ...base, pages: Math.max(1, pages), blocks: [pdfBlock(bytesToBase64(bytes))] };
   }
-  const text = decodeText(await readBytes(file));
-  if (!text.trim()) throw new AttachmentError(`${base.name} is empty.`);
+  const bytes = await readBytes(file);
+  if (isBinaryDxf(bytes)) throw new AttachmentError(`${base.name} is a binary DXF, which the assistant cannot read. Save it as an ASCII DXF, or as a PDF, and attach that.`);
+  const raw = decodeText(bytes);
+  if (!raw.trim()) throw new AttachmentError(`${base.name} is empty.`);
+  // Binary data with a text file's name reads as noise: a hundred thousand characters of it.
+  const head = raw.slice(0, 8192);
+  if ((head.match(/[\u0000-\u0008\u000e-\u001a\u001c-\u001f]/g)?.length ?? 0) > head.length / 100) {
+    throw new AttachmentError(`${base.name} is not a text file the assistant can read. Attach an image, a PDF or a text file (DXF, CSV, SVG…).`);
+  }
+  const text = /\.dxf$/i.test(base.name) || /^\s*0\r?\n\s*SECTION\r?\n/.test(raw) ? condenseDxf(raw) ?? raw : raw;
   return { ...base, chars: Math.min(text.length, MAX_TEXT_CHARS), blocks: [textBlock(base.name, text)] };
 }

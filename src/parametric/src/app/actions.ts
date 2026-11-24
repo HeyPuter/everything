@@ -29,6 +29,7 @@ import {
 } from './sketch/tools';
 import { h } from '../ui/dom';
 import type { PlaneRef } from '../model/types';
+import { facePlaneRef } from './selection';
 import { RELATION_LABELS } from '../sketch/ops';
 import { CONSTRAINTS, CONSTRAINT_HINTS, runConstraint } from './sketch/constrain';
 
@@ -47,7 +48,7 @@ const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: str
   spline: { label: 'Spline', desc: 'Sketch a smooth curve through points.', make: (ed) => splineTool(ed) },
   point: { label: 'Point', desc: 'Sketch points, for example to place holes.', make: (ed) => pointTool(ed) },
   smartDimension: { label: 'Smart Dimension', shortcut: 'D', desc: 'Add a dimension; its type depends on what you select and where you place it.', make: (ed) => dimensionTool(ed) },
-  sketchFillet: { label: 'Sketch Fillet', desc: 'Round the corner between two lines.', make: (ed) => sketchFilletTool(ed) },
+  sketchFillet: { label: 'Sketch Fillet', desc: 'Round the corner between two lines or arcs.', make: (ed) => sketchFilletTool(ed) },
   trim: { label: 'Trim Entities', shortcut: 'T', desc: 'Remove parts of curves up to their intersections.', make: (ed) => trimTool(ed) },
   extend: { label: 'Extend Entities', desc: 'Extend a line to the next curve.', make: (ed) => extendTool(ed) },
 };
@@ -165,7 +166,14 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'rebuild', label: 'Rebuild', icon: 'rebuild', shortcut: 'Ctrl+B', description: 'Rebuild the model.', run: () => app.requestRebuild(true) },
     { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Control+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
-    { id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true, enabled: () => !!c.lastRun && !app.panel, run: () => { if (c.lastRun) c.run(c.lastRun); } },
+    {
+      // A command whose mode is still on (the sketch tool in use, the open
+      // sketch, a section view) is in effect already: running it again would
+      // turn it off, dropping what a tool was drawing or leaving the sketch.
+      id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true,
+      enabled: () => !!c.lastRun && !app.panel && !c.isChecked(c.lastRun),
+      run: () => { if (c.lastRun) c.run(c.lastRun); },
+    },
     {
       id: 'delete', label: 'Delete', icon: 'trash', shortcut: 'Delete',
       enabled: () => app.selection.items.some((x) => x.kind === 'feature' || x.kind.startsWith('sk')),
@@ -301,7 +309,7 @@ export function registerCommands(app: App, files: FileOps) {
     {
       id: 'perspective', label: 'Perspective', icon: 'perspective', checked: () => !app.renderer.camera.ortho,
       enabled: in3d,
-      run: () => { const cam = app.renderer.camera; cam.ortho = !cam.ortho; cam.onChange(); c.changed(); },
+      run: () => { app.viewport.togglePerspective(); c.changed(); },
     },
     toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => app.changeSettings({ showPlanes: v })),
     toggle('showOrigin', 'Origins', () => app.viewport.showOrigin, (v) => app.changeSettings({ showOrigin: v })),
@@ -501,12 +509,15 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
     const ids = app.tree.targets(id);
     // The sketches a feature was built from stay editable from the feature itself.
     const used = sketchesOf(app, f);
+    // A sketch a feature absorbed is hidden though it was never hidden by hand: the menu says Show.
+    const shown = app.isShown(f);
+    const showable = ids.filter((x) => ['sketch', 'plane'].includes(app.store.feature(x)?.type ?? ''));
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
       ...used.map((sk): MenuItem => ({ label: used.length === 1 ? 'Edit Sketch' : `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) })),
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(id) },
       sep,
-      ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: f.hidden ? 'Show' : 'Hide', icon: f.hidden ? 'eye' : 'eyeOff', run: () => app.toggleHidden([id]) } as MenuItem] : []),
+      ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: shown ? 'Hide' : 'Show', icon: shown ? 'eyeOff' : 'eye', run: () => app.toggleHidden(showable, shown) } as MenuItem] : []),
       { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },
       { label: 'Roll Back to Here', icon: 'upToLine', run: () => app.setRollback(idx) },
       { label: 'Roll to End', icon: 'downToLine', disabled: app.store.doc.rollback == null, run: () => app.setRollback(null) },
@@ -580,7 +591,7 @@ export class PlanePickPanel extends PropertyPanel {
     if (item.kind === 'plane') ref = item.ref;
     else if (item.kind === 'face') {
       const f = this.app.faces[item.index];
-      if (f?.type === 'plane') ref = { kind: 'face', face: { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } } };
+      if (f?.type === 'plane') ref = facePlaneRef(f);
     }
     if (!ref) return false;
     const r = ref;

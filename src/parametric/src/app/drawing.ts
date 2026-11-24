@@ -28,7 +28,7 @@ export class DrawingWorkspace {
   selected: string | null = null;
   private zoom = 1;
   private pan = { x: 0, y: 0 };
-  private cache = new Map<string, { kind: DrawingViewKind; version: number; result: ProjectionResult }>();
+  private cache = new Map<string, { kind: DrawingViewKind; version: number; hidden: boolean; result: ProjectionResult }>();
   private frames: ViewFrame[] = [];
   private pending = false;
   /** A refresh was asked for while views were being projected. */
@@ -38,14 +38,22 @@ export class DrawingWorkspace {
   private panelChanging = false;
   private layoutPending = false;
   private sheetW = 297;
+  /** Says the views are being projected, when that takes a moment (a large part takes seconds). */
+  private busy = h('div', { class: 'drawing-busy', role: 'status' });
   private sheetH = 210;
 
   constructor(private app: App) {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
     this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
-    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel or plus and minus to zoom. Arrow keys move the selected view, or else the sheet, and Delete removes the view.' }, this.host,
-      h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
+    // An application: screen readers pass it the arrow keys instead of reading on with them
+    // (and a label on a plain div is not read at all).
+    this.el = h('div', {
+      class: 'drawing-ws', hidden: true, tabindex: '0', role: 'application',
+      'aria-label': 'Drawing. Drag views to move them, or select one in the Views list of the Drawing panel and move it with the arrow keys; Escape deselects it and Delete removes it. With no view selected the arrow keys move the sheet; plus and minus zoom.',
+    }, this.host,
+      h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'),
+      this.busy);
     app.shell.viewport.append(this.el);
     this.bind();
     // A drawing made before the part had a solid is laid out when the solid exists, even
@@ -170,26 +178,32 @@ export class DrawingWorkspace {
       this.layoutPending = false;
       if (!d.views.length) { this.relayout(); return; }
     }
-    const version = this.app.buildVersion;
+    const version = this.app.geometryVersion;
     const need = d.views.filter((v) => {
       const c = this.cache.get(v.id);
-      return !c || c.kind !== v.kind || c.version !== version;
+      // A view whose hidden lines are turned on needs them projected; turned off, they are just not drawn.
+      return !c || c.kind !== v.kind || c.version !== version || (v.hidden && !c.hidden);
     });
     if (need.length && this.app.bbox) {
       this.pending = true;
+      // A sheet opened for the first time shows its border and title block meanwhile, not nothing.
+      if (!this.paper.firstChild) this.render();
+      const slow = setTimeout(() => { this.busy.textContent = 'Projecting the views…'; }, 300);
       try {
-        const res = await this.app.kernel.project(need.map((v) => ({ id: v.id, ...VIEW_DIRS[v.kind] })));
+        const res = await this.app.kernel.project(need.map((v) => ({ id: v.id, ...VIEW_DIRS[v.kind], hidden: v.hidden })));
         for (const r of res) {
           const v = need.find((x) => x.id === r.id)!;
-          this.cache.set(r.id, { kind: v.kind, version, result: r });
+          this.cache.set(r.id, { kind: v.kind, version, hidden: v.hidden, result: r });
         }
       } catch (e) {
         toast({ kind: 'error', title: 'Could not project the views', message: (e as Error).message });
       } finally {
         this.pending = false;
+        clearTimeout(slow);
+        this.busy.textContent = '';
       }
       // The model or the views may have changed while projecting.
-      if (version !== this.app.buildVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
+      if (version !== this.app.geometryVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
     }
     this.render();
   }
@@ -211,7 +225,7 @@ export class DrawingWorkspace {
     const projections = new Map<string, ProjectionResult>();
     for (const v of d.views) {
       const c = this.cache.get(v.id);
-      if (this.app.bbox && c?.version === this.app.buildVersion && c.kind === v.kind) projections.set(v.id, c.result);
+      if (this.app.bbox && c?.version === this.app.geometryVersion && c.kind === v.kind) projections.set(v.id, c.result);
     }
     return buildSheet(d, projections, this.info());
   }
@@ -362,7 +376,11 @@ export class DrawingWorkspace {
     this.el.addEventListener('wheel', (e) => {
       e.preventDefault();
       const r = this.el.getBoundingClientRect();
-      const f = Math.exp(-Math.max(-0.5, Math.min(0.5, e.deltaY * (e.ctrlKey ? 0.01 : 0.0018))));
+      // As in the 3D view: line and page deltas from wheels, the zoom direction setting for the
+      // wheel only (a trackpad pinch arrives with Ctrl and follows the fingers).
+      let dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+      if (this.app.viewport.invertZoom && !e.ctrlKey) dy = -dy;
+      const f = Math.exp(-Math.max(-0.5, Math.min(0.5, dy * (e.ctrlKey ? 0.01 : 0.0018))));
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       const nz = Math.max(0.1, Math.min(40, this.zoom * f));
       this.pan = { x: mx - ((mx - this.pan.x) * nz) / this.zoom, y: my - ((my - this.pan.y) * nz) / this.zoom };
@@ -418,8 +436,8 @@ export class DrawingWorkspace {
     const v = d?.views.find((q) => q.id === id);
     if (!d || !v) return [x, y];
     const { w, h } = sheetDims(d);
-    // The view's reach from its centre (none while it is still being projected), at k times the scale drawn.
-    const f = this.frames.find((q) => q.id === id);
+    // The view's reach from its centre, at k times the scale drawn.
+    const f = this.frameOf(v, d.scale / k);
     const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y].map((q) => q * k) : [0, 0, 0, 0];
     // Its dimensions, left of and below it, stay on the sheet too.
     const [dl, db] = v.dims && v.kind !== 'isometric' ? [DIM_LEFT, DIM_BELOW] : [0, 0];
@@ -435,13 +453,25 @@ export class DrawingWorkspace {
   rescaleViews(d: DrawingDoc, old: number) {
     const k = d.scale / old;
     if (!(k > 0) || k === 1) return;
-    const fs = this.frames.filter((f) => d.views.some((v) => v.id === f.id));
+    const fs = d.views.map((v) => this.frameOf(v, old)).filter((f) => !!f);
     const ax = Math.min(...fs.map((f) => f.x0)), ay = Math.min(...fs.map((f) => f.y0));
     const moved = d.views.map((v) => {
       const [x, y] = k > 1 && fs.length ? [ax + (v.x - ax) * k, ay + (v.y - ay) * k] : [v.x, v.y];
       return this.onSheet(v.id, x, y, d, k);
     });
     d.views.forEach((v, i) => { [v.x, v.y] = moved[i]; });
+  }
+
+  /**
+   * A view's frame as last drawn or, while it is still being projected (a drawing just opened),
+   * the projection of the part's bounding box drawn at `scale`.
+   */
+  private frameOf(v: DrawingView, scale: number): ViewFrame | undefined {
+    const f = this.frames.find((q) => q.id === v.id);
+    const b = this.app.bbox;
+    if (f || !b) return f;
+    const [vw, vh] = projectedSize(v.kind, b.min, b.max).map((q) => (q * scale) / 2);
+    return { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
   }
 
   /** After the sheet got smaller or turned: views that would hang off it move back on. */
@@ -455,6 +485,15 @@ export class DrawingWorkspace {
     this.drawSelection();
     this.syncPanel();
     this.el.focus({ preventScroll: true });
+  }
+
+  /** Esc: the arrow keys go back to moving the sheet. */
+  deselect(): boolean {
+    if (!this.selected) return false;
+    this.selected = null;
+    this.drawSelection();
+    this.syncPanel();
+    return true;
   }
 
   deleteSelected(): boolean {
@@ -473,14 +512,7 @@ export class DrawingWorkspace {
     const dims = kind !== 'isometric';
     // In free room on the sheet, not on top of the other views or their dimensions
     // (a view still being projected takes the room of its bounding box's projection).
-    const others = d.views.map((v) => {
-      let frame = this.frames.find((f) => f.id === v.id);
-      if (!frame) {
-        const [vw, vh] = projectedSize(v.kind, b.min, b.max).map((k) => (k * d.scale) / 2);
-        frame = { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
-      }
-      return { frame, dims: v.dims && v.kind !== 'isometric' };
-    });
+    const others = d.views.map((v) => ({ frame: this.frameOf(v, d.scale)!, dims: v.dims && v.kind !== 'isometric' }));
     const [x, y] = placeView(sheetDims(d), w * d.scale, hh * d.scale, dims, others);
     let n = d.views.length + 1;
     while (d.views.some((v) => v.id === `v${n}`)) n++;
@@ -499,7 +531,7 @@ export class DrawingWorkspace {
     for (;;) {
       await this.app.whenBuilt();
       if (!stillOpen()) return false;
-      const version = this.app.buildVersion;
+      const version = this.app.geometryVersion;
       await this.refresh();
       while (this.pending || this.refreshAgain) {
         await new Promise((r) => setTimeout(r, 50));
@@ -508,20 +540,25 @@ export class DrawingWorkspace {
       // Another edit may have arrived while the projection was running.
       await this.app.whenBuilt();
       if (!stillOpen()) return false;
-      if (version === this.app.buildVersion) return true;
+      if (version === this.app.geometryVersion) return true;
     }
+  }
+
+  /** The title the exported document carries: the title block's, as on the sheet. */
+  private exportTitle(): string {
+    return this.doc?.title || this.app.store.doc.name;
   }
 
   async exportPdf() {
     if (!(await this.projected())) return;
     const s = this.sheet();
-    download(toPdf(s.items, s.w, s.h, this.app.store.doc.name) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
+    download(toPdf(s.items, s.w, s.h, this.exportTitle()) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
   }
 
   async exportSvg() {
     if (!(await this.projected())) return;
     const s = this.sheet();
-    download(toSvg(s.items, s.w, s.h), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
+    download(toSvg(s.items, s.w, s.h, { title: this.exportTitle() }), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
   }
 }
 

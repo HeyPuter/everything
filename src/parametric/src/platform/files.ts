@@ -70,11 +70,37 @@ function readIndex(): { id: string; name: string; modified: number; size: number
 }
 
 function writeIndex(list: unknown[]) {
+  storeLocally(LOCAL_INDEX, JSON.stringify(list));
+}
+
+/**
+ * Stores a small value in localStorage. Recovery copies written by closing
+ * tabs (see writeRecoveryOnUnload) only add the last seconds to the copies in
+ * browser storage: when the origin's quota is reached they give way, so the
+ * list of parts, the recent parts and the preferences are always written.
+ */
+export function storeLocally(key: string, value: string): boolean {
   try {
-    localStorage.setItem(LOCAL_INDEX, JSON.stringify(list));
+    localStorage.setItem(key, value);
+    return true;
   } catch {
-    /* storage unavailable */
+    try {
+      for (const k of unloadKeys()) localStorage.removeItem(k);
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
   }
+}
+
+function unloadKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith(UNLOAD_PREFIX)) keys.push(k);
+  }
+  return keys;
 }
 
 export const localAvailable = async () => !!(await opfsDir());
@@ -132,6 +158,22 @@ async function localWrite(id: string, name: string, text: string) {
   const list = readIndex().filter((p) => p.id !== id);
   list.unshift({ id, name, modified: Date.now(), size: text.length });
   writeIndex(list);
+  keepStorage();
+}
+
+let persistAsked = false;
+/**
+ * Asks once for this site's storage to be kept: otherwise the browser may
+ * clear it when the device runs short of space, and the parts in it with it.
+ */
+function keepStorage() {
+  if (persistAsked) return;
+  persistAsked = true;
+  const storage = typeof navigator === 'undefined' ? undefined : navigator.storage;
+  if (typeof storage?.persist !== 'function') return;
+  void Promise.resolve(storage.persisted?.())
+    .then((kept) => (kept ? true : storage.persist()))
+    .catch(() => {});
 }
 
 async function localRead(id: string): Promise<string> {
@@ -181,10 +223,20 @@ export const versionChanged = (now: FileVersion, then: FileVersion) =>
  * undefined when it could not be checked (offline, say), so callers go ahead.
  */
 export async function cloudVersion(path: string): Promise<FileVersion | null | undefined> {
+  const entry = await cloudEntry(path);
+  return entry === null ? null : entry?.version ?? undefined;
+}
+
+/**
+ * A cloud file's full path (a path from the home folder, ~/..., spelled out)
+ * and current version; null when it no longer exists, undefined when it could not be checked.
+ */
+export async function cloudEntry(path: string): Promise<{ path: string; version: FileVersion | null } | null | undefined> {
   const fs = puter()?.fs;
   if (!fs?.stat || !cloudAvailable()) return undefined;
   try {
-    return versionOf(await fs.stat(path)) ?? undefined;
+    const item = await fs.stat(path);
+    return { path: typeof item?.path === 'string' && item.path.startsWith('/') ? item.path : path, version: versionOf(item) };
   } catch (e) {
     return isMissing(e) ? null : undefined;
   }
@@ -219,6 +271,11 @@ export async function uniqueCloudPath(name: string): Promise<string> {
 
 export async function newLocation(name: string): Promise<Location> {
   if (cloudAvailable()) return { type: 'cloud', path: await uniqueCloudPath(name) };
+  return newLocalLocation();
+}
+
+/** A new file in this browser's storage. */
+export function newLocalLocation(): Location {
   const existing = new Set(readIndex().map((p) => p.id));
   let id: string;
   do {
@@ -270,6 +327,9 @@ export function onPartsChanged(fn: () => void): () => void {
 function partsChanged() {
   for (const fn of partsListeners) fn();
 }
+
+/** The parts the user can open changed as a whole (signed in or out): lists show them again. */
+export const accountPartsChanged = () => partsChanged();
 savesChannel?.addEventListener('message', () => partsChanged());
 
 export function announceSaved(location: Location) {
@@ -316,11 +376,50 @@ export async function loadPart(location: Location): Promise<{ text: string; vers
   return { text, version: (await version) ?? null };
 }
 
+/**
+ * Moves a cloud part to the user's Puter Trash, where it can be restored from
+ * (delete would remove it for good). Puter records where it came from.
+ */
+async function trashCloud(path: string) {
+  const fs = puter()!.fs;
+  if (typeof fs.move !== 'function') return fs.delete(path);
+  // A name given skips the SDK's check of the destination. Puter gives a part
+  // whose name is in the Trash already a free one ("Bracket (1).parametric")
+  // and records where it came from, as for the desktop's own Delete.
+  try {
+    await fs.move(path, '~/Trash', { newName: path.split('/').pop(), dedupeName: true });
+  } catch (e) {
+    if (!isMissing(e)) throw e;
+    // Gone already (deleted elsewhere): it is deleted. Otherwise the Trash is
+    // missing, and the part stays rather than being deleted for good.
+    const left = await cloudEntry(path);
+    if (left === null) return;
+    throw new Error('The part was not deleted: your Puter Trash could not be found.');
+  }
+}
+
 export async function deletePart(location: Location) {
-  if (location.type === 'cloud') await puter()!.fs.delete(location.path);
+  if (location.type === 'cloud') await trashCloud(location.path);
   else await localDelete(location.id);
   forgetRecent(location);
   partsChanged();
+  for (const fn of deletedListeners) fn(location);
+  try {
+    savesChannel?.postMessage({ type: 'deleted', location });
+  } catch {
+    /* other tabs are not told */
+  }
+}
+
+const deletedListeners = new Set<(location: Location) => void>();
+
+/** Calls `fn` when a part is deleted, in this tab or another tab of this browser. */
+export function onPartDeleted(fn: (location: Location) => void) {
+  deletedListeners.add(fn);
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    const loc = record(e.data) && e.data.type === 'deleted' ? messageLocation(e.data.location) : null;
+    if (loc) fn(loc);
+  });
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
@@ -361,13 +460,49 @@ export async function listParts(onCloudError?: (err: unknown) => void): Promise<
       if (!isMissing(err)) onCloudError?.(err);
     }
   }
-  for (const p of readIndex()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
+  for (const p of await localParts()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
   out.sort((a, b) => (b.modified || 0) - (a.modified || 0));
   return out;
 }
 
+/**
+ * The parts kept in this browser: its list of them, and any part file in
+ * browser storage the list lacks (a list that could not be written, say), so
+ * a saved part never becomes impossible to find. Those join the list.
+ */
+async function localParts() {
+  const index = readIndex();
+  const dir = await opfsDir();
+  if (!dir) return index;
+  const known = new Set(index.map((p) => p.id));
+  const found: typeof index = [];
+  try {
+    for await (const [file, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+      const m = /^(part-[\w-]+)\.parametric$/.exec(file);
+      if (!m || known.has(m[1]) || handle.kind !== 'file') continue;
+      const f = await (handle as FileSystemFileHandle).getFile();
+      if (!f.size) continue;
+      let name = 'Untitled';
+      try {
+        const parsed = JSON.parse(await f.text()) as { name?: unknown };
+        if (typeof parsed?.name === 'string' && parsed.name) name = parsed.name;
+      } catch {
+        /* listed all the same: opening it says what is wrong */
+      }
+      found.push({ id: m[1], name, modified: f.lastModified, size: f.size });
+    }
+  } catch {
+    return index;
+  }
+  if (found.length) writeIndex([...index, ...found]);
+  return [...index, ...found];
+}
+
 /** The part name a cloud file's name gives ('' for parts kept in this browser). */
 export const partFileName = (loc: Location) => (loc.type === 'cloud' ? (loc.path.split('/').pop() ?? '').replace(/\.(parametric|json)$/i, '') : '');
+
+/** The names of the parts listed in this browser. */
+export const localPartNames = () => readIndex().map((p) => p.name);
 
 /** The browser-storage listing of a part kept in this browser. */
 export const readIndexEntry = (id: string) => readIndex().find((p) => p.id === id) ?? null;
@@ -395,16 +530,12 @@ export function recentParts(): { location: Location; name: string; opened: numbe
 export function rememberRecent({ location, name }: { location: Location; name: string }) {
   const list = recentParts().filter((r) => !sameLocation(r.location, location));
   list.unshift({ location, name, opened: Date.now() });
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 12)));
-  } catch {
-    /* storage unavailable */
-  }
+  storeLocally(RECENT_KEY, JSON.stringify(list.slice(0, 12)));
 }
 
 export function forgetRecent(location: Location) {
   try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recentParts().filter((r) => !sameLocation(r.location, location))));
+    storeLocally(RECENT_KEY, JSON.stringify(recentParts().filter((r) => !sameLocation(r.location, location))));
   } catch {
     /* storage unavailable */
   }
@@ -487,7 +618,11 @@ const LOCK_PREFIX = 'parametric-recovery-';
 const TAB_ID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const ownRecovery = `${RECOVERY_PREFIX}${TAB_ID}.json`;
 
-type Locks = { request(name: string, cb: () => Promise<void>): Promise<void>; query(): Promise<{ held?: { name?: string }[] }> };
+type Locks = {
+  request(name: string, cb: (lock: unknown) => Promise<void>): Promise<void>;
+  request(name: string, opts: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<void>): Promise<void>;
+  query(): Promise<{ held?: { name?: string }[] }>;
+};
 const locks = (): Locks | undefined => (typeof navigator !== 'undefined' ? (navigator as unknown as { locks?: Locks }).locks : undefined);
 // Held until the tab goes away.
 void locks()?.request(`${LOCK_PREFIX}${TAB_ID}`, () => new Promise<void>(() => {})).catch(() => {});
@@ -526,11 +661,48 @@ export async function readRecovery(): Promise<string | null> {
   });
 }
 
+// A tab that is closing cannot wait for browser storage: what it has not
+// written yet goes into the synchronous key-value storage instead, if it fits.
+const UNLOAD_PREFIX = 'parametric:recovery-unload:';
+// All such copies together, in characters: a fifth of the smallest origin
+// quota (5 MB), leaving the rest to the list of parts, recent parts and preferences.
+const UNLOAD_LIMIT = 1_000_000;
+const unloadKey = (file: string) => `${UNLOAD_PREFIX}${file.slice(RECOVERY_PREFIX.length, -5)}`;
+
+/** Writes this tab's recovery copy at once, while the tab is being closed; false when it does not fit. */
+export function writeRecoveryOnUnload(text: string): boolean {
+  if (text.length > UNLOAD_LIMIT) return false;
+  const own = unloadKey(ownRecovery);
+  try {
+    // Older copies left by other tabs give way, oldest first, to stay within the limit.
+    const others = unloadKeys().filter((k) => k !== own)
+      .map((k) => { const v = localStorage.getItem(k) ?? ''; return { k, size: v.length, at: savedAtOf(v) }; })
+      .sort((a, b) => a.at - b.at);
+    let total = text.length + others.reduce((n, o) => n + o.size, 0);
+    for (const o of others) {
+      if (total <= UNLOAD_LIMIT) break;
+      localStorage.removeItem(o.k);
+      total -= o.size;
+    }
+    localStorage.setItem(own, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function clearRecovery() {
   return removeRecovery(ownRecovery);
 }
 
 export function removeRecovery(file: string) {
+  if (file.startsWith(RECOVERY_PREFIX)) {
+    try {
+      localStorage.removeItem(unloadKey(file));
+    } catch {
+      /* storage unavailable */
+    }
+  }
   return queued(async () => {
     try {
       await (await opfsDir())?.removeEntry(file);
@@ -540,10 +712,35 @@ export function removeRecovery(file: string) {
   });
 }
 
+const savedAtOf = (text: string) => {
+  try {
+    const t = (JSON.parse(text) as { savedAt?: unknown }).savedAt;
+    return typeof t === 'number' && Number.isFinite(t) ? t : 0;
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * Takes a left-behind recovery copy for this tab while it is offered, so
+ * tabs opened at the same time (a browser restoring its tabs) do not offer
+ * it too. Resolves to the release, or null when another tab has it.
+ */
+export function claimRecovery(file: string): Promise<(() => void) | null> {
+  const l = locks();
+  const id = file === 'recovery.json' ? 'legacy' : file.slice(RECOVERY_PREFIX.length, -5);
+  if (!l) return Promise.resolve(() => {});
+  return new Promise((resolve) => {
+    l.request(`${LOCK_PREFIX}${id}`, { ifAvailable: true }, (lock) => {
+      if (!lock) { resolve(null); return Promise.resolve(); }
+      return new Promise<void>((release) => resolve(release));
+    }).catch(() => resolve(() => {}));
+  });
+}
+
 /** Recovery copies left by tabs that are no longer open, newest first. */
 export async function orphanRecoveries(): Promise<{ file: string; text: string }[]> {
   const dir = await opfsDir();
-  if (!dir) return [];
   let held: Set<string> | null = null;
   try {
     const q = await locks()?.query();
@@ -553,17 +750,34 @@ export async function orphanRecoveries(): Promise<{ file: string; text: string }
   }
   const out: { file: string; text: string; at: number }[] = [];
   try {
-    for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+    if (dir) for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
       // recovery.json was the single copy written before there was one per tab.
       const id = name === 'recovery.json' ? '' : name.startsWith(RECOVERY_PREFIX) && name.endsWith('.json') ? name.slice(RECOVERY_PREFIX.length, -5) : null;
       if (id === null || name === ownRecovery || handle.kind !== 'file') continue;
       // Without Web Locks every other copy counts as left behind.
-      if (id && held?.has(`${LOCK_PREFIX}${id}`)) continue;
+      if (held?.has(`${LOCK_PREFIX}${id || 'legacy'}`)) continue;
       const f = await (handle as FileSystemFileHandle).getFile();
       out.push({ file: name, text: await f.text(), at: f.lastModified });
     }
   } catch {
     /* listing failed: nothing to offer */
+  }
+  // Copies written while a tab closed: they replace an older copy of the same tab.
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(UNLOAD_PREFIX)) continue;
+      const id = key.slice(UNLOAD_PREFIX.length);
+      const file = `${RECOVERY_PREFIX}${id}.json`;
+      if (!id || file === ownRecovery || held?.has(`${LOCK_PREFIX}${id}`)) continue;
+      const text = localStorage.getItem(key) ?? '';
+      const at = savedAtOf(text);
+      const other = out.find((o) => o.file === file);
+      if (!other) out.push({ file, text, at });
+      else if (at > savedAtOf(other.text)) Object.assign(other, { text, at });
+    }
+  } catch {
+    /* storage unavailable */
   }
   return out.sort((a, b) => b.at - a.at).map(({ file, text }) => ({ file, text }));
 }

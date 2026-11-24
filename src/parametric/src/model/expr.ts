@@ -32,11 +32,16 @@ export class ExprError extends Error {}
 const FUNCS: Record<string, (...a: number[]) => number> = {
   sin: (d) => Math.sin((d * Math.PI) / 180),
   cos: (d) => Math.cos((d * Math.PI) / 180),
-  tan: (d) => Math.tan((d * Math.PI) / 180),
-  asin: (x) => (Math.asin(x) * 180) / Math.PI,
-  acos: (x) => (Math.acos(x) * 180) / Math.PI,
+  // At 90° (and 270°...) cos(90°) is 6e-17, not 0: the tangent came out as 1.6e16 instead of an error.
+  tan: (d) => {
+    if (Math.abs(((d % 180) + 180) % 180 - 90) < 1e-9) throw new ExprError(`tan(${d}) is undefined`);
+    return Math.tan((d * Math.PI) / 180);
+  },
+  asin: (x) => { if (Math.abs(x) > 1) throw new ExprError('asin() takes a value from -1 to 1'); return (Math.asin(x) * 180) / Math.PI; },
+  acos: (x) => { if (Math.abs(x) > 1) throw new ExprError('acos() takes a value from -1 to 1'); return (Math.acos(x) * 180) / Math.PI; },
   atan: (x) => (Math.atan(x) * 180) / Math.PI,
-  sqrt: Math.sqrt,
+  // Out of their domain they gave "Result is not a finite number", naming nothing.
+  sqrt: (x) => { if (x < 0) throw new ExprError('sqrt() of a negative number'); return Math.sqrt(x); },
   abs: Math.abs,
   min: Math.min,
   max: Math.max,
@@ -63,7 +68,15 @@ type Tok =
   | { k: 'op'; v: string }
   | { k: 'end' };
 
+/**
+ * Typographic signs pasted from documents and spreadsheets as the ASCII ones:
+ * the minus sign (U+2212) and dashes, multiplication and division signs. Each
+ * stays one character, so positions in the text are unchanged.
+ */
+const typographic = (src: string) => src.replace(/[\u2212\u2012\u2013\uFE63\uFF0D]/g, '-').replace(/[\u00D7\u22C5]/g, '*').replace(/\u00F7/g, '/');
+
 function tokenize(src: string): Tok[] {
+  src = typographic(src);
   const out: Tok[] = [];
   let i = 0;
   while (i < src.length) {
@@ -72,7 +85,9 @@ function tokenize(src: string): Tok[] {
     if (/[0-9.]/.test(ch)) {
       const m = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(src.slice(i));
       if (!m) throw new ExprError(`Unexpected "${ch}"`);
-      out.push({ k: 'num', v: parseFloat(m[0]), at: i, len: m[0].length });
+      const v = parseFloat(m[0]);
+      if (!Number.isFinite(v)) throw new ExprError(`The number ${m[0]} is too large`);
+      out.push({ k: 'num', v, at: i, len: m[0].length });
       i += m[0].length;
       continue;
     }
@@ -180,7 +195,14 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
   function power(): number {
     const base = atom();
     const p = peek();
-    if (p.k === 'op' && p.v === '^') { pos++; return Math.pow(base, unary()); }
+    if (p.k === 'op' && p.v === '^') {
+      pos++;
+      const e = unary();
+      // Said here, not as "not a finite number" at the end (and 1/(0^-1) came out as 0).
+      if (base === 0 && e < 0) throw new ExprError('Division by zero');
+      if (base < 0 && !Number.isInteger(e)) throw new ExprError('A negative number cannot be raised to a fractional power');
+      return Math.pow(base, e);
+    }
     return base;
   }
 
@@ -220,7 +242,7 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
   if (!src2) throw new ExprError('Enter a value');
   const v = expr();
   if (peek().k !== 'end') throw new ExprError('Unexpected text after expression');
-  if (!Number.isFinite(v)) throw new ExprError('Result is not a finite number');
+  if (!Number.isFinite(v)) throw new ExprError(Number.isNaN(v) ? 'Result is not a number' : 'Result is too large');
   // Expressions are written in display units (variables are plain numbers in
   // display units too); convert the result to internal units.
   return v * bare;

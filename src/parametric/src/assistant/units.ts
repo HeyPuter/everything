@@ -104,9 +104,14 @@ export class Units {
    * a unit. Expressions that use variables are kept so they stay linked.
    */
   parseParam(v: unknown, kind: Kind, what: string): Param {
+    // A count of 2.5 was built as 3 copies and reported done.
+    const whole = (n: number) => {
+      if (!Number.isInteger(n)) throw new ToolError(`${what}: a whole number of instances, not ${num(n, 6)}`);
+      return n;
+    };
     if (typeof v === 'number') {
       if (!Number.isFinite(v)) throw new ToolError(`${what}: not a finite number`);
-      if (kind === 'count') return Math.round(v);
+      if (kind === 'count') return whole(v);
       return kind === 'length' ? v * this.scale : v;
     }
     if (typeof v !== 'string' || !v.trim()) throw new ToolError(`${what}: expected a number or an expression`);
@@ -114,10 +119,11 @@ export class Units {
     const evalKind = kind === 'count' ? 'none' : kind;
     const bareScale = kind === 'length' ? this.scale : 1;
     // Plain values ("12", "12mm", "0.5in", "2*pi") need no variables.
+    let r: number | null = null;
     try {
-      const r = evaluate(text, { kind: evalKind, bareScale });
-      return kind === 'count' ? Math.round(r) : r;
+      r = evaluate(text, { kind: evalKind, bareScale });
     } catch { /* may use variables */ }
+    if (r != null) return kind === 'count' ? whole(r) : r;
     const { values, errors } = evaluateVariables(this.store.doc.variables);
     try {
       evaluate(text, { kind: evalKind, bareScale, lookup: (n) => values.get(n) });

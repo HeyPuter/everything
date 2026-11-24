@@ -5,7 +5,7 @@
 // entity id and the depth under the cursor. Frames are rendered on demand.
 
 import type { MeshData } from '../kernel/protocol';
-import { type Vec3, add, scale, toF32 } from '../math/vec';
+import { type Vec3, add, cross, dot, perpendicular, scale, sub, toF32 } from '../math/vec';
 import { Camera } from './camera';
 
 export type DisplayStyle = 'shadedEdges' | 'shaded' | 'hiddenRemoved' | 'hiddenVisible' | 'wireframe';
@@ -65,7 +65,6 @@ uniform int uFlat;
 uniform vec3 uFlatColor;
 uniform vec3 uSelColor;
 uniform vec3 uHoverColor;
-uniform vec3 uCapColor;
 out vec4 outColor;
 void main() {
   if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
@@ -102,7 +101,6 @@ void main() {
   vec3 col = base * (0.36 + 0.16 * hemi + 0.48 * d1 + 0.12 * d2) + vec3(0.2) * sp + base * rim * 0.06;
   if ((st & 2) != 0) col = mix(col, uSelColor, 0.62);
   else if ((st & 1) != 0) col = mix(col, uHoverColor, 0.45);
-  if (!gl_FrontFacing && uClipOn == 1) col = uCapColor;
   outColor = vec4(col, uAlpha);
 }`;
 
@@ -182,6 +180,7 @@ uniform vec2 uViewport;
 uniform float uDepthBias;
 out vec4 vColor;
 out vec2 vUv;
+out vec3 vWorld;
 flat out int vStyle;
 void main() {
   vec4 c = uViewProj * vec4(aPos, 1.0);
@@ -190,6 +189,7 @@ void main() {
   gl_Position = c;
   vColor = aColor;
   vUv = aCorner;
+  vWorld = aPos;
   vStyle = int(aSizeStyle.y + 0.5);
 }`;
 
@@ -197,9 +197,13 @@ const PT_FS = `#version 300 es
 precision highp float;
 in vec4 vColor;
 in vec2 vUv;
+in vec3 vWorld;
 flat in int vStyle;
+uniform vec4 uClip;
+uniform int uClipOn;
 out vec4 outColor;
 void main() {
+  if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   float r = length(vUv);
   if (vStyle == 1 && r > 1.0) discard;
   if (vStyle == 2 && (r > 1.0 || r < 0.55)) discard;
@@ -291,6 +295,65 @@ void main() {
   if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   outId = (3u << 28) | uint(vId);
   outDepth = -(uView * vec4(vWorld, 1.0)).z;
+}`;
+
+/**
+ * Section caps. The cut face is drawn as a plane where it lies inside the part (an odd number of
+ * the part's remaining surfaces behind it, counted in the stencil), at the plane's depth: what
+ * lies behind it, like the edges of a hole, is hidden as by a real cut face.
+ */
+const PARITY_FS = `#version 300 es
+precision highp float;
+in vec3 vWorld;
+uniform vec4 uClip;
+out vec4 outColor;
+void main() {
+  if (dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
+  outColor = vec4(0.0);
+}`;
+
+/** A square on the section plane (corners from the vertex index, no buffers). */
+const CAP_VS = `#version 300 es
+uniform mat4 uViewProj;
+uniform vec3 uCenter;
+uniform vec3 uU;
+uniform vec3 uV;
+void main() {
+  vec2 k = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) * 2.0 - 1.0;
+  gl_Position = uViewProj * vec4(uCenter + uU * k.x + uV * k.y, 1.0);
+}`;
+
+const CAP_FS = `#version 300 es
+precision highp float;
+uniform vec3 uColor;
+out vec4 outColor;
+void main() { outColor = vec4(uColor, 1.0); }`;
+
+/**
+ * Picking through a section: where a back face of the part is what is seen (marked in the
+ * stencil), the depth moves onto the section plane in front of it, as with the drawn cap.
+ */
+const PICK_CAP_FS = `#version 300 es
+precision highp float;
+in vec3 vWorld;
+uniform mat4 uViewProj;
+uniform vec4 uClip;
+uniform vec3 uEye;
+uniform vec3 uViewDir;
+uniform int uOrtho;
+uniform mat4 uView;
+layout(location=1) out float outDepth;
+void main() {
+  if (gl_FrontFacing || dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
+  vec3 d = uOrtho == 1 ? uViewDir : normalize(vWorld - uEye);
+  float dn = dot(uClip.xyz, d);
+  if (abs(dn) < 1e-6) discard;
+  vec3 p = vWorld - d * ((dot(uClip.xyz, vWorld) + uClip.w) / dn);
+  vec4 c = uViewProj * vec4(p, 1.0);
+  // Only ever nearer: an open surface seen from behind, with the plane beyond it, keeps its depth.
+  gl_FragDepth = min(gl_FragCoord.z, clamp(c.z / c.w * 0.5 + 0.5, 0.0, 1.0));
+  // A pick on the cap is at the cap (where a zoom closes in or an orbit turns about).
+  outDepth = min(-(uView * vec4(vWorld, 1.0)).z, -(uView * vec4(p, 1.0)).z);
 }`;
 
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
@@ -424,7 +487,7 @@ export class Renderer {
   lost = false;
 
   constructor(readonly canvas: HTMLCanvasElement, theme: Theme) {
-    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance', premultipliedAlpha: false });
+    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, stencil: true, preserveDrawingBuffer: false, powerPreference: 'high-performance', premultipliedAlpha: false });
     if (!gl) throw new Error('WebGL 2 is not available in this browser');
     this.gl = gl;
     this.theme = theme;
@@ -447,6 +510,9 @@ export class Renderer {
     this.progs.pickMesh = this.program(MESH_VS, PICK_MESH_FS);
     this.progs.pickSeg = this.program(SEG_VS, PICK_SEG_FS);
     this.progs.pickPt = this.program(PICK_PT_VS, PICK_PT_FS);
+    this.progs.parity = this.program(MESH_VS, PARITY_FS);
+    this.progs.cap = this.program(CAP_VS, CAP_FS);
+    this.progs.pickCap = this.program(MESH_VS, PICK_CAP_FS);
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
@@ -514,11 +580,14 @@ export class Renderer {
     const gl = this.gl;
     const w = Math.max(1, Math.min(2048, n));
     const h = Math.max(1, Math.ceil(n / 2048));
-    const rgba = new Uint8Array(w * h * 4);
-    if (channels === 4) rgba.set(data.subarray(0, Math.min(data.length, rgba.length)));
-    else for (let i = 0; i < n; i++) rgba[i * 4] = data[i];
+    // States (one byte per face or edge, re-sent on every hover change) go up as a one-channel
+    // texture: spreading them over RGBA cost four bytes of garbage per entity per hover.
+    const size = w * h * channels;
+    let px = data;
+    if (data.length !== size) { px = new Uint8Array(size); px.set(data.subarray(0, Math.min(data.length, size))); }
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+    if (channels === 4) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, px);
   }
 
   // ---- resources ----
@@ -621,9 +690,20 @@ export class Renderer {
     // The origin marker is pixel-sized: far from the model it would only cost depth precision.
     if (key.endsWith(':origin')) return;
     this.boxes.set(key, positions ? boxOf(positions) : null);
+    this.camera.sceneBounds = this.boundsOf([...this.boxes.keys()]);
+  }
+
+  /**
+   * Bounding sphere of what some sources draw ('model', 'preview', or an overlay as
+   * `lines:key`, `points:key`, `tris:key`), or null when they draw nothing.
+   */
+  boundsOf(keys: string[]): { center: Vec3; radius: number } | null {
     const u: Box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-    for (const b of this.boxes.values()) if (b) for (let k = 0; k < 3; k++) { u[k] = Math.min(u[k], b[k]); u[k + 3] = Math.max(u[k + 3], b[k + 3]); }
-    this.camera.sceneBounds = u[0] <= u[3]
+    for (const key of keys) {
+      const b = this.boxes.get(key);
+      if (b) for (let k = 0; k < 3; k++) { u[k] = Math.min(u[k], b[k]); u[k + 3] = Math.max(u[k + 3], b[k + 3]); }
+    }
+    return u[0] <= u[3]
       ? { center: [(u[0] + u[3]) / 2, (u[1] + u[4]) / 2, (u[2] + u[5]) / 2], radius: Math.hypot(u[3] - u[0], u[4] - u[1], u[5] - u[2]) / 2 }
       : null;
   }
@@ -734,6 +814,9 @@ export class Renderer {
   // ---- frame ----
 
   resize(cssW: number, cssH: number, dpr: number) {
+    // A hidden view (display: none, a minimised window) measures 0 × 0: it keeps its last size,
+    // or a zoom to fit meanwhile would put the camera infinitely far away.
+    if (!(cssW >= 1 && cssH >= 1)) return;
     this.dpr = Math.min(dpr, 2);
     const w = Math.max(1, Math.round(cssW * this.dpr));
     const h = Math.max(1, Math.round(cssH * this.dpr));
@@ -816,7 +899,7 @@ export class Renderer {
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     const bg = this.theme.background;
     gl.clearColor(bg[0], bg[1], bg[2], 1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
@@ -839,6 +922,8 @@ export class Renderer {
         gl.polygonOffset(1, 1);
         this.drawMesh(body, vp, view, clip, { flat: flat ? 1 : 0, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
         gl.disable(gl.POLYGON_OFFSET_FILL);
+        // Line styles fill the cut face like the faces, in the background colour.
+        if (clip) this.drawCap(body, showBody ? 'model' : 'preview', vp, clip, flat ? this.theme.background : this.theme.cap);
       } else if (showBody && this.faceStateData.some((s) => s & 3)) {
         // Wireframe draws no faces: tint just the selected and hovered ones.
         gl.disable(gl.DEPTH_TEST);
@@ -872,7 +957,7 @@ export class Renderer {
     }
 
     for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, b.clip === false ? null : clip);
-    for (const b of ordered(this.points, 'test')) this.drawPointBatch(b, vp, viewport);
+    for (const b of ordered(this.points, 'test')) this.drawPointBatch(b, vp, viewport, clip);
 
     // Translucent geometry: tool preview and plane fills, without depth writes.
     gl.enable(gl.BLEND);
@@ -888,7 +973,7 @@ export class Renderer {
     for (const b of ordered(this.tris, 'always')) this.drawTriBatch(b, vp);
     gl.depthMask(true);
     for (const b of ordered(this.lines, 'always')) this.drawLineBatch(b, vp, viewport, null);
-    for (const b of ordered(this.points, 'always')) this.drawPointBatch(b, vp, viewport);
+    for (const b of ordered(this.points, 'always')) this.drawPointBatch(b, vp, viewport, null);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
   }
@@ -947,6 +1032,81 @@ export class Renderer {
     return gpu;
   }
 
+  /** The next mesh draw marks in the stencil where a back face (the section cap) is what is seen. */
+  private markCaps() {
+    const gl = this.gl;
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.ZERO);
+    gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.REPLACE);
+  }
+
+  /** The section's cut face: the plane where it lies inside the mesh, at the plane's depth. */
+  private drawCap(m: GpuMesh, box: string, vp: Float32Array, clip: number[], color: number[]) {
+    const gl = this.gl;
+    const bounds = this.boundsOf([box]);
+    if (!bounds) return;
+    // Parity of the remaining surfaces behind each pixel's point on the plane: odd inside.
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilFunc(gl.ALWAYS, 0, 1);
+    gl.stencilOp(gl.KEEP, gl.INVERT, gl.INVERT);
+    gl.colorMask(false, false, false, false);
+    gl.depthMask(false);
+    gl.disable(gl.DEPTH_TEST);
+    let { p, u } = this.progs.parity;
+    gl.useProgram(p);
+    gl.uniformMatrix4fv(u.uViewProj, false, vp);
+    gl.uniform4fv(u.uClip, clip);
+    gl.bindVertexArray(m.vao);
+    gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(null);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
+    // A square on the plane, around the mesh, drawn where the parity is odd.
+    gl.stencilFunc(gl.EQUAL, 1, 1);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    const n: Vec3 = [clip[0], clip[1], clip[2]], c = bounds.center;
+    const center = sub(c, scale(n, dot(n, c) + clip[3]));
+    const r = bounds.radius * 1.5 + 1;
+    const a = perpendicular(n);
+    ({ p, u } = this.progs.cap);
+    gl.useProgram(p);
+    gl.uniformMatrix4fv(u.uViewProj, false, vp);
+    gl.uniform3fv(u.uCenter, center);
+    gl.uniform3fv(u.uU, scale(a, r));
+    gl.uniform3fv(u.uV, scale(cross(n, a), r));
+    gl.uniform3fv(u.uColor, color);
+    // Behind the edges on it, as the faces are.
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1, 1);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.disable(gl.STENCIL_TEST);
+  }
+
+  /** Picking, after markCaps and the mesh: puts the depth of the marked pixels on the section plane. */
+  private capDepth(m: GpuMesh, vp: Float32Array, clip: number[], view: Float32Array) {
+    const gl = this.gl, cam = this.camera, b = cam.back;
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    gl.depthFunc(gl.ALWAYS);
+    const { p, u } = this.progs.pickCap;
+    gl.useProgram(p);
+    gl.uniformMatrix4fv(u.uView, false, view);
+    gl.uniformMatrix4fv(u.uViewProj, false, vp);
+    gl.uniform4fv(u.uClip, clip);
+    gl.uniform3fv(u.uEye, cam.eye);
+    gl.uniform3fv(u.uViewDir, [-b[0], -b[1], -b[2]]);
+    gl.uniform1i(u.uOrtho, cam.ortho ? 1 : 0);
+    gl.bindVertexArray(m.vao);
+    gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(null);
+    gl.depthFunc(gl.LEQUAL);
+    gl.colorMask(true, true, true, true);
+    gl.disable(gl.STENCIL_TEST);
+  }
+
   /** `flat`: 0 shaded, 1 background fill (line styles), 2 only selected/hovered faces, translucent (wireframe). */
   private drawMesh(m: GpuMesh, vp: Float32Array, view: Float32Array, clip: number[] | null, o: { flat: 0 | 1 | 2; alpha: number; useState: boolean; color: number[] }) {
     const gl = this.gl;
@@ -962,7 +1122,6 @@ export class Renderer {
     gl.uniform3fv(u.uFlatColor, this.theme.background);
     gl.uniform3fv(u.uSelColor, this.theme.selection);
     gl.uniform3fv(u.uHoverColor, this.theme.hover);
-    gl.uniform3fv(u.uCapColor, this.theme.cap);
     gl.uniform1i(u.uClipOn, clip ? 1 : 0);
     if (clip) gl.uniform4fv(u.uClip, clip);
     gl.activeTexture(gl.TEXTURE0);
@@ -1011,7 +1170,8 @@ export class Renderer {
     this.drawSegs(b.gpu, vp, viewport, clip, { width: b.width, color: [0, 0, 0, 1], dash: b.dash, useState: false, bias: b.bias ?? 4e-5, useColor: true });
   }
 
-  private drawPointBatch(b: PointBatch & { gpu?: { vao: WebGLVertexArrayObject; count: number } }, vp: Float32Array, viewport: number[]) {
+  /** `clip`: the section plane, which cuts depth-tested points (shown sketches) like their lines. */
+  private drawPointBatch(b: PointBatch & { gpu?: { vao: WebGLVertexArrayObject; count: number } }, vp: Float32Array, viewport: number[], clip: number[] | null) {
     if (!b.gpu) return;
     const gl = this.gl;
     const { p, u } = this.progs.pt;
@@ -1019,6 +1179,8 @@ export class Renderer {
     gl.uniformMatrix4fv(u.uViewProj, false, vp);
     gl.uniform2fv(u.uViewport, viewport);
     gl.uniform1f(u.uDepthBias, 1e-4);
+    gl.uniform1i(u.uClipOn, clip ? 1 : 0);
+    if (clip) gl.uniform4fv(u.uClip, clip);
     gl.bindVertexArray(b.gpu.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, b.gpu.count);
     gl.bindVertexArray(null);
@@ -1061,8 +1223,8 @@ export class Renderer {
     }
     this.pickRb = gl.createRenderbuffer();
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.pickRb);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.pickRb);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, this.pickRb);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.pickSize = [w, h];
   }
@@ -1119,10 +1281,20 @@ export class Renderer {
       gl.enable(gl.POLYGON_OFFSET_FILL);
       gl.polygonOffset(1, 1);
       if (!want.face) gl.colorMask(false, false, false, false);
+      // Edges and vertices behind a section cap are hidden by it, as they are drawn.
+      const caps = !!clip && !wire;
+      if (caps) this.markCaps();
       gl.bindVertexArray(m.vao);
       gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0);
       gl.colorMask(true, true, true, true);
       gl.disable(gl.POLYGON_OFFSET_FILL);
+      if (caps) {
+        // The id stays the face seen through the cut; the eye distance becomes the cap's.
+        gl.drawBuffers(this.canFloat ? [gl.NONE, gl.COLOR_ATTACHMENT1] : [gl.NONE]);
+        if (!want.face) gl.colorMask(false, false, false, false);
+        this.capDepth(m, vp, clip, view);
+        gl.drawBuffers(this.canFloat ? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1] : [gl.COLOR_ATTACHMENT0]);
+      }
     }
     if (want.edge && m.edges) {
       const { p, u } = this.progs.pickSeg;

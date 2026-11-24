@@ -17,8 +17,10 @@ function plane(v: unknown): boolean {
   if (!object(v)) return false;
   if (v.kind === 'base') return ['front', 'top', 'right'].includes(String(v.plane));
   if (v.kind === 'feature') return id(v.id);
-  return v.kind === 'face' && named(v.face);
+  return v.kind === 'face' && named(v.face) && (v.x == null || vec3(v.x));
 }
+
+const vec3 = (v: unknown) => Array.isArray(v) && v.length === 3 && v.every((c) => Number.isFinite(c));
 
 function axis(v: unknown): boolean {
   if (v == null) return true;

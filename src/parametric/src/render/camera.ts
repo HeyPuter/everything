@@ -95,7 +95,9 @@ export class Camera {
     return to ? { target: [...to.target] as Vec3, distance: to.distance, rot: [...to.rot] as Quat, ortho: to.ortho } : this.state();
   }
 
+  /** Jumps to a state; a view animation still running would otherwise carry on from there. */
   setState(s: CameraState) {
+    this.anim = null;
     this.target = [...s.target] as Vec3;
     this.distance = s.distance;
     this.rot = [...s.rot] as Quat;
@@ -119,7 +121,9 @@ export class Camera {
       const h = this.distance * Math.tan(this.fov / 2);
       return ortho(-h * aspect, h * aspect, -h, h, -far, far);
     }
-    const near = Math.max(this.distance - r * 2, this.distance * 0.01, 0.01);
+    // Relative to the distance only: zoomed in closer than 0.01 mm, a fixed floor clipped away
+    // the surface being looked at.
+    const near = Math.max(this.distance - r * 2, this.distance * 0.01);
     return perspective(this.fov, aspect, near, far);
   }
 
@@ -220,8 +224,8 @@ export class Camera {
     a.to = move(a.to);
   }
 
-  /** Target state that frames a bounding sphere. */
-  fitState(center: Vec3, radius: number, rot: Quat = this.rot): CameraState {
+  /** Target state that frames a bounding sphere (seen as a running view animation will end). */
+  fitState(center: Vec3, radius: number, rot: Quat = this.goal().rot): CameraState {
     const r = Math.max(radius, 1e-3);
     const aspect = this.width / Math.max(1, this.height);
     const half = Math.tan(this.fov / 2) * Math.min(1, aspect);

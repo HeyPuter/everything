@@ -156,3 +156,47 @@ test('a long unbroken feature name wraps inside a confirmation on a phone', asyn
   await expect(body).toContainText('FilletFillet');
   expect(await body.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
 });
+
+test('the labels of Part Properties and a custom material name their fields and focus them when clicked', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const run = (id: string) => page.evaluate((id) => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run(id), id);
+  await run('properties');
+  const props = page.getByRole('dialog', { name: 'Part Properties' });
+  // The visible label is the field's name, so speech input can say what it sees.
+  await props.getByText('Unit system', { exact: true }).click();
+  await expect(props.getByRole('combobox', { name: 'Unit system' })).toBeFocused();
+  await props.getByText('Decimal places', { exact: true }).click();
+  await expect(props.getByRole('spinbutton', { name: 'Decimal places' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await run('material');
+  const material = page.getByRole('dialog', { name: 'Material', exact: true });
+  await material.getByRole('combobox').selectOption('__custom');
+  await material.getByText('Density (kg/m³)', { exact: true }).click();
+  await expect(material.getByLabel('Density in kg per cubic metre')).toBeFocused();
+});
+
+test('Equations shows what a value being typed evaluates to, and what uses it, before it is taken', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Variables', (d) => {
+      d.variables.push({ id: 'v1', name: 'Width', expr: '10' }, { id: 'v2', name: 'Half', expr: 'Width/2' });
+    });
+    a.commands.run('equations');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  const width = dialog.getByRole('textbox', { name: 'Value or expression of Width' });
+  await width.click();
+  await width.fill('30');
+  await expect(width).toBeFocused();
+  const rows = dialog.locator('tbody tr');
+  await expect(rows.nth(0).locator('td.num').first()).toHaveText('30.0000');
+  await expect(rows.nth(1).locator('td.num').first()).toHaveText('15.0000');
+  await width.fill('30+');
+  await expect(rows.nth(0).locator('td.num').first()).not.toHaveText('30.0000');
+  // Nothing is taken until OK.
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.variables.map((v) => v.expr))).toEqual(['10', 'Width/2']);
+});

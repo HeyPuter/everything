@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { Vec2 } from '../src/math/vec';
-import { circumcenter, intersectPrims, type Prim } from '../src/sketch/geom';
+import { circumcenter, intersectPrims, splineBeziers, type Prim } from '../src/sketch/geom';
 
 for (const offset of [[0, 0], [1e6, -2e6], [1e9, 1e9], [1e10, -1e10]] as Vec2[]) {
   it.each([5, 0.01])(`keeps a circle of radius %s accurate around ${offset}`, (r) => {
@@ -137,4 +137,18 @@ it('respects arc limits and extends only the first circle when the smaller circl
   }
   expect(intersectPrims(small, small)).toEqual([]);
   expect(intersectPrims(small, { ...small, r: 10 })).toEqual([]);
+});
+
+it('runs a closed spline smoothly through the point it starts and ends on', () => {
+  const loop: Vec2[] = [[0, 0], [10, -2], [12, 8], [3, 10], [0, 0]];
+  const bz = splineBeziers(loop);
+  const last = bz[bz.length - 1], first = bz[0];
+  // Leaving the start along the end's tangent (it made a corner there).
+  const out: Vec2 = [first[1][0] - first[0][0], first[1][1] - first[0][1]];
+  const into: Vec2 = [last[3][0] - last[2][0], last[3][1] - last[2][1]];
+  expect(out[0] * into[1] - out[1] * into[0]).toBeCloseTo(0, 9);
+  expect(out[0] * into[0] + out[1] * into[1]).toBeGreaterThan(0);
+  // An open spline keeps its free ends.
+  const open = splineBeziers(loop.slice(0, 4));
+  expect(open[0][1]).not.toEqual(first[1]);
 });

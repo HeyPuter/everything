@@ -31,6 +31,7 @@ export interface PuterSDK {
     readdir(path: string, opts?: Record<string, unknown>): Promise<PuterFSItem[]>;
     delete(path: string, opts?: Record<string, unknown>): Promise<void>;
     rename(path: string, name: string): Promise<PuterFSItem>;
+    move?(source: string, destination: string, opts?: Record<string, unknown>): Promise<PuterFSItem>;
     stat(path: string): Promise<PuterFSItem>;
     mkdir(path: string, opts?: Record<string, unknown>): Promise<PuterFSItem>;
   };
@@ -86,6 +87,21 @@ export function setPuterForTests(p: PuterSDK | null) {
 /** 'app' inside the Puter desktop, 'web' on a normal website, 'none' without the SDK. */
 export function env(): string {
   return sdk?.env || 'none';
+}
+
+let windowTitle = '';
+/**
+ * Inside the Puter desktop the window and its taskbar entry show the app's
+ * own title, not the page's: they name the part (and its unsaved changes) too.
+ */
+export function setWindowTitle(title: string) {
+  if (env() !== 'app' || title === windowTitle || typeof sdk?.ui?.setWindowTitle !== 'function') return;
+  windowTitle = title;
+  try {
+    sdk.ui.setWindowTitle(title);
+  } catch {
+    /* the desktop keeps its title */
+  }
 }
 
 /** Inside the Puter desktop the session belongs to the desktop: no sign-out. */
@@ -170,14 +186,28 @@ export function isPermissionError(err: unknown): boolean {
   return e?.status === 403 || /^(forbidden|access_denied|permission_denied|not_authorized)$/.test(String(e?.code ?? ''));
 }
 
+/**
+ * True when Puter could not be reached: a fetch() failure (Chrome, Firefox and
+ * Safari wording), a request the SDK rejects with its XMLHttpRequest because it
+ * got no answer, or one that timed out.
+ */
+export function isNetworkError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; status?: number; readyState?: unknown } | null;
+  if (!e) return false;
+  if (typeof e.readyState === 'number' && e.status === 0) return true;
+  if (e.code === 'request_timeout') return true;
+  return err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message ?? '');
+}
+
 /** Human readable error text for storage failures. */
 export function storageError(err: unknown): string {
   const e = err as { code?: string; message?: string; status?: number; name?: string };
   if (e?.code === 'storage_limit_reached' || e?.status === 413) return 'Your Puter storage is full. Free up space or upgrade your plan, then save again.';
   if (e?.status === 429 || e?.code === 'too_many_requests') return 'Too many requests right now. Wait a moment and try again.';
   if (isPermissionError(err)) return 'You do not have permission to change this file (it may be shared with you as view only). Save your own copy with Save As.';
-  // fetch() failures: Chrome, Firefox and Safari wording.
-  if (err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message ?? '')) return 'Puter could not be reached. Check your connection and try again.';
+  if (e?.code === 'request_timeout') return 'Puter took too long to answer. Check your connection and try again.';
+  if (isNetworkError(err)) return 'Puter could not be reached. Check your connection and try again.';
+  if (e?.status === 401) return 'Your Puter session has ended. Sign in again, then try again.';
   if (e?.name === 'QuotaExceededError') return 'This browser has run out of storage space for parts. Delete parts you no longer need, download this one, or sign in to save it to your Puter cloud.';
   return e?.message || 'Something went wrong while talking to Puter.';
 }

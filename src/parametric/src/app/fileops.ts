@@ -6,15 +6,16 @@ import { allocateId, newDocument, parseDocument, serializeDocument, withUsedBlob
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, type FileEntry, deletePart, forgetRecent, rememberRecent,
-  onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
+  pickCloudFile, pickCloudSave, pickDeviceFile, claimRecovery, orphanRecoveries, removeRecovery, safeName, writeRecovery, writeRecoveryOnUnload, type FileEntry, deletePart, forgetRecent, rememberRecent,
+  newLocalLocation, localPartNames, onPartDeleted, onRenamedElsewhere, recentParts, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudEntry, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
-import { type PuterFSItem, cloudAvailable, env, isMissing, isPermissionError, puter, signIn, storageError } from '../platform/puter';
+import { type PuterFSItem, cloudAvailable, env, isMissing, isNetworkError, isPermissionError, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
 import { sharedWithMe } from './share';
+import { doSignIn } from './start';
 
 export class FileOps {
   /** Adjacent Save requests share a write until that write starts. */
@@ -24,6 +25,8 @@ export class FileOps {
   private recoveryTimer = 0;
   /** A recovered copy retained until this tab writes a durable replacement. */
   private recoverySource: string | null = null;
+  /** Keeps other tabs from offering the recovered copy while this tab holds it. */
+  private recoveryClaim: (() => void) | null = null;
   /** Counts document changes, so a save only clears the edits it wrote. */
   private revision = 0;
   /** Changes only when another document opens, not on edits or undo. */
@@ -53,7 +56,8 @@ export class FileOps {
     };
     // A hidden tab can be closed without notice (phones discard background tabs).
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.flushRecovery(); });
-    window.addEventListener('pagehide', () => this.flushRecovery());
+    // A closing tab cannot wait for the asynchronous write: it is kept synchronously too.
+    window.addEventListener('pagehide', () => this.flushRecovery(true));
     onSavedElsewhere((loc) => {
       if (!sameLocation(loc, app.location) || sameLocation(loc, this.savedElsewhere)) return;
       this.savedElsewhere = loc;
@@ -73,8 +77,28 @@ export class FileOps {
       // As for a rename here: discarding an open sketch's changes later would
       // otherwise restore the old name, while the file keeps the new one.
       if (app.store.doc.name !== name && app.sketchEditor) app.exitSketch(true);
-      if (app.store.doc.name !== name) app.store.change('Rename part', (doc) => { doc.name = name; });
+      if (app.store.doc.name !== name) {
+        // The part opens under its file's name, so a part with nothing unsaved
+        // is still what its file holds: it stays saved.
+        const wasSaved = !app.store.dirty;
+        app.store.change('Rename part', (doc) => { doc.name = name; });
+        if (wasSaved) {
+          app.store.dirty = false;
+          app.store.emit('saved');
+        }
+      }
       toast({ message: `This part was renamed to "${name}" in another tab.`, timeout: 6000 });
+    });
+    // The open part's file was deleted (from Open, here or in another tab): the
+    // part stays open as unsaved work, so it is not lost when the tab closes.
+    onPartDeleted((loc) => {
+      if (!sameLocation(loc, app.location)) return;
+      app.location = null;
+      this.known = null;
+      this.savedElsewhere = null;
+      app.store.dirty = true;
+      app.store.emit('detached');
+      toast({ kind: 'warning', message: `The file of "${app.store.doc.name}" was deleted. The part is still open here: save it to keep it.`, timeout: 9000 });
     });
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty || this.app.panel?.edited) {
@@ -136,21 +160,29 @@ export class FileOps {
     const picked = this.pickOne(files.map((f) => ({ item: f, name: f.name || f.path.replace(/\/+$/, '').split('/').pop() || f.path })));
     if (!picked) return;
     const { item: it, name } = picked;
-    const loc: Location = { type: 'cloud', path: it.path };
-    if (sameLocation(loc, this.app.location)) {
+    const isOpen = (path: string) => {
+      if (!sameLocation({ type: 'cloud', path }, this.app.location)) return false;
       toast({ message: `"${this.app.store.doc.name}" is already open.` });
-      return;
-    }
-    if (this.openingDrivePath === it.path) return;
-    if (typeof it.size === 'number' && tooLarge(it.size, name)) return;
+      return true;
+    };
+    if (isOpen(it.path) || this.openingDrivePath === it.path) return;
+    // Launch items carry their size and time as text.
+    const size = Number(it.size);
+    if (it.size != null && Number.isFinite(size) && tooLarge(size, name)) return;
     const signal = this.beginOpen();
     this.openingDrivePath = it.path;
     try {
       // The version is asked first, so a save landing meanwhile counts as a change.
-      const version = versionOf(it) ? Promise.resolve(versionOf(it)) : cloudVersion(it.path);
+      // A launch item's path starts from the home folder (~/Desktop/...): the
+      // part takes the full path that recent parts and other tabs know it by.
+      const given = versionOf(it);
+      const entry = given && !it.path.startsWith('~') ? Promise.resolve({ path: it.path, version: given }) : cloudEntry(it.path);
       // Launch items can read themselves; dropped entries are plain records.
       const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
-      if (!signal.aborted) await this.openBlob(blob, name, loc, signal, (await version) ?? null);
+      const found = await entry;
+      const loc: Location = { type: 'cloud', path: found?.path ?? it.path };
+      if (signal.aborted || (loc.path !== it.path && isOpen(loc.path))) return;
+      await this.openBlob(blob, name, loc, signal, found?.version ?? given ?? null);
     } catch (e) {
       toast({ kind: 'error', title: 'Could not open the file', message: isMissing(e) ? `"${name}" no longer exists. It may have been moved or deleted.` : storageError(e) });
     } finally {
@@ -229,7 +261,7 @@ export class FileOps {
 
   async newPart() {
     if (!(await this.confirmDiscard('start a new part'))) return;
-    this.app.newDocument(nextUntitled());
+    this.app.newDocument(nextUntitled(this.app.store.doc.name));
     await this.clearRecoveryCopies();
   }
 
@@ -284,12 +316,36 @@ export class FileOps {
       // The work is still only in this tab: offer a copy on the device meanwhile,
       // or, where the file may not be changed, a copy of one's own.
       const actions = [{ label: 'Download a copy', run: () => void this.exportAs('part') }];
-      if (isPermissionError(e)) actions.unshift({ label: 'Save As...', run: () => void this.saveAs() });
+      // Signed out (in another tab, say), Save As keeps it in this browser, as the message says.
+      if (isPermissionError(e) || (app.location?.type === 'cloud' && !cloudAvailable())) actions.unshift({ label: 'Save As...', run: () => void this.saveAs() });
+      // Offline, the cloud cannot be reached at all, Save As included: this browser can keep it.
+      else if (isNetworkError(e)) actions.unshift({ label: 'Save in this browser', run: () => void this.saveInBrowser() });
       toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions, timeout: 15000 });
       return false;
     });
     this.queuedSave = { documentVersion, result };
     return result;
+  }
+
+  /** Keeps the part in this browser's storage, for when the cloud cannot be reached (offline). */
+  saveInBrowser() {
+    const app = this.app;
+    const documentVersion = this.documentVersion;
+    return this.fileOperation(async () => {
+      if (documentVersion !== this.documentVersion) return;
+      if (app.sketchEditor) app.exitSketch(true);
+      const doc = app.store.doc;
+      const revision = this.revision;
+      try {
+        const { location } = await savePart(newLocalLocation(), doc.name, serializeDocument(doc), true);
+        if (documentVersion !== this.documentVersion) return;
+        this.setLocation(location, null);
+        this.markSaved(revision);
+        toast({ kind: 'success', message: `Saved in this browser. Once you are online again, Save As puts "${doc.name}" back in your Puter cloud.`, timeout: 9000 });
+      } catch (e) {
+        toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
+      }
+    });
   }
 
   /** Where the open part now lives, and the version of its cloud file written or read there. */
@@ -390,7 +446,15 @@ export class FileOps {
       // Gone (deleted or moved elsewhere): drop it from the recent parts too.
       const missing = isMissing(e);
       if (missing) forgetRecent(loc);
-      toast({ kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e) });
+      // A part kept in this browser whose file is gone leaves the parts lists too.
+      if (missing && loc.type === 'local') void deletePart(loc).catch(() => {});
+      // A recent cloud part chosen while signed out opens after signing in.
+      const signInFirst = loc.type === 'cloud' && !cloudAvailable() && !!puter();
+      toast({
+        kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e),
+        actions: signInFirst ? [{ label: 'Sign in', primary: true, run: () => void doSignIn(this.app).then((ok) => { if (ok) void this.openLocation(loc, name); }) }] : undefined,
+        timeout: signInFirst ? 9000 : undefined,
+      });
       return;
     } finally {
       clearTimeout(slow);
@@ -513,6 +577,7 @@ export class FileOps {
 
   /** View-only shares open detached: saving makes a copy in the user's own Parts. */
   private async openReadOnlyCopy(e: FileEntry, signal: AbortSignal) {
+    if (typeof e.size === 'number' && tooLarge(e.size, `x${EXT}`)) return;
     let text: string;
     try {
       text = await loadText(e.location);
@@ -526,7 +591,9 @@ export class FileOps {
   }
 
   async openFromDevice(signal = this.beginOpen()) {
-    const file = await pickDeviceFile(acceptList([EXT, '.json', ...IMPORT_EXTS]));
+    const picked = await pickDeviceFile(acceptList([EXT, '.json', ...IMPORT_EXTS]));
+    // Any file can be picked (iPhone and iPad, or All Files): say which ones open, as for a drop.
+    const file = picked && this.pickOne([{ item: picked, name: picked.name }])?.item;
     if (file && await this.openBlob(file, file.name, null, signal)) this.app.store.dirty = true;
   }
 
@@ -548,7 +615,14 @@ export class FileOps {
   async importStep() {
     const documentVersion = this.documentVersion;
     const file = await pickDeviceFile(acceptList(IMPORT_EXTS));
-    if (!file || documentVersion !== this.documentVersion || tooLarge(file.size, file.name)) return;
+    if (!file || documentVersion !== this.documentVersion) return;
+    // Any file can be picked (iPhone and iPad, or All Files): only models are imported.
+    if (!isStepFile(file.name) && !isSolidWorksFile(file.name)) {
+      const part = file.name.toLowerCase().endsWith(EXT);
+      toast({ kind: 'error', title: 'Import failed', message: `${file.name} is not a STEP file (.step, .stp) or a SolidWorks part (.sldprt).${part ? ' To work on a part file, open it with Open.' : ''}`, timeout: 8000 });
+      return;
+    }
+    if (tooLarge(file.size, file.name)) return;
     if (isSolidWorksFile(file.name)) {
       const step = await this.convertSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name);
       if (step && documentVersion === this.documentVersion) await this.importStepText(step, file.name);
@@ -643,11 +717,14 @@ export class FileOps {
       await app.whenBuilt();
       if (documentVersion !== this.documentVersion) return;
       if (!app.bbox) { toast({ kind: 'warning', message: 'There is no geometry to export yet.' }); return; }
-      const data = await app.kernel.exportFile(format, Math.max(1, app.settings.quality));
+      const data = await app.kernel.exportFile(format, Math.max(1, app.settings.quality), app.store.doc.name);
       if (documentVersion !== this.documentVersion) return;
       const blob = new Blob([data as BlobPart], { type: format === 'step' ? 'model/step' : 'model/stl' });
 
       download(blob, `${name}.${format === 'step' ? 'step' : 'stl'}`);
+      // The file has what the model shows: say so when the rollback bar leaves features out.
+      const left = app.store.doc.features.length - app.store.builtCount;
+      if (left > 0) toast({ kind: 'warning', message: `The part is rolled back, so the ${left === 1 ? 'feature' : `${left} features`} below the rollback bar ${left === 1 ? 'is' : 'are'} not in the exported file. Move the rollback bar to the end to export the whole part.`, timeout: 9000 });
     } catch (e) {
       if (documentVersion === this.documentVersion) toast({ kind: 'error', title: 'Export failed', message: (e as Error).message });
     }
@@ -665,23 +742,34 @@ export class FileOps {
       // otherwise restore the old name, while the file keeps the new one.
       if (app.sketchEditor) app.exitSketch(true);
       const clean = safeName(name);
-      app.store.change('Rename part', (doc) => { doc.name = clean; });
       const loc = app.location;
       // A file that already has the name is left alone (Enter in an unchanged Rename box).
+      // The file is renamed first: a cloud part opens under its file's name, so
+      // a name the file could not take would be lost when the part is opened again.
       if (loc?.type === 'cloud' && loc.path.split('/').pop() !== `${clean}${EXT}`) {
+        let result: Awaited<ReturnType<typeof renameCloudPart>>;
         try {
-          const { location: renamed, version } = await renameCloudPart(loc, clean);
-          if (documentVersion === this.documentVersion) {
-            // The file's version as renamed, or the one known before when the rename did not say.
-            const known = this.known?.path === loc.path ? this.known.version : null;
-            this.setLocation(renamed, version ?? known);
-          }
-          forgetRecent(loc);
-          rememberRecent({ location: renamed, name: clean });
+          result = await renameCloudPart(loc, clean);
         } catch (e) {
-          toast({ kind: 'warning', message: `Renamed in the app, but the file could not be renamed: ${storageError(e)}` });
+          if (documentVersion === this.documentVersion) {
+            // Puter's rename answers 'conflict' (its writes and moves, 'item_with_same_name_exists').
+            const code = (e as { code?: string } | null)?.code;
+            const taken = code === 'conflict' || code === 'item_with_same_name_exists';
+            toast({ kind: 'error', title: 'Could not rename the part', message: taken ? `A file named "${clean}${EXT}" already exists in this folder. Choose another name.` : storageError(e) });
+          }
+          return;
         }
+        const { location: renamed, version } = result;
+        forgetRecent(loc);
+        rememberRecent({ location: renamed, name: clean });
+        if (documentVersion !== this.documentVersion) return;
+        // The file's version as renamed, or the one known before when the rename did not say.
+        const known = this.known?.path === loc.path ? this.known.version : null;
+        this.setLocation(renamed, version ?? known);
+        // A sketch opened while the file was renamed is finished too.
+        if (app.sketchEditor) app.exitSketch(true);
       }
+      if (app.store.doc.name !== clean) app.store.change('Rename part', (doc) => { doc.name = clean; });
     });
   }
 
@@ -692,16 +780,24 @@ export class FileOps {
     if (!(await writeRecovery(text))) return;
     if (source) {
       await removeRecovery(source);
-      if (this.recoverySource === source) this.recoverySource = null;
+      if (this.recoverySource === source) this.dropRecoverySource();
     }
   }
 
   /** Saved or explicitly discarded work no longer needs either backup. */
   private async clearRecoveryCopies() {
-    const source = this.recoverySource;
+    const source = this.recoverySource, claim = this.recoveryClaim;
     this.recoverySource = null;
+    this.recoveryClaim = null;
     await clearRecovery();
     if (source) await removeRecovery(source);
+    claim?.();
+  }
+
+  private dropRecoverySource() {
+    this.recoverySource = null;
+    this.recoveryClaim?.();
+    this.recoveryClaim = null;
   }
 
   private scheduleRecovery() {
@@ -711,21 +807,23 @@ export class FileOps {
     this.recoveryTimer = window.setTimeout(() => this.writeRecoveryNow(), 4000);
   }
 
-  private writeRecoveryNow() {
+  private writeRecoveryNow(unloading = false) {
     this.recoveryTimer = 0;
     if (!this.app.store.dirty) return;
     const location = this.app.location;
     // The file's version these changes were made on: a later save of it is told apart on restore.
     const version = location?.type === 'cloud' && this.known?.path === location.path ? this.known.version : null;
     const payload = JSON.stringify({ location, version, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
+    if (unloading) writeRecoveryOnUnload(payload);
     void this.writeRecoveryCopy(payload);
   }
 
-  /** Writes a pending recovery copy now: the tab is being hidden and may not come back (phones). */
-  private flushRecovery() {
-    if (this.recoveryTimer) {
+  /** Writes a pending recovery copy now: the tab is being hidden or closed and may not come back (phones). */
+  private flushRecovery(unloading = false) {
+    // Closing, even a write started when the tab was hidden just before may not finish.
+    if (this.recoveryTimer || (unloading && this.app.store.dirty)) {
       clearTimeout(this.recoveryTimer);
-      this.writeRecoveryNow();
+      this.writeRecoveryNow(unloading);
     }
   }
 
@@ -741,48 +839,59 @@ export class FileOps {
     try {
       for (const { file, text } of await orphanRecoveries()) {
         if (!canRecover()) return false;
-        let data: { location: Location | null; version?: FileVersion | null; savedAt: number; doc: PartDocument } | null = null;
+        // Another tab opened at the same time may be offering it already.
+        let release = await claimRecovery(file);
+        if (!release) continue;
         try {
-          data = JSON.parse(text);
-        } catch {
-          data = null;
-        }
-        // Recovery copies contain unsaved work. An empty model can still hold
-        // drawing notes, part properties, or an intentional deletion of geometry.
-        if (!data?.doc) { await removeRecovery(file); continue; }
-        const when = new Date(data.savedAt).toLocaleString();
-        // Saved again since (in another tab, on another device): restoring over
-        // that version would lose it, so the changes come back as a copy.
-        const newer = await this.savedAfter(data.location, data.version ?? null, data.savedAt);
-        if (!canRecover()) return false;
-        const v = await showDialog({
-          title: 'Recover unsaved work?', signal: controller.signal,
-          body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. ${newer ? 'The part was saved again after these changes, so they are restored as a new, unsaved copy and that saved version stays as it is. ' : ''}Do you want to restore them?`),
-          buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
-        });
-        if (!canRecover()) return false;
-        if (v === 'restore') {
-          let doc: PartDocument;
+          if (!canRecover()) return false;
+          let data: { location: Location | null; version?: FileVersion | null; savedAt: number; doc: PartDocument } | null = null;
           try {
-            doc = parseDocument(JSON.stringify(data.doc));
-          } catch (e) {
-            toast({ kind: 'error', message: (e as Error).message });
-            await removeRecovery(file);
-            continue;
+            data = JSON.parse(text);
+          } catch {
+            data = null;
           }
-          stopWatching();
-          const location = newer ? null : validLocation(data.location);
-          this.app.loadDocument(doc, location);
-          // Saving then asks before replacing a version saved after the one these changes were made on.
-          if (location?.type === 'cloud' && data.version && versionOf(data.version)) this.known = { path: location.path, version: data.version };
-          this.app.store.dirty = true;
-          this.app.store.emit('restored');
-          this.recoverySource = file;
-          await this.writeRecoveryCopy(text);
-          return true;
+          // Recovery copies contain unsaved work. An empty model can still hold
+          // drawing notes, part properties, or an intentional deletion of geometry.
+          if (!data?.doc) { await removeRecovery(file); continue; }
+          const when = new Date(data.savedAt).toLocaleString();
+          // Saved again since (in another tab, on another device): restoring over
+          // that version would lose it, so the changes come back as a copy.
+          const newer = await this.savedAfter(data.location, data.version ?? null, data.savedAt);
+          if (!canRecover()) return false;
+          const v = await showDialog({
+            title: 'Recover unsaved work?', signal: controller.signal,
+            body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. ${newer ? 'The part was saved again after these changes, so they are restored as a new, unsaved copy and that saved version stays as it is. ' : ''}Do you want to restore them?`),
+            buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
+          });
+          if (!canRecover()) return false;
+          if (v === 'restore') {
+            let doc: PartDocument;
+            try {
+              doc = parseDocument(JSON.stringify(data.doc));
+            } catch (e) {
+              toast({ kind: 'error', message: (e as Error).message });
+              await removeRecovery(file);
+              continue;
+            }
+            stopWatching();
+            const location = newer ? null : validLocation(data.location);
+            this.app.loadDocument(doc, location);
+            // Saving then asks before replacing a version saved after the one these changes were made on.
+            if (location?.type === 'cloud' && data.version && versionOf(data.version)) this.known = { path: location.path, version: data.version };
+            this.app.store.dirty = true;
+            this.app.store.emit('restored');
+            this.recoverySource = file;
+            // Kept from other tabs until this tab's own copy replaces it.
+            this.recoveryClaim = release;
+            release = null;
+            await this.writeRecoveryCopy(text);
+            return true;
+          }
+          if (v !== 'discard') return false;
+          await removeRecovery(file);
+        } finally {
+          release?.();
         }
-        if (v !== 'discard') return false;
-        await removeRecovery(file);
       }
       return false;
     } finally {
@@ -888,8 +997,16 @@ function parsePart(text: string): PartDocument | null {
 }
 
 let untitled = 1;
-function nextUntitled(): string {
-  return `Part${++untitled}`;
+/**
+ * The next PartN of this session that no part open, recently opened or kept
+ * in this browser has, so a new part does not take the name of one it would
+ * be confused with (or, saved, get "Part2 (2)").
+ */
+function nextUntitled(current: string): string {
+  const taken = new Set([current, ...recentParts().map((r) => r.name), ...localPartNames()].map((n) => n.toLowerCase()));
+  let name: string;
+  do name = `Part${++untitled}`; while (taken.has(name.toLowerCase()));
+  return name;
 }
 
 const iconCloud = () => h('span', { 'aria-hidden': 'true', style: { color: 'var(--accent)' } }, icon('cloud', 18));

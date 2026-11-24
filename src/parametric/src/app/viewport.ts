@@ -11,7 +11,7 @@ import { cssColor } from '../platform/theme';
 import { Camera, VIEWS, VIEW_LABELS, type ViewName } from '../render/camera';
 import { STATE_HOVER, STATE_SELECTED, type PickHit } from '../render/renderer';
 import { SketchIndex, tessellate } from '../sketch/geom';
-import { h } from '../ui/dom';
+import { formatShortcut, h, isMac } from '../ui/dom';
 import type { App } from './app';
 import type { PickFilter } from './pm';
 import type { SelItem } from './selection';
@@ -61,6 +61,10 @@ interface PlaneVis {
 }
 
 const DRAG_PX = 4;
+/** The standard view each triad axis looks along, and its shortcut. */
+const TRIAD_VIEWS: Record<string, [string, string]> = { x: ['Right', 'Ctrl+4'], y: ['Top', 'Ctrl+5'], z: ['Front', 'Ctrl+1'] };
+/** Turn of two fingers (radians) before the view rolls with them. */
+const TWIST = 0.2;
 
 export class Viewport {
   readonly canvas: HTMLCanvasElement;
@@ -70,6 +74,9 @@ export class Viewport {
   private gesture: Gesture = { kind: 'none' };
   private touches = new Map<number, { x: number; y: number }>();
   private touchState: { dist: number; cx: number; cy: number; angle: number } | null = null;
+  /** How far two fingers turned before the view started to roll with them. */
+  private twist = 0;
+  private rolling = false;
   private hoverQueued: { x: number; y: number } | null = null;
   private hoverRaf = 0;
   private lastTap = { t: 0, x: 0, y: 0 };
@@ -79,6 +86,8 @@ export class Viewport {
   private history: ReturnType<Camera['state']>[] = [];
   private longPress = 0;
   private lastPointerType = '';
+  /** Whether each of the last two left-button releases ended a press that was not dragged. */
+  private clicks: [boolean, boolean] = [false, false];
   mouse: { x: number; y: number } | null = null;
   /** World point of the last model pick (for placing things on faces). */
   lastPoint: Vec3 | null = null;
@@ -89,7 +98,7 @@ export class Viewport {
 
   constructor(private app: App, root: HTMLElement) {
     this.root = root;
-    this.canvas = h('canvas', { class: 'gl', tabindex: '0', role: 'application', 'aria-label': '3D view. Use arrow keys to rotate, Ctrl and arrow keys to pan, F to fit, plus and minus to zoom.' }) as HTMLCanvasElement;
+    this.canvas = h('canvas', { class: 'gl', tabindex: '0', role: 'application', 'aria-label': `3D view. Use arrow keys to rotate, ${isMac ? 'Command' : 'Ctrl'} and arrow keys to pan, F to fit, plus and minus to zoom.` }) as HTMLCanvasElement;
     this.overlay = h('div', { class: 'dims', 'aria-hidden': 'true' });
     this.triad = this.buildTriad();
     this.viewLabel = h('div', { class: 'view-label', 'aria-live': 'off' });
@@ -142,10 +151,15 @@ export class Viewport {
       }
     });
     c.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+    // The wheel zooms over sketch dimension labels, relation badges and the triad as well.
+    for (const el of [this.overlay, this.triad]) el.addEventListener('wheel', (e) => this.onWheel(e as WheelEvent), { passive: false });
     c.addEventListener('dblclick', (e) => {
       // Touch double taps are recognised in onUp; browsers that also
       // synthesise a dblclick for them must not run the action twice.
       if (this.lastPointerType === 'touch') return;
+      // The browser counts a press that turned into a drag (an orbit started
+      // right after a click) as the second click of a double click.
+      if (!this.clicks[0] || !this.clicks[1]) return;
       const ev = this.ev(e);
       if (this.tool?.dblClick?.(ev)) return;
       this.app.onViewportDoubleClick(ev);
@@ -220,6 +234,8 @@ export class Viewport {
         clearTimeout(this.longPress);
         this.gesture = { kind: 'touch' };
         this.touchState = this.touchMetrics();
+        this.twist = 0;
+        this.rolling = false;
         const r = this.canvas.getBoundingClientRect();
         this.focusZoomAt(this.touchState.cx - r.left, this.touchState.cy - r.top);
         return;
@@ -228,18 +244,21 @@ export class Viewport {
     }
     const ev = this.ev(e);
     this.canvas.setPointerCapture(e.pointerId);
-    if (e.button === 1 || e.button === 2) {
+    // macOS: Control-click is the secondary click and opens the context menu, as in the design tree.
+    if (isMac && e.pointerType === 'mouse' && e.button === 0 && e.ctrlKey && !e.metaKey) { ev.button = 2; ev.ctrl = false; }
+    const button = ev.button;
+    if (button === 1 || button === 2) {
       e.preventDefault();
-      if (e.button === 1 && ev.ctrl) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
-      else if (e.button === 1 && ev.shift) {
+      if (button === 1 && ev.ctrl) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
+      else if (button === 1 && ev.shift) {
         this.gesture = { kind: 'zoom', x: ev.x, y: ev.y, ox: ev.x, oy: ev.y };
         this.focusZoomAt(ev.x, ev.y);
       }
-      else if (e.button === 2 && (ev.ctrl || ev.shift)) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
-      else this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button: e.button, id: e.pointerId, e: ev };
+      else if (button === 2 && (ev.ctrl || ev.shift)) this.gesture = { kind: 'pan', x: ev.x, y: ev.y };
+      else this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button, id: e.pointerId, e: ev };
       return;
     }
-    if (e.button !== 0) return;
+    if (button !== 0) return;
     if (this.tool?.pointerDown?.(ev)) {
       const g = this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
       if (e.pointerType === 'touch' && this.tool.longPress) {
@@ -277,7 +296,13 @@ export class Viewport {
         let da = m.angle - prev.angle;
         if (da > Math.PI) da -= 2 * Math.PI;
         if (da < -Math.PI) da += 2 * Math.PI;
-        if (Math.abs(da) > 0.004 && !this.app.inSketch) this.camera.roll(-da);
+        if (!this.app.inSketch && !this.rolling) {
+          // Fingers wobble while pinching: the view rolls only once they clearly turn, and from
+          // there on with them, or every pinch zoom would tilt a standard view a little.
+          this.twist += da;
+          if (Math.abs(this.twist) > TWIST) { this.rolling = true; da = this.twist - Math.sign(this.twist) * TWIST; }
+        }
+        if (this.rolling && !this.app.inSketch) this.camera.roll(-da);
         this.touchState = m;
         return;
       }
@@ -340,6 +365,7 @@ export class Viewport {
     const ev = this.ev(e);
     const g = this.gesture;
     this.gesture = { kind: 'none' };
+    if (e.button === 0) this.clicks = [this.clicks[1], !cancelled && ((g.kind === 'pending' && g.button === 0) || (g.kind === 'tool' && !g.moved))];
     try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
     if (g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') this.rehoverSoon();
     if (cancelled) {
@@ -393,7 +419,8 @@ export class Viewport {
       this.camera.pan(-e.deltaX * unit, -dy);
       return;
     }
-    if (this.invertZoom) dy = -dy;
+    // A trackpad pinch arrives as a wheel with Ctrl: spreading the fingers always zooms in.
+    if (this.invertZoom && !e.ctrlKey) dy = -dy;
     // Once per burst of wheel events, or when the pointer moved on to something else.
     const w = this.lastWheel;
     if (e.timeStamp - w.t > 250 || Math.hypot(ev.x - w.x, ev.y - w.y) > DRAG_PX) {
@@ -430,8 +457,9 @@ export class Viewport {
     else if (e.key === 'ArrowRight') this.rotateView('up', step);
     else if (e.key === 'ArrowUp') this.rotateView('right', -step);
     else if (e.key === 'ArrowDown') this.rotateView('right', step);
-    else if (e.key === '+' || e.key === '=') this.zoomBy(0.8);
-    else if (e.key === '-' || e.key === '_') this.zoomBy(1.25);
+    // With Ctrl or Cmd these zoom the page (the browser's own zoom), not the model.
+    else if (!ctrl && (e.key === '+' || e.key === '=')) this.zoomBy(0.8);
+    else if (!ctrl && (e.key === '-' || e.key === '_')) this.zoomBy(1.25);
     else handled = false;
     if (handled) e.preventDefault();
   }
@@ -452,11 +480,23 @@ export class Viewport {
     return hit?.point ?? this.modelCenter();
   }
 
-  modelCenter(): Vec3 {
+  /**
+   * What zoom to fit and the standard views frame: the solid and the sketches shown
+   * beside it; with no solid yet, what is drawn (sketches, a feature preview).
+   */
+  private fitSphere(): { center: Vec3; radius: number } | null {
     const b = this.app.bbox;
-    // No solid yet: what is drawn (sketches, a feature preview), else where the view looks.
-    if (!b) return this.camera.sceneBounds?.center ?? this.camera.target;
-    return scale(add(b.min, b.max), 0.5);
+    // The sketch being edited, with no solid: just that sketch.
+    const editing = this.app.sketchEditor?.bounds() ?? null;
+    if (!b) return editing ?? this.camera.sceneBounds;
+    let s = { center: scale(add(b.min, b.max), 0.5), radius: Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 };
+    for (const o of [this.renderer.boundsOf(['lines:sketches', 'points:sketchPts']), editing]) if (o) s = enclose(s, o);
+    return s;
+  }
+
+  modelCenter(): Vec3 {
+    // Nothing drawn: where the view looks.
+    return this.fitSphere()?.center ?? this.camera.target;
   }
 
   // ---------- hover / picking ----------
@@ -693,7 +733,7 @@ export class Viewport {
     const app = this.app;
     const pos: number[] = [];
     const col: number[] = [];
-    const ptPos: number[] = [];
+    const ptPos: number[] = [], ptCol: number[] = [];
     const consumed = new Set<Id>();
     for (const f of app.store.doc.features) consumedSketches(f).forEach((s) => consumed.add(s));
     // Sketches after the one being edited are rolled back with the model.
@@ -718,12 +758,12 @@ export class Viewport {
         this.sketchPolylines(f, fr, (a, b, construction) => {
           pos.push(...a, ...b);
           col.push(c[0], c[1], c[2], construction ? 120 : 255);
-        }, (p) => ptPos.push(...p));
+        }, (p) => { ptPos.push(...p); ptCol.push(...c); });
       }
     }
     this.renderer.setLines('sketches', pos.length ? { positions: new Float32Array(pos), colors: new Uint8Array(col), width: 1.4, depth: 'test', bias: 3e-4, order: 1 } : null);
     this.renderer.setPoints('sketchPts', ptPos.length ? {
-      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => inactive[i % 4]),
+      positions: new Float32Array(ptPos), colors: new Uint8Array(ptCol),
       sizeStyle: new Float32Array((ptPos.length / 3) * 2).map((_, i) => (i % 2 ? 1 : 5)), depth: 'test', order: 1,
     } : null);
   }
@@ -746,14 +786,29 @@ export class Viewport {
 
   pushHistory() {
     // Mid-animation, the view being left is the one the camera was heading to.
-    this.history.push(this.camera.goal());
+    const now = this.camera.goal();
+    // The same view twice (zoom to fit pressed again) is one step back, not two.
+    const last = this.history[this.history.length - 1];
+    if (last && sameView(last, now)) return;
+    this.history.push(now);
     if (this.history.length > 30) this.history.shift();
   }
 
   previousView() {
-    const s = this.history.pop();
+    // A view left for itself (a zoom to fit where the view was already fitted) is no step back.
+    const now = this.camera.goal();
+    let s = this.history.pop();
+    while (s && sameView(s, now)) s = this.history.pop();
+    if (!s) return;
+    // A view left in orthographic, seen now in perspective: framed at the surface in the middle as
+    // when switching projection (its target may lie deep inside the part, the eye with it).
+    if (s.ortho && !this.camera.ortho) {
+      this.camera.setState(s);
+      this.togglePerspective();
+      return;
+    }
     // Orientation, position and zoom go back; the projection is a display setting and stays.
-    if (s) this.camera.animateTo({ ...s, ortho: this.camera.ortho });
+    this.camera.animateTo({ ...s, ortho: this.camera.ortho });
   }
 
   /** `remember` false: the view the camera leaves is not one to go back to (a part just opened). */
@@ -765,22 +820,15 @@ export class Viewport {
   }
 
   modelRadius(): number {
-    const b = this.app.bbox;
-    const drawn = b ? null : this.camera.sceneBounds;
-    let r = b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 : drawn?.radius ?? 0;
-    const sk = this.app.sketchEditor?.bounds();
-    if (sk) r = Math.max(r, sk.radius);
-    // Only guard against a degenerate box: small parts must still fill the view.
-    return Math.max(r, b || drawn ? 1e-3 : 50);
+    // Nothing drawn, or only a point (the origin of a new, empty sketch): a default size.
+    // Otherwise only guard against a degenerate box: small parts must still fill the view.
+    const r = this.fitSphere()?.radius ?? 0;
+    return r > 0 ? Math.max(r, 1e-3) : 50;
   }
 
   zoomToFit(animate = true, remember = true) {
     if (remember) this.pushHistory();
-    let center = this.modelCenter();
-    let radius = this.modelRadius();
-    const sk = this.app.sketchEditor?.bounds();
-    if (sk && !this.app.bbox) { center = sk.center; radius = sk.radius; }
-    const st = this.camera.fitState(center, radius);
+    const st = this.camera.fitState(this.modelCenter(), this.modelRadius());
     if (animate) this.camera.animateTo(st);
     else this.camera.setState(st);
   }
@@ -794,6 +842,23 @@ export class Viewport {
     const st = this.camera.fitState(proj, this.modelRadius(), rot);
     if (animate) this.camera.animateTo(st);
     else this.camera.setState(st);
+  }
+
+  /**
+   * Switches between orthographic and perspective projection. An orthographic
+   * view keeps its target wherever zoom to fit put it (often the middle of the
+   * part), however far it is zoomed in; seen in perspective from there the eye
+   * would sit inside the part. Perspective is framed like the orthographic view
+   * at the surface in the middle of the view instead.
+   */
+  togglePerspective() {
+    const cam = this.camera;
+    if (cam.ortho && !cam.animating) {
+      const p = this.renderer.pick(cam.width / 2, cam.height / 2, { face: true }, 0)?.point;
+      if (p) cam.target = add(cam.target, scale(cam.back, dot(sub(p, cam.target), cam.back)));
+    }
+    cam.ortho = !cam.ortho;
+    cam.onChange();
   }
 
   zoomBy(f: number) {
@@ -811,8 +876,9 @@ export class Viewport {
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('class', 'triad');
     svg.setAttribute('viewBox', '-37 -37 74 74');
-    svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', 'Orientation triad. Click an axis to look along it.');
+    // A pointer shortcut to the Right, Top and Front views, which the keyboard reaches with their
+    // own shortcuts (named in each axis's tooltip): hidden from assistive technology.
+    svg.setAttribute('aria-hidden', 'true');
     svg.addEventListener('click', (e) => {
       const t = (e.target as Element).closest('[data-axis]');
       if (!t) return;
@@ -860,7 +926,10 @@ export class Viewport {
       text.setAttribute('y', String(it.y + (it.y / len) * 7 + 4));
       text.setAttribute('fill', it.color);
       text.textContent = it.a.toUpperCase();
-      g.append(hit, line, text);
+      const title = document.createElementNS(ns, 'title');
+      const [view, key] = TRIAD_VIEWS[it.a];
+      title.textContent = `Look along ${it.a.toUpperCase()}: ${view} view (${formatShortcut(key)})`;
+      g.append(title, hit, line, text);
       this.triad.append(g);
     }
     const name = cam.viewName();
@@ -889,3 +958,19 @@ export class Viewport {
 }
 
 export const unitNormal = (v: Vec3) => normalize(v);
+
+/** Whether two camera states show the same view (the projection aside). */
+function sameView(a: ReturnType<Camera['state']>, b: ReturnType<Camera['state']>): boolean {
+  const tol = 1e-9 * Math.max(1, a.distance);
+  return Math.abs(a.distance - b.distance) <= tol && a.target.every((v, i) => Math.abs(v - b.target[i]) <= tol)
+    && Math.abs(a.rot[0] * b.rot[0] + a.rot[1] * b.rot[1] + a.rot[2] * b.rot[2] + a.rot[3] * b.rot[3]) > 1 - 1e-12;
+}
+
+/** The smallest sphere around two spheres. */
+function enclose(a: { center: Vec3; radius: number }, b: { center: Vec3; radius: number }): { center: Vec3; radius: number } {
+  const d = Math.hypot(b.center[0] - a.center[0], b.center[1] - a.center[1], b.center[2] - a.center[2]);
+  if (d + b.radius <= a.radius) return a;
+  if (d + a.radius <= b.radius) return b;
+  const radius = (d + a.radius + b.radius) / 2;
+  return { center: add(a.center, scale(sub(b.center, a.center), (radius - a.radius) / d)), radius };
+}

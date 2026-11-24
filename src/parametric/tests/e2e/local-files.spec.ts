@@ -119,3 +119,107 @@ test('parts are saved in this browser where pages cannot write files there thems
   expect(again.variables).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('a part whose file is deleted, here or in another tab, stays open as unsaved work', async ({ context }) => {
+  type A = import('../../src/app/app').App;
+  const app = (p: import('@playwright/test').Page) => p.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  const first = await context.newPage();
+  const errors = await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  await first.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('save'); });
+  await first.waitForFunction(() => (window as unknown as { __parametric: A }).__parametric.location);
+  const second = await context.newPage();
+  await openApp(second);
+  await app(second);
+  await second.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await second.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Part1 This browser/ }).click();
+  await second.waitForFunction(() => (window as unknown as { __parametric: A }).__parametric.location);
+  await expect(second).toHaveTitle('Part1 - Parametric');
+  // Deleted from the Open dialog of the first tab, where it is open too.
+  await first.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  const dialog = first.getByRole('dialog', { name: 'Open' });
+  await dialog.getByRole('button', { name: 'Delete Part1' }).click();
+  await first.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  for (const page of [first, second]) {
+    await expect(page).toHaveTitle('* Part1 - Parametric');
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('The part is still open here: save it to keep it.');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.location)).toBeNull();
+  }
+  // Saving keeps it again, as a new file.
+  await second.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('save'); });
+  await expect(second).toHaveTitle('Part1 - Parametric');
+  await second.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await expect(second.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Part1 This browser/ })).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test('saving a part in this browser asks for the browser storage to be kept', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { persistCalls: number };
+    w.persistCalls = 0;
+    navigator.storage.persisted = async () => false;
+    navigator.storage.persist = async () => { w.persistCalls++; return true; };
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: unknown }).__parametric);
+  expect(await page.evaluate(() => (window as unknown as { persistCalls: number }).persistCalls)).toBe(0);
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('E', (d) => { d.variables.push({ id: `v${d.variables.length + 1}`, name: `V${d.variables.length}`, expr: '1' }); });
+      a.commands.run('save');
+    });
+    await expect(page).toHaveTitle('Part1 - Parametric');
+  }
+  // Asked once, not on every save.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { persistCalls: number }).persistCalls)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('a part listed in this browser whose file is gone says so and leaves the list', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('parametric:local-parts', JSON.stringify([{ id: 'part-gone', name: 'Gone', modified: Date.now(), size: 10 }]));
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Gone This browser/ }).click();
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('"Gone" no longer exists.');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('parametric:local-parts'))).toBe('[]');
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await expect(page.getByRole('dialog', { name: 'Open' })).toContainText('No parts saved in this browser yet.');
+  expect(errors).toEqual([]);
+});
+
+test('a part saved in this browser stays listed when the list of parts was lost', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    a.store.change('Name', (d) => { d.name = 'Unlisted'; });
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Unlisted - Parametric');
+  // The list could not be written (localStorage full or cleared on its own).
+  await page.evaluate(() => localStorage.removeItem('parametric:local-parts'));
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  const dialog = page.getByRole('dialog', { name: 'Open' });
+  await expect(dialog.getByRole('button', { name: /^Unlisted This browser/ })).toBeVisible();
+  // It is back in the list, and opens.
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:local-parts') || '[]').map((p: { name: string }) => p.name))).toEqual(['Unlisted']);
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.newDocument('Other'); });
+  await expect(dialog).toHaveCount(0);
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await dialog.getByRole('button', { name: /^Unlisted This browser/ }).click();
+  await expect(page).toHaveTitle('Unlisted - Parametric');
+  expect(errors).toEqual([]);
+});
