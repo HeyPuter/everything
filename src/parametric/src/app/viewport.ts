@@ -79,6 +79,8 @@ export class Viewport {
   private history: ReturnType<Camera['state']>[] = [];
   private longPress = 0;
   private lastPointerType = '';
+  /** Whether each of the last two left-button releases ended a press that was not dragged. */
+  private clicks: [boolean, boolean] = [false, false];
   mouse: { x: number; y: number } | null = null;
   /** World point of the last model pick (for placing things on faces). */
   lastPoint: Vec3 | null = null;
@@ -146,6 +148,9 @@ export class Viewport {
       // Touch double taps are recognised in onUp; browsers that also
       // synthesise a dblclick for them must not run the action twice.
       if (this.lastPointerType === 'touch') return;
+      // The browser counts a press that turned into a drag (an orbit started
+      // right after a click) as the second click of a double click.
+      if (!this.clicks[0] || !this.clicks[1]) return;
       const ev = this.ev(e);
       if (this.tool?.dblClick?.(ev)) return;
       this.app.onViewportDoubleClick(ev);
@@ -340,6 +345,7 @@ export class Viewport {
     const ev = this.ev(e);
     const g = this.gesture;
     this.gesture = { kind: 'none' };
+    if (e.button === 0) this.clicks = [this.clicks[1], !cancelled && (g.kind === 'pending' || (g.kind === 'tool' && !g.moved))];
     try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
     if (g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') this.rehoverSoon();
     if (cancelled) {

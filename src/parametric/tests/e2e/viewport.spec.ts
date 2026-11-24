@@ -1207,6 +1207,24 @@ test.describe('viewport', () => {
     await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
   });
 
+  test('orbiting right after a click is not a double click', async ({ page }) => {
+    await openApp(page);
+    const [x, y] = await countDoubleClicks(page);
+    await page.mouse.click(x, y);
+    // The second press within the double-click time drags: the browser still counts it as a
+    // second click and sends a dblclick on release.
+    const cdp = await page.context().newCDPSession(page);
+    const send = (type: string, px: number, py: number, extra: object) => cdp.send('Input.dispatchMouseEvent', { type: type as 'mouseMoved', x: px, y: py, button: 'left', ...extra });
+    await send('mousePressed', x, y, { clickCount: 2, buttons: 1 });
+    for (let i = 1; i <= 8; i++) await send('mouseMoved', x + i * 10, y + i * 3, { buttons: 1 });
+    await send('mouseReleased', x + 80, y + 24, { clickCount: 2, buttons: 0 });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(0);
+    // A real double click afterwards still counts.
+    await page.mouse.dblclick(x + 80, y + 24);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
+  });
+
   for (const tool of ['line', 'rectangle']) test(`a pinch started while sketching with the ${tool} tool draws nothing`, async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
