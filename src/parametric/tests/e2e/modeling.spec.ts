@@ -772,3 +772,47 @@ test('turning an extrude draft off and on again keeps the angle its field shows'
   expect(await draft()).toBe(7);
   expect(errors).toEqual([]);
 });
+
+test('deleting a plane a sketch is on, or suppressing a sketch a feature uses, reports it accurately and Undo restores it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type F = { id: string; name: string; type: string; [k: string]: unknown };
+  type A = { __parametric: {
+    whenBuilt(): Promise<void>; featureStatus(id: string): { ok: boolean; error?: string; suppressed?: boolean } | null;
+    store: { doc: { features: F[] }; change(l: string, fn: (d: { features: F[] }) => void): void; undo(): void };
+    deleteFeatures(ids: string[]): Promise<void>; toggleSuppress(ids: string[], s?: boolean): void;
+  } };
+  // A boss on an offset plane: Plane1, Sketch3 on it, Extrude2 of Sketch3.
+  await page.evaluate(async () => {
+    const app = (window as unknown as A).__parametric;
+    app.store.change('Add', (d) => {
+      d.features.push({ id: 'p9', name: 'Plane1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 40, flip: false });
+      d.features.push({ id: 's9', name: 'Sketch3', type: 'sketch', plane: { kind: 'feature', id: 'p9' }, constraints: [], entities: [
+        { id: 'c', t: 'point', x: 20, y: 20 }, { id: 'k', t: 'circle', c: 'c', r: 4 }] });
+      d.features.push({ id: 'e9', name: 'Extrude2', type: 'extrude', sketch: 's9', cut: false, end: 'blind', depth: 5, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null });
+    });
+    await app.whenBuilt();
+  });
+  const status = (id: string) => page.evaluate(async (id) => { const app = (window as unknown as A).__parametric; await app.whenBuilt(); return app.featureStatus(id); }, id);
+  expect(await status('e9')).toMatchObject({ ok: true });
+  // Delete the plane: the dialog names what depends on it.
+  void page.evaluate(() => (window as unknown as A).__parametric.deleteFeatures(['p9']));
+  const dialog = page.getByRole('dialog', { name: 'Delete' });
+  await expect(dialog).toContainText('These features depend on it and will fail to rebuild: Sketch3');
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await status('s9')).toMatchObject({ ok: false, error: 'The reference plane no longer exists' });
+  expect(await status('e9')).toMatchObject({ ok: false, error: 'The profile sketch (Sketch3) failed to build' });
+  await page.evaluate(() => (window as unknown as A).__parametric.store.undo());
+  expect(await status('s9')).toMatchObject({ ok: true });
+  expect(await status('e9')).toMatchObject({ ok: true });
+  // Suppress the sketch: the extrude is suppressed with it, not failed; Undo brings both back.
+  await page.evaluate(() => (window as unknown as A).__parametric.toggleSuppress(['s9'], true));
+  expect(await status('e9')).toMatchObject({ ok: true, suppressed: true });
+  await expect(page.getByRole('treeitem', { name: 'Extrude2' })).toHaveClass(/suppressed/);
+  await page.evaluate(() => (window as unknown as A).__parametric.store.undo());
+  expect(await status('e9')).toEqual({ id: 'e9', ok: true });
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
