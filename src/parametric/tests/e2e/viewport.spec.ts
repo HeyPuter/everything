@@ -706,6 +706,26 @@ test.describe('viewport', () => {
     expect(await distance()).toBeCloseTo(zoomed, 6);
   });
 
+  for (const orientation of [null, 'front'] as const) test(`an assistant capture right after it sets a view leaves that view (capture orientation ${orientation})`, async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const shot = await page.evaluate(async (orientation) => {
+      const path = '/src/app/assistant-host.ts';
+      const { appHost } = (await import(/* @vite-ignore */ path)) as typeof import('../../src/app/assistant-host');
+      const app = (window as unknown as Win).__parametric;
+      const host = appHost(app).ui!;
+      app.viewport.setView('trimetric', false);
+      // The view turns to Top over a few frames; the capture comes before it gets there.
+      host.setView({ orientation: 'top' });
+      return !!host.capture(orientation ? { orientation } : {});
+    }, orientation);
+    expect(shot).toBe(true);
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.camera.viewName())).toBe('top');
+  });
+
   test('Previous View keeps the perspective projection chosen since', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
