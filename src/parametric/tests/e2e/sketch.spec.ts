@@ -1310,6 +1310,29 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a 3 point arc drawn through an existing point keeps it on the arc', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'mark', t: 'point', x: 3, y: 12 }); });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    await page.locator('[data-cmd="tool:arc3"]').click();
+    for (const p of [[-20, 1], [20, 1], [3, 12]] as [number, number][]) {
+      const q = await screen(p);
+      await page.mouse.move(q.x + 2, q.y + 2);
+      await page.mouse.click(q.x + 2, q.y + 2);
+    }
+    const cons = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints.map((c) => `${c.type}:${c.refs.join()}`));
+    await expect.poll(cons).toEqual([expect.stringMatching(/^coincident:mark,a\d+$/)]);
+    expect(errors).toEqual([]);
+  });
+
   test('Smart Dimension lights up a second entity it would pick instead of previewing a placement there', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

@@ -386,6 +386,9 @@ export function threePointArcTool(ed: SketchEditor): SkTool {
         sk.entities.push({ id: ic, t: 'point', x: g.c[0], y: g.c[1] });
         const id = newId('a');
         sk.entities.push(g.ccw ? { id, t: 'arc', c: ic, a: ia, b: ib } : { id, t: 'arc', c: ic, a: ib, b: ia });
+        // A point the arc was drawn through stays on it, as for a perimeter circle.
+        const on = snappedPoint(s);
+        if (on) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [on, id] });
       });
       return true;
     },
