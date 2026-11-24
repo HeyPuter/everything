@@ -202,7 +202,7 @@ const TOOLS: ToolDef[] = [
       set_radius: ARR(obj({ circle: S('Circle id'), radius: N('New radius') }, ['circle', 'radius']), 'Resize circles (an existing radius/diameter dimension wins; change it with set_dimensions instead)'),
       construction: NAMES('Entity ids to make construction geometry'),
       normal: NAMES('Entity ids to make normal (not construction) geometry'),
-      fillets: ARR(obj({ point: S('Corner point id where exactly two lines meet'), radius: N('Fillet radius') }, ['point', 'radius']), 'Round sketch corners'),
+      fillets: ARR(obj({ point: S('Corner point id where exactly two lines or arcs meet'), radius: N('Fillet radius') }, ['point', 'radius']), 'Round sketch corners'),
       offsets: ARR(obj({ curves: NAMES('Line, arc or circle ids (a connected chain offsets as one)'), distance: N('Distance; closed chains grow for positive, shrink for negative') }, ['curves', 'distance']), 'Offset curves'),
       mirrors: ARR(obj({ entities: NAMES('Entity ids to mirror'), axis: S('Line id to mirror about') }, ['entities', 'axis']), 'Mirror entities about a line'),
       set_dimensions: ARR(obj({ dimension: S('Dimension id or name'), value: PARAM('New value'), driven: B('Make it a reference (true) or driving (false) dimension') }, ['dimension']), 'Change dimension values'),
