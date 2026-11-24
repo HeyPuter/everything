@@ -18,7 +18,7 @@ export interface MenuItem {
 }
 
 let open: { el: HTMLElement; close: () => void; parent?: HTMLElement | null } | null = null;
-const stack: { el: HTMLElement; close: () => void }[] = [];
+const stack: { el: HTMLElement; close: () => void; anchor?: HTMLElement | null }[] = [];
 
 export function closeMenus() {
   while (stack.length) stack.pop()!.close();
@@ -43,9 +43,15 @@ export interface MenuOptions {
   label?: string;
 }
 
-/** Opens a menu at a viewport position (x, y = top-left preference). */
+/**
+ * Opens a menu at a viewport position (x, y = top-left preference). A menu
+ * button clicked again while its menu is open closes it instead (the closed
+ * menu is returned).
+ */
 export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOptions = {}): HTMLElement {
   const level = opts.level ?? 0;
+  const shown = stack[0];
+  if (level === 0 && opts.anchor && shown?.anchor === opts.anchor) { closeMenus(); return shown.el; }
   while (stack.length > level) stack.pop()!.close();
   const el = h('div', { class: 'menu', role: 'menu', 'aria-label': opts.label ?? 'Menu', tabindex: '-1' });
   const buttons: HTMLElement[] = [];
@@ -163,7 +169,7 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
   opts.anchor?.setAttribute('aria-expanded', 'true');
-  stack.push({ el, close: closeThis });
+  stack.push({ el, close: closeThis, anchor: opts.anchor });
   open = { el, close: closeThis, parent: opts.anchor };
   setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
   const usable = (b: HTMLElement) => b.getAttribute('aria-disabled') !== 'true';

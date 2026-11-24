@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { closeMenus, openMenu } from '../src/ui/menu';
+import { closeMenus, dropdown, openMenu } from '../src/ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../src/ui/overlay';
 import { numberField, parseParam, paramText, retireNumberFields, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
@@ -63,6 +63,20 @@ describe('menus', () => {
     expect((document.activeElement as HTMLElement).textContent).toContain('Gamma');
     key(menu, 'Escape');
     expect(document.querySelector('.menu')).toBeNull();
+  });
+});
+
+describe('menu buttons', () => {
+  it('close their open menu when clicked again, and open another menu in its place', () => {
+    const [a, b] = ['A', 'B'].map((t) => { const x = document.createElement('button'); x.textContent = t; document.body.append(x); return x; });
+    dropdown(a, [{ label: 'One' }]);
+    expect(a.getAttribute('aria-expanded')).toBe('true');
+    dropdown(a, [{ label: 'One' }]);
+    expect(document.querySelector('.menu')).toBeNull();
+    expect(a.getAttribute('aria-expanded')).toBe('false');
+    dropdown(a, [{ label: 'One' }]);
+    dropdown(b, [{ label: 'Two' }]);
+    expect([...document.querySelectorAll('.menu')].map((m) => m.textContent)).toEqual(['Two']);
   });
 });
 
