@@ -36,6 +36,8 @@ export interface SkTool {
   dbl?(s: Snap, e: VPEvent): boolean;
   /** Point the cursor snaps relative to (for horizontal/vertical inference). */
   from?(): Vec2 | null;
+  /** The end point a line chain in progress continues from (a tangent arc can carry on from it). */
+  chainEnd?(): Id | null;
   /** Ids excluded from snapping (e.g. the point being placed). */
   exclude?(): Set<Id>;
   /** Enter: finish the current operation. Return true if there was one. */

@@ -1133,6 +1133,25 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('pressing A while drawing lines carries on with a tangent arc from the chain end', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 120, y + 30);
+    await page.mouse.click(x, y + 30);
+    await page.keyboard.press('a');
+    await page.mouse.move(x + 50, y - 10);
+    await page.mouse.click(x + 60, y - 20);
+    const made = () => page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      const line = sk.entities.find((e) => e.t === 'line') as { id: string; b: string } | undefined;
+      const arc = sk.entities.find((e) => e.t === 'arc') as { id: string; a: string; b: string } | undefined;
+      return { tool: (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.tool?.id, shared: !!line && !!arc && (arc.a === line.b || arc.b === line.b), tangent: sk.constraints.some((c) => c.type === 'tangent') };
+    });
+    await expect.poll(made).toEqual({ tool: 'tangentArc', shared: true, tangent: true });
+    expect(errors).toEqual([]);
+  });
+
   test('Ctrl+A selects all the sketch geometry, which Delete then removes', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

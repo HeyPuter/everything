@@ -66,6 +66,7 @@ export function lineTool(ed: SketchEditor, construction = false): SkTool {
     label: construction ? 'Centerline' : 'Line',
     hint: 'Click to start a line, click again to add segments. Double-click or press Esc to finish.',
     from: () => start?.p ?? null,
+    chainEnd: () => (chain > 0 && start?.id) || null,
     exclude: () => new Set<Id>(),
     down(s, e) {
       downAt = { x: e.x, y: e.y };
@@ -397,8 +398,29 @@ export function threePointArcTool(ed: SketchEditor): SkTool {
 }
 
 /** Arc tangent to the line or arc ending at the start point. */
-export function tangentArcTool(ed: SketchEditor): SkTool {
+export function tangentArcTool(ed: SketchEditor, from?: Id | null): SkTool {
   let start: { id: Id; p: Vec2; t: Vec2; curve: Id } | null = null;
+  /** Starts at the end point of a line or arc (the last one drawn to it), leaving it tangentially. */
+  const begin = (pointId: Id): boolean => {
+    const sk = ed.sketch;
+    const ix = new SketchIndex(sk.entities);
+    const owner = [...sk.entities].reverse().find((e) => (e.t === 'line' || e.t === 'arc') && (e.a === pointId || e.b === pointId)) as SkLine | SkArc | undefined;
+    if (!owner) return false;
+    let t: Vec2;
+    if (owner.t === 'line') {
+      const other = owner.a === pointId ? owner.b : owner.a;
+      t = norm2(sub2(ix.pt(pointId), ix.pt(other)));
+    } else {
+      const c = ix.pt(owner.c);
+      const r = sub2(ix.pt(pointId), c);
+      // Leaving the arc's end continues counter-clockwise; leaving its start goes clockwise.
+      t = owner.b === pointId ? norm2([-r[1], r[0]]) : norm2([r[1], -r[0]]);
+    }
+    start = { id: pointId, p: ix.pt(pointId), t, curve: owner.id };
+    return true;
+  };
+  // Switched to from a line chain: carry on from its end.
+  if (from) begin(from);
   const geometry = (p: Vec2, t: Vec2, q: Vec2) => {
     // Centre lies on the normal at p and is equidistant to p and q.
     const n: Vec2 = [-t[1], t[0]];
@@ -425,23 +447,8 @@ export function tangentArcTool(ed: SketchEditor): SkTool {
       ed.setPreview([arcPts(g.c, g.r, a0, sw)], [start.p]);
     },
     click(s) {
-      const sk = ed.sketch;
       if (!start) {
-        if (s.kind !== 'point' || !s.pointId) { ed.app.setStatus('Start the tangent arc on the end point of a line or arc.'); return true; }
-        const ix = new SketchIndex(sk.entities);
-        const owner = sk.entities.find((e) => (e.t === 'line' || e.t === 'arc') && (e.a === s.pointId || e.b === s.pointId)) as SkLine | SkArc | undefined;
-        if (!owner) { ed.app.setStatus('Start the tangent arc on the end point of a line or arc.'); return true; }
-        let t: Vec2;
-        if (owner.t === 'line') {
-          const other = owner.a === s.pointId ? owner.b : owner.a;
-          t = norm2(sub2(ix.pt(s.pointId), ix.pt(other)));
-        } else {
-          const c = ix.pt(owner.c);
-          const r = sub2(ix.pt(s.pointId), c);
-          // Leaving the arc's end continues counter-clockwise; leaving its start goes clockwise.
-          t = owner.b === s.pointId ? norm2([-r[1], r[0]]) : norm2([r[1], -r[0]]);
-        }
-        start = { id: s.pointId, p: s.p, t, curve: owner.id };
+        if (s.kind !== 'point' || !s.pointId || !begin(s.pointId)) ed.app.setStatus('Start the tangent arc on the end point of a line or arc.');
         return true;
       }
       const g = geometry(start.p, start.t, s.p);
