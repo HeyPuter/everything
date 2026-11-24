@@ -30,6 +30,7 @@ import { DrawingPanel, DrawingWorkspace } from './drawing';
 import { formatGroup, setPartUnits } from './dialogs';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
+import { setWindowTitle } from '../platform/puter';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
 export { DEFAULT_SETTINGS, type Settings } from './settings';
 
@@ -753,6 +754,7 @@ export class App {
     this.shell.docState.textContent = this.store.dirty ? 'Edited' : this.location ? 'Saved' : '';
     this.shell.statusUnits.textContent = doc.units;
     document.title = `${this.store.dirty ? '* ' : ''}${doc.name} - Parametric`;
+    setWindowTitle(document.title);
   }
 
   private showLoading(on: boolean) {

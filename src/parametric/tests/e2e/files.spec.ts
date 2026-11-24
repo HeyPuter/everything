@@ -548,6 +548,25 @@ test('closing the Puter desktop window asks about unsaved changes first', async 
   await expect.poll(exited).toBe(1);
 });
 
+test('the Puter desktop window is titled with the part and its unsaved changes', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { puter: { env: string; ui: { setWindowTitle(t: string): void } }; __titles: string[] };
+    w.__titles = [];
+    w.puter.env = 'app';
+    w.puter.ui.setWindowTitle = (t) => { w.__titles.push(t); };
+  });
+  await openApp(page);
+  await app(page);
+  const titles = () => page.evaluate(() => (window as unknown as { __titles: string[] }).__titles);
+  await expect.poll(async () => (await titles()).at(-1)).toBe('Part1 - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
+  await expect.poll(async () => (await titles()).at(-1)).toBe('* Part1 - Parametric');
+  // Told only when the title changes.
+  const list = await titles();
+  expect(list.filter((t, i) => t === list[i - 1])).toEqual([]);
+});
+
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {

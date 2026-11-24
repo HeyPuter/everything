@@ -88,6 +88,21 @@ export function env(): string {
   return sdk?.env || 'none';
 }
 
+let windowTitle = '';
+/**
+ * Inside the Puter desktop the window and its taskbar entry show the app's
+ * own title, not the page's: they name the part (and its unsaved changes) too.
+ */
+export function setWindowTitle(title: string) {
+  if (env() !== 'app' || title === windowTitle || typeof sdk?.ui?.setWindowTitle !== 'function') return;
+  windowTitle = title;
+  try {
+    sdk.ui.setWindowTitle(title);
+  } catch {
+    /* the desktop keeps its title */
+  }
+}
+
 /** Inside the Puter desktop the session belongs to the desktop: no sign-out. */
 export const canSignOut = () => env() !== 'app' && isSignedIn();
 
