@@ -19,7 +19,7 @@ import type {
   FilletFeature, HoleFeature, Id, ImportFeature, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature,
   PlaneRef, RevolveFeature, ShellFeature, SkDimension, SketchFeature, SweepFeature,
 } from '../model/types';
-import { dependencies, refFeatureIds } from '../model/features';
+import { PARAM_FIELDS, dependencies, getPath, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
 import { type Region, type Seg2, buildProfiles, hasOverlappingLines, holesMayTouch, inRegion, pointInPoly, reverseLoop, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, pointIdsOf, splineBeziers } from '../sketch/geom';
@@ -95,9 +95,15 @@ const cloneState = (s: State): State => ({
   tools: new Map(s.tools),
 });
 
-const num = (p: unknown): number => {
+/** A feature's numeric value at a path (dir1.count), named by its label when it is not a number. */
+const num = (f: Feature, path: string): number => {
+  const p = getPath(f, path);
   const v = typeof p === 'number' ? p : Number(p);
-  if (!Number.isFinite(v)) throw new FeatureError('A parameter has an invalid value');
+  if (!Number.isFinite(v)) {
+    // Only a damaged or hand-edited file gets here; "A parameter" did not say which.
+    const label = PARAM_FIELDS[f.type]?.find((x) => x.path === path)?.label ?? path;
+    throw new FeatureError(`${label} has an invalid value`);
+  }
   return v;
 };
 
@@ -697,7 +703,7 @@ export class ModelBuilder {
 
   private applyPlane(f: PlaneFeature, st: State) {
     const base = this.resolvePlane(f.ref, st);
-    const off = num(f.offset) * (f.flip ? -1 : 1);
+    const off = num(f, 'offset') * (f.flip ? -1 : 1);
     st.frames.set(f.id, { ...base, o: add(base.o, scale(base.n, off)) });
   }
 
@@ -723,20 +729,20 @@ export class ModelBuilder {
     const { regions, frame } = this.sketchRegions(f.sketch, st, f.contours);
     const sign = (f.cut ? -1 : 1) * (f.flip ? -1 : 1);
     const dir = scale(frame.n, sign);
-    let d1 = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, dir, f.cut) : num(f.depth);
+    let d1 = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, dir, f.cut) : num(f, 'depth');
     const noBody = 'There is no body to extrude through in this direction. Reverse the direction or use Blind.';
     if (d1 <= 0) throw new FeatureError(f.end === 'throughAll' ? noBody : 'Depth must be greater than zero');
     let start = 0;
     let total = d1;
     if (f.end === 'midPlane') { start = -d1 / 2; total = d1; }
     else if (f.dir2) {
-      const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1), f.cut) : num(f.dir2.depth);
+      const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1), f.cut) : num(f, 'dir2.depth');
       // Reversing Direction 1 cannot fix Direction 2: say which one has no body.
       if (!(d2 > 0)) throw new FeatureError(f.dir2.end === 'throughAll' ? 'There is no body to extrude through in Direction 2. Use Blind for it, or turn Direction 2 off.' : 'Direction 2 depth must be greater than zero');
       start = -d2; total = d1 + d2;
     }
     d1 = total;
-    const draft = num(f.draft || 0);
+    const draft = f.draft ? num(f, 'draft') : 0;
     if (draft < 0) throw new FeatureError('The draft angle cannot be negative. Use Draft outward to taper the other way.');
     if (draft >= 90) throw new FeatureError('The draft angle must be less than 90 degrees');
     const extrudeAll = (from: number, length: number, d: Vec3): Sh => {
@@ -826,7 +832,7 @@ export class ModelBuilder {
       const a = toWorld(frame, ix.pt(cl.a)), b = toWorld(frame, ix.pt(cl.b));
       axis = { p: a, d: normalize(sub(b, a)) };
     }
-    const angle = num(f.angle);
+    const angle = num(f, 'angle');
     if (angle <= 0) throw new FeatureError('Angle must be greater than zero');
     // More than a turn used to be cut to one without a word.
     if (angle > 360 + 1e-9) throw new FeatureError('The angle cannot be more than 360 degrees');
@@ -913,7 +919,7 @@ export class ModelBuilder {
 
   private applyFillet(f: FilletFeature, st: State) {
     if (!st.body) throw new FeatureError('There is no body to fillet');
-    const r = num(f.radius);
+    const r = num(f, 'radius');
     if (r <= 0) throw new FeatureError('Radius must be greater than zero');
     const ids = this.collectEdges(st, f.edges, f.faces);
     const all = this.edgesOf(st);
@@ -939,11 +945,11 @@ export class ModelBuilder {
 
   private applyChamfer(f: ChamferFeature, st: State) {
     if (!st.body) throw new FeatureError('There is no body to chamfer');
-    const d1 = num(f.distance);
+    const d1 = num(f, 'distance');
     if (d1 <= 0) throw new FeatureError('Distance must be greater than zero');
-    const d2 = f.mode === 'twoDistance' ? num(f.distance2) : d1;
+    const d2 = f.mode === 'twoDistance' ? num(f, 'distance2') : d1;
     if (d2 <= 0) throw new FeatureError('Distance 2 must be greater than zero');
-    const angle = f.mode === 'distanceAngle' ? num(f.angle) : 45;
+    const angle = f.mode === 'distanceAngle' ? num(f, 'angle') : 45;
     if (!(angle > 0 && angle < 90)) throw new FeatureError('The chamfer angle must be between 0 and 90 degrees');
     const from = new Map<number, number>();
     const ids = this.collectEdges(st, f.edges, f.faces, from);
@@ -983,7 +989,7 @@ export class ModelBuilder {
 
   private applyShell(f: ShellFeature, st: State) {
     if (!st.body) throw new FeatureError('There is no body to shell');
-    const t = num(f.thickness);
+    const t = num(f, 'thickness');
     if (t <= 0) throw new FeatureError('Thickness must be greater than zero');
     const removed = f.faces.map((r) => st.faces[this.resolveFace(r, st)].shape);
     const solids = subShapes(st.body, 'solid');
@@ -1070,14 +1076,14 @@ export class ModelBuilder {
     if (!sketch || !frame) throw this.missing(f.sketch, 'hole position sketch');
     const pts = sketchPoints(sketch.entities);
     if (!pts.length) throw new FeatureError('Add sketch points to place holes');
-    const r = num(f.diameter) / 2;
+    const r = num(f, 'diameter') / 2;
     if (r <= 0) throw new FeatureError('Diameter must be greater than zero');
-    const depth = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(frame.n, f.flip ? 1 : -1)) : num(f.depth);
+    const depth = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(frame.n, f.flip ? 1 : -1)) : num(f, 'depth');
     if (depth <= 0) throw new FeatureError('Depth must be greater than zero');
     // Profile in (radius, depth) coordinates, revolved around the hole axis.
     const prof: [number, number][] = [];
     if (f.kind === 'counterbore') {
-      const cr = num(f.cbDiameter) / 2, cd = num(f.cbDepth);
+      const cr = num(f, 'cbDiameter') / 2, cd = num(f, 'cbDepth');
       if (cr <= r) throw new FeatureError('The counterbore diameter must be larger than the hole');
       if (cd <= 0) throw new FeatureError('Counterbore depth must be greater than zero');
       // A shallower hole would turn the profile back on itself and leave a
@@ -1086,8 +1092,8 @@ export class ModelBuilder {
       const d = Math.max(depth, cd + 1e-3);
       prof.push([0, 0], [cr, 0], [cr, cd], [r, cd], [r, d], [0, d]);
     } else if (f.kind === 'countersink') {
-      const sr = num(f.csDiameter) / 2;
-      const half = (num(f.csAngle) * Math.PI) / 360;
+      const sr = num(f, 'csDiameter') / 2;
+      const half = (num(f, 'csAngle') * Math.PI) / 360;
       if (sr <= r) throw new FeatureError('The countersink diameter must be larger than the hole');
       if (half <= 0 || half >= Math.PI / 2) throw new FeatureError('The countersink angle must be between 0 and 180 degrees');
       const sd = (sr - r) / Math.tan(half);
@@ -1178,17 +1184,17 @@ export class ModelBuilder {
 
   private applyLinearPattern(f: LinearPatternFeature, st: State) {
     const seeds = this.seedTools(f.id, f.seeds, st);
-    const n1 = Math.round(num(f.dir1.count));
+    const n1 = Math.round(num(f, 'dir1.count'));
     if (n1 < 1 || n1 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
-    const v1 = scale(this.dirVector(f.dir1, st, 'Direction 1'), num(f.dir1.spacing));
+    const v1 = scale(this.dirVector(f.dir1, st, 'Direction 1'), num(f, 'dir1.spacing'));
     // Zero spacing stacks every instance on the seed: nothing would change.
     if (n1 > 1 && len(v1) < 1e-9) throw new FeatureError('Direction 1 spacing must not be zero');
     let n2 = 1;
     let v2: Vec3 = [0, 0, 0];
     if (f.dir2) {
-      n2 = Math.round(num(f.dir2.count));
+      n2 = Math.round(num(f, 'dir2.count'));
       if (n2 < 1 || n2 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
-      v2 = scale(this.dirVector(f.dir2, st, 'Direction 2'), num(f.dir2.spacing));
+      v2 = scale(this.dirVector(f.dir2, st, 'Direction 2'), num(f, 'dir2.spacing'));
       if (n2 > 1 && len(v2) < 1e-9) throw new FeatureError('Direction 2 spacing must not be zero');
     }
     if (n1 * n2 > 2000) throw new FeatureError('Too many instances (maximum 2000)');
@@ -1208,9 +1214,9 @@ export class ModelBuilder {
   private applyCircularPattern(f: CircularPatternFeature, st: State) {
     const seeds = this.seedTools(f.id, f.seeds, st);
     const ax = this.resolveAxis(f.axis, st);
-    const n = Math.round(num(f.count));
+    const n = Math.round(num(f, 'count'));
     if (n < 2 || n > 1000) throw new FeatureError('Instance count must be between 2 and 1000');
-    const total = num(f.angle);
+    const total = num(f, 'angle');
     // A full turn either way spaces the instances round the whole circle.
     const step = f.equal ? (Math.abs(Math.abs(total) - 360) < 1e-9 ? total / n : total / (n - 1)) : total;
     const d = scale(ax.d, f.flip ? -1 : 1);
@@ -1333,7 +1339,7 @@ export class ModelBuilder {
     if (!st.body) throw new FeatureError('There is no body to draft');
     if (!f.faces.length) throw new FeatureError('Select faces to draft');
     const fr = this.resolvePlane(f.neutral, st);
-    const angle = num(f.angle);
+    const angle = num(f, 'angle');
     if (!(Math.abs(angle) < 90)) throw new FeatureError('The draft angle must be between -90 and 90 degrees');
     const oc = getOc();
     const dir = scale(fr.n, f.flip ? -1 : 1);
