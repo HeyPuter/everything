@@ -1135,3 +1135,22 @@ test('the command search placeholder fits its box at every title bar width', asy
   }
   expect(errors).toEqual([]);
 });
+
+test('Measure tells screen readers its results', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Handle).__parametric.edges.length))
+    .toBeGreaterThan(0);
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('measure'));
+  const status = page.locator('.pm').getByRole('status').filter({ hasText: /Edge length/ });
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    const i = a.edges.findIndex((e) => e.type === 'line');
+    a.panel!.onPick({ kind: 'edge', index: i, name: a.edges[i].name }, false);
+  });
+  await expect(status).toHaveText(/^Edge length: [\d.]+ mm$/);
+  await expect(status).toHaveAttribute('aria-live', 'polite');
+  expect(errors).toEqual([]);
+});

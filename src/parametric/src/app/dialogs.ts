@@ -515,6 +515,8 @@ export class MeasurePanel extends PropertyPanel {
   icon = 'measure';
   confirm = false;
   private out = h('div', { class: 'sec-body' });
+  /** The results, told to screen readers when they change (picks are made in the graphics area). */
+  private spoken = h('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
   private box!: SelectionBox;
 
   constructor(private app: App) {
@@ -529,7 +531,7 @@ export class MeasurePanel extends PropertyPanel {
     }, { placeholder: 'Select one or two faces, edges, vertices or planes', icon: 'measure' });
     const pre = app.selection.items.map((it) => this.convert(it)).filter((x): x is SelBoxItem => !!x).slice(0, 2);
     if (pre.length) { this.box.setItems(pre); void this.measure(); }
-    return [section('Selections', [this.box.el]), h('section', { class: 'pm-section' }, this.out)];
+    return [section('Selections', [this.box.el]), h('section', { class: 'pm-section' }, this.out, this.spoken)];
   }
 
   private convert(it: SelItem): SelBoxItem | null {
@@ -642,6 +644,9 @@ export class MeasurePanel extends PropertyPanel {
       }
     } else this.showLeader(null, null);
     this.out.textContent = '';
+    // Said once per change: a rebuild measuring the same again stays quiet.
+    const said = lines.map(([k, v]) => `${k}: ${v}`).join('. ');
+    if (said !== this.spoken.textContent) this.spoken.textContent = said;
     if (!lines.length) this.out.append(h('div', { class: 'field-label' }, 'Select entities to measure.'));
     else this.out.append(h('table', { class: 'table' }, h('tbody', {}, lines.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))));
   }
