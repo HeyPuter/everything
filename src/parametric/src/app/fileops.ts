@@ -411,6 +411,8 @@ export class FileOps {
       // Gone (deleted or moved elsewhere): drop it from the recent parts too.
       const missing = isMissing(e);
       if (missing) forgetRecent(loc);
+      // A part kept in this browser whose file is gone leaves the parts lists too.
+      if (missing && loc.type === 'local') void deletePart(loc).catch(() => {});
       toast({ kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e) });
       return;
     } finally {

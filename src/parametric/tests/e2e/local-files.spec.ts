@@ -178,3 +178,22 @@ test('saving a part in this browser asks for the browser storage to be kept', as
   await expect.poll(() => page.evaluate(() => (window as unknown as { persistCalls: number }).persistCalls)).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('a part listed in this browser whose file is gone says so and leaves the list', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('parametric:local-parts', JSON.stringify([{ id: 'part-gone', name: 'Gone', modified: Date.now(), size: 10 }]));
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Gone This browser/ }).click();
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('"Gone" no longer exists.');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('parametric:local-parts'))).toBe('[]');
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await expect(page.getByRole('dialog', { name: 'Open' })).toContainText('No parts saved in this browser yet.');
+  expect(errors).toEqual([]);
+});
