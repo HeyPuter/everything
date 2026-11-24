@@ -705,7 +705,12 @@ export class SketchSystem {
         }
       }
     } else {
-      converged = this.solveAll(maxIter);
+      // A large angle change solved in one go swings the line along its
+      // tangent and lands it far longer than it was (90 degrees more made a
+      // free line half as long again, 150 degrees three times as long). Turning
+      // there in steps keeps its length close to what it was.
+      converged = this.largeAngleChange() ? this.solveByContinuation(maxIter) : false;
+      if (!converged) { this.x.set(initial); converged = this.solveAll(maxIter); }
       // A big change (a dimension well below its old value) can jump to a
       // solution where a fillet or tangent arc folds back over its line. Walk
       // there in small steps from the old shape instead; if the shape still
@@ -753,6 +758,14 @@ export class SketchSystem {
     if (this.opts.analyze !== false) this.analyze(res);
     if (conflicting.size) res.status = 'over';
     return res;
+  }
+
+  /** Whether an angle dimension is far (over 10 degrees) from its value. */
+  private largeAngleChange(): boolean {
+    const angles = new Set<Id>();
+    for (const c of this.constraints) if (isDimension(c) && c.type === 'angle' && !c.driven) angles.add(c.id);
+    if (!angles.size) return false;
+    return this.eqs.some((e) => e.cid !== null && angles.has(e.cid) && Math.abs(e.f(this.x)) > (10 * Math.PI) / 180);
   }
 
   /**

@@ -144,6 +144,27 @@ describe('sketch solver', () => {
     expect(res.status).toBe('full');
   });
 
+  it('turns a free line to a much larger angle without stretching it', () => {
+    for (const [v, sector] of [[90, 0], [150, 0], [180, 0], [5, 0], [170, 1]] as const) {
+      const ents: SkEntity[] = [pt('a', 0, 0), pt('b', 10, 0), line('l1', 'a', 'b'), pt('c', 0, 0), pt('d', 8, 5), line('l2', 'c', 'd')];
+      const cons: SkConstraint[] = [
+        { id: 'f', type: 'fix', refs: ['l1'] },
+        { id: 'cc', type: 'coincident', refs: ['c', 'a'] },
+        dim('ang', 'angle', ['l1', 'l2'], v, { sector }),
+      ];
+      const before = Math.hypot(8, 5);
+      const res = solveSketch(ents, cons, { value });
+      expect(res.converged).toBe(true);
+      expect(res.status).toBe('under');
+      const d = P(ents, 'd');
+      // Solved in one step, 150 degrees landed the end three times as far out.
+      expect(Math.hypot(d.x, d.y) / before).toBeGreaterThan(0.9);
+      expect(Math.hypot(d.x, d.y) / before).toBeLessThan(1.25);
+      const ang = (Math.abs(Math.atan2(d.y, d.x)) * 180) / Math.PI;
+      expect(sector ? 180 - ang : ang).toBeCloseTo(v, 6);
+    }
+  });
+
   it('enforces symmetry about a centerline', () => {
     const ents: SkEntity[] = [
       pt('a', 0, -10), pt('b', 0, 10), { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
