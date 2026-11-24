@@ -46,8 +46,9 @@ export interface Colors {
 }
 
 /** Controls whose own keyboard activation must win over global shortcuts. */
-const ACTIVATES_ON_ENTER = 'button, a[href], summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
-const ACTIVATES_ON_SPACE = 'input[type="checkbox"], input[type="radio"], select, [role="checkbox"], [role="switch"], [role="radio"]';
+const ACTIVATES_ON_ENTER = 'button, a[href], summary, input[type="color"], [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
+/** The colour input opens its picker on Space or Enter (Appearance › Custom colour). */
+const ACTIVATES_ON_SPACE = 'input[type="checkbox"], input[type="radio"], input[type="color"], select, [role="checkbox"], [role="switch"], [role="radio"]';
 
 /** Hooks implemented by the feature/command modules (set up in main). */
 export interface AppHooks {

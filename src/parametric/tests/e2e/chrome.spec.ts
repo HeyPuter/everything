@@ -603,3 +603,26 @@ test('running Mass Properties again while it calculates opens one dialog', async
   await expect(page.locator('.statusbar .msg')).not.toHaveText('Calculating mass properties...');
   expect(errors).toEqual([]);
 });
+
+test('Space on the custom colour field is left to the field, not a shortcut', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.openTaskPane('appearance'));
+  // Focus arrives from the keyboard.
+  await page.keyboard.press('Shift');
+  await page.getByLabel('Custom colour').focus();
+  const prevented = await page.evaluate(() => {
+    const input = document.activeElement!;
+    const e = new KeyboardEvent('keydown', {
+      key: ' ',
+      code: 'Space',
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+  expect(prevented).toBe(false);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
