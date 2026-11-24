@@ -28,11 +28,18 @@ test('tablet title bar keeps every control on screen', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
-  const offscreen = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.titlebar button, .titlebar a, .titlebar input')]
-    .filter((el) => el.offsetParent && el.getBoundingClientRect().right > window.innerWidth)
-    .map((el) => el.getAttribute('aria-label') ?? el.textContent));
-  expect(offscreen).toEqual([]);
-  expect((await page.locator('.doc-title').boundingBox())!.width).toBeGreaterThan(40);
+  // Up to the widths where the menu bar shows again, and the brand name after it.
+  for (const width of [768, 1000, 1024, 1100, 1240, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    // puter.js's user menu (Upgrade, Sign in) keeps its buttons in a shadow root.
+    const offscreen = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.titlebar button, .titlebar a, .titlebar input, .titlebar puter-user-menu')]
+      .filter((el) => el.getClientRects().length && el.getBoundingClientRect().right > window.innerWidth)
+      .map((el) => el.getAttribute('aria-label') ?? el.textContent ?? el.tagName));
+    expect(offscreen, `at ${width} px`).toEqual([]);
+    // "Part1" whole: the part name is not squeezed to its first letters.
+    expect((await page.locator('.doc-title').boundingBox())!.width, `at ${width} px`).toBeGreaterThan(45);
+  }
+  await page.setViewportSize({ width: 768, height: 1024 });
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible();
 });

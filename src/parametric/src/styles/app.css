@@ -563,15 +563,20 @@ a.icon-btn { text-decoration: none; }
 .start-foot a { color: var(--text-2); }
 
 /* ---------- Responsive ---------- */
+/* The title bar leaves the part name room: what the menus also have goes first. */
+@media (max-width: 1240px) {
+  .tb-brand .name { display: none; }
+}
 @media (max-width: 1180px) {
   :root { --left-w: 250px; }
-  .cmd-search input { width: 150px; }
-  .tb-brand .name { display: none; }
+  .cmd-search input { width: 130px; }
+  .titlebar .hide-tablet { display: none; }
 }
 @media (max-width: 980px) {
   .taskpane .tp-panel { position: absolute; right: var(--taskpane-w); top: 0; bottom: 0; z-index: 12; border-left: 1px solid var(--border); background: var(--panel); }
-  .quick .hide-tablet { display: none; }
   .doc-state { display: none; }
+}
+@media (max-width: 1023px) {
   /* The menu bar does not fit beside the quick access buttons and search:
      it collapses into the menu button, as on phones. */
   .menubar, .titlebar > .tb-sep { display: none; }

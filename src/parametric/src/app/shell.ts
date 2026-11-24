@@ -137,7 +137,8 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const docState = h('span', { class: 'doc-state', 'aria-live': 'polite' });
   const search = h('input', { type: 'search', placeholder: 'Search commands', 'aria-label': 'Search commands', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'cmd-results', 'aria-autocomplete': 'list' }) as HTMLInputElement;
   const searchResults = h('div', { class: 'cmd-results', role: 'listbox', id: 'cmd-results', hidden: true });
-  const github = h('a', { class: 'icon-btn', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub' }, icon('github', 18));
+  // Narrow windows leave its room to the part name: Help › Source Code on GitHub has it too.
+  const github = h('a', { class: 'icon-btn hide-tablet', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub' }, icon('github', 18));
   attachTooltip(github, 'Source code on GitHub');
   const apps = appsButton();
   const account = h('button', { class: 'avatar-btn', type: 'button', 'aria-label': 'Account', 'aria-haspopup': 'menu' }) as HTMLButtonElement;
