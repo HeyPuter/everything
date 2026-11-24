@@ -17,9 +17,10 @@ function link(text: string, url: string): Node {
 function inline(text: string): Node[] {
   const out: Node[] = [];
   // A backslash-escaped mark is that character itself (\* is not an emphasis mark).
-  // A link's text and address hold no brackets, so a run of them is not scanned again from each one.
+  // A link's text and address hold no brackets, so a run of them is not scanned again from each one;
+  // an address may hold balanced parentheses, one deep (Fillet_(mechanics)).
   // _emphasis_ only between word boundaries, so names like hole_dia keep their underscores.
-  const re = /(\\[\\`*_{}[\]()#+\-.!|>~]|`[^`\n]+`|\[[^[\]\n]+\]\([^\s()[\]]+\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*|(?<![\p{L}\p{N}_])_[^_\s][^_\n]*_(?![\p{L}\p{N}_]))/gu;
+  const re = /(\\[\\`*_{}[\]()#+\-.!|>~]|`[^`\n]+`|\[[^[\]\n]+\]\((?:[^\s()[\]]|\([^\s()[\]]*\))+\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*|(?<![\p{L}\p{N}_])_[^_\s][^_\n]*_(?![\p{L}\p{N}_]))/gu;
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index! > last) out.push(document.createTextNode(text.slice(last, m.index)));

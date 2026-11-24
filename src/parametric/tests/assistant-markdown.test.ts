@@ -42,9 +42,11 @@ describe('assistant markdown', () => {
     expect(html('[x](javascript:alert`1`) [y](data:text/html,hi) [z](/files/part)')).toBe('<p>x y z</p>');
     expect(html('2 \\* 3 \\* 4, hole\\_dia and \\[not a link\\](x)')).toBe('<p>2 * 3 * 4, hole_dia and [not a link](x)</p>');
     expect(html('***Note:*** done')).toBe('<p><strong><em>Note:</em></strong> done</p>');
+    expect(html('A [fillet](https://en.wikipedia.org/wiki/Fillet_(mechanics)) (rounded edge).')).toBe(
+      '<p>A <a href="https://en.wikipedia.org/wiki/Fillet_(mechanics)" target="_blank" rel="noopener noreferrer">fillet</a> (rounded edge).</p>');
     // Runs of brackets are rejected as quickly as any other text.
     const t0 = performance.now();
-    html(`${'[a]('.repeat(20000)}\n${'['.repeat(20000)}${']('.repeat(5000)}`);
+    html(`${'[a]('.repeat(20000)}\n${'['.repeat(20000)}${']('.repeat(5000)}\n[a](${'(x'.repeat(20000)}\n[a](x${'()'.repeat(20000)}`);
     expect(performance.now() - t0).toBeLessThan(500);
   });
 
