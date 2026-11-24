@@ -90,6 +90,36 @@ describe('sheet layout', () => {
     expect(pdf).toContain('(Plate) Tj');
   });
 
+  it('moves the arrows and value of a dimension too short to hold them outside its lines', () => {
+    const doc: DrawingDoc = {
+      sheet: 'A4', landscape: true, scale: 1, title: '', drawnBy: '', notes: '',
+      views: [{ id: 'v1', kind: 'front', x: 120, y: 80, hidden: false, dims: true }],
+    };
+    // A 150 x 3 bar: the height dimension is 3 mm long on the sheet.
+    const proj = new Map([['v1', { id: 'v1', visible: ['M 0 0 H 150 V -3 H 0 Z'], hidden: [], bounds: [0, -3, 150, 0] as [number, number, number, number] }]]);
+    const sheet = buildSheet(doc, proj, { partName: 'Bar', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: (v) => v.toFixed(2) });
+    const f = sheet.frames[0];
+    type Text = Extract<(typeof sheet.items)[number], { t: 'text' }>;
+    type Tri = Extract<(typeof sheet.items)[number], { t: 'tri' }>;
+    const texts = sheet.items.filter((i) => i.t === 'text') as Text[];
+    const height = texts.find((t) => t.s === '3.00')!, width = texts.find((t) => t.s === '150.00')!;
+    // The long one keeps its value centred between its lines.
+    expect(width).toMatchObject({ anchor: 'middle', x: (f.x0 + f.x1) / 2 });
+    // The short one's value reads upward below the lower end, clear of the span between the lines.
+    const tw = textWidth('3.00', height.size);
+    expect(height.rotate).toBe(-90);
+    expect(height.anchor).toBe('end');
+    expect(height.y).toBeGreaterThan(f.y1 + 2.4);
+    expect(height.y + tw).toBeLessThan(f.y1 + 16);
+    // Its arrowheads sit outside the lines, pointing in, and do not overlap.
+    const tris = (sheet.items.filter((i) => i.t === 'tri') as Tri[]).filter((t) => t.a[0] === f.x0 - 8);
+    expect(tris.length).toBe(2);
+    const span = (t: Tri) => [Math.min(t.a[1], t.b[1], t.c[1]), Math.max(t.a[1], t.b[1], t.c[1])];
+    const [s1, s2] = tris.map(span).sort((p, q) => p[0] - q[0]);
+    expect(s1[1]).toBeLessThanOrEqual(f.y0 + 1e-9);
+    expect(s2[0]).toBeGreaterThanOrEqual(f.y1 - 1e-9);
+  });
+
   it('keeps the SVG well-formed when a title holds control characters', () => {
     const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: 'Bra\u0007cket \ud83d\udd27 <A&B>\u0000\ud800', drawnBy: 'Tab\tbed', notes: 'x\u001by', views: [] };
     const sheet = buildSheet(doc, new Map(), { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: String });

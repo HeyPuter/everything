@@ -153,18 +153,22 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
   // the labels already placed and the title block.
   const taken: Box[] = placed.map(({ v, f }) => (hasDims(v) ? [f.x0 - DIM_LEFT, f.y0, f.x1, f.y1 + DIM_BELOW] : [f.x0, f.y0, f.x1, f.y1]));
   taken.push([w - MARGIN - TITLE_W, h - MARGIN - TITLE_H, w - MARGIN, h - MARGIN]);
-  for (const [i, { v, pr, tx, ty, f }] of placed.entries()) {
+  // Dimensions first: a value moved outside its lines is something labels must avoid too.
+  const dims = placed.map(({ v, pr, f }) => {
+    const out: Item[] = [];
+    if (!hasDims(v)) return out;
     const [bx0, by0, bx1, by1] = pr.bounds!;
+    taken.push(dimension(out, [f.x0, f.y1], [f.x1, f.y1], 'below', info.formatLength(bx1 - bx0)));
+    taken.push(dimension(out, [f.x0, f.y0], [f.x0, f.y1], 'left', info.formatLength(by1 - by0)));
+    return out;
+  });
+  for (const [i, { v, pr, tx, ty, f }] of placed.entries()) {
     if (v.hidden) for (const p of pr.hidden) items.push({ t: 'path', d: p, tx, ty, s, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });
     for (const p of pr.visible) items.push({ t: 'path', d: p, tx, ty, s, w: VISIBLE_W, view: v.id });
-    const { x0: fx0, x1: fx1, y0: fy0, y1: fy1 } = f;
     const label = viewLabel(VIEW_LABELS[v.kind].toUpperCase(), f, hasDims(v), taken.filter((_, j) => j !== i), w, h);
     items.push(label.item);
     taken.push(label.box);
-    if (hasDims(v)) {
-      dimension(items, [fx0, fy1], [fx1, fy1], 'below', info.formatLength(bx1 - bx0));
-      dimension(items, [fx0, fy0], [fx0, fy1], 'left', info.formatLength(by1 - by0));
-    }
+    items.push(...dims[i]);
   }
   titleBlock(items, w, h, d, info);
   return { items, frames, w, h };
@@ -201,26 +205,58 @@ function viewLabel(s: string, f: ViewFrame, dims: boolean, taken: Box[], w: numb
   return candidates.find((c) => free(c.box)) ?? below;
 }
 
-/** Overall dimension between two points (horizontal below, vertical left). */
-function dimension(items: Item[], a: [number, number], b: [number, number], side: 'below' | 'left', label: string) {
-  const off = 8, ext = 2, arrow = 2.4, aw = 0.8;
+const DIM_TEXT = 3;
+
+/**
+ * Overall dimension between two points (horizontal below, vertical left).
+ * Where the extension lines are too close together, the arrows point in
+ * from outside them and the value sits beyond the end of the dimension line
+ * (right of a horizontal one, below a vertical one), instead of arrows and
+ * text piling up on top of the lines. Returns the box the value takes.
+ */
+function dimension(
+  items: Item[],
+  a: [number, number],
+  b: [number, number],
+  side: 'below' | 'left',
+  label: string,
+): Box {
+  const off = 8, ext = 2, arrow = 2.4, aw = 0.8, gap = 1.2;
+  const len = side === 'below' ? b[0] - a[0] : b[1] - a[1];
+  const tw = textWidth(label, DIM_TEXT);
+  const arrowsOut = len < 2 * arrow + 1;
+  const textOut = tw + 2 > len;
+  // Arrowhead length along the line from a's tip (b's points the other way).
+  const tip = arrowsOut ? -arrow : arrow;
+  // How far the dimension line runs past each end: to the outside arrows, then along the value.
+  const before = arrowsOut ? arrow + 1 : 0;
+  const after = (arrowsOut ? arrow + 1 : 0) + (textOut ? tw + 1 : 0);
+  const text = (x: number, y: number, anchor: 'start' | 'middle' | 'end', rotate?: number) =>
+    items.push({ t: 'text', s: label, x, y, size: DIM_TEXT, anchor, rotate });
   if (side === 'below') {
     const y = a[1] + off;
     items.push({ t: 'line', x1: a[0], y1: a[1] + 1, x2: a[0], y2: y + ext, w: THIN });
     items.push({ t: 'line', x1: b[0], y1: b[1] + 1, x2: b[0], y2: y + ext, w: THIN });
-    items.push({ t: 'line', x1: a[0], y1: y, x2: b[0], y2: y, w: THIN });
-    items.push({ t: 'tri', a: [a[0], y], b: [a[0] + arrow, y - aw], c: [a[0] + arrow, y + aw] });
-    items.push({ t: 'tri', a: [b[0], y], b: [b[0] - arrow, y - aw], c: [b[0] - arrow, y + aw] });
-    items.push({ t: 'text', s: label, x: (a[0] + b[0]) / 2, y: y - 1.2, size: 3, anchor: 'middle' });
-  } else {
-    const x = a[0] - off;
-    items.push({ t: 'line', x1: a[0] - 1, y1: a[1], x2: x - ext, y2: a[1], w: THIN });
-    items.push({ t: 'line', x1: b[0] - 1, y1: b[1], x2: x - ext, y2: b[1], w: THIN });
-    items.push({ t: 'line', x1: x, y1: a[1], x2: x, y2: b[1], w: THIN });
-    items.push({ t: 'tri', a: [x, a[1]], b: [x - aw, a[1] + arrow], c: [x + aw, a[1] + arrow] });
-    items.push({ t: 'tri', a: [x, b[1]], b: [x - aw, b[1] - arrow], c: [x + aw, b[1] - arrow] });
-    items.push({ t: 'text', s: label, x: x - 1.2, y: (a[1] + b[1]) / 2, size: 3, anchor: 'middle', rotate: -90 });
+    items.push({ t: 'line', x1: a[0] - before, y1: y, x2: b[0] + after, y2: y, w: THIN });
+    items.push({ t: 'tri', a: [a[0], y], b: [a[0] + tip, y - aw], c: [a[0] + tip, y + aw] });
+    items.push({ t: 'tri', a: [b[0], y], b: [b[0] - tip, y - aw], c: [b[0] - tip, y + aw] });
+    const x0 = textOut ? b[0] + after - tw : (a[0] + b[0] - tw) / 2;
+    if (textOut) text(x0, y - gap, 'start');
+    else text(x0 + tw / 2, y - gap, 'middle');
+    return [x0, y - gap - DIM_TEXT * 0.75, x0 + tw, y - gap];
   }
+  const x = a[0] - off;
+  items.push({ t: 'line', x1: a[0] - 1, y1: a[1], x2: x - ext, y2: a[1], w: THIN });
+  items.push({ t: 'line', x1: b[0] - 1, y1: b[1], x2: x - ext, y2: b[1], w: THIN });
+  // The value goes below the lower end, into the room kept for the width dimension and label.
+  items.push({ t: 'line', x1: x, y1: a[1] - before, x2: x, y2: b[1] + after, w: THIN });
+  items.push({ t: 'tri', a: [x, a[1]], b: [x - aw, a[1] + tip], c: [x + aw, a[1] + tip] });
+  items.push({ t: 'tri', a: [x, b[1]], b: [x - aw, b[1] - tip], c: [x + aw, b[1] - tip] });
+  // Turned a quarter to read upward: 'end' puts the top of the value at its point.
+  const y0 = textOut ? b[1] + after - tw : (a[1] + b[1] - tw) / 2;
+  if (textOut) text(x - gap, y0, 'end', -90);
+  else text(x - gap, y0 + tw / 2, 'middle', -90);
+  return [x - gap - DIM_TEXT * 0.75, y0, x - gap, y0 + tw];
 }
 
 function titleBlock(items: Item[], w: number, h: number, d: DrawingDoc, info: SheetInfo) {
