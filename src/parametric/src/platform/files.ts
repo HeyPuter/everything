@@ -321,6 +321,23 @@ export async function deletePart(location: Location) {
   else await localDelete(location.id);
   forgetRecent(location);
   partsChanged();
+  for (const fn of deletedListeners) fn(location);
+  try {
+    savesChannel?.postMessage({ type: 'deleted', location });
+  } catch {
+    /* other tabs are not told */
+  }
+}
+
+const deletedListeners = new Set<(location: Location) => void>();
+
+/** Calls `fn` when a part is deleted, in this tab or another tab of this browser. */
+export function onPartDeleted(fn: (location: Location) => void) {
+  deletedListeners.add(fn);
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    const loc = record(e.data) && e.data.type === 'deleted' ? messageLocation(e.data.location) : null;
+    if (loc) fn(loc);
+  });
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {

@@ -119,3 +119,38 @@ test('parts are saved in this browser where pages cannot write files there thems
   expect(again.variables).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('a part whose file is deleted, here or in another tab, stays open as unsaved work', async ({ context }) => {
+  type A = import('../../src/app/app').App;
+  const app = (p: import('@playwright/test').Page) => p.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric);
+  const first = await context.newPage();
+  const errors = await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  await first.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('save'); });
+  await first.waitForFunction(() => (window as unknown as { __parametric: A }).__parametric.location);
+  const second = await context.newPage();
+  await openApp(second);
+  await app(second);
+  await second.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await second.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Part1 This browser/ }).click();
+  await second.waitForFunction(() => (window as unknown as { __parametric: A }).__parametric.location);
+  await expect(second).toHaveTitle('Part1 - Parametric');
+  // Deleted from the Open dialog of the first tab, where it is open too.
+  await first.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  const dialog = first.getByRole('dialog', { name: 'Open' });
+  await dialog.getByRole('button', { name: 'Delete Part1' }).click();
+  await first.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  for (const page of [first, second]) {
+    await expect(page).toHaveTitle('* Part1 - Parametric');
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('The part is still open here: save it to keep it.');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.location)).toBeNull();
+  }
+  // Saving keeps it again, as a new file.
+  await second.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('save'); });
+  await expect(second).toHaveTitle('Part1 - Parametric');
+  await second.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await expect(second.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Part1 This browser/ })).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

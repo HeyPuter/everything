@@ -7,7 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, safeName, writeRecovery, type FileEntry, deletePart, forgetRecent, rememberRecent,
-  onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
+  onPartDeleted, onRenamedElsewhere, onSavedElsewhere, sameLocation, acceptList, type FileVersion, cloudVersion, loadPart, partFileName, readIndexEntry, renameCloudPart, savePart, versionChanged, versionOf,
 } from '../platform/files';
 import { type PuterFSItem, cloudAvailable, env, isMissing, isPermissionError, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -84,6 +84,17 @@ export class FileOps {
         }
       }
       toast({ message: `This part was renamed to "${name}" in another tab.`, timeout: 6000 });
+    });
+    // The open part's file was deleted (from Open, here or in another tab): the
+    // part stays open as unsaved work, so it is not lost when the tab closes.
+    onPartDeleted((loc) => {
+      if (!sameLocation(loc, app.location)) return;
+      app.location = null;
+      this.known = null;
+      this.savedElsewhere = null;
+      app.store.dirty = true;
+      app.store.emit('detached');
+      toast({ kind: 'warning', message: `The file of "${app.store.doc.name}" was deleted. The part is still open here: save it to keep it.`, timeout: 9000 });
     });
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty || this.app.panel?.edited) {
