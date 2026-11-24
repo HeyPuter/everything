@@ -15,7 +15,7 @@ import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
 import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
-import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
+import { announce, formatShortcut, h, isTextInput, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
@@ -277,7 +277,9 @@ export class App {
   }
 
   private panelElement(p: PropertyPanel): HTMLElement {
-    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2', tabindex: '-1' }, p.title));
+    const title = h('div', { class: 'title', role: 'heading', 'aria-level': '2', tabindex: '-1' }, p.title);
+    titleWhenClipped(title);
+    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), title);
     const actions = h('div', { class: 'pm-actions' });
     if (p.confirm) {
       actions.append(
@@ -646,6 +648,8 @@ export class App {
     const doc = this.store.doc;
     this.shell.docTitle.textContent = doc.name;
     this.shell.docTitle.setAttribute('aria-label', `${doc.name}, rename part`);
+    // The name may be clipped by an ellipsis: the tooltip has all of it.
+    this.shell.docTitle.title = `Rename ${doc.name}`;
     this.shell.docState.textContent = this.store.dirty ? 'Edited' : this.location ? 'Saved' : '';
     this.shell.statusUnits.textContent = doc.units;
     document.title = `${this.store.dirty ? '* ' : ''}${doc.name} - Parametric`;

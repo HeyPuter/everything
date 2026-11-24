@@ -3,7 +3,7 @@
 // puter.js's <puter-user-menu> in place of the last two), CommandManager
 // (tool groups and tabs), left pane, viewport host, task pane and status bar.
 
-import { h, formatShortcut } from '../ui/dom';
+import { h, formatShortcut, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
 import { dropdown, type MenuItem, closeMenus } from '../ui/menu';
@@ -183,6 +183,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
 
   const treeToggle = h('button', { class: 'cell mobile-only', type: 'button', 'aria-label': 'Show design tree', 'aria-expanded': 'false', 'aria-controls': 'left-panel' }, icon('tree', 14), 'Tree') as HTMLButtonElement;
   const statusMsg = h('span', { class: 'msg', role: 'status', 'aria-live': 'polite' });
+  titleWhenClipped(statusMsg);
   const statusCoords = h('span', { class: 'cell hide-mobile', 'aria-live': 'off' });
   const statusRebuild = h('span', { class: 'cell hide-mobile', title: 'Time of the last rebuild' });
   const statusSketch = h('button', { class: 'cell', type: 'button', hidden: true }) as HTMLButtonElement;

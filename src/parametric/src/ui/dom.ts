@@ -40,6 +40,14 @@ export function announce(text: string) {
   setTimeout(() => { r.textContent = text; }, 30);
 }
 
+/** Gives an element whose text an ellipsis may clip its full text as a tooltip, while it is clipped. */
+export function titleWhenClipped(el: HTMLElement) {
+  el.addEventListener('pointerenter', () => {
+    if (el.scrollWidth > el.clientWidth + 1) el.title = el.textContent ?? '';
+    else el.removeAttribute('title');
+  });
+}
+
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** Formats a shortcut like "Ctrl+S" for the platform ("Control+" is the Control key, ⌃ on macOS). */

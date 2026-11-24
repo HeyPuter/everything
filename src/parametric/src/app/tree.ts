@@ -6,7 +6,7 @@ import type { Feature, Id } from '../model/types';
 import { consumedSketches, featureIcon } from '../model/features';
 import { BASE_PLANE_NAMES } from '../model/planes';
 import type { BasePlane } from '../model/types';
-import { h } from '../ui/dom';
+import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import type { App } from './app';
 import type { SelItem } from './selection';
@@ -114,7 +114,11 @@ export class FeatureTree {
       twisty.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(r.key); });
       el.append(twisty, icon(r.icon, 16));
       if (this.renaming && this.renaming === f?.id) el.append(this.renameInput(f));
-      else el.append(h('span', { class: 'label' }, r.label, r.muted ? h('span', { class: 'muted' }, r.muted) : null));
+      else {
+        const label = h('span', { class: 'label' }, r.label, r.muted ? h('span', { class: 'muted' }, r.muted) : null);
+        titleWhenClipped(label);
+        el.append(label);
+      }
       if (status && !status.ok) {
         const b = h('span', { class: 'badge', title: status.error ?? 'Error' }, icon('error', 14));
         el.append(b);

@@ -108,3 +108,30 @@ test('deleting the feature a panel edits from the flyout tree closes the panel a
     .toEqual({ panel: false, faces: true });
   expect(errors).toEqual([]);
 });
+
+test('names and messages clipped by an ellipsis show in full as a tooltip', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const long = 'A very long part name that the title bar has no room to show in full';
+  await page.evaluate((long) => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Rename', (d) => {
+      d.name = long;
+    });
+    a.setStatus(
+      `${long}, and a status message that goes on well past the width of the status bar ${long}`,
+    );
+  }, long);
+  await expect(page.locator('.doc-title')).toHaveAttribute('title', `Rename ${long}`);
+  const status = page.locator('.statusbar .msg');
+  await status.hover();
+  await expect(status).toHaveAttribute('title', new RegExp(`^${long}, and a status`));
+  const part = page.getByRole('treeitem', { name: long }).locator('.label');
+  await part.hover();
+  await expect(part).toHaveAttribute('title', long);
+  // A label with room for its text has no tooltip.
+  const origin = page.getByRole('treeitem', { name: 'Origin' }).locator('.label');
+  await origin.hover();
+  await expect(origin).not.toHaveAttribute('title');
+  expect(errors).toEqual([]);
+});
