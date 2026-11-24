@@ -18,6 +18,13 @@ export interface Command {
   checked?: () => boolean;
   /** Hidden from the command search. */
   hidden?: boolean;
+  /**
+   * Leaves its shortcut to the browser while disabled (Ctrl+A selects text
+   * outside a sketch). Other commands keep their keys even while disabled, as
+   * the browser's action could take the user out of the app (Cmd+1 switches
+   * tabs, Cmd+Y opens the history, Cmd+S saves the page).
+   */
+  releaseShortcut?: boolean;
 }
 
 export class CommandRegistry {

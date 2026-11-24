@@ -1660,7 +1660,9 @@ export class App {
     }
     if (target === this.viewport.canvas && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '-', '='].includes(e.key) && !(e.ctrlKey && /\d/.test(e.key))) return;
     const cmd = this.commands.match(e);
-    if (cmd) {
+    // A disabled Select All leaves its key to the browser, so select-all
+    // still works where the command does not apply.
+    if (cmd && (!cmd.releaseShortcut || this.commands.isEnabled(cmd.id))) {
       e.preventDefault();
       this.commands.run(cmd.id);
     }

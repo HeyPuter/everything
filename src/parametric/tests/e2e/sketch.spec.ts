@@ -1133,6 +1133,47 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Ctrl+A is the browser select-all outside a sketch and in text fields', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.getSelection()?.removeAllRanges(); });
+    await page.keyboard.press('ControlOrMeta+a');
+    // Select All applies only in a sketch: it no longer swallows the key elsewhere.
+    expect(await page.evaluate(() => (window.getSelection()?.toString() ?? '').length)).toBeGreaterThan(0);
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    // Other disabled commands keep their keys: Redo with nothing to redo (Cmd+Y opens the history)
+    // and a standard view on the drawing sheet (Cmd+1 switches browser tabs).
+    const held = () => page.evaluate(() => ['y', '1'].map((key) => {
+      const e = new KeyboardEvent('keydown', { key, code: key === '1' ? 'Digit1' : 'KeyY', metaKey: true, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(e);
+      return e.defaultPrevented;
+    }));
+    expect(await held()).toEqual([true, true]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.openDrawing());
+    await expect(page.locator('.drawing-ws')).toBeVisible();
+    expect(await held()).toEqual([true, true]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.closeDrawing());
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.view-label')).toHaveText('Front');
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned line', (sk) => {
+        sk.entities.push({ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'L', t: 'line', a: 'a', b: 'b' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['L'], value: 10, at: [5, 5], name: 'D1' });
+      });
+      a.sketchEditor!.openModify('D');
+    });
+    const input = page.getByRole('dialog', { name: 'Modify D1' }).getByRole('textbox');
+    await expect(input).toBeFocused();
+    await input.evaluate((el: HTMLInputElement) => el.setSelectionRange(1, 1));
+    await page.keyboard.press('ControlOrMeta+a');
+    expect(await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 2]);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.length)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
   test('pressing A while drawing lines carries on with a tangent arc from the chain end', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
