@@ -288,14 +288,26 @@ const nav = {
 function openEditor(doc) {
   const view = editorView({ doc, ...nav });
   mount('editor', view);
-  // Once an unsaved document gets a file, the URL follows so a reload reopens it.
+  // Once an unsaved document gets a file, the URL follows so a reload reopens it. The URL must still show this
+  // document: Home or a link pressed as a save lands has moved it before the browser reports the change, and
+  // replacing it then put the document back and dropped where the user was going.
+  let shown = null, shownPath = doc.path;
+  const showsDocument = (hash, path) => {
+    if (hash === shown) return true;
+    const { route: r, path: p } = parseHash(hash);
+    return r === 'edit' ? p === path : r === 'new' && !path;
+  };
   doc.addEventListener('path', () => {
-    if (doc.path && current?.view === view && !routing) {
+    const was = shownPath;
+    shownPath = doc.path;
+    if (doc.path && current?.view === view && !routing && showsDocument(location.hash, was)) {
       history.replaceState(null, '', `#/edit/${encodeURIComponent(doc.path)}`);
+      shown = location.hash;
     }
   });
   if (doc.path) history.replaceState(null, '', `#/edit/${encodeURIComponent(doc.path)}`);
   else if (doc.importInfo) history.replaceState(null, '', '#/new');
+  shown = location.hash;
 }
 
 let routing = false;
