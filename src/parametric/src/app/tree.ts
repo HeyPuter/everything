@@ -34,6 +34,8 @@ export class FeatureTree {
   private renameEl: HTMLInputElement | null = null;
   private rendering = false;
   private draggingBar = false;
+  /** Said when the filter matches no feature or plane (only the part row is left). */
+  private noMatch = h('div', { class: 'pm-msg info', role: 'status', style: { margin: '0 8px 4px' }, hidden: true }, 'Nothing in the design tree matches the filter.');
 
   constructor(private app: App, flyout = false) {
     const filterInput = h('input', { type: 'search', placeholder: 'Filter', 'aria-label': 'Filter the design tree' }) as HTMLInputElement;
@@ -50,7 +52,7 @@ export class FeatureTree {
     this.list = h('div', { class: 'tree', role: 'tree', 'aria-label': 'Design tree', 'aria-multiselectable': 'true' });
     this.list.addEventListener('keydown', (e) => this.onKey(e));
     if (flyout) this.list.setAttribute('aria-label', 'Design tree (flyout)');
-    this.el = flyout ? h('div', {}, this.list) : h('div', {}, h('div', { class: 'tree-filter' }, icon('search', 14), filterInput), this.list);
+    this.el = flyout ? h('div', {}, this.list) : h('div', {}, h('div', { class: 'tree-filter' }, icon('search', 14), filterInput), this.noMatch, this.list);
   }
 
   private rows(): Row[] {
@@ -155,6 +157,7 @@ export class FeatureTree {
       this.list.append(el);
     }
     if (!rollbackPlaced) this.list.append(this.rollbackBar());
+    this.noMatch.hidden = !this.filter || rows.length > 1;
     if (hadFocus) {
       const target = this.renaming && this.renameEl?.isConnected ? this.renameEl
         : barFocused ? this.list.querySelector<HTMLElement>('.rollback-bar')

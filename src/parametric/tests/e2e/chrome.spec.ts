@@ -828,3 +828,17 @@ test('Down from the design tree filter goes to the first matching row', async ({
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('a design tree filter that matches nothing says so', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const filter = page.getByRole('searchbox', { name: 'Filter the design tree' });
+  await filter.fill('zzz');
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Nothing in the design tree matches' }),
+  ).toBeVisible();
+  await filter.fill('fil');
+  await expect(page.getByText('Nothing in the design tree matches')).toBeHidden();
+  expect(errors).toEqual([]);
+});
