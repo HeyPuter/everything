@@ -76,6 +76,7 @@ export async function equationsDialog(app: App) {
         // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
         // They follow from the name they still use, so a slip (an invalid or taken name) fixed later keeps them.
         const was = linked.get(v)!;
+        name.removeAttribute('aria-invalid');
         v.name = name.value.trim();
         const renamed = new Map([[was, v.name]]);
         const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name || linked.get(r) === v.name));
@@ -124,15 +125,26 @@ export async function equationsDialog(app: App) {
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
     onAction: (a) => {
       if (a !== 'ok') return;
+      // The field at fault is marked and focused, not only named in the message.
+      for (const input of tbody.querySelectorAll('td:first-child input')) input.removeAttribute('aria-invalid');
+      const fault = (r: Variable, field: 'name' | 'expr', message: string) => {
+        err.textContent = message;
+        const input = field === 'expr' ? cells.get(r)?.expr : tbody.rows[rows.indexOf(r)]?.querySelector('input');
+        if (field === 'name') input?.setAttribute('aria-invalid', 'true');
+        input?.focus();
+        return false;
+      };
       const names = rows.map((r) => r.name);
-      const bad = names.find((n) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(n));
-      if (bad !== undefined) { err.textContent = `"${bad}" is not a valid name. Use letters, digits and underscores, starting with a letter.`; return false; }
+      const bad = rows.find((r) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.name));
+      if (bad) return fault(bad, 'name', `"${bad.name}" is not a valid name. Use letters, digits and underscores, starting with a letter.`);
       // Checked for new and renamed variables only, so a part saved with such a name still opens here.
       const taken = rows.find((r) => originalNames.get(r.id) !== r.name && reservedName(r.name));
-      if (taken) { err.textContent = `"${taken.name}" is a constant, unit or function name. Choose another name.`; return false; }
-      if (new Set(names).size !== names.length) { err.textContent = 'Variable names must be unique.'; return false; }
+      if (taken) return fault(taken, 'name', `"${taken.name}" is a constant, unit or function name. Choose another name.`);
+      const twin = rows.find((r, i) => names.indexOf(r.name) !== i);
+      if (twin) return fault(twin, 'name', 'Variable names must be unique.');
       const { errors } = evaluateVariables(rows);
-      if (errors.size) { err.textContent = `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`; return false; }
+      const broken = rows.find((r) => errors.has(r.name));
+      if (broken) return fault(broken, 'expr', `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`);
     },
   });
   if (v === 'ok' && !signal.aborted) {

@@ -626,3 +626,34 @@ test('Space on the custom colour field is left to the field, not a shortcut', as
   await expect(page.getByRole('menu')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('OK in Equations marks and focuses the field at fault', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Variables', (d) => {
+      d.variables.push(
+        { id: 'v1', name: 'Width', expr: '10' },
+        { id: 'v2', name: 'Height', expr: '5' },
+      );
+    });
+    a.commands.run('equations');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  const second = dialog.getByRole('textbox', { name: 'Name of variable 2' });
+  await second.fill('Width');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Variable names must be unique.');
+  await expect(second).toBeFocused();
+  await expect(second).toHaveAttribute('aria-invalid', 'true');
+  await second.fill('Depth');
+  await second.press('Tab');
+  const expr = dialog.getByRole('textbox', { name: 'Value or expression of Depth' });
+  await expr.fill('Width / 0');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Depth: Division by zero');
+  await expect(expr).toBeFocused();
+  await expect(second).not.toHaveAttribute('aria-invalid');
+  expect(errors).toEqual([]);
+});
