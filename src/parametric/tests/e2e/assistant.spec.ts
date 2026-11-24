@@ -528,3 +528,19 @@ test('a failed reply about a part that was then closed cannot be tried again on 
   await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
   await expect(page.locator('.as-error')).toBeVisible();
 });
+
+test('a reply cut off at the length limit says so', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      yield { type: 'text', text: 'The plate is 100 mm wide and its holes are' };
+      yield { type: 'cut' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Describe the plate in detail');
+  await box.press('Enter');
+  await expect(page.getByText('its holes are')).toBeVisible();
+  await expect(page.locator('.as-bot .as-foot')).toContainText('Cut off: the reply reached its length limit.');
+});

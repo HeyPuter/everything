@@ -603,6 +603,10 @@ export class AssistantPanel {
     turn.el.removeAttribute('aria-busy');
     const after = store.undoMark;
     if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, this.stopReason));
+    // The model is told; without this the reply just stops mid-sentence on screen.
+    else if (res.cut && !res.error) {
+      turn.foot.append(h('span', { class: 'as-meta' }, 'Cut off: the reply reached its length limit. Ask the assistant to go on.'));
+    }
     if (res.error) {
       const retry = h('button', { class: 'btn small as-retry', type: 'button' }, 'Try again');
       const error = h('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`);
