@@ -325,6 +325,11 @@ describe('feature regeneration', () => {
     const mirror = (plane: 'right' | 'top'): Feature => ({ id: 'M', name: 'M', type: 'mirror', seeds: [], plane: { kind: 'base', plane } });
     expect((await b.build(req([...base.slice(0, 2), mirror('right')]))).status[2]).toMatchObject({ ok: true, warning: expect.stringMatching(/already symmetric/) });
     expect((await b.build(req([sketch('S1', rect(0, -10, 10, 10)), extrude('E1', 'S1', 10), mirror('right')]))).status[2]).toEqual({ id: 'M', ok: true });
+    // Copies of a boss that all land inside the part.
+    const boss: Feature[] = [...base, extrude('E2', 'S2', 5, { flip: true })];
+    const lin = (spacing: number): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'z' }, spacing, count: 2, flip: false }, dir2: null });
+    expect((await b.build(req([...boss, lin(8)]))).status[4]).toMatchObject({ ok: true, warning: expect.stringMatching(/copies add no material/) });
+    expect((await b.build(req([...boss, lin(-8)]))).status[4]).toEqual({ id: 'P', ok: true });
   });
 
   it('sweeps along path segments drawn in any order', async () => {

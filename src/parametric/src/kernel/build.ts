@@ -1107,7 +1107,11 @@ export class ModelBuilder {
         const v0 = volumeOfBody(body);
         body = cut(body, tool);
         if (v0 > 0 && !isEmpty(body) && volumeOfBody(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
-      } else body = body ? fuse(body, tool) : fuseAll([tool]);
+      } else if (body) {
+        const v0 = volumeOfBody(body);
+        body = fuse(body, tool);
+        if (v0 > 0 && volumeOfBody(body) <= v0 * (1 + 1e-9)) this.warning = 'The copies add no material: they lie inside the part. Check the direction and spacing.';
+      } else body = fuseAll([tool]);
       parts.push({ shape: tool, cut: seed.cut, faces: named });
     }
     if (!body || isEmpty(body)) throw new FeatureError('The pattern removed all material');
