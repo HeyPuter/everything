@@ -382,7 +382,9 @@ export class App {
     };
     const split = (cmd: string, items: () => MenuItem[], label: string) => {
       const main = this.commandIcon(cmd);
-      const caret = h('button', { class: 'icon-btn caret', type: 'button', 'aria-label': label, 'aria-haspopup': 'menu' }, icon('chevronDown', 12));
+      const caret = h('button', { class: 'icon-btn caret', type: 'button', 'aria-label': label, 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('chevronDown', 12));
+      // Icon-only, like the buttons beside it: it says what it opens.
+      attachTooltip(caret, label);
       caret.addEventListener('click', () => {
         const r = caret.getBoundingClientRect();
         openMenu(items(), r.left - 20, r.bottom + 4, { anchor: caret, label });

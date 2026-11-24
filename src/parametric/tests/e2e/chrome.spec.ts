@@ -788,3 +788,15 @@ test('a panel opened from a scrolled design tree starts at its top, and the tree
   expect(await pane.evaluate((el) => el.scrollTop)).toBe(scrolled);
   expect(errors).toEqual([]);
 });
+
+test("the view toolbar's menu buttons have tooltips like its other buttons", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const caret = page
+    .getByRole('toolbar', { name: 'View' })
+    .getByRole('button', { name: 'Standard views' });
+  await expect(caret).toHaveAttribute('aria-expanded', 'false');
+  await caret.hover();
+  await expect(page.getByRole('tooltip')).toHaveText('Standard views');
+  expect(errors).toEqual([]);
+});
