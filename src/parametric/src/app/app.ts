@@ -671,7 +671,7 @@ export class App {
     this.store.load(doc);
     this.selection.clear();
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
-    this.viewport.setView('trimetric', false);
+    this.viewport.setView('trimetric', false, false);
     this.lastBuildKey = '';
     this.hooks.afterLoad?.();
   }
@@ -906,7 +906,7 @@ export class App {
     }
     if (this.fitOnNextBuild) {
       this.fitOnNextBuild = false;
-      if (res.bbox) this.viewport.zoomToFit(false);
+      if (res.bbox) this.viewport.zoomToFit(false, false);
     }
     const r = res.bbox ? Math.hypot(res.bbox.max[0] - res.bbox.min[0], res.bbox.max[1] - res.bbox.min[1], res.bbox.max[2] - res.bbox.min[2]) : 100;
     this.renderer.camera.sceneRadius = Math.max(r, 100);

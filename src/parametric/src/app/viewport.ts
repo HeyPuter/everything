@@ -99,6 +99,8 @@ export class Viewport {
   /** Binds input once the renderer exists. */
   init() {
     this.bind();
+    // Previous View steps back through views of this part, not of the one it replaced.
+    this.app.store.on((reason) => { if (reason === 'load') this.history = []; });
   }
 
   get renderer() {
@@ -731,8 +733,9 @@ export class Viewport {
     if (s) this.camera.animateTo({ ...s, ortho: this.camera.ortho });
   }
 
-  setView(name: ViewName, animate = true) {
-    this.pushHistory();
+  /** `remember` false: the view the camera leaves is not one to go back to (a part just opened). */
+  setView(name: ViewName, animate = true, remember = true) {
+    if (remember) this.pushHistory();
     const st = this.camera.fitState(this.modelCenter(), this.modelRadius(), VIEWS[name]);
     if (animate) this.camera.animateTo(st);
     else this.camera.setState(st);
@@ -748,8 +751,8 @@ export class Viewport {
     return Math.max(r, b || drawn ? 1e-3 : 50);
   }
 
-  zoomToFit(animate = true) {
-    this.pushHistory();
+  zoomToFit(animate = true, remember = true) {
+    if (remember) this.pushHistory();
     let center = this.modelCenter();
     let radius = this.modelRadius();
     const sk = this.app.sketchEditor?.bounds();

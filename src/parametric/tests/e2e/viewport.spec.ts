@@ -510,6 +510,25 @@ test.describe('viewport', () => {
     expect(await normal()).toEqual([0.707, 0.707, 0]);
   });
 
+  for (const next of ['open', 'new'] as const) test(`Previous View does not go back to views of the part before (${next})`, async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.evaluate(() => { const v = (window as unknown as Win).__parametric.viewport; v.setView('front', false); v.setView('top', false); });
+    await page.evaluate(async (next) => {
+      const app = (window as unknown as Win).__parametric;
+      if (next === 'new') app.newDocument();
+      else app.loadDocument({ ...structuredClone(app.store.doc), name: 'Other' }, null);
+      await app.whenBuilt();
+    }, next);
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(next === 'open');
+    const state = () => page.evaluate(() => JSON.stringify((window as unknown as Win).__parametric.renderer.camera.goal()));
+    const before = await state();
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('previousView'));
+    expect(await state()).toBe(before);
+    await expect(page.locator('.view-label')).toHaveText('Trimetric');
+  });
+
   test('Previous View keeps the perspective projection chosen since', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
