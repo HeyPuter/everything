@@ -20,6 +20,8 @@ export interface DialogOptions {
 }
 
 const openDialogs: HTMLElement[] = [];
+/** Longest gap between the two clicks of a double click (the Windows default). */
+const DOUBLE_CLICK_MS = 500;
 export const dialogOpen = () => openDialogs.length > 0;
 
 export function showDialog(o: DialogOptions): Promise<string | null> {
@@ -60,7 +62,10 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
       });
       foot.append(btn);
     }
-    backdrop.addEventListener('pointerdown', (e) => { if (e.target === backdrop) finish(null); });
+    // The second click of a double click on the button that opened the dialog
+    // lands on its backdrop: that press is not a click outside to dismiss it.
+    const opened = performance.now();
+    backdrop.addEventListener('pointerdown', (e) => { if (e.target === backdrop && performance.now() - opened > DOUBLE_CLICK_MS) finish(null); });
     dialog.addEventListener('keydown', (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }

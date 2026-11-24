@@ -151,6 +151,25 @@ describe('dialogs and toasts', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('stays open for the second click of the double click that opened it, and closes on a later click outside', async () => {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const p = showDialog({ title: 'Options', body: [] });
+      const backdrop = document.querySelector('.dialog-backdrop')!;
+      const press = () => backdrop.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      now += 200;
+      press();
+      expect(dialogOpen()).toBe(true);
+      now += 800;
+      press();
+      expect(await p).toBe(null);
+      expect(dialogOpen()).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('validates prompt input', async () => {
     const p = promptDialog('Name', 'Name', 'abc', (v) => (v.length < 2 ? 'Too short' : null));
     const input = document.querySelector('[role="dialog"] input') as HTMLInputElement;
