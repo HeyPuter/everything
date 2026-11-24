@@ -4,7 +4,7 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { PROJECTED_LOCKED, extendAt, extendPreview, filletCorner, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
+import { PROJECTED_LOCKED, extendAt, extendPreview, filletCorner, filletPreview, smartDimension, trimAt, trimPreview, zeroDimensionReason } from '../../sketch/ops';
 import { isExternal } from '../../sketch/external';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
@@ -654,11 +654,20 @@ export function sketchFilletTool(ed: SketchEditor): SkTool {
     label: 'Sketch Fillet',
     hint: 'Click a corner where two lines meet to round it.',
     picks: true,
+    move(s) {
+      // The arc a click would make, on the corner under the cursor.
+      const hit = ed.pickAt(s.p, 9);
+      const arc = hit?.kind === 'point' ? filletPreview(ed.sketch, hit.id, radius, Math.max(ed.px * 0.4, 1e-5)) : null;
+      ed.hovered = arc ? hit : null;
+      ed.setHighlight(arc ? [arc] : []);
+      ed.queueRender();
+    },
     click(s) {
       const hit = ed.pickAt(s.p, 9);
       if (!hit || hit.kind !== 'point') { ed.app.setStatus('Click the corner point shared by two lines.'); return true; }
       let err: string | null = null;
       ed.edit('Sketch fillet', (sk, newId) => { err = filletCorner(sk, hit.id, radius, newId); });
+      ed.setHighlight([]);
       if (err) toast({ kind: 'warning', message: err });
       return true;
     },

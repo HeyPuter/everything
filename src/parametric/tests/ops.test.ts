@@ -3,7 +3,7 @@ import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   addRelations, availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
-  extendPreview, offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, trimPreview, zeroDimensionReason,
+  extendPreview, filletPreview, offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, trimPreview, zeroDimensionReason,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
 import { buildProfiles } from '../src/sketch/profiles';
@@ -790,6 +790,20 @@ describe('editing tools', () => {
     expect(s.entities.find((e) => e.id === 'h')?.construction).toBe(first);
     expect(s.entities.find((e) => e.id === 'v')?.construction).toBe(second);
     expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+  });
+
+  it('previews the arc a corner fillet makes, and nothing where it cannot', () => {
+    const s = sk(rect(0, 0, 20, 10, 'f'));
+    const arc = filletPreview(s, 'fp2', 3)!;
+    // Corner (20, 10): the arc runs from one tangent point to the other around (17, 7).
+    for (const p of arc) expect(Math.hypot(p[0] - 17, p[1] - 7)).toBeCloseTo(3, 9);
+    const ends = [arc[0], arc[arc.length - 1]].map((p) => p.map((v) => Math.round(v * 1e6) / 1e6)).sort();
+    expect(ends).toEqual([[17, 10], [20, 7]]);
+    expect(filletPreview(s, 'fp2', 30)).toBeNull();
+    expect(filletCorner(s, 'fp2', 3, idFactory(s))).toBeNull();
+    const made = s.entities.find((e) => e.t === 'arc') as Extract<SkEntity, { t: 'arc' }>;
+    const ix = new SketchIndex(s.entities);
+    expect(arcAngles(ix, made).sweep).toBeCloseTo(Math.PI / 2, 9);
   });
 
   it('keeps a dimensioned rectangle in shape when a corner is filleted', () => {

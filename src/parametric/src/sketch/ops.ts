@@ -663,9 +663,8 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: st
 
 // ---------- fillet ----------
 
-/** Rounds the corner at a point shared by two lines. */
-export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, newId: (p: string) => Id): string | null {
-  const ix = new SketchIndex(sk.entities);
+/** Where a fillet of `radius` at a corner shared by two lines goes, or why it cannot. */
+function filletGeometry(sk: SketchFeature, ix: SketchIndex, pointId: Id, radius: number): { lines: SkLine[]; t1: Vec2; t2: Vec2; c: Vec2 } | string {
   let lines = sk.entities.filter((e): e is SkLine => e.t === 'line' && (e.a === pointId || e.b === pointId));
   // Construction lines ending at the corner (a center rectangle's diagonals,
   // the full length an earlier fillet keeps) stay on the virtual sharp.
@@ -685,6 +684,26 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   const bis = norm2([u1[0] + u2[0], u1[1] + u2[1]]);
   const cd = radius / Math.sin(theta / 2);
   const c: Vec2 = [corner[0] + bis[0] * cd, corner[1] + bis[1] * cd];
+  return { lines, t1, t2, c };
+}
+
+/** The arc a fillet at a corner would make, as a polyline, or null when it cannot be made. */
+export function filletPreview(sk: SketchFeature, pointId: Id, radius: number, tol = 0.01): Vec2[] | null {
+  const g = filletGeometry(sk, new SketchIndex(sk.entities), pointId, radius);
+  if (typeof g === 'string') return null;
+  const a0 = angle2(sub2(g.t1, g.c));
+  let sweep = wrap2Pi(angle2(sub2(g.t2, g.c)) - a0);
+  if (sweep > Math.PI) sweep -= 2 * Math.PI;
+  const n = segmentsFor(radius, Math.abs(sweep), tol);
+  return Array.from({ length: n + 1 }, (_, i) => [g.c[0] + radius * Math.cos(a0 + (sweep * i) / n), g.c[1] + radius * Math.sin(a0 + (sweep * i) / n)] as Vec2);
+}
+
+/** Rounds the corner at a point shared by two lines. */
+export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, newId: (p: string) => Id): string | null {
+  const ix = new SketchIndex(sk.entities);
+  const g = filletGeometry(sk, ix, pointId, radius);
+  if (typeof g === 'string') return g;
+  const { lines, t1, t2, c } = g;
   const p1 = newId('p'), p2 = newId('p'), pc = newId('p');
   sk.entities.push({ id: p1, t: 'point', x: t1[0], y: t1[1] }, { id: p2, t: 'point', x: t2[0], y: t2[1] }, { id: pc, t: 'point', x: c[0], y: c[1] });
   lines[0][lines[0].a === pointId ? 'a' : 'b'] = p1;
