@@ -5,7 +5,7 @@
 // entity id and the depth under the cursor. Frames are rendered on demand.
 
 import type { MeshData } from '../kernel/protocol';
-import { type Vec3, add, scale, toF32 } from '../math/vec';
+import { type Vec3, add, cross, dot, perpendicular, scale, sub, toF32 } from '../math/vec';
 import { Camera } from './camera';
 
 export type DisplayStyle = 'shadedEdges' | 'shaded' | 'hiddenRemoved' | 'hiddenVisible' | 'wireframe';
@@ -65,7 +65,6 @@ uniform int uFlat;
 uniform vec3 uFlatColor;
 uniform vec3 uSelColor;
 uniform vec3 uHoverColor;
-uniform vec3 uCapColor;
 out vec4 outColor;
 void main() {
   if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
@@ -102,7 +101,6 @@ void main() {
   vec3 col = base * (0.36 + 0.16 * hemi + 0.48 * d1 + 0.12 * d2) + vec3(0.2) * sp + base * rim * 0.06;
   if ((st & 2) != 0) col = mix(col, uSelColor, 0.62);
   else if ((st & 1) != 0) col = mix(col, uHoverColor, 0.45);
-  if (!gl_FrontFacing && uClipOn == 1) col = uCapColor;
   outColor = vec4(col, uAlpha);
 }`;
 
@@ -300,12 +298,42 @@ void main() {
 }`;
 
 /**
- * Section cap depth. Through the cut, the inside of the part shows as its back faces in the cap
- * colour; at their own depth, edges lying on them (a hole behind the cut) showed through the
- * cap. Where a back face is what is seen (marked in the stencil), this moves the depth onto the
- * section plane in front of it, as a real cap would be.
+ * Section caps. The cut face is drawn as a plane where it lies inside the part (an odd number of
+ * the part's remaining surfaces behind it, counted in the stencil), at the plane's depth: what
+ * lies behind it, like the edges of a hole, is hidden as by a real cut face.
  */
+const PARITY_FS = `#version 300 es
+precision highp float;
+in vec3 vWorld;
+uniform vec4 uClip;
+out vec4 outColor;
+void main() {
+  if (dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
+  outColor = vec4(0.0);
+}`;
+
+/** A square on the section plane (corners from the vertex index, no buffers). */
+const CAP_VS = `#version 300 es
+uniform mat4 uViewProj;
+uniform vec3 uCenter;
+uniform vec3 uU;
+uniform vec3 uV;
+void main() {
+  vec2 k = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) * 2.0 - 1.0;
+  gl_Position = uViewProj * vec4(uCenter + uU * k.x + uV * k.y, 1.0);
+}`;
+
 const CAP_FS = `#version 300 es
+precision highp float;
+uniform vec3 uColor;
+out vec4 outColor;
+void main() { outColor = vec4(uColor, 1.0); }`;
+
+/**
+ * Picking through a section: where a back face of the part is what is seen (marked in the
+ * stencil), the depth moves onto the section plane in front of it, as with the drawn cap.
+ */
+const PICK_CAP_FS = `#version 300 es
 precision highp float;
 in vec3 vWorld;
 uniform mat4 uViewProj;
@@ -313,12 +341,8 @@ uniform vec4 uClip;
 uniform vec3 uEye;
 uniform vec3 uViewDir;
 uniform int uOrtho;
-#ifdef PICK
 uniform mat4 uView;
 layout(location=1) out float outDepth;
-#else
-out vec4 outColor;
-#endif
 void main() {
   if (gl_FrontFacing || dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   vec3 d = uOrtho == 1 ? uViewDir : normalize(vWorld - uEye);
@@ -328,12 +352,8 @@ void main() {
   vec4 c = uViewProj * vec4(p, 1.0);
   // Only ever nearer: an open surface seen from behind, with the plane beyond it, keeps its depth.
   gl_FragDepth = min(gl_FragCoord.z, clamp(c.z / c.w * 0.5 + 0.5, 0.0, 1.0));
-#ifdef PICK
   // A pick on the cap is at the cap (where a zoom closes in or an orbit turns about).
   outDepth = min(-(uView * vec4(vWorld, 1.0)).z, -(uView * vec4(p, 1.0)).z);
-#else
-  outColor = vec4(0.0);
-#endif
 }`;
 
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
@@ -490,8 +510,9 @@ export class Renderer {
     this.progs.pickMesh = this.program(MESH_VS, PICK_MESH_FS);
     this.progs.pickSeg = this.program(SEG_VS, PICK_SEG_FS);
     this.progs.pickPt = this.program(PICK_PT_VS, PICK_PT_FS);
-    this.progs.cap = this.program(MESH_VS, CAP_FS);
-    this.progs.pickCap = this.program(MESH_VS, CAP_FS.replace('\n', '\n#define PICK\n'));
+    this.progs.parity = this.program(MESH_VS, PARITY_FS);
+    this.progs.cap = this.program(CAP_VS, CAP_FS);
+    this.progs.pickCap = this.program(MESH_VS, PICK_CAP_FS);
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
@@ -896,10 +917,10 @@ export class Renderer {
       if (style !== 'wireframe') {
         gl.enable(gl.POLYGON_OFFSET_FILL);
         gl.polygonOffset(1, 1);
-        if (clip) this.markCaps();
         this.drawMesh(body, vp, view, clip, { flat: flat ? 1 : 0, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
         gl.disable(gl.POLYGON_OFFSET_FILL);
-        if (clip) this.capDepth(body, vp, clip);
+        // Line styles fill the cut face like the faces, in the background colour.
+        if (clip) this.drawCap(body, showBody ? 'model' : 'preview', vp, clip, flat ? this.theme.background : this.theme.cap);
       } else if (showBody && this.faceStateData.some((s) => s & 3)) {
         // Wireframe draws no faces: tint just the selected and hovered ones.
         gl.disable(gl.DEPTH_TEST);
@@ -1017,16 +1038,59 @@ export class Renderer {
     gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.REPLACE);
   }
 
-  /** After markCaps and the mesh: puts the depth of the marked pixels on the section plane. */
-  private capDepth(m: GpuMesh, vp: Float32Array, clip: number[], pickView?: Float32Array) {
+  /** The section's cut face: the plane where it lies inside the mesh, at the plane's depth. */
+  private drawCap(m: GpuMesh, box: string, vp: Float32Array, clip: number[], color: number[]) {
+    const gl = this.gl;
+    const bounds = this.boundsOf([box]);
+    if (!bounds) return;
+    // Parity of the remaining surfaces behind each pixel's point on the plane: odd inside.
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilFunc(gl.ALWAYS, 0, 1);
+    gl.stencilOp(gl.KEEP, gl.INVERT, gl.INVERT);
+    gl.colorMask(false, false, false, false);
+    gl.depthMask(false);
+    gl.disable(gl.DEPTH_TEST);
+    let { p, u } = this.progs.parity;
+    gl.useProgram(p);
+    gl.uniformMatrix4fv(u.uViewProj, false, vp);
+    gl.uniform4fv(u.uClip, clip);
+    gl.bindVertexArray(m.vao);
+    gl.drawElements(gl.TRIANGLES, m.indexCount, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(null);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
+    // A square on the plane, around the mesh, drawn where the parity is odd.
+    gl.stencilFunc(gl.EQUAL, 1, 1);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    const n: Vec3 = [clip[0], clip[1], clip[2]], c = bounds.center;
+    const center = sub(c, scale(n, dot(n, c) + clip[3]));
+    const r = bounds.radius * 1.5 + 1;
+    const a = perpendicular(n);
+    ({ p, u } = this.progs.cap);
+    gl.useProgram(p);
+    gl.uniformMatrix4fv(u.uViewProj, false, vp);
+    gl.uniform3fv(u.uCenter, center);
+    gl.uniform3fv(u.uU, scale(a, r));
+    gl.uniform3fv(u.uV, scale(cross(n, a), r));
+    gl.uniform3fv(u.uColor, color);
+    // Behind the edges on it, as the faces are.
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1, 1);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.disable(gl.STENCIL_TEST);
+  }
+
+  /** Picking, after markCaps and the mesh: puts the depth of the marked pixels on the section plane. */
+  private capDepth(m: GpuMesh, vp: Float32Array, clip: number[], view: Float32Array) {
     const gl = this.gl, cam = this.camera, b = cam.back;
     gl.stencilFunc(gl.EQUAL, 1, 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-    if (!pickView) gl.colorMask(false, false, false, false);
     gl.depthFunc(gl.ALWAYS);
-    const { p, u } = pickView ? this.progs.pickCap : this.progs.cap;
+    const { p, u } = this.progs.pickCap;
     gl.useProgram(p);
-    if (pickView) gl.uniformMatrix4fv(u.uView, false, pickView);
+    gl.uniformMatrix4fv(u.uView, false, view);
     gl.uniformMatrix4fv(u.uViewProj, false, vp);
     gl.uniform4fv(u.uClip, clip);
     gl.uniform3fv(u.uEye, cam.eye);
@@ -1055,7 +1119,6 @@ export class Renderer {
     gl.uniform3fv(u.uFlatColor, this.theme.background);
     gl.uniform3fv(u.uSelColor, this.theme.selection);
     gl.uniform3fv(u.uHoverColor, this.theme.hover);
-    gl.uniform3fv(u.uCapColor, this.theme.cap);
     gl.uniform1i(u.uClipOn, clip ? 1 : 0);
     if (clip) gl.uniform4fv(u.uClip, clip);
     gl.activeTexture(gl.TEXTURE0);

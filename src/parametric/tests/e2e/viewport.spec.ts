@@ -567,6 +567,42 @@ test.describe('viewport', () => {
     seen.pixel.forEach((v, i) => expect(Math.abs(v - seen.cap[i])).toBeLessThan(25));
   });
 
+  test('the section view shows its cut face only where the part is cut', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    // Cut at x = 24 (keeping x < 24), seen from the isometric view: the cut face is the base's
+    // cross-section there. Nowhere else, such as along the outline of the part, shows its colour.
+    const stray = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      app.viewport.setView('isometric', false);
+      r.section = { normal: [1, 0, 0], offset: 24 };
+      const img = new Image();
+      img.src = r.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / r.camera.width;
+      const data = ctx.getImageData(0, 0, img.width, img.height).data;
+      // Screen box of the cross-section (with the counterbore it is smaller still), plus a margin.
+      const corners = [[24, 0, 0], [24, 8, 0], [24, 8, 30], [24, 0, 30]].map((p) => app.viewport.project(p as [number, number, number]).map((v) => v * k));
+      const x0 = Math.min(...corners.map((q) => q[0])) - 3, x1 = Math.max(...corners.map((q) => q[0])) + 3;
+      const y0 = Math.min(...corners.map((q) => q[1])) - 3, y1 = Math.max(...corners.map((q) => q[1])) + 3;
+      let n = 0;
+      for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+        if (x >= x0 && x <= x1 && y >= y0 && y <= y1) continue;
+        const i = (y * img.width + x) * 4;
+        if (data[i] - Math.max(data[i + 1], data[i + 2]) > 6) n++;
+      }
+      return n;
+    });
+    expect(stray).toBe(0);
+  });
+
   test('does not pick vertices cut away by the section view', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
