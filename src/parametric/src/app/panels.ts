@@ -198,8 +198,12 @@ abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
   ok(): boolean {
     const err = this.validate();
     if (err) { this.setMessage('error', err); return false; }
-    if (this.editingId) this.app.replaceFeature(this.f);
-    else this.app.insertFeature(this.f);
+    if (this.editingId) {
+      // The name, suppression and visibility belong to the design tree, which
+      // stays usable (in the flyout) while the panel is open: keep its changes.
+      const cur = this.app.store.feature(this.editingId);
+      this.app.replaceFeature(cur ? { ...this.f, name: cur.name, suppressed: cur.suppressed, hidden: cur.hidden } : this.f);
+    } else this.app.insertFeature(this.f);
     return true;
   }
 

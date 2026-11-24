@@ -55,3 +55,30 @@ test('Rename from the context menu of the flyout tree renames there while a pane
   await expect(page.locator('input.rename')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('OK in a feature panel keeps names and suppression changed in the flyout tree meanwhile', async ({
+  page,
+}) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Fillet1' }).dblclick();
+  await page.locator('.flyout-tree > button').click();
+  const flyout = page.getByRole('tree', { name: 'Design tree (flyout)' });
+  await flyout.getByRole('treeitem', { name: 'Fillet1' }).focus();
+  await page.keyboard.press('F2');
+  await page.keyboard.type('Round');
+  await page.keyboard.press('Enter');
+  await flyout.getByRole('treeitem', { name: 'Round' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Suppress' }).click();
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  await expect(page.locator('.flyout-tree')).toBeHidden();
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as Handle).__parametric.store.doc.features
+        .slice(-1)
+        .map((f) => ({ name: f.name, suppressed: !!f.suppressed })),
+    ),
+  ).toEqual([{ name: 'Round', suppressed: true }]);
+  expect(errors).toEqual([]);
+});
