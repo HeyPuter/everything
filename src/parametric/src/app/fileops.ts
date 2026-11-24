@@ -280,16 +280,19 @@ export class FileOps {
       // its discard snapshot cannot later restore the pre-save name/content.
       if (app.sketchEditor) app.exitSketch(true);
       const clean = safeName(name);
-      const rename = () => app.store.change('Rename part', (doc) => { doc.name = clean; });
+      const rename = (to = clean) => app.store.change('Rename part', (doc) => { doc.name = to; });
       if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
         const revision = this.revision;
         // null when the user cancels the picker; undefined when it failed (save to Parts instead).
         const loc = await pickCloudSave(serializeDocument({ ...app.store.doc, name: clean }), clean).catch(() => undefined);
-        if (loc) rememberRecent({ location: loc, name: clean });
+        // The picker lets the name be changed again: the part takes its file's
+        // name, as it will when the file is opened.
+        const picked = loc?.type === 'cloud' ? loc.path.split('/').pop()!.replace(/\.(parametric|json)$/i, '') || clean : clean;
+        if (loc) rememberRecent({ location: loc, name: picked });
         if (loc === null || documentVersion !== this.documentVersion) return;
         if (loc) {
           const unchanged = revision === this.revision;
-          rename();
+          rename(picked);
           app.location = loc;
           this.markSaved(unchanged ? this.revision : revision);
           toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });

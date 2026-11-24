@@ -203,6 +203,26 @@ test('cancelling cloud Save As preserves sketch geometry and allows saving it on
   expect(errors).toEqual([]);
 });
 
+test('a part saved under another name chosen in the Puter save dialog takes that name', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; __savePick: (name: string) => Promise<string> };
+    // The name typed in Parametric is changed again in Puter's dialog.
+    w.__savePick = async () => '/tester/Documents/Gear v2.parametric';
+    w.__parametric.commands.run('saveAs');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Save As' });
+  await dialog.getByRole('textbox').fill('Gear');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('Gear v2 - Parametric');
+  const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
+  expect(recent[0]).toMatchObject({ name: 'Gear v2', location: { type: 'cloud', path: '/tester/Documents/Gear v2.parametric' } });
+  expect(errors).toEqual([]);
+});
+
 test('a file that is not a part is refused before asking to discard, and changes nothing', async ({ page }) => {
   await mockPuter(page);
   await openApp(page);
@@ -1268,7 +1288,8 @@ for (const first of ['save', 'saveAs', 'rename', 'samePath'] as const) test(`Sav
     await w.pendingCopy;
   });
   await expect.poll(() => page.evaluate(() => (window as unknown as { saves: number }).saves)).toBe(first === 'rename' ? 1 : 2);
-  await expect(page).toHaveTitle('Copy - Parametric');
+  // A file name chosen in Puter's save dialog names the part.
+  await expect(page).toHaveTitle(`${first === 'samePath' ? 'Shared' : 'Copy'} - Parametric`);
   const path = `/tester/Documents/${first === 'samePath' ? 'Shared' : 'Copy'}.parametric`;
   expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path });
   expect(await page.evaluate((path) => JSON.parse((window as unknown as Mock).__files.get(path)!.text).name, path)).toBe('Copy');
