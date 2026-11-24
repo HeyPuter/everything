@@ -178,9 +178,12 @@ export class ModelBuilder {
 
   /** The feature that made a named face or edge, for messages. */
   private maker(name: string): string {
-    for (const id of refFeatureIds(name)) {
-      const f = this.order.get(id);
-      if (f) return ` (made by ${nameOf(id)})`;
+    for (const part of name.split('|')) {
+      // A copy ("f3:cap1@f7.4") was made by its pattern or mirror, not by the seed:
+      // a copy gone after its pattern lost instances named the seed feature.
+      const ids = refFeatureIds(part);
+      const id = ids[ids.length - 1];
+      if (id && this.order.has(id)) return ` (made by ${nameOf(id)})`;
     }
     return '';
   }

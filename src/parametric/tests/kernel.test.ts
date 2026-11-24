@@ -848,6 +848,10 @@ describe('feature regeneration', () => {
     const base: Feature[] = [named(sketch('S2', rect(0, 0, 10, 10)), 'Sketch2'), named(extrude('E2', 'S2', 10), 'Boss')];
     const gone: ShellFeature = { id: 'SH', name: 'SH', type: 'shell', thickness: 1, outward: false, faces: [{ name: 'E2:side:zz', sig: { type: 'cone', c: [99, 99, 99], area: 1 } }] };
     expect(await status([...base, gone], 'SH')).toBe('A referenced face (made by Boss) no longer exists. Edit the feature and select it again.');
+    // A pattern copy that is gone was made by the pattern.
+    const pattern: Feature = named({ id: 'LP', name: '', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 20, count: 2, flip: false }, dir2: null }, 'Row');
+    const copy: ShellFeature = { ...gone, faces: [{ name: 'E2:side:zz@LP.5', sig: { type: 'cone', c: [99, 99, 99], area: 1 } }] };
+    expect(await status([...base, pattern, copy], 'SH')).toBe('A referenced face (made by Row) no longer exists. Edit the feature and select it again.');
   });
 
   it('reports selected regions that a sketch edit moved away', async () => {
