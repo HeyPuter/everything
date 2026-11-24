@@ -694,3 +694,19 @@ test('Undo during a rollback-bar drag ignores late pointer events', async ({ pag
   expect(await rollback()).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('a revolve angle over 360 degrees is refused in the field', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Pipe Flange/ }).click();
+  await waitForFeature(page, 'Revolve1');
+  await page.getByRole('treeitem', { name: 'Revolve1' }).dblclick();
+  const angle = page.getByRole('textbox', { name: 'Angle', exact: true });
+  await angle.fill('400');
+  await angle.press('Tab');
+  await expect(angle).toHaveAttribute('aria-invalid', 'true');
+  await expect(angle).toHaveAttribute('title', /Must be at most 360/);
+  await angle.fill('270');
+  await angle.press('Tab');
+  expect(await angle.getAttribute('aria-invalid')).not.toBe('true');
+  expect(errors).toEqual([]);
+});

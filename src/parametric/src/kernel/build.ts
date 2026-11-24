@@ -728,9 +728,10 @@ export class ModelBuilder {
       const a = toWorld(frame, ix.pt(cl.a)), b = toWorld(frame, ix.pt(cl.b));
       axis = { p: a, d: normalize(sub(b, a)) };
     }
-    let angle = num(f.angle);
+    const angle = num(f.angle);
     if (angle <= 0) throw new FeatureError('Angle must be greater than zero');
-    angle = Math.min(angle, 360);
+    // More than a turn used to be cut to one without a word.
+    if (angle > 360 + 1e-9) throw new FeatureError('The angle cannot be more than 360 degrees');
     // Map a 3D point back into the sketch plane by undoing the rotation.
     const a2 = toLocal(frame, axis.p);
     const b2 = toLocal(frame, add(axis.p, axis.d));

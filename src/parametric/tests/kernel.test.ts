@@ -223,6 +223,8 @@ describe('feature regeneration', () => {
     ] as any[];
     await b.build(req([sketch('S1', ents), revolve('R1', 'S1')]));
     expect(volume(b)).toBeCloseTo(Math.PI * (100 - 25) * 20, 0);
+    const over = await b.build(req([sketch('S1', ents), revolve('R1', 'S1', 400)]));
+    expect(over.status[1].error).toBe('The angle cannot be more than 360 degrees');
   });
 
   it('rejects a revolve profile that crosses its axis with a readable error', async () => {

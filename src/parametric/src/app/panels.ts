@@ -275,7 +275,7 @@ export class RevolvePanel extends FeaturePanel<RevolveFeature> {
     const sketch = this.sketchBox('Profile sketch', () => f.sketch, (id) => { f.sketch = id ?? ''; });
     const axis = new SelectionBox(this, 'Axis of revolution', { edge: true, face: true }, toAxis(this.app), (items) => { f.axis = (items[0]?.data as AxisRef) ?? null; this.changed(); }, { single: true, placeholder: 'Uses the sketch centerline (or pick an edge)', icon: 'axis' });
     if (f.axis) axis.setItems([{ item: axisItem(this.app, f.axis), data: f.axis, label: axisLabel(this.app, f.axis) }]);
-    const angle = numberField({ label: 'Angle', icon: 'revolve', value: f.angle, kind: 'angle', ctx, min: 1e-6, onChange: (v) => { f.angle = v; this.changed(); } });
+    const angle = numberField({ label: 'Angle', icon: 'revolve', value: f.angle, kind: 'angle', ctx, min: 1e-6, max: 360, onChange: (v) => { f.angle = v; this.changed(); } });
     return [
       section('Profile', [sketch.el]),
       section('Axis', [axis.el]),
