@@ -70,11 +70,37 @@ function readIndex(): { id: string; name: string; modified: number; size: number
 }
 
 function writeIndex(list: unknown[]) {
+  storeLocally(LOCAL_INDEX, JSON.stringify(list));
+}
+
+/**
+ * Stores a small value in localStorage. Recovery copies written by closing
+ * tabs (see writeRecoveryOnUnload) only add the last seconds to the copies in
+ * browser storage: when the origin's quota is reached they give way, so the
+ * list of parts, the recent parts and the preferences are always written.
+ */
+export function storeLocally(key: string, value: string): boolean {
   try {
-    localStorage.setItem(LOCAL_INDEX, JSON.stringify(list));
+    localStorage.setItem(key, value);
+    return true;
   } catch {
-    /* storage unavailable */
+    try {
+      for (const k of unloadKeys()) localStorage.removeItem(k);
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
   }
+}
+
+function unloadKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith(UNLOAD_PREFIX)) keys.push(k);
+  }
+  return keys;
 }
 
 export const localAvailable = async () => !!(await opfsDir());
@@ -457,16 +483,12 @@ export function recentParts(): { location: Location; name: string; opened: numbe
 export function rememberRecent({ location, name }: { location: Location; name: string }) {
   const list = recentParts().filter((r) => !sameLocation(r.location, location));
   list.unshift({ location, name, opened: Date.now() });
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 12)));
-  } catch {
-    /* storage unavailable */
-  }
+  storeLocally(RECENT_KEY, JSON.stringify(list.slice(0, 12)));
 }
 
 export function forgetRecent(location: Location) {
   try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recentParts().filter((r) => !sameLocation(r.location, location))));
+    storeLocally(RECENT_KEY, JSON.stringify(recentParts().filter((r) => !sameLocation(r.location, location))));
   } catch {
     /* storage unavailable */
   }
@@ -595,15 +617,27 @@ export async function readRecovery(): Promise<string | null> {
 // A tab that is closing cannot wait for browser storage: what it has not
 // written yet goes into the synchronous key-value storage instead, if it fits.
 const UNLOAD_PREFIX = 'parametric:recovery-unload:';
-// Small enough to leave room for the list of parts kept in this browser and the preferences.
+// All such copies together, in characters: a fifth of the smallest origin
+// quota (5 MB), leaving the rest to the list of parts, recent parts and preferences.
 const UNLOAD_LIMIT = 1_000_000;
 const unloadKey = (file: string) => `${UNLOAD_PREFIX}${file.slice(RECOVERY_PREFIX.length, -5)}`;
 
 /** Writes this tab's recovery copy at once, while the tab is being closed; false when it does not fit. */
 export function writeRecoveryOnUnload(text: string): boolean {
   if (text.length > UNLOAD_LIMIT) return false;
+  const own = unloadKey(ownRecovery);
   try {
-    localStorage.setItem(unloadKey(ownRecovery), text);
+    // Older copies left by other tabs give way, oldest first, to stay within the limit.
+    const others = unloadKeys().filter((k) => k !== own)
+      .map((k) => { const v = localStorage.getItem(k) ?? ''; return { k, size: v.length, at: savedAtOf(v) }; })
+      .sort((a, b) => a.at - b.at);
+    let total = text.length + others.reduce((n, o) => n + o.size, 0);
+    for (const o of others) {
+      if (total <= UNLOAD_LIMIT) break;
+      localStorage.removeItem(o.k);
+      total -= o.size;
+    }
+    localStorage.setItem(own, text);
     return true;
   } catch {
     return false;

@@ -447,12 +447,38 @@ for (const how of ['closed', 'reloaded'] as const) test(`changes made just befor
   await offer.getByRole('button', { name: 'Restore' }).click();
   await expect(page).toHaveTitle('* Part1 - Parametric');
   expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['Last']);
-  // Restored, the copy is not offered again.
+  // Restored, the closing tab's quick copy is gone too, and the copy is not offered again.
+  const quickCopies = (p: typeof page) => p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('parametric:recovery-unload:')));
+  await expect.poll(() => quickCopies(page)).toEqual([]);
   await page.evaluate(() => { (window as unknown as { __parametric: AppHandle }).__parametric.store.dirty = false; });
   const next = await context.newPage();
   await openApp(next);
   await expect(next.getByRole('button', { name: /New part/ })).toBeVisible();
   await expect(next.getByRole('dialog', { name: 'Recover unsaved work?' })).toHaveCount(0);
+});
+
+test('the quick copy a closing tab keeps goes when it is discarded, or when its tab saves after all', async ({ context }) => {
+  const quickCopies = (p: import('@playwright/test').Page) => p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('parametric:recovery-unload:')));
+  const first = await context.newPage();
+  await mockPuter(first);
+  await openApp(first);
+  await first.getByRole('button', { name: /New part/ }).click();
+  await app(first);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Gone', expr: '1' }); }));
+  // The tab is hidden and comes back (a page kept for Back, say), then saves.
+  await first.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+  expect(await quickCopies(first)).toHaveLength(1);
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect.poll(() => quickCopies(first)).toEqual([]);
+  // Closed with changes, then discarded in the next tab.
+  await first.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('B', (d) => { d.variables.push({ name: 'Again', expr: '1' }); }));
+  await first.close({ runBeforeUnload: false });
+  const next = await context.newPage();
+  await mockPuter(next);
+  await openApp(next);
+  expect(await quickCopies(next)).toHaveLength(1);
+  await next.getByRole('dialog', { name: 'Recover unsaved work?' }).getByRole('button', { name: 'Discard' }).click();
+  await expect.poll(() => quickCopies(next)).toEqual([]);
 });
 
 test('unsaved work left by a closed tab is offered in one tab, not in every tab opened at the same time', async ({ context }) => {

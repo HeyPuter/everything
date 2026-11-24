@@ -8,6 +8,7 @@ import { AssistantPanel } from './assistant/panel';
 import { normalizeSettings } from './app/settings';
 import { KV_SETTINGS_KEY, kvGet, kvSet, loadPuter, puter, setWindowTitle } from './platform/puter';
 import { applyTheme } from './platform/theme';
+import { storeLocally } from './platform/files';
 import { installLongPressContextMenu } from './ui/longpress';
 import { toast } from './ui/overlay';
 
@@ -34,7 +35,7 @@ async function boot() {
   hooks.gettingStarted = () => app.openTaskPane('help');
   hooks.afterLoad = () => start?.hide();
   hooks.saveSettings = (s) => {
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
+    storeLocally(SETTINGS_KEY, JSON.stringify(s));
     // One small KV entry for all settings, written only on change.
     void kvSet(KV_SETTINGS_KEY, s);
   };
