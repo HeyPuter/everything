@@ -374,6 +374,12 @@ export async function massPropertiesDialog(app: App) {
     off();
   }
   const doc = app.store.doc;
+  // The kernel measures the body it shows: rolled back (by the bar, or to a
+  // sketch or feature being edited) it leaves out the features from there on,
+  // which the report did not say.
+  const limit = app.buildLimit();
+  const rolledTo = limit < doc.features.length ? doc.features[limit] : null;
+  const rolledBack = rolledTo ? `The part is rolled back to before ${rolledTo.name}: it and the features after it are not included.` : null;
   const u = UNIT_SYSTEMS[doc.units];
   const density = doc.material?.density ?? 1000;
   const L = u.length;
@@ -402,6 +408,7 @@ export async function massPropertiesDialog(app: App) {
   const t = (i: number) => tensorText[i];
   const text = [
     `Mass properties of ${doc.name}`,
+    ...(rolledBack ? [rolledBack] : []),
     ...rows.map(([k, v]) => `${k}: ${v}`),
     ...(mp.solid ? [
       `Moments of inertia about the center of mass (${u.mass}·${L}²):`,
@@ -433,6 +440,7 @@ export async function massPropertiesDialog(app: App) {
     onReady: (close) => { stopWatching = app.store.on((reason) => { if (reason !== 'saved') close(null); }); },
     wide: true,
     body: [
+      ...(rolledBack ? [h('p', { class: 'pm-msg warn' }, rolledBack)] : []),
       h('table', { class: 'table' }, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))),
       ...(mp.solid ? [
         h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, aligned with the part axes (${u.mass}·${L}²)`),
