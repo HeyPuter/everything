@@ -777,6 +777,25 @@ describe('editing tools', () => {
     expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(12, 6);
   });
 
+  it('lets go of the curve an extended end lay on instead of dragging it along', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 5, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'w1a', t: 'point', x: 5, y: -5 }, { id: 'w1b', t: 'point', x: 5, y: 5 }, { id: 'w1', t: 'line', a: 'w1a', b: 'w1b' },
+      { id: 'w2a', t: 'point', x: 10, y: -5 }, { id: 'w2b', t: 'point', x: 10, y: 5 }, { id: 'w2', t: 'line', a: 'w2a', b: 'w2b' },
+    ]);
+    s.constraints.push(
+      { id: 'k', type: 'coincident', refs: ['b', 'w1'] }, { id: 'v1', type: 'vertical', refs: ['w1'] }, { id: 'v2', type: 'vertical', refs: ['w2'] },
+      { id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'oc', type: 'coincident', refs: ['a', 'O'] },
+    );
+    expect(extendAt(s, 'h', [4.9, 0], idFactory(s))).toBe(true);
+    expect(s.constraints.some((c) => c.id === 'k')).toBe(false);
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.badConstraints.size).toBe(0);
+    // Neither wall moved: the end now lies on the far one.
+    const ix = new SketchIndex(s.entities);
+    expect([ix.pt('w1a')[0], ix.pt('w2a')[0], ix.pt('b')[0]]).toEqual([5, 10, 10]);
+  });
+
   it('keeps a line extended or trimmed at a spline on the spline', () => {
     const spline = (): SkEntity[] => [
       { id: 's0', t: 'point', x: 9, y: -6 }, { id: 's1', t: 'point', x: 10, y: 0 }, { id: 's2', t: 'point', x: 9, y: 6 },

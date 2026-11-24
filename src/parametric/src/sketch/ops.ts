@@ -10,7 +10,7 @@ import { isDimension } from '../model/types';
 import { SketchSystem } from './solver';
 import { type Vec2, angle2, cross2, dist2, dot2, norm2, sub2, wrap2Pi } from '../math/vec';
 import {
-  ORIGIN_ID, SketchIndex, arcAngles, arcRadius, closestOnSegment, curveParam, intersectPrims, pointIdsOf, primsOf, segmentsFor, tessellate,
+  ORIGIN_ID, SketchIndex, arcAngles, arcRadius, closestOnSegment, curveParam, distanceToCurve, intersectPrims, pointIdsOf, primsOf, segmentsFor, tessellate,
 } from './geom';
 
 export class IdGen {
@@ -675,6 +675,15 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: st
   pt.x = plan.to[0];
   pt.y = plan.to[1];
   dropLengthDimensions(sk, lineId);
+  // The end leaves the curves it lay on (a line drawn up to a circle, extended
+  // across it): relations holding it on them would drag them along to the new end.
+  const ix = new SketchIndex(sk.entities);
+  sk.constraints = sk.constraints.filter((k) => {
+    if ((k.type !== 'coincident' && k.type !== 'midpoint') || k.refs.length !== 2 || !k.refs.includes(plan.pid)) return true;
+    const other = ix.get(k.refs[0] === plan.pid ? k.refs[1] : k.refs[0]);
+    if (!other || other.t === 'point') return true;
+    return k.type === 'coincident' && distanceToCurve(ix, other, plan.to).d < 1e-7 * (1 + Math.hypot(plan.to[0], plan.to[1]));
+  });
   if (newId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [plan.pid, plan.by.id] });
   return true;
 }
