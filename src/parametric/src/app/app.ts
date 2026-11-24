@@ -1023,10 +1023,6 @@ export class App {
       this.vertices = mesh?.vertices ?? new Float32Array(0);
       this.renderer.setModel(mesh, res.faces.length, res.edges.length);
     }
-    if (this.fitOnNextBuild) {
-      this.fitOnNextBuild = false;
-      if (res.bbox) this.viewport.zoomToFit(false, false);
-    }
     const r = res.bbox ? Math.hypot(res.bbox.max[0] - res.bbox.min[0], res.bbox.max[1] - res.bbox.min[1], res.bbox.max[2] - res.bbox.min[2]) : 100;
     this.renderer.camera.sceneRadius = Math.max(r, 100);
     const isCut = !!this.panel && (this.panel.preview() as { cut?: boolean } | null)?.cut === true;
@@ -1046,6 +1042,11 @@ export class App {
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;
     this.viewport.refreshStates();
+    // After the sketches shown with the solid are drawn for this build: zoom to fit frames them too.
+    if (this.fitOnNextBuild) {
+      this.fitOnNextBuild = false;
+      if (res.bbox) this.viewport.zoomToFit(false, false);
+    }
     this.viewport.rehoverSoon();
     this.renderTrees();
     // Expression errors replace the kernel's view of the same feature.

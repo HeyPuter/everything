@@ -621,9 +621,20 @@ export class Renderer {
     // The origin marker is pixel-sized: far from the model it would only cost depth precision.
     if (key.endsWith(':origin')) return;
     this.boxes.set(key, positions ? boxOf(positions) : null);
+    this.camera.sceneBounds = this.boundsOf([...this.boxes.keys()]);
+  }
+
+  /**
+   * Bounding sphere of what some sources draw ('model', 'preview', or an overlay as
+   * `lines:key`, `points:key`, `tris:key`), or null when they draw nothing.
+   */
+  boundsOf(keys: string[]): { center: Vec3; radius: number } | null {
     const u: Box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-    for (const b of this.boxes.values()) if (b) for (let k = 0; k < 3; k++) { u[k] = Math.min(u[k], b[k]); u[k + 3] = Math.max(u[k + 3], b[k + 3]); }
-    this.camera.sceneBounds = u[0] <= u[3]
+    for (const key of keys) {
+      const b = this.boxes.get(key);
+      if (b) for (let k = 0; k < 3; k++) { u[k] = Math.min(u[k], b[k]); u[k + 3] = Math.max(u[k + 3], b[k + 3]); }
+    }
+    return u[0] <= u[3]
       ? { center: [(u[0] + u[3]) / 2, (u[1] + u[4]) / 2, (u[2] + u[5]) / 2], radius: Math.hypot(u[3] - u[0], u[4] - u[1], u[5] - u[2]) / 2 }
       : null;
   }

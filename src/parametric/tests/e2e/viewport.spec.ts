@@ -1218,6 +1218,34 @@ test.describe('viewport', () => {
     })).toBe(true);
   });
 
+  test('zoom to fit frames the sketches shown beside the solid', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // A part with a sketch no feature uses, far to the right of the solid, opened.
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const doc = structuredClone(app.store.doc);
+      doc.features.push({ id: 's9', name: 'Sketch9', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [{ id: 'c', t: 'point', x: 400, y: 0 }, { id: 'k', t: 'circle', c: 'c', r: 20 }], constraints: [] });
+      app.loadDocument(doc, null);
+    });
+    await expect(page.getByRole('treeitem', { name: 'Sketch9' })).toBeVisible();
+    const framed = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      return [[0, 0, 0], [60, 40, 30], [420, 0, 0], [380, -20, 0]].every((p) => {
+        const [x, y] = app.viewport.project(p as [number, number, number]);
+        return x >= 0 && x <= cam.width && y >= 0 && y <= cam.height;
+      });
+    });
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    await expect.poll(framed).toBe(true);
+    await page.evaluate(() => { const app = (window as unknown as Win).__parametric; app.viewport.setView('front', false); app.renderer.camera.zoomAt(0.2, 0, 0); });
+    expect(await framed()).toBe(false);
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.zoomToFit(false));
+    expect(await framed()).toBe(true);
+  });
+
   const countDoubleClicks = async (page: import('@playwright/test').Page) => {
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
     await waitForFeature(page, 'Fillet1');

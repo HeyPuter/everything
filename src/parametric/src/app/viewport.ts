@@ -459,11 +459,21 @@ export class Viewport {
     return hit?.point ?? this.modelCenter();
   }
 
-  modelCenter(): Vec3 {
+  /**
+   * What zoom to fit and the standard views frame: the solid and the sketches shown
+   * beside it; with no solid yet, what is drawn (sketches, a feature preview).
+   */
+  private fitSphere(): { center: Vec3; radius: number } | null {
     const b = this.app.bbox;
-    // No solid yet: what is drawn (sketches, a feature preview), else where the view looks.
-    if (!b) return this.camera.sceneBounds?.center ?? this.camera.target;
-    return scale(add(b.min, b.max), 0.5);
+    if (!b) return this.camera.sceneBounds;
+    const part = { center: scale(add(b.min, b.max), 0.5), radius: Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 };
+    const sketches = this.renderer.boundsOf(['lines:sketches', 'points:sketchPts']);
+    return sketches ? enclose(part, sketches) : part;
+  }
+
+  modelCenter(): Vec3 {
+    // Nothing drawn: where the view looks.
+    return this.fitSphere()?.center ?? this.camera.target;
   }
 
   // ---------- hover / picking ----------
@@ -772,13 +782,12 @@ export class Viewport {
   }
 
   modelRadius(): number {
-    const b = this.app.bbox;
-    const drawn = b ? null : this.camera.sceneBounds;
-    let r = b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 : drawn?.radius ?? 0;
+    const drawn = this.fitSphere();
+    let r = drawn?.radius ?? 0;
     const sk = this.app.sketchEditor?.bounds();
     if (sk) r = Math.max(r, sk.radius);
     // Only guard against a degenerate box: small parts must still fill the view.
-    return Math.max(r, b || drawn ? 1e-3 : 50);
+    return Math.max(r, drawn ? 1e-3 : 50);
   }
 
   zoomToFit(animate = true, remember = true) {
@@ -913,3 +922,12 @@ export class Viewport {
 }
 
 export const unitNormal = (v: Vec3) => normalize(v);
+
+/** The smallest sphere around two spheres. */
+function enclose(a: { center: Vec3; radius: number }, b: { center: Vec3; radius: number }): { center: Vec3; radius: number } {
+  const d = Math.hypot(b.center[0] - a.center[0], b.center[1] - a.center[1], b.center[2] - a.center[2]);
+  if (d + b.radius <= a.radius) return a;
+  if (d + a.radius <= b.radius) return b;
+  const radius = (d + a.radius + b.radius) / 2;
+  return { center: add(a.center, scale(sub(b.center, a.center), (radius - a.radius) / d)), radius };
+}
