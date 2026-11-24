@@ -326,6 +326,11 @@ export class SketchEditor implements ViewportTool {
     return this.app.selection.items.filter((x) => (kinds as string[]).includes(x.kind)).map((x) => (x as { id: Id }).id);
   }
 
+  /** How far from a point the cursor snaps to it, in sketch units. */
+  get snapTolerance(): number {
+    return this.px * 9 * this.reach();
+  }
+
   /** Snaps a raw sketch point using the active tool's context. */
   snap(raw: Vec2, e?: { ctrl?: boolean; pointerType?: string }): Snap {
     const t = this.tool;
@@ -334,7 +339,7 @@ export class SketchEditor implements ViewportTool {
       from: t?.from?.() ?? null,
       exclude: t?.exclude?.(),
       disabled: !!e?.ctrl || t?.snaps === false,
-      tol: this.px * 9 * this.reach(),
+      tol: this.snapTolerance,
     });
   }
 

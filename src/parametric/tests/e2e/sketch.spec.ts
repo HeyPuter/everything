@@ -1156,6 +1156,29 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('clicking the first point of a spline again closes it', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const splines = () => page.evaluate(() => {
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      return sk.entities.filter((e) => e.t === 'spline').map((e) => (e as { pts: string[] }).pts);
+    });
+    await page.locator('[data-cmd="tool:spline"]').click();
+    // Too few points for a loop: the first point again is not a new point.
+    await page.mouse.click(x - 100, y);
+    await page.mouse.click(x, y - 60);
+    await page.mouse.click(x - 100, y);
+    await page.mouse.click(x + 100, y);
+    // It added a fourth point beside the first, which did not exist yet to snap to: the curve stayed open.
+    await page.mouse.click(x - 97, y + 3);
+    await expect.poll(splines).toHaveLength(1);
+    const [pts] = await splines();
+    expect(pts).toHaveLength(4);
+    expect(pts[3]).toBe(pts[0]);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.tool?.id)).toBe('spline');
+    expect(errors).toEqual([]);
+  });
+
   test('Enter in the middle of a circle or a constraint keeps the tool and what it started', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

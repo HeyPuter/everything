@@ -590,11 +590,13 @@ export function slotTool(ed: SketchEditor): SkTool {
 
 export function splineTool(ed: SketchEditor): SkTool {
   const pts: Snap[] = [];
-  const finish = () => {
+  const finish = (closed = false) => {
     if (pts.length >= 2) {
       const list = [...pts];
-      ed.edit('Add spline', (sk, newId) => {
+      ed.edit(closed ? 'Add closed spline' : 'Add spline', (sk, newId) => {
         const ids = list.map((s) => ed.commitPoint(sk, s, newId));
+        // A closed spline ends on the point it started from (a profile of its own).
+        if (closed) ids.push(ids[0]);
         sk.entities.push({ id: newId('s'), t: 'spline', pts: ids });
       });
     }
@@ -606,17 +608,26 @@ export function splineTool(ed: SketchEditor): SkTool {
     for (const b of splineBeziers(list)) for (let i = 0; i <= 16; i++) out.push(bezierPoint(b, i / 16));
     return out;
   };
+  /**
+   * Whether a point closes the spline on its first point. The points placed so
+   * far do not exist in the sketch yet, so snapping cannot find that one.
+   */
+  const closes = (s: Snap) => pts.length >= 3 && dist2(pts[0].p, s.raw) < ed.snapTolerance;
   return {
     id: 'spline',
     label: 'Spline',
-    hint: 'Click points along the curve. Double-click or press Enter to finish.',
+    hint: 'Click points along the curve. Click the first point again to close it. Double-click or press Enter to finish.',
     from: () => null,
     move(s) {
       if (!pts.length) return;
-      ed.setPreview([curve([...pts.map((p) => p.p), s.p])], pts.map((p) => p.p));
+      const at = closes(s) ? pts[0].p : s.p;
+      ed.setPreview([curve([...pts.map((p) => p.p), at])], pts.map((p) => p.p));
     },
     click(s) {
       if (pts.length && dist2(pts[pts.length - 1].p, s.p) < ed.px * 2) return true;
+      if (closes(s)) { finish(true); return true; }
+      // Back on the first point with too few points for a loop: not a new point.
+      if (pts.length && dist2(pts[0].p, s.p) < ed.px * 2) return true;
       pts.push(s);
       return true;
     },
