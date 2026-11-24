@@ -135,7 +135,11 @@ test('malformed saved drawings are ignored while valid signatures remain usable'
   expect(JSON.parse(await stored(page))).toEqual({ items: valid });
   await page.getByRole('button', { name: 'Sign', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use saved signature 2: Ada Lovelace' }).click();
+  // The first signature's settings are still showing: wait for the second to be placed, as
+  // Download is unavailable until it is.
+  await expect(page.locator('.path-target')).toHaveCount(2);
   await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   expect(inspectPaths(await exported(page), 0)).toHaveLength(2);
   expect(errors).toEqual([]);
 });
