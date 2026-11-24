@@ -101,3 +101,33 @@ test('a rebuild that leaves the body unchanged does not resend or re-upload its 
   expect(await uploads()).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('a part opened again while its first build runs shows its body', async ({ page }) => {
+  // The first build's result was dropped (another open replaced the part), but
+  // the worker counted its mesh as sent: the second build said "unchanged" and
+  // the empty part's view stayed under a full design tree.
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = W['__parametric'] & {
+    renderer: { modelMesh: unknown };
+    kernel: { busy: boolean };
+    store: { doc: unknown };
+    newDocument(n: string): void;
+    loadDocument(doc: unknown, location: null): void;
+  };
+  const shown = await page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    await app.whenBuilt();
+    const doc = JSON.stringify(app.store.doc);
+    app.newDocument('Empty');
+    await app.whenBuilt();
+    app.loadDocument(JSON.parse(doc), null);
+    while (!app.kernel.busy) await new Promise((r) => setTimeout(r, 0));
+    app.loadDocument(JSON.parse(doc), null);
+    await app.whenBuilt();
+    return !!app.renderer.modelMesh;
+  });
+  expect(shown).toBe(true);
+  expect(errors).toEqual([]);
+});

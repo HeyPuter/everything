@@ -9,7 +9,7 @@
 
 import type { SolidWorksImport } from '../formats/sldprt';
 import type { Id } from '../model/types';
-import type { BuildRequest, BuildResult, MassProperties, MeasureResult, MeasureTarget, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
+import type { BuildRequest, BuildResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 type Call = Pending & { at: number; type: WorkerRequest['type'] };
@@ -41,6 +41,12 @@ export class KernelClient {
   private queued: { req: BuildRequest; waiters: Pending[] } | null = null;
   /** Imported file data the current worker already holds, by blob id. */
   private sentBlobs = new Map<Id, string>();
+  /**
+   * The body mesh the worker last sent, which a result with meshUnchanged
+   * stands for, even when the caller dropped the result that carried it
+   * (a build of a part replaced meanwhile).
+   */
+  lastMesh: MeshData | null = null;
   private started = false;
   private stalled = false;
   private watchdog: ReturnType<typeof setInterval> | null = null;
@@ -67,6 +73,7 @@ export class KernelClient {
     const w = this.createWorker();
     this.worker = w;
     this.sentBlobs.clear();
+    this.lastMesh = null;
     w.onmessage = (ev: MessageEvent<WorkerResponse>) => {
       const r = ev.data;
       const p = this.pending.get(r.id);
@@ -171,7 +178,10 @@ export class KernelClient {
     for (const k of ids) if (this.sentBlobs.get(k) !== req.blobs[k]) fresh[k] = req.blobs[k];
     this.sentBlobs = new Map(ids.map((k) => [k, req.blobs[k]]));
     this.call<BuildResult>({ type: 'build', req: { ...req, blobs: fresh }, blobs: ids })
-      .then((res) => { for (const w of waiters) w.resolve(res); })
+      .then((res) => {
+        if (!res.meshUnchanged) this.lastMesh = res.mesh;
+        for (const w of waiters) w.resolve(res);
+      })
       .catch((e) => { for (const w of waiters) w.reject(e); })
       .finally(() => {
         this.building = false;

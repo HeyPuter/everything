@@ -1,7 +1,7 @@
 // The application hub: document store, geometry worker, renderer, viewport,
 // selection, PropertyManager panels, sketch mode and the rebuild loop.
 
-import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus } from '../kernel/protocol';
+import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MeshData } from '../kernel/protocol';
 import { KernelClient, KernelRestartError } from '../kernel/client';
 import type { Frame, Vec3 } from '../math/vec';
 import { DocStore, newDocument } from '../model/document';
@@ -915,6 +915,8 @@ export class App {
   }
 
   private lastBuildResult: BuildResult | null = null;
+  /** The body mesh the viewport shows. */
+  private shownMesh: MeshData | null = null;
 
   /** Incremented after every rebuild (drawings re-project when it changes). */
   buildVersion = 0;
@@ -984,9 +986,14 @@ export class App {
     this.frames = res.frames;
     this.linkedSketches = res.sketches ?? {};
     this.bbox = res.bbox;
-    if (!res.meshUnchanged) {
-      this.vertices = res.mesh?.vertices ?? new Float32Array(0);
-      this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
+    // An unchanged mesh is the one the worker last sent, which is not the one
+    // shown when its result was dropped (a part opened again while its first
+    // build ran): show that one then.
+    const mesh = res.meshUnchanged ? this.kernel.lastMesh : res.mesh;
+    if (!res.meshUnchanged || mesh !== this.shownMesh) {
+      this.shownMesh = mesh;
+      this.vertices = mesh?.vertices ?? new Float32Array(0);
+      this.renderer.setModel(mesh, res.faces.length, res.edges.length);
     }
     if (this.fitOnNextBuild) {
       this.fitOnNextBuild = false;
