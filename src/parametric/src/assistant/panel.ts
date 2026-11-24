@@ -590,6 +590,8 @@ export class AssistantPanel {
       res = await go((e) => {
         if (this.turn !== turn) return;
         if (e.type === 'text') {
+          // Line breaks before a step or more text would make an empty block: a gap in the reply.
+          if (!turn.text && !e.text.trim()) return;
           if (!turn.text) {
             turn.text = { el: h('div', { class: 'as-text' }), src: '' };
             turn.body.append(turn.text.el);

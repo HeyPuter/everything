@@ -737,3 +737,21 @@ test('Edit > Undo and its keys wait while the assistant changes the part, so the
   await page.keyboard.press('Meta+z');
   await expect.poll(names).toEqual([]);
 });
+
+test('text of nothing but spaces and line breaks leaves no empty gap in the reply', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: '\n\n' }; yield { type: 'text', text: 'Done.' }; return; }
+      yield { type: 'text', text: '\n\n ' };
+      yield { type: 'tool', id: 'c1', name: 'calculate', input: { expressions: ['1+1'] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Add');
+  await box.press('Enter');
+  await expect(page.getByText('Done.')).toBeVisible();
+  await expect(page.locator('.as-bot .as-text')).toHaveCount(1);
+  await expect(page.locator('.as-bot .as-body > *').first()).toHaveClass(/as-steps/);
+});
