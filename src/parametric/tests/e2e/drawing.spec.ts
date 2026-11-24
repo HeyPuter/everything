@@ -352,6 +352,28 @@ test('commands for the 3D view are disabled while the drawing sheet is shown', a
   expect(await enabled()).toEqual(ids);
 });
 
+test('undoing a model edit made before the drawing was opened keeps the drawing open', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { inDrawing: boolean; store: { undoDepth: number; change(l: string, fn: (d: { features: { type: string; depth?: number }[] }) => void): void; doc: { drawing?: unknown; features: { type: string; depth?: number }[] } } };
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Depth', (d) => { d.features.find((f) => f.type === 'extrude')!.depth = 34; }));
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  const state = () => page.evaluate(() => { const a = (window as unknown as { __parametric: A }).__parametric; return { inDrawing: a.inDrawing, drawing: !!a.store.doc.drawing, depth: a.store.doc.features.find((f) => f.type === 'extrude')!.depth, undo: a.store.undoDepth }; });
+  const s0 = await state();
+  await page.locator('.drawing-ws').focus();
+  await page.keyboard.press('Meta+Z');
+  // The edit is undone, with no extra undo step, and the drawing stays on screen.
+  await expect.poll(async () => (await state()).depth).toBe(30);
+  expect(await state()).toEqual({ inDrawing: true, drawing: true, depth: 30, undo: s0.undo - 1 });
+  await expect(page.locator('.sheet-tabs').getByRole('tab', { name: 'Drawing' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  await page.keyboard.press('Meta+Shift+Z');
+  await expect.poll(async () => (await state()).depth).toBe(34);
+  expect((await state()).inDrawing).toBe(true);
+});
+
 test.describe('in a time zone behind UTC', () => {
   test.use({ timezoneId: 'Pacific/Pago_Pago' });
   test('the title block shows the local date', async ({ page }) => {

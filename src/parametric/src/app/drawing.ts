@@ -50,7 +50,14 @@ export class DrawingWorkspace {
     this.bind();
     // A drawing made before the part had a solid is laid out when the solid exists, even
     // if the drawing was left meanwhile; not once another document replaced that part.
-    app.store.on((reason) => { if (reason === 'load') this.layoutPending = false; });
+    app.store.on((reason) => {
+      if (reason === 'load') { this.layoutPending = false; this.untouched = ''; }
+      // Undoing an edit made before the drawing was first shown takes the drawing out of the
+      // part with it. A drawing nobody changed was never an edit: on screen, it stays.
+      else if ((reason === 'undo' || reason === 'redo') && this.active && !app.store.doc.drawing && this.untouched) {
+        app.store.doc.drawing = JSON.parse(this.untouched) as DrawingDoc;
+      }
+    });
   }
 
   get doc(): DrawingDoc | null {
