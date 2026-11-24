@@ -649,3 +649,7 @@ a.icon-btn { text-decoration: none; }
   .check input { width: 18px; height: 18px; }
   .pm-section > .sec-head-check input[type='checkbox'] { width: 20px; height: 20px; margin-right: 4px; }
 }
+/* Small phones: the part name needs the logo's room more than the logo. */
+@media (max-width: 380px) {
+  .tb-brand { display: none; }
+}

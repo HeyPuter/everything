@@ -289,3 +289,12 @@ test('the closed design tree sheet leaves the whole status bar to taps', async (
     }));
   expect(blocked).toEqual([]);
 });
+
+test('a small phone\'s title bar shows the whole default part name', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const title = page.locator('.doc-title');
+  await expect(title).toHaveText('Part1');
+  expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
