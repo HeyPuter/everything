@@ -17,7 +17,7 @@ import {
   removeAnnotationThread,
 } from './structure.js';
 import { annotationId } from './links.js';
-import { indexPageText, searchQuery } from './search.js';
+import { foldChar, indexPageText, searchQuery } from './search.js';
 import {
   contentReport,
   filterContent,
@@ -1152,7 +1152,9 @@ async function pageTextLayout(doc, pageIndex, report) {
         }
         return;
       }
-      for (const folded of searchQuery(char)) {
+      // Folded once per distinct character, as the Find bar does: a page repeats a few hundred
+      // of them, and folding each glyph afresh paused a search of a few hundred pages.
+      for (const folded of foldChar(char)) {
         text += folded;
         owner.push(index);
       }

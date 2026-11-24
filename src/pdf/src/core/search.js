@@ -43,7 +43,7 @@ export const searchQuery = (value) => fold(normalize(value).trim());
 // A page repeats a few hundred distinct characters; folding each one once keeps indexing a
 // page of a hundred thousand characters, which every redraw of it does, from pausing the view.
 const foldedChars = new Map();
-function foldChar(char) {
+export function foldChar(char) {
   let folded = foldedChars.get(char);
   if (folded === undefined) {
     folded = fold(char);
