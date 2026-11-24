@@ -978,6 +978,12 @@ describe('feature regeneration', () => {
     expect(r2.mesh).toBe(r1.mesh);
     // The exact bounding box (slow for filleted bodies) is not computed again.
     expect(r2.bbox).toBe(r1.bbox);
+    // Opening and closing a sketch builds up to before it, then past it: the
+    // body is the same and is not meshed again.
+    const withSketch = [...feats, sketch('S3', circle(5, 5, 1))];
+    const open = await b.build({ ...req(withSketch), upTo: 2, preview: withSketch[2] });
+    expect(open.mesh).toBe(r1.mesh);
+    expect((await b.build(req(withSketch))).mesh).toBe(r1.mesh);
   });
 
   it('computes mass properties and exports STEP and STL', async () => {

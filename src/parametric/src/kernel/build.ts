@@ -158,12 +158,19 @@ export function hashString(s: string, seed = 0): string {
 export class ModelBuilder {
   private steps: Step[] = [];
   private current: State = emptyState();
-  private meshKey = '';
+  /**
+   * What the cached mesh was made from. Keyed by the body and its faces, not
+   * by the chain of steps: a sketch or plane leaves the body as it was, yet
+   * opening or closing it (which builds up to before it, then past it)
+   * meshed the whole part again and sent it to the GPU, 0.6 s on a plate of
+   * 400 holes.
+   */
+  private meshKey: { body: Sh | null; faces: NamedFace[]; quality: number } | null = null;
   private meshCache: { mesh: MeshData | null; faces: FaceInfo[]; edges: EdgeInfo[] } | null = null;
 
   reset() {
     this.steps = [];
-    this.meshKey = '';
+    this.meshKey = null;
     this.meshCache = null;
     this.importCache.clear();
     this.importVersions.clear();
@@ -276,10 +283,10 @@ export class ModelBuilder {
       for (const blob of this.importVersions.keys()) if (!(blob in req.blobs) && !referenced.has(blob)) this.importVersions.delete(blob);
     }
 
-    const meshKey = chain + ':' + req.quality;
-    if (meshKey !== this.meshKey || !this.meshCache) {
+    const k = this.meshKey;
+    if (!k || k.body !== state.body || k.faces !== state.faces || k.quality !== req.quality || !this.meshCache) {
       this.meshCache = this.meshState(state, req.quality);
-      this.meshKey = meshKey;
+      this.meshKey = { body: state.body, faces: state.faces, quality: req.quality };
     }
     const frames: Record<Id, Frame> = {};
     for (const [k, v] of state.frames) frames[k] = v;
