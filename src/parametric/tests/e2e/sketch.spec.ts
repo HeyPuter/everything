@@ -998,6 +998,27 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the Modify box says a variable in a circular reference is circular, not unknown', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Variables', (doc) => { doc.variables.push({ id: 'va', name: 'Loop', expr: 'Loop2+1' }, { id: 'vb', name: 'Loop2', expr: 'Loop*2' }); });
+      a.sketchEditor!.edit('Add line', (sk) => {
+        sk.entities.push({ id: 'a1', t: 'point', x: 0, y: 0 }, { id: 'a2', t: 'point', x: 10, y: 0 }, { id: 'A', t: 'line', a: 'a1', b: 'a2' });
+        sk.constraints.push({ id: 'D', type: 'distance', refs: ['A'], value: 10, at: [5, -5], name: 'D1' });
+      });
+      a.sketchEditor!.openModify('D');
+    });
+    const box = page.getByRole('dialog', { name: 'Modify D1' });
+    await box.getByRole('textbox').fill('=Loop/2');
+    // It said 'Unknown name "Loop"' for a variable listed in the equations.
+    await expect(box.getByRole('alert')).toHaveText('Variable "Loop": Circular reference');
+    await box.getByRole('textbox').fill('=Nope');
+    await expect(box.getByRole('alert')).toHaveText('Unknown name "Nope"');
+    expect(errors).toEqual([]);
+  });
+
   test('a driven dimension that would over-define the sketch stays driven when made driving', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

@@ -8,7 +8,7 @@ import { dist2, toLocal, toWorld } from '../../math/vec';
 import type { Id, Param, RelationType, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
 import { isDimension } from '../../model/types';
 import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
-import { evaluate, evaluateVariables, variableReferenceChanges } from '../../model/expr';
+import { ExprError, evaluate, evaluateVariables, variableReferenceChanges } from '../../model/expr';
 import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
@@ -940,7 +940,14 @@ export class SketchEditor implements ViewportTool {
         const num = evaluate(s.replace(/^=/, ''), {
           kind: d.type === 'angle' ? 'angle' : 'length',
           bareScale: scale,
-          lookup: (n) => this.app.variables().get(n),
+          lookup: (n) => {
+            const v = this.app.variables().get(n);
+            // A variable that exists but cannot be evaluated (a circular
+            // reference) is not an unknown name: say what is wrong with it.
+            const bad = v === undefined ? evaluateVariables(this.app.store.doc.variables).errors.get(n) : undefined;
+            if (bad) throw new ExprError(`Variable "${n}": ${bad}`);
+            return v;
+          },
         });
         if (!(num > 0) && d.type !== 'angle') return { ok: false, e: 'Value must be greater than zero' };
         // The angle between two lines is 0 to 180 degrees; the label side picks the sector.
