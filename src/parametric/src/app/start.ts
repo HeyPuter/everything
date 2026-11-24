@@ -2,7 +2,7 @@
 
 import { UNIT_SYSTEMS } from '../model/units';
 import type { UnitSystem } from '../model/types';
-import { locationLabel, recentParts, sameLocation } from '../platform/files';
+import { accountPartsChanged, locationLabel, recentParts, sameLocation } from '../platform/files';
 import { accountChanged, canSignOut, cloudAvailable, env, getProfilePicture, getUser, isSignedIn, puter, signIn, signOut } from '../platform/puter';
 import { getThemeChoice, setThemeChoice } from '../platform/theme';
 import { h, nextDomId } from '../ui/dom';
@@ -128,6 +128,7 @@ async function signedIn(app: App) {
   });
   await refreshAccount(app);
   app.loadRemoteSettings();
+  accountPartsChanged();
 }
 
 /** Updates the account button (profile picture or initial). */
@@ -180,6 +181,7 @@ export function bindAccountMenu(app: App) {
         label: 'Sign out', icon: 'signOut', run: async () => {
           await signOut();
           await refreshAccount(app);
+          accountPartsChanged();
           toast({ message: 'Signed out. New parts will be saved in this browser.' });
         },
       });
@@ -203,6 +205,7 @@ export function bindUserMenu(app: App) {
   el.addEventListener('signout', () => {
     accountChanged();
     void refreshAccount(app);
+    accountPartsChanged();
     toast({ message: 'Signed out. New parts will be saved in this browser.' });
   });
 }

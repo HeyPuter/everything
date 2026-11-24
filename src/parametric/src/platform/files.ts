@@ -296,6 +296,9 @@ export function onPartsChanged(fn: () => void): () => void {
 function partsChanged() {
   for (const fn of partsListeners) fn();
 }
+
+/** The parts the user can open changed as a whole (signed in or out): lists show them again. */
+export const accountPartsChanged = () => partsChanged();
 savesChannel?.addEventListener('message', () => partsChanged());
 
 export function announceSaved(location: Location) {

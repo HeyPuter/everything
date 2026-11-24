@@ -526,10 +526,14 @@ test('signing in with a part kept in this browser says Save As moves it to the c
   await app(page);
   await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
   await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location?.type)).toBe('local');
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.openTaskPane('files'));
+  await expect(page.locator('.tp-body')).toContainText('Parts in this browser');
   await page.getByRole('button', { name: 'Account: not signed in' }).click();
   await page.getByRole('menuitem', { name: 'Sign in with Puter' }).click();
   const toasts = page.getByRole('region', { name: 'Notifications' });
   await expect(toasts).toContainText('"Part1" stays in this browser until you save it to the cloud with Save As.');
+  // The Parts pane, open meanwhile, now lists the cloud parts too.
+  await expect(page.locator('.tp-body')).toContainText('Your parts');
   await toasts.getByRole('button', { name: 'Save As...' }).click();
   await expect.poll(() => page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Part1.parametric']);
   expect(errors).toEqual([]);
