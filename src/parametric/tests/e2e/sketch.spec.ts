@@ -102,6 +102,24 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Offset says splines cannot be offset yet instead of blaming the distance', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add spline', (sk) => {
+        sk.entities.push({ id: 's0', t: 'point', x: 0, y: 0 }, { id: 's1', t: 'point', x: 10, y: 6 }, { id: 's2', t: 'point', x: 20, y: 0 }, { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] });
+      });
+      a.selection.set([{ kind: 'sk', id: 'sp' }]);
+      a.commands.run('offset');
+    });
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).fill('2');
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await expect(page.getByText("Splines can't be offset yet. Select lines, arcs or circles.")).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.length)).toBe(4);
+    expect(errors).toEqual([]);
+  });
+
   for (const shape of ['semicircle', 'lens'] as const) test(`an impossible inward ${shape} offset leaves the sketch and Redo unchanged`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

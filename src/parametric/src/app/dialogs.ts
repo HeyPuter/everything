@@ -765,9 +765,13 @@ export class OffsetPanel extends NumericToolPanel {
     if (!ed) return true;
     const ids = ed.selectedIds();
     if (!ids.length) { this.setMessage('error', 'Select sketch curves to offset first.'); return false; }
+    // Splines are left out of an offset: say so rather than blame the distance.
+    const kinds = new Set(ed.sketch.entities.filter((e) => ids.includes(e.id) && e.t !== 'point').map((e) => e.t));
+    if (kinds.size === 1 && kinds.has('spline')) { this.setMessage('error', "Splines can't be offset yet. Select lines, arcs or circles."); return false; }
     let created: string[] = [];
     ed.edit('Offset entities', (sk, newId) => { created = offsetCurves(sk, ids, this.reverse ? -this.distance : this.distance, newId); });
     if (!created.length) toast({ kind: 'warning', message: 'Nothing could be offset with that distance.' });
+    else if (kinds.has('spline')) toast({ kind: 'warning', message: "Splines can't be offset yet; the other selected curves were offset." });
     return true;
   }
 }
