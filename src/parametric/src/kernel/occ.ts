@@ -5,7 +5,8 @@
 
 import * as R from 'replicad';
 import type { Frame, Vec3 } from '../math/vec';
-import { cross, dot, frameFrom, len, normalize, scale, sub } from '../math/vec';
+import { cross, dot, len, normalize, scale, sub } from '../math/vec';
+import { planeFrame } from '../model/planes';
 
 export type OC = any;
 let oc: OC = null;
@@ -281,13 +282,9 @@ export function sharesSurface(a: Sh, b: Sh, cache: SurfaceCache): boolean {
   return !!sa && !!sb && sa.isAliasOf(sb);
 }
 
-/** Sketch frame for a planar face: origin is the projected world origin. */
-export function planarFaceFrame(desc: SurfDesc): Frame {
-  const n = desc.d;
-  const o = sub([0, 0, 0], scale(n, dot(sub([0, 0, 0], desc.p), n)));
-  // Prefer world X projected into the plane, else world Z.
-  const cand: Vec3 = Math.abs(n[0]) < 0.99 ? [1, 0, 0] : [0, 0, -Math.sign(n[0])];
-  return frameFrom(o, cand, n);
+/** Sketch frame for a planar face: origin is the projected world origin (see planeFrame). */
+export function planarFaceFrame(desc: SurfDesc, x?: Vec3): Frame {
+  return planeFrame(desc.p, desc.d, x);
 }
 
 export interface EdgeDesc {

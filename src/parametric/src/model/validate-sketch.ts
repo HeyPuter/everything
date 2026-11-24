@@ -16,7 +16,7 @@ function plane(v: unknown): boolean {
   if (v.kind === 'feature') return id(v.id);
   if (v.kind !== 'face' || !object(v.face) || !id(v.face.name) || !object(v.face.sig)) return false;
   const s = v.face.sig;
-  return typeof s.type === 'string' && vector(s.c, 3) && Number.isFinite(s.area) && (s.n === undefined || vector(s.n, 3));
+  return typeof s.type === 'string' && vector(s.c, 3) && Number.isFinite(s.area) && (s.n === undefined || vector(s.n, 3)) && (v.x === undefined || vector(v.x, 3));
 }
 
 function edgeRef(v: unknown): boolean {

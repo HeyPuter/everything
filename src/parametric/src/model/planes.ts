@@ -1,4 +1,4 @@
-import { type Frame, frameFrom } from '../math/vec';
+import { type Frame, type Vec3, dot, frameFrom, len, scale, sub } from '../math/vec';
 import type { BasePlane } from './types';
 
 /**
@@ -16,3 +16,20 @@ export const BASE_PLANE_NAMES: Record<BasePlane, string> = {
   top: 'Top Plane',
   right: 'Right Plane',
 };
+
+/** The world direction a planar face's frame takes its x axis from: world X, or Z for a face facing along X. */
+export function faceFrameAxis(n: Vec3): Vec3 {
+  return Math.abs(n[0]) < 0.99 ? [1, 0, 0] : [0, 0, -Math.sign(n[0])];
+}
+
+/**
+ * Frame of the plane through p with unit normal n: its origin is the world
+ * origin projected on it, its x axis the projection of x (the direction kept
+ * from when the face was picked) or, without one or when the plane has turned
+ * to face along it, of faceFrameAxis.
+ */
+export function planeFrame(p: Vec3, n: Vec3, x?: Vec3): Frame {
+  const o = sub([0, 0, 0], scale(n, dot(sub([0, 0, 0], p), n)));
+  const kept = x && len(sub(x, scale(n, dot(x, n)))) > 0.05 ? x : null;
+  return frameFrom(o, kept ?? faceFrameAxis(n), n);
+}

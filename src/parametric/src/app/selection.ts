@@ -4,6 +4,7 @@
 import type { EdgeInfo, FaceInfo } from '../kernel/protocol';
 import type { Vec3 } from '../math/vec';
 import type { EdgeRef, FaceRef, Id, PlaneRef } from '../model/types';
+import { faceFrameAxis } from '../model/planes';
 
 export type SelItem =
   | { kind: 'face'; index: number; name: string }
@@ -42,6 +43,11 @@ export function sameItem(a: SelItem, b: SelItem): boolean {
 
 export function faceRef(f: FaceInfo): FaceRef {
   return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } };
+}
+
+/** A planar face as a plane reference, keeping the direction its frame's x axis comes from now. */
+export function facePlaneRef(f: FaceInfo): PlaneRef {
+  return { kind: 'face', face: faceRef(f), ...(f.normal ? { x: faceFrameAxis(f.normal) } : {}) };
 }
 
 export function edgeRef(e: EdgeInfo): EdgeRef {

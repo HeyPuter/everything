@@ -20,7 +20,7 @@ import type { App } from './app';
 import {
   PropertyPanel, SelectionBox, type SelBoxItem, checkbox, flipButton, numberField, section, selectField, settleNumberFields,
 } from './pm';
-import { type SelItem, edgeRef, faceRef } from './selection';
+import { type SelItem, edgeRef, facePlaneRef, faceRef } from './selection';
 
 // ---------- conversions from picks ----------
 
@@ -58,7 +58,7 @@ export const toPlane = (app: App) => (it: SelItem): SelBoxItem | null => {
   if (it.kind === 'face') {
     const f = app.faces[it.index];
     if (f?.type !== 'plane') return null;
-    return { item: it, data: { kind: 'face', face: faceRef(f) } as PlaneRef, label: faceLabel(app, it.index) };
+    return { item: it, data: facePlaneRef(f), label: faceLabel(app, it.index) };
   }
   return null;
 };
@@ -491,7 +491,7 @@ export class HolePanel extends FeaturePanel<HoleFeature> {
     if (!f.sketch || !this.createdSketch) {
       const id = app.store.nextId('s');
       const name = defaultName(app.store.doc, 'sketch');
-      const sk = newSketch(id, name, { kind: 'face', face: faceRef(face) });
+      const sk = newSketch(id, name, facePlaneRef(face));
       sk.frame = frame;
       sk.entities.push({ id: 'p1', t: 'point', x: local[0], y: local[1] });
       app.insertFeature(sk);

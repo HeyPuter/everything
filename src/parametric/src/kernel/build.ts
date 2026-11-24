@@ -403,7 +403,7 @@ export class ModelBuilder {
     const i = this.resolveFace(ref.face, st);
     const d = st.faces[i].desc;
     if (d.type !== 'plane') throw new FeatureError('The selected face is not planar');
-    return planarFaceFrame(d);
+    return planarFaceFrame(d, ref.x);
   }
 
   private tol(st: State): number {

@@ -7,7 +7,7 @@ import type { Frame, Vec3 } from '../math/vec';
 import { DocStore, newDocument } from '../model/document';
 import { evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
-import { BASE_FRAMES, BASE_PLANE_NAMES } from '../model/planes';
+import { BASE_FRAMES, BASE_PLANE_NAMES, planeFrame } from '../model/planes';
 import type { BasePlane, Feature, Id, PlaneRef, SkEntity, SketchFeature } from '../model/types';
 import { UNIT_SYSTEMS } from '../model/units';
 import { Renderer, type Theme } from '../render/renderer';
@@ -21,7 +21,7 @@ import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, retireNumberFields, type UnitContext } from './pm';
-import { Selection, faceRef, remapItem, type SelItem } from './selection';
+import { Selection, facePlaneRef, faceRef, remapItem, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
 import { sketchDefinitionStatus } from './sketch/panel';
@@ -1058,7 +1058,8 @@ export class App {
     if (ref.kind === 'base') return BASE_FRAMES[ref.plane];
     if (ref.kind === 'feature') return this.frames[ref.id] ?? null;
     const f = this.faces.find((x) => x.name === ref.face.name);
-    return f?.frame ?? null;
+    // With the kept axis direction, as the kernel resolves it.
+    return f?.frame ? (ref.x ? planeFrame(f.frame.o, f.frame.n, ref.x) : f.frame) : null;
   }
 
   /**
@@ -1699,7 +1700,7 @@ export class App {
     if (it.kind === 'plane') return it.ref;
     if (it.kind === 'face') {
       const f = this.faces[it.index];
-      if (f?.type === 'plane') return { kind: 'face', face: faceRef(f) };
+      if (f?.type === 'plane') return facePlaneRef(f);
     }
     if (it.kind === 'feature') {
       const f = this.store.feature(it.id);

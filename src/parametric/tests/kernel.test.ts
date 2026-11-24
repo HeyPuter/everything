@@ -843,6 +843,27 @@ describe('feature regeneration', () => {
     for (const x of filleted()) expect(Math.abs(x - 47)).toBeLessThan(6);
   });
 
+  it('keeps a sketch on a face from turning when an upstream edit tilts the face', async () => {
+    // A draft of 8 degrees on the +X face kept the sketch's x axis along -Z;
+    // 9 degrees crossed the threshold of the axis choice and turned it to -Y.
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 40, 20)), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const side = r0.faces.find((f) => f.normal && f.normal[0] > 0.9)!;
+    const draft = (angle: number): Feature => ({ id: 'D', name: 'D', type: 'draft', faces: [{ name: side.name, sig: { type: 'plane', c: side.center, n: side.normal, area: side.area } }], neutral: { kind: 'base', plane: 'top' }, angle, flip: false });
+    const r8 = await b.build(req([...base, draft(8)]));
+    const face = r8.faces.find((f) => f.name === `D:d:${side.name}`)!;
+    const onFace = (x?: Vec3) => sketch('S2', circle(5, 3, 1), { kind: 'face', face: { name: face.name, sig: { type: 'plane', c: face.center, n: face.normal, area: face.area } }, ...(x ? { x } : {}) });
+    const xAxis = async (angle: number, x?: Vec3) => (await b.build(req([...base, draft(angle), onFace(x)]))).frames.S2.x;
+    // Picked at 8 degrees, the face keeps the direction its frame was made from.
+    const kept: Vec3 = [0, 0, -1];
+    expect(r8.faces.find((f) => f.name === face.name)!.frame!.x[2]).toBeCloseTo(-1, 2);
+    for (const angle of [8, 9, 12]) expect((await xAxis(angle, kept))[2]).toBeLessThan(-0.95);
+    // Without it (parts saved before), the axis is chosen again as it always was.
+    expect((await xAxis(8))[2]).toBeLessThan(-0.95);
+    expect((await xAxis(9))[1]).toBeLessThan(-0.95);
+  });
+
   it('mirrors and patterns a pattern of a boss and a cut as a boss and a cut', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [

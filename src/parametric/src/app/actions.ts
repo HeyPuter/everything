@@ -29,6 +29,7 @@ import {
 } from './sketch/tools';
 import { h } from '../ui/dom';
 import type { PlaneRef } from '../model/types';
+import { facePlaneRef } from './selection';
 import { RELATION_LABELS } from '../sketch/ops';
 import { CONSTRAINTS, CONSTRAINT_HINTS, runConstraint } from './sketch/constrain';
 
@@ -587,7 +588,7 @@ export class PlanePickPanel extends PropertyPanel {
     if (item.kind === 'plane') ref = item.ref;
     else if (item.kind === 'face') {
       const f = this.app.faces[item.index];
-      if (f?.type === 'plane') ref = { kind: 'face', face: { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } } };
+      if (f?.type === 'plane') ref = facePlaneRef(f);
     }
     if (!ref) return false;
     const r = ref;

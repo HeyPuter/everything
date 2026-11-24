@@ -48,7 +48,17 @@ export interface VertexRef {
 export type PlaneRef =
   | { kind: 'base'; plane: BasePlane }
   | { kind: 'feature'; id: Id }
-  | { kind: 'face'; face: FaceRef };
+  | {
+    kind: 'face';
+    face: FaceRef;
+    /**
+     * World direction the frame's x axis is projected from, as chosen when the
+     * face was picked. Without it the axis is chosen again from the face's
+     * normal on every rebuild, and a face tilting past the choice's threshold
+     * turned the sketch on it by 90 degrees.
+     */
+    x?: Vec3;
+  };
 
 export type AxisRef =
   | { kind: 'base'; axis: 'x' | 'y' | 'z' }
