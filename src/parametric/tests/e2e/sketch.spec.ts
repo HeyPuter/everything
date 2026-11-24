@@ -1496,6 +1496,44 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Trim explains that a crossed spline cannot be trimmed, and removes an uncrossed one', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add splines', (sk) => {
+        sk.entities.push({ id: 's0', t: 'point', x: -30, y: 0 }, { id: 's1', t: 'point', x: 0, y: 6 }, { id: 's2', t: 'point', x: 30, y: 0 }, { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] });
+        sk.entities.push({ id: 'c', t: 'point', x: 0, y: -20 }, { id: 'd', t: 'point', x: 0, y: 20 }, { id: 'v', t: 'line', a: 'c', b: 'd' });
+        sk.entities.push({ id: 'u0', t: 'point', x: -30, y: -30 }, { id: 'u1', t: 'point', x: -20, y: -25 }, { id: 'u2', t: 'point', x: -10, y: -30 }, { id: 'lone', t: 'spline', pts: ['u0', 'u1', 'u2'] });
+      });
+    });
+    const screen = (p: [number, number]) => page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    const ids = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').map((e) => e.id).sort());
+    await page.locator('[data-cmd="tool:trim"]').click();
+    const onSpline = await page.evaluate(async () => {
+      const geom = '/src/sketch/geom.ts';
+      const { tessellate, SketchIndex } = await import(/* @vite-ignore */ geom) as typeof import('../../src/sketch/geom');
+      const sk = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch;
+      const ix = new SketchIndex(sk.entities);
+      const at = (id: string, x: number) => tessellate(ix, ix.get(id) as never, 0.01).find((q) => Math.abs(q[0] - x) < 0.5)!;
+      return [at('sp', 15), at('lone', -15)];
+    });
+    const p = await screen(onSpline[0] as [number, number]);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.click(p.x, p.y);
+    await expect(page.getByText("A spline that other curves cross can't be trimmed yet")).toBeVisible();
+    expect(await ids()).toEqual(['lone', 'sp', 'v']);
+    const q = await screen(onSpline[1] as [number, number]);
+    await page.mouse.move(q.x, q.y);
+    await page.mouse.click(q.x, q.y);
+    await expect.poll(ids).toEqual(['sp', 'v']);
+    expect(errors).toEqual([]);
+  });
+
   test('Trim highlights only the piece a click would remove', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

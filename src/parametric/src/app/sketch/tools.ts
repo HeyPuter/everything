@@ -718,8 +718,11 @@ export function trimTool(ed: SketchEditor): SkTool {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
       if (isExternal(ed.sketch, hit.id)) { toast({ kind: 'warning', message: PROJECTED_LOCKED }); return true; }
+      const spline = ed.sketch.entities.find((e) => e.id === hit.id)?.t === 'spline';
       let changed = false;
       ed.edit('Trim', (sk, newId) => { changed = trimAt(sk, hit.id, s.p, newId); });
+      // A spline runs through its points: cutting one where a curve crosses it would reshape the rest.
+      if (!changed && spline) toast({ kind: 'warning', message: "A spline that other curves cross can't be trimmed yet: cutting it would change its shape. Delete it, or draw it as separate splines." });
       ed.app.setStatus(changed ? this.hint : 'Nothing trimmed. Click between intersections on a line, arc, or circle.');
       // What the next click here would remove.
       show(s.p);
