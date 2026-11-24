@@ -1282,6 +1282,23 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a curve highlighted by Trim does not stay highlighted in the next tool', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y - 40);
+    await page.mouse.dblclick(x + 100, y - 40);
+    const hovered = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.hovered?.kind ?? null);
+    await page.locator('[data-cmd="tool:trim"]').click();
+    await page.mouse.move(x, y - 45);
+    await page.mouse.move(x, y - 40);
+    await expect.poll(hovered).toBe('curve');
+    await page.keyboard.press('c');
+    await page.mouse.move(x, y + 80);
+    await expect.poll(hovered).toBe(null);
+    expect(errors).toEqual([]);
+  });
+
   test('right-clicking a sketch line selects it so the context menu acts on it', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

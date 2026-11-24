@@ -341,6 +341,9 @@ export class SketchEditor implements ViewportTool {
     this.tool?.cancel();
     this.tool = tool;
     this.lastToolEvent = null;
+    // Picking tools (trim, dimension...) highlight the curve under the cursor;
+    // drawing tools never clear that, so it stayed lit in their colours.
+    this.hovered = null;
     this.preview = { lines: [], points: [], dashed: [], guides: [] };
     this.tipEl.hidden = true;
     this.app.viewport.canvas.style.cursor = tool ? 'crosshair' : 'default';
