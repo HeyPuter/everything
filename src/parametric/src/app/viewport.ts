@@ -810,9 +810,10 @@ export class Viewport {
   }
 
   modelRadius(): number {
-    const drawn = this.fitSphere();
-    // Only guard against a degenerate box: small parts must still fill the view.
-    return Math.max(drawn?.radius ?? 0, drawn ? 1e-3 : 50);
+    // Nothing drawn, or only a point (the origin of a new, empty sketch): a default size.
+    // Otherwise only guard against a degenerate box: small parts must still fill the view.
+    const r = this.fitSphere()?.radius ?? 0;
+    return r > 0 ? Math.max(r, 1e-3) : 50;
   }
 
   zoomToFit(animate = true, remember = true) {

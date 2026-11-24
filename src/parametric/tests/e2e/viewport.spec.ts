@@ -1412,6 +1412,23 @@ test.describe('viewport', () => {
     })).toBe(true);
   });
 
+  test('zoom to fit in a new, empty sketch keeps a view of a useful size', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('sketch'));
+    await expect(page.locator('.statusbar')).toContainText('Editing sketch');
+    // Only the sketch origin is drawn: a point, not something to zoom in on.
+    const height = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.zoomToFit(false);
+      const cam = app.renderer.camera;
+      return cam.pixelSize * cam.height;
+    });
+    expect(height).toBeGreaterThan(20);
+    expect(height).toBeLessThan(1000);
+  });
+
   test('opening a part that has only sketches frames them', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
