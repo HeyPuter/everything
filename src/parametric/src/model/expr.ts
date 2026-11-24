@@ -37,10 +37,11 @@ const FUNCS: Record<string, (...a: number[]) => number> = {
     if (Math.abs(((d % 180) + 180) % 180 - 90) < 1e-9) throw new ExprError(`tan(${d}) is undefined`);
     return Math.tan((d * Math.PI) / 180);
   },
-  asin: (x) => (Math.asin(x) * 180) / Math.PI,
-  acos: (x) => (Math.acos(x) * 180) / Math.PI,
+  asin: (x) => { if (Math.abs(x) > 1) throw new ExprError('asin() takes a value from -1 to 1'); return (Math.asin(x) * 180) / Math.PI; },
+  acos: (x) => { if (Math.abs(x) > 1) throw new ExprError('acos() takes a value from -1 to 1'); return (Math.acos(x) * 180) / Math.PI; },
   atan: (x) => (Math.atan(x) * 180) / Math.PI,
-  sqrt: Math.sqrt,
+  // Out of their domain they gave "Result is not a finite number", naming nothing.
+  sqrt: (x) => { if (x < 0) throw new ExprError('sqrt() of a negative number'); return Math.sqrt(x); },
   abs: Math.abs,
   min: Math.min,
   max: Math.max,

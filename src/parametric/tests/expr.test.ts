@@ -110,6 +110,13 @@ describe('expression evaluator', () => {
     expect(evaluate('tan(180)')).toBeCloseTo(0, 12);
   });
 
+  it('names the function a value is out of range for', () => {
+    expect(() => evaluate('sqrt(-4)')).toThrow('sqrt() of a negative number');
+    expect(() => evaluate('asin(2)')).toThrow('asin() takes a value from -1 to 1');
+    expect(() => evaluate('acos(-1.5)')).toThrow('acos() takes a value from -1 to 1');
+    expect(evaluate('acos(-1)')).toBeCloseTo(180, 9);
+  });
+
   it('says a unit cannot be used where a plain number goes', () => {
     expect(() => evaluate('50mm')).toThrow('A unit ("mm") cannot be used here; give a plain number');
     expect(evaluateVariables([{ name: 'W', expr: '2 in' }]).errors.get('W')).toMatch(/unit \("in"\)/);
