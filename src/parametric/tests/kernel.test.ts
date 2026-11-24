@@ -834,6 +834,12 @@ describe('feature regeneration', () => {
       .toBe('The profile sketch (Profile) failed to build');
     expect(await status([plane], 'P1')).toBe('The reference plane no longer exists');
     expect(await status([extrude('E1', 'S1', 5), open], 'E1')).toBe('The profile sketch (Sketch1) comes after this feature in the tree');
+    // Deleting that sketch changes nothing before the extrude, but its message must follow.
+    expect(await status([extrude('E1', 'S1', 5)], 'E1')).toBe('The profile sketch no longer exists');
+    const lin: Feature = { id: 'LP', name: 'LP', type: 'linearPattern', seeds: ['E3'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 5, count: 3, flip: false }, dir2: null };
+    const seed: Feature[] = [named(sketch('S1', rect(0, 0, 5, 5)), 'Sketch1'), named(extrude('E3', 'S1', 5), 'Boss')];
+    expect(await status([lin, ...seed], 'LP')).toBe('The seed feature Boss comes after this feature in the tree');
+    expect(await status([lin], 'LP')).toBe('A seed feature no longer exists');
     expect(await status([extrude('E1', '', 5)], 'E1')).toBe('Select the profile sketch');
     // A face reference says which feature made the face.
     const base: Feature[] = [named(sketch('S2', rect(0, 0, 10, 10)), 'Sketch2'), named(extrude('E2', 'S2', 10), 'Boss')];

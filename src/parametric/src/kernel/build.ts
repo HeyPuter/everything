@@ -197,11 +197,16 @@ export class ModelBuilder {
     const off = new Set<Id>();
     for (let i = 0; i < upTo; i++) {
       const f = req.features[i];
-      const suppressed = !!f.suppressed || dependencies(f).some((d) => off.has(d));
+      const deps = dependencies(f);
+      const suppressed = !!f.suppressed || deps.some((d) => off.has(d));
       if (suppressed) off.add(f.id);
       const imported = f.type === 'import' ? ':' + this.importVersion(f.blob, req.blobs[f.blob]) : '';
       const invalid = suppressed ? undefined : req.invalid?.[f.id];
-      const key = hashString(chain + '\u0000' + stepText(f) + imported + (invalid ? '\u0000!' + invalid : ''));
+      // Features it uses that come after it, or are gone, are not in the chain
+      // but decide its message: deleting a sketch that came after it left
+      // "comes after this feature" in place of "no longer exists".
+      const refs = deps.map((d) => { const o = this.order.get(d); return !o ? '-' : o.index < i ? '' : '+' + o.type; }).join(',');
+      const key = hashString(chain + '\u0000' + stepText(f) + imported + (invalid ? '\u0000!' + invalid : '') + '\u0000' + refs);
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
