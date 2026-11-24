@@ -123,6 +123,8 @@ test('names and messages clipped by an ellipsis show in full as a tooltip', asyn
     );
   }, long);
   await expect(page.locator('.doc-title')).toHaveAttribute('title', `Rename ${long}`);
+  // The rebuild after the rename redraws the tree rows: hover the rows it leaves.
+  await page.evaluate(() => (window as unknown as Handle).__parametric.whenBuilt());
   const status = page.locator('.statusbar .msg');
   await status.hover();
   await expect(status).toHaveAttribute('title', new RegExp(`^${long}, and a status`));
