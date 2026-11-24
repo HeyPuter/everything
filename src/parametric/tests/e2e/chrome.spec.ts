@@ -345,3 +345,20 @@ test('mass properties of a small part in metres show significant digits, not zer
   await expect(dialog.getByRole('cell', { name: /^Ixx = 0\.0000\d+$/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("the status bar gives a selected face's area in square units", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Handle).__parametric.faces.length))
+    .toBeGreaterThan(0);
+  const area = await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    const i = a.faces.findIndex((f) => f.type === 'plane');
+    a.selection.set([{ kind: 'face', index: i, name: a.faces[i].name }]);
+    return a.faces[i].area.toFixed(2);
+  });
+  await expect(page.locator('.statusbar .msg')).toContainText(`Area ${area} mm²`);
+  expect(errors).toEqual([]);
+});

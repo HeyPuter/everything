@@ -9,7 +9,7 @@ import { evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { BASE_FRAMES, BASE_PLANE_NAMES } from '../model/planes';
 import type { BasePlane, Feature, Id, PlaneRef, SkEntity, SketchFeature } from '../model/types';
-import { UNIT_SYSTEMS, formatLength } from '../model/units';
+import { UNIT_SYSTEMS, formatLength, formatNumber } from '../model/units';
 import { Renderer, type Theme } from '../render/renderer';
 import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
@@ -1053,7 +1053,8 @@ export class App {
         const f = this.faces[it.index];
         if (!f) return 'Face';
         const owner = this.store.feature(f.feature);
-        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}² equivalent`;
+        const u = UNIT_SYSTEMS[units];
+        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatNumber(f.area / u.scale ** 2, dec)} ${u.length}²`;
       }
       case 'edge': {
         const e = this.edges[it.index];
