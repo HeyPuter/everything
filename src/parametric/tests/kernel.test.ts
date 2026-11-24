@@ -174,6 +174,9 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(1000 + Math.PI * 4 * 10, 3);
     r = await b.build(req(pin({ flip: true })));
     expect(r.status[3].error).toMatch(/no body to extrude through/);
+    // Direction 2 through all, away from the body, says it is Direction 2.
+    r = await b.build(req(pin({ dir2: { end: 'throughAll', depth: 1 } })));
+    expect(r.status[3].error).toBe('There is no body to extrude through in Direction 2. Use Blind for it, or turn Direction 2 off.');
     r = await b.build(req([sketch('S2', circle(5, 15, 2)), extrude('E2', 'S2', 1, { end: 'throughAll' })]));
     expect(r.status[1].error).toMatch(/needs a body/);
   });

@@ -687,7 +687,8 @@ export class ModelBuilder {
     if (f.end === 'midPlane') { start = -d1 / 2; total = d1; }
     else if (f.dir2) {
       const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1), f.cut) : num(f.dir2.depth);
-      if (!(d2 > 0)) throw new FeatureError(f.dir2.end === 'throughAll' ? noBody : 'Direction 2 depth must be greater than zero');
+      // Reversing Direction 1 cannot fix Direction 2: say which one has no body.
+      if (!(d2 > 0)) throw new FeatureError(f.dir2.end === 'throughAll' ? 'There is no body to extrude through in Direction 2. Use Blind for it, or turn Direction 2 off.' : 'Direction 2 depth must be greater than zero');
       start = -d2; total = d1 + d2;
     }
     d1 = total;
