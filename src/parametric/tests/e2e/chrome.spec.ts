@@ -915,3 +915,22 @@ test('part colour swatches have names, not hex codes', async ({ page }) => {
   await expect(page.getByRole('tooltip')).toHaveText('Copper');
   expect(errors).toEqual([]);
 });
+
+test("the assistant's message box shows focus, also in high contrast mode", async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const composer = page.locator('.as-composer');
+  const look = () =>
+    composer.evaluate((el) => {
+      const c = getComputedStyle(el);
+      return `${c.borderColor} ${c.boxShadow} ${c.outlineStyle} ${c.outlineColor}`;
+    });
+  for (const forcedColors of ['none', 'active'] as const) {
+    await page.emulateMedia({ forcedColors });
+    await page.locator('canvas.gl').focus();
+    const idle = await look();
+    await page.getByRole('textbox', { name: 'Message the assistant' }).focus();
+    expect(await look(), forcedColors).not.toBe(idle);
+  }
+  expect(errors).toEqual([]);
+});
