@@ -53,7 +53,11 @@
             },
             get: async (key) => LS.getItem(key),
             del: async (key) => (LS.removeItem(key), true),
+            // Real puter.kv.list also takes { pattern, returnValues, limit }
+            // and then answers with a page; everything fits in one here.
             list: async (pattern, returnValues) => {
+              const paged = pattern !== null && typeof pattern === 'object';
+              if (paged) ({ pattern, returnValues } = pattern);
               const prefix = String(pattern).replace(/\*$/, '');
               const out = [];
               for (let i = 0; i < LS.length; i++) {
@@ -61,7 +65,7 @@
                 if (!key.startsWith(prefix)) continue;
                 out.push(returnValues ? { key, value: LS.getItem(key) } : key);
               }
-              return out;
+              return paged ? { items: out } : out;
             },
           },
         };

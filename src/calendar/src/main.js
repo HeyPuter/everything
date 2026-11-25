@@ -11,6 +11,7 @@ import { isSignedIn, signIn, getUser } from './js/auth.js';
 import { createStore } from './js/store.js';
 import { createApp, applyTheme } from './js/app.js';
 import { createOfflineKv } from './js/offline-store.js';
+import { createPagedKv } from './js/paged-kv.js';
 import { createOffline, renderOfflineScreen } from './js/offline.js';
 import { createRsvpLinks } from './js/rsvp-links.js';
 import { createInvites } from './js/invites.js';
@@ -204,7 +205,9 @@ async function bootInner() {
     const user = await getUser();
     // Wrap puter.kv so store.load() transparently falls back to a local
     // snapshot when offline. The store is otherwise unchanged.
-    const kv = createOfflineKv(puter.kv);
+    // Listings go page by page, so the store can trust each one as complete.
+    const cloudKv = createPagedKv(puter.kv);
+    const kv = createOfflineKv(cloudKv);
     kv.ensureUser(user && (user.uuid || user.id || user.username));
 
     const rawStore = createStore(kv);
@@ -289,7 +292,7 @@ async function bootInner() {
       mail = null;
     }
     const storedReminders = createStoredReminders({
-      store, kv: puter.kv,
+      store, kv: cloudKv,
       refresh: async () => {
         const before = kv.fallbackCount();
         await store.load();
@@ -415,7 +418,7 @@ async function bootService() {
   // a *window* usable and honest while disconnected, and a caller is better told
   // that a read failed than handed this device's last-synced copy of a calendar
   // it is about to write to.
-  const store = createStore(puter.kv);
+  const store = createStore(createPagedKv(puter.kv));
 
   let idleTimer = null;
   const touch = () => {
