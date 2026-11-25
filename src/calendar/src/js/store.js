@@ -16,6 +16,7 @@
  */
 import { DEFAULT_COLOR, isValidColor, sanitizeCategoryNames } from './colors.js';
 import { normalizeReminders } from './reminders.js';
+import { isCompleteListing } from './paged-kv.js';
 import {
   normalizeRecurrence,
   expandOccurrences,
@@ -57,6 +58,11 @@ function hashString(str) {
 // publish no batch cap, and a chunk is also the all-or-nothing unit of
 // failure/retry and the progress-callback granularity.
 const IMPORT_CHUNK = 25;
+// A bulk write past this many chunks is spaced out, so a big import stays at
+// about a hundred events a second instead of sending them back to back.
+// Everyday imports finish inside the free chunks.
+const IMPORT_FREE_CHUNKS = 8;
+const IMPORT_PACE_MS = 250;
 const IMPORT_MAX_ATTEMPTS = 6;
 const IMPORT_BACKOFF_MS = 500;
 const IMPORT_BACKOFF_CAP_MS = 8_000;
@@ -76,15 +82,13 @@ function isRateLimitError(err) {
   return /too many requests|rate.?limit/i.test(String(msg));
 }
 
-// puter.kv.list SILENTLY truncates large result sets — observed live: 2,139
-// stored keys, one flat `list('cal:evt:*')` deterministically returned 1,085,
-// with no error, marker, or cursor (same count with and without values).
-// Sharded queries (`cal:evt:0*` … `cal:evt:f*`) each returned complete
-// results. So a flat list cannot be trusted past roughly a thousand entries /
-// a megabyte of values; when a result even *looks* big enough to have been
-// cut, re-list the namespace sharded by the next id character and merge.
-// Every id from uid() starts with a lowercase hex char (randomUUID, or the
-// 'e-' fallback), so 16 hex shards cover the namespace.
+// A flat `list('cal:evt:*')` can come back cut short with no error, marker, or
+// cursor (seen live: 1,085 of 2,139 stored keys, with and without values).
+// The paged backend (paged-kv.js) reads to the last page and marks the result
+// complete; that one is trusted as it is. Without the mark, a result that even
+// *looks* big enough to have been cut is re-listed sharded by the next id
+// character and merged — every id from uid() starts with a lowercase hex char
+// (randomUUID, or the 'e-' fallback), so 16 hex shards cover the namespace.
 const LIST_SHARD_CHARS = '0123456789abcdef';
 const LIST_SUSPECT_COUNT = 500;
 const LIST_SUSPECT_BYTES = 512 * 1024;
@@ -113,15 +117,13 @@ export function looksTruncated(entries) {
 }
 
 /**
- * List EVERY entry under a key prefix, working around the silent truncation
- * above. Fast path: one flat request, trusted when the result is small.
- * Otherwise fan out one sub-list per hex character and recurse (bounded), then
- * merge by key. Small calendars keep their single-request boot; only data sets
- * big enough to be at risk pay for the fan-out.
+ * List EVERY entry under a key prefix. One listing, trusted when the backend
+ * read it to the end or when it is small. Otherwise fan out one sub-list per
+ * hex character and recurse (bounded), then merge by key.
  */
 export async function listAllEntries(kv, prefix, depth = 0) {
   const flat = (await kv.list(`${prefix}*`, true)) || [];
-  if (depth >= 3 || !looksTruncated(flat)) return flat;
+  if (depth >= 3 || isCompleteListing(flat) || !looksTruncated(flat)) return flat;
   const shards = await Promise.all(
     [...LIST_SHARD_CHARS].map((c) => listAllEntries(kv, prefix + c, depth + 1)),
   );
@@ -837,6 +839,11 @@ export function createStore(backend) {
     }
   }
 
+  /** Call before sending bulk chunk number `index` (0-based). */
+  function paceChunk(index) {
+    return index < IMPORT_FREE_CHUNKS ? undefined : sleep(IMPORT_PACE_MS);
+  }
+
   /**
    * Bulk-add imported events. Each is given a fresh id, so importing is purely
    * additive and never overwrites existing events. Emits once up front (the
@@ -875,6 +882,7 @@ export function createStore(backend) {
     let reinstated = false;
     for (let i = 0; i < added.length; i += IMPORT_CHUNK) {
       const chunk = added.slice(i, i + IMPORT_CHUNK);
+      await paceChunk(i / IMPORT_CHUNK);
       if (await persistChunk(chunk)) {
         // A load() that ran between chunks — the booking sync and the API's
         // freshness re-read both reload on the emit above — listed a cloud
@@ -1290,6 +1298,7 @@ export function createStore(backend) {
     let reinstated = false;
     for (let i = 0; i < updatedList.length; i += IMPORT_CHUNK) {
       const chunk = updatedList.slice(i, i + IMPORT_CHUNK);
+      await paceChunk(i / IMPORT_CHUNK);
       if (await persistChunk(chunk)) {
         written.push(...chunk);
         // A load() between chunks repopulated memory from a cloud that held

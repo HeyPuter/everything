@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createOffline, OfflineWriteError, isOfflineError, isBlocked } from '../src/js/offline.js';
 import { createOfflineKv, clearSnapshot } from '../src/js/offline-store.js';
+import { createPagedKv } from '../src/js/paged-kv.js';
 import { createStore } from '../src/js/store.js';
 
 const DATA_MUTATORS = [
@@ -234,6 +235,25 @@ describe('snapshot KV (offline-store.js)', () => {
     kv.offline = true;
     const offline = await okv.list('cal:evt:*', true);
     expect(offline).toHaveLength(600); // the snapshot kept its complete copy
+  });
+
+  it('a big list the backend read to the end replaces, so deletions do not linger', async () => {
+    const { kv, backing } = makeKv();
+    for (let i = 0; i < 600; i++) backing.set(`cal:evt:${i}`, { id: String(i) });
+    // The app's wiring: a backend that pages, read to its last page.
+    const paged = createPagedKv({
+      list: async ({ pattern, returnValues }) => ({ items: await kv.list(pattern, returnValues) }),
+    });
+    const okv = createOfflineKv({ ...kv, list: paged.list });
+    await okv.list('cal:evt:*', true);
+
+    backing.delete('cal:evt:7'); // deleted on another device
+    await okv.list('cal:evt:*', true);
+
+    kv.offline = true;
+    const offline = await okv.list('cal:evt:*', true);
+    expect(offline).toHaveLength(599);
+    expect(offline.some((e) => e.key === 'cal:evt:7')).toBe(false);
   });
 
   it('a small (trusted) list still replaces, so deletions do not linger', async () => {

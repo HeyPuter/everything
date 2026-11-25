@@ -18,6 +18,7 @@
  * `set`/`del` into a rejected promise, or the editor would show a false
  * "couldn't save" and the user would retry a write that already landed.
  */
+import { isCompleteListing } from './paged-kv.js';
 import { looksTruncated } from './store.js';
 
 const SNAPSHOT_KEY = 'cal:snapshot';
@@ -72,14 +73,16 @@ export function createOfflineKv(puterKv) {
       const entries = Array.isArray(result) ? result : [];
       // Replace the whole prefix namespace so an event deleted on another device
       // (absent from the fresh list) doesn't linger and reappear offline — but
-      // ONLY for a result small enough to be the complete truth. puter.kv
-      // silently truncates big flat lists (the reason store.js shards them),
-      // and replacing on one would poison the last good snapshot with a
-      // partial calendar before the shard fan-out repairs it — permanently, if
-      // the network drops mid-fan-out or the tab closes first. A suspect
-      // result only MERGES; the trusted per-shard replaces that follow still
-      // carry cross-device deletions on every fully-online load.
-      const suspect = looksTruncated(entries);
+      // ONLY for a result known to be the complete truth: one the backend
+      // read to its last page (paged-kv.js), or one too small to have been
+      // cut. A big flat list can come back cut short with no sign of it (the
+      // reason store.js shards them), and replacing on one would poison the
+      // last good snapshot with a partial calendar before the shard fan-out
+      // repairs it — permanently, if the network drops mid-fan-out or the tab
+      // closes first. A suspect result only MERGES; the trusted per-shard
+      // replaces that follow still carry cross-device deletions on every
+      // fully-online load.
+      const suspect = !isCompleteListing(result) && looksTruncated(entries);
       writeBlob((blob) => {
         if (!suspect) {
           for (const key of Object.keys(blob.entries)) {

@@ -561,6 +561,34 @@ describe('createStore', () => {
     expect([...kv.map.keys()].filter((k) => k.startsWith('cal:evt:'))).toHaveLength(60);
   });
 
+  it('importEvents spaces out the chunks of a big import, and only those', async () => {
+    vi.useFakeTimers();
+    try {
+      const sentAt = [];
+      kv.set.mockImplementation(async (items) => {
+        sentAt.push(Date.now());
+        for (const { key, value } of items) kv.map.set(key, value);
+        return true;
+      });
+      // 12 chunks: the first 8 go back to back, the last 4 wait 250ms each.
+      const list = Array.from({ length: 300 }, (_, i) => ({
+        title: `E${i}`,
+        start: day + i * H,
+        end: day + (i + 1) * H,
+      }));
+      const t0 = Date.now();
+      const p = store.importEvents(list);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(sentAt).toHaveLength(11); // the 12th is still waiting its turn
+      await vi.advanceTimersByTimeAsync(1);
+      const res = await p;
+      expect(res).toMatchObject({ imported: 300, failed: 0 });
+      expect(sentAt.map((t) => t - t0)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 250, 500, 750, 1000]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('importEvents reports progress after each persisted batch', async () => {
     const ticks = [];
     const list = Array.from({ length: 30 }, (_, i) => ({
