@@ -24,7 +24,7 @@ import { SketchIndex, pointIdsOf, splineBeziers } from '../sketch/geom';
 import type { Region } from '../sketch/profiles';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, SurfaceCache, bbox, compound, describeEdge, describeFace, faceMidPoint, getOc,
-  gvec, isEmpty, isValid, meshEdgesOf, meshShape, planarFaceFrame, pnt, rotated, sameSurface, sharesSurface, subShapes, translated,
+  cut, gvec, isEmpty, isValid, meshEdgesOf, meshShape, planarFaceFrame, pnt, rotated, sameSurface, sharesSurface, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 import type { EdgeInfo, FaceInfo, MeshData } from './protocol';
@@ -1477,8 +1477,30 @@ function thickSolid(shape: Sh, t: number, both: boolean, area: number): Sh | nul
   if (!sharp) return null;
   if (!sharp.length) {
     const whole = make(shape);
-    if (!whole || isEmpty(whole)) return null;
-    return plausible(volumeOf(whole)) && isValid(whole) ? whole : null;
+    if (whole && !isEmpty(whole)) return plausible(volumeOf(whole)) && isValid(whole) ? whole : null;
+    // A closed surface (a sphere) has no edge to thicken from: the solid
+    // between it and its offset, the larger less the smaller.
+    const shells = subShapes(shape, 'shell');
+    const faces = subShapes(shape, 'face');
+    const shell = shells.length === 1 ? shells[0] : !shells.length && faces.length === 1 ? closedShell(faces[0]) : null;
+    if (!shell || sew([shell], 1e-6).free > 0) return null;
+    const [a, b] = both ? [-t / 2, t / 2] : [0, t];
+    const solidAt = (off: number) => {
+      const s = off ? shift(shell, off) : shell;
+      // Offset inward past its centre, a sphere comes out inside out (see offsetHolds).
+      if (!s || (off && !offsetHolds(s, shell, Math.abs(off)))) return null;
+      const sh = subShapes(s, 'shell');
+      return sh.length === 1 ? solidFromShell(sh[0]) : null;
+    };
+    const sa = solidAt(a), sb = solidAt(b);
+    if (!sa || !sb) return null;
+    const [big, small] = volumeOf(sa) > volumeOf(sb) ? [sa, sb] : [sb, sa];
+    try {
+      const out = cut(big, small);
+      return plausible(volumeOf(out)) && isValid(out) ? out : null;
+    } catch {
+      return null;
+    }
   }
   // Wedges are built for straight edges only.
   if (sharp.some((e) => e.desc.type !== 'line')) return null;

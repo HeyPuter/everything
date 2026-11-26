@@ -232,7 +232,7 @@ describe('knit, thicken and cut', () => {
     expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/Use a smaller knit tolerance/) });
   });
 
-  it('knits a closed revolved surface (one face) into a solid', async () => {
+  it('knits a closed revolved surface (one face) into a solid, and thickens it', async () => {
     const b = new ModelBuilder();
     const ball = [sketch('S1', [P('c0', 0, -5), P('c1', 0, 5), P('o', 0, 0), { id: 'arc', t: 'arc', c: 'o', a: 'c0', b: 'c1' }, P('x0', 0, -8), P('x1', 0, 8), L('cl', 'x0', 'x1', true)]),
       surf('surfaceRevolve', 'R1', { sketch: 'S1', angle: 360 })];
@@ -241,6 +241,18 @@ describe('knit, thicken and cut', () => {
     ok(res);
     expect(b.surfaceBodies()).toHaveLength(0);
     expect(b.massProperties()!.volume).toBeCloseTo((4 / 3) * Math.PI * 125, 3);
+    // Thickened, it is a hollow ball: out, in or both ways.
+    const ballShell = (r0: number, r1: number) => (4 / 3) * Math.PI * (r1 ** 3 - r0 ** 3);
+    const sides = { front: ballShell(5, 6), back: ballShell(4, 5), both: ballShell(4.5, 5.5) };
+    const got: number[] = [];
+    for (const side of ['front', 'back', 'both'] as const) {
+      ok(await b.build(req([...ball, surf('thicken', 'T1', { faces: [face], thickness: 1, side })])));
+      got.push(b.massProperties()!.volume);
+    }
+    expect(got[2]).toBeCloseTo(sides.both, 3);
+    expect([got[0], got[1]].sort((x, y) => x - y)).toEqual([expect.closeTo(sides.back, 3), expect.closeTo(sides.front, 3)]);
+    const bad = await b.build(req([...ball, surf('thicken', 'T1', { faces: [face], thickness: 12, side: 'both' })]));
+    expect(bad.status[2]).toMatchObject({ ok: false, error: expect.stringMatching(/could not be thickened/) });
   });
 
   it('thickens a surface into a solid of area × thickness, either side or both', async () => {
