@@ -40,6 +40,11 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Thicken a surface into the part or cut with it (Thickened Cut), cut the part with a surface, or delete faces of the solid to work on it as a surface (or delete and patch them).
 - Surface bodies are shown in a warm tint beside the solid, can be hidden from the design tree, are picked and referenced like the solid's faces and edges (sketch on a planar surface face), go into STEP files as shells and are left out of the solid's mass properties.
 
+**Sheet metal**
+- Sheet Metal tab: Base Flange from a closed profile (a flat plate) or an open line and arc chain (bent at each corner), with the part's thickness, bend radius, K-factor (or bend allowance or deduction) and relief type kept on it and editable from the Sheet-Metal row of the design tree. A later Base Flange is a Tab on a face of the sheet.
+- Edge Flange on one or more edges: length from the outer or inner virtual sharp or the bend, any angle, material inside or outside or bend outside, offsets with rectangular or obround bend reliefs. Sketched Bend along a line on a flat face, and closed or open Hems.
+- Flatten shows the flat pattern (bend allowance π/180 · angle · (R + K·T)) with dashed bend lines, bend notes and the overall size; holes and cuts through flat regions are included. Export the flat pattern to DXF with outline, cuts and bend lines on their own layers.
+
 **Assistant**
 - An AI design assistant in the right sidebar (Ctrl+J, or the sparkle button). Describe a part or a change ("a 100 × 60 × 8 mm plate with four M5 holes and rounded corners", "make the wall 3 mm", "fillet the top edges") and it builds it with the same features you use: sketches with exact geometry, relations and dimensions, extrudes, revolves, holes, fillets, chamfers, shells, patterns, mirrors, planes, lofts, sweeps and drafts, global variables and equations.
 - It reads the part precisely (feature parameters, sketch entities, faces and edges by name, measurements, mass properties), checks every change by rebuilding, undoes steps that would break a feature, and looks at the model to verify its work.

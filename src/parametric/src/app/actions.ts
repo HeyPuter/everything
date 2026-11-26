@@ -35,6 +35,7 @@ import type { PlaneRef } from '../model/types';
 import { facePlaneRef } from './selection';
 import { RELATION_LABELS } from '../sketch/ops';
 import { CONSTRAINTS, CONSTRAINT_HINTS, runConstraint } from './sketch/constrain';
+import { SHEET_METAL_TAB, sheetMetalCommands } from './sheetmetal-panels';
 
 const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: string; make: (ed: SketchEditor) => SkTool }> = {
   line: { label: 'Line', shortcut: 'L', desc: 'Sketch straight lines.', make: (ed) => lineTool(ed) },
@@ -255,6 +256,8 @@ export function registerCommands(app: App, files: FileOps) {
     feature('circularPattern', 'Circular Pattern', 'circularPattern', 'Repeat features around an axis.', { needsBody: true, keywords: 'polar array' }),
     feature('mirror', 'Mirror', 'mirror', 'Mirror features or the body about a plane.', { needsBody: true, keywords: 'symmetry' }),
     feature('plane', 'Plane', 'plane', 'Create a reference plane offset from a plane or face.', { keywords: 'reference geometry datum' }),
+    // ---- sheet metal ----
+    ...sheetMetalCommands(app),
     // ---- evaluate ----
     { id: 'measure', label: 'Measure', icon: 'measure', keywords: 'distance length angle area', description: 'Measure distances, lengths, angles and areas.', enabled: () => hasBody() && in3d(), run: () => { void app.openPanel(new MeasurePanel(app)); } },
     { id: 'massProperties', label: 'Mass Properties', icon: 'massProperties', keywords: 'volume weight inertia center of mass', description: 'Volume, mass, centre of mass and inertia.', enabled: hasBody, run: () => massPropertiesDialog(app) },
@@ -398,6 +401,7 @@ export const RIBBON: RibbonTab[] = [
     id: 'evaluate', label: 'Evaluate',
     groups: [[{ cmd: 'measure' }, { cmd: 'massProperties' }, { cmd: 'sectionView' }], [{ cmd: 'equations' }, { cmd: 'material' }]],
   },
+  SHEET_METAL_TAB,
   {
     id: 'surfaces', label: 'Surfaces',
     groups: [

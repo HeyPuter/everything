@@ -134,7 +134,7 @@ function axisItem(app: App, r: AxisRef): SelItem | null {
 
 // ---------- base ----------
 
-abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
+export abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
   f: T;
   private units: UnitSystem;
   private variables: Variable[];
@@ -680,6 +680,9 @@ export class SweepPanel extends FeaturePanel<SweepFeature> {
 
 // ---------- factory ----------
 
+/** Panels of feature types defined in other modules (sheet metal), which register them here. */
+export const featurePanelFactories: ((app: App, f: Feature, editing: boolean) => PropertyPanel | null)[] = [];
+
 export function panelFor(app: App, f: Feature, editing: boolean): PropertyPanel | null {
   switch (f.type) {
     case 'extrude': return new ExtrudePanel(app, f, editing);
@@ -695,7 +698,9 @@ export function panelFor(app: App, f: Feature, editing: boolean): PropertyPanel 
     case 'loft': return new LoftPanel(app, f, editing);
     case 'sweep': return new SweepPanel(app, f, editing);
     case 'draft': return new DraftPanel(app, f, editing);
-    default: return null;
+    default:
+      for (const make of featurePanelFactories) { const p = make(app, f, editing); if (p) return p; }
+      return null;
   }
 }
 
@@ -781,4 +786,4 @@ function cutFlip(app: App, sketchId: Id | null): boolean {
 }
 
 // For the surface feature panels (surface-panels.ts).
-export { FeaturePanel, axisItem, axisLabel, edgeItem, faceItem, isSketch, planeItem, planeLabel };
+export { axisItem, axisLabel, edgeItem, faceItem, isSketch, planeItem, planeLabel };

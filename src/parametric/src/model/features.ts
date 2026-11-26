@@ -45,6 +45,23 @@ export const PARAM_FIELDS: Partial<Record<FeatureType, { path: string; kind: Par
   plane: [{ path: 'offset', kind: 'length', label: 'Offset' }],
   draft: [{ path: 'angle', kind: 'angle', label: 'Draft angle' }],
   ...SURFACE_PARAM_FIELDS,
+  baseFlange: [
+    { path: 'sm.thickness', kind: 'length', label: 'Thickness' },
+    { path: 'sm.radius', kind: 'length', label: 'Bend radius' },
+    { path: 'sm.allowanceValue', kind: 'length', label: 'Bend allowance' },
+    { path: 'depth', kind: 'length', label: 'Depth' },
+  ],
+  edgeFlange: [
+    { path: 'length', kind: 'length', label: 'Flange length' },
+    { path: 'angle', kind: 'angle', label: 'Angle' },
+    { path: 'offset1', kind: 'length', label: 'Offset 1' },
+    { path: 'offset2', kind: 'length', label: 'Offset 2' },
+  ],
+  sketchedBend: [{ path: 'angle', kind: 'angle', label: 'Angle' }],
+  hem: [
+    { path: 'length', kind: 'length', label: 'Length' },
+    { path: 'gap', kind: 'length', label: 'Gap' },
+  ],
 };
 
 /**
@@ -71,6 +88,10 @@ export function paramActive(f: Feature, path: string): boolean {
       return true;
     case 'linearPattern':
       return !path.startsWith('dir2.') || !!f.dir2;
+    case 'baseFlange':
+      return path !== 'sm.allowanceValue' || f.sm.allowance !== 'kFactor';
+    case 'hem':
+      return path !== 'gap' || f.kind === 'open';
     default:
       return true;
   }
@@ -93,6 +114,10 @@ const BASE_NAMES: Record<FeatureType, string> = {
   draft: 'Draft',
   import: 'Imported',
   ...SURFACE_BASE_NAMES,
+  baseFlange: 'Base-Flange',
+  edgeFlange: 'Edge-Flange',
+  sketchedBend: 'Sketched Bend',
+  hem: 'Hem',
 };
 
 export const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -112,6 +137,10 @@ export const FEATURE_LABELS: Record<FeatureType, string> = {
   draft: 'Draft',
   import: 'Imported Body',
   ...SURFACE_LABELS,
+  baseFlange: 'Base Flange/Tab',
+  edgeFlange: 'Edge Flange',
+  sketchedBend: 'Sketched Bend',
+  hem: 'Hem',
 };
 
 export function featureIcon(f: Feature): string {
@@ -188,6 +217,8 @@ export function consumedSketches(f: Feature): Id[] {
     case 'extrude':
     case 'revolve':
     case 'hole':
+    case 'baseFlange':
+    case 'sketchedBend':
       return [f.sketch];
     case 'loft':
       return f.profiles;
@@ -244,6 +275,7 @@ export function dependencies(f: Feature): Id[] {
   if (f.type === 'fillet' || f.type === 'chamfer') { f.edges.forEach((r) => visitName(r.name)); f.faces.forEach((r) => visitName(r.name)); }
   if (f.type === 'shell') f.faces.forEach((r) => visitName(r.name));
   if (isSurfaceFeature(f)) surfaceRefs(f, { name: visitName, plane: visitPlane, axis: visitAxis });
+  if (f.type === 'edgeFlange' || f.type === 'hem') f.edges.forEach((r) => visitName(r.name));
   return [...out];
 }
 

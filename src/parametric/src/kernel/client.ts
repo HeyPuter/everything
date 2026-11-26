@@ -9,7 +9,7 @@
 
 import type { SolidWorksImport } from '../formats/sldprt';
 import type { Id } from '../model/types';
-import type { BuildRequest, BuildResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
+import type { BuildRequest, BuildResult, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 type Call = Pending & { at: number; type: WorkerRequest['type'] };
@@ -250,6 +250,11 @@ export class KernelClient {
 
   massProperties(): Promise<MassProperties | null> {
     return this.call({ type: 'mass' });
+  }
+
+  /** The flat pattern of the sheet metal part as last built. */
+  flatPattern(quality = 1): Promise<FlatPatternResult> {
+    return this.call({ type: 'flatPattern', quality });
   }
 
   measure(a: MeasureTarget, b: MeasureTarget): Promise<MeasureResult> {

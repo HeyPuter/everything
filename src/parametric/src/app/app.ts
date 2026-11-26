@@ -1063,6 +1063,14 @@ export class App {
     if (this.inDrawing) void this.drawing.refresh();
   }
 
+  /** Shows the part's body again after a mode showed another mesh in its place (the flat pattern). */
+  showModelMesh() {
+    this.renderer.setModel(this.shownMesh, this.faces.length, this.edges.length);
+    if (this.lastBuildResult) this.bbox = this.lastBuildResult.bbox;
+    this.viewport.refreshStates();
+    this.renderer.requestRender();
+  }
+
   featureStatus(id: Id): FeatureStatus | null {
     return this.statuses.get(id) ?? null;
   }
