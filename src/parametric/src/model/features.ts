@@ -5,6 +5,7 @@ import type {
   Id, LinearPatternFeature, LoftFeature, MirrorFeature, PartDocument, PlaneFeature, PlaneRef, RevolveFeature, ShellFeature,
   SketchFeature, SweepFeature,
 } from './types';
+import { SURFACE_BASE_NAMES, SURFACE_LABELS, SURFACE_PARAM_FIELDS, isSurfaceFeature, surfaceIcon, surfaceRefs, surfaceSketches } from './surfaces';
 
 export type ParamKind = 'length' | 'angle' | 'count';
 
@@ -43,6 +44,42 @@ export const PARAM_FIELDS: Partial<Record<FeatureType, { path: string; kind: Par
   ],
   plane: [{ path: 'offset', kind: 'length', label: 'Offset' }],
   draft: [{ path: 'angle', kind: 'angle', label: 'Draft angle' }],
+  ...SURFACE_PARAM_FIELDS,
+  baseFlange: [
+    { path: 'sm.thickness', kind: 'length', label: 'Thickness' },
+    { path: 'sm.radius', kind: 'length', label: 'Bend radius' },
+    { path: 'sm.allowanceValue', kind: 'length', label: 'Bend allowance' },
+    { path: 'depth', kind: 'length', label: 'Depth' },
+  ],
+  edgeFlange: [
+    { path: 'length', kind: 'length', label: 'Flange length' },
+    { path: 'angle', kind: 'angle', label: 'Angle' },
+    { path: 'offset1', kind: 'length', label: 'Offset 1' },
+    { path: 'offset2', kind: 'length', label: 'Offset 2' },
+  ],
+  sketchedBend: [{ path: 'angle', kind: 'angle', label: 'Angle' }],
+  hem: [
+    { path: 'length', kind: 'length', label: 'Length' },
+    { path: 'gap', kind: 'length', label: 'Gap' },
+  ],
+  structuralMember: [
+    { path: 'rotation', kind: 'angle', label: 'Rotation angle' },
+    { path: 'gap', kind: 'length', label: 'Gap' },
+    { path: 'gap2', kind: 'length', label: 'Gap between groups' },
+  ],
+  trimExtend: [{ path: 'gap', kind: 'length', label: 'Gap' }],
+  endCap: [
+    { path: 'thickness', kind: 'length', label: 'Thickness' },
+    { path: 'offset', kind: 'length', label: 'Offset' },
+  ],
+  gusset: [
+    { path: 'd1', kind: 'length', label: 'Distance 1' },
+    { path: 'd2', kind: 'length', label: 'Distance 2' },
+    { path: 'd3', kind: 'length', label: 'Distance 3' },
+    { path: 'thickness', kind: 'length', label: 'Thickness' },
+    { path: 'chamfer', kind: 'length', label: 'Chamfer distance' },
+  ],
+  weldBead: [{ path: 'size', kind: 'length', label: 'Bead size' }],
 };
 
 /**
@@ -69,6 +106,14 @@ export function paramActive(f: Feature, path: string): boolean {
       return true;
     case 'linearPattern':
       return !path.startsWith('dir2.') || !!f.dir2;
+    case 'baseFlange':
+      return path !== 'sm.allowanceValue' || f.sm.allowance !== 'kFactor';
+    case 'hem':
+      return path !== 'gap' || f.kind === 'open';
+    case 'structuralMember':
+      return path !== 'gap2' || f.trimGroups;
+    case 'gusset':
+      return path !== 'd3' || f.shape === 'polygonal';
     default:
       return true;
   }
@@ -90,6 +135,16 @@ const BASE_NAMES: Record<FeatureType, string> = {
   sweep: 'Sweep',
   draft: 'Draft',
   import: 'Imported',
+  ...SURFACE_BASE_NAMES,
+  baseFlange: 'Base-Flange',
+  edgeFlange: 'Edge-Flange',
+  sketchedBend: 'Sketched Bend',
+  hem: 'Hem',
+  structuralMember: 'Structural Member',
+  trimExtend: 'Trim/Extend',
+  endCap: 'End Cap',
+  gusset: 'Gusset',
+  weldBead: 'Fillet Bead',
 };
 
 export const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -108,9 +163,20 @@ export const FEATURE_LABELS: Record<FeatureType, string> = {
   sweep: 'Sweep',
   draft: 'Draft',
   import: 'Imported Body',
+  ...SURFACE_LABELS,
+  baseFlange: 'Base Flange/Tab',
+  edgeFlange: 'Edge Flange',
+  sketchedBend: 'Sketched Bend',
+  hem: 'Hem',
+  structuralMember: 'Structural Member',
+  trimExtend: 'Trim/Extend',
+  endCap: 'End Cap',
+  gusset: 'Gusset',
+  weldBead: 'Fillet Bead',
 };
 
 export function featureIcon(f: Feature): string {
+  if (isSurfaceFeature(f)) return surfaceIcon(f);
   switch (f.type) {
     case 'sketch': return 'sketchFeature';
     case 'extrude': return f.cut ? 'extrudeCut' : 'extrude';
@@ -178,10 +244,13 @@ export const newDraft = (id: Id, name: string): DraftFeature => ({ id, name, typ
 
 /** Features that consume a sketch (the sketch is shown nested under them). */
 export function consumedSketches(f: Feature): Id[] {
+  if (isSurfaceFeature(f)) return surfaceSketches(f);
   switch (f.type) {
     case 'extrude':
     case 'revolve':
     case 'hole':
+    case 'baseFlange':
+    case 'sketchedBend':
       return [f.sketch];
     case 'loft':
       return f.profiles;
@@ -237,6 +306,16 @@ export function dependencies(f: Feature): Id[] {
   if (f.type === 'linearPattern') for (const d of [f.dir1, f.dir2]) visitAxis(d?.ref);
   if (f.type === 'fillet' || f.type === 'chamfer') { f.edges.forEach((r) => visitName(r.name)); f.faces.forEach((r) => visitName(r.name)); }
   if (f.type === 'shell') f.faces.forEach((r) => visitName(r.name));
+  if (isSurfaceFeature(f)) surfaceRefs(f, { name: visitName, plane: visitPlane, axis: visitAxis });
+  if (f.type === 'edgeFlange' || f.type === 'hem') f.edges.forEach((r) => visitName(r.name));
+  // Weldments: the layout sketches of members, the members trimmed and the faces picked.
+  if (f.type === 'structuralMember') for (const g of f.groups) for (const s of g.segments) out.add(s.sketch);
+  if (f.type === 'trimExtend') {
+    for (const m of [...f.members, ...f.boundaryMembers]) if (m.feature !== f.id) out.add(m.feature);
+    f.faces.forEach((r) => visitName(r.name));
+  }
+  if (f.type === 'endCap' || f.type === 'gusset') f.faces.forEach((r) => visitName(r.name));
+  if (f.type === 'weldBead') f.edges.forEach((r) => visitName(r.name));
   return [...out];
 }
 

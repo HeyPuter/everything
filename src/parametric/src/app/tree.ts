@@ -10,6 +10,7 @@ import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import type { App } from './app';
 import type { SelItem } from './selection';
+import { sheetMetalTreeRows } from './sheetmetal-panels';
 
 interface Row {
   key: string;
@@ -63,12 +64,17 @@ export class FeatureTree {
     const doc = app.store.doc;
     const rows: Row[] = [];
     rows.push({ key: 'part', item: null, label: doc.name, icon: 'part', depth: 0 });
+    // Weldments: the cut list, with the number of members built.
+    if (doc.features.some((f) => f.type === 'structuralMember')) {
+      rows.push({ key: 'cutlist', item: null, label: `Cut list (${app.weldments.length})`, icon: 'cutList', depth: 1, action: () => app.commands.run('cutList') });
+    }
     rows.push({
       key: 'material', item: null, label: doc.material ? doc.material.name : 'Material', muted: doc.material ? '' : ' <not specified>', icon: 'material', depth: 1,
       action: () => app.commands.run('material'),
     });
     for (const k of ['front', 'top', 'right'] as BasePlane[]) rows.push({ key: `plane:${k}`, item: { kind: 'plane', ref: { kind: 'base', plane: k } }, label: BASE_PLANE_NAMES[k], icon: 'plane', depth: 1 });
     rows.push({ key: 'origin', item: { kind: 'origin' }, label: 'Origin', icon: 'origin', depth: 1 });
+    rows.push(...sheetMetalTreeRows(app));
     const consumedBy = new Map<Id, Id>();
     for (const f of doc.features) for (const s of consumedSketches(f)) if (!consumedBy.has(s)) consumedBy.set(s, f.id);
     for (const f of doc.features) {
@@ -157,6 +163,8 @@ export class FeatureTree {
         // The part and Material rows have menus too (Shift+F10 on them did nothing).
         else if (r.key === 'part') app.openCommandMenu(['properties', 'rename', 'equations', 'appearance'], e.clientX, e.clientY, 'Part menu');
         else if (r.key === 'material') app.openCommandMenu(['material'], e.clientX, e.clientY, 'Material menu');
+        else if (r.key === 'cutlist') app.openCommandMenu(['cutList', 'cutListCsv'], e.clientX, e.clientY, 'Cut list menu');
+        else if (r.key === 'sheetMetal' || r.key === 'flatPattern') app.openCommandMenu(['sheetMetalParameters', 'flatten', 'exportFlatDxf'], e.clientX, e.clientY, 'Sheet metal menu');
       });
       el.addEventListener('pointerenter', () => { if (r.item) sel.setHover(r.item); });
       el.addEventListener('pointerleave', () => { if (r.item) sel.setHover(null); });
@@ -394,6 +402,9 @@ export class FeatureTree {
         if (this.app.store.feature(key)) this.app.editFeature(key);
         // As a click on Material or a double click on the part does.
         else if (key === 'material') this.app.commands.run('material');
+        else if (key === 'cutlist') this.app.commands.run('cutList');
+        else if (key === 'sheetMetal') this.app.commands.run('sheetMetalParameters');
+        else if (key === 'flatPattern') this.app.commands.run('flatten');
         else if (key === 'part') this.app.commands.run('properties');
         break;
       case ' ':

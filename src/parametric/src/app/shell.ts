@@ -196,7 +196,17 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
     cmTools.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
   }, { passive: false });
   const cmTabs = h('div', { class: 'cm-tabs', role: 'tablist', 'aria-label': 'Command groups' });
-  const cm = h('section', { class: 'cm', 'aria-label': 'CommandManager' }, ribbonScroller(cmTools), cmTabs);
+  // On a phone not every tab fits: fade the edge that has more tabs past it.
+  const tabEdges = () => {
+    const max = cmTabs.scrollWidth - cmTabs.clientWidth;
+    cmTabs.classList.toggle('more-start', max > 1 && cmTabs.scrollLeft > 1);
+    cmTabs.classList.toggle('more-end', max > 1 && cmTabs.scrollLeft < max - 1);
+  };
+  cmTabs.addEventListener('scroll', tabEdges, { passive: true });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(tabEdges).observe(cmTabs);
+  // Tabs shown or hidden (the drawing's, an assembly's) change what is past the edge too.
+  if (typeof MutationObserver !== 'undefined') new MutationObserver(tabEdges).observe(cmTabs, { subtree: true, childList: true, attributeFilter: ['hidden'] });
+  const cm =h('section', { class: 'cm', 'aria-label': 'CommandManager' }, ribbonScroller(cmTools), cmTabs);
 
   const lpTabs = h('div', { class: 'lp-tabs' });
   const lpBody = h('div', { class: 'lp-body', id: 'left-panel', role: 'tabpanel' });
@@ -284,6 +294,7 @@ function ribbonScroller(tools: HTMLElement): HTMLElement {
 /** Renders one CommandManager tab's tools. */
 export function renderRibbon(target: HTMLElement, tab: RibbonTab, cmds: CommandRegistry) {
   target.textContent = '';
+  target.dataset.tab = tab.id;
   tab.groups.forEach((group, i) => {
     const name = tab.labels?.[i];
     const g = h('div', { class: 'cm-group', role: 'group', ...(name ? { 'aria-label': name, 'data-group': name.toLowerCase() } : {}) });

@@ -43,10 +43,14 @@ export function formatNumber(v: number, decimals: number): string {
   return /^-0\.?0*$/.test(s) ? s.slice(1) : s;
 }
 
-/** Shortest round-trippable text for an editable value (no forced decimals). */
+/**
+ * Shortest text for an editable value (no forced decimals), to 15 significant
+ * digits: a value converted between units reads as typed (0.048 in, not the
+ * 0.04800000000000001 that 1.2192 mm / 25.4 gives) and keeps its precision.
+ */
 export function formatEditable(v: number): string {
   if (!Number.isFinite(v)) return '0';
-  return v.toString();
+  return Number(v.toPrecision(15)).toString();
 }
 
 export function formatLength(mm: number, units: UnitSystem, decimals: number, withUnit = false): string {

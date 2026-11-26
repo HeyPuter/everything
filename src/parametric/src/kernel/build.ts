@@ -21,30 +21,37 @@ import type {
 } from '../model/types';
 import { PARAM_FIELDS, dependencies, getPath, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
+import { type SheetHost, type SheetModel, applySheetMetal, flatPattern } from './sheetmetal';
 import { type Region, type Seg2, buildProfiles, hasOverlappingLines, holesMayTouch, inRegion, pointInPoly, reverseLoop, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, pointIdsOf, splineBeziers } from '../sketch/geom';
 import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
 import { measureDimension } from '../sketch/ops';
 import type {
-  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData,
-  ProjectionRequest, ProjectionResult,
+  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
+  ProjectionRequest, ProjectionResult, WeldVolumes,
 } from './protocol';
+import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend, applyWeldBead } from './weldments';
+import { projectSection } from './drawing-section';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
   hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
+import { SurfaceKit, bodyEdges, type SurfaceBody, type SurfState } from './surfaces';
+import { SURFACE_TYPES, type SurfaceFeature } from '../model/surfaces';
 
 export { BASE_FRAMES };
 
 export class FeatureError extends Error {}
 
+// STL holds closed meshes for printing: surface bodies are left out of it.
+const STL_SOLIDS_ONLY = 'STL files hold solids only, and this part has only surfaces. Thicken or knit the surfaces into a solid, or export STEP to keep them.';
 // Thin (wall) extrudes and revolves are not built yet; failing beats
 // silently making a solid where a wall was asked for.
 const THIN_UNSUPPORTED = 'Thin features are not supported yet. Sketch the wall as two offset contours instead.';
 
-interface NamedFace {
+export interface NamedFace {
   shape: Sh;
   name: string;
   desc: SurfDesc;
@@ -66,7 +73,7 @@ interface Tool {
   parts?: Tool[];
 }
 
-interface State {
+export interface State {
   body: Sh | null;
   faces: NamedFace[];
   edges: NamedEdge[] | null;
@@ -75,6 +82,12 @@ interface State {
   /** Projected sketch entities whose model edge or vertex is gone, by sketch. */
   lostRefs: Map<Id, Id[]>;
   tools: Map<Id, Tool>;
+  /** Surface bodies (see surfaces.ts); empty for parts without surface features. */
+  surfaces: SurfaceBody[];
+  /** Sheet metal model (sheetmetal.ts), from the first Base Flange on. */
+  sheet?: SheetModel | null;
+  /** Structural members, end caps and gussets built so far (weldment parts only). */
+  weld?: WeldState;
 }
 
 interface Step {
@@ -83,7 +96,10 @@ interface Step {
   status: FeatureStatus;
 }
 
-const emptyState = (): State => ({ body: null, faces: [], edges: null, frames: new Map(), sketches: new Map(), lostRefs: new Map(), tools: new Map() });
+const WELD_TOOL_TYPES = new Set<Feature['type']>(['structuralMember', 'endCap', 'gusset', 'weldBead']);
+const WELD_TYPES = new Set<Feature['type']>([...WELD_TOOL_TYPES, 'trimExtend']);
+
+const emptyState = (): State => ({ body: null, faces: [], edges: null, frames: new Map(), sketches: new Map(), lostRefs: new Map(), tools: new Map(), surfaces: [] });
 
 const cloneState = (s: State): State => ({
   body: s.body,
@@ -93,6 +109,9 @@ const cloneState = (s: State): State => ({
   sketches: new Map(s.sketches),
   lostRefs: new Map(s.lostRefs),
   tools: new Map(s.tools),
+  surfaces: s.surfaces,
+  sheet: s.sheet,
+  weld: s.weld,
 });
 
 /** A feature's numeric value at a path (dir1.count), named by its label when it is not a number. */
@@ -164,6 +183,8 @@ export function hashString(s: string, seed = 0): string {
 export class ModelBuilder {
   private steps: Step[] = [];
   private current: State = emptyState();
+  /** Number of features the current state was built from. */
+  private currentUpTo = 0;
   /**
    * What the cached mesh was made from. Keyed by the body and its faces, not
    * by the chain of steps: a sketch or plane leaves the body as it was, yet
@@ -171,7 +192,7 @@ export class ModelBuilder {
    * meshed the whole part again and sent it to the GPU, 0.6 s on a plate of
    * 400 holes.
    */
-  private meshKey: { body: Sh | null; faces: NamedFace[]; quality: number } | null = null;
+  private meshKey: { body: Sh | null; faces: NamedFace[]; quality: number; surfaces?: SurfaceBody[] } | null = null;
   private meshCache: { mesh: MeshData | null; faces: FaceInfo[]; edges: EdgeInfo[] } | null = null;
 
   reset() {
@@ -271,6 +292,8 @@ export class ModelBuilder {
           next.body = state.body;
           next.faces = state.faces;
           next.edges = state.edges;
+          next.surfaces = state.surfaces;
+          next.sheet = state.sheet;
         }
       }
       this.steps[i] = { key, state: next, status: st };
@@ -280,6 +303,7 @@ export class ModelBuilder {
     }
     for (let i = upTo; i < req.features.length; i++) status.push({ id: req.features[i].id, ok: true });
     this.current = state;
+    this.currentUpTo = upTo;
     // Imported shapes of parts no longer open (their file data is gone from
     // the request) would otherwise be kept for the life of the worker.
     for (const blob of [...this.importCache.keys()]) if (!(blob in req.blobs)) this.importCache.delete(blob);
@@ -290,9 +314,11 @@ export class ModelBuilder {
     }
 
     const k = this.meshKey;
-    if (!k || k.body !== state.body || k.faces !== state.faces || k.quality !== req.quality || !this.meshCache) {
+    if (!k || k.body !== state.body || k.faces !== state.faces || k.quality !== req.quality || !this.meshCache || k.surfaces !== state.surfaces) {
       this.meshCache = this.meshState(state, req.quality);
-      this.meshKey = { body: state.body, faces: state.faces, quality: req.quality };
+      // Surface bodies are drawn and picked with the solid, their faces and edges after its.
+      if (state.surfaces.length) this.meshCache = this.surf.mesh(this.meshCache, state, req.quality);
+      this.meshKey = { body: state.body, faces: state.faces, quality: req.quality, surfaces: state.surfaces };
     }
     const frames: Record<Id, Frame> = {};
     for (const [k, v] of state.frames) frames[k] = v;
@@ -322,6 +348,11 @@ export class ModelBuilder {
       preview: null,
       sketches,
     };
+    if (state.surfaces.length) {
+      result.bbox = this.surf.box(state);
+      result.surfaces = { face: state.faces.length, edge: this.edgesOf(state).length };
+    }
+    if (state.weld) result.weldments = state.weld.members.map((m) => m.info);
 
     if (req.preview) {
       const p = cloneState(state);
@@ -338,6 +369,10 @@ export class ModelBuilder {
         } else if (kind === 'body' && p.body) {
           result.preview = this.meshBody(p.body, req.quality);
           result.previewKind = 'body';
+        } else if (kind === 'surface') {
+          const shape = this.surf.previewShape(p, req.preview.id);
+          if (shape) result.preview = this.meshBody(shape, req.quality);
+          result.previewKind = 'tool';
         }
         if (req.preview.type === 'sketch' || req.preview.type === 'plane') {
           const fr = p.frames.get(req.preview.id);
@@ -358,7 +393,7 @@ export class ModelBuilder {
   // ---- feature dispatch ----
 
   /** Applies a feature to the state. Returns what a preview should show. */
-  private async apply(f: Feature, st: State, req: BuildRequest): Promise<'tool' | 'body' | 'none'> {
+  private async apply(f: Feature, st: State, req: BuildRequest): Promise<'tool' | 'body' | 'none' | 'surface'> {
     switch (f.type) {
       case 'sketch': {
         const frame = this.resolvePlane(f.plane, st);
@@ -380,7 +415,85 @@ export class ModelBuilder {
       case 'sweep': this.applySweep(f, st); return 'tool';
       case 'draft': this.applyDraft(f, st); return 'body';
       case 'import': await this.applyImport(f, st, req); return 'body';
+      case 'baseFlange':
+      case 'edgeFlange':
+      case 'sketchedBend':
+      case 'hem':
+        applySheetMetal(this.sheetHost(), f, st);
+        // Its booleans leave a tool that is not the feature (a flange's cut or wall alone): it cannot be a pattern seed.
+        st.tools.delete(f.id);
+        return 'body';
+      case 'structuralMember': applyStructuralMember(this.weldCtx(f.id, st), f); return 'tool';
+      case 'trimExtend': applyTrimExtend(this.weldCtx(f.id, st), f); return 'body';
+      case 'endCap': applyEndCap(this.weldCtx(f.id, st), f); return 'tool';
+      case 'gusset': applyGusset(this.weldCtx(f.id, st), f); return 'tool';
+      case 'weldBead': applyWeldBead(this.weldCtx(f.id, st), f); return 'tool';
     }
+    if (SURFACE_TYPES.has(f.type)) return this.surf.apply(f as SurfaceFeature, st);
+    return 'none';
+  }
+
+  /** What the sheet metal features (sheetmetal.ts) use of the builder. */
+  private sheetHost(): SheetHost {
+    return {
+      sketchRegions: (id, st) => this.sketchRegions(id, st as State),
+      regionFace: (r, fr) => this.regionFace(r, fr),
+      nearestSrc: (regions, p) => this.nearestSrc(regions, p),
+      applyTool: (featId, st, tool, faces, isCut, noGain) => this.applyTool(featId, st as State, tool, faces, isCut, noGain),
+      nameFaces: (featId, body, st, tool) => this.nameFaces(featId, body, st as State, tool),
+      edges: (st) => this.edgesOf(st as State),
+      resolveEdge: (ref, st) => this.resolveEdge(ref, st as State),
+      missing: (id, what) => this.missing(id, what),
+      error: (message) => new FeatureError(message),
+      warn: (message) => { this.warning = message; },
+    };
+  }
+
+  /** The flat pattern of the sheet metal part as last built. */
+  flatPattern(quality = 1): FlatPatternResult {
+    const r = flatPattern(this.current);
+    if ('error' in r) return { pattern: null, error: r.error, mesh: null };
+    return { pattern: r.pattern, mesh: this.meshBody(r.solid, quality) };
+  }
+
+  /** What the weldment features (weldments.ts) use of the builder. */
+  private weldCtx(featId: Id, st: State): WeldCtx {
+    return {
+      st,
+      featureId: featId,
+      sketch: (id) => {
+        const sk = st.sketches.get(id), frame = st.frames.get(id);
+        if (!sk || !frame) throw this.missing(id, 'layout sketch');
+        return { entities: sk.entities, frame };
+      },
+      face: (ref) => { const f = st.faces[this.resolveFace(ref, st)]; return { name: f.name, desc: f.desc }; },
+      edge: (ref) => { const e = this.edgesOf(st)[this.resolveEdge(ref, st)]; return { desc: e.desc, faces: e.faces.map((i) => ({ desc: st.faces[i].desc, shape: st.faces[i].shape })) }; },
+      nameTool: (prefix, shape, classify) => this.nameTool(prefix, shape, (_d, k) => classify(k)),
+      applyTool: (tool, faces, noGain) => this.applyTool(featId, st, tool, faces as NamedFace[], false, noGain),
+      setBody: (body, faces) => {
+        st.faces = this.nameFaces(featId, body, st, faces as NamedFace[]);
+        st.body = body;
+        st.edges = null;
+      },
+      bodyBefore: (id) => {
+        const i = this.order.get(id)?.index ?? -1;
+        return i > 0 ? this.steps[i - 1]?.state.body ?? null : null;
+      },
+      toolsAfter: (id) => {
+        const from = this.order.get(id)?.index ?? Infinity;
+        const out = { adds: [] as Sh[], cuts: [] as Sh[] };
+        for (const [fid, t] of st.tools) {
+          const o = this.order.get(fid);
+          // Members, caps, gussets and beads are in the weld state as they now stand (a trim may have changed them).
+          if (!o || o.index <= from || WELD_TOOL_TYPES.has(o.type)) continue;
+          for (const p of t.parts ?? [t]) (p.cut ? out.cuts : out.adds).push(p.shape);
+        }
+        return out;
+      },
+      warn: (m) => { this.warning = m; },
+      err: (m) => new FeatureError(m),
+      name: nameOf,
+    };
   }
 
   /**
@@ -392,6 +505,8 @@ export class ModelBuilder {
     if (!hasExternal(f)) return f;
     const sk = structuredClone(f);
     const find = (ref: EdgeRef) => {
+      const onSurface = st.surfaces.length ? this.surf.surfaceEdgeDesc(ref, st) : null;
+      if (onSurface) return onSurface;
       try {
         return this.edgesOf(st)[this.resolveEdge(ref, st)].desc;
       } catch (e) {
@@ -425,6 +540,8 @@ export class ModelBuilder {
       if (!f) throw this.missing(ref.id, 'reference plane');
       return f;
     }
+    const onSurface = st.surfaces.length ? this.surf.surfacePlane(ref.face, st, ref.x) : null;
+    if (onSurface) return onSurface;
     const i = this.resolveFace(ref.face, st);
     const d = st.faces[i].desc;
     if (d.type !== 'plane') throw new FeatureError('The selected face is not planar');
@@ -454,6 +571,8 @@ export class ModelBuilder {
     // face (references saved before a naming fix): then the signature decides.
     if (cands.length === 1 && fits(st.faces[cands[0]].desc)) return cands[0];
     if (cands.length > 1) return near(cands);
+    // A face of a surface body is not one of the solid's: say so rather than "no longer exists".
+    if (!cands.length && st.surfaces.length && this.surf.findFace(ref, st)) throw new FeatureError(`A selected face${this.maker(ref.name)} is on a surface body, not the solid. Edit the feature and select a face of the solid.`);
     // Fallback: same type and orientation, nearest centre.
     const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.05 : 1;
@@ -485,6 +604,7 @@ export class ModelBuilder {
     const base = ref.name.replace(/#\d+$/, '');
     const same = edges.flatMap((e, i) => (e.name.replace(/#\d+$/, '') === base ? [i] : []));
     if (same.length) return split && base === ref.name ? same : [near(same)];
+    if (st.surfaces.length && this.surf.findEdge(ref, st)) throw new FeatureError(`A selected edge${this.maker(ref.name)} is on a surface body, not the solid. Edit the feature and select an edge of the solid.`);
     const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.02 : 1;
     const alt = edges.flatMap((e, i) => (e.desc.type === ref.sig.type && dist(e.desc.mid, ref.sig.m) < lim ? [i] : []));
@@ -498,6 +618,8 @@ export class ModelBuilder {
   /** Point and unit direction of an axis reference. */
   resolveAxis(ref: AxisRef | null, st: State): { p: Vec3; d: Vec3 } {
     if (!ref) throw new FeatureError('Select a direction or axis');
+    const onSurface = st.surfaces.length ? this.surf.surfaceAxis(ref, st) : null;
+    if (onSurface) return onSurface;
     switch (ref.kind) {
       case 'base': return { p: [0, 0, 0], d: ref.axis === 'x' ? [1, 0, 0] : ref.axis === 'y' ? [0, 1, 0] : [0, 0, 1] };
       case 'edge': {
@@ -1140,8 +1262,8 @@ export class ModelBuilder {
     this.applyTool(f.id, st, tool, named, true);
   }
 
-  private seedTools(featId: Id, seeds: Id[], st: State): Tool[] {
-    if (!seeds.length) throw new FeatureError('Select features to pattern');
+  private seedTools(featId: Id, seeds: Id[], st: State, verb = 'pattern'): Tool[] {
+    if (!seeds.length) throw new FeatureError(`Select features to ${verb}`);
     return seeds.flatMap((id) => {
       const t = st.tools.get(id);
       if (t) return t.parts ?? [t];
@@ -1151,7 +1273,7 @@ export class ModelBuilder {
       if (at === undefined) throw new FeatureError('A seed feature no longer exists');
       if (at.index > (this.order.get(featId)?.index ?? Infinity)) throw new FeatureError(`The seed feature ${nameOf(id)} comes after this feature in the tree`);
       if (SEED_TYPES.has(at.type)) throw new FeatureError(`The seed feature ${nameOf(id)} failed to build`);
-      throw new FeatureError(`${nameOf(id)} cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)`);
+      throw new FeatureError(`${nameOf(id)} cannot be ${verb}ed (only extrudes, revolves, holes, lofts, sweeps and patterns)`);
     });
   }
 
@@ -1263,7 +1385,7 @@ export class ModelBuilder {
       this.applyTool(f.id, st, m, tf, false, 'The mirror adds no material: the part is already symmetric about the mirror plane.', true);
       return;
     }
-    this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
+    this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st, 'mirror'), [(s) => mirrored(s, fr.o, fr.n)]);
   }
 
   /** The first closed region of a profile sketch, as an outer wire and hole wires. */
@@ -1520,20 +1642,70 @@ export class ModelBuilder {
 
   /** Hidden-line removal projections of the current body. */
   project(views: ProjectionRequest[]): ProjectionResult[] {
-    const body = this.current.body;
+    // Hidden surface bodies are not drawn (the views of one request share what is hidden).
+    const hidden = new Set(views[0]?.hideSurfaces ?? []);
+    const body = this.current.surfaces.length ? this.surf.allShapes(this.current, hidden) : this.current.body;
     const b = body ? boxOf(body) : null;
     // Curves other than lines and arcs are drawn within a thousandth of the part's size.
     const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;
     return views.map((v) => {
       if (!body) return { id: v.id, visible: [], hidden: [], bounds: null };
-      return { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10, v.hidden !== false) };
+      if (v.section && b) return { id: v.id, ...projectSection(body, b, v, tol) };
+      return { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10, v.hidden !== false, v.smooth !== false) };
     });
   }
 
   // ---- evaluation ----
 
+  /**
+   * Volumes of the structural members as the part now stands, for the cut
+   * list: what a later cut or hole took from a member is left out (the member
+   * less those tools, a small boolean each, so this runs when the cut list is
+   * asked for, not on every rebuild). `approximate` when a later feature of
+   * another kind (a fillet, a shell) changed the body: those changes are not
+   * measured. Members not listed keep their volume as built.
+   */
+  weldVolumes(): WeldVolumes {
+    const st = this.current;
+    const out: WeldVolumes = { volumes: [], approximate: false };
+    if (!st.weld?.members.length || !st.body) return out;
+    const first = Math.min(...st.weld.members.map((m) => this.order.get(m.feature)?.index ?? Infinity));
+    // The cut tools of the features after the first member, and whether any other feature changed the body there.
+    const after: { index: number; cut: Sh }[] = [];
+    const ids: Id[] = [];
+    for (const [id, o] of this.order) ids[o.index] = id;
+    for (let i = first + 1; i < this.currentUpTo; i++) {
+      const prev = this.steps[i - 1]?.state.body, cur = this.steps[i]?.state.body;
+      if (!cur || cur === prev) continue;
+      const o = this.order.get(ids[i]);
+      if (!o || WELD_TYPES.has(o.type)) continue;
+      const t = this.steps[i].state.tools.get(ids[i]);
+      if (!t) { out.approximate = true; continue; }
+      for (const p of t.parts ?? [t]) if (p.cut) after.push({ index: i, cut: p.shape });
+    }
+    if (!after.length) return out;
+    const boxes = new Map<Sh, ReturnType<typeof bbox>>();
+    const boxOf = (s: Sh) => { if (!boxes.has(s)) boxes.set(s, bbox(s)); return boxes.get(s)!; };
+    const meets = (a: Sh, b: Sh) => {
+      const p = boxOf(a), q = boxOf(b);
+      return !!p && !!q && [0, 1, 2].every((k) => p.min[k] <= q.max[k] + 1e-6 && q.min[k] <= p.max[k] + 1e-6);
+    };
+    for (const m of st.weld.members) {
+      const from = this.order.get(m.feature)?.index ?? Infinity;
+      const tools = after.filter((a) => a.index > from && meets(a.cut, m.solid)).map((a) => a.cut);
+      if (!tools.length) continue;
+      const left = cut(m.solid, tools.length === 1 ? tools[0] : compound(tools));
+      out.volumes.push({ feature: m.feature, member: m.key, volume: isEmpty(left) ? 0 : volumeOf(left) });
+    }
+    return out;
+  }
+
   massProperties(): MassProperties | null {
     const body = this.current.body;
+    if (!body && this.current.surfaces.length) {
+      // Only surfaces: no volume or mass; their area is stated apart.
+      return { solid: false, volume: 0, area: 0, center: [0, 0, 0], inertia: [0, 0, 0, 0, 0, 0, 0, 0, 0], principal: eigenSym3([0, 0, 0, 0, 0, 0, 0, 0, 0]), surfaceArea: this.surf.area(this.current) };
+    }
     if (!body) return null;
     const oc = getOc();
     const props = new oc.GProp_GProps();
@@ -1560,7 +1732,9 @@ export class ModelBuilder {
       const volume = props.Mass();
       const b = boxOf(body);
       const solid = volume > (b ? dist(b.min, b.max) : 1) ** 3 * 1e-12;
-      return { solid, volume, area: sprops.Mass(), center, inertia, principal: eigenSym3(inertia) };
+      const out: MassProperties = { solid, volume, area: sprops.Mass(), center, inertia, principal: eigenSym3(inertia) };
+      if (this.current.surfaces.length) out.surfaceArea = this.surf.area(this.current);
+      return out;
     } finally {
       props.delete();
       sprops.delete();
@@ -1580,9 +1754,13 @@ export class ModelBuilder {
       }
       if (t.kind === 'face') {
         const f = this.current.faces[t.index];
+        const s = !f && this.current.surfaces.length ? this.surf.shapeAt(this.current, 'face', t.index, this.current.faces.length) : null;
+        if (s) return s;
         if (!f) throw new FeatureError('Face not found');
         return f.shape;
       }
+      const se = this.current.surfaces.length ? this.surf.shapeAt(this.current, 'edge', t.index, this.edgesOf(this.current).length) : null;
+      if (se) return se;
       const e = this.edgesOf(this.current)[t.index];
       if (!e) throw new FeatureError('Edge not found');
       return e.shape;
@@ -1609,7 +1787,8 @@ export class ModelBuilder {
 
   /** A STEP file of the current body; its product (what other CAD systems list the body as) is named `name`. */
   exportStep(name?: string): Uint8Array {
-    const body = this.current.body;
+    // Surface bodies go into the file as shells beside the solid.
+    const body = this.current.surfaces.length ? this.surf.allShapes(this.current) : this.current.body;
     if (!body) throw new FeatureError('There is no geometry to export');
     const oc = getOc();
     const writer = new oc.STEPControl_Writer();
@@ -1638,6 +1817,7 @@ export class ModelBuilder {
   /** Binary STL of the current body. */
   exportStl(quality: number): Uint8Array {
     const body = this.current.body;
+    if (!body && this.current.surfaces.length) throw new FeatureError(STL_SOLIDS_ONLY);
     if (!body) throw new FeatureError('There is no geometry to export');
     const { tol, ang } = this.meshParams(body, Math.max(1, quality));
     const m = meshShape(body, tol * 0.5, ang * 0.5);
@@ -1668,6 +1848,19 @@ export class ModelBuilder {
     return new Uint8Array(buf);
   }
 
+  /** The body built last with its faces and edges, in the order the build result lists them (assemblies place and combine these). */
+  currentShapes(): {
+    body: Sh | null; faces: { shape: Sh; desc: SurfDesc }[]; edges: Sh[];
+    /** Surface bodies (shells), and their faces and edges in the order the build result lists them after the solid's. */
+    surfaces: Sh[]; surfaceFaces: Sh[]; surfaceEdges: Sh[];
+  } {
+    const st = this.current;
+    return {
+      body: st.body, faces: st.faces.map((f) => ({ shape: f.shape, desc: f.desc })), edges: st.body ? this.edgesOf(st).map((e) => e.shape) : [],
+      surfaces: st.surfaces.map((b) => b.shape), surfaceFaces: st.surfaces.flatMap((b) => b.faces.map((f) => f.shape)), surfaceEdges: st.surfaces.flatMap((b) => bodyEdges(b).map((e) => e.shape)),
+    };
+  }
+
   /** Current body volume (used by tests). */
   get hasBody(): boolean {
     return !!this.current.body;
@@ -1688,6 +1881,35 @@ export class ModelBuilder {
   /** Hash of the body's topology (for tests). */
   topologyHash(): number {
     return this.current.body ? hashOf(this.current.body.wrapped) : 0;
+  }
+
+  // ---- surfaces ----
+
+  /** Surface bodies of the current build (for tests). */
+  surfaceBodies(): SurfaceBody[] {
+    return this.current.surfaces;
+  }
+
+  private surfaceKit: SurfaceKit | null = null;
+
+  /** Surface features (surfaces.ts), with the parts of the builder they use. */
+  private get surf(): SurfaceKit {
+    const st = (s: SurfState) => s as State;
+    return (this.surfaceKit ??= new SurfaceKit({
+      fail: (m) => new FeatureError(m),
+      missing: (id, what) => this.missing(id, what),
+      warn: (m) => { this.warning = m; },
+      num: (f, path) => num(f, path),
+      sketchRegions: (id, s) => this.sketchRegions(id, st(s)),
+      regionFace: (r, fr) => this.regionFace(r, fr),
+      resolvePlane: (ref, s) => this.resolvePlane(ref, st(s)),
+      resolveAxis: (ref, s) => this.resolveAxis(ref, st(s)),
+      resolveFace: (ref, s) => this.resolveFace(ref, st(s)),
+      resolveEdge: (ref, s) => this.resolveEdge(ref, st(s)),
+      edgesOf: (s) => this.edgesOf(st(s)),
+      applyTool: (id, s, tool, faces, isCut, noGain) => this.applyTool(id, st(s), tool, faces, isCut, noGain),
+      nameFaces: (id, body, s, tool) => this.nameFaces(id, body, st(s), tool),
+    }));
   }
 }
 

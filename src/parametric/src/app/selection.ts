@@ -16,7 +16,9 @@ export type SelItem =
   | { kind: 'feature'; id: Id }
   | { kind: 'sk'; id: Id }
   | { kind: 'skdim'; id: Id }
-  | { kind: 'skrel'; id: Id };
+  | { kind: 'skrel'; id: Id }
+  /** A line or arc of a sketch picked in the 3D view (weldment member paths). */
+  | { kind: 'skseg'; sketch: Id; entity: Id };
 
 export function sameItem(a: SelItem, b: SelItem): boolean {
   if (a.kind !== b.kind) return false;
@@ -36,6 +38,8 @@ export function sameItem(a: SelItem, b: SelItem): boolean {
       return true;
     case 'axis':
       return a.axis === (b as typeof a).axis;
+    case 'skseg':
+      return a.sketch === (b as typeof a).sketch && a.entity === (b as typeof a).entity;
     default:
       return (a as { id: Id }).id === (b as { id: Id }).id;
   }

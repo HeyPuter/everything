@@ -363,3 +363,54 @@ test('a small phone shows the equations table, Delete buttons included, without 
   await expect(dialog.getByRole('button', { name: 'Delete Var1' })).toBeVisible();
   expect(await dialog.locator('.dialog-body').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
+
+test('the ribbon tab strip fades the edge with more tabs past it, also after the drawing hid and showed tabs', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const strip = page.locator('.cm-tabs');
+  await expect(strip).toHaveClass(/more-end/);
+  // The View tab, last, scrolls into view: the fade moves to the start.
+  await page.locator('.cm-tabs [data-tab="view"]').click();
+  await expect(strip).toHaveClass(/more-start/);
+  await expect(strip).not.toHaveClass(/more-end/);
+  // The drawing has two tabs, which fit: no fade.
+  type A = { __parametric: import('../../src/app/app').App };
+  await page.evaluate(() => (window as unknown as A).__parametric.openDrawing());
+  await expect(page.locator('.cm-tabs [data-tab="annotation"]')).toBeVisible();
+  await expect(strip).not.toHaveClass(/more-(start|end)/);
+  // Back in the model all the tabs are there again, past the edge.
+  await page.evaluate(() => (window as unknown as A).__parametric.closeDrawing());
+  await expect(page.locator('.cm-tabs [data-tab="features"]')).toBeVisible();
+  await expect(strip).toHaveClass(/more-end/);
+  expect(errors).toEqual([]);
+});
+
+test('ribbon labels of the sheet metal, surfaces, weldments, drawing and assembly tabs break only between words', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: import('../../src/app/app').App };
+  // Words of a label wider than the label: a word broken across lines.
+  const broken = () => page.evaluate(() => {
+    const c = document.createElement('canvas').getContext('2d')!;
+    return [...document.querySelectorAll<HTMLElement>('.cm-tools .tool .lbl')].flatMap((l) => {
+      const cs = getComputedStyle(l);
+      c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const tool = l.closest('.tool')!.getBoundingClientRect(), r = l.getBoundingClientRect();
+      const words = l.textContent!.split(/\s+/).filter((w) => c.measureText(w).width > l.clientWidth + 0.5);
+      return words.length || r.left < tool.left - 0.5 || r.right > tool.right + 0.5 ? [l.textContent!] : [];
+    });
+  });
+  for (const tab of ['sheetMetal', 'surfaces', 'weldments', 'drawing']) {
+    await page.evaluate((t) => (window as unknown as A).__parametric.setRibbonTab(t), tab);
+    expect(await broken(), tab).toEqual([]);
+  }
+  await page.evaluate(() => { void (window as unknown as A).__parametric.commands.run('newAssembly'); });
+  await expect(page.locator('.cm-tools [data-cmd="insertComponent"]')).toBeVisible();
+  expect(await broken(), 'assembly').toEqual([]);
+  await page.evaluate(() => (window as unknown as A).__parametric.openDrawing());
+  await page.evaluate(() => (window as unknown as A).__parametric.setRibbonTab('annotation'));
+  expect(await broken(), 'annotation').toEqual([]);
+  expect(errors).toEqual([]);
+});

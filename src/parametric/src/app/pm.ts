@@ -25,6 +25,8 @@ export interface PickFilter {
   sketchLine?: boolean;
   sketchPoint?: boolean;
   axis?: boolean;
+  /** Lines and arcs of the sketches shown in the 3D view (weldment member paths). */
+  sketchSegment?: boolean;
 }
 
 export interface UnitContext {
@@ -411,6 +413,8 @@ export function flipButton(label: string, pressed: boolean, onChange: (v: boolea
 
 export interface SelBoxItem {
   item: SelItem | null;
+  /** More to highlight in the graphics area (all faces of a structural member), found again at each redraw. */
+  highlights?: () => SelItem[];
   /** Arbitrary payload stored by the panel (e.g. a FaceRef). */
   data: unknown;
   label: string;

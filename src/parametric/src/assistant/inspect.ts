@@ -93,7 +93,12 @@ export class Inspector {
     if (!b) return 'Body: none yet (nothing solid has been built).';
     const u = this.u;
     const size = [0, 1, 2].map((i) => u.len(b.max[i] - b.min[i]));
-    return `Body: ${this.host.faces.length} faces, ${this.host.edges.length} edges; bounding box X ${u.len(b.min[0])}…${u.len(b.max[0])}, Y ${u.len(b.min[1])}…${u.len(b.max[1])}, Z ${u.len(b.min[2])}…${u.len(b.max[2])} (size ${size.join(' × ')} ${u.unit}).`;
+    // Faces and edges of surface bodies come after the solid's: counted apart, as they are not part of it.
+    const faces = this.host.faces.filter((f) => !f.body).length, edges = this.host.edges.filter((e) => !e.body).length;
+    const sheets = new Set(this.host.faces.flatMap((f) => (f.body ? [f.body] : [])));
+    const solid = faces ? `${faces} faces, ${edges} edges` : 'no solid';
+    const surfaces = sheets.size ? `; ${sheets.size} surface bod${sheets.size === 1 ? 'y' : 'ies'} apart from the solid (${this.host.faces.length - faces} faces, ${this.host.edges.length - edges} edges)` : '';
+    return `Body: ${solid}${surfaces}; bounding box X ${u.len(b.min[0])}…${u.len(b.max[0])}, Y ${u.len(b.min[1])}…${u.len(b.max[1])}, Z ${u.len(b.min[2])}…${u.len(b.max[2])} (size ${size.join(' × ')} ${u.unit}).`;
   }
 
   partHeader(): string {

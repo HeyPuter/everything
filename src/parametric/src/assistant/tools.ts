@@ -347,7 +347,7 @@ const TOOLS: ToolDef[] = [
       show: B('Show (true) or leave (false) the drawing sheet'),
       arrange: B('Lay out front, top, right and isometric views at a fitting scale'),
       add_views: ARR({ type: 'string', enum: ['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric'] }, 'Views to add'),
-      sheet: S('Sheet size', { enum: ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid'] }),
+      sheet: S('Sheet size', { enum: ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D'] }),
       landscape: B('Landscape (true) or portrait'),
       scale: N('Model to paper scale, e.g. 0.5 for 1:2'),
       title: S('Title block title'), drawn_by: S('Drawn by'), notes: S('Notes'),
@@ -573,7 +573,10 @@ class Toolkit {
     const mp = await this.host.massProperties();
     if (!mp) return 'Mass properties are not available for this body.';
     const u = this.u;
-    if (!mp.solid) return `The body has no closed solid (only surfaces), so it has no volume, mass or centre of mass. Surface area ${u.area(mp.area)}.\n${this.ins.bodyText()}`;
+    // Surface bodies have area only: they are in none of the solid's values.
+    const sheets = mp.surfaceArea != null ? `Surface bodies: area ${u.area(mp.surfaceArea)}, not included in the values above (surfaces have no volume or mass).` : '';
+    if (!mp.solid && mp.surfaceArea != null && !mp.area) return `The part has no solid, only surface bodies (area ${u.area(mp.surfaceArea)}), so it has no volume, mass or centre of mass.\n${this.ins.bodyText()}`;
+    if (!mp.solid) return `The body has no closed solid (only surfaces), so it has no volume, mass or centre of mass. Surface area ${u.area(mp.area)}.${sheets ? `\n${sheets}` : ''}\n${this.ins.bodyText()}`;
     const us = UNIT_SYSTEMS[this.doc.units];
     const lines = [`Volume ${u.volume(mp.volume)}; surface area ${u.area(mp.area)}; centre of mass ${u.pt(mp.center)}.`];
     const m = this.doc.material;
@@ -582,6 +585,7 @@ class Toolkit {
       lines.push(`Mass ${qty(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
     } else lines.push('Mass: set a material (set_part) to get the mass.');
     lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => qty(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
+    if (sheets) lines.push(sheets);
     lines.push(this.ins.bodyText());
     return lines.join('\n');
   }
@@ -982,7 +986,7 @@ class Toolkit {
       done.push(`added ${v} view`);
     }
     const patch: Obj = {};
-    if (a.sheet != null) { if (!['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid'].includes(str(a.sheet))) throw new ToolError('sheet: A4, A3, A2, A1, Letter or Tabloid'); patch.sheet = str(a.sheet); }
+    if (a.sheet != null) { if (!['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D'].includes(str(a.sheet))) throw new ToolError('sheet: A4, A3, A2, A1, Letter, Tabloid, ANSI C or ANSI D'); patch.sheet = str(a.sheet); }
     if (typeof a.landscape === 'boolean') patch.landscape = a.landscape;
     if (a.scale != null) { const s = Number(a.scale); if (!(s > 0 && s <= 100)) throw new ToolError('scale: a positive ratio such as 0.5 for 1:2'); patch.scale = s; }
     if (a.title != null) patch.title = str(a.title);

@@ -4,7 +4,7 @@ import type { Vec3 } from '../math/vec';
 import { dot, sub, toLocal } from '../math/vec';
 import {
   defaultName, newChamfer, newCircularPattern, newDraft, newExtrude, newFillet, newHole, newLinearPattern, newLoft,
-  newMirror, newPlane, newRevolve, newShell, newSketch, newSweep, FEATURE_LABELS, featureIcon,
+  newMirror, newPlane, newRevolve, newShell, newSketch, newSweep, FEATURE_LABELS, consumedSketches, featureIcon,
 } from '../model/features';
 import { BASE_PLANE_NAMES } from '../model/planes';
 import { changeFeatureUnits } from '../model/document';
@@ -104,7 +104,7 @@ function axisLabel(app: App, ref: AxisRef | null): string {
   if (!ref) return '';
   switch (ref.kind) {
     case 'base': return `${ref.axis.toUpperCase()} axis`;
-    case 'edge': return `Edge (${ref.edge.sig.type})`;
+    case 'edge': return ref.edge.sig.type ? `Edge (${ref.edge.sig.type})` : 'Edge';
     case 'face': return `Face of ${app.store.feature(app.faces.find((f) => f.name === ref.face.name)?.feature ?? '')?.name ?? 'part'}`;
     case 'sketchLine': return `${app.store.feature(ref.sketch)?.name ?? 'Sketch'} line`;
   }
@@ -134,7 +134,7 @@ function axisItem(app: App, r: AxisRef): SelItem | null {
 
 // ---------- base ----------
 
-abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
+export abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
   f: T;
   private units: UnitSystem;
   private variables: Variable[];
@@ -315,7 +315,7 @@ function edgeFaceBox(panel: PropertyPanel, app: App, label: string, f: { edges: 
     onChange();
   }, { placeholder: 'Select edges or faces', icon: 'fillet' });
   box.setItems([
-    ...f.edges.map((e) => ({ item: edgeItem(app, e), data: e, label: `Edge (${e.sig.type})` })),
+    ...f.edges.map((e) => ({ item: edgeItem(app, e), data: e, label: e.sig.type ? `Edge (${e.sig.type})` : 'Edge' })),
     ...f.faces.map((r) => ({ item: faceItem(app, r), data: r, label: 'Face' })),
   ]);
   return box;
@@ -680,6 +680,9 @@ export class SweepPanel extends FeaturePanel<SweepFeature> {
 
 // ---------- factory ----------
 
+/** Panels of feature types defined in other modules (sheet metal), which register them here. */
+export const featurePanelFactories: ((app: App, f: Feature, editing: boolean) => PropertyPanel | null)[] = [];
+
 export function panelFor(app: App, f: Feature, editing: boolean): PropertyPanel | null {
   switch (f.type) {
     case 'extrude': return new ExtrudePanel(app, f, editing);
@@ -695,7 +698,9 @@ export function panelFor(app: App, f: Feature, editing: boolean): PropertyPanel 
     case 'loft': return new LoftPanel(app, f, editing);
     case 'sweep': return new SweepPanel(app, f, editing);
     case 'draft': return new DraftPanel(app, f, editing);
-    default: return null;
+    default:
+      for (const make of featurePanelFactories) { const p = make(app, f, editing); if (p) return p; }
+      return null;
   }
 }
 
@@ -710,7 +715,8 @@ export function startFeature(app: App, type: Feature['type'], opts: { cut?: bool
   const selSketch = (() => {
     for (const it of sel) if (it.kind === 'feature' && app.store.feature(it.id)?.type === 'sketch') return it.id;
     // Default to the most recent unconsumed sketch.
-    const used = new Set(doc.features.flatMap((f) => (f.type === 'extrude' || f.type === 'revolve' || f.type === 'hole' ? [f.sketch] : f.type === 'loft' ? f.profiles : f.type === 'sweep' ? [f.profile, f.path] : [])));
+    // (Surface features, base flanges and sketched bends consume their sketches too.)
+    const used = new Set(doc.features.flatMap((f) => consumedSketches(f)));
     const built = doc.features.slice(0, app.store.builtCount);
     for (let i = built.length - 1; i >= 0; i--) if (built[i].type === 'sketch' && !used.has(built[i].id)) return built[i].id;
     return null;
@@ -779,3 +785,6 @@ function cutFlip(app: App, sketchId: Id | null): boolean {
   // Cuts go against the normal by default; flip when the material is in front.
   return dot(sub(c, fr.o), fr.n) > 1e-6;
 }
+
+// For the surface feature panels (surface-panels.ts).
+export { axisItem, axisLabel, edgeItem, faceItem, isSketch, planeItem, planeLabel };

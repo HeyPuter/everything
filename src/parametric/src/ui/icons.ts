@@ -10,6 +10,7 @@ import {
   Cloud, HardDrive, Pin, Scissors, MousePointer2, Hand, ZoomIn, ZoomOut, Rotate3d, Type, FileText, Users, Sparkles, ArrowUp, Square,
   SquarePen, Camera, Paperclip, Image as ImageIcon, ExternalLink,
 } from 'lucide';
+import { SURFACE_ICONS } from './surface-icons';
 
 type IconNode = [string, Record<string, string | number>][];
 
@@ -66,6 +67,16 @@ const CAD: Record<string, IconNode> = {
   mirror: [DASH('M12 2v20', '4 2 1 2'), P('M3 8l6-2v12l-6-2z', 'a'), P('M21 8l-6-2v12l6-2z')],
   plane: [P('M3 17l5-10h13l-5 10z', 'a'), P('M3 17l5-10h13l-5 10z')],
   axis: [DASH('M4 20L20 4', '5 2 1.5 2'), DOT(12, 12)],
+  // Sheet metal.
+  sheetMetal: [P('M3 10l9-4.5 9 4.5-9 4.5z', 'a'), P('M3 10l9-4.5 9 4.5-9 4.5z'), P('M3 10v2l9 4.5 9-4.5v-2'), P('M3 16l9 4.5 9-4.5', 'thin')],
+  baseFlange: [P('M3 15l9-4.5 9 4.5-9 4.5z', 'a'), P('M3 15l9-4.5 9 4.5-9 4.5z'), P('M3 15v1.5l9 4.5 9-4.5V15'), P('M12 3v5M9.5 5.5L12 8l2.5-2.5', 'thin')],
+  edgeFlange: [P('M3 15l9 4.5 9-4.5-9-4.5z', 's'), P('M12 10.5l9 4.5V7l-9-4.5z', 'a'), P('M3 15l9 4.5 9-4.5'), P('M3 15l9-4.5'), P('M12 10.5l9 4.5V7l-9-4.5z')],
+  sketchedBend: [P('M3 19l8-4h10l-8 4z', 's'), P('M11 15L8 5h10l3 10z', 'a'), P('M3 19l8-4h10l-8 4z'), P('M11 15L8 5h10l3 10'), DASH('M2 17h4', '1.5 1.5')],
+  hem: [P('M3 7h12a5 5 0 0 1 0 10H7', 'thick-a'), P('M3 7h12a5 5 0 0 1 0 10H7')],
+  flatPattern: [P('M9 3h6v6h6v6h-6v6H9v-6H3V9h6z', 'a'), P('M9 3h6v6h6v6h-6v6H9v-6H3V9h6z'), DASH('M9 9h6M9 15h6M9 9v6M15 9v6', '1.5 1.5')],
+  sheetThickness: [P('M4 8h16M4 16h16'), P('M12 2.5V8M12 21.5V16'), P('M10 5.5L12 8l2-2.5M10 18.5l2-2.5 2 2.5', 'thin')],
+  bendRadius: [P('M4 20v-8a8 8 0 0 1 8-8h8'), DASH('M12 12L6.5 6.5', '2 1.5'), DOT(12, 12)],
+  angle: [P('M4 20h16M4 20L16 6'), P('M11 20a7 7 0 0 0-2.2-5.1', 'thin')],
   measure: [P('M3 15l12-12 6 6-12 12z'), P('M7 11l2 2M10 8l2 2M13 5l2 2', 'thin')],
   massProperties: [P('M6 8h12l2 12H4z', 'a'), C(12, 5, 2), P('M10 15h4', 'thin')],
   sectionView: [P(CUBE_TOP, 's'), P(CUBE_LEFT), P(CUBE_RIGHT), P('M2 12l10-5 10 5-10 5z', 'a')],
@@ -93,9 +104,25 @@ const CAD: Record<string, IconNode> = {
   part: [P(CUBE_TOP, 'a'), P(CUBE_LEFT, 's'), P(CUBE_RIGHT)],
   sketchFeature: [P('M3 17l5-4h13l-5 4z', 's'), P('M7 15l4-6 4 4 3-5', 'thin')],
   rollback: [P('M3 12h18', 'thick'), P('M8 8l-4 4 4 4')],
+  // Drawings: a sheet with views, and the view and annotation commands.
+  makeDrawing: [P('M5 2.5h10l4 4v15H5z', 's'), P('M15 2.5v4h4'), P('M8 10h4v4H8z', 'a'), P('M14 10h2.5v4H14M8 16h4v2.5H8')],
+  drawingProjected: [P('M3 8h7v8H3z', 'a'), P('M15 8h6v8h-6z'), P('M10 12h3', 'thin'), P('M11.5 10.5l1.5 1.5-1.5 1.5', 'thin')],
+  drawingSection: [P('M4 6h7v12H4z'), P('M13 6h7v12h-7z', 's'), P('M13 10l4-4M13 14l7-7M13 18l7-7M17 18l3-3', 'thin'), P('M12 3v18', 'thin')],
+  drawingDetail: [P('M3 14h8v6H3z'), C(9, 15, 3, 'a'), P('M11.5 13l3.5-3.5'), C(17.5, 7, 4)],
+  drawingAuxiliary: [P('M3 12h6v8H3z'), P('M9 12l3-4'), P('M13 4l6 4-3 5-6-4z', 'a')],
+  drawingCenterMark: [C(12, 12, 6), P('M12 3v4M12 10.5v3M12 17v4M3 12h4M10.5 12h3M17 12h4', 'thin')],
+  drawingHoleCallout: [C(7, 16, 4), P('M10 13l5-5h6'), P('M14 5h7', 'thin')],
   github: [P('M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.57 2.34 1.12 2.91.85.09-.66.35-1.12.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.4 9.4 0 0 1 12 6.94c.85 0 1.71.12 2.51.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.64 1.03 2.76 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.6.69.49A10.13 10.13 0 0 0 22 12.23C22 6.58 17.52 2 12 2z', 'f nostroke')],
+  // Weldments.
+  structuralMember: [P('M3 10h8v8H3z', 'a'), P('M5.5 12.5h3v3h-3z'), P('M3 10l9-7h8l-9 7M11 18l9-7V3')],
+  trimExtend: [P('M3 9h10v6H3z', 'a'), DASH('M13 12h4', '2 1.5'), P('M17 3v18'), P('M21 6l-3 3M21 11l-3 3M21 16l-3 3', 'thin')],
+  endCap: [P('M3 8h12v8H3z', 's'), DASH('M3 10.5h12M3 13.5h12', '2 2'), P('M15 5.5h4v13h-4z', 'a')],
+  gusset: [P('M6 18V8l10 10z', 'a'), P('M4 3v17h17')],
+  cutList: [P('M3 5h18v14H3z', 's'), P('M3 10h18M3 14.5h18M9 5v14', 'thin')],
+  weldBead: [P('M4 20h17M4 20V3'), P('M4 20v-7l7 7z', 'a'), P('M6 17.5l1.5-1.5M6 14.5l1.5 1.5', 'thin')],
   // The 3×3 dot grid of the Apps launcher.
   apps: [5, 12, 19].flatMap((y) => [5, 12, 19].map((x) => C(x, y, 2, 'f'))),
+  ...SURFACE_ICONS,
 };
 
 // Relation glyphs shown next to sketch geometry (16px grid).
@@ -226,3 +253,17 @@ export function relationGlyph(type: string, size = 14): SVGSVGElement {
 }
 
 export const hasIcon = (name: string) => name in CAD || name in LUCIDE || (name.startsWith('rel:') && name.slice(4) in RELATION_GLYPHS);
+
+/**
+ * Adds icons from another module (a name to its drawing, or to the name of
+ * an icon it is drawn like). Existing names are never replaced.
+ */
+export function addIcons(icons: Record<string, IconNode | string>) {
+  for (const [name, v] of Object.entries(icons)) {
+    if (name in CAD || name in LUCIDE) continue;
+    const nodes = typeof v === 'string' ? CAD[v] ?? LUCIDE[v] : v;
+    if (nodes) CAD[name] = nodes;
+  }
+}
+
+export type { IconNode };

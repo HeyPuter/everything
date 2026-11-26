@@ -32,7 +32,17 @@ import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
 import { setWindowTitle } from '../platform/puter';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
+import { applySurfaceColors, hiddenSurfaceFeatures } from './surface-display';
+import type { AssemblyMode } from './assembly/mode';
 export { DEFAULT_SETTINGS, type Settings } from './settings';
+
+/** What the left pane shows as the design tree: a part's feature tree or an assembly's tree. */
+export interface DesignTree {
+  el: HTMLElement;
+  render(): void;
+  startRename(id: Id): void;
+  targets(id: Id): Id[];
+}
 
 export interface Colors {
   sketchUnder: number[];
@@ -90,7 +100,7 @@ export class App {
   shell!: Shell;
   renderer!: Renderer;
   viewport!: Viewport;
-  tree!: FeatureTree;
+  tree!: DesignTree;
   hooks!: AppHooks;
   panel: PropertyPanel | null = null;
   sketchEditor: SketchEditor | null = null;
@@ -106,6 +116,8 @@ export class App {
   frames: Record<Id, Frame> = {};
   /** Sketches with projected model geometry, as the last rebuild placed it. */
   linkedSketches: NonNullable<BuildResult['sketches']> = {};
+  /** Structural members of the last build, for the weldment cut list. */
+  weldments: NonNullable<BuildResult['weldments']> = [];
   bbox: { min: Vec3; max: Vec3 } | null = null;
   colors!: Colors;
   kernelReady = false;
@@ -125,6 +137,13 @@ export class App {
   onDocumentChanged: (reason: string) => void = () => {};
   /** Renames the part and its saved file, as Rename Part does (set by the file operations). */
   renamePart: ((name: string) => Promise<void>) | null = null;
+  /** The open assembly's interface and geometry; null while a part is open (set up by the assembly module). */
+  assembly: AssemblyMode | null = null;
+  /** Called when a document is loaded, to switch between part and assembly mode (set by the assembly module). */
+  syncDocumentKind: () => void = () => {};
+  /** Ribbon tabs shown while an assembly is open, and those only an assembly has. */
+  assemblyTabs = new Set<string>();
+  assemblyOnlyTabs = new Set<string>();
 
   constructor() {
     this.kernel = new KernelClient();
@@ -246,6 +265,7 @@ export class App {
     const c = this.store.doc.color;
     this.shownColor = c;
     this.renderer.modelColor = c ? parseColor(c) : null;
+    applySurfaceColors(this);
     this.renderer.requestRender();
   }
 
@@ -362,7 +382,7 @@ export class App {
       b.addEventListener('click', () => this.setRibbonTab(t.id));
       this.shell.cmTabs.append(b);
     }
-    // The arrow keys skip the hidden tabs (the Drawing tab in the model, and the reverse).
+    // The arrow keys skip the hidden tabs (the Annotation tab in the model, and the model tabs in the drawing).
     tabKeys(this.shell.cmTabs);
     this.setRibbonTab(this.ribbonTab);
   }
@@ -371,10 +391,22 @@ export class App {
     this.ribbonTab = id;
     for (const b of this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')) {
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
-      // The drawing has its own tab; model tabs are hidden while it is open.
-      b.hidden = (b.dataset.tab === 'drawing') !== (id === 'drawing');
+      // The Drafting tab shows everywhere (Make Drawing is on it); Annotation only in the drawing,
+      // and the model tabs only in the model.
+      const tab = b.dataset.tab!;
+      b.hidden = tab === 'drawing' ? false : (tab === 'annotation') !== this.inDrawing;
+      // An assembly shows the tabs it uses; a part none of the assembly's own.
+      if (!b.hidden) b.hidden = this.assembly ? !this.assemblyTabs.has(tab) : this.assemblyOnlyTabs.has(tab);
     }
     syncTabStops(this.shell.cmTabs);
+    // A tab past the edge of a narrow strip (a phone) scrolls into view when chosen.
+    const strip = this.shell.cmTabs;
+    const sel = strip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (sel && strip.scrollWidth > strip.clientWidth) {
+      const l = sel.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft, r = l + sel.offsetWidth;
+      if (l < strip.scrollLeft) strip.scrollLeft = l - 8;
+      else if (r > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = r - strip.clientWidth + 8;
+    }
     const tab = this.hooks.ribbonTabs.find((t) => t.id === id)!;
     renderRibbon(this.shell.cmTools, tab, this.commands);
   }
@@ -442,7 +474,7 @@ export class App {
     return [t('showPlanes'), t('showOrigin'), t('showSketches'), t('showRelations'), t('showDimensions')];
   }
 
-  flyout!: FeatureTree;
+  flyout!: DesignTree;
   private flyoutEl!: HTMLElement;
   private flyoutOpen = false;
 
@@ -810,6 +842,7 @@ export class App {
       previous.abort();
       // A section belongs to the replaced part, not to the next document's geometry.
       this.renderer.section = null;
+      this.syncDocumentKind();
       this.applyModelColor();
       this.refreshAll();
     }
@@ -888,6 +921,7 @@ export class App {
 
   private async rebuild() {
     if (!this.kernelReady) return;
+    if (this.assembly) { await this.assembly.rebuild(); return; }
     const resolved = this.store.resolve();
     this.resolveErrors = resolved.errors;
     const upTo = this.buildLimit();
@@ -946,6 +980,8 @@ export class App {
   buildVersion = 0;
   /** Incremented after a rebuild that changed the body (drawings re-project when it changes). */
   geometryVersion = 0;
+  /** Features whose surface bodies were hidden at the last rebuild. */
+  private hiddenSurfaces = '';
   drawing!: DrawingWorkspace;
 
   get inDrawing(): boolean {
@@ -960,7 +996,7 @@ export class App {
     this.syncSheetTabs();
     this.setRibbonTab('drawing');
     this.showDrawingPanel();
-    this.setStatus('Drawing. Drag views to arrange them; export to PDF or SVG from the Drawing tab.');
+    this.setStatus('Drawing. Drag views to arrange them; add views and annotations, and export to PDF, SVG or DXF, from the Drafting and Annotation tabs.');
     this.commands.changed();
   }
 
@@ -968,7 +1004,7 @@ export class App {
     if (!this.drawing.active) return;
     this.drawing.close();
     this.syncSheetTabs();
-    this.setRibbonTab('features');
+    this.setRibbonTab(this.assembly ? 'assembly' : 'features');
     this.showLeft('tree');
     this.setStatus('Ready');
     this.commands.changed();
@@ -1002,8 +1038,11 @@ export class App {
 
   private applyBuild(res: BuildResult, ms: number) {
     this.buildVersion++;
-    // The same body (a rename, a suppressed sketch, a colour) needs no new drawing projections.
-    if (!res.meshUnchanged) this.geometryVersion++;
+    // The same body (a rename, a suppressed sketch, a colour) needs no new drawing projections;
+    // a surface body hidden or shown does (drawings leave hidden ones out).
+    const hiddenSurfaces = hiddenSurfaceFeatures(this).join(',');
+    if (!res.meshUnchanged || hiddenSurfaces !== this.hiddenSurfaces) this.geometryVersion++;
+    this.hiddenSurfaces = hiddenSurfaces;
     this.statuses = new Map(res.status.map((s) => [s.id, s]));
     for (const [id, err] of this.resolveErrors) {
       // A suppressed feature is not built, so its values are not used either.
@@ -1013,6 +1052,7 @@ export class App {
     this.edges = res.edges;
     this.frames = res.frames;
     this.linkedSketches = res.sketches ?? {};
+    this.weldments = res.weldments ?? [];
     this.bbox = res.bbox;
     // An unchanged mesh is the one the worker last sent, which is not the one
     // shown when its result was dropped (a part opened again while its first
@@ -1022,6 +1062,7 @@ export class App {
       this.shownMesh = mesh;
       this.vertices = mesh?.vertices ?? new Float32Array(0);
       this.renderer.setModel(mesh, res.faces.length, res.edges.length);
+      applySurfaceColors(this);
     }
     const r = res.bbox ? Math.hypot(res.bbox.max[0] - res.bbox.min[0], res.bbox.max[1] - res.bbox.min[1], res.bbox.max[2] - res.bbox.min[2]) : 100;
     this.renderer.camera.sceneRadius = Math.max(r, 100);
@@ -1058,6 +1099,31 @@ export class App {
     }
     this.commands.changed();
     if (this.inDrawing) void this.drawing.refresh();
+  }
+
+  /** Shows the part's body again after a mode showed another mesh in its place (the flat pattern). */
+  showModelMesh() {
+    this.renderer.setModel(this.shownMesh, this.faces.length, this.edges.length);
+    if (this.lastBuildResult) this.bbox = this.lastBuildResult.bbox;
+    this.viewport.refreshStates();
+    this.renderer.requestRender();
+  }
+
+  /**
+   * Shows geometry built outside the part rebuild (an assembly's placed
+   * components) as the model: picking, selection and the view work on it.
+   */
+  setModelGeometry(mesh: MeshData | null, faces: FaceInfo[], edges: EdgeInfo[], bbox: { min: Vec3; max: Vec3 } | null) {
+    this.faces = faces;
+    this.edges = edges;
+    this.frames = {};
+    this.linkedSketches = {};
+    this.bbox = bbox;
+    this.shownMesh = mesh;
+    this.vertices = mesh?.vertices ?? new Float32Array(0);
+    this.renderer.setModel(mesh, faces.length, edges.length);
+    const r = bbox ? Math.hypot(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]) : 100;
+    this.renderer.camera.sceneRadius = Math.max(r, 100);
   }
 
   featureStatus(id: Id): FeatureStatus | null {
@@ -1136,7 +1202,10 @@ export class App {
     if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) {
       const r = it.item?.kind === 'face' || it.item?.kind === 'edge' ? remapItem(it.item, this.faces, this.edges) : it.item;
       if (r) out.push(r);
+      if (it.highlights) out.push(...it.highlights());
     }
+    // The faces a selected mate references.
+    if (this.assembly) out.push(...this.assembly.highlights());
     return out;
   }
 
@@ -1159,6 +1228,8 @@ export class App {
   }
 
   describe(it: SelItem): string {
+    const asm = this.assembly?.describe(it);
+    if (asm) return asm;
     const u = UNIT_SYSTEMS[this.store.doc.units], dec = this.store.doc.decimals;
     // Small values keep significant digits (a 5 mm edge in metres is 0.00500 m, not 0.01 m).
     const len = (v: number) => `${formatGroup([v / u.scale], dec)[0]} ${u.length}`;
@@ -1178,6 +1249,11 @@ export class App {
       case 'plane': return it.ref.kind === 'base' ? BASE_PLANE_NAMES[it.ref.plane] : this.store.feature(it.ref.id)?.name ?? 'Plane';
       case 'origin': return 'Origin';
       case 'feature': return this.store.feature(it.id)?.name ?? '';
+      case 'skseg': {
+        const sk = this.store.feature(it.sketch);
+        const e = sk?.type === 'sketch' ? sk.entities.find((x) => x.id === it.entity) : undefined;
+        return `${e?.t === 'arc' ? 'Arc' : 'Line'} of ${sk?.name ?? 'a sketch'}`;
+      }
       default: return '';
     }
   }
@@ -1592,6 +1668,7 @@ export class App {
   }
 
   async deleteFeatures(ids: Id[]) {
+    if (this.assembly) return this.assembly.deleteItems(ids);
     const signal = this.documentSignal;
     const doc = this.store.doc;
     const del = new Set(ids);

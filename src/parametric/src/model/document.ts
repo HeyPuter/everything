@@ -231,6 +231,8 @@ export function serializeDocument(doc: PartDocument): string {
 
 export function withUsedBlobs(doc: PartDocument): PartDocument {
   const used = new Set(doc.features.map((f) => (f.type === 'import' ? f.blob : null)));
+  // An assembly keeps the copies of its parts as blobs (see assembly.ts).
+  for (const p of (doc as { parts?: { blob?: string }[] }).parts ?? []) used.add(p.blob ?? null);
   const keys = Object.keys(doc.blobs ?? {});
   if (keys.every((k) => used.has(k))) return doc;
   return { ...doc, blobs: Object.fromEntries(keys.filter((k) => used.has(k)).map((k) => [k, doc.blobs[k]])) };

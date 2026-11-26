@@ -15,6 +15,7 @@ import { formatShortcut, h, isMac } from '../ui/dom';
 import type { App } from './app';
 import type { PickFilter } from './pm';
 import type { SelItem } from './selection';
+import { markHiddenSurfaces } from './surface-display';
 
 export interface VPEvent {
   x: number;
@@ -557,6 +558,11 @@ export class Viewport {
     // A face that may not be picked still hides the planes behind it.
     const hitDist = hit?.point ? dot(sub(hit.point, ray.o), ray.d) : Infinity;
     if (hit && hit.kind === 'face' && f.planarOnly && this.app.faces[hit.index]?.type !== 'plane') hit = null;
+    // Sketch lines run inside the members built on them: they come first.
+    if (f.sketchSegment) {
+      const seg = this.pickSketchSegment(x, y);
+      if (seg) return seg;
+    }
     // Origin and axes first: tiny targets.
     if (f.plane && (this.showOrigin || this.app.inSketch)) {
       const o = this.camera.project([0, 0, 0]);
@@ -607,6 +613,7 @@ export class Viewport {
     for (const it of app.selection.items) mark(it, STATE_SELECTED);
     mark(app.selection.hover, STATE_HOVER);
     for (const it of app.extraHighlights()) mark(it, STATE_SELECTED);
+    markHiddenSurfaces(app, faces, edges);
     this.renderer.setStates(faces, edges);
     this.drawVertices();
     this.drawReferenceGeometry(hoverOnly);
@@ -689,7 +696,7 @@ export class Viewport {
   /** The hovered feature, the only hover that changes how sketches are drawn. */
   private sketchHoverKey(): Id | null {
     const h = this.app.selection.hover;
-    return h?.kind === 'feature' ? h.id : null;
+    return h?.kind === 'feature' ? h.id : h?.kind === 'skseg' ? `${h.sketch}/${h.entity}` : null;
   }
 
   private drawnSketchHover: Id | null = null;
@@ -728,6 +735,45 @@ export class Viewport {
     }
   }
 
+  /** Sketches whose lines and arcs can be picked: the visible ones, and all of them while a panel picks segments. */
+  private segmentSketches(): { f: SketchFeature; fr: Frame }[] {
+    const app = this.app;
+    const all = !!app.pickFilter().sketchSegment;
+    const consumed = new Set<Id>();
+    for (const f of app.store.doc.features) consumedSketches(f).forEach((s) => consumed.add(s));
+    const out: { f: SketchFeature; fr: Frame }[] = [];
+    for (const f of app.store.doc.features.slice(0, app.buildLimit())) {
+      if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed || app.sketchEditor?.sketchId === f.id) continue;
+      const shown = f.hidden === false || (f.hidden === undefined && !consumed.has(f.id));
+      if (!all && !shown) continue;
+      const fr = app.frameOfSketch(f);
+      if (fr) out.push({ f, fr });
+    }
+    return out;
+  }
+
+  /** The sketch line or arc under the cursor (within a few pixels). */
+  pickSketchSegment(x: number, y: number): SelItem | null {
+    const cam = this.camera;
+    const tol = Math.max(cam.pixelSize * 0.5, 1e-4);
+    let best: SelItem | null = null, bestD = 7;
+    for (const { f, fr } of this.segmentSketches()) {
+      const ix = new SketchIndex(this.app.builtEntities(f));
+      for (const e of ix.entities) {
+        if (e.t !== 'line' && e.t !== 'arc') continue;
+        const pts = tessellate(ix, e, tol).map((p) => cam.project(toWorld(fr, p)));
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+          const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+          const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)) : 0;
+          const d = Math.hypot(ax + t * dx - x, ay + t * dy - y);
+          if (d < bestD) { bestD = d; best = { kind: 'skseg', sketch: f.id, entity: e.id }; }
+        }
+      }
+    }
+    return best;
+  }
+
   /** Visible sketches other than the one being edited. */
   drawSketches() {
     const app = this.app;
@@ -745,6 +791,24 @@ export class Viewport {
     const rgba = (c: number[]) => [...c.map((v) => Math.round(v * 255)), 255];
     const inactive = rgba(cssColor('--sketch-inactive'));
     const highlight = rgba(this.renderer.theme.selection);
+    // Segments picked for a panel (weldment members) and the one under the cursor.
+    const segs = [...app.extraHighlights(), ...(sel.hover ? [sel.hover] : [])].filter((x): x is Extract<SelItem, { kind: 'skseg' }> => x.kind === 'skseg');
+    const picking = !!app.pickFilter().sketchSegment;
+    if (segs.length || picking) {
+      for (const { f, fr } of this.segmentSketches()) {
+        const ix = new SketchIndex(app.builtEntities(f));
+        const tol = Math.max(this.camera.pixelSize * 0.5, 1e-4);
+        for (const e of ix.entities) {
+          if (e.t !== 'line' && e.t !== 'arc') continue;
+          const on = segs.some((s) => s.sketch === f.id && s.entity === e.id);
+          // While picking, every sketch shows (hidden layout sketches too); picked segments in the selection colour.
+          if (!on && !picking) continue;
+          const c = on ? highlight : inactive;
+          const poly = tessellate(ix, e, tol);
+          for (let i = 0; i + 1 < poly.length; i++) { pos.push(...toWorld(fr, poly[i]), ...toWorld(fr, poly[i + 1])); col.push(c[0], c[1], c[2], 255); }
+        }
+      }
+    }
     if (this.showSketches) {
       for (const f of built) {
         if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed) continue;

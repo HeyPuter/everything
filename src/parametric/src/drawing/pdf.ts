@@ -174,6 +174,8 @@ export interface StrokeStyle {
   width: number;
   dash?: number[];
   gray?: number;
+  /** Colour (0-1 each), in place of gray. */
+  rgb?: [number, number, number];
 }
 
 /** A single-page vector PDF. */
@@ -186,7 +188,7 @@ export class PdfPage {
   private y(v: number) { return ((this.heightMm - v) * PT).toFixed(3); }
 
   private style(s: StrokeStyle) {
-    this.ops.push(`${(s.width * PT).toFixed(3)} w`, `[${(s.dash ?? []).map((d) => (d * PT).toFixed(2)).join(' ')}] 0 d`, `${(s.gray ?? 0).toFixed(3)} G`, '1 J 1 j');
+    this.ops.push(`${(s.width * PT).toFixed(3)} w`, `[${(s.dash ?? []).map((d) => (d * PT).toFixed(2)).join(' ')}] 0 d`, s.rgb ? `${s.rgb.map((c) => c.toFixed(3)).join(' ')} RG` : `${(s.gray ?? 0).toFixed(3)} G`, '1 J 1 j');
   }
 
   /** Strokes SVG path data transformed by sheet = (x * s + tx, y * s + ty). */
@@ -215,23 +217,24 @@ export class PdfPage {
   }
 
   /** Filled triangle (arrowheads). */
-  triangle(a: [number, number], b: [number, number], c: [number, number]) {
-    this.ops.push('0 g', `${this.x(a[0])} ${this.y(a[1])} m ${this.x(b[0])} ${this.y(b[1])} l ${this.x(c[0])} ${this.y(c[1])} l h f`);
+  triangle(a: [number, number], b: [number, number], c: [number, number], rgb?: [number, number, number]) {
+    this.ops.push(rgb ? `${rgb.map((v) => v.toFixed(3)).join(' ')} rg` : '0 g', `${this.x(a[0])} ${this.y(a[1])} m ${this.x(b[0])} ${this.y(b[1])} l ${this.x(c[0])} ${this.y(c[1])} l h f`);
   }
 
   /** Text with its baseline at (x, y); anchor start, middle or end. */
-  text(str: string, x: number, y: number, sizeMm: number, opts: { bold?: boolean; anchor?: 'start' | 'middle' | 'end'; rotate?: number } = {}) {
+  text(str: string, x: number, y: number, sizeMm: number, opts: { bold?: boolean; anchor?: 'start' | 'middle' | 'end'; rotate?: number; rgb?: [number, number, number] } = {}) {
     const size = sizeMm * PT;
     const w = textWidth(str, sizeMm, opts.bold);
     const dx = opts.anchor === 'middle' ? -w / 2 : opts.anchor === 'end' ? -w : 0;
     const esc = pdfString(str);
     const font = opts.bold ? '/F2' : '/F1';
+    const fill = opts.rgb ? `${opts.rgb.map((v) => v.toFixed(3)).join(' ')} rg` : '0 g';
     if (opts.rotate) {
       const r = (opts.rotate * Math.PI) / 180;
       const c = Math.cos(r), s = Math.sin(r);
       const px = x + dx * c, py = y - dx * s;
-      this.ops.push('0 g', 'BT', `${font} ${size.toFixed(2)} Tf`, `${c.toFixed(4)} ${s.toFixed(4)} ${(-s).toFixed(4)} ${c.toFixed(4)} ${this.x(px)} ${this.y(py)} Tm`, `(${esc}) Tj`, 'ET');
-    } else this.ops.push('0 g', 'BT', `${font} ${size.toFixed(2)} Tf`, `${this.x(x + dx)} ${this.y(y)} Td`, `(${esc}) Tj`, 'ET');
+      this.ops.push(fill, 'BT', `${font} ${size.toFixed(2)} Tf`, `${c.toFixed(4)} ${s.toFixed(4)} ${(-s).toFixed(4)} ${c.toFixed(4)} ${this.x(px)} ${this.y(py)} Tm`, `(${esc}) Tj`, 'ET');
+    } else this.ops.push(fill, 'BT', `${font} ${size.toFixed(2)} Tf`, `${this.x(x + dx)} ${this.y(y)} Td`, `(${esc}) Tj`, 'ET');
   }
 
   /** Serialises the document. */

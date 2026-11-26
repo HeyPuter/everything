@@ -14,6 +14,10 @@ import { REPO_URL, type RibbonTab } from './shell';
 import type { App, AppHooks } from './app';
 import type { Command } from './commands';
 import { panelFor, startFeature } from './panels';
+import { isSurfaceFeature } from '../model/surfaces';
+import { surfaceCommands, surfacePanelFor } from './surface-panels';
+import { hideable, surfaceHideItem } from './surface-display';
+import { WELDMENTS_TAB, weldmentCommands, weldmentPanelFor } from './weldment-panels';
 import { SketchPanel } from './sketch/panel';
 import {
   MeasurePanel, OffsetPanel, SectionPanel, aboutDialog, convertEntities, equationsDialog, massPropertiesDialog, materialDialog,
@@ -32,6 +36,8 @@ import type { PlaneRef } from '../model/types';
 import { facePlaneRef } from './selection';
 import { RELATION_LABELS } from '../sketch/ops';
 import { CONSTRAINTS, CONSTRAINT_HINTS, runConstraint } from './sketch/constrain';
+import { SHEET_METAL_TAB, sheetMetalCommands } from './sheetmetal-panels';
+import { drawingCommands } from './drawing-commands';
 
 const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: string; make: (ed: SketchEditor) => SkTool }> = {
   line: { label: 'Line', shortcut: 'L', desc: 'Sketch straight lines.', make: (ed) => lineTool(ed) },
@@ -252,6 +258,8 @@ export function registerCommands(app: App, files: FileOps) {
     feature('circularPattern', 'Circular Pattern', 'circularPattern', 'Repeat features around an axis.', { needsBody: true, keywords: 'polar array' }),
     feature('mirror', 'Mirror', 'mirror', 'Mirror features or the body about a plane.', { needsBody: true, keywords: 'symmetry' }),
     feature('plane', 'Plane', 'plane', 'Create a reference plane offset from a plane or face.', { keywords: 'reference geometry datum' }),
+    // ---- sheet metal ----
+    ...sheetMetalCommands(app),
     // ---- evaluate ----
     { id: 'measure', label: 'Measure', icon: 'measure', keywords: 'distance length angle area', description: 'Measure distances, lengths, angles and areas.', enabled: () => hasBody() && in3d(), run: () => { void app.openPanel(new MeasurePanel(app)); } },
     { id: 'massProperties', label: 'Mass Properties', icon: 'massProperties', keywords: 'volume weight inertia center of mass', description: 'Volume, mass, centre of mass and inertia.', enabled: hasBody, run: () => massPropertiesDialog(app) },
@@ -267,14 +275,32 @@ export function registerCommands(app: App, files: FileOps) {
     // ---- view ----
     { id: 'zoomFit', label: 'Zoom to Fit', icon: 'zoomFit', shortcut: 'F', run: () => (app.inDrawing ? app.drawing.fit() : app.viewport.zoomToFit()) },
     // ---- drawing ----
-    { id: 'openDrawing', label: 'Make Drawing', icon: 'file', keywords: 'drawing sheet 2d views print pdf', description: 'Open the 2D drawing of this part with standard views.', enabled: () => hasBody() || !!app.store.doc.drawing, run: () => app.openDrawing() },
+    { id: 'openDrawing', label: 'Make Drawing', icon: 'makeDrawing', keywords: 'drawing sheet 2d views print pdf drafting engineering drawing orthographic', description: 'Open the 2D drawing of this part: standard views, sections, details and dimensions, exported to PDF, SVG or DXF.', enabled: () => hasBody() || !!app.store.doc.drawing, run: () => app.openDrawing() },
     { id: 'backToModel', label: 'Back to Model', icon: 'part', enabled: () => app.inDrawing, run: () => app.closeDrawing() },
-    { id: 'drawing:arrange', label: 'Standard Views', icon: 'viewOrientation', description: 'Arrange front, top, right and isometric views at a fitting scale.', enabled: () => app.inDrawing && hasBody(), run: () => app.drawing.relayout() },
+    { id: 'drawing:arrange', label: 'Standard Views', icon: 'viewOrientation', description: 'Arrange front, top, right and isometric views at a fitting scale.', enabled: () => app.inDrawing && hasBody(), run: () => void app.drawing.arrange() },
     ...(['front', 'top', 'right', 'left', 'back', 'bottom', 'isometric'] as const).map((k): Command => ({
       id: `drawing:add:${k}`, label: `${k[0].toUpperCase()}${k.slice(1)} View`, icon: k === 'isometric' ? 'viewIso' : `view${k[0].toUpperCase()}${k.slice(1)}`, enabled: () => app.inDrawing && hasBody(), run: () => app.drawing.addView(k),
     })),
     { id: 'drawing:pdf', label: 'Export PDF', icon: 'download', keywords: 'print drawing', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportPdf() },
     { id: 'drawing:svg', label: 'Export SVG', icon: 'download', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportSvg() },
+    { id: 'drawing:dxf', label: 'Export DXF', icon: 'download', keywords: 'drawing autocad cad 2d', description: 'Save the drawing sheet as a DXF file for 2D CAD programs.', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportDxf() },
+    ...([
+      ['projected', 'drawingProjected', 'Projected View', 'Add a view projected from a view of the drawing, aligned with it.', 'orthographic drawing'],
+      ['section', 'drawingSection', 'Section View', 'Cut a view of the drawing along a line and show the cut face hatched.', 'drawing cut hatch cutting plane'],
+      ['detail', 'drawingDetail', 'Detail View', 'Show a circle of a view of the drawing magnified.', 'drawing zoom magnify enlarge'],
+      ['auxiliary', 'drawingAuxiliary', 'Auxiliary View', 'Add a view looking square to an inclined edge of a view.', 'drawing inclined'],
+      ['dimension', 'smartDimension', 'Smart Dimension', 'Dimension edges, circles and points of the drawing views: distances, radii, diameters and angles.', 'drawing dimension measure annotate'],
+      ['centerMark', 'drawingCenterMark', 'Center Mark', 'Mark the centre of a circle or arc in a drawing view.', 'drawing annotate centre'],
+      ['centerline', 'centerline', 'Centerline', 'Draw a centerline between two parallel edges in a drawing view.', 'drawing annotate axis'],
+      ['note', 'text', 'Note', 'Add text to the drawing sheet, with an optional leader arrow.', 'drawing annotate text label leader'],
+      ['holeCallout', 'drawingHoleCallout', 'Hole Callout', 'Label a hole with its size, depth and counterbore or countersink.', 'drawing annotate hole diameter thread'],
+    ] as const).map(([k, ic, label, description, keywords]): Command => ({
+      id: `drawing:${k}`, label, icon: ic, description, keywords,
+      enabled: () => app.inDrawing && hasBody() && !!app.store.doc.drawing?.views.length,
+      checked: () => app.inDrawing && app.drawing.tool?.kind === k,
+      run: () => app.drawing.startTool(k),
+    })),
+    ...drawingCommands(app),
     { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => (app.inDrawing ? app.drawing.zoomBy(1.25) : app.viewport.zoomBy(0.8)) },
     { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => (app.inDrawing ? app.drawing.zoomBy(0.8) : app.viewport.zoomBy(1.25)) },
     // No shortcut: Ctrl+Shift+Z is Redo.
@@ -326,6 +352,10 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'shortcutsF1', label: 'Keyboard Shortcuts', hidden: true, shortcut: 'F1', run: () => shortcutsDialog(app) },
     { id: 'github', label: 'Source Code on GitHub', icon: 'github', run: () => { window.open(REPO_URL, '_blank', 'noopener'); } },
     { id: 'about', label: 'About Parametric', icon: 'info', run: () => aboutDialog() },
+    // ---- surfaces ----
+    ...surfaceCommands(app),
+    // ---- weldments ----
+    ...weldmentCommands(app),
   );
   void noModes;
   void VIEWS;
@@ -393,12 +423,36 @@ export const RIBBON: RibbonTab[] = [
     id: 'evaluate', label: 'Evaluate',
     groups: [[{ cmd: 'measure' }, { cmd: 'massProperties' }, { cmd: 'sectionView' }], [{ cmd: 'equations' }, { cmd: 'material' }]],
   },
+  SHEET_METAL_TAB,
   {
-    id: 'drawing', label: 'Drawing',
+    id: 'surfaces', label: 'Surfaces',
     groups: [
-      [{ cmd: 'drawing:arrange' }, { stack: [{ cmd: 'drawing:add:front' }, { cmd: 'drawing:add:top' }, { cmd: 'drawing:add:right' }] }, { stack: [{ cmd: 'drawing:add:isometric' }, { cmd: 'drawing:add:left' }, { cmd: 'drawing:add:back' }] }],
-      [{ cmd: 'drawing:pdf' }, { cmd: 'drawing:svg' }],
+      [{ cmd: 'surfaceExtrude' }, { cmd: 'surfaceRevolve' }, { stack: [{ cmd: 'surfaceSweep' }, { cmd: 'surfaceLoft' }, { cmd: 'surfacePlanar' }] }],
+      [{ stack: [{ cmd: 'surfaceOffset' }, { cmd: 'surfaceFill' }, { cmd: 'surfaceKnit' }] }, { stack: [{ cmd: 'surfaceTrim' }, { cmd: 'surfaceExtend' }, { cmd: 'deleteFace' }] }],
+      [{ cmd: 'thicken' }, { stack: [{ cmd: 'thickenCut' }, { cmd: 'surfaceCut' }] }],
+    ],
+  },
+  WELDMENTS_TAB,
+  {
+    // Shown in the model too (with Make Drawing first), so the drawing is found from the ribbon.
+    id: 'drawing', label: 'Drafting',
+    groups: [
+      [{ cmd: 'openDrawing' }, { cmd: 'drawing:arrange' }],
+      [{ stack: [{ cmd: 'drawing:add:front' }, { cmd: 'drawing:add:top' }, { cmd: 'drawing:add:right' }] }, { stack: [{ cmd: 'drawing:add:isometric' }, { cmd: 'drawing:add:left' }, { cmd: 'drawing:add:back' }] }],
+      [{ cmd: 'drawing:projected' }, { cmd: 'drawing:section' }, { stack: [{ cmd: 'drawing:detail' }, { cmd: 'drawing:auxiliary' }, { cmd: 'drawing:flat' }] }],
+      [{ cmd: 'drawing:pdf' }, { stack: [{ cmd: 'drawing:svg' }, { cmd: 'drawing:dxf' }] }],
       [{ cmd: 'zoomFit' }, { cmd: 'backToModel' }],
+    ],
+    labels: ['Drawing', 'Model Views', 'Views', 'Export', ''],
+  },
+  {
+    // Only in the drawing.
+    id: 'annotation', label: 'Annotation',
+    groups: [
+      [{ cmd: 'drawing:dimension' }],
+      [{ stack: [{ cmd: 'drawing:centerMark' }, { cmd: 'drawing:centerline' }] }, { stack: [{ cmd: 'drawing:note' }, { cmd: 'drawing:holeCallout' }] }],
+      [{ stack: [{ cmd: 'drawing:balloon' }, { cmd: 'drawing:autoBalloon' }] }, { stack: [{ cmd: 'drawing:bom' }, { cmd: 'drawing:cutList' }] }],
+      [{ cmd: 'drawing:pdf' }, { cmd: 'backToModel' }],
     ],
   },
   {
@@ -421,8 +475,8 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
   return [
     {
       label: 'File', items: () => [
-        m('new'), m('open'), m('openDevice'), { label: 'Recent', icon: 'files', submenu: () => app.recentMenu() }, sep,
-        m('save'), m('saveAs'), m('downloadPart'), sep, m('importStep'), m('exportStep'), m('exportStl'), sep, m('openDrawing'), m('drawing:pdf'), sep, m('share'), m('rename'), m('properties'),
+        m('new'), ...(c.get('newAssembly') ? [m('newAssembly')] : []), m('open'), m('openDevice'), { label: 'Recent', icon: 'files', submenu: () => app.recentMenu() }, sep,
+        m('save'), m('saveAs'), m('downloadPart'), sep, m('importStep'), m('exportStep'), m('exportStl'), sep, m('openDrawing'), m('drawing:pdf'), m('drawing:dxf'), sep, m('share'), m('rename'), m('properties'),
       ],
     },
     {
@@ -450,7 +504,10 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
         { label: 'Features', icon: 'fillet', submenu: () => [m('fillet'), m('chamfer'), m('hole'), m('shell'), m('draft')] },
         { label: 'Pattern/Mirror', icon: 'linearPattern', submenu: () => [m('linearPattern'), m('circularPattern'), m('mirror')] },
         { label: 'Reference Geometry', icon: 'plane', submenu: () => [m('plane')] },
+        { label: 'Surface', icon: 'surfaceExtrude', submenu: () => ['surfaceExtrude', 'surfaceRevolve', 'surfaceSweep', 'surfaceLoft', 'surfacePlanar', 'surfaceOffset', 'surfaceFill', 'surfaceTrim', 'surfaceExtend', 'surfaceKnit', 'thicken', 'thickenCut', 'surfaceCut', 'deleteFace'].map((id) => m(id)) },
+        { label: 'Weldments', icon: 'structuralMember', submenu: () => [m('structuralMember'), m('trimExtend'), m('endCap'), m('gusset'), m('weldBead'), m('cutList')] },
         sep, m('importStep'),
+        ...(c.get('insertComponent') ? [sep, m('insertComponent'), m('mate')] : []),
       ],
     },
     {
@@ -511,13 +568,13 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
     const used = sketchesOf(app, f);
     // A sketch a feature absorbed is hidden though it was never hidden by hand: the menu says Show.
     const shown = app.isShown(f);
-    const showable = ids.filter((x) => ['sketch', 'plane'].includes(app.store.feature(x)?.type ?? ''));
+    const showable = ids.filter((x) => hideable(app.store.feature(x)));
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
       ...used.map((sk): MenuItem => ({ label: used.length === 1 ? 'Edit Sketch' : `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) })),
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(id) },
       sep,
-      ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: shown ? 'Hide' : 'Show', icon: shown ? 'eyeOff' : 'eye', run: () => app.toggleHidden(showable, shown) } as MenuItem] : []),
+      ...(hideable(f) ? [surfaceHideItem(app, f) ?? { label: shown ? 'Hide' : 'Show', icon: shown ? 'eyeOff' : 'eye', run: () => app.toggleHidden(showable, shown) } as MenuItem] : []),
       { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },
       { label: 'Roll Back to Here', icon: 'upToLine', run: () => app.setRollback(idx) },
       { label: 'Roll to End', icon: 'downToLine', disabled: app.store.doc.rollback == null, run: () => app.setRollback(null) },
@@ -611,7 +668,7 @@ export function makeHooks(app: App): AppHooks {
     ribbonTabs: RIBBON,
     menus: buildMenus(app),
     sketchPanel: () => new SketchPanel(app),
-    editFeaturePanel: (f) => panelFor(app, f, true),
+    editFeaturePanel: (f) => (isSurfaceFeature(f) ? surfacePanelFor(app, f, true) : panelFor(app, f, true) ?? weldmentPanelFor(app, f, true)),
     planePickPanel: (done) => new PlanePickPanel(app, done),
     contextItems: (t, id) => contextItems(app, t, id),
     quickActions: () => quickActions(app),

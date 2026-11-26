@@ -3,6 +3,9 @@
 
 import type { Frame, Vec3 } from '../math/vec';
 import type { Feature, Id, SkEntity } from '../model/types';
+import type { FlatPattern } from '../model/flat-pattern';
+import type { WeldMemberInfo } from '../model/weldments';
+import type { AsmRequest } from './assembly';
 
 /** Features with every Param already evaluated to a number. */
 export type ResolvedFeature = Feature;
@@ -37,6 +40,8 @@ export interface FaceInfo {
   radius?: number;
   /** Feature that last named this face. */
   feature: Id;
+  /** The surface body the face is on (a surface feature's id); absent for faces of the solid. */
+  body?: Id;
 }
 
 export interface EdgeInfo {
@@ -52,6 +57,8 @@ export interface EdgeInfo {
   center?: Vec3;
   axis?: Vec3;
   radius?: number;
+  /** The surface body the edge is on; absent for edges of the solid. */
+  body?: Id;
 }
 
 export interface MeshData {
@@ -105,6 +112,17 @@ export interface BuildResult {
   previewWarning?: string;
   /** Bytes of WebAssembly memory the kernel holds after the build (it never shrinks). */
   heap?: number;
+  /** Set when there are surface bodies: their faces and edges follow the solid's from these indices. */
+  surfaces?: { face: number; edge: number };
+  /** Structural members as built (weldment parts only), for the cut list. */
+  weldments?: WeldMemberInfo[];
+}
+
+/** The flat pattern of a sheet metal part, and the solid showing it (placed on the part's base flange). */
+export interface FlatPatternResult {
+  pattern: FlatPattern | null;
+  error?: string;
+  mesh: MeshData | null;
 }
 
 export interface MassProperties {
@@ -119,6 +137,8 @@ export interface MassProperties {
   /** Inertia tensor about the centre of mass (per unit density), row-major 3x3. */
   inertia: number[];
   principal: { moments: Vec3; axes: [Vec3, Vec3, Vec3] };
+  /** Area of the surface bodies (not part of the solid's volume or area), when there are any. */
+  surfaceArea?: number;
 }
 
 export type MeasureTarget =
@@ -140,6 +160,15 @@ export interface ProjectionRequest {
   x: Vec3;
   /** Whether to find the hidden lines too (default true). */
   hidden?: boolean;
+  /** Whether to draw smooth (tangent) edges (default true). */
+  smooth?: boolean;
+  /**
+   * Section views: the body is cut by the plane through p with normal n, and only
+   * the part n points to ((x - p) . n >= 0) is projected.
+   */
+  section?: { p: Vec3; n: Vec3 };
+  /** Features whose surface bodies are hidden: left out of the view. */
+  hideSurfaces?: Id[];
 }
 
 export interface ProjectionResult {
@@ -149,6 +178,10 @@ export interface ProjectionResult {
   hidden: string[];
   /** [minX, minY, maxX, maxY] of the visible lines (y down). */
   bounds: [number, number, number, number] | null;
+  /** Section views: outlines of the cut faces, polylines [x0, y0, x1, y1, ...] in the same coordinates. */
+  cut?: number[][];
+  /** Assembly section views: which component each cut outline belongs to (each is hatched its own way). */
+  cutGroups?: number[];
 }
 
 export type WorkerRequest =
@@ -160,15 +193,28 @@ export type WorkerRequest =
    */
   | { id: number; type: 'build'; req: BuildRequest; blobs: Id[] }
   | { id: number; type: 'mass' }
+  | { id: number; type: 'flatPattern'; quality: number }
+  /** Volumes of the structural members after later cuts, for the cut list. */
+  | { id: number; type: 'weldVolumes' }
   | { id: number; type: 'project'; views: ProjectionRequest[] }
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
   | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number; name?: string }
   | { id: number; type: 'checkImport'; format: 'step'; text: string }
   | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string }
+  /** Assemblies: building their parts and the placed components (see assembly.ts). */
+  | { id: number; type: 'asm'; req: AsmRequest }
   /** Development builds only: fail on purpose to test recovery. */
   | { id: number; type: 'debugFail'; mode: 'hang' | 'abort' | 'crash' };
 
 export type WorkerResponse =
-  | { id: number; ok: true; result: unknown }
+  /** heap: bytes of WebAssembly memory after the request (assembly requests; builds report it in their result). */
+  | { id: number; ok: true; result: unknown; heap?: number }
   /** fatal: the OpenCascade module aborted and the worker must be replaced. */
   | { id: number; ok: false; error: string; fatal?: boolean };
+
+/** Structural member volumes after later cuts (see ModelBuilder.weldVolumes). */
+export interface WeldVolumes {
+  volumes: { feature: Id; member: string; volume: number }[];
+  /** A later feature other than a cut changed the body: its change is not measured. */
+  approximate: boolean;
+}
