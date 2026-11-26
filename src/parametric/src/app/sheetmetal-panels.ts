@@ -143,6 +143,8 @@ export class BaseFlangePanel extends FeaturePanel<BaseFlangeFeature> {
     const sm = f.sm;
     const allowance = numberField({ label: sm.allowance === 'bendDeduction' ? 'Bend deduction' : 'Bend allowance', icon: 'ruler', value: sm.allowanceValue, kind: 'length', ctx, onChange: (v) => { sm.allowanceValue = v; this.changed(); } });
     allowance.hidden = sm.allowance === 'kFactor';
+    const deductionNote = h('p', { class: 'field-label' }, 'Bends over 90° use the K-factor this deduction gives a 90° bend.');
+    deductionNote.hidden = sm.allowance !== 'bendDeduction';
     const k = ratioField('K-factor', sm.kFactor, { min: 0, max: 1 }, (v) => { sm.kFactor = v; this.changed(); });
     k.hidden = sm.allowance !== 'kFactor';
     const ratio = ratioField('Relief ratio', sm.reliefRatio, { min: 0.05, max: 10 }, (v) => { sm.reliefRatio = v; this.changed(); });
@@ -158,7 +160,7 @@ export class BaseFlangePanel extends FeaturePanel<BaseFlangeFeature> {
         selectField<BendAllowanceType>('Bend allowance type', sm.allowance, [
           { value: 'kFactor', label: 'K-Factor' }, { value: 'bendAllowance', label: 'Bend Allowance' }, { value: 'bendDeduction', label: 'Bend Deduction' },
         ], (v) => { sm.allowance = v; this.changed(); this.app.refreshPanel(); }),
-        k, allowance,
+        k, allowance, deductionNote,
       ]),
       section('Auto Relief', [
         selectField<ReliefType>('Relief type', sm.relief, [{ value: 'rectangular', label: 'Rectangular' }, { value: 'obround', label: 'Obround' }, { value: 'none', label: 'None' }], (v) => {

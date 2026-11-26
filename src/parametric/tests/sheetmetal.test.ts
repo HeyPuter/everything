@@ -351,6 +351,13 @@ describe('sketched bend and hem', () => {
     // The deduction's 90 degree allowance (2 * (R + T) - 3) gives the K-factor for the hem's radius.
     const r = 0.5, k = ((2 * (R + T) - 3) / (Math.PI / 2) - R) / T;
     expect(flatSize(b.flatPattern().pattern!)[1]).toBeCloseTo(60 - (r + T) + Math.PI * (r + k * T) + (10 - (r + T)), 6);
+    // A 179.5 degree flange (bend outside, 20 past the bend): BA = 179.5/90 * (2 * (R + T) - 3), not 2 * tan(89.75) * 3 - 3.
+    const f = flange('F1', [edgeRef(e)], { angle: 179.5, position: 'bendOutside', lengthRef: 'tangent' });
+    ok(await b.build(req([...sheet, f])));
+    expect(flatSize(b.flatPattern().pattern!)[1]).toBeCloseTo(60 + (179.5 / 90) * 3 + 20, 6);
+    // 90 degrees as before: BA = 2 * (R + T) - BD.
+    ok(await b.build(req([...sheet, { ...f, angle: 90 }])));
+    expect(flatSize(b.flatPattern().pattern!)[1]).toBeCloseTo(60 + 3 + 20, 6);
   });
 });
 

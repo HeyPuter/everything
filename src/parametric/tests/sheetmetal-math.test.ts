@@ -33,6 +33,22 @@ describe('bend allowance', () => {
     expect(setback(60, 3)).toBeCloseTo(3 * Math.tan(Math.PI / 6), 12);
   });
 
+  it('uses the K-factor a bend deduction gives a 90 degree bend for bends over 90 degrees', () => {
+    // T 2, R 1, BD 2: BA90 = 2 * (1 + 2) - 2 = 4 = pi/2 * (1 + K*2), so K = (8/pi - 1) / 2 = 0.773.
+    const p = P({ allowance: 'bendDeduction', allowanceValue: 2 });
+    const k = (8 / Math.PI - 1) / 2;
+    // Up to 90 degrees, unchanged: BA = 2 * tan(angle/2) * (R + T) - BD.
+    expect(bendAllowance(90, 1, p)).toBeCloseTo(4, 12);
+    expect(bendAllowance(60, 1, p)).toBeCloseTo(2 * Math.tan(Math.PI / 6) * 3 - 2, 12);
+    expect(bendAllowance(60, 1, p)).toBeCloseTo(1.464101615, 9);
+    // 120 degrees: 2pi/3 * (1 + 2K) = 4 * 120/90 = 5.333 (the old formula gave 2 * tan(60) * 3 - 2 = 8.39).
+    expect(bendAllowance(120, 1, p)).toBeCloseTo(((2 * Math.PI) / 3) * (1 + k * 2), 12);
+    expect(bendAllowance(120, 1, p)).toBeCloseTo(16 / 3, 9);
+    // 179.5 degrees: 4 * 179.5/90 = 7.978 (the old formula gave about 685).
+    expect(bendAllowance(179.5, 1, p)).toBeCloseTo((179.5 / 90) * 4, 9);
+    expect(bendAllowance(179.5, 1, p)).toBeCloseTo(7.977777778, 8);
+  });
+
   it('gives a hem a finite allowance with a bend deduction (a 180 degree bend has no virtual sharp)', () => {
     // BD 2 at 90 degrees: BA90 = 4 = pi/2 * (R + K*T) gives K; the hem uses it at its own radius.
     const p = P({ allowance: 'bendDeduction', allowanceValue: 2 });

@@ -159,6 +159,13 @@ test('the Sheet-Metal and Flat-Pattern rows open from the keyboard and have a me
   await page.getByRole('treeitem', { name: 'Sheet-Metal' }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Base-Flange1' })).toBeVisible();
+  // A bend deduction says how bends over 90 degrees are flattened.
+  const note = page.getByText('Bends over 90° use the K-factor this deduction gives a 90° bend.');
+  await expect(note).toBeHidden();
+  await page.getByRole('combobox', { name: 'Bend allowance type' }).selectOption('bendDeduction');
+  await expect(note).toBeVisible();
+  await page.getByRole('combobox', { name: 'Bend allowance type' }).selectOption('kFactor');
+  await expect(note).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'Base-Flange1' })).toHaveCount(0);
   await page.evaluate(() => (window as unknown as W).__parametric.whenBuilt());
