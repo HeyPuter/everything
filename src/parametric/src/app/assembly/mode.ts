@@ -150,9 +150,10 @@ export class AssemblyMode {
         this.partErrors.set(p.id, `${p.name} has rebuild errors (${f?.name ?? 'a feature'}: ${bad.error ?? 'failed'}). Open the part to fix it.`);
       } else if (g && !g.mesh && !this.partErrors.has(p.id)) this.partErrors.set(p.id, `${p.name} has no solid body`);
     }
-    // The worker forgets parts no longer used; this side too, but for the other quality.
+    // The worker forgets parts no longer used (all their components deleted or suppressed, or
+    // built at another quality); this side too, so using them again builds them again.
     const keep = used.map((p) => this.key(p));
-    for (const k of [...this.geoms.keys()]) if (!doc.parts.some((p) => k.startsWith(`${p.blob}|`))) this.geoms.delete(k);
+    for (const k of [...this.geoms.keys()]) if (!keep.includes(k)) this.geoms.delete(k);
     void app.kernel.assembly({ op: 'drop', keep }).catch(() => undefined);
     this.parts.prune(doc);
     this.analyze();

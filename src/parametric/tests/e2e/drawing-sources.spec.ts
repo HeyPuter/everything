@@ -237,6 +237,33 @@ test('an assembly drawing: bill of materials, auto and manual balloons, a sectio
   expect(errors).toEqual([]);
 });
 
+test('an assembly drawing after a part’s only component is suppressed and brought back shows every view', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await makePart(page, 'Pin', PIN);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Pin');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Pin<1>' })).toBeVisible();
+  const suppress = (on: boolean) => page.evaluate((on) => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    m.commit(on ? 'Suppress' : 'Unsuppress', (d) => { d.components[0].suppressed = on || undefined; });
+  }, on);
+  await suppress(true);
+  await expect(tree.getByRole('treeitem', { name: /Block<1>/ })).toHaveClass(/suppressed/);
+  await expect(page.locator('.statusbar')).not.toContainText('Building');
+  await suppress(false);
+  await expect(tree.getByRole('treeitem', { name: /Block<1>/ })).not.toHaveClass(/suppressed/);
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await expect(page.locator('.paper text', { hasText: /^Block$/ })).toHaveCount(1);
+  await expect(page.getByText('Could not project the views')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('a sheet metal part’s drawing: a flat pattern view with bend lines, notes and its size, saved and reopened', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
