@@ -227,6 +227,9 @@ describe('knit, thicken and cut', () => {
     ok(res);
     expect(b.surfaceBodies().map((x) => x.id).sort()).toEqual(['F3', 'K1']);
     expect(surfaceFaces(res).filter((f) => f.body === 'K1')).toHaveLength(5);
+    // A tolerance as large as the part sews it into nothing.
+    res = await b.build(req([...parts, surf('surfaceKnit', 'K1', { faces: [pick('F1'), pick('F2')], tolerance: 1e6 })]));
+    expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/Use a smaller knit tolerance/) });
   });
 
   it('thickens a surface into a solid of area × thickness, either side or both', async () => {

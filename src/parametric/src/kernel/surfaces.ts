@@ -889,6 +889,8 @@ export class SurfaceKit {
     } catch {
       throw this.h.fail('The surfaces could not be knit');
     }
+    // A tolerance near the surfaces' size sews their edges together into nothing.
+    if (isEmpty(res.shape)) throw this.h.fail('The surfaces could not be knit with this tolerance. Use a smaller knit tolerance: about the size of the gaps to close.');
     const shells = subShapes(res.shape, 'shell');
     const named = inherit(res.shape, faces, Math.max(tol, 1e-6), (k) => ({ name: `${f.id}:k${k}`, feature: f.id }));
     if (f.solid) {
