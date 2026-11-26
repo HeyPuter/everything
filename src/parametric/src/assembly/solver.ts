@@ -250,7 +250,11 @@ function equations(type: MateType, a: Geo, b: Geo, o: EqOpts, pa: Placement | nu
       const da = dirOf(a), db = dirOf(b);
       if (!da || !db) return null;
       const c = Math.cos((o.value * Math.PI) / 180);
-      return [dot(da, db) - (o.aligned ? c : -c)];
+      const t = o.aligned ? c : -c;
+      // At 0° or 180° the angle is a parallel condition: written as one so its
+      // gradient does not vanish where it holds (the DOF count would be wrong).
+      if (Math.abs(Math.abs(t) - 1) < 1e-12) return t > 0 ? sub(da, db) : add(da, db);
+      return [dot(da, db) - t];
     }
     case 'distance': {
       const D = o.value;
@@ -261,9 +265,17 @@ function equations(type: MateType, a: Geo, b: Geo, o: EqOpts, pa: Placement | nu
         const p = pointOf(b);
         return p ? [(dot(sub(p, a.o), a.n) - s * D) / L] : null;
       }
-      if (isPointLike(a) && isPointLike(b)) return [(len(sub(pointOf(a)!, pointOf(b)!)) - D) / L];
-      if (isAxisLike(a) && isAxisLike(b) && !isPointLike(a) && !isPointLike(b)) return [...match(dirOf(a)!, dirOf(b)!), (len(cross(sub(pointOf(b)!, pointOf(a)!), dirOf(a)!)) - D) / L];
-      if (isAxisLike(a) && isPointLike(b)) return [(len(cross(sub(pointOf(b)!, pointOf(a)!), dirOf(a)!)) - D) / L];
+      // A zero distance is a coincidence: written as one, as a length's gradient vanishes at zero.
+      const zero = Math.abs(D) < 1e-12;
+      if (isPointLike(a) && isPointLike(b)) return zero ? div(sub(pointOf(a)!, pointOf(b)!)) : [(len(sub(pointOf(a)!, pointOf(b)!)) - D) / L];
+      if (isAxisLike(a) && isAxisLike(b) && !isPointLike(a) && !isPointLike(b)) {
+        const off = cross(sub(pointOf(b)!, pointOf(a)!), dirOf(a)!);
+        return [...match(dirOf(a)!, dirOf(b)!), ...(zero ? div(off) : [(len(off) - D) / L])];
+      }
+      if (isAxisLike(a) && isPointLike(b)) {
+        const off = cross(sub(pointOf(b)!, pointOf(a)!), dirOf(a)!);
+        return zero ? div(off) : [(len(off) - D) / L];
+      }
       if (isAxisLike(b) && isPointLike(a)) return sw();
       return null;
     }

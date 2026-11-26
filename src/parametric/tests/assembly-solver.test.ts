@@ -67,6 +67,26 @@ describe('mate solver', () => {
     expect(r.dof).toBe(3);
   });
 
+  it('counts degrees of freedom right at a 0° or 180° angle and at a zero distance', () => {
+    for (const [value, aligned] of [[0, true], [180, true], [0, false], [180, false]] as [number, boolean][]) {
+      const r = new MateSolver([body('base', true), body('blk', false, [12, 9, 3], tilted)], [mate('angle', ['base', TOP], ['blk', TOP], { value, aligned })]).analyze();
+      expect(r.status).toBe('under');
+      // As a parallel mate: two turns are fixed.
+      expect(r.dof).toBe(4);
+      const n = (world(r.placements, 'blk', TOP) as { n: Vec3 }).n;
+      expect(dot(n, [0, 1, 0])).toBeCloseTo((value === 0) === aligned ? 1 : -1, 8);
+    }
+    expect(new MateSolver([body('base', true), body('blk', false, [12, 9, 3], tilted)], [mate('angle', ['base', TOP], ['blk', TOP], { value: 45, aligned: true })]).analyze().dof).toBe(5);
+    // Circular edges at zero distance: centres together, three moves fixed.
+    const rim: Geo = { kind: 'axis', p: [0, 5, 0], d: [0, 1, 0], r: 2, surface: 'circle' };
+    const z = new MateSolver([body('base', true), body('blk', false, [12, 9, 3], tilted)], [mate('distance', ['base', rim], ['blk', rim], { value: 0 })]).analyze();
+    expect(z.dof).toBe(3);
+    expect(len(sub((world(z.placements, 'blk', rim) as { p: Vec3 }).p, [0, 5, 0]))).toBeLessThan(1e-6);
+    // Parallel axes at zero distance: one line, sliding and turning left.
+    const zl = new MateSolver([body('base', true), body('pin', false, [5, 3, 2], tilted)], [mate('distance', ['base', HOLE], ['pin', { ...HOLE, surface: 'cone' } as Geo], { value: 0, aligned: true })]).analyze();
+    expect(zl.dof).toBe(2);
+  });
+
   it('distance keeps parallel faces apart by the value, on the side they start on', () => {
     const s = new MateSolver([body('base', true), body('blk', false, [3, 40, 1], qAxisAngle([0, 0, 1], 0.2))], [mate('distance', ['base', TOP], ['blk', BOTTOM], { value: 12 })]);
     const r = s.solve();
