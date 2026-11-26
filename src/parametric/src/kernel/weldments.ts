@@ -427,7 +427,9 @@ export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature):
   // Paths of the segments, in world coordinates.
   const drafts: Draft[] = [];
   const seen = new Set<string>();
-  const ixs = new Map<Id, { ix: SketchIndex; frame: Frame }>();
+  const ixs = new Map<Id, { ix: SketchIndex; frame: Frame; entities: SkEntity[] }>();
+  // "Line 3 of Sketch1", numbered as the panel lists them, for a message about one member.
+  const labels = new Map<string, string>();
   let size = 1;
   for (const { s, gi } of segs) {
     const key = memberKey(s);
@@ -436,12 +438,13 @@ export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature):
     let sk = ixs.get(s.sketch);
     if (!sk) {
       const got = ctx.sketch(s.sketch);
-      sk = { ix: new SketchIndex(got.entities), frame: got.frame };
+      sk = { ix: new SketchIndex(got.entities), frame: got.frame, entities: got.entities };
       ixs.set(s.sketch, sk);
     }
     const e = sk.ix.get(s.entity);
     if (!e) throw ctx.err(`A selected segment is no longer in ${ctx.name(s.sketch)}. Edit the feature and select the segments again.`);
     if (e.t !== 'line' && e.t !== 'arc') throw ctx.err(`Members run along lines and arcs; ${SEGMENT_KINDS[e.t] ?? 'these curves'} cannot be member paths`);
+    labels.set(key, `${e.t === 'arc' ? 'Arc' : 'Line'} ${sk.entities.filter((x) => x.t === e.t).indexOf(e) + 1} of ${ctx.name(s.sketch)}`);
     const fr = sk.frame;
     const w = (id: Id) => toWorld(fr, sk!.ix.pt(id));
     let path: MemberPath;
@@ -570,10 +573,19 @@ export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature):
     }
   }
 
-  const members = drafts.map((d) => finishMember(ctx, {
-    feature: f.id, key: d.key, group: d.group, standard: f.standard, profile: f.profile, size: f.size, desc: prof.desc,
-    dims: prof.dims, placement, shape, area, path: d.path, ends: d.ends,
-  }));
+  const featureError = ctx.err('').constructor;
+  const members = drafts.map((d) => {
+    try {
+      return finishMember(ctx, {
+        feature: f.id, key: d.key, group: d.group, standard: f.standard, profile: f.profile, size: f.size, desc: prof.desc,
+        dims: prof.dims, placement, shape, area, path: d.path, ends: d.ends,
+      });
+    } catch (e) {
+      // Which of many members it is.
+      if (e instanceof featureError && labels.has(d.key)) throw ctx.err(`${labels.get(d.key)}: ${(e as Error).message}`);
+      throw e;
+    }
+  });
   const named = members.flatMap((m) => ctx.nameTool(f.id, m.solid, (k) => `${m.key}:${k}`));
   const tool = members.length === 1 ? members[0].solid : fuseAll(members.map((m) => m.solid));
   ctx.applyTool(tool, named, 'The members add no material: they lie inside the part.');

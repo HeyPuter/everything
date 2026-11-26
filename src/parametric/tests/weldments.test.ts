@@ -234,6 +234,9 @@ describe('structural members', () => {
     ];
     const r6 = await build([sketch('S1', arc), member('M1', [[{ sketch: 'S1', entity: 'arc' }]], { size: '40x40x3' })]);
     expect(r6.res.status[1].error).toMatch(/does not fit inside the arc/);
+    // Among several members, the message says which one.
+    const r7 = await build([sketch('S1', [...line('l', [0, 0], [100, 0]), ...arc]), member('M1', [[{ sketch: 'S1', entity: 'l' }], [{ sketch: 'S1', entity: 'arc' }]])]);
+    expect(r7.res.status[1].error).toMatch(/^Arc 1 of S1: The profile does not fit inside the arc/);
   });
 });
 
