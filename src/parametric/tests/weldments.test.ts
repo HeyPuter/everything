@@ -256,6 +256,19 @@ describe('structural members', () => {
     const r7 = await build([sketch('S1', [...line('l', [0, 0], [100, 0]), ...arc]), member('M1', [[{ sketch: 'S1', entity: 'l' }], [{ sketch: 'S1', entity: 'arc' }]])]);
     expect(r7.res.status[1].error).toMatch(/^Arc 1 of S1: The profile does not fit inside the arc/);
   });
+
+  it('explains damaged or hand-edited members instead of crashing', async () => {
+    const s1 = sketch('S1', rect(0, 0, 100, 100, 'r'));
+    const bad = async (extra: Record<string, unknown>) => (await build([s1, { ...member('M1', [rectSegs('S1')]), ...extra } as Feature])).res.status[1].error;
+    expect(await bad({ profile: 'zzz' })).toMatch(/Select a profile/);
+    expect(await bad({ standard: 'din' })).toMatch(/Select a profile/);
+    expect(await bad({ groups: [{ segments: [] }] })).toMatch(/Select sketch lines or arcs/);
+    expect(await bad({ rotation: 'abc' })).toMatch(/Rotation angle has an invalid value/);
+    expect(await bad({ gap2: {} })).toMatch(/Gap between groups has an invalid value/);
+    // A huge list of segments that are gone, or of the same ones again, fails at once.
+    expect(await bad({ groups: [{ segments: Array.from({ length: 100000 }, (_, i) => ({ sketch: 'S1', entity: `e${i}` })) }] })).toMatch(/no longer in S1/);
+    expect(await bad({ groups: Array.from({ length: 20000 }, () => ({ segments: rectSegs('S1') })) })).toMatch(/selected twice/);
+  });
 });
 
 describe('trim/extend', () => {

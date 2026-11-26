@@ -5,8 +5,8 @@ import {
   type PSeg, type WeldProfileType, type WeldStandard, PROFILE_LIBRARY, WELD_STANDARDS, WELD_TYPES, findProfile, outlineBox, outlineMax, placeProfile, profileShape,
   profileSizes, sectionProps,
 } from '../src/model/weldment-profiles';
-import { type WeldMemberInfo, cutListCsv, cutListRows, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, weldmentCutList } from '../src/model/weldments';
-import { newDocument, parseDocument } from '../src/model/document';
+import { type WeldMemberInfo, cutListCsv, cutListRows, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, newWeldBead, weldmentCutList } from '../src/model/weldments';
+import { newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { dependencies } from '../src/model/features';
 
 const area = (standard: string, type: string, size: string) => {
@@ -174,6 +174,24 @@ describe('weldment features in part files', () => {
       newTrimExtend('f3', 'Trim/Extend1'), newEndCap('f4', 'End Cap1', 3), newGusset('f5', 'Gusset1', 50, 5)]));
     expect(d.features.map((f) => f.type)).toEqual(['sketch', 'structuralMember', 'trimExtend', 'endCap', 'gusset']);
     expect((d.features[1] as typeof sm).rotation).toBe('=Angle');
+  });
+
+  it('saves and reopens every weldment field', () => {
+    const face = (name: string) => ({ name, sig: { type: 'plane', c: [1, 2, 3] as [number, number, number], n: [0, 0, 1] as [number, number, number], area: 12 } });
+    const features = [
+      { id: 'f1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [], constraints: [] },
+      {
+        ...newStructuralMember('f2', 'Frame', [[{ sketch: 'f1', entity: 'l1' }], [{ sketch: 'f1', entity: 'l2' }, { sketch: 'f1', entity: 'a3' }]]),
+        standard: 'ansi', profile: 'beam', size: 'W6x15', rotation: 30, mirror: true, pierce: 'tl', corner: 'butt2', gap: 1.5, trimGroups: false, gap2: '=G',
+      },
+      { ...newTrimExtend('f3', 'Trim'), members: [{ feature: 'f2', member: 'f1/l1' }], boundary: 'members', faces: [face('f2:f1/l2:3')], boundaryMembers: [{ feature: 'f2', member: 'f1/l2' }], allowExtension: false, coped: true, gap: 2 },
+      { ...newEndCap('f4', 'Cap', 3), faces: [face('f2:f1/l1:0')], offset: 1, inward: true },
+      { ...newGusset('f5', 'Gusset', 50, 5), faces: [face('f2:f1/l1:1'), face('f2:f1/l2:2')], shape: 'polygonal', d1: 60, d2: 40, d3: 20, location: 'side2', chamfer: 4 },
+      { ...newWeldBead('f6', 'Bead', 4), edges: [{ name: 'f2:f1/l1:1|f2:f1/l2:2', sig: { type: 'line', m: [0, 0, 0] as [number, number, number], len: 40 } }] },
+    ];
+    const d = parseDocument(serializeDocument({ ...newDocument('W', 'IPS'), features: features as never }));
+    expect(d.units).toBe('IPS');
+    expect(d.features).toEqual(features);
   });
 
   it('rejects damaged weldment features', () => {
