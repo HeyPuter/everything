@@ -3,8 +3,7 @@
 // marks a section or detail view leaves on its parent. Everything is drawn as display-list
 // items in sheet millimetres.
 
-import type { DrawingAnnotation, DrawingDimKind, DrawingDimension, DrawingRef, HoleFeature, SkEntity } from '../model/types';
-import { sketchPoints } from '../sketch/profiles';
+import type { DrawingAnnotation, DrawingDimKind, DrawingDimension, DrawingRef, HoleFeature } from '../model/types';
 import { textWidth } from './pdf';
 import type { Item } from './sheet';
 import { type P2, type Prim, arcOverHalf } from './views';
@@ -385,18 +384,37 @@ export interface HoleSpec {
 }
 
 /**
- * The sizes of a hole feature (its Params evaluated) for a callout. The count is the holes it
- * makes: its sketch's points as the hole feature places them (not the ends of lines or the
- * centres of circles drawn to locate them).
+ * The hole feature a face was made by and which hole of it the face belongs to, from the
+ * face's name: "f2:p1:1" is face 1 of the hole at sketch point p1, and "f2:p1:1@f5.3" the same
+ * face of copy 3 of a pattern or mirror f5 (see the kernel's naming). Null when the name does
+ * not have that form; the caller checks that the feature is a hole.
  */
-export function holeSpecOf(f: HoleFeature, entities: SkEntity[] | undefined): HoleSpec {
+export function holeInstance(name: string): { feature: string; key: string } | null {
+  const [base, ...copies] = name.replace(/#\d+$/, '').split('@');
+  const parts = base.split(':');
+  if (parts.length < 3 || !parts[0] || !parts[1]) return null;
+  return { feature: parts[0], key: [parts[1], ...copies].join('@') };
+}
+
+/** How many holes of a hole feature the part has: one per hole centre, and per pattern or mirror copy of it. */
+export function holeCount(faceNames: string[], feature: string): number {
+  const keys = new Set<string>();
+  for (const n of faceNames) {
+    const h = holeInstance(n);
+    if (h?.feature === feature) keys.add(h.key);
+  }
+  return keys.size;
+}
+
+/** The sizes of a hole feature (its Params evaluated) for a callout of `count` holes. */
+export function holeSpecOf(f: HoleFeature, count: number): HoleSpec {
   const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
   return {
     kind: f.kind === 'counterbore' ? 'counterbore' : f.kind === 'countersink' ? 'countersink' : 'simple',
     diameter: num(f.diameter),
     depth: f.end === 'blind' ? num(f.depth) : undefined,
     cbDiameter: num(f.cbDiameter), cbDepth: num(f.cbDepth), csDiameter: num(f.csDiameter), csAngle: num(f.csAngle),
-    count: Math.max(1, entities ? sketchPoints(entities).length : 1),
+    count: Math.max(1, count),
   };
 }
 

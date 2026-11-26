@@ -15,7 +15,7 @@ import {
   DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, TITLE_H, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
   standardLayout, switchProjection, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
 } from '../drawing/sheet';
-import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, holeSpecOf, measure } from '../drawing/annotate';
+import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, holeCount, holeInstance, holeSpecOf, measure } from '../drawing/annotate';
 import { toDxf } from '../drawing/dxf';
 import type { DrawingSource } from '../drawing/source';
 import { type P2, type Prim, type ResolvedView, FLAT_SOURCE, SIDE_VECTORS, besideOrient, dependents, lineNormal, projectionRequest, resolveViews, standardKindOf } from '../drawing/views';
@@ -479,17 +479,19 @@ export class DrawingWorkspace {
     };
   }
 
-  /** The hole feature a circular edge was made by, with its sizes. */
+  /**
+   * The hole feature a circular edge was made by, with its sizes and how many holes it made
+   * (pattern and mirror copies of it too: their faces' names trace back to it).
+   */
   private holeOf(edge: string): HoleSpec | null {
     const app = this.app;
     const e = app.edges.find((x) => x.name === edge);
     if (!e || e.type !== 'circle' || !e.radius) return null;
-    const fid = e.faces.map((i) => app.faces[i]?.feature).find((id) => app.store.feature(id ?? '')?.type === 'hole');
+    const fid = e.faces.map((i) => holeInstance(app.faces[i]?.name ?? '')?.feature).find((id) => app.store.feature(id ?? '')?.type === 'hole');
     if (!fid) return null;
     const f = app.store.resolve().features.find((x) => x.id === fid) as HoleFeature | undefined;
     if (!f) return null;
-    const sk = app.store.feature(f.sketch);
-    return holeSpecOf(f, sk?.type === 'sketch' ? sk.entities : undefined);
+    return holeSpecOf(f, holeCount(app.faces.map((x) => x.name), fid));
   }
 
   private sheet() {

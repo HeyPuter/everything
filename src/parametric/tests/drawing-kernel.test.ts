@@ -5,7 +5,8 @@ import init from 'replicad-opencascadejs';
 import { ModelBuilder } from '../src/kernel/build';
 import { setOc } from '../src/kernel/occ';
 import type { ProjectionResult } from '../src/kernel/protocol';
-import type { DrawingDoc } from '../src/model/types';
+import type { DrawingDoc, Feature } from '../src/model/types';
+import { holeCount, holeInstance } from '../src/drawing/annotate';
 import { buildSheet, toSvg } from '../src/drawing/sheet';
 import { hatch, projectionRequest, resolveViews } from '../src/drawing/views';
 import { circle, extrude, rect, req, sketch } from './helpers';
@@ -152,5 +153,32 @@ describe('model dimensions on a drawing', () => {
     const svg3 = toSvg(buildSheet(gone, projectAll(b, gone), info(res2)).items, 297, 210);
     expect(svg3).toContain('? (missing)');
     expect(svg3).toContain('fill="#d32f2f"');
+  });
+});
+
+describe('hole callouts', () => {
+  it('count the holes of a hole feature patterned and mirrored, from the faces that trace back to it', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-40, -20, 40, 20)), extrude('E1', 'S1', 5)];
+    const r0 = await b.build(req(base));
+    const top = r0.faces.find((f) => f.name === 'E1:cap1')!;
+    // Two hole centres, and a construction line locating them (its end points are not holes).
+    const pos = sketch('S2', [
+      { id: 'hp', t: 'point', x: -30, y: 10 }, { id: 'hq', t: 'point', x: -30, y: -10 },
+      { id: 'c1', t: 'point', x: -35, y: 15 }, { id: 'c2', t: 'point', x: -35, y: -15 }, { id: 'cl', t: 'line', a: 'c1', b: 'c2', construction: true },
+    ], { kind: 'face', face: { name: top.name, sig: { type: 'plane', c: top.center, n: top.normal, area: top.area } } });
+    const hole = { id: 'H', name: 'H', type: 'hole', sketch: 'S2', kind: 'counterbore', diameter: 4, end: 'throughAll', depth: 0, cbDiameter: 8, cbDepth: 1, csDiameter: 8, csAngle: 90, flip: false } as Feature;
+    const names = async (fs: Feature[]) => (await b.build(req([...base, pos, hole, ...fs]))).faces.map((f) => f.name);
+    expect(holeCount(await names([]), 'H')).toBe(2);
+    // Four along x (x = -30, -20, -10, 0): eight holes.
+    const pat = { id: 'P', name: 'P', type: 'linearPattern', seeds: ['H'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 10, count: 4, flip: false }, dir2: null } as Feature;
+    const withPattern = await names([pat]);
+    expect(holeCount(withPattern, 'H')).toBe(8);
+    // The copies' faces name the hole feature, so the callout keeps its sizes.
+    const copy = withPattern.find((n) => n.includes('@P.'))!;
+    expect(holeInstance(copy)?.feature).toBe('H');
+    // Mirrored about the right plane: the copies at -20 and -10 land at 20 and 10 (the one at 0 onto itself).
+    const mir = { id: 'M', name: 'M', type: 'mirror', seeds: ['P'], plane: { kind: 'base', plane: 'right' } } as Feature;
+    expect(holeCount(await names([pat, mir]), 'H')).toBe(12);
   });
 });
