@@ -140,10 +140,18 @@ function vertexAt(p: Vec3): Sh {
   try { return wrap(mv.Vertex()); } finally { mv.delete(); g.delete(); }
 }
 
+/**
+ * One distance calculator, loaded again for each pair: every one made and
+ * deleted kept about 6 kB inside the geometry engine, and a trim asks for
+ * hundreds of distances (a part with a trim grew by 1.5 MB on each rebuild).
+ */
+let distCalc: { oc: unknown; ext: any } | null = null;
+
 /** Distance between two shapes and the nearest points. */
 function nearest(a: Sh, b: Sh): { d: number; p1: Vec3; p2: Vec3 } | null {
   const oc = getOc();
-  const ext = new oc.BRepExtrema_DistShapeShape();
+  if (!distCalc || distCalc.oc !== oc) distCalc = { oc, ext: new oc.BRepExtrema_DistShapeShape() };
+  const ext = distCalc.ext;
   try {
     ext.LoadS1(a.wrapped);
     ext.LoadS2(b.wrapped);
@@ -154,9 +162,10 @@ function nearest(a: Sh, b: Sh): { d: number; p1: Vec3; p2: Vec3 } | null {
     p1.delete(); p2.delete();
     return out;
   } catch {
+    // A failed calculation may leave it in any state: the next call makes a new one.
+    try { ext.delete(); } catch { /* already unusable */ }
+    distCalc = null;
     return null;
-  } finally {
-    ext.delete();
   }
 }
 
