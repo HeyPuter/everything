@@ -347,3 +347,31 @@ test('switching to first angle moves the top view below the front and the right 
   expect((await drawing(page)).projection ?? 'third').toBe('third');
   expect(errors).toEqual([]);
 });
+
+test('dragging a view never takes the views aligned with it off the sheet', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  // A projected view of the top view, far right on the sheet.
+  await page.evaluate(() => (window as unknown as { __parametric: App }).__parametric.drawing.update((d) => {
+    d.views.push({ id: 'v9', kind: 'right', type: 'projected', parent: 'v2', side: 'right', x: 255, y: d.views[1].y, hidden: false, dims: false });
+  }, 'Projected view'));
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
+  const top = (await ws(page)).frames.find((f) => f.id === 'v2')!;
+  const from = await at(page, (top.x0 + top.x1) / 2, (top.y0 + top.y1) / 2);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 400, from.y, { steps: 6 });
+  await page.mouse.up();
+  const f = (await ws(page)).frames;
+  expect(f.find((q) => q.id === 'v9')!.x1).toBeLessThanOrEqual(297 - 10 + 1e-6);
+  // It moved as far as that allows, and the two still line up.
+  expect(f.find((q) => q.id === 'v2')!.x0).toBeGreaterThan(top.x0 + 1);
+  expect(f.find((q) => q.id === 'v9')!.y0).toBeCloseTo(f.find((q) => q.id === 'v2')!.y0, 6);
+  // From the keyboard too.
+  for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+ArrowRight');
+  expect((await ws(page)).frames.find((q) => q.id === 'v9')!.x1).toBeLessThanOrEqual(297 - 10 + 1e-6);
+  expect(errors).toEqual([]);
+});

@@ -1179,9 +1179,9 @@ export class DrawingWorkspace {
         const id = drag.id!;
         // A view aligned with its parent moves only along the axis they do not share.
         const mx = drag.align === 'x' ? 0 : dx, my = drag.align === 'y' ? 0 : dy;
-        const [nx, ny] = this.onSheet(id, drag.ox + mx / this.zoom, drag.oy + my / this.zoom);
-        const ddx = nx - drag.ox, ddy = ny - drag.oy;
         const follow = drag.follow ?? [];
+        const [ddx, ddy] = this.groupMove(id, drag.ox, drag.oy, drag.ox + mx / this.zoom, drag.oy + my / this.zoom, follow);
+        const nx = drag.ox + ddx, ny = drag.oy + ddy;
         // The change re-renders the sheet (App refreshes the drawing on every document change).
         this.update((d) => {
           const v = d.views.find((q) => q.id === id);
@@ -1249,10 +1249,10 @@ export class DrawingWorkspace {
         if (align === 'x') dx = 0;
         if (align === 'y') dy = 0;
         // Held against the edge of the sheet: nothing to move (and no empty undo step).
-        const [nx, ny] = this.onSheet(id, v.x + dx, v.y + dy);
-        if (nx === v.x && ny === v.y) return;
         const follow = this.followers(d0, id);
-        const ddx = nx - v.x, ddy = ny - v.y;
+        const [ddx, ddy] = this.groupMove(id, v.x, v.y, v.x + dx, v.y + dy, follow.map((f) => { const q = d0.views.find((w) => w.id === f)!; return { id: f, x: q.x, y: q.y }; }));
+        if (!ddx && !ddy) return;
+        const nx = v.x + ddx, ny = v.y + ddy;
         this.update((d) => {
           const q = d.views.find((x) => x.id === id);
           if (q) { q.x = nx; q.y = ny; }
@@ -1296,6 +1296,22 @@ export class DrawingWorkspace {
     const [dl, db] = v.dims && v.kind !== 'isometric' && v.type !== 'detail' ? [DIM_LEFT, DIM_BELOW] : [0, 0];
     const fit = (c: number, lo: number, hi: number) => Math.min(Math.max(c, Math.min(lo, hi)), Math.max(lo, hi));
     return [fit(x, MARGIN + l + dl, w - MARGIN - r), fit(y, MARGIN + t, h - MARGIN - b - db)];
+  }
+
+  /**
+   * How far a view at (ox, oy) moved toward (x, y) goes, with the views that follow it (at
+   * their positions then): as far as keeps it and every one of them on the sheet.
+   */
+  private groupMove(id: string, ox: number, oy: number, x: number, y: number, follow: { id: Id; x: number; y: number }[]): [number, number] {
+    const [nx, ny] = this.onSheet(id, x, y);
+    let dx = nx - ox, dy = ny - oy;
+    // Each limit holds where the move started, so narrowing the move for one keeps it within the others'.
+    for (const f of follow) {
+      const [fx, fy] = this.onSheet(f.id, f.x + dx, f.y + dy);
+      dx = fx - f.x;
+      dy = fy - f.y;
+    }
+    return [dx, dy];
   }
 
   /**
