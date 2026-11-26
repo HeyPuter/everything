@@ -848,8 +848,11 @@ export class SurfaceKit {
           const n = normalAt(p.face.shape, mid);
           const t = edgeTangent(p.edge.shape, mid);
           if (!n || !t) throw this.h.fail('The surface could not be extended at the selected edge');
-          // Away from the face: the face's middle lies behind the edge.
-          const sign = dot(sub(faceMidPoint(p.face.shape), mid), cross(t, n)) > 0 ? -1 : 1;
+          // Away from the face: a step that way from the edge is off it. (The
+          // middle of the face's range lay behind the edge, except for a hole's
+          // edge: its strip went over the face around the hole.)
+          const eps = sizeOf(p.face.shape) * 1e-3;
+          const sign = (nearest(vertexAt(add(mid, scale(normalize(cross(t, n)), eps))), p.face.shape)?.d ?? eps) < eps * 0.5 ? -1 : 1;
           const out = scale(normalize(cross(t, n)), sign);
           const strip = p.edge.desc.type === 'line' ? 'straight' : ruledStrip(p.edge.shape, p.face.shape, out, sign, d);
           if (!strip) throw this.h.fail('The surface could not be extended at the selected edge');

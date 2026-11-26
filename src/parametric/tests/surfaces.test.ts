@@ -435,6 +435,12 @@ describe('trim, extend and delete face', () => {
     expect(res.bbox!.min[0]).toBeCloseTo(-7, 3);
     expect(res.bbox!.min[1]).toBeCloseTo(-7, 3);
     expect(res.edges.filter((e) => e.faces.length === 2)).toHaveLength(1);
+    // A hole's edge grows into the hole, not over the face around it.
+    const holed = [sketch('S1', [...rect(-10, -10, 10, 10), ...circle(0, 0, 4)]), surf('surfacePlanar', 'F1', { sketch: 'S1' })];
+    const hole = edgeRefOf(await b.build(req(holed)), (e) => e.type === 'circle');
+    res = await b.build(req([...holed, surf('surfaceExtend', 'X1', { edges: hole, distance: 2, mode: 'linear' })]));
+    ok(res);
+    expect(surfaceArea(res)).toBeCloseTo(400 - Math.PI * 4, 2);
   });
 
   it('deletes faces of the solid into a surface body, or patches the hole', async () => {
