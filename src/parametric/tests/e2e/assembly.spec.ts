@@ -297,3 +297,31 @@ test('the assembly workspace, its tree and the Mate panel have no serious access
   expect(violations).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('a new explode step never takes the name of one already in the list', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  const addStep = async () => {
+    await tree.getByRole('treeitem', { name: '(-) Block<2>' }).click();
+    await page.locator('.cm [data-cmd="explodedView"]').click();
+    await page.locator('.pm').getByRole('button', { name: 'OK' }).click();
+    await expect(page.locator('.pm')).toHaveCount(0);
+  };
+  await addStep();
+  await addStep();
+  await tree.getByRole('treeitem', { name: /^Explode Step1/ }).click();
+  await page.keyboard.press('Delete');
+  await page.getByRole('dialog', { name: 'Delete' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(tree.getByRole('treeitem', { name: /^Explode Step1/ })).toHaveCount(0);
+  await addStep();
+  const names = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.assembly!.doc.explode.map((s) => s.name));
+  expect(await names()).toEqual(['Explode Step2', 'Explode Step3']);
+  expect(errors).toEqual([]);
+});

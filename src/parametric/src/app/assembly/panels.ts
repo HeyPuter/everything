@@ -555,7 +555,10 @@ export class ExplodePanel extends PropertyPanel {
       if (this.existing) d.explode = d.explode.map((x) => (x.id === s.id ? s : x));
       else {
         s.id = nextAsmId(d, 'x');
-        s.name = `Explode Step${d.explode.length + 1}`;
+        // The next number no step has (a step deleted before it leaves a gap).
+        let k = d.explode.length + 1;
+        while (d.explode.some((x) => x.name.toLowerCase() === `explode step${k}`)) k++;
+        s.name = `Explode Step${k}`;
         d.explode.push(s);
       }
       d.exploded = true;
