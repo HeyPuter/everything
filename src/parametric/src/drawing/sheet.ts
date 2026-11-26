@@ -318,6 +318,8 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
   placements: Map<string, ViewPlacement>;
   /** Boxes of the annotations, for picking. */
   annos: { id: string; box: Box }[];
+  /** What does not fit on the sheet (said in red on it too). */
+  warnings: string[];
 } {
   const { w, h } = sheetDims(d);
   const items: Item[] = [];
@@ -456,14 +458,15 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
     const edges = info.edges?.(r.source);
     if (edges && !r.clip) for (const a of holeAxes(r, edges)) drawCenterline(items, T(a.a), T(a.b));
   }
-  const annos = drawAnnotations(items, d, placements, info, fmt);
+  const warnings: string[] = [];
+  const annos = drawAnnotations(items, d, placements, info, fmt, warnings);
   if (d.titleBlock === 'full') titleBlockFull(items, w, h, d, info);
   else titleBlock(items, w, h, d, info);
-  return { items, frames, w, h, placements, annos };
+  return { items, frames, w, h, placements, annos, warnings };
 }
 
 /** Draws the annotations; returns their boxes. */
-function drawAnnotations(items: Item[], d: DrawingDoc, placements: Map<string, ViewPlacement>, info: SheetInfo, fmt: AnnoFormat): { id: string; box: Box }[] {
+function drawAnnotations(items: Item[], d: DrawingDoc, placements: Map<string, ViewPlacement>, info: SheetInfo, fmt: AnnoFormat, warnings: string[]): { id: string; box: Box }[] {
   const out: { id: string; box: Box }[] = [];
   for (const a of d.annotations ?? []) {
     const p = a.view ? placements.get(a.view) : undefined;
@@ -540,8 +543,19 @@ function drawAnnotations(items: Item[], d: DrawingDoc, placements: Map<string, V
       case 'bom':
       case 'cutList': {
         const t = info.table?.(a);
-        if (t) out.push({ id: a.id, box: drawTable(items, t, a.at, a.anchor) });
-        else {
+        if (t) {
+          // Split into columns to stay on the sheet; one that still does not fit says so.
+          const { w, h } = sheetDims(d);
+          const drawn = drawTable(items, t, a.at, a.anchor, { top: MARGIN, bottom: h - MARGIN, left: MARGIN, right: w - MARGIN });
+          if (!drawn.fits) {
+            const what = a.type === 'bom' ? 'The bill of materials' : 'The cut list';
+            warnings.push(`${what} does not fit on this sheet: use a larger sheet.`);
+            const text = `${what.slice(4).toUpperCase()} DOES NOT FIT ON THIS SHEET: USE A LARGER SHEET`;
+            const tw = textWidth(text, 2.5);
+            drawNote(items, text, [Math.max(MARGIN + 1, Math.min(drawn.box[2] - tw, w - MARGIN - 1 - tw)), Math.max(MARGIN + 4, Math.min(drawn.box[1] - 1.5, h - MARGIN - 1))], 2.5, undefined, DANGER);
+          }
+          out.push({ id: a.id, box: drawn.box });
+        } else {
           const text = a.type === 'bom' ? 'BILL OF MATERIALS? (no assembly)' : 'CUT LIST? (no structural members)';
           const at: [number, number] = a.anchor === 'bottomRight' ? [a.at[0] - textWidth(text, 2.5), a.at[1] - 1] : [a.at[0], a.at[1] + 3];
           out.push({ id: a.id, box: drawNote(items, text, at, 2.5, undefined, DANGER) });

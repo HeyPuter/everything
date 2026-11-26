@@ -72,15 +72,49 @@ export function layoutTable(t: TableSpec, at: P2, anchor?: 'bottomRight') {
   return { box: [x0, y0, x0 + w, y0 + h] as Box, cols, rows, texts };
 }
 
-/** Draws a table; returns its box. */
-export function drawTable(items: Item[], t: TableSpec, at: P2, anchor?: 'bottomRight'): Box {
-  const L = layoutTable(t, at, anchor);
-  const [x0, y0, x1, y1] = L.box;
-  items.push({ t: 'rect', x: x0, y: y0, w: x1 - x0, h: y1 - y0, sw: 0.35 });
-  L.rows.slice(1, -1).forEach((y, i) => items.push({ t: 'line', x1: x0, y1: y, x2: x1, y2: y, w: i === 0 ? 0.35 : 0.18 }));
-  for (const x of L.cols.slice(1, -1)) items.push({ t: 'line', x1: x, y1: y0, x2: x, y2: y1, w: 0.18 });
-  for (const c of L.texts) if (c.s) items.push({ t: 'text', s: c.s, x: c.x, y: c.y, size: c.size, bold: c.bold || undefined, anchor: c.anchor });
-  return L.box;
+/** The gap between the columns of a table split to fit the sheet. */
+export const TABLE_SPLIT_GAP = 4;
+
+/**
+ * A table cut into columns that fit between `top` and `bottom` (the sheet's border): each with
+ * the header again, the first where the table is placed and the next ones beside it, to the
+ * left of a table placed by its bottom right corner (each standing on the same line), else to
+ * its right. `fits` is false when even so they reach past `left` or `right`, or a single row
+ * does not fit.
+ */
+export function splitTable(t: TableSpec, at: P2, anchor: 'bottomRight' | undefined, room: { top: number; bottom: number; left: number; right: number }):
+  { parts: { t: TableSpec; at: P2 }[]; box: Box; fits: boolean } {
+  const avail = anchor === 'bottomRight' ? at[1] - room.top : room.bottom - at[1];
+  const per = Math.floor(avail / TABLE_ROW_H + 1e-9) - 1;
+  const whole = tableSize(t);
+  if (whole.h <= avail + 1e-9 || per < 1) {
+    const L = layoutTable(t, at, anchor);
+    const b = L.box;
+    return { parts: [{ t, at }], box: b, fits: whole.h <= avail + 1e-9 && b[0] >= room.left - 1e-9 && b[2] <= room.right + 1e-9 };
+  }
+  const parts: { t: TableSpec; at: P2 }[] = [];
+  const step = whole.w + TABLE_SPLIT_GAP;
+  for (let i = 0, k = 0; i < t.rows.length; i += per, k++) {
+    const dx = anchor === 'bottomRight' ? -k * step : k * step;
+    parts.push({ t: { ...t, rows: t.rows.slice(i, i + per) }, at: [at[0] + dx, at[1]] });
+  }
+  const boxes = parts.map((p) => layoutTable(p.t, p.at, anchor).box);
+  const box: Box = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))];
+  return { parts, box, fits: box[0] >= room.left - 1e-9 && box[2] <= room.right + 1e-9 };
+}
+
+/** Draws a table (split into columns to stay inside `room`, the sheet's border, when given); returns its box and whether it fits. */
+export function drawTable(items: Item[], t: TableSpec, at: P2, anchor?: 'bottomRight', room?: { top: number; bottom: number; left: number; right: number }): { box: Box; fits: boolean } {
+  const split = room ? splitTable(t, at, anchor, room) : { parts: [{ t, at }], box: layoutTable(t, at, anchor).box, fits: true };
+  for (const part of split.parts) {
+    const L = layoutTable(part.t, part.at, anchor);
+    const [x0, y0, x1, y1] = L.box;
+    items.push({ t: 'rect', x: x0, y: y0, w: x1 - x0, h: y1 - y0, sw: 0.35 });
+    L.rows.slice(1, -1).forEach((y, i) => items.push({ t: 'line', x1: x0, y1: y, x2: x1, y2: y, w: i === 0 ? 0.35 : 0.18 }));
+    for (const x of L.cols.slice(1, -1)) items.push({ t: 'line', x1: x, y1: y0, x2: x, y2: y1, w: 0.18 });
+    for (const c of L.texts) if (c.s) items.push({ t: 'text', s: c.s, x: c.x, y: c.y, size: c.size, bold: c.bold || undefined, anchor: c.anchor });
+  }
+  return { box: split.box, fits: split.fits };
 }
 
 /** The bill of materials table: item number, part, material and quantity. */

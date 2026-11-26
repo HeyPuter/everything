@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { buildSheet, standardLayout, toSvg } from '../src/drawing/sheet';
 import type { BomRow } from '../src/drawing/source';
 import {
-  BALLOON_R, TABLE_ROW_H, autoBalloons, balloonTip, bomTable, cutListTable, drawBalloon, drawTable, fitCell, itemOfEdge, layoutTable, tableOrigin, tableSize,
+  BALLOON_R, TABLE_ROW_H, autoBalloons, balloonTip, bomTable, cutListTable, drawBalloon, drawTable, fitCell, splitTable, itemOfEdge, layoutTable, tableOrigin, tableSize,
 } from '../src/drawing/tables';
 import { textWidth } from '../src/drawing/pdf';
 import { toDxf } from '../src/drawing/dxf';
@@ -96,6 +96,44 @@ describe('tables', () => {
     expect(svg).toContain('CUT LIST? (no structural members)');
     expect(s.annos.find((a) => a.id === 'a1')!.box).toEqual([284, 237, 410, 255]);
     expect(s.annos.find((a) => a.id === 'a2')).toBeTruthy();
+    expect(s.warnings).toEqual([]);
+  });
+
+  it('continues a table too tall for the sheet in columns to its left, each with the header, all on the sheet', () => {
+    const many: BomRow[] = Array.from({ length: 60 }, (_, i) => ({ item: i + 1, name: `Part ${i + 1}`, material: '', qty: 1, prefixes: [`c${i}#`] }));
+    const d: DrawingDoc = { sheet: 'A3', landscape: true, scale: 1, title: '', drawnBy: '', notes: '', views: [], annotations: [{ id: 'a1', type: 'bom', at: [410, 255], anchor: 'bottomRight' }] };
+    const s = buildSheet(d, new Map(), { partName: 'A', material: '', units: 'mm', date: '', formatLength: (v) => v.toFixed(1), table: () => bomTable(many) });
+    const texts = s.items.filter((it): it is Extract<Item, { t: 'text' }> => it.t === 'text');
+    // Every row once, the header in each column, everything inside the border.
+    for (let i = 1; i <= 60; i++) expect(texts.filter((x) => x.s === `Part ${i}`)).toHaveLength(1);
+    expect(texts.filter((x) => x.s === 'PART NUMBER')).toHaveLength(2);
+    for (const x of texts) expect(x.y).toBeGreaterThan(10);
+    const box = s.annos.find((a) => a.id === 'a1')!.box;
+    expect(box[1]).toBeGreaterThanOrEqual(10);
+    expect(box[0]).toBeGreaterThanOrEqual(10);
+    expect(box[2]).toBe(410);
+    expect(box[3]).toBe(255);
+    // Item 1 is in the first column (on the right), the last item in the one left of it, both standing on the title block.
+    const first = texts.find((x) => x.s === 'Part 1')!, last = texts.find((x) => x.s === 'Part 60')!;
+    expect(last.x).toBeLessThan(first.x - tableSize(bomTable(many)).w);
+    expect(s.warnings).toEqual([]);
+    const parts = splitTable(bomTable(many), [410, 255], 'bottomRight', { top: 10, bottom: 287, left: 10, right: 410 });
+    expect(parts.parts.length).toBe(2);
+    expect(parts.parts[0].t.rows[0][1]).toBe('Part 1');
+    expect(parts.parts.every((p) => tableSize(p.t).h <= 245)).toBe(true);
+    expect(parts.fits).toBe(true);
+  });
+
+  it('says in red, and as a warning, when a table does not fit on the sheet even split', () => {
+    const many: BomRow[] = Array.from({ length: 400 }, (_, i) => ({ item: i + 1, name: `Part ${i + 1}`, material: '', qty: 1, prefixes: [] }));
+    const d: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: '', drawnBy: '', notes: '', views: [], annotations: [{ id: 'a1', type: 'bom', at: [287, 168], anchor: 'bottomRight' }] };
+    const s = buildSheet(d, new Map(), { partName: 'A', material: '', units: 'mm', date: '', formatLength: (v) => v.toFixed(1), table: () => bomTable(many) });
+    expect(s.warnings).toEqual(['The bill of materials does not fit on this sheet: use a larger sheet.']);
+    const note = s.items.find((it): it is Extract<Item, { t: 'text' }> => it.t === 'text' && it.s.includes('DOES NOT FIT'))!;
+    expect(note.color).toBeTruthy();
+    expect(note.x).toBeGreaterThanOrEqual(10);
+    expect(note.x + textWidth(note.s, note.size)).toBeLessThanOrEqual(287 + 1e-9);
+    expect(note.y).toBeGreaterThan(10);
   });
 });
 

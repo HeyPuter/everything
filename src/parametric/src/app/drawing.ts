@@ -8,7 +8,7 @@ import type { DrawingAnnotation, DrawingBom, DrawingCutList, DrawingDimension, D
 import type { Vec3 } from '../math/vec';
 import { flatSize } from '../model/flat-pattern';
 import { type CutList, cutListRows, memberOfFace, weldmentCutList } from '../model/weldments';
-import { type TableSpec, autoBalloons, balloonTip, bomTable, cutListTable, drawBalloon, itemOfEdge, tableSize } from '../drawing/tables';
+import { type TableSpec, autoBalloons, balloonTip, bomTable, cutListTable, drawBalloon, itemOfEdge, splitTable, tableSize } from '../drawing/tables';
 import { ASSEMBLY_SOURCE, EXPLODED_SOURCE, flatSource } from './drawing-sources';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import {
@@ -113,6 +113,8 @@ export class DrawingWorkspace {
   private panelChanging = false;
   private layoutPending = false;
   private sheetW = 297;
+  /** The sheet's warnings as last said (a toast says new ones). */
+  private warned = '';
   /** Says the views are being projected, when that takes a moment (a large part takes seconds). */
   private busy = h('div', { class: 'drawing-busy', role: 'status' });
   private sheetH = 210;
@@ -226,6 +228,7 @@ export class DrawingWorkspace {
 
   close() {
     this.refreshAgain = false;
+    this.warned = '';
     this.panelKey = '';
     this.active = false;
     this.tool = null;
@@ -245,7 +248,7 @@ export class DrawingWorkspace {
     const size: SheetSize = asm ? (ips ? 'Tabloid' : 'A3') : ips ? 'Letter' : 'A4';
     const sheet = sheetDims({ sheet: size, landscape: true });
     const annotations: DrawingAnnotation[] | undefined = asm ? [{ id: 'a1', type: 'bom', at: [sheet.w - MARGIN, sheet.h - MARGIN - TITLE_H], anchor: 'bottomRight' }] : undefined;
-    const layout = b ? standardLayout(sheet, b.min, b.max, this.layoutBottom(annotations)) : { scale: 1, views: [] };
+    const layout = b ? standardLayout(sheet, b.min, b.max, this.layoutBottom(annotations, sheet)) : { scale: 1, views: [] };
     // Opened before the first rebuild finished: lay out once the solid exists.
     this.layoutPending = !b;
     // Only looking at the drawing does not edit the part: it is neither marked edited nor
@@ -267,12 +270,14 @@ export class DrawingWorkspace {
    * The height the standard views leave free along the bottom of the sheet: the title block's,
    * and a table's standing on it.
    */
-  private layoutBottom(annotations: DrawingAnnotation[] | undefined): number {
+  private layoutBottom(annotations: DrawingAnnotation[] | undefined, sheet: { w: number; h: number }): number {
     let bottom = TITLE_H;
     for (const a of annotations ?? []) {
       if ((a.type !== 'bom' && a.type !== 'cutList') || a.anchor !== 'bottomRight') continue;
       const t = this.tableOf(a);
-      if (t) bottom = Math.max(bottom, TITLE_H + tableSize(t).h + 6);
+      // As tall as its tallest column, when it is split to stay on the sheet.
+      const box = t && splitTable(t, a.at, a.anchor, { top: MARGIN, bottom: sheet.h - MARGIN, left: MARGIN, right: sheet.w - MARGIN }).box;
+      if (box) bottom = Math.max(bottom, TITLE_H + (box[3] - box[1]) + 6);
     }
     return bottom;
   }
@@ -301,7 +306,7 @@ export class DrawingWorkspace {
     const b = this.bbox();
     const d = this.doc;
     if (!b || !d) return;
-    const layout = standardLayout(sheetDims(d), b.min, b.max, this.layoutBottom(d.annotations));
+    const layout = standardLayout(sheetDims(d), b.min, b.max, this.layoutBottom(d.annotations, sheetDims(d)));
     const source = this.app.assembly ? { source: ASSEMBLY_SOURCE } : {};
     const first = d.projection === 'first';
     const arrange = (x: DrawingDoc) => {
@@ -514,6 +519,10 @@ export class DrawingWorkspace {
     this.frames = s.frames;
     this.placements = s.placements;
     this.annoBoxes = s.annos;
+    // What does not fit on the sheet is said once (and stays in red on the sheet).
+    const warn = s.warnings.join('\n');
+    if (warn && warn !== this.warned) toast({ kind: 'warning', title: 'Drawing', message: warn });
+    this.warned = warn;
     if (this.selectedAnno && !(d.annotations ?? []).some((a) => a.id === this.selectedAnno)) this.selectedAnno = null;
     if (this.selected && !d.views.some((v) => v.id === this.selected)) this.selected = null;
     // A new sheet size or orientation is refitted, or only part of it shows.
