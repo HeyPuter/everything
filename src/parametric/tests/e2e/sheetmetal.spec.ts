@@ -138,3 +138,39 @@ test('an inch part gets sheet metal defaults that read as plain inch values', as
   await expect(page.getByRole('textbox', { name: 'Length' })).toHaveValue('0.3');
   expect(errors).toEqual([]);
 });
+
+test('the Sheet-Metal and Flat-Pattern rows open from the keyboard and have a menu', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(async () => {
+    const a = (window as unknown as W).__parametric;
+    const pts = [[0, 0], [40, 0], [40, 30], [0, 30]];
+    a.store.change('Plate', (d) => {
+      d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+        ...pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y })),
+        ...pts.map((_, i) => ({ id: `l${i}`, t: 'line' as const, a: `p${i}`, b: `p${(i + 1) % 4}` })),
+      ] });
+      d.features.push({ id: 'b1', name: 'Base-Flange1', type: 'baseFlange', sketch: 's1', flip: false, mid: false, depth: 10, depthEnd: 'blind', depthFlip: false,
+        sm: { thickness: 1, radius: 1, allowance: 'kFactor', kFactor: 0.5, allowanceValue: 1.5, relief: 'rectangular', reliefRatio: 0.5 } });
+    });
+    await a.whenBuilt();
+  });
+  await waitForFeature(page, 'Base-Flange1');
+  await page.getByRole('treeitem', { name: 'Sheet-Metal' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Base-Flange1' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Base-Flange1' })).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as W).__parametric.whenBuilt());
+  await page.getByRole('treeitem', { name: 'Flat-Pattern' }).focus();
+  await expect(page.getByRole('treeitem', { name: 'Flat-Pattern' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Flat Pattern' })).toBeVisible();
+  await page.getByRole('button', { name: 'Exit Flat Pattern' }).click();
+  await page.getByRole('treeitem', { name: 'Flat-Pattern' }).focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem', { name: /Flatten/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /Export DXF/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});

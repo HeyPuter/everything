@@ -164,6 +164,7 @@ export class FeatureTree {
         else if (r.key === 'part') app.openCommandMenu(['properties', 'rename', 'equations', 'appearance'], e.clientX, e.clientY, 'Part menu');
         else if (r.key === 'material') app.openCommandMenu(['material'], e.clientX, e.clientY, 'Material menu');
         else if (r.key === 'cutlist') app.openCommandMenu(['cutList', 'cutListCsv'], e.clientX, e.clientY, 'Cut list menu');
+        else if (r.key === 'sheetMetal' || r.key === 'flatPattern') app.openCommandMenu(['sheetMetalParameters', 'flatten', 'exportFlatDxf'], e.clientX, e.clientY, 'Sheet metal menu');
       });
       el.addEventListener('pointerenter', () => { if (r.item) sel.setHover(r.item); });
       el.addEventListener('pointerleave', () => { if (r.item) sel.setHover(null); });
@@ -402,6 +403,8 @@ export class FeatureTree {
         // As a click on Material or a double click on the part does.
         else if (key === 'material') this.app.commands.run('material');
         else if (key === 'cutlist') this.app.commands.run('cutList');
+        else if (key === 'sheetMetal') this.app.commands.run('sheetMetalParameters');
+        else if (key === 'flatPattern') this.app.commands.run('flatten');
         else if (key === 'part') this.app.commands.run('properties');
         break;
       case ' ':
