@@ -3,9 +3,9 @@
 // DXF, and validation of old and new drawings.
 import { describe, expect, it } from 'vitest';
 import type { EdgeInfo, ProjectionResult } from '../src/kernel/protocol';
-import type { DrawingDoc } from '../src/model/types';
+import type { DrawingDoc, HoleFeature, SkEntity } from '../src/model/types';
 import { validDrawing } from '../src/model/validate-drawing';
-import { type Geo, drawDimension, guessKind, holeCalloutText, measure } from '../src/drawing/annotate';
+import { type Geo, drawDimension, guessKind, holeCalloutText, holeSpecOf, measure } from '../src/drawing/annotate';
 import { circleArc, dxfText, toDxf } from '../src/drawing/dxf';
 import { type Item, buildSheet, toPdf, toSvg, viewCaption } from '../src/drawing/sheet';
 import { arcOverHalf, besideOrient, centerMarks, clipToCircle, dependents, hatch, holeAxes, resolveViews, standardOrient, viewPrims } from '../src/drawing/views';
@@ -181,6 +181,20 @@ describe('dimensions', () => {
     expect(gone).toEqual([expect.objectContaining({ t: 'text', s: 'Ø? (missing)', color: '#d32f2f' })]);
     expect(holeCalloutText({ kind: 'counterbore', diameter: 6.6, cbDiameter: 11, cbDepth: 6.4, count: 4 }, fmt)).toBe('4X Ø6.60 THRU\nCBORE Ø11.00 DEEP 6.40');
     expect(holeCalloutText({ kind: 'countersink', diameter: 5, depth: 10, csDiameter: 10, csAngle: 90, count: 1 }, fmt)).toBe('Ø5.00 DEEP 10.00\nCSK Ø10.00 X 90°');
+  });
+
+  it('counts the holes a hole feature makes, not the points of lines and circles locating them', () => {
+    const hole = { id: 'h', type: 'hole', name: 'Hole1', sketch: 's', kind: 'simple', diameter: 6, end: 'throughAll', depth: 10, cbDiameter: 11, cbDepth: 3, csDiameter: 12, csAngle: 90, flip: false } as HoleFeature;
+    // Two hole centres, a construction line between them (its own end points) and a circle around one.
+    const entities: SkEntity[] = [
+      { id: 'p1', t: 'point', x: 0, y: 0 }, { id: 'p2', t: 'point', x: 20, y: 0 },
+      { id: 'p3', t: 'point', x: -10, y: 5 }, { id: 'p4', t: 'point', x: 30, y: 5 }, { id: 'l1', t: 'line', a: 'p3', b: 'p4', construction: true },
+      { id: 'p5', t: 'point', x: 0, y: 0 }, { id: 'c1', t: 'circle', c: 'p5', r: 8, construction: true },
+      { id: 'p6', t: 'point', x: 5, y: 5, construction: true },
+    ];
+    expect(holeSpecOf(hole, entities).count).toBe(2);
+    expect(holeCalloutText(holeSpecOf(hole, entities), fmt)).toBe('2X Ø6.00 THRU');
+    expect(holeSpecOf({ ...hole, end: 'blind' }, entities.slice(0, 1))).toMatchObject({ count: 1, depth: 10 });
   });
 });
 

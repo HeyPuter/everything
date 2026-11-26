@@ -15,7 +15,7 @@ import {
   DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, TITLE_H, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
   standardLayout, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
 } from '../drawing/sheet';
-import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, measure } from '../drawing/annotate';
+import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, holeSpecOf, measure } from '../drawing/annotate';
 import { toDxf } from '../drawing/dxf';
 import type { DrawingSource } from '../drawing/source';
 import { type P2, type Prim, type ResolvedView, FLAT_SOURCE, SIDE_VECTORS, besideOrient, dependents, lineNormal, projectionRequest, resolveViews, standardKindOf } from '../drawing/views';
@@ -467,16 +467,8 @@ export class DrawingWorkspace {
     if (!fid) return null;
     const f = app.store.resolve().features.find((x) => x.id === fid) as HoleFeature | undefined;
     if (!f) return null;
-    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
     const sk = app.store.feature(f.sketch);
-    const count = sk?.type === 'sketch' ? sk.entities.filter((x) => x.t === 'point' && !(x as { construction?: boolean }).construction && !(x as { external?: unknown }).external).length : 1;
-    return {
-      kind: f.kind === 'counterbore' ? 'counterbore' : f.kind === 'countersink' ? 'countersink' : 'simple',
-      diameter: num(f.diameter),
-      depth: f.end === 'blind' ? num(f.depth) : undefined,
-      cbDiameter: num(f.cbDiameter), cbDepth: num(f.cbDepth), csDiameter: num(f.csDiameter), csAngle: num(f.csAngle),
-      count: Math.max(1, count),
-    };
+    return holeSpecOf(f, sk?.type === 'sketch' ? sk.entities : undefined);
   }
 
   private sheet() {

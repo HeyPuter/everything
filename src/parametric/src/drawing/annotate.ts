@@ -3,7 +3,8 @@
 // marks a section or detail view leaves on its parent. Everything is drawn as display-list
 // items in sheet millimetres.
 
-import type { DrawingAnnotation, DrawingDimKind, DrawingDimension, DrawingRef } from '../model/types';
+import type { DrawingAnnotation, DrawingDimKind, DrawingDimension, DrawingRef, HoleFeature, SkEntity } from '../model/types';
+import { sketchPoints } from '../sketch/profiles';
 import { textWidth } from './pdf';
 import type { Item } from './sheet';
 import { type P2, type Prim, arcOverHalf } from './views';
@@ -368,6 +369,22 @@ export interface HoleSpec {
   csAngle?: number;
   /** Holes made by the same feature with this size. */
   count: number;
+}
+
+/**
+ * The sizes of a hole feature (its Params evaluated) for a callout. The count is the holes it
+ * makes: its sketch's points as the hole feature places them (not the ends of lines or the
+ * centres of circles drawn to locate them).
+ */
+export function holeSpecOf(f: HoleFeature, entities: SkEntity[] | undefined): HoleSpec {
+  const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+  return {
+    kind: f.kind === 'counterbore' ? 'counterbore' : f.kind === 'countersink' ? 'countersink' : 'simple',
+    diameter: num(f.diameter),
+    depth: f.end === 'blind' ? num(f.depth) : undefined,
+    cbDiameter: num(f.cbDiameter), cbDepth: num(f.cbDepth), csDiameter: num(f.csDiameter), csAngle: num(f.csAngle),
+    count: Math.max(1, entities ? sketchPoints(entities).length : 1),
+  };
 }
 
 /** A hole callout's lines: count, diameter and depth, then the counterbore or countersink. */
