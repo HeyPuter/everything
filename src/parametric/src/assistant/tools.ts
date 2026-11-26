@@ -573,7 +573,10 @@ class Toolkit {
     const mp = await this.host.massProperties();
     if (!mp) return 'Mass properties are not available for this body.';
     const u = this.u;
-    if (!mp.solid) return `The body has no closed solid (only surfaces), so it has no volume, mass or centre of mass. Surface area ${u.area(mp.area)}.\n${this.ins.bodyText()}`;
+    // Surface bodies have area only: they are in none of the solid's values.
+    const sheets = mp.surfaceArea != null ? `Surface bodies: area ${u.area(mp.surfaceArea)}, not included in the values above (surfaces have no volume or mass).` : '';
+    if (!mp.solid && mp.surfaceArea != null && !mp.area) return `The part has no solid, only surface bodies (area ${u.area(mp.surfaceArea)}), so it has no volume, mass or centre of mass.\n${this.ins.bodyText()}`;
+    if (!mp.solid) return `The body has no closed solid (only surfaces), so it has no volume, mass or centre of mass. Surface area ${u.area(mp.area)}.${sheets ? `\n${sheets}` : ''}\n${this.ins.bodyText()}`;
     const us = UNIT_SYSTEMS[this.doc.units];
     const lines = [`Volume ${u.volume(mp.volume)}; surface area ${u.area(mp.area)}; centre of mass ${u.pt(mp.center)}.`];
     const m = this.doc.material;
@@ -582,6 +585,7 @@ class Toolkit {
       lines.push(`Mass ${qty(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
     } else lines.push('Mass: set a material (set_part) to get the mass.');
     lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => qty(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
+    if (sheets) lines.push(sheets);
     lines.push(this.ins.bodyText());
     return lines.join('\n');
   }

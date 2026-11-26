@@ -5,6 +5,7 @@ import init from 'replicad-opencascadejs';
 import { setOc } from '../src/kernel/occ';
 import type { SketchFeature } from '../src/model/types';
 import { TestHost } from './assistant-host';
+import { newSurfaceFeature } from '../src/model/surfaces';
 import { toolSpecs } from '../src/assistant/tools';
 import { buildProfiles } from '../src/sketch/profiles';
 
@@ -192,6 +193,35 @@ describe('assistant tools', () => {
     expect(r.content).toContain('size 2 × 1 × 0.5 in');
     const m = await h.call('mass_properties', {});
     expect(m.content).toMatch(/Mass 0\.0975\d* lb/);
+  });
+
+  it('counts and weighs surface bodies apart from the solid', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', corner1: [0, 0], corner2: [20, 10] }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 5 });
+    const solid = (await h.call('get_model', {})).content;
+    const faces = Number(/Body: (\d+) faces/.exec(solid)![1]);
+    expect(faces).toBe(6);
+    expect(solid).not.toMatch(/surface bod/);
+    // A 30 × 40 extruded surface from an open line beside the block, made outside the assistant.
+    h.store.change('Surface', (d) => {
+      d.features.push(
+        { id: 'sk9', name: 'Line', type: 'sketch', plane: { kind: 'base', plane: 'top' }, constraints: [], entities: [
+          { id: 'a', t: 'point', x: 50, y: 0 }, { id: 'b', t: 'point', x: 80, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }] },
+        { ...newSurfaceFeature('surfaceExtrude', 'u9', 'Surface-Extrude1', 40), sketch: 'sk9' } as never,
+      );
+    });
+    await h.settle();
+    const model = (await h.call('get_model', {})).content;
+    expect(model).toMatch(/Body: 6 faces, 12 edges; 1 surface body apart from the solid \(1 faces, 4 edges\)/);
+    const m = (await h.call('mass_properties', {})).content;
+    expect(m).toMatch(/Volume 1000 mm³/);
+    expect(m).toMatch(/Surface bodies: area 1200 mm², not included in the values above/);
+    // Surfaces alone: no solid.
+    h.store.change('Delete', (d) => { d.features = d.features.filter((f) => f.type !== 'extrude'); });
+    await h.settle();
+    expect((await h.call('mass_properties', {})).content).toMatch(/no solid, only surface bodies \(area 1200 mm²\)/);
+    expect((await h.call('get_model', {})).content).toMatch(/Body: no solid; 1 surface body/);
   });
 
   it('edits a feature, reads it back and deletes with dependents', async () => {
