@@ -505,7 +505,11 @@ describe('surfaces with the rest of the part', () => {
     let res = await b.build(req([...parts, { id: 'FL', name: 'FL', type: 'fillet', edges, faces: [], radius: 1 }]));
     expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/is on a surface body, not the solid/) });
     res = await b.build(req([...parts, { id: 'SH', name: 'SH', type: 'shell', faces: [face], thickness: 1, outward: false }]));
-    expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/is on a surface body, not the solid/) });
+    expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/is on a surface body, not the solid/) });    // Surface features are not seeds of a mirror or a pattern, each said in its own words.
+    res = await b.build(req([...parts, { id: 'M1', name: 'M1', type: 'mirror', seeds: ['F1'], plane: { kind: 'base', plane: 'right' } }]));
+    expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/^F1 cannot be mirrored/) });
+    res = await b.build(req([...parts, { id: 'P1', name: 'P1', type: 'linearPattern', seeds: ['F1'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 50, count: 2, flip: false }, dir2: null }]));
+    expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/^F1 cannot be patterned/) });
   });
 
   it('exports surface bodies to STEP as shells beside the solid', async () => {

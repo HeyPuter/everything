@@ -1245,8 +1245,8 @@ export class ModelBuilder {
     this.applyTool(f.id, st, tool, named, true);
   }
 
-  private seedTools(featId: Id, seeds: Id[], st: State): Tool[] {
-    if (!seeds.length) throw new FeatureError('Select features to pattern');
+  private seedTools(featId: Id, seeds: Id[], st: State, verb = 'pattern'): Tool[] {
+    if (!seeds.length) throw new FeatureError(`Select features to ${verb}`);
     return seeds.flatMap((id) => {
       const t = st.tools.get(id);
       if (t) return t.parts ?? [t];
@@ -1256,7 +1256,7 @@ export class ModelBuilder {
       if (at === undefined) throw new FeatureError('A seed feature no longer exists');
       if (at.index > (this.order.get(featId)?.index ?? Infinity)) throw new FeatureError(`The seed feature ${nameOf(id)} comes after this feature in the tree`);
       if (SEED_TYPES.has(at.type)) throw new FeatureError(`The seed feature ${nameOf(id)} failed to build`);
-      throw new FeatureError(`${nameOf(id)} cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)`);
+      throw new FeatureError(`${nameOf(id)} cannot be ${verb}ed (only extrudes, revolves, holes, lofts, sweeps and patterns)`);
     });
   }
 
@@ -1368,7 +1368,7 @@ export class ModelBuilder {
       this.applyTool(f.id, st, m, tf, false, 'The mirror adds no material: the part is already symmetric about the mirror plane.', true);
       return;
     }
-    this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
+    this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st, 'mirror'), [(s) => mirrored(s, fr.o, fr.n)]);
   }
 
   /** The first closed region of a profile sketch, as an outer wire and hole wires. */
