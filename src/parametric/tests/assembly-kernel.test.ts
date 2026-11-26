@@ -60,6 +60,22 @@ describe('assembly geometry', () => {
     expect(d.distance).toBeGreaterThanOrEqual(0);
   });
 
+  it('weighs hidden components, but leaves them out of measuring, interference and export', async () => {
+    const a = new AssemblyBuilder();
+    await built(a);
+    // A hidden box first: the shown pin's faces are numbered from 0, as the graphics area lists them.
+    a.setScene([{ ...item('box', at([0, 0, 0]), 'box<1>'), hidden: true }, item('pin', at([5, 5, -10]), 'pin<1>')]);
+    const m = a.mass([7800, 2700])!;
+    expect(m.volume).toBeCloseTo(2000 + Math.PI * 9 * 30, 0);
+    expect(m.mass).toBeCloseTo((2000 * 7800 + Math.PI * 9 * 30 * 2700) * 1e-9, 6);
+    expect(a.massProperties()!.volume).toBeCloseTo(2000 + Math.PI * 9 * 30, 0);
+    expect(a.interference()).toEqual([]);
+    expect(subShapes(a.combined()!, 'solid')).toHaveLength(1);
+    // Face 0 is the pin's (about 20 mm below the point; the hidden box is 30 mm or more away).
+    const d = a.measure({ kind: 'face', index: 0 }, { kind: 'vertex', p: [5, 5, 40] });
+    expect(d.distance).toBeLessThan(25);
+  });
+
   it('finds interfering components and the volume they share', async () => {
     const a = new AssemblyBuilder();
     await built(a);

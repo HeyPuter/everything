@@ -608,7 +608,8 @@ export class InterferencePanel extends PropertyPanel {
       return;
     }
     if (seq !== this.seq || app.panel !== this) return;
-    const comps = this.mode.model?.comps ?? [];
+    // The pairs are numbered as the worker's scene is.
+    const comps = this.mode.sceneComps;
     const name = (i: number) => this.mode.component(comps[i])?.name ?? '?';
     const u = UNIT_SYSTEMS[app.store.doc.units];
     const vol = (v: number) => `${formatGroup([v / u.scale ** 3], Math.max(2, app.store.doc.decimals))[0]} ${u.length}³`;
@@ -704,7 +705,8 @@ export async function bomDialog(mode: AssemblyMode) {
 export async function assemblyMassDialog(mode: AssemblyMode) {
   const app = mode.app;
   await app.whenBuilt();
-  const comps = mode.model?.comps ?? [];
+  // Hidden components weigh as much as shown ones (suppressed ones are left out).
+  const comps = mode.sceneComps;
   if (!comps.length) { toast({ kind: 'warning', message: 'There is no solid body yet.' }); return; }
   const densities = comps.map((id) => mode.partDoc(mode.component(id)!.part)?.material?.density ?? 1000);
   let r: AsmMassResult | null;
@@ -736,7 +738,7 @@ export async function assemblyMassDialog(mode: AssemblyMode) {
     body: [
       ...(unspecified.length ? [h('p', { class: 'pm-msg warn' }, `No material on ${unspecified.join(', ')}: 1000 kg/m³ is used for ${unspecified.length === 1 ? 'it' : 'them'}.`)] : []),
       ...(r.open.length ? [h('p', { class: 'pm-msg warn' }, `${r.open.join(', ')} ${r.open.length === 1 ? 'has' : 'have'} no closed solid and ${r.open.length === 1 ? 'is' : 'are'} left out.`)] : []),
-      h('p', { class: 'field-label' }, `Mass properties of ${doc.name}, every component with its part's material.`),
+      h('p', { class: 'field-label' }, `Mass properties of ${doc.name}, every component with its part's material (hidden components count; suppressed ones do not).`),
       h('table', { class: 'table' }, h('tbody', {}, rows.map(([a, b]) => h('tr', {}, h('th', {}, a), h('td', { class: 'num' }, b))))),
       h('div', { class: 'field-label' }, `Moments of inertia about the center of mass, assembly axes (${u.mass}·${u.length}²)`),
       h('table', { class: 'table' }, h('tbody', {}, [0, 1, 2].map((row) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[row]}${'xyz'[c]} = ${tensor[row * 3 + c]}`)))))),

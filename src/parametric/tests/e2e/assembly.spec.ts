@@ -325,3 +325,34 @@ test('a new explode step never takes the name of one already in the list', async
   expect(await names()).toEqual(['Explode Step2', 'Explode Step3']);
   expect(errors).toEqual([]);
 });
+
+test('a hidden component still counts in the mass properties of the assembly', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  const volume = async () => {
+    void page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('massProperties'); });
+    const dlg = page.getByRole('dialog', { name: 'Mass Properties' });
+    const text = await dlg.getByRole('row').filter({ hasText: 'Volume' }).innerText();
+    await dlg.locator('[data-value="ok"]').click();
+    await expect(dlg).toHaveCount(0);
+    return Number(text.replace(/[^\d.]/g, '').replace(/3$/, ''));
+  };
+  // Two 40 × 20 × 10 blocks with a Ø8 hole.
+  const one = 8000 - Math.PI * 16 * 10;
+  expect(await volume()).toBeCloseTo(2 * one, 0);
+  await tree.getByRole('treeitem', { name: '(-) Block<2>' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Hide' }).click();
+  await expect(tree.getByRole('treeitem', { name: /Block<2> \(hidden\)/ })).toBeVisible();
+  expect(await volume()).toBeCloseTo(2 * one, 0);
+  await tree.getByRole('treeitem', { name: /Block<2> \(hidden\)/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Suppress' }).click();
+  expect(await volume()).toBeCloseTo(one, 0);
+  expect(errors).toEqual([]);
+});

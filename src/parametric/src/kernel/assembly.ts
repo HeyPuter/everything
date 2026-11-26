@@ -43,6 +43,12 @@ export interface AsmSceneItem {
   m: number[];
   name: string;
   color: string;
+  /**
+   * Hidden components are in the scene for mass properties (hiding only
+   * changes what is shown), but not in the graphics area's face and edge
+   * lists, measuring, interference, drawings or export.
+   */
+  hidden?: boolean;
 }
 
 export interface InterferencePair {
@@ -140,9 +146,10 @@ export class AssemblyBuilder {
     return placed;
   }
 
-  private bodies(): { i: number; shape: Sh }[] {
+  /** The placed bodies of the shown components (`hidden`: of the hidden ones too), with their scene indices. */
+  private bodies(hidden = false): { i: number; shape: Sh }[] {
     const out: { i: number; shape: Sh }[] = [];
-    this.scene.forEach((_, i) => { const s = this.placedBody(i); if (s) out.push({ i, shape: s }); });
+    this.scene.forEach((it, i) => { if (it.hidden && !hidden) return; const s = this.placedBody(i); if (s) out.push({ i, shape: s }); });
     return out;
   }
 
@@ -150,6 +157,7 @@ export class AssemblyBuilder {
   private locate(kind: 'face' | 'edge', index: number): Sh {
     let k = index;
     for (const it of this.scene) {
+      if (it.hidden) continue;
       const s = this.shapesOf(it.part);
       const list = kind === 'face' ? s.faces.map((f) => f.shape) : s.edges;
       if (k < list.length) return place(list[k], it.m);
@@ -223,12 +231,12 @@ export class AssemblyBuilder {
     return { solid: !r.open.length, volume: r.volume, area: r.area, center: r.center, inertia: r.inertia, principal: r.principal };
   }
 
-  /** Mass properties of the components, each with its own density (kg/m³). */
+  /** Mass properties of the components (hidden ones too), each with its own density (kg/m³) by scene index. */
   mass(densities: number[]): AsmMassResult | null {
     const oc = getOc();
     const items: { m: number; v: number; area: number; c: Vec3; I: number[] }[] = [];
     const open: string[] = [];
-    for (const { i, shape } of this.bodies()) {
+    for (const { i, shape } of this.bodies(true)) {
       const props = new oc.GProp_GProps();
       const sprops = new oc.GProp_GProps();
       try {

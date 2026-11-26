@@ -32,6 +32,8 @@ export class AssemblyMode {
   private geoms = new Map<string, Geom>();
   private generation = -1;
   model: ComposedModel | null = null;
+  /** The components in the worker's scene, in order (hidden ones too: see AsmSceneItem). */
+  sceneComps: Id[] = [];
   /** Where the mates put each component (exploded view aside). */
   solved = new Map<Id, Placement>();
   analysis: AnalysisResult | null = null;
@@ -330,15 +332,16 @@ export class AssemblyMode {
   show() {
     const app = this.app;
     const doc = this.doc;
-    const items = [];
+    const all = [];
     for (const c of doc.components) {
-      if (c.suppressed || c.hidden) continue;
+      if (c.suppressed) continue;
       const geom = this.geometryOf(c.part);
       const pl = this.shownPlacement(c.id);
       if (!geom || !pl) continue;
       const part = doc.parts.find((p) => p.id === c.part)!;
-      items.push({ comp: c, placement: pl, geom, color: parseColor(part.color) as [number, number, number] });
+      all.push({ comp: c, placement: pl, geom, color: parseColor(part.color) as [number, number, number] });
     }
+    const items = all.filter((it) => !it.comp.hidden);
     const model = composeModel(items);
     this.model = model;
     app.setModelGeometry(model.mesh, model.faces, model.edges, model.bbox);
@@ -347,11 +350,13 @@ export class AssemblyMode {
     app.geometryVersion++;
     app.selection.revalidate(model.faces, model.edges);
     app.viewport.refreshStates();
-    // The worker places the same components, in the same order, for measure, export and interference.
+    // The worker places the same components, in the same order, for measure, export and
+    // interference, and the hidden ones too for mass properties (they are still in the assembly).
+    this.sceneComps = all.map((it) => it.comp.id);
     void app.kernel.assembly({
-      op: 'scene', items: items.map((it) => {
+      op: 'scene', items: all.map((it) => {
         const part = doc.parts.find((p) => p.id === it.comp.part)!;
-        return { part: this.key(part), m: placementMatrix(it.placement), name: it.comp.name, color: part.color };
+        return { part: this.key(part), m: placementMatrix(it.placement), name: it.comp.name, color: part.color, ...(it.comp.hidden ? { hidden: true } : {}) };
       }),
     }).catch(() => undefined);
     if (this.fitPending && model.bbox) {
