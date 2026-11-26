@@ -10,6 +10,7 @@ import { h, titleWhenClipped } from '../ui/dom';
 import { icon } from '../ui/icons';
 import type { App } from './app';
 import type { SelItem } from './selection';
+import { sheetMetalTreeRows } from './sheetmetal-panels';
 
 interface Row {
   key: string;
@@ -69,6 +70,7 @@ export class FeatureTree {
     });
     for (const k of ['front', 'top', 'right'] as BasePlane[]) rows.push({ key: `plane:${k}`, item: { kind: 'plane', ref: { kind: 'base', plane: k } }, label: BASE_PLANE_NAMES[k], icon: 'plane', depth: 1 });
     rows.push({ key: 'origin', item: { kind: 'origin' }, label: 'Origin', icon: 'origin', depth: 1 });
+    rows.push(...sheetMetalTreeRows(app));
     const consumedBy = new Map<Id, Id>();
     for (const f of doc.features) for (const s of consumedSketches(f)) if (!consumedBy.has(s)) consumedBy.set(s, f.id);
     for (const f of doc.features) {

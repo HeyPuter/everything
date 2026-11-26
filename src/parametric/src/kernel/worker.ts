@@ -85,6 +85,13 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
       case 'mass':
         reply({ id: msg.id, ok: true, result: builder.massProperties() });
         return;
+      case 'flatPattern': {
+        const res = builder.flatPattern(msg.quality);
+        const transfer: Transferable[] = [];
+        meshTransfers(res.mesh, transfer);
+        reply({ id: msg.id, ok: true, result: res }, transfer);
+        return;
+      }
       case 'measure':
         reply({ id: msg.id, ok: true, result: builder.measure(msg.a, msg.b) });
         return;
