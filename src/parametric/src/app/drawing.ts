@@ -586,6 +586,7 @@ export class DrawingWorkspace {
     this.drawOverlay();
     this.syncPanel();
     this.app.setStatus(this.toolPrompt());
+    this.app.commands.changed();
     this.el.focus({ preventScroll: true });
   }
 
@@ -602,6 +603,8 @@ export class DrawingWorkspace {
     this.drawOverlay();
     this.syncPanel();
     this.app.setStatus('Drawing. Drag views to arrange them; export to PDF, SVG or DXF from the Drafting tab.');
+    // The command's ribbon button shows it is no longer on.
+    this.app.commands.changed();
     return true;
   }
 

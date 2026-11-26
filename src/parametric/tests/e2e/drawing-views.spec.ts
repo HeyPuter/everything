@@ -240,3 +240,24 @@ test('a drawing opened while the part is still building has its view and annotat
   await expect(page.locator('.cm-tools').getByRole('button', { name: 'Section View' })).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+test('a drawing command’s ribbon button is no longer pressed once the view is placed or the command is cancelled', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  const front = (await ws(page)).frames.find((f) => f.id === 'v1')!;
+  const button = page.locator('.cm-tools').getByRole('button', { name: 'Projected View' });
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).click();
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await clickSheet(page, (front.x0 + front.x1) / 2, front.y1 + 40);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});
