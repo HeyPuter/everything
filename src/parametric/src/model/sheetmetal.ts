@@ -135,12 +135,18 @@ export const setback = (angleDeg: number, r: number) => Math.tan(rad(angleDeg) /
  * Flat length of a bend of the given angle and inner radius (the bend
  * allowance). K-factor: BA = pi/180 * angle * (R + K*T). A bend allowance is
  * used as given; a bend deduction BD gives BA = 2 * OSSB - BD, with the
- * outside setback OSSB = tan(angle/2) * (R + T).
+ * outside setback OSSB = tan(angle/2) * (R + T). A 180 degree bend (a hem)
+ * has no virtual sharp, so it uses the K-factor the deduction gives a 90
+ * degree bend of the sheet's radius.
  */
 export function bendAllowance(angleDeg: number, radius: number, p: BendParams): number {
   switch (p.allowance) {
     case 'bendAllowance': return p.allowanceValue;
-    case 'bendDeduction': return 2 * setback(angleDeg, radius + p.thickness) - p.allowanceValue;
+    case 'bendDeduction': {
+      if (angleDeg < 180 - 1e-6) return 2 * setback(angleDeg, radius + p.thickness) - p.allowanceValue;
+      const ba90 = 2 * (p.radius + p.thickness) - p.allowanceValue;
+      return rad(angleDeg) * (radius - p.radius) + (angleDeg / 90) * ba90;
+    }
     default: return rad(angleDeg) * (radius + p.kFactor * p.thickness);
   }
 }

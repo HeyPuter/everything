@@ -299,6 +299,18 @@ describe('sketched bend and hem', () => {
     const flat = b.flatPattern().pattern!;
     expect(flatSize(flat)[1]).toBeCloseTo(60 - (r + T) + Math.PI * (r + K * T) + (10 - (r + T)), 6);
   });
+
+  it('flattens a hem in a part that uses a bend deduction', async () => {
+    const b = new ModelBuilder();
+    const e = await plateEdge(b);
+    const sheet = plate();
+    Object.assign((sheet[1] as BaseFlangeFeature).sm, { allowance: 'bendDeduction', allowanceValue: 3 });
+    const res = await b.build(req([...sheet, { ...newHem('H1', 'H1', 10, 1), edges: [edgeRef(e)], kind: 'open' as const }]));
+    ok(res);
+    // The deduction's 90 degree allowance (2 * (R + T) - 3) gives the K-factor for the hem's radius.
+    const r = 0.5, k = ((2 * (R + T) - 3) / (Math.PI / 2) - R) / T;
+    expect(flatSize(b.flatPattern().pattern!)[1]).toBeCloseTo(60 - (r + T) + Math.PI * (r + k * T) + (10 - (r + T)), 6);
+  });
 });
 
 describe('combinations', () => {

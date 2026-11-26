@@ -33,6 +33,14 @@ describe('bend allowance', () => {
     expect(setback(60, 3)).toBeCloseTo(3 * Math.tan(Math.PI / 6), 12);
   });
 
+  it('gives a hem a finite allowance with a bend deduction (a 180 degree bend has no virtual sharp)', () => {
+    // BD 2 at 90 degrees: BA90 = 4 = pi/2 * (R + K*T) gives K; the hem uses it at its own radius.
+    const p = P({ allowance: 'bendDeduction', allowanceValue: 2 });
+    const k = (4 / (Math.PI / 2) - 1) / 2;
+    expect(bendAllowance(180, 0.5, p)).toBeCloseTo(Math.PI * (0.5 + k * 2), 9);
+    expect(bendAllowance(180, 1, p)).toBeCloseTo(8, 9);
+  });
+
   it('rejects parameters it cannot bend with', () => {
     expect(sheetParamsError(P())).toBeNull();
     expect(sheetParamsError(P({ thickness: 0 }))).toMatch(/Thickness/);
