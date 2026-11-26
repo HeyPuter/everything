@@ -23,8 +23,6 @@ import { type PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberFiel
 import { type SelItem, edgeRef, faceRef } from './selection';
 import type { RibbonTab } from './shell';
 
-export const WELDMENT_TYPES = new Set<Feature['type']>(['structuralMember', 'trimExtend', 'endCap', 'gusset', 'weldBead']);
-
 // ---------- labels and picks ----------
 
 /** "Line 3 of Sketch1": lines and arcs numbered in their sketch's drawing order. */
@@ -551,10 +549,3 @@ export const WELDMENTS_TAB: RibbonTab = {
     [{ cmd: 'sketch' }],
   ],
 };
-
-/** The design tree's cut list row: the number of members, or null when there are none. */
-export function cutListCount(app: App): number | null {
-  if (!app.store.doc.features.some((f) => f.type === 'structuralMember')) return null;
-  return app.weldments.length;
-}
-
