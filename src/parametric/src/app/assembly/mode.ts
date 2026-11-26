@@ -16,7 +16,7 @@ import {
   type AsmComponent, type AsmPart, type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type Placement, MATE_LABELS, PartCache, asAssembly, mateComps,
 } from '../../model/assembly';
 import { type ComposedModel, type PartGeometry, combinedName, composeModel, edgeGeo, faceGeo, findEdge, findFace, placementMatrix } from '../../assembly/compose';
-import { type AnalysisResult, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement } from '../../assembly/solver';
+import { type AnalysisResult, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, matesMoving } from '../../assembly/solver';
 import { parseColor } from '../../platform/theme';
 import { confirmDialog, toast } from '../../ui/overlay';
 import type { App } from '../app';
@@ -560,7 +560,8 @@ export class AssemblyMode {
   dragSolve(goal: DragGoal, from: Map<Id, Placement>): Map<Id, Placement> {
     const { bodies, mates } = this.solverInput();
     const start = new Map(bodies.map((b) => [b.id, from.get(b.id) ?? b.placement]));
-    const solver = new MateSolver(bodies.map((b) => ({ ...b, placement: start.get(b.id)! })), [...mates].filter((m) => !this.analysis?.conflicts.has(m.id)));
+    const active = mates.filter((m) => !this.analysis?.conflicts.has(m.id));
+    const solver = new MateSolver(bodies.map((b) => ({ ...b, placement: start.get(b.id)! })), matesMoving(goal.body, bodies, active));
     return solver.solve({ scale: this.scale(), drag: goal, maxIter: 25 }).placements;
   }
 

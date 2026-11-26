@@ -448,13 +448,15 @@ export class MateSolver {
     const h = 1e-6;
     const current = new Map(base);
     sys.vars.forEach((id, i) => current.set(id, placementWith(sys.bodies.get(id)!.placement, sys.centers.get(id)!, x, i * 6, L)));
+    // One component moved at a time, in one map put back after each (a copy
+    // of every placement per evaluation made large assemblies drag slowly).
+    const work = new Map(current);
     const perturbed = (id: Id, j: number, d: number): Map<Id, Placement> => {
       const i = sys.index.get(id)!;
       const xv = x.slice(i * 6, i * 6 + 6);
       xv[j] += d;
-      const out = new Map(current);
-      out.set(id, placementWith(sys.bodies.get(id)!.placement, sys.centers.get(id)!, xv, 0, L));
-      return out;
+      work.set(id, placementWith(sys.bodies.get(id)!.placement, sys.centers.get(id)!, xv, 0, L));
+      return work;
     };
     const block = (row: number, bodies: (Id | null)[], f: (pl: Map<Id, Placement>) => number[]) => {
       for (const id of new Set(bodies)) {
@@ -465,6 +467,7 @@ export class MateSolver {
           const rp = f(perturbed(id, j, h)), rm = f(perturbed(id, j, -h));
           for (let i = 0; i < rp.length; i++) J[row + i][k + j] = (rp[i] - rm[i]) / (2 * h) / w;
         }
+        work.set(id, current.get(id)!);
       }
     };
     let row = 0;
@@ -566,6 +569,25 @@ export class MateSolver {
     if (m.type === 'lock' && !m.rel) return 'The lock mate has no stored position';
     return m.type === 'lock' ? null : mateProblem(m.type, m.a.geo, m.b.geo);
   }
+}
+
+/**
+ * The mates that can move a component: those of the floating components
+ * linked to it through mates between floating components. Mates of other
+ * components hold already and do not change while it is dragged, so a drag
+ * solves only these (fast in a large assembly).
+ */
+export function matesMoving(body: Id, bodies: SolverBody[], mates: SolverMate[]): SolverMate[] {
+  const floating = new Set(bodies.filter((b) => !b.fixed).map((b) => b.id));
+  const linked = new Set([body]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const m of mates) {
+      const a = m.a.body, b = m.b.body;
+      if (a && b && floating.has(a) && floating.has(b) && linked.has(a) !== linked.has(b)) { linked.add(a); linked.add(b); grew = true; }
+    }
+  }
+  return mates.filter((m) => (m.a.body && linked.has(m.a.body)) || (m.b.body && linked.has(m.b.body)));
 }
 
 function dragResidual(goal: DragGoal, pl: Map<Id, Placement>, L: number): number[] {

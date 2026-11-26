@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, fittingMates, initialMateSettings, matrixRank, placeGeo, relativePlacement } from '../src/assembly/solver';
+import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, fittingMates, initialMateSettings, matesMoving, matrixRank, placeGeo, relativePlacement } from '../src/assembly/solver';
 import { type Quat, type Vec3, cross, dot, len, normalize, qAxisAngle, qRotate, sub } from '../src/math/vec';
 import type { MateType, Placement } from '../src/model/assembly';
 
@@ -193,6 +193,20 @@ describe('mate solver', () => {
     ]).analyze();
     expect([...r.defined]).toEqual(['c1']);
     expect(r.dof).toBe(3 + 1);
+  });
+
+  it('a drag solves only the mates of the components linked to the dragged one', () => {
+    const bodies = [body('base', true), body('a', false), body('b', false), body('c', false), body('d', false)];
+    const ab = mate('coincident', ['a', TOP], ['b', BOTTOM]), bc = mate('coincident', ['b', TOP], ['c', BOTTOM]);
+    const baseA = mate('coincident', ['base', TOP], ['a', BOTTOM]), baseD = mate('coincident', ['base', TOP], ['d', BOTTOM]);
+    const planeC = mate('coincident', [null, FRONT], ['c', FRONT]);
+    const all = [ab, bc, baseA, baseD, planeC];
+    // The base and the assembly planes do not move, so they do not link a to d.
+    expect(matesMoving('a', bodies, all).map((m) => m.id)).toEqual([ab, bc, baseA, planeC].map((m) => m.id));
+    expect(matesMoving('d', bodies, all).map((m) => m.id)).toEqual([baseD.id]);
+    // A fixed component in a chain does not link either.
+    const fixedB = bodies.map((x) => (x.id === 'b' ? { ...x, fixed: true } : x));
+    expect(matesMoving('a', fixedB, all).map((m) => m.id)).toEqual([ab, baseA].map((m) => m.id));
   });
 
   it('analyses an assembly of fifty components', () => {
