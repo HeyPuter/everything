@@ -16,7 +16,7 @@ import type { Command } from './commands';
 import { panelFor, startFeature } from './panels';
 import { isSurfaceFeature } from '../model/surfaces';
 import { surfaceCommands, surfacePanelFor } from './surface-panels';
-import { hideable } from './surface-display';
+import { hideable, surfaceHideItem } from './surface-display';
 import { WELDMENTS_TAB, weldmentCommands, weldmentPanelFor } from './weldment-panels';
 import { SketchPanel } from './sketch/panel';
 import {
@@ -574,7 +574,7 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
       ...used.map((sk): MenuItem => ({ label: used.length === 1 ? 'Edit Sketch' : `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) })),
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(id) },
       sep,
-      ...(hideable(f) ? [{ label: shown ? 'Hide' : 'Show', icon: shown ? 'eyeOff' : 'eye', run: () => app.toggleHidden(showable, shown) } as MenuItem] : []),
+      ...(hideable(f) ? [surfaceHideItem(app, f) ?? { label: shown ? 'Hide' : 'Show', icon: shown ? 'eyeOff' : 'eye', run: () => app.toggleHidden(showable, shown) } as MenuItem] : []),
       { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },
       { label: 'Roll Back to Here', icon: 'upToLine', run: () => app.setRollback(idx) },
       { label: 'Roll to End', icon: 'downToLine', disabled: app.store.doc.rollback == null, run: () => app.setRollback(null) },

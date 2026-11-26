@@ -241,6 +241,43 @@ test.describe('surfaces', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Hide on a surface a trim replaced hides the trimmed surface; a thickened one cannot be hidden', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await app(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: A }).__parametric;
+      a.store.change('Trim', (d) => {
+        d.features.push(
+          { id: 'pl', name: 'Plane1', type: 'plane', ref: { kind: 'base', plane: 'right' }, offset: 10, flip: false },
+          { id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [],
+            entities: [{ id: 'p0', t: 'point', x: 0, y: 0 }, { id: 'p1', t: 'point', x: 40, y: 0 }, { id: 'p2', t: 'point', x: 40, y: 40 }, { id: 'p3', t: 'point', x: 0, y: 40 },
+              { id: 'k0', t: 'line', a: 'p0', b: 'p1' }, { id: 'k1', t: 'line', a: 'p1', b: 'p2' }, { id: 'k2', t: 'line', a: 'p2', b: 'p3' }, { id: 'k3', t: 'line', a: 'p3', b: 'p0' }] },
+          { id: 'f1', name: 'Surface-Plane1', type: 'surfacePlanar', sketch: 's1', edges: [] },
+          { id: 't1', name: 'Surface-Trim1', type: 'surfaceTrim', faces: [{ name: 'f1:p0', sig: { type: 'plane', c: [20, 20, 0], area: 1600 } }],
+            tool: { kind: 'plane', plane: { kind: 'feature', id: 'pl' } }, keep: [], flip: false },
+        );
+      });
+    });
+    await waitForFeature(page, 'Surface-Trim1');
+    await expect.poll(() => bodyCount(page)).toBe(1);
+    await page.getByRole('treeitem', { name: 'Surface-Plane1' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Hide Surface-Trim1' }).click();
+    expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.feature('t1')!.hidden)).toBe(true);
+    await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.toggleHidden(['t1'], false));
+    // Thickened, no surface body shows it: the item says why it cannot hide anything.
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: A }).__parametric;
+      a.store.change('Thicken', (d) => { d.features.push({ id: 'th', name: 'Thicken1', type: 'thicken', faces: [{ name: 'f1:p0', sig: { type: 'plane', c: [25, 20, 0], area: 1200 } }], thickness: 2, side: 'front', cut: false }); });
+    });
+    await waitForFeature(page, 'Thicken1');
+    await expect.poll(() => bodyCount(page)).toBe(0);
+    await page.getByRole('treeitem', { name: 'Surface-Plane1' }).click({ button: 'right' });
+    await expect(page.getByRole('menuitem', { name: /Hide \(a later feature used this surface\)/ })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    expect(errors).toEqual([]);
+  });
+
   test('shows a clear error when knit surfaces do not close a volume', async ({ page }) => {
     const errors = await openApp(page);
     await loftProfiles(page);

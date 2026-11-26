@@ -5,6 +5,7 @@
 import { bodyFeatureOf, makesSurfaceBody } from '../model/surfaces';
 import type { Feature, Id } from '../model/types';
 import { STATE_HIDDEN } from '../render/renderer';
+import type { MenuItem } from '../ui/menu';
 import type { App } from './app';
 
 /** Colour of surface bodies: the part's colour shifted towards a warm tan, so sheets read apart from the solid. */
@@ -47,3 +48,26 @@ export function hideable(f: Feature | undefined): boolean {
   return !!f && (f.type === 'sketch' || f.type === 'plane' || makesSurfaceBody(f));
 }
 
+
+/**
+ * The Hide item of a surface feature whose body a later feature replaced
+ * (a Trim, Extend or Knit made it into its own body): hiding the feature
+ * itself showed no change. It hides the feature the body is now, or says
+ * that no body shows the surface (thickened, or knit into the solid).
+ * Null when the plain Hide item does what it says.
+ */
+export function surfaceHideItem(app: App, f: Feature): MenuItem | null {
+  if (!makesSurfaceBody(f) || f.hidden) return null;
+  // Not built yet (below the rollback bar): hiding it takes effect when it is.
+  if (app.store.indexOf(f.id) >= app.buildLimit()) return null;
+  const owners = new Set<Id>();
+  for (const x of app.faces) {
+    if (!x.body) continue;
+    const owner = bodyFeatureOf(x.body);
+    if (owner === f.id) return null;
+    if (x.feature === f.id) owners.add(owner);
+  }
+  const later = [...owners].map((id) => app.store.feature(id)).filter((x): x is Feature => !!x && makesSurfaceBody(x));
+  if (later.length === 1) return { label: `Hide ${later[0].name}`, icon: 'eyeOff', run: () => app.toggleHidden([later[0].id], true) };
+  return { label: 'Hide (a later feature used this surface)', icon: 'eyeOff', disabled: true };
+}
