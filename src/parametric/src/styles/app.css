@@ -688,3 +688,11 @@ a.icon-btn { text-decoration: none; }
   :root :is(.ti[aria-selected='true'], .cmd-results [role='option'][aria-selected='true'], [role='tab'][aria-selected='true'],
     .icon-btn[aria-pressed='true'], .tool[aria-pressed='true'], .seg button[aria-pressed='true']) * { color: inherit; }
 }
+
+/* Weldments: structural member groups and the cut list table. */
+.weld-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.weld-group > .row { justify-content: flex-end; }
+.weld-cutlist-wrap { overflow-x: auto; max-width: 100%; }
+.weld-cutlist th, .weld-cutlist td { white-space: nowrap; }
+.weld-cutlist th.num, .weld-cutlist td.num { text-align: right; }
+.weld-cutlist tfoot th, .weld-cutlist tfoot td { font-weight: 600; border-bottom: none; }

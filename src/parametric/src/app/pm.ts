@@ -25,6 +25,8 @@ export interface PickFilter {
   sketchLine?: boolean;
   sketchPoint?: boolean;
   axis?: boolean;
+  /** Lines and arcs of the sketches shown in the 3D view (weldment member paths). */
+  sketchSegment?: boolean;
 }
 
 export interface UnitContext {

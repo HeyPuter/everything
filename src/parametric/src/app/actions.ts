@@ -14,6 +14,7 @@ import { REPO_URL, type RibbonTab } from './shell';
 import type { App, AppHooks } from './app';
 import type { Command } from './commands';
 import { panelFor, startFeature } from './panels';
+import { WELDMENTS_TAB, weldmentCommands, weldmentPanelFor } from './weldment-panels';
 import { SketchPanel } from './sketch/panel';
 import {
   MeasurePanel, OffsetPanel, SectionPanel, aboutDialog, convertEntities, equationsDialog, massPropertiesDialog, materialDialog,
@@ -326,6 +327,8 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'shortcutsF1', label: 'Keyboard Shortcuts', hidden: true, shortcut: 'F1', run: () => shortcutsDialog(app) },
     { id: 'github', label: 'Source Code on GitHub', icon: 'github', run: () => { window.open(REPO_URL, '_blank', 'noopener'); } },
     { id: 'about', label: 'About Parametric', icon: 'info', run: () => aboutDialog() },
+    // ---- weldments ----
+    ...weldmentCommands(app),
   );
   void noModes;
   void VIEWS;
@@ -393,6 +396,7 @@ export const RIBBON: RibbonTab[] = [
     id: 'evaluate', label: 'Evaluate',
     groups: [[{ cmd: 'measure' }, { cmd: 'massProperties' }, { cmd: 'sectionView' }], [{ cmd: 'equations' }, { cmd: 'material' }]],
   },
+  WELDMENTS_TAB,
   {
     id: 'drawing', label: 'Drawing',
     groups: [
@@ -450,6 +454,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
         { label: 'Features', icon: 'fillet', submenu: () => [m('fillet'), m('chamfer'), m('hole'), m('shell'), m('draft')] },
         { label: 'Pattern/Mirror', icon: 'linearPattern', submenu: () => [m('linearPattern'), m('circularPattern'), m('mirror')] },
         { label: 'Reference Geometry', icon: 'plane', submenu: () => [m('plane')] },
+        { label: 'Weldments', icon: 'structuralMember', submenu: () => [m('structuralMember'), m('trimExtend'), m('endCap'), m('gusset'), m('cutList')] },
         sep, m('importStep'),
       ],
     },
@@ -611,7 +616,7 @@ export function makeHooks(app: App): AppHooks {
     ribbonTabs: RIBBON,
     menus: buildMenus(app),
     sketchPanel: () => new SketchPanel(app),
-    editFeaturePanel: (f) => panelFor(app, f, true),
+    editFeaturePanel: (f) => panelFor(app, f, true) ?? weldmentPanelFor(app, f, true),
     planePickPanel: (done) => new PlanePickPanel(app, done),
     contextItems: (t, id) => contextItems(app, t, id),
     quickActions: () => quickActions(app),

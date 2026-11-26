@@ -134,7 +134,7 @@ function axisItem(app: App, r: AxisRef): SelItem | null {
 
 // ---------- base ----------
 
-abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
+export abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
   f: T;
   private units: UnitSystem;
   private variables: Variable[];
