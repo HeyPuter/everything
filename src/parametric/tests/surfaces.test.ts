@@ -93,6 +93,10 @@ describe('surface bodies', () => {
     const half = await b.build(req([sketch('S1', ents), surf('surfaceRevolve', 'F1', { sketch: 'S1', angle: 180, end: 'midPlane' })]));
     ok(half);
     expect(surfaceArea(half)).toBeCloseTo(Math.PI * 5 * 10, 3);
+    // A line across the centerline says so.
+    const across = [...open('a', [[-5, 0], [5, 10]]), P('c0', 0, -5), P('c1', 0, 15), L('cl', 'c0', 'c1', true)];
+    const bad = await b.build(req([sketch('S1', across), surf('surfaceRevolve', 'F1', { sketch: 'S1', angle: 360 })]));
+    expect(bad.status[1]).toMatchObject({ ok: false, error: expect.stringMatching(/crosses the axis of revolution/) });
   });
 
   it('lofts open and closed profiles into surfaces, and sweeps an open profile', async () => {

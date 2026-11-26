@@ -551,7 +551,9 @@ export class SurfaceKit {
         const ax = new oc.gp_Ax1(pnt(axis.p), new oc.gp_Dir(d[0], d[1], d[2]));
         const mk = new oc.BRepPrimAPI_MakeRevol(e.wrapped, ax, (Math.min(angle, 360) * Math.PI) / 180, true);
         let face: Sh;
-        try { face = wrap(mk.Shape()); } catch { throw this.h.fail('The revolved surface could not be created'); } finally { mk.delete(); ax.delete(); }
+        try { face = wrap(mk.Shape()); } catch {
+          throw this.h.fail(crossesAxis(e as Sh, axis.p, d, frame.n) ? 'The profile crosses the axis of revolution. Keep the curves on one side of the axis.' : 'The revolved surface could not be created');
+        } finally { mk.delete(); ax.delete(); }
         if (f.end === 'midPlane' && angle < 360) face = rotated(face, axis.p, d, (-angle * Math.PI) / 360);
         for (const s of subShapes(face, 'face')) faces.push({ shape: s, desc: describeFace(s), name: `${f.id}:side:${p.src}`, feature: f.id });
       }
@@ -1257,6 +1259,28 @@ function ruledStrip(edge: Sh, face: Sh, outMid: Vec3, sign: number, d: number): 
     return null;
   } finally {
     ts.delete();
+  }
+}
+
+/** Whether an edge has points on both sides of an axis lying in its plane (normal n). */
+function crossesAxis(edge: Sh, p: Vec3, d: Vec3, n: Vec3): boolean {
+  const oc = getOc();
+  const ad = new oc.BRepAdaptor_Curve(edge.wrapped);
+  try {
+    const f = ad.FirstParameter(), l = ad.LastParameter();
+    const side = new Set<number>();
+    const size = Math.max(1, describeEdge(edge).length);
+    for (let i = 0; i <= 32; i++) {
+      const q = ad.Value(f + ((l - f) * i) / 32);
+      const s = dot(cross(d, sub(xyz(q), p)), n);
+      q.delete();
+      if (Math.abs(s) > 1e-7 * size) side.add(Math.sign(s));
+    }
+    return side.size > 1;
+  } catch {
+    return false;
+  } finally {
+    ad.delete();
   }
 }
 
