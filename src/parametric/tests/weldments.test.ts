@@ -88,6 +88,28 @@ describe('structural members', () => {
     }
   });
 
+  it('joins members that are nearly in line on the plane between them, at a butt corner too', async () => {
+    // Two lines drawn as one straight run, 0.1 degrees off.
+    const turn = (0.1 * Math.PI) / 180;
+    const ents = [...line('a', [0, 0], [200, 0]), ...line('b', [200, 0], [200 + 200 * Math.cos(turn), 200 * Math.sin(turn)])];
+    const A = area('squareTube', '40x40x3');
+    for (const corner of ['butt1', 'butt2'] as const) {
+      const { b, res } = await build([sketch('S1', ents), member('M1', [[{ sketch: 'S1', entity: 'a' }, { sketch: 'S1', entity: 'b' }]], { corner })]);
+      expect(res.status.every((s) => s.ok)).toBe(true);
+      // Not a 23 m member running through, with the other cut along its length to a sliver.
+      for (const m of res.weldments!) {
+        expect(m.length).toBeCloseTo(200, 1);
+        expect(m.volume).toBeCloseTo(A * 200, 0);
+      }
+      expect(volume(b)).toBeCloseTo(A * 400, 0);
+    }
+    // A sharp corner folding nearly back on itself is still butted, not mitred.
+    const back = [...line('a', [0, 0], [200, 0]), ...line('b', [200, 0], [200 - 200 * Math.cos(turn * 30), 200 * Math.sin(turn * 30)])];
+    const { res } = await build([sketch('S1', back), member('M1', [[{ sketch: 'S1', entity: 'a' }, { sketch: 'S1', entity: 'b' }]], { corner: 'butt1' })]);
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    expect(res.weldments!.map((m) => Math.round(m.angle1 + m.angle2))).toEqual([0, 87]);
+  });
+
   it('trims later groups to earlier ones, and extends the earlier member over a joint', async () => {
     // A T: a horizontal rail, and a post from below ending on the rail's centreline.
     const ents = [...line('h', [-100, 0], [100, 0]), ...line('v', [0, -150], [0, 0])];

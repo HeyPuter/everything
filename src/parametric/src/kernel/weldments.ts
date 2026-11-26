@@ -349,6 +349,14 @@ function sectionAt(m: { path: MemberPath }, x: Vec3) {
 }
 
 /**
+ * Members of a group turning less than this (degrees) at a corner run in
+ * line: butted, the trimmed member would be cut along its length to the
+ * other's side face, and the one running through would reach far past the
+ * corner (a 40 mm tube turning 0.1 degrees reached 23 m).
+ */
+const IN_LINE_COS = Math.cos((5 * Math.PI) / 180);
+
+/**
  * The plane a member ending at P (outward direction a) is trimmed to where it
  * meets member S: the face of S toward it, set back by the gap. Null when
  * the two run in line.
@@ -499,11 +507,13 @@ export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature):
       // End butt 1: the arriving member runs through and the next one is trimmed to it; butt 2 the other way.
       const [S, se, T, te] = f.corner === 'butt1' ? [A, A.e, B, B.e] : [B, B.e, A, A.e];
       const fs = endFrame(S.d.path, se), ft = endFrame(T.d.path, te);
-      const tp = trimPlane(shaped(S.d), P, ft.a, gap);
+      // The two ends point (nearly) opposite ways where the members run on in line.
+      const tp = dot(fa.a, fb.a) < -IN_LINE_COS ? null : trimPlane(shaped(S.d), P, ft.a, gap);
       if (!tp) {
-        // Members in line: a square joint at the point.
-        A.d.ends[A.e].planes.push({ p: sub(P, scale(fa.a, gap / 2)), n: fa.a });
-        B.d.ends[B.e].planes.push({ p: sub(P, scale(fb.a, gap / 2)), n: fb.a });
+        // Members (nearly) in line: they meet on the plane halfway between them (square when exactly in line).
+        const m = normalize(sub(fa.a, fb.a));
+        A.d.ends[A.e].planes.push({ p: sub(P, scale(m, gap / 2)), n: m });
+        B.d.ends[B.e].planes.push({ p: add(P, scale(m, gap / 2)), n: scale(m, -1) });
         continue;
       }
       T.d.ends[te].planes.push(tp);
