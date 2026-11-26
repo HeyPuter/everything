@@ -399,6 +399,7 @@ export class FeatureTree {
         if (this.app.store.feature(key)) this.app.editFeature(key);
         // As a click on Material or a double click on the part does.
         else if (key === 'material') this.app.commands.run('material');
+        else if (key === 'cutlist') this.app.commands.run('cutList');
         else if (key === 'part') this.app.commands.run('properties');
         break;
       case ' ':
