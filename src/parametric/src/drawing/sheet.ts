@@ -297,10 +297,11 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
     items.push(...dims[i]);
   }
   const fmt: AnnoFormat = info.format ?? { length: (mm) => info.formatLength(mm), angle: (deg, dec) => `${deg.toFixed(dec ?? 2)}°` };
-  // What sections and details leave on their parents.
-  for (const { v, r } of placed) {
-    const pp = r.parent && placements.get(r.parent.v.id);
-    if (!pp) continue;
+  // What sections and details leave on their parents (also while the view itself is empty or still projecting).
+  for (const v of d.views) {
+    const r = resolved.get(v.id);
+    const pp = r?.parent && placements.get(r.parent.v.id);
+    if (!r || !pp) continue;
     const T = (q: [number, number]): [number, number] => [pp.tx + q[0] * pp.s, pp.ty + q[1] * pp.s];
     const letter = (v.label || 'A').toUpperCase();
     if (r.type === 'section' && v.line && r.toward) {
