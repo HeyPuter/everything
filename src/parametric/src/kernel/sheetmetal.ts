@@ -522,7 +522,7 @@ function addFlange(h: SheetHost, st: SmState, featId: Id, k: number, ref: EdgeRe
   // The bend only touches its panel, so the body gains all of the new wall unless the wall runs into the part.
   const before = volumeOf(st.body!), added = volumeOf(tool);
   h.applyTool(featId, st, tool, [...bend.faces, ...flange.faces], false);
-  if (volumeOf(st.body!) < before + added * (1 - 1e-6)) throw h.error(`The ${what} runs into the part. Shorten it, change its angle or reverse its direction.`);
+  if (volumeOf(st.body!) < before + added * (1 - 1e-6)) throw h.error(what === 'flange' ? 'The flange runs into the part. Shorten it, change its angle or direction, or stop it short of other flanges with offsets.' : `The ${what} runs into the part. Shorten it or reverse its direction.`);
   st.sheet = replacePanels(sheet, [...sheet.panels.map((x) => (x === panel ? { ...x, face: panelFace } : x)), { id: b.moving, face, xf }], [...sheet.bends, b]);
 }
 

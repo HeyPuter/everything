@@ -405,6 +405,17 @@ describe('combinations', () => {
     ok(await b.build(req([...plate(), f1, line, { ...bend, angle: 90 }])));
   });
 
+  it('asks for offsets when two sloped flanges in one feature meet at a corner', async () => {
+    const b = new ModelBuilder();
+    const res = await b.build(req(plate()));
+    const top = res.faces.find((f) => f.name === 'B1:cap1')!;
+    const e1 = edgesOn(res, top, [1, 0, 0]).find((e) => Math.abs(e.mid[1] - 60) < 1e-6)!;
+    const e2 = edgesOn(res, top, [0, 1, 0]).find((e) => Math.abs(e.mid[0] - 100) < 1e-6)!;
+    const f = flange('F1', [edgeRef(e1), edgeRef(e2)], { angle: 135 });
+    expect((await b.build(req([...plate(), f]))).status[2].error).toMatch(/offsets/);
+    ok(await b.build(req([...plate(), { ...f, offset1: 16, offset2: 16 }])));
+  });
+
   it('flanges two edges meeting at a corner one after the other', async () => {
     const b = new ModelBuilder();
     let res = await b.build(req(plate()));
