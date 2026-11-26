@@ -194,10 +194,6 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
   app.assemblyTabs = new Set(ASSEMBLY_TABS);
   app.assemblyOnlyTabs = new Set(['assembly']);
   hooks.ribbonTabs.unshift(ASSEMBLY_TAB);
-  const assistantNote = document.createElement('div');
-  assistantNote.className = 'pm-msg info';
-  assistantNote.setAttribute('role', 'status');
-  assistantNote.textContent = 'The assistant works on parts. Open a part (Open Part on a component) to use it.';
 
   /** Part Properties is named for the open document. */
   const properties = c.get('properties');
@@ -221,9 +217,6 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
     app.drawing.sources.set(EXPLODED_SOURCE, assemblySource(app, m, true));
     m.onShow = () => { if (app.inDrawing) void app.drawing.refresh(); };
     app.setRibbonTab('assembly');
-    // The assistant edits parts: in an assembly it says so instead of taking messages.
-    const composer = document.querySelector<HTMLElement>('.assistant .as-composer');
-    if (composer) { composer.inert = true; composer.before(assistantNote); }
     void checkPartsOnOpen(m);
   };
   const exit = () => {
@@ -240,9 +233,6 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
     for (const el of app.shell.root.querySelectorAll<HTMLElement>('.sheet-tabs')) el.hidden = false;
     app.shell.statusSketch.hidden = true;
     app.setRibbonTab('features');
-    const composer = document.querySelector<HTMLElement>('.assistant .as-composer');
-    if (composer) composer.inert = false;
-    assistantNote.remove();
     void app.kernel.assembly({ op: 'drop', keep: [] }).catch(() => undefined);
   };
   app.syncDocumentKind = () => {

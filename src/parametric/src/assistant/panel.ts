@@ -243,8 +243,10 @@ export class AssistantPanel {
       this.log,
       h('div', { class: 'as-bottom' }, this.status, composer, this.limit,
         h('div', { class: 'as-note' }, 'Sends your messages and a description of the part to Puter AI. Check designs before relying on them.')));
+    this.composer = composer;
     this.bindDrop();
     this.renderEmpty();
+    this.syncAvailable();
     app.store.on((reason) => {
       if (reason !== 'load') {
         // The ideas offered before a message is sent follow the part: new parts, or changes to this one.
@@ -260,7 +262,29 @@ export class AssistantPanel {
       // Another part was opened: the reply in progress was about the one that was closed.
       if (this.agent.busy) this.stop('Stopped: another part was opened.');
       else if (!this.agent.messages.length) this.renderEmpty();
+      this.syncAvailable();
     });
+  }
+
+  private composer: HTMLElement;
+  private unavailable: HTMLElement | null = null;
+
+  /**
+   * The assistant edits parts: while an assembly is open it says so and takes
+   * no messages (from the box or the ideas), wherever the pane was when it opened.
+   */
+  private syncAvailable() {
+    const off = !!this.app.assembly;
+    this.composer.inert = off;
+    this.el.classList.toggle('unavailable', off);
+    if (off && !this.unavailable) {
+      this.unavailable = h('div', { class: 'pm-msg info', role: 'status' }, 'The assistant works on parts. Open a part (Open Part on a component) to use it.');
+      this.composer.before(this.unavailable);
+    } else if (!off && this.unavailable) {
+      this.unavailable.remove();
+      this.unavailable = null;
+    }
+    for (const b of this.log.querySelectorAll<HTMLButtonElement>('.as-idea')) b.disabled = off;
   }
 
   focus() {
@@ -329,7 +353,7 @@ export class AssistantPanel {
       ? ['Explain how this part is built', 'Round all the outer edges with 1 mm fillets', 'Make the main sizes parametric with global variables', 'What does it weigh in aluminium?']
       : ['A 100 × 60 × 8 mm mounting plate with four M5 holes and rounded corners', 'A flanged bushing: 40 mm flange, 20 mm shaft, 10 mm bore', 'An enclosure box 80 × 50 × 30 mm with 2 mm walls, open on top', 'A spur-gear-like disc: 60 mm across with 12 teeth and a 8 mm bore'];
     const chips = h('div', { class: 'as-ideas' }, ...ideas.map((t) => {
-      const b = h('button', { class: 'as-idea', type: 'button' }, t);
+      const b = h('button', { class: 'as-idea', type: 'button', disabled: !!this.app.assembly }, t);
       b.addEventListener('click', (e) => { this.input.value = t; this.grow(); this.keepFocus(e); void this.submit(); });
       return b;
     }));
@@ -406,7 +430,7 @@ export class AssistantPanel {
 
   async submit() {
     let text = this.input.value.trim();
-    if ((!text && !this.pending.length) || this.agent.busy || this.sending) return;
+    if ((!text && !this.pending.length) || this.agent.busy || this.sending || this.app.assembly) return;
     if (!this.checkLength()) { this.input.focus(); return; }
     if (!(await this.ready()) || this.agent.busy) return;
     // What the box holds now goes: it may have been edited while signing in.

@@ -882,3 +882,27 @@ test('the assistant says drawing views could not be added or arranged when the p
   await expect(page.locator('.as-step.error').first()).toContainText('no solid to draw');
   await expect(page.locator('.as-step.error').nth(1)).toContainText('arrange: there is no solid to draw');
 });
+
+test('in an assembly the assistant takes no messages, even when its pane opens after the assembly', async ({ page }) => {
+  await scriptModel(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  // Another pane is shown when the assembly opens: the assistant is not on the page.
+  await page.getByRole('tab', { name: 'Parts' }).click();
+  await page.evaluate(() => { void (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('newAssembly'); });
+  await expect.poll(() => page.evaluate(() => !!(window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.assembly)).toBe(true);
+  await page.getByRole('tab', { name: 'Assistant' }).click();
+  await expect(page.locator('.assistant').getByRole('status').filter({ hasText: 'The assistant works on parts' })).toBeVisible();
+  expect(await page.locator('.as-composer').evaluate((el) => (el as HTMLElement).inert)).toBe(true);
+  // The ideas do not send a message either.
+  const idea = page.locator('.as-idea').first();
+  await expect(idea).toBeDisabled();
+  await idea.dispatchEvent('click');
+  expect(await page.evaluate(() => (window as unknown as { __chatCalls: unknown[] }).__chatCalls.length)).toBe(0);
+  // A part opened again takes messages.
+  await page.evaluate(() => { void (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('new'); });
+  await expect(page.getByText('The assistant works on parts')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Message the assistant' })).toBeEditable();
+  await expect(page.locator('.as-idea').first()).toBeEnabled();
+  expect(errors).toEqual([]);
+});
