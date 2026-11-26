@@ -6,7 +6,7 @@ import { ModelBuilder } from '../src/kernel/build';
 import { type Sh, isValid, setOc } from '../src/kernel/occ';
 import type { Feature, SegmentRef, SkEntity, StructuralMemberFeature } from '../src/model/types';
 import { findProfile, profileShape, sectionProps } from '../src/model/weldment-profiles';
-import { newEndCap, newGusset, newStructuralMember, newTrimExtend, weldmentCutList } from '../src/model/weldments';
+import { newEndCap, newGusset, newStructuralMember, newTrimExtend, newWeldBead, weldmentCutList } from '../src/model/weldments';
 import { extrude, rect, req, sketch } from './helpers';
 
 beforeAll(async () => {
@@ -314,6 +314,27 @@ describe('end caps and gussets', () => {
     const poly = await build([s1, m1, { ...g, shape: 'polygonal' as const, d3: 20 }]);
     // Pentagon (0,0) (60,0) (60,20) (20,60) (0,60).
     expect(volume(poly.b) - v0).toBeCloseTo((60 * 60 - 40 * 40 / 2) * 5, 0);
+  });
+});
+
+describe('fillet beads', () => {
+  it('welds a post to a plate along the inside corner, and refuses outside corners', async () => {
+    const plate = [sketch('P', rect(-100, -100, 100, 100), { kind: 'base', plane: 'top' }), extrude('E1', 'P', 10)];
+    const post = [sketch('S1', line('v', [0, 10], [0, 110])), member('M1', [[{ sketch: 'S1', entity: 'v' }]])];
+    const pre = await build([...plate, ...post]);
+    // The post's flat side (x = 20, 28 long between its corner radii) on the plate's top.
+    const e = pre.res.edges.find((x) => x.type === 'line' && Math.abs(x.mid[0] - 20) < 1e-6 && Math.abs(x.mid[1] - 10) < 1e-6)!;
+    expect(e.length).toBeCloseTo(28, 6);
+    const ref = (x: typeof e) => ({ name: x.name, sig: { type: x.type, m: x.mid, len: x.length } });
+    const v0 = volume(pre.b);
+    const { b, res } = await build([...plate, ...post, { ...newWeldBead('W1', 'W1', 5), edges: [ref(e)] }]);
+    expect(res.status.every((s) => s.ok && !s.warning)).toBe(true);
+    expect(volume(b) - v0).toBeCloseTo((5 * 5) / 2 * 28, 3);
+    expect(isValid(body(b))).toBe(true);
+    // The plate's own outer edge is an outside corner.
+    const outer = pre.res.edges.find((x) => x.type === 'line' && Math.abs(x.mid[0] - 100) < 1e-6 && Math.abs(x.mid[1] - 10) < 1e-6)!;
+    const bad = await build([...plate, ...post, { ...newWeldBead('W1', 'W1', 5), edges: [ref(outer)] }]);
+    expect(bad.res.status[4].error).toMatch(/inside corners/);
   });
 });
 

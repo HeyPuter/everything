@@ -17,7 +17,7 @@ import * as R from 'replicad';
 import type { Frame, Vec3 } from '../math/vec';
 import { add, cross, dist, dot, len, normalize, perpendicular, scale, sub, toWorld } from '../math/vec';
 import type {
-  EndCapFeature, FaceRef, GussetFeature, Id, MemberRef, SkEntity, StructuralMemberFeature, TrimExtendFeature,
+  EdgeRef, EndCapFeature, FaceRef, GussetFeature, Id, MemberRef, SkEntity, StructuralMemberFeature, TrimExtendFeature, WeldBeadFeature,
 } from '../model/types';
 import {
   type PSeg, type Placement, type PiercePoint, type ProfileDims, type ProfileShape, PIERCE_POINTS, findProfile, isHollow, outlineMax,
@@ -25,7 +25,7 @@ import {
 } from '../model/weldment-profiles';
 import { type WeldMemberInfo, memberKey, memberOfFace, sameMember } from '../model/weldments';
 import { SketchIndex } from '../sketch/geom';
-import { type Sh, type SurfDesc, bbox, compound, cut, fuse, fuseAll, isEmpty, rotated, volumeOf } from './occ';
+import { type EdgeDesc, type Sh, type SurfDesc, getOc, pnt, bbox, compound, cut, fuse, fuseAll, isEmpty, rotated, volumeOf } from './occ';
 
 export interface Plane {
   p: Vec3;
@@ -76,6 +76,8 @@ export interface WeldCtx {
   /** A sketch as built (throws the builder's "missing" error). */
   sketch(id: Id): { entities: SkEntity[]; frame: Frame };
   face(ref: FaceRef): { name: string; desc: SurfDesc };
+  /** An edge and the faces it separates. */
+  edge(ref: EdgeRef): { desc: EdgeDesc; faces: { desc: SurfDesc; shape: Sh }[] };
   /** Names a tool's faces "<prefix>:<classify(k)>". */
   nameTool(prefix: Id, shape: Sh, classify: (k: number) => string): unknown[];
   applyTool(tool: Sh, faces: unknown[], noGain?: string): void;
@@ -748,4 +750,52 @@ export function applyGusset(ctx: WeldCtx, f: GussetFeature): void {
   ctx.applyTool(solid, ctx.nameTool(f.id, solid, (k) => `g${k}`), 'The gusset adds no material: it lies inside the part.');
   const prev = ctx.st.weld;
   ctx.st.weld = { members: prev?.members ?? [], extras: [...(prev?.extras ?? []), solid] };
+}
+
+// ---------- fillet weld bead ----------
+
+/** Distance from a point to a shape. */
+function pointDistance(shape: Sh, p: Vec3): number {
+  const oc = getOc();
+  const gp = pnt(p);
+  const mv = new oc.BRepBuilderAPI_MakeVertex(gp);
+  const ext = new oc.BRepExtrema_DistShapeShape();
+  const progress = new oc.Message_ProgressRange();
+  try {
+    ext.LoadS1(mv.Vertex());
+    ext.LoadS2(shape.wrapped);
+    ext.Perform(progress);
+    return ext.IsDone() && ext.NbSolution() > 0 ? ext.Value() : Infinity;
+  } finally {
+    ext.delete(); progress.delete(); mv.delete(); gp.delete();
+  }
+}
+
+export function applyWeldBead(ctx: WeldCtx, f: WeldBeadFeature): void {
+  if (!f.edges.length) throw ctx.err('Select the inside corner edges to weld');
+  const s = value(ctx, f.size, 'Bead size');
+  if (!(s > 0)) throw ctx.err('The bead size must be greater than zero');
+  const solids: Sh[] = [];
+  for (const ref of f.edges) {
+    const e = ctx.edge(ref);
+    if (e.desc.type !== 'line') throw ctx.err('Fillet beads follow straight edges');
+    if (e.faces.length !== 2 || e.faces.some((x) => x.desc.type !== 'plane')) throw ctx.err('Fillet beads go along edges between two flat faces');
+    const [f1, f2] = e.faces.map((x) => x.desc);
+    const n1 = f1.d, n2 = f2.d, c = dot(n1, n2);
+    if (Math.abs(c) > 0.999) throw ctx.err('The faces at the edge are in line: there is no corner to weld');
+    // The legs run along each face, away from the edge.
+    const e1 = normalize(sub(n2, scale(n1, c))), e2 = normalize(sub(n1, scale(n2, c)));
+    const E = e.desc.a;
+    // At an inside corner each face goes on along its leg from the edge.
+    const eps = Math.min(s, e.desc.length) * 0.02;
+    const on = (k: 0 | 1, dir: Vec3) => pointDistance(e.faces[k].shape, add(e.desc.mid, scale(dir, eps))) < eps * 1e-3;
+    if (!on(0, e1) || !on(1, e2)) throw ctx.err('Fillet beads go along inside corners, where two faces meet at less than 180 degrees');
+    const pts = [E, add(E, scale(e1, s)), add(E, scale(e2, s))];
+    const face = R.makeFace(R.assembleWire(pts.map((p, i) => R.makeLine(p, pts[(i + 1) % 3]))));
+    solids.push(R.basicFaceExtrusion(face, new R.Vector(sub(e.desc.b, e.desc.a))) as unknown as Sh);
+  }
+  const tool = solids.length === 1 ? solids[0] : fuseAll(solids);
+  ctx.applyTool(tool, solids.flatMap((x, i) => ctx.nameTool(f.id, x, (k) => `w${i}:${k}`)), 'The bead adds no material: the corner is already filled.');
+  const prev = ctx.st.weld;
+  ctx.st.weld = { members: prev?.members ?? [], extras: [...(prev?.extras ?? []), ...solids] };
 }

@@ -421,6 +421,14 @@ export interface GussetFeature extends FeatureBase {
   chamfer: Param;
 }
 
+/** A solid fillet weld: a triangular bead along inside corner edges. */
+export interface WeldBeadFeature extends FeatureBase {
+  type: 'weldBead';
+  edges: EdgeRef[];
+  /** Leg length of the weld. */
+  size: Param;
+}
+
 export type Feature =
   | SketchFeature
   | ExtrudeFeature
@@ -440,7 +448,8 @@ export type Feature =
   | StructuralMemberFeature
   | TrimExtendFeature
   | EndCapFeature
-  | GussetFeature;
+  | GussetFeature
+  | WeldBeadFeature;
 
 export type FeatureType = Feature['type'];
 

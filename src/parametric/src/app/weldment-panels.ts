@@ -2,15 +2,15 @@
 // Structural Member, Trim/Extend, End Cap and Gusset, and the cut list.
 
 import type {
-  CornerTreatment, EndCapFeature, FaceRef, Feature, GussetFeature, MemberRef, SegmentRef, SketchFeature, StructuralMemberFeature,
-  TrimExtendFeature,
+  CornerTreatment, EdgeRef, EndCapFeature, FaceRef, Feature, GussetFeature, MemberRef, SegmentRef, SketchFeature, StructuralMemberFeature,
+  TrimExtendFeature, WeldBeadFeature,
 } from '../model/types';
 import { defaultName } from '../model/features';
 import { MATERIALS } from '../model/materials';
 import { PIERCE_POINTS, WELD_STANDARDS, WELD_TYPES, profileSizes, type WeldProfileType, type WeldStandard } from '../model/weldment-profiles';
 import {
-  type CutList, cutListCsv, cutListRows, memberKey, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, sameMember,
-  weldmentCutList,
+  type CutList, cutListCsv, cutListRows, memberKey, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, newWeldBead,
+  sameMember, weldmentCutList,
 } from '../model/weldments';
 import { download, safeName } from '../platform/files';
 import { h } from '../ui/dom';
@@ -20,10 +20,10 @@ import type { App } from './app';
 import type { Command } from './commands';
 import { FeaturePanel } from './panels';
 import { type PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, segmented, selectField } from './pm';
-import { type SelItem, faceRef } from './selection';
+import { type SelItem, edgeRef, faceRef } from './selection';
 import type { RibbonTab } from './shell';
 
-export const WELDMENT_TYPES = new Set<Feature['type']>(['structuralMember', 'trimExtend', 'endCap', 'gusset']);
+export const WELDMENT_TYPES = new Set<Feature['type']>(['structuralMember', 'trimExtend', 'endCap', 'gusset', 'weldBead']);
 
 // ---------- labels and picks ----------
 
@@ -353,6 +353,34 @@ export class GussetPanel extends FeaturePanel<GussetFeature> {
   }
 }
 
+// ---------- fillet bead ----------
+
+export class WeldBeadPanel extends FeaturePanel<WeldBeadFeature> {
+  render(): HTMLElement[] {
+    const f = this.f;
+    const edges = new SelectionBox(this, 'Edges', { edge: true }, (it) => {
+      if (it.kind !== 'edge') return null;
+      const e = this.app.edges[it.index];
+      if (!e || e.type !== 'line') return null;
+      return { item: it, data: edgeRef(e), label: `Edge <${it.index + 1}>` };
+    }, (items) => { f.edges = items.map((x) => x.data as EdgeRef); this.changed(); }, { placeholder: 'Select straight inside corner edges', icon: 'weldBead' });
+    edges.setItems(f.edges.map((r) => ({ item: { kind: 'edge', index: this.app.edges.findIndex((e) => e.name === r.name), name: r.name }, data: r, label: 'Edge (line)' })));
+    return [section('Settings', [
+      edges.el,
+      numberField({ label: 'Bead size', icon: 'ruler', value: f.size, kind: 'length', ctx: this.ctx(), min: 1e-6, onChange: (v) => { f.size = v; this.changed(); } }),
+      h('p', { class: 'field-label' }, 'A solid fillet weld with equal legs along each edge, where two flat faces meet at an inside corner.'),
+    ])];
+  }
+
+  protected validate() {
+    return this.f.edges.length ? null : 'Select the inside corner edges to weld';
+  }
+
+  preview() {
+    return this.f.edges.length ? this.f : null;
+  }
+}
+
 // ---------- factory ----------
 
 export function weldmentPanelFor(app: App, f: Feature, editing: boolean): PropertyPanel | null {
@@ -361,6 +389,7 @@ export function weldmentPanelFor(app: App, f: Feature, editing: boolean): Proper
     case 'trimExtend': return new TrimExtendPanel(app, f, editing);
     case 'endCap': return new EndCapPanel(app, f, editing);
     case 'gusset': return new GussetPanel(app, f, editing);
+    case 'weldBead': return new WeldBeadPanel(app, f, editing);
     default: return null;
   }
 }
@@ -400,6 +429,12 @@ export function startWeldment(app: App, type: Feature['type']): PropertyPanel | 
     case 'gusset': {
       const x = newGusset(id, name, Math.max(size / 8, 5), Math.max(size / 50, 1));
       x.faces = planar.slice(0, 2);
+      f = x;
+      break;
+    }
+    case 'weldBead': {
+      const x = newWeldBead(id, name, Math.max(size / 50, 1));
+      x.edges = app.selection.ofKind('edge').map((s) => app.edges[s.index]).filter((e) => e?.type === 'line').map(edgeRef);
       f = x;
       break;
     }
@@ -496,6 +531,10 @@ export function weldmentCommands(app: App): Command[] {
       description: 'Add a triangular or polygonal plate between two faces at a corner.', enabled: () => !!app.bbox, run: start('gusset'),
     },
     {
+      id: 'weldBead', label: 'Fillet Bead', icon: 'weldBead', keywords: 'weldment weld bead fillet weld seam',
+      description: 'Add a solid fillet weld along inside corner edges.', enabled: () => !!app.bbox, run: start('weldBead'),
+    },
+    {
       id: 'cutList', label: 'Cut List', icon: 'cutList', keywords: 'weldment bill of materials bom lengths csv',
       description: 'List the structural members by profile, length and end angles, and export it as CSV.', enabled: hasMembers, run: () => cutListDialog(app),
     },
@@ -507,7 +546,7 @@ export const WELDMENTS_TAB: RibbonTab = {
   id: 'weldments', label: 'Weldments',
   groups: [
     [{ cmd: 'structuralMember' }, { cmd: 'trimExtend' }],
-    [{ stack: [{ cmd: 'endCap' }, { cmd: 'gusset' }] }],
+    [{ stack: [{ cmd: 'endCap' }, { cmd: 'gusset' }, { cmd: 'weldBead' }] }],
     [{ cmd: 'cutList' }],
     [{ cmd: 'sketch' }],
   ],

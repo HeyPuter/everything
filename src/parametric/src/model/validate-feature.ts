@@ -75,6 +75,8 @@ export function validFeature(f: Feature): boolean {
       return list(r.faces, named);
     case 'gusset':
       return list(r.faces, named) && oneOf(r.shape, ['triangular', 'polygonal']) && oneOf(r.location, ['center', 'side1', 'side2']);
+    case 'weldBead':
+      return list(r.edges, named);
     default:
       return true;
   }

@@ -37,7 +37,7 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 **Weldments**
 - Structural Member (Weldments tab): sweep standard profiles along sketch lines and arcs from one or more sketches, in groups. ISO (EN 10219 tubes and pipe, EN 10056 angles, UPE channels, IPE and HE A beams, flat and round bar) and ANSI (HSS, standard pipe, angles, C channels, W shapes, bar) sizes are generated from their standard dimensions, with corner radii.
 - Corner treatments within a group (end miter, end butt 1 and 2, with a gap), and trimming and extending between groups. Profile rotation, mirror and pierce point.
-- Trim/Extend members to a planar face or to other members (planar or coped), End Cap on tube and pipe ends, and Gusset plates between two faces.
+- Trim/Extend members to a planar face or to other members (planar or coped), End Cap on tube and pipe ends, Gusset plates between two faces, and solid Fillet Bead welds along inside corners.
 - Cut list in the design tree: identical members grouped with quantity, description, length, end angles and mass, exported as CSV.
 
 **Assistant**

@@ -1,7 +1,7 @@
 // Weldment features: factories, member identities and the cut list.
 
 import type {
-  EndCapFeature, GussetFeature, Id, MemberRef, PartDocument, SegmentRef, StructuralMemberFeature, TrimExtendFeature, UnitSystem,
+  EndCapFeature, GussetFeature, Id, MemberRef, PartDocument, SegmentRef, StructuralMemberFeature, TrimExtendFeature, UnitSystem, WeldBeadFeature,
 } from './types';
 import { UNIT_SYSTEMS, formatNumber } from './units';
 
@@ -36,6 +36,8 @@ export const newEndCap = (id: Id, name: string, thickness: number): EndCapFeatur
 export const newGusset = (id: Id, name: string, size: number, thickness: number): GussetFeature => ({
   id, name, type: 'gusset', faces: [], shape: 'triangular', d1: size, d2: size, d3: size / 2, thickness, location: 'center', chamfer: 0,
 });
+
+export const newWeldBead = (id: Id, name: string, size: number): WeldBeadFeature => ({ id, name, type: 'weldBead', edges: [], size });
 
 // ---------- cut list ----------
 

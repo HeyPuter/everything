@@ -454,7 +454,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
         { label: 'Features', icon: 'fillet', submenu: () => [m('fillet'), m('chamfer'), m('hole'), m('shell'), m('draft')] },
         { label: 'Pattern/Mirror', icon: 'linearPattern', submenu: () => [m('linearPattern'), m('circularPattern'), m('mirror')] },
         { label: 'Reference Geometry', icon: 'plane', submenu: () => [m('plane')] },
-        { label: 'Weldments', icon: 'structuralMember', submenu: () => [m('structuralMember'), m('trimExtend'), m('endCap'), m('gusset'), m('cutList')] },
+        { label: 'Weldments', icon: 'structuralMember', submenu: () => [m('structuralMember'), m('trimExtend'), m('endCap'), m('gusset'), m('weldBead'), m('cutList')] },
         sep, m('importStep'),
       ],
     },

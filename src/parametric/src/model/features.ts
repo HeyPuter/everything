@@ -60,6 +60,7 @@ export const PARAM_FIELDS: Partial<Record<FeatureType, { path: string; kind: Par
     { path: 'thickness', kind: 'length', label: 'Thickness' },
     { path: 'chamfer', kind: 'length', label: 'Chamfer distance' },
   ],
+  weldBead: [{ path: 'size', kind: 'length', label: 'Bead size' }],
 };
 
 /**
@@ -115,6 +116,7 @@ const BASE_NAMES: Record<FeatureType, string> = {
   trimExtend: 'Trim/Extend',
   endCap: 'End Cap',
   gusset: 'Gusset',
+  weldBead: 'Fillet Bead',
 };
 
 export const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -137,6 +139,7 @@ export const FEATURE_LABELS: Record<FeatureType, string> = {
   trimExtend: 'Trim/Extend',
   endCap: 'End Cap',
   gusset: 'Gusset',
+  weldBead: 'Fillet Bead',
 };
 
 export function featureIcon(f: Feature): string {
@@ -273,6 +276,7 @@ export function dependencies(f: Feature): Id[] {
     f.faces.forEach((r) => visitName(r.name));
   }
   if (f.type === 'endCap' || f.type === 'gusset') f.faces.forEach((r) => visitName(r.name));
+  if (f.type === 'weldBead') f.edges.forEach((r) => visitName(r.name));
   return [...out];
 }
 

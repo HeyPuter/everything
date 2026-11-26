@@ -100,6 +100,7 @@ const CAD: Record<string, IconNode> = {
   endCap: [P('M3 8h12v8H3z', 's'), DASH('M3 10.5h12M3 13.5h12', '2 2'), P('M15 5.5h4v13h-4z', 'a')],
   gusset: [P('M6 18V8l10 10z', 'a'), P('M4 3v17h17')],
   cutList: [P('M3 5h18v14H3z', 's'), P('M3 10h18M3 14.5h18M9 5v14', 'thin')],
+  weldBead: [P('M4 20h17M4 20V3'), P('M4 20v-7l7 7z', 'a'), P('M6 17.5l1.5-1.5M6 14.5l1.5 1.5', 'thin')],
   // The 3×3 dot grid of the Apps launcher.
   apps: [5, 12, 19].flatMap((y) => [5, 12, 19].map((x) => C(x, y, 2, 'f'))),
 };

@@ -30,7 +30,7 @@ import type {
   BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData,
   ProjectionRequest, ProjectionResult,
 } from './protocol';
-import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend } from './weldments';
+import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend, applyWeldBead } from './weldments';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
   hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
@@ -389,6 +389,7 @@ export class ModelBuilder {
       case 'trimExtend': applyTrimExtend(this.weldCtx(f.id, st), f); return 'body';
       case 'endCap': applyEndCap(this.weldCtx(f.id, st), f); return 'tool';
       case 'gusset': applyGusset(this.weldCtx(f.id, st), f); return 'tool';
+      case 'weldBead': applyWeldBead(this.weldCtx(f.id, st), f); return 'tool';
     }
   }
 
@@ -403,6 +404,7 @@ export class ModelBuilder {
         return { entities: sk.entities, frame };
       },
       face: (ref) => { const f = st.faces[this.resolveFace(ref, st)]; return { name: f.name, desc: f.desc }; },
+      edge: (ref) => { const e = this.edgesOf(st)[this.resolveEdge(ref, st)]; return { desc: e.desc, faces: e.faces.map((i) => ({ desc: st.faces[i].desc, shape: st.faces[i].shape })) }; },
       nameTool: (prefix, shape, classify) => this.nameTool(prefix, shape, (_d, k) => classify(k)),
       applyTool: (tool, faces, noGain) => this.applyTool(featId, st, tool, faces as NamedFace[], false, noGain),
       setBody: (body, faces) => {
