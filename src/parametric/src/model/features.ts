@@ -86,6 +86,10 @@ export function paramActive(f: Feature, path: string): boolean {
       return true;
     case 'linearPattern':
       return !path.startsWith('dir2.') || !!f.dir2;
+    case 'baseFlange':
+      return path !== 'sm.allowanceValue' || f.sm.allowance !== 'kFactor';
+    case 'hem':
+      return path !== 'gap' || f.kind === 'open';
     default:
       return true;
   }

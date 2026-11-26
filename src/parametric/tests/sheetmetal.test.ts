@@ -359,6 +359,23 @@ describe('combinations', () => {
     expect(res.bbox!.max[2]).toBeCloseTo(T + R + (60 + R + T) - (20 - BA90 / 2) - BA90, 6);
   });
 
+  it('flanges two edges meeting at a corner one after the other', async () => {
+    const b = new ModelBuilder();
+    let res = await b.build(req(plate()));
+    const top = res.faces.find((f) => f.name === 'B1:cap1')!;
+    const e1 = edgesOn(res, top, [1, 0, 0]).find((e) => Math.abs(e.mid[1] - 60) < 1e-6)!;
+    const f1 = flange('F1', [edgeRef(e1)]);
+    res = await b.build(req([...plate(), f1]));
+    const top2 = res.faces.find((f) => f.name === 'B1:cap1')!;
+    const e2 = edgesOn(res, top2, [0, 1, 0]).find((e) => Math.abs(e.mid[0] - 100) < 1e-6)!;
+    res = await b.build(req([...plate(), f1, flange('F2', [edgeRef(e2)])]));
+    ok(res);
+    expect(size(res)).toEqual([expect.closeTo(100, 6), expect.closeTo(60, 6), expect.closeTo(20, 6)]);
+    const flat = b.flatPattern().pattern!;
+    expect(flat.bends).toHaveLength(2);
+    expect(flat.notes).toEqual([]);
+  });
+
   it('patterns, mirrors and fillets the folded body like any body', async () => {
     const b = new ModelBuilder();
     const e = await plateEdge(b);

@@ -28,7 +28,7 @@ import type { FlatBend, FlatLoop, FlatPattern, FlatSeg } from '../model/flat-pat
 import type { EdgeRef, SketchFeature } from '../model/types';
 import {
   type Sh, type SurfDesc, common, cut, describeEdge, describeFace, faceProps, fuse, fuseAll, getOc, isEmpty, subShapes, transformShape,
-  translated, volumeOf, wrap, xyz,
+  translated, vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
 // ---- the sheet model ----
@@ -292,7 +292,7 @@ function applyBaseFlange(h: SheetHost, f: BaseFlangeFeature, st: SmState) {
     // Thickness along the sketch normal (or against it), its frame kept right-handed.
     const at: Frame = f.flip ? { o: frame.o, x: frame.x, y: scale(frame.y, -1), n: scale(frame.n, -1) } : { ...frame };
     const xf: Frame = f.mid ? { ...at, o: sub(at.o, scale(at.n, T / 2)) } : at;
-    const flatFace = placed(wrap(h.regionFace(regions[0], frame).wrapped), xfInverse(at));
+    const flatFace = placed(h.regionFace(regions[0], frame) as Sh, xfInverse(at));
     const piece = namedPiece(f.id, extrudeZ(flatFace, 0, T), xf, (d) => {
       if (d.type === 'plane' && Math.abs(d.d[2]) > 1 - 1e-6) return d.center[2] < T / 2 ? 'cap0' : 'cap1';
       return 'side:' + h.nearestSrc(regions, toLocal(frame, xfApply(at, [d.center[0], d.center[1], 0])));
@@ -392,7 +392,7 @@ function applyTab(h: SheetHost, f: BaseFlangeFeature, st: SmState) {
   const { panel } = on;
   const toFlat = xfInverse(panel.xf);
   const faces = regions.map((r) => {
-    const flat = placed(wrap(h.regionFace(r, frame).wrapped), toFlat);
+    const flat = placed(h.regionFace(r, frame) as Sh, toFlat);
     return on.top ? translated(flat, [0, 0, -T]) : flat;
   });
   const flatFace = faces.length === 1 ? faces[0] : fuseAll(faces);
@@ -590,7 +590,7 @@ function applySketchedBend(h: SheetHost, f: SketchedBendFeature, st: SmState) {
   const movingFace = common(panel.face, half(width, big));
   if (isEmpty(fixedFace) || isEmpty(movingFace) || isEmpty(stripFace)) throw h.error('The bend line must divide the face in two, with room for the bend on both sides');
   // The bend strip must cross the face straight: a rectangle as wide as the bend allowance.
-  const ts = subShapes(stripFace, 'vertex').map((v) => { const q = xyz(getOc().BRep_Tool.Pnt(v.wrapped)); return dot2([q[0] - origin[0], q[1] - origin[1]], u); });
+  const ts = subShapes(stripFace, 'vertex').map((v) => { const q = vertexPoint(v); return dot2([q[0] - origin[0], q[1] - origin[1]], u); });
   const u0 = Math.min(...ts), u1 = Math.max(...ts);
   if (Math.abs(area(stripFace) - width * (u1 - u0)) > 1e-6 * Math.max(1, width * (u1 - u0))) {
     throw h.error('The bend must cross the face where its edges are square to the bend line, without holes or notches in the bend region');
@@ -659,9 +659,8 @@ function applySketchedBend(h: SheetHost, f: SketchedBendFeature, st: SmState) {
 function flatExtent(face: Sh): number {
   let m = 0;
   for (const v of subShapes(face, 'vertex')) {
-    const p = getOc().BRep_Tool.Pnt(v.wrapped);
-    m = Math.max(m, Math.abs(p.X()), Math.abs(p.Y()));
-    p.delete();
+    const p = vertexPoint(v);
+    m = Math.max(m, Math.abs(p[0]), Math.abs(p[1]));
   }
   return m;
 }
