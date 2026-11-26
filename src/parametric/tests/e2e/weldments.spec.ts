@@ -128,4 +128,82 @@ test.describe('weldments', () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     expect(errors).toEqual([]);
   });
+
+  test('trims a post to a plate face, caps it and adds a fillet bead from the Weldments tab', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Layout', (d) => {
+        const sq = [[-100, -100], [100, -100], [100, 100], [-100, 100]];
+        d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'top' }, constraints: [], entities: [
+          ...sq.map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y })),
+          ...sq.map((_, i) => ({ id: `l${i}`, t: 'line' as const, a: `p${i}`, b: `p${(i + 1) % 4}` })),
+        ] });
+        d.features.push({ id: 'f2', name: 'Extrude1', type: 'extrude', sketch: 's1', cut: false, end: 'blind', depth: 10, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null });
+        d.features.push({ id: 's3', name: 'Sketch2', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+          { id: 'a', t: 'point', x: 0, y: -30 }, { id: 'b', t: 'point', x: 0, y: 120 }, { id: 'post', t: 'line', a: 'a', b: 'b' },
+        ] });
+      });
+      a.selection.set([{ kind: 'feature', id: 's3' }]);
+      void a.commands.run('structuralMember');
+    });
+    await expect(page.getByRole('group', { name: 'Group 1' }).locator('.item')).toHaveCount(1);
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await waitForFeature(page, 'Structural Member1');
+    // A face of the rebuilt part (waiting for the rebuild that makes it).
+    const face = async (test: string) => {
+      const find = () => page.evaluate((src) => {
+        const a = (window as unknown as W).__parametric;
+        const i = a.faces.findIndex(new Function('f', `return ${src}`) as (f: unknown) => boolean);
+        return { kind: 'face' as const, index: i, name: a.faces[i]?.name ?? '' };
+      }, test);
+      await expect.poll(async () => (await find()).index).toBeGreaterThanOrEqual(0);
+      return find();
+    };
+    // Trim/Extend: the post (picked before the command) to the plate's top face.
+    const side = await face("/^[^:]+:s3\\/post:/.test(f.name) && f.type === 'plane' && Math.abs(f.normal[0] - 1) < 1e-6");
+    await page.evaluate((it) => { const a = (window as unknown as W).__parametric; a.selection.set([it]); }, side);
+    await page.getByRole('tab', { name: 'Weldments' }).click();
+    await page.locator('[data-cmd="trimExtend"]').first().click();
+    await expect(page.getByRole('heading', { name: 'Trim/Extend' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Bodies to be trimmed' }).locator('.item')).toHaveCount(1);
+    await page.getByRole('group', { name: 'Face/Plane' }).click();
+    const top = await face("f.name === 'f2:cap1'");
+    await page.evaluate((it) => (window as unknown as W).__parametric.panel!.onPick(it, false), top);
+    await expect(page.getByRole('group', { name: 'Face/Plane' }).locator('.item')).toHaveCount(1);
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await waitForFeature(page, 'Trim/Extend1');
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => Math.round((window as unknown as W).__parametric.weldments[0].length))).toBe(110);
+    // End cap on the post's top end.
+    const end = await face("/^[^:]+:s3\\/post:/.test(f.name) && f.type === 'plane' && f.center[1] > 119.9");
+    await page.evaluate((it) => { const a = (window as unknown as W).__parametric; a.selection.set([it]); }, end);
+    await page.locator('[data-cmd="endCap"]').first().click();
+    await expect(page.getByRole('group', { name: 'Faces' }).locator('.item')).toHaveCount(1);
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await waitForFeature(page, 'End Cap1');
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    // A fillet bead where the post stands on the plate.
+    const findEdge = () => page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      const i = a.edges.findIndex((e) => e.type === 'line' && Math.abs(e.mid[0] - 20) < 1e-6 && Math.abs(e.mid[1] - 10) < 1e-6);
+      return { kind: 'edge' as const, index: i, name: a.edges[i]?.name ?? '' };
+    });
+    await expect.poll(async () => (await findEdge()).index).toBeGreaterThanOrEqual(0);
+    const edge = await findEdge();
+    await page.evaluate((it) => { const a = (window as unknown as W).__parametric; a.selection.set([it]); }, edge);
+    await page.locator('[data-cmd="weldBead"]').first().click();
+    await expect(page.getByRole('group', { name: 'Edges' }).locator('.item')).toHaveCount(1);
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await waitForFeature(page, 'Fillet Bead1');
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    // Suppressing the member suppresses what was built on it.
+    await page.getByRole('treeitem', { name: 'Structural Member1' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Suppress' }).click();
+    await expect(page.getByRole('treeitem', { name: 'Trim/Extend1' })).toHaveClass(/suppressed/);
+    await expect(page.getByRole('treeitem', { name: 'End Cap1' })).toHaveClass(/suppressed/);
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
 });
