@@ -138,6 +138,24 @@ describe('flat pattern views', () => {
     expect(Math.hypot(bendLines[1].x2 - bendLines[1].x1, bendLines[1].y2 - bendLines[1].y1)).toBeCloseTo(2 * 5 * 2, 4);
   });
 
+  it('says on the sheet what the flat pattern leaves out', async () => {
+    const b = new ModelBuilder();
+    // An L of sheet with a block added off the sheet: the flat pattern cannot show the block.
+    const res = await b.build(req([sketch('S1', chain([[0, 0], [50, 0], [50, 30]])), newBaseFlange('B1', 'B1', 'S1', T, 40), sketch('S2', rect(10, 10, 20, 20), { kind: 'base', plane: 'top' }), extrude('E2', 'S2', 5)]));
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    const fp = b.flatPattern().pattern!;
+    expect(fp.notes.length).toBeGreaterThan(0);
+    const pr = flatProjection('k', fp);
+    const d: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: '', drawnBy: '', notes: '', views: [{ id: 'v1', kind: 'front', type: 'flat', x: 150, y: 100, hidden: false, dims: true }] };
+    const s = buildSheet(d, new Map([['v1', pr]]), { partName: 'P', material: '', units: 'mm', date: '', formatLength: (v) => v.toFixed(2), edges: () => flatEdges(fp) });
+    const texts = s.items.filter((it): it is Extract<typeof it, { t: 'text' }> => it.t === 'text').map((it) => it.s).join('\n');
+    expect(texts).toContain('Material the flat pattern cannot show is left out');
+    // A part whose flat pattern shows everything has no such note.
+    const plain = flatProjection('k', { ...fp, notes: [] });
+    const s2 = buildSheet(d, new Map([['v1', plain]]), { partName: 'P', material: '', units: 'mm', date: '', formatLength: (v) => v.toFixed(2), edges: () => flatEdges(fp) });
+    expect(s2.items.some((it) => it.t === 'text' && it.s.includes('left out'))).toBe(false);
+  });
+
   it('says why when the part cannot be flattened', () => {
     const pr = flatProjection('k', null, 'Not a sheet metal part');
     expect(pr.bounds).toBeNull();

@@ -399,6 +399,8 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
     const label = viewLabel(viewCaption(d, r), f, hasDims(v), taken.filter((_, j) => j !== i), w, h);
     items.push(label.item);
     taken.push(label.box);
+    const notes = r.type === 'flat' ? (pr as FlatProjection).notes : undefined;
+    if (notes?.length) taken.push(drawFlatNotes(items, notes, f, hasDims(v), label.box, w));
     items.push(...dims[i]);
   }
   // A flat pattern view of a part that cannot be flattened says why where it would be.
@@ -571,6 +573,32 @@ function drawBendLines(items: Item[], bends: { a: [number, number]; b: [number, 
     const m: [number, number] = [(A[0] + B[0]) / 2 + Math.sin(t) * 1.2, (A[1] + B[1]) / 2 - Math.cos(t) * 1.2];
     items.push({ t: 'text', s: bendNote({ up: b.up, angle: b.angle, radius: b.radius } as Parameters<typeof bendNote>[0], fmt), x: m[0], y: m[1], size: 2.5, anchor: 'middle', rotate: ang || undefined });
   }
+}
+
+/**
+ * What a flat pattern leaves out, in red above its view (below it, past its dimensions, when
+ * the view is at the top of the sheet), wrapped to the view's width (at least 90 mm) and kept
+ * on the sheet, so the drawing does not pass for the whole part. Returns its box.
+ */
+function drawFlatNotes(items: Item[], notes: string[], f: ViewFrame, dims: boolean, label: Box, sheetW: number): Box {
+  const size = 2;
+  const room = Math.min(Math.max(f.x1 - f.x0, 90), sheetW - 2 * MARGIN);
+  const lines: string[] = [];
+  for (const n of notes) {
+    let cur = '';
+    for (const word of `NOTE: ${n}`.split(' ')) {
+      const next = cur ? `${cur} ${word}` : word;
+      if (cur && textWidth(next, size) > room) { lines.push(cur); cur = word; } else cur = next;
+    }
+    if (cur) lines.push(cur);
+  }
+  const width = Math.max(...lines.map((s) => textWidth(s, size)));
+  const x = Math.max(MARGIN + 1, Math.min(f.x0, sheetW - MARGIN - 1 - width));
+  const above = f.y0 - 2 - (lines.length - 1) * size * 1.4;
+  // Above, clear of the label if it went there; else below the dimensions and the label.
+  const top = label[3] <= f.y0 ? Math.min(above, label[1] - 1 - (lines.length - 1) * size * 1.4) : above;
+  const y = top - size * 0.8 >= MARGIN + 1 ? top : Math.max(f.y1 + (dims ? DIM_BELOW : 0), label[1] >= f.y1 ? label[3] : -Infinity) + 1 + size;
+  return drawNote(items, lines.join('\n'), [x, y], size, undefined, DANGER);
 }
 
 const LABEL_SIZE = 2.6;

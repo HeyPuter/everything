@@ -19,6 +19,8 @@ export interface FlatBendLine {
 export interface FlatProjection extends ProjectionResult {
   bends?: FlatBendLine[];
   error?: string;
+  /** What the flat pattern leaves out or cannot show exactly (said beside the view). */
+  notes?: string[];
 }
 
 const r4 = (v: number) => +v.toFixed(4) || 0;
@@ -49,6 +51,7 @@ export function flatProjection(id: string, f: FlatPattern | null, error?: string
     hidden: [],
     bounds: [r4(f.min[0]), r4(-f.max[1]), r4(f.max[0]), r4(-f.min[1])],
     bends: f.bends.map((b) => ({ a: V(b.a), b: V(b.b), up: b.up, angle: b.angle, radius: b.radius })),
+    ...(f.notes.length ? { notes: [...f.notes] } : {}),
   };
 }
 
