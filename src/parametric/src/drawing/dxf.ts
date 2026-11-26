@@ -25,9 +25,9 @@ const LAYERS: [string, number, string][] = [
   ['DIM', 7, 'CONTINUOUS'], ['TEXT', 7, 'CONTINUOUS'], ['BORDER', 7, 'CONTINUOUS'],
 ];
 
-/** Text in the DXF's code page: diameter, degree and plus-minus as their control codes, else ASCII. */
+/** Text in the DXF's code page: diameter, degree and plus-minus as their control codes, an ellipsis as three dots, else ASCII. */
 export function dxfText(s: string): string {
-  return s.replace(/Ø|⌀/g, '%%c').replace(/°/g, '%%d').replace(/±/g, '%%p').replace(/[^\x20-\x7e]/g, '?');
+  return s.replace(/Ø|⌀/g, '%%c').replace(/°/g, '%%d').replace(/±/g, '%%p').replace(/…/g, '...').replace(/[^\x20-\x7e]/g, '?');
 }
 
 const n = (v: number) => (Math.abs(v) < 1e-10 ? '0' : String(+v.toFixed(6)));

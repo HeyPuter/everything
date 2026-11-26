@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { buildSheet, standardLayout, toSvg } from '../src/drawing/sheet';
 import type { BomRow } from '../src/drawing/source';
 import {
-  BALLOON_R, TABLE_ROW_H, autoBalloons, balloonTip, bomTable, cutListTable, drawBalloon, fitCell, itemOfEdge, layoutTable, tableOrigin, tableSize,
+  BALLOON_R, TABLE_ROW_H, autoBalloons, balloonTip, bomTable, cutListTable, drawBalloon, drawTable, fitCell, itemOfEdge, layoutTable, tableOrigin, tableSize,
 } from '../src/drawing/tables';
 import { textWidth } from '../src/drawing/pdf';
+import { toDxf } from '../src/drawing/dxf';
 import type { Prim } from '../src/drawing/views';
 import { newAssembly, validateAssembly } from '../src/model/assembly';
 import { validDrawing } from '../src/model/validate-drawing';
@@ -60,6 +61,14 @@ describe('tables', () => {
     const g = fitCell('An extremely long part name that cannot fit in the cell at all', 20, 2.5);
     expect(g.s.endsWith('…')).toBe(true);
     expect(textWidth(g.s, g.size)).toBeLessThanOrEqual(20 + 1e-9);
+  });
+
+  it('writes a value cut short with an ellipsis that DXF can show', () => {
+    const items: Item[] = [];
+    drawTable(items, bomTable([{ item: 1, name: 'A very long part number that cannot fit in its cell at all, not even in the smallest legible text', material: 'Steel', qty: 1, prefixes: [] }]), [10, 10]);
+    const text = toDxf(items, 297, 210);
+    expect(text).toMatch(/\nA very long part.*\.\.\.\n/);
+    expect(text).not.toMatch(/\nA very long part.*\?\n/);
   });
 
   it('makes the cut list table from the cut list rows', () => {
