@@ -203,10 +203,10 @@ function segEdge(s: PSeg, o: Vec3, U: Vec3, V: Vec3, D: Vec3): any {
   return R.makeThreePointArc(p3(o, U, V, at(s.a0)), p3(o, U, V, at((s.a0 + s.a1) / 2)), p3(o, U, V, at(s.a1)));
 }
 
-/** The profile as a face in a cross-section plane. */
-function profileFace(shape: ProfileShape, o: Vec3, U: Vec3, V: Vec3, D: Vec3, outerOnly = false): any {
+/** The profile as a face in a cross-section plane (its outline only grown by `grow`, for a cope with a gap). */
+function profileFace(shape: ProfileShape, o: Vec3, U: Vec3, V: Vec3, D: Vec3, outerOnly = false, grow = 0): any {
   const wire = (loop: PSeg[]) => R.assembleWire(loop.map((s) => segEdge(s, o, U, V, D)));
-  let face = R.makeFace(wire(shape.outer));
+  let face = R.makeFace(outerOnly && grow > 0 ? wire(shape.outer).offset2D(grow, 'arc') : wire(shape.outer));
   if (!outerOnly && shape.holes.length) face = R.addHolesInFace(face, shape.holes.map(wire));
   return face;
 }
@@ -238,7 +238,7 @@ const isSquare = (fr: { P: Vec3; a: Vec3 }, end: MemberEnd, tol: number, line: b
   end.planes.length === 1 && !end.copes.length && dot(fr.a, end.planes[0].n) > 1 - 1e-12 && (line || Math.abs(dot(sub(end.planes[0].p, fr.P), end.planes[0].n)) < tol);
 
 /** The member's solid: the profile swept along its path past both ends, cut by its end planes. */
-function memberSolid(ctx: WeldCtx, m: Pick<WeldMember, 'shape' | 'path' | 'ends' | 'key'>, outerOnly = false): Sh {
+function memberSolid(ctx: WeldCtx, m: Pick<WeldMember, 'shape' | 'path' | 'ends' | 'key'>, outerOnly = false, grow = 0): Sh {
   const { path, shape } = m;
   const size = profileRadius(shape);
   const margin = 1 + size * 0.05;
@@ -262,7 +262,7 @@ function memberSolid(ctx: WeldCtx, m: Pick<WeldMember, 'shape' | 'path' | 'ends'
     const t0 = -ext[0], t1 = path.len + ext[1];
     if (t1 - t0 < 1e-6) throw ctx.err(`A member has no length left after trimming`);
     const f = frameAt(path, t0);
-    const face = profileFace(shape, f.o, f.U, f.V, f.D, outerOnly);
+    const face = profileFace(shape, f.o, f.U, f.V, f.D, outerOnly, grow);
     solid = R.basicFaceExtrusion(face, new R.Vector(scale(path.d, t1 - t0))) as unknown as Sh;
   } else {
     // Radii of the profile about the arc's axis: it must stay clear of the axis.
@@ -283,7 +283,7 @@ function memberSolid(ctx: WeldCtx, m: Pick<WeldMember, 'shape' | 'path' | 'ends'
     const total = path.sweep + d0 + d1;
     if (total <= 1e-6) throw ctx.err(`A member has no length left after trimming`);
     const f = frameAt(path, -d0);
-    const face = profileFace(shape, f.o, f.U, f.V, f.D, outerOnly);
+    const face = profileFace(shape, f.o, f.U, f.V, f.D, outerOnly, grow);
     solid = R.revolution(face, path.c, path.axis, (total * 180) / Math.PI) as unknown as Sh;
   }
   const mid = frameAt(path, pathLength(path) / 2).o;
@@ -646,10 +646,10 @@ export function applyTrimExtend(ctx: WeldCtx, f: TrimExtendFeature): void {
       const tp = trimPlane(best, fr.P, fr.a, gap);
       if (!tp) throw ctx.err('A member runs along the member it is trimmed to');
       if (f.coped) {
-        // To the boundary's axis, then the boundary's outline is cut away.
+        // To the boundary's axis, then the boundary's outline (grown by the gap) is cut away.
         const s = sectionAt(best, fr.P);
         end.planes.push({ p: sub(s.P, scale(tp.n, gap)), n: tp.n });
-        const env = memberSolid(ctx, best, true);
+        const env = memberSolid(ctx, best, true, gap);
         end.copes.push(env);
       } else end.planes.push(tp);
     }

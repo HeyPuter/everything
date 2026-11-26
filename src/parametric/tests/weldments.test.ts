@@ -328,6 +328,10 @@ describe('trim/extend', () => {
     expect(isValid(body(coped.b))).toBe(true);
     // The coped post fills the saddle: more material than the planar cut.
     expect(volume(coped.b)).toBeGreaterThan(volume(planar.b));
+    // A gap keeps the saddle that far off the rail.
+    const gapped = await build([s1, m1, m2, { ...t, coped: true, gap: 2 }]);
+    expect(gapped.res.status.every((s) => s.ok)).toBe(true);
+    expect(gapped.res.weldments!.find((m) => m.member === 'S1/v')!.length).toBeCloseTo(150 - Math.sqrt((R + 2) ** 2 - r * r), 1);
   });
 });
 
