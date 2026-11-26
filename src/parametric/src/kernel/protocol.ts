@@ -3,6 +3,7 @@
 
 import type { Frame, Vec3 } from '../math/vec';
 import type { Feature, Id, SkEntity } from '../model/types';
+import type { AsmRequest } from './assembly';
 
 /** Features with every Param already evaluated to a number. */
 export type ResolvedFeature = Feature;
@@ -165,6 +166,8 @@ export type WorkerRequest =
   | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number; name?: string }
   | { id: number; type: 'checkImport'; format: 'step'; text: string }
   | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string }
+  /** Assemblies: building their parts and the placed components (see assembly.ts). */
+  | { id: number; type: 'asm'; req: AsmRequest }
   /** Development builds only: fail on purpose to test recovery. */
   | { id: number; type: 'debugFail'; mode: 'hang' | 'abort' | 'crash' };
 
