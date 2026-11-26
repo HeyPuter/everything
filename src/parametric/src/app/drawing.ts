@@ -488,6 +488,7 @@ export class DrawingWorkspace {
     Object.assign(this.tool, o);
     this.tool.pts = [];
     this.drawOverlay();
+    this.syncPanel();
     this.app.setStatus(this.toolPrompt());
   }
 
