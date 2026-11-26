@@ -473,3 +473,25 @@ test('a mate whose face no longer exists shows as a mate error, not as over defi
   await expect(tree.getByRole('treeitem', { name: /^Coincident1/ })).toHaveAttribute('aria-description', /no longer exists/);
   expect(errors).toEqual([]);
 });
+
+test('interference detection names a pair it could not check instead of reporting no interference', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  // The worker fails to compute the overlap of the two blocks.
+  await page.evaluate(() => {
+    const k = (window as unknown as { __parametric: A }).__parametric.kernel;
+    const real = k.assembly.bind(k);
+    k.assembly = (async (req: { op: string }) => (req.op === 'interference' ? [{ a: 0, b: 1, volume: 0, mesh: null, failed: true }] : real(req as never))) as typeof k.assembly;
+  });
+  await page.locator('.cm [data-cmd="interference"]').click();
+  await expect(page.locator('.pm')).toContainText('Could not check Block<1> / Block<2>');
+  await expect(page.locator('.pm')).not.toContainText('No interference');
+  expect(errors).toEqual([]);
+});

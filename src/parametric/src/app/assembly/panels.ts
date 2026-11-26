@@ -616,18 +616,25 @@ export class InterferencePanel extends PropertyPanel {
     app.renderer.setPreview(mergeMeshes(pairs.map((p) => p.mesh)), 'tool', true);
     // Checked where the components are shown: exploded, they are apart.
     const exploded = this.mode.doc.exploded ? h('div', { class: 'pm-msg warn' }, 'The exploded view is shown: collapse it (Explode/Collapse) to check the assembled position.') : null;
-    if (!pairs.length) {
-      this.out.replaceChildren(h('div', { class: 'pm-msg info', role: 'status' }, 'No interference: no two components overlap.'), ...(exploded ? [exploded] : []));
+    // Pairs whose overlap could not be computed are not called clear.
+    const failed = pairs.filter((p) => p.failed);
+    const found = pairs.filter((p) => !p.failed);
+    const unchecked = failed.length
+      ? h('div', { class: 'pm-msg error', role: 'alert' }, `Could not check ${failed.map((p) => `${name(p.a)} / ${name(p.b)}`).join(', ')}: the overlap could not be computed.`)
+      : null;
+    const notes = [...(unchecked ? [unchecked] : []), ...(exploded ? [exploded] : [])];
+    if (!found.length) {
+      this.out.replaceChildren(...(failed.length ? [] : [h('div', { class: 'pm-msg info', role: 'status' }, 'No interference: no two components overlap.')]), ...notes);
       return;
     }
     const list = h('div', { class: 'file-list', role: 'list', 'aria-label': 'Interferences' });
-    for (const p of pairs) {
+    for (const p of found) {
       const b = h('button', { class: 'file-item', type: 'button' }, h('span', { 'aria-hidden': 'true', style: { color: 'var(--danger)' } }, icon('interference', 16)),
         h('span', { class: 'txt' }, h('span', { class: 'n' }, `${name(p.a)} and ${name(p.b)}`), h('span', { class: 'meta' }, `Interference volume ${vol(p.volume)}`)));
       b.addEventListener('click', () => app.selection.set([{ kind: 'feature', id: comps[p.a] }, { kind: 'feature', id: comps[p.b] }]));
       list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
     }
-    this.out.replaceChildren(h('div', { class: 'pm-msg warn', role: 'status' }, `${pairs.length} ${pairs.length === 1 ? 'interference' : 'interferences'} found.`), list, ...(exploded ? [exploded] : []));
+    this.out.replaceChildren(h('div', { class: 'pm-msg warn', role: 'status' }, `${found.length} ${found.length === 1 ? 'interference' : 'interferences'} found.`), list, ...notes);
   }
 
   private timer = 0;

@@ -57,6 +57,8 @@ export interface InterferencePair {
   b: number;
   volume: number;
   mesh: MeshData | null;
+  /** The overlap of the two could not be computed: they were not checked (volume 0, no mesh). */
+  failed?: boolean;
 }
 
 export interface AsmMassResult {
@@ -283,7 +285,15 @@ export class AssemblyBuilder {
     return { open, mass, volume, area, center, inertia: I, principal: eigenSym3(I) };
   }
 
-  /** Pairs of components whose solids overlap, with the volume they share. */
+  /** The solid two placed bodies share (a method so tests can make it fail). */
+  protected sharedSolid(a: Sh, b: Sh): Sh {
+    return common(a, b);
+  }
+
+  /**
+   * Pairs of components whose solids overlap, with the volume they share, and
+   * pairs whose overlap could not be computed (`failed`: never reported as clear).
+   */
   interference(): InterferencePair[] {
     const list = this.bodies().map((b) => ({ ...b, box: bbox(b.shape) }));
     const all = this.combined();
@@ -295,13 +305,15 @@ export class AssemblyBuilder {
       for (let y = x + 1; y < list.length; y++) {
         const A = list[x], B = list[y];
         if (!A.box || !B.box || !boxesOverlap(A.box, B.box)) continue;
-        let shared: Sh;
+        let shared: Sh, v: number;
         try {
-          shared = common(A.shape, B.shape);
+          shared = this.sharedSolid(A.shape, B.shape);
+          v = volumeOf(shared);
         } catch {
+          out.push({ a: A.i, b: B.i, volume: 0, mesh: null, failed: true });
           continue;
         }
-        const v = volumeOf(shared);
+        if (!Number.isFinite(v)) { out.push({ a: A.i, b: B.i, volume: 0, mesh: null, failed: true }); continue; }
         if (!(v > minVolume)) continue;
         out.push({ a: A.i, b: B.i, volume: v, mesh: meshOf(shared, diag) });
       }

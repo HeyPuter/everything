@@ -93,6 +93,14 @@ describe('assembly geometry', () => {
     expect(a.interference()).toEqual([]);
   });
 
+  it('reports a pair whose overlap cannot be computed as not checked, never as clear', async () => {
+    const a = new AssemblyBuilder();
+    await built(a);
+    a.setScene([item('box', at([0, 0, 0]), 'box<1>'), item('box', at([15, 0, 0]), 'box<2>')]);
+    (a as unknown as { sharedSolid: () => never }).sharedSolid = () => { throw new Error('boolean failed'); };
+    expect(a.interference()).toEqual([{ a: 0, b: 1, volume: 0, mesh: null, failed: true }]);
+  });
+
   it('exports a STEP file with each component as a named solid, and leaves part export as it was', async () => {
     const part = new ModelBuilder();
     await part.build({ features: box(), upTo: 2, blobs: {}, quality: 0 });
