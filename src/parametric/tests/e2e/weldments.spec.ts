@@ -171,6 +171,36 @@ test.describe('weldments', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the cut list mass leaves out a hole drilled through a member later', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Layout', (d) => {
+        d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+          { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 0, y: 100 }, { id: 'l', t: 'line', a: 'a', b: 'b' },
+        ] });
+        d.features.push({
+          id: 'm1', name: 'Structural Member1', type: 'structuralMember', standard: 'iso', profile: 'squareTube', size: '40x40x3',
+          groups: [{ segments: [{ sketch: 's1', entity: 'l' }] }], rotation: 0, mirror: false, pierce: 'centroid', corner: 'miter', gap: 0, trimGroups: true, gap2: 0,
+        });
+        // A 20 mm hole through one wall of the post.
+        d.features.push({ id: 's2', name: 'Sketch2', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+          { id: 'c', t: 'point', x: 0, y: 50 }, { id: 'o', t: 'circle', c: 'c', r: 10 },
+        ] });
+        d.features.push({ id: 'h1', name: 'Cut-Extrude1', type: 'extrude', sketch: 's2', cut: true, end: 'throughAll', depth: 10, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null });
+      });
+    });
+    await waitForFeature(page, 'Cut-Extrude1');
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    await page.getByRole('treeitem', { name: 'Cut list (1)' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Cut List' });
+    // 4208 mm³ of tube less 942 mm³ of hole, at 1000 kg/m³ (no material).
+    await expect(dialog.locator('tbody tr').first().locator('td').nth(7)).toHaveText('41.14');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
+    expect(errors).toEqual([]);
+  });
+
   test('a line picked together with its sketch makes one member', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

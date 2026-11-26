@@ -454,4 +454,22 @@ describe('cut list', () => {
     expect(list.totalMass).toBeCloseTo(A * 600 * 1e-9 * 7800, 6);
     expect(list.totalLength).toBeCloseTo(760, 6);
   });
+
+  it('measures what later cuts took from the members, on demand', async () => {
+    const post = sketch('S1', line('v', [0, 0], [0, 100]));
+    const m1 = member('M1', [[{ sketch: 'S1', entity: 'v' }]]);
+    const A = area('squareTube', '40x40x3');
+    const plain = await build([post, m1]);
+    expect(plain.b.weldVolumes()).toEqual({ volumes: [], approximate: false });
+    // A hole through the post, and a boss beside it (which takes nothing).
+    const hole = [sketch('H', circle(0, 50, 10)), extrude('C1', 'H', 100, { cut: true, end: 'throughAll' })];
+    const boss = [sketch('B', rect(100, 0, 150, 50)), extrude('E1', 'B', 10)];
+    const drilled = await build([post, m1, ...hole, ...boss]);
+    const v = drilled.b.weldVolumes();
+    expect(v.approximate).toBe(false);
+    expect(v.volumes).toHaveLength(1);
+    // The 20 mm hole goes through one 3 mm wall (it runs one way from the sketch plane, the post's middle).
+    expect(v.volumes[0].volume).toBeCloseTo(A * 100 - 3 * Math.PI * 100, -1);
+    expect(v.volumes[0].volume).toBeCloseTo(volume(drilled.b) - 50 * 50 * 10, 0);
+  });
 });

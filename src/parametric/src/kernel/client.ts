@@ -10,7 +10,7 @@
 import type { SolidWorksImport } from '../formats/sldprt';
 import type { Id } from '../model/types';
 import type { AsmPartBuild, AsmRequest, AsmSceneItem } from './assembly';
-import type { BuildRequest, BuildResult, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
+import type { BuildRequest, BuildResult, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WeldVolumes, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 type Call = Pending & { at: number; type: WorkerRequest['type'] };
@@ -270,6 +270,11 @@ export class KernelClient {
 
   massProperties(): Promise<MassProperties | null> {
     return this.call({ type: 'mass' });
+  }
+
+  /** Structural member volumes after later cuts, for the cut list (on demand: a boolean per member cut). */
+  weldVolumes(): Promise<WeldVolumes> {
+    return this.call({ type: 'weldVolumes' });
   }
 
   /** The flat pattern of the sheet metal part as last built. */

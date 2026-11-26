@@ -29,7 +29,7 @@ import { solveSketch } from '../sketch/solver';
 import { measureDimension } from '../sketch/ops';
 import type {
   BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
-  ProjectionRequest, ProjectionResult,
+  ProjectionRequest, ProjectionResult, WeldVolumes,
 } from './protocol';
 import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend, applyWeldBead } from './weldments';
 import { projectSection } from './drawing-section';
@@ -97,6 +97,7 @@ interface Step {
 }
 
 const WELD_TOOL_TYPES = new Set<Feature['type']>(['structuralMember', 'endCap', 'gusset', 'weldBead']);
+const WELD_TYPES = new Set<Feature['type']>([...WELD_TOOL_TYPES, 'trimExtend']);
 
 const emptyState = (): State => ({ body: null, faces: [], edges: null, frames: new Map(), sketches: new Map(), lostRefs: new Map(), tools: new Map(), surfaces: [] });
 
@@ -182,6 +183,8 @@ export function hashString(s: string, seed = 0): string {
 export class ModelBuilder {
   private steps: Step[] = [];
   private current: State = emptyState();
+  /** Number of features the current state was built from. */
+  private currentUpTo = 0;
   /**
    * What the cached mesh was made from. Keyed by the body and its faces, not
    * by the chain of steps: a sketch or plane leaves the body as it was, yet
@@ -300,6 +303,7 @@ export class ModelBuilder {
     }
     for (let i = upTo; i < req.features.length; i++) status.push({ id: req.features[i].id, ok: true });
     this.current = state;
+    this.currentUpTo = upTo;
     // Imported shapes of parts no longer open (their file data is gone from
     // the request) would otherwise be kept for the life of the worker.
     for (const blob of [...this.importCache.keys()]) if (!(blob in req.blobs)) this.importCache.delete(blob);
@@ -1652,6 +1656,49 @@ export class ModelBuilder {
   }
 
   // ---- evaluation ----
+
+  /**
+   * Volumes of the structural members as the part now stands, for the cut
+   * list: what a later cut or hole took from a member is left out (the member
+   * less those tools, a small boolean each, so this runs when the cut list is
+   * asked for, not on every rebuild). `approximate` when a later feature of
+   * another kind (a fillet, a shell) changed the body: those changes are not
+   * measured. Members not listed keep their volume as built.
+   */
+  weldVolumes(): WeldVolumes {
+    const st = this.current;
+    const out: WeldVolumes = { volumes: [], approximate: false };
+    if (!st.weld?.members.length || !st.body) return out;
+    const first = Math.min(...st.weld.members.map((m) => this.order.get(m.feature)?.index ?? Infinity));
+    // The cut tools of the features after the first member, and whether any other feature changed the body there.
+    const after: { index: number; cut: Sh }[] = [];
+    const ids: Id[] = [];
+    for (const [id, o] of this.order) ids[o.index] = id;
+    for (let i = first + 1; i < this.currentUpTo; i++) {
+      const prev = this.steps[i - 1]?.state.body, cur = this.steps[i]?.state.body;
+      if (!cur || cur === prev) continue;
+      const o = this.order.get(ids[i]);
+      if (!o || WELD_TYPES.has(o.type)) continue;
+      const t = this.steps[i].state.tools.get(ids[i]);
+      if (!t) { out.approximate = true; continue; }
+      for (const p of t.parts ?? [t]) if (p.cut) after.push({ index: i, cut: p.shape });
+    }
+    if (!after.length) return out;
+    const boxes = new Map<Sh, ReturnType<typeof bbox>>();
+    const boxOf = (s: Sh) => { if (!boxes.has(s)) boxes.set(s, bbox(s)); return boxes.get(s)!; };
+    const meets = (a: Sh, b: Sh) => {
+      const p = boxOf(a), q = boxOf(b);
+      return !!p && !!q && [0, 1, 2].every((k) => p.min[k] <= q.max[k] + 1e-6 && q.min[k] <= p.max[k] + 1e-6);
+    };
+    for (const m of st.weld.members) {
+      const from = this.order.get(m.feature)?.index ?? Infinity;
+      const tools = after.filter((a) => a.index > from && meets(a.cut, m.solid)).map((a) => a.cut);
+      if (!tools.length) continue;
+      const left = cut(m.solid, tools.length === 1 ? tools[0] : compound(tools));
+      out.volumes.push({ feature: m.feature, member: m.key, volume: isEmpty(left) ? 0 : volumeOf(left) });
+    }
+    return out;
+  }
 
   massProperties(): MassProperties | null {
     const body = this.current.body;

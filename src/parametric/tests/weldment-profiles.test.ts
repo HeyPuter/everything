@@ -153,6 +153,8 @@ describe('cut list', () => {
     expect(csv[0]).toBe('Item,Qty,Description,Length (in),Angle 1 (°),Angle 2 (°),Total length (in),Mass each (lb),Total mass (lb)');
     expect(csv[1].startsWith('1,1,"HSS 2 x 2 x 1/8, ""A500""",10.000,0.00,0.00,10.000,')).toBe(true);
     expect(csv[2].startsWith(',1,Total,,,,10.000,,')).toBe(true);
+    // Masses from before a later fillet or shell say so.
+    expect(cutListRows({ ...list, massApproximate: true }, 'IPS', 3).header.slice(-2)).toEqual(['Mass each (lb, before later changes)', 'Total mass (lb, before later changes)']);
   });
 
   it('reads the member of a face name', () => {

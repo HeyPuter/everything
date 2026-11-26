@@ -96,6 +96,8 @@ export interface CutList {
   /** The density used, kg/m³, and whether it is the part's material. */
   density: number;
   material: string | null;
+  /** A later feature other than a cut (a fillet, a shell) changed the members: the masses are from before it. */
+  massApproximate?: boolean;
 }
 
 /** Lengths and angles closer than these make identical pieces. */
@@ -152,8 +154,9 @@ export function cutListRows(list: CutList, units: UnitSystem, decimals: number):
   const len = (mm: number) => formatNumber(mm / u.scale, decimals);
   const mass = (kg: number) => formatNumber(kg / u.massScale, Math.max(2, decimals));
   const ang = (d: number) => formatNumber(d, 2);
+  const m = list.massApproximate ? `${u.mass}, before later changes` : u.mass;
   return {
-    header: ['Item', 'Qty', 'Description', `Length (${u.length})`, 'Angle 1 (°)', 'Angle 2 (°)', `Total length (${u.length})`, `Mass each (${u.mass})`, `Total mass (${u.mass})`],
+    header: ['Item', 'Qty', 'Description', `Length (${u.length})`, 'Angle 1 (°)', 'Angle 2 (°)', `Total length (${u.length})`, `Mass each (${m})`, `Total mass (${m})`],
     rows: list.items.map((it) => [
       String(it.item), String(it.quantity), it.description + (it.curved ? (it.radius != null ? ` (curved, R ${len(it.radius)})` : ' (curved)') : ''), len(it.length), ang(it.angle1), ang(it.angle2),
       len(it.totalLength), mass(it.mass), mass(it.totalMass),

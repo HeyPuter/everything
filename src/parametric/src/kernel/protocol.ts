@@ -194,6 +194,8 @@ export type WorkerRequest =
   | { id: number; type: 'build'; req: BuildRequest; blobs: Id[] }
   | { id: number; type: 'mass' }
   | { id: number; type: 'flatPattern'; quality: number }
+  /** Volumes of the structural members after later cuts, for the cut list. */
+  | { id: number; type: 'weldVolumes' }
   | { id: number; type: 'project'; views: ProjectionRequest[] }
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
   | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number; name?: string }
@@ -209,3 +211,10 @@ export type WorkerResponse =
   | { id: number; ok: true; result: unknown; heap?: number }
   /** fatal: the OpenCascade module aborted and the worker must be replaced. */
   | { id: number; ok: false; error: string; fatal?: boolean };
+
+/** Structural member volumes after later cuts (see ModelBuilder.weldVolumes). */
+export interface WeldVolumes {
+  volumes: { feature: Id; member: string; volume: number }[];
+  /** A later feature other than a cut changed the body: its change is not measured. */
+  approximate: boolean;
+}

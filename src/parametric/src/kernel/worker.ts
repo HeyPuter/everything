@@ -100,6 +100,9 @@ async function handle(ev: MessageEvent<WorkerRequest>) {
       case 'mass':
         reply({ id: msg.id, ok: true, result: assembly.active ? assembly.massProperties() : builder.massProperties() });
         return;
+      case 'weldVolumes':
+        reply({ id: msg.id, ok: true, result: builder.weldVolumes() });
+        return;
       case 'flatPattern': {
         const res = builder.flatPattern(msg.quality);
         const transfer: Transferable[] = [];

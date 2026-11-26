@@ -449,15 +449,37 @@ export function cutListOf(app: App): CutList {
   return weldmentCutList(app.store.doc, app.weldments);
 }
 
+/**
+ * The cut list after the latest rebuild, with each member's mass less what
+ * later cuts and holes took from it (asked of the kernel only here, when the
+ * list is opened or exported: never on a rebuild).
+ */
+export async function exactCutList(app: App): Promise<CutList> {
+  await app.whenBuilt();
+  let members = app.weldments;
+  let approximate = false;
+  try {
+    const v = await app.kernel.weldVolumes();
+    approximate = v.approximate;
+    const vol = new Map(v.volumes.map((x) => [`${x.feature}|${x.member}`, x.volume]));
+    if (vol.size) members = members.map((m) => ({ ...m, volume: vol.get(`${m.feature}|${m.member}`) ?? m.volume }));
+  } catch {
+    // The kernel restarted: the masses as built, said to be so.
+    approximate = true;
+  }
+  const list = weldmentCutList(app.store.doc, members);
+  if (approximate) list.massApproximate = true;
+  return list;
+}
+
 let cutListOpen = false;
 
 export async function cutListDialog(app: App) {
   if (cutListOpen) return;
   cutListOpen = true;
   try {
-    await app.whenBuilt();
+    const list = await exactCutList(app);
     const doc = app.store.doc;
-    const list = cutListOf(app);
     if (!list.items.length) {
       // The tree's Cut list row stays while the members fail to build or are rolled back.
       const message = doc.features.some((x) => x.type === 'structuralMember')
@@ -476,9 +498,10 @@ export async function cutListDialog(app: App) {
     );
     const limit = app.buildLimit();
     const rolledTo = limit < doc.features.length ? doc.features[limit] : null;
-    const note = doc.material
-      ? `Mass from ${doc.material.name} (${doc.material.density} kg/m³).`
-      : 'No material is set: mass uses 1000 kg/m³. Set one with Edit Material.';
+    const note = (doc.material
+      ? `Mass from ${doc.material.name} (${doc.material.density} kg/m³), less later cuts and holes.`
+      : 'No material is set: mass uses 1000 kg/m³. Set one with Edit Material.')
+      + (list.massApproximate ? ' Later fillets, shells and other changes to the members are not in the mass.' : '');
     const v = await showDialog({
       title: 'Cut List', signal: app.documentSignal, wide: true,
       body: [
@@ -497,7 +520,7 @@ export async function cutListDialog(app: App) {
   }
 }
 
-function exportCutList(app: App, list = cutListOf(app)) {
+function exportCutList(app: App, list: CutList) {
   const doc = app.store.doc;
   // A byte order mark lets spreadsheet programs read the degree signs.
   download('﻿' + cutListCsv(list, doc.units, doc.decimals), `${safeName(doc.name)} cut list.csv`, 'text/csv');
@@ -547,7 +570,7 @@ export function weldmentCommands(app: App): Command[] {
     {
       id: 'cutListCsv', label: 'Export Cut List (CSV)', icon: 'download', keywords: 'weldment csv', enabled: hasMembers,
       // After the rebuild of the latest edit, as the dialog does.
-      run: async () => { await app.whenBuilt(); exportCutList(app); },
+      run: async () => exportCutList(app, await exactCutList(app)),
     },
   ];
 }
