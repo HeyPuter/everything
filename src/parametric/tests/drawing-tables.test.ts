@@ -107,6 +107,24 @@ describe('balloons', () => {
     expect(balloonTip({ kind: 'circle', c: [0, 0], r: 5, full: false, a: [5, 0], b: [-5, 0], m: [0, -5] }, [0, 20])).toEqual([0, -5]);
   });
 
+  it('ends a leader attached to a line where it was attached', () => {
+    expect(balloonTip({ kind: 'line', a: [0, 0], b: [10, 0] }, [50, 50], 0.8)).toEqual([8, 0]);
+    expect(balloonTip({ kind: 'line', a: [0, 0], b: [10, 4] }, [50, 50], 0)).toEqual([0, 0]);
+    // On the sheet: the view's 20 long edge runs from x 90 to 110.
+    const d: DrawingDoc = {
+      sheet: 'A4', landscape: true, scale: 1, title: '', drawnBy: '', notes: '',
+      views: [{ id: 'v1', kind: 'front', x: 100, y: 100, hidden: false, dims: false, source: 'assembly' }],
+      annotations: [{ id: 'a1', type: 'balloon', view: 'v1', ref: { edge: 'c2#e1', at: 'edge' }, at: [30, -30], t: 0.8 }],
+    };
+    const pr = { id: 'k', visible: ['M0 0L20 0'], hidden: [], bounds: [0, -10, 20, 0] as [number, number, number, number] };
+    const edges = [{ name: 'c2#e1', type: 'line', a: [0, 0, 0] as [number, number, number], b: [20, 0, 0] as [number, number, number], mid: [10, 0, 0] as [number, number, number], length: 20, faces: [0, 1], dir: [1, 0, 0] as [number, number, number] }];
+    const s = buildSheet(d, new Map([['v1', pr]]), {
+      partName: 'A', material: '', units: 'mm', date: '', formatLength: (v) => v.toFixed(1), edges: () => edges, itemOf: (_src, edge) => itemOfEdge(edge, rows),
+    });
+    const dot = s.items.find((i): i is Extract<Item, { t: 'circle' }> => i.t === 'circle' && i.r === 0.3)!;
+    expect(dot.cx).toBeCloseTo(106, 9);
+  });
+
   it('draws the number in a circle with a leader to a dot on the edge', () => {
     const items: Item[] = [];
     const box = drawBalloon(items, '12', [50, 50], [70, 50]);
@@ -206,6 +224,9 @@ describe('drawing data', () => {
     expect(bad({ annotations: [{ id: 'a', type: 'bom', at: [0, 0], anchor: 'topRight' }] })).toBe(false);
     expect(bad({ annotations: [{ id: 'a', type: 'balloon', view: 'v1', ref: { edge: 'e', at: 'edge' }, at: [0, 0], item: 0 }] })).toBe(false);
     expect(bad({ annotations: [{ id: 'a', type: 'balloon', ref: { edge: 'e', at: 'edge' }, at: [0, 0] }] })).toBe(false);
+    expect(bad({ annotations: [{ id: 'a', type: 'balloon', view: 'v1', ref: { edge: 'e', at: 'edge' }, at: [0, 0], t: 1.5 }] })).toBe(false);
+    expect(bad({ annotations: [{ id: 'a', type: 'balloon', view: 'v1', ref: { edge: 'e', at: 'edge' }, at: [0, 0], t: '0.5' }] })).toBe(false);
+    expect(bad({ annotations: [{ id: 'a', type: 'balloon', view: 'v1', ref: { edge: 'e', at: 'edge' }, at: [0, 0], t: 0.25 }] })).toBe(true);
   });
 
   it('keeps an assembly’s drawing when the assembly is opened, and rejects a damaged one', () => {

@@ -116,10 +116,16 @@ export function itemOfEdge(edge: string, rows: BomRow[]): number | null {
   return rows.find((r) => r.prefixes.some((p) => edge.startsWith(p)))?.item ?? null;
 }
 
-/** Where a balloon's leader meets its edge: a line's middle, the point of a circle nearest the balloon, an arc's middle. */
-export function balloonTip(g: Geo, at: P2): P2 {
+/**
+ * Where a balloon's leader meets its edge: on a line where it was attached (`t`, a fraction of
+ * it from its start; absent: its middle), the point of a circle nearest the balloon, an arc's middle.
+ */
+export function balloonTip(g: Geo, at: P2, t?: number): P2 {
   if (g.kind === 'point') return g.p;
-  if (g.kind === 'line') return [(g.a[0] + g.b[0]) / 2, (g.a[1] + g.b[1]) / 2];
+  if (g.kind === 'line') {
+    const k = t ?? 0.5;
+    return [g.a[0] + (g.b[0] - g.a[0]) * k, g.a[1] + (g.b[1] - g.a[1]) * k];
+  }
   if (!g.full) return g.m;
   const dx = at[0] - g.c[0], dy = at[1] - g.c[1], l = Math.hypot(dx, dy) || 1;
   return [g.c[0] + (dx / l) * g.r, g.c[1] + (dy / l) * g.r];

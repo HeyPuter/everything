@@ -170,6 +170,10 @@ test('an assembly drawing: bill of materials, auto and manual balloons, a sectio
   await expect.poll(async () => (await drawing(page)).annotations!.filter((a) => a.type === 'balloon' && a.view === 'v3').length).toBe(1);
   expect(await items()).toEqual([1, 2, 2]);
   await page.keyboard.press('Escape');
+  // Its leader ends where the edge was clicked (or the vertex the click snapped to), not at the edge's middle.
+  const dots = await page.locator('.paper circle[r="0.3"]').evaluateAll((els) => els.map((e) => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]));
+  const snap = await page.evaluate(() => 7 / ((window as unknown as { __parametric: A }).__parametric.drawing as unknown as Ws).zoom);
+  expect(dots.some(([x, y]) => Math.hypot(x - pinEdge.x, y - pinEdge.y) <= snap + 0.01)).toBe(true);
 
   // A section view of the assembly: both components cut and hatched.
   await page.getByRole('tab', { name: 'Drafting' }).click();

@@ -751,6 +751,8 @@ export interface DrawingBalloon extends DrawingAnnotationBase {
   at: [number, number];
   /** Item number override (absent: the BOM row of the component the edge belongs to). */
   item?: number;
+  /** Where the leader meets a straight edge, as a fraction of it from its start (absent: its middle). */
+  t?: number;
 }
 
 /** Bill of materials table of a view's source (rows come from the source, so it follows the assembly). */

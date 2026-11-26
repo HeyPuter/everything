@@ -85,7 +85,8 @@ export function validDrawing(value: unknown): value is DrawingDoc {
           break;
         case 'holeCallout':
         case 'balloon':
-          if (typeof a.view !== 'string' || !ref(a.ref) || !point(a.at) || !optional(a.item, (n) => Number.isInteger(n) && (n as number) > 0)) return false;
+          if (typeof a.view !== 'string' || !ref(a.ref) || !point(a.at) || !optional(a.item, (n) => Number.isInteger(n) && (n as number) > 0)
+            || !optional(a.t, (n) => finite(n) && (n as number) >= 0 && (n as number) <= 1)) return false;
           break;
         case 'bom':
           if (!point(a.at) || !optional(a.source, str) || !optional(a.anchor, (x) => x === 'bottomRight')) return false;

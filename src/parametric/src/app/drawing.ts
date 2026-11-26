@@ -15,7 +15,7 @@ import {
   DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, TITLE_H, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
   standardLayout, switchProjection, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
 } from '../drawing/sheet';
-import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, holeCount, holeInstance, holeSpecOf, measure } from '../drawing/annotate';
+import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, holeCount, holeInstance, holeSpecOf, measure, resolveRef } from '../drawing/annotate';
 import { toDxf } from '../drawing/dxf';
 import type { DrawingSource } from '../drawing/source';
 import { type P2, type Prim, type ResolvedView, FLAT_SOURCE, SIDE_VECTORS, besideOrient, dependents, lineNormal, projectionRequest, resolveViews, standardKindOf } from '../drawing/views';
@@ -46,8 +46,8 @@ export const TOOL_LABELS: Record<DrawingToolKind, string> = {
 /** Commands that start by picking the view they work on. */
 const fromView = (k: DrawingToolKind) => k === 'projected' || k === 'section' || k === 'detail' || k === 'auxiliary' || k === 'autoBalloon';
 
-/** Something picked on the sheet: a model edge or point seen in a view. */
-interface Pick { view: Id; ref: DrawingRef; geo: Geo; q: P2 }
+/** Something picked on the sheet: a model edge or point seen in a view (`t`: where on a straight edge a balloon's leader is attached, a fraction of it from its start). */
+interface Pick { view: Id; ref: DrawingRef; geo: Geo; q: P2; t?: number }
 type ToolOptions = { orient?: ToolState['orient']; leader?: boolean };
 
 interface ToolState {
@@ -923,7 +923,15 @@ export class DrawingWorkspace {
             toast({ kind: 'info', message: this.app.assembly ? 'Click an edge of a component listed in the bill of materials.' : 'Click an edge of a structural member listed in the cut list.' });
             return;
           }
-          t.picks.push({ ...hit, ref: { edge: hit.ref.edge, at: 'edge' } });
+          // The leader ends where the edge was clicked (a vertex: that end of it).
+          const ref: DrawingRef = { edge: hit.ref.edge, at: 'edge' };
+          const geo = resolveRef(pv.prims, ref) ?? hit.geo;
+          let along: number | undefined;
+          if (geo.kind === 'line') {
+            const dx = geo.b[0] - geo.a[0], dy = geo.b[1] - geo.a[1], L = dx * dx + dy * dy;
+            along = L > 0 ? +Math.max(0, Math.min(1, ((hit.q[0] - geo.a[0]) * dx + (hit.q[1] - geo.a[1]) * dy) / L)).toFixed(4) : undefined;
+          }
+          t.picks.push({ ...hit, ref, geo, ...(along !== undefined ? { t: along } : {}) });
           this.app.setStatus(this.toolPrompt());
           this.drawOverlay();
           return;
@@ -933,7 +941,7 @@ export class DrawingWorkspace {
         if (!pv) return;
         const at = this.toView(pv, x, y);
         const id = this.newAnnoId(d);
-        finish('Balloon', (dd) => { (dd.annotations ??= []).push({ id, type: 'balloon', view: a.view, ref: a.ref, at: [+at[0].toFixed(4), +at[1].toFixed(4)] }); }, true);
+        finish('Balloon', (dd) => { (dd.annotations ??= []).push({ id, type: 'balloon', view: a.view, ref: a.ref, at: [+at[0].toFixed(4), +at[1].toFixed(4)], ...(a.t !== undefined ? { t: a.t } : {}) }); }, true);
         return;
       }
       case 'autoBalloon': return;
@@ -1030,7 +1038,7 @@ export class DrawingWorkspace {
       const k = t.picks[0], pl = this.placements.get(k.view);
       if (pl) {
         const n = this.itemOf(pl.r.source, k.ref.edge);
-        drawBalloon(items, n === null ? '?' : String(n), cur, T(pl, balloonTip(k.geo, this.toView(pl, cur[0], cur[1]))));
+        drawBalloon(items, n === null ? '?' : String(n), cur, T(pl, balloonTip(k.geo, this.toView(pl, cur[0], cur[1]), k.t)));
       }
     }
     if (cur && t.kind === 'note' && t.leader && t.pts.length) {

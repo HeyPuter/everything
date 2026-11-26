@@ -521,7 +521,7 @@ function drawAnnotations(items: Item[], d: DrawingDoc, placements: Map<string, V
         const at = pl.T(a.at);
         const n = a.item ?? (p ? info.itemOf?.(p.r.source, a.ref.edge) : null) ?? null;
         const ok = !!g && n !== null;
-        out.push({ id: a.id, box: drawBalloon(items, n === null ? '?' : String(n), at, g ? pl.T(balloonTip(g, a.at)) : null, ok ? undefined : DANGER) });
+        out.push({ id: a.id, box: drawBalloon(items, n === null ? '?' : String(n), at, g ? pl.T(balloonTip(g, a.at, a.t)) : null, ok ? undefined : DANGER) });
         break;
       }
       case 'bom':
