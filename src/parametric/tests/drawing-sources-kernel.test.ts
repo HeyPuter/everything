@@ -129,6 +129,13 @@ describe('flat pattern views', () => {
     expect(svg).toContain(`>${fw.toFixed(2)}<`);
     expect(svg).toContain(`>${fh.toFixed(2)}<`);
     expect(s.items.filter((it) => it.t === 'line' && it.dash?.length === 2)).toHaveLength(1);
+    // A detail of it shows the bend line too, cut off at its circle.
+    const cx = (bl.a[0] + bl.b[0]) / 2, cy = (bl.a[1] + bl.b[1]) / 2;
+    const dd: DrawingDoc = { ...d, views: [...d.views, { id: 'v2', kind: 'front', type: 'detail', parent: 'v1', circle: [cx, cy, 5], x: 60, y: 60, hidden: false, dims: false }] };
+    const s2 = buildSheet(dd, new Map([['v1', pr], ['v2', pr]]), { partName: 'P', material: '', units: 'mm', date: '', formatLength: (v) => v.toFixed(2), edges: () => edges });
+    const bendLines = s2.items.filter((it): it is Extract<typeof it, { t: 'line' }> => it.t === 'line' && it.dash?.length === 2);
+    expect(bendLines).toHaveLength(2);
+    expect(Math.hypot(bendLines[1].x2 - bendLines[1].x1, bendLines[1].y2 - bendLines[1].y1)).toBeCloseTo(2 * 5 * 2, 4);
   });
 
   it('says why when the part cannot be flattened', () => {

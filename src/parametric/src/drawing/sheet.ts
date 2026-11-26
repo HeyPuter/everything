@@ -294,6 +294,14 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
           .flatMap(([x1, y1, x2, y2]) => clipToCircle([[x1, y1], [x2, y2]], c, R)).map(polyPath);
         if (segs.length) items.push({ t: 'path', d: segs.join(''), tx: 0, ty: 0, s: 1, w: THIN, view: v.id });
       }
+      // A detail of a flat pattern shows its bend lines too.
+      if (r.parent?.type === 'flat') {
+        for (const b of (pr as FlatProjection).bends ?? []) {
+          for (const seg of clipToCircle([[tx + b.a[0] * s, ty + b.a[1] * s], [tx + b.b[0] * s, ty + b.b[1] * s]], c, R)) {
+            items.push({ t: 'line', x1: seg[0][0], y1: seg[0][1], x2: seg[seg.length - 1][0], y2: seg[seg.length - 1][1], w: THIN, dash: b.up ? [4, 1.5] : [4, 1.2, 1, 1.2] });
+          }
+        }
+      }
       items.push({ t: 'circle', cx: c[0], cy: c[1], r: R, w: THIN });
     } else {
       if (v.hidden) for (const p of pr.hidden) items.push({ t: 'path', d: p, tx, ty, s, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });

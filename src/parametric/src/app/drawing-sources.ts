@@ -20,6 +20,12 @@ export const EXPLODED_SOURCE = 'assembly:exploded';
 interface Placed { comp: AsmComponent; part: AsmPart; pl: Placement }
 
 /**
+ * Versions of assembly sources, counted across all of them: a drawing's projections are kept
+ * by version, so another assembly opened later must not find the same numbers.
+ */
+let versions = 0;
+
+/**
  * The components of an open assembly as a drawing shows them: every component that is not
  * suppressed (hidden ones too: hiding is for the graphics area), where the mates put it, or
  * moved by the exploded view's steps. Edges are named as the assembly's graphics area names
@@ -52,7 +58,7 @@ export function assemblySource(app: App, m: AssemblyMode, exploded: boolean): Dr
     }
     const key = JSON.stringify(items.map((it) => [it.comp.id, m.key(it.part), placementMatrix(it.pl).map((v) => +v.toFixed(9))]));
     if (state?.key === key) return state;
-    version++;
+    version = ++versions;
     const edges: EdgeInfo[] = [];
     const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
     for (const { comp, part, pl } of items) {
