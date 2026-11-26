@@ -130,7 +130,7 @@ test.describe('weldments', () => {
     expect(errors).toEqual([]);
   });
 
-  test('exports the cut list as CSV after the latest edit is rebuilt', async ({ page }) => {
+  test('exports the cut list as CSV after the latest edit is rebuilt, and says why it is empty', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
     await page.evaluate(() => {
@@ -158,6 +158,16 @@ test.describe('weldments', () => {
     });
     const csv = new TextDecoder().decode(readFileSync((await (await download).path())!)).split('\r\n');
     expect(csv[1]).toMatch(/^1,1,SQ TUBE 40 x 40 x 3,300\.00,/);
+    // With its line deleted the member fails: the Cut list row says why it lists nothing.
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Delete line', (d) => {
+        const sk = d.features.find((f) => f.id === 's1');
+        if (sk?.type === 'sketch') sk.entities = sk.entities.filter((e) => e.id !== 'l');
+      });
+    });
+    await page.getByRole('treeitem', { name: 'Cut list (0)' }).click();
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('No structural members are built');
     expect(errors).toEqual([]);
   });
 

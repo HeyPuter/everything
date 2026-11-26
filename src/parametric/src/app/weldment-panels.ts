@@ -457,7 +457,11 @@ export async function cutListDialog(app: App) {
     const doc = app.store.doc;
     const list = cutListOf(app);
     if (!list.items.length) {
-      toast({ kind: 'info', message: 'The part has no structural members yet. Add them with Structural Member in the Weldments tab.' });
+      // The tree's Cut list row stays while the members fail to build or are rolled back.
+      const message = doc.features.some((x) => x.type === 'structuralMember')
+        ? 'No structural members are built: check the Structural Member features for errors, suppression or the rollback position.'
+        : 'The part has no structural members yet. Add them with Structural Member in the Weldments tab.';
+      toast({ kind: 'info', message });
       return;
     }
     const { header, rows, total } = cutListRows(list, doc.units, doc.decimals);
@@ -534,7 +538,9 @@ export function weldmentCommands(app: App): Command[] {
     },
     {
       id: 'cutList', label: 'Cut List', icon: 'cutList', keywords: 'weldment bill of materials bom lengths csv',
-      description: 'List the structural members by profile, length and end angles, and export it as CSV.', enabled: hasMembers, run: () => cutListDialog(app),
+      description: 'List the structural members by profile, length and end angles, and export it as CSV.',
+      // With members that fail to build too, so the tree's Cut list row says why it is empty.
+      enabled: () => hasMembers() || app.store.doc.features.some((x) => x.type === 'structuralMember'), run: () => cutListDialog(app),
     },
     {
       id: 'cutListCsv', label: 'Export Cut List (CSV)', icon: 'download', keywords: 'weldment csv', enabled: hasMembers,
