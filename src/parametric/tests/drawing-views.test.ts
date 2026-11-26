@@ -236,6 +236,27 @@ describe('sheet', () => {
     expect(s.items.filter((i) => i.t === 'line' && i.w === 0.6)).toHaveLength(2);
   });
 
+  it('marks an auxiliary view on its parent with an arrow square to the edge and the view letter', () => {
+    for (const projection of ['third', 'first'] as const) {
+      // The edge from (-20, 10) to (20, -10) on the parent at (100, 100); the view lies on its left normal's side (down and to the right).
+      const d = base([
+        { id: 'v1', kind: 'front', x: 100, y: 100, hidden: false, dims: false },
+        { id: 'v2', kind: 'front', type: 'auxiliary', parent: 'v1', line: [-20, 10, 20, -10], label: 'D', x: 50, y: 40, hidden: false, dims: false },
+      ], { projection });
+      const s = buildSheet(d, new Map([['v1', box('v1', 40, 20)], ['v2', box('v2', 30, 20)]]), info);
+      expect(s.items.some((i) => i.t === 'text' && i.s === 'VIEW D')).toBe(true);
+      const letter = s.items.find((i) => i.t === 'text' && i.s === 'D' && i.bold) as Extract<Item, { t: 'text' }>;
+      expect(letter).toBeDefined();
+      const tri = s.items.find((i) => i.t === 'tri') as Extract<Item, { t: 'tri' }>;
+      // The arrow points at the middle of the edge, from the side the view is seen from:
+      // third angle the view's side, first angle the other.
+      expect(Math.hypot(tri.a[0] - 100, tri.a[1] - 100)).toBeCloseTo(2, 6);
+      const n = [20, 40].map((q) => q / Math.hypot(20, 40));
+      const side = (letter.x - 100) * n[0] + (letter.y - 1.75 - 100) * n[1];
+      expect(projection === 'third' ? side > 10 : side < -10).toBe(true);
+    }
+  });
+
   it('says where a section view is when its cutting line misses the part, and keeps it selectable', () => {
     const d = base([
       { id: 'v1', kind: 'front', x: 100, y: 100, hidden: false, dims: false },

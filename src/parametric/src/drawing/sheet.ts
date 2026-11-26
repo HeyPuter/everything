@@ -8,7 +8,7 @@ import { bendNote } from '../model/flat-pattern';
 import type { DrawingBom, DrawingCutList, DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
 import {
   type AnnoFormat, type Geo, type HoleSpec, type Placement, DANGER, DIM_TEXT_SIZE, NOTE_SIZE, drawCenterMark, drawCenterline, drawCuttingLine,
-  drawDetailCircle, drawDimension, drawNote, holeCalloutText, measure, resolveRef,
+  drawDetailCircle, drawDimension, drawNote, drawViewArrow, holeCalloutText, measure, resolveRef,
 } from './annotate';
 import type { FlatProjection } from './flat';
 import { PdfPage, textWidth } from './pdf';
@@ -345,6 +345,10 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
       const first = d.projection === 'first';
       const sight: [number, number] = first ? r.toward : [-r.toward[0], -r.toward[1]];
       drawCuttingLine(items, T([v.line[0], v.line[1]]), T([v.line[2], v.line[3]]), sight, letter);
+    } else if (r.type === 'auxiliary' && v.line && r.toward) {
+      const first = d.projection === 'first';
+      const sight: [number, number] = first ? r.toward : [-r.toward[0], -r.toward[1]];
+      drawViewArrow(items, T([(v.line[0] + v.line[2]) / 2, (v.line[1] + v.line[3]) / 2]), sight, letter);
     } else if (r.type === 'detail' && r.clip) drawDetailCircle(items, T(r.clip.c), r.clip.r * pp.s, letter);
   }
   // Centre marks and hole axes of the views that show them.

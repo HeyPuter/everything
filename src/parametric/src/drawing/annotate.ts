@@ -351,6 +351,19 @@ export function drawCuttingLine(items: Item[], a: P2, b: P2, sight: P2, letter: 
   }
 }
 
+/**
+ * The viewing arrow of an auxiliary view on its parent: square to the edge it looks at, on the
+ * side it is seen from, pointing at the edge's middle `m`, with the view's letter at its tail.
+ */
+export function drawViewArrow(items: Item[], m: P2, sight: P2, letter: string) {
+  const w = unit(sight);
+  const tip: P2 = [m[0] - w[0] * 2, m[1] - w[1] * 2], tail: P2 = [m[0] - w[0] * 12, m[1] - w[1] * 12];
+  line(items, tail, tip, undefined, 0.35);
+  arrow(items, tip, w);
+  const q: P2 = [tail[0] - w[0] * 2.5, tail[1] - w[1] * 2.5 + 1.75];
+  items.push({ t: 'text', s: letter, x: q[0], y: q[1], size: 3.5, bold: true, anchor: 'middle' });
+}
+
 /** The circle of a detail view on its parent, with its letter. */
 export function drawDetailCircle(items: Item[], c: P2, r: number, letter: string) {
   items.push({ t: 'circle', cx: c[0], cy: c[1], r, w: 0.35, dash: [6, 1.2, 1, 1.2] });
