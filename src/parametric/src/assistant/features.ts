@@ -287,6 +287,8 @@ export class FeatureCodec {
       case 'sweep': return { profile: f.profile, path: f.path, cut: f.cut };
       case 'draft': return { faces: f.faces.map((x) => x.name), neutral_plane: planeSpec(f.neutral), angle: A(f.angle), reverse: f.flip };
       case 'import': return { format: f.format, file: f.fileName };
+      // Weldment features are made in the Weldments tab, not by the assistant.
+      default: return {};
     }
   }
 }

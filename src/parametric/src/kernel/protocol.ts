@@ -3,6 +3,7 @@
 
 import type { Frame, Vec3 } from '../math/vec';
 import type { Feature, Id, SkEntity } from '../model/types';
+import type { WeldMemberInfo } from '../model/weldments';
 
 /** Features with every Param already evaluated to a number. */
 export type ResolvedFeature = Feature;
@@ -105,6 +106,8 @@ export interface BuildResult {
   previewWarning?: string;
   /** Bytes of WebAssembly memory the kernel holds after the build (it never shrinks). */
   heap?: number;
+  /** Structural members as built (weldment parts only), for the cut list. */
+  weldments?: WeldMemberInfo[];
 }
 
 export interface MassProperties {

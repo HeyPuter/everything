@@ -336,6 +336,91 @@ export interface ImportFeature extends FeatureBase {
   fileName: string;
 }
 
+// ---- Weldments ----
+
+/** A line or arc of a sketch, used as the path of a structural member. */
+export interface SegmentRef {
+  sketch: Id;
+  entity: Id;
+}
+
+/** Segments whose members are joined by the group's corner treatment. */
+export interface MemberGroup {
+  segments: SegmentRef[];
+}
+
+export type CornerTreatment = 'miter' | 'butt1' | 'butt2';
+
+export interface StructuralMemberFeature extends FeatureBase {
+  type: 'structuralMember';
+  /** Profile library keys (see weldment-profiles.ts). */
+  standard: string;
+  profile: string;
+  size: string;
+  groups: MemberGroup[];
+  /** Profile rotation about the member axis, degrees. */
+  rotation: Param;
+  mirror: boolean;
+  /** Profile point placed on the sketch segment. */
+  pierce: string;
+  /** Joints between members of one group. */
+  corner: CornerTreatment;
+  /** Gap at joints within a group. */
+  gap: Param;
+  /** Members of later groups are trimmed or extended to members of earlier groups. */
+  trimGroups: boolean;
+  /** Gap where a member is trimmed to a member of another group. */
+  gap2: Param;
+}
+
+/** A member of a structural member feature: its feature and segment ("sketch/entity"). */
+export interface MemberRef {
+  feature: Id;
+  member: string;
+}
+
+export interface TrimExtendFeature extends FeatureBase {
+  type: 'trimExtend';
+  /** Members to trim or extend. */
+  members: MemberRef[];
+  /** Planar faces, or members, to trim to. */
+  boundary: 'faces' | 'members';
+  faces: FaceRef[];
+  boundaryMembers: MemberRef[];
+  /** Members that stop short of the boundary are extended to it. */
+  allowExtension: boolean;
+  /** Members trimmed to members follow their surface (coped) instead of a plane. */
+  coped: boolean;
+  gap: Param;
+}
+
+export interface EndCapFeature extends FeatureBase {
+  type: 'endCap';
+  /** End faces of tube or pipe members. */
+  faces: FaceRef[];
+  thickness: Param;
+  /** Distance the cap's edge is set in from the member's edge. */
+  offset: Param;
+  /** Outward adds the cap past the end; inward fits it inside the tube. */
+  inward: boolean;
+}
+
+export interface GussetFeature extends FeatureBase {
+  type: 'gusset';
+  /** Two planar faces meeting at a corner. */
+  faces: FaceRef[];
+  shape: 'triangular' | 'polygonal';
+  d1: Param;
+  d2: Param;
+  /** Polygonal: length of the straight edges at the ends of the legs. */
+  d3: Param;
+  thickness: Param;
+  /** Where the plate lies across its thickness. */
+  location: 'center' | 'side1' | 'side2';
+  /** Corner clip for the weld at the inner corner (0 for none). */
+  chamfer: Param;
+}
+
 export type Feature =
   | SketchFeature
   | ExtrudeFeature
@@ -351,7 +436,11 @@ export type Feature =
   | LoftFeature
   | SweepFeature
   | DraftFeature
-  | ImportFeature;
+  | ImportFeature
+  | StructuralMemberFeature
+  | TrimExtendFeature
+  | EndCapFeature
+  | GussetFeature;
 
 export type FeatureType = Feature['type'];
 

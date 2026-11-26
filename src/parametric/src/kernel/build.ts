@@ -30,6 +30,7 @@ import type {
   BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData,
   ProjectionRequest, ProjectionResult,
 } from './protocol';
+import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend } from './weldments';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
   hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
@@ -75,6 +76,8 @@ interface State {
   /** Projected sketch entities whose model edge or vertex is gone, by sketch. */
   lostRefs: Map<Id, Id[]>;
   tools: Map<Id, Tool>;
+  /** Structural members, end caps and gussets built so far (weldment parts only). */
+  weld?: WeldState;
 }
 
 interface Step {
@@ -93,6 +96,7 @@ const cloneState = (s: State): State => ({
   sketches: new Map(s.sketches),
   lostRefs: new Map(s.lostRefs),
   tools: new Map(s.tools),
+  weld: s.weld,
 });
 
 /** A feature's numeric value at a path (dir1.count), named by its label when it is not a number. */
@@ -322,6 +326,7 @@ export class ModelBuilder {
       preview: null,
       sketches,
     };
+    if (state.weld) result.weldments = state.weld.members.map((m) => m.info);
 
     if (req.preview) {
       const p = cloneState(state);
@@ -380,7 +385,39 @@ export class ModelBuilder {
       case 'sweep': this.applySweep(f, st); return 'tool';
       case 'draft': this.applyDraft(f, st); return 'body';
       case 'import': await this.applyImport(f, st, req); return 'body';
+      case 'structuralMember': applyStructuralMember(this.weldCtx(f.id, st), f); return 'tool';
+      case 'trimExtend': applyTrimExtend(this.weldCtx(f.id, st), f); return 'body';
+      case 'endCap': applyEndCap(this.weldCtx(f.id, st), f); return 'tool';
+      case 'gusset': applyGusset(this.weldCtx(f.id, st), f); return 'tool';
     }
+  }
+
+  /** What the weldment features (weldments.ts) use of the builder. */
+  private weldCtx(featId: Id, st: State): WeldCtx {
+    return {
+      st,
+      featureId: featId,
+      sketch: (id) => {
+        const sk = st.sketches.get(id), frame = st.frames.get(id);
+        if (!sk || !frame) throw this.missing(id, 'layout sketch');
+        return { entities: sk.entities, frame };
+      },
+      face: (ref) => { const f = st.faces[this.resolveFace(ref, st)]; return { name: f.name, desc: f.desc }; },
+      nameTool: (prefix, shape, classify) => this.nameTool(prefix, shape, (_d, k) => classify(k)),
+      applyTool: (tool, faces, noGain) => this.applyTool(featId, st, tool, faces as NamedFace[], false, noGain),
+      setBody: (body, faces) => {
+        st.faces = this.nameFaces(featId, body, st, faces as NamedFace[]);
+        st.body = body;
+        st.edges = null;
+      },
+      bodyBefore: (id) => {
+        const i = this.order.get(id)?.index ?? -1;
+        return i > 0 ? this.steps[i - 1]?.state.body ?? null : null;
+      },
+      warn: (m) => { this.warning = m; },
+      err: (m) => new FeatureError(m),
+      name: nameOf,
+    };
   }
 
   /**
