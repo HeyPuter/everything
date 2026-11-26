@@ -179,6 +179,34 @@ test.describe('surfaces', () => {
     expect(errors).toEqual([]);
   });
 
+  test('lists the trim pieces to keep in the part\'s units', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await app(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: A }).__parametric;
+      a.store.change('Trim', (d) => {
+        d.units = 'IPS';
+        d.features.push(
+          { id: 'pl', name: 'Plane1', type: 'plane', ref: { kind: 'base', plane: 'right' }, offset: 25.4, flip: false },
+          { id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [],
+            entities: [{ id: 'p0', t: 'point', x: 0, y: 0 }, { id: 'p1', t: 'point', x: 101.6, y: 0 }, { id: 'p2', t: 'point', x: 101.6, y: 101.6 }, { id: 'p3', t: 'point', x: 0, y: 101.6 },
+              { id: 'k0', t: 'line', a: 'p0', b: 'p1' }, { id: 'k1', t: 'line', a: 'p1', b: 'p2' }, { id: 'k2', t: 'line', a: 'p2', b: 'p3' }, { id: 'k3', t: 'line', a: 'p3', b: 'p0' }] },
+          { id: 'f1', name: 'Surface-Plane1', type: 'surfacePlanar', sketch: 's1', edges: [] },
+          { id: 't1', name: 'Surface-Trim1', type: 'surfaceTrim', faces: [{ name: 'f1:p0', sig: { type: 'plane', c: [50.8, 50.8, 0], area: 10322.56 } }],
+            tool: { kind: 'plane', plane: { kind: 'feature', id: 'pl' } }, keep: [[12.7, 50.8, 0]], flip: false },
+        );
+      });
+    });
+    await waitForFeature(page, 'Surface-Trim1');
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.editFeature('t1'));
+    await expect(page.getByRole('heading', { name: 'Surface-Trim1' })).toBeVisible();
+    await expect(page.locator('.pm')).toContainText('Piece at 0.50, 2.00, 0.00 in');
+    await page.keyboard.press('Escape');
+    expect(errors).toEqual([]);
+  });
+
   test('shows a clear error when knit surfaces do not close a volume', async ({ page }) => {
     const errors = await openApp(page);
     await loftProfiles(page);

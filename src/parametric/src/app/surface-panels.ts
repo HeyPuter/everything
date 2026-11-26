@@ -12,6 +12,7 @@ import type {
   SurfaceExtrudeFeature, SurfaceFillFeature, SurfaceKnitFeature, SurfaceLoftFeature, SurfaceOffsetFeature, SurfacePlanarFeature,
   SurfaceRevolveFeature, SurfaceSweepFeature, SurfaceTrimFeature, ThickenFeature, TrimTool,
 } from '../model/types';
+import { formatLength } from '../model/units';
 import { h } from '../ui/dom';
 import type { App } from './app';
 import type { Command } from './commands';
@@ -269,14 +270,20 @@ export class SurfaceTrimPanel extends SurfacePanel<SurfaceTrimFeature> {
       const s = toSurfaceFace(app)(it);
       if (!s) return null;
       const p: Vec3 = app.lastPickPoint ?? app.faces[(it as { index: number }).index].center;
-      return { item: null, data: p, label: `Piece of ${s.label} at ${p.map((x) => +x.toFixed(2)).join(', ')}` };
+      return { item: null, data: p, label: `Piece of ${s.label} at ${this.at(p)}` };
     }, (items) => { f.keep = items.map((i) => i.data as Vec3); flip.hidden = f.keep.length > 0; this.changed(); }, { placeholder: 'Optional: click the pieces to keep', icon: 'select' });
-    keep.setItems(f.keep.map((p) => ({ item: null, data: p, label: `Piece at ${p.map((x) => +x.toFixed(2)).join(', ')}` })));
+    keep.setItems(f.keep.map((p) => ({ item: null, data: p, label: `Piece at ${this.at(p)}` })));
     return [
       section('Trim Tool', [tool.el]),
       section('Surfaces', [targets.el]),
       section('Keep', [keep.el, flip, h('p', { class: 'field-label' }, 'Without picked pieces, the side the tool’s normal points to is kept.')]),
     ];
+  }
+
+  /** A picked point in the part's units ("1.25, 0.5, 0 in"). */
+  private at(p: Vec3): string {
+    const doc = this.app.store.doc;
+    return p.map((x, i) => formatLength(x, doc.units, doc.decimals, i === 2)).join(', ');
   }
 
   private toolLabel(t: TrimTool): string {
