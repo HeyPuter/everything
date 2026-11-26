@@ -187,6 +187,8 @@ export function viewPrims(r: ResolvedView, edges: EdgeInfo[]): Prim[] {
   const out: Prim[] = [];
   const keep = (p: Vec3) => !r.section || dot(sub(p, r.section.p), r.section.n) >= -1e-6 * (1 + Math.abs(dot(p, r.section.n)));
   for (const e of edges) {
+    // Seams (where a closed face meets itself) are not edges on a drawing.
+    if (e.faces.length === 1) continue;
     if (r.section && !(keep(e.a) && keep(e.b) && keep(e.mid))) continue;
     const a = toView(o, e.a), b = toView(o, e.b);
     if (e.type === 'line') {

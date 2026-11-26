@@ -267,7 +267,7 @@ export function registerCommands(app: App, files: FileOps) {
     // ---- view ----
     { id: 'zoomFit', label: 'Zoom to Fit', icon: 'zoomFit', shortcut: 'F', run: () => (app.inDrawing ? app.drawing.fit() : app.viewport.zoomToFit()) },
     // ---- drawing ----
-    { id: 'openDrawing', label: 'Make Drawing', icon: 'file', keywords: 'drawing sheet 2d views print pdf', description: 'Open the 2D drawing of this part with standard views.', enabled: () => hasBody() || !!app.store.doc.drawing, run: () => app.openDrawing() },
+    { id: 'openDrawing', label: 'Make Drawing', icon: 'makeDrawing', keywords: 'drawing sheet 2d views print pdf drafting engineering drawing orthographic', description: 'Open the 2D drawing of this part: standard views, sections, details and dimensions, exported to PDF, SVG or DXF.', enabled: () => hasBody() || !!app.store.doc.drawing, run: () => app.openDrawing() },
     { id: 'backToModel', label: 'Back to Model', icon: 'part', enabled: () => app.inDrawing, run: () => app.closeDrawing() },
     { id: 'drawing:arrange', label: 'Standard Views', icon: 'viewOrientation', description: 'Arrange front, top, right and isometric views at a fitting scale.', enabled: () => app.inDrawing && hasBody(), run: () => app.drawing.relayout() },
     ...(['front', 'top', 'right', 'left', 'back', 'bottom', 'isometric'] as const).map((k): Command => ({
@@ -275,6 +275,23 @@ export function registerCommands(app: App, files: FileOps) {
     })),
     { id: 'drawing:pdf', label: 'Export PDF', icon: 'download', keywords: 'print drawing', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportPdf() },
     { id: 'drawing:svg', label: 'Export SVG', icon: 'download', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportSvg() },
+    { id: 'drawing:dxf', label: 'Export DXF', icon: 'download', keywords: 'drawing autocad cad 2d', description: 'Save the drawing sheet as a DXF file for 2D CAD programs.', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportDxf() },
+    ...([
+      ['projected', 'drawingProjected', 'Projected View', 'Add a view projected from a view of the drawing, aligned with it.', 'orthographic drawing'],
+      ['section', 'drawingSection', 'Section View', 'Cut a view of the drawing along a line and show the cut face hatched.', 'drawing cut hatch cutting plane'],
+      ['detail', 'drawingDetail', 'Detail View', 'Show a circle of a view of the drawing magnified.', 'drawing zoom magnify enlarge'],
+      ['auxiliary', 'drawingAuxiliary', 'Auxiliary View', 'Add a view looking square to an inclined edge of a view.', 'drawing inclined'],
+      ['dimension', 'smartDimension', 'Smart Dimension', 'Dimension edges, circles and points of the drawing views: distances, radii, diameters and angles.', 'drawing dimension measure annotate'],
+      ['centerMark', 'drawingCenterMark', 'Center Mark', 'Mark the centre of a circle or arc in a drawing view.', 'drawing annotate centre'],
+      ['centerline', 'centerline', 'Centerline', 'Draw a centerline between two parallel edges in a drawing view.', 'drawing annotate axis'],
+      ['note', 'text', 'Note', 'Add text to the drawing sheet, with an optional leader arrow.', 'drawing annotate text label leader'],
+      ['holeCallout', 'drawingHoleCallout', 'Hole Callout', 'Label a hole with its size, depth and counterbore or countersink.', 'drawing annotate hole diameter thread'],
+    ] as const).map(([k, ic, label, description, keywords]): Command => ({
+      id: `drawing:${k}`, label, icon: ic, description, keywords,
+      enabled: () => app.inDrawing && hasBody() && !!app.store.doc.drawing?.views.length,
+      checked: () => app.inDrawing && app.drawing.tool?.kind === k,
+      run: () => app.drawing.startTool(k),
+    })),
     { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => (app.inDrawing ? app.drawing.zoomBy(1.25) : app.viewport.zoomBy(0.8)) },
     { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => (app.inDrawing ? app.drawing.zoomBy(0.8) : app.viewport.zoomBy(1.25)) },
     // No shortcut: Ctrl+Shift+Z is Redo.
@@ -394,11 +411,24 @@ export const RIBBON: RibbonTab[] = [
     groups: [[{ cmd: 'measure' }, { cmd: 'massProperties' }, { cmd: 'sectionView' }], [{ cmd: 'equations' }, { cmd: 'material' }]],
   },
   {
-    id: 'drawing', label: 'Drawing',
+    // Shown in the model too (with Make Drawing first), so the drawing is found from the ribbon.
+    id: 'drawing', label: 'Drafting',
     groups: [
-      [{ cmd: 'drawing:arrange' }, { stack: [{ cmd: 'drawing:add:front' }, { cmd: 'drawing:add:top' }, { cmd: 'drawing:add:right' }] }, { stack: [{ cmd: 'drawing:add:isometric' }, { cmd: 'drawing:add:left' }, { cmd: 'drawing:add:back' }] }],
-      [{ cmd: 'drawing:pdf' }, { cmd: 'drawing:svg' }],
+      [{ cmd: 'openDrawing' }, { cmd: 'drawing:arrange' }],
+      [{ stack: [{ cmd: 'drawing:add:front' }, { cmd: 'drawing:add:top' }, { cmd: 'drawing:add:right' }] }, { stack: [{ cmd: 'drawing:add:isometric' }, { cmd: 'drawing:add:left' }, { cmd: 'drawing:add:back' }] }],
+      [{ cmd: 'drawing:projected' }, { cmd: 'drawing:section' }, { stack: [{ cmd: 'drawing:detail' }, { cmd: 'drawing:auxiliary' }] }],
+      [{ cmd: 'drawing:pdf' }, { stack: [{ cmd: 'drawing:svg' }, { cmd: 'drawing:dxf' }] }],
       [{ cmd: 'zoomFit' }, { cmd: 'backToModel' }],
+    ],
+    labels: ['Drawing', 'Model Views', 'Views', 'Export', ''],
+  },
+  {
+    // Only in the drawing.
+    id: 'annotation', label: 'Annotation',
+    groups: [
+      [{ cmd: 'drawing:dimension' }],
+      [{ stack: [{ cmd: 'drawing:centerMark' }, { cmd: 'drawing:centerline' }] }, { stack: [{ cmd: 'drawing:note' }, { cmd: 'drawing:holeCallout' }] }],
+      [{ cmd: 'drawing:pdf' }, { cmd: 'backToModel' }],
     ],
   },
   {
@@ -422,7 +452,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
     {
       label: 'File', items: () => [
         m('new'), m('open'), m('openDevice'), { label: 'Recent', icon: 'files', submenu: () => app.recentMenu() }, sep,
-        m('save'), m('saveAs'), m('downloadPart'), sep, m('importStep'), m('exportStep'), m('exportStl'), sep, m('openDrawing'), m('drawing:pdf'), sep, m('share'), m('rename'), m('properties'),
+        m('save'), m('saveAs'), m('downloadPart'), sep, m('importStep'), m('exportStep'), m('exportStl'), sep, m('openDrawing'), m('drawing:pdf'), m('drawing:dxf'), sep, m('share'), m('rename'), m('properties'),
       ],
     },
     {

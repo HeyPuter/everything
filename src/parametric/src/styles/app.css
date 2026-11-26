@@ -449,6 +449,12 @@ a.icon-btn { text-decoration: none; }
 .paper { position: relative; background: #fff; outline: 1px solid var(--border-strong); }
 .paper svg { display: block; }
 .view-sel { position: absolute; border: 1px dashed var(--accent); pointer-events: none; }
+.drawing-ws.drw-tool, .drawing-ws.drw-tool:active { cursor: crosshair; }
+.drw-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+.drw-overlay svg { display: block; overflow: visible; }
+.drw-anno-list { display: flex; flex-direction: column; gap: 2px; }
+.drw-tools { flex-wrap: wrap; gap: 4px; }
+.drw-missing { color: var(--danger); }
 .drawing-busy:empty { padding: 0; border: 0; }
 .drawing-busy { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 4px 12px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); color: var(--text-2); font-size: var(--fs-sm); pointer-events: none; }
 .drawing-empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 10px 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); color: var(--text-2); }
