@@ -410,7 +410,11 @@ export class ModelBuilder {
       case 'baseFlange':
       case 'edgeFlange':
       case 'sketchedBend':
-      case 'hem': applySheetMetal(this.sheetHost(), f, st); return 'body';
+      case 'hem':
+        applySheetMetal(this.sheetHost(), f, st);
+        // Its booleans leave a tool that is not the feature (a flange's cut or wall alone): it cannot be a pattern seed.
+        st.tools.delete(f.id);
+        return 'body';
       case 'structuralMember': applyStructuralMember(this.weldCtx(f.id, st), f); return 'tool';
       case 'trimExtend': applyTrimExtend(this.weldCtx(f.id, st), f); return 'body';
       case 'endCap': applyEndCap(this.weldCtx(f.id, st), f); return 'tool';

@@ -446,6 +446,9 @@ describe('combinations', () => {
     const flat = b.flatPattern().pattern!;
     expect(flat.loops.filter((l) => !l.outer)).toHaveLength(3);
     expect(flat.notes).toEqual([]);
+    // A sheet metal feature is not a seed: copies of its wall alone would sit in the sheet without their bend cut.
+    const flangePattern = { ...pattern, seeds: ['F1'] };
+    expect((await b.build(req([...plate(), flange('F1', [edgeRef(e)]), flangePattern]))).status[3].error).toMatch(/cannot be patterned/);
     const mirror = { id: 'M', name: 'M', type: 'mirror' as const, seeds: [], plane: { kind: 'base' as const, plane: 'top' as const } };
     const r3 = await b.build(req([...plate(), flange('F1', [edgeRef(e)]), hole, cutHole, pattern, mirror]));
     ok(r3);
