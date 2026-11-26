@@ -25,7 +25,7 @@ import {
 } from '../model/weldment-profiles';
 import { type WeldMemberInfo, memberKey, memberOfFace, sameMember } from '../model/weldments';
 import { SketchIndex } from '../sketch/geom';
-import { type EdgeDesc, type Sh, type SurfDesc, getOc, pnt, bbox, compound, cut, fuse, fuseAll, isEmpty, rotated, subShapes, volumeOf } from './occ';
+import { type EdgeDesc, type Sh, type SurfDesc, getOc, pnt, bbox, compound, cut, fuse, fuseAll, isEmpty, isValid, rotated, subShapes, volumeOf } from './occ';
 
 export interface Plane {
   p: Vec3;
@@ -91,6 +91,15 @@ export interface WeldCtx {
   err(msg: string): Error;
   /** A feature's name in a message. */
   name(id: Id): string;
+}
+
+/**
+ * Says so when the feature left the body an invalid solid (later features,
+ * export and mass properties would go wrong on it), instead of reporting OK.
+ */
+function checkValid(ctx: WeldCtx, message: string) {
+  const b = ctx.st.body;
+  if (b && !isValid(b)) ctx.warn(message);
 }
 
 // ---------- small vector helpers ----------
@@ -631,6 +640,7 @@ export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature):
   const named = members.flatMap((m) => ctx.nameTool(f.id, m.solid, (k) => `${m.key}:${k}`));
   const tool = members.length === 1 ? members[0].solid : fuseAll(members.map((m) => m.solid));
   ctx.applyTool(tool, named, 'The members add no material: they lie inside the part.');
+  checkValid(ctx, 'The result is not a valid solid where the members meet. Try another corner treatment or a small gap.');
   const prev = ctx.st.weld;
   ctx.st.weld = { members: [...(prev?.members ?? []), ...members], extras: prev?.extras ?? [] };
 }
@@ -734,6 +744,11 @@ export function applyTrimExtend(ctx: WeldCtx, f: TrimExtendFeature): void {
   }
   if (short) ctx.warn(short === 1 ? 'A member does not reach the boundary. Turn on Allow extension to extend it.' : `${short} members do not reach the boundary. Turn on Allow extension to extend them.`);
   ctx.setBody(ctx.st.body!, faces);
+  // A flat end trimmed to a round member touches it along a line only.
+  const round = (b: WeldMember) => b.path.kind === 'arc' || b.profile === 'pipe' || b.profile === 'roundBar';
+  checkValid(ctx, bounds.length && !f.coped && bounds.some(round)
+    ? 'The result is not a valid solid: the trimmed end touches the boundary member along a line. Turn on Coped cut.'
+    : 'The result is not a valid solid where the trimmed members meet the boundary. Try Coped cut or a small gap.');
   ctx.st.weld = weld;
 }
 
@@ -797,6 +812,7 @@ export function applyEndCap(ctx: WeldCtx, f: EndCapFeature): void {
   });
   const tool = solids.length === 1 ? solids[0] : fuseAll(solids);
   ctx.applyTool(tool, named, f.inward ? 'The end caps add no material: the tube is already closed there.' : undefined);
+  checkValid(ctx, 'The result is not a valid solid where the end caps meet the part. Try another offset or thickness.');
   const prev = ctx.st.weld;
   ctx.st.weld = { members: prev?.members ?? [], extras: [...(prev?.extras ?? []), ...solids] };
 }
@@ -835,6 +851,7 @@ export function applyGusset(ctx: WeldCtx, f: GussetFeature): void {
   const face = R.makeFace(R.assembleWire(moved.map((p, i) => R.makeLine(p, moved[(i + 1) % moved.length]))));
   const solid = R.basicFaceExtrusion(face, new R.Vector(scale(L, t))) as unknown as Sh;
   ctx.applyTool(solid, ctx.nameTool(f.id, solid, (k) => `g${k}`), 'The gusset adds no material: it lies inside the part.');
+  checkValid(ctx, 'The result is not a valid solid where the gusset meets the part. Try other distances, a chamfer or another location.');
   const prev = ctx.st.weld;
   ctx.st.weld = { members: prev?.members ?? [], extras: [...(prev?.extras ?? []), solid] };
 }
@@ -883,6 +900,7 @@ export function applyWeldBead(ctx: WeldCtx, f: WeldBeadFeature): void {
   }
   const tool = solids.length === 1 ? solids[0] : fuseAll(solids);
   ctx.applyTool(tool, solids.flatMap((x, i) => ctx.nameTool(f.id, x, (k) => `w${i}:${k}`)), 'The bead adds no material: the corner is already filled.');
+  checkValid(ctx, 'The result is not a valid solid where the bead meets the part. Try another bead size.');
   const prev = ctx.st.weld;
   ctx.st.weld = { members: prev?.members ?? [], extras: [...(prev?.extras ?? []), ...solids] };
 }

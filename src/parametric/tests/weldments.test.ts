@@ -338,10 +338,12 @@ describe('trim/extend', () => {
     const t = { ...newTrimExtend('T1', 'T1'), boundary: 'members' as const, members: [{ feature: 'M2', member: 'S1/v' }], boundaryMembers: [{ feature: 'M1', member: 'S1/h' }] };
     const planar = await build([s1, m1, m2, t]);
     expect(planar.res.status.every((s) => s.ok)).toBe(true);
+    // The flat end touches the rail along a line only: not a valid solid, and it says so.
+    expect(planar.res.status[3].warning).toMatch(/not a valid solid: the trimmed end touches the boundary member along a line. Turn on Coped cut/);
     const post = planar.res.weldments!.find((m) => m.member === 'S1/v')!;
     expect(post.length).toBeCloseTo(150 - 88.9 / 2, 6);
     const coped = await build([s1, m1, m2, { ...t, coped: true }]);
-    expect(coped.res.status.every((s) => s.ok)).toBe(true);
+    expect(coped.res.status.every((s) => s.ok && !s.warning)).toBe(true);
     const cp = coped.res.weldments!.find((m) => m.member === 'S1/v')!;
     // Fish-mouth: the long points reach to where the post's sides meet the rail's surface.
     const R = 88.9 / 2, r = 48.3 / 2;
