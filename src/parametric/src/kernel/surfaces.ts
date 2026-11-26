@@ -635,7 +635,7 @@ export class SurfaceKit {
       return;
     }
     if (!f.edges.length) throw this.h.fail('Select a sketch with a closed profile, or a closed loop of edges');
-    const edges = f.edges.map((r) => this.anyEdge(r, st).shape);
+    const edges = distinct(f.edges.map((r) => this.anyEdge(r, st).shape));
     if (!closesLoop(edges)) throw this.h.fail('The selected edges must form one closed loop lying in a plane');
     const oc = getOc();
     let face: Sh;
@@ -659,7 +659,7 @@ export class SurfaceKit {
 
   private offset(f: SurfaceOffsetFeature, st: SurfState) {
     if (!f.faces.length) throw this.h.fail('Select faces to offset');
-    const src = f.faces.map((r) => this.anyFace(r, st).shape);
+    const src = distinct(f.faces.map((r) => this.anyFace(r, st).shape));
     const d = this.h.num(f, 'distance') * (f.flip ? -1 : 1);
     const oc = getOc();
     let shape: Sh;
@@ -692,7 +692,7 @@ export class SurfaceKit {
   private fill(f: SurfaceFillFeature, st: SurfState) {
     if (f.edges.length < 1) throw this.h.fail('Select the edges around the opening to fill');
     if (f.edges.length > MAX_FILL_EDGES) throw this.h.fail(`Select at most ${MAX_FILL_EDGES} edges to fill`);
-    const edges = f.edges.map((r) => this.anyEdge(r, st).shape);
+    const edges = distinct(f.edges.map((r) => this.anyEdge(r, st).shape));
     // The boundary must close: an open set of edges is filled with made-up edges.
     if (!closesLoop(edges)) throw this.h.fail('The selected edges must form one closed boundary');
     const oc = getOc();
@@ -801,7 +801,7 @@ export class SurfaceKit {
       if (!s) throw this.h.fail('Select boundary edges of a surface body (the solid cannot be extended)');
       if (s.edge.faces.length !== 1) throw this.h.fail('Select edges on the boundary of the surface');
       return { body: s.body, edge: s.edge, face: s.body.faces[s.edge.faces[0]] };
-    });
+    }).filter((p, i, all) => all.findIndex((q) => q.edge === p.edge) === i);
     const oc = getOc();
     for (const body of [...new Set(picks.map((p) => p.body))]) {
       const mine = picks.filter((p) => p.body === body);
@@ -1269,6 +1269,16 @@ function interiorPoint(face: Sh, avoid: Sh, tol: number): Vec3 {
     if (d > bd) { bd = d; best = p; }
   }
   return best;
+}
+
+/**
+ * Shapes less repeats: a file that names one edge or face twice made two
+ * overlapping strips or offsets of it (and thousands of them took minutes).
+ */
+function distinct(shapes: Sh[]): Sh[] {
+  const out: Sh[] = [];
+  for (const s of shapes) if (!out.some((o) => o === s || o.wrapped.IsSame(s.wrapped))) out.push(s);
+  return out;
 }
 
 /** The face of a shape nearest a point. */

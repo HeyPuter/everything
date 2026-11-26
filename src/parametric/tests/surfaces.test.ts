@@ -466,6 +466,20 @@ describe('trim, extend and delete face', () => {
     expect(surfaceArea(res)).toBeCloseTo(400 - Math.PI * 4, 2);
   });
 
+  it('extends or offsets an edge or face named twice (a hand-edited file) once', async () => {
+    const b = new ModelBuilder();
+    const res0 = await b.build(req(square));
+    const right = edgeRefOf(res0, (e) => Math.abs(e.mid[0] - 20) < 1e-6);
+    // Twice made two overlapping strips; thousands took minutes.
+    let res = await b.build(req([...square, surf('surfaceExtend', 'X1', { edges: Array(2000).fill(right[0]), distance: 5, mode: 'linear' })]));
+    ok(res);
+    expect(surfaceFaces(res).map((f) => f.area).sort((x, y) => x - y)).toEqual([expect.closeTo(100, 4), expect.closeTo(400, 4)]);
+    const face = faceRefOf(res0, (f) => f.body === 'F1');
+    res = await b.build(req([...square, surf('surfaceOffset', 'O1', { faces: [face, face], distance: 2 })]));
+    ok(res);
+    expect(surfaceFaces(res).filter((f) => f.body === 'O1')).toHaveLength(1);
+  });
+
   it('deletes faces of the solid into a surface body, or patches the hole', async () => {
     const b = new ModelBuilder();
     const box = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)];
