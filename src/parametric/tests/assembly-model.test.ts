@@ -98,6 +98,10 @@ describe('assembly documents', () => {
     const rows = assemblyBom(doc, (id) => cache.get(doc, id).doc);
     expect(rows.map((r) => [r.item, r.name, r.quantity, r.material])).toEqual([[1, 'Block', 1, 'Steel'], [2, 'Pin', 2, '']]);
     expect(bomCsv(rows)).toBe('Item No.,Part Name,Quantity,Material\n1,Block,1,Steel\n2,Pin,2,');
+    // Copied as tab-separated text: a comma in a name stays in its cell; a tab or quote is quoted.
+    const named = [{ ...rows[0], name: 'Plate, top' }, { ...rows[1], name: 'Pin\t"A"' }];
+    expect(bomCsv(named, '\t')).toBe('Item No.\tPart Name\tQuantity\tMaterial\n1\tPlate, top\t1\tSteel\n2\t"Pin\t""A"""\t2\t');
+    expect(bomCsv(named)).toBe('Item No.,Part Name,Quantity,Material\n1,"Plate, top",1,Steel\n2,"Pin\t""A""",2,');
     expect(assemblyBom(newAssembly())).toEqual([]);
   });
 

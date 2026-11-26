@@ -402,8 +402,8 @@ export function assemblyBom(doc: AssemblyDocument, partDoc: (partId: Id) => Part
   return rows;
 }
 
-/** The bill of materials as CSV text (for spreadsheets). */
-export function bomCsv(rows: BomRow[]): string {
-  const cell = (v: string | number) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-  return ['Item No.,Part Name,Quantity,Material', ...rows.map((r) => [r.item, r.name, r.quantity, r.material].map(cell).join(','))].join('\n');
+/** The bill of materials as CSV text (for spreadsheets), or tab-separated (`sep` '\t', to paste into one). */
+export function bomCsv(rows: BomRow[], sep: ',' | '\t' = ','): string {
+  const cell = (v: string | number) => (/["\n\r]/.test(String(v)) || String(v).includes(sep) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  return [['Item No.', 'Part Name', 'Quantity', 'Material'], ...rows.map((r) => [r.item, r.name, r.quantity, r.material])].map((row) => row.map(cell).join(sep)).join('\n');
 }

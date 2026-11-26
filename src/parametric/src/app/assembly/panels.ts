@@ -687,7 +687,8 @@ export async function bomDialog(mode: AssemblyMode) {
     onAction: async (value) => {
       if (value === 'copy') {
         try {
-          await navigator.clipboard.writeText(csv.replace(/,/g, '\t'));
+          // Tab-separated, as spreadsheets paste it (a comma in a part name stays in its cell).
+          await navigator.clipboard.writeText(bomCsv(rows, '\t'));
           toast({ message: 'Copied to the clipboard', timeout: 1800 });
         } catch {
           toast({ kind: 'error', message: 'Could not copy to the clipboard.' });
