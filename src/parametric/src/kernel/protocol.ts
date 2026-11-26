@@ -4,6 +4,7 @@
 import type { Frame, Vec3 } from '../math/vec';
 import type { Feature, Id, SkEntity } from '../model/types';
 import type { FlatPattern } from '../model/flat-pattern';
+import type { WeldMemberInfo } from '../model/weldments';
 
 /** Features with every Param already evaluated to a number. */
 export type ResolvedFeature = Feature;
@@ -112,6 +113,8 @@ export interface BuildResult {
   heap?: number;
   /** Set when there are surface bodies: their faces and edges follow the solid's from these indices. */
   surfaces?: { face: number; edge: number };
+  /** Structural members as built (weldment parts only), for the cut list. */
+  weldments?: WeldMemberInfo[];
 }
 
 /** The flat pattern of a sheet metal part, and the solid showing it (placed on the part's base flange). */

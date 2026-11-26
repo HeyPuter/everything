@@ -35,6 +35,13 @@ function axis(v: unknown): boolean {
 
 const patternDir = (v: unknown) => object(v) && axis(v.ref);
 
+// Weldments: segments of layout sketches and members of structural member features.
+const segment = (v: unknown) => object(v) && id(v.sketch) && id(v.entity);
+const group = (v: unknown) => object(v) && list(v.segments, segment);
+const memberRef = (v: unknown) => object(v) && id(v.feature) && typeof v.member === 'string';
+const text = (v: unknown) => typeof v === 'string';
+const oneOf = (v: unknown, values: string[]) => values.includes(String(v));
+
 export function validFeature(f: Feature): boolean {
   const r = f as unknown as Record<string, unknown>;
   if (isSurfaceFeature(f)) return validSurfaceFeature(f, plane, axis);
@@ -68,6 +75,16 @@ export function validFeature(f: Feature): boolean {
     case 'sketchedBend':
     case 'hem':
       return validSheetMetalFeature(r);
+    case 'structuralMember':
+      return text(r.standard) && text(r.profile) && text(r.size) && text(r.pierce) && list(r.groups, group) && oneOf(r.corner, ['miter', 'butt1', 'butt2']);
+    case 'trimExtend':
+      return list(r.members, memberRef) && list(r.boundaryMembers, memberRef) && list(r.faces, named) && oneOf(r.boundary, ['faces', 'members']);
+    case 'endCap':
+      return list(r.faces, named);
+    case 'gusset':
+      return list(r.faces, named) && oneOf(r.shape, ['triangular', 'polygonal']) && oneOf(r.location, ['center', 'side1', 'side2']);
+    case 'weldBead':
+      return list(r.edges, named);
     default:
       return true;
   }

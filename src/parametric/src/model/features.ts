@@ -62,6 +62,24 @@ export const PARAM_FIELDS: Partial<Record<FeatureType, { path: string; kind: Par
     { path: 'length', kind: 'length', label: 'Length' },
     { path: 'gap', kind: 'length', label: 'Gap' },
   ],
+  structuralMember: [
+    { path: 'rotation', kind: 'angle', label: 'Rotation angle' },
+    { path: 'gap', kind: 'length', label: 'Gap' },
+    { path: 'gap2', kind: 'length', label: 'Gap between groups' },
+  ],
+  trimExtend: [{ path: 'gap', kind: 'length', label: 'Gap' }],
+  endCap: [
+    { path: 'thickness', kind: 'length', label: 'Thickness' },
+    { path: 'offset', kind: 'length', label: 'Offset' },
+  ],
+  gusset: [
+    { path: 'd1', kind: 'length', label: 'Distance 1' },
+    { path: 'd2', kind: 'length', label: 'Distance 2' },
+    { path: 'd3', kind: 'length', label: 'Distance 3' },
+    { path: 'thickness', kind: 'length', label: 'Thickness' },
+    { path: 'chamfer', kind: 'length', label: 'Chamfer distance' },
+  ],
+  weldBead: [{ path: 'size', kind: 'length', label: 'Bead size' }],
 };
 
 /**
@@ -92,6 +110,10 @@ export function paramActive(f: Feature, path: string): boolean {
       return path !== 'sm.allowanceValue' || f.sm.allowance !== 'kFactor';
     case 'hem':
       return path !== 'gap' || f.kind === 'open';
+    case 'structuralMember':
+      return path !== 'gap2' || f.trimGroups;
+    case 'gusset':
+      return path !== 'd3' || f.shape === 'polygonal';
     default:
       return true;
   }
@@ -118,6 +140,11 @@ const BASE_NAMES: Record<FeatureType, string> = {
   edgeFlange: 'Edge-Flange',
   sketchedBend: 'Sketched Bend',
   hem: 'Hem',
+  structuralMember: 'Structural Member',
+  trimExtend: 'Trim/Extend',
+  endCap: 'End Cap',
+  gusset: 'Gusset',
+  weldBead: 'Fillet Bead',
 };
 
 export const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -141,6 +168,11 @@ export const FEATURE_LABELS: Record<FeatureType, string> = {
   edgeFlange: 'Edge Flange',
   sketchedBend: 'Sketched Bend',
   hem: 'Hem',
+  structuralMember: 'Structural Member',
+  trimExtend: 'Trim/Extend',
+  endCap: 'End Cap',
+  gusset: 'Gusset',
+  weldBead: 'Fillet Bead',
 };
 
 export function featureIcon(f: Feature): string {
@@ -276,6 +308,14 @@ export function dependencies(f: Feature): Id[] {
   if (f.type === 'shell') f.faces.forEach((r) => visitName(r.name));
   if (isSurfaceFeature(f)) surfaceRefs(f, { name: visitName, plane: visitPlane, axis: visitAxis });
   if (f.type === 'edgeFlange' || f.type === 'hem') f.edges.forEach((r) => visitName(r.name));
+  // Weldments: the layout sketches of members, the members trimmed and the faces picked.
+  if (f.type === 'structuralMember') for (const g of f.groups) for (const s of g.segments) out.add(s.sketch);
+  if (f.type === 'trimExtend') {
+    for (const m of [...f.members, ...f.boundaryMembers]) if (m.feature !== f.id) out.add(m.feature);
+    f.faces.forEach((r) => visitName(r.name));
+  }
+  if (f.type === 'endCap' || f.type === 'gusset') f.faces.forEach((r) => visitName(r.name));
+  if (f.type === 'weldBead') f.edges.forEach((r) => visitName(r.name));
   return [...out];
 }
 

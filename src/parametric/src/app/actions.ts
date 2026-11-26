@@ -17,6 +17,7 @@ import { panelFor, startFeature } from './panels';
 import { isSurfaceFeature } from '../model/surfaces';
 import { surfaceCommands, surfacePanelFor } from './surface-panels';
 import { hideable } from './surface-display';
+import { WELDMENTS_TAB, weldmentCommands, weldmentPanelFor } from './weldment-panels';
 import { SketchPanel } from './sketch/panel';
 import {
   MeasurePanel, OffsetPanel, SectionPanel, aboutDialog, convertEntities, equationsDialog, massPropertiesDialog, materialDialog,
@@ -334,6 +335,8 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'about', label: 'About Parametric', icon: 'info', run: () => aboutDialog() },
     // ---- surfaces ----
     ...surfaceCommands(app),
+    // ---- weldments ----
+    ...weldmentCommands(app),
   );
   void noModes;
   void VIEWS;
@@ -410,6 +413,7 @@ export const RIBBON: RibbonTab[] = [
       [{ cmd: 'thicken' }, { stack: [{ cmd: 'thickenCut' }, { cmd: 'surfaceCut' }] }],
     ],
   },
+  WELDMENTS_TAB,
   {
     id: 'drawing', label: 'Drawing',
     groups: [
@@ -468,6 +472,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
         { label: 'Pattern/Mirror', icon: 'linearPattern', submenu: () => [m('linearPattern'), m('circularPattern'), m('mirror')] },
         { label: 'Reference Geometry', icon: 'plane', submenu: () => [m('plane')] },
         { label: 'Surface', icon: 'surfaceExtrude', submenu: () => ['surfaceExtrude', 'surfaceRevolve', 'surfaceSweep', 'surfaceLoft', 'surfacePlanar', 'surfaceOffset', 'surfaceFill', 'surfaceTrim', 'surfaceExtend', 'surfaceKnit', 'thicken', 'thickenCut', 'surfaceCut', 'deleteFace'].map((id) => m(id)) },
+        { label: 'Weldments', icon: 'structuralMember', submenu: () => [m('structuralMember'), m('trimExtend'), m('endCap'), m('gusset'), m('weldBead'), m('cutList')] },
         sep, m('importStep'),
       ],
     },
@@ -629,7 +634,7 @@ export function makeHooks(app: App): AppHooks {
     ribbonTabs: RIBBON,
     menus: buildMenus(app),
     sketchPanel: () => new SketchPanel(app),
-    editFeaturePanel: (f) => (isSurfaceFeature(f) ? surfacePanelFor(app, f, true) : panelFor(app, f, true)),
+    editFeaturePanel: (f) => (isSurfaceFeature(f) ? surfacePanelFor(app, f, true) : panelFor(app, f, true) ?? weldmentPanelFor(app, f, true)),
     planePickPanel: (done) => new PlanePickPanel(app, done),
     contextItems: (t, id) => contextItems(app, t, id),
     quickActions: () => quickActions(app),

@@ -31,6 +31,7 @@ import type {
   BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
   ProjectionRequest, ProjectionResult,
 } from './protocol';
+import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend, applyWeldBead } from './weldments';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
   hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
@@ -82,6 +83,8 @@ export interface State {
   surfaces: SurfaceBody[];
   /** Sheet metal model (sheetmetal.ts), from the first Base Flange on. */
   sheet?: SheetModel | null;
+  /** Structural members, end caps and gussets built so far (weldment parts only). */
+  weld?: WeldState;
 }
 
 interface Step {
@@ -102,6 +105,7 @@ const cloneState = (s: State): State => ({
   tools: new Map(s.tools),
   surfaces: s.surfaces,
   sheet: s.sheet,
+  weld: s.weld,
 });
 
 /** A feature's numeric value at a path (dir1.count), named by its label when it is not a number. */
@@ -339,6 +343,7 @@ export class ModelBuilder {
       result.bbox = this.surf.box(state);
       result.surfaces = { face: state.faces.length, edge: this.edgesOf(state).length };
     }
+    if (state.weld) result.weldments = state.weld.members.map((m) => m.info);
 
     if (req.preview) {
       const p = cloneState(state);
@@ -405,6 +410,11 @@ export class ModelBuilder {
       case 'edgeFlange':
       case 'sketchedBend':
       case 'hem': applySheetMetal(this.sheetHost(), f, st); return 'body';
+      case 'structuralMember': applyStructuralMember(this.weldCtx(f.id, st), f); return 'tool';
+      case 'trimExtend': applyTrimExtend(this.weldCtx(f.id, st), f); return 'body';
+      case 'endCap': applyEndCap(this.weldCtx(f.id, st), f); return 'tool';
+      case 'gusset': applyGusset(this.weldCtx(f.id, st), f); return 'tool';
+      case 'weldBead': applyWeldBead(this.weldCtx(f.id, st), f); return 'tool';
     }
     if (SURFACE_TYPES.has(f.type)) return this.surf.apply(f as SurfaceFeature, st);
     return 'none';
@@ -431,6 +441,35 @@ export class ModelBuilder {
     const r = flatPattern(this.current);
     if ('error' in r) return { pattern: null, error: r.error, mesh: null };
     return { pattern: r.pattern, mesh: this.meshBody(r.solid, quality) };
+  }
+
+  /** What the weldment features (weldments.ts) use of the builder. */
+  private weldCtx(featId: Id, st: State): WeldCtx {
+    return {
+      st,
+      featureId: featId,
+      sketch: (id) => {
+        const sk = st.sketches.get(id), frame = st.frames.get(id);
+        if (!sk || !frame) throw this.missing(id, 'layout sketch');
+        return { entities: sk.entities, frame };
+      },
+      face: (ref) => { const f = st.faces[this.resolveFace(ref, st)]; return { name: f.name, desc: f.desc }; },
+      edge: (ref) => { const e = this.edgesOf(st)[this.resolveEdge(ref, st)]; return { desc: e.desc, faces: e.faces.map((i) => ({ desc: st.faces[i].desc, shape: st.faces[i].shape })) }; },
+      nameTool: (prefix, shape, classify) => this.nameTool(prefix, shape, (_d, k) => classify(k)),
+      applyTool: (tool, faces, noGain) => this.applyTool(featId, st, tool, faces as NamedFace[], false, noGain),
+      setBody: (body, faces) => {
+        st.faces = this.nameFaces(featId, body, st, faces as NamedFace[]);
+        st.body = body;
+        st.edges = null;
+      },
+      bodyBefore: (id) => {
+        const i = this.order.get(id)?.index ?? -1;
+        return i > 0 ? this.steps[i - 1]?.state.body ?? null : null;
+      },
+      warn: (m) => { this.warning = m; },
+      err: (m) => new FeatureError(m),
+      name: nameOf,
+    };
   }
 
   /**

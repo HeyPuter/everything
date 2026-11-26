@@ -107,6 +107,8 @@ export class App {
   frames: Record<Id, Frame> = {};
   /** Sketches with projected model geometry, as the last rebuild placed it. */
   linkedSketches: NonNullable<BuildResult['sketches']> = {};
+  /** Structural members of the last build, for the weldment cut list. */
+  weldments: NonNullable<BuildResult['weldments']> = [];
   bbox: { min: Vec3; max: Vec3 } | null = null;
   colors!: Colors;
   kernelReady = false;
@@ -1015,6 +1017,7 @@ export class App {
     this.edges = res.edges;
     this.frames = res.frames;
     this.linkedSketches = res.sketches ?? {};
+    this.weldments = res.weldments ?? [];
     this.bbox = res.bbox;
     // An unchanged mesh is the one the worker last sent, which is not the one
     // shown when its result was dropped (a part opened again while its first
@@ -1189,6 +1192,11 @@ export class App {
       case 'plane': return it.ref.kind === 'base' ? BASE_PLANE_NAMES[it.ref.plane] : this.store.feature(it.ref.id)?.name ?? 'Plane';
       case 'origin': return 'Origin';
       case 'feature': return this.store.feature(it.id)?.name ?? '';
+      case 'skseg': {
+        const sk = this.store.feature(it.sketch);
+        const e = sk?.type === 'sketch' ? sk.entities.find((x) => x.id === it.entity) : undefined;
+        return `${e?.t === 'arc' ? 'Arc' : 'Line'} of ${sk?.name ?? 'a sketch'}`;
+      }
       default: return '';
     }
   }
