@@ -45,6 +45,8 @@ export { BASE_FRAMES };
 
 export class FeatureError extends Error {}
 
+// STL holds closed meshes for printing: surface bodies are left out of it.
+const STL_SOLIDS_ONLY = 'STL files hold solids only, and this part has only surfaces. Thicken or knit the surfaces into a solid, or export STEP to keep them.';
 // Thin (wall) extrudes and revolves are not built yet; failing beats
 // silently making a solid where a wall was asked for.
 const THIN_UNSUPPORTED = 'Thin features are not supported yet. Sketch the wall as two offset contours instead.';
@@ -1750,6 +1752,7 @@ export class ModelBuilder {
   /** Binary STL of the current body. */
   exportStl(quality: number): Uint8Array {
     const body = this.current.body;
+    if (!body && this.current.surfaces.length) throw new FeatureError(STL_SOLIDS_ONLY);
     if (!body) throw new FeatureError('There is no geometry to export');
     const { tol, ang } = this.meshParams(body, Math.max(1, quality));
     const m = meshShape(body, tol * 0.5, ang * 0.5);

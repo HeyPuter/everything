@@ -127,6 +127,38 @@ test.describe('surfaces', () => {
     expect(errors).toEqual([]);
   });
 
+  test('says STL leaves surfaces out: refused for surfaces only, a warning beside a solid', async ({ page }) => {
+    const errors = await openApp(page);
+    await loftProfiles(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: A }).__parametric;
+      a.store.change('Loft', (d) => { d.features.push({ id: 'f9', name: 'Surface-Loft1', type: 'surfaceLoft', profiles: ['s1', 's2'], ruled: false }); });
+    });
+    await waitForFeature(page, 'Surface-Loft1');
+    await expect.poll(() => bodyCount(page)).toBe(1);
+    await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('exportStl'); });
+    await expect(page.locator('.toast').filter({ hasText: 'STL files hold solids only' })).toBeVisible();
+    // A block beside the surface: the STL has the block, and the toast says the surface is not in it.
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: A }).__parametric;
+      a.store.change('Block', (d) => {
+        d.features.push(
+          { id: 's3', name: 'Sketch3', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [],
+            entities: [{ id: 'p0', t: 'point', x: 60, y: 0 }, { id: 'p1', t: 'point', x: 70, y: 0 }, { id: 'p2', t: 'point', x: 70, y: 10 }, { id: 'p3', t: 'point', x: 60, y: 10 },
+              { id: 'k0', t: 'line', a: 'p0', b: 'p1' }, { id: 'k1', t: 'line', a: 'p1', b: 'p2' }, { id: 'k2', t: 'line', a: 'p2', b: 'p3' }, { id: 'k3', t: 'line', a: 'p3', b: 'p0' }] },
+          { id: 'e1', name: 'Boss-Extrude1', type: 'extrude', sketch: 's3', cut: false, end: 'blind', depth: 5, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null },
+        );
+      });
+    });
+    await waitForFeature(page, 'Boss-Extrude1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.faces.filter((f) => !f.body).length)).toBe(6);
+    const download = page.waitForEvent('download');
+    await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('exportStl'); });
+    expect((await download).suggestedFilename()).toMatch(/\.stl$/);
+    await expect(page.locator('.toast').filter({ hasText: 'surface bodies are not in the STL file' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('shows a clear error when knit surfaces do not close a volume', async ({ page }) => {
     const errors = await openApp(page);
     await loftProfiles(page);

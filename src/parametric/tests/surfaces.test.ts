@@ -514,6 +514,8 @@ describe('surfaces with the rest of the part', () => {
     expect(b.surfaceBodies().map((x) => x.id)).toEqual(['F1', 'X1']);
     // Only surfaces: STEP holds them.
     expect(new TextDecoder().decode(b.exportStep())).toMatch(/OPEN_SHELL|SHELL_BASED_SURFACE_MODEL|ADVANCED_FACE/);
+    // STL does not, and says why.
+    expect(() => b.exportStl(1)).toThrow(/STL files hold solids only/);
   });
 
   it('lists references, consumed sketches and validates surface features from files', () => {

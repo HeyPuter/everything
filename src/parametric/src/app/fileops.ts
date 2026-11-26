@@ -730,6 +730,8 @@ export class FileOps {
       const blob = new Blob([data as BlobPart], { type: format === 'step' ? 'model/step' : 'model/stl' });
 
       download(blob, `${name}.${format === 'step' ? 'step' : 'stl'}`);
+      // Surface bodies (listed after the solid's faces) are not in an STL file.
+      if (format === 'stl' && app.faces.at(-1)?.body) toast({ kind: 'warning', message: 'The surface bodies are not in the STL file: STL holds solids only. Export STEP to keep them.', timeout: 9000 });
       // The file has what the model shows: say so when the rollback bar leaves features out.
       const left = app.store.doc.features.length - app.store.builtCount;
       if (left > 0) toast({ kind: 'warning', message: `The part is rolled back, so the ${left === 1 ? 'feature' : `${left} features`} below the rollback bar ${left === 1 ? 'is' : 'are'} not in the exported file. Move the rollback bar to the end to export the whole part.`, timeout: 9000 });
