@@ -894,9 +894,14 @@ export class SurfaceKit {
     }
     // A tolerance near the surfaces' size sews their edges together into nothing.
     if (isEmpty(res.shape)) throw this.h.fail('The surfaces could not be knit with this tolerance. Use a smaller knit tolerance: about the size of the gaps to close.');
-    const shells = subShapes(res.shape, 'shell');
+    let shells = subShapes(res.shape, 'shell');
     const named = inherit(res.shape, faces, Math.max(tol, 1e-6), (k) => ({ name: `${f.id}:k${k}`, feature: f.id }));
     if (f.solid) {
+      // Sewing leaves a single closed face (a revolved sphere) as a face, not a shell.
+      if (!shells.length && res.free === 0) {
+        const all = subShapes(res.shape, 'face');
+        if (all.length === 1) shells = [closedShell(all[0])];
+      }
       if (res.free > 0 || shells.length !== 1) {
         throw this.h.fail(res.free > 0
           ? `The surfaces do not form a closed volume (${res.free} open ${res.free === 1 ? 'edge' : 'edges'}). Close the gaps or raise the knit tolerance, or knit without Create solid.`
@@ -1388,6 +1393,20 @@ function edgeTangent(edge: Sh, p: Vec3): Vec3 | null {
     return null;
   } finally {
     ad.delete();
+  }
+}
+
+/** A shell of one face (shellOf leaves a single face as it is). */
+function closedShell(face: Sh): Sh {
+  const oc = getOc();
+  const b = new oc.TopoDS_Builder();
+  const sh = new oc.TopoDS_Shell();
+  try {
+    b.MakeShell(sh);
+    b.Add(sh, face.wrapped);
+    return wrap(sh);
+  } finally {
+    b.delete();
   }
 }
 

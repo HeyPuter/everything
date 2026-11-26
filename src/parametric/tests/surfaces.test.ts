@@ -232,6 +232,17 @@ describe('knit, thicken and cut', () => {
     expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/Use a smaller knit tolerance/) });
   });
 
+  it('knits a closed revolved surface (one face) into a solid', async () => {
+    const b = new ModelBuilder();
+    const ball = [sketch('S1', [P('c0', 0, -5), P('c1', 0, 5), P('o', 0, 0), { id: 'arc', t: 'arc', c: 'o', a: 'c0', b: 'c1' }, P('x0', 0, -8), P('x1', 0, 8), L('cl', 'x0', 'x1', true)]),
+      surf('surfaceRevolve', 'R1', { sketch: 'S1', angle: 360 })];
+    const face = faceRefOf(await b.build(req(ball)), (f) => f.body === 'R1');
+    const res = await b.build(req([...ball, surf('surfaceKnit', 'K1', { faces: [face], solid: true })]));
+    ok(res);
+    expect(b.surfaceBodies()).toHaveLength(0);
+    expect(b.massProperties()!.volume).toBeCloseTo((4 / 3) * Math.PI * 125, 3);
+  });
+
   it('thickens a surface into a solid of area × thickness, either side or both', async () => {
     const b = new ModelBuilder();
     const base = [sketch('S1', rect(0, 0, 20, 10)), surf('surfacePlanar', 'F1', { sketch: 'S1' })];
