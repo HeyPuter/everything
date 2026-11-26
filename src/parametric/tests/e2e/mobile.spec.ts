@@ -363,3 +363,25 @@ test('a small phone shows the equations table, Delete buttons included, without 
   await expect(dialog.getByRole('button', { name: 'Delete Var1' })).toBeVisible();
   expect(await dialog.locator('.dialog-body').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
+
+test('the ribbon tab strip fades the edge with more tabs past it, also after the drawing hid and showed tabs', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const strip = page.locator('.cm-tabs');
+  await expect(strip).toHaveClass(/more-end/);
+  // The View tab, last, scrolls into view: the fade moves to the start.
+  await page.locator('.cm-tabs [data-tab="view"]').click();
+  await expect(strip).toHaveClass(/more-start/);
+  await expect(strip).not.toHaveClass(/more-end/);
+  // The drawing has two tabs, which fit: no fade.
+  type A = { __parametric: import('../../src/app/app').App };
+  await page.evaluate(() => (window as unknown as A).__parametric.openDrawing());
+  await expect(page.locator('.cm-tabs [data-tab="annotation"]')).toBeVisible();
+  await expect(strip).not.toHaveClass(/more-(start|end)/);
+  // Back in the model all the tabs are there again, past the edge.
+  await page.evaluate(() => (window as unknown as A).__parametric.closeDrawing());
+  await expect(page.locator('.cm-tabs [data-tab="features"]')).toBeVisible();
+  await expect(strip).toHaveClass(/more-end/);
+  expect(errors).toEqual([]);
+});

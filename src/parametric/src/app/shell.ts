@@ -204,6 +204,8 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   };
   cmTabs.addEventListener('scroll', tabEdges, { passive: true });
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(tabEdges).observe(cmTabs);
+  // Tabs shown or hidden (the drawing's, an assembly's) change what is past the edge too.
+  if (typeof MutationObserver !== 'undefined') new MutationObserver(tabEdges).observe(cmTabs, { subtree: true, childList: true, attributeFilter: ['hidden'] });
   const cm =h('section', { class: 'cm', 'aria-label': 'CommandManager' }, ribbonScroller(cmTools), cmTabs);
 
   const lpTabs = h('div', { class: 'lp-tabs' });
