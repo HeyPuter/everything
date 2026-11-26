@@ -320,3 +320,30 @@ test('an annotation selected in the Annotations list moves with the arrow keys',
   await expect.poll(() => at('a2')).toEqual([0, 20]);
   expect(errors).toEqual([]);
 });
+
+test('switching to first angle moves the top view below the front and the right view to its left, in one undo step', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  const centre = (f: { x0: number; y0: number; x1: number; y1: number }) => [(f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2];
+  const third = (await ws(page)).frames;
+  const before = await drawing(page);
+  await page.getByRole('combobox', { name: 'Projection angle' }).selectOption('first');
+  await expect(page.locator('.paper text', { hasText: 'FIRST ANGLE' })).toHaveCount(1);
+  await expect.poll(async () => (await drawing(page)).views.find((v) => v.id === 'v2')!.y).toBeGreaterThan((await drawing(page)).views[0].y);
+  const first = (await ws(page)).frames;
+  const [f3, t3, r3] = ['v1', 'v2', 'v3'].map((id) => centre(third.find((f) => f.id === id)!));
+  const [f1, t1, r1] = ['v1', 'v2', 'v3'].map((id) => centre(first.find((f) => f.id === id)!));
+  expect(t1[0]).toBeCloseTo(f1[0], 3);
+  expect(t1[1] - f1[1]).toBeCloseTo(f3[1] - t3[1], 3);
+  expect(f1[0] - r1[0]).toBeCloseTo(r3[0] - f3[0], 3);
+  // Still the right view (its caption), now left of the front.
+  await expect(page.locator('.paper text', { hasText: /^RIGHT$/ })).toHaveCount(1);
+  for (const f of first) expect(f.x0).toBeGreaterThanOrEqual(10);
+  await page.keyboard.press('Meta+Z');
+  await expect.poll(async () => (await drawing(page)).views).toEqual(before.views);
+  expect((await drawing(page)).projection ?? 'third').toBe('third');
+  expect(errors).toEqual([]);
+});

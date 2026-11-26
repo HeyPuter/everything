@@ -13,7 +13,7 @@ import { ASSEMBLY_SOURCE, EXPLODED_SOURCE, flatSource } from './drawing-sources'
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import {
   DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, TITLE_H, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
-  standardLayout, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
+  standardLayout, switchProjection, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
 } from '../drawing/sheet';
 import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, holeSpecOf, measure } from '../drawing/annotate';
 import { toDxf } from '../drawing/dxf';
@@ -1336,6 +1336,11 @@ export class DrawingWorkspace {
     return { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
   }
 
+  /** A new projection angle: the views keep what they show and move to their side for it (see switchProjection). */
+  setProjection(d: DrawingDoc, to: 'first' | 'third') {
+    switchProjection(d, to, (v) => this.frameOf(v, d.scale, d));
+  }
+
   /** After the sheet got smaller or turned: views that would hang off it move back on. */
   keepOnSheet(d: DrawingDoc) {
     for (const v of d.views) [v.x, v.y] = this.onSheet(v.id, v.x, v.y, d);
@@ -1603,7 +1608,7 @@ export class DrawingPanel extends PropertyPanel {
         sheet,
         checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; ws.keepOnSheet(x); }, 'Sheet orientation')),
         scale,
-        selectField('Projection angle', d.projection ?? 'third', [{ value: 'third', label: 'Third angle (ASME)' }, { value: 'first', label: 'First angle (ISO)' }], (v) => ws.updateFromPanel((x) => { x.projection = v; }, 'Projection angle')),
+        selectField('Projection angle', d.projection ?? 'third', [{ value: 'third', label: 'Third angle (ASME)' }, { value: 'first', label: 'First angle (ISO)' }], (v) => ws.updateFromPanel((x) => ws.setProjection(x, v), 'Projection angle')),
         h('button', { class: 'btn small', type: 'button', onclick: () => void ws.arrange() }, icon('reset', 14), 'Arrange standard views'),
       ]),
       section('Views', [

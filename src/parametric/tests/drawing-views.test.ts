@@ -7,7 +7,7 @@ import type { DrawingDoc, HoleFeature, SkEntity } from '../src/model/types';
 import { validDrawing } from '../src/model/validate-drawing';
 import { type Geo, drawDimension, guessKind, holeCalloutText, holeSpecOf, measure } from '../src/drawing/annotate';
 import { circleArc, dxfText, toDxf } from '../src/drawing/dxf';
-import { type Item, buildSheet, toPdf, toSvg, viewCaption } from '../src/drawing/sheet';
+import { type Item, buildSheet, switchProjection, toPdf, toSvg, viewCaption } from '../src/drawing/sheet';
 import { arcOverHalf, besideOrient, centerMarks, clipToCircle, dependents, hatch, holeAxes, resolveViews, standardOrient, viewPrims } from '../src/drawing/views';
 import { detailScale, nextLetter } from '../src/app/drawing';
 
@@ -69,6 +69,51 @@ describe('view directions', () => {
     // The free axis is where the view was put.
     expect((p2.frame.x0 + p2.frame.x1) / 2).toBeCloseTo(200, 9);
     expect((p3.frame.y0 + p3.frame.y1) / 2).toBeCloseTo(40, 9);
+  });
+
+  it('switching the projection angle moves the views beside the front view to its other side, each still showing what it showed', () => {
+    const d = base([
+      { id: 'v1', kind: 'front', x: 120, y: 150, hidden: false, dims: true },
+      { id: 'v2', kind: 'top', x: 120, y: 80, hidden: false, dims: true },
+      { id: 'v3', kind: 'right', x: 200, y: 150, hidden: false, dims: true },
+      { id: 'v4', kind: 'isometric', x: 200, y: 80, hidden: false, dims: false },
+      { id: 'v5', kind: 'back', type: 'projected', parent: 'v3', side: 'right', x: 260, y: 150, hidden: false, dims: false },
+      { id: 'v6', kind: 'front', type: 'section', parent: 'v1', line: [-30, 0, 30, 0], label: 'A', x: 120, y: 230, hidden: false, dims: false },
+      { id: 'v7', kind: 'front', type: 'detail', parent: 'v1', circle: [0, 0, 5], scale: 2, label: 'B', x: 330, y: 60, hidden: false, dims: false },
+    ]);
+    const sizes: Record<string, number> = { v1: 20, v2: 20, v3: 20, v4: 30, v5: 20, v6: 10, v7: 10 };
+    const frameOf = (v: DrawingDoc['views'][number]) => ({ id: v.id, x0: v.x - sizes[v.id], y0: v.y - sizes[v.id], x1: v.x + sizes[v.id], y1: v.y + sizes[v.id] });
+    // (A section's plane is the same; the point it is given by is the line's other end.)
+    const dirs = (x: DrawingDoc) => new Map([...resolveViews(x).values()].map((r) => [r.v.id, [r.o.dir, r.o.x, r.section ? [r.section.n, r.section.p[1]] : null]]));
+    const before = dirs(d);
+    const at = (x: DrawingDoc) => Object.fromEntries(x.views.map((v) => [v.id, [v.x, v.y]]));
+    const was = at(d);
+    switchProjection(d, 'first', frameOf);
+    expect(d.projection).toBe('first');
+    const now = at(d);
+    const [fx, fy] = now.v1;
+    // Top below the front, right left of it, at the distances they had; the isometric view in the top view's row.
+    expect(now.v2[0]).toBeCloseTo(fx, 9);
+    expect(now.v2[1] - fy).toBeCloseTo(was.v1[1] - was.v2[1], 9);
+    expect(fx - now.v3[0]).toBeCloseTo(was.v3[0] - was.v1[0], 9);
+    expect(now.v3[1]).toBeCloseTo(fy, 9);
+    expect(now.v4[1]).toBeCloseTo(now.v2[1], 9);
+    // The projected view goes to the other side of the right view.
+    expect(d.views[4].side).toBe('left');
+    expect(now.v3[0] - now.v5[0]).toBeCloseTo(was.v5[0] - was.v3[0], 9);
+    // The section keeps its place relative to the front (it is aligned with it); the detail stays put.
+    expect(now.v6[0] - fx).toBeCloseTo(was.v6[0] - was.v1[0], 9);
+    expect(now.v7).toEqual(was.v7);
+    // Every view looks the way it did.
+    expect(dirs(d)).toEqual(before);
+    // On the sheet (420 x 297) and clear of the title block.
+    for (const v of d.views) { const f = frameOf(v); expect(f.x0).toBeGreaterThanOrEqual(10); expect(f.y1).toBeLessThanOrEqual(287); }
+    // And back.
+    switchProjection(d, 'third', frameOf);
+    expect(dirs(d)).toEqual(before);
+    expect(d.views[4].side).toBe('right');
+    expect(at(d).v2[1]).toBeLessThan(at(d).v1[1]);
+    expect(at(d).v3[0]).toBeGreaterThan(at(d).v1[0]);
   });
 
   it('picks the next free view letter, skipping I, O and Q', () => {

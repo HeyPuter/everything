@@ -146,6 +146,88 @@ export function placeView(
   return [w / 2, h / 2];
 }
 
+/**
+ * Changes the projection angle of a drawing so every view still shows what it showed: the
+ * standard views beside a front view (top and bottom above or below it, left and right beside
+ * it, and an isometric view in the row of a top or bottom view) and projected views move to
+ * the other side of their parent at the same distance; section and auxiliary views keep their
+ * place and look the same way (their line turns round, which first angle reads the other way).
+ * The views that moved, with the views aligned to them, then slide together to stay on the
+ * sheet and clear of the title block. `frameOf` gives a view's frame where it is now.
+ */
+export function switchProjection(d: DrawingDoc, to: 'first' | 'third', frameOf: (v: DrawingView) => ViewFrame | undefined) {
+  if ((d.projection ?? 'third') === to) return;
+  const frames = new Map(d.views.map((v) => [v.id, frameOf(v)]));
+  const old = new Map(d.views.map((v) => [v.id, [v.x, v.y] as [number, number]]));
+  d.projection = to;
+  const byId = new Map(d.views.map((v) => [v.id, v]));
+  const moved = new Set<string>();
+  const isModel = (v: DrawingView) => (v.type ?? 'model') === 'model';
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  for (const f of d.views.filter((v) => isModel(v) && v.kind === 'front')) {
+    const rows = new Set<number>();
+    for (const v of d.views) {
+      if (!isModel(v) || moved.has(v.id) || v === f) continue;
+      if ((v.kind === 'top' || v.kind === 'bottom') && near(v.x, f.x)) { rows.add(v.y); v.y = 2 * f.y - v.y; moved.add(v.id); moved.add(f.id); }
+      else if ((v.kind === 'left' || v.kind === 'right') && near(v.y, f.y)) { v.x = 2 * f.x - v.x; moved.add(v.id); moved.add(f.id); }
+    }
+    for (const v of d.views) if (isModel(v) && v.kind === 'isometric' && !moved.has(v.id) && [...rows].some((y) => near(v.y, y))) { v.y = 2 * f.y - v.y; moved.add(v.id); }
+  }
+  // Projected views, each after its parent: the other side, at the same distance.
+  const flip: Record<string, 'left' | 'right' | 'above' | 'below'> = { left: 'right', right: 'left', above: 'below', below: 'above' };
+  const done = new Set<string>();
+  const visit = (v: DrawingView, depth: number) => {
+    if (done.has(v.id) || depth > 32) return;
+    done.add(v.id);
+    const p = v.parent ? byId.get(v.parent) : undefined;
+    if (p) visit(p, depth + 1);
+    if (v.type === 'section' || v.type === 'auxiliary') {
+      if (v.line) v.line = [v.line[2], v.line[3], v.line[0], v.line[1]];
+      return;
+    }
+    if (v.type !== 'projected' || !p) return;
+    const [px, py] = old.get(p.id)!;
+    const side = v.side ?? 'right';
+    v.side = flip[side];
+    if (side === 'left' || side === 'right') { v.x = 2 * p.x - (v.x - px + p.x); v.y += p.y - py; }
+    else { v.y = 2 * p.y - (v.y - py + p.y); v.x += p.x - px; }
+    moved.add(v.id);
+  };
+  for (const v of d.views) visit(v, 0);
+  if (!moved.size) return;
+  // With the views aligned to those that moved (they move together when dragged too).
+  const group = new Set(moved);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const v of d.views) {
+      if (group.has(v.id) || !v.parent || !group.has(v.parent)) continue;
+      const aligned = v.type === 'projected' || ((v.type === 'section' || v.type === 'auxiliary') && !!v.line && (v.line[0] === v.line[2] || v.line[1] === v.line[3]));
+      if (aligned) { group.add(v.id); grew = true; }
+    }
+  }
+  const { w, h } = sheetDims(d);
+  const boxes: Box[] = [];
+  for (const id of group) {
+    const v = byId.get(id)!, f = frames.get(id), o = old.get(id)!;
+    if (!f) continue;
+    const dx = v.x - o[0], dy = v.y - o[1];
+    const dims = hasDims(v);
+    boxes.push([f.x0 + dx - (dims ? DIM_LEFT : 0), f.y0 + dy, f.x1 + dx, f.y1 + dy + (dims ? DIM_BELOW + 8 : 9)]);
+  }
+  if (!boxes.length) return;
+  const U: Box = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))];
+  const fit = (lo: number, hi: number, min: number, max: number) => (lo < min ? min - lo : hi > max ? Math.max(max - hi, min - lo) : 0);
+  const sx = fit(U[0], U[2], MARGIN, w - MARGIN);
+  let sy = fit(U[1], U[3], MARGIN, h - MARGIN);
+  // Up, clear of the title block, as far as the top border allows.
+  const tb = titleBlockSize(d);
+  const T: Box = [w - MARGIN - tb.w, h - MARGIN - tb.h, w - MARGIN, h - MARGIN];
+  const over = Math.max(0, ...boxes.filter((b) => b[0] + sx < T[2] && b[2] + sx > T[0] && b[1] + sy < T[3] && b[3] + sy > T[1]).map((b) => b[3] + sy - T[1]));
+  sy -= Math.min(over, Math.max(0, U[1] + sy - MARGIN));
+  if (!sx && !sy) return;
+  for (const id of group) { const v = byId.get(id)!; v.x += sx; v.y += sy; }
+}
+
 // ---------- display list ----------
 
 export type Item =
