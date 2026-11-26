@@ -771,7 +771,7 @@ export class SurfaceKit {
         }).filter((i) => i >= 0))];
       } else {
         keep = comps.flatMap((c, ci) => {
-          const p = faceMidPoint(faces[c[0]]);
+          const p = interiorPoint(faces[c[0]], tool.shape, tol);
           const q = nearest(vertexAt(p), tool.shape);
           const n = q ? tool.normal(q.p2) : null;
           if (!q || !n) return [];
@@ -1186,6 +1186,35 @@ function components(faces: Sh[], tool: Sh, tol: number): number[][] {
   const groups = new Map<number, number[]>();
   faces.forEach((_, i) => { const r = find(i); const g = groups.get(r); if (g) g.push(i); else groups.set(r, [i]); });
   return [...groups.values()];
+}
+
+/**
+ * A point on a face, as far from `avoid` as can be found: the middle of its
+ * parameter range lies outside a face with a hole (the square around a
+ * circle trimmed out of it), so a grid over that range is tried, keeping
+ * the points that are on the face.
+ */
+function interiorPoint(face: Sh, avoid: Sh, tol: number): Vec3 {
+  const oc = getOc();
+  const ad = new oc.BRepAdaptor_Surface(face.wrapped, true);
+  const pts: Vec3[] = [];
+  try {
+    const u0 = ad.FirstUParameter(), u1 = ad.LastUParameter(), v0 = ad.FirstVParameter(), v1 = ad.LastVParameter();
+    const at = (u: number, v: number) => { const q = ad.Value(u0 + (u1 - u0) * u, v0 + (v1 - v0) * v); const out = xyz(q); q.delete(); return out; };
+    pts.push(at(0.5, 0.5));
+    const n = 6;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) pts.push(at((i + 0.5) / n, (j + 0.5) / n));
+  } finally {
+    ad.delete();
+  }
+  let best = pts[0], bd = -1;
+  for (const p of pts) {
+    const v = vertexAt(p);
+    if ((nearest(v, face)?.d ?? Infinity) > tol) continue;
+    const d = nearest(v, avoid)?.d ?? 0;
+    if (d > bd) { bd = d; best = p; }
+  }
+  return best;
 }
 
 /** The face of a shape nearest a point. */

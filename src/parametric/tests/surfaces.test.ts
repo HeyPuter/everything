@@ -389,6 +389,23 @@ describe('trim, extend and delete face', () => {
     expect(surfaceFaces(res).filter((f) => f.body === 'T1').reduce((a, f) => a + f.area, 0)).toBeCloseTo(100, 4);
   });
 
+  it('trims a hole with a circle sketch, keeping one side or the other', async () => {
+    const b = new ModelBuilder();
+    const hole = sketch('S2', circle(10, 10, 3));
+    const face = faceRefOf(await b.build(req([...square, hole])), (f) => f.body === 'F1');
+    // The square around the hole has the middle of its parameter range in the hole:
+    // both pieces were taken for the same side, and both kept (or neither, flipped).
+    const areas = [];
+    for (const flip of [false, true]) {
+      const res = await b.build(req([...square, hole, surf('surfaceTrim', 'T1', { faces: [face], tool: { kind: 'sketch', sketch: 'S2' }, flip })]));
+      ok(res);
+      expect(surfaceFaces(res)).toHaveLength(1);
+      areas.push(surfaceArea(res));
+    }
+    expect(areas.sort((x, y) => x - y)[0]).toBeCloseTo(Math.PI * 9, 3);
+    expect(areas[1]).toBeCloseTo(400 - Math.PI * 9, 3);
+  });
+
   it('extends a surface past an edge, the same surface or straight', async () => {
     const b = new ModelBuilder();
     const res0 = await b.build(req(square));
