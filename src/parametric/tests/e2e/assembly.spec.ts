@@ -203,9 +203,10 @@ test('editing a part from its assembly, interference, measuring and STEP export'
     });
   });
   await expect(page.locator('.statusbar')).toContainText('Under Defined (1 DOF)');
+  // NaN until the assembly has solved (just after it is opened again), so a poll waits for it.
   const pinZ = () => page.evaluate(() => {
-    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
-    return m.solved.get(m.doc.components[1].id)!.p[2];
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly;
+    return m?.solved.get(m.doc.components[1].id)?.p[2] ?? NaN;
   });
   expect(await pinZ()).toBeCloseTo(-20, 4);
   await page.keyboard.press('Meta+s');
