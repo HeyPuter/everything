@@ -95,6 +95,8 @@ export interface AnalysisResult {
 }
 
 const TOL = 1e-9;
+/** How much more a drag resists turning a component than sliding it (see solve). */
+const DRAG_TURN_RESISTANCE = 10;
 /** A mate whose residual stays above this (relative to the assembly size) does not hold. */
 export const CONFLICT_TOL = 1e-6;
 
@@ -352,10 +354,21 @@ export class MateSolver {
       }
       return worst;
     };
+    // A component no mate holds is carried by a move drag without turning, as if picked up.
+    const drag = opts.drag;
+    if (drag?.kind === 'move' && sys.index.has(drag.body) && !mates.some((m) => m.a.body === drag.body || m.b.body === drag.body)) {
+      const pl = placements.get(drag.body)!;
+      const moved = new Map(placements).set(drag.body, { p: add(pl.p, sub(drag.target, applyPlacement(pl, drag.local))), q: pl.q });
+      return this.solve({ ...opts, drag: null }, mates, moved);
+    }
     if (!n) {
       const worst = evalMates(placements);
       return { placements, ok: worst < CONFLICT_TOL, residuals, iterations: 0 };
     }
+    // While a move drag pulls, turning costs more than sliding: a component
+    // its mates let slide follows the cursor without spinning, and one they
+    // only let turn (a lid on a hinge) still turns.
+    const varWeights = (withDrag: boolean) => vars.flatMap((_, i) => [0, 1, 2, 3, 4, 5].map((j) => weights[i] * (withDrag && drag?.kind === 'move' && j >= 3 ? DRAG_TURN_RESISTANCE : 1)));
     let x = new Array<number>(n).fill(0);
     const at = (xv: number[]): Map<Id, Placement> => {
       const out = new Map(placements);
@@ -372,6 +385,7 @@ export class MateSolver {
     const maxIter = opts.maxIter ?? 60;
     let iterations = 0;
     const run = (withDrag: boolean, iters: number) => {
+      const vw = varWeights(withDrag);
       let lambda = 1e-6;
       let r = rows(at(x), withDrag);
       let cost = sumSq(r);
@@ -380,7 +394,7 @@ export class MateSolver {
         iterations++;
         const mateCost = withDrag ? sumSq(rows(at(x), false)) : cost;
         if (!withDrag && Math.sqrt(mateCost) < TOL) break;
-        const J = this.jacobian(x, sys, placements, mates, withDrag ? opts.drag ?? null : null, dragWeight, r.length, n, weights, L);
+        const J = this.jacobian(x, sys, placements, mates, withDrag ? opts.drag ?? null : null, dragWeight, r.length, n, vw, L);
         const g = new Array<number>(n).fill(0);
         const A = Array.from({ length: n }, () => new Array<number>(n).fill(0));
         for (let i = 0; i < r.length; i++) {
@@ -400,7 +414,7 @@ export class MateSolver {
           const M = A.map((row, p) => row.map((v, q) => (p === q ? v + lambda : v)));
           const d = choleskySolve(M, g.map((v) => -v));
           if (!d) { lambda *= 10; continue; }
-          step = d.map((v, i) => v / weights[Math.floor(i / 6)]);
+          step = d.map((v, i) => v / vw[i]);
           const xn = x.map((v, i) => v + step[i]);
           const rn = rows(at(xn), withDrag);
           const cn = sumSq(rn);
@@ -442,8 +456,9 @@ export class MateSolver {
   /**
    * Jacobian of the residual rows (mates, then the drag goal) by central
    * differences: each mate depends on the variables of its two components only.
+   * Columns are divided by the variables' weights (`vw`, one per variable).
    */
-  private jacobian(x: number[], sys: System, base: Map<Id, Placement>, mates: SolverMate[], drag: DragGoal | null, dragWeight: number, m: number, n: number, weights: number[], L: number): number[][] {
+  private jacobian(x: number[], sys: System, base: Map<Id, Placement>, mates: SolverMate[], drag: DragGoal | null, dragWeight: number, m: number, n: number, vw: number[], L: number): number[][] {
     const J = Array.from({ length: m }, () => new Array<number>(n).fill(0));
     const h = 1e-6;
     const current = new Map(base);
@@ -462,10 +477,9 @@ export class MateSolver {
       for (const id of new Set(bodies)) {
         if (!id || !sys.index.has(id)) continue;
         const k = sys.index.get(id)! * 6;
-        const w = weights[sys.index.get(id)!];
         for (let j = 0; j < 6; j++) {
           const rp = f(perturbed(id, j, h)), rm = f(perturbed(id, j, -h));
-          for (let i = 0; i < rp.length; i++) J[row + i][k + j] = (rp[i] - rm[i]) / (2 * h) / w;
+          for (let i = 0; i < rp.length; i++) J[row + i][k + j] = (rp[i] - rm[i]) / (2 * h) / vw[k + j];
         }
         work.set(id, current.get(id)!);
       }

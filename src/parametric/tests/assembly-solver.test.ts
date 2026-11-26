@@ -154,6 +154,28 @@ describe('mate solver', () => {
     expect(f.placements.get('base')!.p).toEqual([0, 0, 0]);
   });
 
+  it('a drag slides a component without turning it when its mates let it slide', () => {
+    const turn = (q: Quat) => 2 * Math.acos(Math.min(1, Math.abs(q[3])));
+    // Free, grabbed off its centre: carried exactly, not turned.
+    const free = new MateSolver([body('base', true), { ...body('blk', false, [40, 0, 0]), center: [0, 0, 0] }], []);
+    const r = free.solve({ maxIter: 25, drag: { kind: 'move', body: 'blk', local: [5, 5, 5], target: [100, 80, -60] } });
+    expect(r.placements.get('blk')!.q).toEqual([0, 0, 0, 1]);
+    expect(applyPlacement(r.placements.get('blk')!, [5, 5, 5])).toEqual([100, 80, -60]);
+    // On a face (coincident), grabbed at a corner and dragged across in steps as the pointer
+    // moves: it slides on the face to the cursor and barely turns (it turned 9° before).
+    const onTop = mate('coincident', ['base', TOP], ['blk', BOTTOM]);
+    let pl: Placement = { p: [0, 10, 0], q: [0, 0, 0, 1] };
+    for (let k = 1; k <= 10; k++) {
+      const s = new MateSolver([body('base', true), { ...body('blk', false), placement: pl, center: [0, 0, 0] }], [onTop]);
+      const res = s.solve({ maxIter: 25, drag: { kind: 'move', body: 'blk', local: [20, 5, 0], target: [0, 15, 8 * k] } });
+      expect(res.ok).toBe(true);
+      pl = res.placements.get('blk')!;
+    }
+    const tip = applyPlacement(pl, [20, 5, 0]);
+    expect(Math.hypot(tip[0], tip[2] - 80)).toBeLessThan(1e-3);
+    expect(turn(pl.q)).toBeLessThan(0.01);
+  });
+
   it('rotating toward an orientation respects mates', () => {
     const s = new MateSolver([body('base', true), body('blk', false, [0, 10, 0])], [mate('coincident', ['base', TOP], ['blk', BOTTOM])]);
     const r = s.solve({ drag: { kind: 'rotate', body: 'blk', q: qAxisAngle(normalize([1, 1, 0]), 0.5) } });
