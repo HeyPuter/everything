@@ -994,7 +994,7 @@ export class App {
     if (!this.drawing.active) return;
     this.drawing.close();
     this.syncSheetTabs();
-    this.setRibbonTab('features');
+    this.setRibbonTab(this.assembly ? 'assembly' : 'features');
     this.showLeft('tree');
     this.setStatus('Ready');
     this.commands.changed();

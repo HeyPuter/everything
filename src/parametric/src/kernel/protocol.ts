@@ -178,6 +178,8 @@ export interface ProjectionResult {
   bounds: [number, number, number, number] | null;
   /** Section views: outlines of the cut faces, polylines [x0, y0, x1, y1, ...] in the same coordinates. */
   cut?: number[][];
+  /** Assembly section views: which component each cut outline belongs to (each is hatched its own way). */
+  cutGroups?: number[];
 }
 
 export type WorkerRequest =

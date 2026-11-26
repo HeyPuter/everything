@@ -12,7 +12,8 @@ import type { Vec3 } from '../math/vec';
 import { add, dist, scale, sub } from '../math/vec';
 import type { Feature, Id } from '../model/types';
 import { ModelBuilder, eigenSym3 } from './build';
-import { type Sh, bbox, common, compound, getOc, gdir, meshShape, pnt, projectShape, volumeOf, wrap, xyz } from './occ';
+import { cutOutlines, halfOf } from './drawing-section';
+import { type Sh, bbox, common, compound, getOc, gdir, meshShape, pnt, projectShape, subShapes, volumeOf, wrap, xyz } from './occ';
 import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult } from './protocol';
 
 export interface AsmPartBuild {
@@ -73,7 +74,9 @@ export type AsmRequest =
   | { op: 'drop'; keep: string[] }
   | { op: 'interference' }
   /** densities: kg/m³ for each scene item. */
-  | { op: 'mass'; densities: number[] };
+  | { op: 'mass'; densities: number[] }
+  /** Drawing projections of components placed as given (the scene is left as it is). */
+  | { op: 'project'; items: AsmSceneItem[]; views: ProjectionRequest[] };
 
 const IDENTITY_M = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
 
@@ -196,10 +199,20 @@ export class AssemblyBuilder {
   }
 
   project(views: ProjectionRequest[]): ProjectionResult[] {
-    const body = this.combined();
-    const b = body ? bbox(body) : null;
-    const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;
-    return views.map((v) => (body ? { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10, v.hidden !== false) } : { id: v.id, visible: [], hidden: [], bounds: null }));
+    return projectBodies(this.bodies().map((b) => b.shape), views);
+  }
+
+  /**
+   * Projections of the components placed as `items` say (a drawing of the assembly
+   * collapsed or exploded, whatever the graphics area shows). Hidden components are drawn.
+   */
+  projectItems(items: AsmSceneItem[], views: ProjectionRequest[]): ProjectionResult[] {
+    const list: Sh[] = [];
+    for (const it of items) {
+      const body = this.shapesOf(it.part).body;
+      if (body) list.push(place(body, it.m));
+    }
+    return projectBodies(list, views);
   }
 
   /** Volume properties per unit density of all components together (what the part's Mass Properties reports). */
@@ -352,6 +365,32 @@ export class AssemblyBuilder {
   get sceneSize(): number {
     return this.scene.length;
   }
+}
+
+/**
+ * Hidden-line projections of placed components. A section view cuts each component on its
+ * own (a boolean on all of them at once loses those that touch), and tells which component
+ * each cut outline belongs to, so neighbours are hatched differently.
+ */
+function projectBodies(list: Sh[], views: ProjectionRequest[]): ProjectionResult[] {
+  const body = list.length ? compound(list) : null;
+  const b = body ? bbox(body) : null;
+  const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;
+  return views.map((v) => {
+    if (!body || !b) return { id: v.id, visible: [], hidden: [], bounds: null };
+    if (!v.section) return { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10, v.hidden !== false, v.smooth !== false) };
+    const { p, n } = v.section;
+    const size = 2 * (dist(b.min, b.max) + Math.hypot(...p) + Math.hypot(...b.min) + 1);
+    const halves: Sh[] = [], cut: number[][] = [], cutGroups: number[] = [];
+    list.forEach((s, i) => {
+      const half = halfOf(s, p, n, size);
+      if (!subShapes(half, 'face').length) return;
+      halves.push(half);
+      for (const pl of cutOutlines(half, p, n, v.dir, v.x, tol)) { cut.push(pl); cutGroups.push(i); }
+    });
+    if (!halves.length) return { id: v.id, visible: [], hidden: [], bounds: null, cut: [] };
+    return { id: v.id, ...projectShape(compound(halves), v.dir, v.x, tol, tol / 10, v.hidden !== false, v.smooth !== false), cut, cutGroups };
+  });
 }
 
 /** A shape moved by a rigid 3×4 row-major matrix (the geometry is shared, only its location changes). */

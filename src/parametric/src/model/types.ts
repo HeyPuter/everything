@@ -664,13 +664,15 @@ export interface DrawingView {
   /** Centre marks on circles seen end-on and centrelines of holes seen side-on (absent: off). */
   centerMarks?: boolean;
   /**
-   * Where the view's geometry comes from (absent: this part). Assembly drawings will
-   * name a source the drawing workspace was given (see src/drawing/source.ts).
+   * Where the view's geometry comes from (absent: this part). Assembly drawings name
+   * 'assembly' (components where the mates put them) or 'assembly:exploded' (the exploded
+   * view); see src/drawing/source.ts. A flat pattern view ('flat' type) uses the sheet
+   * metal part's flat pattern instead.
    */
   source?: string;
 }
 
-export type DrawingViewType = 'model' | 'projected' | 'section' | 'detail' | 'auxiliary';
+export type DrawingViewType = 'model' | 'projected' | 'section' | 'detail' | 'auxiliary' | 'flat';
 export type DrawingSide = 'left' | 'right' | 'above' | 'below';
 
 /** A reference to model geometry seen in a view: a named model edge (as the kernel names them). */
@@ -738,8 +740,9 @@ export interface DrawingHoleCallout extends DrawingAnnotationBase {
 }
 
 /**
- * Item balloon of an assembly drawing (data shape only; drawn once a source provides BOM
- * rows): a circle with the item number and a leader to a component's edge.
+ * Item balloon: a circle with the item number and a leader to an edge of a component (an
+ * assembly drawing: its bill of materials row) or of a structural member (a weldment: its
+ * cut list item).
  */
 export interface DrawingBalloon extends DrawingAnnotationBase {
   type: 'balloon';
@@ -750,16 +753,26 @@ export interface DrawingBalloon extends DrawingAnnotationBase {
   item?: number;
 }
 
-/** Bill of materials table of a view's source (data shape; rows come from the source). */
+/** Bill of materials table of a view's source (rows come from the source, so it follows the assembly). */
 export interface DrawingBom extends DrawingAnnotationBase {
   type: 'bom';
-  /** Top left corner on the sheet, in millimetres. */
+  /** Top left corner on the sheet, in millimetres (with anchor 'bottomRight': its bottom right corner). */
   at: [number, number];
   /** The source whose rows it lists (absent: that of the first view). */
   source?: string;
+  /** Which corner `at` is (absent: the top left); a table on the title block grows upward from it. */
+  anchor?: 'bottomRight';
 }
 
-export type DrawingAnnotation = DrawingDimension | DrawingNote | DrawingCenterMark | DrawingCenterline | DrawingHoleCallout | DrawingBalloon | DrawingBom;
+/** Cut list table of a weldment part (rows from the part's structural members as built). */
+export interface DrawingCutList extends DrawingAnnotationBase {
+  type: 'cutList';
+  /** Top left corner on the sheet, in millimetres (with anchor 'bottomRight': its bottom right corner). */
+  at: [number, number];
+  anchor?: 'bottomRight';
+}
+
+export type DrawingAnnotation = DrawingDimension | DrawingNote | DrawingCenterMark | DrawingCenterline | DrawingHoleCallout | DrawingBalloon | DrawingBom | DrawingCutList;
 
 export interface DrawingDoc {
   sheet: SheetSize;

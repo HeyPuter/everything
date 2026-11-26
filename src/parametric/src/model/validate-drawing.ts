@@ -2,7 +2,7 @@ import type { DrawingDoc } from './types';
 
 const sheets = new Set(['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D']);
 const kinds = new Set(['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric']);
-const types = new Set(['model', 'projected', 'section', 'detail', 'auxiliary']);
+const types = new Set(['model', 'projected', 'section', 'detail', 'auxiliary', 'flat']);
 const sides = new Set(['left', 'right', 'above', 'below']);
 const dimKinds = new Set(['horizontal', 'vertical', 'aligned', 'radius', 'diameter', 'angle']);
 const refAts = new Set(['edge', 'start', 'end', 'center']);
@@ -36,8 +36,10 @@ export function validDrawing(value: unknown): value is DrawingDoc {
       || !optional(v.circle, (c) => nums(c, 3) && (c as number[])[2] > 0)
       || !optional(v.scale, (s) => finite(s) && s > 0)
       || !optional(v.label, str) || !optional(v.tangent, bool) || !optional(v.centerMarks, bool) || !optional(v.source, str)) return false;
+    // A flat pattern view stands alone (its geometry is the flat pattern, not a direction).
+    if (v.type === 'flat' && v.parent !== undefined) return false;
     // A view made from another names it, and what defines it.
-    if (v.type && v.type !== 'model') {
+    if (v.type && v.type !== 'model' && v.type !== 'flat') {
       if (typeof v.parent !== 'string') return false;
       if ((v.type === 'section' || v.type === 'auxiliary') && !v.line) return false;
       if (v.type === 'detail' && !v.circle) return false;
@@ -46,6 +48,9 @@ export function validDrawing(value: unknown): value is DrawingDoc {
   }
   // Parents exist (a view whose parent is missing could not be drawn or edited).
   for (const v of value.views as Record<string, unknown>[]) if (typeof v.parent === 'string' && (!ids.has(v.parent) || v.parent === v.id)) return false;
+  // Only a detail view can be made from a flat pattern view (it has no direction to project from).
+  const flat = new Set((value.views as Record<string, unknown>[]).filter((v) => v.type === 'flat').map((v) => v.id));
+  for (const v of value.views as Record<string, unknown>[]) if (typeof v.parent === 'string' && flat.has(v.parent) && v.type !== 'detail') return false;
   if (value.annotations !== undefined) {
     if (!Array.isArray(value.annotations)) return false;
     const aids = new Set<string>();
@@ -72,7 +77,10 @@ export function validDrawing(value: unknown): value is DrawingDoc {
           if (typeof a.view !== 'string' || !ref(a.ref) || !point(a.at) || !optional(a.item, (n) => Number.isInteger(n) && (n as number) > 0)) return false;
           break;
         case 'bom':
-          if (!point(a.at) || !optional(a.source, str)) return false;
+          if (!point(a.at) || !optional(a.source, str) || !optional(a.anchor, (x) => x === 'bottomRight')) return false;
+          break;
+        case 'cutList':
+          if (!point(a.at) || !optional(a.anchor, (x) => x === 'bottomRight')) return false;
           break;
         default:
           return false;

@@ -4,12 +4,15 @@
 
 import type { EdgeInfo, ProjectionResult } from '../kernel/protocol';
 import { type Vec3, cross, normalize } from '../math/vec';
-import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
+import { bendNote } from '../model/flat-pattern';
+import type { DrawingBom, DrawingCutList, DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
 import {
   type AnnoFormat, type Geo, type HoleSpec, type Placement, DANGER, DIM_TEXT_SIZE, NOTE_SIZE, drawCenterMark, drawCenterline, drawCuttingLine,
   drawDetailCircle, drawDimension, drawNote, holeCalloutText, measure, resolveRef,
 } from './annotate';
+import type { FlatProjection } from './flat';
 import { PdfPage, textWidth } from './pdf';
+import { type TableSpec, balloonTip, drawBalloon, drawTable } from './tables';
 import { type Prim, type ResolvedView, centerMarks, clipToCircle, flattenPath, hatch, holeAxes, polyPath, resolveViews, standardKindOf, viewPrims } from './views';
 
 /** Portrait sizes in millimetres. */
@@ -81,7 +84,11 @@ export const TITLE_H = 32;
  * Standard three views (third-angle: top above front, right to the right)
  * plus an isometric view, at the largest standard scale that fits.
  */
-export function standardLayout(sheet: { w: number; h: number }, min: Vec3, max: Vec3): { scale: number; views: Omit<DrawingView, 'id'>[] } {
+/**
+ * `bottom` is the height kept free along the bottom of the sheet (the title block's, and with
+ * a bill of materials on it, the table's too).
+ */
+export function standardLayout(sheet: { w: number; h: number }, min: Vec3, max: Vec3, bottom = TITLE_H): { scale: number; views: Omit<DrawingView, 'id'>[] } {
   const f = projectedSize('front', min, max), t = projectedSize('top', min, max), r = projectedSize('right', min, max), i = projectedSize('isometric', min, max);
   const c1 = Math.max(f[0], t[0]), c2 = Math.max(r[0], i[0]);
   const r1 = Math.max(t[1], i[1]), r2 = Math.max(f[1], r[1]);
@@ -91,7 +98,7 @@ export function standardLayout(sheet: { w: number; h: number }, min: Vec3, max: 
   const gap = 15;
   const top = 5, below = (3 * gap - top) / 2;
   const availW = sheet.w - 2 * MARGIN - 3 * gap;
-  const availH = sheet.h - 2 * MARGIN - TITLE_H - 3 * gap;
+  const availH = sheet.h - 2 * MARGIN - bottom - 3 * gap;
   const fit = Math.min(availW / Math.max(c1 + c2, 1e-6), availH / Math.max(r1 + r2, 1e-6));
   const scale = STANDARD_SCALES.find((s) => s <= fit) ?? STANDARD_SCALES[STANDARD_SCALES.length - 1];
   const x1 = MARGIN + gap + (c1 * scale) / 2;
@@ -161,6 +168,10 @@ export interface SheetInfo {
   format?: AnnoFormat;
   /** The hole a circular edge belongs to, for hole callouts. */
   holeOf?: (edge: string) => HoleSpec | null;
+  /** What a bill of materials or cut list table lists (null: there is nothing it could list). */
+  table?: (a: DrawingBom | DrawingCutList) => TableSpec | null;
+  /** The item number of the component or member an edge of a source belongs to (balloons). */
+  itemOf?: (source: string, edge: string) => number | null;
 }
 
 export interface ViewFrame {
@@ -197,6 +208,7 @@ export function viewCaption(d: DrawingDoc, r: ResolvedView): string {
     case 'section': return `SECTION ${letter || 'A'}-${letter || 'A'}${scale}`;
     case 'detail': return `DETAIL ${letter || 'A'}${scale}`;
     case 'auxiliary': return `${letter ? `VIEW ${letter}` : 'AUXILIARY VIEW'}${scale}`;
+    case 'flat': return `${letter || 'FLAT PATTERN'}${scale}`;
     case 'projected': {
       if (letter) return letter + scale;
       const k = standardKindOf(r.o);
@@ -278,7 +290,7 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
       if (v.hidden) for (const p of clipped(pr.hidden)) items.push({ t: 'path', d: p, tx: 0, ty: 0, s: 1, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });
       for (const p of clipped(pr.visible)) items.push({ t: 'path', d: p, tx: 0, ty: 0, s: 1, w: VISIBLE_W, view: v.id });
       if (pr.cut?.length) {
-        const segs = hatch(pr.cut.map((pl) => pl.map((q, k) => (k % 2 ? q * s + ty : q * s + tx))), 45, HATCH_SPACING)
+        const segs = hatchGroups(pr).flatMap(([cut, angle]) => hatch(cut.map((pl) => pl.map((q, k) => (k % 2 ? q * s + ty : q * s + tx))), angle, HATCH_SPACING))
           .flatMap(([x1, y1, x2, y2]) => clipToCircle([[x1, y1], [x2, y2]], c, R)).map(polyPath);
         if (segs.length) items.push({ t: 'path', d: segs.join(''), tx: 0, ty: 0, s: 1, w: THIN, view: v.id });
       }
@@ -287,14 +299,22 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
       if (v.hidden) for (const p of pr.hidden) items.push({ t: 'path', d: p, tx, ty, s, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });
       for (const p of pr.visible) items.push({ t: 'path', d: p, tx, ty, s, w: VISIBLE_W, view: v.id });
       if (pr.cut?.length) {
-        const segs = hatch(pr.cut.map((pl) => pl.map((q, k) => (k % 2 ? q * s + ty : q * s + tx))), 45, HATCH_SPACING);
-        if (segs.length) items.push({ t: 'path', d: segs.map(([x1, y1, x2, y2]) => `M${+x1.toFixed(4)} ${+y1.toFixed(4)}L${+x2.toFixed(4)} ${+y2.toFixed(4)}`).join(''), tx: 0, ty: 0, s: 1, w: THIN, view: v.id });
+        for (const [cut, angle] of hatchGroups(pr)) {
+          const segs = hatch(cut.map((pl) => pl.map((q, k) => (k % 2 ? q * s + ty : q * s + tx))), angle, HATCH_SPACING);
+          if (segs.length) items.push({ t: 'path', d: segs.map(([x1, y1, x2, y2]) => `M${+x1.toFixed(4)} ${+y1.toFixed(4)}L${+x2.toFixed(4)} ${+y2.toFixed(4)}`).join(''), tx: 0, ty: 0, s: 1, w: THIN, view: v.id });
+        }
       }
+      if (r.type === 'flat') drawBendLines(items, (pr as FlatProjection).bends ?? [], tx, ty, s, info.formatLength);
     }
     const label = viewLabel(viewCaption(d, r), f, hasDims(v), taken.filter((_, j) => j !== i), w, h);
     items.push(label.item);
     taken.push(label.box);
     items.push(...dims[i]);
+  }
+  // A flat pattern view of a part that cannot be flattened says why where it would be.
+  for (const v of d.views) {
+    const pr = projections.get(v.id) as FlatProjection | undefined;
+    if (v.type === 'flat' && pr?.error && !placements.has(v.id)) drawNote(items, `FLAT PATTERN: ${pr.error}`, [v.x - 30, v.y], 2.5, undefined, DANGER);
   }
   const fmt: AnnoFormat = info.format ?? { length: (mm) => info.formatLength(mm), angle: (deg, dec) => `${deg.toFixed(dec ?? 2)}°` };
   // What sections and details leave on their parents (also while the view itself is empty or still projecting).
@@ -393,15 +413,62 @@ function drawAnnotations(items: Item[], d: DrawingDoc, placements: Map<string, V
         } else out.push({ id: a.id, box: drawNote(items, 'HOLE? (missing)', at, DIM_TEXT_SIZE, undefined, DANGER) });
         break;
       }
-      default:
-        // Balloons and BOM tables are drawn once assembly sources provide their rows.
+      case 'balloon': {
+        const g = resolveRef(prims, a.ref);
+        const at = pl.T(a.at);
+        const n = a.item ?? (p ? info.itemOf?.(p.r.source, a.ref.edge) : null) ?? null;
+        const ok = !!g && n !== null;
+        out.push({ id: a.id, box: drawBalloon(items, n === null ? '?' : String(n), at, g ? pl.T(balloonTip(g, a.at)) : null, ok ? undefined : DANGER) });
         break;
+      }
+      case 'bom':
+      case 'cutList': {
+        const t = info.table?.(a);
+        if (t) out.push({ id: a.id, box: drawTable(items, t, a.at, a.anchor) });
+        else {
+          const text = a.type === 'bom' ? 'BILL OF MATERIALS? (no assembly)' : 'CUT LIST? (no structural members)';
+          const at: [number, number] = a.anchor === 'bottomRight' ? [a.at[0] - textWidth(text, 2.5), a.at[1] - 1] : [a.at[0], a.at[1] + 3];
+          out.push({ id: a.id, box: drawNote(items, text, at, 2.5, undefined, DANGER) });
+        }
+        break;
+      }
     }
   }
   return out;
 }
 
 type Box = [x0: number, y0: number, x1: number, y1: number];
+
+/** Hatch angles of an assembly section's components in turn (a part's cut is hatched at 45°). */
+const HATCH_ANGLES = [45, 135, 60, 120, 30, 150];
+
+/** A section's cut outlines by component, each with its hatch angle. */
+function hatchGroups(pr: ProjectionResult): [number[][], number][] {
+  const cut = pr.cut ?? [];
+  const g = pr.cutGroups;
+  if (!g || g.length !== cut.length) return [[cut, 45]];
+  const order = [...new Set(g)];
+  return order.map((k, i) => [cut.filter((_, j) => g[j] === k), HATCH_ANGLES[i % HATCH_ANGLES.length]]);
+}
+
+/**
+ * Bend centre lines of a flat pattern view (view coordinates placed by tx, ty, s): dashed for
+ * bends up, chain lines for bends down, each with its note ("UP 90° R 1") along its middle.
+ */
+function drawBendLines(items: Item[], bends: { a: [number, number]; b: [number, number]; up: boolean; angle: number; radius: number }[], tx: number, ty: number, s: number, fmt: (mm: number) => string) {
+  for (const b of bends) {
+    const A: [number, number] = [tx + b.a[0] * s, ty + b.a[1] * s], B: [number, number] = [tx + b.b[0] * s, ty + b.b[1] * s];
+    items.push({ t: 'line', x1: A[0], y1: A[1], x2: B[0], y2: B[1], w: THIN, dash: b.up ? [4, 1.5] : [4, 1.2, 1, 1.2] });
+    let ang = (Math.atan2(B[1] - A[1], B[0] - A[0]) * 180) / Math.PI;
+    // Never upside down; along a vertical line it reads upward.
+    if (ang >= 90 - 1e-9) ang -= 180;
+    if (ang < -90 - 1e-9) ang += 180;
+    const t = (ang * Math.PI) / 180;
+    // Above the line as it reads.
+    const m: [number, number] = [(A[0] + B[0]) / 2 + Math.sin(t) * 1.2, (A[1] + B[1]) / 2 - Math.cos(t) * 1.2];
+    items.push({ t: 'text', s: bendNote({ up: b.up, angle: b.angle, radius: b.radius } as Parameters<typeof bendNote>[0], fmt), x: m[0], y: m[1], size: 2.5, anchor: 'middle', rotate: ang || undefined });
+  }
+}
 
 const LABEL_SIZE = 2.6;
 /** How far a view's dimensions reach left of and below its outline. */
