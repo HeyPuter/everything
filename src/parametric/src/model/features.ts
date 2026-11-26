@@ -43,6 +43,23 @@ export const PARAM_FIELDS: Partial<Record<FeatureType, { path: string; kind: Par
   ],
   plane: [{ path: 'offset', kind: 'length', label: 'Offset' }],
   draft: [{ path: 'angle', kind: 'angle', label: 'Draft angle' }],
+  baseFlange: [
+    { path: 'sm.thickness', kind: 'length', label: 'Thickness' },
+    { path: 'sm.radius', kind: 'length', label: 'Bend radius' },
+    { path: 'sm.allowanceValue', kind: 'length', label: 'Bend allowance' },
+    { path: 'depth', kind: 'length', label: 'Depth' },
+  ],
+  edgeFlange: [
+    { path: 'length', kind: 'length', label: 'Flange length' },
+    { path: 'angle', kind: 'angle', label: 'Angle' },
+    { path: 'offset1', kind: 'length', label: 'Offset 1' },
+    { path: 'offset2', kind: 'length', label: 'Offset 2' },
+  ],
+  sketchedBend: [{ path: 'angle', kind: 'angle', label: 'Angle' }],
+  hem: [
+    { path: 'length', kind: 'length', label: 'Length' },
+    { path: 'gap', kind: 'length', label: 'Gap' },
+  ],
 };
 
 /**
@@ -90,6 +107,10 @@ const BASE_NAMES: Record<FeatureType, string> = {
   sweep: 'Sweep',
   draft: 'Draft',
   import: 'Imported',
+  baseFlange: 'Base-Flange',
+  edgeFlange: 'Edge-Flange',
+  sketchedBend: 'Sketched Bend',
+  hem: 'Hem',
 };
 
 export const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -108,6 +129,10 @@ export const FEATURE_LABELS: Record<FeatureType, string> = {
   sweep: 'Sweep',
   draft: 'Draft',
   import: 'Imported Body',
+  baseFlange: 'Base Flange/Tab',
+  edgeFlange: 'Edge Flange',
+  sketchedBend: 'Sketched Bend',
+  hem: 'Hem',
 };
 
 export function featureIcon(f: Feature): string {
@@ -182,6 +207,8 @@ export function consumedSketches(f: Feature): Id[] {
     case 'extrude':
     case 'revolve':
     case 'hole':
+    case 'baseFlange':
+    case 'sketchedBend':
       return [f.sketch];
     case 'loft':
       return f.profiles;
@@ -237,6 +264,7 @@ export function dependencies(f: Feature): Id[] {
   if (f.type === 'linearPattern') for (const d of [f.dir1, f.dir2]) visitAxis(d?.ref);
   if (f.type === 'fillet' || f.type === 'chamfer') { f.edges.forEach((r) => visitName(r.name)); f.faces.forEach((r) => visitName(r.name)); }
   if (f.type === 'shell') f.faces.forEach((r) => visitName(r.name));
+  if (f.type === 'edgeFlange' || f.type === 'hem') f.edges.forEach((r) => visitName(r.name));
   return [...out];
 }
 

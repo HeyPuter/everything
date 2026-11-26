@@ -3,6 +3,7 @@
 
 import type { Frame, Vec3 } from '../math/vec';
 import type { Feature, Id, SkEntity } from '../model/types';
+import type { FlatPattern } from '../model/flat-pattern';
 
 /** Features with every Param already evaluated to a number. */
 export type ResolvedFeature = Feature;
@@ -107,6 +108,13 @@ export interface BuildResult {
   heap?: number;
 }
 
+/** The flat pattern of a sheet metal part, and the solid showing it (placed on the part's base flange). */
+export interface FlatPatternResult {
+  pattern: FlatPattern | null;
+  error?: string;
+  mesh: MeshData | null;
+}
+
 export interface MassProperties {
   /**
    * The body has closed solid volume. Without it (only surfaces) there is no
@@ -160,6 +168,7 @@ export type WorkerRequest =
    */
   | { id: number; type: 'build'; req: BuildRequest; blobs: Id[] }
   | { id: number; type: 'mass' }
+  | { id: number; type: 'flatPattern'; quality: number }
   | { id: number; type: 'project'; views: ProjectionRequest[] }
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
   | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number; name?: string }

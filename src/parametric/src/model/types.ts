@@ -4,6 +4,7 @@
 // display unit system.
 
 import type { Vec2, Vec3, Frame } from '../math/vec';
+import type { BaseFlangeFeature, EdgeFlangeFeature, HemFeature, SketchedBendFeature } from './sheetmetal';
 
 export type Id = string;
 
@@ -351,7 +352,11 @@ export type Feature =
   | LoftFeature
   | SweepFeature
   | DraftFeature
-  | ImportFeature;
+  | ImportFeature
+  | BaseFlangeFeature
+  | EdgeFlangeFeature
+  | SketchedBendFeature
+  | HemFeature;
 
 export type FeatureType = Feature['type'];
 

@@ -3,6 +3,7 @@
 // and references, so a missing list or a reference without a name broke the
 // app after the file had replaced the open document.
 import type { Feature } from './types';
+import { validSheetMetalFeature } from './sheetmetal';
 
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -60,6 +61,11 @@ export function validFeature(f: Feature): boolean {
       return list(r.profiles, id);
     case 'sweep':
       return (r.profile == null || id(r.profile)) && (r.path == null || id(r.path));
+    case 'baseFlange':
+    case 'edgeFlange':
+    case 'sketchedBend':
+    case 'hem':
+      return validSheetMetalFeature(r);
     default:
       return true;
   }

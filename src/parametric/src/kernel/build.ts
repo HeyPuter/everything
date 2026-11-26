@@ -21,13 +21,14 @@ import type {
 } from '../model/types';
 import { PARAM_FIELDS, dependencies, getPath, refFeatureIds } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
+import { type SheetHost, type SheetModel, applySheetMetal, flatPattern } from './sheetmetal';
 import { type Region, type Seg2, buildProfiles, hasOverlappingLines, holesMayTouch, inRegion, pointInPoly, reverseLoop, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, pointIdsOf, splineBeziers } from '../sketch/geom';
 import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
 import { measureDimension } from '../sketch/ops';
 import type {
-  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData,
+  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
   ProjectionRequest, ProjectionResult,
 } from './protocol';
 import {
@@ -44,7 +45,7 @@ export class FeatureError extends Error {}
 // silently making a solid where a wall was asked for.
 const THIN_UNSUPPORTED = 'Thin features are not supported yet. Sketch the wall as two offset contours instead.';
 
-interface NamedFace {
+export interface NamedFace {
   shape: Sh;
   name: string;
   desc: SurfDesc;
@@ -66,7 +67,7 @@ interface Tool {
   parts?: Tool[];
 }
 
-interface State {
+export interface State {
   body: Sh | null;
   faces: NamedFace[];
   edges: NamedEdge[] | null;
@@ -75,6 +76,8 @@ interface State {
   /** Projected sketch entities whose model edge or vertex is gone, by sketch. */
   lostRefs: Map<Id, Id[]>;
   tools: Map<Id, Tool>;
+  /** Sheet metal model (sheetmetal.ts), from the first Base Flange on. */
+  sheet?: SheetModel | null;
 }
 
 interface Step {
@@ -93,6 +96,7 @@ const cloneState = (s: State): State => ({
   sketches: new Map(s.sketches),
   lostRefs: new Map(s.lostRefs),
   tools: new Map(s.tools),
+  sheet: s.sheet,
 });
 
 /** A feature's numeric value at a path (dir1.count), named by its label when it is not a number. */
@@ -271,6 +275,7 @@ export class ModelBuilder {
           next.body = state.body;
           next.faces = state.faces;
           next.edges = state.edges;
+          next.sheet = state.sheet;
         }
       }
       this.steps[i] = { key, state: next, status: st };
@@ -380,7 +385,34 @@ export class ModelBuilder {
       case 'sweep': this.applySweep(f, st); return 'tool';
       case 'draft': this.applyDraft(f, st); return 'body';
       case 'import': await this.applyImport(f, st, req); return 'body';
+      case 'baseFlange':
+      case 'edgeFlange':
+      case 'sketchedBend':
+      case 'hem': applySheetMetal(this.sheetHost(), f, st); return 'body';
     }
+  }
+
+  /** What the sheet metal features (sheetmetal.ts) use of the builder. */
+  private sheetHost(): SheetHost {
+    return {
+      sketchRegions: (id, st) => this.sketchRegions(id, st as State),
+      regionFace: (r, fr) => this.regionFace(r, fr),
+      nearestSrc: (regions, p) => this.nearestSrc(regions, p),
+      applyTool: (featId, st, tool, faces, isCut, noGain) => this.applyTool(featId, st as State, tool, faces, isCut, noGain),
+      nameFaces: (featId, body, st, tool) => this.nameFaces(featId, body, st as State, tool),
+      edges: (st) => this.edgesOf(st as State),
+      resolveEdge: (ref, st) => this.resolveEdge(ref, st as State),
+      missing: (id, what) => this.missing(id, what),
+      error: (message) => new FeatureError(message),
+      warn: (message) => { this.warning = message; },
+    };
+  }
+
+  /** The flat pattern of the sheet metal part as last built. */
+  flatPattern(quality = 1): FlatPatternResult {
+    const r = flatPattern(this.current);
+    if ('error' in r) return { pattern: null, error: r.error, mesh: null };
+    return { pattern: r.pattern, mesh: this.meshBody(r.solid, quality) };
   }
 
   /**
