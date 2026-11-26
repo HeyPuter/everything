@@ -6,7 +6,7 @@
 import type { Id } from '../../model/types';
 import { BASE_PLANE_NAMES } from '../../model/planes';
 import type { BasePlane } from '../../model/types';
-import type { AssemblyDocument } from '../../model/assembly';
+import { type AssemblyDocument, mateComps } from '../../model/assembly';
 import { h, titleWhenClipped } from '../../ui/dom';
 import { icon } from '../../ui/icons';
 import type { App } from '../app';
@@ -73,7 +73,9 @@ export class AssemblyTree {
     if (matesOpen || this.filter) for (const m of doc.mates) {
       const err = mode.mateError(m.id);
       const names = mode.mateLabel(m);
-      rows.push({ key: m.id, id: m.id, item: { kind: 'feature', id: m.id }, label: m.name, muted: names ? ` (${names})` : '', icon: `mate:${m.type}`, depth: 2, kind: 'mate', suppressed: m.suppressed, error: err ?? undefined });
+      // A mate of a suppressed component does not act either: it shows suppressed.
+      const off = !!m.suppressed || mateComps(m).some((id) => mode.component(id)?.suppressed);
+      rows.push({ key: m.id, id: m.id, item: { kind: 'feature', id: m.id }, label: m.name, muted: names ? ` (${names})` : '', icon: `mate:${m.type}`, depth: 2, kind: 'mate', suppressed: off, error: err ?? undefined });
     }
     if (doc.explode.length) {
       const open = !this.collapsed.has('explode');

@@ -356,3 +356,27 @@ test('a hidden component still counts in the mass properties of the assembly', a
   expect(await volume()).toBeCloseTo(one, 0);
   expect(errors).toEqual([]);
 });
+
+test('the mates of a suppressed component show as suppressed in the tree', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const [a, b] = m.doc.components;
+    m.commit('Lock', (d) => { d.mates.push({ id: 'm90', name: 'Lock1', type: 'lock', a: { comp: a.id }, b: { comp: b.id }, aligned: false, rel: { p: [60, 0, 0], q: [0, 0, 0, 1] } }); });
+  });
+  const mate = tree.getByRole('treeitem', { name: /^Lock1/ });
+  await expect(mate).not.toHaveAttribute('aria-description', /Suppressed/);
+  await tree.getByRole('treeitem', { name: 'Block<2>', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Suppress' }).click();
+  await expect(mate).toHaveAttribute('aria-description', /Suppressed/);
+  await expect(mate).toHaveClass(/suppressed/);
+  expect(errors).toEqual([]);
+});
