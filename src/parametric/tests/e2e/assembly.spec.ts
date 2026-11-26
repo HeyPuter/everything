@@ -168,6 +168,95 @@ test('builds an assembly of two parts, mates them, drags, explodes, saves and re
   await expect(tree.getByRole('treeitem', { name: '(f) Pin<1>' })).toBeVisible();
   await page.keyboard.press('Meta+z');
   await expect(tree.getByRole('treeitem', { name: '(-) Pin<1>' })).toBeVisible();
-  await page.screenshot({ path: '/private/tmp/claude-501/-Users-nj-Documents-GitHub-everything-src-parametric/10c365cb-dda2-48fe-81cf-fed8b9c07fb6/scratchpad/asm/shot1.png' });
+  expect(errors).toEqual([]);
+});
+
+test('editing a part from its assembly, interference, measuring and STEP export', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await makePart(page, 'Pin', PIN);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Pin');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Pin<1>' })).toBeVisible();
+  // Pin in the hole, its far end flush with the block's front face.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const m = a.assembly!;
+    const [block, pin] = m.doc.components;
+    const face = (c: string, name: string) => { const g = m.geometryOf(m.component(c)!.part)!; const f = g.faces.find((x) => x.name === name)!; return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }; };
+    const cyl = (c: string) => { const g = m.geometryOf(m.component(c)!.part)!; const f = g.faces.find((x) => x.type === 'cylinder')!; return { name: f.name, sig: { type: f.type, c: f.center, area: f.area } }; };
+    m.commit('Add mates', (d) => {
+      d.mates.push({ id: 'm90', name: 'Concentric1', type: 'concentric', a: { comp: block.id, face: cyl(block.id) }, b: { comp: pin.id, face: cyl(pin.id) }, aligned: true });
+      d.mates.push({ id: 'm91', name: 'Coincident1', type: 'coincident', a: { comp: block.id, face: face(block.id, 'E1:cap1') }, b: { comp: pin.id, face: face(pin.id, 'E1:cap1') }, aligned: true });
+    });
+  });
+  await expect(page.locator('.statusbar')).toContainText('Under Defined (1 DOF)');
+  const pinZ = () => page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    return m.solved.get(m.doc.components[1].id)!.p[2];
+  });
+  expect(await pinZ()).toBeCloseTo(-20, 4);
+  await page.keyboard.press('Meta+s');
+  await expect(page).toHaveTitle(/^Assembly\d+ - Parametric$/);
+  const asmTitle = await page.title();
+
+  // No interference: the pin fits the hole exactly.
+  await page.locator('.cm [data-cmd="interference"]').click();
+  await expect(page.locator('.pm')).toContainText('No interference');
+  await page.locator('.pm').getByRole('button', { name: 'Close' }).click();
+
+  // Measure between faces of two components (the kernel places them too).
+  const gap = await page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const m = a.assembly!;
+    const [block, pin] = m.doc.components;
+    const back = a.faces.findIndex((f) => f.name === `${block.id}#E1:cap0`);
+    const pinEnd = a.faces.findIndex((f) => f.name === `${pin.id}#E1:cap0`);
+    return (await a.kernel.measure({ kind: 'face', index: back }, { kind: 'face', index: pinEnd })).distance;
+  });
+  expect(gap).toBeCloseTo(20, 4);
+
+  // STEP export of the whole assembly, components as named solids.
+  const download = page.waitForEvent('download');
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('exportStep'); });
+  const file = await (await download).path();
+  const { readFileSync } = await import('node:fs');
+  const step = readFileSync(file, 'utf8');
+  expect(step).toContain('Block<1>');
+  expect(step).toContain('Pin<1>');
+
+  // Open the pin, make it longer, save, and go back: the assembly takes the change.
+  await tree.getByRole('treeitem', { name: '(-) Pin<1>' }).click();
+  await page.locator('.cm [data-cmd="openPart"]').click();
+  await expect(page).toHaveTitle('Pin - Parametric');
+  await expect(page.getByRole('tab', { name: 'Features' })).toBeVisible();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    a.store.change('Longer', (d) => { (d.features[1] as { depth: number }).depth = 50; });
+  });
+  await page.keyboard.press('Meta+s');
+  await expect(page).toHaveTitle('Pin - Parametric');
+  await page.getByRole('button', { name: `Back to ${asmTitle.replace(' - Parametric', '')}` }).click();
+  await expect(page).toHaveTitle(/Assembly\d+ - Parametric$/);
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('Pin changed since the assembly was saved');
+  // The coincident mate holds the new end flush: the pin now starts 40 mm behind the face.
+  await expect.poll(pinZ).toBeCloseTo(-40, 4);
+
+  // An overlapping second block is found by interference detection.
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    m.commit('Overlap', (d) => {
+      d.components.push({ ...d.components[0], id: 'c99', name: 'Block<2>', fixed: false, placement: { p: [20, 0, 0], q: [0, 0, 0, 1] } });
+    }, false);
+  });
+  await page.locator('.cm [data-cmd="interference"]').click();
+  await expect(page.locator('.pm')).toContainText('1 interference found');
+  await expect(page.locator('.pm')).toContainText('Block<1> and Block<2>');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.renderer.hasPreviewBody)).toBe(false);
+  await page.screenshot({ path: '/private/tmp/claude-501/-Users-nj-Documents-GitHub-everything-src-parametric/10c365cb-dda2-48fe-81cf-fed8b9c07fb6/scratchpad/asm/shot2.png' });
   expect(errors).toEqual([]);
 });

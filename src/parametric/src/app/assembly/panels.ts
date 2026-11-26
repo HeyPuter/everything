@@ -176,6 +176,8 @@ export function insertComponent(mode: AssemblyMode, picked: PickedPart) {
     });
   }, false);
   app.selection.set([{ kind: 'feature', id: compId }]);
+  // The new component is placed beside the others: show them all.
+  mode.fitPending = true;
   const c = mode.component(compId);
   app.setStatus(c?.fixed ? `${c.name} is fixed at the origin. Insert more components and mate them to it.` : `Inserted ${c?.name}. Drag it into place, or add mates (Mate).`, true);
 }
@@ -592,6 +594,8 @@ export class InterferencePanel extends PropertyPanel {
     const seq = ++this.seq;
     this.out.replaceChildren(h('div', { class: 'field-label', role: 'status' }, 'Calculating...'));
     await app.whenBuilt();
+    if (seq !== this.seq) return;
+    this.checked = this.key();
     let pairs: InterferencePair[];
     try {
       pairs = await app.kernel.assembly<InterferencePair[]>({ op: 'interference' });
@@ -620,14 +624,24 @@ export class InterferencePanel extends PropertyPanel {
     this.out.replaceChildren(h('div', { class: 'pm-msg warn', role: 'status' }, `${pairs.length} ${pairs.length === 1 ? 'interference' : 'interferences'} found.`), list);
   }
 
-  /** The assembly changed under the panel: check it again. */
+  private timer = 0;
+  private checked = '';
+
+  /** The assembly changed under the panel: check it again (once it stops changing, a drag say). */
+  private key(): string {
+    return JSON.stringify([...this.mode.model?.comps ?? []].map((id) => [id, this.mode.shownPlacement(id)]));
+  }
+
   onBuild() {
-    void this.run();
+    if (this.key() === this.checked) return;
+    clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => void this.run(), 400);
   }
 
   ok() { return true; }
 
   dispose() {
+    clearTimeout(this.timer);
     this.seq++;
     this.mode.app.renderer.setPreview(null);
   }
