@@ -159,6 +159,25 @@ describe('surface bodies', () => {
     expect(surfaceFaces(res)[0].center[2]).toBeCloseTo(10, 6);
   });
 
+  it('refuses to offset a curved face inward by its radius or more', async () => {
+    const b = new ModelBuilder();
+    const cyl = [sketch('S1', circle(0, 0, 5)), extrude('E1', 'S1', 10)];
+    const side = faceRefOf(await b.build(req(cyl)), (f) => f.type === 'cylinder');
+    let res = await b.build(req([...cyl, surf('surfaceOffset', 'F1', { faces: [side], distance: 4, flip: true })]));
+    ok(res);
+    expect(surfaceFaces(res)[0].radius).toBeCloseTo(1, 6);
+    // 5 collapses the face onto the axis; 6 and 12 turned it inside out (radius 1 and 7).
+    for (const distance of [5, 6, 12]) {
+      res = await b.build(req([...cyl, surf('surfaceOffset', 'F1', { faces: [side], distance, flip: true })]));
+      expect(res.status[2]).toMatchObject({ ok: false, error: expect.stringMatching(/could not be offset/) });
+      expect(surfaceFaces(res)).toHaveLength(0);
+    }
+    // Outward any distance is fine.
+    res = await b.build(req([...cyl, surf('surfaceOffset', 'F1', { faces: [side], distance: 12 })]));
+    ok(res);
+    expect(surfaceFaces(res)[0].radius).toBeCloseTo(17, 6);
+  });
+
   it('fills a closed boundary of edges', async () => {
     const b = new ModelBuilder();
     const tube = [sketch('S1', circle(0, 0, 5)), surf('surfaceExtrude', 'F1', { sketch: 'S1', depth: 10 })];

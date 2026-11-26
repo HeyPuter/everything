@@ -671,7 +671,7 @@ export class SurfaceKit {
           else progress((p) => mk.PerformByJoin(base.wrapped, d, 1e-4, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Intersection, false, p));
           if (!mk.IsDone()) return null;
           const s = wrap(mk.Shape());
-          return isEmpty(s) ? null : s;
+          return isEmpty(s) || !offsetHolds(s, base, Math.abs(d)) ? null : s;
         } catch {
           return null;
         } finally {
@@ -1097,6 +1097,19 @@ function copyShape(s: Sh): Sh {
   const tr = new oc.gp_Trsf();
   const mk = new oc.BRepBuilderAPI_Transform(s.wrapped, tr, true, false);
   try { return wrap(mk.Shape()); } finally { mk.delete(); tr.delete(); }
+}
+
+/**
+ * Whether an offset of `base` by d is one: no face collapsed to nothing, and
+ * no part of it nearer the base than d. Offsetting a curved face inward by
+ * its radius or more turns it inside out: a cylinder of radius 5 offset by
+ * -6 came out as a cylinder of radius 1, on the wrong side of the axis.
+ */
+function offsetHolds(out: Sh, base: Sh, d: number): boolean {
+  const size = Math.max(sizeOf(base), d, 1);
+  if (subShapes(out, 'face').some((f) => !(areaOf(f) > size * size * 1e-9))) return false;
+  const q = nearest(out, base);
+  return !!q && q.d > d * (1 - 1e-3) - size * 1e-6;
 }
 
 /** The shape split by the tools (null when the operation fails). */
