@@ -408,6 +408,18 @@ interface Draft {
   extend: [number, number];
 }
 
+/** The angle (radians) within which the kernel merges faces as one (its simplify tolerance). */
+const NEARLY_STRAIGHT = 1e-3;
+
+/** Moves an end of a line member's path to q. */
+function moveLineEnd(d: Draft, e: 0 | 1, q: Vec3) {
+  if (d.path.kind !== 'line') return;
+  const other = pathEnd(d.path, e ? 0 : 1);
+  const [a, b] = e ? [other, q] : [q, other];
+  const l = dist(a, b);
+  d.path = { ...d.path, a, d: scale(sub(b, a), 1 / l), len: l };
+}
+
 const SEGMENT_KINDS: Record<string, string> = { circle: 'circles', spline: 'splines', point: 'points' };
 
 export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature): void {
@@ -468,6 +480,27 @@ export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature):
   const tol = 1e-6 * size * 10;
   const same = (p: Vec3, q: Vec3) => dist(p, q) < tol;
   const shaped = (d: Draft) => ({ shape, path: d.path });
+
+  // Two lines meeting at a point less than NEARLY_STRAIGHT radians off
+  // straight have side faces the kernel takes for one plane (it merges faces
+  // that close), which left an invalid body: their meeting point is moved
+  // onto the line between their far ends, so they run exactly in line.
+  for (const A of drafts) {
+    for (const ea of [0, 1] as const) {
+      if (A.path.kind !== 'line') continue;
+      const P = pathEnd(A.path, ea);
+      const at = drafts.flatMap((d) => ([0, 1] as const).flatMap((e) => (d !== A && same(pathEnd(d.path, e), P) ? [{ d, e }] : [])));
+      if (at.length !== 1 || at[0].d.path.kind !== 'line') continue;
+      const B = at[0].d, eb = at[0].e;
+      const FA = pathEnd(A.path, ea ? 0 : 1), FB = pathEnd(B.path, eb ? 0 : 1);
+      const c = dot(normalize(sub(P, FA)), normalize(sub(FB, P)));
+      if (c >= 1 - 1e-15 || c < Math.cos(NEARLY_STRAIGHT)) continue;
+      const ab = sub(FB, FA);
+      const q = add(FA, scale(ab, dot(sub(P, FA), ab) / dot(ab, ab)));
+      moveLineEnd(A, ea, q);
+      moveLineEnd(B, eb, q);
+    }
+  }
 
   // Orient each group's chains so members follow each other.
   const groups = f.groups.map((_, gi) => drafts.filter((d) => d.group === gi));

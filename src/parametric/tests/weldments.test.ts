@@ -108,6 +108,19 @@ describe('structural members', () => {
     expect(grouped.res.status.every((s) => s.ok)).toBe(true);
     for (const m of grouped.res.weldments!) expect(m.length).toBeCloseTo(200, 1);
     expect(volume(grouped.b)).toBeCloseTo(A * 400, 0);
+    // Off straight by less than the kernel's angle for merging faces, the members run exactly in line: a valid body.
+    for (const off of [0.03, 0.01, 0.001]) {
+      const t = (off * Math.PI) / 180;
+      const kink = [...line('a', [0, 0], [200, 0]), ...line('b', [200, 0], [200 + 200 * Math.cos(t), 200 * Math.sin(t)])];
+      for (const corner of ['miter', 'butt1'] as const) {
+        for (const groups of [[[{ sketch: 'S1', entity: 'a' }, { sketch: 'S1', entity: 'b' }]], [[{ sketch: 'S1', entity: 'a' }], [{ sketch: 'S1', entity: 'b' }]]]) {
+          const k = await build([sketch('S1', kink), member('M1', groups, { corner })]);
+          expect(k.res.status.every((s) => s.ok && !s.warning)).toBe(true);
+          expect(isValid(body(k.b))).toBe(true);
+          for (const m of k.res.weldments!) expect(m.length).toBeCloseTo(200, 3);
+        }
+      }
+    }
     // A sharp corner folding nearly back on itself is still butted, not mitred.
     const back = [...line('a', [0, 0], [200, 0]), ...line('b', [200, 0], [200 - 200 * Math.cos(turn * 30), 200 * Math.sin(turn * 30)])];
     const { res } = await build([sketch('S1', back), member('M1', [[{ sketch: 'S1', entity: 'a' }, { sketch: 'S1', entity: 'b' }]], { corner: 'butt1' })]);
