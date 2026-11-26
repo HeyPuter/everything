@@ -962,7 +962,7 @@ export class App {
     this.syncSheetTabs();
     this.setRibbonTab('drawing');
     this.showDrawingPanel();
-    this.setStatus('Drawing. Drag views to arrange them; export to PDF or SVG from the Drawing tab.');
+    this.setStatus('Drawing. Drag views to arrange them; add views and annotations, and export to PDF, SVG or DXF, from the Drafting and Annotation tabs.');
     this.commands.changed();
   }
 
