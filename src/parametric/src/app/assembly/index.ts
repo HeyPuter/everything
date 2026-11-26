@@ -14,6 +14,7 @@ import type { Command } from '../commands';
 import type { FileOps } from '../fileops';
 import type { RibbonTab } from '../shell';
 import { AssemblyMode } from './mode';
+import { ASSEMBLY_SOURCE, EXPLODED_SOURCE, assemblySource } from '../drawing-sources';
 import { ExplodePanel, InterferencePanel, MatePanel, MovePanel, assemblyMassDialog, bomDialog, insertComponent, pickPart, updateParts } from './panels';
 
 addIcons({
@@ -39,7 +40,7 @@ addIcons({
 });
 
 /** The tabs an assembly shows; part tabs (sketch, features...) are hidden. */
-const ASSEMBLY_TABS = ['assembly', 'evaluate', 'view'];
+const ASSEMBLY_TABS = ['assembly', 'evaluate', 'view', 'drawing', 'annotation'];
 
 export const ASSEMBLY_TAB: RibbonTab = {
   id: 'assembly', label: 'Assembly',
@@ -59,9 +60,9 @@ const SHARED = new Set([
   'new', 'newAssembly', 'open', 'openDevice', 'save', 'saveAs', 'downloadPart', 'exportStep', 'exportStl', 'rename', 'share', 'properties', 'assistant',
   'undo', 'redo', 'redo2', 'rebuild', 'forceRebuild', 'repeat', 'delete', 'equations', 'options', 'measure', 'massProperties', 'sectionView',
   'zoomFit', 'zoomIn', 'zoomOut', 'previousView', 'normalTo', 'viewOrientation', 'displayStyle', 'toggleVisibility', 'perspective', 'showPlanes', 'showOrigin',
-  'toggleTree', 'shortcutBar', 'shortcuts', 'shortcutsF1', 'github', 'about',
+  'toggleTree', 'shortcutBar', 'shortcuts', 'shortcutsF1', 'github', 'about', 'openDrawing', 'backToModel',
 ]);
-const sharedCommand = (id: string) => SHARED.has(id) || /^(view[A-Z]|style:|theme:|asm:)/.test(id);
+const sharedCommand = (id: string) => SHARED.has(id) || /^(view[A-Z]|style:|theme:|asm:|drawing:)/.test(id);
 
 export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
   const c = app.commands;
@@ -209,7 +210,10 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
     app.tree = m.tree;
     if (app.flyout !== m.flyout) { app.flyout.el.replaceWith(m.flyout.el); app.flyout = m.flyout; }
     app.viewport.tool = m.dragTool;
-    for (const el of app.shell.root.querySelectorAll<HTMLElement>('.sheet-tabs')) el.hidden = true;
+    // Drawings of the assembly show its components collapsed, or exploded (see drawing-sources.ts).
+    app.drawing.sources.set(ASSEMBLY_SOURCE, assemblySource(app, m, false));
+    app.drawing.sources.set(EXPLODED_SOURCE, assemblySource(app, m, true));
+    m.onShow = () => { if (app.inDrawing) void app.drawing.refresh(); };
     app.setRibbonTab('assembly');
     // The assistant edits parts: in an assembly it says so instead of taking messages.
     const composer = document.querySelector<HTMLElement>('.assistant .as-composer');
@@ -221,6 +225,8 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
     if (!m) return;
     m.dispose();
     app.assembly = null;
+    app.drawing.sources.delete(ASSEMBLY_SOURCE);
+    app.drawing.sources.delete(EXPLODED_SOURCE);
     if (app.viewport.tool === m.dragTool) app.viewport.tool = null;
     app.tree = partTree;
     if (app.flyout === m.flyout) { m.flyout.el.replaceWith(partFlyout.el); app.flyout = partFlyout; }

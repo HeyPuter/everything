@@ -18,6 +18,7 @@ import { qNormalize } from '../math/vec';
 import type { BasePlane, EdgeRef, FaceRef, Id, Param, PartDocument, UnitSystem } from './types';
 import { UNIT_SYSTEMS } from './units';
 import { parseDocument } from './document';
+import { validDrawing } from './validate-drawing';
 
 export const ASSEMBLY_FORMAT = 'parametric-assembly';
 
@@ -226,6 +227,7 @@ export function validateAssembly(raw: unknown): AssemblyDocument {
     if (!isObj(s) || !isStr(s.id) || ids.has(s.id) || !Array.isArray(s.comps) || !s.comps.every((c) => compIds.has(c as string)) || !isVec(s.dir) || !isParam(s.distance)) throw damaged('invalid explode step');
     ids.add(s.id);
   }
+  if (d.drawing != null && !validDrawing(d.drawing)) throw damaged('invalid drawing');
   const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
   const base = newAssembly(typeof d.name === 'string' && d.name ? d.name : undefined, units);
   const variables = (Array.isArray(d.variables) ? d.variables : [])
@@ -259,6 +261,7 @@ export function validateAssembly(raw: unknown): AssemblyDocument {
     })).map((m) => JSON.parse(JSON.stringify(m)) as Mate),
     explode: explode.map((s) => ({ id: s.id, name: typeof s.name === 'string' && s.name ? s.name : s.id, comps: [...s.comps], dir: [...s.dir] as Vec3, distance: s.distance })),
     exploded: d.exploded === true && explode.length > 0,
+    ...(d.drawing != null ? { drawing: d.drawing } : {}),
     created: isNum(d.created) && Math.abs(d.created) < 8.64e15 ? d.created : base.created,
     modified: isNum(d.modified) && Math.abs(d.modified) < 8.64e15 ? d.modified : base.modified,
     nextId: 1,

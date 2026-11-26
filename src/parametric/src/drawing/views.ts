@@ -27,6 +27,9 @@ const STD: Record<string, { dir: Vec3; x: Vec3 }> = {
   isometric: { dir: normalize([1, 1, 1]), x: normalize(cross([0, 1, 0], normalize([1, 1, 1]))) },
 };
 
+/** The source of flat pattern views (the sheet metal part's flat pattern). */
+export const FLAT_SOURCE = 'flat';
+
 export const SIDE_VECTORS: Record<DrawingSide, P2> = { right: [1, 0], left: [-1, 0], above: [0, -1], below: [0, 1] };
 
 export interface ResolvedView {
@@ -105,7 +108,10 @@ export function resolveViews(d: DrawingDoc): Map<Id, ResolvedView> {
     const type: DrawingViewType = v.type ?? 'model';
     const source = v.source ?? 'part';
     let r: ResolvedView | undefined;
-    if (type === 'model' || !v.parent) {
+    if (type === 'flat') {
+      // The flat pattern, seen from its top face (its own x and y on paper).
+      r = { v, type, o: standardOrient('front'), scale: v.scale ?? d.scale, key: '', source: FLAT_SOURCE };
+    } else if (type === 'model' || !v.parent) {
       const o = standardOrient(v.kind);
       r = { v, type: 'model', o, scale: v.scale ?? d.scale, key: '', source };
     } else {

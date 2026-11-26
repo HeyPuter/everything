@@ -44,6 +44,8 @@ export class AssemblyMode {
   rotateMode = false;
   /** Frame the assembly once its first rebuild shows it. */
   fitPending = true;
+  /** The document (but its drawing) the components were last shown for. */
+  private shownKey = '';
   private building: Promise<void> | null = null;
   private again = false;
   private restartRetried = false;
@@ -67,7 +69,8 @@ export class AssemblyMode {
     return asAssembly(this.app.store.doc)!;
   }
 
-  private key(p: AsmPart): string {
+  /** What the worker builds a part by (its embedded copy at the current quality). */
+  key(p: AsmPart): string {
     return `${p.blob}|${this.app.settings.quality}`;
   }
 
@@ -105,6 +108,10 @@ export class AssemblyMode {
     const signal = app.documentSignal;
     if (app.kernel.generation !== this.generation) { this.geoms.clear(); this.generation = app.kernel.generation; }
     const used = doc.parts.filter((p) => doc.components.some((c) => c.part === p.id && !c.suppressed));
+    // Only the drawing changed (a view dragged on the sheet): the components are shown as they are.
+    const shownKey = JSON.stringify([app.kernel.generation, app.settings.quality, { ...doc, drawing: undefined, modified: undefined, blobs: undefined }]);
+    if (this.model && shownKey === this.shownKey && used.every((p) => this.geoms.has(this.key(p)))) return;
+    this.shownKey = '';
     const builds: AsmPartBuild[] = [];
     this.partErrors.clear();
     for (const p of used) {
@@ -150,6 +157,7 @@ export class AssemblyMode {
     this.parts.prune(doc);
     this.analyze();
     this.show();
+    this.shownKey = shownKey;
     app.shell.statusRebuild.textContent = `${Math.round(performance.now() - t0)} ms`;
     app.renderTrees();
     app.commands.changed();

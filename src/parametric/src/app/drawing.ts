@@ -4,22 +4,30 @@
 // dragged, added and removed; the sheet exports to PDF, SVG and DXF.
 
 import type { EdgeInfo, ProjectionResult } from '../kernel/protocol';
-import type { DrawingAnnotation, DrawingDimension, DrawingDoc, DrawingRef, DrawingView, DrawingViewKind, HoleFeature, Id, SheetSize } from '../model/types';
+import type { DrawingAnnotation, DrawingBom, DrawingCutList, DrawingDimension, DrawingDoc, DrawingRef, DrawingView, DrawingViewKind, HoleFeature, Id, SheetSize } from '../model/types';
+import type { Vec3 } from '../math/vec';
+import { flatSize } from '../model/flat-pattern';
+import { type CutList, cutListRows, memberOfFace, weldmentCutList } from '../model/weldments';
+import { type TableSpec, autoBalloons, balloonTip, bomTable, cutListTable, drawBalloon, itemOfEdge, tableSize } from '../drawing/tables';
+import { ASSEMBLY_SOURCE, EXPLODED_SOURCE, flatSource } from './drawing-sources';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import {
-  DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
+  DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, TITLE_H, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
   standardLayout, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
 } from '../drawing/sheet';
 import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, measure } from '../drawing/annotate';
 import { toDxf } from '../drawing/dxf';
 import type { DrawingSource } from '../drawing/source';
-import { type P2, type Prim, type ResolvedView, SIDE_VECTORS, besideOrient, dependents, lineNormal, projectionRequest, resolveViews, standardKindOf } from '../drawing/views';
+import { type P2, type Prim, type ResolvedView, FLAT_SOURCE, SIDE_VECTORS, besideOrient, dependents, lineNormal, projectionRequest, resolveViews, standardKindOf } from '../drawing/views';
 import { download, safeName } from '../platform/files';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, toast } from '../ui/overlay';
 import type { App } from './app';
 import { PropertyPanel, checkbox, section, segmented, selectField } from './pm';
+
+/** A sheet metal part (a flat pattern view can be added to its drawing). */
+const isSheetMetal = (app: App) => !app.assembly && app.store.doc.features.some((f) => f.type === 'baseFlange');
 
 /** YYYY-MM-DD in the user's time zone (toISOString gives the UTC day, a day off in the evening or morning). */
 function localDate(ms: number): string {
@@ -28,12 +36,15 @@ function localDate(ms: number): string {
 }
 
 /** Commands that work on the sheet with the mouse. */
-export type DrawingToolKind = 'projected' | 'section' | 'detail' | 'auxiliary' | 'dimension' | 'note' | 'centerMark' | 'centerline' | 'holeCallout';
+export type DrawingToolKind = 'projected' | 'section' | 'detail' | 'auxiliary' | 'dimension' | 'note' | 'centerMark' | 'centerline' | 'holeCallout' | 'balloon' | 'autoBalloon';
 
 export const TOOL_LABELS: Record<DrawingToolKind, string> = {
   projected: 'Projected View', section: 'Section View', detail: 'Detail View', auxiliary: 'Auxiliary View', dimension: 'Smart Dimension',
-  note: 'Note', centerMark: 'Center Mark', centerline: 'Centerline', holeCallout: 'Hole Callout',
+  note: 'Note', centerMark: 'Center Mark', centerline: 'Centerline', holeCallout: 'Hole Callout', balloon: 'Balloon', autoBalloon: 'Auto Balloon',
 };
+
+/** Commands that start by picking the view they work on. */
+const fromView = (k: DrawingToolKind) => k === 'projected' || k === 'section' || k === 'detail' || k === 'auxiliary' || k === 'autoBalloon';
 
 /** Something picked on the sheet: a model edge or point seen in a view. */
 interface Pick { view: Id; ref: DrawingRef; geo: Geo; q: P2 }
@@ -128,6 +139,7 @@ export class DrawingWorkspace {
       project: (q) => app.kernel.project(q),
       edges: () => app.edges,
     });
+    this.sources.set(FLAT_SOURCE, flatSource(app));
     this.bind();
     // A drawing made before the part had a solid is laid out when the solid exists, even
     // if the drawing was left meanwhile; not once another document replaced that part.
@@ -143,6 +155,63 @@ export class DrawingWorkspace {
 
   get doc(): DrawingDoc | null {
     return this.app.store.doc.drawing ?? null;
+  }
+
+  /** A source by name; in an assembly, views that name none show the assembly. */
+  source(name: string): DrawingSource | undefined {
+    return this.sources.get(name === 'part' && this.app.assembly ? ASSEMBLY_SOURCE : name);
+  }
+
+  /** The bounding box of what a view of a source shows (absent: the part's, or the assembly's). */
+  bbox(source = 'part'): { min: Vec3; max: Vec3 } | null {
+    return this.source(source)?.bbox() ?? null;
+  }
+
+  /** The rows a bill of materials or cut list table shows (null: there is nothing to list). */
+  tableOf(a: DrawingBom | DrawingCutList): TableSpec | null {
+    const app = this.app;
+    const doc = app.store.doc;
+    if (a.type === 'bom') {
+      const d = this.doc;
+      const first = d?.views.length ? resolveViews(d).get(d.views[0].id)?.source : undefined;
+      const rows = this.source(a.source ?? first ?? 'part')?.bom?.();
+      return rows ? bomTable(rows) : null;
+    }
+    if (app.assembly || !app.weldments.length) return null;
+    const r = cutListRows(this.cutList(), doc.units, doc.decimals);
+    return cutListTable(r.rows, UNIT_SYSTEMS[doc.units].length);
+  }
+
+  private cutListMemo: { build: number; doc: unknown; list: CutList } | null = null;
+  /** The weldment's cut list as last built. */
+  private cutList(): CutList {
+    const app = this.app;
+    const m = this.cutListMemo;
+    if (m && m.build === app.buildVersion && m.doc === app.store.doc) return m.list;
+    const list = weldmentCutList(app.store.doc, app.weldments);
+    this.cutListMemo = { build: app.buildVersion, doc: app.store.doc, list };
+    return list;
+  }
+
+  /**
+   * The item number of what an edge of a source belongs to: its component's bill of materials
+   * row in an assembly, its structural member's cut list item in a weldment.
+   */
+  itemOf(source: string, edge: string): number | null {
+    const src = this.source(source);
+    const rows = src?.bom?.();
+    if (rows) return itemOfEdge(edge, rows);
+    const app = this.app;
+    if (app.assembly || source !== 'part' || !app.weldments.length) return null;
+    const e = app.edges.find((x) => x.name === edge);
+    if (!e) return null;
+    const items = this.cutList().items;
+    for (const fi of e.faces) {
+      const m = memberOfFace(app.faces[fi]?.name ?? '');
+      const it = m && items.find((x) => x.members.some((y) => y.feature === m.feature && y.member === m.member));
+      if (it) return it.item;
+    }
+    return null;
   }
 
   // ---------- lifecycle ----------
@@ -164,19 +233,28 @@ export class DrawingWorkspace {
     this.el.hidden = true;
   }
 
-  /** Creates a drawing with the standard views laid out on an A4 (or, for inch parts, Letter) sheet. */
+  /**
+   * Creates a drawing with the standard views laid out on an A4 (or, for inch parts, Letter)
+   * sheet. An assembly's goes on an A3 (or Tabloid) sheet, with its bill of materials on the
+   * title block.
+   */
   create() {
-    const b = this.app.bbox;
-    const size: SheetSize = this.app.store.doc.units === 'IPS' ? 'Letter' : 'A4';
-    const layout = b ? standardLayout(sheetDims({ sheet: size, landscape: true }), b.min, b.max) : { scale: 1, views: [] };
+    const b = this.bbox();
+    const asm = !!this.app.assembly;
+    const ips = this.app.store.doc.units === 'IPS';
+    const size: SheetSize = asm ? (ips ? 'Tabloid' : 'A3') : ips ? 'Letter' : 'A4';
+    const sheet = sheetDims({ sheet: size, landscape: true });
+    const annotations: DrawingAnnotation[] | undefined = asm ? [{ id: 'a1', type: 'bom', at: [sheet.w - MARGIN, sheet.h - MARGIN - TITLE_H], anchor: 'bottomRight' }] : undefined;
+    const layout = b ? standardLayout(sheet, b.min, b.max, this.layoutBottom(annotations)) : { scale: 1, views: [] };
     // Opened before the first rebuild finished: lay out once the solid exists.
     this.layoutPending = !b;
     // Only looking at the drawing does not edit the part: it is neither marked edited nor
     // given an undo step until the drawing is changed (and is saved with the part from then).
     const drawing: DrawingDoc = {
       sheet: size, landscape: true, scale: layout.scale,
-      views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}`, centerMarks: true })), title: '', drawnBy: '', notes: '',
+      views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}`, centerMarks: true, ...(asm ? { source: ASSEMBLY_SOURCE } : {}) })), title: '', drawnBy: '', notes: '',
       titleBlock: 'full', revision: '',
+      ...(annotations ? { annotations } : {}),
     };
     this.app.store.doc.drawing = drawing;
     this.untouched = JSON.stringify(drawing);
@@ -185,19 +263,34 @@ export class DrawingWorkspace {
   /** The drawing as created, until it is changed. */
   private untouched = '';
 
+  /**
+   * The height the standard views leave free along the bottom of the sheet: the title block's,
+   * and a table's standing on it.
+   */
+  private layoutBottom(annotations: DrawingAnnotation[] | undefined): number {
+    let bottom = TITLE_H;
+    for (const a of annotations ?? []) {
+      if ((a.type !== 'bom' && a.type !== 'cutList') || a.anchor !== 'bottomRight') continue;
+      const t = this.tableOf(a);
+      if (t) bottom = Math.max(bottom, TITLE_H + tableSize(t).h + 6);
+    }
+    return bottom;
+  }
+
   /** Re-lays out the standard views (keeps sheet settings). */
   relayout() {
-    const b = this.app.bbox;
+    const b = this.bbox();
     const d = this.doc;
     if (!b || !d) return;
-    const layout = standardLayout(sheetDims(d), b.min, b.max);
+    const layout = standardLayout(sheetDims(d), b.min, b.max, this.layoutBottom(d.annotations));
+    const source = this.app.assembly ? { source: ASSEMBLY_SOURCE } : {};
     const first = d.projection === 'first';
     const arrange = (x: DrawingDoc) => {
       x.scale = layout.scale;
       const centerMarks = x.titleBlock === 'full' ? true : undefined;
       // First angle: the top view goes below the front view, and the view right of it is the left view.
       x.views = layout.views.map((v, i) => {
-        const nv: DrawingView = { ...v, id: `v${i + 1}` };
+        const nv: DrawingView = { ...v, id: `v${i + 1}`, ...source };
         if (centerMarks) nv.centerMarks = true;
         if (first && v.kind === 'top') nv.y = layout.views[0].y + (layout.views[0].y - v.y);
         if (first && v.kind === 'right') nv.kind = 'left';
@@ -243,7 +336,7 @@ export class DrawingWorkspace {
     const key = d ? JSON.stringify([
       this.selected, this.selectedAnno, this.tool && [this.tool.kind, this.tool.parent, this.tool.orient, this.tool.leader, this.tool.pts.length, this.tool.picks.length],
       this.app.store.doc.name, d.sheet, d.landscape, d.scale, d.title, d.drawnBy, d.notes, d.revision, d.projection, d.titleBlock,
-      d.views.map((v) => [v.id, v.kind, v.hidden, v.dims, v.type, v.label, v.scale, v.tangent, v.centerMarks]),
+      d.views.map((v) => [v.id, v.kind, v.hidden, v.dims, v.type, v.label, v.scale, v.tangent, v.centerMarks, v.source]),
       (d.annotations ?? []).map((a) => [a.id, a.type, a.type === 'note' ? a.text : '', a.type === 'note' ? a.size : '', a.type === 'dimension' ? [a.decimals, a.prefix, this.dangling(a)] : '']),
     ]) : '';
     if (key === this.panelKey) return;
@@ -264,9 +357,15 @@ export class DrawingWorkspace {
     (same ?? near ?? body.querySelector<HTMLElement>('.pm-head .title'))?.focus();
   }
 
+  /** The source a view's geometry comes from (projected, section and detail views: their parent's). */
+  viewSource(id: Id): string | undefined {
+    const d = this.doc;
+    return d ? resolveViews(d).get(id)?.source : undefined;
+  }
+
   /** A dimension whose model geometry is gone. */
   dangling(a: DrawingAnnotation): boolean {
-    if (a.type !== 'dimension' && a.type !== 'centerMark' && a.type !== 'centerline' && a.type !== 'holeCallout') return false;
+    if (a.type !== 'dimension' && a.type !== 'centerMark' && a.type !== 'centerline' && a.type !== 'holeCallout' && a.type !== 'balloon') return false;
     const p = this.placements.get(a.view);
     if (!p) return false;
     const refs = a.type === 'dimension' || a.type === 'centerline' ? a.refs : [a.ref];
@@ -281,7 +380,7 @@ export class DrawingWorkspace {
     if (this.pending) { this.refreshAgain = true; return; }
     const d = this.doc;
     if (!d) return;
-    if (this.layoutPending && this.app.bbox) {
+    if (this.layoutPending && this.bbox()) {
       this.layoutPending = false;
       if (!d.views.length) { this.relayout(); return; }
     }
@@ -296,7 +395,7 @@ export class DrawingWorkspace {
     }
     const bySource = new Map<string, { key: string; r: ResolvedView; hidden: boolean }[]>();
     for (const [key, w] of want) {
-      const src = this.sources.get(w.r.source);
+      const src = this.source(w.r.source);
       if (!src || !src.bbox()) continue;
       const c = this.cache.get(key);
       // A view whose hidden lines are turned on needs them projected; turned off, they are just not drawn.
@@ -307,13 +406,13 @@ export class DrawingWorkspace {
     }
     if (bySource.size) {
       this.pending = true;
-      const versions = new Map([...bySource.keys()].map((s) => [s, this.sources.get(s)!.version()]));
+      const versions = new Map([...bySource.keys()].map((s) => [s, this.source(s)!.version()]));
       // A sheet opened for the first time shows its border and title block meanwhile, not nothing.
       if (!this.paper.firstChild) this.render();
       const slow = setTimeout(() => { this.busy.textContent = 'Projecting the views…'; }, 300);
       try {
         for (const [name, list] of bySource) {
-          const res = await this.sources.get(name)!.project(list.map((x) => projectionRequest(x.r, x.hidden)));
+          const res = await this.source(name)!.project(list.map((x) => projectionRequest(x.r, x.hidden)));
           for (const r of res) {
             const x = list.find((q) => q.key === r.id);
             if (x) this.cache.set(x.key, { version: versions.get(name)!, hidden: x.hidden, result: r });
@@ -327,7 +426,7 @@ export class DrawingWorkspace {
         this.busy.textContent = '';
       }
       // The model or the views may have changed while projecting.
-      const changed = [...versions].some(([s, ver]) => this.sources.get(s)?.version() !== ver);
+      const changed = [...versions].some(([s, ver]) => this.source(s)?.version() !== ver);
       if (changed || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
     }
     this.render();
@@ -347,13 +446,15 @@ export class DrawingWorkspace {
     const u = UNIT_SYSTEMS[doc.units];
     return {
       partName: doc.name,
-      material: doc.material?.name ?? 'Not specified',
+      material: this.app.assembly ? 'See bill of materials' : doc.material?.name ?? 'Not specified',
       units: u.length,
       date: localDate(doc.modified || Date.now()),
       formatLength: (mm: number) => formatNumber(mm / u.scale, doc.decimals),
-      edges: (src: string): EdgeInfo[] => this.sources.get(src)?.edges() ?? [],
+      edges: (src: string): EdgeInfo[] => this.source(src)?.edges() ?? [],
       format: this.fmt(),
       holeOf: (edge: string) => this.holeOf(edge),
+      table: (a: DrawingBom | DrawingCutList) => this.tableOf(a),
+      itemOf: (source: string, edge: string) => this.itemOf(source, edge),
     };
   }
 
@@ -384,7 +485,7 @@ export class DrawingWorkspace {
     const resolved = resolveViews(d);
     for (const v of d.views) {
       const r = resolved.get(v.id);
-      const src = r && this.sources.get(r.source);
+      const src = r && this.source(r.source);
       const c = r && this.cache.get(r.key);
       if (src?.bbox() && c?.version === src.version()) projections.set(v.id, c.result);
     }
@@ -412,7 +513,7 @@ export class DrawingWorkspace {
     }
     this.paper.style.width = `${s.w}px`;
     this.paper.style.height = `${s.h}px`;
-    (this.el.querySelector('.drawing-empty') as HTMLElement).hidden = !!this.app.bbox;
+    (this.el.querySelector('.drawing-empty') as HTMLElement).hidden = !!this.bbox();
     if (resized) this.fit();
     else this.applyTransform();
     this.drawSelection();
@@ -461,8 +562,10 @@ export class DrawingWorkspace {
   /** Starts a sheet command; a view selected beforehand is the one it works from. */
   startTool(kind: DrawingToolKind) {
     if (!this.doc) return;
-    const needsParent = kind === 'projected' || kind === 'section' || kind === 'detail' || kind === 'auxiliary';
-    const parent = needsParent && this.selected && this.placements.has(this.selected) ? this.selected : undefined;
+    const needsParent = fromView(kind);
+    let parent = needsParent && this.selected && this.placements.has(this.selected) ? this.selected : undefined;
+    if (parent && !this.parentAllowed(kind, parent)) parent = undefined;
+    if (kind === 'autoBalloon' && parent) { this.autoBalloon(parent); return; }
     this.tool = { kind, parent, pts: [], picks: [], orient: 'horizontal', leader: false, hover: null, cursor: null };
     this.el.classList.add('drw-tool');
     this.selectedAnno = null;
@@ -471,6 +574,12 @@ export class DrawingWorkspace {
     this.syncPanel();
     this.app.setStatus(this.toolPrompt());
     this.el.focus({ preventScroll: true });
+  }
+
+  /** Only a detail view can be made from a flat pattern view (it has no direction to project from). */
+  private parentAllowed(kind: DrawingToolKind, id: Id): boolean {
+    const v = this.doc?.views.find((q) => q.id === id);
+    return !(v?.type === 'flat' && kind !== 'detail' && kind !== 'autoBalloon');
   }
 
   cancelTool(): boolean {
@@ -496,7 +605,8 @@ export class DrawingWorkspace {
   toolPrompt(): string {
     const t = this.tool;
     if (!t) return '';
-    if ((t.kind === 'projected' || t.kind === 'section' || t.kind === 'detail' || t.kind === 'auxiliary') && !t.parent) return 'Click the view to make it from.';
+    if (t.kind === 'autoBalloon') return 'Click the view to add balloons to.';
+    if (fromView(t.kind) && !t.parent) return 'Click the view to make it from.';
     switch (t.kind) {
       case 'projected': return 'Move the pointer to the side of the view to project to, and click to place the view.';
       case 'section':
@@ -509,6 +619,7 @@ export class DrawingWorkspace {
       case 'centerMark': return 'Click a circle or arc of a view.';
       case 'centerline': return t.picks.length === 0 ? 'Click the first of two parallel edges.' : 'Click the second edge.';
       case 'holeCallout': return t.picks.length === 0 ? 'Click a hole (a circle seen end on).' : 'Click where the callout goes.';
+      case 'balloon': return t.picks.length === 0 ? 'Click an edge of a component (or member) in a view.' : 'Click where the balloon goes.';
     }
   }
 
@@ -610,9 +721,11 @@ export class DrawingWorkspace {
   private toolClick(x: number, y: number) {
     const t = this.tool!;
     const d = this.doc!;
-    const needsParent = t.kind === 'projected' || t.kind === 'section' || t.kind === 'detail' || t.kind === 'auxiliary';
+    const needsParent = fromView(t.kind);
     if (needsParent && !t.parent) {
       const id = this.viewAt(x, y);
+      if (id && this.placements.has(id) && !this.parentAllowed(t.kind, id)) { toast({ kind: 'info', message: 'A flat pattern view can only have detail views made from it.' }); return; }
+      if (id && this.placements.has(id) && t.kind === 'autoBalloon') { this.cancelTool(); this.autoBalloon(id); return; }
       if (id && this.placements.has(id)) { t.parent = id; this.selected = id; this.drawSelection(); this.syncPanel(); }
       this.app.setStatus(this.toolPrompt());
       this.drawOverlay();
@@ -783,6 +896,29 @@ export class DrawingWorkspace {
         finish('Hole callout', (dd) => { (dd.annotations ??= []).push({ id, type: 'holeCallout', view: a.view, ref: a.ref, at: [+at[0].toFixed(4), +at[1].toFixed(4)] }); }, true);
         return;
       }
+      case 'balloon': {
+        if (!t.picks.length) {
+          const hit = this.pick(x, y, 'any');
+          if (!hit) return;
+          const pv = this.placements.get(hit.view);
+          if (!pv || this.itemOf(pv.r.source, hit.ref.edge) === null) {
+            toast({ kind: 'info', message: this.app.assembly ? 'Click an edge of a component listed in the bill of materials.' : 'Click an edge of a structural member listed in the cut list.' });
+            return;
+          }
+          t.picks.push({ ...hit, ref: { edge: hit.ref.edge, at: 'edge' } });
+          this.app.setStatus(this.toolPrompt());
+          this.drawOverlay();
+          return;
+        }
+        const a = t.picks[0];
+        const pv = this.placements.get(a.view);
+        if (!pv) return;
+        const at = this.toView(pv, x, y);
+        const id = this.newAnnoId(d);
+        finish('Balloon', (dd) => { (dd.annotations ??= []).push({ id, type: 'balloon', view: a.view, ref: a.ref, at: [+at[0].toFixed(4), +at[1].toFixed(4)] }); }, true);
+        return;
+      }
+      case 'autoBalloon': return;
     }
   }
 
@@ -821,7 +957,8 @@ export class DrawingWorkspace {
         const side = this.sideOf(p, cur[0], cur[1]);
         const f = p.frame, w = f.x1 - f.x0, hh = f.y1 - f.y0;
         const o = besideOrient(p.r.o, SIDE_VECTORS[side], this.doc?.projection === 'first');
-        const size = this.app.bbox ? sizeIn(o, this.app.bbox.min, this.app.bbox.max).map((v) => v * p.s) : [w, hh];
+        const bb = this.source(p.r.source)?.bbox();
+        const size = bb && p.r.type !== 'flat' ? sizeIn(o, bb.min, bb.max).map((v) => v * p.s) : [w, hh];
         const [cx, cy] = side === 'left' || side === 'right' ? [cur[0], (f.y0 + f.y1) / 2] : [(f.x0 + f.x1) / 2, cur[1]];
         items.push({ t: 'rect', x: cx - size[0] / 2, y: cy - size[1] / 2, w: size[0], h: size[1], sw: 0.3 });
       } else if (t.kind === 'section') {
@@ -865,6 +1002,13 @@ export class DrawingWorkspace {
       }
     }
     if (cur && t.kind === 'holeCallout' && t.picks.length) items.push({ t: 'circle', cx: cur[0], cy: cur[1], r: 1, w: 0.3 });
+    if (cur && t.kind === 'balloon' && t.picks.length) {
+      const k = t.picks[0], pl = this.placements.get(k.view);
+      if (pl) {
+        const n = this.itemOf(pl.r.source, k.ref.edge);
+        drawBalloon(items, n === null ? '?' : String(n), cur, T(pl, balloonTip(k.geo, this.toView(pl, cur[0], cur[1]))));
+      }
+    }
     if (cur && t.kind === 'note' && t.leader && t.pts.length) {
       const pl = t.parent ? this.placements.get(t.parent) : undefined;
       const tip = pl ? T(pl, t.pts[0]) : t.pts[0];
@@ -885,6 +1029,7 @@ export class DrawingWorkspace {
       case 'dimension': if (t.picks.length < 2) t.hover = this.pick(x, y, 'any', t.picks[0]?.view); break;
       case 'centerMark': t.hover = this.pick(x, y, 'circle'); break;
       case 'holeCallout': if (!t.picks.length) t.hover = this.pick(x, y, 'circle'); break;
+      case 'balloon': if (!t.picks.length) t.hover = this.pick(x, y, 'any'); break;
       case 'centerline': t.hover = this.pick(x, y, 'line', t.picks[0]?.view); break;
       case 'auxiliary': if (t.parent && !t.pts.length) t.hover = this.pick(x, y, 'line', t.parent); break;
       case 'section': case 'detail': if (t.parent) t.hover = this.pick(x, y, 'point', t.parent); break;
@@ -1137,7 +1282,7 @@ export class DrawingWorkspace {
    */
   private frameOf(v: DrawingView, scale: number, d = this.doc): ViewFrame | undefined {
     const f = this.frames.find((q) => q.id === v.id);
-    const b = this.app.bbox;
+    const b = this.bbox(v.source);
     if (f) {
       const p = this.placements.get(v.id);
       if (!p?.r.align) return f;
@@ -1217,7 +1362,7 @@ export class DrawingWorkspace {
 
   addView(kind: DrawingViewKind) {
     const d = this.doc;
-    const b = this.app.bbox;
+    const b = this.bbox();
     if (!d || !b) return;
     const [w, hh] = projectedSize(kind, b.min, b.max);
     const dims = kind !== 'isometric';
@@ -1228,7 +1373,81 @@ export class DrawingWorkspace {
     const id = this.newViewId(d);
     this.selected = id;
     const full = d.titleBlock === 'full';
-    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: dims, dims, ...(full ? { centerMarks: true } : {}) }); }, 'Add view');
+    const source = this.app.assembly ? { source: ASSEMBLY_SOURCE } : {};
+    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: dims, dims, ...(full ? { centerMarks: true } : {}), ...source }); }, 'Add view');
+  }
+
+  /**
+   * Adds the flat pattern of the sheet metal part as a view, with its bend lines and notes
+   * and its overall size, where there is room (at a smaller scale when it does not fit).
+   */
+  async addFlatView() {
+    const d0 = this.doc;
+    if (!d0) return;
+    let res;
+    try {
+      res = await this.app.kernel.flatPattern(0);
+    } catch (e) {
+      toast({ kind: 'error', title: 'Flat pattern view', message: (e as Error).message });
+      return;
+    }
+    const d = this.doc;
+    if (!d || d !== d0 || !this.active) return;
+    if (!res.pattern) { toast({ kind: 'error', title: 'Flat pattern view', message: res.error ?? 'The part cannot be flattened.' }); return; }
+    const [fw, fh] = flatSize(res.pattern);
+    const sheet = sheetDims(d);
+    const fit = Math.min((sheet.w - 2 * MARGIN - 2 * DIM_LEFT) / Math.max(fw, 1e-6), (sheet.h - 2 * MARGIN - TITLE_H - 2 * DIM_BELOW) / Math.max(fh, 1e-6));
+    const own = d.scale <= fit ? undefined : STANDARD_SCALES.find((q) => q <= fit) ?? STANDARD_SCALES[STANDARD_SCALES.length - 1];
+    const s = own ?? d.scale;
+    const others = d.views.map((v) => ({ frame: this.frameOf(v, d.scale)!, dims: v.dims && v.kind !== 'isometric' && v.type !== 'detail' })).filter((o) => !!o.frame);
+    const [x, y] = placeView(sheet, fw * s, fh * s, true, others);
+    const id = this.newViewId(d);
+    this.selected = id;
+    this.update((dd) => { dd.views.push({ id, kind: 'front', type: 'flat', x, y, hidden: false, dims: true, ...(own ? { scale: own } : {}) }); }, 'Flat pattern view');
+  }
+
+  /** Puts the bill of materials (an assembly) or the cut list (a weldment) on the title block, or selects the one there. */
+  addTable(type: 'bom' | 'cutList') {
+    const d = this.doc;
+    if (!d) return;
+    const there = d.annotations?.find((a) => a.type === type);
+    if (there) { this.selectAnno(there.id); toast({ message: `The ${type === 'bom' ? 'bill of materials' : 'cut list'} is already on the sheet (selected).` }); return; }
+    const { w, h: sh } = sheetDims(d);
+    const id = this.newAnnoId(d);
+    this.selectedAnno = id;
+    this.update((dd) => { (dd.annotations ??= []).push({ id, type, at: [w - MARGIN, sh - MARGIN - TITLE_H], anchor: 'bottomRight' }); }, type === 'bom' ? 'Bill of materials' : 'Cut list');
+  }
+
+  /** Balloons on every component of the bill of materials a view shows that has none there yet. */
+  autoBalloon(viewId: Id) {
+    const d = this.doc;
+    const p = this.placements.get(viewId);
+    const pr = this.projectionOf(viewId);
+    if (!d || !p || !pr?.bounds) return;
+    const rows = this.source(p.r.source)?.bom?.();
+    if (!rows) { toast({ kind: 'info', message: 'Auto Balloon numbers the components of an assembly drawing.' }); return; }
+    const skip = new Set<number>();
+    for (const a of d.annotations ?? []) {
+      if (a.type !== 'balloon' || a.view !== viewId) continue;
+      const n = a.item ?? this.itemOf(p.r.source, a.ref.edge);
+      if (n !== null) skip.add(n);
+    }
+    let prims = p.prims, bounds = pr.bounds;
+    if (p.r.clip) {
+      const { c, r } = p.r.clip;
+      const inside = (q: P2) => Math.hypot(q[0] - c[0], q[1] - c[1]) <= r;
+      prims = prims.filter((q) => inside(q.a) || inside(q.b));
+      bounds = [c[0] - r, c[1] - r, c[0] + r, c[1] + r];
+    }
+    // Past the view's dimensions (left and below) and its label (below).
+    const v = p.r.v;
+    const dims = v.dims && v.kind !== 'isometric' && v.type !== 'detail';
+    const plan = autoBalloons(prims, rows, bounds, p.s, skip, dims ? [DIM_LEFT + 4, 6, 6, DIM_BELOW + 10] : [6, 6, 6, 12]);
+    if (!plan.length) { toast({ message: skip.size ? 'Every component this view shows has a balloon already.' : 'This view shows no components to balloon.' }); return; }
+    this.update((dd) => {
+      for (const b of plan) (dd.annotations ??= []).push({ id: this.newAnnoId(dd), type: 'balloon', view: viewId, ref: b.ref, at: b.at });
+    }, 'Auto balloon');
+    this.app.setStatus(`Added ${plan.length} balloon${plan.length === 1 ? '' : 's'}. Drag them to arrange them.`);
   }
 
   // ---------- export ----------
@@ -1324,8 +1543,9 @@ export class DrawingPanel extends PropertyPanel {
     for (const v of d.views) views.append(this.viewRow(d, v));
     const addSel = h('select', { class: 'input', 'aria-label': 'View to add' }) as HTMLSelectElement;
     for (const k of Object.keys(VIEW_LABELS) as DrawingViewKind[]) addSel.append(h('option', { value: k }, VIEW_LABELS[k]));
+    if (isSheetMetal(this.app)) addSel.append(h('option', { value: 'flat' }, 'Flat pattern'));
     const add = h('button', { class: 'btn small', type: 'button' }, icon('plus', 14), 'Add view');
-    add.addEventListener('click', () => ws.addView(addSel.value as DrawingViewKind));
+    add.addEventListener('click', () => (addSel.value === 'flat' ? void ws.addFlatView() : ws.addView(addSel.value as DrawingViewKind)));
     const field = (label: string, value: string, set: (v: string) => void) => {
       const input = h('input', { class: 'input', value, 'aria-label': label }) as HTMLInputElement;
       input.addEventListener('change', () => set(input.value));
@@ -1392,7 +1612,10 @@ export class DrawingPanel extends PropertyPanel {
     const label = h('input', { class: 'input', value: v.label ?? '', 'aria-label': type === 'section' || type === 'detail' || type === 'auxiliary' ? 'View letter' : 'View caption' }) as HTMLInputElement;
     label.addEventListener('change', () => set('View label', (x) => { const s = label.value.trim(); if (s) x.label = s; else if (type === 'model' || type === 'projected') delete x.label; }));
     parts.push(h('div', {}, h('div', { class: 'field-label' }, type === 'model' || type === 'projected' ? 'Caption (empty: the view’s name)' : 'Letter'), label));
-    if (type === 'model' || type === 'detail') {
+    if (type === 'model' && v.source && (v.source === ASSEMBLY_SOURCE || v.source === EXPLODED_SOURCE) && this.app.assembly?.doc.explode.length) {
+      parts.push(checkbox('Exploded (the assembly’s exploded view steps)', v.source === EXPLODED_SOURCE, (val) => set('Exploded view', (x) => { x.source = val ? EXPLODED_SOURCE : ASSEMBLY_SOURCE; })));
+    }
+    if (type === 'model' || type === 'detail' || type === 'flat') {
       const own = v.scale;
       const opts = [{ value: '', label: type === 'detail' ? 'Twice the parent’s' : `Sheet scale (${scaleLabel(d.scale)})` }, ...STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }))];
       if (own !== undefined && !STANDARD_SCALES.includes(own)) opts.push({ value: String(own), label: scaleLabel(own) });
@@ -1412,10 +1635,11 @@ export class DrawingPanel extends PropertyPanel {
   private annotationsSection(d: DrawingDoc): HTMLElement {
     const ws = this.ws;
     const list = h('div', { class: 'drw-anno-list' });
-    const names: Record<DrawingAnnotation['type'], string> = { dimension: 'Dimension', note: 'Note', centerMark: 'Center mark', centerline: 'Centerline', holeCallout: 'Hole callout', balloon: 'Balloon', bom: 'Bill of materials' };
+    const names: Record<DrawingAnnotation['type'], string> = { dimension: 'Dimension', note: 'Note', centerMark: 'Center mark', centerline: 'Centerline', holeCallout: 'Hole callout', balloon: 'Balloon', bom: 'Bill of materials', cutList: 'Cut list' };
     for (const a of d.annotations ?? []) {
       const dangling = ws.dangling(a);
-      const text = a.type === 'note' ? `Note: ${a.text.split('\n')[0]}` : a.type === 'dimension' ? `${{ horizontal: 'Horizontal', vertical: 'Vertical', aligned: 'Aligned', radius: 'Radius', diameter: 'Diameter', angle: 'Angle' }[a.kind]} dimension` : names[a.type];
+      const item = a.type === 'balloon' ? a.item ?? (a.view && ws.viewSource(a.view) ? ws.itemOf(ws.viewSource(a.view)!, a.ref.edge) : null) : null;
+      const text = a.type === 'balloon' ? `Balloon ${item ?? '?'}` : a.type === 'note' ? `Note: ${a.text.split('\n')[0]}` : a.type === 'dimension' ? `${{ horizontal: 'Horizontal', vertical: 'Vertical', aligned: 'Aligned', radius: 'Radius', diameter: 'Diameter', angle: 'Angle' }[a.kind]} dimension` : names[a.type];
       const name = h('button', { class: 'grow', type: 'button', 'aria-pressed': String(ws.selectedAnno === a.id), style: { background: 'none', border: '0', padding: '0', textAlign: 'left' } }, text, dangling ? h('span', { class: 'drw-missing' }, ' (geometry missing)') : null);
       name.addEventListener('click', () => ws.selectAnno(a.id));
       const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${text}` }, icon('trash', 14));
@@ -1425,7 +1649,10 @@ export class DrawingPanel extends PropertyPanel {
     const tool = (kind: DrawingToolKind, ic: string) => h('button', { class: 'btn small', type: 'button', 'aria-pressed': String(ws.tool?.kind === kind), onclick: () => ws.startTool(kind) }, icon(ic, 14), TOOL_LABELS[kind]);
     return section('Annotations', [
       (d.annotations ?? []).length ? list : h('div', { class: 'field-label' }, 'No annotations yet.'),
-      h('div', { class: 'row wrap drw-tools' }, tool('dimension', 'smartDimension'), tool('centerMark', 'drawingCenterMark'), tool('centerline', 'centerline'), tool('note', 'text'), tool('holeCallout', 'drawingHoleCallout')),
+      h('div', { class: 'row wrap drw-tools' }, tool('dimension', 'smartDimension'), tool('centerMark', 'drawingCenterMark'), tool('centerline', 'centerline'), tool('note', 'text'), tool('holeCallout', 'drawingHoleCallout'),
+        ...(this.app.assembly || this.app.weldments.length ? [tool('balloon', 'balloon')] : []),
+        ...(this.app.assembly ? [tool('autoBalloon', 'autoBalloon'), h('button', { class: 'btn small', type: 'button', onclick: () => ws.addTable('bom') }, icon('bom', 14), 'Bill of Materials')] : []),
+        ...(!this.app.assembly && this.app.weldments.length ? [h('button', { class: 'btn small', type: 'button', onclick: () => ws.addTable('cutList') }, icon('cutList', 14), 'Cut List')] : [])),
     ]);
   }
 

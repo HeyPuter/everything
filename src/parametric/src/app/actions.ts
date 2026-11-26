@@ -37,6 +37,7 @@ import { facePlaneRef } from './selection';
 import { RELATION_LABELS } from '../sketch/ops';
 import { CONSTRAINTS, CONSTRAINT_HINTS, runConstraint } from './sketch/constrain';
 import { SHEET_METAL_TAB, sheetMetalCommands } from './sheetmetal-panels';
+import { drawingCommands } from './drawing-commands';
 
 const SKETCH_TOOLS: Record<string, { label: string; shortcut?: string; desc: string; make: (ed: SketchEditor) => SkTool }> = {
   line: { label: 'Line', shortcut: 'L', desc: 'Sketch straight lines.', make: (ed) => lineTool(ed) },
@@ -299,6 +300,7 @@ export function registerCommands(app: App, files: FileOps) {
       checked: () => app.inDrawing && app.drawing.tool?.kind === k,
       run: () => app.drawing.startTool(k),
     })),
+    ...drawingCommands(app),
     { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => (app.inDrawing ? app.drawing.zoomBy(1.25) : app.viewport.zoomBy(0.8)) },
     { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => (app.inDrawing ? app.drawing.zoomBy(0.8) : app.viewport.zoomBy(1.25)) },
     // No shortcut: Ctrl+Shift+Z is Redo.
@@ -437,7 +439,7 @@ export const RIBBON: RibbonTab[] = [
     groups: [
       [{ cmd: 'openDrawing' }, { cmd: 'drawing:arrange' }],
       [{ stack: [{ cmd: 'drawing:add:front' }, { cmd: 'drawing:add:top' }, { cmd: 'drawing:add:right' }] }, { stack: [{ cmd: 'drawing:add:isometric' }, { cmd: 'drawing:add:left' }, { cmd: 'drawing:add:back' }] }],
-      [{ cmd: 'drawing:projected' }, { cmd: 'drawing:section' }, { stack: [{ cmd: 'drawing:detail' }, { cmd: 'drawing:auxiliary' }] }],
+      [{ cmd: 'drawing:projected' }, { cmd: 'drawing:section' }, { stack: [{ cmd: 'drawing:detail' }, { cmd: 'drawing:auxiliary' }, { cmd: 'drawing:flat' }] }],
       [{ cmd: 'drawing:pdf' }, { stack: [{ cmd: 'drawing:svg' }, { cmd: 'drawing:dxf' }] }],
       [{ cmd: 'zoomFit' }, { cmd: 'backToModel' }],
     ],
@@ -449,6 +451,7 @@ export const RIBBON: RibbonTab[] = [
     groups: [
       [{ cmd: 'drawing:dimension' }],
       [{ stack: [{ cmd: 'drawing:centerMark' }, { cmd: 'drawing:centerline' }] }, { stack: [{ cmd: 'drawing:note' }, { cmd: 'drawing:holeCallout' }] }],
+      [{ stack: [{ cmd: 'drawing:balloon' }, { cmd: 'drawing:autoBalloon' }] }, { stack: [{ cmd: 'drawing:bom' }, { cmd: 'drawing:cutList' }] }],
       [{ cmd: 'drawing:pdf' }, { cmd: 'backToModel' }],
     ],
   },

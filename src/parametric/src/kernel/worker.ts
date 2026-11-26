@@ -117,6 +117,7 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
         const result = r.op === 'build' ? await assembly.build(r.parts)
           : r.op === 'scene' ? (assembly.setScene(r.items), true)
           : r.op === 'drop' ? (assembly.drop(r.keep), true)
+          : r.op === 'project' ? assembly.projectItems(r.items, r.views)
           : r.op === 'interference' ? assembly.interference()
           : assembly.mass(r.densities);
         reply({ id: msg.id, ok: true, result }, r.op === 'build' || r.op === 'interference' ? asmTransfers(result) : []);
