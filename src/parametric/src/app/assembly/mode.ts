@@ -609,6 +609,8 @@ class DragTool implements ViewportTool {
     const c = mode.faceComponent(hit.index);
     if (!c) return false;
     if (c.fixed) { app.setStatus(`${c.name} is fixed. Float it to move it.`, true); return false; }
+    // Its mates leave it no freedom: the view turns, as for a fixed one (a drag would only add an empty undo step).
+    if (mode.isDefined(c.id)) { app.setStatus(`${c.name} is fully defined by its mates. Suppress or edit a mate to move it.`, true); return false; }
     if (mode.doc.exploded) { app.setStatus('Collapse the exploded view to move components.', true); return false; }
     const pl = mode.solved.get(c.id) ?? c.placement;
     const inv = { q: [-pl.q[0], -pl.q[1], -pl.q[2], pl.q[3]] as Quat };

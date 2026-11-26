@@ -418,3 +418,36 @@ test('Open Part on a component whose part file was deleted opens the copy kept i
   expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.doc.features.length)).toBe(2);
   expect(errors).toEqual([]);
 });
+
+test('dragging a fully defined component turns the view instead of adding an empty undo step', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const [a, b] = m.doc.components;
+    m.commit('Lock', (d) => { d.mates.push({ id: 'm90', name: 'Lock1', type: 'lock', a: { comp: a.id }, b: { comp: b.id }, aligned: false, rel: { p: [60, 0, 0], q: [0, 0, 0, 1] } }); });
+  });
+  await expect(tree.getByRole('treeitem', { name: 'Block<2>', exact: true })).toBeVisible();
+  const state = () => page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    return { undo: a.store.undoLabel, rot: a.renderer.camera.state().rot };
+  });
+  const before = await state();
+  const p = await facePoint(page, 'Block<2>', 'E1:cap1');
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.mouse.move(p.x + 60, p.y + 20, { steps: 5 });
+  await page.mouse.up();
+  const after = await state();
+  expect(after.undo).toBe(before.undo);
+  expect(after.rot).not.toEqual(before.rot);
+  await expect(page.locator('.statusbar')).toContainText('Block<2> is fully defined');
+  expect(errors).toEqual([]);
+});
