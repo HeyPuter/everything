@@ -1244,7 +1244,14 @@ function solidFromShell(shell: Sh): Sh | null {
  */
 function thickSolid(shape: Sh, t: number, both: boolean, area: number): Sh | null {
   const oc = getOc();
-  const expect = area * Math.abs(t);
+  // A thickened surface takes at least a third of area × thickness (a sphere
+  // thickened inward to its centre; less means its offset turned inside out)
+  // and no more than its box grown by the thickness. Curvature alone takes it
+  // well outside area × thickness: a dome of radius 5 thickened 7 outward is
+  // three times that, and inward by 4 four tenths of it.
+  const box = bbox(shape);
+  const grown = box ? box.max.reduce((v, c, i) => v * (c - box.min[i] + 2 * Math.abs(t)), 1) : Infinity;
+  const plausible = (v: number) => v > (area * Math.abs(t) / 3) * (1 - 1e-6) && v < grown * (1 + 1e-6);
   const simple = (base: Sh, off: number): Sh | null => {
     const mk = new oc.BRepOffsetAPI_MakeThickSolid();
     try {
@@ -1279,8 +1286,7 @@ function thickSolid(shape: Sh, t: number, both: boolean, area: number): Sh | nul
   if (!sharp.length) {
     const whole = make(shape);
     if (!whole || isEmpty(whole)) return null;
-    const v = volumeOf(whole);
-    return v > expect * 0.5 && v < expect * 2 && isValid(whole) ? whole : null;
+    return plausible(volumeOf(whole)) && isValid(whole) ? whole : null;
   }
   // Wedges are built for straight edges only.
   if (sharp.some((e) => e.desc.type !== 'line')) return null;
@@ -1319,8 +1325,7 @@ function thickSolid(shape: Sh, t: number, both: boolean, area: number): Sh | nul
     let out = wrap(builder.Shape());
     const unify = new oc.ShapeUpgrade_UnifySameDomain(out.wrapped, true, true, false);
     try { unify.Build(); out = wrap(unify.Shape()); } finally { unify.delete(); }
-    const v = volumeOf(out);
-    return v > expect * 0.5 && v < expect * 2 && isValid(out) ? out : null;
+    return plausible(volumeOf(out)) && isValid(out) ? out : null;
   } catch {
     return null;
   } finally {

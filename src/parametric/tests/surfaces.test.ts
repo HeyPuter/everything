@@ -280,6 +280,30 @@ describe('knit, thicken and cut', () => {
     expect([128 + 16, 128 - 16].some((x) => Math.abs(b.massProperties()!.volume - x) < 1e-3)).toBe(true);
   });
 
+  it('thickens strongly curved surfaces by more or less than area × thickness', async () => {
+    const b = new ModelBuilder();
+    // A dome of radius 5 (a quarter arc revolved about Y).
+    const dome = [sketch('S1', [P('c0', 0, -5), P('c1', 5, 0), P('o', 0, 0), { id: 'arc', t: 'arc', c: 'o', a: 'c0', b: 'c1' }, P('x0', 0, -8), P('x1', 0, 8), L('cl', 'x0', 'x1', true)]),
+      surf('surfaceRevolve', 'R1', { sketch: 'S1', angle: 360 })];
+    const face = faceRefOf(await b.build(req(dome)), (f) => f.body === 'R1');
+    const shell = (r0: number, r1: number) => (2 / 3) * Math.PI * (r1 ** 3 - r0 ** 3);
+    let res = await b.build(req([...dome, surf('thicken', 'T1', { faces: [face], thickness: 7 })]));
+    ok(res);
+    expect(b.massProperties()!.volume).toBeCloseTo(shell(5, 12), 3);
+    res = await b.build(req([...dome, surf('thicken', 'T1', { faces: [face], thickness: 4, side: 'back' })]));
+    ok(res);
+    expect(b.massProperties()!.volume).toBeCloseTo(shell(1, 5), 3);
+    // Inward past the centre cannot be thickened.
+    res = await b.build(req([...dome, surf('thicken', 'T1', { faces: [face], thickness: 6, side: 'back' })]));
+    expect(res.status[2]).toMatchObject({ ok: false, error: expect.stringMatching(/could not be thickened/) });
+    // An open tube of radius 5 thickened 20 outward.
+    const tube = [sketch('S1', circle(0, 0, 5)), surf('surfaceExtrude', 'F1', { sketch: 'S1', depth: 10 })];
+    const tf = faceRefOf(await b.build(req(tube)), (f) => f.body === 'F1');
+    res = await b.build(req([...tube, surf('thicken', 'T1', { faces: [tf], thickness: 20, side: 'back' })]));
+    ok(res);
+    expect(b.massProperties()!.volume).toBeCloseTo(Math.PI * (25 ** 2 - 5 ** 2) * 10, 2);
+  });
+
   it('cuts with a thickened surface', async () => {
     const b = new ModelBuilder();
     const parts = [sketch('S1', rect(0, 0, 20, 20)), extrude('E1', 'S1', 10),
