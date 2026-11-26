@@ -197,3 +197,34 @@ test('adds section and detail views, dimensions that follow the model, and expor
   expect((await drawing(page)).annotations!.some((a) => a.view === 'v1')).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('Arrange standard views asks before deleting section views and dimensions, and is undone in one step', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  const arrange = page.getByRole('button', { name: 'Arrange standard views' });
+  // Only standard views: arranged at once, as before.
+  await page.evaluate(() => (window as unknown as { __parametric: App }).__parametric.drawing.update((d) => { d.views[0].x += 5; }, 'Move view'));
+  await arrange.click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __parametric: App }).__parametric.drawing.update((d) => {
+    d.views.push({ id: 'v9', kind: 'front', type: 'section', parent: 'v1', line: [-60, 0, 60, 0], label: 'A', x: 60, y: 180, hidden: false, dims: false });
+    (d.annotations ??= []).push({ id: 'a1', type: 'dimension', view: 'v1', kind: 'horizontal', refs: [{ edge: 'x', at: 'edge' }], at: [0, 30] });
+  }, 'Section view'));
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
+  await arrange.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('1 section, detail or other added view and 1 annotation on a view');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect((await drawing(page)).views).toHaveLength(5);
+  await arrange.click();
+  await dialog.getByRole('button', { name: 'Arrange' }).click();
+  await expect.poll(async () => (await drawing(page)).views.length).toBe(4);
+  expect((await drawing(page)).annotations).toEqual([]);
+  await page.keyboard.press('Meta+Z');
+  await expect.poll(async () => (await drawing(page)).views.length).toBe(5);
+  expect((await drawing(page)).annotations).toHaveLength(1);
+  expect(errors).toEqual([]);
+});

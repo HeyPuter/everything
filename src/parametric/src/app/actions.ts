@@ -277,7 +277,7 @@ export function registerCommands(app: App, files: FileOps) {
     // ---- drawing ----
     { id: 'openDrawing', label: 'Make Drawing', icon: 'makeDrawing', keywords: 'drawing sheet 2d views print pdf drafting engineering drawing orthographic', description: 'Open the 2D drawing of this part: standard views, sections, details and dimensions, exported to PDF, SVG or DXF.', enabled: () => hasBody() || !!app.store.doc.drawing, run: () => app.openDrawing() },
     { id: 'backToModel', label: 'Back to Model', icon: 'part', enabled: () => app.inDrawing, run: () => app.closeDrawing() },
-    { id: 'drawing:arrange', label: 'Standard Views', icon: 'viewOrientation', description: 'Arrange front, top, right and isometric views at a fitting scale.', enabled: () => app.inDrawing && hasBody(), run: () => app.drawing.relayout() },
+    { id: 'drawing:arrange', label: 'Standard Views', icon: 'viewOrientation', description: 'Arrange front, top, right and isometric views at a fitting scale.', enabled: () => app.inDrawing && hasBody(), run: () => void app.drawing.arrange() },
     ...(['front', 'top', 'right', 'left', 'back', 'bottom', 'isometric'] as const).map((k): Command => ({
       id: `drawing:add:${k}`, label: `${k[0].toUpperCase()}${k.slice(1)} View`, icon: k === 'isometric' ? 'viewIso' : `view${k[0].toUpperCase()}${k.slice(1)}`, enabled: () => app.inDrawing && hasBody(), run: () => app.drawing.addView(k),
     })),

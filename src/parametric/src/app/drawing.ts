@@ -277,6 +277,25 @@ export class DrawingWorkspace {
     return bottom;
   }
 
+  /**
+   * Arrange standard views from a button or command: first asks when it would delete views
+   * made since (sections, details...) or annotations on views. Resolves whether it arranged.
+   */
+  async arrange(): Promise<boolean> {
+    const d = this.doc;
+    if (!d) return false;
+    const views = d.views.filter((v) => (v.type ?? 'model') !== 'model').length;
+    const annos = (d.annotations ?? []).filter((a) => a.view).length;
+    if (views || annos) {
+      const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+      const lost = [views && n(views, 'section, detail or other added view', 'section, detail and other added views'), annos && n(annos, 'annotation on a view', 'annotations on views')].filter(Boolean).join(' and ');
+      const ok = await confirmDialog('Arrange standard views', `This replaces the views on the sheet with the standard ones, so the ${lost} will be deleted.`, 'Arrange', true);
+      if (!ok || !this.doc) return false;
+    }
+    this.relayout();
+    return true;
+  }
+
   /** Re-lays out the standard views (keeps sheet settings). */
   relayout() {
     const b = this.bbox();
@@ -1554,7 +1573,7 @@ export class DrawingPanel extends PropertyPanel {
         checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; ws.keepOnSheet(x); }, 'Sheet orientation')),
         scale,
         selectField('Projection angle', d.projection ?? 'third', [{ value: 'third', label: 'Third angle (ASME)' }, { value: 'first', label: 'First angle (ISO)' }], (v) => ws.updateFromPanel((x) => { x.projection = v; }, 'Projection angle')),
-        h('button', { class: 'btn small', type: 'button', onclick: () => ws.relayout() }, icon('reset', 14), 'Arrange standard views'),
+        h('button', { class: 'btn small', type: 'button', onclick: () => void ws.arrange() }, icon('reset', 14), 'Arrange standard views'),
       ]),
       section('Views', [
         views, h('div', { class: 'row' }, h('div', { class: 'grow' }, addSel), add),
