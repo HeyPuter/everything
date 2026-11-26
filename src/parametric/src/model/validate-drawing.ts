@@ -1,6 +1,6 @@
 import type { DrawingDoc } from './types';
 
-const sheets = new Set(['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'A0', 'ANSI C', 'ANSI D']);
+const sheets = new Set(['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D']);
 const kinds = new Set(['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric']);
 const types = new Set(['model', 'projected', 'section', 'detail', 'auxiliary']);
 const sides = new Set(['left', 'right', 'above', 'below']);

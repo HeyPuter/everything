@@ -391,7 +391,7 @@ export interface PartDocument {
 
 // ---- Drawings ----
 
-export type SheetSize = 'A4' | 'A3' | 'A2' | 'A1' | 'Letter' | 'Tabloid' | 'A0' | 'ANSI C' | 'ANSI D';
+export type SheetSize = 'A4' | 'A3' | 'A2' | 'A1' | 'Letter' | 'Tabloid' | 'ANSI C' | 'ANSI D';
 export type DrawingViewKind = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'isometric';
 
 export interface DrawingView {

@@ -54,7 +54,7 @@ interface ToolState {
 }
 
 /** Order of the sheet sizes in the list. */
-const SHEET_ORDER: SheetSize[] = ['A4', 'A3', 'A2', 'A1', 'A0', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D'];
+const SHEET_ORDER: SheetSize[] = ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D'];
 
 /** The name of a view in lists and messages. */
 export function viewName(d: DrawingDoc, v: DrawingView): string {

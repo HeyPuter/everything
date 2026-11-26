@@ -20,7 +20,6 @@ export const SHEETS: Record<SheetSize, [number, number]> = {
   A1: [594, 841],
   Letter: [215.9, 279.4],
   Tabloid: [279.4, 431.8],
-  A0: [841, 1189],
   'ANSI C': [431.8, 558.8],
   'ANSI D': [558.8, 863.6],
 };
@@ -28,7 +27,7 @@ export const SHEETS: Record<SheetSize, [number, number]> = {
 export const SHEET_LABELS: Record<SheetSize, string> = {
   A4: 'A4 (297 x 210 mm)', A3: 'A3 (420 x 297 mm)', A2: 'A2 (594 x 420 mm)', A1: 'A1 (841 x 594 mm)',
   Letter: 'Letter (11 x 8.5 in)', Tabloid: 'Tabloid (17 x 11 in)',
-  A0: 'A0 (1189 x 841 mm)', 'ANSI C': 'ANSI C (22 x 17 in)', 'ANSI D': 'ANSI D (34 x 22 in)',
+  'ANSI C': 'ANSI C (22 x 17 in)', 'ANSI D': 'ANSI D (34 x 22 in)',
 };
 
 export function sheetDims(d: Pick<DrawingDoc, 'sheet' | 'landscape'>): { w: number; h: number } {
