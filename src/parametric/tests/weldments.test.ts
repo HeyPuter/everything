@@ -333,6 +333,21 @@ describe('trim/extend', () => {
     expect(gapped.res.status.every((s) => s.ok)).toBe(true);
     expect(gapped.res.weldments!.find((m) => m.member === 'S1/v')!.length).toBeCloseTo(150 - Math.sqrt((R + 2) ** 2 - r * r), 1);
   });
+
+  it('copes a post to a beam at its flange, leaving nothing between the flanges', async () => {
+    // An IPE 200 turned so its flanges are at y = -100 and 100; the post comes up from below, ending at its axis.
+    const ents = [...line('h', [-150, 0], [150, 0]), ...line('v', [0, -150], [0, 20])];
+    const s1 = sketch('S1', ents);
+    const m1 = member('M1', [[{ sketch: 'S1', entity: 'h' }]], { profile: 'beam', size: 'IPE200', rotation: 90 });
+    const m2 = member('M2', [[{ sketch: 'S1', entity: 'v' }]], { profile: 'pipe', size: '48.3x3.2' });
+    const t = { ...newTrimExtend('T1', 'T1'), boundary: 'members' as const, coped: true, members: [{ feature: 'M2', member: 'S1/v' }], boundaryMembers: [{ feature: 'M1', member: 'S1/h' }] };
+    const { b, res } = await build([s1, m1, m2, t]);
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    const post = res.weldments!.find((m) => m.member === 'S1/v')!;
+    expect(post.length).toBeCloseTo(50, 6);
+    expect(post.volume).toBeCloseTo(area('pipe', '48.3x3.2') * 50, 0);
+    expect(isValid(body(b))).toBe(true);
+  });
 });
 
 describe('end caps and gussets', () => {

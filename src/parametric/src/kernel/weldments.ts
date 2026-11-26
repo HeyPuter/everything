@@ -25,7 +25,7 @@ import {
 } from '../model/weldment-profiles';
 import { type WeldMemberInfo, memberKey, memberOfFace, sameMember } from '../model/weldments';
 import { SketchIndex } from '../sketch/geom';
-import { type EdgeDesc, type Sh, type SurfDesc, getOc, pnt, bbox, compound, cut, fuse, fuseAll, isEmpty, rotated, volumeOf } from './occ';
+import { type EdgeDesc, type Sh, type SurfDesc, getOc, pnt, bbox, compound, cut, fuse, fuseAll, isEmpty, rotated, subShapes, volumeOf } from './occ';
 
 export interface Plane {
   p: Vec3;
@@ -291,6 +291,19 @@ function memberSolid(ctx: WeldCtx, m: Pick<WeldMember, 'shape' | 'path' | 'ends'
   for (const pl of cuts) solid = cut(solid, halfSpaceBox(pl, mid, big));
   for (const e of [0, 1] as const) for (const c of m.ends[e].copes) solid = cut(solid, c);
   if (isEmpty(solid)) throw ctx.err(`A member has no length left after trimming`);
+  if (m.ends.some((e) => e.copes.length)) {
+    // A cope to an open section (a beam, channel or angle) leaves the piece
+    // that ran on past the flange, between the flanges: only the member's
+    // own piece is kept, the one at its other end (or nearest its middle
+    // when both ends are coped).
+    const parts = subShapes(solid, 'solid');
+    if (parts.length > 1) {
+      const at = !m.ends[0].copes.length ? pathEnd(path, 0) : !m.ends[1].copes.length ? pathEnd(path, 1) : mid;
+      let best = parts[0], bd = Infinity;
+      for (const p of parts) { const d = pointDistance(p, at); if (d < bd) { bd = d; best = p; } }
+      solid = best;
+    }
+  }
   return solid;
 }
 
