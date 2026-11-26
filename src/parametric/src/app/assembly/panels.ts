@@ -610,8 +610,10 @@ export class InterferencePanel extends PropertyPanel {
     const u = UNIT_SYSTEMS[app.store.doc.units];
     const vol = (v: number) => `${formatGroup([v / u.scale ** 3], Math.max(2, app.store.doc.decimals))[0]} ${u.length}³`;
     app.renderer.setPreview(mergeMeshes(pairs.map((p) => p.mesh)), 'tool', true);
+    // Checked where the components are shown: exploded, they are apart.
+    const exploded = this.mode.doc.exploded ? h('div', { class: 'pm-msg warn' }, 'The exploded view is shown: collapse it (Explode/Collapse) to check the assembled position.') : null;
     if (!pairs.length) {
-      this.out.replaceChildren(h('div', { class: 'pm-msg info', role: 'status' }, 'No interference: no two components overlap.'));
+      this.out.replaceChildren(h('div', { class: 'pm-msg info', role: 'status' }, 'No interference: no two components overlap.'), ...(exploded ? [exploded] : []));
       return;
     }
     const list = h('div', { class: 'file-list', role: 'list', 'aria-label': 'Interferences' });
@@ -621,7 +623,7 @@ export class InterferencePanel extends PropertyPanel {
       b.addEventListener('click', () => app.selection.set([{ kind: 'feature', id: comps[p.a] }, { kind: 'feature', id: comps[p.b] }]));
       list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
     }
-    this.out.replaceChildren(h('div', { class: 'pm-msg warn', role: 'status' }, `${pairs.length} ${pairs.length === 1 ? 'interference' : 'interferences'} found.`), list);
+    this.out.replaceChildren(h('div', { class: 'pm-msg warn', role: 'status' }, `${pairs.length} ${pairs.length === 1 ? 'interference' : 'interferences'} found.`), list, ...(exploded ? [exploded] : []));
   }
 
   private timer = 0;

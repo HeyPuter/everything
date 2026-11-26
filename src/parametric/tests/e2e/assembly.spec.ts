@@ -225,7 +225,7 @@ test('editing a part from its assembly, interference, measuring and STEP export'
   await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('exportStep'); });
   const file = await (await download).path();
   const { readFileSync } = await import('node:fs');
-  const step = readFileSync(file, 'utf8');
+  const step = new TextDecoder().decode(readFileSync(file));
   expect(step).toContain('Block<1>');
   expect(step).toContain('Pin<1>');
 
@@ -258,5 +258,35 @@ test('editing a part from its assembly, interference, measuring and STEP export'
   await expect(page.locator('.pm')).toContainText('Block<1> and Block<2>');
   expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.renderer.hasPreviewBody)).toBe(false);
   await page.screenshot({ path: '/private/tmp/claude-501/-Users-nj-Documents-GitHub-everything-src-parametric/10c365cb-dda2-48fe-81cf-fed8b9c07fb6/scratchpad/asm/shot2.png' });
+  expect(errors).toEqual([]);
+});
+
+test('the assembly workspace, its tree and the Mate panel have no serious accessibility violations', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  // Keyboard: rename from the tree with F2.
+  await tree.getByRole('treeitem', { name: '(-) Block<2>' }).focus();
+  await page.keyboard.press('F2');
+  await page.keyboard.type('Cover');
+  await page.keyboard.press('Enter');
+  await expect(tree.getByRole('treeitem', { name: '(-) Cover' })).toBeVisible();
+  await page.locator('.cm [data-cmd="mate"]').click();
+  await expect(page.locator('.pm')).toContainText('Select two entities to mate');
+  await page.addScriptTag({ path: 'node_modules/axe-core/axe.min.js' });
+  const violations = await page.evaluate(async () => {
+    // @ts-expect-error axe is injected above
+    const r = await window.axe.run(document, { resultTypes: ['violations'] });
+    return r.violations
+      .filter((v: { impact: string }) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v: { id: string; nodes: { target: string[] }[] }) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
+  });
+  expect(violations).toEqual([]);
   expect(errors).toEqual([]);
 });
