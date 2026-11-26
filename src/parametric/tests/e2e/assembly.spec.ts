@@ -265,7 +265,6 @@ test('editing a part from its assembly, interference, measuring and STEP export'
   await expect(page.locator('.pm')).toContainText('1 interference found');
   await expect(page.locator('.pm')).toContainText('Block<1> and Block<2>');
   expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.renderer.hasPreviewBody)).toBe(false);
-  await page.screenshot({ path: '/private/tmp/claude-501/-Users-nj-Documents-GitHub-everything-src-parametric/10c365cb-dda2-48fe-81cf-fed8b9c07fb6/scratchpad/asm/shot2.png' });
   expect(errors).toEqual([]);
 });
 
