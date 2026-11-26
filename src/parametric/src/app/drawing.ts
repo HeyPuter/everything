@@ -1726,11 +1726,14 @@ export class DrawingPanel extends PropertyPanel {
       if (own !== undefined && !STANDARD_SCALES.includes(own)) opts.push({ value: String(own), label: scaleLabel(own) });
       parts.push(selectField('View scale', own === undefined ? '' : String(own), opts, (val) => set('View scale', (x) => { if (val) x.scale = Number(val); else delete x.scale; })));
     }
-    parts.push(
-      checkbox('Show hidden lines', v.hidden, (val) => set('Hidden lines', (x) => { x.hidden = val; })),
-      checkbox('Show tangent edges', v.tangent !== false, (val) => set('Tangent edges', (x) => { if (val) delete x.tangent; else x.tangent = false; })),
-      checkbox('Center marks and hole centerlines', !!v.centerMarks, (val) => set('Center marks', (x) => { x.centerMarks = val; })),
-    );
+    // A flat pattern has neither hidden lines nor tangent edges.
+    if (type !== 'flat') {
+      parts.push(
+        checkbox('Show hidden lines', v.hidden, (val) => set('Hidden lines', (x) => { x.hidden = val; })),
+        checkbox('Show tangent edges', v.tangent !== false, (val) => set('Tangent edges', (x) => { if (val) delete x.tangent; else x.tangent = false; })),
+      );
+    }
+    parts.push(checkbox('Center marks and hole centerlines', !!v.centerMarks, (val) => set('Center marks', (x) => { x.centerMarks = val; })));
     if (type !== 'detail') parts.push(checkbox('Overall dimensions', v.dims, (val) => set('Dimensions', (x) => { x.dims = val; })));
     const deps = dependents(d, v.id);
     parts.push(h('button', { class: 'btn small', type: 'button', onclick: () => ws.deleteView(v.id) }, icon('trash', 14), deps.length ? `Delete view and ${deps.length} made from it` : 'Delete view'));
@@ -1789,8 +1792,9 @@ export class DrawingPanel extends PropertyPanel {
     const vn = viewName(d, v);
     const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${vn} view` }, icon('trash', 14));
     del.addEventListener('click', () => ws.deleteView(v.id));
-    const hidden = h('input', { type: 'checkbox', 'aria-label': `Hidden lines in ${vn} view` }) as HTMLInputElement;
-    hidden.checked = v.hidden;
+    const flat = v.type === 'flat';
+    const hidden = h('input', { type: 'checkbox', 'aria-label': `Hidden lines in ${vn} view`, ...(flat ? { disabled: true } : {}) }) as HTMLInputElement;
+    hidden.checked = v.hidden && !flat;
     hidden.addEventListener('change', () => ws.updateFromPanel((dd) => { const x = dd.views.find((q) => q.id === v.id); if (x) x.hidden = hidden.checked; }, 'Hidden lines'));
     const dims = h('input', { type: 'checkbox', 'aria-label': `Dimensions in ${vn} view` }) as HTMLInputElement;
     dims.checked = v.dims;
@@ -1802,7 +1806,7 @@ export class DrawingPanel extends PropertyPanel {
     name.addEventListener('click', () => ws.select(v.id));
     const row = h('div', { class: `rel-btn${ws.selected === v.id ? ' on' : ''}`, style: { cursor: 'default' } },
       name,
-      h('label', { class: 'check', title: 'Hidden lines' }, hidden, h('span', { class: 'field-label' }, 'Hidden')),
+      h('label', { class: 'check', title: flat ? 'A flat pattern has no hidden lines' : 'Hidden lines' }, hidden, h('span', { class: 'field-label' }, 'Hidden')),
       h('label', { class: 'check', title: 'Overall dimensions' }, dims, h('span', { class: 'field-label' }, 'Dims')),
       del);
     return row;

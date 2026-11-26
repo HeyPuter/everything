@@ -313,6 +313,12 @@ test('a sheet metal part’s drawing: a flat pattern view with bend lines, notes
     return fr.filter((q) => q.id !== id && q.x0 < f.x1 && q.x1 > f.x0 && q.y0 < f.y1 && q.y1 > f.y0).map((q) => q.id);
   }, id);
   expect(await overlaps(v.id)).toEqual([]);
+  // It has no hidden lines or tangent edges to show.
+  await expect(page.getByRole('checkbox', { name: 'Center marks and hole centerlines' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Show hidden lines' })).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: 'Show tangent edges' })).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: 'Hidden lines in Flat pattern view' })).toBeDisabled();
+  await expect(page.getByRole('checkbox', { name: 'Hidden lines in Front view' })).toBeEnabled();
   await expect(page.locator('.paper text', { hasText: /^FLAT PATTERN/ })).toHaveCount(1);
   // The bend line, dashed, with its note; the overall size as dimensions.
   await expect(page.locator('.paper text', { hasText: /^UP 90° R / })).toHaveCount(1);
