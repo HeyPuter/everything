@@ -519,9 +519,10 @@ function addFlange(h: SheetHost, st: SmState, featId: Id, k: number, ref: EdgeRe
     return dot2([d.center[0] - s0[0], d.center[1] - s0[1]], w) > b.width + spec.straight / 2 ? `${tag}:end` : `${tag}:joint`;
   });
   const tool = fuse(bend.solid, flange.solid);
-  // The bend only touches its panel; material inside the new wall is the part it runs into.
-  if (volumeOf(common(st.body!, tool)) > 1e-6 * volumeOf(tool)) throw h.error(`The ${what} runs into the part. Shorten it, change its angle or reverse its direction.`);
+  // The bend only touches its panel, so the body gains all of the new wall unless the wall runs into the part.
+  const before = volumeOf(st.body!), added = volumeOf(tool);
   h.applyTool(featId, st, tool, [...bend.faces, ...flange.faces], false);
+  if (volumeOf(st.body!) < before + added * (1 - 1e-6)) throw h.error(`The ${what} runs into the part. Shorten it, change its angle or reverse its direction.`);
   st.sheet = replacePanels(sheet, [...sheet.panels.map((x) => (x === panel ? { ...x, face: panelFace } : x)), { id: b.moving, face, xf }], [...sheet.bends, b]);
 }
 
@@ -651,9 +652,10 @@ function applySketchedBend(h: SheetHost, f: SketchedBendFeature, st: SmState) {
     if (d.type === 'cylinder') return `bend:${near(d.r, b.radius, 1e-6 * T + 1e-9) ? 'in' : 'out'}`;
     return 'bend:side';
   });
-  const movedBody = placed(moved, G);
-  if (volumeOf(common(kept, movedBody)) > 1e-6 * volumeOf(moved)) throw h.error('The bend folds the sheet into itself. Use a smaller angle, reverse the direction or keep the other side fixed.');
-  const result = fuseAll([kept, movedBody, bendPiece.solid]);
+  const result = fuseAll([kept, placed(moved, G), bendPiece.solid]);
+  // The pieces only touch, unless the moved side lands in the kept one.
+  const pieces = volumeOf(kept) + volumeOf(moved) + volumeOf(bendPiece.solid);
+  if (volumeOf(result) < pieces * (1 - 1e-6)) throw h.error('The bend folds the sheet into itself. Use a smaller angle, reverse the direction or keep the other side fixed.');
   st.faces = h.nameFaces(f.id, result, st, [...movedFaces, ...bendPiece.faces]);
   st.body = result;
   st.edges = null;
