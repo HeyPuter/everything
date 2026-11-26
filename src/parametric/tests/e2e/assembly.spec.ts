@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { openApp } from './helpers';
+import { chooseTheme, openApp } from './helpers';
 
 type A = import('../../src/app/app').App;
 
@@ -540,5 +540,160 @@ test('the properties of an assembly are called Assembly Properties, and of a par
   expect(await label()).toBe('Part Properties...');
   void page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('properties'); });
   await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('Insert Components refuses the assembly itself, another assembly and a file that is not a part', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await expect(page.getByRole('tree', { name: 'Assembly design tree' }).getByRole('treeitem', { name: '(f) Block<1>' })).toBeVisible();
+  await page.keyboard.press('Meta+s');
+  await page.waitForFunction(() => { const a = (window as unknown as { __parametric: A }).__parametric; return !!a.location && !a.store.dirty; });
+  const name = (await page.title()).replace(' - Parametric', '');
+  const assemblyText = await page.evaluate(() => JSON.stringify((window as unknown as { __parametric: A }).__parametric.store.doc));
+  // File bytes for Playwright, which wants a Node Buffer (the project has no Node types).
+  const bytes = (text: string) => (globalThis as unknown as { Buffer: { from(s: string): never } }).Buffer.from(text);
+  const notifications = page.getByRole('region', { name: 'Notifications' });
+  const fromDevice = async (file: { name: string; mimeType: string; buffer: never }) => {
+    void page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('insertComponent'); });
+    const dlg = page.getByRole('dialog', { name: 'Insert Components' });
+    // The open assembly is not offered as a part of itself.
+    await expect(dlg.getByRole('button', { name: /^Block This browser/ })).toBeVisible();
+    await expect(dlg.getByRole('button', { name: new RegExp(`^${name} This browser`) })).toHaveCount(0);
+    const chooser = page.waitForEvent('filechooser');
+    await dlg.getByRole('button', { name: 'From device...' }).click();
+    await (await chooser).setFiles(file);
+  };
+  await fromDevice({ name: 'Other.parametric', mimeType: 'application/json', buffer: bytes(assemblyText) });
+  await expect(notifications).toContainText('Other.parametric is an assembly');
+  await fromDevice({ name: 'notes.json', mimeType: 'application/json', buffer: bytes('{"hello": 1}') });
+  await expect(notifications).toContainText('Could not insert the part');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.assembly!.doc.components.length)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('every assembly operation undoes and redoes, also when the keys are pressed in quick succession', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(f) Block<1>' })).toBeVisible();
+  const state = () => page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    await a.whenBuilt();
+    const d = a.assembly!.doc;
+    const shown = d.components.filter((c) => !c.hidden && !c.suppressed).map((c) => c.id);
+    return {
+      doc: JSON.stringify({ c: d.components.map((c) => [c.name, !!c.hidden, !!c.suppressed, c.fixed]), m: d.mates.map((m) => [m.name, !!m.suppressed]), x: d.explode.map((s) => s.name), e: d.exploded }),
+      // The graphics area shows exactly the shown components.
+      shownOk: JSON.stringify([...new Set(a.faces.map((f) => f.feature))].sort()) === JSON.stringify([...shown].sort()),
+    };
+  });
+  const start = await state();
+  const run = (label: string) => page.evaluate((label) => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const m = a.assembly!;
+    const [b1, b2] = m.doc.components;
+    const face = (name: string) => { const f = m.geometryOf(b1.part)!.faces.find((x) => x.name === name)!; return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }; };
+    if (label === 'mate') m.commit('Add mate', (d) => { d.mates.push({ id: 'm90', name: 'Coincident1', type: 'coincident', a: { comp: b1.id, face: face('E1:cap1') }, b: { comp: b2.id, face: face('E1:cap0') }, aligned: false }); });
+    if (label === 'hide') m.commit('Hide', (d) => { d.components[1].hidden = true; }, false);
+    if (label === 'show') m.commit('Show', (d) => { delete d.components[1].hidden; }, false);
+    if (label === 'suppress') m.commit('Suppress', (d) => { d.components[1].suppressed = true; });
+    if (label === 'unsuppress') m.commit('Unsuppress', (d) => { delete d.components[1].suppressed; });
+    if (label === 'fix') m.commit('Fix', (d) => { d.components[1].fixed = true; });
+    if (label === 'float') m.commit('Float', (d) => { d.components[1].fixed = false; });
+    if (label === 'rename') m.rename(b2.id, 'Cover');
+    if (label === 'explode') m.commit('Add explode step', (d) => { d.explode.push({ id: 'x91', name: 'Explode Step1', comps: [b2.id], dir: [0, 0, 1], distance: 30 }); d.exploded = true; }, false);
+    if (label === 'collapse') a.commands.run('toggleExplode');
+    if (label === 'suppressMate') m.commit('Suppress', (d) => { d.mates[0].suppressed = true; });
+  }, label);
+  await insert(page, 'Block');
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  const steps = ['mate', 'hide', 'show', 'suppress', 'unsuppress', 'fix', 'float', 'rename', 'explode', 'collapse', 'suppressMate'];
+  const states = [start, await state()];
+  for (const s of steps) { await run(s); states.push(await state()); }
+  // Delete through the tree (with its confirmation).
+  await tree.getByRole('treeitem', { name: /^\(-\) Cover/ }).click();
+  await page.keyboard.press('Delete');
+  await page.getByRole('dialog', { name: 'Delete' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(tree.getByRole('treeitem', { name: /Cover/ })).toHaveCount(0);
+  states.push(await state());
+  expect(states.every((s) => s.shownOk)).toBe(true);
+  // Every operation changed something (Show, Unsuppress and Float return to an earlier state).
+  expect(states.slice(1).every((s, i) => s.doc !== states[i].doc)).toBe(true);
+  // One step at a time, back to the start and forward again.
+  await page.locator('canvas.gl').focus();
+  for (let i = states.length - 2; i >= 0; i--) { await page.keyboard.press('Meta+z'); expect(await state(), `undo to ${i}`).toEqual(states[i]); }
+  for (let i = 1; i < states.length; i++) { await page.keyboard.press('Meta+Shift+z'); expect(await state(), `redo to ${i}`).toEqual(states[i]); }
+  // All at once, without waiting for the rebuilds in between.
+  for (let i = 1; i < states.length; i++) await page.keyboard.press('Meta+z');
+  expect(await state()).toEqual(states[0]);
+  for (let i = 1; i < states.length; i++) await page.keyboard.press('Meta+Shift+z');
+  expect(await state()).toEqual(states[states.length - 1]);
+  expect(errors).toEqual([]);
+});
+
+test('the assembly tree and Mate panel work from the keyboard, the section view cuts the assembly, and the dark theme has no serious accessibility violations', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const [a, b] = m.doc.components;
+    const face = (name: string) => { const f = m.geometryOf(a.part)!.faces.find((x) => x.name === name)!; return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }; };
+    m.commit('Mates', (d) => {
+      d.mates.push({ id: 'm90', name: 'Coincident1', type: 'coincident', a: { comp: a.id, face: face('E1:cap1') }, b: { comp: b.id, face: face('E1:cap0') }, aligned: false });
+      d.mates.push({ id: 'm91', name: 'Coincident2', type: 'coincident', a: { comp: a.id, face: { ...face('E1:cap1'), name: 'E9:gone' } }, b: { comp: b.id, face: face('E1:cap0') }, aligned: false });
+    });
+  });
+  // Keyboard: down the rows, collapse and expand the Mates folder, Enter edits a mate.
+  const row = (name: RegExp) => tree.getByRole('treeitem', { name });
+  await row(/Block<2>/).first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(row(/^Mates/)).toBeFocused();
+  await expect(row(/^Mates/)).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('ArrowLeft');
+  await expect(row(/^Mates/)).toHaveAttribute('aria-expanded', 'false');
+  await expect(row(/^Coincident1/)).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(row(/^Coincident1/)).toBeFocused();
+  await expect(row(/^Coincident2/)).toHaveAttribute('aria-description', /Error: The face it references on Block<1> no longer exists/);
+  await page.keyboard.press('Enter');
+  const pm = page.locator('.pm');
+  await expect(pm.getByRole('combobox', { name: 'Mate type' })).toHaveValue('coincident');
+  await expect(pm.getByRole('button', { name: 'OK' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(pm).toHaveCount(0);
+  // The section view cuts the components.
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('sectionView'); });
+  await expect(page.locator('.pm')).toContainText('Section Plane');
+  expect(await page.evaluate(() => !!(window as unknown as { __parametric: A }).__parametric.renderer.section)).toBe(true);
+  await page.locator('.pm').getByRole('button', { name: 'OK' }).click();
+  // Dark theme, with the tree's error and the status bar showing.
+  await chooseTheme(page, 'Dark');
+  await expect(page.locator('.statusbar')).toContainText('Mate Errors');
+  await page.addScriptTag({ path: 'node_modules/axe-core/axe.min.js' });
+  const violations = await page.evaluate(async () => {
+    // @ts-expect-error axe is injected above
+    const r = await window.axe.run(document, { resultTypes: ['violations'] });
+    return r.violations
+      .filter((v: { impact: string }) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v: { id: string; nodes: { target: string[] }[] }) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
+  });
+  expect(violations).toEqual([]);
   expect(errors).toEqual([]);
 });

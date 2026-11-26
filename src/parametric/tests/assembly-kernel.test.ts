@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
 import * as R from 'replicad';
 import { AssemblyBuilder, type AsmPartResult, type AsmSceneItem } from '../src/kernel/assembly';
-import { setOc, subShapes, volumeOf, wrap } from '../src/kernel/occ';
+import { bbox, setOc, subShapes, volumeOf, wrap } from '../src/kernel/occ';
 import { ModelBuilder } from '../src/kernel/build';
 import { placementMatrix } from '../src/assembly/compose';
 import { qAxisAngle } from '../src/math/vec';
@@ -160,5 +160,24 @@ describe('assembly geometry', () => {
     const tris = new DataView(stl.buffer).getUint32(80, true);
     expect(tris).toBeGreaterThan(24);
     expect(stl.length).toBe(84 + tris * 50);
+  });
+
+  it('a STEP export read back has each component where it was placed, under its own name', async () => {
+    const a = new AssemblyBuilder();
+    await built(a);
+    // The box (20 × 10 × 10 from the origin) moved, and turned a quarter about z.
+    a.setScene([item('box', at([100, 0, 0]), 'bracket<1>'), item('box', at([0, 50, 0], qAxisAngle([0, 0, 1], Math.PI / 2)), 'bracket<2>')]);
+    const data = await a.exportStep();
+    const text = new TextDecoder().decode(data);
+    expect(text.match(/PRODUCT\('bracket<1>'/g)).toHaveLength(1);
+    expect(text.match(/PRODUCT\('bracket<2>'/g)).toHaveLength(1);
+    const shape = await R.importSTEP(new Blob([data as BlobPart]));
+    const boxes = subShapes(wrap(shape.wrapped), 'solid').map((x) => bbox(x)!).sort((p, q) => q.min[0] - p.min[0]);
+    const near = (v: number[], w: number[]) => v.forEach((x, i) => expect(x).toBeCloseTo(w[i], 3));
+    near(boxes[0].min, [100, 0, 0]);
+    near(boxes[0].max, [120, 10, 10]);
+    // Turned: x from -10 to 0, y from 50 to 70.
+    near(boxes[1].min, [-10, 50, 0]);
+    near(boxes[1].max, [0, 70, 10]);
   });
 });
