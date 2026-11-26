@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest';
 import {
   type PSeg, PROFILE_LIBRARY, WELD_STANDARDS, WELD_TYPES, findProfile, outlineBox, outlineMax, placeProfile, profileShape, sectionProps,
 } from '../src/model/weldment-profiles';
-import { type WeldMemberInfo, cutListCsv, memberOfFace, weldmentCutList } from '../src/model/weldments';
+import { type WeldMemberInfo, cutListCsv, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, weldmentCutList } from '../src/model/weldments';
+import { newDocument, parseDocument } from '../src/model/document';
+import { dependencies } from '../src/model/features';
 
 const area = (standard: string, type: string, size: string) => {
   const p = findProfile(standard, type, size);
@@ -142,5 +144,31 @@ describe('cut list', () => {
     expect(memberOfFace('f7:f3/l2:4#1')).toEqual({ feature: 'f7', member: 'f3/l2' });
     expect(memberOfFace('f7:cap1')).toBeNull();
     expect(memberOfFace('f7:f3/l2:4|f8:cap0')).toBeNull();
+  });
+});
+
+describe('weldment features in part files', () => {
+  const doc = (features: unknown[]) => JSON.stringify({ ...newDocument('W'), features });
+  const sm = { ...newStructuralMember('f2', 'Structural Member1', [[{ sketch: 'f1', entity: 'l1' }]]), rotation: '=Angle' };
+
+  it('opens weldment features and keeps their values', () => {
+    const d = parseDocument(doc([{ id: 'f1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [], constraints: [] }, sm,
+      newTrimExtend('f3', 'Trim/Extend1'), newEndCap('f4', 'End Cap1', 3), newGusset('f5', 'Gusset1', 50, 5)]));
+    expect(d.features.map((f) => f.type)).toEqual(['sketch', 'structuralMember', 'trimExtend', 'endCap', 'gusset']);
+    expect((d.features[1] as typeof sm).rotation).toBe('=Angle');
+  });
+
+  it('rejects damaged weldment features', () => {
+    expect(() => parseDocument(doc([{ ...sm, groups: [{ segments: [{ sketch: 'f1' }] }] }]))).toThrow(/damaged/);
+    expect(() => parseDocument(doc([{ ...sm, groups: 'x' }]))).toThrow(/damaged/);
+    expect(() => parseDocument(doc([{ ...sm, corner: 'weld' }]))).toThrow(/damaged/);
+    expect(() => parseDocument(doc([{ ...newTrimExtend('f3', 'T'), members: [{ member: 'a/b' }] }]))).toThrow(/damaged/);
+    expect(() => parseDocument(doc([{ ...newGusset('f5', 'G', 1, 1), faces: [{}] }]))).toThrow(/damaged/);
+  });
+
+  it('lists the sketches and members a weldment feature depends on', () => {
+    expect(dependencies(sm)).toEqual(['f1']);
+    const t = { ...newTrimExtend('f3', 'T'), members: [{ feature: 'f2', member: 'f1/l1' }], faces: [{ name: 'f9:cap1', sig: { type: 'plane', c: [0, 0, 0] as [number, number, number], area: 1 } }] };
+    expect(dependencies(t).sort()).toEqual(['f2', 'f9']);
   });
 });
