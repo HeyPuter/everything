@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { canvasCenter, openApp, waitForFeature } from './helpers';
 
@@ -126,6 +127,37 @@ test.describe('weldments', () => {
     await page.keyboard.press('Delete');
     await expect(page.getByRole('dialog', { name: 'Delete' })).toContainText('Structural Member1');
     await page.getByRole('button', { name: 'Cancel' }).click();
+    expect(errors).toEqual([]);
+  });
+
+  test('exports the cut list as CSV after the latest edit is rebuilt', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Layout', (d) => {
+        d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+          { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 0, y: 100 }, { id: 'l', t: 'line', a: 'a', b: 'b' },
+        ] });
+        d.features.push({
+          id: 'm1', name: 'Structural Member1', type: 'structuralMember', standard: 'iso', profile: 'squareTube', size: '40x40x3',
+          groups: [{ segments: [{ sketch: 's1', entity: 'l' }] }], rotation: 0, mirror: false, pierce: 'centroid', corner: 'miter', gap: 0, trimGroups: true, gap2: 0,
+        });
+      });
+    });
+    await expect(page.getByRole('treeitem', { name: 'Cut list (1)' })).toBeVisible();
+    const download = page.waitForEvent('download');
+    // Lengthen the post and export at once: the file has the new length.
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Longer', (d) => {
+        const sk = d.features.find((f) => f.id === 's1');
+        if (sk?.type === 'sketch') for (const e of sk.entities) if (e.id === 'b' && e.t === 'point') e.y = 300;
+      });
+      void a.commands.run('cutListCsv');
+    });
+    const csv = new TextDecoder().decode(readFileSync((await (await download).path())!)).split('\r\n');
+    expect(csv[1]).toMatch(/^1,1,SQ TUBE 40 x 40 x 3,300\.00,/);
     expect(errors).toEqual([]);
   });
 

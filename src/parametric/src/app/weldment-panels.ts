@@ -536,7 +536,11 @@ export function weldmentCommands(app: App): Command[] {
       id: 'cutList', label: 'Cut List', icon: 'cutList', keywords: 'weldment bill of materials bom lengths csv',
       description: 'List the structural members by profile, length and end angles, and export it as CSV.', enabled: hasMembers, run: () => cutListDialog(app),
     },
-    { id: 'cutListCsv', label: 'Export Cut List (CSV)', icon: 'download', keywords: 'weldment csv', enabled: hasMembers, run: () => exportCutList(app) },
+    {
+      id: 'cutListCsv', label: 'Export Cut List (CSV)', icon: 'download', keywords: 'weldment csv', enabled: hasMembers,
+      // After the rebuild of the latest edit, as the dialog does.
+      run: async () => { await app.whenBuilt(); exportCutList(app); },
+    },
   ];
 }
 
