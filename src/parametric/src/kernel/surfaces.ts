@@ -83,6 +83,7 @@ const bodyFeature = bodyFeatureOf;
 const SWEEP_FAILED = 'The swept surface could not be created. The profile should start at the path and be roughly perpendicular to it.';
 const MAX_KNIT_FACES = 5000;
 const MAX_FILL_EDGES = 32;
+const MAX_LOFT_PROFILES = 50;
 
 // ---------- small OpenCascade helpers ----------
 
@@ -596,6 +597,8 @@ export class SurfaceKit {
 
   private loft(f: SurfaceLoftFeature, st: SurfState) {
     if (f.profiles.length < 2) throw this.h.fail('Select at least two profiles');
+    // Hundreds of sections (a damaged file) kept the geometry engine busy for minutes.
+    if (f.profiles.length > MAX_LOFT_PROFILES) throw this.h.fail(`Select at most ${MAX_LOFT_PROFILES} profiles to loft`);
     const profs = f.profiles.map((id) => this.sketchWire(id, st, 'profile sketch'));
     if (profs.some((p) => p.closed) && profs.some((p) => !p.closed)) throw this.h.fail('The profiles must be all open or all closed');
     for (let i = 1; i < profs.length; i++) {

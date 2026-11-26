@@ -117,6 +117,10 @@ describe('surface bodies', () => {
     res = await b.build(req([plane, sketch('S1', circle(0, 0, 5), { kind: 'base', plane: 'top' }), sketch('S2', open('b', [[0, 0], [10, 0]]), top),
       surf('surfaceLoft', 'F1', { profiles: ['S1', 'S2'] })]));
     expect(res.status[3]).toMatchObject({ ok: false, error: expect.stringMatching(/all open or all closed/) });
+    // Hundreds of profiles (a damaged file) are refused at once instead of lofting for minutes.
+    res = await b.build(req([plane, sketch('S1', circle(0, 0, 5), { kind: 'base', plane: 'top' }), sketch('S2', circle(0, 0, 3), top),
+      surf('surfaceLoft', 'F1', { profiles: Array.from({ length: 400 }, (_, i) => (i % 2 ? 'S2' : 'S1')) })]));
+    expect(res.status[3]).toMatchObject({ ok: false, error: expect.stringMatching(/at most 50 profiles/) });
     // A 5 mm line swept 20 mm up its own perpendicular.
     res = await b.build(req([sketch('S1', open('p', [[0, 0], [5, 0]]), { kind: 'base', plane: 'top' }), sketch('S2', open('q', [[0, 0], [0, 20]]), { kind: 'base', plane: 'front' }),
       surf('surfaceSweep', 'F1', { profile: 'S1', path: 'S2' })]));
