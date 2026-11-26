@@ -399,6 +399,14 @@ export class App {
       if (!b.hidden) b.hidden = this.assembly ? !this.assemblyTabs.has(tab) : this.assemblyOnlyTabs.has(tab);
     }
     syncTabStops(this.shell.cmTabs);
+    // A tab past the edge of a narrow strip (a phone) scrolls into view when chosen.
+    const strip = this.shell.cmTabs;
+    const sel = strip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (sel && strip.scrollWidth > strip.clientWidth) {
+      const l = sel.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft, r = l + sel.offsetWidth;
+      if (l < strip.scrollLeft) strip.scrollLeft = l - 8;
+      else if (r > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = r - strip.clientWidth + 8;
+    }
     const tab = this.hooks.ribbonTabs.find((t) => t.id === id)!;
     renderRibbon(this.shell.cmTools, tab, this.commands);
   }

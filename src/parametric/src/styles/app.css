@@ -265,6 +265,9 @@ a.icon-btn { text-decoration: none; }
 .tool-caret:hover { background: var(--active); color: var(--text); }
 .cm-tabs { display: flex; gap: 0; padding: 0 6px; overflow-x: auto; scrollbar-width: none; }
 .cm-tabs::-webkit-scrollbar { display: none; }
+.cm-tabs.more-end { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.cm-tabs.more-start { mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
+.cm-tabs.more-start.more-end { mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
 .cm-tabs [role='tab'] {
   background: none; border: 1px solid transparent; border-bottom: 0; padding: 3px 12px 4px; font-size: var(--fs-sm); color: var(--text-2);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0; margin-top: 1px; white-space: nowrap;

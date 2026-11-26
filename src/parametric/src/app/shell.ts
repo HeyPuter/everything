@@ -196,7 +196,15 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
     cmTools.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
   }, { passive: false });
   const cmTabs = h('div', { class: 'cm-tabs', role: 'tablist', 'aria-label': 'Command groups' });
-  const cm = h('section', { class: 'cm', 'aria-label': 'CommandManager' }, ribbonScroller(cmTools), cmTabs);
+  // On a phone not every tab fits: fade the edge that has more tabs past it.
+  const tabEdges = () => {
+    const max = cmTabs.scrollWidth - cmTabs.clientWidth;
+    cmTabs.classList.toggle('more-start', max > 1 && cmTabs.scrollLeft > 1);
+    cmTabs.classList.toggle('more-end', max > 1 && cmTabs.scrollLeft < max - 1);
+  };
+  cmTabs.addEventListener('scroll', tabEdges, { passive: true });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(tabEdges).observe(cmTabs);
+  const cm =h('section', { class: 'cm', 'aria-label': 'CommandManager' }, ribbonScroller(cmTools), cmTabs);
 
   const lpTabs = h('div', { class: 'lp-tabs' });
   const lpBody = h('div', { class: 'lp-body', id: 'left-panel', role: 'tabpanel' });
