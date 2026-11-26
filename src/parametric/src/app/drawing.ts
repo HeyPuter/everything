@@ -763,7 +763,7 @@ export class DrawingWorkspace {
         const cx = (p!.frame.x0 + p!.frame.x1) / 2, cy = (p!.frame.y0 + p!.frame.y1) / 2;
         const [nx, ny] = side === 'left' || side === 'right' ? [x, cy] : [cx, y];
         this.selected = id;
-        finish('Projected view', (dd) => { dd.views.push({ id, kind, type: 'projected', parent: t.parent, side, x: nx, y: ny, hidden: kind !== 'isometric', dims: false, centerMarks: true }); });
+        finish('Projected view', (dd) => { dd.views.push({ id, kind, type: 'projected', parent: t.parent, side, x: nx, y: ny, hidden: kind !== 'isometric', dims: false, centerMarks: true }); this.placeOnSheet(dd, id); });
         return;
       }
       case 'section': {
@@ -786,7 +786,7 @@ export class DrawingWorkspace {
         const cx = (p!.frame.x0 + p!.frame.x1) / 2, cy = (p!.frame.y0 + p!.frame.y1) / 2;
         const [nx, ny] = !aligned ? [x, y] : Math.abs(n[0]) < 1e-9 ? [cx, y] : [x, cy];
         this.selected = id;
-        finish('Section view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'section', parent: t.parent, line: line.map((v) => +v.toFixed(6)) as [number, number, number, number], label, x: nx, y: ny, hidden: false, dims: false, centerMarks: true }); });
+        finish('Section view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'section', parent: t.parent, line: line.map((v) => +v.toFixed(6)) as [number, number, number, number], label, x: nx, y: ny, hidden: false, dims: false, centerMarks: true }); this.placeOnSheet(dd, id); });
         return;
       }
       case 'detail': {
@@ -805,7 +805,7 @@ export class DrawingWorkspace {
         const c = t.pts[0], r = t.pts[1][0];
         const scale = detailScale(p!.s);
         this.selected = id;
-        finish('Detail view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'detail', parent: t.parent, circle: [+c[0].toFixed(6), +c[1].toFixed(6), +r.toFixed(6)], scale, label, x, y, hidden: false, dims: false, centerMarks: true }); });
+        finish('Detail view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'detail', parent: t.parent, circle: [+c[0].toFixed(6), +c[1].toFixed(6), +r.toFixed(6)], scale, label, x, y, hidden: false, dims: false, centerMarks: true }); this.placeOnSheet(dd, id); });
         return;
       }
       case 'auxiliary': {
@@ -822,7 +822,7 @@ export class DrawingWorkspace {
         const id = this.newViewId(d);
         const label = nextLetter(d);
         this.selected = id;
-        finish('Auxiliary view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'auxiliary', parent: t.parent, line: line.map((v) => +v.toFixed(6)) as [number, number, number, number], label, x, y, hidden: false, dims: false, centerMarks: true }); });
+        finish('Auxiliary view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'auxiliary', parent: t.parent, line: line.map((v) => +v.toFixed(6)) as [number, number, number, number], label, x, y, hidden: false, dims: false, centerMarks: true }); this.placeOnSheet(dd, id); });
         return;
       }
       case 'dimension': {
@@ -936,6 +936,12 @@ export class DrawingWorkspace {
       }
       case 'autoBalloon': return;
     }
+  }
+
+  /** A view just added where it was clicked: kept on the sheet (a click beside the paper would put it out of sight). */
+  private placeOnSheet(d: DrawingDoc, id: Id) {
+    const v = d.views.find((q) => q.id === id);
+    if (v) [v.x, v.y] = this.onSheet(id, v.x, v.y, d);
   }
 
   /** On which side of a view a sheet point is. */
@@ -1308,6 +1314,8 @@ export class DrawingWorkspace {
     if (!b) return f;
     const r = d ? resolveViews(d).get(v.id) : undefined;
     const vs = r && r.type !== 'model' ? r.scale * (scale / (d?.scale || scale)) : scale;
+    // A detail view shows its circle.
+    if (r?.clip) { const R = r.clip.r * vs; return { id: v.id, x0: v.x - R, y0: v.y - R, x1: v.x + R, y1: v.y + R }; }
     const [vw, vh] = (r && r.type !== 'model' ? sizeIn(r.o, b.min, b.max) : projectedSize(v.kind, b.min, b.max)).map((q) => (q * vs) / 2);
     return { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
   }

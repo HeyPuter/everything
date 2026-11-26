@@ -261,3 +261,36 @@ test('a drawing command’s ribbon button is no longer pressed once the view is 
   await expect(button).toHaveAttribute('aria-pressed', 'false');
   expect(errors).toEqual([]);
 });
+
+test('a view placed with a click beside the paper is put on the sheet, with an auxiliary view’s arrow on its parent', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  const front = (await ws(page)).frames.find((f) => f.id === 'v1')!;
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).click();
+  await page.locator('.cm-tools').getByRole('button', { name: 'Auxiliary View' }).click();
+  const edge = await primPoint(page, 'v1', 'line-v');
+  await clickSheet(page, edge.x, edge.y);
+  // Left of the paper's edge.
+  await clickSheet(page, -6, (front.y0 + front.y1) / 2);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
+  const aux = (await drawing(page)).views.find((v) => v.type === 'auxiliary')!;
+  const f = (await ws(page)).frames.find((q) => q.id === aux.id)!;
+  expect(f.x0).toBeGreaterThanOrEqual(10 - 1e-6);
+  await expect(page.locator('.paper text', { hasText: /^VIEW A$/ })).toHaveCount(1);
+  // The letter on the front view, at the arrow's tail.
+  await expect(page.locator('.paper text', { hasText: /^A$/ })).toHaveCount(1);
+  // A detail circle clicked out to the left of the paper too.
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).click();
+  await page.locator('.cm-tools').getByRole('button', { name: 'Detail View' }).click();
+  await clickSheet(page, front.x0 + 5, front.y1 - 5);
+  await clickSheet(page, front.x0 + 12, front.y1 - 5);
+  await clickSheet(page, (front.x0 + front.x1) / 2, 215);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(6, { timeout: 30_000 });
+  const det = (await drawing(page)).views.find((v) => v.type === 'detail')!;
+  const fd = (await ws(page)).frames.find((q) => q.id === det.id)!;
+  expect(fd.y1).toBeLessThanOrEqual(210 - 10 + 1e-6);
+  expect(errors).toEqual([]);
+});
