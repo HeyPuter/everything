@@ -1368,8 +1368,22 @@ export class DrawingWorkspace {
   }
 
   /** After the sheet got smaller or turned: views that would hang off it move back on. */
-  keepOnSheet(d: DrawingDoc) {
+  keepOnSheet(d: DrawingDoc, was?: { w: number; h: number }) {
     for (const v of d.views) [v.x, v.y] = this.onSheet(v.id, v.x, v.y, d);
+    // A table that stood on the title block stays on it; any other stays on the sheet.
+    const { w, h } = sheetDims(d);
+    for (const a of d.annotations ?? []) {
+      if (a.type !== 'bom' && a.type !== 'cutList') continue;
+      if (a.anchor === 'bottomRight' && was && Math.abs(a.at[0] - (was.w - MARGIN)) < 1e-6 && Math.abs(a.at[1] - (was.h - MARGIN - TITLE_H)) < 1e-6) {
+        a.at = [w - MARGIN, h - MARGIN - TITLE_H];
+        continue;
+      }
+      const t = this.tableOf(a);
+      const size = t ? tableSize(t) : { w: 0, h: 0 };
+      const [ox, oy] = a.anchor === 'bottomRight' ? [size.w, size.h] : [0, 0];
+      const fit = (c: number, lo: number, hi: number) => Math.min(Math.max(c, Math.min(lo, hi)), Math.max(lo, hi));
+      a.at = [fit(a.at[0], MARGIN + ox, w - MARGIN - size.w + ox), fit(a.at[1], MARGIN + oy, h - MARGIN - size.h + oy)];
+    }
   }
 
   /** Selects a view from the keyboard (the Views list) and focuses the sheet so arrow keys move it. */
@@ -1608,7 +1622,7 @@ export class DrawingPanel extends PropertyPanel {
     const ws = this.ws;
     const d = ws.doc;
     if (!d) return [];
-    const sheet = selectField<SheetSize>('Sheet size', d.sheet, SHEET_ORDER.filter((k) => k in SHEETS).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; ws.keepOnSheet(x); }, 'Sheet size'));
+    const sheet = selectField<SheetSize>('Sheet size', d.sheet, SHEET_ORDER.filter((k) => k in SHEETS).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { const was = sheetDims(x); x.sheet = v; ws.keepOnSheet(x, was); }, 'Sheet size'));
     const scales = STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }));
     if (!scales.some((s) => Number(s.value) === d.scale)) scales.push({ value: String(d.scale), label: scaleLabel(d.scale) });
     const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { const old = x.scale; x.scale = Number(v); ws.rescaleViews(x, old); }, 'Sheet scale'));
@@ -1632,7 +1646,7 @@ export class DrawingPanel extends PropertyPanel {
     out.push(
       section('Sheet', [
         sheet,
-        checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; ws.keepOnSheet(x); }, 'Sheet orientation')),
+        checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { const was = sheetDims(x); x.landscape = v; ws.keepOnSheet(x, was); }, 'Sheet orientation')),
         scale,
         selectField('Projection angle', d.projection ?? 'third', [{ value: 'third', label: 'Third angle (ASME)' }, { value: 'first', label: 'First angle (ISO)' }], (v) => ws.updateFromPanel((x) => ws.setProjection(x, v), 'Projection angle')),
         h('button', { class: 'btn small', type: 'button', onclick: () => void ws.arrange() }, icon('reset', 14), 'Arrange standard views'),

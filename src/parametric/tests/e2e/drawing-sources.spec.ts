@@ -241,7 +241,7 @@ test('an assembly drawing: bill of materials, auto and manual balloons, a sectio
   expect(errors).toEqual([]);
 });
 
-test('an assembly drawing after a part’s only component is suppressed and brought back shows every view', async ({ page }) => {
+test('an assembly drawing after a part’s only component is suppressed and brought back shows every view; its bill of materials stays on the title block of another sheet size', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
   await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
@@ -265,6 +265,18 @@ test('an assembly drawing after a part’s only component is suppressed and brou
   await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
   await expect(page.locator('.paper text', { hasText: /^Block$/ })).toHaveCount(1);
   await expect(page.getByText('Could not project the views')).toHaveCount(0);
+
+  // The bill of materials stays on the title block when the sheet changes size or turns.
+  const bomAt = async () => (await drawing(page)).annotations!.find((a) => a.type === 'bom')!.at;
+  expect(await bomAt()).toEqual([410, 255]);
+  await page.getByRole('combobox', { name: 'Sheet size' }).selectOption('A4');
+  await expect.poll(bomAt).toEqual([287, 168]);
+  await page.getByRole('checkbox', { name: 'Landscape' }).uncheck();
+  await expect.poll(bomAt).toEqual([200, 255]);
+  const box = await page.locator('.paper text', { hasText: /^PART NUMBER$/ }).boundingBox();
+  const sheet = await page.locator('.paper').boundingBox();
+  expect(box!.x + box!.width).toBeLessThan(sheet!.x + sheet!.width);
+  expect(box!.y + box!.height).toBeLessThan(sheet!.y + sheet!.height);
   expect(errors).toEqual([]);
 });
 
