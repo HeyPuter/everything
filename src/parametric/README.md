@@ -70,6 +70,9 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Annotations: Smart Dimension on the sheet (horizontal, vertical, aligned, radius, diameter and angle) measured from the model's named edges, so dimensions follow the model when it changes and are marked when their geometry is gone; center marks and hole centerlines (automatic or by hand), centerlines, notes with leaders and hole callouts.
 - Sheet sizes A4 to A1, Letter, Tabloid, ANSI C and D, standard scales, third or first angle projection, title block with material, scale, date, revision, sheet number and the projection symbol.
 - Export to PDF, SVG or DXF.
+- Assembly drawings: Make Drawing (or the Drawing tab in the status bar) in an assembly lays out its views on an A3 sheet with the bill of materials (item number, part number, material, quantity) on the title block; the table follows the assembly as components are added or removed. Views show the components where the mates put them, or exploded (a checkbox on the view); section views cut every component and hatch each its own way. Balloons label components with their item number: Auto Balloon numbers every component a view shows, Balloon numbers the one whose edge you click.
+- Sheet metal drawings: a Flat Pattern view (Drafting tab, or Add view) shows the flat outline and cuts, the bend lines (dashed up, chain lines down) with their notes ("UP 90° R 1") and the overall size; it can be dimensioned and detailed like any view.
+- Weldment drawings: a Cut List table (Annotation tab) with item, quantity, description, length and end angles, which follows the part, and balloons on members numbered from it.
 
 **Working with parts**
 - Design tree with rollback bar, suppress, rename, hide/show, edit and delete with dependency warnings.

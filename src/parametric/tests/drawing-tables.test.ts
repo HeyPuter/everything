@@ -13,6 +13,8 @@ import { validDrawing } from '../src/model/validate-drawing';
 import { cutListRows, weldmentCutList, type WeldMemberInfo } from '../src/model/weldments';
 import type { DrawingDoc } from '../src/model/types';
 import type { Item } from '../src/drawing/sheet';
+import { SHEETS } from '../src/drawing/sheet';
+import { toolSpecs } from '../src/assistant/tools';
 
 const rows: BomRow[] = [
   { item: 1, name: 'Base plate', material: 'Steel', qty: 1, prefixes: ['c1#'] },
@@ -221,5 +223,13 @@ describe('drawing data', () => {
     expect(kept.scale).toBeLessThanOrEqual(plain.scale);
     // Default: as before.
     expect(standardLayout(sheet, [0, 0, 0], [200, 100, 80], 32)).toEqual(plain);
+  });
+});
+
+describe('the assistant’s drawing tool', () => {
+  it('offers every sheet size a drawing can have', () => {
+    const spec = toolSpecs().find((t) => t.function.name === 'drawing')!;
+    const sheet = (spec.function.parameters as { properties: { sheet: { enum: string[] } } }).properties.sheet;
+    expect([...sheet.enum].sort()).toEqual(Object.keys(SHEETS).sort());
   });
 });

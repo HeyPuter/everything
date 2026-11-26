@@ -347,7 +347,7 @@ const TOOLS: ToolDef[] = [
       show: B('Show (true) or leave (false) the drawing sheet'),
       arrange: B('Lay out front, top, right and isometric views at a fitting scale'),
       add_views: ARR({ type: 'string', enum: ['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric'] }, 'Views to add'),
-      sheet: S('Sheet size', { enum: ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid'] }),
+      sheet: S('Sheet size', { enum: ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D'] }),
       landscape: B('Landscape (true) or portrait'),
       scale: N('Model to paper scale, e.g. 0.5 for 1:2'),
       title: S('Title block title'), drawn_by: S('Drawn by'), notes: S('Notes'),
@@ -982,7 +982,7 @@ class Toolkit {
       done.push(`added ${v} view`);
     }
     const patch: Obj = {};
-    if (a.sheet != null) { if (!['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid'].includes(str(a.sheet))) throw new ToolError('sheet: A4, A3, A2, A1, Letter or Tabloid'); patch.sheet = str(a.sheet); }
+    if (a.sheet != null) { if (!['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D'].includes(str(a.sheet))) throw new ToolError('sheet: A4, A3, A2, A1, Letter, Tabloid, ANSI C or ANSI D'); patch.sheet = str(a.sheet); }
     if (typeof a.landscape === 'boolean') patch.landscape = a.landscape;
     if (a.scale != null) { const s = Number(a.scale); if (!(s > 0 && s <= 100)) throw new ToolError('scale: a positive ratio such as 0.5 for 1:2'); patch.scale = s; }
     if (a.title != null) patch.title = str(a.title);
