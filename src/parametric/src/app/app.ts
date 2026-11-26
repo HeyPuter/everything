@@ -32,7 +32,7 @@ import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
 import { setWindowTitle } from '../platform/puter';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
-import { applySurfaceColors } from './surface-display';
+import { applySurfaceColors, hiddenSurfaceFeatures } from './surface-display';
 import type { AssemblyMode } from './assembly/mode';
 export { DEFAULT_SETTINGS, type Settings } from './settings';
 
@@ -980,6 +980,8 @@ export class App {
   buildVersion = 0;
   /** Incremented after a rebuild that changed the body (drawings re-project when it changes). */
   geometryVersion = 0;
+  /** Features whose surface bodies were hidden at the last rebuild. */
+  private hiddenSurfaces = '';
   drawing!: DrawingWorkspace;
 
   get inDrawing(): boolean {
@@ -1036,8 +1038,11 @@ export class App {
 
   private applyBuild(res: BuildResult, ms: number) {
     this.buildVersion++;
-    // The same body (a rename, a suppressed sketch, a colour) needs no new drawing projections.
-    if (!res.meshUnchanged) this.geometryVersion++;
+    // The same body (a rename, a suppressed sketch, a colour) needs no new drawing projections;
+    // a surface body hidden or shown does (drawings leave hidden ones out).
+    const hiddenSurfaces = hiddenSurfaceFeatures(this).join(',');
+    if (!res.meshUnchanged || hiddenSurfaces !== this.hiddenSurfaces) this.geometryVersion++;
+    this.hiddenSurfaces = hiddenSurfaces;
     this.statuses = new Map(res.status.map((s) => [s.id, s]));
     for (const [id, err] of this.resolveErrors) {
       // A suppressed feature is not built, so its values are not used either.

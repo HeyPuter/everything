@@ -167,6 +167,8 @@ export interface ProjectionRequest {
    * the part n points to ((x - p) . n >= 0) is projected.
    */
   section?: { p: Vec3; n: Vec3 };
+  /** Features whose surface bodies are hidden: left out of the view. */
+  hideSurfaces?: Id[];
 }
 
 export interface ProjectionResult {

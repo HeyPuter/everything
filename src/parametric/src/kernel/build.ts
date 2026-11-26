@@ -1625,7 +1625,9 @@ export class ModelBuilder {
 
   /** Hidden-line removal projections of the current body. */
   project(views: ProjectionRequest[]): ProjectionResult[] {
-    const body = this.current.surfaces.length ? this.surf.allShapes(this.current) : this.current.body;
+    // Hidden surface bodies are not drawn (the views of one request share what is hidden).
+    const hidden = new Set(views[0]?.hideSurfaces ?? []);
+    const body = this.current.surfaces.length ? this.surf.allShapes(this.current, hidden) : this.current.body;
     const b = body ? boxOf(body) : null;
     // Curves other than lines and arcs are drawn within a thousandth of the part's size.
     const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;

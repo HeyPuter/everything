@@ -525,6 +525,17 @@ describe('surfaces with the rest of the part', () => {
     expect(mp.surfaceArea).toBeCloseTo(Math.hypot(20, 5) * 30, 4);
   });
 
+  it('leaves hidden surface bodies out of drawing views', async () => {
+    const b = new ModelBuilder();
+    await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', open('a', [[20, 0], [40, 0]])), surf('surfaceExtrude', 'F1', { sketch: 'S2', depth: 10 })]));
+    const view = { id: 'v', dir: [0, 0, 1] as [number, number, number], x: [1, 0, 0] as [number, number, number], hidden: false };
+    expect(b.project([view])[0].bounds![2]).toBeCloseTo(40, 3);
+    const [hidden] = b.project([{ ...view, hideSurfaces: ['F1'] }]);
+    expect(hidden.bounds![2]).toBeCloseTo(10, 3);
+    // STEP keeps them.
+    expect(new TextDecoder().decode(b.exportStep())).toMatch(/OPEN_SHELL|SHELL_BASED_SURFACE_MODEL/);
+  });
+
   it('measures to a surface face by its index after the solid faces', async () => {
     const b = new ModelBuilder();
     const res = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', open('a', [[20, 0], [20, 10]])), surf('surfaceExtrude', 'F1', { sketch: 'S2', depth: 10 })]));

@@ -24,6 +24,13 @@ export function applySurfaceColors(app: App) {
   app.renderer.setFaceColors(rgba);
 }
 
+/** Features whose surface bodies are hidden (none for a part without surfaces, checked in constant time). */
+export function hiddenSurfaceFeatures(app: App): Id[] {
+  const fl = app.faces;
+  if (!fl.length || !fl[fl.length - 1].body) return [];
+  return app.store.doc.features.filter((f) => f.hidden && makesSurfaceBody(f)).map((f) => f.id);
+}
+
 /** Hides the faces and edges of surface bodies whose feature is hidden. */
 export function markHiddenSurfaces(app: App, faces: Uint8Array, edges: Uint8Array) {
   const fl = app.faces, el = app.edges;

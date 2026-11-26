@@ -1077,9 +1077,10 @@ export class SurfaceKit {
     };
   }
 
-  /** The solid with the surface bodies, for export and drawings. */
-  allShapes(st: SurfState): Sh | null {
-    const shapes = [...(st.body ? [st.body] : []), ...st.surfaces.map((b) => b.shape)];
+  /** The solid with the surface bodies (less those of hidden features), for export and drawings. */
+  allShapes(st: SurfState, hidden?: ReadonlySet<Id>): Sh | null {
+    const shown = hidden?.size ? st.surfaces.filter((b) => !hidden.has(bodyFeature(b.id))) : st.surfaces;
+    const shapes = [...(st.body ? [st.body] : []), ...shown.map((b) => b.shape)];
     if (!shapes.length) return null;
     return shapes.length === 1 ? shapes[0] : compound(shapes);
   }

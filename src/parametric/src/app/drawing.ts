@@ -25,6 +25,7 @@ import { icon } from '../ui/icons';
 import { confirmDialog, toast } from '../ui/overlay';
 import type { App } from './app';
 import { PropertyPanel, checkbox, section, segmented, selectField } from './pm';
+import { hiddenSurfaceFeatures } from './surface-display';
 
 /** A sheet metal part (a flat pattern view can be added to its drawing). */
 const isSheetMetal = (app: App) => !app.assembly && app.store.doc.features.some((f) => f.type === 'baseFlange');
@@ -138,7 +139,7 @@ export class DrawingWorkspace {
     this.sources.set('part', {
       version: () => app.geometryVersion,
       bbox: () => app.bbox,
-      project: (q) => app.kernel.project(q),
+      project: (q) => { const hide = hiddenSurfaceFeatures(app); return app.kernel.project(hide.length ? q.map((v) => ({ ...v, hideSurfaces: hide })) : q); },
       edges: () => app.edges,
     });
     this.sources.set(FLAT_SOURCE, flatSource(app));

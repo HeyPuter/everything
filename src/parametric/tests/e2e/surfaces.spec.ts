@@ -207,6 +207,40 @@ test.describe('surfaces', () => {
     expect(errors).toEqual([]);
   });
 
+  test('leaves a hidden surface out of the drawing, and shows it again', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await app(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: A }).__parametric;
+      a.store.change('Part', (d) => {
+        d.features.push(
+          { id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [],
+            entities: [{ id: 'p0', t: 'point', x: 0, y: 0 }, { id: 'p1', t: 'point', x: 20, y: 0 }, { id: 'p2', t: 'point', x: 20, y: 20 }, { id: 'p3', t: 'point', x: 0, y: 20 },
+              { id: 'k0', t: 'line', a: 'p0', b: 'p1' }, { id: 'k1', t: 'line', a: 'p1', b: 'p2' }, { id: 'k2', t: 'line', a: 'p2', b: 'p3' }, { id: 'k3', t: 'line', a: 'p3', b: 'p0' }] },
+          { id: 'e1', name: 'Boss-Extrude1', type: 'extrude', sketch: 's1', cut: false, end: 'blind', depth: 10, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null },
+          { id: 's2', name: 'Sketch2', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [],
+            entities: [{ id: 'q0', t: 'point', x: 40, y: -10 }, { id: 'q1', t: 'point', x: 60, y: 30 }, { id: 'q2', t: 'line', a: 'q0', b: 'q1' }] },
+          { id: 'f1', name: 'Surface-Extrude1', type: 'surfaceExtrude', sketch: 's2', end: 'blind', depth: 15, flip: false, dir2: null },
+        );
+      });
+    });
+    await waitForFeature(page, 'Surface-Extrude1');
+    await expect.poll(() => bodyCount(page)).toBe(1);
+    await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('openDrawing'); });
+    await expect(page.locator('.paper g[data-view]').first()).toBeAttached({ timeout: 30_000 });
+    // How much the views draw: the length of their path data.
+    const drawn = () => page.evaluate(() => [...document.querySelectorAll('.paper g[data-view] path')].reduce((n, p) => n + (p.getAttribute('d')?.length ?? 0), 0));
+    await expect.poll(drawn).toBeGreaterThan(0);
+    await page.waitForTimeout(500);
+    const shown = await drawn();
+    await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.toggleHidden(['f1'], true));
+    await expect.poll(drawn).toBeLessThan(shown);
+    await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.toggleHidden(['f1'], false));
+    await expect.poll(drawn).toBe(shown);
+    expect(errors).toEqual([]);
+  });
+
   test('shows a clear error when knit surfaces do not close a volume', async ({ page }) => {
     const errors = await openApp(page);
     await loftProfiles(page);
