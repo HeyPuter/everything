@@ -34,6 +34,12 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Open SolidWorks parts (.sldprt, SolidWorks 2003 and later) without SolidWorks: the exact solid is read from the file and becomes an imported body you can keep modeling on. The SolidWorks feature tree is not carried over.
 - References to faces and edges are stored by name, so fillets and sketches on faces survive dimension changes.
 
+**Surfaces**
+- A Surfaces tab: extruded, revolved, swept and lofted surfaces from open or closed sketch curves, planar surfaces from a closed sketch or a loop of edges, offset surfaces (a distance of 0 copies faces) and filled patches.
+- Trim surfaces with a plane, a sketch or another surface (keep a side, or click the pieces to keep), extend them past an edge, and knit them together, into a solid when they close a volume.
+- Thicken a surface into the part or cut with it (Thickened Cut), cut the part with a surface, or delete faces of the solid to work on it as a surface (or delete and patch them).
+- Surface bodies are shown in a warm tint beside the solid, can be hidden from the design tree, are picked and referenced like the solid's faces and edges (sketch on a planar surface face), go into STEP files as shells and are left out of the solid's mass properties.
+
 **Assistant**
 - An AI design assistant in the right sidebar (Ctrl+J, or the sparkle button). Describe a part or a change ("a 100 × 60 × 8 mm plate with four M5 holes and rounded corners", "make the wall 3 mm", "fillet the top edges") and it builds it with the same features you use: sketches with exact geometry, relations and dimensions, extrudes, revolves, holes, fillets, chamfers, shells, patterns, mirrors, planes, lofts, sweeps and drafts, global variables and equations.
 - It reads the part precisely (feature parameters, sketch entities, faces and edges by name, measurements, mass properties), checks every change by rebuilding, undoes steps that would break a feature, and looks at the model to verify its work.

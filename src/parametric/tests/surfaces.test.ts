@@ -421,6 +421,34 @@ describe('surfaces with the rest of the part', () => {
     }
   });
 
+  it('previews a surface feature over the part, and a thicken in place of it', async () => {
+    const b = new ModelBuilder();
+    const base = [sketch('S1', rect(0, 0, 20, 10)), surf('surfacePlanar', 'F1', { sketch: 'S1' })];
+    let res = await b.build(req([base[0]], { preview: base[1] }));
+    expect(res.previewKind).toBe('tool');
+    expect(res.preview!.indices.length).toBeGreaterThan(0);
+    expect(res.surfaces).toBeUndefined();
+    res = await b.build(req(base));
+    const face = faceRefOf(res, (f) => f.body === 'F1');
+    res = await b.build(req(base, { preview: surf('thicken', 'T1', { faces: [face], thickness: 2 }) }));
+    expect(res.previewKind).toBe('body');
+    expect(res.previewError).toBeUndefined();
+    // A failing preview says why.
+    res = await b.build(req(base, { preview: surf('surfaceKnit', 'K1', { faces: [face], solid: true }) }));
+    expect(res.previewError).toMatch(/do not form a closed volume/);
+  });
+
+  it('keeps the surfaces of the step before a failed surface feature', async () => {
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', rect(0, 0, 20, 10)), surf('surfacePlanar', 'F1', { sketch: 'S1' }),
+      surf('surfaceOffset', 'O1', { faces: [] }), surf('surfaceExtrude', 'X1', { sketch: 'S1', depth: 3 })]));
+    expect(res.status[2]).toMatchObject({ ok: false, error: 'Select faces to offset' });
+    expect(res.status[3].ok).toBe(true);
+    expect(b.surfaceBodies().map((x) => x.id)).toEqual(['F1', 'X1']);
+    // Only surfaces: STEP holds them.
+    expect(new TextDecoder().decode(b.exportStep())).toMatch(/OPEN_SHELL|SHELL_BASED_SURFACE_MODEL|ADVANCED_FACE/);
+  });
+
   it('lists references, consumed sketches and validates surface features from files', () => {
     const face: FaceRef = { name: 'F1:p0', sig: { type: 'plane', c: [0, 0, 0], area: 1 } };
     const t = surf('thicken', 'T1', { faces: [face] });
