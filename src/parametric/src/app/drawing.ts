@@ -328,6 +328,8 @@ export class DrawingWorkspace {
     if (JSON.stringify(d) === this.untouched) {
       arrange(d);
       this.untouched = JSON.stringify(d);
+      // Not a document change, which would re-enable the commands that need views.
+      this.app.commands.changed();
       void this.refresh();
     } else this.app.store.change('Arrange views', (doc) => arrange(doc.drawing!));
   }

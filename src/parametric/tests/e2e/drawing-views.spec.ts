@@ -228,3 +228,15 @@ test('Arrange standard views asks before deleting section views and dimensions, 
   expect((await drawing(page)).annotations).toHaveLength(1);
   expect(errors).toEqual([]);
 });
+
+test('a drawing opened while the part is still building has its view and annotation commands once the views are laid out', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeVisible();
+  // Straight away, before the first rebuild is done.
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await expect(page.locator('.cm-tools').getByRole('button', { name: 'Projected View' })).toBeEnabled();
+  await expect(page.locator('.cm-tools').getByRole('button', { name: 'Section View' })).toBeEnabled();
+  expect(errors).toEqual([]);
+});
