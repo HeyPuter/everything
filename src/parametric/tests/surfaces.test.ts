@@ -447,6 +447,18 @@ describe('surfaces with the rest of the part', () => {
     expect(res.bbox!.max[2]).toBeCloseTo(10, 6);
   });
 
+  it('says a surface face or edge picked for a solid feature is on a surface', async () => {
+    const b = new ModelBuilder();
+    const parts = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', open('a', [[20, 0], [30, 0], [30, 10]])), surf('surfaceExtrude', 'F1', { sketch: 'S2', depth: 10 })];
+    const res0 = await b.build(req(parts));
+    const edges = edgeRefOf(res0, (e) => e.body === 'F1' && e.faces.length === 2);
+    const face = faceRefOf(res0, (f) => f.body === 'F1');
+    let res = await b.build(req([...parts, { id: 'FL', name: 'FL', type: 'fillet', edges, faces: [], radius: 1 }]));
+    expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/is on a surface body, not the solid/) });
+    res = await b.build(req([...parts, { id: 'SH', name: 'SH', type: 'shell', faces: [face], thickness: 1, outward: false }]));
+    expect(res.status[4]).toMatchObject({ ok: false, error: expect.stringMatching(/is on a surface body, not the solid/) });
+  });
+
   it('exports surface bodies to STEP as shells beside the solid', async () => {
     const b = new ModelBuilder();
     await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', open('a', [[0, 0], [20, 5]])), surf('surfaceExtrude', 'F1', { sketch: 'S2', depth: 30 })]));

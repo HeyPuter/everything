@@ -554,6 +554,8 @@ export class ModelBuilder {
     // face (references saved before a naming fix): then the signature decides.
     if (cands.length === 1 && fits(st.faces[cands[0]].desc)) return cands[0];
     if (cands.length > 1) return near(cands);
+    // A face of a surface body is not one of the solid's: say so rather than "no longer exists".
+    if (!cands.length && st.surfaces.length && this.surf.findFace(ref, st)) throw new FeatureError(`A selected face${this.maker(ref.name)} is on a surface body, not the solid. Edit the feature and select a face of the solid.`);
     // Fallback: same type and orientation, nearest centre.
     const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.05 : 1;
@@ -585,6 +587,7 @@ export class ModelBuilder {
     const base = ref.name.replace(/#\d+$/, '');
     const same = edges.flatMap((e, i) => (e.name.replace(/#\d+$/, '') === base ? [i] : []));
     if (same.length) return split && base === ref.name ? same : [near(same)];
+    if (st.surfaces.length && this.surf.findEdge(ref, st)) throw new FeatureError(`A selected edge${this.maker(ref.name)} is on a surface body, not the solid. Edit the feature and select an edge of the solid.`);
     const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.02 : 1;
     const alt = edges.flatMap((e, i) => (e.desc.type === ref.sig.type && dist(e.desc.mid, ref.sig.m) < lim ? [i] : []));
