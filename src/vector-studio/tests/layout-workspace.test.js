@@ -356,8 +356,17 @@ describe('document windows', () => {
     expect(app.root.classList.contains('screen-menu')).toBe(true);
     await app.commands.run('window.screenMode');
     expect(app.root.classList.contains('screen-full')).toBe(true);
+    // A button leaves it too (touch screens have no Esc or F).
+    const exit = app.root.querySelector('.screen-exit');
+    expect(exit.hidden).toBe(false);
+    expect(exit.getAttribute('aria-label')).toBe('Exit Full Screen Mode');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(app.root.classList.contains('screen-full')).toBe(false);
+    expect(exit.hidden).toBe(true);
+    await app.commands.run('window.screenMode.full');
+    exit.click();
+    expect(app.screenMode).toBe('normal');
+    expect(exit.hidden).toBe(true);
     await app.commands.run('window.screenMode.full');
     expect(app.commands.isChecked('window.screenMode.full')).toBe(true);
     await app.commands.run('window.screenMode.normal');

@@ -585,15 +585,31 @@ export function cascadeWindows(app) {
 
 export const SCREEN_MODES = ['normal', 'menu', 'full'];
 
+/** The button that leaves Full Screen Mode: the only way out on a tablet with no keyboard. */
+function screenExitButton(app) {
+  if (!app.screenExitBtn) {
+    app.screenExitBtn = h('button.screen-exit', { type: 'button', hidden: true, 'aria-label': 'Exit Full Screen Mode', 'data-tip': 'Exit Full Screen Mode (Esc)', onclick: () => setScreenMode(app, 'normal') }, icon('minimize', 18));
+    app.root.append(app.screenExitBtn);
+  }
+  return app.screenExitBtn;
+}
+
 export function setScreenMode(app, mode) {
   app.screenMode = mode;
   app.root.classList.toggle('screen-menu', mode === 'menu');
   app.root.classList.toggle('screen-full', mode === 'full');
+  const exit = screenExitButton(app);
+  if (mode !== 'full' && exit.contains(document.activeElement)) app.canvasHost?.focus();
+  exit.hidden = mode !== 'full';
   const fs = typeof document !== 'undefined' ? document.fullscreenElement : null;
   if (mode === 'normal') {
-    if (fs) document.exitFullscreen?.()?.catch?.(() => {});
+    if (fs && document.exitFullscreen) {
+      // The browser reports the exit later; a mode chosen before then keeps full screen (see fullscreenchange).
+      app.leavingFullscreen = true;
+      document.exitFullscreen()?.catch?.(() => (app.leavingFullscreen = false));
+    }
   } else if (!fs) document.documentElement.requestFullscreen?.()?.catch?.(() => {});
-  if (mode === 'full') app.notify('Full Screen Mode: press F or Esc to leave.', { polite: true });
+  if (mode === 'full') app.notify('Full Screen Mode: press Esc or F, or use the button at the top right, to leave.', { polite: true });
   for (const v of app.views.values()) v.resize();
   app.refreshChrome?.();
 }
@@ -723,6 +739,14 @@ export function installWindow(app) {
     if (e.key === 'Escape' && app.screenMode === 'full' && !document.querySelector('dialog[open]')) setScreenMode(app, 'normal');
   });
   document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && app.screenMode && app.screenMode !== 'normal') setScreenMode(app, 'normal');
+    if (document.fullscreenElement) return;
+    if (app.leavingFullscreen) {
+      // Our own exit finishing: a full screen mode picked again meanwhile asks for full screen again.
+      app.leavingFullscreen = false;
+      if (app.screenMode && app.screenMode !== 'normal') document.documentElement.requestFullscreen?.()?.catch?.(() => {});
+      return;
+    }
+    // Left by the browser (Esc, a back gesture): back to Normal Screen Mode.
+    if (app.screenMode && app.screenMode !== 'normal') setScreenMode(app, 'normal');
   });
 }

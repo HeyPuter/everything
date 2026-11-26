@@ -218,11 +218,6 @@
   display: none;
 }
 
-.app.screen-full {
-  grid-template-rows: 0 0 minmax(0, 1fr);
-  padding: 0;
-}
-
 .screen-full .topbar,
 .screen-full .control-bar,
 .screen-full .toolbar,
@@ -233,10 +228,6 @@
 .screen-full .pattern-bar,
 .screen-full .float-panels {
   display: none !important;
-}
-
-.screen-full .workspace {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
 /* ---- Proofing: the canvas gets the filter in script; paint previews here. ---- */
@@ -428,4 +419,61 @@ dialog.presentation::backdrop {
 .tools-dragging,
 .tools-dragging * {
   cursor: grabbing !important;
+}
+
+/* ---- Full Screen Mode layout ----
+   With the bars, the Tools
+   panel and the panels gone, the document area alone fills the screen. The
+   hidden parts leave no grid tracks, so the area must not be placed in a
+   track sized for one of them (it would be zero high or zero wide). */
+.app.screen-full {
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0;
+}
+
+/* Important: it overrides every Tools and panel arrangement (those rules are more specific). */
+.app.screen-full .workspace {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  grid-template-areas: none !important;
+}
+
+.app.screen-full .doc-area {
+  grid-area: auto !important;
+}
+
+/* Leaves Full Screen Mode (touch screens have no Esc or F key). */
+.screen-exit {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: calc(env(safe-area-inset-right) + 10px);
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+  opacity: 0.75;
+}
+
+.screen-exit:hover,
+.screen-exit:focus-visible {
+  opacity: 1;
+}
+
+.screen-exit[hidden] {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .screen-exit {
+    width: 48px;
+    height: 48px;
+  }
 }
