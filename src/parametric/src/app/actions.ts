@@ -442,7 +442,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
   return [
     {
       label: 'File', items: () => [
-        m('new'), m('open'), m('openDevice'), { label: 'Recent', icon: 'files', submenu: () => app.recentMenu() }, sep,
+        m('new'), ...(c.get('newAssembly') ? [m('newAssembly')] : []), m('open'), m('openDevice'), { label: 'Recent', icon: 'files', submenu: () => app.recentMenu() }, sep,
         m('save'), m('saveAs'), m('downloadPart'), sep, m('importStep'), m('exportStep'), m('exportStl'), sep, m('openDrawing'), m('drawing:pdf'), sep, m('share'), m('rename'), m('properties'),
       ],
     },
@@ -474,6 +474,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
         { label: 'Surface', icon: 'surfaceExtrude', submenu: () => ['surfaceExtrude', 'surfaceRevolve', 'surfaceSweep', 'surfaceLoft', 'surfacePlanar', 'surfaceOffset', 'surfaceFill', 'surfaceTrim', 'surfaceExtend', 'surfaceKnit', 'thicken', 'thickenCut', 'surfaceCut', 'deleteFace'].map((id) => m(id)) },
         { label: 'Weldments', icon: 'structuralMember', submenu: () => [m('structuralMember'), m('trimExtend'), m('endCap'), m('gusset'), m('weldBead'), m('cutList')] },
         sep, m('importStep'),
+        ...(c.get('insertComponent') ? [sep, m('insertComponent'), m('mate')] : []),
       ],
     },
     {

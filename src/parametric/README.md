@@ -51,6 +51,13 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Trim/Extend members to a planar face or to other members (planar or coped), End Cap on tube and pipe ends, Gusset plates between two faces, and solid Fillet Bead welds along inside corners.
 - Cut list in the design tree: identical members grouped with quantity, description, length, end angles and mass, exported as CSV.
 
+**Assemblies**
+- File > New Assembly. Insert Components places parts from your cloud, this browser or your device (a part file or a STEP model); insert a part several times for several instances (bracket<1>, bracket<2>). The first component is fixed; the others float.
+- Mates: coincident, parallel, perpendicular, distance, angle, concentric, tangent and lock, between faces, edges and the assembly planes, with aligned or anti-aligned alignment and values that take equations. The Mates folder in the design tree edits, flips, suppresses and deletes them. The status bar shows whether the assembly is under, fully or over defined; conflicting mates are marked.
+- Drag a component (Alt+drag, or Rotate Component, turns it): it moves only as its mates allow, so a lid on a hinge pin turns about the pin. Fixed components do not move.
+- Exploded view steps, interference detection with the overlapping volumes, a bill of materials (item, part, quantity, material; copy or download as CSV), mass properties with each part's material, measure, section view, and STEP (components as named solids) and STL export of the whole assembly.
+- An assembly references its part files and keeps a copy of each, so it opens even when a part file is moved, shared or downloaded. Open Part edits a component's part; save it and go back, and the assembly takes the change (Update Parts reads the part files again).
+
 **Assistant**
 - An AI design assistant in the right sidebar (Ctrl+J, or the sparkle button). Describe a part or a change ("a 100 × 60 × 8 mm plate with four M5 holes and rounded corners", "make the wall 3 mm", "fillet the top edges") and it builds it with the same features you use: sketches with exact geometry, relations and dimensions, extrudes, revolves, holes, fillets, chamfers, shells, patterns, mirrors, planes, lofts, sweeps and drafts, global variables and equations.
 - It reads the part precisely (feature parameters, sketch entities, faces and edges by name, measurements, mass properties), checks every change by rebuilding, undoes steps that would break a feature, and looks at the model to verify its work.
@@ -97,6 +104,7 @@ npm run build      # type check, license check, production build in dist/
 | Area | Where | Notes |
 |---|---|---|
 | Document model | `src/model` | Plain JSON parts: features, sketches, variables. Undo/redo by snapshots. Parameters may be expressions. |
+| Assemblies | `src/model/assembly.ts`, `src/assembly`, `src/app/assembly`, `src/kernel/assembly.ts` | Assembly documents embed their parts as blobs. Rigid-body mate solver: damped least squares over mate residuals, six degrees of freedom per floating component, rank analysis for the definition, conflicts found by adding mates one at a time. Components' meshes are placed on the main thread (dragging needs no kernel call); the worker keeps the placed solids for measure, interference, mass, projection and export. |
 | Sketch solver | `src/sketch/solver.ts` | Minimum-norm damped Gauss-Newton per independent cluster, with a rank analysis for degrees of freedom and redundant or conflicting constraints. |
 | Profiles | `src/sketch/profiles.ts` | Planar face finding on the sketch graph; nested loops alternate material and holes. |
 | Geometry kernel | `src/kernel` | OpenCascade (WebAssembly) in a Web Worker. Each feature is cached under a hash of everything before it, so edits rebuild only what changed. Faces are named after the feature and sketch entity that created them. |

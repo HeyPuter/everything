@@ -9,6 +9,7 @@
 
 import type { SolidWorksImport } from '../formats/sldprt';
 import type { Id } from '../model/types';
+import type { AsmRequest } from './assembly';
 import type { BuildRequest, BuildResult, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -52,6 +53,8 @@ export class KernelClient {
    */
   lastMesh: MeshData | null = null;
   private started = false;
+  /** Counts the workers started: a new one has none of the parts an assembly built in the last. */
+  generation = 0;
   private stalled = false;
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private readonly createWorker: () => Worker;
@@ -83,6 +86,7 @@ export class KernelClient {
   private spawn() {
     const w = this.createWorker();
     this.worker = w;
+    this.generation++;
     this.sentBlobs.clear();
     this.lastMesh = null;
     this.baseHeap = 0;
@@ -278,6 +282,11 @@ export class KernelClient {
   /** Returns null when the STEP text imports cleanly, else an error message. */
   checkImport(text: string): Promise<string | null> {
     return this.call({ type: 'checkImport', format: 'step', text });
+  }
+
+  /** Assembly requests: building parts, placing components, interference, mass (see kernel/assembly.ts). */
+  assembly<T>(req: AsmRequest): Promise<T> {
+    return this.call({ type: 'asm', req });
   }
 
   /** Development builds: makes the worker fail on purpose (tests of recovery). */

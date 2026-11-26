@@ -245,3 +245,17 @@ export function relationGlyph(type: string, size = 14): SVGSVGElement {
 }
 
 export const hasIcon = (name: string) => name in CAD || name in LUCIDE || (name.startsWith('rel:') && name.slice(4) in RELATION_GLYPHS);
+
+/**
+ * Adds icons from another module (a name to its drawing, or to the name of
+ * an icon it is drawn like). Existing names are never replaced.
+ */
+export function addIcons(icons: Record<string, IconNode | string>) {
+  for (const [name, v] of Object.entries(icons)) {
+    if (name in CAD || name in LUCIDE) continue;
+    const nodes = typeof v === 'string' ? CAD[v] ?? LUCIDE[v] : v;
+    if (nodes) CAD[name] = nodes;
+  }
+}
+
+export type { IconNode };

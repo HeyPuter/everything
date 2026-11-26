@@ -1774,6 +1774,12 @@ export class ModelBuilder {
     return new Uint8Array(buf);
   }
 
+  /** The body built last with its faces and edges, in the order the build result lists them (assemblies place and combine these). */
+  currentShapes(): { body: Sh | null; faces: { shape: Sh; desc: SurfDesc }[]; edges: Sh[] } {
+    const st = this.current;
+    return { body: st.body, faces: st.faces.map((f) => ({ shape: f.shape, desc: f.desc })), edges: st.body ? this.edgesOf(st).map((e) => e.shape) : [] };
+  }
+
   /** Current body volume (used by tests). */
   get hasBody(): boolean {
     return !!this.current.body;

@@ -33,7 +33,16 @@ import { type Location } from '../platform/files';
 import { setWindowTitle } from '../platform/puter';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
 import { applySurfaceColors } from './surface-display';
+import type { AssemblyMode } from './assembly/mode';
 export { DEFAULT_SETTINGS, type Settings } from './settings';
+
+/** What the left pane shows as the design tree: a part's feature tree or an assembly's tree. */
+export interface DesignTree {
+  el: HTMLElement;
+  render(): void;
+  startRename(id: Id): void;
+  targets(id: Id): Id[];
+}
 
 export interface Colors {
   sketchUnder: number[];
@@ -91,7 +100,7 @@ export class App {
   shell!: Shell;
   renderer!: Renderer;
   viewport!: Viewport;
-  tree!: FeatureTree;
+  tree!: DesignTree;
   hooks!: AppHooks;
   panel: PropertyPanel | null = null;
   sketchEditor: SketchEditor | null = null;
@@ -128,6 +137,13 @@ export class App {
   onDocumentChanged: (reason: string) => void = () => {};
   /** Renames the part and its saved file, as Rename Part does (set by the file operations). */
   renamePart: ((name: string) => Promise<void>) | null = null;
+  /** The open assembly's interface and geometry; null while a part is open (set up by the assembly module). */
+  assembly: AssemblyMode | null = null;
+  /** Called when a document is loaded, to switch between part and assembly mode (set by the assembly module). */
+  syncDocumentKind: () => void = () => {};
+  /** Ribbon tabs shown while an assembly is open, and those only an assembly has. */
+  assemblyTabs = new Set<string>();
+  assemblyOnlyTabs = new Set<string>();
 
   constructor() {
     this.kernel = new KernelClient();
@@ -377,6 +393,9 @@ export class App {
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
       // The drawing has its own tab; model tabs are hidden while it is open.
       b.hidden = (b.dataset.tab === 'drawing') !== (id === 'drawing');
+      // An assembly shows the tabs it uses; a part none of the assembly's own.
+      const tab = b.dataset.tab!;
+      if (!b.hidden) b.hidden = this.assembly ? !this.assemblyTabs.has(tab) : this.assemblyOnlyTabs.has(tab);
     }
     syncTabStops(this.shell.cmTabs);
     const tab = this.hooks.ribbonTabs.find((t) => t.id === id)!;
@@ -446,7 +465,7 @@ export class App {
     return [t('showPlanes'), t('showOrigin'), t('showSketches'), t('showRelations'), t('showDimensions')];
   }
 
-  flyout!: FeatureTree;
+  flyout!: DesignTree;
   private flyoutEl!: HTMLElement;
   private flyoutOpen = false;
 
@@ -814,6 +833,7 @@ export class App {
       previous.abort();
       // A section belongs to the replaced part, not to the next document's geometry.
       this.renderer.section = null;
+      this.syncDocumentKind();
       this.applyModelColor();
       this.refreshAll();
     }
@@ -892,6 +912,7 @@ export class App {
 
   private async rebuild() {
     if (!this.kernelReady) return;
+    if (this.assembly) { await this.assembly.rebuild(); return; }
     const resolved = this.store.resolve();
     this.resolveErrors = resolved.errors;
     const upTo = this.buildLimit();
@@ -1074,6 +1095,23 @@ export class App {
     this.renderer.requestRender();
   }
 
+  /**
+   * Shows geometry built outside the part rebuild (an assembly's placed
+   * components) as the model: picking, selection and the view work on it.
+   */
+  setModelGeometry(mesh: MeshData | null, faces: FaceInfo[], edges: EdgeInfo[], bbox: { min: Vec3; max: Vec3 } | null) {
+    this.faces = faces;
+    this.edges = edges;
+    this.frames = {};
+    this.linkedSketches = {};
+    this.bbox = bbox;
+    this.shownMesh = mesh;
+    this.vertices = mesh?.vertices ?? new Float32Array(0);
+    this.renderer.setModel(mesh, faces.length, edges.length);
+    const r = bbox ? Math.hypot(bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]) : 100;
+    this.renderer.camera.sceneRadius = Math.max(r, 100);
+  }
+
   featureStatus(id: Id): FeatureStatus | null {
     return this.statuses.get(id) ?? null;
   }
@@ -1151,6 +1189,8 @@ export class App {
       const r = it.item?.kind === 'face' || it.item?.kind === 'edge' ? remapItem(it.item, this.faces, this.edges) : it.item;
       if (r) out.push(r);
     }
+    // The faces a selected mate references.
+    if (this.assembly) out.push(...this.assembly.highlights());
     return out;
   }
 
@@ -1173,6 +1213,8 @@ export class App {
   }
 
   describe(it: SelItem): string {
+    const asm = this.assembly?.describe(it);
+    if (asm) return asm;
     const u = UNIT_SYSTEMS[this.store.doc.units], dec = this.store.doc.decimals;
     // Small values keep significant digits (a 5 mm edge in metres is 0.00500 m, not 0.01 m).
     const len = (v: number) => `${formatGroup([v / u.scale], dec)[0]} ${u.length}`;
@@ -1611,6 +1653,7 @@ export class App {
   }
 
   async deleteFeatures(ids: Id[]) {
+    if (this.assembly) return this.assembly.deleteItems(ids);
     const signal = this.documentSignal;
     const doc = this.store.doc;
     const del = new Set(ids);
