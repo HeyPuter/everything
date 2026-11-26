@@ -130,6 +130,17 @@ export function placeView(
   dims: boolean,
   others: { frame: ViewFrame; dims: boolean }[],
 ): [number, number] {
+  return freeSpot(sheet, vw, vh, dims, others) ?? [sheet.w / 2, sheet.h / 2];
+}
+
+/** The spot placeView finds, null when there is none. */
+export function freeSpot(
+  sheet: { w: number; h: number },
+  vw: number,
+  vh: number,
+  dims: boolean,
+  others: { frame: ViewFrame; dims: boolean }[],
+): [number, number] | null {
   const room = (x0: number, y0: number, x1: number, y1: number, d: boolean): Box =>
     [x0 - (d ? DIM_LEFT : 2), y0 - 2, x1 + 2, y1 + (d ? 18 : 9)];
   const taken = others.map(({ frame: f, dims: d }) => room(f.x0, f.y0, f.x1, f.y1, d));
@@ -143,7 +154,7 @@ export function placeView(
       if (b[2] <= w - MARGIN && b[3] <= h - MARGIN && !overlaps(b)) return [x, y];
     }
   }
-  return [w / 2, h / 2];
+  return null;
 }
 
 /**

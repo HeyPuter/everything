@@ -12,7 +12,7 @@ import { type TableSpec, autoBalloons, balloonTip, bomTable, cutListTable, drawB
 import { ASSEMBLY_SOURCE, EXPLODED_SOURCE, flatSource } from './drawing-sources';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import {
-  DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, TITLE_H, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
+  DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, TITLE_H, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, freeSpot, placeView, projectedSize, scaleLabel, sheetDims,
   standardLayout, switchProjection, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
 } from '../drawing/sheet';
 import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, holeCount, holeInstance, holeSpecOf, measure, resolveRef } from '../drawing/annotate';
@@ -1484,10 +1484,19 @@ export class DrawingWorkspace {
     const [fw, fh] = flatSize(res.pattern);
     const sheet = sheetDims(d);
     const fit = Math.min((sheet.w - 2 * MARGIN - 2 * DIM_LEFT) / Math.max(fw, 1e-6), (sheet.h - 2 * MARGIN - TITLE_H - 2 * DIM_BELOW) / Math.max(fh, 1e-6));
-    const own = d.scale <= fit ? undefined : STANDARD_SCALES.find((q) => q <= fit) ?? STANDARD_SCALES[STANDARD_SCALES.length - 1];
-    const s = own ?? d.scale;
+    let own = d.scale <= fit ? undefined : STANDARD_SCALES.find((q) => q <= fit) ?? STANDARD_SCALES[STANDARD_SCALES.length - 1];
     const others = d.views.map((v) => ({ frame: this.frameOf(v, d.scale)!, dims: v.dims && v.kind !== 'isometric' && v.type !== 'detail' })).filter((o) => !!o.frame);
-    const [x, y] = placeView(sheet, fw * s, fh * s, true, others);
+    // In free room on the sheet, down to a quarter of the scale it would have; else at that scale in the middle.
+    const first = own ?? d.scale;
+    let spot = freeSpot(sheet, fw * first, fh * first, true, others);
+    for (const q of STANDARD_SCALES) {
+      if (spot || q < first / 4 - 1e-9) break;
+      if (q >= first - 1e-9) continue;
+      spot = freeSpot(sheet, fw * q, fh * q, true, others);
+      if (spot) own = q;
+    }
+    const [x, y] = spot ?? placeView(sheet, fw * first, fh * first, true, others);
+    if (!spot) own = first === d.scale ? undefined : first;
     const id = this.newViewId(d);
     this.selected = id;
     this.update((dd) => { dd.views.push({ id, kind: 'front', type: 'flat', x, y, hidden: false, dims: true, ...(own ? { scale: own } : {}) }); }, 'Flat pattern view');

@@ -306,6 +306,13 @@ test('a sheet metal part’s drawing: a flat pattern view with bend lines, notes
   await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
   const v = (await drawing(page)).views[4];
   expect(v.type).toBe('flat');
+  // In free room on the sheet, not on top of another view; a second one too, smaller where there is no room at the sheet's scale.
+  const overlaps = (id: string) => page.evaluate((id) => {
+    const fr = ((window as unknown as { __parametric: A }).__parametric.drawing as unknown as { frames: { id: string; x0: number; y0: number; x1: number; y1: number }[] }).frames;
+    const f = fr.find((q) => q.id === id)!;
+    return fr.filter((q) => q.id !== id && q.x0 < f.x1 && q.x1 > f.x0 && q.y0 < f.y1 && q.y1 > f.y0).map((q) => q.id);
+  }, id);
+  expect(await overlaps(v.id)).toEqual([]);
   await expect(page.locator('.paper text', { hasText: /^FLAT PATTERN/ })).toHaveCount(1);
   // The bend line, dashed, with its note; the overall size as dimensions.
   await expect(page.locator('.paper text', { hasText: /^UP 90° R / })).toHaveCount(1);
@@ -336,6 +343,15 @@ test('a sheet metal part’s drawing: a flat pattern view with bend lines, notes
   await page.getByRole('tab', { name: 'Drawing' }).click();
   await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
   await expect(page.locator('.paper text', { hasText: /^UP 90° R / })).toHaveCount(1);
+  // A deeper flange's flat pattern added again goes where there is room, at a smaller scale.
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.store.change('Deeper', (d) => { (d.features[1] as unknown as { depth: number }).depth = 90; }); });
+  await expect.poll(() => page.evaluate(() => ((window as unknown as { __parametric: A }).__parametric.drawing as unknown as Ws).projectionOf('v5')?.bounds ?? null).then((b) => (b ? Math.max(b[2] - b[0], b[3] - b[1]) : 0))).toBeCloseTo(90, 3);
+  await page.getByRole('tab', { name: 'Drafting' }).click();
+  await page.locator('.cm [data-cmd="drawing:flat"]').click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(6, { timeout: 30_000 });
+  const v2 = (await drawing(page)).views[5];
+  expect(v2.scale).toBeLessThan(1);
+  await expect.poll(() => overlaps(v2.id)).toEqual([]);
   expect(errors).toEqual([]);
 });
 
