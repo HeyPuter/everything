@@ -238,6 +238,17 @@ describe('edge flange', () => {
     expect(res.status[2].error).toMatch(/Base Flange/);
   });
 
+  it('says when a hole is where the bend of a flange goes', async () => {
+    const b = new ModelBuilder();
+    const holed: Feature[] = [sketch('S1', [...rect(0, 0, 100, 60, 'pl'), ...circle(50, 58, 1.5)]), base('B1', 'S1')];
+    let res = await b.build(req(holed));
+    const top = res.faces.find((f) => f.name === 'B1:cap1')!;
+    const e = edgesOn(res, top, [1, 0, 0]).find((x) => Math.abs(x.mid[1] - 60) < 1e-6)!;
+    res = await b.build(req([...holed, flange('F1', [edgeRef(e)])]));
+    expect(res.status[2].error).toMatch(/hole or cut where its bend goes/);
+    ok(await b.build(req([...holed, flange('F1', [edgeRef(e)], { position: 'bendOutside' })])));
+  });
+
   it('says when a flange would run into the part instead of merging into it', async () => {
     const b = new ModelBuilder();
     const L: Feature[] = [sketch('S1', chain([[0, 0], [60, 0], [60, 40]])), base('B1', 'S1')];

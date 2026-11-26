@@ -477,7 +477,7 @@ function addFlange(h: SheetHost, st: SmState, featId: Id, k: number, ref: EdgeRe
   let panelFace = panel.face;
   if (spec.trim > 1e-9) {
     const strip = rectFace(s0, u, t1 - t0, w, spec.trim);
-    if (area(common(panel.face, strip)) < (t1 - t0) * spec.trim * (1 - 1e-6)) throw h.error(`The face is too narrow for the ${what} with this position. Use Bend Outside.`);
+    if (area(common(panel.face, strip)) < (t1 - t0) * spec.trim * (1 - 1e-6)) throw h.error(`The face is too narrow for the ${what} with this position, or has a hole or cut where its bend goes. Use Bend Outside or move the hole.`);
     const eps = Math.max(T * 0.01, 1e-4);
     const tools: Sh[] = [extrudeZ(rectFace(s0, u, t1 - t0, w, spec.trim + eps), -eps, T + eps)];
     const rw = sheet.p.reliefRatio * T;
