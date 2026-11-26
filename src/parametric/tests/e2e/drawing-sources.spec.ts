@@ -266,6 +266,22 @@ test('an assembly drawing after a part’s only component is suppressed and brou
   await expect(page.locator('.paper text', { hasText: /^Block$/ })).toHaveCount(1);
   await expect(page.getByText('Could not project the views')).toHaveCount(0);
 
+  // Auto Balloon on a view still being projected says to wait, then works once it is drawn.
+  const back = await page.evaluate(() => {
+    const ws = (window as unknown as { __parametric: A }).__parametric.drawing;
+    ws.addView('back');
+    const id = ws.doc!.views[ws.doc!.views.length - 1].id;
+    ws.autoBalloon(id);
+    return id;
+  });
+  await expect(page.getByText('Wait for the view to finish updating, then use Auto Balloon again.')).toBeVisible();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
+  await page.evaluate((id) => { (window as unknown as { __parametric: A }).__parametric.drawing.autoBalloon(id); }, back);
+  await expect.poll(async () => (await drawing(page)).annotations!.filter((a) => a.type === 'balloon' && a.view === back).length).toBe(2);
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.press('Meta+z');
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+
   // The bill of materials stays on the title block when the sheet changes size or turns.
   const bomAt = async () => (await drawing(page)).annotations!.find((a) => a.type === 'bom')!.at;
   expect(await bomAt()).toEqual([410, 255]);

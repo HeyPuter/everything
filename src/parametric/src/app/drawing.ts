@@ -1528,7 +1528,13 @@ export class DrawingWorkspace {
     const d = this.doc;
     const p = this.placements.get(viewId);
     const pr = this.projectionOf(viewId);
-    if (!d || !p || !pr?.bounds) return;
+    if (!d) return;
+    if (!p || !pr?.bounds) {
+      // Still being projected (a drawing just opened, or the assembly still building), or empty.
+      const busy = this.pending || !pr;
+      toast({ kind: 'info', message: busy ? 'Wait for the view to finish updating, then use Auto Balloon again.' : 'This view shows no components to balloon.' });
+      return;
+    }
     const rows = this.source(p.r.source)?.bom?.();
     if (!rows) { toast({ kind: 'info', message: 'Auto Balloon numbers the components of an assembly drawing.' }); return; }
     const skip = new Set<number>();
