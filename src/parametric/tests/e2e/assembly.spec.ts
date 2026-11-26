@@ -68,6 +68,14 @@ test('builds an assembly of two parts, mates them, drags, explodes, saves and re
   const tree = page.getByRole('tree', { name: 'Assembly design tree' });
   await expect(tree.getByRole('treeitem', { name: '(f) Block<1>' })).toBeVisible();
   await expect(tree.getByRole('treeitem', { name: '(-) Pin<1>' })).toBeVisible();
+  // The tree lists a component before its geometry arrives (slow under load).
+  await page.waitForFunction(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    return ['Block<1>', 'Pin<1>'].every((n) => {
+      const id = a.assembly?.doc.components.find((c) => c.name === n)?.id;
+      return !!id && a.faces.some((f) => f.feature === id && f.type === 'cylinder');
+    });
+  });
   // Concentric: the pin's round face and the block's hole, selected first.
   await page.evaluate(() => {
     const a = (window as unknown as { __parametric: A }).__parametric;
