@@ -807,12 +807,20 @@ export class SurfaceKit {
           const uv = oc.BRepTools.UVBounds(face.shape.wrapped, 0, 0, 0, 0);
           const span = Math.max(uv.UMax - uv.UMin, uv.VMax - uv.VMin, 1e-12);
           for (const p of mine.filter((q) => q.face === face)) {
-            const at = surfaceParams(face.shape, p.edge.desc.mid);
-            if (!at) throw this.h.fail('The surface could not be extended at the selected edge');
-            const dists: [keyof typeof sides, number][] = [['umin', Math.abs(at.u - uv.UMin)], ['umax', Math.abs(at.u - uv.UMax)], ['vmin', Math.abs(at.v - uv.VMin)], ['vmax', Math.abs(at.v - uv.VMax)]];
-            dists.sort((a, b) => a[1] - b[1]);
-            if (dists[0][1] > span * 1e-3) throw this.h.fail('Same-surface extension works on edges along the sides of a surface. Use Linear for this edge.');
-            sides[dists[0][0]] = true;
+            // The edge's ends and middle all lie on one side of the face's
+            // parameter range: a circle bounding a flat disc touches all four
+            // at its points, and extending one side made a rectangle of it.
+            let side: keyof typeof sides | null = null;
+            for (const pt of [p.edge.desc.mid, p.edge.desc.a, p.edge.desc.b]) {
+              const at = surfaceParams(face.shape, pt);
+              if (!at) throw this.h.fail('The surface could not be extended at the selected edge');
+              const dists: [keyof typeof sides, number][] = [['umin', Math.abs(at.u - uv.UMin)], ['umax', Math.abs(at.u - uv.UMax)], ['vmin', Math.abs(at.v - uv.VMin)], ['vmax', Math.abs(at.v - uv.VMax)]];
+              const on = dists.filter((x) => x[1] <= span * 1e-3).map((x) => x[0]);
+              if (!on.length || (side && !on.includes(side))) side = null;
+              else if (!side) side = on[0];
+              if (!side) throw this.h.fail('Same-surface extension works on edges along the sides of a surface. Use Linear for this edge.');
+            }
+            sides[side!] = true;
           }
           const out = new oc.TopoDS_Face();
           try {
@@ -832,14 +840,21 @@ export class SurfaceKit {
           const n = normalAt(p.face.shape, mid);
           const t = edgeTangent(p.edge.shape, mid);
           if (!n || !t) throw this.h.fail('The surface could not be extended at the selected edge');
-          let out = normalize(cross(t, n));
           // Away from the face: the face's middle lies behind the edge.
-          if (dot(sub(faceMidPoint(p.face.shape), mid), out) > 0) out = scale(out, -1);
-          const v = gvec(scale(out, d));
-          const mk = new oc.BRepPrimAPI_MakePrism(p.edge.shape.wrapped, v, false, true);
-          let strip: Sh;
-          try { strip = wrap(mk.Shape()); } catch { throw this.h.fail('The surface could not be extended at the selected edge'); } finally { mk.delete(); v.delete(); }
-          for (const s of subShapes(strip, 'face')) pieces.push({ shape: s, desc: describeFace(s), name: `${f.id}:x:${p.face.name}`, feature: f.id });
+          const sign = dot(sub(faceMidPoint(p.face.shape), mid), cross(t, n)) > 0 ? -1 : 1;
+          const out = scale(normalize(cross(t, n)), sign);
+          const strip = p.edge.desc.type === 'line' ? 'straight' : ruledStrip(p.edge.shape, p.face.shape, out, sign, d);
+          if (!strip) throw this.h.fail('The surface could not be extended at the selected edge');
+          let shape: Sh;
+          if (strip !== 'straight') shape = strip;
+          else {
+            // Straight out along one direction (a straight edge, or the rim of an extruded surface).
+            const v = gvec(scale(out, d));
+            const mk = new oc.BRepPrimAPI_MakePrism(p.edge.shape.wrapped, v, false, true);
+            try { shape = wrap(mk.Shape()); } catch { throw this.h.fail('The surface could not be extended at the selected edge'); } finally { mk.delete(); v.delete(); }
+          }
+          if (!(areaOf(shape) > d * p.edge.desc.length * 0.5)) throw this.h.fail('The surface could not be extended at the selected edge');
+          for (const s of subShapes(shape, 'face')) pieces.push({ shape: s, desc: describeFace(s), name: `${f.id}:x:${p.face.name}`, feature: f.id });
         }
       }
       const rest = body.faces.filter((x) => !replaced.has(x));
@@ -1191,6 +1206,53 @@ function surfaceParams(face: Sh, p: Vec3): { u: number; v: number } | null {
     return null;
   } finally {
     proj?.delete(); surf?.delete?.(); g.delete();
+  }
+}
+
+/**
+ * A strip of width d straight out from a curved edge of a face, tangent to
+ * the face, where the outward direction turns along the edge (a circle
+ * bounding a flat disc): ruled between the edge and the curve d out from it.
+ * 'straight' when the direction does not turn, so a prism makes the strip
+ * exactly; null when the strip cannot be made.
+ */
+function ruledStrip(edge: Sh, face: Sh, outMid: Vec3, sign: number, d: number): Sh | 'straight' | null {
+  const oc = getOc();
+  const ad = new oc.BRepAdaptor_Curve(edge.wrapped);
+  const far: Vec3[] = [];
+  let turns = false;
+  try {
+    const f = ad.FirstParameter(), l = ad.LastParameter();
+    const N = 64;
+    for (let i = 0; i <= N; i++) {
+      const q = new oc.gp_Pnt(), v = new oc.gp_Vec();
+      ad.D1(f + ((l - f) * i) / N, q, v);
+      const p = xyz(q), t = xyz(v);
+      q.delete(); v.delete();
+      const n = normalAt(face, p);
+      if (!n || !(len(t) > 1e-12)) return null;
+      const out = scale(normalize(cross(normalize(t), n)), sign);
+      if (dot(out, outMid) < 1 - 1e-9) turns = true;
+      far.push(add(p, scale(out, d)));
+    }
+  } finally {
+    ad.delete();
+  }
+  if (!turns) return 'straight';
+  if (describeEdge(edge).closed) far[far.length - 1] = far[0];
+  const ts = new oc.BRepOffsetAPI_ThruSections(false, true, 1e-6);
+  try {
+    const farEdge = R.makeBSplineApproximation(far, { tolerance: Math.max(1e-6, d * 1e-5) });
+    ts.AddWire(R.assembleWire([edge as any]).wrapped);
+    ts.AddWire(R.assembleWire([farEdge]).wrapped);
+    progress((p) => ts.Build(p));
+    if (!ts.IsDone()) return null;
+    const s = wrap(ts.Shape());
+    return isEmpty(s) ? null : s;
+  } catch {
+    return null;
+  } finally {
+    ts.delete();
   }
 }
 

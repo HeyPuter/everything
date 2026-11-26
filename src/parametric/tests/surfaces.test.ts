@@ -393,6 +393,22 @@ describe('trim, extend and delete face', () => {
     expect(res.bbox!.max[0]).toBeCloseTo(25, 6);
   });
 
+  it('extends a flat disc past its circular edge as a ring, not a rectangle', async () => {
+    const b = new ModelBuilder();
+    const disc = [sketch('S1', circle(0, 0, 5)), surf('surfacePlanar', 'F1', { sketch: 'S1' })];
+    const rim = edgeRefOf(await b.build(req(disc)), () => true);
+    // Same surface grew one side of the plane's range: a 12 × 10 rectangle.
+    let res = await b.build(req([...disc, surf('surfaceExtend', 'X1', { edges: rim, distance: 2 })]));
+    expect(res.status[2]).toMatchObject({ ok: false, error: expect.stringMatching(/Use Linear/) });
+    // Linear made a flat sliver along one direction.
+    res = await b.build(req([...disc, surf('surfaceExtend', 'X1', { edges: rim, distance: 2, mode: 'linear' })]));
+    ok(res);
+    expect(surfaceArea(res)).toBeCloseTo(Math.PI * 49, 2);
+    expect(res.bbox!.min[0]).toBeCloseTo(-7, 3);
+    expect(res.bbox!.min[1]).toBeCloseTo(-7, 3);
+    expect(res.edges.filter((e) => e.faces.length === 2)).toHaveLength(1);
+  });
+
   it('deletes faces of the solid into a surface body, or patches the hole', async () => {
     const b = new ModelBuilder();
     const box = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)];
