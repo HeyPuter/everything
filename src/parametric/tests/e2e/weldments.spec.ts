@@ -262,6 +262,9 @@ test.describe('weldments', () => {
     await page.locator('[data-cmd="trimExtend"]').first().click();
     await expect(page.getByRole('heading', { name: 'Trim/Extend' })).toBeVisible();
     await expect(page.getByRole('group', { name: 'Bodies to be trimmed' }).locator('.item')).toHaveCount(1);
+    // The member to trim is highlighted: all its faces.
+    const lit = () => page.evaluate(() => (window as unknown as W).__parametric.extraHighlights().filter((x) => x.kind === 'face' && /:s3\/post:/.test(x.name ?? '')).length);
+    await expect.poll(lit).toBeGreaterThan(3);
     await page.getByRole('group', { name: 'Face/Plane' }).click();
     const top = await face("f.name === 'f2:cap1'");
     await page.evaluate((it) => (window as unknown as W).__parametric.panel!.onPick(it, false), top);

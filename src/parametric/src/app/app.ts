@@ -1202,6 +1202,7 @@ export class App {
     if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) {
       const r = it.item?.kind === 'face' || it.item?.kind === 'edge' ? remapItem(it.item, this.faces, this.edges) : it.item;
       if (r) out.push(r);
+      if (it.highlights) out.push(...it.highlights());
     }
     // The faces a selected mate references.
     if (this.assembly) out.push(...this.assembly.highlights());

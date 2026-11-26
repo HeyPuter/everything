@@ -46,13 +46,23 @@ function memberLabel(app: App, r: MemberRef): string {
   return `${f?.name ?? 'Member'}: ${segmentLabel(app, { sketch, entity })}`;
 }
 
+/** A member in a selection box, its faces highlighted in the graphics area. */
+function memberItem(app: App, m: MemberRef): SelBoxItem {
+  return {
+    item: null, data: m, label: memberLabel(app, m),
+    highlights: () => app.faces.flatMap((f, index) => {
+      const r = memberOfFace(f.name);
+      return r && sameMember(r, m) ? [{ kind: 'face' as const, index, name: f.name }] : [];
+    }),
+  };
+}
+
 /** A face of a structural member, as the member. */
 const toMember = (app: App) => (it: SelItem): SelBoxItem | null => {
   if (it.kind !== 'face') return null;
   const f = app.faces[it.index];
   const m = f ? memberOfFace(f.name) : null;
-  if (!m) return null;
-  return { item: null, data: m, label: memberLabel(app, m) };
+  return m ? memberItem(app, m) : null;
 };
 
 /** A planar face, labelled with the feature (and member) it belongs to. */
@@ -240,14 +250,14 @@ export class TrimExtendPanel extends FeaturePanel<TrimExtendFeature> {
       f.members = dedupe(items.map((x) => x.data as MemberRef));
       this.changed();
     }, { placeholder: 'Select faces of the members to trim', icon: 'structuralMember' });
-    members.setItems(f.members.map((m) => ({ item: null, data: m, label: memberLabel(this.app, m) })));
+    members.setItems(f.members.map((m) => memberItem(this.app, m)));
     const faces = new SelectionBox(this, 'Face/Plane', { face: true, planarOnly: true }, toPlanarFace(this.app), (items) => { f.faces = items.map((x) => x.data as FaceRef); this.changed(); }, { placeholder: 'Select a planar face to trim to', icon: 'plane' });
     faces.setItems(faceItems(this.app, f.faces));
     const bounds = new SelectionBox(this, 'Bodies', { face: true }, toMember(this.app), (items) => {
       f.boundaryMembers = dedupe(items.map((x) => x.data as MemberRef));
       this.changed();
     }, { placeholder: 'Select faces of the members to trim to', icon: 'structuralMember' });
-    bounds.setItems(f.boundaryMembers.map((m) => ({ item: null, data: m, label: memberLabel(this.app, m) })));
+    bounds.setItems(f.boundaryMembers.map((m) => memberItem(this.app, m)));
     const coped = checkbox('Coped cut (follow the boundary member)', f.coped, (v) => { f.coped = v; this.changed(); });
     const sync = () => {
       faces.el.hidden = f.boundary !== 'faces';
