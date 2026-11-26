@@ -382,7 +382,7 @@ export class App {
       b.addEventListener('click', () => this.setRibbonTab(t.id));
       this.shell.cmTabs.append(b);
     }
-    // The arrow keys skip the hidden tabs (the Drawing tab in the model, and the reverse).
+    // The arrow keys skip the hidden tabs (the Annotation tab in the model, and the model tabs in the drawing).
     tabKeys(this.shell.cmTabs);
     this.setRibbonTab(this.ribbonTab);
   }
@@ -391,10 +391,11 @@ export class App {
     this.ribbonTab = id;
     for (const b of this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')) {
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
-      // The drawing has its own tab; model tabs are hidden while it is open.
-      b.hidden = (b.dataset.tab === 'drawing') !== (id === 'drawing');
-      // An assembly shows the tabs it uses; a part none of the assembly's own.
+      // The Drafting tab shows everywhere (Make Drawing is on it); Annotation only in the drawing,
+      // and the model tabs only in the model.
       const tab = b.dataset.tab!;
+      b.hidden = tab === 'drawing' ? false : (tab === 'annotation') !== this.inDrawing;
+      // An assembly shows the tabs it uses; a part none of the assembly's own.
       if (!b.hidden) b.hidden = this.assembly ? !this.assemblyTabs.has(tab) : this.assemblyOnlyTabs.has(tab);
     }
     syncTabStops(this.shell.cmTabs);
@@ -985,7 +986,7 @@ export class App {
     this.syncSheetTabs();
     this.setRibbonTab('drawing');
     this.showDrawingPanel();
-    this.setStatus('Drawing. Drag views to arrange them; export to PDF or SVG from the Drawing tab.');
+    this.setStatus('Drawing. Drag views to arrange them; add views and annotations, and export to PDF, SVG or DXF, from the Drafting and Annotation tabs.');
     this.commands.changed();
   }
 

@@ -65,9 +65,11 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Everything it changes in one message is a single undo step. It runs on Puter AI (Claude Opus 5.5).
 
 **Drawings**
-- A 2D drawing sheet for each part (Drawing tab in the status bar): front, top, right, left, back, bottom and isometric views projected from the solid, with hidden lines and overall dimensions.
-- Sheet sizes A4 to A1, Letter and Tabloid, standard scales, drag to arrange views, title block.
-- Export to PDF or SVG.
+- A 2D drawing sheet for each part: **Make Drawing** on the Drafting ribbon tab or the File menu (or the Drawing tab in the status bar). Front, top, right, left, back, bottom and isometric views projected from the solid, with hidden lines and overall dimensions.
+- Projected views that stay aligned with their parent, section views (horizontal, vertical or aligned cutting line, the cut face hatched, labelled A-A with arrows), detail views (a magnified circle with its letter and scale) and auxiliary views. Per-view scale, caption, hidden and tangent edges; deleting a view takes the views made from it along, after a warning.
+- Annotations: Smart Dimension on the sheet (horizontal, vertical, aligned, radius, diameter and angle) measured from the model's named edges, so dimensions follow the model when it changes and are marked when their geometry is gone; center marks and hole centerlines (automatic or by hand), centerlines, notes with leaders and hole callouts.
+- Sheet sizes A4 to A1, Letter, Tabloid, ANSI C and D, standard scales, third or first angle projection, title block with material, scale, date, revision, sheet number and the projection symbol.
+- Export to PDF, SVG or DXF.
 
 **Working with parts**
 - Design tree with rollback bar, suppress, rename, hide/show, edit and delete with dependency warnings.

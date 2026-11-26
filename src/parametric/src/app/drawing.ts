@@ -1,17 +1,25 @@
 // Drawing workspace: a paper sheet with projected views of the part (hidden
-// lines dashed), overall dimensions and a title block. Views can be dragged,
-// added and removed; the sheet exports to PDF and SVG.
+// lines dashed), section, detail and auxiliary views, dimensions measured from
+// the model, centre marks, notes and a title block. Views and annotations can be
+// dragged, added and removed; the sheet exports to PDF, SVG and DXF.
 
-import type { ProjectionResult } from '../kernel/protocol';
-import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
+import type { EdgeInfo, ProjectionResult } from '../kernel/protocol';
+import type { DrawingAnnotation, DrawingDimension, DrawingDoc, DrawingRef, DrawingView, DrawingViewKind, HoleFeature, Id, SheetSize } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
-import { DIM_BELOW, DIM_LEFT, MARGIN, SHEET_LABELS, STANDARD_SCALES, VIEW_DIRS, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg, type ViewFrame } from '../drawing/sheet';
+import {
+  DIM_BELOW, DIM_LEFT, MARGIN, SHEETS, SHEET_LABELS, STANDARD_SCALES, VIEW_LABELS, buildSheet, placeView, projectedSize, scaleLabel, sheetDims,
+  standardLayout, toPdf, toSvg, viewCaption, type Item, type ViewFrame, type ViewPlacement,
+} from '../drawing/sheet';
+import { type AnnoFormat, type Geo, type HoleSpec, drawDimension, guessKind, measure } from '../drawing/annotate';
+import { toDxf } from '../drawing/dxf';
+import type { DrawingSource } from '../drawing/source';
+import { type P2, type Prim, type ResolvedView, SIDE_VECTORS, besideOrient, dependents, lineNormal, projectionRequest, resolveViews, standardKindOf } from '../drawing/views';
 import { download, safeName } from '../platform/files';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
-import { toast } from '../ui/overlay';
+import { confirmDialog, toast } from '../ui/overlay';
 import type { App } from './app';
-import { PropertyPanel, checkbox, section, selectField } from './pm';
+import { PropertyPanel, checkbox, section, segmented, selectField } from './pm';
 
 /** YYYY-MM-DD in the user's time zone (toISOString gives the UTC day, a day off in the evening or morning). */
 function localDate(ms: number): string {
@@ -19,17 +27,73 @@ function localDate(ms: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Commands that work on the sheet with the mouse. */
+export type DrawingToolKind = 'projected' | 'section' | 'detail' | 'auxiliary' | 'dimension' | 'note' | 'centerMark' | 'centerline' | 'holeCallout';
+
+export const TOOL_LABELS: Record<DrawingToolKind, string> = {
+  projected: 'Projected View', section: 'Section View', detail: 'Detail View', auxiliary: 'Auxiliary View', dimension: 'Smart Dimension',
+  note: 'Note', centerMark: 'Center Mark', centerline: 'Centerline', holeCallout: 'Hole Callout',
+};
+
+/** Something picked on the sheet: a model edge or point seen in a view. */
+interface Pick { view: Id; ref: DrawingRef; geo: Geo; q: P2 }
+type ToolOptions = { orient?: ToolState['orient']; leader?: boolean };
+
+interface ToolState {
+  kind: DrawingToolKind;
+  parent?: Id;
+  /** Points clicked so far, in the parent's view coordinates. */
+  pts: P2[];
+  picks: Pick[];
+  /** Section cutting line direction. */
+  orient: 'horizontal' | 'vertical' | 'aligned';
+  /** Notes: start with the leader's arrow. */
+  leader: boolean;
+  hover: Pick | null;
+  cursor: P2 | null;
+}
+
+/** Order of the sheet sizes in the list. */
+const SHEET_ORDER: SheetSize[] = ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid', 'ANSI C', 'ANSI D'];
+
+/** The name of a view in lists and messages. */
+export function viewName(d: DrawingDoc, v: DrawingView): string {
+  const t = v.type ?? 'model';
+  if (t === 'model') return v.label ? `${VIEW_LABELS[v.kind]} (${v.label})` : VIEW_LABELS[v.kind];
+  const r = resolveViews(d).get(v.id);
+  if (!r) return 'View';
+  const cap = viewCaption(d, r).replace(/\s+SCALE .*$/, '');
+  return cap.charAt(0) + cap.slice(1).toLowerCase().replace(/ ([a-z])-([a-z])$/, (_, a: string, b: string) => ` ${a.toUpperCase()}-${b.toUpperCase()}`).replace(/ ([a-z])$/, (_, a: string) => ` ${a.toUpperCase()}`);
+}
+
+/** The next unused view letter (I, O and Q are skipped: they read as numbers). */
+export function nextLetter(d: DrawingDoc): string {
+  const used = new Set(d.views.filter((v) => v.type && v.type !== 'model' && v.type !== 'projected').map((v) => (v.label ?? '').toUpperCase()));
+  const letters = 'ABCDEFGHJKLMNPRSTUVWXYZ';
+  for (let k = 1; k < 4; k++) {
+    for (const c of letters) { const s = c.repeat(k); if (!used.has(s)) return s; }
+  }
+  return 'X';
+}
+
 export class DrawingWorkspace {
   readonly el: HTMLElement;
   private host: HTMLElement;
   private paper: HTMLElement;
   private selBox: HTMLElement;
+  private overlay: HTMLElement;
   active = false;
   selected: string | null = null;
+  /** The selected annotation. */
+  selectedAnno: string | null = null;
+  tool: ToolState | null = null;
   private zoom = 1;
   private pan = { x: 0, y: 0 };
-  private cache = new Map<string, { kind: DrawingViewKind; version: number; hidden: boolean; result: ProjectionResult }>();
+  /** Projections by the key of what they show (views that look the same way share one). */
+  private cache = new Map<string, { version: number; hidden: boolean; result: ProjectionResult }>();
   private frames: ViewFrame[] = [];
+  private placements = new Map<string, ViewPlacement>();
+  private annoBoxes: { id: string; box: [number, number, number, number] }[] = [];
   private pending = false;
   /** A refresh was asked for while views were being projected. */
   private refreshAgain = false;
@@ -41,11 +105,14 @@ export class DrawingWorkspace {
   /** Says the views are being projected, when that takes a moment (a large part takes seconds). */
   private busy = h('div', { class: 'drawing-busy', role: 'status' });
   private sheetH = 210;
+  /** Where views get their geometry (see src/drawing/source.ts). */
+  readonly sources = new Map<string, DrawingSource>();
 
   constructor(private app: App) {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
-    this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
+    this.overlay = h('div', { class: 'drw-overlay', 'aria-hidden': 'true' });
+    this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox, this.overlay);
     // An application: screen readers pass it the arrow keys instead of reading on with them
     // (and a label on a plain div is not read at all).
     this.el = h('div', {
@@ -55,11 +122,17 @@ export class DrawingWorkspace {
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'),
       this.busy);
     app.shell.viewport.append(this.el);
+    this.sources.set('part', {
+      version: () => app.geometryVersion,
+      bbox: () => app.bbox,
+      project: (q) => app.kernel.project(q),
+      edges: () => app.edges,
+    });
     this.bind();
     // A drawing made before the part had a solid is laid out when the solid exists, even
     // if the drawing was left meanwhile; not once another document replaced that part.
     app.store.on((reason) => {
-      if (reason === 'load') { this.layoutPending = false; this.untouched = ''; }
+      if (reason === 'load') { this.layoutPending = false; this.untouched = ''; this.selectedAnno = null; this.tool = null; }
       // Undoing an edit made before the drawing was first shown takes the drawing out of the
       // part with it. A drawing nobody changed was never an edit: on screen, it stays.
       else if ((reason === 'undo' || reason === 'redo') && this.active && !app.store.doc.drawing && this.untouched) {
@@ -86,6 +159,8 @@ export class DrawingWorkspace {
     this.refreshAgain = false;
     this.panelKey = '';
     this.active = false;
+    this.tool = null;
+    this.el.classList.remove('drw-tool');
     this.el.hidden = true;
   }
 
@@ -100,7 +175,8 @@ export class DrawingWorkspace {
     // given an undo step until the drawing is changed (and is saved with the part from then).
     const drawing: DrawingDoc = {
       sheet: size, landscape: true, scale: layout.scale,
-      views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })), title: '', drawnBy: '', notes: '',
+      views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}`, centerMarks: true })), title: '', drawnBy: '', notes: '',
+      titleBlock: 'full', revision: '',
     };
     this.app.store.doc.drawing = drawing;
     this.untouched = JSON.stringify(drawing);
@@ -115,9 +191,26 @@ export class DrawingWorkspace {
     const d = this.doc;
     if (!b || !d) return;
     const layout = standardLayout(sheetDims(d), b.min, b.max);
+    const first = d.projection === 'first';
     const arrange = (x: DrawingDoc) => {
       x.scale = layout.scale;
-      x.views = layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` }));
+      const centerMarks = x.titleBlock === 'full' ? true : undefined;
+      // First angle: the top view goes below the front view, and the view right of it is the left view.
+      x.views = layout.views.map((v, i) => {
+        const nv: DrawingView = { ...v, id: `v${i + 1}` };
+        if (centerMarks) nv.centerMarks = true;
+        if (first && v.kind === 'top') nv.y = layout.views[0].y + (layout.views[0].y - v.y);
+        if (first && v.kind === 'right') nv.kind = 'left';
+        if (first && v.kind === 'isometric') nv.y = layout.views[0].y + (layout.views[0].y - v.y);
+        return nv;
+      });
+      if (first) {
+        // Mirrored about the front view's row: keep the whole layout on the sheet.
+        const { h: sh } = sheetDims(x);
+        const dy = Math.max(0, Math.max(...x.views.map((v) => v.y)) - (sh - MARGIN - 40));
+        for (const v of x.views) v.y -= dy;
+      }
+      x.annotations = (x.annotations ?? []).filter((a) => !a.view);
     };
     // A drawing nobody changed yet is still not an edit of the part.
     if (JSON.stringify(d) === this.untouched) {
@@ -147,7 +240,12 @@ export class DrawingWorkspace {
   /** Rebuilds the PropertyManager if what it shows changed (not when a view only moved). */
   private syncPanel() {
     const d = this.doc;
-    const key = d ? JSON.stringify([this.selected, this.app.store.doc.name, d.sheet, d.landscape, d.scale, d.title, d.drawnBy, d.notes, d.views.map((v) => [v.id, v.kind, v.hidden, v.dims])]) : '';
+    const key = d ? JSON.stringify([
+      this.selected, this.selectedAnno, this.tool && [this.tool.kind, this.tool.parent, this.tool.orient, this.tool.leader, this.tool.pts.length, this.tool.picks.length],
+      this.app.store.doc.name, d.sheet, d.landscape, d.scale, d.title, d.drawnBy, d.notes, d.revision, d.projection, d.titleBlock,
+      d.views.map((v) => [v.id, v.kind, v.hidden, v.dims, v.type, v.label, v.scale, v.tangent, v.centerMarks]),
+      (d.annotations ?? []).map((a) => [a.id, a.type, a.type === 'note' ? a.text : '', a.type === 'note' ? a.size : '', a.type === 'dimension' ? [a.decimals, a.prefix, this.dangling(a)] : '']),
+    ]) : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
     if (this.panelChanging) return;
@@ -160,10 +258,19 @@ export class DrawingWorkspace {
     this.app.refreshPanel();
     if (!was || was.isConnected) return;
     const rows = body.querySelectorAll('.relations-list > *');
-    const controls = [...body.querySelectorAll<HTMLElement>('button, input, select')];
+    const controls = [...body.querySelectorAll<HTMLElement>('button, input, select, textarea')];
     const same = controls.find((el) => name(el) === name(was));
     const near = row >= 0 ? rows[Math.min(row, rows.length - 1)]?.querySelector<HTMLElement>('button[aria-label^="Delete"]') ?? controls.find((el) => name(el) === 'Add view') : null;
     (same ?? near ?? body.querySelector<HTMLElement>('.pm-head .title'))?.focus();
+  }
+
+  /** A dimension whose model geometry is gone. */
+  dangling(a: DrawingAnnotation): boolean {
+    if (a.type !== 'dimension' && a.type !== 'centerMark' && a.type !== 'centerline' && a.type !== 'holeCallout') return false;
+    const p = this.placements.get(a.view);
+    if (!p) return false;
+    const refs = a.type === 'dimension' || a.type === 'centerline' ? a.refs : [a.ref];
+    return refs.some((r) => !p.prims.some((q) => q.edge === r.edge));
   }
 
   // ---------- projections and rendering ----------
@@ -178,22 +285,39 @@ export class DrawingWorkspace {
       this.layoutPending = false;
       if (!d.views.length) { this.relayout(); return; }
     }
-    const version = this.app.geometryVersion;
-    const need = d.views.filter((v) => {
-      const c = this.cache.get(v.id);
+    const resolved = resolveViews(d);
+    // One request per projection key, with hidden lines if any view sharing it shows them.
+    const want = new Map<string, { r: ResolvedView; hidden: boolean }>();
+    for (const v of d.views) {
+      const r = resolved.get(v.id);
+      if (!r) continue;
+      const w = want.get(r.key);
+      want.set(r.key, { r, hidden: (w?.hidden ?? false) || v.hidden });
+    }
+    const bySource = new Map<string, { key: string; r: ResolvedView; hidden: boolean }[]>();
+    for (const [key, w] of want) {
+      const src = this.sources.get(w.r.source);
+      if (!src || !src.bbox()) continue;
+      const c = this.cache.get(key);
       // A view whose hidden lines are turned on needs them projected; turned off, they are just not drawn.
-      return !c || c.kind !== v.kind || c.version !== version || (v.hidden && !c.hidden);
-    });
-    if (need.length && this.app.bbox) {
+      if (c && c.version === src.version() && (!w.hidden || c.hidden)) continue;
+      const list = bySource.get(w.r.source) ?? [];
+      list.push({ key, ...w });
+      bySource.set(w.r.source, list);
+    }
+    if (bySource.size) {
       this.pending = true;
+      const versions = new Map([...bySource.keys()].map((s) => [s, this.sources.get(s)!.version()]));
       // A sheet opened for the first time shows its border and title block meanwhile, not nothing.
       if (!this.paper.firstChild) this.render();
       const slow = setTimeout(() => { this.busy.textContent = 'Projecting the views…'; }, 300);
       try {
-        const res = await this.app.kernel.project(need.map((v) => ({ id: v.id, ...VIEW_DIRS[v.kind], hidden: v.hidden })));
-        for (const r of res) {
-          const v = need.find((x) => x.id === r.id)!;
-          this.cache.set(r.id, { kind: v.kind, version, hidden: v.hidden, result: r });
+        for (const [name, list] of bySource) {
+          const res = await this.sources.get(name)!.project(list.map((x) => projectionRequest(x.r, x.hidden)));
+          for (const r of res) {
+            const x = list.find((q) => q.key === r.id);
+            if (x) this.cache.set(x.key, { version: versions.get(name)!, hidden: x.hidden, result: r });
+          }
         }
       } catch (e) {
         toast({ kind: 'error', title: 'Could not project the views', message: (e as Error).message });
@@ -203,9 +327,19 @@ export class DrawingWorkspace {
         this.busy.textContent = '';
       }
       // The model or the views may have changed while projecting.
-      if (version !== this.app.geometryVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
+      const changed = [...versions].some(([s, ver]) => this.sources.get(s)?.version() !== ver);
+      if (changed || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
     }
     this.render();
+  }
+
+  private fmt(): AnnoFormat {
+    const doc = this.app.store.doc;
+    const u = UNIT_SYSTEMS[doc.units];
+    return {
+      length: (mm, dec) => formatNumber(mm / u.scale, dec ?? doc.decimals),
+      angle: (deg, dec) => `${formatNumber(deg, dec ?? Math.min(doc.decimals, 2))}°`,
+    };
   }
 
   private info() {
@@ -217,15 +351,42 @@ export class DrawingWorkspace {
       units: u.length,
       date: localDate(doc.modified || Date.now()),
       formatLength: (mm: number) => formatNumber(mm / u.scale, doc.decimals),
+      edges: (src: string): EdgeInfo[] => this.sources.get(src)?.edges() ?? [],
+      format: this.fmt(),
+      holeOf: (edge: string) => this.holeOf(edge),
+    };
+  }
+
+  /** The hole feature a circular edge was made by, with its sizes. */
+  private holeOf(edge: string): HoleSpec | null {
+    const app = this.app;
+    const e = app.edges.find((x) => x.name === edge);
+    if (!e || e.type !== 'circle' || !e.radius) return null;
+    const fid = e.faces.map((i) => app.faces[i]?.feature).find((id) => app.store.feature(id ?? '')?.type === 'hole');
+    if (!fid) return null;
+    const f = app.store.resolve().features.find((x) => x.id === fid) as HoleFeature | undefined;
+    if (!f) return null;
+    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+    const sk = app.store.feature(f.sketch);
+    const count = sk?.type === 'sketch' ? sk.entities.filter((x) => x.t === 'point' && !(x as { construction?: boolean }).construction && !(x as { external?: unknown }).external).length : 1;
+    return {
+      kind: f.kind === 'counterbore' ? 'counterbore' : f.kind === 'countersink' ? 'countersink' : 'simple',
+      diameter: num(f.diameter),
+      depth: f.end === 'blind' ? num(f.depth) : undefined,
+      cbDiameter: num(f.cbDiameter), cbDepth: num(f.cbDepth), csDiameter: num(f.csDiameter), csAngle: num(f.csAngle),
+      count: Math.max(1, count),
     };
   }
 
   private sheet() {
     const d = this.doc!;
     const projections = new Map<string, ProjectionResult>();
+    const resolved = resolveViews(d);
     for (const v of d.views) {
-      const c = this.cache.get(v.id);
-      if (this.app.bbox && c?.version === this.app.geometryVersion && c.kind === v.kind) projections.set(v.id, c.result);
+      const r = resolved.get(v.id);
+      const src = r && this.sources.get(r.source);
+      const c = r && this.cache.get(r.key);
+      if (src?.bbox() && c?.version === src.version()) projections.set(v.id, c.result);
     }
     return buildSheet(d, projections, this.info());
   }
@@ -235,6 +396,10 @@ export class DrawingWorkspace {
     if (!d || !this.active) return;
     const s = this.sheet();
     this.frames = s.frames;
+    this.placements = s.placements;
+    this.annoBoxes = s.annos;
+    if (this.selectedAnno && !(d.annotations ?? []).some((a) => a.id === this.selectedAnno)) this.selectedAnno = null;
+    if (this.selected && !d.views.some((v) => v.id === this.selected)) this.selected = null;
     // A new sheet size or orientation is refitted, or only part of it shows.
     const resized = s.w !== this.sheetW || s.h !== this.sheetH;
     this.sheetW = s.w;
@@ -251,6 +416,7 @@ export class DrawingWorkspace {
     if (resized) this.fit();
     else this.applyTransform();
     this.drawSelection();
+    this.drawOverlay();
     this.syncPanel();
   }
 
@@ -260,10 +426,12 @@ export class DrawingWorkspace {
 
   private drawSelection() {
     const f = this.frames.find((x) => x.id === this.selected);
-    this.selBox.hidden = !f;
-    if (!f) return;
-    const pad = 3;
-    Object.assign(this.selBox.style, { left: `${f.x0 - pad}px`, top: `${f.y0 - pad}px`, width: `${f.x1 - f.x0 + 2 * pad}px`, height: `${f.y1 - f.y0 + 2 * pad}px` });
+    const a = this.annoBoxes.find((x) => x.id === this.selectedAnno);
+    const b = f ? [f.x0, f.y0, f.x1, f.y1] : a ? a.box : null;
+    this.selBox.hidden = !b;
+    if (!b) return;
+    const pad = f ? 3 : 0.8;
+    Object.assign(this.selBox.style, { left: `${b[0] - pad}px`, top: `${b[1] - pad}px`, width: `${b[2] - b[0] + 2 * pad}px`, height: `${b[3] - b[1] + 2 * pad}px` });
   }
 
   /** Zooms the sheet by f about the middle of the view. */
@@ -288,6 +456,443 @@ export class DrawingWorkspace {
     this.applyTransform();
   }
 
+  // ---------- tools ----------
+
+  /** Starts a sheet command; a view selected beforehand is the one it works from. */
+  startTool(kind: DrawingToolKind) {
+    if (!this.doc) return;
+    const needsParent = kind === 'projected' || kind === 'section' || kind === 'detail' || kind === 'auxiliary';
+    const parent = needsParent && this.selected && this.placements.has(this.selected) ? this.selected : undefined;
+    this.tool = { kind, parent, pts: [], picks: [], orient: 'horizontal', leader: false, hover: null, cursor: null };
+    this.el.classList.add('drw-tool');
+    this.selectedAnno = null;
+    this.drawSelection();
+    this.drawOverlay();
+    this.syncPanel();
+    this.app.setStatus(this.toolPrompt());
+    this.el.focus({ preventScroll: true });
+  }
+
+  cancelTool(): boolean {
+    if (!this.tool) return false;
+    this.tool = null;
+    this.el.classList.remove('drw-tool');
+    this.drawOverlay();
+    this.syncPanel();
+    this.app.setStatus('Drawing. Drag views to arrange them; export to PDF, SVG or DXF from the Drafting tab.');
+    return true;
+  }
+
+  setToolOption(o: ToolOptions) {
+    if (!this.tool) return;
+    Object.assign(this.tool, o);
+    this.tool.pts = [];
+    this.drawOverlay();
+    this.syncPanel();
+    this.app.setStatus(this.toolPrompt());
+  }
+
+  /** What the active command asks for next. */
+  toolPrompt(): string {
+    const t = this.tool;
+    if (!t) return '';
+    if ((t.kind === 'projected' || t.kind === 'section' || t.kind === 'detail' || t.kind === 'auxiliary') && !t.parent) return 'Click the view to make it from.';
+    switch (t.kind) {
+      case 'projected': return 'Move the pointer to the side of the view to project to, and click to place the view.';
+      case 'section':
+        if (t.orient === 'aligned') return t.pts.length === 0 ? 'Click the first end of the cutting line.' : t.pts.length === 1 ? 'Click the other end of the cutting line.' : 'Click on the side to look from to place the section view.';
+        return t.pts.length === 0 ? `Click where the ${t.orient} cutting line goes (it snaps to centres and corners).` : 'Click on the side to look from to place the section view.';
+      case 'detail': return t.pts.length === 0 ? 'Click the centre of the detail circle.' : t.pts.length === 1 ? 'Click to set the size of the circle.' : 'Click where the detail view goes.';
+      case 'auxiliary': return t.pts.length === 0 ? 'Click a straight edge to look square to.' : 'Click on a side of the edge to place the auxiliary view.';
+      case 'dimension': return t.picks.length === 0 ? 'Click an edge, circle or point of a view to dimension.' : t.picks.length === 1 ? 'Click a second edge or point, or click where the dimension goes.' : 'Click where the dimension goes.';
+      case 'note': return t.leader && t.pts.length === 0 ? 'Click where the leader arrow points.' : 'Click where the note goes.';
+      case 'centerMark': return 'Click a circle or arc of a view.';
+      case 'centerline': return t.picks.length === 0 ? 'Click the first of two parallel edges.' : 'Click the second edge.';
+      case 'holeCallout': return t.picks.length === 0 ? 'Click a hole (a circle seen end on).' : 'Click where the callout goes.';
+    }
+  }
+
+  /** View coordinates of a sheet point in a placed view. */
+  private toView(p: ViewPlacement, x: number, y: number): P2 {
+    return [(x - p.tx) / p.s, (y - p.ty) / p.s];
+  }
+
+  /** The model edge or point of a view under a sheet point, within a few pixels. */
+  private pick(x: number, y: number, want: 'any' | 'point' | 'line' | 'circle', only?: Id): Pick | null {
+    const order = only ? [only] : [...this.frames].reverse().map((f) => f.id);
+    for (const id of order) {
+      const p = this.placements.get(id);
+      if (!p) continue;
+      const f = p.frame;
+      if (!only && !(x >= f.x0 - 3 && x <= f.x1 + 3 && y >= f.y0 - 3 && y <= f.y1 + 3)) continue;
+      const q = this.toView(p, x, y);
+      const tol = 7 / this.zoom / p.s;
+      let best: Pick | null = null, bd = tol;
+      const consider = (d: number, mk: () => Pick) => { if (d < bd) { bd = d; best = mk(); } };
+      const dist = (a: P2) => Math.hypot(a[0] - q[0], a[1] - q[1]);
+      if (want === 'any' || want === 'point') {
+        for (const pr of p.prims) {
+          if (pr.kind === 'arc') {
+            consider(dist(pr.c), () => ({ view: id, ref: { edge: pr.edge, at: 'center' }, geo: { kind: 'point', p: pr.c }, q: pr.c }));
+            if (pr.full) continue;
+          }
+          consider(dist(pr.a), () => ({ view: id, ref: { edge: pr.edge, at: 'start' }, geo: { kind: 'point', p: pr.a }, q: pr.a }));
+          consider(dist(pr.b), () => ({ view: id, ref: { edge: pr.edge, at: 'end' }, geo: { kind: 'point', p: pr.b }, q: pr.b }));
+        }
+        if (best || want === 'point') return best;
+      }
+      for (const pr of p.prims) {
+        if (pr.kind === 'line' && (want === 'any' || want === 'line')) {
+          const dx = pr.b[0] - pr.a[0], dy = pr.b[1] - pr.a[1], L = dx * dx + dy * dy;
+          const t = L > 0 ? Math.max(0, Math.min(1, ((q[0] - pr.a[0]) * dx + (q[1] - pr.a[1]) * dy) / L)) : 0;
+          consider(Math.hypot(pr.a[0] + dx * t - q[0], pr.a[1] + dy * t - q[1]), () => ({ view: id, ref: { edge: pr.edge, at: 'edge' }, geo: { kind: 'line', a: pr.a, b: pr.b }, q }));
+        }
+        if (pr.kind === 'arc' && (want === 'any' || want === 'circle')) {
+          consider(Math.abs(dist(pr.c) - pr.r), () => ({ view: id, ref: { edge: pr.edge, at: 'edge' }, geo: { kind: 'circle', c: pr.c, r: pr.r, full: pr.full, a: pr.a, b: pr.b, m: pr.m }, q }));
+        }
+      }
+      if (best) return best;
+      if (!only) return null;
+    }
+    return null;
+  }
+
+  /** Snaps a sheet point in a view to a nearby corner or centre (else keeps it), in view coordinates. */
+  private snap(p: ViewPlacement, x: number, y: number): P2 {
+    const hit = this.pick(x, y, 'point', p.r.v.id);
+    return hit ? hit.q : this.toView(p, x, y);
+  }
+
+  private newViewId(d: DrawingDoc): string {
+    let n = d.views.length + 1;
+    while (d.views.some((v) => v.id === `v${n}`)) n++;
+    return `v${n}`;
+  }
+
+  private newAnnoId(d: DrawingDoc): string {
+    const list = d.annotations ?? [];
+    let n = list.length + 1;
+    while (list.some((a) => a.id === `a${n}`)) n++;
+    return `a${n}`;
+  }
+
+  /** A section or auxiliary view's line through the parent, oriented so the view is on the side of `to`. */
+  private orientLine(l: [number, number, number, number], to: P2): [number, number, number, number] {
+    const n = lineNormal(l);
+    const side = (to[0] - l[0]) * n[0] + (to[1] - l[1]) * n[1];
+    return side >= 0 ? l : [l[2], l[3], l[0], l[1]];
+  }
+
+  /** The cutting line of the section tool so far (parent view coordinates). */
+  private sectionLine(t: ToolState, p: ViewPlacement, cursorView: P2 | null): [number, number, number, number] | null {
+    const pr = this.projectionOf(p.r.v.id);
+    const b = pr?.bounds;
+    if (!b) return null;
+    const m = Math.max(b[2] - b[0], b[3] - b[1]) * 0.08 + 3 / p.s;
+    if (t.orient === 'horizontal' && t.pts[0]) return [b[0] - m, t.pts[0][1], b[2] + m, t.pts[0][1]];
+    if (t.orient === 'vertical' && t.pts[0]) return [t.pts[0][0], b[3] + m, t.pts[0][0], b[1] - m];
+    if (t.orient === 'aligned' && t.pts[0]) {
+      const e = t.pts[1] ?? cursorView;
+      if (!e || Math.hypot(e[0] - t.pts[0][0], e[1] - t.pts[0][1]) < 1e-6) return null;
+      return [t.pts[0][0], t.pts[0][1], e[0], e[1]];
+    }
+    return null;
+  }
+
+  private projectionOf(id: Id): ProjectionResult | undefined {
+    const d = this.doc;
+    if (!d) return undefined;
+    const r = resolveViews(d).get(id);
+    return r ? this.cache.get(r.key)?.result : undefined;
+  }
+
+  /** A sheet click with a command active. */
+  private toolClick(x: number, y: number) {
+    const t = this.tool!;
+    const d = this.doc!;
+    const needsParent = t.kind === 'projected' || t.kind === 'section' || t.kind === 'detail' || t.kind === 'auxiliary';
+    if (needsParent && !t.parent) {
+      const id = this.viewAt(x, y);
+      if (id && this.placements.has(id)) { t.parent = id; this.selected = id; this.drawSelection(); this.syncPanel(); }
+      this.app.setStatus(this.toolPrompt());
+      this.drawOverlay();
+      return;
+    }
+    const p = t.parent ? this.placements.get(t.parent) : undefined;
+    if (needsParent && !p) { this.cancelTool(); return; }
+    const finish = (label: string, fn: (dd: DrawingDoc) => void, keep = false) => {
+      this.update(fn, label);
+      if (keep) { t.pts = []; t.picks = []; this.drawOverlay(); this.syncPanel(); this.app.setStatus(this.toolPrompt()); }
+      else this.cancelTool();
+    };
+    switch (t.kind) {
+      case 'projected': {
+        const side = this.sideOf(p!, x, y);
+        const id = this.newViewId(d);
+        const o = besideOrient(p!.r.o, SIDE_VECTORS[side], d.projection === 'first');
+        const kind = (standardKindOf(o) ?? p!.r.v.kind) as DrawingViewKind;
+        const cx = (p!.frame.x0 + p!.frame.x1) / 2, cy = (p!.frame.y0 + p!.frame.y1) / 2;
+        const [nx, ny] = side === 'left' || side === 'right' ? [x, cy] : [cx, y];
+        this.selected = id;
+        finish('Projected view', (dd) => { dd.views.push({ id, kind, type: 'projected', parent: t.parent, side, x: nx, y: ny, hidden: kind !== 'isometric', dims: false, centerMarks: true }); });
+        return;
+      }
+      case 'section': {
+        const q = this.toView(p!, x, y);
+        const need = t.orient === 'aligned' ? 2 : 1;
+        if (t.pts.length < need) {
+          t.pts.push(this.snap(p!, x, y));
+          if (t.orient === 'aligned' && t.pts.length === 2 && Math.hypot(t.pts[1][0] - t.pts[0][0], t.pts[1][1] - t.pts[0][1]) < 1e-6) t.pts.pop();
+          this.app.setStatus(this.toolPrompt());
+          this.drawOverlay();
+          return;
+        }
+        const raw = this.sectionLine(t, p!, null);
+        if (!raw) return;
+        const line = this.orientLine(raw, q);
+        const id = this.newViewId(d);
+        const label = nextLetter(d);
+        const n = lineNormal(line);
+        const aligned = Math.abs(n[0]) < 1e-9 || Math.abs(n[1]) < 1e-9;
+        const cx = (p!.frame.x0 + p!.frame.x1) / 2, cy = (p!.frame.y0 + p!.frame.y1) / 2;
+        const [nx, ny] = !aligned ? [x, y] : Math.abs(n[0]) < 1e-9 ? [cx, y] : [x, cy];
+        this.selected = id;
+        finish('Section view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'section', parent: t.parent, line: line.map((v) => +v.toFixed(6)) as [number, number, number, number], label, x: nx, y: ny, hidden: false, dims: false, centerMarks: true }); });
+        return;
+      }
+      case 'detail': {
+        if (t.pts.length === 0) { t.pts.push(this.snap(p!, x, y)); this.app.setStatus(this.toolPrompt()); this.drawOverlay(); return; }
+        if (t.pts.length === 1) {
+          const q = this.toView(p!, x, y);
+          const r = Math.hypot(q[0] - t.pts[0][0], q[1] - t.pts[0][1]);
+          if (r * p!.s < 1) return;
+          t.pts.push([r, 0]);
+          this.app.setStatus(this.toolPrompt());
+          this.drawOverlay();
+          return;
+        }
+        const id = this.newViewId(d);
+        const label = nextLetter(d);
+        const c = t.pts[0], r = t.pts[1][0];
+        const scale = detailScale(p!.s);
+        this.selected = id;
+        finish('Detail view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'detail', parent: t.parent, circle: [+c[0].toFixed(6), +c[1].toFixed(6), +r.toFixed(6)], scale, label, x, y, hidden: false, dims: false, centerMarks: true }); });
+        return;
+      }
+      case 'auxiliary': {
+        if (t.pts.length === 0) {
+          const hit = this.pick(x, y, 'line', t.parent);
+          if (hit?.geo.kind !== 'line') return;
+          t.pts.push(hit.geo.a, hit.geo.b);
+          this.app.setStatus(this.toolPrompt());
+          this.drawOverlay();
+          return;
+        }
+        const q = this.toView(p!, x, y);
+        const line = this.orientLine([t.pts[0][0], t.pts[0][1], t.pts[1][0], t.pts[1][1]], q);
+        const id = this.newViewId(d);
+        const label = nextLetter(d);
+        this.selected = id;
+        finish('Auxiliary view', (dd) => { dd.views.push({ id, kind: p!.r.v.kind, type: 'auxiliary', parent: t.parent, line: line.map((v) => +v.toFixed(6)) as [number, number, number, number], label, x, y, hidden: false, dims: false, centerMarks: true }); });
+        return;
+      }
+      case 'dimension': {
+        const first = t.picks[0];
+        const hit = t.picks.length < 2 ? this.pick(x, y, 'any', first?.view) : null;
+        if (hit && (!first || !(hit.ref.edge === first.ref.edge && hit.ref.at === first.ref.at))) {
+          t.picks.push(hit);
+          this.app.setStatus(this.toolPrompt());
+          this.drawOverlay();
+          return;
+        }
+        // A single point measures nothing: it waits for a second one.
+        if (!first || (t.picks.length === 1 && first.geo.kind === 'point')) return;
+        const pv = this.placements.get(first.view);
+        if (!pv) return;
+        const at = this.toView(pv, x, y);
+        const gs = t.picks.map((k) => k.geo);
+        const kind = guessKind(gs, at);
+        if (!measure(kind, gs)) { toast({ kind: 'info', message: 'These cannot be dimensioned together. Pick other edges or points.' }); t.picks = []; this.drawOverlay(); return; }
+        const id = this.newAnnoId(d);
+        const refs = t.picks.map((k) => k.ref);
+        finish('Dimension', (dd) => { (dd.annotations ??= []).push({ id, type: 'dimension', view: first.view, kind, refs, at: [+at[0].toFixed(4), +at[1].toFixed(4)] }); }, true);
+        return;
+      }
+      case 'note': {
+        const vid = this.viewAt(x, y);
+        const pv = vid ? this.placements.get(vid) : undefined;
+        if (t.leader && t.pts.length === 0) {
+          const hit = this.pick(x, y, 'any');
+          const vp = hit ? this.placements.get(hit.view) : pv;
+          t.parent = vp?.r.v.id;
+          t.pts.push(vp ? (hit ? hit.q : this.toView(vp, x, y)) : [x, y]);
+          this.app.setStatus(this.toolPrompt());
+          this.drawOverlay();
+          return;
+        }
+        const owner = t.leader ? (t.parent ? this.placements.get(t.parent) : undefined) : pv;
+        const at: P2 = owner ? this.toView(owner, x, y) : [x, y];
+        const id = this.newAnnoId(d);
+        this.selectedAnno = id;
+        const leader = t.leader ? t.pts[0] : undefined;
+        finish('Note', (dd) => {
+          const n: DrawingAnnotation = { id, type: 'note', text: 'NOTE', at: [+at[0].toFixed(4), +at[1].toFixed(4)] };
+          if (owner) n.view = owner.r.v.id;
+          if (leader) n.leader = [+leader[0].toFixed(4), +leader[1].toFixed(4)];
+          (dd.annotations ??= []).push(n);
+        });
+        requestAnimationFrame(() => (this.app.shell.lpBody.querySelector('textarea[aria-label="Note text"]') as HTMLTextAreaElement | null)?.select());
+        return;
+      }
+      case 'centerMark': {
+        const hit = this.pick(x, y, 'circle');
+        if (hit?.geo.kind !== 'circle') return;
+        const id = this.newAnnoId(d);
+        finish('Center mark', (dd) => { (dd.annotations ??= []).push({ id, type: 'centerMark', view: hit.view, ref: hit.ref }); }, true);
+        return;
+      }
+      case 'centerline': {
+        const hit = this.pick(x, y, 'line', t.picks[0]?.view);
+        if (hit?.geo.kind !== 'line') return;
+        if (!t.picks.length) { t.picks.push(hit); this.app.setStatus(this.toolPrompt()); this.drawOverlay(); return; }
+        const a = t.picks[0];
+        const g1 = a.geo as Extract<Geo, { kind: 'line' }>, g2 = hit.geo;
+        const u1 = [g1.b[0] - g1.a[0], g1.b[1] - g1.a[1]], u2 = [g2.b[0] - g2.a[0], g2.b[1] - g2.a[1]];
+        if (Math.abs(u1[0] * u2[1] - u1[1] * u2[0]) > 1e-6 * Math.hypot(...u1) * Math.hypot(...u2) || hit.ref.edge === a.ref.edge) {
+          toast({ kind: 'info', message: 'A centerline goes between two parallel edges.' });
+          return;
+        }
+        const id = this.newAnnoId(d);
+        finish('Centerline', (dd) => { (dd.annotations ??= []).push({ id, type: 'centerline', view: a.view, refs: [a.ref, hit.ref] }); }, true);
+        return;
+      }
+      case 'holeCallout': {
+        if (!t.picks.length) {
+          const hit = this.pick(x, y, 'circle');
+          if (hit?.geo.kind !== 'circle') return;
+          t.picks.push(hit);
+          this.app.setStatus(this.toolPrompt());
+          this.drawOverlay();
+          return;
+        }
+        const a = t.picks[0];
+        const pv = this.placements.get(a.view);
+        if (!pv) return;
+        const at = this.toView(pv, x, y);
+        const id = this.newAnnoId(d);
+        finish('Hole callout', (dd) => { (dd.annotations ??= []).push({ id, type: 'holeCallout', view: a.view, ref: a.ref, at: [+at[0].toFixed(4), +at[1].toFixed(4)] }); }, true);
+        return;
+      }
+    }
+  }
+
+  /** On which side of a view a sheet point is. */
+  private sideOf(p: ViewPlacement, x: number, y: number): 'left' | 'right' | 'above' | 'below' {
+    const f = p.frame;
+    const cx = (f.x0 + f.x1) / 2, cy = (f.y0 + f.y1) / 2;
+    const dx = (x - cx) / Math.max(f.x1 - f.x0, 1), dy = (y - cy) / Math.max(f.y1 - f.y0, 1);
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left';
+    return dy >= 0 ? 'below' : 'above';
+  }
+
+  /** Previews of the active command and highlights of what it would pick. */
+  private drawOverlay() {
+    const t = this.tool;
+    if (!t || !this.active) { this.overlay.innerHTML = ''; return; }
+    const items: Item[] = [];
+    const accent = '#1e88e5';
+    const p = t.parent ? this.placements.get(t.parent) : undefined;
+    const T = (pl: ViewPlacement, q: P2): P2 => [pl.tx + q[0] * pl.s, pl.ty + q[1] * pl.s];
+    const mark = (k: Pick) => {
+      const pl = this.placements.get(k.view);
+      if (!pl) return;
+      const g = k.geo;
+      if (g.kind === 'point') { const c = T(pl, g.p); items.push({ t: 'circle', cx: c[0], cy: c[1], r: 1, w: 0.4 }); }
+      else if (g.kind === 'line') { const a = T(pl, g.a), b = T(pl, g.b); items.push({ t: 'line', x1: a[0], y1: a[1], x2: b[0], y2: b[1], w: 0.6 }); }
+      else { const c = T(pl, g.c); items.push({ t: 'circle', cx: c[0], cy: c[1], r: g.r * pl.s, w: 0.6 }); }
+    };
+    if (p) { const f = p.frame; items.push({ t: 'rect', x: f.x0 - 2, y: f.y0 - 2, w: f.x1 - f.x0 + 4, h: f.y1 - f.y0 + 4, sw: 0.3 }); }
+    for (const k of t.picks) mark(k);
+    if (t.hover) mark(t.hover);
+    const cur = t.cursor;
+    if (p && cur) {
+      const qv = this.toView(p, cur[0], cur[1]);
+      if (t.kind === 'projected') {
+        const side = this.sideOf(p, cur[0], cur[1]);
+        const f = p.frame, w = f.x1 - f.x0, hh = f.y1 - f.y0;
+        const o = besideOrient(p.r.o, SIDE_VECTORS[side], this.doc?.projection === 'first');
+        const size = this.app.bbox ? sizeIn(o, this.app.bbox.min, this.app.bbox.max).map((v) => v * p.s) : [w, hh];
+        const [cx, cy] = side === 'left' || side === 'right' ? [cur[0], (f.y0 + f.y1) / 2] : [(f.x0 + f.x1) / 2, cur[1]];
+        items.push({ t: 'rect', x: cx - size[0] / 2, y: cy - size[1] / 2, w: size[0], h: size[1], sw: 0.3 });
+      } else if (t.kind === 'section') {
+        const pts = t.pts.length ? t : { ...t, pts: [this.snap(p, cur[0], cur[1])] };
+        const l = this.sectionLine(pts, p, qv);
+        if (l) {
+          const a = T(p, [l[0], l[1]]), b = T(p, [l[2], l[3]]);
+          items.push({ t: 'line', x1: a[0], y1: a[1], x2: b[0], y2: b[1], w: 0.5, dash: [4, 1, 1, 1] });
+          const ready = t.orient === 'aligned' ? t.pts.length >= 2 : t.pts.length >= 1;
+          if (ready) {
+            const n = lineNormal(this.orientLine(l, qv));
+            const first = this.doc?.projection === 'first';
+            const w: P2 = first ? n : [-n[0], -n[1]];
+            for (const e of [a, b]) {
+              const tip: P2 = [e[0] + w[0] * 7, e[1] + w[1] * 7];
+              items.push({ t: 'line', x1: e[0], y1: e[1], x2: tip[0], y2: tip[1], w: 0.4 });
+            }
+          }
+        }
+      } else if (t.kind === 'detail') {
+        const c = t.pts[0] ?? this.snap(p, cur[0], cur[1]);
+        const r = t.pts[1] ? t.pts[1][0] : t.pts[0] ? Math.hypot(qv[0] - c[0], qv[1] - c[1]) : 0;
+        const sc = T(p, c);
+        if (r > 0) items.push({ t: 'circle', cx: sc[0], cy: sc[1], r: r * p.s, w: 0.4 });
+        else items.push({ t: 'circle', cx: sc[0], cy: sc[1], r: 1, w: 0.4 });
+        if (t.pts[1]) items.push({ t: 'circle', cx: cur[0], cy: cur[1], r: r * detailScale(p.s), w: 0.3, dash: [2, 1] });
+      } else if (t.kind === 'auxiliary' && t.pts.length === 2) {
+        const a = T(p, t.pts[0]), b = T(p, t.pts[1]);
+        items.push({ t: 'line', x1: a[0], y1: a[1], x2: b[0], y2: b[1], w: 0.6 });
+        items.push({ t: 'circle', cx: cur[0], cy: cur[1], r: 2, w: 0.3 });
+      }
+    }
+    if (cur && t.kind === 'dimension' && t.picks.length) {
+      const pl = this.placements.get(t.picks[0].view);
+      if (pl) {
+        const at = this.toView(pl, cur[0], cur[1]);
+        const gs = t.picks.map((k) => k.geo);
+        const kind = guessKind(gs, at);
+        const dim: DrawingDimension = { id: 'preview', type: 'dimension', view: pl.r.v.id, kind, refs: t.picks.map((k) => k.ref), at };
+        drawDimension(items, dim, measure(kind, gs), { T: (q) => T(pl, q), s: pl.s }, this.fmt());
+      }
+    }
+    if (cur && t.kind === 'holeCallout' && t.picks.length) items.push({ t: 'circle', cx: cur[0], cy: cur[1], r: 1, w: 0.3 });
+    if (cur && t.kind === 'note' && t.leader && t.pts.length) {
+      const pl = t.parent ? this.placements.get(t.parent) : undefined;
+      const tip = pl ? T(pl, t.pts[0]) : t.pts[0];
+      items.push({ t: 'line', x1: tip[0], y1: tip[1], x2: cur[0], y2: cur[1], w: 0.3 });
+    }
+    const svg = toSvg(items, this.sheetW, this.sheetH, { background: 'none', ink: accent });
+    this.overlay.innerHTML = svg;
+    const el = this.overlay.firstElementChild as SVGSVGElement | null;
+    if (el) { el.setAttribute('width', `${this.sheetW}`); el.setAttribute('height', `${this.sheetH}`); }
+  }
+
+  /** Pointer moved with a command active: what it would pick, and its preview. */
+  private toolMove(x: number, y: number) {
+    const t = this.tool!;
+    t.cursor = [x, y];
+    t.hover = null;
+    switch (t.kind) {
+      case 'dimension': if (t.picks.length < 2) t.hover = this.pick(x, y, 'any', t.picks[0]?.view); break;
+      case 'centerMark': t.hover = this.pick(x, y, 'circle'); break;
+      case 'holeCallout': if (!t.picks.length) t.hover = this.pick(x, y, 'circle'); break;
+      case 'centerline': t.hover = this.pick(x, y, 'line', t.picks[0]?.view); break;
+      case 'auxiliary': if (t.parent && !t.pts.length) t.hover = this.pick(x, y, 'line', t.parent); break;
+      case 'section': case 'detail': if (t.parent) t.hover = this.pick(x, y, 'point', t.parent); break;
+      case 'note': if (t.leader && !t.pts.length) t.hover = this.pick(x, y, 'any'); break;
+    }
+    this.drawOverlay();
+  }
+
   // ---------- interaction ----------
 
   private toSheet(clientX: number, clientY: number): [number, number] {
@@ -300,8 +905,28 @@ export class DrawingWorkspace {
     return null;
   }
 
+  private annoAt(x: number, y: number): string | null {
+    for (const a of [...this.annoBoxes].reverse()) if (x >= a.box[0] - 1 && x <= a.box[2] + 1 && y >= a.box[1] - 1 && y <= a.box[3] + 1) return a.id;
+    return null;
+  }
+
+  /** Views that move with a view: those aligned to it, and theirs. */
+  private followers(d: DrawingDoc, id: Id): Id[] {
+    const rs = resolveViews(d);
+    const out: Id[] = [];
+    const walk = (p: Id) => {
+      for (const v of d.views) {
+        const r = rs.get(v.id);
+        if (v.parent === p && r?.align && !out.includes(v.id)) { out.push(v.id); walk(v.id); }
+      }
+    };
+    walk(id);
+    return out;
+  }
+
   private bind() {
-    let drag: { kind: 'pan' | 'view'; sx: number; sy: number; ox: number; oy: number; id?: string; moved: boolean } | null = null;
+    type Drag = { kind: 'pan' | 'view' | 'anno'; sx: number; sy: number; ox: number; oy: number; id?: string; moved: boolean; follow?: { id: Id; x: number; y: number }[]; align?: 'x' | 'y'; s?: number };
+    let drag: Drag | null = null;
     // Two fingers pinch to zoom and pan (touch screens have no wheel).
     const pointers = new Map<number, { x: number; y: number }>();
     let pinch: { d: number; sx: number; sy: number; zoom: number } | null = null;
@@ -314,7 +939,7 @@ export class DrawingWorkspace {
       if (e.pointerType === 'touch') pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size >= 2) {
         // A second finger ends any drag (closing its undo step) and starts a pinch.
-        if (drag?.kind === 'view' && drag.moved) this.app.store.endBatch();
+        if ((drag?.kind === 'view' || drag?.kind === 'anno') && drag.moved) this.app.store.endBatch();
         drag = null;
         if (pointers.size === 2) {
           const p = pinchState();
@@ -325,16 +950,33 @@ export class DrawingWorkspace {
       }
       this.el.focus({ preventScroll: true });
       const [x, y] = this.toSheet(e.clientX, e.clientY);
-      const id = e.button === 0 ? this.viewAt(x, y) : null;
+      if (this.tool && e.button === 0) {
+        this.toolClick(x, y);
+        return;
+      }
+      const anno = e.button === 0 ? this.annoAt(x, y) : null;
+      const id = e.button === 0 && !anno ? this.viewAt(x, y) : null;
       this.el.setPointerCapture(e.pointerId);
-      if (id) {
-        const v = this.doc!.views.find((q) => q.id === id)!;
-        this.selected = id;
+      if (anno) {
+        const a = this.doc!.annotations!.find((q) => q.id === anno)!;
+        this.selectedAnno = anno;
+        this.selected = null;
         this.drawSelection();
         this.syncPanel();
-        drag = { kind: 'view', sx: e.clientX, sy: e.clientY, ox: v.x, oy: v.y, id, moved: false };
+        const at = 'at' in a ? a.at : [0, 0];
+        const p = a.view ? this.placements.get(a.view) : undefined;
+        drag = { kind: 'anno', sx: e.clientX, sy: e.clientY, ox: at[0], oy: at[1], id: anno, moved: false, s: p?.s ?? 1 };
+      } else if (id) {
+        const d = this.doc!;
+        const v = d.views.find((q) => q.id === id)!;
+        this.selected = id;
+        this.selectedAnno = null;
+        this.drawSelection();
+        this.syncPanel();
+        const follow = this.followers(d, id).map((f) => { const q = d.views.find((w) => w.id === f)!; return { id: f, x: q.x, y: q.y }; });
+        drag = { kind: 'view', sx: e.clientX, sy: e.clientY, ox: v.x, oy: v.y, id, moved: false, follow, align: this.placements.get(id)?.r.align };
       } else {
-        if (e.button === 0 && this.selected) { this.selected = null; this.drawSelection(); this.syncPanel(); }
+        if (e.button === 0 && (this.selected || this.selectedAnno)) { this.selected = null; this.selectedAnno = null; this.drawSelection(); this.syncPanel(); }
         drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: this.pan.x, oy: this.pan.y, moved: false };
       }
     });
@@ -349,25 +991,40 @@ export class DrawingWorkspace {
         this.applyTransform();
         return;
       }
-      if (!drag) return;
+      if (!drag) {
+        if (this.tool) { const [x, y] = this.toSheet(e.clientX, e.clientY); this.toolMove(x, y); }
+        return;
+      }
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (!drag.moved && Math.hypot(dx, dy) < 3) return;
-      if (!drag.moved && drag.kind === 'view') this.app.store.beginBatch('Move view', () => { drag = null; });
+      if (!drag.moved && drag.kind !== 'pan') this.app.store.beginBatch(drag.kind === 'view' ? 'Move view' : 'Move annotation', () => { drag = null; });
       drag.moved = true;
       if (drag.kind === 'pan') {
         this.pan = { x: drag.ox + dx, y: drag.oy + dy };
         this.applyTransform();
+      } else if (drag.kind === 'anno') {
+        const id = drag.id!, k = (drag.s ?? 1) * this.zoom;
+        const nx = drag.ox + dx / k, ny = drag.oy + dy / k;
+        this.update((d) => { const a = d.annotations?.find((q) => q.id === id); if (a && 'at' in a) a.at = [+nx.toFixed(4), +ny.toFixed(4)]; }, 'Move annotation');
       } else {
         const id = drag.id!;
-        const [nx, ny] = this.onSheet(id, drag.ox + dx / this.zoom, drag.oy + dy / this.zoom);
+        // A view aligned with its parent moves only along the axis they do not share.
+        const mx = drag.align === 'x' ? 0 : dx, my = drag.align === 'y' ? 0 : dy;
+        const [nx, ny] = this.onSheet(id, drag.ox + mx / this.zoom, drag.oy + my / this.zoom);
+        const ddx = nx - drag.ox, ddy = ny - drag.oy;
+        const follow = drag.follow ?? [];
         // The change re-renders the sheet (App refreshes the drawing on every document change).
-        this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x = nx; v.y = ny; } }, 'Move view');
+        this.update((d) => {
+          const v = d.views.find((q) => q.id === id);
+          if (v) { v.x = nx; v.y = ny; }
+          for (const f of follow) { const q = d.views.find((w) => w.id === f.id); if (q) { q.x = f.x + ddx; q.y = f.y + ddy; } }
+        }, 'Move view');
       }
     });
     const end = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       if (pinch) { if (pointers.size < 2) pinch = null; return; }
-      if (drag?.kind === 'view' && drag.moved) this.app.store.endBatch();
+      if ((drag?.kind === 'view' || drag?.kind === 'anno') && drag.moved) this.app.store.endBatch();
       drag = null;
     };
     this.el.addEventListener('pointerup', end);
@@ -386,6 +1043,7 @@ export class DrawingWorkspace {
       this.pan = { x: mx - ((mx - this.pan.x) * nz) / this.zoom, y: my - ((my - this.pan.y) * nz) / this.zoom };
       this.zoom = nz;
       this.applyTransform();
+      if (this.tool) this.drawOverlay();
     }, { passive: false });
     // A held arrow key is one undo step: its auto-repeats join the step of the first press
     // (one step each filled the bounded history within seconds and dropped older steps).
@@ -399,12 +1057,22 @@ export class DrawingWorkspace {
         const store = this.app.store;
         const join = e.repeat && nudge?.id === id && nudge.last === store.undoMark ? nudge : null;
         const mark = join ? join.mark : store.undoMark;
-        const v = this.doc?.views.find((q) => q.id === id);
-        if (!v) return;
+        const d0 = this.doc;
+        const v = d0?.views.find((q) => q.id === id);
+        if (!d0 || !v) return;
+        const align = this.placements.get(id)?.r.align;
+        if (align === 'x') dx = 0;
+        if (align === 'y') dy = 0;
         // Held against the edge of the sheet: nothing to move (and no empty undo step).
         const [nx, ny] = this.onSheet(id, v.x + dx, v.y + dy);
         if (nx === v.x && ny === v.y) return;
-        this.update((d) => { const q = d.views.find((x) => x.id === id); if (q) { q.x = nx; q.y = ny; } }, 'Move view');
+        const follow = this.followers(d0, id);
+        const ddx = nx - v.x, ddy = ny - v.y;
+        this.update((d) => {
+          const q = d.views.find((x) => x.id === id);
+          if (q) { q.x = nx; q.y = ny; }
+          for (const f of follow) { const w = d.views.find((x) => x.id === f); if (w) { w.x += ddx; w.y += ddy; } }
+        }, 'Move view');
         if (join) store.squash(mark, 'Move view');
         nudge = { id, mark, last: store.undoMark };
       };
@@ -437,10 +1105,10 @@ export class DrawingWorkspace {
     if (!d || !v) return [x, y];
     const { w, h } = sheetDims(d);
     // The view's reach from its centre, at k times the scale drawn.
-    const f = this.frameOf(v, d.scale / k);
+    const f = this.frameOf(v, d.scale / k, d);
     const [l, r, t, b] = f ? [v.x - f.x0, f.x1 - v.x, v.y - f.y0, f.y1 - v.y].map((q) => q * k) : [0, 0, 0, 0];
     // Its dimensions, left of and below it, stay on the sheet too.
-    const [dl, db] = v.dims && v.kind !== 'isometric' ? [DIM_LEFT, DIM_BELOW] : [0, 0];
+    const [dl, db] = v.dims && v.kind !== 'isometric' && v.type !== 'detail' ? [DIM_LEFT, DIM_BELOW] : [0, 0];
     const fit = (c: number, lo: number, hi: number) => Math.min(Math.max(c, Math.min(lo, hi)), Math.max(lo, hi));
     return [fit(x, MARGIN + l + dl, w - MARGIN - r), fit(y, MARGIN + t, h - MARGIN - b - db)];
   }
@@ -453,7 +1121,7 @@ export class DrawingWorkspace {
   rescaleViews(d: DrawingDoc, old: number) {
     const k = d.scale / old;
     if (!(k > 0) || k === 1) return;
-    const fs = d.views.map((v) => this.frameOf(v, old)).filter((f) => !!f);
+    const fs = d.views.map((v) => this.frameOf(v, old, d)).filter((f) => !!f);
     const ax = Math.min(...fs.map((f) => f.x0)), ay = Math.min(...fs.map((f) => f.y0));
     const moved = d.views.map((v) => {
       const [x, y] = k > 1 && fs.length ? [ax + (v.x - ax) * k, ay + (v.y - ay) * k] : [v.x, v.y];
@@ -463,14 +1131,23 @@ export class DrawingWorkspace {
   }
 
   /**
-   * A view's frame as last drawn or, while it is still being projected (a drawing just opened),
-   * the projection of the part's bounding box drawn at `scale`.
+   * A view's frame as last drawn, centred on where the view is now (an aligned view's frame
+   * is not centred on its position) or, while it is still being projected (a drawing just
+   * opened), the projection of the part's bounding box drawn at `scale`.
    */
-  private frameOf(v: DrawingView, scale: number): ViewFrame | undefined {
+  private frameOf(v: DrawingView, scale: number, d = this.doc): ViewFrame | undefined {
     const f = this.frames.find((q) => q.id === v.id);
     const b = this.app.bbox;
-    if (f || !b) return f;
-    const [vw, vh] = projectedSize(v.kind, b.min, b.max).map((q) => (q * scale) / 2);
+    if (f) {
+      const p = this.placements.get(v.id);
+      if (!p?.r.align) return f;
+      const cx = (f.x0 + f.x1) / 2, cy = (f.y0 + f.y1) / 2;
+      return { id: f.id, x0: f.x0 - cx + v.x, x1: f.x1 - cx + v.x, y0: f.y0 - cy + v.y, y1: f.y1 - cy + v.y };
+    }
+    if (!b) return f;
+    const r = d ? resolveViews(d).get(v.id) : undefined;
+    const vs = r && r.type !== 'model' ? r.scale * (scale / (d?.scale || scale)) : scale;
+    const [vw, vh] = (r && r.type !== 'model' ? sizeIn(r.o, b.min, b.max) : projectedSize(v.kind, b.min, b.max)).map((q) => (q * vs) / 2);
     return { id: v.id, x0: v.x - vw, y0: v.y - vh, x1: v.x + vw, y1: v.y + vh };
   }
 
@@ -482,26 +1159,60 @@ export class DrawingWorkspace {
   /** Selects a view from the keyboard (the Views list) and focuses the sheet so arrow keys move it. */
   select(id: string) {
     this.selected = id;
+    this.selectedAnno = null;
     this.drawSelection();
     this.syncPanel();
     this.el.focus({ preventScroll: true });
   }
 
-  /** Esc: the arrow keys go back to moving the sheet. */
-  deselect(): boolean {
-    if (!this.selected) return false;
+  selectAnno(id: string) {
+    this.selectedAnno = id;
     this.selected = null;
+    this.drawSelection();
+    this.syncPanel();
+  }
+
+  /** Esc: ends the command, else the arrow keys go back to moving the sheet. */
+  deselect(): boolean {
+    if (this.cancelTool()) return true;
+    if (!this.selected && !this.selectedAnno) return false;
+    this.selected = null;
+    this.selectedAnno = null;
     this.drawSelection();
     this.syncPanel();
     return true;
   }
 
   deleteSelected(): boolean {
+    const anno = this.selectedAnno;
+    if (anno) { this.deleteAnno(anno); return true; }
     const id = this.selected;
     if (!id) return false;
-    this.selected = null;
-    this.update((d) => { d.views = d.views.filter((v) => v.id !== id); }, 'Delete view');
+    this.deleteView(id);
     return true;
+  }
+
+  deleteAnno(anno: Id) {
+    if (this.selectedAnno === anno) this.selectedAnno = null;
+    this.update((d) => { d.annotations = (d.annotations ?? []).filter((a) => a.id !== anno); }, 'Delete annotation');
+  }
+
+  /** Deletes a view with its annotations; the views made from it go too, after a warning. */
+  deleteView(id: Id) {
+    const d = this.doc;
+    const deps = d ? dependents(d, id) : [];
+    const remove = () => {
+      const gone = [id, ...deps];
+      if (this.selected && gone.includes(this.selected)) this.selected = null;
+      this.update((x) => {
+        x.views = x.views.filter((v) => !gone.includes(v.id));
+        if (x.annotations) x.annotations = x.annotations.filter((a) => !a.view || !gone.includes(a.view));
+      }, 'Delete view');
+    };
+    if (!deps.length || !d) { if (this.selected === id) this.selected = null; remove(); return; }
+    const names = deps.map((q) => viewName(d, d.views.find((v) => v.id === q)!)).join(', ');
+    const v = d.views.find((q) => q.id === id)!;
+    void confirmDialog('Delete view', `Deleting the ${viewName(d, v)} view also deletes the views made from it: ${names}.`, 'Delete', true).then((ok) => { if (ok) remove(); });
   }
 
   addView(kind: DrawingViewKind) {
@@ -512,13 +1223,12 @@ export class DrawingWorkspace {
     const dims = kind !== 'isometric';
     // In free room on the sheet, not on top of the other views or their dimensions
     // (a view still being projected takes the room of its bounding box's projection).
-    const others = d.views.map((v) => ({ frame: this.frameOf(v, d.scale)!, dims: v.dims && v.kind !== 'isometric' }));
+    const others = d.views.map((v) => ({ frame: this.frameOf(v, d.scale)!, dims: v.dims && v.kind !== 'isometric' && v.type !== 'detail' }));
     const [x, y] = placeView(sheetDims(d), w * d.scale, hh * d.scale, dims, others);
-    let n = d.views.length + 1;
-    while (d.views.some((v) => v.id === `v${n}`)) n++;
-    const id = `v${n}`;
+    const id = this.newViewId(d);
     this.selected = id;
-    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: dims, dims }); }, 'Add view');
+    const full = d.titleBlock === 'full';
+    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: dims, dims, ...(full ? { centerMarks: true } : {}) }); }, 'Add view');
   }
 
   // ---------- export ----------
@@ -560,9 +1270,33 @@ export class DrawingWorkspace {
     const s = this.sheet();
     download(toSvg(s.items, s.w, s.h, { title: this.exportTitle() }), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
   }
+
+  async exportDxf() {
+    if (!(await this.projected())) return;
+    const s = this.sheet();
+    download(toDxf(s.items, s.w, s.h), `${safeName(this.app.store.doc.name)}.dxf`, 'application/dxf');
+  }
 }
 
-/** PropertyManager for the drawing: sheet, scale, views and title block. */
+/** Size (paper width, height) of a box seen from a direction. */
+function sizeIn(o: { dir: [number, number, number]; x: [number, number, number]; up: [number, number, number] }, min: [number, number, number], max: [number, number, number]): [number, number] {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    const p = [i & 1 ? max[0] : min[0], i & 2 ? max[1] : min[1], i & 4 ? max[2] : min[2]];
+    const u = p[0] * o.x[0] + p[1] * o.x[1] + p[2] * o.x[2], v = p[0] * o.up[0] + p[1] * o.up[1] + p[2] * o.up[2];
+    x0 = Math.min(x0, u); x1 = Math.max(x1, u); y0 = Math.min(y0, v); y1 = Math.max(y1, v);
+  }
+  return [x1 - x0, y1 - y0];
+}
+
+/** A detail view's scale: the standard scale at least twice its parent's. */
+export function detailScale(parent: number): number {
+  const want = parent * 2;
+  const up = [...STANDARD_SCALES].reverse().find((s) => s >= want - 1e-9);
+  return up ?? want;
+}
+
+/** PropertyManager for the drawing: sheet, scale, views, annotations and title block. */
 export class DrawingPanel extends PropertyPanel {
   title = 'Drawing';
   icon = 'file';
@@ -582,12 +1316,12 @@ export class DrawingPanel extends PropertyPanel {
     const ws = this.ws;
     const d = ws.doc;
     if (!d) return [];
-    const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; ws.keepOnSheet(x); }, 'Sheet size'));
+    const sheet = selectField<SheetSize>('Sheet size', d.sheet, SHEET_ORDER.filter((k) => k in SHEETS).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; ws.keepOnSheet(x); }, 'Sheet size'));
     const scales = STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }));
     if (!scales.some((s) => Number(s.value) === d.scale)) scales.push({ value: String(d.scale), label: scaleLabel(d.scale) });
     const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { const old = x.scale; x.scale = Number(v); ws.rescaleViews(x, old); }, 'Sheet scale'));
     const views = h('div', { class: 'relations-list' });
-    for (const v of d.views) views.append(this.viewRow(v));
+    for (const v of d.views) views.append(this.viewRow(d, v));
     const addSel = h('select', { class: 'input', 'aria-label': 'View to add' }) as HTMLSelectElement;
     for (const k of Object.keys(VIEW_LABELS) as DrawingViewKind[]) addSel.append(h('option', { value: k }, VIEW_LABELS[k]));
     const add = h('button', { class: 'btn small', type: 'button' }, icon('plus', 14), 'Add view');
@@ -597,41 +1331,142 @@ export class DrawingPanel extends PropertyPanel {
       input.addEventListener('change', () => set(input.value));
       return h('div', {}, h('div', { class: 'field-label' }, label), input);
     };
-    return [
+    const toolButton = (kind: DrawingToolKind, ic: string) =>
+      h('button', { class: 'btn small', type: 'button', 'aria-pressed': String(ws.tool?.kind === kind), onclick: () => ws.startTool(kind) }, icon(ic, 14), TOOL_LABELS[kind]);
+    const out: HTMLElement[] = [];
+    const tool = this.toolSection();
+    if (tool) out.push(tool);
+    out.push(
       section('Sheet', [
         sheet,
         checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; ws.keepOnSheet(x); }, 'Sheet orientation')),
         scale,
+        selectField('Projection angle', d.projection ?? 'third', [{ value: 'third', label: 'Third angle (ASME)' }, { value: 'first', label: 'First angle (ISO)' }], (v) => ws.updateFromPanel((x) => { x.projection = v; }, 'Projection angle')),
         h('button', { class: 'btn small', type: 'button', onclick: () => ws.relayout() }, icon('reset', 14), 'Arrange standard views'),
       ]),
-      section('Views', [views, h('div', { class: 'row' }, h('div', { class: 'grow' }, addSel), add)]),
+      section('Views', [
+        views, h('div', { class: 'row' }, h('div', { class: 'grow' }, addSel), add),
+        h('div', { class: 'row wrap drw-tools' }, toolButton('projected', 'drawingProjected'), toolButton('section', 'drawingSection'), toolButton('detail', 'drawingDetail'), toolButton('auxiliary', 'drawingAuxiliary')),
+      ]),
+    );
+    const sel = ws.selected ? d.views.find((v) => v.id === ws.selected) : undefined;
+    if (sel) out.push(this.viewSection(d, sel));
+    out.push(this.annotationsSection(d));
+    const anno = ws.selectedAnno ? d.annotations?.find((a) => a.id === ws.selectedAnno) : undefined;
+    if (anno) out.push(this.annotationSection(anno));
+    out.push(
       section('Title Block', [
         field('Title', d.title || this.app.store.doc.name, (v) => ws.updateFromPanel((x) => { x.title = v; }, 'Title')),
         field('Drawn by', d.drawnBy, (v) => ws.updateFromPanel((x) => { x.drawnBy = v; }, 'Drawn by')),
         field('Notes', d.notes, (v) => ws.updateFromPanel((x) => { x.notes = v; }, 'Notes')),
+        field('Revision', d.revision ?? '', (v) => ws.updateFromPanel((x) => { x.revision = v; }, 'Revision')),
+        checkbox('Full title block (projection symbol, revision, sheet number)', d.titleBlock === 'full', (v) => ws.updateFromPanel((x) => { x.titleBlock = v ? 'full' : 'basic'; }, 'Title block')),
       ]),
       section('Export', [
         h('div', { class: 'row' },
           h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportPdf() }, icon('download', 14), 'PDF'),
-          h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportSvg() }, icon('download', 14), 'SVG')),
+          h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportSvg() }, icon('download', 14), 'SVG'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportDxf() }, icon('download', 14), 'DXF')),
       ]),
-    ];
+    );
+    return out;
   }
 
-  private viewRow(v: DrawingView): HTMLElement {
+  /** The active sheet command: what it asks for, its options, and Cancel. */
+  private toolSection(): HTMLElement | null {
     const ws = this.ws;
-    const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${VIEW_LABELS[v.kind]} view` }, icon('trash', 14));
-    del.addEventListener('click', () => { ws.selected = v.id; ws.deleteSelected(); });
-    const hidden = h('input', { type: 'checkbox', 'aria-label': `Hidden lines in ${VIEW_LABELS[v.kind]} view` }) as HTMLInputElement;
+    const t = ws.tool;
+    if (!t) return null;
+    const parts: HTMLElement[] = [h('div', { class: 'pm-msg info', role: 'status' }, ws.toolPrompt())];
+    if (t.kind === 'section') parts.push(segmented('Cutting line', t.orient, [{ value: 'horizontal', label: 'Horizontal' }, { value: 'vertical', label: 'Vertical' }, { value: 'aligned', label: 'Aligned' }], (v) => ws.setToolOption({ orient: v })));
+    if (t.kind === 'note') parts.push(checkbox('With a leader arrow', t.leader, (v) => ws.setToolOption({ leader: v })));
+    parts.push(h('button', { class: 'btn small', type: 'button', onclick: () => ws.cancelTool() }, icon('close', 14), 'Cancel command'));
+    return section(TOOL_LABELS[t.kind], parts);
+  }
+
+  private viewSection(d: DrawingDoc, v: DrawingView): HTMLElement {
+    const ws = this.ws;
+    const set = (label: string, fn: (x: DrawingView) => void) => ws.updateFromPanel((dd) => { const x = dd.views.find((q) => q.id === v.id); if (x) fn(x); }, label);
+    const type = v.type ?? 'model';
+    const parts: HTMLElement[] = [];
+    const label = h('input', { class: 'input', value: v.label ?? '', 'aria-label': type === 'section' || type === 'detail' || type === 'auxiliary' ? 'View letter' : 'View caption' }) as HTMLInputElement;
+    label.addEventListener('change', () => set('View label', (x) => { const s = label.value.trim(); if (s) x.label = s; else if (type === 'model' || type === 'projected') delete x.label; }));
+    parts.push(h('div', {}, h('div', { class: 'field-label' }, type === 'model' || type === 'projected' ? 'Caption (empty: the view’s name)' : 'Letter'), label));
+    if (type === 'model' || type === 'detail') {
+      const own = v.scale;
+      const opts = [{ value: '', label: type === 'detail' ? 'Twice the parent’s' : `Sheet scale (${scaleLabel(d.scale)})` }, ...STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }))];
+      if (own !== undefined && !STANDARD_SCALES.includes(own)) opts.push({ value: String(own), label: scaleLabel(own) });
+      parts.push(selectField('View scale', own === undefined ? '' : String(own), opts, (val) => set('View scale', (x) => { if (val) x.scale = Number(val); else delete x.scale; })));
+    }
+    parts.push(
+      checkbox('Show hidden lines', v.hidden, (val) => set('Hidden lines', (x) => { x.hidden = val; })),
+      checkbox('Show tangent edges', v.tangent !== false, (val) => set('Tangent edges', (x) => { if (val) delete x.tangent; else x.tangent = false; })),
+      checkbox('Center marks and hole centerlines', !!v.centerMarks, (val) => set('Center marks', (x) => { x.centerMarks = val; })),
+    );
+    if (type !== 'detail') parts.push(checkbox('Overall dimensions', v.dims, (val) => set('Dimensions', (x) => { x.dims = val; })));
+    const deps = dependents(d, v.id);
+    parts.push(h('button', { class: 'btn small', type: 'button', onclick: () => ws.deleteView(v.id) }, icon('trash', 14), deps.length ? `Delete view and ${deps.length} made from it` : 'Delete view'));
+    return section(`View: ${viewName(d, v)}`, parts);
+  }
+
+  private annotationsSection(d: DrawingDoc): HTMLElement {
+    const ws = this.ws;
+    const list = h('div', { class: 'drw-anno-list' });
+    const names: Record<DrawingAnnotation['type'], string> = { dimension: 'Dimension', note: 'Note', centerMark: 'Center mark', centerline: 'Centerline', holeCallout: 'Hole callout', balloon: 'Balloon', bom: 'Bill of materials' };
+    for (const a of d.annotations ?? []) {
+      const dangling = ws.dangling(a);
+      const text = a.type === 'note' ? `Note: ${a.text.split('\n')[0]}` : a.type === 'dimension' ? `${{ horizontal: 'Horizontal', vertical: 'Vertical', aligned: 'Aligned', radius: 'Radius', diameter: 'Diameter', angle: 'Angle' }[a.kind]} dimension` : names[a.type];
+      const name = h('button', { class: 'grow', type: 'button', 'aria-pressed': String(ws.selectedAnno === a.id), style: { background: 'none', border: '0', padding: '0', textAlign: 'left' } }, text, dangling ? h('span', { class: 'drw-missing' }, ' (geometry missing)') : null);
+      name.addEventListener('click', () => ws.selectAnno(a.id));
+      const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${text}` }, icon('trash', 14));
+      del.addEventListener('click', () => ws.deleteAnno(a.id));
+      list.append(h('div', { class: `rel-btn${ws.selectedAnno === a.id ? ' on' : ''}`, style: { cursor: 'default' } }, name, del));
+    }
+    const tool = (kind: DrawingToolKind, ic: string) => h('button', { class: 'btn small', type: 'button', 'aria-pressed': String(ws.tool?.kind === kind), onclick: () => ws.startTool(kind) }, icon(ic, 14), TOOL_LABELS[kind]);
+    return section('Annotations', [
+      (d.annotations ?? []).length ? list : h('div', { class: 'field-label' }, 'No annotations yet.'),
+      h('div', { class: 'row wrap drw-tools' }, tool('dimension', 'smartDimension'), tool('centerMark', 'drawingCenterMark'), tool('centerline', 'centerline'), tool('note', 'text'), tool('holeCallout', 'drawingHoleCallout')),
+    ]);
+  }
+
+  private annotationSection(a: DrawingAnnotation): HTMLElement {
+    const ws = this.ws;
+    const set = (label: string, fn: (x: DrawingAnnotation) => void) => ws.updateFromPanel((dd) => { const x = dd.annotations?.find((q) => q.id === a.id); if (x) fn(x); }, label);
+    const parts: HTMLElement[] = [];
+    if (a.type === 'note') {
+      const ta = h('textarea', { class: 'input', rows: '3', 'aria-label': 'Note text' }) as HTMLTextAreaElement;
+      ta.value = a.text;
+      ta.addEventListener('change', () => set('Note text', (x) => { if (x.type === 'note') x.text = ta.value; }));
+      parts.push(h('div', {}, h('div', { class: 'field-label' }, 'Text'), ta));
+      parts.push(selectField('Text height', String(a.size ?? 3.5), ['2.5', '3.5', '5', '7'].map((s) => ({ value: s, label: `${s} mm` })), (v) => set('Note size', (x) => { if (x.type === 'note') x.size = Number(v); })));
+    }
+    if (a.type === 'dimension') {
+      const doc = this.app.store.doc;
+      parts.push(selectField('Decimals', a.decimals === undefined ? '' : String(a.decimals), [{ value: '', label: `Document (${doc.decimals})` }, ...[0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))], (v) => set('Decimals', (x) => { if (x.type === 'dimension') { if (v === '') delete x.decimals; else x.decimals = Number(v); } })));
+      const pre = h('input', { class: 'input', value: a.prefix ?? '', 'aria-label': 'Text before the value' }) as HTMLInputElement;
+      pre.addEventListener('change', () => set('Dimension prefix', (x) => { if (x.type === 'dimension') { if (pre.value) x.prefix = pre.value; else delete x.prefix; } }));
+      parts.push(h('div', {}, h('div', { class: 'field-label' }, 'Text before the value (e.g. 2X)'), pre));
+      if (ws.dangling(a)) parts.push(h('div', { class: 'pm-msg warn', role: 'status' }, 'The model edge this dimension measured is gone. Delete it and dimension the new geometry.'));
+    }
+    parts.push(h('button', { class: 'btn small', type: 'button', onclick: () => ws.deleteAnno(a.id) }, icon('trash', 14), 'Delete annotation'));
+    return section('Selected annotation', parts);
+  }
+
+  private viewRow(d: DrawingDoc, v: DrawingView): HTMLElement {
+    const ws = this.ws;
+    const vn = viewName(d, v);
+    const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${vn} view` }, icon('trash', 14));
+    del.addEventListener('click', () => ws.deleteView(v.id));
+    const hidden = h('input', { type: 'checkbox', 'aria-label': `Hidden lines in ${vn} view` }) as HTMLInputElement;
     hidden.checked = v.hidden;
-    hidden.addEventListener('change', () => ws.updateFromPanel((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.hidden = hidden.checked; }, 'Hidden lines'));
-    const dims = h('input', { type: 'checkbox', 'aria-label': `Dimensions in ${VIEW_LABELS[v.kind]} view` }) as HTMLInputElement;
+    hidden.addEventListener('change', () => ws.updateFromPanel((dd) => { const x = dd.views.find((q) => q.id === v.id); if (x) x.hidden = hidden.checked; }, 'Hidden lines'));
+    const dims = h('input', { type: 'checkbox', 'aria-label': `Dimensions in ${vn} view` }) as HTMLInputElement;
     dims.checked = v.dims;
-    dims.addEventListener('change', () => ws.updateFromPanel((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.dims = dims.checked; }, 'Dimensions'));
+    dims.addEventListener('change', () => ws.updateFromPanel((dd) => { const x = dd.views.find((q) => q.id === v.id); if (x) x.dims = dims.checked; }, 'Dimensions'));
     const name = h('button', {
       class: 'grow', type: 'button', 'aria-pressed': String(ws.selected === v.id), title: 'Select the view; arrow keys then move it',
       style: { background: 'none', border: '0', padding: '0', textAlign: 'left' },
-    }, VIEW_LABELS[v.kind]);
+    }, vn);
     name.addEventListener('click', () => ws.select(v.id));
     const row = h('div', { class: `rel-btn${ws.selected === v.id ? ' on' : ''}`, style: { cursor: 'default' } },
       name,
@@ -641,3 +1476,5 @@ export class DrawingPanel extends PropertyPanel {
     return row;
   }
 }
+
+export type { Prim };

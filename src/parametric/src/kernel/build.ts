@@ -32,6 +32,7 @@ import type {
   ProjectionRequest, ProjectionResult,
 } from './protocol';
 import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend, applyWeldBead } from './weldments';
+import { projectSection } from './drawing-section';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, fuseAll, getOc, gdir,
   hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
@@ -1621,7 +1622,8 @@ export class ModelBuilder {
     const tol = b ? Math.max(dist(b.min, b.max) * 1e-3, 1e-4) : 0.01;
     return views.map((v) => {
       if (!body) return { id: v.id, visible: [], hidden: [], bounds: null };
-      return { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10, v.hidden !== false) };
+      if (v.section && b) return { id: v.id, ...projectSection(body, b, v, tol) };
+      return { id: v.id, ...projectShape(body, v.dir, v.x, tol, tol / 10, v.hidden !== false, v.smooth !== false) };
     });
   }
 
