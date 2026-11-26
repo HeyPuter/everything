@@ -48,6 +48,17 @@ export function validDrawing(value: unknown): value is DrawingDoc {
   }
   // Parents exist (a view whose parent is missing could not be drawn or edited).
   for (const v of value.views as Record<string, unknown>[]) if (typeof v.parent === 'string' && (!ids.has(v.parent) || v.parent === v.id)) return false;
+  // Nor do views made from each other in a loop.
+  const parentOf = new Map((value.views as Record<string, unknown>[]).map((v) => [v.id as string, typeof v.parent === 'string' ? v.parent : undefined]));
+  const rooted = new Set<string>();
+  for (const id of ids) {
+    const chain = new Set<string>();
+    for (let p: string | undefined = id; p !== undefined && !rooted.has(p); p = parentOf.get(p)) {
+      if (chain.has(p)) return false;
+      chain.add(p);
+    }
+    for (const p of chain) rooted.add(p);
+  }
   // Only a detail view can be made from a flat pattern view (it has no direction to project from).
   const flat = new Set((value.views as Record<string, unknown>[]).filter((v) => v.type === 'flat').map((v) => v.id));
   for (const v of value.views as Record<string, unknown>[]) if (typeof v.parent === 'string' && flat.has(v.parent) && v.type !== 'detail') return false;

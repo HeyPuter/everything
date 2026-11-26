@@ -344,5 +344,8 @@ describe('validation', () => {
     expect(bad((d) => { d.annotations = [{ id: 'a', type: 'note', text: 'x', at: [0, 0], view: 'nope' }]; })).toBe(false);
     expect(bad((d) => { d.annotations = [{ id: 'a', type: 'sticker', at: [0, 0] }]; })).toBe(false);
     expect(bad((d) => { d.annotations = [{ id: 'a', type: 'note', text: 'x', at: [0] }]; })).toBe(false);
+    // Views made from each other in a loop could never be drawn.
+    expect(bad((d) => { d.views[0].type = 'projected'; d.views[0].parent = 'v2'; d.views[0].side = 'left'; })).toBe(false);
+    expect(bad((d) => { d.views.push({ id: 'v3', kind: 'front', type: 'detail', parent: 'v3', circle: [0, 0, 5], x: 0, y: 0, hidden: false, dims: false }); })).toBe(false);
   });
 });
