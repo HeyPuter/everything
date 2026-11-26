@@ -235,6 +235,10 @@ describe('PropertyManager number fields', () => {
     expect(parseParam('2.6', 'count', ctx())).toMatchObject({ ok: true, value: 3 });
     expect(parseParam('nope', 'length', ctx()).ok).toBe(false);
     expect(paramText(25.4, 'length', ctx('IPS'))).toBe('1');
+    // Inch values converted from millimetres read as typed, not with float noise.
+    for (const v of ['0.048', '0.09', '0.06', '0.036', '1.1']) expect(paramText(Number(v) * 25.4, 'length', ctx('IPS'))).toBe(v);
+    expect(paramText(1.524, 'length', ctx('IPS'))).toBe('0.06');
+    expect(paramText(0.1 + 0.2, 'length', ctx())).toBe('0.3');
     expect(paramText('=Len', 'length', ctx())).toBe('=Len');
   });
 
