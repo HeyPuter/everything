@@ -2,8 +2,9 @@
 // plus crash recovery of unsaved work in browser storage.
 
 import { defaultName } from '../model/features';
-import { allocateId, newDocument, parseDocument, serializeDocument, withUsedBlobs } from '../model/document';
+import { allocateId, newDocument, serializeDocument, withUsedBlobs } from '../model/document';
 import type { ImportFeature, PartDocument } from '../model/types';
+import { newAssembly, parseAnyDocument } from '../model/assembly';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, claimRecovery, orphanRecoveries, removeRecovery, safeName, writeRecovery, writeRecoveryOnUnload, type FileEntry, deletePart, forgetRecent, rememberRecent,
@@ -262,6 +263,13 @@ export class FileOps {
   async newPart() {
     if (!(await this.confirmDiscard('start a new part'))) return;
     this.app.newDocument(nextUntitled(this.app.store.doc.name));
+    await this.clearRecoveryCopies();
+  }
+
+  /** Starts a new, empty assembly (an assembly is saved in a part file of its own kind). */
+  async newAssembly() {
+    if (!(await this.confirmDiscard('start a new assembly'))) return;
+    this.app.loadDocument(newAssembly(nextUntitled(this.app.store.doc.name, 'Assembly'), this.app.settings.defaultUnits) as unknown as PartDocument, null);
     await this.clearRecoveryCopies();
   }
 
@@ -867,7 +875,7 @@ export class FileOps {
           if (v === 'restore') {
             let doc: PartDocument;
             try {
-              doc = parseDocument(JSON.stringify(data.doc));
+              doc = parseAnyDocument(JSON.stringify(data.doc)) as PartDocument;
             } catch (e) {
               toast({ kind: 'error', message: (e as Error).message });
               await removeRecovery(file);
@@ -989,23 +997,24 @@ const isDriveFolder = (it: PuterFSItem) => {
 /** The part in a file's text, or null after reporting why it is not one. */
 function parsePart(text: string): PartDocument | null {
   try {
-    return parseDocument(text);
+    // An assembly opens as well: the app switches to assembly mode for it.
+    return parseAnyDocument(text) as PartDocument;
   } catch (e) {
     toast({ kind: 'error', title: 'Could not open the part', message: (e as Error).message });
     return null;
   }
 }
 
-let untitled = 1;
+const untitledCounts: Record<string, number> = { Part: 1, Assembly: 0 };
 /**
- * The next PartN of this session that no part open, recently opened or kept
- * in this browser has, so a new part does not take the name of one it would
- * be confused with (or, saved, get "Part2 (2)").
+ * The next PartN (or AssemblyN) of this session that no part open, recently
+ * opened or kept in this browser has, so a new part does not take the name of
+ * one it would be confused with (or, saved, get "Part2 (2)").
  */
-function nextUntitled(current: string): string {
+function nextUntitled(current: string, prefix: 'Part' | 'Assembly' = 'Part'): string {
   const taken = new Set([current, ...recentParts().map((r) => r.name), ...localPartNames()].map((n) => n.toLowerCase()));
   let name: string;
-  do name = `Part${++untitled}`; while (taken.has(name.toLowerCase()));
+  do name = `${prefix}${++untitledCounts[prefix]}`; while (taken.has(name.toLowerCase()));
   return name;
 }
 

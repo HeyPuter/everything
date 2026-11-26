@@ -421,7 +421,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
   return [
     {
       label: 'File', items: () => [
-        m('new'), m('open'), m('openDevice'), { label: 'Recent', icon: 'files', submenu: () => app.recentMenu() }, sep,
+        m('new'), ...(c.get('newAssembly') ? [m('newAssembly')] : []), m('open'), m('openDevice'), { label: 'Recent', icon: 'files', submenu: () => app.recentMenu() }, sep,
         m('save'), m('saveAs'), m('downloadPart'), sep, m('importStep'), m('exportStep'), m('exportStl'), sep, m('openDrawing'), m('drawing:pdf'), sep, m('share'), m('rename'), m('properties'),
       ],
     },
@@ -451,6 +451,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
         { label: 'Pattern/Mirror', icon: 'linearPattern', submenu: () => [m('linearPattern'), m('circularPattern'), m('mirror')] },
         { label: 'Reference Geometry', icon: 'plane', submenu: () => [m('plane')] },
         sep, m('importStep'),
+        ...(c.get('insertComponent') ? [sep, m('insertComponent'), m('mate')] : []),
       ],
     },
     {
