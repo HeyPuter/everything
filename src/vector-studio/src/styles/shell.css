@@ -161,6 +161,7 @@ puter-user-menu::part(apps-panel) {
 
 /* ---- Workspace ---- */
 .workspace {
+  position: relative;
   display: grid;
   grid-template-columns: var(--toolbar-w) minmax(0, 1fr) auto;
   grid-template-rows: minmax(0, 1fr);
@@ -191,7 +192,25 @@ puter-user-menu::part(apps-panel) {
 .toolbar-head {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 2px;
   padding-top: 4px;
+}
+
+/* Drags the Tools panel out to float, or to an edge to dock it there. */
+.toolbar-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+  cursor: grab;
+  touch-action: none;
+}
+
+.toolbar-grip:hover {
+  color: var(--text);
 }
 
 .toolbar-cols {

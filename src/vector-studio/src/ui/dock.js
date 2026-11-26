@@ -3,10 +3,19 @@
  * icon strip of collapsed panels that open as flyouts beside it, like a
  * pro editor's collapsed panel groups. On narrow screens the dock becomes
  * a bottom sheet (see responsive.css) toggled from the status bar.
+ *
+ * Any panel can also float in its own window over the canvas: drag a dock
+ * tab or a strip icon out (or pick Float Panel from its panel menu), move
+ * the window by its header and resize it from its corner, then drop its
+ * header on the dock's tabs to dock it as a tab or on the strip to collapse
+ * it to an icon. Dragging a dock tab along the tabs reorders them. Drags
+ * use pointer events, so they work the same with a mouse, a finger or a
+ * stylus.
  */
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 import { formatShortcut, IS_MAC } from '../commands/registry.js';
+import { trackDrag, pointIn } from './drag.js';
 
 /** 'Shift+Mod+F10' -> 'Shift+Meta+F10' (aria-keyshortcuts names real keys). */
 function ariaShortcut(sc) {
@@ -18,6 +27,11 @@ const PHONE_QUERY = '(max-width: 760px)';
 
 /** Minimum time between panel refreshes during a live drag. */
 export const LIVE_PANEL_MS = 150;
+
+/** Floating panel window limits (px). */
+export const FLOAT_MIN_W = 200;
+export const FLOAT_MIN_H = 120;
+const FLOAT_DEFAULT_W = 280;
 
 /**
  * Collapsed panels sit in the strip in these groups, separated by a rule.
@@ -96,13 +110,35 @@ export function createDock(app) {
     return p.menu() || [];
   }
 
+  /** Where panel `id` is: 'dock', 'strip', 'float' or null (opened from the Window menu only). */
+  function placeOf(id) {
+    if (floats.has(id)) return 'float';
+    if (dockIds.includes(id)) return 'dock';
+    if (stripIds.includes(id)) return 'strip';
+    return null;
+  }
+
+  /** The panel menu's workspace items: float, dock or collapse the panel. */
+  function layoutMenu(id) {
+    const at = placeOf(id);
+    const lastTab = at === 'dock' && dockIds.length < 2;
+    const items = [];
+    if (at !== 'float') items.push({ label: 'Float Panel', enabled: !lastTab, run: () => floatPanel(id, { focus: true, user: true }) });
+    if (at !== 'dock') items.push({ label: 'Dock as Tab', run: () => dockPanel(id, { user: true }) });
+    if (at !== 'strip') items.push({ label: 'Collapse to Icon', enabled: !lastTab, run: () => collapsePanel(id, { user: true }) });
+    if (at === 'float') items.push({ label: 'Close Panel', run: () => closeFloat(id, { user: true }) });
+    return items;
+  }
+
   function openPanelMenu(id, anchor) {
-    const spec = panelMenu(id);
-    if (spec.length) app.showMenuAt(anchor, spec, `${panels.get(id).constructor.title} panel menu`);
+    if (!panels.has(id)) return;
+    const own = panelMenu(id);
+    const spec = [...own, ...(own.length ? ['-'] : []), ...layoutMenu(id)];
+    app.showMenuAt(anchor, spec, `${panels.get(id).constructor.title} panel menu`);
   }
 
   function syncMenuButton(btn, id) {
-    const has = !!id && panelMenu(id).length > 0;
+    const has = !!id && panels.has(id);
     btn.hidden = !has;
     if (has) {
       const title = panels.get(id).constructor.title;
@@ -113,6 +149,11 @@ export function createDock(app) {
   // One complementary landmark holds the strip, the flyout and the dock.
   // The hidden heading keeps the outline h1 (app) > h2 (panels) > h3 (panel sections).
   const el = h('aside.panels-area', { 'aria-label': 'Panels' }, h('h2.sr-only', 'Panels'), strip, flyout, dock);
+  // Floating panels sit over the canvas (the workspace places this layer).
+  const floatLayer = h('div.float-panels');
+  const floats = new Map(); // panel id -> { el, x, y, w, h } (h null: as tall as its content)
+  const lastFloat = new Map(); // panel id -> where it floated before it was closed
+  const changed = () => app.emit?.('panel-layout');
 
   let scheduled = false;
   let lastLive = 0;
@@ -143,10 +184,11 @@ export function createDock(app) {
     return p;
   }
 
-  function addToDock(id) {
+  function addToDock(id, index = dockIds.length) {
     const p = panels.get(id);
     const PanelClass = p.constructor;
-    dockIds.push(id);
+    const at = Math.max(0, Math.min(dockIds.length, index));
+    dockIds.splice(at, 0, id);
     const tab = h(
       'button.dock-tab',
       {
@@ -157,6 +199,9 @@ export function createDock(app) {
         'aria-selected': 'false',
         tabindex: '-1',
         onclick: () => showTab(id),
+        onpointerdown: (e) => {
+          if (e.button === 0) beginPanelDrag(e, id);
+        },
         onkeydown: (e) => {
           if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
           e.preventDefault();
@@ -168,7 +213,7 @@ export function createDock(app) {
       },
       PanelClass.title,
     );
-    tabs.append(tab);
+    tabs.insertBefore(tab, tabs.children[at] || null);
     p.el.id = `tabpanel-${id}`;
     p.el.setAttribute('role', 'tabpanel');
     p.el.setAttribute('aria-labelledby', `tab-${id}`);
@@ -197,6 +242,9 @@ export function createDock(app) {
         'data-panel': id,
         tabindex: '-1',
         onclick: () => toggleFlyout(id),
+        onpointerdown: (e) => {
+          if (e.button === 0) beginPanelDrag(e, id);
+        },
       },
       icon(PanelClass.icon, 18),
     );
@@ -350,9 +398,11 @@ export function createDock(app) {
     const r = btn.getBoundingClientRect();
     const fw = menuEl.offsetWidth;
     const fh = menuEl.offsetHeight;
-    // Beside the vertical strip; above it when the strip is a row (phones).
+    // Beside the vertical strip, on the canvas side; above it when the strip is a row (phones).
     const row = stripIsRow();
-    menuEl.style.left = `${Math.max(4, row ? Math.min(window.innerWidth - fw - 4, r.left) : r.left - fw - 4)}px`;
+    const besideLeft = r.left - fw - 4;
+    const left = row ? Math.min(window.innerWidth - fw - 4, r.left) : app.root?.classList.contains('panels-left') ? Math.min(window.innerWidth - fw - 4, r.right + 4) : besideLeft;
+    menuEl.style.left = `${Math.max(4, left)}px`;
     menuEl.style.top = `${Math.max(4, row ? r.top - fh - 4 : Math.min(window.innerHeight - fh - 4, r.top))}px`;
     document.addEventListener('pointerdown', outsideStackMenu, true);
     (menuEl.querySelector('[aria-checked="true"]') || menuEl.querySelector('.flyout-item'))?.focus();
@@ -369,22 +419,27 @@ export function createDock(app) {
     queueFit();
   }
 
-  /** The panel arrangement: { dock: [ids], strip: [ids], active } (panels in neither open from the Window menu). */
+  /**
+   * The panel arrangement: { dock: [ids], strip: [ids], active, floating:
+   * [{ id, x, y, w, h }] } (panels in none of them open from the Window menu).
+   */
   function getLayout() {
-    return { dock: [...dockIds], strip: [...stripIds], active: activeTab };
+    return { dock: [...dockIds], strip: [...stripIds], active: activeTab, floating: [...floats].map(([id, f]) => ({ id, x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.w), h: f.h == null ? null : Math.round(f.h) })) };
   }
 
   /**
    * Rearrange the panels (workspaces): `dock` lists the tabbed panels in
-   * order, `strip` the collapsed ones; unknown ids are ignored and at least
-   * one dock tab is kept.
+   * order, `strip` the collapsed ones, `floating` the panels in their own
+   * windows; unknown ids are ignored and at least one dock tab is kept.
    */
-  function setLayout({ dock: dockOrder = [], strip: stripOrder = [], active = null } = {}) {
+  function setLayout({ dock: dockOrder = [], strip: stripOrder = [], active = null, floating = [] } = {}) {
     closeFlyout(false);
+    for (const id of [...floats.keys()]) removeFloat(id);
     const known = (ids) => [...new Set(ids)].filter((id) => panels.has(id));
     let nextDock = known(dockOrder);
     if (!nextDock.length) nextDock = dockIds.length ? [dockIds[0]] : [...panels.keys()].slice(0, 1);
     const nextStrip = known(stripOrder).filter((id) => !nextDock.includes(id));
+    const nextFloat = (Array.isArray(floating) ? floating : []).filter((f) => f && panels.has(f.id) && !nextDock.includes(f.id) && !nextStrip.includes(f.id));
     for (const id of dockIds) {
       const p = panels.get(id);
       if (p.visible) p.hidden();
@@ -400,7 +455,284 @@ export function createDock(app) {
     renderStrip();
     queueFit();
     showTab(nextDock.includes(active) ? active : nextDock.includes(activeTab) ? activeTab : nextDock[0]);
+    const seen = new Set();
+    for (const f of nextFloat) {
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
+      floatPanel(f.id, f);
+    }
   }
+
+  // ---- Floating panels ----
+
+  /** Take panel `id` out of the dock or the strip (not the last dock tab). */
+  function detach(id) {
+    if (flyoutId === id) closeFlyout(false);
+    const i = dockIds.indexOf(id);
+    if (i >= 0) {
+      const p = panels.get(id);
+      dockIds.splice(i, 1);
+      tabs.querySelector(`#tab-${id}`)?.remove();
+      if (p.visible) p.hidden();
+      p.el.remove();
+      p.el.hidden = false;
+      for (const a of ['id', 'role', 'aria-labelledby']) p.el.removeAttribute(a);
+      if (activeTab === id && dockIds.length) showTab(dockIds[Math.min(i, dockIds.length - 1)]);
+    }
+    const j = stripIds.indexOf(id);
+    if (j >= 0) {
+      stripIds.splice(j, 1);
+      renderStrip();
+      queueFit();
+    }
+  }
+
+  const layerSize = () => {
+    const r = floatLayer.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width || window.innerWidth, height: r.height || window.innerHeight };
+  };
+
+  /** Keep a floating panel inside the workspace (its size too, as far as the workspace allows). */
+  function placeFloat(f) {
+    const { width, height } = layerSize();
+    f.w = Math.max(FLOAT_MIN_W, Math.min(Number(f.w) || FLOAT_DEFAULT_W, width));
+    if (f.h != null) f.h = Math.max(FLOAT_MIN_H, Math.min(Number(f.h) || FLOAT_MIN_H, height));
+    f.x = Math.max(0, Math.min(width - f.w, Number(f.x) || 0));
+    f.y = Math.max(0, Math.min(height - (f.h ?? 32), Number(f.y) || 0));
+    Object.assign(f.el.style, { left: `${f.x}px`, top: `${f.y}px`, width: `${f.w}px`, height: f.h == null ? '' : `${f.h}px` });
+  }
+
+  let zTop = 1;
+  const raise = (f) => (f.el.style.zIndex = String(++zTop));
+
+  /**
+   * Show panel `id` in its own window at { x, y } (workspace pixels), `w`
+   * wide and `h` tall (null: as tall as its content). The last dock tab
+   * stays docked.
+   */
+  function floatPanel(id, { x, y, w, h: ht = null, focus = false, user = false } = {}) {
+    const p = panels.get(id);
+    if (!p) return null;
+    if (floats.has(id)) {
+      const f = floats.get(id);
+      raise(f);
+      if (focus) focusFloat(f);
+      return f;
+    }
+    if (dockIds.includes(id) && dockIds.length < 2) return null;
+    const prev = lastFloat.get(id);
+    const n = floats.size;
+    if (x == null || y == null) {
+      const { width } = layerSize();
+      ({ x, y } = prev || { x: Math.max(8, width - (Number(w) || FLOAT_DEFAULT_W) - 24 - n * 24), y: 16 + n * 24 });
+    }
+    detach(id);
+    const P = p.constructor;
+    const menuBtn = h('button.icon-btn.panel-menu-btn', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': `${P.title} panel menu`, 'data-tip': `${P.title} panel menu`, onclick: (e) => openPanelMenu(id, e.currentTarget) }, icon('menu', 14));
+    const collapse = h('button.icon-btn', { type: 'button', 'aria-label': `Collapse ${P.title} to icon`, 'data-tip': 'Collapse to icon', onclick: () => collapsePanel(id, { user: true }) }, icon('chevrons-right', 14));
+    const close = h('button.icon-btn', { type: 'button', 'aria-label': `Close ${P.title}`, 'data-tip': 'Close', onclick: () => closeFloat(id, { user: true }) }, icon('x', 14));
+    const head = h('div.float-panel-head', { 'data-tip': 'Drag to move, or onto the panel tabs to dock' }, h('h2.flyout-title', P.title), h('div.flyout-actions', menuBtn, collapse, close));
+    // The resize corner sits in its own bottom edge, clear of the panel's footer buttons.
+    const resize = h('div.float-panel-resize', { 'aria-hidden': 'true' });
+    const body = h('div.float-panel-body', p.el);
+    const win = h('div.float-panel', { role: 'dialog', 'aria-modal': 'false', 'aria-label': P.title, 'data-panel': id }, head, body, h('div.float-panel-foot', resize));
+    const f = { el: win, x, y, w: w ?? prev?.w ?? FLOAT_DEFAULT_W, h: ht ?? prev?.h ?? null };
+    floats.set(id, f);
+    p.el.hidden = false;
+    floatLayer.append(win);
+    placeFloat(f);
+    raise(f);
+    win.addEventListener('pointerdown', () => raise(f), true);
+    head.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('button')) return;
+      e.preventDefault();
+      beginPanelDrag(e, id);
+    });
+    resize.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const start = { w: f.w, h: f.h ?? win.offsetHeight, x: e.clientX, y: e.clientY };
+      trackDrag(e, {
+        threshold: 0,
+        move: (ev) => {
+          f.w = start.w + ev.clientX - start.x;
+          f.h = start.h + ev.clientY - start.y;
+          placeFloat(f);
+        },
+        end: () => changed(),
+      });
+    });
+    win.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      // Escape leaves the panel for the canvas; the panel stays open.
+      e.stopPropagation();
+      app.canvasHost?.focus();
+    });
+    p.shown();
+    if (focus) focusFloat(f);
+    if (user) changed();
+    return f;
+  }
+
+  function focusFloat(f) {
+    (f.el.querySelector('.float-panel-body button, .float-panel-body input, .float-panel-body select, .float-panel-body [tabindex="0"]') || f.el.querySelector('button'))?.focus?.();
+  }
+
+  /** Remove a floating panel's window (the panel goes nowhere: callers place it). */
+  function removeFloat(id) {
+    const f = floats.get(id);
+    if (!f) return;
+    floats.delete(id);
+    lastFloat.set(id, { x: f.x, y: f.y, w: f.w, h: f.h });
+    const p = panels.get(id);
+    if (p.visible) p.hidden();
+    if (p.el.parentNode === f.el.querySelector('.float-panel-body')) p.el.remove();
+    f.el.remove();
+  }
+
+  /** Close a floating panel (the Window menu opens it again where it was). */
+  function closeFloat(id, { user = false } = {}) {
+    const f = floats.get(id);
+    if (!f) return;
+    const hadFocus = f.el.contains(document.activeElement);
+    removeFloat(id);
+    if (hadFocus) app.canvasHost?.focus();
+    if (user) changed();
+  }
+
+  /** Dock panel `id` as a tab (at `index`, else last) and show it. */
+  function dockPanel(id, { index = dockIds.length, user = false } = {}) {
+    if (!panels.has(id)) return;
+    if (dockIds.includes(id)) {
+      moveTab(id, index);
+    } else {
+      removeFloat(id);
+      detach(id);
+      addToDock(id, index);
+    }
+    app.setDockOpen?.(true);
+    showTab(id);
+    if (user) changed();
+  }
+
+  /** Collapse panel `id` to an icon in the strip (not the last dock tab). */
+  function collapsePanel(id, { user = false } = {}) {
+    if (!panels.has(id) || stripIds.includes(id)) return;
+    if (dockIds.includes(id) && dockIds.length < 2) return;
+    const hadFocus = floats.get(id)?.el.contains(document.activeElement);
+    removeFloat(id);
+    detach(id);
+    stripIds.push(id);
+    renderStrip();
+    queueFit();
+    if (hadFocus) stripButtonFor(id)?.focus();
+    if (user) changed();
+  }
+
+  /** Move dock tab `id` to `index` among the tabs. */
+  function moveTab(id, index) {
+    const from = dockIds.indexOf(id);
+    if (from < 0) return;
+    const at = Math.max(0, Math.min(dockIds.length - 1, index));
+    if (at === from) return;
+    dockIds.splice(from, 1);
+    dockIds.splice(at, 0, id);
+    const tab = tabs.querySelector(`#tab-${id}`);
+    tabs.insertBefore(tab, tabs.children[at + (at > from ? 1 : 0)] || null);
+  }
+
+  /** The dock tab index for a drop at client x (among the tabs other than `id`). */
+  function tabIndexAt(x, id) {
+    let i = 0;
+    for (const t of tabs.children) {
+      if (t.id === `tab-${id}`) continue;
+      const r = t.getBoundingClientRect();
+      if (x > r.left + r.width / 2) i++;
+    }
+    return i;
+  }
+
+  const dockHead = dock.querySelector('.dock-head');
+  const insertMark = h('div.dock-insert-mark', { 'aria-hidden': 'true' });
+
+  /** What a panel dragged to (x, y) would drop on: the dock tabs, the strip, or nothing (it floats). */
+  function dropZone(x, y, id) {
+    if (app.dockOpen !== false && pointIn(dockHead, x, y, 10)) return { kind: 'tabs', index: tabIndexAt(x, id) };
+    if (pointIn(strip, x, y, 6)) return { kind: 'strip' };
+    return { kind: 'float' };
+  }
+
+  function showDropZone(zone) {
+    dockHead.classList.toggle('drop-target', zone?.kind === 'tabs');
+    strip.classList.toggle('drop-target', zone?.kind === 'strip');
+    if (zone?.kind !== 'tabs') return insertMark.remove();
+    const others = [...tabs.children].filter((t) => !t.classList.contains('dragging'));
+    const ref = others[zone.index];
+    const hr = dockHead.getBoundingClientRect();
+    const r = ref ? ref.getBoundingClientRect() : others.at(-1)?.getBoundingClientRect();
+    const left = ref ? r.left : r ? r.right : hr.left + 8;
+    insertMark.style.left = `${left - hr.left - 1}px`;
+    if (!insertMark.isConnected) dockHead.append(insertMark);
+  }
+
+  /**
+   * Drag panel `id` from its dock tab, strip icon or floating window header.
+   * Along the dock tabs it reorders; anywhere else it floats under the
+   * pointer, and dropping it on the tabs or the strip docks or collapses it.
+   */
+  function beginPanelDrag(e, id) {
+    let grab = null;
+    let zone = null;
+    const follow = (ev) => {
+      const f = floats.get(id);
+      const { left, top } = layerSize();
+      f.x = ev.clientX - left - grab.x;
+      f.y = ev.clientY - top - grab.y;
+      placeFloat(f);
+    };
+    trackDrag(e, {
+      threshold: placeOf(id) === 'float' ? 2 : undefined,
+      start: (ev, origin) => {
+        if (placeOf(id) === 'float') {
+          const r = floats.get(id).el.getBoundingClientRect();
+          grab = { x: origin.x - r.left, y: origin.y - r.top };
+        }
+        closeStackMenu(false);
+        app.root?.classList.add('panel-dragging');
+      },
+      move: (ev) => {
+        zone = dropZone(ev.clientX, ev.clientY, id);
+        const at = placeOf(id);
+        if (at === 'dock' && zone.kind === 'tabs') {
+          moveTab(id, zone.index);
+          return;
+        }
+        if (at === 'strip' && zone.kind === 'strip') return;
+        if (at !== 'float') {
+          // Torn out of the dock or the strip: it floats under the pointer.
+          if (!floatPanel(id, { x: 0, y: 0 })) return;
+          grab = { x: Math.min(60, (floats.get(id).w || FLOAT_DEFAULT_W) / 2), y: 14 };
+        }
+        floats.get(id).el.classList.toggle('dropping', zone.kind !== 'float');
+        follow(ev);
+        showDropZone(zone);
+      },
+      end: (ev, { cancelled }) => {
+        app.root?.classList.remove('panel-dragging');
+        showDropZone(null);
+        floats.get(id)?.el.classList.remove('dropping');
+        if (!cancelled && placeOf(id) === 'float' && zone?.kind === 'tabs') dockPanel(id, { index: zone.index });
+        else if (!cancelled && placeOf(id) === 'float' && zone?.kind === 'strip') collapsePanel(id);
+        changed();
+      },
+    });
+  }
+
+  /** Keep floating panels inside the workspace when the window shrinks. */
+  window.addEventListener('resize', () => {
+    for (const f of floats.values()) placeFloat(f);
+  });
 
   function showTab(id, { remember = true } = {}) {
     if (!dockIds.includes(id)) return;
@@ -428,6 +760,12 @@ export function createDock(app) {
     if (dockIds.includes(id)) {
       app.setDockOpen(true);
       showTab(id);
+      return;
+    }
+    // A floating panel comes to the front; one closed from its window opens there again.
+    if (floats.has(id) || (lastFloat.has(id) && !stripIds.includes(id))) {
+      closeFlyout(false);
+      floatPanel(id, { focus });
       return;
     }
     closeFlyout(false);
@@ -474,6 +812,7 @@ export function createDock(app) {
 
   return {
     el,
+    floatLayer,
     register,
     start,
     showTab,
@@ -483,7 +822,12 @@ export function createDock(app) {
     fitStrip,
     getLayout,
     setLayout,
-    isOpen: (id) => flyoutId === id || (activeTab === id && dockIds.includes(id)),
+    floatPanel: (id, opts) => floatPanel(id, opts),
+    dockPanel,
+    collapsePanel,
+    closeFloat,
+    placeOf,
+    isOpen: (id) => flyoutId === id || floats.has(id) || (activeTab === id && dockIds.includes(id)),
     panels,
     update: scheduleUpdate,
     get flyoutId() {

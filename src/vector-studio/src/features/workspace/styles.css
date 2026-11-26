@@ -230,7 +230,8 @@
 .screen-full .doc-tabs,
 .screen-full .statusbar,
 .screen-full .isolation-bar,
-.screen-full .pattern-bar {
+.screen-full .pattern-bar,
+.screen-full .float-panels {
   display: none !important;
 }
 
@@ -345,4 +346,86 @@ dialog.presentation::backdrop {
   .canvas-host.arrange-tile {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ---- Tools panel and panel dock positions (Window > Tools Position, Panels on Left) ---- */
+@media (min-width: 761px) {
+  .app:is(.tools-right, .panels-left, .tools-float) .toolbar {
+    grid-area: tools;
+    width: var(--toolbar-w);
+  }
+
+  .app:is(.tools-right, .panels-left, .tools-float) .doc-area {
+    grid-area: doc;
+  }
+
+  .app:is(.tools-right, .panels-left, .tools-float) .panels-area {
+    grid-area: panels;
+  }
+
+  .app.tools-right .workspace {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: 'doc tools panels';
+  }
+
+  .app.panels-left .workspace {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-areas: 'panels tools doc';
+  }
+
+  .app.panels-left.tools-right .workspace {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'panels doc tools';
+  }
+
+  .app.tools-float .workspace {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'doc panels';
+  }
+
+  .app.tools-float.panels-left .workspace {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'panels doc';
+  }
+
+  .app.tools-right .toolbar {
+    border-right: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  .app.panels-left:not(.tools-right) .toolbar {
+    border-left: 0;
+  }
+
+  /* A floating Tools panel: over the canvas, as tall as its tools (at most the workspace). */
+  .app.tools-float .toolbar {
+    position: absolute;
+    grid-area: auto;
+    z-index: 45;
+    max-height: calc(100% - 8px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-float);
+  }
+
+  .app.tools-float .toolbar-scroll {
+    flex: 0 1 auto;
+  }
+}
+
+/* Where the Tools panel would dock while its grip is dragged. */
+.tools-dock-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 46;
+  width: 6px;
+  background: var(--accent);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.tools-dragging,
+.tools-dragging * {
+  cursor: grabbing !important;
 }

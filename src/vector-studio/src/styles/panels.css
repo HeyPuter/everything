@@ -952,3 +952,149 @@
   min-width: 0;
   padding: 2px 4px;
 }
+
+/* ---- Floating panels and panel drags ---- */
+/* A finger on a dock tab drags it; on a strip icon, a swipe along the strip
+   still scrolls the strip, and a drag across it tears the panel off. */
+.dock-tab {
+  touch-action: none;
+}
+
+.strip-btn:not(.strip-stack) {
+  touch-action: pan-y;
+}
+
+@media (max-width: 760px) {
+  .strip-btn:not(.strip-stack) {
+    touch-action: pan-x;
+  }
+}
+
+.float-panels {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.float-panels:empty,
+.hide-panels .float-panels,
+.hide-dock .float-panels,
+.dock-closed .float-panels {
+  display: none;
+}
+
+.float-panel {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  min-width: 200px;
+  min-height: 0;
+  pointer-events: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+
+.float-panel.dropping {
+  opacity: 0.6;
+}
+
+.float-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 4px 4px 4px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.panel-dragging,
+.panel-dragging * {
+  cursor: grabbing !important;
+}
+
+.float-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+
+.float-panel-foot {
+  position: relative;
+  flex: none;
+  height: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.float-panel-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--text-3) 50%, var(--text-3) 56%, transparent 56%, transparent 68%, var(--text-3) 68%, var(--text-3) 74%, transparent 74%);
+  opacity: 0.7;
+}
+
+@media (pointer: coarse) {
+  .float-panel-foot {
+    height: 20px;
+  }
+
+  .float-panel-resize {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* Drop targets while a panel is dragged: the dock tabs (with an insertion mark) and the icon strip. */
+.dock-head {
+  position: relative;
+}
+
+.dock-head.drop-target,
+.panel-strip.drop-target {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel));
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.dock-insert-mark {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Panels docked on the left edge: the dock sits at the edge, the strip beside it, flyouts open toward the canvas. */
+@media (min-width: 761px) {
+  .panels-left .panels-area {
+    flex-direction: row-reverse;
+  }
+
+  .panels-left .panel-strip,
+  .panels-left .dock {
+    border-left: 0;
+    border-right: 1px solid var(--border);
+  }
+
+  .panels-left .panel-flyout,
+  .panels-left.dock-closed .panel-flyout {
+    right: auto;
+    left: 100%;
+  }
+}

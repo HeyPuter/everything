@@ -165,7 +165,7 @@ export class App extends Emitter {
     this.docArea = h('main#main.doc-area', this.tabsEl, this.isolationBar, h('div.canvas-stack', this.canvasWrap, this.taskbar, this.home), this.statusbar.el, this.canvasDesc);
     this.dock = createDock(this);
     for (const P of this.panelClasses) this.dock.register(P);
-    this.workspace = h('div.workspace', this.toolbar.el, this.docArea, this.dock.el);
+    this.workspace = h('div.workspace', this.toolbar.el, this.docArea, this.dock.el, this.dock.floatLayer);
     this.toastHost = h('div.toast-host', { role: 'status', 'aria-live': 'polite' });
     this.root.replaceChildren(this.topbar, this.workspace, this.toastHost);
     this.root.classList.toggle('dock-closed', !this.dockOpen);
