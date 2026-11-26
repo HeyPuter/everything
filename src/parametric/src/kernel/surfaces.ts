@@ -548,7 +548,9 @@ export class SurfaceKit {
         const ed = describeEdge(e as Sh);
         // A curve on the axis sweeps nothing.
         if (onAxis(ed.a) && onAxis(ed.b) && onAxis(ed.mid)) continue;
-        const ax = new oc.gp_Ax1(pnt(axis.p), new oc.gp_Dir(d[0], d[1], d[2]));
+        const ap = pnt(axis.p), ad = new oc.gp_Dir(d[0], d[1], d[2]);
+        const ax = new oc.gp_Ax1(ap, ad);
+        ap.delete(); ad.delete();
         const mk = new oc.BRepPrimAPI_MakeRevol(e.wrapped, ax, (Math.min(angle, 360) * Math.PI) / 180, true);
         let face: Sh;
         try { face = wrap(mk.Shape()); } catch {
@@ -1315,7 +1317,9 @@ function solidFromShell(shell: Sh): Sh | null {
   const oc = getOc();
   const fix = new oc.ShapeFix_Solid();
   try {
-    let s = wrap(fix.SolidFromShell(oc.TopoDS.Shell(shell.wrapped)));
+    const raw = oc.TopoDS.Shell(shell.wrapped);
+    let s: Sh;
+    try { s = wrap(fix.SolidFromShell(raw)); } finally { raw.delete(); }
     if (volumeOf(s) < 0) s = wrap(s.wrapped.Reversed());
     return volumeOf(s) > 0 ? s : null;
   } catch {
