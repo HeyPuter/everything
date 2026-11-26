@@ -543,49 +543,77 @@ export class MateSolver {
     }
     const active = usable.filter((m) => !conflicts.has(m.id));
     const floating = this.bodies.filter((b) => !b.fixed);
-    const index = new Map(floating.map((b, i) => [b.id, i]));
-    // Jacobian of the mates at the solution, all components free to move.
-    const n = floating.length * 6;
-    const J: number[][] = [];
     const pl = res.placements;
-    const x0 = new Array<number>(n).fill(0);
-    const at = (xv: number[]) => {
-      const out = new Map(pl);
-      floating.forEach((b, i) => out.set(b.id, placementWith(pl.get(b.id)!, b.center ?? [0, 0, 0], xv, i * 6, L)));
-      return out;
+    // The Jacobian of the mates at the solution (all components free to move) is
+    // block diagonal over groups of floating components linked by mates between
+    // them: each group is analysed on its own, and a component no mate holds
+    // simply keeps its six degrees of freedom (one large matrix took seconds and,
+    // with hundreds of components, gigabytes).
+    const parent = new Map(floating.map((b) => [b.id, b.id]));
+    const root = (id: Id): Id => {
+      let r = id;
+      while (parent.get(r) !== r) r = parent.get(r)!;
+      parent.set(id, r);
+      return r;
     };
     for (const m of active) {
-      const cols = [m.a.body, m.b.body].filter((id): id is Id => !!id && index.has(id));
-      const base = this.mateResidual(m, pl, L);
-      if (!base || !cols.length) continue;
-      const block = base.map(() => new Array<number>(n).fill(0));
-      for (const id of new Set(cols)) {
-        const k = index.get(id)! * 6;
-        for (let j = k; j < k + 6; j++) {
-          const xp = x0.slice(), xm = x0.slice();
-          xp[j] += 1e-6; xm[j] -= 1e-6;
-          const rp = this.mateResidual(m, at(xp), L)!, rm = this.mateResidual(m, at(xm), L)!;
-          for (let i = 0; i < base.length; i++) block[i][j] = (rp[i] - rm[i]) / 2e-6;
-        }
-      }
-      J.push(...block);
+      const a = m.a.body, b = m.b.body;
+      if (a && b && parent.has(a) && parent.has(b)) parent.set(root(a), root(b));
     }
-    // A component is fully defined when no motion the mates allow moves it:
-    // every vector of the Jacobian's null space is zero on its six variables.
-    // (One factorisation for all components: a rank per component took
-    // seconds in an assembly of fifty.)
-    const { rank: rankAll, basis } = nullSpace(J, n);
-    const defined = new Set<Id>();
+    const groups = new Map<Id, { bodies: SolverBody[]; mates: SolverMate[] }>();
     for (const b of floating) {
-      const k = index.get(b.id)! * 6;
-      if (basis.every((v) => {
-        let all = 0, own = 0;
-        for (let j = 0; j < n; j++) all = Math.max(all, Math.abs(v[j]));
-        for (let j = k; j < k + 6; j++) own = Math.max(own, Math.abs(v[j]));
-        return own <= 1e-6 * all;
-      })) defined.add(b.id);
+      const r = root(b.id);
+      if (!groups.has(r)) groups.set(r, { bodies: [], mates: [] });
+      groups.get(r)!.bodies.push(b);
     }
-    const dof = n - rankAll;
+    for (const m of active) {
+      const id = [m.a.body, m.b.body].find((x): x is Id => !!x && parent.has(x));
+      if (id) groups.get(root(id))!.mates.push(m);
+    }
+    let dof = 0;
+    const defined = new Set<Id>();
+    const work = new Map(pl);
+    for (const g of groups.values()) {
+      const n = g.bodies.length * 6;
+      if (!g.mates.length) { dof += n; continue; }
+      const index = new Map(g.bodies.map((b, i) => [b.id, i]));
+      const J: number[][] = [];
+      for (const m of g.mates) {
+        const base = this.mateResidual(m, pl, L);
+        if (!base) continue;
+        const block = base.map(() => new Array<number>(n).fill(0));
+        for (const id of new Set([m.a.body, m.b.body])) {
+          if (!id || !index.has(id)) continue;
+          const i = index.get(id)!;
+          const center = g.bodies[i].center ?? [0, 0, 0];
+          for (let j = 0; j < 6; j++) {
+            const x = [0, 0, 0, 0, 0, 0];
+            x[j] = 1e-6;
+            work.set(id, placementWith(pl.get(id)!, center, x, 0, L));
+            const rp = this.mateResidual(m, work, L)!;
+            x[j] = -1e-6;
+            work.set(id, placementWith(pl.get(id)!, center, x, 0, L));
+            const rm = this.mateResidual(m, work, L)!;
+            for (let r = 0; r < base.length; r++) block[r][i * 6 + j] = (rp[r] - rm[r]) / 2e-6;
+          }
+          work.set(id, pl.get(id)!);
+        }
+        J.push(...block);
+      }
+      // A component is fully defined when no motion the mates allow moves it:
+      // every vector of the Jacobian's null space is zero on its six variables.
+      const { rank, basis } = nullSpace(J, n);
+      dof += n - rank;
+      g.bodies.forEach((b, i) => {
+        const k = i * 6;
+        if (basis.every((v) => {
+          let all = 0, own = 0;
+          for (let j = 0; j < n; j++) all = Math.max(all, Math.abs(v[j]));
+          for (let j = k; j < k + 6; j++) own = Math.max(own, Math.abs(v[j]));
+          return own <= 1e-6 * all;
+        })) defined.add(b.id);
+      });
+    }
     const status: DefinitionStatus = conflicts.size ? 'over' : invalid.size ? 'error' : dof === 0 ? 'full' : 'under';
     return { status, dof, defined, conflicts, invalid, placements: res.placements };
   }

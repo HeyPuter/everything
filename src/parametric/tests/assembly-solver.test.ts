@@ -263,6 +263,18 @@ describe('mate solver', () => {
     expect(matesMoving('a', fixedB, all).map((m) => m.id)).toEqual([ab, baseA].map((m) => m.id));
   });
 
+  it('analyses hundreds of components, most of them free, group by group', () => {
+    const bodies = [body('base', true)];
+    const mates: SolverMate[] = [];
+    for (let i = 0; i < 400; i++) bodies.push(body(`c${i}`, false, [i * 13, 0, 0]));
+    // c0 on the base fully, c1 slides on c0; the other 398 are free.
+    mates.push(mate('coincident', ['base', TOP], ['c0', BOTTOM]), mate('coincident', ['base', RIGHT], ['c0', RIGHT], { aligned: true }), mate('coincident', ['base', FRONT], ['c0', FRONT], { aligned: true }));
+    mates.push(mate('coincident', ['c0', TOP], ['c1', BOTTOM]));
+    const r = new MateSolver(bodies, mates).analyze({ scale: 5000 });
+    expect(r.dof).toBe(398 * 6 + 3);
+    expect([...r.defined]).toEqual(['c0']);
+  });
+
   it('analyses an assembly of fifty components', () => {
     const bodies = [body('c0', true)];
     const mates: SolverMate[] = [];
