@@ -526,6 +526,19 @@ describe('surfaces with the rest of the part', () => {
     }
   });
 
+  it('shows the same surfaces after an edit of the solid as when built afresh (their meshes are kept)', async () => {
+    const parts = (depth: number) => [sketch('S1', open('a', [[0, 0], [20, 5], [40, 0]])), surf('surfaceExtrude', 'F1', { sketch: 'S1', depth: 30 }),
+      sketch('S2', rect(0, -20, 10, -10, 'r')), extrude('E1', 'S2', depth)];
+    const used = new ModelBuilder();
+    await used.build(req(parts(5)));
+    const a = await used.build(req(parts(8)));
+    const b = await new ModelBuilder().build(req(parts(8)));
+    expect(a.faces).toEqual(b.faces);
+    expect(a.edges).toEqual(b.edges);
+    expect(a.bbox).toEqual(b.bbox);
+    for (const k of ['positions', 'normals', 'indices', 'vertexFace', 'edgePositions', 'edgeIds', 'vertices'] as const) expect(Array.from(a.mesh![k])).toEqual(Array.from(b.mesh![k]));
+  });
+
   it('previews a surface feature over the part, and a thicken in place of it', async () => {
     const b = new ModelBuilder();
     const base = [sketch('S1', rect(0, 0, 20, 10)), surf('surfacePlanar', 'F1', { sketch: 'S1' })];

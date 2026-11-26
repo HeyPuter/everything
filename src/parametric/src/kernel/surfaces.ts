@@ -1019,44 +1019,19 @@ export class SurfaceKit {
     let vCount = m0 ? m0.positions.length / 3 : 0;
     const faces = [...base.faces];
     const edges = [...base.edges];
-    const oc = getOc();
     for (const body of st.surfaces) {
       const f0 = faces.length, e0 = edges.length;
-      const m = meshShape(body.shape, tol, ang);
-      const fIndex = new ShapeIndex(body.faces.map((x) => x.shape));
-      const vface = new Float32Array(m.positions.length / 3);
-      const claimed = new Set<number>();
-      for (let g = 0; g + 2 < m.faceGroups.length; g += 3) {
-        const start = m.faceGroups[g], count = m.faceGroups[g + 1];
-        const cands = fIndex.findHash(m.faceGroups[g + 2]);
-        const fi = cands.find((c) => !claimed.has(c)) ?? cands[0] ?? 0;
-        claimed.add(fi);
-        for (let t = start; t < start + count; t++) vface[m.indices[t]] = f0 + fi;
-      }
+      const m = bodyMesh(body, tol, ang);
       const shifted = new Uint32Array(m.indices.length);
       for (let i = 0; i < m.indices.length; i++) shifted[i] = m.indices[i] + vCount;
       vCount += m.positions.length / 3;
+      const vface = new Float32Array(m.vface.length);
+      for (let i = 0; i < vface.length; i++) vface[i] = m.vface[i] + f0;
+      const ids = new Float32Array(m.ids.length);
+      for (let i = 0; i < ids.length; i++) ids[i] = m.ids[i] + e0;
       pos.push(m.positions); nrm.push(m.normals); idx.push(shifted); vf.push(vface);
+      ep.push(m.lines); eid.push(ids); vtx.push(m.vertices);
       const bes = bodyEdges(body);
-      const eIndex = new ShapeIndex(bes.map((e) => e.shape));
-      const em = meshEdgesOf(body.shape, tol, ang);
-      const lines: number[] = [], ids: number[] = [];
-      const claimedE = new Set<number>();
-      for (let g = 0; g + 2 < em.groups.length; g += 3) {
-        const start = em.groups[g], count = em.groups[g + 1];
-        const cands = eIndex.findHash(em.groups[g + 2]);
-        const ei = cands.find((c) => !claimedE.has(c)) ?? cands[0] ?? 0;
-        claimedE.add(ei);
-        const e = bes[ei];
-        // Seams (a closed face meeting itself) are not drawn.
-        if (e && e.faces.length === 1 && oc.BRep_Tool.IsClosed(e.shape.wrapped, body.faces[e.faces[0]].shape.wrapped)) continue;
-        for (let k = start; k < start + count; k++) { lines.push(em.lines[k * 3], em.lines[k * 3 + 1], em.lines[k * 3 + 2]); ids.push(e0 + ei); }
-      }
-      ep.push(new Float32Array(lines)); eid.push(new Float32Array(ids));
-      const vs = subShapes(body.shape, 'vertex').map(vertexPoint);
-      const va = new Float32Array(vs.length * 3);
-      vs.forEach((p, i) => va.set(p, i * 3));
-      vtx.push(va);
       for (const x of body.faces) {
         const d = x.desc;
         const info: FaceInfo = { name: x.name, type: d.type, center: d.center, area: d.area, feature: x.feature, body: body.id };
@@ -1087,9 +1062,14 @@ export class SurfaceKit {
 
   /** Bounding box of the solid and the surface bodies. */
   box(st: SurfState): { min: Vec3; max: Vec3 } | null {
-    const shapes = [...(st.body ? [st.body] : []), ...st.surfaces.map((b) => b.shape)];
-    if (!shapes.length) return null;
-    return bbox(shapes.length === 1 ? shapes[0] : compound(shapes));
+    // Each body's box is kept: a box of a curved surface takes milliseconds, and
+    // every rebuild (an edit of the solid) asked for the boxes of all of them again.
+    const boxes = [...(st.body ? [bbox(st.body)] : []), ...st.surfaces.map(bodyBox)].filter((b): b is { min: Vec3; max: Vec3 } => !!b);
+    if (!boxes.length) return null;
+    return {
+      min: [0, 1, 2].map((i) => Math.min(...boxes.map((b) => b.min[i]))) as Vec3,
+      max: [0, 1, 2].map((i) => Math.max(...boxes.map((b) => b.max[i]))) as Vec3,
+    };
   }
 
   /** The solid with the surface bodies, for export and drawings. */
@@ -1115,6 +1095,71 @@ export class SurfaceKit {
     }
     return null;
   }
+}
+
+// ---------- meshes of surface bodies ----------
+
+interface BodyMesh {
+  positions: Float32Array;
+  normals: Float32Array;
+  indices: Uint32Array;
+  /** Face of each vertex, by its index in the body's faces. */
+  vface: Float32Array;
+  lines: Float32Array;
+  /** Edge of each line point, by its index in bodyEdges. */
+  ids: Float32Array;
+  vertices: Float32Array;
+}
+
+/**
+ * Meshes and boxes of surface bodies, kept with the body (bodies are not
+ * changed once made): an edit of the solid meshed every surface again, 30 ms
+ * on each rebuild for a surface of 200 faces.
+ */
+const bodyMeshCache = new WeakMap<SurfaceBody, { tol: number; ang: number; m: BodyMesh }>();
+const bodyBoxCache = new WeakMap<SurfaceBody, { min: Vec3; max: Vec3 } | null>();
+
+function bodyBox(body: SurfaceBody): { min: Vec3; max: Vec3 } | null {
+  if (!bodyBoxCache.has(body)) bodyBoxCache.set(body, bbox(body.shape));
+  return bodyBoxCache.get(body)!;
+}
+
+function bodyMesh(body: SurfaceBody, tol: number, ang: number): BodyMesh {
+  const hit = bodyMeshCache.get(body);
+  if (hit && hit.tol === tol && hit.ang === ang) return hit.m;
+  const oc = getOc();
+  const m = meshShape(body.shape, tol, ang);
+  const fIndex = new ShapeIndex(body.faces.map((x) => x.shape));
+  const vface = new Float32Array(m.positions.length / 3);
+  const claimed = new Set<number>();
+  for (let g = 0; g + 2 < m.faceGroups.length; g += 3) {
+    const start = m.faceGroups[g], count = m.faceGroups[g + 1];
+    const cands = fIndex.findHash(m.faceGroups[g + 2]);
+    const fi = cands.find((c) => !claimed.has(c)) ?? cands[0] ?? 0;
+    claimed.add(fi);
+    for (let t = start; t < start + count; t++) vface[m.indices[t]] = fi;
+  }
+  const bes = bodyEdges(body);
+  const eIndex = new ShapeIndex(bes.map((e) => e.shape));
+  const em = meshEdgesOf(body.shape, tol, ang);
+  const lines: number[] = [], ids: number[] = [];
+  const claimedE = new Set<number>();
+  for (let g = 0; g + 2 < em.groups.length; g += 3) {
+    const start = em.groups[g], count = em.groups[g + 1];
+    const cands = eIndex.findHash(em.groups[g + 2]);
+    const ei = cands.find((c) => !claimedE.has(c)) ?? cands[0] ?? 0;
+    claimedE.add(ei);
+    const e = bes[ei];
+    // Seams (a closed face meeting itself) are not drawn.
+    if (e && e.faces.length === 1 && oc.BRep_Tool.IsClosed(e.shape.wrapped, body.faces[e.faces[0]].shape.wrapped)) continue;
+    for (let k = start; k < start + count; k++) { lines.push(em.lines[k * 3], em.lines[k * 3 + 1], em.lines[k * 3 + 2]); ids.push(ei); }
+  }
+  const vs = subShapes(body.shape, 'vertex').map(vertexPoint);
+  const vertices = new Float32Array(vs.length * 3);
+  vs.forEach((p, i) => vertices.set(p, i * 3));
+  const out: BodyMesh = { positions: m.positions, normals: m.normals, indices: m.indices, vface, lines: new Float32Array(lines), ids: new Float32Array(ids), vertices };
+  bodyMeshCache.set(body, { tol, ang, m: out });
+  return out;
 }
 
 // ---------- geometry helpers ----------
