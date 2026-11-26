@@ -359,6 +359,10 @@ describe('trim, extend and delete face', () => {
     expect(surfaceArea(res)).toBeCloseTo(5 * 20, 4);
     res = await b.build(req([...square, cutter, surf('surfaceTrim', 'T1', { faces: [face], tool: { kind: 'plane', plane: { kind: 'feature', id: 'PL' } }, keep: [[2, 10, 0]] })]));
     expect(surfaceArea(res)).toBeCloseTo(5 * 20, 4);
+    // A plane beyond the surface, on the side it keeps: it does not cross the surface, rather than "nothing left on that side".
+    const far = { ...cutter, offset: 50 } as Feature;
+    res = await b.build(req([...square, far, surf('surfaceTrim', 'T1', { faces: [face], tool: { kind: 'plane', plane: { kind: 'feature', id: 'PL' } } })]));
+    expect(res.status[3]).toMatchObject({ ok: false, error: expect.stringMatching(/does not cross the surface/) });
   });
 
   it('trims with a sketch and with another surface', async () => {

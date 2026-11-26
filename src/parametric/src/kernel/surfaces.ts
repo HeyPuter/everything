@@ -776,7 +776,11 @@ export class SurfaceKit {
         });
       }
       const kept = keep.flatMap((ci) => comps[ci].map((fi) => faces[fi]));
-      if (!kept.length) throw this.h.fail('Nothing of the surface is left on that side. Flip the side to keep, or pick the pieces to keep.');
+      if (!kept.length) {
+        throw this.h.fail(comps.length > 1
+          ? 'Nothing of the surface is left on that side. Flip the side to keep, or pick the pieces to keep.'
+          : 'The trim tool does not cross the surface. Select a tool that reaches across it.');
+      }
       const shape = kept.length === 1 ? kept[0] : sew(kept, tol).shape;
       results.push({ shape, from: body, faces: inherit(shape, body.faces, tol, (k) => ({ name: `${f.id}:t${k}`, feature: f.id })) });
     }
