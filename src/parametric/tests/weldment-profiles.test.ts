@@ -2,7 +2,8 @@
 // section areas, closed outlines, placement and the cut list grouping.
 import { describe, expect, it } from 'vitest';
 import {
-  type PSeg, PROFILE_LIBRARY, WELD_STANDARDS, WELD_TYPES, findProfile, outlineBox, outlineMax, placeProfile, profileShape, sectionProps,
+  type PSeg, type WeldProfileType, type WeldStandard, PROFILE_LIBRARY, WELD_STANDARDS, WELD_TYPES, findProfile, outlineBox, outlineMax, placeProfile, profileShape,
+  profileSizes, sectionProps,
 } from '../src/model/weldment-profiles';
 import { type WeldMemberInfo, cutListCsv, cutListRows, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, weldmentCutList } from '../src/model/weldments';
 import { newDocument, parseDocument } from '../src/model/document';
@@ -58,6 +59,13 @@ describe('profile library', () => {
     expect(area('ansi', 'channel', 'C8x11.5') / IN2 / 3.37).toBeGreaterThan(0.98);
     expect(area('ansi', 'channel', 'C8x11.5') / IN2 / 3.37).toBeLessThan(1);
     expect(area('ansi', 'angle', '2x2x1/4') / IN2).toBeCloseTo(0.9375, 6);
+  });
+
+  it('finds no profile for names that are not in the library', () => {
+    for (const [standard, type] of [['toString', 'name'], ['constructor', 'name'], ['iso', 'constructor'], ['iso', '__proto__'], ['din', 'pipe']]) {
+      expect(findProfile(standard, type, 'x')).toBeNull();
+      expect(profileSizes(standard as WeldStandard, type as WeldProfileType)).toEqual([]);
+    }
   });
 
   it('generates closed outlines for every size, with a positive area', () => {

@@ -242,13 +242,13 @@ export const PROFILE_LIBRARY: Record<WeldStandard, Record<WeldProfileType, Profi
 };
 
 export function profileSizes(standard: WeldStandard, type: WeldProfileType): ProfileSize[] {
-  return PROFILE_LIBRARY[standard]?.[type] ?? [];
+  // Own keys only: a damaged file's "constructor" or "toString" is no profile.
+  if (!Object.hasOwn(PROFILE_LIBRARY, standard) || !Object.hasOwn(PROFILE_LIBRARY[standard], type)) return [];
+  return PROFILE_LIBRARY[standard][type];
 }
 
 export function findProfile(standard: string, type: string, size: string): ProfileSize | null {
-  const lib = (PROFILE_LIBRARY as Record<string, Record<string, ProfileSize[]> | undefined>)[standard];
-  if (!lib || !Object.hasOwn(lib, type)) return null;
-  return lib[type].find((s) => s.id === size) ?? null;
+  return profileSizes(standard as WeldStandard, type as WeldProfileType).find((s) => s.id === size) ?? null;
 }
 
 /** Whether a profile type is a closed hollow section (end caps go on these). */
