@@ -540,12 +540,20 @@ export class MateSolver {
       }
       J.push(...block);
     }
-    const rankAll = matrixRank(J, n);
+    // A component is fully defined when no motion the mates allow moves it:
+    // every vector of the Jacobian's null space is zero on its six variables.
+    // (One factorisation for all components: a rank per component took
+    // seconds in an assembly of fifty.)
+    const { rank: rankAll, basis } = nullSpace(J, n);
     const defined = new Set<Id>();
     for (const b of floating) {
       const k = index.get(b.id)! * 6;
-      const without = J.map((row) => row.filter((_, j) => j < k || j >= k + 6));
-      if (rankAll - matrixRank(without, n - 6) === 6) defined.add(b.id);
+      if (basis.every((v) => {
+        let all = 0, own = 0;
+        for (let j = 0; j < n; j++) all = Math.max(all, Math.abs(v[j]));
+        for (let j = k; j < k + 6; j++) own = Math.max(own, Math.abs(v[j]));
+        return own <= 1e-6 * all;
+      })) defined.add(b.id);
     }
     const dof = n - rankAll;
     const status: DefinitionStatus = conflicts.size || invalid.size ? 'over' : dof === 0 ? 'full' : 'under';
@@ -603,13 +611,35 @@ function choleskySolve(A: number[][], b: number[]): number[] | null {
 
 /** Numerical rank of an m×n matrix (Householder QR with column pivoting). */
 export function matrixRank(rowsIn: number[][], n: number, tol = 1e-7): number {
+  return pivotedQR(rowsIn, n, tol).rank;
+}
+
+/** Rank and a basis of the null space of an m×n matrix (from its pivoted QR factorisation). */
+export function nullSpace(rowsIn: number[][], n: number, tol = 1e-7): { rank: number; basis: number[][] } {
+  const { A, cols, rank } = pivotedQR(rowsIn, n, tol);
+  const basis: number[][] = [];
+  // R = [R11 R12] in pivot order: each free column f gives z with z_f = 1 and R11 z_pivots = -R12_f.
+  for (let f = rank; f < n; f++) {
+    const z = new Array<number>(n).fill(0);
+    z[cols[f]] = 1;
+    for (let i = rank - 1; i >= 0; i--) {
+      let s = A[i][cols[f]];
+      for (let c = i + 1; c < rank; c++) s += A[i][cols[c]] * z[cols[c]];
+      z[cols[i]] = -s / A[i][cols[i]];
+    }
+    basis.push(z);
+  }
+  return { rank, basis };
+}
+
+function pivotedQR(rowsIn: number[][], n: number, tol: number): { A: number[][]; cols: number[]; rank: number } {
   const m = rowsIn.length;
-  if (!m || !n) return 0;
+  const cols = [...Array(n).keys()];
+  if (!m || !n) return { A: [], cols, rank: 0 };
   const A = rowsIn.map((r) => r.slice());
   const norms = new Array<number>(n).fill(0).map((_, j) => Math.sqrt(A.reduce((s, r) => s + r[j] * r[j], 0)));
   const scaleRef = Math.max(1, ...norms);
   let rank = 0;
-  const cols = [...Array(n).keys()];
   for (let k = 0; k < Math.min(m, n); k++) {
     // Pivot: the remaining column with the largest norm below row k.
     let best = -1, bestNorm = 0;
@@ -638,5 +668,5 @@ export function matrixRank(rowsIn: number[][], n: number, tol = 1e-7): number {
     }
     rank++;
   }
-  return rank;
+  return { A, cols, rank };
 }

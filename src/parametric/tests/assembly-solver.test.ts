@@ -178,4 +178,36 @@ describe('mate solver', () => {
     expect(matrixRank([[1, 2], [2, 4]], 2)).toBe(1);
     expect(matrixRank([], 3)).toBe(0);
   });
+
+  it('tells fully defined components from those that move with an under-defined one', () => {
+    const full = (a: string, b: string) => [
+      mate('coincident', [a, TOP], [b, BOTTOM]),
+      mate('coincident', [a, RIGHT], [b, RIGHT], { aligned: true }),
+      mate('coincident', [a, FRONT], [b, FRONT], { aligned: true }),
+    ];
+    // c1 is fixed to the base; c3 is fixed to c2, which slides on c1; c4 turns on a pin.
+    const bodies = [body('base', true), body('c1', false, [20, 3, 1], tilted), body('c2', false, [40, 3, 1], tilted), body('c3', false, [60, 3, 1], tilted), body('c4', false, [80, 1, 1], tilted)];
+    const r = new MateSolver(bodies, [
+      ...full('base', 'c1'), mate('coincident', ['c1', TOP], ['c2', BOTTOM]), ...full('c2', 'c3'),
+      mate('concentric', ['base', HOLE], ['c4', HOLE], { aligned: true }), mate('coincident', ['base', TOP], ['c4', BOTTOM]),
+    ]).analyze();
+    expect([...r.defined]).toEqual(['c1']);
+    expect(r.dof).toBe(3 + 1);
+  });
+
+  it('analyses an assembly of fifty components', () => {
+    const bodies = [body('c0', true)];
+    const mates: SolverMate[] = [];
+    for (let i = 1; i < 50; i++) {
+      bodies.push(body(`c${i}`, false, [i * 13 + 1, i * 3, 2], tilted));
+      mates.push(mate('coincident', [`c${i - 1}`, TOP], [`c${i}`, BOTTOM]));
+      mates.push(mate('coincident', [`c${i - 1}`, RIGHT], [`c${i}`, RIGHT], { aligned: true }));
+      if (i % 10) mates.push(mate('coincident', [`c${i - 1}`, FRONT], [`c${i}`, FRONT], { aligned: true }));
+    }
+    const r = new MateSolver(bodies, mates).analyze({ scale: 500 });
+    expect(r.status).toBe('under');
+    expect(r.dof).toBe(4);
+    // Every tenth component slides, and those after it with it.
+    expect([...r.defined]).toEqual(bodies.slice(1, 10).map((b) => b.id));
+  });
 });
