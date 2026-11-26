@@ -266,7 +266,8 @@ export class AssemblyMode {
     const grounded = this.grounded(mates, bodies);
     const r = solver.analyze({ scale: this.scale(), weight: (id) => (grounded.has(id) ? 100 : 1) });
     for (const [id, why] of problems) r.invalid.set(id, why);
-    if (problems.size) r.status = 'over';
+    // A mate that cannot be formed (a face gone) is an error, not a conflict.
+    if (problems.size && r.status !== 'over') r.status = 'error';
     return r;
   }
 
@@ -373,8 +374,8 @@ export class AssemblyMode {
     const a = this.analysis;
     if (!a || !this.doc.components.length) { btn.hidden = true; return; }
     btn.hidden = false;
-    btn.className = `cell status-${a.status}`;
-    btn.textContent = a.status === 'over' ? 'Over Defined' : a.status === 'full' ? 'Fully Defined' : `Under Defined (${a.dof} DOF)`;
+    btn.className = `cell status-${a.status === 'error' ? 'over' : a.status}`;
+    btn.textContent = a.status === 'over' ? 'Over Defined' : a.status === 'error' ? 'Mate Errors' : a.status === 'full' ? 'Fully Defined' : `Under Defined (${a.dof} DOF)`;
   }
 
   /** The combined face index of a component's part face, or -1. */

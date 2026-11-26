@@ -451,3 +451,25 @@ test('dragging a fully defined component turns the view instead of adding an emp
   await expect(page.locator('.statusbar')).toContainText('Block<2> is fully defined');
   expect(errors).toEqual([]);
 });
+
+test('a mate whose face no longer exists shows as a mate error, not as over defined', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const [a, b] = m.doc.components;
+    const face = (name: string) => ({ name, sig: { type: 'plane', c: [0, 0, 10] as [number, number, number], n: [0, 0, 1] as [number, number, number], area: 1 } });
+    m.commit('Mate', (d) => { d.mates.push({ id: 'm90', name: 'Coincident1', type: 'coincident', a: { comp: a.id, face: face('E7:gone') }, b: { comp: b.id, face: face('E1:cap1') }, aligned: true }); });
+  });
+  await expect(page.locator('.statusbar')).toContainText('Mate Errors');
+  await expect(page.locator('.statusbar')).not.toContainText('Over Defined');
+  await expect(tree.getByRole('treeitem', { name: /^Coincident1/ })).toHaveAttribute('aria-description', /no longer exists/);
+  expect(errors).toEqual([]);
+});

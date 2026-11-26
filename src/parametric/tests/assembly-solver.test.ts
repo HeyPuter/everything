@@ -55,6 +55,18 @@ describe('mate solver', () => {
     expect((world(r.placements, 'blk', BOTTOM) as { o: Vec3 }).o[1]).toBeCloseTo(5, 6);
   });
 
+  it('a mate that cannot be formed is an error, not a conflict', () => {
+    const s = new MateSolver([body('base', true), body('blk', false, [0, 20, 0])], [
+      mate('coincident', ['base', TOP], ['blk', BOTTOM]),
+      mate('coincident', ['blk', TOP], ['blk', BOTTOM]),
+    ]);
+    const r = s.analyze();
+    expect(r.status).toBe('error');
+    expect(r.conflicts.size).toBe(0);
+    expect(r.invalid.has(s.mates[1].id)).toBe(true);
+    expect(r.dof).toBe(3);
+  });
+
   it('distance keeps parallel faces apart by the value, on the side they start on', () => {
     const s = new MateSolver([body('base', true), body('blk', false, [3, 40, 1], qAxisAngle([0, 0, 1], 0.2))], [mate('distance', ['base', TOP], ['blk', BOTTOM], { value: 12 })]);
     const r = s.solve();

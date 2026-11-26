@@ -79,7 +79,8 @@ export interface SolveResult {
   iterations: number;
 }
 
-export type DefinitionStatus = 'under' | 'full' | 'over';
+/** 'error': a mate cannot be formed (its face is gone, or the entities do not fit its type); none conflict. */
+export type DefinitionStatus = 'under' | 'full' | 'over' | 'error';
 
 export interface AnalysisResult {
   status: DefinitionStatus;
@@ -573,7 +574,7 @@ export class MateSolver {
       })) defined.add(b.id);
     }
     const dof = n - rankAll;
-    const status: DefinitionStatus = conflicts.size || invalid.size ? 'over' : dof === 0 ? 'full' : 'under';
+    const status: DefinitionStatus = conflicts.size ? 'over' : invalid.size ? 'error' : dof === 0 ? 'full' : 'under';
     return { status, dof, defined, conflicts, invalid, placements: res.placements };
   }
 
