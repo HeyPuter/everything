@@ -277,7 +277,7 @@ export async function propertiesDialog(app: App, rename?: (name: string) => Prom
     return bad;
   };
   const v = await showDialog({
-    title: 'Part Properties', signal,
+    title: app.assembly ? 'Assembly Properties' : 'Part Properties', signal,
     body: [h('div', { class: 'grid-form' }, fieldLabel('Name', name), name, fieldLabel('Unit system', units), units, fieldLabel('Decimal places', decimals), decimals),
       error, h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],

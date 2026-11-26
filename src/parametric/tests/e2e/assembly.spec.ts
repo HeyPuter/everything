@@ -521,3 +521,23 @@ test('an edit solves the mates once, not again in the rebuild after it', async (
   expect(r).toEqual({ calls: 1, status: 'full', defined: true });
   expect(errors).toEqual([]);
 });
+
+test('the properties of an assembly are called Assembly Properties, and of a part Part Properties again', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await expect(page.getByRole('tab', { name: 'Assembly' })).toBeVisible();
+  const label = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.commands.get('properties')!.label);
+  expect(await label()).toBe('Assembly Properties...');
+  void page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('properties'); });
+  const dlg = page.getByRole('dialog', { name: 'Assembly Properties' });
+  await expect(dlg).toBeVisible();
+  await dlg.locator('[data-value="cancel"]').click();
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('new'); });
+  await expect(page.getByRole('tab', { name: 'Features' })).toBeVisible();
+  expect(await label()).toBe('Part Properties...');
+  void page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('properties'); });
+  await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -199,7 +199,11 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
   assistantNote.setAttribute('role', 'status');
   assistantNote.textContent = 'The assistant works on parts. Open a part (Open Part on a component) to use it.';
 
+  /** Part Properties is named for the open document. */
+  const properties = c.get('properties');
+  const partPropertiesLabel = properties?.label ?? '';
   const enter = () => {
+    if (properties) properties.label = 'Assembly Properties...';
     const m = new AssemblyMode(app);
     m.onEdit = (id) => {
       const mt = m.doc.mates.find((x) => x.id === id);
@@ -225,6 +229,7 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
   const exit = () => {
     const m = app.assembly;
     if (!m) return;
+    if (properties) properties.label = partPropertiesLabel;
     m.dispose();
     app.assembly = null;
     app.drawing.sources.delete(ASSEMBLY_SOURCE);
