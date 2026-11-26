@@ -85,6 +85,8 @@ export interface WeldCtx {
   setBody(body: Sh, faces: unknown[]): void;
   /** The body before a feature was built. */
   bodyBefore(id: Id): Sh | null;
+  /** Tools of the features after a feature (bosses and cuts built since). */
+  toolsAfter(id: Id): { adds: Sh[]; cuts: Sh[] };
   warn(msg: string): void;
   err(msg: string): Error;
   /** A feature's name in a message. */
@@ -564,18 +566,26 @@ function findMember(ctx: WeldCtx, ref: MemberRef, what: string): WeldMember {
   return m;
 }
 
-/** Puts a changed member into the body: what the old one alone added is removed, the new one is fused. */
+/**
+ * Puts a changed member into the body: what the old one alone added is
+ * removed, and what the new one reaches past the old one is fused. Features
+ * built since the member keep their effect: a boss there keeps its material,
+ * and a hole cut through the member stays open.
+ */
 function replaceMember(ctx: WeldCtx, old: WeldMember, next: WeldMember, others: Sh[]): Sh {
   let body = ctx.st.body;
   if (!body) throw ctx.err('There is no body');
+  const since = ctx.toolsAfter(old.feature);
   // The part of the old member the new one leaves out, less what other features own there.
   let removed = cut(old.solid, next.solid);
   if (!isEmpty(removed)) {
-    const keep = [ctx.bodyBefore(old.feature), ...others].filter((s): s is Sh => !!s && !isEmpty(s));
+    const keep = [ctx.bodyBefore(old.feature), ...others, ...since.adds].filter((s): s is Sh => !!s && !isEmpty(s));
     if (keep.length) removed = cut(removed, keep.length === 1 ? keep[0] : compound(keep));
     if (!isEmpty(removed) && volumeOf(removed) > 1e-9) body = cut(body, removed);
   }
-  return fuse(body, next.solid);
+  let added = cut(next.solid, old.solid);
+  if (!isEmpty(added) && since.cuts.length) added = cut(added, since.cuts.length === 1 ? since.cuts[0] : compound(since.cuts));
+  return isEmpty(added) || volumeOf(added) <= 1e-9 ? body : fuse(body, added);
 }
 
 export function applyTrimExtend(ctx: WeldCtx, f: TrimExtendFeature): void {

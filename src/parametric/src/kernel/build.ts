@@ -96,6 +96,8 @@ interface Step {
   status: FeatureStatus;
 }
 
+const WELD_TOOL_TYPES = new Set<Feature['type']>(['structuralMember', 'endCap', 'gusset', 'weldBead']);
+
 const emptyState = (): State => ({ body: null, faces: [], edges: null, frames: new Map(), sketches: new Map(), lostRefs: new Map(), tools: new Map(), surfaces: [] });
 
 const cloneState = (s: State): State => ({
@@ -472,6 +474,17 @@ export class ModelBuilder {
       bodyBefore: (id) => {
         const i = this.order.get(id)?.index ?? -1;
         return i > 0 ? this.steps[i - 1]?.state.body ?? null : null;
+      },
+      toolsAfter: (id) => {
+        const from = this.order.get(id)?.index ?? Infinity;
+        const out = { adds: [] as Sh[], cuts: [] as Sh[] };
+        for (const [fid, t] of st.tools) {
+          const o = this.order.get(fid);
+          // Members, caps, gussets and beads are in the weld state as they now stand (a trim may have changed them).
+          if (!o || o.index <= from || WELD_TOOL_TYPES.has(o.type)) continue;
+          for (const p of t.parts ?? [t]) (p.cut ? out.cuts : out.adds).push(p.shape);
+        }
+        return out;
       },
       warn: (m) => { this.warning = m; },
       err: (m) => new FeatureError(m),

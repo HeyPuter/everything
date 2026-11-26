@@ -7,7 +7,7 @@ import { type Sh, isValid, setOc } from '../src/kernel/occ';
 import type { Feature, SegmentRef, SkEntity, StructuralMemberFeature } from '../src/model/types';
 import { findProfile, profileShape, sectionProps } from '../src/model/weldment-profiles';
 import { newEndCap, newGusset, newStructuralMember, newTrimExtend, newWeldBead, weldmentCutList } from '../src/model/weldments';
-import { extrude, rect, req, sketch } from './helpers';
+import { circle, extrude, rect, req, sketch } from './helpers';
 
 beforeAll(async () => {
   setOc(await init());
@@ -245,6 +245,44 @@ describe('trim/extend', () => {
     const r2 = await build([...plate(), post, member('M1', [[{ sketch: 'S1', entity: 'v' }]]), { ...t, allowExtension: false }]);
     expect(r2.res.status[4].warning).toMatch(/Allow extension/);
     expect(r2.res.weldments![0].length).toBeCloseTo(70, 6);
+  });
+
+  it('keeps what features built after the member did: a later plate stays whole, a hole stays open', async () => {
+    const post = sketch('S1', line('v', [0, -50], [0, 100]));
+    const m1 = member('M1', [[{ sketch: 'S1', entity: 'v' }]]);
+    const A = area('squareTube', '40x40x3');
+    // The plate is extruded after the member, round the post's foot.
+    const pre = await build([post, m1, ...plate()]);
+    const top = pre.res.faces.find((f) => f.name === 'E1:cap1')!;
+    const face = { name: top.name, sig: { type: top.type, c: top.center, n: top.normal, area: top.area } };
+    const t = { ...newTrimExtend('T1', 'T1'), members: [{ feature: 'M1', member: 'S1/v' }], faces: [face] };
+    const later = await build([post, m1, ...plate(), t]);
+    expect(later.res.status.every((s) => s.ok)).toBe(true);
+    expect(volume(later.b)).toBeCloseTo(200 * 200 * 10 + A * 90, 0);
+    // A hole drilled through the post before the trim is not filled again.
+    const hole = [sketch('H', circle(0, 50, 10)), extrude('C1', 'H', 100, { cut: true, end: 'throughAll' })];
+    const drilled = await build([...plate(), post, m1, ...hole]);
+    const trimmed = await build([...plate(), post, m1, ...hole, { ...t, faces: [face] }]);
+    expect(trimmed.res.status.every((s) => s.ok)).toBe(true);
+    // Only the 50 below the plate goes.
+    expect(volume(trimmed.b)).toBeCloseTo(volume(drilled.b) - A * 50, 0);
+  });
+
+  it('leaves nothing of a later member where a trim already took it away', async () => {
+    // Blocks give the planes x = 50 and y = 30 to trim to.
+    const blocks = [sketch('K', [...rect(40, 200, 50, 220, 'ka'), ...rect(200, 20, 220, 30, 'kb')]), extrude('EK', 'K', 10)];
+    const s1 = sketch('S1', [...line('h', [-100, 0], [100, 0]), ...line('v', [80, -40], [80, 200])]);
+    const ms = [member('MA', [[{ sketch: 'S1', entity: 'h' }]]), member('MB', [[{ sketch: 'S1', entity: 'v' }]])];
+    const pre = await build([...blocks, s1, ...ms]);
+    const ref = (f: (typeof pre.res.faces)[number]) => ({ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } });
+    const fx = pre.res.faces.find((f) => f.type === 'plane' && Math.abs(f.normal![0] - 1) < 1e-9 && Math.abs(f.center[0] - 50) < 1e-6)!;
+    const fy = pre.res.faces.find((f) => f.type === 'plane' && Math.abs(f.normal![1] - 1) < 1e-9 && Math.abs(f.center[1] - 30) < 1e-6)!;
+    // The post is cut off above the rail, then the rail is cut short of where the post crossed it.
+    const t1 = { ...newTrimExtend('T1', 'T1'), members: [{ feature: 'MB', member: 'S1/v' }], faces: [ref(fy)] };
+    const t2 = { ...newTrimExtend('T2', 'T2'), members: [{ feature: 'MA', member: 'S1/h' }], faces: [ref(fx)] };
+    const { b, res } = await build([...blocks, s1, ...ms, t1, t2]);
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    expect(volume(b)).toBeCloseTo(2 * 10 * 20 * 10 + area('squareTube', '40x40x3') * (150 + 170), 0);
   });
 
   it('trims a member to another member, planar or coped', async () => {
