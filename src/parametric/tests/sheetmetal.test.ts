@@ -301,6 +301,84 @@ describe('sketched bend and hem', () => {
   });
 });
 
+describe('combinations', () => {
+  const faceRef = (f: FaceInfo) => ({ name: f.name, sig: { type: 'plane', c: f.center, n: f.normal, area: f.area } });
+
+  it('adds a tab on the sheet and flattens it with the plate', async () => {
+    const b = new ModelBuilder();
+    const res = await b.build(req(plate()));
+    const top = res.faces.find((f) => f.name === 'B1:cap1')!;
+    // A 20 x 10 tab sticking out of the plate's top edge (sketch y is world y on this face).
+    const tab = sketch('S2', rect(40, 55, 60, 70, 'tb'), { kind: 'face', face: faceRef(top) });
+    const r2 = await b.build(req([...plate(), tab, base('T1', 'S2')]));
+    ok(r2);
+    expect(volume(b)).toBeCloseTo((6000 + 20 * 10) * T, 3);
+    expect(size(r2)).toEqual([expect.closeTo(100, 6), expect.closeTo(70, 6), expect.closeTo(T, 6)]);
+    expect(flatSize(b.flatPattern().pattern!)).toEqual([expect.closeTo(100, 6), expect.closeTo(70, 6)]);
+    // The tab's edge takes a flange.
+    const tabEdge = r2.edges.find((e) => e.type === 'line' && Math.abs(e.mid[1] - 70) < 1e-6 && Math.abs(e.mid[2] - T) < 1e-6)!;
+    const r3 = await b.build(req([...plate(), tab, base('T1', 'S2'), flange('F1', [edgeRef(tabEdge)])]));
+    ok(r3);
+    expect(b.flatPattern().pattern!.bends).toHaveLength(1);
+    // Off the sheet, or open: errors.
+    const far = sketch('S2', rect(200, 200, 210, 210, 'tf'), { kind: 'face', face: faceRef(top) });
+    expect((await b.build(req([...plate(), far, base('T1', 'S2')]))).status[3].error).toMatch(/touch/);
+    const open = sketch('S2', chain([[10, 10], [20, 10]], 'to'), { kind: 'face', face: faceRef(top) });
+    expect((await b.build(req([...plate(), open, base('T1', 'S2')]))).status[3].error).toMatch(/tab/);
+  });
+
+  it('flanges the end of a flange, and carries flanges with a sketched bend', async () => {
+    const b = new ModelBuilder();
+    const e = await plateEdge(b);
+    const f1 = flange('F1', [edgeRef(e)], { position: 'bendOutside', lengthRef: 'tangent' });
+    let res = await b.build(req([...plate(), f1]));
+    // The top edge of the flange (on its inner face) gets a flange of its own, back over the plate.
+    const end = res.faces.find((f) => f.name === 'F1:e0:end')!;
+    const inner = res.faces.find((f) => f.name === 'F1:e0:flange:in')!;
+    const top = res.edges.find((x) => x.faces.includes(res.faces.indexOf(end)) && x.faces.includes(res.faces.indexOf(inner)))!;
+    const f2 = flange('F2', [edgeRef(top)], { position: 'bendOutside', lengthRef: 'tangent', length: 10 });
+    res = await b.build(req([...plate(), f1, f2]));
+    ok(res);
+    let flat = b.flatPattern().pattern!;
+    expect(flatSize(flat)[1]).toBeCloseTo(60 + BA90 + 20 + BA90 + 10, 6);
+    expect(flat.notes).toEqual([]);
+    // A sketched bend across the plate moves the side with the flanges.
+    const plateTop = res.faces.find((f) => f.name === 'B1:cap1')!;
+    const line = sketch('S3', [{ id: 'p', t: 'point', x: 0, y: 20 }, { id: 'q', t: 'point', x: 100, y: 20 }, { id: 'l', t: 'line', a: 'p', b: 'q' }], { kind: 'face', face: faceRef(plateTop) });
+    res = await b.build(req([...plate(), f1, f2, line, { ...newSketchedBend('SB', 'SB', 'S3'), flipFixed: true }]));
+    ok(res);
+    flat = b.flatPattern().pattern!;
+    expect(flatSize(flat)[1]).toBeCloseTo(60 + BA90 + 20 + BA90 + 10, 6);
+    expect(flat.bends).toHaveLength(3);
+    expect(flat.notes).toEqual([]);
+    // The y < 20 side stays; the rest stands up about the bend axis (y = 20 - BA/2, z = T + R), turning the
+    // flanges' top (z = T + R + 20 + R + T before) toward -y.
+    expect(res.bbox!.min[2]).toBeCloseTo(0, 6);
+    expect(res.bbox!.min[1]).toBeCloseTo(20 - BA90 / 2 + (T + R) - (T + R + 20 + R + T), 6);
+    // Highest: F1's bend, which reached R + T past y = 60.
+    expect(res.bbox!.max[2]).toBeCloseTo(T + R + (60 + R + T) - (20 - BA90 / 2) - BA90, 6);
+  });
+
+  it('patterns, mirrors and fillets the folded body like any body', async () => {
+    const b = new ModelBuilder();
+    const e = await plateEdge(b);
+    const res = await b.build(req([...plate(), flange('F1', [edgeRef(e)])]));
+    const out = res.faces.find((f) => f.name === 'F1:e0:flange:out')!;
+    const hole = sketch('S2', circle(20, -10, 2), { kind: 'face', face: faceRef(out) });
+    const cutHole = extrude('C1', 'S2', 1, { cut: true, end: 'throughAll' });
+    const pattern = { id: 'LP', name: 'LP', type: 'linearPattern' as const, seeds: ['C1'], dir1: { ref: { kind: 'base' as const, axis: 'x' as const }, spacing: 20, count: 3, flip: false }, dir2: null };
+    const r2 = await b.build(req([...plate(), flange('F1', [edgeRef(e)]), hole, cutHole, pattern]));
+    ok(r2);
+    const flat = b.flatPattern().pattern!;
+    expect(flat.loops.filter((l) => !l.outer)).toHaveLength(3);
+    expect(flat.notes).toEqual([]);
+    const mirror = { id: 'M', name: 'M', type: 'mirror' as const, seeds: [], plane: { kind: 'base' as const, plane: 'top' as const } };
+    const r3 = await b.build(req([...plate(), flange('F1', [edgeRef(e)]), hole, cutHole, pattern, mirror]));
+    ok(r3);
+    expect(r3.bbox!.min[1]).toBeCloseTo(-60, 6);
+  });
+});
+
 describe('flat pattern export', () => {
   it('writes the outline, cuts and bend lines on their layers', async () => {
     const b = new ModelBuilder();
