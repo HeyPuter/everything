@@ -430,5 +430,8 @@ test('a weldment’s drawing: a cut list table that follows the part and balloon
   await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
   await expect(page.locator('.paper text', { hasText: /^ANGLE1$/ })).toHaveCount(1);
   await expect(page.locator('.paper text', { hasText: /^540\.00$/ })).not.toHaveCount(0);
+  // A view naming a source this part does not have (an assembly's, from an edited file) shows the part, not nothing.
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.drawing.update((d) => { d.views.push({ id: 'v9', kind: 'top', x: 330, y: 60, hidden: false, dims: false, source: 'assembly:exploded' }); }); });
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(5, { timeout: 30_000 });
   expect(errors).toEqual([]);
 });

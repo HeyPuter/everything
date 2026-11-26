@@ -159,9 +159,13 @@ export class DrawingWorkspace {
     return this.app.store.doc.drawing ?? null;
   }
 
-  /** A source by name; in an assembly, views that name none show the assembly. */
+  /**
+   * A source by name; in an assembly, views that name none show the assembly. A name not known
+   * here (an assembly's view in a part file, or a damaged one) shows what the document has.
+   */
   source(name: string): DrawingSource | undefined {
-    return this.sources.get(name === 'part' && this.app.assembly ? ASSEMBLY_SOURCE : name);
+    const known = this.sources.has(name) ? name : 'part';
+    return this.sources.get(known === 'part' && this.app.assembly ? ASSEMBLY_SOURCE : known);
   }
 
   /** The bounding box of what a view of a source shows (absent: the part's, or the assembly's). */
