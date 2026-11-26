@@ -159,6 +159,26 @@ test.describe('surfaces', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a new extrude does not default to the sketch a surface already uses', async ({ page }) => {
+    const errors = await openApp(page);
+    await loftProfiles(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: A }).__parametric;
+      a.store.change('Loft', (d) => { d.features.push({ id: 'f9', name: 'Surface-Loft1', type: 'surfaceLoft', profiles: ['s1', 's2'], ruled: false }); });
+    });
+    await waitForFeature(page, 'Surface-Loft1');
+    await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.selection.set([]));
+    await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('extrude'); });
+    await expect(page.getByRole('heading', { name: 'Extrude' })).toBeVisible();
+    await expect(page.locator('.pm .selbox').first()).not.toContainText('Sketch2');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('surfaceExtrude'); });
+    await expect(page.getByRole('heading', { name: 'Extruded Surface' })).toBeVisible();
+    await expect(page.locator('.pm .selbox').first()).not.toContainText('Sketch2');
+    await page.keyboard.press('Escape');
+    expect(errors).toEqual([]);
+  });
+
   test('shows a clear error when knit surfaces do not close a volume', async ({ page }) => {
     const errors = await openApp(page);
     await loftProfiles(page);

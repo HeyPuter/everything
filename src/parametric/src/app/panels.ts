@@ -4,7 +4,7 @@ import type { Vec3 } from '../math/vec';
 import { dot, sub, toLocal } from '../math/vec';
 import {
   defaultName, newChamfer, newCircularPattern, newDraft, newExtrude, newFillet, newHole, newLinearPattern, newLoft,
-  newMirror, newPlane, newRevolve, newShell, newSketch, newSweep, FEATURE_LABELS, featureIcon,
+  newMirror, newPlane, newRevolve, newShell, newSketch, newSweep, FEATURE_LABELS, consumedSketches, featureIcon,
 } from '../model/features';
 import { BASE_PLANE_NAMES } from '../model/planes';
 import { changeFeatureUnits } from '../model/document';
@@ -715,7 +715,8 @@ export function startFeature(app: App, type: Feature['type'], opts: { cut?: bool
   const selSketch = (() => {
     for (const it of sel) if (it.kind === 'feature' && app.store.feature(it.id)?.type === 'sketch') return it.id;
     // Default to the most recent unconsumed sketch.
-    const used = new Set(doc.features.flatMap((f) => (f.type === 'extrude' || f.type === 'revolve' || f.type === 'hole' ? [f.sketch] : f.type === 'loft' ? f.profiles : f.type === 'sweep' ? [f.profile, f.path] : [])));
+    // (Surface features, base flanges and sketched bends consume their sketches too.)
+    const used = new Set(doc.features.flatMap((f) => consumedSketches(f)));
     const built = doc.features.slice(0, app.store.builtCount);
     for (let i = built.length - 1; i >= 0; i--) if (built[i].type === 'sketch' && !used.has(built[i].id)) return built[i].id;
     return null;

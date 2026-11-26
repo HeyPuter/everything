@@ -3,12 +3,12 @@
 // with their feature).
 
 import type { Vec3 } from '../math/vec';
-import { defaultName, nextName } from '../model/features';
+import { consumedSketches, defaultName, nextName } from '../model/features';
 import {
   SURFACE_LABELS, bodyFeatureOf, newSurfaceFeature, type SurfaceFeature, type SurfaceFeatureType,
 } from '../model/surfaces';
 import type {
-  AxisRef, DeleteFaceFeature, EdgeRef, FaceRef, Feature, Id, PlaneRef, SurfaceCutFeature, SurfaceExtendFeature,
+  AxisRef, DeleteFaceFeature, EdgeRef, FaceRef, Id, PlaneRef, SurfaceCutFeature, SurfaceExtendFeature,
   SurfaceExtrudeFeature, SurfaceFillFeature, SurfaceKnitFeature, SurfaceLoftFeature, SurfaceOffsetFeature, SurfacePlanarFeature,
   SurfaceRevolveFeature, SurfaceSweepFeature, SurfaceTrimFeature, ThickenFeature, TrimTool,
 } from '../model/types';
@@ -428,23 +428,10 @@ export function surfacePanelFor(app: App, f: SurfaceFeature, editing: boolean): 
 function profileSketch(app: App): Id | null {
   for (const it of app.selection.items) if (it.kind === 'feature' && app.store.feature(it.id)?.type === 'sketch') return it.id;
   const doc = app.store.doc;
-  const used = new Set(doc.features.flatMap((f) => (f.type === 'sketch' ? [] : consumed(f))));
+  const used = new Set(doc.features.flatMap((f) => consumedSketches(f)));
   const built = doc.features.slice(0, app.store.builtCount);
   for (let i = built.length - 1; i >= 0; i--) if (built[i].type === 'sketch' && !used.has(built[i].id)) return built[i].id;
   return null;
-}
-
-function consumed(f: Feature): Id[] {
-  switch (f.type) {
-    case 'extrude': case 'revolve': case 'hole': return [f.sketch];
-    case 'loft': return f.profiles;
-    case 'sweep': return [f.profile, f.path].filter((x): x is Id => !!x);
-    case 'surfaceExtrude': case 'surfaceRevolve': return [f.sketch];
-    case 'surfacePlanar': return f.sketch ? [f.sketch] : [];
-    case 'surfaceLoft': return f.profiles;
-    case 'surfaceSweep': return [f.profile, f.path].filter((x): x is Id => !!x);
-    default: return [];
-  }
 }
 
 /** A new surface feature, filled in from the selection, in its panel. */
