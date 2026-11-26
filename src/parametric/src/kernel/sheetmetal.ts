@@ -572,7 +572,9 @@ function applySketchedBend(h: SheetHost, f: SketchedBendFeature, st: SmState) {
   const T = sheet.p.thickness, Rb = sheet.p.radius;
   const angle = num(h, f.angle, 'Angle');
   if (!(angle > 0 && angle < 180)) throw h.error('The bend angle must be more than 0 and less than 180 degrees');
-  const on = panelOfPlane(sheet, frame, scale(add(A, B), 0.5));
+  // The face under the line (its middle, else another point of a line drawn past the face).
+  let on: ReturnType<typeof panelOfPlane> = null;
+  for (const t of [0.5, 0.25, 0.75, 0.1, 0.9, 0.4, 0.6, 0.02, 0.98]) if ((on = panelOfPlane(sheet, frame, add(A, scale(sub(B, A), t))))) break;
   if (!on) throw h.error('Sketch the bend line on a flat face of the sheet metal part');
   const { panel } = on;
   const la = xfLocal(panel.xf, A), lb = xfLocal(panel.xf, B);

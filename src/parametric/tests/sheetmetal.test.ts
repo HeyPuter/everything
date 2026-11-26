@@ -308,6 +308,10 @@ describe('sketched bend and hem', () => {
     expect(res.bbox!.min[1]).toBeGreaterThan(30);
     expect(res.bbox!.max[2]).toBeCloseTo(T + R + (40 - BA90 / 2), 6);
     expect(res.faces.map((f) => f.name)).toEqual(expect.arrayContaining(['SB:bend:in', 'SB:bend:out']));
+    // A line drawn well past the face (its middle off the sheet) bends the same.
+    const long = sketch('S2', [{ id: 'p', t: 'point', x: 0, y: 40 }, { id: 'q', t: 'point', x: 300, y: 40 }, { id: 'l', t: 'line', a: 'p', b: 'q' }], line.plane);
+    ok(await b.build(req([...plate(), long, bend])));
+    expect(flatSize(b.flatPattern().pattern!)).toEqual([expect.closeTo(100, 6), expect.closeTo(60, 6)]);
     // The other side fixed.
     res = await b.build(req([...plate(), line, { ...bend, flipFixed: true }]));
     ok(res);
