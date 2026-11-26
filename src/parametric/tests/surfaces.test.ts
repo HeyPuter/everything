@@ -11,6 +11,7 @@ import type { EdgeRef, FaceRef, Feature, SkEntity, SketchFeature } from '../src/
 import { newSurfaceFeature, type SurfaceFeature, type SurfaceFeatureType } from '../src/model/surfaces';
 import { dependencies, consumedSketches } from '../src/model/features';
 import { validFeature } from '../src/model/validate-feature';
+import { newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { circle, extrude, rect, req, sketch } from './helpers';
 
 beforeAll(async () => {
@@ -636,5 +637,61 @@ describe('surfaces with the rest of the part', () => {
     expect(validFeature({ ...trim, keep: [[1, 2]] } as unknown as Feature)).toBe(false);
     expect(validFeature({ ...t, faces: [{}] } as unknown as Feature)).toBe(false);
     expect(validFeature({ ...surf('surfaceExtrude', 'E', { sketch: 's' }), end: 'throughAll' } as unknown as Feature)).toBe(false);
+  });
+});
+
+describe('surface features in files', () => {
+  const face: FaceRef = { name: 'F1:p0', sig: { type: 'plane', c: [10, 10, 0], area: 400 } };
+  const edge: EdgeRef = { name: 'F1:p0#3', sig: { type: 'line', m: [20, 10, 0], len: 20 } };
+  /** One of each surface feature, every field off its default. */
+  const all = (): Feature[] => [
+    sketch('S1', rect(0, 0, 20, 20, 'q')),
+    surf('surfacePlanar', 'F1', { sketch: 'S1' }),
+    surf('surfaceExtrude', 'F2', { sketch: 'S1', end: 'blind', depth: '5 + 1', flip: true, dir2: { depth: 2 } }),
+    surf('surfaceRevolve', 'F3', { sketch: 'S1', axis: { kind: 'base', axis: 'y' }, end: 'midPlane', angle: 90, flip: true }),
+    surf('surfaceSweep', 'F4', { profile: 'S1', path: 'S1' }),
+    surf('surfaceLoft', 'F5', { profiles: ['S1', 'S1'], ruled: true }),
+    surf('surfacePlanar', 'F6', { sketch: null, edges: [edge] }),
+    surf('surfaceOffset', 'F7', { faces: [face], distance: 0, flip: true }),
+    surf('surfaceFill', 'F8', { edges: [edge] }),
+    surf('surfaceTrim', 'F9', { faces: [face], tool: { kind: 'plane', plane: { kind: 'base', plane: 'right' } }, keep: [[1, 2, 3]], flip: true }),
+    surf('surfaceTrim', 'F10', { faces: [face], tool: { kind: 'surface', face } }),
+    surf('surfaceExtend', 'F11', { edges: [edge], distance: 3, mode: 'linear' }),
+    surf('surfaceKnit', 'F12', { faces: [face], tolerance: 0.2, solid: true }),
+    surf('thicken', 'F13', { faces: [face], thickness: 1.5, side: 'both', cut: true }),
+    surf('surfaceCut', 'F14', { face, flip: true }),
+    surf('deleteFace', 'F15', { faces: [face], mode: 'patch' }),
+  ];
+  const file = (features: unknown[]) => JSON.stringify({ ...newDocument('P'), features });
+
+  it('saves and reopens every surface field as it was, and rebuilds the same', async () => {
+    const doc = { ...newDocument('P'), features: all() };
+    const back = parseDocument(serializeDocument(doc));
+    expect(back.features).toEqual(doc.features);
+    const a = await new ModelBuilder().build(req(doc.features));
+    const b = await new ModelBuilder().build(req(back.features));
+    expect(b.status).toEqual(a.status);
+  });
+
+  it('rejects damaged surface fields, and builds missing references as errors', async () => {
+    const bad = (patch: Record<string, unknown>, i = 2) => {
+      const fs = all() as unknown as Record<string, unknown>[];
+      fs[i] = { ...fs[i], ...patch };
+      return () => parseDocument(file(fs));
+    };
+    expect(bad({ type: 'surfaceWarp' })).toThrow(/damaged/);
+    // NaN is written as null.
+    expect(bad({ depth: null })).toThrow(/damaged/);
+    expect(bad({ distance: null }, 7)).toThrow(/damaged/);
+    expect(bad({ keep: [[1, 2]] }, 9)).toThrow(/damaged/);
+    expect(bad({ tool: { kind: 'surface' } }, 10)).toThrow(/damaged/);
+    expect(bad({ side: 'inside' }, 13)).toThrow(/damaged/);
+    expect(bad({ faces: 'F1:p0' }, 12)).toThrow(/damaged/);
+    // References to surfaces that are not there open, and their features say so.
+    const fs = [sketch('S1', rect(0, 0, 20, 20, 'q')), surf('thicken', 'T1', { faces: [{ ...face, name: 'F99:p0' }] }), surf('surfaceKnit', 'K1', { faces: [face] })];
+    const doc = parseDocument(file(fs));
+    const res = await new ModelBuilder().build(req(doc.features));
+    expect(res.status[1]).toMatchObject({ ok: false, error: expect.stringMatching(/no longer exists|Select/) });
+    expect(res.status[2]).toMatchObject({ ok: false, error: expect.stringMatching(/no longer exists/) });
   });
 });
