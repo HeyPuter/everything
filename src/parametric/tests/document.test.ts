@@ -3,6 +3,7 @@ import { DocStore, changeFeatureUnits, changeUnits, mapExpressions, newDocument,
 import { defaultName, dependencies, newChamfer, newExtrude, newHole } from '../src/model/features';
 import type { ChamferFeature, ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
 import { EXAMPLES } from '../src/app/examples';
+import { newEdgeFlange } from '../src/model/sheetmetal';
 import { rect, sketch } from './helpers';
 
 describe('document store', () => {
@@ -212,6 +213,45 @@ describe('document store', () => {
     expect(load({ type: 'extrude', sketch: '', depth: 1 })).not.toThrow();
     expect(load({ type: 'revolve', sketch: '', axis: null })).not.toThrow();
     for (const ex of EXAMPLES) expect(() => parseDocument(serializeDocument(ex.make()))).not.toThrow();
+  });
+
+  it('opens face and edge references with a missing or damaged signature, and refuses one that is not an object', () => {
+    const load = (f: object) => parseDocument(JSON.stringify({ format: 'parametric-part', version: 1, features: [{ id: 'f9', name: 'X', ...f }] })).features[0];
+    const edge = { name: 'f1:a|f1:b', sig: { type: 'line', m: [0, 0, 0], len: 10 } };
+    const face = { name: 'f1:cap1', sig: { type: 'plane', c: [0, 0, 0], n: [0, 0, 1], area: 10 } };
+    const curved = { name: 'f1:side:c1', sig: { type: 'cylinder', c: [0, 0, 0], area: 10 } };
+    const features = [
+      { type: 'fillet', radius: 1, edges: [edge], faces: [curved] },
+      { type: 'revolve', sketch: '', axis: { kind: 'edge', edge } },
+      { type: 'plane', ref: { kind: 'face', face }, offset: 1 },
+      { ...newEdgeFlange('f9', 'X', 20), edges: [edge] },
+      { type: 'surfaceFill', edges: [edge] },
+      { type: 'surfaceCut', face, flip: false },
+      { type: 'surfaceTrim', faces: [face], tool: { kind: 'surface', face }, keep: [], flip: false },
+      { type: 'endCap', faces: [face], thickness: 1, offset: 0, inward: false },
+    ];
+    const swap = (f: object, bad: unknown) => JSON.parse(JSON.stringify(f).replaceAll(JSON.stringify(edge), JSON.stringify(bad)).replaceAll(JSON.stringify(face), JSON.stringify(bad)).replaceAll(JSON.stringify(curved), JSON.stringify(bad)));
+    // Whole references open unchanged (a curved face has no normal).
+    for (const f of features) expect(load(f), f.type).toEqual({ id: 'f9', name: 'X', ...f });
+    // A missing or partly damaged signature is filled with neutral values: no type, no position.
+    for (const f of features) {
+      for (const bad of [{ name: 'f1:x' }, { name: 'f1:x', sig: null }, { name: 'f1:x', sig: { type: 'line' } }, { name: 'f1:x', sig: { type: 7, c: [0, 0], m: 'x', area: null, n: [1] } }]) {
+        const text = JSON.stringify(load(swap(f, bad)));
+        expect(text, `${f.type} ${JSON.stringify(bad)}`).not.toContain('"sig":null');
+        for (const m of text.matchAll(/"sig":(\{[^}]*\})/g)) {
+          const sig = JSON.parse(m[1]);
+          expect(typeof sig.type).toBe('string');
+          const isEdge = Number.isFinite(sig.len);
+          expect(isEdge ? sig.m : sig.c).toEqual([0, 0, 0]);
+          if (!isEdge) expect(sig.area).toBe(0);
+          if (!isEdge) expect(sig.n).toBeUndefined();
+        }
+      }
+      // Not an object at all: the file is damaged.
+      for (const bad of [{ name: 'f1:x', sig: 'line' }, { name: 'f1:x', sig: [1, 2] }, 'f1:x', { sig: {} }]) {
+        expect(() => load(swap(f, bad)), `${f.type} ${JSON.stringify(bad)}`).toThrow(/damaged/);
+      }
+    }
   });
 
   it('repairs creation and modification times a date cannot hold', () => {

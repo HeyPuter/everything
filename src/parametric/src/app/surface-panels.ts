@@ -194,7 +194,7 @@ export class SurfacePlanarPanel extends SurfacePanel<SurfacePlanarFeature> {
       this.changed();
     }, { placeholder: 'Select a sketch, or edges forming a closed loop', icon: 'surfacePlanar' });
     if (f.sketch) box.setItems([{ item: { kind: 'feature', id: f.sketch }, data: f.sketch, label: app.store.feature(f.sketch)?.name ?? f.sketch }]);
-    else box.setItems(f.edges.map((e) => ({ item: edgeItem(app, e), data: e, label: `Edge (${e.sig.type})` })));
+    else box.setItems(f.edges.map((e) => ({ item: edgeItem(app, e), data: e, label: e.sig.type ? `Edge (${e.sig.type})` : 'Edge' })));
     return [section('Bounding Entities', [box.el])];
   }
 
@@ -234,7 +234,7 @@ export class SurfaceFillPanel extends SurfacePanel<SurfaceFillFeature> {
   render(): HTMLElement[] {
     const f = this.f;
     const box = new SelectionBox(this, 'Patch boundary', { edge: true }, toEdge(this.app), (items) => { f.edges = items.map((i) => i.data as EdgeRef); this.changed(); }, { placeholder: 'Select the edges around the opening', icon: 'surfaceFill' });
-    box.setItems(f.edges.map((e) => ({ item: edgeItem(this.app, e), data: e, label: `Edge (${e.sig.type})` })));
+    box.setItems(f.edges.map((e) => ({ item: edgeItem(this.app, e), data: e, label: e.sig.type ? `Edge (${e.sig.type})` : 'Edge' })));
     return [section('Patch Boundary', [box.el])];
   }
 
@@ -299,7 +299,7 @@ export class SurfaceExtendPanel extends SurfacePanel<SurfaceExtendFeature> {
   render(): HTMLElement[] {
     const f = this.f;
     const box = new SelectionBox(this, 'Edges to extend', { edge: true }, toSurfaceEdge(this.app), (items) => { f.edges = items.map((i) => i.data as EdgeRef); this.changed(); }, { placeholder: 'Select boundary edges of a surface', icon: 'surfaceExtend' });
-    box.setItems(f.edges.map((e) => ({ item: edgeItem(this.app, e), data: e, label: `Edge (${e.sig.type})` })));
+    box.setItems(f.edges.map((e) => ({ item: edgeItem(this.app, e), data: e, label: e.sig.type ? `Edge (${e.sig.type})` : 'Edge' })));
     return [
       section('Edges to Extend', [box.el]),
       section('End Condition', [

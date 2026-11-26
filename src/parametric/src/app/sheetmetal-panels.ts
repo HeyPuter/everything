@@ -79,7 +79,7 @@ const toStraightEdge = (app: App) => (it: import('./selection').SelItem): SelBox
 
 function edgeBox(panel: PropertyPanel, app: App, f: { edges: EdgeRef[] }, onChange: () => void): SelectionBox {
   const box = new SelectionBox(panel, 'Edges', { edge: true }, toStraightEdge(app), (items) => { f.edges = items.map((i) => i.data as EdgeRef); onChange(); }, { placeholder: 'Select edges of the sheet', icon: 'edgeFlange' });
-  box.setItems(f.edges.map((e) => ({ item: { kind: 'edge', index: app.edges.findIndex((x) => x.name === e.name), name: e.name }, data: e, label: `Edge (${e.sig.type})` })));
+  box.setItems(f.edges.map((e) => ({ item: { kind: 'edge', index: app.edges.findIndex((x) => x.name === e.name), name: e.name }, data: e, label: e.sig.type ? `Edge (${e.sig.type})` : 'Edge' })));
   return box;
 }
 

@@ -104,7 +104,7 @@ function axisLabel(app: App, ref: AxisRef | null): string {
   if (!ref) return '';
   switch (ref.kind) {
     case 'base': return `${ref.axis.toUpperCase()} axis`;
-    case 'edge': return `Edge (${ref.edge.sig.type})`;
+    case 'edge': return ref.edge.sig.type ? `Edge (${ref.edge.sig.type})` : 'Edge';
     case 'face': return `Face of ${app.store.feature(app.faces.find((f) => f.name === ref.face.name)?.feature ?? '')?.name ?? 'part'}`;
     case 'sketchLine': return `${app.store.feature(ref.sketch)?.name ?? 'Sketch'} line`;
   }
@@ -315,7 +315,7 @@ function edgeFaceBox(panel: PropertyPanel, app: App, label: string, f: { edges: 
     onChange();
   }, { placeholder: 'Select edges or faces', icon: 'fillet' });
   box.setItems([
-    ...f.edges.map((e) => ({ item: edgeItem(app, e), data: e, label: `Edge (${e.sig.type})` })),
+    ...f.edges.map((e) => ({ item: edgeItem(app, e), data: e, label: e.sig.type ? `Edge (${e.sig.type})` : 'Edge' })),
     ...f.faces.map((r) => ({ item: faceItem(app, r), data: r, label: 'Face' })),
   ]);
   return box;
