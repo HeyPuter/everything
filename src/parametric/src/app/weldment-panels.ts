@@ -517,7 +517,7 @@ export function weldmentCommands(app: App): Command[] {
       description: 'Sweep a standard profile (tube, pipe, angle, channel, beam, bar) along sketch lines and arcs.', run: start('structuralMember'),
     },
     {
-      id: 'trimExtend', label: 'Trim/Extend', icon: 'trimExtend', keywords: 'weldment trim extend cope member',
+      id: 'trimExtend', label: 'Trim / Extend', icon: 'trimExtend', keywords: 'weldment trim extend cope member',
       description: 'Trim or extend structural members to a face or to other members.', enabled: hasMembers, run: start('trimExtend'),
     },
     {
