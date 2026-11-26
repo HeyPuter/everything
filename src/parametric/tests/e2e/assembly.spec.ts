@@ -380,3 +380,41 @@ test('the mates of a suppressed component show as suppressed in the tree', async
   await expect(mate).toHaveClass(/suppressed/);
   expect(errors).toEqual([]);
 });
+
+test('Open Part on a component whose part file was deleted opens the copy kept in the assembly', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await makePart(page, 'Pin', PIN);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Pin');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Pin<1>' })).toBeVisible();
+  await page.keyboard.press('Meta+s');
+  await expect(page).toHaveTitle(/^Assembly\d+ - Parametric$/);
+  const name = (await page.title()).replace(' - Parametric', '');
+  // The pin's file is deleted from this browser.
+  await page.evaluate(async () => {
+    const key = 'parametric:local-parts';
+    const index = JSON.parse(localStorage.getItem(key)!) as { id: string; name: string }[];
+    const pin = index.find((p) => p.name === 'Pin')!;
+    localStorage.setItem(key, JSON.stringify(index.filter((p) => p !== pin)));
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('parametric-parts');
+    await dir.removeEntry(`${pin.id}.parametric`);
+  });
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('new'); });
+  await expect(page).toHaveTitle(/^Part\d+ - Parametric$/);
+  void page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: new RegExp(`^${name} This browser`) }).click();
+  await expect(page).toHaveTitle(`${name} - Parametric`);
+  const pin = tree.getByRole('treeitem', { name: '(-) Pin<1>' });
+  await expect(pin).toHaveAttribute('aria-description', /part file of Pin was not found/);
+  await pin.click();
+  await page.locator('.cm [data-cmd="openPart"]').click();
+  await expect(page).toHaveTitle(/Pin - Parametric$/);
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('the copy kept in the assembly opened');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.doc.features.length)).toBe(2);
+  expect(errors).toEqual([]);
+});

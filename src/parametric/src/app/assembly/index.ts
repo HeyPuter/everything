@@ -167,13 +167,15 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
     const part = comp && m!.doc.parts.find((p) => p.id === comp.part);
     if (!m || !part) return;
     const from = app.location ? { location: app.location, name: m.doc.name } : null;
-    if (!part.source) {
+    // No part file (an inserted STEP model), or its file was not found: the copy kept in the assembly opens.
+    if (!part.source || m.missingParts.has(part.id)) {
       const pd = m.partDoc(part.id);
       if (!pd) return;
       if (!(await files.confirmDiscard('open the part'))) return;
       app.loadDocument(structuredClone(pd), null);
       app.store.dirty = true;
-      toast({ message: `${part.name} has no part file of its own: it opened as a copy. Save it, then insert the saved part in the assembly to use your changes.`, timeout: 10000 });
+      const why = part.source ? `The part file of ${part.name} was not found (moved or deleted?): the copy kept in the assembly opened.` : `${part.name} has no part file of its own: it opened as a copy.`;
+      toast({ message: `${why} Save it, then insert the saved part in the assembly to use your changes.`, timeout: 10000 });
       return;
     }
     if (!(await files.confirmDiscard('open the part'))) return;
