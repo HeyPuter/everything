@@ -237,3 +237,16 @@ describe('imported file data', () => {
     expect(sentBuilds(workers[1]).map((m) => m.req.blobs)).toEqual([{ a: 'other', b: 'B' }]);
   });
 });
+
+describe('kernel client and assemblies', () => {
+  it('tells an assembly to build its parts again after a reset (Force Rebuild), as after a restart', async () => {
+    const { client, last } = setup();
+    last().answer('init');
+    await client.ready;
+    const g = client.generation;
+    const reset = client.reset();
+    expect(client.generation).not.toBe(g);
+    last().answer('reset');
+    await reset;
+  });
+});

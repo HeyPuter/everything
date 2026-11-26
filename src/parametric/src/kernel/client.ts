@@ -53,7 +53,7 @@ export class KernelClient {
    */
   lastMesh: MeshData | null = null;
   private started = false;
-  /** Counts the workers started: a new one has none of the parts an assembly built in the last. */
+  /** Counts the workers started and resets: after either, the worker has none of the parts an assembly built. */
   generation = 0;
   private stalled = false;
   private watchdog: ReturnType<typeof setInterval> | null = null;
@@ -244,6 +244,8 @@ export class KernelClient {
 
   /** Drops all cached rebuild steps. */
   reset(): Promise<void> {
+    // The worker forgets the parts an assembly built, as a new worker would.
+    this.generation++;
     return this.call({ type: 'reset' });
   }
 
