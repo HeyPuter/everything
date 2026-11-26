@@ -291,3 +291,66 @@ test('an imported SolidWorks part rebuilds on a worker replaced for its memory a
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('a geometry worker an assembly grew too big is replaced quietly, with the components where they were', async ({ page }) => {
+  type App = import('../../src/app/app').App;
+  type K = { worker: unknown; recycleBytes: number; baseHeap: number; generation: number };
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: App }).__parametric?.kernelReady);
+  const pts = (p: [number, number][]) => [
+    ...p.map(([x, y], i) => ({ id: `p${i}`, t: 'point', x, y })),
+    ...p.map((_, i) => ({ id: `l${i}`, t: 'line', a: `p${i}`, b: `p${(i + 1) % p.length}` })),
+  ];
+  // Two 40 × 20 × 10 blocks, both kept in the browser, inserted into a new assembly overlapping.
+  for (const name of ['BlockA', 'BlockB']) {
+    await page.evaluate(async ({ name, entities }) => {
+      const a = (window as unknown as { __parametric: App }).__parametric;
+      await a.commands.get('new')!.run();
+      a.store.change('Make part', (d) => {
+        d.name = name;
+        d.features = [
+          { id: 'S1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities, constraints: [] },
+          { id: 'E1', name: 'E1', type: 'extrude', sketch: 'S1', cut: false, end: 'blind', depth: 10, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null },
+        ] as never;
+        d.nextId = 100;
+      });
+      a.commands.run('save');
+    }, { name, entities: pts([[0, 0], [40, 0], [40, 20], [0, 20]]) });
+    await expect(page).toHaveTitle(`${name} - Parametric`);
+  }
+  await page.evaluate(() => { void (window as unknown as { __parametric: App }).__parametric.commands.run('newAssembly'); });
+  for (const name of ['BlockA', 'BlockB']) {
+    void page.evaluate(() => { (window as unknown as { __parametric: App }).__parametric.commands.run('insertComponent'); });
+    const dlg = page.getByRole('dialog', { name: 'Insert Components' });
+    await dlg.getByRole('button', { name: new RegExp(`^${name} This browser`) }).click();
+    await expect(dlg).toHaveCount(0);
+  }
+  await expect(page.getByRole('tree', { name: 'Assembly design tree' }).getByRole('treeitem', { name: /BlockB<1>/ })).toBeVisible();
+  const run = () => page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: App }).__parametric;
+    await app.whenBuilt();
+    const n = app.assembly!.doc.components.length;
+    const mass = await app.kernel.assembly<{ volume: number }>({ op: 'mass', densities: Array(n).fill(1000) });
+    const hits = await app.kernel.assembly<{ volume: number }[]>({ op: 'interference' });
+    return { volume: Math.round(mass.volume), pairs: hits.length, overlap: Math.round(hits.reduce((s, h) => s + h.volume, 0)) };
+  });
+  const before = await run();
+  expect(before.volume).toBeGreaterThan(0);
+  const replaced = await page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: App }).__parametric;
+    const k = app.kernel as unknown as K;
+    const first = k.worker, generation = k.generation;
+    // As if interference checks had grown the kernel far past what the assembly needs.
+    k.recycleBytes = 1;
+    k.baseHeap = 1;
+    await app.kernel.assembly({ op: 'interference' });
+    return { replaced: k.worker !== first, sameGeneration: k.generation === generation };
+  });
+  expect(replaced).toEqual({ replaced: true, sameGeneration: true });
+  // The new worker has the parts, placed: mass and interference come out as before.
+  await page.evaluate(() => { const k = (window as unknown as { __parametric: App }).__parametric.kernel as unknown as K; k.recycleBytes = 2 ** 30; });
+  expect(await run()).toEqual(before);
+  await expect(page.locator('.toast', { hasText: 'restarted' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

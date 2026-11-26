@@ -42,7 +42,16 @@ function meshTransfers(m: MeshData | null, out: Transferable[]) {
   for (const a of [m.positions, m.normals, m.indices, m.vertexFace, m.edgePositions, m.edgeIds, m.vertices]) out.push(a.buffer);
 }
 
-self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
+// One request at a time, in the order sent. Requests that arrive while the
+// WebAssembly module loads all wait for it; run side by side, a request sent
+// after a build (measure, an assembly's mass) ran in the middle of it, between
+// two of its features, and found the part or the assembly's parts not built yet.
+let queue: Promise<void> = Promise.resolve();
+self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
+  queue = queue.then(() => handle(ev)).catch(() => undefined);
+};
+
+async function handle(ev: MessageEvent<WorkerRequest>) {
   const msg = ev.data;
   // A result computed after the module aborted cannot be trusted either.
   const reply = (r: WorkerResponse, transfer: Transferable[] = []) =>
@@ -120,7 +129,8 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
           : r.op === 'project' ? assembly.projectItems(r.items, r.views)
           : r.op === 'interference' ? assembly.interference()
           : assembly.mass(r.densities);
-        reply({ id: msg.id, ok: true, result }, r.op === 'build' || r.op === 'interference' ? asmTransfers(result) : []);
+        // The heap lets the main thread replace a worker that grew too big, as after part builds.
+        reply({ id: msg.id, ok: true, result, heap: memory?.buffer.byteLength }, r.op === 'build' || r.op === 'interference' ? asmTransfers(result) : []);
         return;
       }
       case 'checkImport':
@@ -142,4 +152,4 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
     if (isFatal(e)) aborted = true;
     reply({ id: msg.id, ok: false, error: errorText(e) });
   }
-};
+}

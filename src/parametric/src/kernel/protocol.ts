@@ -203,6 +203,7 @@ export type WorkerRequest =
   | { id: number; type: 'debugFail'; mode: 'hang' | 'abort' | 'crash' };
 
 export type WorkerResponse =
-  | { id: number; ok: true; result: unknown }
+  /** heap: bytes of WebAssembly memory after the request (assembly requests; builds report it in their result). */
+  | { id: number; ok: true; result: unknown; heap?: number }
   /** fatal: the OpenCascade module aborted and the worker must be replaced. */
   | { id: number; ok: false; error: string; fatal?: boolean };

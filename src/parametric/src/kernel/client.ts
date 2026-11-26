@@ -9,7 +9,7 @@
 
 import type { SolidWorksImport } from '../formats/sldprt';
 import type { Id } from '../model/types';
-import type { AsmRequest } from './assembly';
+import type { AsmPartBuild, AsmRequest, AsmSceneItem } from './assembly';
 import type { BuildRequest, BuildResult, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -66,6 +66,9 @@ export class KernelClient {
   /** Kernel memory after the current worker's first build: what the part needs. */
   private baseHeap = 0;
   private recycleWanted = false;
+  /** The parts an open assembly had the worker build, and where it placed them: a replacing worker is given them again. */
+  private asmParts = new Map<string, AsmPartBuild>();
+  private asmScene: AsmSceneItem[] | null = null;
   readonly ready: Promise<void>;
   /** Called after the worker was replaced; `building` tells whether a rebuild someone waits on was cut short. */
   onRestart: (reason: string, building: boolean) => void = () => {};
@@ -95,6 +98,7 @@ export class KernelClient {
       const p = this.pending.get(r.id);
       if (p) {
         this.pending.delete(r.id);
+        if (r.ok && r.heap) this.noteHeap(r.heap);
         if (r.ok) p.resolve(r.result);
         // An aborted kernel restarts the worker: the request was cut short like
         // any other one in flight then, and a rebuild is tried again (an
@@ -203,10 +207,7 @@ export class KernelClient {
     this.call<BuildResult>({ type: 'build', req: { ...req, blobs: fresh }, blobs: ids })
       .then((res) => {
         if (!res.meshUnchanged) this.lastMesh = res.mesh;
-        if (res.heap) {
-          this.baseHeap ||= res.heap;
-          if (res.heap > Math.max(this.recycleBytes, 2 * this.baseHeap)) this.recycleWanted = true;
-        }
+        if (res.heap) this.noteHeap(res.heap);
         for (const w of waiters) w.resolve(res);
       })
       .catch((e) => { for (const w of waiters) w.reject(e); })
@@ -219,6 +220,12 @@ export class KernelClient {
       });
   }
 
+  /** Notes the kernel memory after a request: far past what the first request needed, the idle worker is replaced. */
+  private noteHeap(heap: number) {
+    this.baseHeap ||= heap;
+    if (heap > Math.max(this.recycleBytes, 2 * this.baseHeap)) this.recycleWanted = true;
+  }
+
   /**
    * Replaces a worker whose kernel memory has grown far past what the part
    * needs, while nothing waits on it. OpenCascade's booleans leak a little
@@ -229,13 +236,20 @@ export class KernelClient {
    */
   private recycle() {
     this.recycleWanted = false;
-    if (this.pending.size || !this.lastReq) return;
+    const asm = this.asmParts.size > 0;
+    if (this.pending.size || this.building || (!asm && !this.lastReq)) return;
     const old = this.worker;
     old.onmessage = old.onerror = old.onmessageerror = null;
     old.terminate();
     this.spawn();
     this.call({ type: 'init' }).catch(() => undefined);
-    this.run(this.lastReq, []);
+    if (!asm) { this.run(this.lastReq!, []); return; }
+    // An open assembly: the new worker builds its parts and places them again
+    // before anything else, so to the assembly it is the worker it had (a
+    // worker that dies doing so is restarted, and the assembly rebuilt).
+    this.generation--;
+    this.call({ type: 'asm', req: { op: 'build', parts: [...this.asmParts.values()] } }).catch(() => undefined);
+    if (this.asmScene) this.call({ type: 'asm', req: { op: 'scene', items: this.asmScene } }).catch(() => undefined);
   }
 
   get busy(): boolean {
@@ -288,7 +302,17 @@ export class KernelClient {
 
   /** Assembly requests: building parts, placing components, interference, mass (see kernel/assembly.ts). */
   assembly<T>(req: AsmRequest): Promise<T> {
-    return this.call({ type: 'asm', req });
+    if (req.op === 'build') for (const p of req.parts) this.asmParts.set(p.key, p);
+    else if (req.op === 'scene') this.asmScene = req.items;
+    else if (req.op === 'drop') {
+      const keep = new Set(req.keep);
+      for (const k of [...this.asmParts.keys()]) if (!keep.has(k)) this.asmParts.delete(k);
+      // Dropping every part closes the assembly.
+      if (!keep.size) this.asmScene = null;
+    }
+    // Assembly requests grow the kernel's memory too (interference, placed solids): once
+    // nothing else is waiting, a worker grown too big is replaced as after a part build.
+    return this.call<T>({ type: 'asm', req }).finally(() => { if (this.recycleWanted && !this.building && !this.pending.size) this.recycle(); });
   }
 
   /** Development builds: makes the worker fail on purpose (tests of recovery). */

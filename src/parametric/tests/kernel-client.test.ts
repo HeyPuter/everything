@@ -199,6 +199,67 @@ describe('kernel memory', () => {
   });
 });
 
+describe('kernel memory of assemblies', () => {
+  type AsmMsg = Extract<WorkerRequest, { type: 'asm' }>;
+  const part = (key: string) => ({ key, features: [], blobs: {}, quality: 1 });
+  const item = (p: string) => ({ part: p, m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], name: p, color: '#888888' });
+
+  it('replaces a worker an assembly grew too big once it is idle, giving the new one the parts and their places first', async () => {
+    const { client, workers, restarts, last } = setup({ recycleBytes: 1000 });
+    last().answer('init');
+    await client.ready;
+    const asm = async (r: AsmMsg['req'], heap: number) => {
+      const p = client.assembly(r);
+      const m = last().sent.filter((x) => x.type === 'asm').pop()!;
+      last().reply({ id: m.id, ok: true, result: true, heap });
+      await p;
+      await flush();
+    };
+    const generation = client.generation;
+    await asm({ op: 'build', parts: [part('a'), part('b'), part('c')] }, 600);
+    await asm({ op: 'scene', items: [item('a'), item('b')] }, 600);
+    await asm({ op: 'drop', keep: ['a', 'b'] }, 600);
+    await asm({ op: 'interference' }, 1100);
+    expect(workers).toHaveLength(1);
+    // Not while another request is waiting: once the worker is idle.
+    const mass = client.assembly({ op: 'mass', densities: [1, 1] });
+    await asm({ op: 'interference' }, 5000);
+    expect(workers).toHaveLength(1);
+    const m = workers[0].sent.filter((x) => x.type === 'asm').find((x) => (x as AsmMsg).req.op === 'mass')!;
+    workers[0].reply({ id: m.id, ok: true, result: { volume: 1 }, heap: 5000 });
+    await expect(mass).resolves.toEqual({ volume: 1 });
+    await flush();
+    expect(workers).toHaveLength(2);
+    expect(workers[0].terminated).toBe(true);
+    // The new worker builds the parts still used and places them before anything else.
+    const sent = workers[1].sent as AsmMsg[];
+    expect(sent.map((x) => x.type)).toEqual(['init', 'asm', 'asm']);
+    expect(sent[1].req).toEqual({ op: 'build', parts: [part('a'), part('b')] });
+    expect(sent[2].req).toEqual({ op: 'scene', items: [item('a'), item('b')] });
+    // To the assembly it is the same worker: nothing to rebuild, nobody told of a restart.
+    expect(client.generation).toBe(generation);
+    expect(restarts).toEqual([]);
+  });
+
+  it('rebuilds the part, not the assembly, in a worker replaced after the assembly closed', async () => {
+    const { client, workers, last } = setup({ recycleBytes: 1000 });
+    last().answer('init');
+    await client.ready;
+    const p = client.assembly({ op: 'build', parts: [part('a')] });
+    last().reply({ id: last().sent.find((x) => x.type === 'asm')!.id, ok: true, result: true, heap: 500 });
+    await p;
+    void client.assembly({ op: 'drop', keep: [] });
+    last().answer('asm');
+    await flush();
+    const b = client.build(req(3));
+    last().reply({ id: last().sent.filter((x) => x.type === 'build').pop()!.id, ok: true, result: { heap: 5000 } });
+    await b;
+    await flush();
+    expect(workers).toHaveLength(2);
+    expect(workers[1].sent.map((x) => x.type)).toEqual(['init', 'build']);
+  });
+});
+
 describe('imported file data', () => {
   const sentBuilds = (w: FakeWorker) => w.sent.filter((m) => m.type === 'build') as Extract<WorkerRequest, { type: 'build' }>[];
 
