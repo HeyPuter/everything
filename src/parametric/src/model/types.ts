@@ -336,6 +336,123 @@ export interface ImportFeature extends FeatureBase {
   fileName: string;
 }
 
+// ---- Surfaces ----
+// Surface features make (or change) surface bodies: open sheets kept apart
+// from the solid, each named after the feature that last made it. Thicken,
+// Knit (as a solid) and Cut With Surface turn them into solid geometry.
+
+export interface SurfaceExtrudeFeature extends FeatureBase {
+  type: 'surfaceExtrude';
+  sketch: Id;
+  end: 'blind' | 'midPlane';
+  depth: Param;
+  flip: boolean;
+  /** Second direction (Blind), or null. */
+  dir2: { depth: Param } | null;
+}
+
+export interface SurfaceRevolveFeature extends FeatureBase {
+  type: 'surfaceRevolve';
+  sketch: Id;
+  /** null picks the sketch's first centerline. */
+  axis: AxisRef | null;
+  end: 'blind' | 'midPlane';
+  angle: Param;
+  flip: boolean;
+}
+
+export interface SurfaceSweepFeature extends FeatureBase {
+  type: 'surfaceSweep';
+  profile: Id | null;
+  path: Id | null;
+}
+
+export interface SurfaceLoftFeature extends FeatureBase {
+  type: 'surfaceLoft';
+  profiles: Id[];
+  ruled: boolean;
+}
+
+/** A planar surface from the closed regions of a sketch, or from a closed loop of edges. */
+export interface SurfacePlanarFeature extends FeatureBase {
+  type: 'surfacePlanar';
+  sketch: Id | null;
+  edges: EdgeRef[];
+}
+
+/** Offset copies of faces (of the solid or of surfaces); a distance of zero copies them. */
+export interface SurfaceOffsetFeature extends FeatureBase {
+  type: 'surfaceOffset';
+  faces: FaceRef[];
+  distance: Param;
+  flip: boolean;
+}
+
+/** A patch filling a closed boundary of edges. */
+export interface SurfaceFillFeature extends FeatureBase {
+  type: 'surfaceFill';
+  edges: EdgeRef[];
+}
+
+export type TrimTool =
+  | { kind: 'sketch'; sketch: Id }
+  | { kind: 'plane'; plane: PlaneRef }
+  | { kind: 'surface'; face: FaceRef };
+
+/** Trims surface bodies with a sketch, plane or another surface, keeping the pieces picked (or one side). */
+export interface SurfaceTrimFeature extends FeatureBase {
+  type: 'surfaceTrim';
+  /** A face of each surface body to trim. */
+  faces: FaceRef[];
+  tool: TrimTool | null;
+  /** Points on the pieces to keep; empty keeps the side the tool's normal points to (flip: the other). */
+  keep: Vec3[];
+  flip: boolean;
+}
+
+/** Extends a surface past its boundary edges. */
+export interface SurfaceExtendFeature extends FeatureBase {
+  type: 'surfaceExtend';
+  edges: EdgeRef[];
+  distance: Param;
+  /** same: the surface carries on as it is; linear: tangent to it, straight. */
+  mode: 'same' | 'linear';
+}
+
+/** Sews surface bodies into one, and into a solid when they close a volume. */
+export interface SurfaceKnitFeature extends FeatureBase {
+  type: 'surfaceKnit';
+  /** A face of each surface body to knit. */
+  faces: FaceRef[];
+  tolerance: Param;
+  solid: boolean;
+}
+
+/** Turns a surface body into a solid of a thickness: added to the solid body, or cut from it. */
+export interface ThickenFeature extends FeatureBase {
+  type: 'thicken';
+  /** A face of the surface body to thicken. */
+  faces: FaceRef[];
+  thickness: Param;
+  /** front: along the surface normal; back: against it; both: half each way. */
+  side: 'front' | 'back' | 'both';
+  cut: boolean;
+}
+
+/** Cuts the solid body with a surface, removing the material on the side its normal points to (flip: the other). */
+export interface SurfaceCutFeature extends FeatureBase {
+  type: 'surfaceCut';
+  face: FaceRef | null;
+  flip: boolean;
+}
+
+/** Removes faces from the solid, leaving a surface body (or patching the hole). */
+export interface DeleteFaceFeature extends FeatureBase {
+  type: 'deleteFace';
+  faces: FaceRef[];
+  mode: 'delete' | 'patch';
+}
+
 export type Feature =
   | SketchFeature
   | ExtrudeFeature
@@ -351,7 +468,20 @@ export type Feature =
   | LoftFeature
   | SweepFeature
   | DraftFeature
-  | ImportFeature;
+  | ImportFeature
+  | SurfaceExtrudeFeature
+  | SurfaceRevolveFeature
+  | SurfaceSweepFeature
+  | SurfaceLoftFeature
+  | SurfacePlanarFeature
+  | SurfaceOffsetFeature
+  | SurfaceFillFeature
+  | SurfaceTrimFeature
+  | SurfaceExtendFeature
+  | SurfaceKnitFeature
+  | ThickenFeature
+  | SurfaceCutFeature
+  | DeleteFaceFeature;
 
 export type FeatureType = Feature['type'];
 

@@ -288,5 +288,7 @@ export class FeatureCodec {
       case 'draft': return { faces: f.faces.map((x) => x.name), neutral_plane: planeSpec(f.neutral), angle: A(f.angle), reverse: f.flip };
       case 'import': return { format: f.format, file: f.fileName };
     }
+    // Features the assistant cannot create (surfaces...) are listed without their arguments.
+    return {};
   }
 }

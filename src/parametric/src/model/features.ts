@@ -5,6 +5,7 @@ import type {
   Id, LinearPatternFeature, LoftFeature, MirrorFeature, PartDocument, PlaneFeature, PlaneRef, RevolveFeature, ShellFeature,
   SketchFeature, SweepFeature,
 } from './types';
+import { SURFACE_BASE_NAMES, SURFACE_LABELS, SURFACE_PARAM_FIELDS, isSurfaceFeature, surfaceIcon, surfaceRefs, surfaceSketches } from './surfaces';
 
 export type ParamKind = 'length' | 'angle' | 'count';
 
@@ -43,6 +44,7 @@ export const PARAM_FIELDS: Partial<Record<FeatureType, { path: string; kind: Par
   ],
   plane: [{ path: 'offset', kind: 'length', label: 'Offset' }],
   draft: [{ path: 'angle', kind: 'angle', label: 'Draft angle' }],
+  ...SURFACE_PARAM_FIELDS,
 };
 
 /**
@@ -90,6 +92,7 @@ const BASE_NAMES: Record<FeatureType, string> = {
   sweep: 'Sweep',
   draft: 'Draft',
   import: 'Imported',
+  ...SURFACE_BASE_NAMES,
 };
 
 export const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -108,9 +111,11 @@ export const FEATURE_LABELS: Record<FeatureType, string> = {
   sweep: 'Sweep',
   draft: 'Draft',
   import: 'Imported Body',
+  ...SURFACE_LABELS,
 };
 
 export function featureIcon(f: Feature): string {
+  if (isSurfaceFeature(f)) return surfaceIcon(f);
   switch (f.type) {
     case 'sketch': return 'sketchFeature';
     case 'extrude': return f.cut ? 'extrudeCut' : 'extrude';
@@ -178,6 +183,7 @@ export const newDraft = (id: Id, name: string): DraftFeature => ({ id, name, typ
 
 /** Features that consume a sketch (the sketch is shown nested under them). */
 export function consumedSketches(f: Feature): Id[] {
+  if (isSurfaceFeature(f)) return surfaceSketches(f);
   switch (f.type) {
     case 'extrude':
     case 'revolve':
@@ -237,6 +243,7 @@ export function dependencies(f: Feature): Id[] {
   if (f.type === 'linearPattern') for (const d of [f.dir1, f.dir2]) visitAxis(d?.ref);
   if (f.type === 'fillet' || f.type === 'chamfer') { f.edges.forEach((r) => visitName(r.name)); f.faces.forEach((r) => visitName(r.name)); }
   if (f.type === 'shell') f.faces.forEach((r) => visitName(r.name));
+  if (isSurfaceFeature(f)) surfaceRefs(f, { name: visitName, plane: visitPlane, axis: visitAxis });
   return [...out];
 }
 
