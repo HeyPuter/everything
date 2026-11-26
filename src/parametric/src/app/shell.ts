@@ -294,6 +294,7 @@ function ribbonScroller(tools: HTMLElement): HTMLElement {
 /** Renders one CommandManager tab's tools. */
 export function renderRibbon(target: HTMLElement, tab: RibbonTab, cmds: CommandRegistry) {
   target.textContent = '';
+  target.dataset.tab = tab.id;
   tab.groups.forEach((group, i) => {
     const name = tab.labels?.[i];
     const g = h('div', { class: 'cm-group', role: 'group', ...(name ? { 'aria-label': name, 'data-group': name.toLowerCase() } : {}) });

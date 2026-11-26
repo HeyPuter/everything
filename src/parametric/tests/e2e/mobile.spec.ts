@@ -385,3 +385,32 @@ test('the ribbon tab strip fades the edge with more tabs past it, also after the
   await expect(strip).toHaveClass(/more-end/);
   expect(errors).toEqual([]);
 });
+
+test('ribbon labels of the sheet metal, surfaces, weldments, drawing and assembly tabs break only between words', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = { __parametric: import('../../src/app/app').App };
+  // Words of a label wider than the label: a word broken across lines.
+  const broken = () => page.evaluate(() => {
+    const c = document.createElement('canvas').getContext('2d')!;
+    return [...document.querySelectorAll<HTMLElement>('.cm-tools .tool .lbl')].flatMap((l) => {
+      const cs = getComputedStyle(l);
+      c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const tool = l.closest('.tool')!.getBoundingClientRect(), r = l.getBoundingClientRect();
+      const words = l.textContent!.split(/\s+/).filter((w) => c.measureText(w).width > l.clientWidth + 0.5);
+      return words.length || r.left < tool.left - 0.5 || r.right > tool.right + 0.5 ? [l.textContent!] : [];
+    });
+  });
+  for (const tab of ['sheetMetal', 'surfaces', 'weldments', 'drawing']) {
+    await page.evaluate((t) => (window as unknown as A).__parametric.setRibbonTab(t), tab);
+    expect(await broken(), tab).toEqual([]);
+  }
+  await page.evaluate(() => { void (window as unknown as A).__parametric.commands.run('newAssembly'); });
+  await expect(page.locator('.cm-tools [data-cmd="insertComponent"]')).toBeVisible();
+  expect(await broken(), 'assembly').toEqual([]);
+  await page.evaluate(() => (window as unknown as A).__parametric.openDrawing());
+  await page.evaluate(() => (window as unknown as A).__parametric.setRibbonTab('annotation'));
+  expect(await broken(), 'annotation').toEqual([]);
+  expect(errors).toEqual([]);
+});
