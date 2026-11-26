@@ -14,6 +14,9 @@ import { REPO_URL, type RibbonTab } from './shell';
 import type { App, AppHooks } from './app';
 import type { Command } from './commands';
 import { panelFor, startFeature } from './panels';
+import { isSurfaceFeature } from '../model/surfaces';
+import { surfaceCommands, surfacePanelFor } from './surface-panels';
+import { hideable } from './surface-display';
 import { SketchPanel } from './sketch/panel';
 import {
   MeasurePanel, OffsetPanel, SectionPanel, aboutDialog, convertEntities, equationsDialog, massPropertiesDialog, materialDialog,
@@ -326,6 +329,8 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'shortcutsF1', label: 'Keyboard Shortcuts', hidden: true, shortcut: 'F1', run: () => shortcutsDialog(app) },
     { id: 'github', label: 'Source Code on GitHub', icon: 'github', run: () => { window.open(REPO_URL, '_blank', 'noopener'); } },
     { id: 'about', label: 'About Parametric', icon: 'info', run: () => aboutDialog() },
+    // ---- surfaces ----
+    ...surfaceCommands(app),
   );
   void noModes;
   void VIEWS;
@@ -394,6 +399,14 @@ export const RIBBON: RibbonTab[] = [
     groups: [[{ cmd: 'measure' }, { cmd: 'massProperties' }, { cmd: 'sectionView' }], [{ cmd: 'equations' }, { cmd: 'material' }]],
   },
   {
+    id: 'surfaces', label: 'Surfaces',
+    groups: [
+      [{ cmd: 'surfaceExtrude' }, { cmd: 'surfaceRevolve' }, { stack: [{ cmd: 'surfaceSweep' }, { cmd: 'surfaceLoft' }, { cmd: 'surfacePlanar' }] }],
+      [{ stack: [{ cmd: 'surfaceOffset' }, { cmd: 'surfaceFill' }, { cmd: 'surfaceKnit' }] }, { stack: [{ cmd: 'surfaceTrim' }, { cmd: 'surfaceExtend' }, { cmd: 'deleteFace' }] }],
+      [{ cmd: 'thicken' }, { stack: [{ cmd: 'thickenCut' }, { cmd: 'surfaceCut' }] }],
+    ],
+  },
+  {
     id: 'drawing', label: 'Drawing',
     groups: [
       [{ cmd: 'drawing:arrange' }, { stack: [{ cmd: 'drawing:add:front' }, { cmd: 'drawing:add:top' }, { cmd: 'drawing:add:right' }] }, { stack: [{ cmd: 'drawing:add:isometric' }, { cmd: 'drawing:add:left' }, { cmd: 'drawing:add:back' }] }],
@@ -450,6 +463,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
         { label: 'Features', icon: 'fillet', submenu: () => [m('fillet'), m('chamfer'), m('hole'), m('shell'), m('draft')] },
         { label: 'Pattern/Mirror', icon: 'linearPattern', submenu: () => [m('linearPattern'), m('circularPattern'), m('mirror')] },
         { label: 'Reference Geometry', icon: 'plane', submenu: () => [m('plane')] },
+        { label: 'Surface', icon: 'surfaceExtrude', submenu: () => ['surfaceExtrude', 'surfaceRevolve', 'surfaceSweep', 'surfaceLoft', 'surfacePlanar', 'surfaceOffset', 'surfaceFill', 'surfaceTrim', 'surfaceExtend', 'surfaceKnit', 'thicken', 'thickenCut', 'surfaceCut', 'deleteFace'].map((id) => m(id)) },
         sep, m('importStep'),
       ],
     },
@@ -511,13 +525,13 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
     const used = sketchesOf(app, f);
     // A sketch a feature absorbed is hidden though it was never hidden by hand: the menu says Show.
     const shown = app.isShown(f);
-    const showable = ids.filter((x) => ['sketch', 'plane'].includes(app.store.feature(x)?.type ?? ''));
+    const showable = ids.filter((x) => hideable(app.store.feature(x)));
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
       ...used.map((sk): MenuItem => ({ label: used.length === 1 ? 'Edit Sketch' : `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) })),
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(id) },
       sep,
-      ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: shown ? 'Hide' : 'Show', icon: shown ? 'eyeOff' : 'eye', run: () => app.toggleHidden(showable, shown) } as MenuItem] : []),
+      ...(hideable(f) ? [{ label: shown ? 'Hide' : 'Show', icon: shown ? 'eyeOff' : 'eye', run: () => app.toggleHidden(showable, shown) } as MenuItem] : []),
       { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },
       { label: 'Roll Back to Here', icon: 'upToLine', run: () => app.setRollback(idx) },
       { label: 'Roll to End', icon: 'downToLine', disabled: app.store.doc.rollback == null, run: () => app.setRollback(null) },
@@ -611,7 +625,7 @@ export function makeHooks(app: App): AppHooks {
     ribbonTabs: RIBBON,
     menus: buildMenus(app),
     sketchPanel: () => new SketchPanel(app),
-    editFeaturePanel: (f) => panelFor(app, f, true),
+    editFeaturePanel: (f) => (isSurfaceFeature(f) ? surfacePanelFor(app, f, true) : panelFor(app, f, true)),
     planePickPanel: (done) => new PlanePickPanel(app, done),
     contextItems: (t, id) => contextItems(app, t, id),
     quickActions: () => quickActions(app),

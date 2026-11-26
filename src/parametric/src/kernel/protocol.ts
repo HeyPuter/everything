@@ -37,6 +37,8 @@ export interface FaceInfo {
   radius?: number;
   /** Feature that last named this face. */
   feature: Id;
+  /** The surface body the face is on (a surface feature's id); absent for faces of the solid. */
+  body?: Id;
 }
 
 export interface EdgeInfo {
@@ -52,6 +54,8 @@ export interface EdgeInfo {
   center?: Vec3;
   axis?: Vec3;
   radius?: number;
+  /** The surface body the edge is on; absent for edges of the solid. */
+  body?: Id;
 }
 
 export interface MeshData {
@@ -105,6 +109,8 @@ export interface BuildResult {
   previewWarning?: string;
   /** Bytes of WebAssembly memory the kernel holds after the build (it never shrinks). */
   heap?: number;
+  /** Set when there are surface bodies: their faces and edges follow the solid's from these indices. */
+  surfaces?: { face: number; edge: number };
 }
 
 export interface MassProperties {
@@ -119,6 +125,8 @@ export interface MassProperties {
   /** Inertia tensor about the centre of mass (per unit density), row-major 3x3. */
   inertia: number[];
   principal: { moments: Vec3; axes: [Vec3, Vec3, Vec3] };
+  /** Area of the surface bodies (not part of the solid's volume or area), when there are any. */
+  surfaceArea?: number;
 }
 
 export type MeasureTarget =

@@ -3,6 +3,7 @@
 // and references, so a missing list or a reference without a name broke the
 // app after the file had replaced the open document.
 import type { Feature } from './types';
+import { isSurfaceFeature, validSurfaceFeature } from './surfaces';
 
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -35,6 +36,7 @@ const patternDir = (v: unknown) => object(v) && axis(v.ref);
 
 export function validFeature(f: Feature): boolean {
   const r = f as unknown as Record<string, unknown>;
+  if (isSurfaceFeature(f)) return validSurfaceFeature(f, plane, axis);
   switch (f.type) {
     case 'extrude':
     case 'hole':

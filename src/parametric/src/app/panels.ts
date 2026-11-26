@@ -779,3 +779,6 @@ function cutFlip(app: App, sketchId: Id | null): boolean {
   // Cuts go against the normal by default; flip when the material is in front.
   return dot(sub(c, fr.o), fr.n) > 1e-6;
 }
+
+// For the surface feature panels (surface-panels.ts).
+export { FeaturePanel, axisItem, axisLabel, edgeItem, faceItem, isSketch, planeItem, planeLabel };

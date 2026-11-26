@@ -15,6 +15,7 @@ import { formatShortcut, h, isMac } from '../ui/dom';
 import type { App } from './app';
 import type { PickFilter } from './pm';
 import type { SelItem } from './selection';
+import { markHiddenSurfaces } from './surface-display';
 
 export interface VPEvent {
   x: number;
@@ -607,6 +608,7 @@ export class Viewport {
     for (const it of app.selection.items) mark(it, STATE_SELECTED);
     mark(app.selection.hover, STATE_HOVER);
     for (const it of app.extraHighlights()) mark(it, STATE_SELECTED);
+    markHiddenSurfaces(app, faces, edges);
     this.renderer.setStates(faces, edges);
     this.drawVertices();
     this.drawReferenceGeometry(hoverOnly);
