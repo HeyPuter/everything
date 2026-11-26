@@ -592,7 +592,7 @@ const add3 = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
  * Native objects are freed here, not left to the garbage collector: the projections of a whole
  * part take megabytes that the geometry worker would otherwise keep for as long as it runs.
  */
-export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number, hair: number, withHidden = true): { visible: string[]; hidden: string[]; bounds: [number, number, number, number] | null } {
+export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number, hair: number, withHidden = true, smooth = true): { visible: string[]; hidden: string[]; bounds: [number, number, number, number] | null } {
   const origin = pnt([0, 0, 0]), n = gdir(dir), vx = gdir(xAxis);
   const ax = new oc.gp_Ax2(origin, n, vx);
   const projector = new oc.HLRAlgo_Projector(ax);
@@ -617,10 +617,10 @@ export function projectShape(shape: Sh, dir: Vec3, xAxis: Vec3, tol: number, hai
       }
     });
     // Sharp edges, smooth (tangent) edges and silhouettes.
-    const visible = lines(['VCompound', 'Rg1LineVCompound', 'OutLineVCompound'], box, shape.wrapped);
+    const visible = lines(smooth ? ['VCompound', 'Rg1LineVCompound', 'OutLineVCompound'] : ['VCompound', 'OutLineVCompound'], box, shape.wrapped);
     // A view drawn without hidden lines does not extract them: it takes time, and the
     // extraction of hidden sharp edges keeps some memory each time (inside OpenCascade).
-    const hidden = withHidden ? lines(['HCompound', 'Rg1LineHCompound', 'OutLineHCompound'], null, shape.wrapped) : [];
+    const hidden = withHidden ? lines(smooth ? ['HCompound', 'Rg1LineHCompound', 'OutLineHCompound'] : ['HCompound', 'OutLineHCompound'], null, shape.wrapped) : [];
     if (seams) {
       // The seams along the silhouette, drawn the hair outside it: their extent, less the hair, is the part's.
       const seamBox = [Infinity, Infinity, -Infinity, -Infinity];

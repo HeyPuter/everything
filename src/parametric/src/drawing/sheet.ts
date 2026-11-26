@@ -2,10 +2,15 @@
 // and a display list (lines, paths, text) that renders identically to SVG
 // (on screen and export) and PDF.
 
-import type { ProjectionResult } from '../kernel/protocol';
+import type { EdgeInfo, ProjectionResult } from '../kernel/protocol';
 import { type Vec3, cross, normalize } from '../math/vec';
 import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
+import {
+  type AnnoFormat, type Geo, type HoleSpec, type Placement, DANGER, DIM_TEXT_SIZE, NOTE_SIZE, drawCenterMark, drawCenterline, drawCuttingLine,
+  drawDetailCircle, drawDimension, drawNote, holeCalloutText, measure, resolveRef,
+} from './annotate';
 import { PdfPage, textWidth } from './pdf';
+import { type Prim, type ResolvedView, centerMarks, clipToCircle, flattenPath, hatch, holeAxes, polyPath, resolveViews, standardKindOf, viewPrims } from './views';
 
 /** Portrait sizes in millimetres. */
 export const SHEETS: Record<SheetSize, [number, number]> = {
@@ -15,11 +20,15 @@ export const SHEETS: Record<SheetSize, [number, number]> = {
   A1: [594, 841],
   Letter: [215.9, 279.4],
   Tabloid: [279.4, 431.8],
+  A0: [841, 1189],
+  'ANSI C': [431.8, 558.8],
+  'ANSI D': [558.8, 863.6],
 };
 
 export const SHEET_LABELS: Record<SheetSize, string> = {
   A4: 'A4 (297 x 210 mm)', A3: 'A3 (420 x 297 mm)', A2: 'A2 (594 x 420 mm)', A1: 'A1 (841 x 594 mm)',
   Letter: 'Letter (11 x 8.5 in)', Tabloid: 'Tabloid (17 x 11 in)',
+  A0: 'A0 (1189 x 841 mm)', 'ANSI C': 'ANSI C (22 x 17 in)', 'ANSI D': 'ANSI D (34 x 22 in)',
 };
 
 export function sheetDims(d: Pick<DrawingDoc, 'sheet' | 'landscape'>): { w: number; h: number } {
@@ -134,11 +143,12 @@ export function placeView(
 // ---------- display list ----------
 
 export type Item =
-  | { t: 'path'; d: string; tx: number; ty: number; s: number; w: number; dash?: number[]; view?: string }
-  | { t: 'line'; x1: number; y1: number; x2: number; y2: number; w: number; dash?: number[] }
+  | { t: 'path'; d: string; tx: number; ty: number; s: number; w: number; dash?: number[]; view?: string; color?: string }
+  | { t: 'line'; x1: number; y1: number; x2: number; y2: number; w: number; dash?: number[]; color?: string }
   | { t: 'rect'; x: number; y: number; w: number; h: number; sw: number }
-  | { t: 'tri'; a: [number, number]; b: [number, number]; c: [number, number] }
-  | { t: 'text'; s: string; x: number; y: number; size: number; bold?: boolean; anchor?: 'start' | 'middle' | 'end'; rotate?: number };
+  | { t: 'tri'; a: [number, number]; b: [number, number]; c: [number, number]; color?: string }
+  | { t: 'circle'; cx: number; cy: number; r: number; w: number; dash?: number[]; color?: string }
+  | { t: 'text'; s: string; x: number; y: number; size: number; bold?: boolean; anchor?: 'start' | 'middle' | 'end'; rotate?: number; color?: string };
 
 export interface SheetInfo {
   partName: string;
@@ -146,6 +156,12 @@ export interface SheetInfo {
   units: string;
   date: string;
   formatLength: (mm: number) => string;
+  /** Model edges of a view's source, for dimensions and centre marks (absent: none drawn). */
+  edges?: (source: string) => EdgeInfo[];
+  /** Lengths with a dimension's own decimals, and angles (absent: formatLength and 2 decimals). */
+  format?: AnnoFormat;
+  /** The hole a circular edge belongs to, for hole callouts. */
+  holeOf?: (edge: string) => HoleSpec | null;
 }
 
 export interface ViewFrame {
@@ -156,33 +172,96 @@ export interface ViewFrame {
   y1: number;
 }
 
+/** Where a view is drawn: sheet = view coordinates * s + (tx, ty). */
+export interface ViewPlacement {
+  r: ResolvedView;
+  tx: number;
+  ty: number;
+  s: number;
+  frame: ViewFrame;
+  /** The model edges it shows (when the sheet was given them). */
+  prims: Prim[];
+}
+
 const MIN_TEXT = 1.8;
 const VISIBLE_W = 0.35;
 const HIDDEN_W = 0.18;
 const THIN = 0.18;
+export const HATCH_SPACING = 3;
+
+/** The label under a view. */
+export function viewCaption(d: DrawingDoc, r: ResolvedView): string {
+  const v = r.v;
+  const scale = Math.abs(r.scale - d.scale) > 1e-12 ? `  SCALE ${scaleLabel(r.scale)}` : '';
+  const letter = (v.label ?? '').toUpperCase();
+  switch (r.type) {
+    case 'section': return `SECTION ${letter || 'A'}-${letter || 'A'}${scale}`;
+    case 'detail': return `DETAIL ${letter || 'A'}${scale}`;
+    case 'auxiliary': return `${letter ? `VIEW ${letter}` : 'AUXILIARY VIEW'}${scale}`;
+    case 'projected': {
+      if (letter) return letter + scale;
+      const k = standardKindOf(r.o);
+      return `${k ? VIEW_LABELS[k as DrawingViewKind].toUpperCase() : 'PROJECTED VIEW'}${scale}`;
+    }
+    default: return `${letter || VIEW_LABELS[v.kind].toUpperCase()}${scale}`;
+  }
+}
 
 /** Builds the sheet's display list. Also returns each view's frame on the sheet. */
-export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionResult>, info: SheetInfo): { items: Item[]; frames: ViewFrame[]; w: number; h: number } {
+export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionResult>, info: SheetInfo): {
+  items: Item[]; frames: ViewFrame[]; w: number; h: number;
+  /** Where each projected view is drawn. */
+  placements: Map<string, ViewPlacement>;
+  /** Boxes of the annotations, for picking. */
+  annos: { id: string; box: Box }[];
+} {
   const { w, h } = sheetDims(d);
   const items: Item[] = [];
   const frames: ViewFrame[] = [];
   items.push({ t: 'rect', x: MARGIN, y: MARGIN, w: w - 2 * MARGIN, h: h - 2 * MARGIN, sw: 0.5 });
-  const s = d.scale;
-  const placed: { v: DrawingView; pr: ProjectionResult; tx: number; ty: number; f: ViewFrame }[] = [];
-  for (const v of d.views) {
+  const resolved = resolveViews(d);
+  const placed: { v: DrawingView; r: ResolvedView; pr: ProjectionResult; tx: number; ty: number; s: number; f: ViewFrame }[] = [];
+  const placements = new Map<string, ViewPlacement>();
+  const place = (v: DrawingView, depth = 0): ViewPlacement | undefined => {
+    const done = placements.get(v.id);
+    if (done || depth > 32) return done;
+    const r = resolved.get(v.id);
     const pr = projections.get(v.id);
-    if (!pr || !pr.bounds) continue;
+    if (!r || !pr || !pr.bounds) return undefined;
+    const s = r.scale;
     const [bx0, by0, bx1, by1] = pr.bounds;
-    const tx = v.x - (s * (bx0 + bx1)) / 2;
-    const ty = v.y - (s * (by0 + by1)) / 2;
-    const f = { id: v.id, x0: tx + bx0 * s, y0: ty + by0 * s, x1: tx + bx1 * s, y1: ty + by1 * s };
-    frames.push(f);
-    placed.push({ v, pr, tx, ty, f });
+    let tx: number, ty: number, f: ViewFrame;
+    if (r.type === 'detail' && r.clip) {
+      tx = v.x - s * r.clip.c[0];
+      ty = v.y - s * r.clip.c[1];
+      const R = r.clip.r * s;
+      f = { id: v.id, x0: v.x - R, y0: v.y - R, x1: v.x + R, y1: v.y + R };
+    } else {
+      tx = v.x - (s * (bx0 + bx1)) / 2;
+      ty = v.y - (s * (by0 + by1)) / 2;
+      // Aligned with its parent: the axis they share lines up (the same scale, so the same offset).
+      const pv = r.align && r.parent ? d.views.find((q) => q.id === r.parent!.v.id) : undefined;
+      const pp = pv ? place(pv, depth + 1) : undefined;
+      if (pp && r.align === 'y') ty = pp.ty;
+      if (pp && r.align === 'x') tx = pp.tx;
+      f = { id: v.id, x0: tx + bx0 * s, y0: ty + by0 * s, x1: tx + bx1 * s, y1: ty + by1 * s };
+    }
+    const edges = info.edges?.(r.source);
+    const p: ViewPlacement = { r, tx, ty, s, frame: f, prims: edges ? viewPrims(r, edges) : [] };
+    placements.set(v.id, p);
+    return p;
+  };
+  for (const v of d.views) {
+    const p = place(v);
+    if (!p) continue;
+    frames.push(p.frame);
+    placed.push({ v, r: p.r, pr: projections.get(v.id)!, tx: p.tx, ty: p.ty, s: p.s, f: p.frame });
   }
   // What a view label must stay clear of: every view with its dimensions,
   // the labels already placed and the title block.
   const taken: Box[] = placed.map(({ v, f }) => (hasDims(v) ? [f.x0 - DIM_LEFT, f.y0, f.x1, f.y1 + DIM_BELOW] : [f.x0, f.y0, f.x1, f.y1]));
-  taken.push([w - MARGIN - TITLE_W, h - MARGIN - TITLE_H, w - MARGIN, h - MARGIN]);
+  const tb = titleBlockSize(d);
+  taken.push([w - MARGIN - tb.w, h - MARGIN - tb.h, w - MARGIN, h - MARGIN]);
   // Dimensions first: a value moved outside its lines is something labels must avoid too.
   const dims = placed.map(({ v, pr, f }) => {
     const out: Item[] = [];
@@ -192,16 +271,134 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
     taken.push(dimension(out, [f.x0, f.y0], [f.x0, f.y1], 'left', info.formatLength(by1 - by0)));
     return out;
   });
-  for (const [i, { v, pr, tx, ty, f }] of placed.entries()) {
-    if (v.hidden) for (const p of pr.hidden) items.push({ t: 'path', d: p, tx, ty, s, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });
-    for (const p of pr.visible) items.push({ t: 'path', d: p, tx, ty, s, w: VISIBLE_W, view: v.id });
-    const label = viewLabel(VIEW_LABELS[v.kind].toUpperCase(), f, hasDims(v), taken.filter((_, j) => j !== i), w, h);
+  for (const [i, { v, r, pr, tx, ty, s, f }] of placed.entries()) {
+    if (r.type === 'detail' && r.clip) {
+      // The parent's lines, magnified and cut off at the circle.
+      const c: [number, number] = [v.x, v.y], R = r.clip.r * s;
+      const clipped = (paths: string[]) => paths.flatMap((p) => flattenPath(p, tx, ty, s, 0.02)).flatMap((pl) => clipToCircle(pl, c, R)).map(polyPath);
+      if (v.hidden) for (const p of clipped(pr.hidden)) items.push({ t: 'path', d: p, tx: 0, ty: 0, s: 1, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });
+      for (const p of clipped(pr.visible)) items.push({ t: 'path', d: p, tx: 0, ty: 0, s: 1, w: VISIBLE_W, view: v.id });
+      if (pr.cut?.length) {
+        const segs = hatch(pr.cut.map((pl) => pl.map((q, k) => (k % 2 ? q * s + ty : q * s + tx))), 45, HATCH_SPACING)
+          .flatMap(([x1, y1, x2, y2]) => clipToCircle([[x1, y1], [x2, y2]], c, R)).map(polyPath);
+        if (segs.length) items.push({ t: 'path', d: segs.join(''), tx: 0, ty: 0, s: 1, w: THIN, view: v.id });
+      }
+      items.push({ t: 'circle', cx: c[0], cy: c[1], r: R, w: THIN });
+    } else {
+      if (v.hidden) for (const p of pr.hidden) items.push({ t: 'path', d: p, tx, ty, s, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });
+      for (const p of pr.visible) items.push({ t: 'path', d: p, tx, ty, s, w: VISIBLE_W, view: v.id });
+      if (pr.cut?.length) {
+        const segs = hatch(pr.cut.map((pl) => pl.map((q, k) => (k % 2 ? q * s + ty : q * s + tx))), 45, HATCH_SPACING);
+        if (segs.length) items.push({ t: 'path', d: segs.map(([x1, y1, x2, y2]) => `M${+x1.toFixed(4)} ${+y1.toFixed(4)}L${+x2.toFixed(4)} ${+y2.toFixed(4)}`).join(''), tx: 0, ty: 0, s: 1, w: THIN, view: v.id });
+      }
+    }
+    const label = viewLabel(viewCaption(d, r), f, hasDims(v), taken.filter((_, j) => j !== i), w, h);
     items.push(label.item);
     taken.push(label.box);
     items.push(...dims[i]);
   }
-  titleBlock(items, w, h, d, info);
-  return { items, frames, w, h };
+  const fmt: AnnoFormat = info.format ?? { length: (mm) => info.formatLength(mm), angle: (deg, dec) => `${deg.toFixed(dec ?? 2)}°` };
+  // What sections and details leave on their parents.
+  for (const { v, r } of placed) {
+    const pp = r.parent && placements.get(r.parent.v.id);
+    if (!pp) continue;
+    const T = (q: [number, number]): [number, number] => [pp.tx + q[0] * pp.s, pp.ty + q[1] * pp.s];
+    const letter = (v.label || 'A').toUpperCase();
+    if (r.type === 'section' && v.line && r.toward) {
+      const first = d.projection === 'first';
+      const sight: [number, number] = first ? r.toward : [-r.toward[0], -r.toward[1]];
+      drawCuttingLine(items, T([v.line[0], v.line[1]]), T([v.line[2], v.line[3]]), sight, letter);
+    } else if (r.type === 'detail' && r.clip) drawDetailCircle(items, T(r.clip.c), r.clip.r * pp.s, letter);
+  }
+  // Centre marks and hole axes of the views that show them.
+  for (const { v, r } of placed) {
+    if (!v.centerMarks) continue;
+    const p = placements.get(v.id)!;
+    const T = (q: [number, number]): [number, number] => [p.tx + q[0] * p.s, p.ty + q[1] * p.s];
+    const inside = (q: [number, number]) => !r.clip || Math.hypot(q[0] - v.x, q[1] - v.y) <= r.clip.r * p.s;
+    for (const m of centerMarks(p.prims)) if (inside(T(m.c))) drawCenterMark(items, T(m.c), m.r * p.s);
+    const edges = info.edges?.(r.source);
+    if (edges && !r.clip) for (const a of holeAxes(r, edges)) drawCenterline(items, T(a.a), T(a.b));
+  }
+  const annos = drawAnnotations(items, d, placements, info, fmt);
+  if (d.titleBlock === 'full') titleBlockFull(items, w, h, d, info);
+  else titleBlock(items, w, h, d, info);
+  return { items, frames, w, h, placements, annos };
+}
+
+/** Draws the annotations; returns their boxes. */
+function drawAnnotations(items: Item[], d: DrawingDoc, placements: Map<string, ViewPlacement>, info: SheetInfo, fmt: AnnoFormat): { id: string; box: Box }[] {
+  const out: { id: string; box: Box }[] = [];
+  for (const a of d.annotations ?? []) {
+    const p = a.view ? placements.get(a.view) : undefined;
+    // An annotation of a view not drawn (still being projected, or its part has no solid) waits for it.
+    if (a.view && !p) continue;
+    const pl: Placement = p ? { T: (q) => [p.tx + q[0] * p.s, p.ty + q[1] * p.s], s: p.s } : { T: (q) => q, s: 1 };
+    const prims = p?.prims ?? [];
+    switch (a.type) {
+      case 'dimension': {
+        const gs = a.refs.map((ref) => resolveRef(prims, ref));
+        const m = gs.every((g) => !!g) && gs.length ? measure(a.kind, gs as Geo[]) : null;
+        out.push({ id: a.id, box: drawDimension(items, a, m, pl, fmt) });
+        break;
+      }
+      case 'note': {
+        const at = pl.T(a.at);
+        out.push({ id: a.id, box: drawNote(items, a.text, at, a.size ?? NOTE_SIZE, a.leader ? pl.T(a.leader) : undefined) });
+        break;
+      }
+      case 'centerMark': {
+        const g = resolveRef(prims, { edge: a.ref.edge, at: 'edge' });
+        if (g?.kind === 'circle') {
+          const c = pl.T(g.c);
+          drawCenterMark(items, c, g.r * pl.s);
+          out.push({ id: a.id, box: [c[0] - 2, c[1] - 2, c[0] + 2, c[1] + 2] });
+        } else {
+          const at = p ? [p.frame.x0, p.frame.y0 - 2] as [number, number] : [0, 0] as [number, number];
+          out.push({ id: a.id, box: drawNote(items, 'CENTER MARK? (missing)', at, 2.5, undefined, DANGER) });
+        }
+        break;
+      }
+      case 'centerline': {
+        const g1 = resolveRef(prims, a.refs[0]), g2 = resolveRef(prims, a.refs[1]);
+        if (g1?.kind === 'line' && g2?.kind === 'line') {
+          // Midway between the two edges, over the length they share.
+          const u = (([dx, dy]) => { const l = Math.hypot(dx, dy) || 1; return [dx / l, dy / l] as [number, number]; })([g1.b[0] - g1.a[0], g1.b[1] - g1.a[1]]);
+          const t = (q: [number, number]) => q[0] * u[0] + q[1] * u[1];
+          const n: [number, number] = [-u[1], u[0]];
+          const o1 = g1.a[0] * n[0] + g1.a[1] * n[1], o2 = g2.a[0] * n[0] + g2.a[1] * n[1], om = (o1 + o2) / 2;
+          const ts = [t(g1.a), t(g1.b), t(g2.a), t(g2.b)];
+          const lo = Math.max(Math.min(ts[0], ts[1]), Math.min(ts[2], ts[3])), hi = Math.min(Math.max(ts[0], ts[1]), Math.max(ts[2], ts[3]));
+          const [t0, t1] = hi > lo ? [lo, hi] : [Math.min(...ts), Math.max(...ts)];
+          const at = (tt: number): [number, number] => [u[0] * tt + n[0] * om, u[1] * tt + n[1] * om];
+          const A = pl.T(at(t0)), B = pl.T(at(t1));
+          drawCenterline(items, A, B);
+          out.push({ id: a.id, box: [Math.min(A[0], B[0]) - 1, Math.min(A[1], B[1]) - 1, Math.max(A[0], B[0]) + 1, Math.max(A[1], B[1]) + 1] });
+        } else {
+          const at = p ? [p.frame.x0, p.frame.y0 - 2] as [number, number] : [0, 0] as [number, number];
+          out.push({ id: a.id, box: drawNote(items, 'CENTERLINE? (missing)', at, 2.5, undefined, DANGER) });
+        }
+        break;
+      }
+      case 'holeCallout': {
+        const g = resolveRef(prims, { edge: a.ref.edge, at: 'edge' });
+        const spec = info.holeOf?.(a.ref.edge) ?? null;
+        const at = pl.T(a.at);
+        if (g?.kind === 'circle') {
+          const c = pl.T(g.c), r = g.r * pl.s;
+          const text = spec ? holeCalloutText(spec, fmt) : `Ø${fmt.length(2 * g.r)}`;
+          const dx = at[0] - c[0], dy = at[1] - c[1], l = Math.hypot(dx, dy) || 1;
+          const tip: [number, number] = [c[0] + (dx / l) * r, c[1] + (dy / l) * r];
+          out.push({ id: a.id, box: drawNote(items, text, at, DIM_TEXT_SIZE, tip) });
+        } else out.push({ id: a.id, box: drawNote(items, 'HOLE? (missing)', at, DIM_TEXT_SIZE, undefined, DANGER) });
+        break;
+      }
+      default:
+        // Balloons and BOM tables are drawn once assembly sources provide their rows.
+        break;
+    }
+  }
+  return out;
 }
 
 type Box = [x0: number, y0: number, x1: number, y1: number];
@@ -211,7 +408,7 @@ const LABEL_SIZE = 2.6;
 export const DIM_LEFT = 12;
 export const DIM_BELOW = 10.5;
 
-const hasDims = (v: DrawingView) => v.dims && v.kind !== 'isometric';
+const hasDims = (v: DrawingView) => v.dims && v.kind !== 'isometric' && v.type !== 'detail';
 
 /**
  * A view's label: centred below the view (past its width dimension) unless
@@ -325,6 +522,87 @@ function titleBlock(items: Item[], w: number, h: number, d: DrawingDoc, info: Sh
   label('NOTES', c1, y + 2 * row); value(d.notes || '', c1, y + 2 * row, right - c1, 2.4);
 }
 
+/** The title block's size on the sheet (the full one is as large as the basic one). */
+export function titleBlockSize(_d: DrawingDoc): { w: number; h: number } {
+  return { w: TITLE_W, h: TITLE_H };
+}
+
+/** Fits a value into a cell: long values shrink, down to a legible minimum, then are cut short. */
+function fitText(s: string, room: number, size: number, bold = false): { s: string; size: number } {
+  let fitted = s;
+  const w = textWidth(s, size, bold);
+  if (w > room) {
+    size = Math.max(MIN_TEXT, (size * room) / w);
+    if (textWidth(s, size, bold) > room + 1e-9) {
+      let n = s.length;
+      while (n > 0 && textWidth(`${s.slice(0, n).trimEnd()}…`, size, bold) > room) n--;
+      fitted = `${s.slice(0, n).trimEnd()}…`;
+    }
+  }
+  return { s: fitted, size };
+}
+
+/**
+ * The full title block: title, scale and sheet number; material, units, the projection
+ * symbol, date and revision; drawn by, sheet size and notes.
+ */
+function titleBlockFull(items: Item[], w: number, h: number, d: DrawingDoc, info: SheetInfo) {
+  const x = w - MARGIN - TITLE_W, y = h - MARGIN - TITLE_H;
+  const row = TITLE_H / 3;
+  const right = x + TITLE_W;
+  items.push({ t: 'rect', x, y, w: TITLE_W, h: TITLE_H, sw: 0.5 });
+  const hl = (yy: number) => items.push({ t: 'line', x1: x, y1: yy, x2: right, y2: yy, w: 0.25 });
+  const vl = (xx: number, y0: number, y1: number) => items.push({ t: 'line', x1: xx, y1: y0, x2: xx, y2: y1, w: 0.25 });
+  hl(y + row); hl(y + 2 * row);
+  const c1 = x + 110, c2 = x + 56, c3 = x + 83, c4 = x + 140;
+  vl(c1, y, y + TITLE_H);
+  vl(c4, y, y + 2 * row);
+  vl(c2, y + row, y + TITLE_H);
+  vl(c3, y + row, y + 2 * row);
+  const label = (s: string, lx: number, ly: number) => items.push({ t: 'text', s, x: lx + 1.5, y: ly + 3, size: 1.8 });
+  const value = (s: string, lx: number, ly: number, cellW: number, size = 3.2, bold = false) => {
+    const f = fitText(s, cellW - 3, size, bold);
+    items.push({ t: 'text', s: f.s, x: lx + 1.5, y: ly + row - 2, size: f.size, bold });
+  };
+  label('TITLE', x, y); value(d.title || info.partName, x, y, c1 - x, 4, true);
+  label('SCALE', c1, y); value(scaleLabel(d.scale), c1, y, c4 - c1);
+  label('SHEET', c4, y); value('1 OF 1', c4, y, right - c4, 2.8);
+  label('MATERIAL', x, y + row); value(info.material, x, y + row, c2 - x, 2.8);
+  label('UNITS', c2, y + row); value(info.units, c2, y + row, c3 - c2, 2.8);
+  label(d.projection === 'first' ? 'FIRST ANGLE' : 'THIRD ANGLE', c3, y + row);
+  projectionSymbol(items, (c3 + c1) / 2, y + row + row * 0.62, d.projection === 'first');
+  label('DATE', c1, y + row); value(info.date, c1, y + row, c4 - c1, 2.8);
+  label('REV', c4, y + row); value(d.revision || '', c4, y + row, right - c4, 2.8);
+  label('DRAWN BY', x, y + 2 * row); value(d.drawnBy || '', x, y + 2 * row, c2 - x, 2.8);
+  label('SIZE', c2, y + 2 * row); value(`${d.sheet}${d.landscape ? '' : ' portrait'}`, c2, y + 2 * row, c1 - c2, 2.8);
+  label('NOTES', c1, y + 2 * row); value(d.notes || '', c1, y + 2 * row, right - c1, 2.4);
+}
+
+/**
+ * The projection symbol, centred at (cx, cy): a truncated cone seen from the side and from
+ * its small end. Third angle: the side view left, its small end toward the end view on the
+ * right; first angle: the end view left, the side view right with its large end toward it.
+ */
+export function projectionSymbol(items: Item[], cx: number, cy: number, first: boolean) {
+  const D = 5, dd = 2.6, L = 5, gap = 3;
+  const total = L + gap + D;
+  const left = cx - total / 2;
+  const [tx, ex] = first ? [left + D + gap, left + D / 2] : [left, left + L + gap + D / 2];
+  const w = 0.25;
+  // Side view: large end on the left, small end on the right.
+  const pts: [number, number][] = [[tx, cy - D / 2], [tx + L, cy - dd / 2], [tx + L, cy + dd / 2], [tx, cy + D / 2]];
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4];
+    items.push({ t: 'line', x1: a[0], y1: a[1], x2: b[0], y2: b[1], w });
+  }
+  items.push({ t: 'circle', cx: ex, cy, r: D / 2, w });
+  items.push({ t: 'circle', cx: ex, cy, r: dd / 2, w });
+  // Centrelines.
+  items.push({ t: 'line', x1: tx - 1, y1: cy, x2: tx + L + 1, y2: cy, w: 0.13, dash: [2, 0.5, 0.5, 0.5] });
+  items.push({ t: 'line', x1: ex - D / 2 - 1, y1: cy, x2: ex + D / 2 + 1, y2: cy, w: 0.13, dash: [2, 0.5, 0.5, 0.5] });
+  items.push({ t: 'line', x1: ex, y1: cy - D / 2 - 1, x2: ex, y2: cy + D / 2 + 1, w: 0.13, dash: [2, 0.5, 0.5, 0.5] });
+}
+
 // ---------- renderers ----------
 
 /**
@@ -352,23 +630,27 @@ export function toSvg(items: Item[], w: number, h: number, opts: { background?: 
       if (v) parts.push(`<g data-view="${esc(v)}">`);
       view = v;
     }
+    const col = (it as { color?: string }).color ?? ink;
     switch (it.t) {
       case 'path':
-        parts.push(`<path d="${it.d}" transform="translate(${it.tx.toFixed(4)} ${it.ty.toFixed(4)}) scale(${it.s})" fill="none" stroke="${ink}" stroke-width="${(it.w / it.s).toFixed(5)}" stroke-linecap="round" stroke-linejoin="round"${it.dash ? ` stroke-dasharray="${it.dash.map((x) => (x / it.s).toFixed(4)).join(' ')}"` : ''}/>`);
+        parts.push(`<path d="${it.d}" transform="translate(${it.tx.toFixed(4)} ${it.ty.toFixed(4)}) scale(${it.s})" fill="none" stroke="${col}" stroke-width="${(it.w / it.s).toFixed(5)}" stroke-linecap="round" stroke-linejoin="round"${it.dash ? ` stroke-dasharray="${it.dash.map((x) => (x / it.s).toFixed(4)).join(' ')}"` : ''}/>`);
         break;
       case 'line':
-        parts.push(`<line x1="${it.x1}" y1="${it.y1}" x2="${it.x2}" y2="${it.y2}" stroke="${ink}" stroke-width="${it.w}"${it.dash ? ` stroke-dasharray="${it.dash.join(' ')}"` : ''}/>`);
+        parts.push(`<line x1="${it.x1}" y1="${it.y1}" x2="${it.x2}" y2="${it.y2}" stroke="${col}" stroke-width="${it.w}"${it.dash ? ` stroke-dasharray="${it.dash.join(' ')}"` : ''}/>`);
         break;
       case 'rect':
         parts.push(`<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" fill="none" stroke="${ink}" stroke-width="${it.sw}"/>`);
         break;
+      case 'circle':
+        parts.push(`<circle cx="${it.cx}" cy="${it.cy}" r="${it.r}" fill="none" stroke="${col}" stroke-width="${it.w}"${it.dash ? ` stroke-dasharray="${it.dash.join(' ')}"` : ''}/>`);
+        break;
       case 'tri':
-        parts.push(`<path d="M${it.a[0]} ${it.a[1]}L${it.b[0]} ${it.b[1]}L${it.c[0]} ${it.c[1]}Z" fill="${ink}"/>`);
+        parts.push(`<path d="M${it.a[0]} ${it.a[1]}L${it.b[0]} ${it.b[1]}L${it.c[0]} ${it.c[1]}Z" fill="${col}"/>`);
         break;
       case 'text': {
         const anchor = it.anchor === 'middle' ? 'middle' : it.anchor === 'end' ? 'end' : 'start';
         const rot = it.rotate ? ` transform="rotate(${it.rotate} ${it.x} ${it.y})"` : '';
-        parts.push(`<text x="${it.x}" y="${it.y}" font-size="${it.size}" text-anchor="${anchor}"${it.bold ? ' font-weight="bold"' : ''} fill="${ink}"${rot}>${esc(it.s)}</text>`);
+        parts.push(`<text x="${it.x}" y="${it.y}" font-size="${it.size}" text-anchor="${anchor}"${it.bold ? ' font-weight="bold"' : ''} fill="${col}"${rot}>${esc(it.s)}</text>`);
         break;
       }
     }
@@ -381,13 +663,24 @@ export function toSvg(items: Item[], w: number, h: number, opts: { background?: 
 export function toPdf(items: Item[], w: number, h: number, title: string): Uint8Array {
   const pdf = new PdfPage(w, h);
   for (const it of items) {
+    const rgb = rgbOf((it as { color?: string }).color);
     switch (it.t) {
-      case 'path': pdf.path(it.d, it.tx, it.ty, it.s, { width: it.w, dash: it.dash }); break;
-      case 'line': pdf.line(it.x1, it.y1, it.x2, it.y2, { width: it.w, dash: it.dash }); break;
+      case 'path': pdf.path(it.d, it.tx, it.ty, it.s, { width: it.w, dash: it.dash, rgb }); break;
+      case 'line': pdf.line(it.x1, it.y1, it.x2, it.y2, { width: it.w, dash: it.dash, rgb }); break;
       case 'rect': pdf.rect(it.x, it.y, it.w, it.h, { width: it.sw }); break;
-      case 'tri': pdf.triangle(it.a, it.b, it.c); break;
-      case 'text': pdf.text(it.s, it.x, it.y, it.size, { bold: it.bold, anchor: it.anchor, rotate: it.rotate ? -it.rotate : undefined }); break;
+      case 'circle': pdf.path(circlePath(it.cx, it.cy, it.r), 0, 0, 1, { width: it.w, dash: it.dash, rgb }); break;
+      case 'tri': pdf.triangle(it.a, it.b, it.c, rgb); break;
+      case 'text': pdf.text(it.s, it.x, it.y, it.size, { bold: it.bold, anchor: it.anchor, rotate: it.rotate ? -it.rotate : undefined, rgb }); break;
     }
   }
   return pdf.build(title);
+}
+
+/** SVG path data of a whole circle (two half arcs). */
+export const circlePath = (cx: number, cy: number, r: number) => `M${cx + r} ${cy}A${r} ${r} 0 1 1 ${cx - r} ${cy}A${r} ${r} 0 1 1 ${cx + r} ${cy}`;
+
+/** A #rrggbb colour as PDF components. */
+function rgbOf(c: string | undefined): [number, number, number] | undefined {
+  const m = c ? /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c) : null;
+  return m ? [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255] : undefined;
 }

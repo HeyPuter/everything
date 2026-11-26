@@ -140,6 +140,13 @@ export interface ProjectionRequest {
   x: Vec3;
   /** Whether to find the hidden lines too (default true). */
   hidden?: boolean;
+  /** Whether to draw smooth (tangent) edges (default true). */
+  smooth?: boolean;
+  /**
+   * Section views: the body is cut by the plane through p with normal n, and only
+   * the part n points to ((x - p) . n >= 0) is projected.
+   */
+  section?: { p: Vec3; n: Vec3 };
 }
 
 export interface ProjectionResult {
@@ -149,6 +156,8 @@ export interface ProjectionResult {
   hidden: string[];
   /** [minX, minY, maxX, maxY] of the visible lines (y down). */
   bounds: [number, number, number, number] | null;
+  /** Section views: outlines of the cut faces, polylines [x0, y0, x1, y1, ...] in the same coordinates. */
+  cut?: number[][];
 }
 
 export type WorkerRequest =

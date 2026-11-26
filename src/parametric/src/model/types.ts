@@ -391,7 +391,7 @@ export interface PartDocument {
 
 // ---- Drawings ----
 
-export type SheetSize = 'A4' | 'A3' | 'A2' | 'A1' | 'Letter' | 'Tabloid';
+export type SheetSize = 'A4' | 'A3' | 'A2' | 'A1' | 'Letter' | 'Tabloid' | 'A0' | 'ANSI C' | 'ANSI D';
 export type DrawingViewKind = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'isometric';
 
 export interface DrawingView {
@@ -403,7 +403,130 @@ export interface DrawingView {
   hidden: boolean;
   /** Show overall width and height dimensions. */
   dims: boolean;
+  /**
+   * What the view shows (absent: 'model', a standard view of the part from `kind`).
+   * Projected, section and auxiliary views look at the part from beside their parent
+   * view; a detail view magnifies a circle of its parent. For these, `kind` is only the
+   * parent's kind at creation and the direction comes from the parent.
+   */
+  type?: DrawingViewType;
+  /** The view this one was made from (projected, section, detail and auxiliary views). */
+  parent?: Id;
+  /** Projected views: on which side of the parent it is placed. */
+  side?: DrawingSide;
+  /**
+   * Section and auxiliary views: the cutting (or folding) line on the parent, in the parent's
+   * view coordinates (model millimetres, y down): [x1, y1, x2, y2]. The view lies on the side
+   * of the line's left normal (direction (-(y2-y1), x2-x1) on paper with y down).
+   */
+  line?: [number, number, number, number];
+  /** Detail views: the circle on the parent, in the parent's view coordinates [cx, cy, r]. */
+  circle?: [number, number, number];
+  /** Own scale (model and detail views); absent: the sheet's (a detail view: twice its parent's). */
+  scale?: number;
+  /** Letter of a section or detail view, or a caption replacing the view's label. */
+  label?: string;
+  /** Smooth (tangent) edges shown (absent: shown). */
+  tangent?: boolean;
+  /** Centre marks on circles seen end-on and centrelines of holes seen side-on (absent: off). */
+  centerMarks?: boolean;
+  /**
+   * Where the view's geometry comes from (absent: this part). Assembly drawings will
+   * name a source the drawing workspace was given (see src/drawing/source.ts).
+   */
+  source?: string;
 }
+
+export type DrawingViewType = 'model' | 'projected' | 'section' | 'detail' | 'auxiliary';
+export type DrawingSide = 'left' | 'right' | 'above' | 'below';
+
+/** A reference to model geometry seen in a view: a named model edge (as the kernel names them). */
+export interface DrawingRef {
+  /** Model edge name; an assembly source prefixes the component path. */
+  edge: string;
+  /** The edge itself, its start or end point, or the centre of a circle or arc. */
+  at: 'edge' | 'start' | 'end' | 'center';
+}
+
+export type DrawingDimKind = 'horizontal' | 'vertical' | 'aligned' | 'radius' | 'diameter' | 'angle';
+
+interface DrawingAnnotationBase {
+  id: Id;
+  /** The view it belongs to (it moves with the view and is deleted with it). */
+  view?: Id;
+}
+
+/** A dimension measured from model geometry in a view: it follows the model as it changes. */
+export interface DrawingDimension extends DrawingAnnotationBase {
+  type: 'dimension';
+  view: Id;
+  kind: DrawingDimKind;
+  /** One or two references (a line, a circle, two points, two lines...). */
+  refs: DrawingRef[];
+  /** Where the value sits, in the view's coordinates (model millimetres, y down). */
+  at: [number, number];
+  /** Decimal places (absent: the document's). */
+  decimals?: number;
+  /** Text before the value, e.g. "2X ". */
+  prefix?: string;
+}
+
+/** Text on the sheet, with an optional leader arrow. */
+export interface DrawingNote extends DrawingAnnotationBase {
+  type: 'note';
+  text: string;
+  /** Text position: in the view's coordinates with a view, else in sheet millimetres. */
+  at: [number, number];
+  /** Arrow tip of the leader (same coordinates as `at`). */
+  leader?: [number, number];
+  /** Text height in sheet millimetres (absent: 3.5). */
+  size?: number;
+}
+
+export interface DrawingCenterMark extends DrawingAnnotationBase {
+  type: 'centerMark';
+  view: Id;
+  ref: DrawingRef;
+}
+
+/** A centreline midway between two parallel edges (the sides of a cylinder or slot). */
+export interface DrawingCenterline extends DrawingAnnotationBase {
+  type: 'centerline';
+  view: Id;
+  refs: [DrawingRef, DrawingRef];
+}
+
+/** Size and kind of the hole whose circle is referenced, with a leader. */
+export interface DrawingHoleCallout extends DrawingAnnotationBase {
+  type: 'holeCallout';
+  view: Id;
+  ref: DrawingRef;
+  at: [number, number];
+}
+
+/**
+ * Item balloon of an assembly drawing (data shape only; drawn once a source provides BOM
+ * rows): a circle with the item number and a leader to a component's edge.
+ */
+export interface DrawingBalloon extends DrawingAnnotationBase {
+  type: 'balloon';
+  view: Id;
+  ref: DrawingRef;
+  at: [number, number];
+  /** Item number override (absent: the BOM row of the component the edge belongs to). */
+  item?: number;
+}
+
+/** Bill of materials table of a view's source (data shape; rows come from the source). */
+export interface DrawingBom extends DrawingAnnotationBase {
+  type: 'bom';
+  /** Top left corner on the sheet, in millimetres. */
+  at: [number, number];
+  /** The source whose rows it lists (absent: that of the first view). */
+  source?: string;
+}
+
+export type DrawingAnnotation = DrawingDimension | DrawingNote | DrawingCenterMark | DrawingCenterline | DrawingHoleCallout | DrawingBalloon | DrawingBom;
 
 export interface DrawingDoc {
   sheet: SheetSize;
@@ -414,4 +537,14 @@ export interface DrawingDoc {
   title: string;
   drawnBy: string;
   notes: string;
+  /** Annotations: dimensions, notes, centre marks... (absent: none). */
+  annotations?: DrawingAnnotation[];
+  /** Projection angle of projected views and of the title block's symbol (absent: third angle). */
+  projection?: 'third' | 'first';
+  /**
+   * The title block: 'full' adds the projection symbol, revision and sheet number
+   * (absent: the basic one of drawings made before it existed).
+   */
+  titleBlock?: 'basic' | 'full';
+  revision?: string;
 }
