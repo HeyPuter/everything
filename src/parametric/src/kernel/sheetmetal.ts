@@ -518,7 +518,10 @@ function addFlange(h: SheetHost, st: SmState, featId: Id, k: number, ref: EdgeRe
     if (Math.abs(dot2([d.d[0], d.d[1]], u)) > 1 - 1e-6) return side(d.center);
     return dot2([d.center[0] - s0[0], d.center[1] - s0[1]], w) > b.width + spec.straight / 2 ? `${tag}:end` : `${tag}:joint`;
   });
-  h.applyTool(featId, st, fuse(bend.solid, flange.solid), [...bend.faces, ...flange.faces], false);
+  const tool = fuse(bend.solid, flange.solid);
+  // The bend only touches its panel; material inside the new wall is the part it runs into.
+  if (volumeOf(common(st.body!, tool)) > 1e-6 * volumeOf(tool)) throw h.error(`The ${what} runs into the part. Shorten it, change its angle or reverse its direction.`);
+  h.applyTool(featId, st, tool, [...bend.faces, ...flange.faces], false);
   st.sheet = replacePanels(sheet, [...sheet.panels.map((x) => (x === panel ? { ...x, face: panelFace } : x)), { id: b.moving, face, xf }], [...sheet.bends, b]);
 }
 

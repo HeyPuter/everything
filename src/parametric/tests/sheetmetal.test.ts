@@ -238,6 +238,20 @@ describe('edge flange', () => {
     expect(res.status[2].error).toMatch(/Base Flange/);
   });
 
+  it('says when a flange would run into the part instead of merging into it', async () => {
+    const b = new ModelBuilder();
+    const L: Feature[] = [sketch('S1', chain([[0, 0], [60, 0], [60, 40]])), base('B1', 'S1')];
+    let res = await b.build(req(L));
+    // The top edge of the upright leg, on its inner face: a 135 degree flange back over the base reaches through it.
+    const e = res.edges.find((x) => x.type === 'line' && Math.abs(x.mid[1] - 40) < 1e-6 && Math.abs(x.mid[0] - (60 - T)) < 1e-6 && Math.abs(x.dir![2]) > 0.99)!;
+    res = await b.build(req([...L, flange('F1', [edgeRef(e)], { angle: 135, length: 80 })]));
+    expect(res.status[2].error).toMatch(/runs into the part/);
+    res = await b.build(req([...L, flange('F1', [edgeRef(e)], { angle: 135, length: 30 })]));
+    ok(res);
+    res = await b.build(req([...L, flange('F1', [edgeRef(e)], { angle: 135, length: 80, flip: true })]));
+    ok(res);
+  });
+
   it('keeps fillets and holes on sheet metal faces through thickness changes', async () => {
     const b = new ModelBuilder();
     const e = await plateEdge(b);
