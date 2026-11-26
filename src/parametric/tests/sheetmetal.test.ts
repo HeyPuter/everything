@@ -127,6 +127,13 @@ describe('base flange', () => {
     expect(res.status[1].error).toMatch(/single chain/);
     res = await b.build(req([sketch('S1', chain([[0, 0], [2, 0], [2, 30]])), base('B1', 'S1')]));
     expect(res.status[1].error).toMatch(/too short/);
+    // A chain that crosses itself, and one whose last leg runs into the first one's thickness.
+    res = await b.build(req([sketch('S1', chain([[0, 0], [50, 0], [50, 30], [20, 30], [20, -20]])), base('B1', 'S1')]));
+    expect(res.status[1].error).toMatch(/crosses itself/);
+    res = await b.build(req([sketch('S1', chain([[0, 0], [50, 0], [50, 30], [10, 30], [10, 1]])), base('B1', 'S1')]));
+    expect(res.status[1].error).toMatch(/crosses itself/);
+    res = await b.build(req([sketch('S1', chain([[0, 0], [50, 0], [50, 30], [10, 30], [10, 10]])), base('B1', 'S1')]));
+    ok(res);
     res = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), base('B1', 'S1', { sm: { ...base('x', 'x').sm, thickness: 0 } })]));
     expect(res.status[1].error).toMatch(/Thickness/);
   });

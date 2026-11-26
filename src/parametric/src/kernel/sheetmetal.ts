@@ -346,6 +346,10 @@ function applyBaseFlange(h: SheetHost, f: BaseFlangeFeature, st: SmState) {
     xf = xfCompose(xf, bendMotion(b, T));
   });
   const tool = fuseAll(pieces.map((x) => x.solid));
+  // The pieces only touch, unless the profile crosses itself or its sides come closer than the thickness.
+  const expected = (y1 - y0) * (lay.runs.reduce((s, r) => s + (r.x1 - r.x0) * T, 0)
+    + bends.reduce((s, b) => s + ((b.angle * Math.PI) / 180) * T * (b.radius + T / 2), 0));
+  if (volumeOf(tool) < expected * (1 - 1e-6)) throw h.error('The profile crosses itself, or its sides come closer than the sheet thickness');
   h.applyTool(f.id, st, tool, pieces.flatMap((x) => x.faces), false);
   st.sheet = { owner: f.id, p, panels, bends };
 }
