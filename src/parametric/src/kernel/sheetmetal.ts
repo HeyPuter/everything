@@ -429,7 +429,10 @@ interface FlangeSpec {
 /** The panel and boundary of a selected sheet edge. */
 function sheetEdge(h: SheetHost, sheet: SheetModel, st: SmState, ref: EdgeRef) {
   const T = sheet.p.thickness;
-  const edge = h.edges(st)[h.resolveEdge(ref, st)];
+  // A reference read from a file may lack its signature: then only its name finds the edge.
+  const at = ref.sig ? h.resolveEdge(ref, st) : h.edges(st).findIndex((e) => e.name === ref.name);
+  if (at < 0) throw h.error('A selected edge no longer exists. Edit the feature and select it again.');
+  const edge = h.edges(st)[at];
   const d = describeEdge(edge.shape);
   if (d.type !== 'line') throw h.error('Select straight edges of the sheet (an edge along a flat face)');
   const tol = Math.max(1e-6, T * 1e-4);

@@ -203,3 +203,28 @@ test('with the first Base Flange suppressed, the Sheet-Metal row edits the one t
   await expect.poll(volume).toBeCloseTo(50 * 30 * 3, 3);
   expect(errors).toEqual([]);
 });
+
+test('an edge flange from a hand-edited file whose edge has no signature opens for editing', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(async () => {
+    const a = (window as unknown as W).__parametric;
+    const pts = [[0, 0], [40, 0], [40, 30], [0, 30]];
+    a.store.change('Plate', (d) => {
+      d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+        ...pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y })),
+        ...pts.map((_, i) => ({ id: `l${i}`, t: 'line' as const, a: `p${i}`, b: `p${(i + 1) % 4}` })),
+      ] });
+      d.features.push({ id: 'b1', name: 'Base-Flange1', type: 'baseFlange', sketch: 's1', flip: false, mid: false, depth: 10, depthEnd: 'blind', depthFlip: false,
+        sm: { thickness: 1, radius: 1, allowance: 'kFactor', kFactor: 0.5, allowanceValue: 1.5, relief: 'rectangular', reliefRatio: 0.5 } });
+      d.features.push({ id: 'e1', name: 'Edge-Flange1', type: 'edgeFlange', edges: [{ name: 'b1:gone' } as never], length: 10, angle: 90, lengthRef: 'outer', position: 'materialInside', flip: false, offset1: 0, offset2: 0 });
+    });
+    await a.whenBuilt();
+  });
+  await waitForFeature(page, 'Edge-Flange1');
+  await expect(page.getByRole('treeitem', { name: 'Edge-Flange1' })).toHaveAttribute('aria-description', /no longer exists/);
+  await page.getByRole('treeitem', { name: 'Edge-Flange1' }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Edge-Flange1' })).toBeVisible();
+  await expect(page.getByText('Edge', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -233,6 +233,11 @@ describe('edge flange', () => {
     const short = res.edges.find((x) => x.type === 'line' && Math.abs(x.length - T) < 1e-6)!;
     res = await b.build(req([...plate(), flange('F1', [edgeRef(short)])]));
     expect(res.status[2].error).toMatch(/across its thickness/);
+    // A reference from a hand-edited file without its signature: found by name, else a clear error.
+    const name = edgeRef(e1).name;
+    ok(await b.build(req([...plate(), flange('F1', [{ name } as EdgeRef])])));
+    res = await b.build(req([...plate(), flange('F1', [{ name: 'B1:gone' } as EdgeRef])]));
+    expect(res.status[2].error).toMatch(/no longer exists/);
     // Without a sheet metal part.
     res = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 5), flange('F1', [edgeRef(short)])]));
     expect(res.status[2].error).toMatch(/Base Flange/);
