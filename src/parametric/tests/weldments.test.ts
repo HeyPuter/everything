@@ -157,6 +157,43 @@ describe('structural members', () => {
     expect(r2.weldments![0].length).toBeCloseTo(Math.PI * 150, 4);
   });
 
+  it('runs round a slot of lines and tangent arcs, and mitres an arc meeting a line at an angle', async () => {
+    // A slot: two 200 lines joined by half circles of radius 50.
+    const slot: SkEntity[] = [
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 200, y: 0 }, { id: 'c', t: 'point', x: 200, y: 100 }, { id: 'd', t: 'point', x: 0, y: 100 },
+      { id: 'c1', t: 'point', x: 200, y: 50 }, { id: 'c2', t: 'point', x: 0, y: 50 },
+      { id: 'l1', t: 'line', a: 'a', b: 'b' }, { id: 'r1', t: 'arc', c: 'c1', a: 'b', b: 'c' }, { id: 'l2', t: 'line', a: 'c', b: 'd' }, { id: 'r2', t: 'arc', c: 'c2', a: 'd', b: 'a' },
+    ];
+    const segs = ['l1', 'r1', 'l2', 'r2'].map((entity) => ({ sketch: 'S1', entity }));
+    const { b, res } = await build([sketch('S1', slot), member('M1', [segs], { profile: 'pipe', size: '33.7x2.6' })]);
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    const A = area('pipe', '33.7x2.6');
+    expect(volume(b)).toBeCloseTo(A * (400 + 100 * Math.PI), 0);
+    expect(isValid(body(b))).toBe(true);
+    for (const m of res.weldments!) { expect(m.angle1).toBe(0); expect(m.angle2).toBe(0); }
+    // A quarter arc meeting a line at a right angle: the miter cuts the arc's end.
+    const bend: SkEntity[] = [
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'p', t: 'point', x: 100, y: 0 }, { id: 'q', t: 'point', x: 0, y: 100 }, { id: 'e', t: 'point', x: 100, y: -100 },
+      { id: 'arc', t: 'arc', c: 'o', a: 'p', b: 'q' }, { id: 'ln', t: 'line', a: 'p', b: 'e' },
+    ];
+    const r2 = await build([sketch('S1', bend), member('M1', [[{ sketch: 'S1', entity: 'arc' }, { sketch: 'S1', entity: 'ln' }]], { profile: 'roundBar', size: '20' })]);
+    expect(r2.res.status.every((s) => s.ok)).toBe(true);
+    expect(isValid(body(r2.b))).toBe(true);
+    // The line arrives along -y and the arc leaves along +y: they run in line, cut square.
+    expect(volume(r2.b)).toBeCloseTo(Math.PI * 100 * (100 + 50 * Math.PI), 0);
+    // At a right angle (a line along x), the arc and the line are mitred.
+    const corner = structuredClone(bend);
+    Object.assign(corner[3], { x: 200, y: 0 });
+    const r3 = await build([sketch('S1', corner), member('M1', [[{ sketch: 'S1', entity: 'arc' }, { sketch: 'S1', entity: 'ln' }]], { profile: 'roundBar', size: '20' })]);
+    expect(r3.res.status.every((s) => s.ok)).toBe(true);
+    expect(isValid(body(r3.b))).toBe(true);
+    const ln = r3.res.weldments!.find((m) => m.member === 'S1/ln')!;
+    const ar = r3.res.weldments!.find((m) => m.member === 'S1/arc')!;
+    expect(ln.length).toBeCloseTo(110, 6);
+    expect(ln.angle1 + ln.angle2).toBeCloseTo(45, 6);
+    expect(ar.angle1 + ar.angle2).toBeCloseTo(45, 6);
+  });
+
   it('reports clear errors', async () => {
     const r1 = await build([sketch('S1', rect(0, 0, 100, 100, 'r')), member('M1', [])]);
     expect(r1.res.status[1]).toMatchObject({ ok: false, error: expect.stringMatching(/Select sketch lines or arcs/) });

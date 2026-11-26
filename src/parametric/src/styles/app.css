@@ -691,7 +691,7 @@ a.icon-btn { text-decoration: none; }
 
 /* Weldments: structural member groups and the cut list table. */
 .weld-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
-.weld-group > .row { justify-content: flex-end; }
+.weld-group-rm { margin-left: auto; }
 .weld-cutlist-wrap { overflow-x: auto; max-width: 100%; }
 .weld-cutlist th, .weld-cutlist td { white-space: nowrap; }
 .weld-cutlist th.num, .weld-cutlist td.num { text-align: right; }

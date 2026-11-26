@@ -150,8 +150,10 @@ export class StructuralMemberPanel extends FeaturePanel<StructuralMemberFeature>
     }, { placeholder: 'Select sketch lines and arcs', icon: 'line' });
     box.setItems(f.groups[i].segments.map((s) => ({ item: { kind: 'skseg', sketch: s.sketch, entity: s.entity }, data: s, label: segmentLabel(this.app, s) })));
     this.groupBoxes.push(box);
-    const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove group ${i + 1}` }, icon('trash', 14));
-    const wrap = h('div', { class: 'weld-group' }, box.el, h('div', { class: 'row' }, remove));
+    const remove = h('button', { class: 'icon-btn weld-group-rm', type: 'button', 'aria-label': `Remove group ${i + 1}` }, icon('trash', 14));
+    // In the group's heading, beside its name.
+    box.el.firstElementChild?.append(remove);
+    const wrap = h('div', { class: 'weld-group' }, box.el);
     remove.addEventListener('click', () => {
       const k = this.groupBoxes.indexOf(box);
       if (f.groups.length === 1) { box.setItems([], true); return; }
@@ -163,6 +165,8 @@ export class StructuralMemberPanel extends FeaturePanel<StructuralMemberFeature>
       this.groupBoxes.forEach((b, j) => {
         const label = b.el.querySelector('.field-label');
         if (label) label.textContent = `Group ${j + 1}`;
+        b.el.querySelector('.weld-group-rm')?.setAttribute('aria-label', `Remove group ${j + 1}`);
+        b.el.querySelector('.selbox')?.setAttribute('aria-label', `Group ${j + 1}`);
       });
       if (this.activeBox === box) this.activate(this.groupBoxes[Math.max(0, k - 1)]);
       this.changed();
