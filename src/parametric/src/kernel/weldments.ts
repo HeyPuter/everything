@@ -362,8 +362,8 @@ function sectionAt(m: { path: MemberPath }, x: Vec3) {
 }
 
 /**
- * Members of a group turning less than this (degrees) at a corner run in
- * line: butted, the trimmed member would be cut along its length to the
+ * Members turning less than this (degrees) at a corner, or from a member of
+ * an earlier group, run in line: butted, the trimmed member would be cut along its length to the
  * other's side face, and the one running through would reach far past the
  * corner (a 40 mm tube turning 0.1 degrees reached 23 m).
  */
@@ -548,6 +548,15 @@ export function applyStructuralMember(ctx: WeldCtx, f: StructuralMemberFeature):
           for (const S of groups.slice(0, gi).flat()) {
             const s = closestOnPath(S.path, ft.P);
             if (s.d > tol) continue;
+            // Running on (nearly) in line from a free end of S: they meet on the plane halfway between them.
+            const se = ([0, 1] as const).find((e) => !S.joined[e] && same(pathEnd(S.path, e), ft.P) && dot(endFrame(S.path, e).a, ft.a) < -IN_LINE_COS);
+            if (se !== undefined) {
+              const m = normalize(sub(ft.a, endFrame(S.path, se).a));
+              T.ends[te].planes.push({ p: sub(ft.P, scale(m, gap2 / 2)), n: m });
+              S.ends[se].planes.push({ p: add(ft.P, scale(m, gap2 / 2)), n: scale(m, -1) });
+              S.joined[se] = true;
+              continue;
+            }
             const tp = trimPlane(shaped(S), ft.P, ft.a, gap2);
             if (!tp) continue;
             T.ends[te].planes.push(tp);

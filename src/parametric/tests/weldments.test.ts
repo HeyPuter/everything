@@ -103,6 +103,11 @@ describe('structural members', () => {
       }
       expect(volume(b)).toBeCloseTo(A * 400, 0);
     }
+    // The same between groups: the later member is not cut to a sliver along the earlier one's side.
+    const grouped = await build([sketch('S1', ents), member('M1', [[{ sketch: 'S1', entity: 'a' }], [{ sketch: 'S1', entity: 'b' }]])]);
+    expect(grouped.res.status.every((s) => s.ok)).toBe(true);
+    for (const m of grouped.res.weldments!) expect(m.length).toBeCloseTo(200, 1);
+    expect(volume(grouped.b)).toBeCloseTo(A * 400, 0);
     // A sharp corner folding nearly back on itself is still butted, not mitred.
     const back = [...line('a', [0, 0], [200, 0]), ...line('b', [200, 0], [200 - 200 * Math.cos(turn * 30), 200 * Math.sin(turn * 30)])];
     const { res } = await build([sketch('S1', back), member('M1', [[{ sketch: 'S1', entity: 'a' }, { sketch: 'S1', entity: 'b' }]], { corner: 'butt1' })]);
