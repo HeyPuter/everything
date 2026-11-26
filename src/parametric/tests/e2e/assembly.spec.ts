@@ -495,3 +495,29 @@ test('interference detection names a pair it could not check instead of reportin
   await expect(page.locator('.pm')).not.toContainText('No interference');
   expect(errors).toEqual([]);
 });
+
+test('an edit solves the mates once, not again in the rebuild after it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
+  await makePart(page, 'Block', BLOCK);
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('newAssembly'); });
+  await insert(page, 'Block');
+  await insert(page, 'Block');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await expect(tree.getByRole('treeitem', { name: '(-) Block<2>' })).toBeVisible();
+  const r = await page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const m = a.assembly!;
+    await a.whenBuilt();
+    let calls = 0;
+    const solve = m.solveDoc.bind(m);
+    m.solveDoc = (d) => { calls++; return solve(d); };
+    const [b1, b2] = m.doc.components;
+    m.commit('Lock', (d) => { d.mates.push({ id: 'm90', name: 'Lock1', type: 'lock', a: { comp: b1.id }, b: { comp: b2.id }, aligned: false, rel: { p: [60, 0, 0], q: [0, 0, 0, 1] } }); });
+    await a.whenBuilt();
+    return { calls, status: m.analysis?.status, defined: m.isDefined(b2.id) };
+  });
+  expect(r).toEqual({ calls: 1, status: 'full', defined: true });
+  expect(errors).toEqual([]);
+});

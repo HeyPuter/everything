@@ -271,8 +271,19 @@ export class AssemblyMode {
     return r;
   }
 
+  /** The analysis a commit just made, reused by the rebuild that follows it when nothing it used changed. */
+  private solveCache: { key: string; result: AnalysisResult } | null = null;
+
+  /** What an analysis of a document depends on. */
+  private solveKey(doc: AssemblyDocument): string {
+    return JSON.stringify([this.app.kernel.generation, this.app.settings.quality, [...this.geoms.keys()], doc.components, doc.mates, doc.variables, doc.units, doc.parts.map((p) => p.blob)]);
+  }
+
   private analyze() {
-    this.analysis = this.solveDoc();
+    // A commit solved this very document already (an over-defined assembly takes long to analyse).
+    const hit = this.solveCache?.key === this.solveKey(this.doc) ? this.solveCache.result : null;
+    this.solveCache = null;
+    this.analysis = hit ?? this.solveDoc();
     this.solved = new Map(this.analysis.placements);
   }
 
@@ -496,6 +507,7 @@ export class AssemblyMode {
         const pl = r.placements.get(c.id);
         if (pl && !c.fixed && !c.suppressed) c.placement = pl;
       }
+      this.solveCache = { key: this.solveKey(d), result: r };
     });
   }
 
