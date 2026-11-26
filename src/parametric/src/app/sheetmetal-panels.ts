@@ -26,9 +26,15 @@ import { edgeRef } from './selection';
 
 // ---------- helpers ----------
 
-/** The part's first Base Flange (it holds the sheet metal parameters). */
+/**
+ * The Base Flange holding the part's sheet metal parameters: as in the
+ * rebuild, the first one that is not suppressed and builds (else the first
+ * one not suppressed, which is the one to fix). A later one is a Tab.
+ */
 export function sheetOwner(app: App): BaseFlangeFeature | null {
-  return (app.store.doc.features.find((f) => f.type === 'baseFlange') as BaseFlangeFeature | undefined) ?? null;
+  const flanges = app.store.doc.features.filter((f): f is BaseFlangeFeature => f.type === 'baseFlange');
+  const active = flanges.filter((f) => !f.suppressed && !app.featureStatus(f.id)?.suppressed);
+  return active.find((f) => app.featureStatus(f.id)?.ok !== false) ?? active[0] ?? flanges[0] ?? null;
 }
 
 const hasSheetMetal = (app: App) => !!sheetOwner(app);
@@ -95,10 +101,16 @@ function edgeBox(panel: PropertyPanel, app: App, f: { edges: EdgeRef[] }, onChan
 // ---------- Base Flange / Tab ----------
 
 export class BaseFlangePanel extends FeaturePanel<BaseFlangeFeature> {
-  /** Whether this feature holds the part's sheet metal parameters (it is the first Base Flange). */
+  /**
+   * Whether this feature holds the part's sheet metal parameters: it is the
+   * active Base Flange, or one before it (failed or suppressed) that would be.
+   */
   private get owner(): boolean {
     const o = sheetOwner(this.app);
-    return !o || o.id === this.f.id;
+    if (!o || o.id === this.f.id) return true;
+    const features = this.app.store.doc.features;
+    const at = features.findIndex((f) => f.id === this.f.id);
+    return at >= 0 && at < features.findIndex((f) => f.id === o.id);
   }
 
   get title() {

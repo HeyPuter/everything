@@ -174,3 +174,32 @@ test('the Sheet-Metal and Flat-Pattern rows open from the keyboard and have a me
   await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
 });
+
+test('with the first Base Flange suppressed, the Sheet-Metal row edits the one that makes the part', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const thickness = (sm: number) => ({ thickness: sm, radius: 1, allowance: 'kFactor' as const, kFactor: 0.5, allowanceValue: 1.5, relief: 'rectangular' as const, reliefRatio: 0.5 });
+  await page.evaluate(async (sm) => {
+    const a = (window as unknown as W).__parametric;
+    const plate = (id: string, plane: 'front' | 'top', w: number) => ({ id, name: id === 's1' ? 'Sketch1' : 'Sketch2', type: 'sketch' as const, plane: { kind: 'base' as const, plane }, constraints: [], entities: [
+      ...[[0, 0], [w, 0], [w, 30], [0, 30]].map(([x, y], i) => ({ id: `${id}p${i}`, t: 'point' as const, x, y })),
+      ...[0, 1, 2, 3].map((i) => ({ id: `${id}l${i}`, t: 'line' as const, a: `${id}p${i}`, b: `${id}p${(i + 1) % 4}` })),
+    ] });
+    const flange = (id: string, name: string, sketch: string, t: number) => ({ id, name, type: 'baseFlange' as const, sketch, flip: false, mid: false, depth: 10, depthEnd: 'blind' as const, depthFlip: false, sm: { ...sm, thickness: t } });
+    a.store.change('Plates', (d) => {
+      d.features.push(plate('s1', 'front', 40), flange('b1', 'Base-Flange1', 's1', 1), plate('s2', 'top', 50), flange('b2', 'Base-Flange2', 's2', 2));
+      (d.features[1] as { suppressed?: boolean }).suppressed = true;
+    });
+    await a.whenBuilt();
+  }, thickness(1));
+  await waitForFeature(page, 'Base-Flange2');
+  const volume = () => page.evaluate(async () => { const a = (window as unknown as W).__parametric; await a.whenBuilt(); return (await a.kernel.massProperties())!.volume; });
+  expect(await volume()).toBeCloseTo(50 * 30 * 2, 3);
+  await page.getByRole('treeitem', { name: 'Sheet-Metal' }).click();
+  await expect(page.getByRole('heading', { name: 'Base-Flange2' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Thickness' }).fill('3');
+  await page.getByRole('textbox', { name: 'Thickness' }).press('Tab');
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  await expect.poll(volume).toBeCloseTo(50 * 30 * 3, 3);
+  expect(errors).toEqual([]);
+});
