@@ -65,6 +65,8 @@ export function installTooltips(root = document) {
   document.body.append(tipEl);
   let owner = null;
   const show = (target) => {
+    // A delayed show can outlive the page (a test environment torn down mid-delay).
+    if (typeof document === 'undefined' || !target.isConnected) return;
     const text = target.getAttribute('data-tip');
     if (!text || document.documentElement.dataset.tooltips === 'off') return;
     tipEl.textContent = text;
