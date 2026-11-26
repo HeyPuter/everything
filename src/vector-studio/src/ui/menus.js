@@ -502,6 +502,8 @@ export const MENUS = [
       '-',
       { label: 'Toolbars', source: 'toolbars' },
       'window.toolbar',
+      { label: 'Tools Position', submenu: ['window.tools.left', 'window.tools.right', 'window.tools.float'] },
+      { label: 'Panels Position', submenu: ['window.panels.left', 'window.panels.right'] },
       'window.contextualTaskbar',
       'window.controlBar',
       '-',

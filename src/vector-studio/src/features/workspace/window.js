@@ -1,7 +1,10 @@
 /**
  * Window menu features: workspaces (built-in arrangements, saved ones,
- * New / Manage / Reset), tool sets (Basic, Advanced, an edited set from the
- * All Tools drawer) and showing the Tools panel, the Control bar, New
+ * New / Manage / Reset, and the current arrangement kept across sessions),
+ * tool sets (Basic, Advanced, an edited set from the All Tools drawer),
+ * where the Tools panel and the panel dock sit (the Tools panel docks on
+ * either side or floats, dragged by its grip; the panels dock on either
+ * side) and showing the Tools panel, the Control bar, New
  * Window (a second view of a document), arranging documents (tabs, side by
  * side, stacked, floating) and the screen modes.
  */
@@ -12,6 +15,7 @@ import { openDialog } from '../../ui/dialogs/dialog.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
 import { TOOL_LAYOUT } from '../../ui/toolbar.js';
 import { createControlBar } from './control-bar.js';
+import { trackDrag } from '../../ui/drag.js';
 
 // ---- tool sets ----
 
@@ -241,6 +245,10 @@ export function captureWorkspace(app, name) {
     dock: layout.dock,
     strip: layout.strip,
     active: layout.active,
+    floating: layout.floating,
+    toolsPosition: toolsPosition(app),
+    toolsFloat: app.prefs.get('toolsFloat') || null,
+    panelsSide: panelsSide(app),
     toolbar: toolSet(app),
     toolbarHidden: app.prefs.get('toolbarHidden') || [],
     controlBar: Boolean(app.prefs.get('controlBar')),
@@ -255,10 +263,25 @@ export function applyWorkspace(app, ws, key) {
   setToolSet(app, ws.toolbar || 'advanced');
   setControlBar(app, Boolean(ws.controlBar));
   setToolbarVisible(app, ws.toolbarVisible !== false);
+  setPanelsSide(app, ws.panelsSide);
+  setToolsPosition(app, ws.toolsPosition, ws.toolsFloat);
   if (ws.dockOpen !== false && !app.dockOpen) app.setDockOpen(true);
   app.root.classList.remove('hide-panels', 'hide-dock');
   app.prefs.set('workspace', key);
+  // The workspace as it was defined: changes made from here on are kept again.
+  app.prefs.set('workspaceLayout', null);
   app.refreshChrome();
+}
+
+/** Keep the panel arrangement as the user changed it, for the next session (Reset brings back the workspace's own). */
+function rememberLayout(app) {
+  app.prefs.set('workspaceLayout', { key: currentKey(app), ...app.dock.getLayout() });
+}
+
+/** The arrangement kept from the last session, when it belongs to workspace `key`. */
+function rememberedLayout(app, key) {
+  const v = app.prefs.get('workspaceLayout');
+  return v && typeof v === 'object' && v.key === key && Array.isArray(v.dock) ? v : null;
 }
 
 /** Workspace by key: 'essentials', ..., or 'saved:<name>'. */
@@ -309,6 +332,109 @@ function setControlBar(app, on) {
 function setToolbarVisible(app, on) {
   app.prefs.set('toolbarVisible', on);
   app.root.classList.toggle('hide-toolbar', !on);
+}
+
+// ---- Tools panel and panel dock positions ----
+
+export const TOOLS_POSITIONS = ['left', 'right', 'float'];
+
+/** How close (px) to the canvas edge the Tools panel grip must come to dock there. */
+const TOOLS_DOCK_EDGE = 36;
+
+export function toolsPosition(app) {
+  const v = app.prefs.get('toolsPosition');
+  return TOOLS_POSITIONS.includes(v) ? v : 'left';
+}
+
+export function panelsSide(app) {
+  return app.prefs.get('panelsSide') === 'left' ? 'left' : 'right';
+}
+
+/** Move a floating Tools panel to (x, y) in the workspace, keeping its grip on screen. */
+function placeFloatingTools(app, at) {
+  const el = app.toolbar?.el;
+  const ws = app.workspace;
+  if (!el || !ws) return null;
+  const W = ws.clientWidth || window.innerWidth;
+  const H = ws.clientHeight || window.innerHeight;
+  // Fully on screen: pushed up when there is not room below for all of it.
+  const x = Math.round(Math.max(0, Math.min(W - Math.max(40, el.offsetWidth), Number(at?.x) || 12)));
+  const y = Math.round(Math.max(0, Math.min(H - Math.max(40, el.offsetHeight) - 4, Number(at?.y) || 12)));
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  return { x, y };
+}
+
+/** Dock the Tools panel on the left or right of the canvas, or float it (at `at`, workspace pixels). */
+export function setToolsPosition(app, pos, at = null) {
+  const next = TOOLS_POSITIONS.includes(pos) ? pos : 'left';
+  app.prefs.set('toolsPosition', next);
+  if (next === 'float' && at) app.prefs.set('toolsFloat', { x: Math.round(Number(at.x) || 0), y: Math.round(Number(at.y) || 0) });
+  applyToolsPosition(app);
+}
+
+function applyToolsPosition(app) {
+  const pos = toolsPosition(app);
+  app.root.classList.toggle('tools-right', pos === 'right');
+  app.root.classList.toggle('tools-float', pos === 'float');
+  const el = app.toolbar?.el;
+  if (!el) return;
+  if (pos === 'float') placeFloatingTools(app, app.prefs.get('toolsFloat'));
+  else el.style.left = el.style.top = '';
+  requestAnimationFrame(() => {
+    app.toolbar?.refit?.();
+    // Its columns may change its height: keep it on screen.
+    if (toolsPosition(app) === 'float') placeFloatingTools(app, app.prefs.get('toolsFloat'));
+  });
+}
+
+/** Dock the panels (strip and tabbed dock) on the left or right edge. */
+export function setPanelsSide(app, side) {
+  const next = side === 'left' ? 'left' : 'right';
+  app.prefs.set('panelsSide', next);
+  app.root.classList.toggle('panels-left', next === 'left');
+  app.dock.closeFlyout?.(false);
+}
+
+/**
+ * The Tools panel grip: dragging it floats the panel under the pointer;
+ * releasing it near the canvas's left or right edge docks it on that side.
+ */
+function wireToolsGrip(app) {
+  const grip = app.toolbar?.grip;
+  if (!grip) return;
+  const mark = h('div.tools-dock-zone', { 'aria-hidden': 'true' });
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const el = app.toolbar.el;
+    let grab = null;
+    let side = null;
+    trackDrag(e, {
+      start: (ev, origin) => {
+        const r = el.getBoundingClientRect();
+        const wr = app.workspace.getBoundingClientRect();
+        grab = { x: origin.x - r.left, y: origin.y - r.top };
+        if (toolsPosition(app) !== 'float') setToolsPosition(app, 'float', { x: r.left - wr.left, y: r.top - wr.top });
+        app.root.classList.add('tools-dragging');
+      },
+      move: (ev) => {
+        const wr = app.workspace.getBoundingClientRect();
+        placeFloatingTools(app, { x: ev.clientX - wr.left - grab.x, y: ev.clientY - wr.top - grab.y });
+        const dr = app.docArea.getBoundingClientRect();
+        side = ev.clientX < dr.left + TOOLS_DOCK_EDGE ? 'left' : ev.clientX > dr.right - TOOLS_DOCK_EDGE ? 'right' : null;
+        if (!side) return mark.remove();
+        mark.style.left = `${(side === 'left' ? dr.left : dr.right - 6) - wr.left}px`;
+        if (!mark.isConnected) app.workspace.append(mark);
+      },
+      end: (ev, { cancelled }) => {
+        mark.remove();
+        app.root.classList.remove('tools-dragging');
+        if (!cancelled && side) setToolsPosition(app, side);
+        else app.prefs.set('toolsFloat', { x: el.offsetLeft, y: el.offsetTop });
+      },
+    });
+  });
 }
 
 // ---- documents: new window, arrangement ----
@@ -499,6 +625,18 @@ export function installWindow(app) {
     { id: 'window.toolbar.advanced', label: 'Advanced', checked: (a) => toolSet(a) === 'advanced', run: (a) => setToolSet(a, 'advanced') },
     { id: 'window.toolbar.edit', label: 'Edit Toolbar...', run: (a) => openToolDrawer(a, a.toolbar?.el.querySelector('.toolbar-misc .tool-btn')) },
     { id: 'window.toolbar', label: 'Tools', checked: (a) => a.prefs.get('toolbarVisible') !== false, run: (a) => setToolbarVisible(a, a.prefs.get('toolbarVisible') === false) },
+    ...TOOLS_POSITIONS.map((pos) => ({
+      id: `window.tools.${pos}`,
+      label: { left: 'Dock on Left', right: 'Dock on Right', float: 'Floating' }[pos],
+      checked: (a) => toolsPosition(a) === pos,
+      run: (a) => setToolsPosition(a, pos),
+    })),
+    ...['left', 'right'].map((side) => ({
+      id: `window.panels.${side}`,
+      label: side === 'left' ? 'Dock on Left' : 'Dock on Right',
+      checked: (a) => panelsSide(a) === side,
+      run: (a) => setPanelsSide(a, side),
+    })),
     { id: 'window.controlBar', label: 'Control', checked: (a) => Boolean(a.prefs.get('controlBar')), run: (a) => setControlBar(a, !a.prefs.get('controlBar')) },
     { id: 'window.newWindow', label: 'New Window', enabled: hasDoc, run: (a) => newWindow(a) },
     { id: 'window.arrange.cascade', label: 'Cascade', enabled: (a) => a.editors.length > 0, run: (a) => cascadeWindows(a) },
@@ -537,20 +675,30 @@ export function installWindow(app) {
     if ('controlBar' in values) setControlBar(app, Boolean(app.prefs.get('controlBar')));
     if ('toolbarSet' in values || 'toolbarHidden' in values) applyToolSet(app);
     if ('toolbarVisible' in values) setToolbarVisible(app, app.prefs.get('toolbarVisible') !== false);
-    const ws = 'workspace' in values && workspaceByKey(app, currentKey(app));
+    if ('toolsPosition' in values || 'toolsFloat' in values) applyToolsPosition(app);
+    if ('panelsSide' in values) setPanelsSide(app, app.prefs.get('panelsSide'));
+    const ws = ('workspace' in values || 'workspaceLayout' in values) && (rememberedLayout(app, currentKey(app)) || workspaceByKey(app, currentKey(app)));
     if (ws) app.dock.setLayout(ws);
   });
+  app.on('panel-layout', () => rememberLayout(app));
 
   app.on('started', () => {
     if (app.prefs.get('controlBar')) setControlBar(app, true);
     applyToolSet(app);
     setToolbarVisible(app, app.prefs.get('toolbarVisible') !== false);
+    setPanelsSide(app, panelsSide(app));
+    applyToolsPosition(app);
     const key = app.prefs.get('workspace');
-    const saved = key && workspaceByKey(app, key);
-    // The workspace's panels, on the dock tab last used (when it is one of them).
+    // The panels as they were left last session, else the workspace's own,
+    // on the dock tab last used (when it is one of them).
+    const saved = rememberedLayout(app, currentKey(app)) || (key && workspaceByKey(app, key));
     const tab = app.prefs.get('dockTab');
-    if (saved && key !== 'essentials') app.dock.setLayout(saved.dock?.includes(tab) ? { ...saved, active: tab } : saved);
+    if (saved && (key !== 'essentials' || saved.key)) app.dock.setLayout(saved.dock?.includes(tab) ? { ...saved, active: tab } : saved);
     wireToolbarDrag(app);
+    wireToolsGrip(app);
+    window.addEventListener('resize', () => {
+      if (toolsPosition(app) === 'float') placeFloatingTools(app, app.prefs.get('toolsFloat'));
+    });
     // Clicking or scrolling over a document beside the active one makes it active first.
     const pick = (e) => {
       const pane = e.target.closest?.('.view-host');

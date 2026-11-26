@@ -19,11 +19,14 @@ class PlainPanel extends Panel {
 }
 
 describe('panel options menus', () => {
-  it('shows a menu button in the flyout header only for panels with a menu', () => {
+  it('shows a menu button in the flyout header for every panel (the workspace items)', () => {
     const app = bootApp({ install: (a) => (a.registerPanel(MenuPanel), a.registerPanel(PlainPanel)) });
     const btn = () => document.querySelector('.panel-flyout .panel-menu-btn');
     app.dock.openPanel('plainTest');
-    expect(btn().hidden).toBe(true);
+    expect(btn().hidden).toBe(false);
+    btn().click();
+    expect([...document.querySelectorAll('[role="menu"] [role^="menuitem"]')].map((i) => i.textContent.trim())).toEqual(['Float Panel', 'Dock as Tab']);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     app.dock.openPanel('menuTest');
     expect(btn().hidden).toBe(false);
     expect(btn().getAttribute('aria-label')).toBe('Menu Test panel menu');
@@ -34,7 +37,8 @@ describe('panel options menus', () => {
     app.dock.openPanel('menuTest');
     document.querySelector('.panel-flyout .panel-menu-btn').click();
     const items = [...document.querySelectorAll('[role="menu"] [role^="menuitem"]')];
-    expect(items.map((i) => i.textContent.trim())).toEqual(['Do Thing', 'Disabled']);
+    // The panel's own items, then the workspace items.
+    expect(items.map((i) => i.textContent.trim())).toEqual(['Do Thing', 'Disabled', 'Float Panel', 'Dock as Tab']);
     items[0].click();
     expect(app.dock.panels.get('menuTest').ran).toBe(1);
   });
@@ -42,7 +46,8 @@ describe('panel options menus', () => {
   it('tracks the active dock tab', () => {
     const app = bootApp();
     const btn = document.querySelector('.dock-head .panel-menu-btn');
-    // Built-in dock panels without a menu keep the button hidden.
-    expect(btn.hidden).toBe(!app.dock.panels.get(app.dock.getLayout().active).menu().length);
+    // Every dock tab has a menu: at least Float Panel and Collapse to Icon.
+    expect(btn.hidden).toBe(false);
+    expect(btn.getAttribute('aria-label')).toBe(`${app.dock.panels.get(app.dock.getLayout().active).constructor.title} panel menu`);
   });
 });

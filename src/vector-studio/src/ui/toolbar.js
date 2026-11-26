@@ -175,7 +175,9 @@ export function createToolbar(app) {
       flyout.style.left = `${Math.max(4, Math.min(window.innerWidth - fw - 4, r.left))}px`;
       flyout.style.top = `${Math.max(4, r.top - fh - 4)}px`;
     } else {
-      flyout.style.left = `${Math.min(window.innerWidth - fw - 4, r.right + 4)}px`;
+      // Toward the canvas: to the left when the Tools panel is on the right or there is no room.
+      const leftward = app.root?.classList.contains('tools-right') || r.right + 4 + fw > window.innerWidth - 4;
+      flyout.style.left = `${Math.max(4, leftward ? r.left - fw - 4 : r.right + 4)}px`;
       flyout.style.top = `${Math.min(window.innerHeight - fh - 4, r.top)}px`;
     }
     document.addEventListener('pointerdown', outside, true);
@@ -332,7 +334,9 @@ export function createToolbar(app) {
   }).observe(scroller);
   window.addEventListener('resize', applyColumns);
   requestAnimationFrame(applyColumns);
-  el.append(h('div.toolbar-head', colsBtn), scroller, h('div.toolbar-bottom', fs, modes, h('div.toolbar-misc', moreBtn, screenBtn)));
+  // The grip moves the Tools panel: drag it to float the panel, or to either edge to dock it there (features/workspace).
+  const grip = h('div.toolbar-grip', { 'aria-hidden': 'true', 'data-tip': 'Drag to move the Tools panel' }, icon('grip', 12));
+  el.append(h('div.toolbar-head', grip, colsBtn), scroller, h('div.toolbar-bottom', fs, modes, h('div.toolbar-misc', moreBtn, screenBtn)));
 
   const refreshTool = () => {
     for (const btn of groupButtons) {
@@ -382,5 +386,5 @@ export function createToolbar(app) {
     }
   };
 
-  return { el, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list, tearOff, refit: applyColumns };
+  return { el, grip, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list, tearOff, refit: applyColumns };
 }
