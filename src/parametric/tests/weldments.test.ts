@@ -283,7 +283,7 @@ describe('end caps and gussets', () => {
 describe('cut list', () => {
   it('groups identical members', async () => {
     const { res } = await build([sketch('S1', rect(0, 0, 200, 100, 'r')), member('M1', [rectSegs('S1')])]);
-    const list = weldmentCutList({ material: { name: 'Plain Carbon Steel', density: 7800 } }, res.weldments);
+    const list = weldmentCutList({ material: { name: 'Plain Carbon Steel', density: 7800 } }, res);
     expect(list.items).toHaveLength(2);
     expect(list.count).toBe(4);
     expect(list.items[0]).toMatchObject({ item: 1, quantity: 2, description: 'SQ TUBE 40 x 40 x 3' });

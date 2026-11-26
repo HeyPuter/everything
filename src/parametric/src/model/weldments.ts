@@ -99,10 +99,11 @@ export const CUT_LIST_TOLERANCE = { length: 0.01, angle: 0.01 };
  * The cut list of a part's weldment: identical members (same profile, same
  * length and the same end angles, either way round, within the tolerance)
  * are one item with their quantity. Mass uses the part's material (1000
- * kg/m³ when it has none, as mass properties do). For a drawing's cut list
- * table, call it with the members of the latest build (BuildResult.weldments).
+ * kg/m³ when it has none, as mass properties do). Pass the latest build
+ * result (or its `weldments` list); a drawing's cut list table can use it.
  */
-export function weldmentCutList(doc: Pick<PartDocument, 'material'>, members: WeldMemberInfo[] | undefined): CutList {
+export function weldmentCutList(doc: Pick<PartDocument, 'material'>, build: WeldMemberInfo[] | { weldments?: WeldMemberInfo[] } | null | undefined): CutList {
+  const members = Array.isArray(build) ? build : build?.weldments;
   const density = doc.material?.density ?? 1000;
   const items: CutListItem[] = [];
   const tol = CUT_LIST_TOLERANCE;
