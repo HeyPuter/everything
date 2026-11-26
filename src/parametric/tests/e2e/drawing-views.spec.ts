@@ -294,3 +294,29 @@ test('a view placed with a click beside the paper is put on the sheet, with an a
   expect(fd.y1).toBeLessThanOrEqual(210 - 10 + 1e-6);
   expect(errors).toEqual([]);
 });
+
+test('an annotation selected in the Annotations list moves with the arrow keys', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  await page.evaluate(() => (window as unknown as { __parametric: App }).__parametric.drawing.update((d) => {
+    d.annotations = [{ id: 'a1', type: 'note', text: 'DEBURR', at: [40, 150] }, { id: 'a2', type: 'note', text: 'IN VIEW', view: 'v1', at: [0, 20] }];
+  }, 'Note'));
+  const at = async (id: string) => ((await drawing(page)).annotations!.find((a) => a.id === id) as { at: [number, number] }).at;
+  await page.locator('.drw-anno-list').getByRole('button', { name: 'Note: DEBURR', exact: true }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Shift+ArrowDown');
+  expect(await at('a1')).toEqual([41, 160]);
+  // In a view: a millimetre on the sheet, whatever the view's scale.
+  const s = await page.evaluate(() => ((window as unknown as { __parametric: App }).__parametric.drawing as unknown as Ws).placements.get('v1')!.s);
+  await page.locator('.drw-anno-list').getByRole('button', { name: 'Note: IN VIEW', exact: true }).click();
+  await page.keyboard.press('ArrowLeft');
+  const q = await at('a2');
+  expect(q[0]).toBeCloseTo(-1 / s, 3);
+  expect(q[1]).toBe(20);
+  await page.keyboard.press('Meta+Z');
+  await expect.poll(() => at('a2')).toEqual([0, 20]);
+  expect(errors).toEqual([]);
+});

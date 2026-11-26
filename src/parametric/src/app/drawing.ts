@@ -128,7 +128,7 @@ export class DrawingWorkspace {
     // (and a label on a plain div is not read at all).
     this.el = h('div', {
       class: 'drawing-ws', hidden: true, tabindex: '0', role: 'application',
-      'aria-label': 'Drawing. Drag views to move them, or select one in the Views list of the Drawing panel and move it with the arrow keys; Escape deselects it and Delete removes it. With no view selected the arrow keys move the sheet; plus and minus zoom.',
+      'aria-label': 'Drawing. Drag views to move them, or select one in the Views list (or an annotation in the Annotations list) of the Drawing panel and move it with the arrow keys; Escape deselects it and Delete removes it. With nothing selected the arrow keys move the sheet; plus and minus zoom.',
     }, this.host,
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'),
       this.busy);
@@ -1217,9 +1217,25 @@ export class DrawingWorkspace {
     let nudge: { id: string; mark: number; last: number } | null = null;
     this.el.addEventListener('keydown', (e) => {
       const step = e.shiftKey ? 10 : 1;
+      // The selected annotation that has a place of its own (a dimension's value, a note...).
+      const anno = !this.selected && this.selectedAnno ? this.doc?.annotations?.find((q) => q.id === this.selectedAnno && 'at' in q) : undefined;
+      const moveAnno = (dx: number, dy: number) => {
+        if (!anno || !('at' in anno)) return;
+        e.preventDefault();
+        const id = anno.id;
+        const store = this.app.store;
+        const join = e.repeat && nudge?.id === id && nudge.last === store.undoMark ? nudge : null;
+        const mark = join ? join.mark : store.undoMark;
+        // A step is a millimetre on the sheet (an annotation of a view has its place in the view's coordinates).
+        const s = (anno.view && this.placements.get(anno.view)?.s) || 1;
+        const at: [number, number] = [+(anno.at[0] + dx / s).toFixed(4), +(anno.at[1] + dy / s).toFixed(4)];
+        this.update((d) => { const q = d.annotations?.find((x) => x.id === id); if (q && 'at' in q) q.at = at; }, 'Move annotation');
+        if (join) store.squash(mark, 'Move annotation');
+        nudge = { id, mark, last: store.undoMark };
+      };
       const move = (dx: number, dy: number) => {
         const id = this.selected;
-        if (!id) return;
+        if (!id) { moveAnno(dx, dy); return; }
         e.preventDefault();
         const store = this.app.store;
         const join = e.repeat && nudge?.id === id && nudge.last === store.undoMark ? nudge : null;
@@ -1248,8 +1264,8 @@ export class DrawingWorkspace {
         this.pan = { x: this.pan.x + dx, y: this.pan.y + dy };
         this.applyTransform();
       };
-      // Arrow keys move the selected view, else the sheet; + and - zoom it (as the wheel does).
-      const d = this.selected ? null : 40 * (e.shiftKey ? 4 : 1);
+      // Arrow keys move the selected view or annotation, else the sheet; + and - zoom it (as the wheel does).
+      const d = this.selected || anno ? null : 40 * (e.shiftKey ? 4 : 1);
       const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
       if (e.key === 'ArrowLeft') d ? pan(d, 0) : move(-step, 0);
       else if (e.key === 'ArrowRight') d ? pan(-d, 0) : move(step, 0);
@@ -1334,11 +1350,13 @@ export class DrawingWorkspace {
     this.el.focus({ preventScroll: true });
   }
 
+  /** Selects an annotation (from the Annotations list too) and focuses the sheet so arrow keys move it. */
   selectAnno(id: string) {
     this.selectedAnno = id;
     this.selected = null;
     this.drawSelection();
     this.syncPanel();
+    this.el.focus({ preventScroll: true });
   }
 
   /** Esc: ends the command, else the arrow keys go back to moving the sheet. */
