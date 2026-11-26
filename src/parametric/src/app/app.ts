@@ -32,6 +32,7 @@ import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
 import { setWindowTitle } from '../platform/puter';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
+import { applySurfaceColors } from './surface-display';
 export { DEFAULT_SETTINGS, type Settings } from './settings';
 
 export interface Colors {
@@ -246,6 +247,7 @@ export class App {
     const c = this.store.doc.color;
     this.shownColor = c;
     this.renderer.modelColor = c ? parseColor(c) : null;
+    applySurfaceColors(this);
     this.renderer.requestRender();
   }
 
@@ -1022,6 +1024,7 @@ export class App {
       this.shownMesh = mesh;
       this.vertices = mesh?.vertices ?? new Float32Array(0);
       this.renderer.setModel(mesh, res.faces.length, res.edges.length);
+      applySurfaceColors(this);
     }
     const r = res.bbox ? Math.hypot(res.bbox.max[0] - res.bbox.min[0], res.bbox.max[1] - res.bbox.min[1], res.bbox.max[2] - res.bbox.min[2]) : 100;
     this.renderer.camera.sceneRadius = Math.max(r, 100);

@@ -14,7 +14,7 @@
 import * as R from 'replicad';
 import type { Frame, Vec2, Vec3 } from '../math/vec';
 import { add, cross, dist, dot, len, normalize, scale, sub, toWorld } from '../math/vec';
-import type { SurfaceFeature } from '../model/surfaces';
+import { type SurfaceFeature, bodyFeatureOf } from '../model/surfaces';
 import type {
   AxisRef, DeleteFaceFeature, EdgeRef, FaceRef, Feature, Id, PlaneRef, SketchFeature, SurfaceCutFeature, SurfaceExtendFeature,
   SurfaceExtrudeFeature, SurfaceFillFeature, SurfaceKnitFeature, SurfaceLoftFeature, SurfaceOffsetFeature, SurfacePlanarFeature,
@@ -78,8 +78,7 @@ export interface SurfaceHost {
   nameFaces(featId: Id, body: Sh, st: SurfState, tool: SurfFace[]): SurfFace[];
 }
 
-/** A body's id names the feature that made it before any ".n". */
-export const bodyFeature = (id: Id): Id => id.split('.')[0];
+const bodyFeature = bodyFeatureOf;
 
 const SWEEP_FAILED = 'The swept surface could not be created. The profile should start at the path and be roughly perpendicular to it.';
 const MAX_KNIT_FACES = 5000;

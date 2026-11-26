@@ -59,6 +59,9 @@ export const SURFACE_BASE_NAMES: Record<SurfaceFeatureType, string> = {
 
 export const SURFACE_TYPES = new Set<string>(Object.keys(SURFACE_LABELS));
 
+/** The feature that made a surface body: its id before any ".n" ("f7.2" is f7's second body). */
+export const bodyFeatureOf = (body: Id): Id => body.split('.')[0];
+
 export const isSurfaceFeature = (f: Feature): f is SurfaceFeature => SURFACE_TYPES.has(f.type);
 
 /** Surface features whose result is a surface body (shown, hidden and picked like one). */

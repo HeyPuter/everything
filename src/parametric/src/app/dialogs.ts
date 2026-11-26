@@ -436,6 +436,8 @@ export async function massPropertiesDialog(app: App) {
     ['Mass', mp.solid ? `${fmt(mass)} ${u.mass}` : none],
     ['Volume', mp.solid ? `${fmt(mp.volume / s ** 3)} ${L}³` : none],
     ['Surface area', `${fmt(mp.area / s ** 2)} ${L}²`],
+    // Surface bodies have area only: stated apart, they are in none of the other values.
+    ...(mp.surfaceArea != null ? [['Surface bodies area', `${fmt(mp.surfaceArea / s ** 2)} ${L}² (not included above)`] as [string, string]] : []),
     ['Center of mass', mp.solid ? group(mp.center.map((c) => c / s)).join(', ') + ` ${L}` : none],
   ];
   const tensorText = group(tensor, 3);
