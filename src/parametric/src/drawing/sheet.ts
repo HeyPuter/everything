@@ -324,6 +324,15 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
     const pr = projections.get(v.id) as FlatProjection | undefined;
     if (v.type === 'flat' && pr?.error && !placements.has(v.id)) drawNote(items, `FLAT PATTERN: ${pr.error}`, [v.x - 30, v.y], 2.5, undefined, DANGER);
   }
+  // A view with nothing to show (a section whose cutting line misses the part) says so where it
+  // is, and can still be selected, moved and deleted there.
+  for (const v of d.views) {
+    const r = resolved.get(v.id), pr = projections.get(v.id);
+    if (!r || !pr || pr.bounds || placements.has(v.id) || (pr as FlatProjection).error) continue;
+    const text = `${viewCaption(d, r).replace(/\s+SCALE .*$/, '')}: ${r.type === 'section' ? 'THE CUTTING LINE MISSES THE PART' : 'NOTHING TO SHOW'}`;
+    const box = drawNote(items, text, [v.x - textWidth(text, 2.5) / 2, v.y], 2.5, undefined, DANGER);
+    frames.push({ id: v.id, x0: box[0], y0: box[1], x1: box[2], y1: box[3] });
+  }
   const fmt: AnnoFormat = info.format ?? { length: (mm) => info.formatLength(mm), angle: (deg, dec) => `${deg.toFixed(dec ?? 2)}°` };
   // What sections and details leave on their parents (also while the view itself is empty or still projecting).
   for (const v of d.views) {

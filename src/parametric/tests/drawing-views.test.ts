@@ -235,6 +235,22 @@ describe('sheet', () => {
     // The cutting line's thick ends.
     expect(s.items.filter((i) => i.t === 'line' && i.w === 0.6)).toHaveLength(2);
   });
+
+  it('says where a section view is when its cutting line misses the part, and keeps it selectable', () => {
+    const d = base([
+      { id: 'v1', kind: 'front', x: 100, y: 100, hidden: false, dims: false },
+      { id: 'v2', kind: 'front', type: 'section', parent: 'v1', line: [30, 500, -30, 500], label: 'B', x: 150, y: 200, hidden: false, dims: false },
+    ]);
+    const s = buildSheet(d, new Map([['v1', box('v1', 40, 20)], ['v2', { id: 'v2', visible: [], hidden: [], bounds: null, cut: [] }]]), info);
+    const note = s.items.find((i) => i.t === 'text' && i.s.startsWith('SECTION B-B:')) as Extract<Item, { t: 'text' }>;
+    expect(note).toMatchObject({ s: 'SECTION B-B: THE CUTTING LINE MISSES THE PART', color: '#d32f2f' });
+    const f = s.frames.find((q) => q.id === 'v2')!;
+    expect(f.x0).toBeLessThan(150);
+    expect(f.x1).toBeGreaterThan(150);
+    expect(f.y0).toBeLessThan(200);
+    // Still projecting: nothing yet.
+    expect(buildSheet(d, new Map([['v1', box('v1', 40, 20)]]), info).frames.map((q) => q.id)).toEqual(['v1']);
+  });
 });
 
 describe('DXF', () => {
