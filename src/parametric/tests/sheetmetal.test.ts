@@ -392,6 +392,19 @@ describe('combinations', () => {
     expect(res.bbox!.max[2]).toBeCloseTo(T + R + (60 + R + T) - (20 - BA90 / 2) - BA90, 6);
   });
 
+  it('says when a sketched bend would fold the sheet into itself', async () => {
+    const b = new ModelBuilder();
+    const e = await plateEdge(b);
+    const f1 = flange('F1', [edgeRef(e)]);
+    const res = await b.build(req([...plate(), f1]));
+    const plateTop = res.faces.find((f) => f.name === 'B1:cap1')!;
+    // Folding the 20 wide side with the flange back over the plate drives the flange through it.
+    const line = sketch('S3', [{ id: 'p', t: 'point', x: 0, y: 40 }, { id: 'q', t: 'point', x: 100, y: 40 }, { id: 'l', t: 'line', a: 'p', b: 'q' }], { kind: 'face', face: faceRef(plateTop) });
+    const bend = { ...newSketchedBend('SB', 'SB', 'S3'), flipFixed: true };
+    expect((await b.build(req([...plate(), f1, line, { ...bend, angle: 170 }]))).status[4].error).toMatch(/folds the sheet into itself/);
+    ok(await b.build(req([...plate(), f1, line, { ...bend, angle: 90 }])));
+  });
+
   it('flanges two edges meeting at a corner one after the other', async () => {
     const b = new ModelBuilder();
     let res = await b.build(req(plate()));

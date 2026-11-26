@@ -651,7 +651,9 @@ function applySketchedBend(h: SheetHost, f: SketchedBendFeature, st: SmState) {
     if (d.type === 'cylinder') return `bend:${near(d.r, b.radius, 1e-6 * T + 1e-9) ? 'in' : 'out'}`;
     return 'bend:side';
   });
-  const result = fuseAll([kept, placed(moved, G), bendPiece.solid]);
+  const movedBody = placed(moved, G);
+  if (volumeOf(common(kept, movedBody)) > 1e-6 * volumeOf(moved)) throw h.error('The bend folds the sheet into itself. Use a smaller angle, reverse the direction or keep the other side fixed.');
+  const result = fuseAll([kept, movedBody, bendPiece.solid]);
   st.faces = h.nameFaces(f.id, result, st, [...movedFaces, ...bendPiece.faces]);
   st.body = result;
   st.edges = null;
