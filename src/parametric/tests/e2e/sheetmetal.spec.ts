@@ -96,3 +96,45 @@ test.describe('sheet metal', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test('an inch part gets sheet metal defaults that read as plain inch values', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  // A small open L profile (0.5 x 0.75 in) in an IPS part.
+  await page.evaluate(async () => {
+    const a = (window as unknown as W).__parametric;
+    const pts = [[0, 0], [12.7, 0], [12.7, 19.05]];
+    a.store.change('Profile', (d) => {
+      d.units = 'IPS';
+      d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+        ...pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y })),
+        { id: 'l0', t: 'line' as const, a: 'p0', b: 'p1' }, { id: 'l1', t: 'line' as const, a: 'p1', b: 'p2' },
+      ] });
+    });
+    await a.whenBuilt();
+  });
+  await waitForFeature(page, 'Sketch1');
+  await page.getByRole('treeitem', { name: 'Sketch1' }).click();
+  await page.getByRole('tab', { name: 'Sheet Metal' }).click();
+  await page.locator('[data-cmd="baseFlange"]').first().click();
+  await expect(page.getByRole('heading', { name: 'Base Flange' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Thickness' })).toHaveValue('0.06');
+  await expect(page.getByRole('textbox', { name: 'Bend radius' })).toHaveValue('0.06');
+  await expect(page.getByRole('textbox', { name: 'Depth' })).toHaveValue('0.5');
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  await waitForFeature(page, 'Base-Flange1');
+  await page.evaluate(async () => {
+    const a = (window as unknown as W).__parametric;
+    await a.whenBuilt();
+    const i = a.edges.findIndex((e) => e.type === 'line' && Math.abs(e.mid[1] - 19.05) < 1e-6);
+    a.selection.set([{ kind: 'edge', index: i, name: a.edges[i].name }]);
+  });
+  await page.locator('[data-cmd="edgeFlange"]').first().click();
+  await expect(page.getByRole('heading', { name: 'Edge Flange' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Length' })).toHaveValue('0.6');
+  await page.getByRole('button', { name: 'Cancel' }).first().click();
+  await page.locator('[data-cmd="hem"]').first().click();
+  await expect(page.getByRole('heading', { name: 'Hem' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Length' })).toHaveValue('0.3');
+  expect(errors).toEqual([]);
+});

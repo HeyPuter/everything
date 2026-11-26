@@ -33,10 +33,19 @@ export function sheetOwner(app: App): BaseFlangeFeature | null {
 
 const hasSheetMetal = (app: App) => !!sheetOwner(app);
 
-/** The sheet thickness in millimetres (1 mm without a sheet metal part). */
+/**
+ * A default length in millimetres that shows as a plain number in the part's
+ * units (an inch value converted from millimetres showed as 0.060000000000000005).
+ */
+function plainLength(app: App, mm: number): number {
+  const unit = app.store.unitScale;
+  return Number((mm / unit).toPrecision(10)) * unit;
+}
+
+/** The sheet thickness in millimetres (1 mm, or 0.06 in, without a sheet metal part). */
 function sheetThickness(app: App): number {
   const o = sheetOwner(app);
-  if (!o) return app.store.doc.units === 'IPS' ? 1.524 : 1;
+  if (!o) return app.store.doc.units === 'IPS' ? plainLength(app, 1.524) : 1;
   try { return app.store.evalParam(o.sm.thickness, 'length'); } catch { return 1; }
 }
 
@@ -397,12 +406,12 @@ function startFeature(app: App, type: 'baseFlange' | 'edgeFlange' | 'sketchedBen
   switch (type) {
     case 'baseFlange': {
       const tab = hasSheetMetal(app);
-      f = newBaseFlange(id, tab ? nextName(doc, 'Tab') : defaultName(doc, 'baseFlange'), pickSketch(app) ?? '', T, Math.max(app.typicalSize(), 10));
+      f = newBaseFlange(id, tab ? nextName(doc, 'Tab') : defaultName(doc, 'baseFlange'), pickSketch(app) ?? '', T, Math.max(app.typicalSize(), doc.units === 'IPS' ? 12.7 : 10));
       break;
     }
-    case 'edgeFlange': f = { ...newEdgeFlange(id, defaultName(doc, 'edgeFlange'), Math.max(10 * T, app.typicalSize() / 4)), edges }; break;
+    case 'edgeFlange': f = { ...newEdgeFlange(id, defaultName(doc, 'edgeFlange'), plainLength(app, Math.max(10 * T, app.typicalSize() / 4))), edges }; break;
     case 'sketchedBend': f = newSketchedBend(id, defaultName(doc, 'sketchedBend'), pickSketch(app) ?? ''); break;
-    case 'hem': f = { ...newHem(id, defaultName(doc, 'hem'), 5 * T, T / 2), edges }; break;
+    case 'hem': f = { ...newHem(id, defaultName(doc, 'hem'), plainLength(app, 5 * T), plainLength(app, T / 2)), edges }; break;
   }
   const p = sheetMetalPanelFor(app, f, false);
   if (p) void app.openPanel(p);
