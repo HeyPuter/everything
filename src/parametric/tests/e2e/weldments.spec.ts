@@ -171,6 +171,28 @@ test.describe('weldments', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a line picked together with its sketch makes one member', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Layout', (d) => {
+        d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+          { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 0, y: 100 }, { id: 'c', t: 'point', x: 100, y: 100 },
+          { id: 'l', t: 'line', a: 'a', b: 'b' }, { id: 'm', t: 'line', a: 'b', b: 'c' },
+        ] });
+      });
+      a.selection.set([{ kind: 'skseg', sketch: 's1', entity: 'l' }, { kind: 'feature', id: 's1' }]);
+      void a.commands.run('structuralMember');
+    });
+    await expect(page.getByRole('group', { name: 'Group 1' }).locator('.item')).toHaveText(['Line 1 of Sketch1', 'Line 2 of Sketch1']);
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await waitForFeature(page, 'Structural Member1');
+    await expect(page.getByRole('treeitem', { name: 'Cut list (2)' })).toBeVisible();
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('trims a post to a plate face, caps it and adds a fillet bead from the Weldments tab', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

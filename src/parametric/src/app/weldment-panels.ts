@@ -409,7 +409,9 @@ export function startWeldment(app: App, type: Feature['type']): PropertyPanel | 
         if (it.kind === 'skseg') segs.push({ sketch: it.sketch, entity: it.entity });
         else if (it.kind === 'feature') { const sk = app.store.feature(it.id); if (sk?.type === 'sketch') segs.push(...sketchSegments(sk)); }
       }
-      f = { ...newStructuralMember(id, name, segs.length ? [segs] : []), ...defaultProfile(app) };
+      // A line picked as well as its sketch is one member.
+      const uniq = segs.filter((s, i) => segs.findIndex((x) => memberKey(x) === memberKey(s)) === i);
+      f = { ...newStructuralMember(id, name, uniq.length ? [uniq] : []), ...defaultProfile(app) };
       break;
     }
     case 'trimExtend': {
