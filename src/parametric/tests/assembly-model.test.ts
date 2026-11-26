@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ASSEMBLY_FORMAT, type AssemblyDocument, PartCache, assemblyBom, bomCsv, instanceName, isAssembly, newAssembly, nextAsmId, parseAnyDocument, parseAssembly,
+  ASSEMBLY_FORMAT, type AssemblyDocument, MAX_COMPONENTS, MAX_MATES, PartCache, assemblyBom, bomCsv, instanceName, isAssembly, newAssembly, nextAsmId, parseAnyDocument, parseAssembly,
 } from '../src/model/assembly';
 import { DocStore, newDocument, parseDocument, serializeDocument, withUsedBlobs } from '../src/model/document';
 import { composeModel, placementMatrix, splitName, type PartGeometry } from '../src/assembly/compose';
@@ -82,6 +82,25 @@ describe('assembly documents', () => {
     expect(bad((d) => { (d.explode as { comps: string[] }[])[0].comps = ['c99']; })).toThrow(/explode step/);
     expect(bad((d) => { (d.components as { placement: unknown }[])[1].placement = { p: [0, 0], q: [0, 0, 0, 1] }; })).toThrow(/invalid component/);
     expect(() => parseAssembly('not json')).toThrow(/not a valid assembly/);
+  });
+
+  it('refuses hand-edited files with NaN or infinite placements, duplicate ids or huge lists, without crashing', () => {
+    const text = serializeDocument(sample() as never);
+    const edit = (patch: (d: Record<string, any>) => void) => { const raw = JSON.parse(text); patch(raw); return () => parseAssembly(JSON.stringify(raw)); };
+    // JSON has no NaN: a hand edit writes a string, null, or a number too big for a double (read as Infinity).
+    expect(edit((d) => { d.components[1].placement.p[0] = 'NaN'; })).toThrow(/invalid component/);
+    expect(edit((d) => { d.components[1].placement.q[0] = null; })).toThrow(/invalid component/);
+    expect(() => parseAssembly(text.replace(/"p":\[[^\]]*\]/, '"p":[1e999,0,0]'))).toThrow(/invalid component/);
+    expect(edit((d) => { d.components[1].id = d.components[0].id; })).toThrow(/invalid component/);
+    expect(edit((d) => { d.mates[0].id = d.components[0].id; })).toThrow(/invalid mate/);
+    expect(edit((d) => { d.blobs = {}; })).toThrow(/invalid part/);
+    const many = (n: number) => edit((d) => { d.mates = []; d.explode = []; d.components = Array.from({ length: n }, (_, i) => ({ ...d.components[0], id: `k${i}`, name: `K<${i}>` })); });
+    expect(many(MAX_COMPONENTS + 1)).toThrow(/more than Parametric can open/);
+    expect(many(MAX_COMPONENTS)).not.toThrow();
+    expect(edit((d) => { d.mates = Array.from({ length: MAX_MATES + 1 }, (_, i) => ({ ...d.mates[0], id: `q${i}` })); })).toThrow(/mates, more than/);
+    // A step listing a component many times lists it once.
+    const steps = parseAssembly(JSON.stringify({ ...JSON.parse(text), explode: [{ ...JSON.parse(text).explode[0], comps: new Array(5000).fill(JSON.parse(text).explode[0].comps[0]) }] }));
+    expect(steps.explode[0].comps).toHaveLength(1);
   });
 
   it('allocates ids past those in use, and instance names per part', () => {

@@ -154,6 +154,8 @@ const isVec = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v
 const isParam = (v: unknown) => isNum(v) || typeof v === 'string';
 const BASE_PLANES = ['front', 'top', 'right'];
 const MATE_TYPES = Object.keys(MATE_LABELS);
+/** The most components (and parts), mates and explode steps an assembly file may have. */
+export const MAX_COMPONENTS = 2000, MAX_MATES = 10000, MAX_EXPLODE_STEPS = 1000;
 
 function validPlacement(v: unknown): v is Placement {
   return isObj(v) && isVec(v.p) && Array.isArray(v.q) && v.q.length === 4 && v.q.every(isNum) && Math.hypot(...(v.q as number[])) > 1e-9;
@@ -204,6 +206,11 @@ export function validateAssembly(raw: unknown): AssemblyDocument {
   const blobs = isObj(d.blobs) ? d.blobs : {};
   if (!Object.values(blobs).every((b) => typeof b === 'string')) throw damaged('invalid part copy');
   if (!Array.isArray(d.parts) || !Array.isArray(d.components)) throw damaged('no component list');
+  // Far beyond any assembly made here: a file this big was damaged or made by hand, and would not open in a browser tab.
+  const mates0 = Array.isArray(d.mates) ? d.mates : [], explode0 = Array.isArray(d.explode) ? d.explode : [];
+  for (const [list, max, what] of [[d.components, MAX_COMPONENTS, 'components'], [d.parts, MAX_COMPONENTS, 'parts'], [mates0, MAX_MATES, 'mates'], [explode0, MAX_EXPLODE_STEPS, 'explode steps']] as const) {
+    if (list.length > max) throw new Error(`This assembly has ${list.length} ${what}, more than Parametric can open (at most ${max}).`);
+  }
   const partIds = new Set<string>();
   for (const p of d.parts) {
     if (!isObj(p) || !isStr(p.id) || partIds.has(p.id) || typeof p.name !== 'string' || !isStr(p.blob) || !Object.hasOwn(blobs, p.blob) || !validSource(p.source)) throw damaged('invalid part');
@@ -259,7 +266,7 @@ export function validateAssembly(raw: unknown): AssemblyDocument {
       ...(m.flip === true ? { flip: true } : { flip: undefined }),
       ...(m.suppressed === true ? { suppressed: true } : { suppressed: undefined }),
     })).map((m) => JSON.parse(JSON.stringify(m)) as Mate),
-    explode: explode.map((s) => ({ id: s.id, name: typeof s.name === 'string' && s.name ? s.name : s.id, comps: [...s.comps], dir: [...s.dir] as Vec3, distance: s.distance })),
+    explode: explode.map((s) => ({ id: s.id, name: typeof s.name === 'string' && s.name ? s.name : s.id, comps: [...new Set(s.comps as Id[])], dir: [...s.dir] as Vec3, distance: s.distance })),
     exploded: d.exploded === true && explode.length > 0,
     ...(d.drawing != null ? { drawing: d.drawing } : {}),
     created: isNum(d.created) && Math.abs(d.created) < 8.64e15 ? d.created : base.created,
