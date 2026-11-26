@@ -622,7 +622,11 @@ export class InterferencePanel extends PropertyPanel {
     const unchecked = failed.length
       ? h('div', { class: 'pm-msg error', role: 'alert' }, `Could not check ${failed.map((p) => `${name(p.a)} / ${name(p.b)}`).join(', ')}: the overlap could not be computed.`)
       : null;
-    const notes = [...(unchecked ? [unchecked] : []), ...(exploded ? [exploded] : [])];
+    // Only solids are checked: say so when a part has surface bodies, so they are not taken as clear.
+    const parts = new Set((this.mode.model?.comps ?? []).map((id) => this.mode.component(id)?.part));
+    const surfaced = [...parts].some((p) => !!p && !!this.mode.geometryOf(p)?.faces.some((f) => f.body));
+    const surfaces = surfaced ? h('div', { class: 'pm-msg info' }, 'Surface bodies are not checked: interference is found between solids only.') : null;
+    const notes = [...(unchecked ? [unchecked] : []), ...(surfaces ? [surfaces] : []), ...(exploded ? [exploded] : [])];
     if (!found.length) {
       this.out.replaceChildren(...(failed.length ? [] : [h('div', { class: 'pm-msg info', role: 'status' }, 'No interference: no two components overlap.')]), ...notes);
       return;

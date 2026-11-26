@@ -38,7 +38,7 @@ import {
   hashOf, isEmpty, isValid, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, projectShape, rotated, sameSurface, sharesSurface, SurfaceCache, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
-import { SurfaceKit, type SurfaceBody, type SurfState } from './surfaces';
+import { SurfaceKit, bodyEdges, type SurfaceBody, type SurfState } from './surfaces';
 import { SURFACE_TYPES, type SurfaceFeature } from '../model/surfaces';
 
 export { BASE_FRAMES };
@@ -1777,9 +1777,16 @@ export class ModelBuilder {
   }
 
   /** The body built last with its faces and edges, in the order the build result lists them (assemblies place and combine these). */
-  currentShapes(): { body: Sh | null; faces: { shape: Sh; desc: SurfDesc }[]; edges: Sh[] } {
+  currentShapes(): {
+    body: Sh | null; faces: { shape: Sh; desc: SurfDesc }[]; edges: Sh[];
+    /** Surface bodies (shells), and their faces and edges in the order the build result lists them after the solid's. */
+    surfaces: Sh[]; surfaceFaces: Sh[]; surfaceEdges: Sh[];
+  } {
     const st = this.current;
-    return { body: st.body, faces: st.faces.map((f) => ({ shape: f.shape, desc: f.desc })), edges: st.body ? this.edgesOf(st).map((e) => e.shape) : [] };
+    return {
+      body: st.body, faces: st.faces.map((f) => ({ shape: f.shape, desc: f.desc })), edges: st.body ? this.edgesOf(st).map((e) => e.shape) : [],
+      surfaces: st.surfaces.map((b) => b.shape), surfaceFaces: st.surfaces.flatMap((b) => b.faces.map((f) => f.shape)), surfaceEdges: st.surfaces.flatMap((b) => bodyEdges(b).map((e) => e.shape)),
+    };
   }
 
   /** Current body volume (used by tests). */

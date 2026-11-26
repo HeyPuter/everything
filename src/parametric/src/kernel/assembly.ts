@@ -155,13 +155,31 @@ export class AssemblyBuilder {
     return out;
   }
 
+  /**
+   * The shown components' solids with their surface bodies (shells), placed:
+   * what drawings and STEP export show, as a part's do. Mass and interference
+   * take the solids only (bodies).
+   */
+  private shapes(): { i: number; shape: Sh }[] {
+    const out: { i: number; shape: Sh }[] = [];
+    this.scene.forEach((it, i) => {
+      if (it.hidden) return;
+      const s = this.shapesOf(it.part);
+      if (!s.surfaces.length) { const b = this.placedBody(i); if (b) out.push({ i, shape: b }); return; }
+      const all = [...(s.body ? [s.body] : []), ...s.surfaces];
+      out.push({ i, shape: place(all.length === 1 ? all[0] : compound(all), it.m) });
+    });
+    return out;
+  }
+
   /** The face or edge with a combined index (components in scene order, as the main thread lists them). */
   private locate(kind: 'face' | 'edge', index: number): Sh {
     let k = index;
     for (const it of this.scene) {
       if (it.hidden) continue;
       const s = this.shapesOf(it.part);
-      const list = kind === 'face' ? s.faces.map((f) => f.shape) : s.edges;
+      // Numbered as the graphics area lists them: the solid's, then its surface bodies'.
+      const list = kind === 'face' ? [...s.faces.map((f) => f.shape), ...s.surfaceFaces] : [...s.edges, ...s.surfaceEdges];
       if (k < list.length) return place(list[k], it.m);
       k -= list.length;
     }
@@ -209,7 +227,7 @@ export class AssemblyBuilder {
   }
 
   project(views: ProjectionRequest[]): ProjectionResult[] {
-    return projectBodies(this.bodies().map((b) => b.shape), views);
+    return projectBodies(this.shapes().map((b) => b.shape), views);
   }
 
   /**
@@ -219,8 +237,10 @@ export class AssemblyBuilder {
   projectItems(items: AsmSceneItem[], views: ProjectionRequest[]): ProjectionResult[] {
     const list: Sh[] = [];
     for (const it of items) {
-      const body = this.shapesOf(it.part).body;
-      if (body) list.push(place(body, it.m));
+      const s = this.shapesOf(it.part);
+      // Surface bodies are drawn too, as in a drawing of the part.
+      const all = [...(s.body ? [s.body] : []), ...s.surfaces];
+      if (all.length) list.push(place(all.length === 1 ? all[0] : compound(all), it.m));
     }
     return projectBodies(list, views);
   }
@@ -323,7 +343,8 @@ export class AssemblyBuilder {
 
   /** A STEP file with every component as a named solid of its own. */
   async exportStep(): Promise<Uint8Array> {
-    const list = this.bodies();
+    // Surface bodies go in as shells beside each component's solid, as a part's export writes them.
+    const list = this.shapes();
     if (!list.length) throw new Error('There is no geometry to export');
     const oc = getOc();
     // replicad's writer changes global translation settings: they are put back
