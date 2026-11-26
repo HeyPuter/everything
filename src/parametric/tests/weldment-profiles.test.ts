@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type PSeg, PROFILE_LIBRARY, WELD_STANDARDS, WELD_TYPES, findProfile, outlineBox, outlineMax, placeProfile, profileShape, sectionProps,
 } from '../src/model/weldment-profiles';
-import { type WeldMemberInfo, cutListCsv, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, weldmentCutList } from '../src/model/weldments';
+import { type WeldMemberInfo, cutListCsv, cutListRows, memberOfFace, newEndCap, newGusset, newStructuralMember, newTrimExtend, weldmentCutList } from '../src/model/weldments';
 import { newDocument, parseDocument } from '../src/model/document';
 import { dependencies } from '../src/model/features';
 
@@ -129,6 +129,14 @@ describe('cut list', () => {
     expect(list.count).toBe(5);
     expect(list.items[1].totalMass).toBeCloseTo(420.8 * 1000.004 * 1e-9 * 7800, 9);
     expect(list.material).toBe('Plain Carbon Steel');
+  });
+
+  it('keeps curved pieces bent to different radii apart, and gives their radius', () => {
+    // A quarter circle of radius 200 and an eighth of radius 400 are both 314.16 long.
+    const arc = (member: string, r: number, sweep: number): WeldMemberInfo => ({ ...m(member, r * sweep, 0, 0), curved: true, radius: r });
+    const list = weldmentCutList({ material: null }, [arc('s/a', 200, Math.PI / 2), arc('s/b', 400, Math.PI / 4), arc('s/c', 200, Math.PI / 2)]);
+    expect(list.items.map((it) => [it.quantity, it.radius])).toEqual([[2, 200], [1, 400]]);
+    expect(cutListRows(list, 'MMGS', 1).rows.map((r) => r[2])).toEqual(['SQ TUBE 40 x 40 x 3 (curved, R 200.0)', 'SQ TUBE 40 x 40 x 3 (curved, R 400.0)']);
   });
 
   it('writes CSV in the part units', () => {

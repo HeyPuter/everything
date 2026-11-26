@@ -172,6 +172,7 @@ describe('structural members', () => {
     expect(volume(b)).toBeCloseTo(A * Math.PI * 100, 0);
     expect(res.weldments![0].length).toBeCloseTo(Math.PI * 100, 4);
     expect(res.weldments![0].curved).toBe(true);
+    expect(res.weldments![0].radius).toBeCloseTo(100, 9);
     // Moving a sketch point moves the member.
     const moved = structuredClone(arc);
     (moved[1] as { x: number }).x = 150; (moved[2] as { x: number }).x = -150;

@@ -329,7 +329,7 @@ function memberInfo(m: Omit<WeldMember, 'info'>): WeldMemberInfo {
   return {
     feature: m.feature, member: m.key, group: m.group, standard: m.standard, profile: m.profile, size: m.size, desc: m.desc,
     length: memberLength(m), angle1: endAngle(m.path, 0, m.ends[0]), angle2: endAngle(m.path, 1, m.ends[1]),
-    volume: volumeOf(m.solid), area: m.area, ...(m.path.kind === 'arc' ? { curved: true } : {}),
+    volume: volumeOf(m.solid), area: m.area, ...(m.path.kind === 'arc' ? { curved: true, radius: m.path.r } : {}),
   };
 }
 

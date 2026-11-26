@@ -64,6 +64,8 @@ export interface WeldMemberInfo {
   area: number;
   /** The member follows an arc. */
   curved?: boolean;
+  /** Radius of the arc it follows (sketch arc), mm. */
+  radius?: number;
 }
 
 export interface CutListItem {
@@ -79,6 +81,8 @@ export interface CutListItem {
   totalLength: number;
   totalMass: number;
   curved: boolean;
+  /** Radius of the arc a curved piece follows, mm. */
+  radius?: number;
   members: { feature: Id; member: string }[];
 }
 
@@ -114,7 +118,9 @@ export function weldmentCutList(doc: Pick<PartDocument, 'material'>, build: Weld
     // The smaller angle first, so a piece cut the other way round matches.
     const [a1, a2] = m.angle1 <= m.angle2 ? [m.angle1, m.angle2] : [m.angle2, m.angle1];
     const mass = m.volume * 1e-9 * density;
-    const same = items.find((it) => it.description === m.desc && it.curved === !!m.curved && close(it.length, m.length, tol.length) && close(it.angle1, a1, tol.angle) && close(it.angle2, a2, tol.angle));
+    // Curved pieces of one length are bent to different radii.
+    const sameBend = (it: CutListItem) => !it.curved || close(it.radius ?? 0, m.radius ?? 0, tol.length);
+    const same = items.find((it) => it.description === m.desc && it.curved === !!m.curved && close(it.length, m.length, tol.length) && close(it.angle1, a1, tol.angle) && close(it.angle2, a2, tol.angle) && sameBend(it));
     if (same) {
       same.quantity++;
       same.totalLength += m.length;
@@ -123,12 +129,12 @@ export function weldmentCutList(doc: Pick<PartDocument, 'material'>, build: Weld
     } else {
       items.push({
         item: 0, quantity: 1, description: m.desc, length: m.length, angle1: a1, angle2: a2, mass, totalLength: m.length, totalMass: mass,
-        curved: !!m.curved, members: [{ feature: m.feature, member: m.member }],
+        curved: !!m.curved, ...(m.curved && m.radius != null ? { radius: m.radius } : {}), members: [{ feature: m.feature, member: m.member }],
       });
     }
   }
   for (const it of items) it.mass = it.totalMass / it.quantity;
-  items.sort((a, b) => a.description.localeCompare(b.description, 'en', { numeric: true }) || b.length - a.length || a.angle1 - b.angle1 || a.angle2 - b.angle2);
+  items.sort((a, b) => a.description.localeCompare(b.description, 'en', { numeric: true }) || b.length - a.length || a.angle1 - b.angle1 || a.angle2 - b.angle2 || (a.radius ?? 0) - (b.radius ?? 0));
   items.forEach((it, i) => { it.item = i + 1; });
   return {
     items,
@@ -149,7 +155,7 @@ export function cutListRows(list: CutList, units: UnitSystem, decimals: number):
   return {
     header: ['Item', 'Qty', 'Description', `Length (${u.length})`, 'Angle 1 (°)', 'Angle 2 (°)', `Total length (${u.length})`, `Mass each (${u.mass})`, `Total mass (${u.mass})`],
     rows: list.items.map((it) => [
-      String(it.item), String(it.quantity), it.description + (it.curved ? ' (curved)' : ''), len(it.length), ang(it.angle1), ang(it.angle2),
+      String(it.item), String(it.quantity), it.description + (it.curved ? (it.radius != null ? ` (curved, R ${len(it.radius)})` : ' (curved)') : ''), len(it.length), ang(it.angle1), ang(it.angle2),
       len(it.totalLength), mass(it.mass), mass(it.totalMass),
     ]),
     total: ['', String(list.count), 'Total', '', '', '', len(list.totalLength), '', mass(list.totalMass)],
