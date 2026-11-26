@@ -225,8 +225,13 @@ function profileRadius(shape: ProfileShape): number {
   return r;
 }
 
-const isSquare = (fr: { P: Vec3; a: Vec3 }, end: MemberEnd, tol: number) =>
-  end.planes.length === 1 && !end.copes.length && dot(fr.a, end.planes[0].n) > 1 - 1e-12 && Math.abs(dot(sub(end.planes[0].p, fr.P), end.planes[0].n)) < tol;
+/**
+ * An end cut square by one plane: a straight member is swept exactly to it.
+ * An arc member's sweep ends on a plane through its end point only (past the
+ * end, a sweep's end face turns about the arc's axis).
+ */
+const isSquare = (fr: { P: Vec3; a: Vec3 }, end: MemberEnd, tol: number, line: boolean) =>
+  end.planes.length === 1 && !end.copes.length && dot(fr.a, end.planes[0].n) > 1 - 1e-12 && (line || Math.abs(dot(sub(end.planes[0].p, fr.P), end.planes[0].n)) < tol);
 
 /** The member's solid: the profile swept along its path past both ends, cut by its end planes. */
 function memberSolid(ctx: WeldCtx, m: Pick<WeldMember, 'shape' | 'path' | 'ends' | 'key'>, outerOnly = false): Sh {
@@ -242,7 +247,7 @@ function memberSolid(ctx: WeldCtx, m: Pick<WeldMember, 'shape' | 'path' | 'ends'
     for (const pl of end.planes) {
       if (dot(fr.a, pl.n) < 1e-6) throw ctx.err(`An end of a member is cut along its length. Check the trim faces and corner treatment.`);
     }
-    if (isSquare(fr, end, 1e-9 * (1 + len(fr.P)))) return dot(sub(end.planes[0].p, fr.P), fr.a);
+    if (isSquare(fr, end, 1e-9 * (1 + len(fr.P)), path.kind === 'line')) return dot(sub(end.planes[0].p, fr.P), fr.a);
     cuts.push(...end.planes);
     let far = -Infinity;
     for (const pl of end.planes) far = Math.max(far, linMax(shape.outer, reach(fr, pl)));
