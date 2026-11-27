@@ -184,9 +184,14 @@ export class ResultPlot {
     const unit = kind === 'stress' ? u.stress : kind === 'length' ? u.length : '';
     const ticks = h('div', { class: 'fea-legend-ticks' });
     const N = 6;
+    // The ticks share their decimals (enough for the step between them), so they line up and read evenly.
+    const scaleOf = kind === 'stress' ? u.stressScale : kind === 'length' ? u.lengthScale : 1;
+    const step = (hi - lo) / scaleOf / (N - 1);
+    const digits = step > 0 ? 2 - Math.floor(Math.log10(step)) : NaN;
     for (let i = 0; i < N; i++) {
       const v = hi - ((hi - lo) * i) / (N - 1);
-      const top = this.field === 'fos' && i === 0 && hi >= FOS_CAP ? `≥ ${FOS_CAP}` : formatValue(app, v, kind).replace(` ${unit}`, '');
+      const fixed = digits <= 8 ? (v / scaleOf).toFixed(Math.max(0, digits)).replace(/^-(0\.?0*)$/, '$1') : null;
+      const top = this.field === 'fos' && i === 0 && hi >= FOS_CAP ? `≥ ${FOS_CAP}` : fixed ?? formatValue(app, v, kind).replace(` ${unit}`, '');
       ticks.append(h('span', {}, top));
     }
     const stops = Array.from({ length: 9 }, (_, i) => { const c = colorAt(this.field === 'fos' ? i / 8 : 1 - i / 8); return `rgb(${c.join(',')}) ${(i / 8) * 100}%`; });

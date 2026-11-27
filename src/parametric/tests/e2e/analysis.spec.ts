@@ -383,3 +383,22 @@ test('Tab from the study name keeps the keyboard focus in the study panel', asyn
   expect(await page.evaluate(() => !!document.activeElement?.closest('.pm-content') && document.activeElement.getAttribute('aria-label') !== 'Study name')).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('the legend ticks share their decimals', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  const decimals = async () => (await page.locator('.fea-legend-ticks span').allInnerTexts()).filter((t) => !t.startsWith('≥')).map((t) => {
+    expect(t).toMatch(/^-?\d+(\.\d+)?$/);
+    return t.split('.')[1]?.length ?? 0;
+  });
+  for (const field of ['vonMises', 'disp', 'strain', 'fos']) {
+    await page.getByLabel('Plot', { exact: true }).selectOption(field);
+    const d = await decimals();
+    expect(d.length, field).toBeGreaterThan(3);
+    expect(new Set(d).size, field).toBe(1);
+  }
+  expect(errors).toEqual([]);
+});
