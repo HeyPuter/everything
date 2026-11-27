@@ -1,0 +1,20 @@
+{
+  "name": "remote-support-puter",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Consent-based remote support session UI with audit log. TeamViewer/AnyDesk-inspired demo.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "^5.2.8"
+  }
+}
