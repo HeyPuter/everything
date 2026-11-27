@@ -180,6 +180,12 @@ export function rotVecQuat(w: Vec3): Quat {
 
 const qConj = (q: Quat): Quat => [-q[0], -q[1], -q[2], q[3]];
 
+/** The angle (radians, 0 to π) orientation q is turned from q0. */
+const turnAngle = (q: Quat, q0: Quat): number => {
+  const d = qMul(q, qConj(q0));
+  return 2 * Math.atan2(Math.hypot(d[0], d[1], d[2]), Math.abs(d[3]));
+};
+
 /** How far (radians, in (-π, π]) orientation q is turned from q0 about the unit direction d (both in the same frame). */
 export function turnAbout(q: Quat, q0: Quat, d: Vec3): number {
   const dq = qMul(q, qConj(q0));
@@ -867,8 +873,11 @@ function placementWith(base: Placement, center: Vec3, x: number[], o: number, L:
 export class MateSolver {
   constructor(readonly bodies: SolverBody[], readonly mates: SolverMate[]) {}
 
-  /** Placements with all mates (and the drag goal) satisfied as far as possible. */
-  solve(opts: SolveOptions = {}, mates = this.mates, start?: Map<Id, Placement>): SolveResult {
+  /**
+   * Placements with all mates (and the drag goal) satisfied as far as possible.
+   * `depth`: how many times a drag was halved (see the end).
+   */
+  solve(opts: SolveOptions = {}, mates = this.mates, start?: Map<Id, Placement>, depth = 0): SolveResult {
     const L = opts.scale && opts.scale > 0 ? opts.scale : 100;
     const bodies = new Map(this.bodies.map((b) => [b.id, { ...b, placement: start?.get(b.id) ?? b.placement }]));
     const involved = new Set<Id>();
@@ -992,6 +1001,19 @@ export class MateSolver {
       run(false, maxIter);
     } else run(false, maxIter);
     const final = at(x);
+    // Gear, rack and pinion and screw mates measure turns within a solve, up to half a turn
+    // either way: a drag that turns a component further (a rack pulled far in one pointer
+    // move) could land on the turn the other way round, so it is made in two halves.
+    if (drag && depth < 4 && mates.some((m) => m.type === 'gear' || m.type === 'rackPinion' || m.type === 'screw') && vars.some((id) => turnAngle(final.get(id)!.q, placements.get(id)!.q) > Math.PI / 2)) {
+      const from = placements.get(drag.body);
+      if (from) {
+        const half: DragGoal = drag.kind === 'move'
+          ? { ...drag, target: scale(add(applyPlacement(from, drag.local), drag.target), 0.5) }
+          : { ...drag, q: qNormalize(qMul(rotVecQuat(scale(quatRotVec(qMul(drag.q, qConj(from.q))), 0.5)), from.q)) };
+        const first = this.solve({ ...opts, drag: half }, mates, placements, depth + 1);
+        return this.solve(opts, mates, first.placements, depth + 1);
+      }
+    }
     const worst = evalMates(final), dw = driveWorst(final);
     return { placements: final, ok: worst < CONFLICT_TOL && dw < CONFLICT_TOL, residuals, iterations, driveResidual: dw };
   }

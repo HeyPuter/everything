@@ -223,6 +223,14 @@ describe('mechanical mates', () => {
     for (let k = 1; k <= 10; k++) pl = s.solve({ drag: { kind: 'move', body: 'R', local: [0, 0, 0], target: [k * Math.PI, -10, 0] } }, s.mates, pl).placements;
     expect(pl.get('R')!.p[0]).toBeCloseTo(10 * Math.PI, 3);
     expect(Math.abs(deg(angleZ(pl.get('P')!.q)))).toBeCloseTo(180, 2);
+    // Pulled 50 mm in one pointer move (more than half a turn of the pinion): the rack follows, the pinion turns 5 rad with it.
+    for (const dx of [50, 80]) {
+      const one = s.solve({ drag: { kind: 'move', body: 'R', local: [0, 0, 0], target: [dx, -10, 0] } }, s.mates, s.analyze().placements);
+      expect(one.ok).toBe(true);
+      expect(one.placements.get('R')!.p[0]).toBeCloseTo(dx, 3);
+      const t = dx / 10;
+      expect(dot(qRotate(one.placements.get('P')!.q, [1, 0, 0]), [Math.cos(t), Math.sin(t), 0])).toBeCloseTo(1, 6);
+    }
     // By travel per turn, and reversed.
     const per = rackAndPinion({ by: 'revolution', value: 50, reverse: true });
     const r2 = computeMotion({ bodies: per.bodies, mates: per.mates, motors: [rotary('P', axis([0, 0, 0]), 360)], duration: 1, fps: 30, scale: 100 });
