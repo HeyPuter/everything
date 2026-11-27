@@ -967,3 +967,19 @@ test('a motion study does not start playing while a motor added during the calcu
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a motion study whose motors are all suppressed says so when calculated', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  await pm.getByRole('combobox', { name: 'Motor on' }).selectOption({ label: 'Hinge1 (Hinge)' });
+  await pm.getByRole('checkbox', { name: 'Suppressed' }).check();
+  await pm.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(pm.getByRole('listitem')).toContainText('RotaryMotor1 (suppressed)');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('alert')).toHaveText('Every motor is suppressed: unsuppress one to drive the mechanism.');
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});

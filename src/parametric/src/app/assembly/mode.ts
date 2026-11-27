@@ -734,7 +734,7 @@ export class AssemblyMode {
   /** The solver input of a study, or why it cannot run. Components start where the mates put them now. */
   motionSetup(st: MotionStudy): MotionSetup | string {
     const motors = st.motors.filter((m) => !m.suppressed);
-    if (!motors.length) return 'Add a motor to drive the mechanism.';
+    if (!motors.length) return st.motors.length ? 'Every motor is suppressed: unsuppress one to drive the mechanism.' : 'Add a motor to drive the mechanism.';
     const { bodies, mates } = this.solverInput();
     const a = this.analysis;
     const held = mates.filter((m) => !a?.conflicts.has(m.id) && !a?.invalid.has(m.id));
