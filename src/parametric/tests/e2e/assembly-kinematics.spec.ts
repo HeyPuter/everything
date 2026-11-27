@@ -1002,3 +1002,29 @@ test('the Mate panel does not carry a hinge\'s angle limits over to a slider as 
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a cam mate with a roller follower offers no Flip Follower Face', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Cam', CAM], ['Shaft', SHAFT], ['Bar', BAR]], ['Plate', 'Cam', 'Shaft', 'Bar']);
+  await built(page, ['Plate<1>', 'Cam<1>', 'Shaft<1>', 'Bar<1>']);
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.selection.clear());
+  // The shaft's round face rolls on the cam; the bar's flat face follows it too.
+  for (const follower of [{ comp: 'Shaft<1>', face: 'E1:side:k' }, { comp: 'Bar<1>', face: 'E1:side:rl0' }]) {
+    const pm = await openMate(page, 'cam');
+    await pick(page, { comp: 'Cam<1>', face: 'E1:side:k' });
+    await pm.getByRole('group', { name: 'Follower' }).click();
+    await pick(page, follower);
+    await expect(pm.getByRole('group', { name: 'Follower' })).toContainText(follower.comp);
+    await pm.getByRole('button', { name: 'OK' }).click();
+  }
+  await tree.getByRole('treeitem', { name: /^Cam1/ }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Suppress' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Flip Follower Face' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await tree.getByRole('treeitem', { name: /^Cam2/ }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Flip Follower Face' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
