@@ -113,9 +113,12 @@ export class MotionStudyPanel extends PropertyPanel {
     const items: HTMLElement[] = [];
     if (this.checking) {
       this.bar = h('progress', { max: '1', value: '0', 'aria-label': 'Interference check progress' }) as HTMLProgressElement;
-      items.push(h('p', { class: 'field-label', role: 'status' }, 'Checking frames for interference...'), this.bar);
+      const cancel = h('button', { class: 'btn small', type: 'button' }, 'Cancel');
+      // (The check stops after the frame it is on, and puts the scene back.)
+      cancel.addEventListener('click', () => { this.runs++; this.checking = false; this.refreshTo('.kin-check'); });
+      items.push(h('p', { class: 'field-label', role: 'status' }, 'Checking frames for interference...'), this.bar, cancel);
     } else {
-      const run = h('button', { class: 'btn small', type: 'button' }, icon('interference', 14), 'Check Interference');
+      const run = h('button', { class: 'btn small kin-check', type: 'button' }, icon('interference', 14), 'Check Interference');
       run.addEventListener('click', () => void this.checkInterference(res));
       items.push(h('p', { class: 'field-label' }, `Finds components that overlap in ${Math.min(INTERFERENCE_FRAMES, res.frames.length)} frames spread over the motion.`), run);
       const c = this.clashes?.result === res ? this.clashes.list : null;
@@ -135,18 +138,30 @@ export class MotionStudyPanel extends PropertyPanel {
     return section('Interference', items, { collapsed: false });
   }
 
+  /** Settles when the last interference check has stopped using the worker's scene (a cancelled one finishes its frame). */
+  private checked: Promise<void> = Promise.resolve();
+  private checkRun = 0;
+
   private async checkInterference(res: MotionResult) {
     const run = ++this.runs;
+    this.checkRun = run;
     this.play(false);
     this.checking = true;
     this.app.refreshPanel();
     let list: { time: number; pairs: [Id, Id][] }[] | null = null;
+    const before = this.checked;
+    let done = () => {};
+    this.checked = new Promise((resolve) => { done = resolve; });
     try {
-      list = await this.mode.motionInterference(res, INTERFERENCE_FRAMES, (f) => { if (this.bar) this.bar.value = f; }, () => run !== this.runs || this.disposed);
+      await before;
+      if (run === this.runs && !this.disposed) list = await this.mode.motionInterference(res, INTERFERENCE_FRAMES, (f) => { if (this.bar) this.bar.value = f; }, () => run !== this.runs || this.disposed);
     } catch (e) {
-      if (!this.disposed) this.error = (e as Error).message;
+      if (!this.disposed && run === this.runs) this.error = (e as Error).message;
+    } finally {
+      done();
     }
-    this.checking = false;
+    // (Unless a newer check started after this one was cancelled.)
+    if (this.checkRun === run) this.checking = false;
     if (this.disposed || run !== this.runs) return;
     if (list) this.clashes = { result: res, list };
     this.app.refreshPanel();

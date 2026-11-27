@@ -772,3 +772,33 @@ test('the motion study time slider works from the keyboard and reads out the tim
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+test('an interference check over a motion can be cancelled, and checked again', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  // Each frame's check waits a while in the worker, so the check is still running when Cancel is pressed.
+  await page.evaluate(() => {
+    const k = (window as unknown as { __parametric: A }).__parametric.kernel as unknown as { assembly: (op: { op: string }) => Promise<unknown> };
+    const real = k.assembly.bind(k);
+    k.assembly = async (op) => { const r = await real(op); if (op.op === 'interference') await new Promise((done) => setTimeout(done, 100)); return r; };
+  });
+  await pm.getByRole('button', { name: 'Check Interference' }).click();
+  const section = pm.locator('.pm-section').filter({ has: page.getByRole('progressbar', { name: 'Interference check progress' }) });
+  await section.getByRole('button', { name: 'Cancel' }).click();
+  await expect(pm.getByRole('progressbar', { name: 'Interference check progress' })).toHaveCount(0);
+  await expect(pm.getByRole('button', { name: 'Check Interference' })).toBeFocused();
+  await expect(pm.getByText('No interference in the frames checked.')).toHaveCount(0);
+  // The panel stays open, plays, and checks again to the end.
+  await expect(pm.getByRole('heading', { name: 'Motion Study' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Check Interference' }).click();
+  await expect(pm.getByText('No interference in the frames checked.')).toBeVisible({ timeout: 30_000 });
+  await pm.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(pm.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});
