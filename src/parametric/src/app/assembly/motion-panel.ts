@@ -263,7 +263,8 @@ export class MotionStudyPanel extends PropertyPanel {
     if (typeof r === 'string') this.error = r;
     this.t = 0;
     this.app.refreshPanel();
-    if (r && typeof r !== 'string') { this.showAt(0); if (r.frames.length > 1 && !r.stop) this.play(true); }
+    // (Not while a motor added meanwhile is being set up: its axis is picked on components that stand still.)
+    if (r && typeof r !== 'string') { this.showAt(0); if (r.frames.length > 1 && !r.stop && !this.motor) this.play(true); }
   }
 
   // ---------- playback ----------

@@ -938,3 +938,32 @@ test('a rack and pinion pitch diameter given as an equation turns into the trave
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a motion study does not start playing while a motor added during the calculation is set up', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).fill('60');
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).press('Enter');
+  await pm.getByRole('spinbutton', { name: 'Frames per second' }).fill('240');
+  await pm.getByRole('spinbutton', { name: 'Frames per second' }).press('Enter');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('progressbar', { name: 'Calculation progress' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  const state = () => page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const p = a.panel as unknown as { computing: boolean; playing: boolean };
+    return { computing: p.computing, playing: p.playing };
+  });
+  await expect.poll(async () => (await state()).computing, { timeout: 60_000 }).toBe(false);
+  await page.waitForTimeout(300);
+  expect((await state()).playing).toBe(false);
+  // Back from the motor, the results are there to play.
+  await pm.getByRole('button', { name: 'Cancel' }).last().click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 14401 frames' })).toBeVisible();
+  await expect(pm.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});
