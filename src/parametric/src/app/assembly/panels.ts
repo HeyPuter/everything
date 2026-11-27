@@ -491,7 +491,10 @@ export class MatePanel extends PropertyPanel {
         const per = this.by === 'revolution';
         out.push(h('div', { class: 'field-label' }, 'Rack travel from'), segmented('Rack travel from', per ? 'revolution' : 'diameter', [{ value: 'diameter', label: 'Pitch diameter' }, { value: 'revolution', label: 'Travel per turn' }], (v) => {
           this.by = v === 'revolution' ? 'revolution' : null;
-          if (typeof this.value === 'number') this.value = Math.round((v === 'revolution' ? this.value * Math.PI : this.value / Math.PI) * 1000) / 1000;
+          // (An equation is converted too, as its value: a pitch diameter is not a travel per turn.)
+          let now: number | null = null;
+          try { now = this.mode.app.store.evalParam(this.value, 'length'); } catch { /* left as it is: the field shows its error */ }
+          if (now !== null) this.value = Math.round((v === 'revolution' ? now * Math.PI : now / Math.PI) * 1000) / 1000;
           this.mode.app.refreshPanel();
           this.update();
         }));

@@ -920,3 +920,21 @@ test('Flip Mate Alignment turns a hinged component over instead of making the hi
   expect((await capZ('Large<1>')).nz).toBeCloseTo(1, 6);
   expect(errors).toEqual([]);
 });
+
+test('a rack and pinion pitch diameter given as an equation turns into the travel per turn', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Bar', BAR], ['Small', disc(10)]], ['Plate', 'Bar', 'Small']);
+  await built(page, ['Plate<1>', 'Bar<1>', 'Small<1>']);
+  await select(page, [{ comp: 'Bar<1>', edge: 'x' }, { comp: 'Small<1>', face: 'E1:side:k' }]);
+  const pm = await openMate(page, 'rackPinion');
+  const diameter = pm.getByRole('textbox', { name: 'Pinion pitch diameter' });
+  await diameter.fill('=10*2');
+  await diameter.press('Enter');
+  await pm.getByRole('group', { name: 'Rack travel from' }).getByRole('button', { name: 'Travel per turn' }).click();
+  await expect(pm.getByRole('textbox', { name: 'Rack travel per turn of the pinion' })).toHaveValue('62.832');
+  await pm.getByRole('group', { name: 'Rack travel from' }).getByRole('button', { name: 'Pitch diameter' }).click();
+  await expect(diameter).toHaveValue('20');
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});
