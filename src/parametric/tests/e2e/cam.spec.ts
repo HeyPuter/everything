@@ -60,6 +60,13 @@ test('machines a part from the CAM tab: setup, tools, operations, simulation and
   await page.locator('[data-cmd="cam:simulate"]').click();
   await expect(page.getByText('No collisions')).toBeVisible({ timeout: 90_000 });
   await expect(page.getByLabel('Program position')).toBeVisible();
+  // Play and Pause name the action, not a pressed state; one speed is chosen.
+  const play = page.getByRole('button', { name: 'Play', exact: true });
+  await play.click();
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).not.toHaveAttribute('aria-pressed');
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await expect(play).toBeVisible();
+  expect(await page.getByLabel('Playback speed').evaluate((s) => [...(s as HTMLSelectElement).options].filter((o) => o.defaultSelected).length)).toBe(1);
   await page.getByRole('button', { name: 'Exit Simulation' }).click();
 
   // G-code with peck drilling cycles, downloaded.

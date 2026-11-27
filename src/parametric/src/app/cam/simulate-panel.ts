@@ -254,8 +254,8 @@ export class SimulationPanel extends CamPanel {
     this.playing = on;
     if (on && this.t >= this.res.time - 1e-9) this.t = 0;
     if (this.playBtn) {
+      // The label tells the state (a pressed "Pause" toggle read as paused).
       this.playBtn.replaceChildren(icon(on ? 'pause' : 'play', 16), on ? 'Pause' : 'Play');
-      this.playBtn.setAttribute('aria-pressed', String(on));
     }
     cancelAnimationFrame(this.raf);
     if (!on) return;
@@ -284,11 +284,12 @@ export class SimulationPanel extends CamPanel {
     slider.addEventListener('input', () => { this.play(false); this.t = (Number(slider.value) / 1000) * res.time; this.showAt(this.t); });
     this.slider = slider;
     this.clock = h('div', { class: 'field-label cam-clock', 'aria-live': 'off' });
-    const play = h('button', { class: 'btn small', type: 'button', 'aria-pressed': String(this.playing) }, icon(this.playing ? 'pause' : 'play', 16), this.playing ? 'Pause' : 'Play') as HTMLButtonElement;
+    const play = h('button', { class: 'btn small', type: 'button' }, icon(this.playing ? 'pause' : 'play', 16), this.playing ? 'Pause' : 'Play') as HTMLButtonElement;
     play.addEventListener('click', () => this.play(!this.playing));
     this.playBtn = play;
-    const speeds = [1, 5, 20, 100, 500].map((x) => ({ value: String(x), label: `${x}×` }));
     const auto = String(Math.max(1, Math.round(res.time / 20)));
+    // A preset equal to the whole-program speed would be a second selected option.
+    const speeds = [1, 5, 20, 100, 500].filter((x) => String(x) !== auto).map((x) => ({ value: String(x), label: `${x}×` }));
     const speed = h('select', { class: 'input', 'aria-label': 'Playback speed' }) as HTMLSelectElement;
     for (const o of [{ value: auto, label: 'Whole program in 20 s' }, ...speeds]) speed.append(h('option', { value: o.value, selected: Number(o.value) === Math.round(this.speed) }, o.label));
     speed.addEventListener('change', () => { this.speed = Number(speed.value); });
