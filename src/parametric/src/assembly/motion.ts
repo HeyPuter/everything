@@ -114,8 +114,10 @@ export class MotionRun {
     this.dt = setup.duration / this.count;
     // Only what the motors move is solved: the mates of the components they drive and those linked to them.
     const moving = new Set<SolverMate>();
+    const floating = new Set(setup.bodies.filter((b) => !b.fixed).map((b) => b.id));
     for (const m of setup.motors) {
-      const ids = m.body ? [m.body] : setup.mates.filter((x) => x.id === m.mate).flatMap(mateBodies);
+      // (A fixed component links nothing: from it, every mate to the ground would be solved.)
+      const ids = (m.body ? [m.body] : setup.mates.filter((x) => x.id === m.mate).flatMap(mateBodies)).filter((id) => floating.has(id));
       for (const id of ids) for (const x of matesMoving(id, setup.bodies, setup.mates)) moving.add(x);
     }
     this.solverMates = setup.mates.filter((x) => moving.has(x));

@@ -178,10 +178,14 @@ export class MotionStudyPanel extends PropertyPanel {
   }
 
   private describeMotor(m: MotionMotor): string {
-    const v = (p: Param | undefined) => (p === undefined ? '?' : typeof p === 'string' ? p : String(Math.round(p * 1000) / 1000));
-    const unit = m.kind === 'rotary' ? (m.rpm ? ' rpm' : '°/s') : m.kind === 'linear' ? ' mm/s' : '/s';
+    // Lengths in the document's units (linear motors, and mate drivers of distance mates).
+    const u = UNIT_SYSTEMS[this.mode.doc.units];
+    const mt = m.kind === 'mate' ? this.mode.doc.mates.find((x) => x.id === m.mate) : undefined;
+    const lengthy = m.kind === 'linear' || mt?.type === 'distance';
+    const v = (p: Param | undefined, len = lengthy) => (p === undefined ? '?' : typeof p === 'string' ? p : String(Math.round((len ? p / u.scale : p) * 1000) / 1000));
+    const unit = m.kind === 'rotary' ? (m.rpm ? ' rpm' : '°/s') : lengthy ? ` ${u.length}/s` : '°/s';
     const what = m.kind === 'mate' ? this.mode.doc.mates.find((x) => x.id === m.mate)?.name ?? '?' : m.ref && 'comp' in m.ref ? this.mode.component(m.ref.comp)?.name ?? '?' : '?';
-    const how = m.profile === 'constant' ? `${v(m.speed)}${unit}` : m.profile === 'oscillate' ? `±${v(m.amplitude)} at ${v(m.frequency)} Hz` : `${v(m.from)} to ${v(m.to)}`;
+    const how = m.profile === 'constant' ? `${v(m.speed)}${unit}` : m.profile === 'oscillate' ? `±${v(m.amplitude)} at ${v(m.frequency, false)} Hz` : `${v(m.from)} to ${v(m.to)}`;
     return `${KIND_LABELS[m.kind]}, ${what}: ${how}${m.reverse ? ', reversed' : ''}`;
   }
 
@@ -552,11 +556,6 @@ export class MotionStudyPanel extends PropertyPanel {
     this.motor = null;
     this.setMessage(null);
     this.stale();
-  }
-
-  onPick(item: SelItem, additive: boolean): boolean {
-    if (!this.activeBox) return false;
-    return this.activeBox.toggle(item, additive);
   }
 
   ok(): boolean {
