@@ -208,9 +208,17 @@ test('the results panel shows the progress of the first run, with Cancel', async
   await expect(page.locator('.statusbar .msg')).toHaveText('Analysis cancelled');
   // Mesh Now in the study panel shows its progress too.
   await page.locator('[data-cmd="fea:study"]').click();
+  // The cancelled run may have finished meshing before it was cancelled (its mesh's stats stay shown).
+  const statsBefore = await page.locator('.fea-stats').count();
   await page.getByRole('button', { name: 'Mesh Now' }).click();
   await expect(page.getByRole('progressbar', { name: 'Progress' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mesh Now' })).toBeDisabled();
+  // It can be cancelled there (no new mesh is shown), and meshed again.
+  await page.locator('.pm-content').getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('progressbar', { name: 'Progress' })).toHaveCount(0);
+  await expect(page.locator('.fea-stats')).toHaveCount(statsBefore);
+  await expect(page.locator('.statusbar .msg')).toHaveText('Analysis cancelled');
+  await page.getByRole('button', { name: 'Mesh Now' }).click();
   await expect(page.locator('.fea-stats')).toBeVisible({ timeout: 120_000 });
   expect(errors).toEqual([]);
 });

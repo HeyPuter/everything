@@ -266,15 +266,20 @@ export class FeaWorkspace {
   async meshNow(): Promise<void> {
     const why = this.ready();
     if (why) { toast({ kind: 'info', message: why }); return; }
+    if (this.busy) return;
+    const gen = this.generation;
     try {
       await this.ensureMesh();
       this.error = null;
     } catch (e) {
       if (!(e instanceof FeaCancelled)) this.error = { key: '', message: (e as Error).message };
     } finally {
-      this.busy = null;
-      this.app.setStatus(this.mesh ? `Meshed: ${this.mesh.info.stats.elements.toLocaleString('en-US')} elements, ${this.mesh.info.stats.nodes.toLocaleString('en-US')} nodes` : this.error?.message ?? '', !this.mesh);
-      this.changed();
+      // Cancelled (or the part closed): the status says so already, and a run started since keeps its progress.
+      if (gen === this.generation) {
+        this.busy = null;
+        this.app.setStatus(this.mesh ? `Meshed: ${this.mesh.info.stats.elements.toLocaleString('en-US')} elements, ${this.mesh.info.stats.nodes.toLocaleString('en-US')} nodes` : this.error?.message ?? '', !this.mesh);
+        this.changed();
+      }
     }
   }
 
