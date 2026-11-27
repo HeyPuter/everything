@@ -358,6 +358,8 @@ export class FeaWorkspace {
     this.generation++;
     this.client.cancel();
     this.busy = null;
+    // Also when it stops before the worker started (preparing the part): the status no longer shows a stage.
+    this.app.setStatus('Analysis cancelled');
     this.changed();
   }
 

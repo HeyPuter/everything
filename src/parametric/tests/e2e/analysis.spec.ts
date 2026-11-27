@@ -205,6 +205,7 @@ test('the results panel shows the progress of the first run, with Cancel', async
   await page.locator('.pm-content').getByRole('button', { name: 'Cancel' }).click();
   await expect(bar).toHaveCount(0);
   await expect(page.getByText('Run the study to see its results.')).toBeVisible();
+  await expect(page.locator('.statusbar .msg')).toHaveText('Analysis cancelled');
   // Mesh Now in the study panel shows its progress too.
   await page.locator('[data-cmd="fea:study"]').click();
   await page.getByRole('button', { name: 'Mesh Now' }).click();
