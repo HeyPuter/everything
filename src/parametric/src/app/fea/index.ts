@@ -38,10 +38,19 @@ let workspace: FeaWorkspace | null = null;
 
 /** The analysis workspace, loaded (with the panels and the worker) the first time it is needed. */
 export async function feaWorkspace(app: App): Promise<FeaWorkspace> {
-  loading ??= import('./workspace');
+  // A failed load (offline, an update replaced the files) is tried again by the next command.
+  loading ??= import('./workspace').catch((e: unknown) => { loading = null; throw e; });
   const m = await loading;
   workspace ??= new m.FeaWorkspace(app);
   return workspace;
+}
+
+/** Runs fn with the workspace, loading it first; a failure to load or to start is told in a toast. */
+export function withWorkspace(app: App, fn: (ws: FeaWorkspace) => unknown) {
+  void feaWorkspace(app).then(
+    (ws) => Promise.resolve().then(() => fn(ws)).catch((e) => toast({ kind: 'error', message: `The analysis could not start: ${(e as Error).message}` })),
+    () => toast({ kind: 'error', message: 'The analysis could not be loaded. Check your connection and try again.' }),
+  );
 }
 
 /** The workspace if it has been loaded (the design tree shows results only then). */
@@ -67,7 +76,7 @@ export function installFea(app: App, hooks: AppHooks) {
   const partOnly = () => !app.assembly && !app.inDrawing;
   const withWs = (fn: (ws: FeaWorkspace) => void | Promise<void>) => () => {
     if (!partOnly()) return;
-    void feaWorkspace(app).then(fn).catch((e) => toast({ kind: 'error', message: `The analysis could not start: ${(e as Error).message}` }));
+    withWorkspace(app, fn);
   };
   const hasStudy = () => partOnly() && !!app.store.doc.study;
   const fixture = (type: FixtureType, desc: string, keywords: string): Command => ({
@@ -114,9 +123,9 @@ export function installFea(app: App, hooks: AppHooks) {
   const at = hooks.ribbonTabs.findIndex((t) => t.id === 'drawing');
   hooks.ribbonTabs.splice(at < 0 ? hooks.ribbonTabs.length : at, 0, tab);
   // A part opened with a study shows its symbols when the tab is chosen (the workspace loads then).
-  app.ribbonTabListeners.push((id) => { if (id === 'analysis' && app.store.doc.study && partOnly()) void feaWorkspace(app).then((ws) => ws.redraw()); });
+  app.ribbonTabListeners.push((id) => { if (id === 'analysis' && app.store.doc.study && partOnly()) withWorkspace(app, (ws) => ws.redraw()); });
   // ...and when it is opened while the tab is shown (the symbols follow its first build).
-  app.store.on((reason) => { if (reason === 'load' && app.ribbonTabId === 'analysis' && app.store.doc.study && partOnly()) void feaWorkspace(app).then((ws) => ws.redraw()); });
+  app.store.on((reason) => { if (reason === 'load' && app.ribbonTabId === 'analysis' && app.store.doc.study && partOnly()) withWorkspace(app, (ws) => ws.redraw()); });
 }
 
 // ---------- design tree ----------
@@ -125,7 +134,7 @@ export function feaTreeRows(app: App, expanded: (key: string) => boolean): CamRo
   const s: StaticStudy | null | undefined = app.store.doc.study;
   if (!s || app.assembly) return [];
   const ws = loadedFeaWorkspace();
-  const run = (fn: (ws: FeaWorkspace) => void) => () => void feaWorkspace(app).then(fn);
+  const run = (fn: (ws: FeaWorkspace) => void) => () => withWorkspace(app, fn);
   const open = expanded('fea');
   const state = ws?.state() ?? 'none';
   const rows: CamRow[] = [{
@@ -140,13 +149,13 @@ export function feaTreeRows(app: App, expanded: (key: string) => boolean): CamRo
   for (const f of s.fixtures) {
     rows.push({
       key: `fea:${f.id}`, label: f.name, icon: FIXTURE_ICONS[f.type], depth: 2, selected: ws?.focus === f.id, suppressed: !!f.suppressed, badge: missing(f.faces),
-      action: run((w) => w.focusItem(f.id)), open: run((w) => w.editItem(f.id)), menu: (x, y) => void feaWorkspace(app).then((w) => w.itemMenu(f.id, x, y)),
+      action: run((w) => w.focusItem(f.id)), open: run((w) => w.editItem(f.id)), menu: (x, y) => withWorkspace(app, (w) => w.itemMenu(f.id, x, y)),
     });
   }
   for (const l of s.loads) {
     rows.push({
       key: `fea:${l.id}`, label: l.name, icon: LOAD_ICONS[l.type], depth: 2, selected: ws?.focus === l.id, suppressed: !!l.suppressed, badge: l.type === 'gravity' ? undefined : missing(l.faces),
-      action: run((w) => w.focusItem(l.id)), open: run((w) => w.editItem(l.id)), menu: (x, y) => void feaWorkspace(app).then((w) => w.itemMenu(l.id, x, y)),
+      action: run((w) => w.focusItem(l.id)), open: run((w) => w.editItem(l.id)), menu: (x, y) => withWorkspace(app, (w) => w.itemMenu(l.id, x, y)),
     });
   }
   const mesh = ws?.meshText() ?? '';

@@ -457,3 +457,18 @@ test('Run right after an edit that renumbers the faces loads the faces picked', 
   await expect(page.locator('.fea-forces')).toContainText('0.000, 500.000, 0.000 N');
   expect(errors).toEqual([]);
 });
+
+test('the analysis loads on a later try when its code failed to load', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.waitForFunction(() => !!(window as unknown as W).__parametric.bbox);
+  await page.route(/\/src\/app\/fea\/workspace\.ts/, (r) => r.abort());
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await page.locator('[data-cmd="fea:study"]').click();
+  await expect(page.locator('.toast')).toContainText('The analysis could not be loaded. Check your connection and try again.');
+  await page.unroute(/\/src\/app\/fea\/workspace\.ts/);
+  await page.locator('[data-cmd="fea:study"]').click();
+  await expect(page.locator('.pm-head').getByText('Static Study')).toBeVisible();
+  // The failed fetch is the only error.
+  expect(errors.filter((e) => !/workspace\.ts|ERR_FAILED/.test(e))).toEqual([]);
+});
