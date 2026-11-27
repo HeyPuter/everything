@@ -230,13 +230,40 @@ export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[], by?: Map<
     if (fx.kind === 'fixed') { for (const v of nodes) { add(v, [1, 0, 0]); add(v, [0, 1, 0]); add(v, [0, 0, 1]); } return; }
     if (fx.kind === 'roller') {
       // The surface normal at each node on each face: the (area weighted) normals of the face's triangles around it.
+      const triNormal = (f: number): Vec3 => {
+        const a = mesh.tris[f * 6] * 3, b = mesh.tris[f * 6 + 1] * 3, c = mesh.tris[f * 6 + 2] * 3;
+        const ux = X[b] - X[a], uy = X[b + 1] - X[a + 1], uz = X[b + 2] - X[a + 2], wx = X[c] - X[a], wy = X[c + 1] - X[a + 1], wz = X[c + 2] - X[a + 2];
+        return [uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx];
+      };
+      // A flat face is held along its own normal at every node: the odd triangle the mesher could not fit
+      // to a sharp corner would otherwise hold the part in directions a roller leaves free.
+      // Its normal: the mean of the triangles' normals, then again of those near it.
+      const flat = new Map<number, { n: Vec3; on: number; all: number }>();
+      for (const near of [-1, 0.95, 0.9999]) {
+        const sum = new Map<number, Vec3>();
+        for (let f = 0; f < mesh.triFace.length; f++) {
+          if (!faces.has(mesh.triFace[f])) continue;
+          const fn = triNormal(f), was = flat.get(mesh.triFace[f])?.n;
+          if (was && !(fn[0] * was[0] + fn[1] * was[1] + fn[2] * was[2] > near * Math.hypot(fn[0], fn[1], fn[2]))) continue;
+          let s = sum.get(mesh.triFace[f]);
+          if (!s) sum.set(mesh.triFace[f], (s = [0, 0, 0]));
+          s[0] += fn[0]; s[1] += fn[1]; s[2] += fn[2];
+        }
+        for (const [face, s] of sum) { const l = Math.hypot(s[0], s[1], s[2]); if (l > 0) flat.set(face, { n: [s[0] / l, s[1] / l, s[2] / l], on: 0, all: 0 }); }
+      }
+      for (let f = 0; f < mesh.triFace.length; f++) {
+        const p = flat.get(mesh.triFace[f]);
+        if (!p) continue;
+        const fn = triNormal(f), l = Math.hypot(fn[0], fn[1], fn[2]);
+        p.all += l;
+        if (fn[0] * p.n[0] + fn[1] * p.n[1] + fn[2] * p.n[2] > l * (1 - 1e-9)) p.on += l;
+      }
+      for (const [face, p] of flat) if (!(p.on >= 0.95 * p.all)) flat.delete(face);
       const nrm = new Map<number, Map<number, Vec3>>();
       for (let f = 0; f < mesh.triFace.length; f++) {
         const face = mesh.triFace[f];
         if (!faces.has(face)) continue;
-        const a = mesh.tris[f * 6] * 3, b = mesh.tris[f * 6 + 1] * 3, c = mesh.tris[f * 6 + 2] * 3;
-        const ux = X[b] - X[a], uy = X[b + 1] - X[a + 1], uz = X[b + 2] - X[a + 2], wx = X[c] - X[a], wy = X[c + 1] - X[a + 1], wz = X[c + 2] - X[a + 2];
-        const fn: Vec3 = [uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx];
+        const fn = flat.get(face)?.n ?? triNormal(f);
         for (let q = 0; q < 6; q++) {
           const v = mesh.tris[f * 6 + q];
           let byFace = nrm.get(v);

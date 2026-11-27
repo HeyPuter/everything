@@ -10,11 +10,11 @@ import { setOc } from '../src/kernel/occ';
 import type { FaceInfo } from '../src/kernel/protocol';
 import { SurfaceIndex } from '../src/fea/surface';
 import { meshSolid } from '../src/fea/mesher';
-import { type LoadInput, type StaticInput, StudyError, loadVector, solveStatic } from '../src/fea/static';
+import { type LoadInput, type StaticInput, StudyError, constraintsOf, loadVector, rigidMotions, solveStatic } from '../src/fea/static';
 import { addBodyForce, elementNodeStrains, elementStiffness } from '../src/fea/elements';
 import { type BlockMatrix, type Prolongator, galerkin, matvec } from '../src/fea/amg';
 import type { Feature } from '../src/model/types';
-import { circle, extrude, rect, req, sketch } from './helpers';
+import { circle, extrude, polygon, rect, req, sketch } from './helpers';
 
 beforeAll(async () => {
   setOc(await init());
@@ -109,6 +109,16 @@ describe('static analysis accuracy', () => {
     expect(Math.abs(r.reactions[0][2])).toBeLessThan(1e-6);
     expect(r.reactions[1][0]).toBeCloseTo(-100, 6);
     expect(r.reactions[0][1] + r.reactions[1][1]).toBeCloseTo(0, 6);
+  }, 120000);
+
+  it('a roller on a flat face leaves exactly its three motions free, even beside a sharp corner', async () => {
+    // A wedge with a 37 degree edge: the mesher leaves a few triangles there across two faces.
+    const { mesh, faces } = await meshOf([sketch('s1', polygon([[0, 0], [40, 0], [0, 30]])), extrude('f1', 's1', 10)], 3);
+    faces.forEach((f, i) => expect(rigidMotions(mesh, constraintsOf(mesh, [{ kind: 'roller', faces: [i] }])), f.name).toHaveLength(3));
+    // On rollers under it (y = 0) and behind it (z = 0) it slides along X: pushing it that way is unstable.
+    const err = (() => { try { solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'roller', faces: [planar(faces, [0, -1, 0])] }, { kind: 'roller', faces: [planar(faces, [0, 0, -1])] }], loads: [{ kind: 'force', faces: [planar(faces, [-1, 0, 0])], total: 100, dir: [1, 0, 0] }] }); } catch (e) { return e as Error; } return null; })();
+    expect(err).toBeInstanceOf(StudyError);
+    expect(err!.message).toMatch(/free to move along X/);
   }, 120000);
 
   it('plate with a hole in tension: stress concentration about 3', async () => {
