@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, camProfile, mateBodies, mateMeasure, matesMoving, placeGeo, relativePlacement, turnAbout } from '../src/assembly/solver';
+import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, camProfile, mateBodies, mateMeasure, matesMoving, placeGeo, profileSupport, relativePlacement, turnAbout } from '../src/assembly/solver';
+import { type PartGeometry, camProfileOf } from '../src/assembly/compose';
 import { type MotorInput, MotionRun, computeMotion, degreesAbout, derivatives, mateSeries, pointPath, profileOf, resultsCsv, turnPath, vectorDerivatives } from '../src/assembly/motion';
 import { type Quat, type Vec3, dot, len, normalize, qAxisAngle, qRotate, sub } from '../src/math/vec';
 import type { MateType, Placement } from '../src/model/assembly';
 
-const Z: Vec3 = [0, 0, 1];
+const Z: Vec3 = [0, 0, 1], Y3: Vec3 = [0, 1, 0];
 const plane = (o: Vec3, n: Vec3): Geo => ({ kind: 'plane', o, n });
 const axis = (p: Vec3, d: Vec3 = Z, r = 2): Geo => ({ kind: 'axis', p, d, r, surface: 'cylinder' });
 const body = (id: string, fixed: boolean, p: Vec3 = [0, 0, 0], q: Quat = [0, 0, 0, 1]): SolverBody => ({ id, fixed, placement: { p, q }, center: [0, 0, 0] });
@@ -516,5 +517,39 @@ describe('slider, cam and universal joint mates', () => {
     const db = qRotate(pb.q, Z);
     const off = sub([0, 0, 10], pb.p);
     expect(len([off[1] * db[2] - off[2] * db[1], off[2] * db[0] - off[0] * db[2], off[0] * db[1] - off[1] * db[0]])).toBeLessThan(1e-6);
+  });
+});
+
+describe('cam profiles from part faces', () => {
+  const deg = (r: number, a: number, c: Vec3 = [0, 0, 0], z = 0): Vec3 => [c[0] + r * Math.cos((a * Math.PI) / 180), c[1] + r * Math.sin((a * Math.PI) / 180), z];
+  const t = (Math.acos(0.6) * 180) / Math.PI, nose: Vec3 = [0, 25, 0];
+  const cyl = (name: string, c: Vec3, r: number) => ({ name, type: 'cylinder', center: c, area: 1, axis: { p: c, d: Z }, radius: r, feature: 'E1' });
+  const flat = (name: string, n: Vec3, c: Vec3) => ({ name, type: 'plane', center: c, area: 1, normal: n, feature: 'E1' });
+  const arc = (name: string, face: number, c: Vec3, r: number, a0: number, a1: number, am: number) => ({ name, type: 'circle', a: deg(r, a0, c), b: deg(r, a1, c), mid: deg(r, am, c), length: (r * Math.abs(a1 - a0) * Math.PI) / 180, faces: [face], center: c, axis: Z, radius: r });
+  const seg = (name: string, face: number, a: Vec3, b: Vec3) => ({ name, type: 'line', a, b, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0] as Vec3, length: len(sub(b, a)), faces: [face], dir: normalize(sub(b, a)) });
+  // A lobed cam: base circle 20, nose 5 at 25, two flanks tangent to both.
+  const lobed = {
+    mesh: null, bbox: null, cones: {},
+    faces: [cyl('base', [0, 0, 0], 20), cyl('nose', nose, 5), flat('right', normalize(deg(1, 90 - t)), deg(20, 90 - t)), flat('left', normalize(deg(1, 90 + t)), deg(20, 90 + t))],
+    edges: [
+      arc('e0', 0, [0, 0, 0], 20, 90 + t, 90 - t + 360, 270), arc('e1', 1, nose, 5, 90 - t, 90 + t, 90),
+      seg('e2', 2, deg(20, 90 - t), deg(5, 90 - t, nose)), seg('e3', 3, deg(20, 90 + t), deg(5, 90 + t, nose)),
+    ],
+  } as unknown as PartGeometry;
+  const ref = (name: string) => ({ name, sig: { type: 'x', c: [0, 0, 0] as Vec3, area: 1 } });
+
+  it('reads arcs from round faces and their edges, corners from flat faces, and an eccentric as a circle', () => {
+    const p = camProfileOf(lobed, ['base', 'nose', 'right', 'left'].map(ref), 'Cam<1>');
+    if (typeof p === 'string') throw new Error(p);
+    expect(p.circle).toBeNull();
+    expect(p.concave).toBeLessThan(1e-9);
+    const up = profileSupport(p, [dot(Y3, p.u), dot(Y3, p.v)]), down = profileSupport(p, [-dot(Y3, p.u), -dot(Y3, p.v)]);
+    expect(up).toBeCloseTo(30, 9);
+    expect(down).toBeCloseTo(20, 9);
+    // Just the base face, whole: a circle.
+    const whole = camProfileOf({ ...lobed, faces: [cyl('base', [5, 0, 0], 20)], edges: [{ ...arc('e', 0, [5, 0, 0], 20, 0, 360, 180), a: deg(20, 0, [5, 0, 0]), b: deg(20, 0, [5, 0, 0]) }] } as unknown as PartGeometry, [ref('base')], 'Cam<1>');
+    expect(typeof whole !== 'string' && whole.circle?.r).toBe(20);
+    // An end face (across the axis) is not part of a profile.
+    expect(camProfileOf({ ...lobed, faces: [...lobed.faces, flat('end', Z, [0, 0, 10])] } as unknown as PartGeometry, ['base', 'end'].map(ref), 'Cam<1>')).toMatch(/one direction/);
   });
 });

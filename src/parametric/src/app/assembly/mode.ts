@@ -10,14 +10,14 @@ import { KernelRestartError } from '../../kernel/client';
 import { type Quat, type Vec3, add, cross, dot, normalize, qAxisAngle, qMul, scale, sub } from '../../math/vec';
 import { DocStore, parseDocument } from '../../model/document';
 import { BASE_FRAMES, BASE_PLANE_NAMES } from '../../model/planes';
-import type { FaceRef, Id, PartDocument } from '../../model/types';
+import type { Id, PartDocument } from '../../model/types';
 import { UNIT_SYSTEMS } from '../../model/units';
 import {
   type AsmComponent, type AsmPart, type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type MotionStudy, type Placement, MATE_LABELS, PartCache, asAssembly, mateComps, mateRefs,
 } from '../../model/assembly';
-import { type ComposedModel, type PartGeometry, combinedName, composeModel, edgeGeo, faceGeo, findEdge, findFace, placementMatrix } from '../../assembly/compose';
+import { type ComposedModel, type PartGeometry, camProfileOf, combinedName, composeModel, edgeGeo, faceGeo, findEdge, findFace, placementMatrix } from '../../assembly/compose';
 import {
-  type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type ProfileArc, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, camProfile, mateBodies, matesMoving,
+  type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving,
 } from '../../assembly/solver';
 import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, profileOf } from '../../assembly/motion';
 import { parseColor } from '../../platform/theme';
@@ -806,40 +806,6 @@ export class AssemblyMode {
 }
 
 /** Lets the browser handle input and paint before going on (a message, not a timer: timers are slowed in background tabs). */
-/** A cam's profile from the faces of its part, or why it cannot be one. */
-function camProfileOf(g: PartGeometry, refs: FaceRef[], name: string): CamProfile | string {
-  const arcs: ProfileArc[] = [], points: Vec3[] = [];
-  let d: Vec3 | null = null;
-  const normals: Vec3[] = [];
-  for (const ref of refs) {
-    const i = findFace(g.faces, ref);
-    if (i < 0) return `A face of the cam's profile on ${name} no longer exists`;
-    const f = g.faces[i];
-    const edges = g.edges.filter((e) => e.faces.includes(i));
-    if (f.type === 'cylinder' && f.axis && f.radius) {
-      const ax = normalize(f.axis.d);
-      if (d && Math.abs(dot(d, ax)) < 0.9999) return 'The faces of the cam\'s profile must all run along one direction (the cam\'s sides)';
-      d ??= ax;
-      // Its extent from a circular edge: a whole circle closes on itself.
-      const e = edges.find((x) => x.type === 'circle' && x.radius && Math.abs(x.radius - f.radius!) < 1e-6 * Math.max(1, f.radius!));
-      const whole = !e || Math.abs(e.length - 2 * Math.PI * f.radius) < 1e-6 * f.radius;
-      arcs.push({ c: f.axis.p, r: f.radius, ...(whole ? {} : { ends: [e!.a, e!.b, e!.mid] as [Vec3, Vec3, Vec3] }) });
-      continue;
-    }
-    if (f.type === 'plane' && f.normal) normals.push(normalize(f.normal));
-    for (const e of edges) points.push(e.a, e.b, e.mid);
-    // Curved faces of other kinds: their mesh vertices (as close as the mesh is to the face).
-    const m = g.mesh;
-    if (m && f.type !== 'plane') for (let k = 0; k < m.vertexFace.length; k++) if (m.vertexFace[k] === i) points.push([m.positions[k * 3], m.positions[k * 3 + 1], m.positions[k * 3 + 2]]);
-  }
-  if (!d) {
-    for (let i = 0; i < normals.length && !d; i++) for (let j = i + 1; j < normals.length && !d; j++) { const x = cross(normals[i], normals[j]); if (Math.hypot(...x) > 1e-3) d = normalize(x); }
-  }
-  if (!d) return 'Select the faces around the cam (its sides): their direction cannot be told from these';
-  if (normals.some((n) => Math.abs(dot(n, d!)) > 1e-6)) return 'The faces of the cam\'s profile must all run along one direction (the cam\'s sides, not its ends)';
-  return camProfile(d, arcs, points);
-}
-
 function yieldToUI(): Promise<void> {
   return new Promise((resolve) => {
     const ch = new MessageChannel();
