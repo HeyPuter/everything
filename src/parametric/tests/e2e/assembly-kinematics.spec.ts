@@ -685,3 +685,38 @@ test('the Motion Study panel: dragging a component while it plays stops the play
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+test('a motion study plots how far a slider travels', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Bar', BAR]], ['Plate', 'Bar']);
+  await built(page, ['Plate<1>', 'Bar<1>']);
+  const pm = page.locator('.pm');
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.selection.clear());
+  await page.locator('.cm [data-cmd="mate"]').click();
+  await pm.getByRole('combobox', { name: 'Mate type' }).selectOption('slider');
+  await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+  await pick(page, { comp: 'Plate<1>', face: 'E1:side:rl1' });
+  await pick(page, { comp: 'Bar<1>', face: 'E1:cap0' });
+  await pick(page, { comp: 'Bar<1>', face: 'E1:side:rl1' });
+  await expect(pm.getByRole('status').filter({ hasText: 'The mate holds' })).toBeVisible();
+  await pm.getByRole('button', { name: 'OK' }).click();
+  // A linear motor on the slider at 10 mm/s for 2 s.
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  await pm.getByRole('group', { name: 'Motor type' }).getByRole('button', { name: 'Linear' }).click();
+  await pm.getByRole('combobox', { name: 'Motor on' }).selectOption({ label: 'Slider1 (Slider)' });
+  await pm.getByRole('textbox', { name: 'Speed' }).fill('10');
+  await pm.getByRole('textbox', { name: 'Speed' }).press('Enter');
+  await pm.getByRole('button', { name: 'Add', exact: true }).click();
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).fill('2');
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).press('Enter');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 61 frames' })).toBeVisible();
+  await pm.getByRole('combobox', { name: 'Result of' }).selectOption({ label: 'Mate: Slider1' });
+  await expect(pm.getByRole('img', { name: /^Plot of Slider1 value \(mm\)/ })).toHaveAttribute('aria-label', /from -?0 to 20$|from -20 to -?0$/);
+  await pm.getByRole('combobox', { name: 'Quantity' }).selectOption({ label: 'Rate of change' });
+  await expect(pm.getByRole('img', { name: /^Plot of Slider1 rate of change \(mm\/s\)/ })).toHaveAttribute('aria-label', /from (-10 to -10|10 to 10)$/);
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});

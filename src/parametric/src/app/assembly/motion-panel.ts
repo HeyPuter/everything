@@ -313,7 +313,7 @@ export class MotionStudyPanel extends PropertyPanel {
   /** The mates a result can be plotted for (those that measure something). */
   private measurable(): SolverMate[] {
     const { mates } = this.mode.solverInput();
-    return mates.filter((m) => m.type === 'distance' || m.type === 'angle' || (m.type === 'hinge' && m.rel) || m.type === 'slot');
+    return mates.filter((m) => m.type === 'distance' || m.type === 'angle' || ((m.type === 'hinge' || m.type === 'slider') && m.rel) || m.type === 'slot');
   }
 
   private resultsSection(res: MotionResult): HTMLElement {
