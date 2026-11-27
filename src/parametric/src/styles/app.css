@@ -773,6 +773,10 @@ a.icon-btn { text-decoration: none; }
 .fea-summary th, .fea-forces th, .fea-solve th, .fea-stats th { font-weight: 500; }
 .fea-material-props { margin-top: 6px; }
 @media (max-width: 760px) {
-  .fea-legend { top: auto; bottom: 12px; right: 8px; max-width: 170px; }
-  .fea-legend-scale { height: 120px; }
+  /* Under the view toolbar: the bottom of the graphics area is under the panel sheet on phones. */
+  .fea-legend { top: 52px; right: 8px; max-width: 200px; padding: 6px 8px; }
+  .fea-legend-title { margin-bottom: 4px; }
+  .fea-legend-scale { height: 96px; }
+  .fea-legend-ticks { line-height: 1.15; }
+  .fea-legend-note { margin-top: 2px; font-size: 11px; }
 }

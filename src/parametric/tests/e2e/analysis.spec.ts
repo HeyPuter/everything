@@ -349,3 +349,24 @@ test('a part with a study opened while the Analysis tab is shown shows its fixtu
   expect(errors).toEqual([]);
   expect(otherErrors).toEqual([]);
 });
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 412, height: 839 }, isMobile: true, hasTouch: true });
+
+  test('the result legend shows above the panel sheet, below the view toolbar', async ({ page }) => {
+    test.setTimeout(180_000);
+    const errors = await openApp(page);
+    await bracketStudy(page);
+    await page.evaluate(() => (window as unknown as W).__parametric.commands.run('fea:run'));
+    await expect(page.locator('.fea-summary')).toBeAttached({ timeout: 120_000 });
+    const legend = (await page.locator('.fea-legend').boundingBox())!;
+    const sheet = (await page.locator('.leftpane').boundingBox())!;
+    expect(legend.y + legend.height).toBeLessThanOrEqual(sheet.y);
+    expect(legend.x + legend.width).toBeLessThanOrEqual(412);
+    // The ticks stay inside the colour scale.
+    const ticks = (await page.locator('.fea-legend-ticks').boundingBox())!;
+    const bar = (await page.locator('.fea-legend-bar').boundingBox())!;
+    expect(ticks.y + ticks.height).toBeLessThanOrEqual(bar.y + bar.height + 1);
+    expect(errors).toEqual([]);
+  });
+});
