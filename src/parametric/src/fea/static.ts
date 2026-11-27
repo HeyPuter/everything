@@ -437,13 +437,21 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
   }
   const tSetup = performance.now();
   const Ul = new Float64Array(N * 3);
-  let res = pcg(A, F, Ul, M, { tol: 1e-9, maxIter: 800, progress: (it, rel) => { if (it % 5 === 0) progress('Solving', Math.min(0.99, Math.log10(1 / Math.max(rel, 1e-12)) / 9)); } });
-  if (!res.converged && M.levels > 1) {
-    // Fall back on the simple preconditioner (slow, but it does not depend on the aggregation).
+  // Progress: the residual's fall from 1 to the tolerance (it may first rise above 1).
+  const solved = (rel: number) => Math.max(0, Math.min(0.99, Math.log10(1 / Math.max(rel, 1e-12)) / 9));
+  const maxIter = 800;
+  let res = pcg(A, F, Ul, M, { tol: 1e-9, maxIter, progress: (it, rel) => { if (it % 5 === 0) progress('Solving', solved(rel)); } });
+  if (!res.converged && M.levels > 1 && res.iterations < maxIter) {
+    // The multigrid broke down: fall back on the simple preconditioner (slow, but it does not depend on the
+    // aggregation). Not when it merely converged slowly: block Jacobi would take far longer to fail too.
     M = blockJacobi(A);
-    res = pcg(A, F, Ul, M, { tol: 1e-9, maxIter: 20000, progress: (it, rel) => { if (it % 25 === 0) progress('Solving', Math.min(0.99, Math.log10(1 / Math.max(rel, 1e-12)) / 9)); } });
+    res = pcg(A, F, Ul, M, { tol: 1e-9, maxIter: 20000, progress: (it, rel) => { if (it % 25 === 0) progress('Solving', solved(rel)); } });
   }
-  if (!res.converged && !(res.residual < 1e-5)) throw new StudyError('The solver did not converge. The study may be poorly constrained, or the mesh may have very poor elements: try another mesh size.');
+  if (!res.converged && !(res.residual < 1e-5)) {
+    throw new StudyError(input.nu > 0.49
+      ? `The solver did not converge: the material's Poisson's ratio (${input.nu}) is so close to 0.5 that it is nearly incompressible, which this solver cannot handle. Use a Poisson's ratio of 0.49 or less.`
+      : 'The solver did not converge. The study may be poorly constrained, or the mesh may have very poor elements: try another mesh size.');
+  }
   const tSolve = performance.now();
   // Back to global directions.
   const U = new Float64Array(N * 3);

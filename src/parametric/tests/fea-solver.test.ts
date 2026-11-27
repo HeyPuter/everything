@@ -241,3 +241,21 @@ describe('multigrid kernels', () => {
     expect(Math.hypot(...sum)).toBeLessThan(1e-6 * 100);
   }, 120000);
 });
+
+describe('solver limits', () => {
+  it('stops after the multigrid iterations on a nearly incompressible material, and says why', async () => {
+    const { mesh, faces } = await meshOf([sketch('s1', rect(0, 0, 200, 20)), extrude('f1', 's1', 10)], 4);
+    const steps: number[] = [];
+    let err: Error | null = null;
+    try {
+      solveStatic(mesh, { ...STEEL, nu: 0.4999, fixtures: [{ kind: 'fixed', faces: [planar(faces, [-1, 0, 0])] }], loads: [{ kind: 'force', faces: [planar(faces, [1, 0, 0])], total: 500, dir: [0, -1, 0] }] }, (stage, v) => { if (stage === 'Solving') steps.push(v); });
+    } catch (e) { err = e as Error; }
+    expect(err).toBeInstanceOf(StudyError);
+    expect(err!.message).toMatch(/Poisson's ratio \(0\.4999\)/);
+    // 800 multigrid iterations (a progress step every 5), not 20,000 more with block Jacobi.
+    expect(steps.length).toBeLessThanOrEqual(160);
+    // Progress stays between 0 and 1 though the residual first rises.
+    expect(Math.min(...steps)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...steps)).toBeLessThanOrEqual(1);
+  }, 120000);
+});
