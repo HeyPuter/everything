@@ -9,7 +9,7 @@ import type { FeaMeshInfo, FeaSolution } from '../../fea/results';
 import type { FixtureInput, LoadInput, StaticInput, Vec3 } from '../../fea/static';
 import { defaultElementSize, estimateDofs, maxElementSize } from '../../fea/mesher';
 import type { FeaSurface } from '../../kernel/protocol';
-import { FIXTURE_LABELS, LOAD_LABELS, elementSizeFor, newStudy, nextStudyName, type FeaDir, type FeaFixture, type FeaLoad, type FeaLoadType, type FixtureType, type StaticStudy } from '../../model/fea';
+import { FIXTURE_LABELS, LOAD_LABELS, elementSizeFor, feaUnits, newStudy, nextStudyName, type FeaDir, type FeaFixture, type FeaLoad, type FeaLoadType, type FixtureType, type StaticStudy } from '../../model/fea';
 import { elasticOf } from '../../model/materials';
 import { allocateId } from '../../model/document';
 import type { Id } from '../../model/types';
@@ -453,9 +453,10 @@ export class FeaWorkspace {
     const faces = this.app.selection.ofKind('face').map((it) => this.app.faces[it.index]).filter((f) => f && !f.body).map((x) => ({ name: x.name, sig: { type: x.type, c: x.center, n: x.normal, area: x.area } }));
     const id = allocateId(this.app.store.doc, 'ld');
     const name = nextStudyName(s, LOAD_LABELS[type]);
-    const inch = this.app.store.doc.units === 'IPS';
-    const l: FeaLoad = type === 'force' ? { id, name, type, faces, value: inch ? 444.8221615 : 100, dir: null, flip: false }
-      : type === 'pressure' ? { id, name, type, faces, value: inch ? 0.6894757 : 1, flip: false }
+    // 100 N or 100 lbf, 1 MPa or 100 psi: round numbers in the part's units.
+    const u = feaUnits(this.app.store.doc.units), inch = this.app.store.doc.units === 'IPS';
+    const l: FeaLoad = type === 'force' ? { id, name, type, faces, value: 100 * u.forceScale, dir: null, flip: false }
+      : type === 'pressure' ? { id, name, type, faces, value: (inch ? 100 : 1) * u.stressScale, flip: false }
       : { id, name, type, value: 9806.65, dir: { kind: 'base', axis: 'y' }, flip: true };
     this.app.exitModes();
     void this.app.openPanel(new LoadPanel(this.app, this, l, true));

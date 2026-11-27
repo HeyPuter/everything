@@ -268,3 +268,26 @@ test('results stay up to date when the part is edited back to the shape solved',
   await expect(results).not.toHaveAttribute('aria-description', /Out of date/);
   expect(errors).toEqual([]);
 });
+
+test('loads of an inch part are in pounds-force and psi, with round defaults', async ({ page }) => {
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Units', (d) => { d.units = 'IPS'; }));
+  await page.locator('[data-cmd="fea:force"]').click();
+  await expect(page.getByLabel('Total force (lbf)')).toHaveValue('100');
+  await page.locator('.confirm-corner .cancel').click();
+  await page.locator('[data-cmd="fea:pressure"]').click();
+  await expect(page.getByLabel('Pressure (psi)')).toHaveValue('100');
+  await page.locator('.confirm-corner .cancel').click();
+  await page.locator('[data-cmd="fea:gravity"]').click();
+  await expect(page.getByLabel('Acceleration (in/s²)')).toHaveValue('386.08858');
+  await page.locator('.confirm-corner .cancel').click();
+  // Force-1 (500 N) reads in lbf, and a value typed in lbf is kept in newtons.
+  await page.getByRole('treeitem', { name: /^Force-1/ }).dblclick();
+  await expect(page.getByLabel('Total force (lbf)')).toHaveValue('112.40447');
+  await page.getByLabel('Total force (lbf)').fill('50');
+  await page.locator('.confirm-corner .ok').click();
+  await expect(page.locator('.pm-head')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as W).__parametric.store.doc.study!.loads[0].value)).toBeCloseTo(222.411, 3);
+  expect(errors).toEqual([]);
+});
