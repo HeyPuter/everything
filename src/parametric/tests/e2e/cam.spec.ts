@@ -103,12 +103,20 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   await dia.press('Tab');
   await tools.getByRole('button', { name: 'OK' }).click();
   await expect(length).not.toHaveText(before, { timeout: 60_000 });
+  // OK keeps the toolpath previewed for these values instead of generating it again.
+  await page.evaluate(() => {
+    const c = (window as unknown as W).__parametric.cam!.client;
+    const generate = c.generate.bind(c);
+    (window as unknown as { generated: number }).generated = 0;
+    c.generate = (...a) => { (window as unknown as { generated: number }).generated++; return generate(...a); };
+  });
   await page.locator('.confirm-corner .ok').click();
   await page.waitForFunction(() => {
     const app = (window as unknown as W).__parametric;
     const s = app.store.doc.cam!.setups[0];
     return s.ops.length === 1 && app.cam!.state(s, s.ops[0]) === 'ok';
   }, null, { timeout: 90_000 });
+  expect(await page.evaluate(() => (window as unknown as { generated: number }).generated)).toBe(0);
 
   // Download pressed right after changing the controller writes that controller's program.
   await page.locator('[data-cmd="cam:post"]').click();

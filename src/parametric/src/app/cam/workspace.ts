@@ -224,7 +224,8 @@ export class CamWorkspace {
     return job;
   }
 
-  private keyOf(setup: CamSetup, op: CamOperation): string {
+  /** What an operation's toolpath depends on: equal keys, equal toolpaths. */
+  keyOf(setup: CamSetup, op: CamOperation): string {
     const { name: _n, suppressed: _s, rpm: _r, feed: _f, plunge: _p, ...shape } = op;
     void _n; void _s; void _r; void _f; void _p;
     const tool = this.toolOf(op);
@@ -302,6 +303,12 @@ export class CamWorkspace {
     const p = this.queue.then(run, run);
     this.queue = p.catch(() => {});
     return p;
+  }
+
+  /** Keeps a toolpath made for an operation's preview as its result (the key it was made for). */
+  adopt(id: Id, key: string, toolpath: Toolpath) {
+    this.results.set(id, { key, toolpath });
+    this.changed();
   }
 
   /** Generates a toolpath for an operation being edited (not stored), for its panel's preview. */

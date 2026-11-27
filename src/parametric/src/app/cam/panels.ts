@@ -229,6 +229,8 @@ export class OperationPanel extends CamPanel {
   private timer = 0;
   private seq = 0;
   private toolpath: Toolpath | null = null;
+  /** The values `toolpath` was made for (null: not known). */
+  private toolpathKey: string | null = null;
   private error: string | null = null;
   private busy = false;
   private info: HTMLElement = h('div');
@@ -292,15 +294,18 @@ export class OperationPanel extends CamPanel {
     if (this.o.type === 'pocket' && !this.o.faces.length) { this.toolpath = null; this.error = 'Pick the floor faces of the pockets.'; this.showPreview(); return; }
     this.busy = true;
     this.renderInfo();
+    const key = this.ws.keyOf(setup, this.o);
     try {
       const tp = await this.ws.previewOf(setup, structuredClone(this.o));
       if (seq !== this.seq || this.disposed) return;
       this.toolpath = tp;
+      this.toolpathKey = key;
       this.error = null;
     } catch (e) {
       if (seq !== this.seq || this.disposed) return;
       if ((e as Error).message === 'Cancelled') return;
       this.toolpath = null;
+      this.toolpathKey = null;
       this.error = (e as Error).message;
     }
     this.busy = false;
@@ -508,6 +513,9 @@ export class OperationPanel extends CamPanel {
       else s.ops.push(structuredClone(o));
     });
     this.ws.focus = o.id;
+    // The preview is the toolpath when nothing changed since it was made (no second generation).
+    const s = this.setup();
+    if (s && this.toolpath && this.toolpathKey && !this.busy && this.toolpathKey === this.ws.keyOf(s, o)) this.ws.adopt(o.id, this.toolpathKey, this.toolpath);
     void this.ws.generate([o.id]);
     return true;
   }
