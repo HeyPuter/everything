@@ -139,7 +139,8 @@ export function simulate(input: SimInput): SimResult {
           const dd = cx * cx + cy * cy;
           if (dd > R * R) continue;
           const k = j * g.nx + i;
-          const zc = tz + cutter.h(Math.sqrt(dd));
+          // Nothing is left below the bottom of the stock (cuts through it stop there).
+          const zc = Math.max(bottom, tz + cutter.h(Math.sqrt(dd)));
           if (zc < z[k] - 1e-4) {
             if (z[k] > tz + flute + 0.01) over = true;
             z[k] = zc;
