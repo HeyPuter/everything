@@ -39,8 +39,9 @@ export interface FeaSummary {
   residual: number;
   solver: string;
   ms: StaticResult['ms'];
-  /** Weight of the part (N) when gravity is applied, else 0. */
+  /** Mass of the part (kg) when gravity is applied, else 0. */
   mass: number;
+  warnings: string[];
 }
 
 export interface FeaSolution {
@@ -95,14 +96,12 @@ export function solutionOf(mesh: TetMesh, map: Int32Array, r: StaticResult, inpu
   for (let v = 0; v < N; v++) disp[v] = Math.hypot(r.U[v * 3], r.U[v * 3 + 1], r.U[v * 3 + 2]);
   const gravity = input.loads.find((l) => l.kind === 'gravity');
   const g = gravity && gravity.kind === 'gravity' ? Math.hypot(...gravity.accel) : 0;
-  let volume = 0;
-  void volume;
   return {
     fields: [U, pick(r.vonMises), pick(r.p1), pick(r.p2), pick(r.p3), pick(r.strain)],
     summary: {
       maxVonMises: extreme(mesh, r.vonMises), maxDisplacement: extreme(mesh, disp), maxP1: extreme(mesh, r.p1), minP3: extreme(mesh, r.p3, -1), maxStrain: extreme(mesh, r.strain),
       reactions: r.reactions, applied: r.applied, loadAreas: r.loadAreas, dofs: r.dofs, iterations: r.iterations, residual: r.residual, solver: r.solver, ms: r.ms,
-      mass: g > 0 ? mesh.stats.volume * input.density * 1000 : 0,
+      mass: g > 0 ? mesh.stats.volume * input.density * 1000 : 0, warnings: r.warnings,
     },
   };
 }

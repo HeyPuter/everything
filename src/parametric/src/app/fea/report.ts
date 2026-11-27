@@ -39,6 +39,7 @@ export function summaryRows(app: App, ws: FeaWorkspace, r: FeaResult): Line[] {
   add('Results', 'Max principal stress', S(s.maxP1.value), u.stress);
   add('Results', 'Min principal stress', S(s.minP3.value), u.stress);
   add('Results', 'Max equivalent strain', s.maxStrain.value);
+  for (const w of s.warnings ?? []) add('Results', 'Note', w);
   add('Results', 'Yielding', s.maxVonMises.value > r.yield ? 'yes: stress above yield, the linear analysis no longer holds there' : 'no');
   r.loadNames.forEach((n, i) => {
     const ld = r.input.loads[i];

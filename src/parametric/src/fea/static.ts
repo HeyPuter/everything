@@ -53,6 +53,8 @@ export interface StaticResult {
   /** Area each load acts on, as meshed (mm^2): 0 for gravity. */
   loadAreas: number[];
   dofs: number;
+  /** Things the user should know about the solution (a free motion held by weak springs). */
+  warnings: string[];
   iterations: number;
   residual: number;
   solver: string;
@@ -69,6 +71,20 @@ const AXES = ['X', 'Y', 'Z'];
  * not stop are described ('free to move along X', 'free to turn about ...').
  */
 export function rigidMotions(mesh: TetMesh, constrained: Map<number, Vec3[]>): string[] {
+  return freeMotions(mesh, constrained).map((m) => m.text);
+}
+
+/** A rigid motion the fixtures allow: u = t + w x (x - c) / L on the nodes of one piece. */
+export interface FreeMotion {
+  text: string;
+  v: number[];
+  c: Vec3;
+  L: number;
+  /** Whether a node belongs to the piece. */
+  has: (node: number) => boolean;
+}
+
+export function freeMotions(mesh: TetMesh, constrained: Map<number, Vec3[]>): FreeMotion[] {
   const X = mesh.nodes, nn = mesh.nodes.length / 3;
   // Pieces of the mesh (connected through elements).
   const parent = new Int32Array(nn).map((_, i) => i);
@@ -105,11 +121,12 @@ export function rigidMotions(mesh: TetMesh, constrained: Map<number, Vec3[]>): s
       for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) p.M[i * 6 + j] += row[i] * row[j];
     }
   }
-  const free: string[] = [];
+  const free: FreeMotion[] = [];
   const several = pieces.size > 1;
   let k = 0;
-  for (const p of pieces.values()) {
+  for (const [root, p] of pieces) {
     k++;
+    const motion = (text: string, v: number[]): FreeMotion => ({ text, v, c: p.c, L, has: (node) => find(node) === root });
     const { values, vectors } = jacobiEigen(p.M, 6);
     const top = Math.max(...values, 0);
     // The free motions: eigenvectors of (nearly) zero eigenvalues.
@@ -135,12 +152,12 @@ export function rigidMotions(mesh: TetMesh, constrained: Map<number, Vec3[]>): s
       gv.forEach((lam, i) => { if (lam > 1e-9 * gmax && gmax > 0) { let d = 0; for (let q = 0; q < m; q++) d += gV[i * m + q] * g[q]; ratio += (d * d) / lam; } });
       if (ratio > 0.98) named.push(`free to turn about ${AXES[a]}`);
     }
-    if (named.length >= nul.length) { for (const n of named) free.push(n + where); continue; }
+    if (named.length >= nul.length) { named.forEach((n, i) => free.push(motion(n + where, nul[Math.min(i, nul.length - 1)]))); for (let i = named.length; i < nul.length; i++) free.push(motion('', nul[i])); continue; }
     // Otherwise the eigenvectors as they are.
     for (const v of nul) {
       const t = Math.hypot(v[0], v[1], v[2]), w = Math.hypot(v[3], v[4], v[5]);
-      if (w < 0.05 * t) free.push(`free to move ${describeDir([v[0], v[1], v[2]])}${where}`);
-      else free.push(`free to turn ${describeDir([v[3] / w, v[4] / w, v[5] / w], 'about')}${where}`);
+      if (w < 0.05 * t) free.push(motion(`free to move ${describeDir([v[0], v[1], v[2]])}${where}`, v));
+      else free.push(motion(`free to turn ${describeDir([v[3] / w, v[4] / w, v[5] / w], 'about')}${where}`, v));
     }
   }
   return free;
@@ -304,9 +321,42 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
   if (!input.fixtures.length) throw new StudyError('The study has no fixtures: the part is free to move. Add a fixture to hold it.');
   if (!input.loads.length) throw new StudyError('The study has no loads. Add a force, pressure or gravity.');
   const constrained = constraintsOf(mesh, input.fixtures);
-  const free = rigidMotions(mesh, constrained);
-  if (free.length) throw new StudyError(`The fixtures do not hold the part: it is ${free.join(', ')}. Add fixtures (or change them) so that it cannot move or turn as a rigid body.`);
+  const free = freeMotions(mesh, constrained);
   const { F, applied, areas } = loadVector(mesh, input);
+  const warnings: string[] = [];
+  // A free rigid motion is acceptable only if the loads do no work on it (a pinned link pulled along its
+  // length): it is then held by springs too weak to change the result. Otherwise the part would accelerate.
+  const texts = () => [...new Set(free.map((m) => m.text).filter(Boolean))].join(', ');
+  if (free.length) {
+    const modeAt = (m: FreeMotion, v: number) => {
+      const r = [(X[v * 3] - m.c[0]) / m.L, (X[v * 3 + 1] - m.c[1]) / m.L, (X[v * 3 + 2] - m.c[2]) / m.L];
+      return [m.v[0] + m.v[4] * r[2] - m.v[5] * r[1], m.v[1] + m.v[5] * r[0] - m.v[3] * r[2], m.v[2] + m.v[3] * r[1] - m.v[4] * r[0]];
+    };
+    // The loads' work on the motion against what they could do at most (all of them along it where they act).
+    const unbalanced = free.some((m) => {
+      let work = 0, most = 0;
+      for (let v = 0; v < N; v++) {
+        if (!m.has(v)) continue;
+        const f = Math.hypot(F[v * 3], F[v * 3 + 1], F[v * 3 + 2]);
+        if (!f) continue;
+        const u = modeAt(m, v);
+        work += F[v * 3] * u[0] + F[v * 3 + 1] * u[1] + F[v * 3 + 2] * u[2];
+        most += f * Math.hypot(u[0], u[1], u[2]);
+      }
+      return Math.abs(work) > 1e-3 * most;
+    });
+    if (unbalanced) throw new StudyError(`The fixtures do not hold the part against its loads: it is ${texts()}, and the loads would move it that way (an unstable study). Add fixtures (or change them) so that it cannot move or turn as a rigid body.`);
+    // What is left of that work comes from the mesh not being exactly symmetric: take it out of the loads.
+    for (let pass = 0; pass < 2; pass++) for (const m of free) {
+      let fu = 0, uu = 0;
+      for (let v = 0; v < N; v++) { if (!m.has(v)) continue; const u = modeAt(m, v); fu += F[v * 3] * u[0] + F[v * 3 + 1] * u[1] + F[v * 3 + 2] * u[2]; uu += u[0] ** 2 + u[1] ** 2 + u[2] ** 2; }
+      if (!(uu > 0)) continue;
+      for (let v = 0; v < N; v++) { if (!m.has(v)) continue; const u = modeAt(m, v); for (let c = 0; c < 3; c++) F[v * 3 + c] -= (fu / uu) * u[c]; }
+    }
+    applied[0] = applied[1] = applied[2] = 0;
+    for (let v = 0; v < N; v++) for (let c = 0; c < 3; c++) applied[c] += F[v * 3 + c];
+    warnings.push(`The fixtures leave the part ${texts()}; the loads do not push it that way, so it was solved with weak springs holding that motion. Check that this is intended.`);
+  }
 
   // ---- assembly ----
   progress('Assembling', 0);
@@ -356,6 +406,18 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
     }
   }
   const diagScale = (() => { let s = 0; for (let i = 0; i < N; i++) { const q = blockAt(A, i, i) * 9; s = Math.max(s, A.val[q], A.val[q + 4], A.val[q + 8]); } return s; })();
+  if (free.length) {
+    // Weak springs hold the free motions: on the free directions of the held nodes (they hardly move there),
+    // or on every node of a piece nothing holds.
+    const held = (m: FreeMotion) => { for (const v of constrained.keys()) if (m.has(v)) return true; return false; };
+    const onHeld = free.every(held);
+    const ks = diagScale * (onHeld ? 1e-6 : 1e-10);
+    for (let i = 0; i < N; i++) {
+      if (onHeld ? !k[i] : false) continue;
+      const q = blockAt(A, i, i) * 9;
+      for (let r = k[i]; r < 3; r++) A.val[q + r * 4] += ks;
+    }
+  }
   for (let i = 0; i < N; i++) {
     if (!k[i]) continue;
     const q = blockAt(A, i, i) * 9;
@@ -432,7 +494,7 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
   }
   const tEnd = performance.now();
   return {
-    U, vonMises, p1, p2, p3, strain, stress: S, reactions, applied, loadAreas: areas, dofs: N * 3,
+    U, vonMises, p1, p2, p3, strain, stress: S, reactions, applied, loadAreas: areas, dofs: N * 3, warnings,
     iterations: res.iterations, residual: res.residual, solver: M.description,
     ms: { assemble: tAsm - t0, setup: tSetup - tAsm, solve: tSolve - tSetup, stress: tEnd - tSolve },
   };

@@ -132,3 +132,41 @@ describe('static analysis accuracy', () => {
     expect(err!.message).toMatch(/free to turn about X/);
   }, 120000);
 });
+
+describe('fixed hinge', () => {
+  // A link 100 x 20 x 5 with two 8 mm holes 80 apart, pinned (fixed hinge) at the first.
+  const link = () => meshOf([sketch('s1', [...rect(0, 0, 100, 20), ...circle(10, 10, 4), ...circle(90, 10, 4)]), extrude('f1', 's1', 5)], 1.5);
+  const holes = (faces: FaceInfo[], x: number) => faces.flatMap((f, i) => (f.type === 'cylinder' && Math.abs(f.center[0] - x) < 1e-6 ? [i] : []));
+
+  it('carries a pull along the link: reactions balance the load, the free turn about the pin is reported', async () => {
+    const { mesh, faces } = await link();
+    const pin = holes(faces, 10), end = holes(faces, 90);
+    expect(pin.length).toBeGreaterThan(0);
+    const cyl = faces[pin[0]];
+    const F = 2000;
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'hinge', faces: pin, axis: cyl.axis! }], loads: [{ kind: 'force', faces: end, total: F, dir: [1, 0, 0] }] });
+    expect(r.reactions[0][0]).toBeCloseTo(-F, 2);
+    expect(Math.abs(r.reactions[0][1])).toBeLessThan(1e-3 * F);
+    expect(Math.hypot(r.reactions[0][0] + r.applied[0], r.reactions[0][1] + r.applied[1], r.reactions[0][2] + r.applied[2])).toBeLessThan(1e-5 * F);
+    expect(r.warnings.join(' ')).toMatch(/free to turn about Z/);
+    // The link stretches: the far hole moves along +X, the sides of the link between the holes carry about F / (2 x 6 x 5) near the holes' middle.
+    const ux = at(mesh.nodes, r.U, [90, 2, 2.5], 3, 0);
+    expect(ux).toBeGreaterThan(0);
+    const sx = at(mesh.nodes, r.stress, [50, 10, 2.5], 6, 0);
+    expect(sx / (F / (20 * 5))).toBeCloseTo(1, 1);
+  }, 120000);
+
+  it('reports a load across the link as unstable (it would turn about the pin)', async () => {
+    const { mesh, faces } = await link();
+    const pin = holes(faces, 10), end = holes(faces, 90);
+    const err = (() => { try { solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'hinge', faces: pin, axis: faces[pin[0]].axis! }], loads: [{ kind: 'force', faces: end, total: 100, dir: [0, 1, 0] }] }); } catch (e) { return e as Error; } return null; })();
+    expect(err).toBeInstanceOf(StudyError);
+    expect(err!.message).toMatch(/unstable/);
+    expect(err!.message).toMatch(/free to turn about Z/);
+    // A second pin at the other hole holds it: the load goes into the pins.
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'hinge', faces: pin, axis: faces[pin[0]].axis! }, { kind: 'hinge', faces: end, axis: faces[end[0]].axis! }], loads: [{ kind: 'force', faces: [faces.findIndex((f) => f.type === 'plane' && f.normal?.[1] === 1)], total: 100, dir: [0, -1, 0] }] });
+    expect(r.warnings).toEqual([]);
+    const total = r.reactions.reduce((a, x) => a + x[1], 0);
+    expect(total).toBeCloseTo(100, 4);
+  }, 120000);
+});

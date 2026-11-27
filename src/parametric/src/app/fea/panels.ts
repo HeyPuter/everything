@@ -343,6 +343,7 @@ export class ResultsPanel extends FeaPanel {
       return [section('Results', [...msgs, h('p', { class: 'field-label' }, 'Run the study to see its results.'), h('button', { class: 'btn small primary', type: 'button', onclick: () => void ws.run() }, icon('feaRun', 16), 'Run')], { icon: 'feaResults' })];
     }
     const s = res.sol.summary;
+    for (const w of s.warnings ?? []) msgs.push(h('p', { class: 'pm-msg warn', role: 'note' }, w));
     if (ws.state() === 'stale') msgs.push(h('p', { class: 'pm-msg warn', role: 'note' }, 'Out of date: the part, the study or the material changed since it was run.'), h('button', { class: 'btn small', type: 'button', onclick: () => void ws.run() }, icon('feaRun', 16), 'Run Again'));
     if (s.maxVonMises.value > res.yield) msgs.push(h('p', { class: 'pm-msg error', role: 'alert' }, `The highest von Mises stress (${formatValue(app, s.maxVonMises.value, 'stress')}) is above the yield strength of ${res.material} (${formatValue(app, res.yield, 'stress')}): the part would yield there, and a linear analysis no longer describes it.`));
     const b = app.bbox;
