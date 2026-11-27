@@ -599,6 +599,14 @@ export interface MaterialRef {
   name: string;
   /** kg/m^3 */
   density: number;
+  /**
+   * Elastic properties for stress analysis (all four, or none): elastic modulus,
+   * yield and ultimate tensile strength in MPa, and Poisson's ratio.
+   */
+  E?: number;
+  nu?: number;
+  yield?: number;
+  uts?: number;
 }
 
 export interface PartDocument {

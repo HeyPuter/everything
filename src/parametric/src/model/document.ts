@@ -12,6 +12,7 @@ import { validFeature } from './validate-feature';
 import { validSketch } from './validate-sketch';
 import { validDrawing } from './validate-drawing';
 import { camIds, normalizeCam } from './cam';
+import { normalizeMaterial } from './materials';
 import { solveSketch } from '../sketch/solver';
 import { hasExternal } from '../sketch/external';
 
@@ -81,6 +82,8 @@ export function parseDocument(text: string): PartDocument {
   // Times a Date can hold (the drawing's title block shows the modified day).
   for (const k of ['created', 'modified'] as const) if (!Number.isFinite(doc[k]) || Math.abs(doc[k]) > 8.64e15) doc[k] = base[k];
   if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density) && doc.material.density > 0)) doc.material = null;
+  // Elastic properties that are not a complete, valid set are dropped (the material stays).
+  if (doc.material) doc.material = normalizeMaterial(doc.material);
   if (doc.drawing != null && !validDrawing(doc.drawing)) throw new Error('The part file is damaged (invalid drawing).');
   // Machining data that cannot be read is dropped rather than refusing the part.
   if (doc.cam != null) doc.cam = normalizeCam(doc.cam);
