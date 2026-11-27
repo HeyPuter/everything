@@ -190,7 +190,7 @@ export class SimulationPanel extends CamPanel {
     this.phase = 'Simulating...';
     this.app.refreshPanel();
     try {
-      const res = await ws.client.simulate(setup, { steps, rapidFeed: cam.post.rapidFeed }, (v) => {
+      const res = await ws.simulate(setup, { steps, rapidFeed: cam.post.rapidFeed }, (v) => {
         this.progress = v;
         const bar = this.el.querySelector<HTMLProgressElement>('progress');
         if (bar) bar.value = v;
@@ -331,7 +331,7 @@ export class SimulationPanel extends CamPanel {
     this.disposed = true;
     this.playing = false;
     cancelAnimationFrame(this.raf);
-    this.ws.client.cancel();
+    this.ws.cancelSimulation();
     this.app.renderer.setSolid('camStock', null);
     this.app.renderer.setSolid('camTool', null);
     this.app.showModelMesh();

@@ -4,7 +4,8 @@
 // toolpaths, stock and work origin drawn in the graphics area.
 
 import { CamCancelled, CamClient } from '../../cam/client';
-import { type GenerateJob, type ModelCylinder, stlTriangles } from '../../cam/engine';
+import { type GenerateJob, type ModelCylinder, type SimulateJob, stlTriangles } from '../../cam/engine';
+import type { SimResult } from '../../cam/simulate';
 import { type MachineFrame, machineFrame, toModel } from '../../cam/frame';
 import { PLUNGE, RAPID, type PathStats, type Toolpath, expandMoves, pathStats } from '../../cam/toolpath';
 import type { Vec3 } from '../../math/vec';
@@ -67,6 +68,8 @@ export class CamWorkspace {
   readonly client = new CamClient();
   /** A second worker for the preview of the operation being edited, so it never waits for (or stops) generation. */
   private readonly previewClient = new CamClient();
+  /** A third for simulation, so leaving a simulation never stops generation. */
+  private readonly simClient = new CamClient();
   private results = new Map<Id, OpResult>();
   private meshVersion = -1;
   private tris: Float32Array | null = null;
@@ -104,6 +107,7 @@ export class CamWorkspace {
   private reset() {
     this.client.cancel();
     this.previewClient.cancel();
+    this.simClient.cancel();
     this.results.clear();
     this.tris = null;
     this.meshVersion = -1;
@@ -149,7 +153,7 @@ export class CamWorkspace {
         this.tris = tris.length ? tris : null;
         this.meshVersion = version;
         this.frames.clear();
-        if (this.tris) for (const c of [this.client, this.previewClient]) c.setMesh(`g${version}`, this.tris);
+        if (this.tris) for (const c of [this.client, this.previewClient, this.simClient]) c.setMesh(`g${version}`, this.tris);
         return this.tris;
       } catch {
         return null;
@@ -326,6 +330,16 @@ export class CamWorkspace {
 
   previewClientCancel() {
     this.previewClient.cancel();
+  }
+
+  /** Simulates a setup's steps (in the simulation's own worker). */
+  simulate(setup: CamSetup, job: SimulateJob, progress?: (v: number) => void): Promise<SimResult> {
+    return this.simClient.simulate(setup, job, progress);
+  }
+
+  /** Stops a simulation in progress (generation goes on). */
+  cancelSimulation() {
+    this.simClient.cancel();
   }
 
   /** Stops generation in progress. */

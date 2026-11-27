@@ -69,6 +69,28 @@ test('machines a part from the CAM tab: setup, tools, operations, simulation and
   expect(await page.getByLabel('Playback speed').evaluate((s) => [...(s as HTMLSelectElement).options].filter((o) => o.defaultSelected).length)).toBe(1);
   await page.getByRole('button', { name: 'Exit Simulation' }).click();
 
+  // Leaving a simulation while toolpaths are being generated does not stop the generation.
+  expect(await page.evaluate(async () => {
+    const app = (window as unknown as W).__parametric;
+    const ws = app.cam!;
+    const s = app.store.doc.cam!.setups[0];
+    const stopped: string[] = [];
+    const generate = ws.client.generate.bind(ws.client);
+    ws.client.generate = (job, progress) => {
+      const p = generate(job, progress);
+      p.catch((e: Error) => stopped.push(`${job.op.name}: ${e.message}`));
+      return p;
+    };
+    ws.forget(s.ops.map((o) => o.id));
+    const done = ws.generate();
+    app.commands.run('cam:simulate');
+    while (!ws.busy) await new Promise((r) => setTimeout(r, 10));
+    await app.closePanel(false);
+    await done;
+    ws.client.generate = generate;
+    return stopped;
+  })).toEqual([]);
+
   // G-code with peck drilling cycles, downloaded.
   await page.locator('[data-cmd="cam:post"]').click();
   const post = page.getByRole('dialog', { name: 'Post Process' });
