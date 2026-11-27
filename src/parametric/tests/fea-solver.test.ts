@@ -101,6 +101,16 @@ describe('static analysis accuracy', () => {
     expect(r.reactions[0][1]).toBeCloseTo(100 * 10, 6);
   }, 120000);
 
+  it('a node held by two fixtures splits its reaction between them by direction', async () => {
+    // A roller under a bar fixed at its end: the roller can only push along Y, even at the nodes it shares with the fixed face.
+    const { mesh, faces } = await meshOf([sketch('s1', rect(0, 0, 100, 20)), extrude('f1', 's1', 10)], 3);
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'roller', faces: [planar(faces, [0, -1, 0])] }, { kind: 'fixed', faces: [planar(faces, [-1, 0, 0])] }], loads: [{ kind: 'force', faces: [planar(faces, [1, 0, 0])], total: 100, dir: [1, 0, 0] }] });
+    expect(Math.abs(r.reactions[0][0])).toBeLessThan(1e-6);
+    expect(Math.abs(r.reactions[0][2])).toBeLessThan(1e-6);
+    expect(r.reactions[1][0]).toBeCloseTo(-100, 6);
+    expect(r.reactions[0][1] + r.reactions[1][1]).toBeCloseTo(0, 6);
+  }, 120000);
+
   it('plate with a hole in tension: stress concentration about 3', async () => {
     // 120 x 60 x 4 plate with a 10 mm hole (d / W = 1/6); Peterson: Kt (gross) about 3.1.
     const { mesh, faces } = await meshOf([sketch('s1', [...rect(-60, -30, 60, 30), ...circle(0, 0, 5)]), extrude('f1', 's1', 4)], 2.5);

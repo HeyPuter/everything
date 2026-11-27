@@ -213,12 +213,17 @@ function faceNodes(mesh: TetMesh, faces: Set<number>): number[] {
   return [...out];
 }
 
-/** The constrained directions of each node (global unit vectors). */
-export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[]): Map<number, Vec3[]> {
+/** The constrained directions of each node (global unit vectors); `by` gets the fixture of each direction. */
+export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[], by?: Map<number, number[]>): Map<number, Vec3[]> {
   const X = mesh.nodes;
   const out = new Map<number, Vec3[]>();
-  const add = (v: number, d: Vec3) => { let l = out.get(v); if (!l) out.set(v, (l = [])); l.push(d); };
+  let fixture = 0;
+  const add = (v: number, d: Vec3) => {
+    let l = out.get(v); if (!l) out.set(v, (l = [])); l.push(d);
+    if (by) { let w = by.get(v); if (!w) by.set(v, (w = [])); w.push(fixture); }
+  };
   fixtures.forEach((fx, i) => {
+    fixture = i;
     const faces = new Set(fx.faces);
     const nodes = faceNodes(mesh, faces);
     if (!nodes.length) throw new StudyError(`Fixture ${i + 1}: its faces are not in the mesh.`);
@@ -335,7 +340,8 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
   if (!(input.E > 0) || !(input.nu >= 0 && input.nu < 0.5)) throw new StudyError('The material\'s elastic properties are not valid.');
   if (!input.fixtures.length) throw new StudyError('The study has no fixtures: the part is free to move. Add a fixture to hold it.');
   if (!input.loads.length) throw new StudyError('The study has no loads. Add a force, pressure or gravity.');
-  const constrained = constraintsOf(mesh, input.fixtures);
+  const fixtureOf = new Map<number, number[]>();
+  const constrained = constraintsOf(mesh, input.fixtures, fixtureOf);
   const free = freeMotions(mesh, constrained);
   const { F, applied, areas } = loadVector(mesh, input);
   const warnings: string[] = [];
@@ -476,16 +482,27 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
 
   // ---- reactions ----
   const reactions: Vec3[] = input.fixtures.map(() => [0, 0, 0]);
-  const owner = new Map<number, number>();
-  input.fixtures.forEach((fx, i) => { for (const v of faceNodes(mesh, new Set(fx.faces))) if (!owner.has(v)) owner.set(v, i); });
   for (const [v, row] of reactionRows) {
     const r = [-Forig[v * 3], -Forig[v * 3 + 1], -Forig[v * 3 + 2]];
     for (let q = 0; q < row.cols.length; q++) {
       const j = row.cols[q] * 3, o = q * 9;
       for (let a = 0; a < 3; a++) r[a] += row.vals[o + a * 3] * U[j] + row.vals[o + a * 3 + 1] * U[j + 1] + row.vals[o + a * 3 + 2] * U[j + 2];
     }
-    const i = owner.get(v) ?? 0;
-    for (let a = 0; a < 3; a++) reactions[i][a] += r[a];
+    // A node held by several fixtures: each gets the part of the reaction along the directions it holds
+    // (as the constraint frame takes them), the first one what is left (the weak springs' share).
+    const dirs = constrained.get(v)!, who = fixtureOf.get(v)!;
+    const basis: Vec3[] = [];
+    for (let q = 0; q < dirs.length && basis.length < 3; q++) {
+      const d: Vec3 = [dirs[q][0], dirs[q][1], dirs[q][2]];
+      for (const e of basis) { const s = d[0] * e[0] + d[1] * e[1] + d[2] * e[2]; d[0] -= s * e[0]; d[1] -= s * e[1]; d[2] -= s * e[2]; }
+      const l = Math.hypot(d[0], d[1], d[2]);
+      if (!(l > 1e-3)) continue;
+      const e: Vec3 = [d[0] / l, d[1] / l, d[2] / l];
+      basis.push(e);
+      const c = r[0] * e[0] + r[1] * e[1] + r[2] * e[2];
+      for (let a = 0; a < 3; a++) { reactions[who[q]][a] += c * e[a]; r[a] -= c * e[a]; }
+    }
+    for (let a = 0; a < 3; a++) reactions[who[0]][a] += r[a];
   }
 
   // ---- stresses ----
