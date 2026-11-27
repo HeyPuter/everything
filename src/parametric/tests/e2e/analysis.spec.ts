@@ -231,3 +231,32 @@ test('a study edited while it runs leaves its results out of date', async ({ pag
   await expect(page.getByRole('button', { name: 'Run Again' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('results stay up to date when the part is edited back to the shape solved', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  const results = page.getByRole('treeitem', { name: /^Results/ });
+  await expect(results).not.toHaveAttribute('aria-description', /Out of date/);
+  // A feature opened for editing and cancelled: the same shape.
+  const v0 = await page.evaluate(() => (window as unknown as W).__parametric.geometryVersion);
+  await page.getByRole('treeitem', { name: /^Extrude1/ }).dblclick();
+  await expect(page.locator('.pm-head').getByText('Extrude1')).toBeVisible();
+  await page.locator('.confirm-corner .cancel').click();
+  await expect(page.locator('.pm-head')).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as W).__parametric.whenBuilt());
+  expect(await page.evaluate(() => (window as unknown as W).__parametric.geometryVersion)).toBeGreaterThan(v0);
+  await expect(results).not.toHaveAttribute('aria-description', /Out of date/);
+  // A new shape puts them out of date; Undo brings the solved shape back.
+  await page.evaluate(() => {
+    const a = (window as unknown as W).__parametric;
+    a.store.change('Deeper', (d) => { const f = d.features.find((x) => x.name === 'Extrude1') as unknown as { depth: number }; f.depth = 33.3; });
+  });
+  await expect(results).toHaveAttribute('aria-description', /Out of date/);
+  await page.keyboard.press('Meta+z');
+  await expect(results).not.toHaveAttribute('aria-description', /Out of date/);
+  expect(errors).toEqual([]);
+});

@@ -134,7 +134,7 @@ export class StudyPanel extends FeaPanel {
           ['Volume against the part', `${volErr >= 0 ? '+' : ''}${volErr.toFixed(2)}%`],
         ] as [string, string][]).map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))));
       if (Math.abs(volErr) > 2) stats.push(h('p', { class: 'pm-msg warn', role: 'note' }, 'The mesh misses part of the volume: some walls are thinner than the elements. Use a finer mesh.'));
-      if (!m.key.startsWith(`${app.geometryVersion}|`)) stats.push(h('p', { class: 'pm-msg warn', role: 'note' }, 'The part changed since it was meshed.'));
+      if (!ws.meshCurrent()) stats.push(h('p', { class: 'pm-msg warn', role: 'note' }, 'The part changed since it was meshed.'));
     }
     if (ws.error?.message && !ws.busy) stats.push(h('p', { class: 'pm-msg error', role: 'alert' }, ws.error.message));
     return [

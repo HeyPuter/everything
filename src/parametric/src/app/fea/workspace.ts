@@ -23,7 +23,8 @@ import { reportDialog } from './report';
 export type StudyState = 'none' | 'busy' | 'ok' | 'stale' | 'error';
 
 interface SurfaceState {
-  version: number;
+  /** The part's shape it was read from (see shapeKey). */
+  version: string;
   data: FeaSurface;
   auto: number;
   max: number;
@@ -55,11 +56,13 @@ export class FeaWorkspace {
   focus: Id | null = null;
   private surface: SurfaceState | null = null;
   private surfaceLoading: Promise<SurfaceState> | null = null;
-  mesh: { key: string; info: FeaMeshInfo; size: number; version: number } | null = null;
+  mesh: { key: string; info: FeaMeshInfo; size: number; version: string } | null = null;
   result: FeaResult | null = null;
   busy: { stage: string; progress: number } | null = null;
   error: { key: string; message: string } | null = null;
   private generation = 0;
+  private seenVersion = -1;
+  private shape: { version: number; key: string } | null = null;
   /** Results panel open: it draws the plot (the study's symbols are hidden). */
   plotting = false;
 
@@ -75,8 +78,12 @@ export class FeaWorkspace {
     });
     app.ribbonTabListeners.push(() => this.redraw());
     app.commands.onChange(() => {
-      // A new part shape: the surface, the mesh and the results are out of date (results stay, marked).
-      if (this.surface && this.surface.version !== app.geometryVersion) { this.surface = null; this.changed(); }
+      // A new part shape: the mesh and the results are out of date (results stay, marked), or current
+      // again when the shape is back (an edit cancelled, undone and redone).
+      if (this.seenVersion !== app.geometryVersion) {
+        this.seenVersion = app.geometryVersion;
+        if (this.surface) this.changed();
+      }
     });
   }
 
@@ -105,8 +112,37 @@ export class FeaWorkspace {
   // ---------- state ----------
 
   /** What the results depend on: the part's shape, the mesh size, the study's fixtures and loads, the material. */
-  solveKey(size?: number, version?: number, study?: string): string {
-    return JSON.stringify([version ?? this.app.geometryVersion, size ?? this.sizeOf(), study ?? this.studyKey()]);
+  solveKey(size?: number, version?: string, study?: string): string {
+    return JSON.stringify([version ?? this.shapeKey(), size ?? this.sizeOf(), study ?? this.studyKey()]);
+  }
+
+  /**
+   * The part's shape: a hash of its body mesh and face names. The geometry
+   * version moves on with every new mesh, also one of the same shape (an edit
+   * cancelled, an undo and a redo), which would put results out of date for nothing.
+   */
+  shapeKey(): string {
+    const app = this.app, v = app.geometryVersion;
+    if (this.shape?.version === v) return this.shape.key;
+    const m = app.modelMesh;
+    let a = 0x811c9dc5, b = 0x2545f491;
+    const mix = (x: number) => { a = Math.imul(a ^ x, 0x01000193); b = Math.imul(b ^ x, 0x5bd1e995); b ^= b >>> 13; };
+    if (m) {
+      // The points and their faces (the triangles between them follow from the shape).
+      for (const arr of [new Uint32Array(m.positions.buffer, m.positions.byteOffset, m.positions.length), new Uint32Array(m.vertexFace.buffer, m.vertexFace.byteOffset, m.vertexFace.length)]) {
+        mix(arr.length);
+        for (let i = 0; i < arr.length; i++) mix(arr[i]);
+      }
+    }
+    for (const f of app.faces) for (let i = 0; i < f.name.length; i++) mix(f.name.charCodeAt(i));
+    const key = m ? `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}:${m.indices.length}:${app.faces.length}` : 'none';
+    this.shape = { version: v, key };
+    return key;
+  }
+
+  /** Whether the mesh is of the part's current shape. */
+  meshCurrent(): boolean {
+    return !!this.mesh && this.mesh.version === this.shapeKey();
   }
 
   /** The study's fixtures and loads and the material, as the results depend on them. */
@@ -125,7 +161,7 @@ export class FeaWorkspace {
     if (this.busy) return 'busy';
     if (this.error && !this.result) return 'error';
     if (!this.result) return 'none';
-    if (!this.surface || this.surface.version !== this.app.geometryVersion || this.result.key !== this.solveKey()) return 'stale';
+    if (!this.surface || this.surface.version !== this.shapeKey() || this.result.key !== this.solveKey()) return 'stale';
     return 'ok';
   }
 
@@ -141,7 +177,7 @@ export class FeaWorkspace {
     const m = this.mesh;
     if (!m) return '';
     const st = m.info.stats;
-    return `(${st.elements.toLocaleString('en-US')} elements${m.key.startsWith(`${this.app.geometryVersion}|`) ? '' : ', out of date'})`;
+    return `(${st.elements.toLocaleString('en-US')} elements${this.meshCurrent() ? '' : ', out of date'})`;
   }
 
   /** Can the study run now (a part with a solid, nothing being edited)? */
@@ -159,7 +195,7 @@ export class FeaWorkspace {
   async surfaceState(): Promise<SurfaceState> {
     const app = this.app;
     await app.whenBuilt();
-    const version = app.geometryVersion;
+    const version = this.shapeKey();
     if (this.surface && this.surface.version === version) return this.surface;
     if (this.surfaceLoading) return this.surfaceLoading;
     this.surfaceLoading = (async () => {
@@ -175,7 +211,7 @@ export class FeaWorkspace {
           area += 0.5 * Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx);
         }
         const st: SurfaceState = { version, data, diag, auto: defaultElementSize(data.volume, area, diag), max: maxElementSize(data.volume, area, diag) };
-        if (app.geometryVersion !== version) return this.surfaceState();
+        if (this.shapeKey() !== version) return this.surfaceState();
         this.surface = st;
         return st;
       } finally {
@@ -207,7 +243,7 @@ export class FeaWorkspace {
   }
 
   /** Meshes the part at the study's size if the mesh is not current. */
-  async ensureMesh(): Promise<{ info: FeaMeshInfo; size: number; version: number } | null> {
+  async ensureMesh(): Promise<{ info: FeaMeshInfo; size: number; version: string } | null> {
     const s = this.study;
     if (!s) return null;
     const gen = this.generation;
@@ -564,7 +600,7 @@ export class FeaWorkspace {
     r.setLines('feaArrows', arrows.length ? { positions: new Float32Array(arrows), colors: new Uint8Array(acol), width: 2.5, depth: 'always', order: 8 } : null);
     // The mesh while the study panel is open.
     const m = this.mesh;
-    if (m && this.app.panel instanceof StudyPanel && m.key.startsWith(`${this.app.geometryVersion}|`)) {
+    if (m && this.app.panel instanceof StudyPanel && this.meshCurrent()) {
       r.setLines('feaMesh', { positions: m.info.lines, colors: new Uint8Array((m.info.lines.length / 6) * 4).fill(0).map((_, i) => (i % 4 === 3 ? 200 : 40)), width: 1, depth: 'test', order: 6, bias: 4e-5 });
     } else if (!this.plotting) r.setLines('feaMesh', null);
   }
