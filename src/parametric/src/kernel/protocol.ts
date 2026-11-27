@@ -184,6 +184,17 @@ export interface ProjectionResult {
   cutGroups?: number[];
 }
 
+/** The solid's boundary triangulated for the stress analysis mesher (see ModelBuilder.feaSurface). */
+export interface FeaSurface {
+  positions: Float32Array;
+  indices: Uint32Array;
+  /** Face of each triangle: an index into the build result's faces. */
+  triFace: Int32Array;
+  /** Exact volume of the solid (mm^3). */
+  volume: number;
+  faceNames: string[];
+}
+
 export type WorkerRequest =
   | { id: number; type: 'init' }
   | { id: number; type: 'reset' }
@@ -200,6 +211,8 @@ export type WorkerRequest =
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
   | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number; name?: string }
   | { id: number; type: 'checkImport'; format: 'step'; text: string }
+  /** The solid's boundary for the stress analysis mesher, at a chordal tolerance (mm). */
+  | { id: number; type: 'feaSurface'; tolerance: number }
   | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string }
   /** Assemblies: building their parts and the placed components (see assembly.ts). */
   | { id: number; type: 'asm'; req: AsmRequest }

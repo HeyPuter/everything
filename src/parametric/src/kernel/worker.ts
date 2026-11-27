@@ -136,6 +136,12 @@ async function handle(ev: MessageEvent<WorkerRequest>) {
         reply({ id: msg.id, ok: true, result, heap: memory?.buffer.byteLength }, r.op === 'build' || r.op === 'interference' ? asmTransfers(result) : []);
         return;
       }
+      case 'feaSurface': {
+        if (assembly.active) throw new Error('Stress analysis works on parts.');
+        const res = builder.feaSurface(msg.tolerance);
+        reply({ id: msg.id, ok: true, result: res }, [res.positions.buffer, res.indices.buffer, res.triFace.buffer] as ArrayBuffer[]);
+        return;
+      }
       case 'checkImport':
         reply({ id: msg.id, ok: true, result: await checkStep(msg.text) });
         return;

@@ -97,7 +97,7 @@ test('a density error does not prevent selecting a preset material', async ({ pa
   await dialog.getByRole('button', { name: 'Apply' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material))
-    .toEqual({ name: 'Aluminum 6061', density: 2700 });
+    .toEqual({ name: 'Aluminum 6061', density: 2700, E: 68900, nu: 0.33, yield: 276, uts: 310 });
   expect(errors).toEqual([]);
 });
 
