@@ -439,3 +439,21 @@ test('the CSV summary has one quantity per row, with its unit in the unit column
   for (const line of csv.trim().split('\n').slice(1)) expect(line, line).not.toMatch(/,[-\d.e]+ (N|MPa|mm|%)/);
   expect(errors).toEqual([]);
 });
+
+test('Run right after an edit that renumbers the faces loads the faces picked', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.locator('[data-cmd="fea:study"]').click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  // Suppressing the fillet renumbers the faces; Run comes before the part is rebuilt.
+  await page.evaluate(() => {
+    const a = (window as unknown as W).__parametric;
+    a.store.change('Suppress', (d) => { d.features.find((x) => x.name === 'Fillet1')!.suppressed = true; });
+    a.commands.run('fea:run');
+  });
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  // The force on the top of the upright, held at the end of the base.
+  await expect(page.locator('.fea-forces')).toContainText('0.000, 500.000, 0.000 N');
+  expect(errors).toEqual([]);
+});

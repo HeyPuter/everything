@@ -371,12 +371,17 @@ export class FeaWorkspace {
     if (why) { toast({ kind: 'info', message: why }); return; }
     if (this.busy) return;
     const gen = ++this.generation;
+    // The faces are found in the part as it is built: a change just made (Run right after an edit) is built first.
+    this.setBusy('Preparing the part', 0);
+    await this.app.whenBuilt();
+    if (gen !== this.generation) return;
     let resolved: ReturnType<FeaWorkspace['inputOf']>;
     // What is solved is the study and material as they are now (they may change while it runs).
-    const studyKey = this.studyKey();
+    const studyKey = this.studyKey(), shape = this.shapeKey();
     try {
-      resolved = this.inputOf(s);
+      resolved = this.inputOf(this.study ?? s);
     } catch (e) {
+      this.busy = null;
       this.error = { key: this.solveKey(), message: (e as Error).message };
       this.changed();
       void this.openResults();
@@ -388,6 +393,8 @@ export class FeaWorkspace {
     try {
       const m = await this.ensureMesh();
       if (!m || gen !== this.generation) return;
+      // The faces were found in another shape than the one meshed (the part changed while it started).
+      if (m.version !== shape) throw new Error('The part changed while the analysis started. Run it again.');
       // The shape meshed and the study read at the start: a change during the run leaves the results out of date.
       const key = this.solveKey(m.size, m.version, studyKey);
       const t0 = performance.now();
