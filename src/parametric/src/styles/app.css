@@ -716,6 +716,18 @@ a.icon-btn { text-decoration: none; }
 .cam-play { gap: 6px; align-items: center; }
 .cam-slider { width: 100%; accent-color: var(--accent); }
 .cam-clock { font-family: var(--font-mono); }
+/* Motion studies (assemblies) */
+.kin-play { gap: 6px; align-items: center; }
+.kin-slider { width: 100%; accent-color: var(--accent); }
+.kin-clock { font-family: var(--font-mono); }
+.kin-motor-buttons { gap: 6px; justify-content: flex-end; margin-top: 6px; }
+.kin-plot-box { margin: 6px 0; }
+.kin-plot { display: block; width: 100%; height: auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: crosshair; }
+.kin-plot-frame { fill: none; stroke: var(--border); }
+.kin-plot-zero { stroke: var(--border-strong); stroke-dasharray: 3 3; }
+.kin-plot-line { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.kin-plot-cursor { stroke: var(--danger); stroke-width: 1; }
+.kin-plot-text { fill: var(--text-2); font-size: 9px; font-family: var(--font-mono); }
 .cam-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-sm); color: var(--text-2); }
 .cam-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .cam-legend i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border-strong); }
@@ -741,16 +753,3 @@ a.icon-btn { text-decoration: none; }
   .cam-tools, .cam-post { grid-template-columns: minmax(0, 1fr); }
   .cam-gcode { height: 220px; }
 }
-
-/* Motion studies (assemblies) */
-.kin-play { gap: 6px; align-items: center; }
-.kin-slider { width: 100%; accent-color: var(--accent); }
-.kin-clock { font-family: var(--font-mono); }
-.kin-motor-buttons { gap: 6px; justify-content: flex-end; margin-top: 6px; }
-.kin-plot-box { margin: 6px 0; }
-.kin-plot { display: block; width: 100%; height: auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: crosshair; }
-.kin-plot-frame { fill: none; stroke: var(--border); }
-.kin-plot-zero { stroke: var(--border-strong); stroke-dasharray: 3 3; }
-.kin-plot-line { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
-.kin-plot-cursor { stroke: var(--danger); stroke-width: 1; }
-.kin-plot-text { fill: var(--text-2); font-size: 9px; font-family: var(--font-mono); }

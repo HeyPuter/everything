@@ -87,6 +87,18 @@ async function openMate(page: Page, type: string) {
   return pm;
 }
 
+/** Serious and critical accessibility violations on the page (axe). */
+async function axeViolations(page: Page): Promise<string[]> {
+  await page.addScriptTag({ path: 'node_modules/axe-core/axe.min.js' });
+  return page.evaluate(async () => {
+    // @ts-expect-error axe is injected above
+    const r = await window.axe.run(document, { resultTypes: ['violations'] });
+    return r.violations
+      .filter((v: { impact: string }) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v: { id: string; nodes: { target: string[] }[] }) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
+  });
+}
+
 async function newAssemblyWith(page: Page, parts: [string, unknown[]][], comps: string[]) {
   await page.getByRole('button', { name: /New part/ }).click();
   await page.waitForFunction(() => (window as unknown as { __parametric?: A }).__parametric?.kernelReady);
@@ -112,6 +124,7 @@ test('hinges and a gear through the Mate panel, a motion study that plays and pl
     await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
     await pick(page, { comp: gear, face: 'E1:cap0' });
     await expect(pm.getByRole('status').filter({ hasText: 'The mate holds' })).toBeVisible();
+    if (gear === 'Small<1>') expect(await axeViolations(page)).toEqual([]);
     await pm.getByRole('button', { name: 'OK' }).click();
   }
   await expect(tree.getByRole('treeitem', { name: /^Hinge2/ })).toBeVisible();
@@ -185,6 +198,7 @@ test('hinges and a gear through the Mate panel, a motion study that plays and pl
   await expect(plot).toHaveAttribute('aria-label', /from -180 to 0/);
   await pm.getByRole('combobox', { name: 'Quantity' }).selectOption({ label: 'Angular velocity' });
   await expect(pm.getByRole('img', { name: /angular velocity Z \(°\/s\)/ })).toHaveAttribute('aria-label', /from -45 to -45/);
+  expect(await axeViolations(page)).toEqual([]);
   const download = page.waitForEvent('download');
   await pm.getByRole('button', { name: 'Download CSV' }).click();
   const { readFileSync } = await import('node:fs');
