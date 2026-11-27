@@ -47,7 +47,7 @@ test('sets up a static study, runs it, reads the plot and saves it with the part
   await page.mouse.click(p.x, p.y);
   await expect(page.getByRole('group', { name: 'Faces' })).toContainText('Face');
   await page.locator('.confirm-corner .ok').click();
-  await expect(page.getByRole('treeitem', { name: /^Fixed-1/ })).toBeVisible();
+  await expect(page.getByRole('treeitem', { name: /^Fixed1/ })).toBeVisible();
 
   // A 500 N force pressing on the top of the upright.
   await page.locator('[data-cmd="fea:force"]').click();
@@ -55,7 +55,7 @@ test('sets up a static study, runs it, reads the plot and saves it with the part
   await page.mouse.click(p.x, p.y);
   await page.getByLabel('Total force (N)').fill('500');
   await page.locator('.confirm-corner .ok').click();
-  await expect(page.getByRole('treeitem', { name: /^Force-1/ })).toBeVisible();
+  await expect(page.getByRole('treeitem', { name: /^Force1/ })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as W).__parametric.store.doc.study!.loads[0])).toMatchObject({ type: 'force', value: 500, dir: null, faces: [{ name: 'f1:side:bl4' }] });
 
   // Run: the plot, its legend and the summary.
@@ -107,7 +107,7 @@ test('sets up a static study, runs it, reads the plot and saves it with the part
     a.loadDocument(parseDocument(text), null);
   }, { text: JSON.stringify(saved), url: '/src/model/document.ts' });
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('treeitem', { name: /^Force-1/ })).toBeVisible();
+  await expect(page.getByRole('treeitem', { name: /^Force1/ })).toBeVisible();
   await page.locator('[data-cmd="fea:run"]').click();
   await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('.fea-forces')).toContainText('0.000, 600.000, 0.000 N');
@@ -148,11 +148,11 @@ async function bracketStudy(page: Page) {
     const ref = (n: string) => { const f = a.faces.find((x) => x.name === n)!; return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }; };
     a.store.change('Set up', (d) => {
       d.material = { name: 'Alloy Steel', density: 7700, E: 205000, nu: 0.29, yield: 415, uts: 655 };
-      d.study = { id: 'st900', name: 'Static Study', fixtures: [{ id: 'fx901', name: 'Fixed-1', type: 'fixed', faces: [ref('f1:side:bl1')] }], loads: [{ id: 'ld902', name: 'Force-1', type: 'force', faces: [ref('f1:side:bl4')], value: 500, dir: null, flip: false }], mesh: { fineness: 0.2 } };
+      d.study = { id: 'st900', name: 'Static Study', fixtures: [{ id: 'fx901', name: 'Fixed1', type: 'fixed', faces: [ref('f1:side:bl1')] }], loads: [{ id: 'ld902', name: 'Force1', type: 'force', faces: [ref('f1:side:bl4')], value: 500, dir: null, flip: false }], mesh: { fineness: 0.2 } };
     });
   });
   await page.getByRole('tab', { name: 'Analysis' }).click();
-  await expect(page.getByRole('treeitem', { name: /^Force-1/ })).toBeVisible();
+  await expect(page.getByRole('treeitem', { name: /^Force1/ })).toBeVisible();
 }
 
 test('a load direction to pick stays chosen until it is picked', async ({ page }) => {
@@ -177,10 +177,10 @@ test('a load direction to pick stays chosen until it is picked', async ({ page }
 test('the panel of a fixture or load closes when it is deleted', async ({ page }) => {
   const errors = await openApp(page);
   await bracketStudy(page);
-  // Editing Force-1 when it is deleted (here by Undo of its study): OK must not bring it back.
-  await page.getByRole('treeitem', { name: /^Force-1/ }).dblclick();
-  await expect(page.locator('.pm-head').getByText('Force-1', { exact: true })).toBeVisible();
-  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Delete Force-1', (d) => { d.study!.loads = []; }));
+  // Editing Force1 when it is deleted (here by Undo of its study): OK must not bring it back.
+  await page.getByRole('treeitem', { name: /^Force1/ }).dblclick();
+  await expect(page.locator('.pm-head').getByText('Force1', { exact: true })).toBeVisible();
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Delete Force1', (d) => { d.study!.loads = []; }));
   await expect(page.locator('.pm-head')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as W).__parametric.store.doc.study!.loads)).toEqual([]);
   // A new fixture when the study goes (Undo): its panel closes too.
@@ -282,8 +282,8 @@ test('loads of an inch part are in pounds-force and psi, with round defaults', a
   await page.locator('[data-cmd="fea:gravity"]').click();
   await expect(page.getByLabel('Acceleration (in/s²)')).toHaveValue('386.08858');
   await page.locator('.confirm-corner .cancel').click();
-  // Force-1 (500 N) reads in lbf, and a value typed in lbf is kept in newtons.
-  await page.getByRole('treeitem', { name: /^Force-1/ }).dblclick();
+  // Force1 (500 N) reads in lbf, and a value typed in lbf is kept in newtons.
+  await page.getByRole('treeitem', { name: /^Force1/ }).dblclick();
   await expect(page.getByLabel('Total force (lbf)')).toHaveValue('112.40447');
   await page.getByLabel('Total force (lbf)').fill('50');
   await page.locator('.confirm-corner .ok').click();
@@ -423,7 +423,7 @@ test('the CSV summary has one quantity per row, with its unit in the unit column
   test.setTimeout(180_000);
   const errors = await openApp(page);
   await bracketStudy(page);
-  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Gravity', (d) => { d.study!.loads.push({ id: 'ld903', name: 'Gravity-1', type: 'gravity', value: 9806.65, dir: { kind: 'base', axis: 'y' }, flip: true }); }));
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Gravity', (d) => { d.study!.loads.push({ id: 'ld903', name: 'Gravity1', type: 'gravity', value: 9806.65, dir: { kind: 'base', axis: 'y' }, flip: true }); }));
   await page.locator('[data-cmd="fea:run"]').click();
   await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
   await page.getByRole('button', { name: 'Report...' }).click();
@@ -432,9 +432,9 @@ test('the CSV summary has one quantity per row, with its unit in the unit column
   const file = await download;
   expect(file.suggestedFilename()).toBe('Mounting Bracket - Static Study.csv');
   const csv = (await (await file.createReadStream()).toArray()).join('');
-  expect(csv).toContain('\nLoads,Force-1 force,500,N\n');
-  expect(csv).toContain('\nLoads,Force-1 area,240,mm²\n');
-  expect(csv).toContain('\nLoads,Gravity-1 acceleration,9.80665,m/s²\n');
+  expect(csv).toContain('\nLoads,Force1 force,500,N\n');
+  expect(csv).toContain('\nLoads,Force1 area,240,mm²\n');
+  expect(csv).toContain('\nLoads,Gravity1 acceleration,9.80665,m/s²\n');
   // Every row: section, quantity, a value without its unit, the unit.
   for (const line of csv.trim().split('\n').slice(1)) expect(line, line).not.toMatch(/,[-\d.e]+ (N|MPa|mm|%)/);
   expect(errors).toEqual([]);

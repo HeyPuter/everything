@@ -196,9 +196,9 @@ export function studyOf(doc: PartDocument): StaticStudy | null {
   return doc.study ?? null;
 }
 
-/** Name for a new fixture or load: the label followed by the first number not taken. */
+/** Name for a new fixture or load, as features and CAM operations are named: the label's words run together and the first number not taken ("FixedHinge1"). */
 export function nextStudyName(s: StaticStudy, label: string): string {
   const used = new Set([...s.fixtures, ...s.loads].map((x) => x.name.toLowerCase()));
   const base = label.replace(/[^A-Za-z]/g, '');
-  for (let i = 1; ; i++) if (!used.has(`${base}-${i}`.toLowerCase())) return `${base}-${i}`;
+  for (let i = 1; ; i++) if (!used.has(`${base}${i}`.toLowerCase())) return `${base}${i}`;
 }

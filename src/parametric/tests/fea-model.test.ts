@@ -2,7 +2,7 @@
 // results summary export: round trips, old files, refused damage.
 import { describe, expect, it } from 'vitest';
 import { newDocument, parseDocument, serializeDocument } from '../src/model/document';
-import { type StaticStudy, elementSizeFor, feaUnits, newStudy, parseStudy, studyIds } from '../src/model/fea';
+import { type StaticStudy, elementSizeFor, feaUnits, newStudy, nextStudyName, parseStudy, studyIds } from '../src/model/fea';
 import { MATERIALS, elasticOf, normalizeMaterial, validElastic } from '../src/model/materials';
 import { colorAt, interpolate } from '../src/fea/results';
 import { principal } from '../src/fea/elements';
@@ -12,11 +12,11 @@ const face = (name: string) => ({ name, sig: { type: 'plane', c: [1, 2, 3] as [n
 
 function study(): StaticStudy {
   const s = newStudy('st3');
-  s.fixtures.push({ id: 'fx4', name: 'Fixed-1', type: 'fixed', faces: [face('f1:cap0')] });
-  s.fixtures.push({ id: 'fx5', name: 'Hinge-1', type: 'hinge', faces: [{ name: 'f2:h1:1', sig: { type: 'cylinder', c: [0, 0, 0], area: 50 } }], suppressed: true });
-  s.loads.push({ id: 'ld6', name: 'Force-1', type: 'force', faces: [face('f1:cap1')], value: 250, dir: { kind: 'edge', edge: { name: 'e1', sig: { type: 'line', m: [0, 0, 0], len: 10 } } }, flip: true });
-  s.loads.push({ id: 'ld7', name: 'Pressure-1', type: 'pressure', faces: [face('f1:side:bl2')], value: 2, flip: false });
-  s.loads.push({ id: 'ld8', name: 'Gravity-1', type: 'gravity', value: 9806.65, dir: { kind: 'base', axis: 'y' }, flip: true });
+  s.fixtures.push({ id: 'fx4', name: 'Fixed1', type: 'fixed', faces: [face('f1:cap0')] });
+  s.fixtures.push({ id: 'fx5', name: 'Hinge1', type: 'hinge', faces: [{ name: 'f2:h1:1', sig: { type: 'cylinder', c: [0, 0, 0], area: 50 } }], suppressed: true });
+  s.loads.push({ id: 'ld6', name: 'Force1', type: 'force', faces: [face('f1:cap1')], value: 250, dir: { kind: 'edge', edge: { name: 'e1', sig: { type: 'line', m: [0, 0, 0], len: 10 } } }, flip: true });
+  s.loads.push({ id: 'ld7', name: 'Pressure1', type: 'pressure', faces: [face('f1:side:bl2')], value: 2, flip: false });
+  s.loads.push({ id: 'ld8', name: 'Gravity1', type: 'gravity', value: 9806.65, dir: { kind: 'base', axis: 'y' }, flip: true });
   s.mesh.fineness = 0.75;
   return s;
 }
@@ -132,5 +132,15 @@ describe('result helpers', () => {
     expect(csv.split('\n')[0]).toBe('Section,Quantity,Value,Unit');
     expect(csv).toContain('Results,Max von Mises stress,12.5,MPa');
     expect(csv).toContain('Study,Part,"Bracket, ""A""",');
+  });
+});
+
+describe('names of new fixtures and loads', () => {
+  it('runs the label words together with the first free number, like features and CAM operations', () => {
+    const s = newStudy('st1');
+    expect(nextStudyName(s, 'Fixed Hinge')).toBe('FixedHinge1');
+    expect(nextStudyName(s, 'Roller')).toBe('Roller1');
+    s.loads.push({ id: 'ld2', name: 'force1', type: 'pressure', faces: [], value: 1, flip: false });
+    expect(nextStudyName(s, 'Force')).toBe('Force2');
   });
 });
