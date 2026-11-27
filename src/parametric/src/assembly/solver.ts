@@ -200,6 +200,8 @@ const IDENT: Placement = { p: [0, 0, 0], q: [0, 0, 0, 1] };
 
 /** The components a mate's entities belong to (each once). */
 export function mateBodies(m: SolverMate): Id[] {
+  // Most mates have one entity on each side (the hot path of every drag step).
+  if (!m.a2 && !m.b2) return m.a.body ? (m.b.body && m.b.body !== m.a.body ? [m.a.body, m.b.body] : [m.a.body]) : m.b.body ? [m.b.body] : [];
   const out: Id[] = [];
   for (const e of [m.a, m.b, m.a2, m.b2]) if (e?.body && !out.includes(e.body)) out.push(e.body);
   return out;
@@ -1072,25 +1074,10 @@ export class MateSolver {
     const pa = m.a.body ? pl.get(m.a.body) ?? null : null;
     const pb = m.b.body ? pl.get(m.b.body) ?? null : null;
     if ((m.a.body && !pa) || (m.b.body && !pb)) return null;
+    if (isMechanical(m.type)) return mechanicalResidual(m, pl, ref, pa, pb, L, ineq, turns);
     const o = { aligned: m.aligned, value: m.value, flip: m.flip, scale: L, rel: m.rel };
-    if (!isMechanical(m.type)) {
-      const ga = placeGeo(m.a.geo, pa), gb = placeGeo(m.b.geo, pb);
-      if (m.limit && (m.type === 'distance' || m.type === 'angle')) return limitEquations(m.type, ga, gb, o, m.limit, ineq);
-      return equations(m.type, ga, gb, o, pa, pb);
-    }
-    const now = (e: SolverEntity) => (e.body ? pl.get(e.body) ?? IDENT : IDENT);
-    const start = (e: SolverEntity) => (e.body ? ref.get(e.body) ?? now(e) : IDENT);
-    for (const e of [m.a2, m.b2]) if (e?.body && !pl.get(e.body)) return null;
-    const turned = (e: SolverEntity, d: Vec3) => {
-      if (!e.body) return 0;
-      if (!turns) return turnAbout(now(e).q, start(e).q, d);
-      const w = turns.get(e.body);
-      return w ? dot(w, d) : 0;
-    };
-    return mechanicalEquations({
-      m, ga: placeGeo(m.a.geo, pa), gb: placeGeo(m.b.geo, pb), ga2: m.a2 ? placeGeo(m.a2.geo, m.a2.body ? now(m.a2) : null) : null, gb2: m.b2 ? placeGeo(m.b2.geo, m.b2.body ? now(m.b2) : null) : null,
-      pa: now(m.a), pb: now(m.b), ra: start(m.a), rb: start(m.b), now, start, turned, L, ineq,
-    });
+    if (m.limit && (m.type === 'distance' || m.type === 'angle')) return limitEquations(m.type, placeGeo(m.a.geo, pa), placeGeo(m.b.geo, pb), o, m.limit, ineq);
+    return equations(m.type, placeGeo(m.a.geo, pa), placeGeo(m.b.geo, pb), o, pa, pb);
   }
 
   /**
@@ -1210,6 +1197,26 @@ export class MateSolver {
 }
 
 /**
+ * A mechanical mate's residuals (see mateResidual). On its own: the closures
+ * here would make every call of mateResidual allocate, plain mates too.
+ */
+function mechanicalResidual(m: SolverMate, pl: Map<Id, Placement>, ref: Map<Id, Placement>, pa: Placement | null, pb: Placement | null, L: number, ineq: boolean, turns?: Map<Id, Vec3>): number[] | null {
+  const now = (e: SolverEntity) => (e.body ? pl.get(e.body) ?? IDENT : IDENT);
+  const start = (e: SolverEntity) => (e.body ? ref.get(e.body) ?? now(e) : IDENT);
+  for (const e of [m.a2, m.b2]) if (e?.body && !pl.get(e.body)) return null;
+  const turned = (e: SolverEntity, d: Vec3) => {
+    if (!e.body) return 0;
+    if (!turns) return turnAbout(now(e).q, start(e).q, d);
+    const w = turns.get(e.body);
+    return w ? dot(w, d) : 0;
+  };
+  return mechanicalEquations({
+    m, ga: placeGeo(m.a.geo, pa), gb: placeGeo(m.b.geo, pb), ga2: m.a2 ? placeGeo(m.a2.geo, m.a2.body ? now(m.a2) : null) : null, gb2: m.b2 ? placeGeo(m.b2.geo, m.b2.body ? now(m.b2) : null) : null,
+    pa: now(m.a), pb: now(m.b), ra: start(m.a), rb: start(m.b), now, start, turned, L, ineq,
+  });
+}
+
+/**
  * The mates that can move a component: those of the floating components
  * linked to it through mates between floating components. Mates of other
  * components hold already and do not change while it is dragged, so a drag
@@ -1218,10 +1225,11 @@ export class MateSolver {
 export function matesMoving(body: Id, bodies: SolverBody[], mates: SolverMate[]): SolverMate[] {
   const floating = new Set(bodies.filter((b) => !b.fixed).map((b) => b.id));
   const linked = new Set([body]);
+  // The floating components of each mate, found once (this runs on every drag step).
+  const each = mates.map((m) => mateBodies(m).filter((id) => floating.has(id)));
   for (let grew = true; grew;) {
     grew = false;
-    for (const m of mates) {
-      const ids = mateBodies(m).filter((id) => floating.has(id));
+    for (const ids of each) {
       if (ids.length > 1 && ids.some((id) => linked.has(id)) && ids.some((id) => !linked.has(id))) { for (const id of ids) linked.add(id); grew = true; }
     }
   }
