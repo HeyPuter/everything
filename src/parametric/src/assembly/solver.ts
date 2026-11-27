@@ -530,8 +530,11 @@ function mechanicalEquations(c: MechContext): number[] | null {
     case 'gear': {
       if (!isAxisLike(ga) || !isAxisLike(gb) || !m.a.body || !m.b.body) return null;
       const da = normalize(dirOf(ga)!), db0 = normalize(dirOf(gb)!);
-      // Parallel axes turn about the same direction: external gears turn opposite ways.
-      const db = dot(da, db0) < 0 ? scale(db0, -1) : db0;
+      // Parallel axes turn about the same direction: external gears turn opposite ways. Which
+      // way round is told where the solve started (bevel gears' axes are square: that the
+      // way did not change with every tiny tilt of them).
+      const sense = dot(normalize(qRotate(c.ra.q, dirOf(m.a.geo)!)), normalize(qRotate(c.rb.q, dirOf(m.b.geo)!)));
+      const db = sense < -1e-9 ? scale(db0, -1) : db0;
       const ta = c.turned(m.a, da), tb = c.turned(m.b, db);
       const va = m.value, vb = m.value2 ?? 0;
       if (!(va > 0) || !(vb > 0)) return null;

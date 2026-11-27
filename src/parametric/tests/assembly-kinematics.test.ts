@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, camProfile, mateBodies, mateMeasure, matesMoving, placeGeo, profileSupport, relativePlacement, turnAbout } from '../src/assembly/solver';
 import { type PartGeometry, camProfileOf } from '../src/assembly/compose';
 import { type MotorInput, MotionRun, computeMotion, degreesAbout, derivatives, framesSpread, mateSeries, pointPath, profileOf, resultsCsv, sameMotionGroups, turnPath, vectorDerivatives } from '../src/assembly/motion';
-import { type Quat, type Vec3, dot, len, normalize, qAxisAngle, qRotate, sub } from '../src/math/vec';
+import { type Quat, type Vec3, dot, len, normalize, qAxisAngle, qMul, qRotate, sub } from '../src/math/vec';
 import type { MateType, Placement } from '../src/model/assembly';
 
 const Z: Vec3 = [0, 0, 1], Y3: Vec3 = [0, 1, 0];
@@ -198,6 +198,17 @@ describe('mechanical mates', () => {
     const held = new MateSolver(s.bodies, [h1, h2, mate('gear', ['A', axis([0, 0, 0])], ['g', axis([30, 0, 0])], { value: 20, value2: 40 })]).analyze();
     expect(held.conflicts.size).toBe(0);
     expect(held.defined.has('A')).toBe(true);
+  });
+
+  it('bevel gears (square axes) keep their sense as the axes tilt a little either way', () => {
+    const X3: Vec3 = [1, 0, 0];
+    const g = mate('gear', ['A', axis([0, 0, 0])], ['B', axis([0, 0, 0], X3)], { value: 20, value2: 20 });
+    const s = new MateSolver([body('A', false), body('B', false, [20, 0, 10])], [g]);
+    const start = new Map(s.bodies.map((b) => [b.id, b.placement]));
+    // A turned 0.01 about z, B 0.01 about x and tilted a hair about y one way or the other.
+    const at = (tilt: number) => new Map(start).set('A', { p: [0, 0, 0], q: qAxisAngle(Z, 0.01) }).set('B', { p: [20, 0, 10], q: qMul(qAxisAngle([0, 1, 0], tilt), qAxisAngle(X3, 0.01)) });
+    const r1 = s.mateResidual(g, at(1e-7), 100, start)![0], r2 = s.mateResidual(g, at(-1e-7), 100, start)![0];
+    expect(Math.abs(r1 - r2)).toBeLessThan(1e-6);
   });
 
   it('dragging one gear by a tooth turns the other', () => {
