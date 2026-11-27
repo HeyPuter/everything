@@ -81,3 +81,33 @@ test('machines a part from the CAM tab: setup, tools, operations, simulation and
   await expect(page.getByRole('treeitem', { name: /^Contour1/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('CAM panels follow the tool library, deletions and the post settings', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Pipe Flange/ }).click();
+  await page.waitForFunction(() => !!(window as unknown as W).__parametric.bbox);
+  await page.getByRole('tab', { name: 'CAM' }).click();
+  await page.locator('[data-cmd="cam:setup"]').click();
+  await page.locator('.confirm-corner .ok').click();
+
+  // A smaller tool chosen in the tool library while the operation is open previews again.
+  await page.locator('[data-cmd="cam:contour"]').click();
+  const length = page.locator('.cam-stats tr', { hasText: 'Cutting length' }).locator('td');
+  await expect(length).toBeVisible({ timeout: 60_000 });
+  const before = await length.innerText();
+  await page.getByRole('button', { name: 'Tool Library...' }).click();
+  const tools = page.getByRole('dialog', { name: 'Tool Library' });
+  const dia = tools.getByRole('textbox', { name: 'Diameter' });
+  await dia.fill('3');
+  await dia.press('Tab');
+  await tools.getByRole('button', { name: 'OK' }).click();
+  await expect(length).not.toHaveText(before, { timeout: 60_000 });
+  await page.locator('.confirm-corner .ok').click();
+  await page.waitForFunction(() => {
+    const app = (window as unknown as W).__parametric;
+    const s = app.store.doc.cam!.setups[0];
+    return s.ops.length === 1 && app.cam!.state(s, s.ops[0]) === 'ok';
+  }, null, { timeout: 90_000 });
+  expect(errors).toEqual([]);
+});

@@ -18,6 +18,8 @@ import type { CamWorkspace } from './workspace';
 /** Panels of CAM (the workspace shows its overlays while one is open). */
 export abstract class CamPanel extends PropertyPanel {
   readonly camPanel = true;
+  /** The tool library changed (the dialog was confirmed while this panel is open). */
+  toolsChanged() {}
 }
 
 const AXES: { value: CamAxis; label: string }[] = [
@@ -239,6 +241,11 @@ export class OperationPanel extends CamPanel {
   }
 
   get edited() { return this.dirty || this.isNew; }
+
+  /** The tool's size or shape may have changed: the preview is made again. */
+  toolsChanged() {
+    this.schedule(0);
+  }
 
   private setup(): CamSetup | null {
     return this.ws.cam?.setups.find((s) => s.id === this.setupId) ?? null;

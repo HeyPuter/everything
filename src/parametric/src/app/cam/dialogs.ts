@@ -135,7 +135,10 @@ export async function toolLibraryDialog(app: App, ws: CamWorkspace, select?: str
     d.cam.tools = tools;
   });
   ws.changed();
-  if (app.panel instanceof CamPanel) app.refreshPanel();
+  if (app.panel instanceof CamPanel) {
+    app.panel.toolsChanged();
+    app.refreshPanel();
+  }
 }
 
 const EXTENSIONS: Record<CamController, string> = { fanuc: 'nc', haas: 'nc', mach3: 'tap', linuxcnc: 'ngc', grbl: 'gcode' };
