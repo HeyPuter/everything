@@ -78,7 +78,7 @@ export class StudyPanel extends FeaPanel {
     this.fineness = s.mesh.fineness;
   }
 
-  /** Shows the progress; false when the panel has no progress bar yet (it is drawn again). */
+  /** Shows the progress (the status bar announces it); false when the panel has no progress bar yet (it is drawn again). */
   progress(b: { stage: string; progress: number }): boolean {
     const bar = this.el.querySelector<HTMLProgressElement>('progress');
     const label = this.el.querySelector<HTMLElement>('.fea-stage');
@@ -126,7 +126,7 @@ export class StudyPanel extends FeaPanel {
     const runBtn = h('button', { class: 'btn small primary', type: 'button', disabled: !!ws.busy, onclick: () => void ws.run() }, icon('feaRun', 16), 'Run');
     const m = ws.mesh;
     const stats: HTMLElement[] = [];
-    if (ws.busy) stats.push(h('p', { class: 'field-label fea-stage', role: 'status' }, ws.busy.stage), h('progress', { max: '1', value: String(ws.busy.progress), 'aria-label': 'Progress' }), h('button', { class: 'btn small', type: 'button', onclick: () => ws.cancel() }, 'Cancel'));
+    if (ws.busy) stats.push(h('p', { class: 'field-label fea-stage' }, ws.busy.stage), h('progress', { max: '1', value: String(ws.busy.progress), 'aria-label': 'Progress' }), h('button', { class: 'btn small', type: 'button', onclick: () => ws.cancel() }, 'Cancel'));
     if (m) {
       const st = m.info.stats;
       const volErr = (st.volume / st.surfaceVolume - 1) * 100;
@@ -324,7 +324,7 @@ export class ResultsPanel extends FeaPanel {
   private plotted: unknown = null;
   private field: FieldName = 'vonMises';
 
-  /** Shows the progress; false when the panel has no progress bar yet (it is drawn again). */
+  /** Shows the progress (the status bar announces it); false when the panel has no progress bar yet (it is drawn again). */
   progress(b: { stage: string; progress: number }): boolean {
     const bar = this.el.querySelector<HTMLProgressElement>('progress');
     const label = this.el.querySelector<HTMLElement>('.fea-stage');
@@ -337,7 +337,7 @@ export class ResultsPanel extends FeaPanel {
     const app = this.app, ws = this.ws;
     if (ws.busy) {
       return [section('Running', [
-        h('p', { class: 'field-label fea-stage', role: 'status' }, ws.busy.stage),
+        h('p', { class: 'field-label fea-stage' }, ws.busy.stage),
         h('progress', { max: '1', value: String(ws.busy.progress), 'aria-label': 'Analysis progress' }),
         h('button', { class: 'btn small', type: 'button', onclick: () => ws.cancel() }, 'Cancel'),
       ], { icon: 'feaRun' })];

@@ -202,6 +202,10 @@ test('the results panel shows the progress of the first run, with Cancel', async
   const bar = page.getByRole('progressbar', { name: 'Analysis progress' });
   await expect(bar).toBeVisible();
   await expect(page.locator('.fea-stage')).not.toBeEmpty();
+  // Each stage is announced once, by the status bar (the panel's stage line is not a second live region).
+  await expect(page.locator('.statusbar .msg')).toHaveAttribute('role', 'status');
+  await expect(page.locator('.fea-stage')).not.toHaveAttribute('role', /./);
+  await expect(page.locator('.fea-stage').locator('xpath=ancestor-or-self::*[@aria-live or @role="status" or @role="alert"]')).toHaveCount(0);
   await page.locator('.pm-content').getByRole('button', { name: 'Cancel' }).click();
   await expect(bar).toHaveCount(0);
   await expect(page.getByText('Run the study to see its results.')).toBeVisible();
