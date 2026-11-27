@@ -42,6 +42,17 @@ describe('post processor', () => {
     expect(grbl.match(/^M0$/gm)).toHaveLength(1);
   });
 
+  it('never writes an arc that ends where it starts (a full circle)', () => {
+    // A tiny arc on a 0.1 mm radius, shorter than the output resolution.
+    const m = [RAPID, 5.1, 5, 20, FEED, 5.1, 5, -1];
+    for (let i = 1; i <= 4; i++) m.push(FEED, 5 + 0.1 * Math.cos(i * 1e-3), 5 + 0.1 * Math.sin(i * 1e-3), -1);
+    m.push(FEED, 0, 0, -1);
+    for (const units of ['mm', 'in'] as const) {
+      const code = postProcess(job([{ name: 'S', workOffset: 54, ops: [{ name: 'A', tool: tool(), rpm: 1000, feed: 500, plunge: 100, toolpath: path(m) }] }], {}, units));
+      expect(code).not.toMatch(/G[23] /);
+    }
+  });
+
   it('keeps line numbers within five digits', () => {
     const m: number[] = [RAPID, 0, 0, 20];
     for (let i = 0; i < 12000; i++) m.push(FEED, i % 2 ? 10 : 0, i * 0.01, -1);

@@ -117,6 +117,8 @@ export function postProcess(job: PostJob): string {
     x = nx; y = ny; z = nz; f = feed;
   };
   const arc = (cw: boolean, nx: number, ny: number, nz: number, cx: number, cy: number, feed: number) => {
+    // An arc ending where it starts (as written) is a full circle to the controller.
+    if (num(nx) === num(x) && num(ny) === num(y)) { linear(nx, ny, nz, feed); return; }
     const g = cw ? 'G2' : 'G3';
     let w = ` X${num(nx)} Y${num(ny)}`;
     if (num(nz) !== num(z)) w += ` Z${num(nz)}`;
