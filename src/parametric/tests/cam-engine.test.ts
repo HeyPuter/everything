@@ -193,6 +193,25 @@ describe('operations', () => {
     expect(a).toBeLessThan(0);
   });
 
+  it('keeps a small tool off the corners of a large part (a grid coarser than the tool)', () => {
+    const t = tool('flat', 0.3);
+    const s = setup({ stock: { mode: 'offset', side: 2, top: 0, bottom: 0, size: [0, 0, 0] } });
+    // 300 mm across: the grid's cells are wider than the tool, and its chords cut the corners.
+    const part = placePart(s, mesh(box(0, 0, 0, 300, 300, 2), box(300, 150, 0, 301.3, 150.2, 2)))!;
+    const tp = generateFor(part, { setup: s, op: op('contour', t, { stepdown: 2, lead: 0, breakthrough: 0 }), tool: t });
+    expect(tp.warnings).toEqual([]);
+    const dc = new DropCutter(part.index, makeCutter('flat', 0.14, 0, 0));
+    const ms = moves(tp);
+    for (let i = 1; i < ms.length; i++) {
+      const a = ms[i - 1], b = ms[i];
+      const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 0.01) + 1;
+      for (let k = 0; k <= n; k++) {
+        const u = k / n;
+        expect(dc.drop(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u)).toBeLessThanOrEqual(a.z + (b.z - a.z) * u + 1e-6);
+      }
+    }
+  });
+
   it('leaves holding tabs in the last passes', () => {
     const t = tool('flat', 6);
     const s = setup({ stock: { mode: 'offset', side: 5, top: 0, bottom: 0, size: [0, 0, 0] } });

@@ -216,7 +216,35 @@ class Gen {
       }
       return lo;
     });
-    return loops.filter((l) => polyLength(l.pts, 2, l.closed) > g.c * 1.5).map((l) => ({ pts: simplify(l.pts, tol, 2, l.closed), closed: l.closed }));
+    // On a grid coarse for the tool (a large part, a small tool) a chord between two
+    // crossings can cut across a corner of the part: points along it where the tool may
+    // not be are moved out onto the boundary, square to the chord (the inside is on the left).
+    const h = Math.max(r.dc.cutter.r * 0.5, 1e-3);
+    const fill = (pts: number[], closed: boolean) => {
+      const n = pts.length / 2, out: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const ax = pts[i * 2], ay = pts[i * 2 + 1];
+        out.push(ax, ay);
+        if (i === n - 1 && !closed) break;
+        const j = (i + 1) % n, bx = pts[j * 2], by = pts[j * 2 + 1];
+        const L = Math.hypot(bx - ax, by - ay), k = Math.ceil(L / h);
+        if (k < 2) continue;
+        const nx = -(by - ay) / L, ny = (bx - ax) / L;
+        for (let s = 1; s < k; s++) {
+          const px = ax + ((bx - ax) * s) / k, py = ay + ((by - ay) * s) / k;
+          if (at(px, py) >= 0) continue;
+          let lo = 0, hi = 2 * g.c;
+          if (at(px + nx * hi, py + ny * hi) < 0) continue;
+          for (let it = 0; it < 24 && hi - lo > 1e-5; it++) {
+            const m = (lo + hi) / 2;
+            if (at(px + nx * m, py + ny * m) >= 0) hi = m; else lo = m;
+          }
+          out.push(px + nx * hi, py + ny * hi);
+        }
+      }
+      return out;
+    };
+    return loops.filter((l) => polyLength(l.pts, 2, l.closed) > g.c * 1.5).map((l) => ({ pts: simplify(fill(l.pts, l.closed), tol, 2, l.closed), closed: l.closed }));
   }
 
   // ---------- path pieces ----------
