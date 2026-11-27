@@ -28,7 +28,7 @@ import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
 import { measureDimension } from '../sketch/ops';
 import type {
-  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
+  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeaSurface, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
   ProjectionRequest, ProjectionResult, WeldVolumes,
 } from './protocol';
 import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend, applyWeldBead } from './weldments';
@@ -1806,6 +1806,30 @@ export class ModelBuilder {
       writer.delete();
       progress.delete();
     }
+  }
+
+  /**
+   * The solid's boundary triangulated for the stress analysis mesher: each
+   * triangle with the index of its face (as in the build result's faces),
+   * at a chordal tolerance (mm), with the solid's exact volume.
+   */
+  feaSurface(tolerance: number): FeaSurface {
+    const st = this.current;
+    if (!st.body) throw new FeatureError('The part has no solid body to analyze.');
+    const b = boxOf(st.body);
+    const tol = Math.max(tolerance, (b ? dist(b.min, b.max) : 1) * 2e-5);
+    const m = meshShape(st.body, tol, 0.15);
+    const faceIndex = new ShapeIndex(st.faces.map((f) => f.shape));
+    const triFace = new Int32Array(m.indices.length / 3);
+    const claimed = new Set<number>();
+    for (let g = 0; g + 2 < m.faceGroups.length; g += 3) {
+      const start = m.faceGroups[g], count = m.faceGroups[g + 1], hash = m.faceGroups[g + 2];
+      const cands = faceIndex.findHash(hash);
+      const fi = cands.find((c) => !claimed.has(c)) ?? cands[0] ?? -1;
+      claimed.add(fi);
+      for (let t = start; t < start + count; t += 3) triFace[t / 3] = fi;
+    }
+    return { positions: m.positions, indices: m.indices, triFace, volume: volumeOf(st.body), faceNames: st.faces.map((f) => f.name) };
   }
 
   exportBrep(): string {
