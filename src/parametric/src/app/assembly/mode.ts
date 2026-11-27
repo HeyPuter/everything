@@ -17,7 +17,7 @@ import {
 } from '../../model/assembly';
 import { type ComposedModel, type PartGeometry, camProfileOf, combinedName, composeModel, edgeGeo, faceGeo, findEdge, findFace, placementMatrix } from '../../assembly/compose';
 import {
-  type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving,
+  type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving, relativePlacement,
 } from '../../assembly/solver';
 import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, framesSpread, profileOf, sameMotionGroups } from '../../assembly/motion';
 import { parseColor } from '../../platform/theme';
@@ -602,6 +602,31 @@ export class AssemblyMode {
     this.commit('Rename', (d) => {
       for (const x of [...d.components, ...d.mates, ...d.explode, ...d.studies ?? []]) if (x.id === id) x.name = name;
     }, false);
+  }
+
+  /**
+   * Flip Mate Alignment. A hinge's touching faces flip with its axis (the
+   * component turns over; flipped alone, the axis could not hold with the
+   * faces), and its angle limits then count from where it turned over to.
+   */
+  flipAlignment(id: Id) {
+    this.commit('Flip alignment', (d) => {
+      const m = d.mates.find((x) => x.id === id);
+      if (!m) return;
+      m.aligned = !m.aligned;
+      if (m.type !== 'hinge') return;
+      m.aligned2 = !m.aligned2;
+      if (!m.limit || !m.rel || !('comp' in m.a) || !('comp' in m.b)) return;
+      const limit = m.limit;
+      delete m.limit;
+      // (The components are put where it turned over to, so the solve with the limit starts there, at 0°.)
+      const pl = this.solveDoc(d).placements;
+      for (const c of d.components) { const p = pl.get(c.id); if (p && !c.fixed && !c.suppressed) c.placement = p; }
+      const at = (c: Id) => pl.get(c) ?? d.components.find((x) => x.id === c)?.placement;
+      const pa = at(m.a.comp), pb = at(m.b.comp);
+      if (pa && pb) m.rel = relativePlacement(pa, pb);
+      m.limit = limit;
+    });
   }
 
   study(id: Id): MotionStudy | undefined {

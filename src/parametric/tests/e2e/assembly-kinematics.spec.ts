@@ -862,3 +862,61 @@ test('a motion study is not calculated with a duration it refused', async ({ pag
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('Flip Mate Alignment turns a hinged component over instead of making the hinge over defined', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Small', disc(10)], ['Large', disc(20)]], ['Plate', 'Small', 'Large']);
+  await built(page, ['Plate<1>', 'Small<1>', 'Large<1>']);
+  const pm = page.locator('.pm');
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  // Hinge1 free, Hinge2 limited to ±45°.
+  for (const [gear, hole] of [['Small<1>', 'E1:side:h1'], ['Large<1>', 'E1:side:h2']]) {
+    await select(page, [{ comp: gear, face: 'E1:side:k' }, { comp: 'Plate<1>', face: hole }]);
+    await openMate(page, 'hinge');
+    await pm.getByRole('group', { name: 'Coincident selections' }).click();
+    await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+    await pick(page, { comp: gear, face: 'E1:cap0' });
+    if (gear === 'Large<1>') await pm.getByRole('checkbox', { name: /Limit the angle/ }).check();
+    await expect(pm.getByRole('status').filter({ hasText: 'The mate holds' })).toBeVisible();
+    await pm.getByRole('button', { name: 'OK' }).click();
+  }
+  const capZ = (name: string) => page.evaluate((name) => {
+    // Where the disc's back face (z = 0 in the part) is: on the plate's front (z = 10), or turned over into the plate.
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const pl = m.solved.get(m.doc.components.find((c) => c.name === name)!.id)!;
+    const [x, y] = pl.q;
+    return { z: pl.p[2], nz: 1 - 2 * (x * x + y * y) };
+  }, name);
+  for (const name of ['Hinge1', 'Hinge2']) {
+    const row = tree.getByRole('treeitem', { name: new RegExp(`^${name}`) });
+    await row.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Flip Mate Alignment' }).click();
+    await expect(row).not.toHaveAttribute('aria-description', /Error|Over/);
+    await expect(page.locator('.statusbar')).not.toContainText('Over Defined');
+  }
+  // Both discs turned over: their back faces now face the other way.
+  expect((await capZ('Small<1>')).nz).toBeCloseTo(-1, 6);
+  expect((await capZ('Large<1>')).nz).toBeCloseTo(-1, 6);
+  // The limited hinge still turns 45° either way from where it turned over to, and no further.
+  const turned = await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const id = m.doc.components.find((c) => c.name === 'Large<1>')!.id;
+    const mul = (a: number[], b: number[]) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+    const q0 = m.solved.get(id)!.q;
+    return [1, -1].map((dir) => {
+      let pl = new Map(m.solved);
+      for (let k = 1; k <= 8; k++) pl = m.dragSolve({ kind: 'rotate', body: id, q: mul([0, 0, Math.sin((dir * k * 10 * Math.PI) / 360), Math.cos((k * 10 * Math.PI) / 360)], q0) as [number, number, number, number] }, pl);
+      const d = mul(pl.get(id)!.q, [-q0[0], -q0[1], -q0[2], q0[3]]);
+      return (2 * Math.acos(Math.min(1, Math.abs(d[3]))) * 180) / Math.PI;
+    });
+  });
+  expect(turned[0]).toBeCloseTo(45, 3);
+  expect(turned[1]).toBeCloseTo(45, 3);
+  // One undo step each.
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.press('Meta+z');
+  expect((await capZ('Small<1>')).nz).toBeCloseTo(1, 6);
+  expect((await capZ('Large<1>')).nz).toBeCloseTo(1, 6);
+  expect(errors).toEqual([]);
+});

@@ -302,7 +302,7 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
       return [
         { label: 'Edit Mate', icon: 'edit', run: () => m.edit(mate.id) },
         { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(mate.id) },
-        ...(aligns ? [{ label: 'Flip Mate Alignment', icon: 'reset', run: () => m.commit('Flip alignment', (x) => { for (const y of x.mates) if (y.id === mate.id) y.aligned = !y.aligned; }) } as MenuItem] : []),
+        ...(aligns ? [{ label: 'Flip Mate Alignment', icon: 'reset', run: () => m.flipAlignment(mate.id) } as MenuItem] : []),
         ...(mate.type === 'cam' ? [{ label: 'Flip Follower Face', icon: 'reset', run: () => m.commit('Flip follower', (x) => { for (const y of x.mates) if (y.id === mate.id) y.flip = y.flip ? undefined : true; }) } as MenuItem] : []),
         ...(reverses ? [{ label: 'Reverse Direction', icon: 'reset', run: () => m.commit('Reverse direction', (x) => { for (const y of x.mates) if (y.id === mate.id) y.reverse = y.reverse ? undefined : true; }) } as MenuItem] : []),
         { label: mate.suppressed ? 'Unsuppress' : 'Suppress', icon: mate.suppressed ? 'eye' : 'eyeOff', run: () => m.commit(mate.suppressed ? 'Unsuppress' : 'Suppress', (x) => { for (const y of x.mates) if (ids.includes(y.id)) y.suppressed = mate.suppressed ? undefined : true; }) },
