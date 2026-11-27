@@ -78,11 +78,13 @@ export class StudyPanel extends FeaPanel {
     this.fineness = s.mesh.fineness;
   }
 
-  progress(_b: { stage: string; progress: number }) {
+  /** Shows the progress; false when the panel has no progress bar yet (it is drawn again). */
+  progress(b: { stage: string; progress: number }): boolean {
     const bar = this.el.querySelector<HTMLProgressElement>('progress');
     const label = this.el.querySelector<HTMLElement>('.fea-stage');
-    if (bar) bar.value = _b.progress;
-    if (label) label.textContent = _b.stage;
+    if (bar) bar.value = b.progress;
+    if (label) label.textContent = b.stage;
+    return !!bar;
   }
 
   private commit() {
@@ -317,11 +319,13 @@ export class ResultsPanel extends FeaPanel {
   private plotted: unknown = null;
   private field: FieldName = 'vonMises';
 
-  progress(b: { stage: string; progress: number }) {
+  /** Shows the progress; false when the panel has no progress bar yet (it is drawn again). */
+  progress(b: { stage: string; progress: number }): boolean {
     const bar = this.el.querySelector<HTMLProgressElement>('progress');
     const label = this.el.querySelector<HTMLElement>('.fea-stage');
     if (bar) bar.value = b.progress;
     if (label) label.textContent = b.stage;
+    return !!bar;
   }
 
   render(): HTMLElement[] {

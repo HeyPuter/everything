@@ -196,7 +196,8 @@ export class FeaWorkspace {
     if (was !== stage || Math.round(progress * 100) % 5 === 0) {
       this.app.renderTrees();
       const p = this.app.panel;
-      if (p instanceof ResultsPanel || p instanceof StudyPanel) p.progress(this.busy);
+      // A panel drawn before the run started shows it now (its progress bar, Cancel, disabled buttons).
+      if ((p instanceof ResultsPanel || p instanceof StudyPanel) && !p.progress(this.busy)) this.app.refreshPanel();
     }
   }
 

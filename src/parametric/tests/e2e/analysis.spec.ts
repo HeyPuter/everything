@@ -192,3 +192,24 @@ test('the panel of a fixture or load closes when it is deleted', async ({ page }
   await expect(page.locator('.pm-head')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('the results panel shows the progress of the first run, with Cancel', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Finer', (d) => { d.study!.mesh.fineness = 0.7; }));
+  await page.locator('[data-cmd="fea:run"]').click();
+  const bar = page.getByRole('progressbar', { name: 'Analysis progress' });
+  await expect(bar).toBeVisible();
+  await expect(page.locator('.fea-stage')).not.toBeEmpty();
+  await page.locator('.pm-content').getByRole('button', { name: 'Cancel' }).click();
+  await expect(bar).toHaveCount(0);
+  await expect(page.getByText('Run the study to see its results.')).toBeVisible();
+  // Mesh Now in the study panel shows its progress too.
+  await page.locator('[data-cmd="fea:study"]').click();
+  await page.getByRole('button', { name: 'Mesh Now' }).click();
+  await expect(page.getByRole('progressbar', { name: 'Progress' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mesh Now' })).toBeDisabled();
+  await expect(page.locator('.fea-stats')).toBeVisible({ timeout: 120_000 });
+  expect(errors).toEqual([]);
+});
