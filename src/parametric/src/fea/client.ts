@@ -39,8 +39,11 @@ export class FeaClient {
   private ensure(): Worker {
     if (this.worker) return this.worker;
     const w = this.create();
+    let started = false;
     w.onmessage = (ev: MessageEvent<FeaWorkerResponse>) => {
       const r = ev.data;
+      started = true;
+      if (r.type === 'ready') return;
       const p = this.pending.get(r.id);
       if (!p) return;
       if (r.type === 'progress') { p.progress?.(r.stage, r.value); return; }
@@ -50,7 +53,10 @@ export class FeaClient {
     };
     w.onerror = (ev) => {
       ev.preventDefault?.();
-      this.fail(new Error(`The analysis stopped${ev.message ? ` (${ev.message})` : ''}. The part may be too large for this mesh size: try a coarser mesh.`));
+      // A worker that never started could not load its code (offline, or the app was updated): not the part's fault.
+      this.fail(new Error(started
+        ? `The analysis stopped${ev.message ? ` (${ev.message})` : ''}. The part may be too large for this mesh size: try a coarser mesh.`
+        : `The analysis could not start${ev.message ? ` (${ev.message})` : ''}. Check the connection and reload the page.`));
     };
     this.worker = w;
     this.meshed = false;

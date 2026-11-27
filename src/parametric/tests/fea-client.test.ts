@@ -16,10 +16,12 @@ type Scope = { onmessage: ((ev: MessageEvent<FeaWorkerRequest>) => void) | null;
 const scope: Scope = { onmessage: null, postMessage: () => {} };
 const g = globalThis as unknown as { self?: unknown };
 const hadSelf = 'self' in g, oldSelf = g.self;
+let firstMessage: FeaWorkerResponse | undefined;
 
 beforeAll(async () => {
   setOc(await init());
   g.self = scope;
+  scope.postMessage = (m) => { firstMessage ??= m; };
   await import('../src/fea/worker');
 });
 afterAll(() => { if (hadSelf) g.self = oldSelf; else delete g.self; });
@@ -125,10 +127,25 @@ describe('analysis worker and client', () => {
     expect(workers).toHaveLength(2);
   });
 
+  it('the worker says when its code has loaded', () => {
+    expect(firstMessage).toEqual({ id: 0, type: 'ready' });
+  });
+
+  it('a worker that cannot load its code says so, not that the part is too large', async () => {
+    const workers: SilentWorker[] = [];
+    const client = new FeaClient(() => { const w = new SilentWorker(); workers.push(w); return w as unknown as Worker; });
+    const p = client.mesh({ positions: new Float32Array(9), indices: new Uint32Array(3), triFace: new Int32Array(1) }, 1);
+    workers[0].onerror!({ preventDefault: () => {} });
+    await expect(p).rejects.toThrow(/could not start.*reload the page/);
+    await expect(p).rejects.not.toThrow(/coarser mesh/);
+    expect(client.busy).toBe(false);
+  });
+
   it('a worker that dies (out of memory) fails its requests with advice instead of hanging', async () => {
     const workers: SilentWorker[] = [];
     const client = new FeaClient(() => { const w = new SilentWorker(); workers.push(w); return w as unknown as Worker; });
     const p = client.solve({ E: 1, nu: 0.3, density: 0, fixtures: [], loads: [] });
+    workers[0].onmessage!({ data: { id: 0, type: 'ready' } } as MessageEvent<FeaWorkerResponse>);
     let prevented = false;
     workers[0].onerror!({ message: 'Uncaught RangeError: Array buffer allocation failed', preventDefault: () => { prevented = true; } });
     await expect(p).rejects.toThrow(/Array buffer allocation failed.*coarser mesh/);

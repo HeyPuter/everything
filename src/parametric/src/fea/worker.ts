@@ -15,12 +15,16 @@ export type FeaWorkerRequest =
   | { id: number; type: 'solve'; input: StaticInput };
 
 export type FeaWorkerResponse =
+  /** Sent once when the worker's code has loaded. */
+  | { id: 0; type: 'ready' }
   | { id: number; type: 'progress'; stage: string; value: number }
   | { id: number; type: 'done'; result: unknown }
   | { id: number; type: 'error'; error: string; user: boolean };
 
 let mesh: TetMesh | null = null;
 let viewMap: Int32Array | null = null;
+
+self.postMessage({ id: 0, type: 'ready' } satisfies FeaWorkerResponse);
 
 self.onmessage = (ev: MessageEvent<FeaWorkerRequest>) => {
   const msg = ev.data;
