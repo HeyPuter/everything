@@ -237,7 +237,16 @@ export async function postDialog(app: App, ws: CamWorkspace) {
   const refresh = () => { preview.textContent = 'Writing...'; pending = make(); };
   const setupChecks = cam.setups.map((s) => checkbox(s.name, true, (v) => { if (v) chosen.add(s.id); else chosen.delete(s.id); refresh(); }));
   const progNum = h('input', { class: 'input', id: nextDomId('prog'), inputmode: 'numeric', value: String(post.program) }) as HTMLInputElement;
-  progNum.addEventListener('change', () => { const n = Math.round(Number(progNum.value)); if (n >= 1 && n <= 99999) { post.program = n; refresh(); } });
+  const progBad = 'The program number is a whole number from 1 to 99999.';
+  progNum.addEventListener('change', () => {
+    const n = Number(progNum.value.trim());
+    const ok = progNum.value.trim() !== '' && Number.isInteger(n) && n >= 1 && n <= 99999;
+    progNum.classList.toggle('invalid', !ok);
+    if (!ok) { progNum.setAttribute('aria-invalid', 'true'); progNum.title = progBad; return; }
+    progNum.removeAttribute('aria-invalid');
+    progNum.title = '';
+    if (n !== post.program) { post.program = n; refresh(); }
+  });
   const body = h('div', { class: 'cam-post' },
     h('div', { class: 'cam-post-side' },
       selectField<CamController>('Machine controller', post.controller, Object.entries(CONTROLLER_LABELS).map(([value, label]) => ({ value: value as CamController, label })), (v) => { post.controller = v; refresh(); }),
@@ -255,6 +264,8 @@ export async function postDialog(app: App, ws: CamWorkspace) {
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Copy', value: 'copy' }, { label: 'Download G-code', primary: true, value: 'ok' }],
     onAction: async (val) => {
       if (val === 'cancel') return;
+      // Not written with a number other than the one typed.
+      if (progNum.getAttribute('aria-invalid')) { status.hidden = false; status.className = 'pm-msg error'; status.textContent = progBad; progNum.focus(); return false; }
       // Settings just changed: what is written is the program for them.
       await pending;
       if (!code) { status.hidden = false; status.className = 'pm-msg error'; status.textContent = 'There is no G-code to write.'; return false; }

@@ -162,6 +162,17 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   await page.locator('[data-cmd="cam:post"]').click();
   const post = page.getByRole('dialog', { name: 'Post Process' });
   await expect(post.getByLabel('G-code preview')).toContainText('O1001', { timeout: 60_000 });
+  // A program number that is not one is marked, and nothing is written with another number.
+  const prog = post.getByLabel('Program number');
+  await prog.fill('12a');
+  await prog.press('Tab');
+  await expect(prog).toHaveAttribute('aria-invalid', 'true');
+  await post.getByRole('button', { name: 'Download G-code' }).click();
+  await expect(post.getByText('The program number is a whole number from 1 to 99999.')).toBeVisible();
+  await prog.fill('1002');
+  await prog.press('Tab');
+  await expect(prog).not.toHaveAttribute('aria-invalid');
+  await expect(post.getByLabel('G-code preview')).toContainText('O1002');
   const download = page.waitForEvent('download');
   await post.evaluate((dialog) => {
     const controller = dialog.querySelector('select')!;
@@ -172,7 +183,7 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/\.gcode$/);
   const fs = await import('node:fs');
-  expect(new TextDecoder().decode(fs.readFileSync((await file.path())!))).not.toContain('O1001');
+  expect(new TextDecoder().decode(fs.readFileSync((await file.path())!))).not.toContain('O1002');
 
   // An operation deleted from the tree while its panel is open is not brought back by OK.
   await page.getByRole('treeitem', { name: /^Contour1/ }).dblclick();
