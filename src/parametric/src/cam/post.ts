@@ -130,7 +130,10 @@ export function postProcess(job: PostJob): string {
   };
   const dwell = (sec: number) => {
     if (sec <= 0) return;
-    out(job.post.controller === 'fanuc' || job.post.controller === 'haas' ? `G4 X${sec.toFixed(2)}` : `G4 P${sec.toFixed(2)}`);
+    // Fanuc: X in seconds; Haas: P without a decimal point in milliseconds (its mills have no X
+    // dwell word); the others: P in seconds.
+    const c = job.post.controller;
+    out(c === 'fanuc' ? `G4 X${sec.toFixed(2)}` : c === 'haas' ? `G4 P${Math.round(sec * 1000)}` : `G4 P${sec.toFixed(2)}`);
   };
 
   let offset: number | null = null;

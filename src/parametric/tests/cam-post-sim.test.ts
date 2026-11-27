@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { simulate } from '../src/cam/simulate';
 import { postProcess, type PostJob } from '../src/cam/post';
 import { TriIndex } from '../src/cam/dropcutter';
-import { FEED, PLUNGE, RAPID, type Toolpath } from '../src/cam/toolpath';
-import { type CamTool, newCamDoc, normalizeCam } from '../src/model/cam';
+import { CYCLE, FEED, PLUNGE, RAPID, type Toolpath } from '../src/cam/toolpath';
+import { type CamController, type CamTool, newCamDoc, normalizeCam } from '../src/model/cam';
 
 const tool = (extra: Partial<CamTool> = {}): CamTool => ({
   id: 'tt', number: 1, name: 'tool', type: 'flat', diameter: 6, fluteLength: 30, flutes: 2, rpm: 10000, feed: 1000, plunge: 300, coolant: true, ...extra,
@@ -51,6 +51,15 @@ describe('post processor', () => {
       const code = postProcess(job([{ name: 'S', workOffset: 54, ops: [{ name: 'A', tool: tool(), rpm: 1000, feed: 500, plunge: 100, toolpath: path(m) }] }], {}, units));
       expect(code).not.toMatch(/G[23] /);
     }
+  });
+
+  it('writes dwells in the units of each controller', () => {
+    const tp: Toolpath = { moves: Float64Array.from([RAPID, 5, 5, 20, RAPID, 5, 5, 2, CYCLE, 5, 5, 0]), cycles: [{ cycle: 'peck', r: 2, z: -6, peck: 2, dwell: 0.5 }], clearance: 20, warnings: [] };
+    const dwell = (controller: CamController) => postProcess(job([{ name: 'S', workOffset: 54, ops: [{ name: 'D', tool: tool(), rpm: 1000, feed: 500, plunge: 100, toolpath: tp }] }], { controller })).match(/G4 .*/)?.[0];
+    expect(dwell('fanuc')).toBe('G4 X0.50');
+    expect(dwell('haas')).toBe('G4 P500');
+    expect(dwell('linuxcnc')).toBe('G4 P0.50');
+    expect(dwell('grbl')).toBe('G4 P0.50');
   });
 
   it('keeps line numbers within five digits', () => {
