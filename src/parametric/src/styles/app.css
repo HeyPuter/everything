@@ -710,3 +710,34 @@ a.icon-btn { text-decoration: none; }
 .weld-cutlist th, .weld-cutlist td { white-space: nowrap; }
 .weld-cutlist th.num, .weld-cutlist td.num { text-align: right; }
 .weld-cutlist tfoot th, .weld-cutlist tfoot td { font-weight: 600; border-bottom: none; }
+
+/* ---------- CAM ---------- */
+.cam-stats td.num { text-align: right; }
+.cam-play { gap: 6px; align-items: center; }
+.cam-slider { width: 100%; accent-color: var(--accent); }
+.cam-clock { font-family: var(--font-mono); }
+.cam-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-sm); color: var(--text-2); }
+.cam-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cam-legend i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border-strong); }
+.pm-content progress { width: 100%; accent-color: var(--accent); }
+.cam-tools { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.cam-tools-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cam-tools-side .row { gap: 6px; flex-wrap: wrap; }
+.cam-tool-list { border: 1px solid var(--border); border-radius: var(--radius); max-height: 340px; overflow: auto; background: var(--panel); }
+.cam-tool-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cam-tool { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.cam-tool:last-child { border-bottom: 0; }
+.cam-tool .num { font-family: var(--font-mono); color: var(--text-2); flex: none; width: 34px; }
+.cam-tool .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cam-tool .muted { color: var(--text-3); flex: none; }
+.cam-tool[aria-selected='true'] { background: var(--accent-weak, var(--panel-2)); }
+.cam-tool:hover { background: var(--panel-2); }
+.cam-tool-form { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cam-post { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; align-items: start; }
+.cam-post-side { display: flex; flex-direction: column; gap: 8px; }
+.cam-post-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cam-gcode { margin: 0; height: 360px; overflow: auto; padding: 8px 10px; font: 12px/1.45 var(--font-mono); background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); white-space: pre; user-select: text; -webkit-user-select: text; }
+@media (max-width: 760px) {
+  .cam-tools, .cam-post { grid-template-columns: minmax(0, 1fr); }
+  .cam-gcode { height: 220px; }
+}

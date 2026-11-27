@@ -11,6 +11,7 @@ import { uniqueId } from './ids';
 import { validFeature } from './validate-feature';
 import { validSketch } from './validate-sketch';
 import { validDrawing } from './validate-drawing';
+import { camIds, normalizeCam } from './cam';
 import { solveSketch } from '../sketch/solver';
 import { hasExternal } from '../sketch/external';
 
@@ -81,11 +82,13 @@ export function parseDocument(text: string): PartDocument {
   for (const k of ['created', 'modified'] as const) if (!Number.isFinite(doc[k]) || Math.abs(doc[k]) > 8.64e15) doc[k] = base[k];
   if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density) && doc.material.density > 0)) doc.material = null;
   if (doc.drawing != null && !validDrawing(doc.drawing)) throw new Error('The part file is damaged (invalid drawing).');
+  // Machining data that cannot be read is dropped rather than refusing the part.
+  if (doc.cam != null) doc.cam = normalizeCam(doc.cam);
   for (const f of doc.features) if (typeof f.name !== 'string' || !f.name) f.name = f.id;
   // New feature ids must not collide with existing ones, even when the file's
   // counter is missing or stale.
   let maxId = 0;
-  for (const f of [...doc.features, ...doc.variables]) {
+  for (const f of [...doc.features, ...doc.variables, ...camIds(doc.cam).map((id) => ({ id }))]) {
     const m = /^[a-z]+(\d+)$/i.exec(String(f?.id ?? ''));
     const suffix = m ? Number(m[1]) : NaN;
     // Unsafe suffixes cannot be emitted by the numeric allocator.

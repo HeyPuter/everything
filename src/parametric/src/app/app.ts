@@ -137,6 +137,8 @@ export class App {
   onDocumentChanged: (reason: string) => void = () => {};
   /** Renames the part and its saved file, as Rename Part does (set by the file operations). */
   renamePart: ((name: string) => Promise<void>) | null = null;
+  /** CAM of the part: toolpaths and their display (set up by the CAM module). */
+  cam: import('./cam/workspace').CamWorkspace | null = null;
   /** The open assembly's interface and geometry; null while a part is open (set up by the assembly module). */
   assembly: AssemblyMode | null = null;
   /** Called when a document is loaded, to switch between part and assembly mode (set by the assembly module). */
@@ -387,7 +389,16 @@ export class App {
     this.setRibbonTab(this.ribbonTab);
   }
 
+  /** The CommandManager tab shown. */
+  get ribbonTabId(): string {
+    return this.ribbonTab;
+  }
+
+  /** Called when another CommandManager tab is shown. */
+  readonly ribbonTabListeners: ((id: string) => void)[] = [];
+
   setRibbonTab(id: string) {
+    const changed = id !== this.ribbonTab;
     this.ribbonTab = id;
     for (const b of this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')) {
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
@@ -409,6 +420,7 @@ export class App {
     }
     const tab = this.hooks.ribbonTabs.find((t) => t.id === id)!;
     renderRibbon(this.shell.cmTools, tab, this.commands);
+    if (changed) for (const fn of this.ribbonTabListeners) fn(id);
   }
 
   private buildHud() {
@@ -1099,6 +1111,11 @@ export class App {
     }
     this.commands.changed();
     if (this.inDrawing) void this.drawing.refresh();
+  }
+
+  /** The part's body mesh as the last rebuild made it (null without one). */
+  get modelMesh(): MeshData | null {
+    return this.shownMesh;
   }
 
   /** Shows the part's body again after a mode showed another mesh in its place (the flat pattern). */

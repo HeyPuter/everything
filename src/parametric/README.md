@@ -4,7 +4,7 @@
 
 <p align="center"><strong>Live app:</strong> <a href="https://parametric.puter.com/">parametric.puter.com</a></p>
 
-<p align="center">Feature-based parametric 3D CAD in the browser. An open-source alternative to SolidWorks, Autodesk Fusion and Autodesk Inventor.</p>
+<p align="center">Feature-based parametric 3D CAD and CAM in the browser. An open-source alternative to SolidWorks, Autodesk Fusion and Autodesk Inventor.</p>
 
 > **Early alpha.** Features may change and work could be lost. Please do not rely on Parametric for production designs yet, and keep a downloaded copy of anything important.
 
@@ -74,6 +74,15 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Sheet metal drawings: a Flat Pattern view (Drafting tab, or Add view) shows the flat outline and cuts, the bend lines (dashed up, chain lines down) with their notes ("UP 90° R 1") and the overall size; it can be dimensioned and detailed like any view.
 - Weldment drawings: a Cut List table (Annotation tab) with item, quantity, description, length and end angles, which follows the part, and balloons on members numbered from it.
 
+**CAM (machining)**
+- A CAM tab turns the part into CNC programs. A setup says where the part sits on the machine: the direction the tool comes from (any side of the part, picked from a list or from a flat face), a turn about it, the stock (a margin around the part or a fixed block), the work origin (a corner or the centre of the stock's top, or the part's origin), the work offset (G54 to G59) and the clearance and retract heights. A second setup usually machines the other side.
+- A tool library of flat, ball and bull nose end mills, drills and chamfer mills with their flutes, speeds and feeds, kept with the part.
+- 2D operations: Face (the top of the stock down to the part), 2D Contour (round the outside through the full height, with lead-in arcs, a ramp down along the wall and holding tabs), 2D Pocket (down to picked floors, offset or zigzag passes, entering by a helix, a ramp or a plunge), Drill (drilling, deep peck and chip breaking cycles on every hole of the drill's size or those picked; through holes found by themselves) and Bore (helical milling of holes larger than the tool).
+- 3D operations: 3D Rough (the stock around the whole part in levels, with stock to leave and extra levels at its flat areas), Parallel finishing and Waterline finishing, with ball, bull nose or flat end mills.
+- Climb or conventional milling, stock to leave on walls and floors, feeds and speeds per operation. The toolpath shows while an operation is edited, with its machining time; operations are listed under CAM in the design tree, marked when the part changed since they were generated.
+- Every toolpath is checked against the part; Simulate cuts the stock operation by operation and plays it back with the tool, coloured by what is finished, what is left and where the part would be cut, and reports rapid moves through the stock and material above the flutes.
+- Post Process writes G-code for Fanuc, Haas, LinuxCNC, Mach3/Mach4 or Grbl, in millimetres or inches, with arcs (G2/G3, helical) and drilling cycles (G81, G82, G83, G73) where the controller has them; preview it, copy it or download it.
+
 **Working with parts**
 - Design tree with rollback bar, suppress, rename, hide/show, edit and delete with dependency warnings.
 - Global variables and equations: type `=Width/2` in any dimension or feature value.
@@ -116,6 +125,7 @@ npm run build      # type check, license check, production build in dist/
 | Renderer | `src/render` | WebGL2: shaded meshes with per-face state in a data texture, screen-space thick edges, GPU picking with depth (asynchronous readback for hover), section clipping, render on demand. |
 | Interface | `src/app`, `src/ui` | No framework. CommandManager, design tree, PropertyManager panels, sketch editor, dialogs. |
 | SolidWorks import | `src/formats/sldprt` | Reads the SolidWorks container (2015+ chunk format and the older OLE2), decodes the embedded Parasolid transmit and writes it as exact STEP for the kernel. Runs in the geometry worker. |
+| CAM | `src/model/cam.ts`, `src/cam`, `src/app/cam` | Toolpaths are generated in a worker of their own from a fine mesh of the part, in the setup's work coordinates. Drop-cutter (`src/cam/dropcutter.ts`) gives the lowest height a flat, ball, bull nose or conical cutter can reach at a point (face, edge and corner contacts, exact where a closed form exists). Where the tool can be at a height is where that is lower: its boundary is traced by marching squares with each crossing refined by bisection on the drop-cutter, and the passes inside it are offsets of a distance transform, cut from the innermost out. Parallel finishing follows drop-cutter heights along lines. The simulation lowers a height map of the stock along every move. Post processors write the moves with arcs fitted to them. |
 | Assistant | `src/assistant` | Tool-calling agent on Puter AI. Tools work on the document through a host interface (the app, or the kernel in Node for tests); each change rebuilds and is checked, failing steps are reverted, and a message's changes are squashed into one undo step. |
 | Platform | `src/platform` | Puter.js access, files (Puter or browser storage), theme. |
 
