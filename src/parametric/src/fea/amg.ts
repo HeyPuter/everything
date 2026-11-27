@@ -524,7 +524,10 @@ export function galerkin(A: BlockMatrix, P: Prolongator): BlockMatrix {
             const x = val[ar + m];
             if (x === 0) continue;
             const pm = pv + m * c;
-            for (let k = 0; k < c; k++) acc[orow + k] += x * Pv[pm + k];
+            if (c === 6) {
+              acc[orow] += x * Pv[pm]; acc[orow + 1] += x * Pv[pm + 1]; acc[orow + 2] += x * Pv[pm + 2];
+              acc[orow + 3] += x * Pv[pm + 3]; acc[orow + 4] += x * Pv[pm + 4]; acc[orow + 5] += x * Pv[pm + 5];
+            } else for (let k = 0; k < c; k++) acc[orow + k] += x * Pv[pm + k];
           }
         }
       }
@@ -542,7 +545,10 @@ export function galerkin(A: BlockMatrix, P: Prolongator): BlockMatrix {
             const x = Pv[pm + r];
             if (x === 0) continue;
             const dr = d + r * c;
-            for (let k = 0; k < c; k++) vl[dr + k] += x * acc[om + k];
+            if (c === 6) {
+              vl[dr] += x * acc[om]; vl[dr + 1] += x * acc[om + 1]; vl[dr + 2] += x * acc[om + 2];
+              vl[dr + 3] += x * acc[om + 3]; vl[dr + 4] += x * acc[om + 4]; vl[dr + 5] += x * acc[om + 5];
+            } else for (let k = 0; k < c; k++) vl[dr + k] += x * acc[om + k];
           }
         }
       }
