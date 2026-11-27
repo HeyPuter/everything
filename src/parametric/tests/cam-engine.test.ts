@@ -312,6 +312,33 @@ describe('operations', () => {
     for (const m of helix) expect(Math.hypot(m.x - 20, m.y - 20)).toBeCloseTo(1, 6);
     void part;
   });
+
+  it('bores a blind hole wider than two tools without leaving a core in it', () => {
+    const em = tool('flat', 3);
+    const s = setup({ stock: { mode: 'offset', side: 5, top: 0, bottom: 0, size: [0, 0, 0] } });
+    // A 12 mm hole 6 deep in a 40 x 40 x 10 plate (its wall a cylinder of triangles).
+    const wall: number[] = [];
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2, b = ((i + 1) / 48) * Math.PI * 2;
+      const p = (t: number, z: number) => [20 + 6 * Math.cos(t), 20 + 6 * Math.sin(t), z];
+      wall.push(...p(a, 4), ...p(b, 4), ...p(b, 10), ...p(a, 4), ...p(b, 10), ...p(a, 10));
+    }
+    const part = placePart(s, mesh(box(0, 0, 0, 40, 40, 4), box(0, 0, 4, 40, 14, 10), box(0, 26, 4, 40, 40, 10), box(0, 14, 4, 14, 26, 10), box(26, 14, 4, 40, 26, 10)))!;
+    const cyl = [{ name: 'F1', p: [20, 20, 0] as Vec3, d: [0, 0, 1] as Vec3, radius: 6, tris: Float32Array.from(wall) }];
+    const tp = generateFor(part, { setup: s, op: op('bore', em, { pitch: 1 }), tool: em, cylinders: cyl, picked: ['F1'] });
+    expect(tp.warnings.filter((w) => /cuts into/.test(w))).toEqual([]);
+    const sim = simulate({ stock: part.frame.stock, part: part.index, steps: [{ toolpath: tp, tool: em, feed: 1000, plunge: 300 }], rapidFeed: 5000, cell: 0.1 });
+    expect(sim.gouges).toBe(0);
+    expect(sim.rapidCuts[0]).toBe(0);
+    // Down to the floor everywhere in the hole: a helix at the wall alone leaves a 6 mm core.
+    const g = sim.grid;
+    const last = sim.snapshots[sim.snapshots.length - 1].z;
+    let top = -Infinity;
+    for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
+      if (Math.hypot(g.x0 + i * g.c - 20, g.y0 + j * g.c - 20) < 5.8) top = Math.max(top, last[j * g.nx + i]);
+    }
+    expect(top).toBeLessThan(4.05);
+  });
 });
 
 describe('simulation and G-code', () => {

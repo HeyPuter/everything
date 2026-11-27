@@ -802,8 +802,16 @@ class Gen {
       const z = h.through ? h.bottom - Math.max(0, op.breakthrough) : h.bottom;
       // Down from over the stock (it may not be cut over the hole yet).
       const zFrom = this.stockTop + 0.5;
-      b.rapidTo(h.x + rh, h.y, b.retract);
-      this.helix(h.x, h.y, rh, zFrom, z, Math.max(0.05, op.pitch), climb);
+      // A helix at the wall alone would leave a core standing in a hole wider than
+      // two tools: helices from the middle out, a tool radius apart, the wall's last.
+      const radii = [rh];
+      const inner = this.R * 0.5, n = rh > this.R ? Math.ceil((rh - inner) / this.R) : 0;
+      for (let k = 1; k <= n; k++) radii.unshift(rh - ((rh - inner) * k) / n);
+      for (const [i, r] of radii.entries()) {
+        if (i === 0) b.rapidTo(h.x + r, h.y, b.retract);
+        else { b.rapid(b.x, b.y, zFrom); b.rapid(h.x + r, h.y, zFrom); }
+        this.helix(h.x, h.y, r, zFrom, z, Math.max(0.05, op.pitch), climb);
+      }
       // Away from the wall and out through the middle.
       b.feed(h.x, h.y, z);
       b.rapid(h.x, h.y, b.retract);
