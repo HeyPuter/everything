@@ -369,6 +369,22 @@ test.describe('on a phone', () => {
     expect(ticks.y + ticks.height).toBeLessThanOrEqual(bar.y + bar.height + 1);
     expect(errors).toEqual([]);
   });
+
+  test('the Analysis ribbon labels break only between words', async ({ page }) => {
+    const errors = await openApp(page);
+    await bracketStudy(page);
+    // Words of a label wider than the label: a word broken across lines ("Roller/Slid er").
+    const broken = await page.evaluate(() => {
+      const c = document.createElement('canvas').getContext('2d')!;
+      return [...document.querySelectorAll<HTMLElement>('.cm-tools .tool .lbl')].flatMap((l) => {
+        const cs = getComputedStyle(l);
+        c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        return l.textContent!.split(/\s+/).some((w) => c.measureText(w).width > l.clientWidth + 0.5) ? [l.textContent!] : [];
+      });
+    });
+    expect(broken).toEqual([]);
+    expect(errors).toEqual([]);
+  });
 });
 
 test('Tab from the study name keeps the keyboard focus in the study panel', async ({ page }) => {

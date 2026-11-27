@@ -251,8 +251,8 @@ a.icon-btn { text-decoration: none; }
 }
 .tool .lbl { white-space: normal; overflow-wrap: anywhere; }
 /* The sheet metal, surfaces, weldments, drawing and assembly tabs: labels break between words only, and a word wider than the button widens it. */
-:is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly']) .tool:not(.row) { max-width: none; }
-:is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly']) .tool:not(.row) .lbl { overflow-wrap: normal; min-width: min-content; max-width: 68px; }
+:is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly'], .cm-tools[data-tab='analysis']) .tool:not(.row) { max-width: none; }
+:is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly'], .cm-tools[data-tab='analysis']) .tool:not(.row) .lbl { overflow-wrap: normal; min-width: min-content; max-width: 68px; }
 .tool:hover:not(:disabled) { background: var(--hover); }
 .tool:active:not(:disabled) { background: var(--active); }
 .tool[aria-pressed='true'] { background: var(--accent-weak); border-color: var(--accent-border); }
@@ -629,8 +629,8 @@ a.icon-btn { text-decoration: none; }
   .cm-stack { flex-direction: row; align-items: stretch; }
   .tool.row { flex-direction: column; height: auto; min-width: 46px; max-width: 64px; padding: 4px; }
   .tool.row .lbl { white-space: normal; font-size: 10px; }
-  :is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly']) .tool { max-width: none; }
-  :is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly']) .tool:is(:not(.row), .row) .lbl { overflow-wrap: normal; min-width: min-content; max-width: 54px; }
+  :is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly'], .cm-tools[data-tab='analysis']) .tool { max-width: none; }
+  :is(.cm-tools[data-tab='sheetMetal'], .cm-tools[data-tab='surfaces'], .cm-tools[data-tab='weldments'], .cm-tools[data-tab='drawing'], .cm-tools[data-tab='annotation'], .cm-tools[data-tab='assembly'], .cm-tools[data-tab='analysis']) .tool:is(:not(.row), .row) .lbl { overflow-wrap: normal; min-width: min-content; max-width: 54px; }
   .leftpane {
     position: absolute; z-index: 20; left: 0; right: 0; bottom: 0; top: auto; width: 100% !important; max-width: none; height: min(52dvh, 460px);
     border-right: 0; border-top: 1px solid var(--border-strong); border-radius: 12px 12px 0 0; transform: translateY(105%); transition: transform 0.18s ease, height 0.18s ease;
