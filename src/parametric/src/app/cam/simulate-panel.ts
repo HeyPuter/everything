@@ -166,10 +166,32 @@ export class SimulationPanel extends CamPanel {
     return this.ws.cam?.setups.find((s) => s.id === this.setupId) ?? null;
   }
 
+  /** Each start replaces the one before (the tool library changed). */
+  private runs = 0;
+
+  /** The tools changed: what was simulated no longer holds, so the setup is simulated again. */
+  toolsChanged() {
+    this.runs++;
+    this.ws.cancelSimulation();
+    this.play(false);
+    this.res = null;
+    this.error = null;
+    this.progress = 0;
+    this.phase = 'Generating toolpaths...';
+    this.tools = [];
+    this.names = [];
+    this.shownSnap = -1;
+    this.setMessage(null);
+    this.app.renderer.setSolid('camStock', null);
+    this.app.renderer.setSolid('camTool', null);
+    void this.start();
+  }
+
   private async start() {
     const ws = this.ws;
+    const run = ++this.runs;
     await ws.generate([this.setupId]);
-    if (this.disposed) return;
+    if (this.disposed || run !== this.runs) return;
     const setup = this.setup();
     const cam = ws.cam;
     if (!setup || !cam) return;
@@ -195,7 +217,7 @@ export class SimulationPanel extends CamPanel {
         const bar = this.el.querySelector<HTMLProgressElement>('progress');
         if (bar) bar.value = v;
       });
-      if (this.disposed) return;
+      if (this.disposed || run !== this.runs) return;
       this.res = res;
       this.frame = ws.frameOf(setup);
       this.t = res.time;
@@ -203,7 +225,7 @@ export class SimulationPanel extends CamPanel {
       this.showAt(this.t);
       this.app.refreshPanel();
     } catch (e) {
-      if (this.disposed || e instanceof CamCancelled) return;
+      if (this.disposed || run !== this.runs || e instanceof CamCancelled) return;
       this.error = (e as Error).message;
       this.app.refreshPanel();
     }

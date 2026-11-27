@@ -226,6 +226,18 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   const fs = await import('node:fs');
   expect(new TextDecoder().decode(fs.readFileSync((await file.path())!))).not.toContain('O1002');
 
+  // The simulation runs again with the tool chosen in the tool library while it is open.
+  await page.locator('[data-cmd="cam:simulate"]').click();
+  const removed = page.locator('.cam-stats tr', { hasText: 'Material removed' }).locator('td');
+  await expect(removed).toBeVisible({ timeout: 90_000 });
+  const removedBefore = await removed.innerText();
+  await page.locator('[data-cmd="cam:tools"]').click();
+  await tools.getByRole('textbox', { name: 'Diameter' }).fill('6');
+  await tools.getByRole('textbox', { name: 'Diameter' }).press('Tab');
+  await tools.getByRole('button', { name: 'OK' }).click();
+  await expect(removed).not.toHaveText(removedBefore, { timeout: 90_000 });
+  await page.getByRole('button', { name: 'Exit Simulation' }).click();
+
   // An operation deleted from the tree while its panel is open is not brought back by OK.
   await page.getByRole('treeitem', { name: /^Contour1/ }).dblclick();
   await expect(page.getByRole('heading', { name: 'Contour1' })).toBeVisible();
