@@ -137,3 +137,39 @@ test('explains a study that cannot run', async ({ page }) => {
   await expect(page.getByRole('alert').filter({ hasText: /unstable/ })).toBeVisible({ timeout: 60_000 });
   expect(errors).toEqual([]);
 });
+
+/** The bracket with Alloy Steel and a study holding one fixture and one force (set in the document, one undo step). */
+async function bracketStudy(page: Page) {
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.waitForFunction(() => !!(window as unknown as W).__parametric.bbox);
+  await page.evaluate(async () => {
+    const a = (window as unknown as W).__parametric;
+    await a.whenBuilt();
+    const ref = (n: string) => { const f = a.faces.find((x) => x.name === n)!; return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }; };
+    a.store.change('Set up', (d) => {
+      d.material = { name: 'Alloy Steel', density: 7700, E: 205000, nu: 0.29, yield: 415, uts: 655 };
+      d.study = { id: 'st900', name: 'Static Study', fixtures: [{ id: 'fx901', name: 'Fixed-1', type: 'fixed', faces: [ref('f1:side:bl1')] }], loads: [{ id: 'ld902', name: 'Force-1', type: 'force', faces: [ref('f1:side:bl4')], value: 500, dir: null, flip: false }], mesh: { fineness: 0.2 } };
+    });
+  });
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await expect(page.getByRole('treeitem', { name: /^Force-1/ })).toBeVisible();
+}
+
+test('a load direction to pick stays chosen until it is picked', async ({ page }) => {
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  // "Along a picked edge or face" stays chosen while the edge is picked.
+  for (const cmd of ['fea:force', 'fea:gravity']) {
+    await page.locator(`[data-cmd="${cmd}"]`).click();
+    const dir = page.getByLabel('Direction', { exact: true });
+    await dir.selectOption('ref');
+    await expect(page.getByRole('group', { name: 'Direction reference' })).toBeVisible();
+    await expect(dir).toHaveValue('ref');
+    if (cmd === 'fea:gravity') {
+      await page.locator('.confirm-corner .ok').click();
+      await expect(page.locator('.pm-msg')).toContainText('Pick an edge or face for the direction');
+    }
+    await page.locator('.confirm-corner .cancel').click();
+  }
+  expect(errors).toEqual([]);
+});

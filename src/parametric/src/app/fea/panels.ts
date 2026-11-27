@@ -256,7 +256,7 @@ export class LoadPanel extends FeaPanel {
       : valueField('Acceleration', l.value, u.accel, u.accelScale, (v) => { l.value = v; }, { positive: true });
     const items: HTMLElement[] = [value];
     if (l.type === 'force' || l.type === 'gravity') {
-      const choice: DirChoice = !l.dir ? 'normal' : l.dir.kind === 'base' ? l.dir.axis : 'ref';
+      const choice: DirChoice = this.pickRef ? 'ref' : !l.dir ? 'normal' : l.dir.kind === 'base' ? l.dir.axis : 'ref';
       const options: { value: DirChoice; label: string }[] = [
         ...(l.type === 'force' ? [{ value: 'normal' as DirChoice, label: 'Normal to the faces' }] : []),
         { value: 'x', label: 'Along X' }, { value: 'y', label: 'Along Y' }, { value: 'z', label: 'Along Z' },
@@ -266,14 +266,15 @@ export class LoadPanel extends FeaPanel {
         if (v === 'normal' && l.type === 'force') l.dir = null;
         else if (v === 'x' || v === 'y' || v === 'z') l.dir = { kind: 'base', axis: v };
         else if (v === 'ref') l.dir = (this.refItems[0]?.data as FeaDir | undefined) ?? (l.type === 'force' ? null : l.dir);
-        if (v === 'ref' && !this.refItems.length) this.pickRef = true;
-        else this.pickRef = false;
+        // Picking a reference: the choice stays shown while the direction is not picked yet.
+        this.pickRef = v === 'ref' && !this.refItems.length;
         app.refreshPanel();
       }));
-      if (choice === 'ref' || this.pickRef) {
+      if (choice === 'ref') {
         const ref = new SelectionBox(this, 'Direction reference', { face: true, edge: true }, (it) => this.toDir(it), (sel) => {
           this.refItems = sel;
           if (sel[0]) l.dir = sel[0].data as FeaDir;
+          else this.pickRef = true;
         }, { single: true, placeholder: 'Pick an edge or a face', icon: 'axis' });
         ref.setItems(this.refItems);
         items.push(ref.el);
@@ -293,7 +294,7 @@ export class LoadPanel extends FeaPanel {
     const l = this.l;
     if (l.type !== 'gravity' && !l.faces.length) { this.setMessage('error', 'Pick at least one face.'); return false; }
     if (!(l.value > 0) || !Number.isFinite(l.value)) { this.setMessage('error', 'Enter a value greater than 0.'); return false; }
-    if (this.pickRef && (l.type === 'force' || l.type === 'gravity') && (!l.dir || l.dir.kind === 'base')) { this.setMessage('error', 'Pick an edge or face for the direction.'); return false; }
+    if (this.pickRef && (l.type === 'force' || l.type === 'gravity') && !this.refItems.length) { this.setMessage('error', 'Pick an edge or face for the direction.'); return false; }
     this.app.store.change(this.creating ? `Add ${l.name}` : `Edit ${l.name}`, (d) => {
       if (!d.study) return;
       const i = d.study.loads.findIndex((x) => x.id === l.id);
