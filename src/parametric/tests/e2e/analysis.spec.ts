@@ -326,3 +326,26 @@ test('the fixture and load symbols follow the part when it is edited', async ({ 
   await expect.poll(top).toBeCloseTo(80, 3);
   expect(errors).toEqual([]);
 });
+
+test('a part with a study opened while the Analysis tab is shown shows its fixtures and loads', async ({ page, browser }) => {
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  const text = await page.evaluate(async (url) => {
+    const { serializeDocument } = await import(url) as typeof import('../../src/model/document');
+    return serializeDocument((window as unknown as W).__parametric.store.doc);
+  }, '/src/model/document.ts');
+  // A new window, where the analysis has not been loaded yet.
+  const other = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  const otherErrors = await openApp(other);
+  await other.getByRole('button', { name: /New part/ }).click();
+  await other.getByRole('tab', { name: 'Analysis' }).click();
+  await other.evaluate(async ({ text, url }) => {
+    const { parseDocument } = await import(url) as typeof import('../../src/model/document');
+    (window as unknown as W).__parametric.loadDocument(parseDocument(text), null);
+  }, { text, url: '/src/model/document.ts' });
+  await expect(other.getByRole('tab', { name: 'Analysis' })).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => other.evaluate(() => ((window as unknown as W).__parametric.renderer as unknown as { tris: Map<string, unknown> }).tris.has('feaFix'))).toBe(true);
+  await other.context().close();
+  expect(errors).toEqual([]);
+  expect(otherErrors).toEqual([]);
+});

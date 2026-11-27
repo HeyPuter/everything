@@ -115,6 +115,8 @@ export function installFea(app: App, hooks: AppHooks) {
   hooks.ribbonTabs.splice(at < 0 ? hooks.ribbonTabs.length : at, 0, tab);
   // A part opened with a study shows its symbols when the tab is chosen (the workspace loads then).
   app.ribbonTabListeners.push((id) => { if (id === 'analysis' && app.store.doc.study && partOnly()) void feaWorkspace(app).then((ws) => ws.redraw()); });
+  // ...and when it is opened while the tab is shown (the symbols follow its first build).
+  app.store.on((reason) => { if (reason === 'load' && app.ribbonTabId === 'analysis' && app.store.doc.study && partOnly()) void feaWorkspace(app).then((ws) => ws.redraw()); });
 }
 
 // ---------- design tree ----------
