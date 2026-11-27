@@ -983,3 +983,22 @@ test('a motion study whose motors are all suppressed says so when calculated', a
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('the Mate panel does not carry a hinge\'s angle limits over to a slider as lengths', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Bar', BAR]], ['Plate', 'Bar']);
+  await built(page, ['Plate<1>', 'Bar<1>']);
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.selection.clear());
+  const pm = await openMate(page, 'hinge');
+  await pm.getByRole('checkbox', { name: /Limit the angle/ }).check();
+  await expect(pm.getByRole('textbox', { name: 'Maximum' })).toHaveValue('45');
+  await pm.getByRole('combobox', { name: 'Mate type' }).selectOption('slider');
+  await expect(pm.getByRole('checkbox', { name: /Limit the travel/ })).toBeChecked();
+  await expect(pm.getByRole('textbox', { name: 'Maximum' })).toHaveValue('25');
+  await expect(pm.getByRole('textbox', { name: 'Minimum' })).toHaveValue('-25');
+  await pm.getByRole('combobox', { name: 'Mate type' }).selectOption('hinge');
+  await expect(pm.getByRole('textbox', { name: 'Maximum' })).toHaveValue('45');
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});

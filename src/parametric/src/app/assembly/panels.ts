@@ -414,6 +414,8 @@ export class MatePanel extends PropertyPanel {
     if (this.by && !((now === 'gear' && this.by === 'ratio') || (now === 'rackPinion' && this.by === 'revolution') || (now === 'universal' && this.by === 'point'))) this.by = null;
     if (now === 'universal' && !this.existing) this.value = 0;
     if (this.limitOn && v !== 'distance' && v !== 'angle' && v !== 'hinge' && v !== 'slider') this.limitOn = false;
+    // (Limits in degrees are not limits in millimetres: a hinge's or slider's start from its defaults.)
+    if (this.limitOn && (now === 'hinge' || now === 'slider') && was !== now) this.limitAround(0);
     this.pickDefaults();
     this.mode.app.refreshPanel();
     this.update();
