@@ -74,7 +74,8 @@ export function postProcess(job: PostJob): string {
   const lines: string[] = [];
   let n = 0;
   const out = (s: string) => {
-    if (job.post.lineNumbers && s && !s.startsWith('%') && !s.startsWith('O')) { n += 10; lines.push(`N${n} ${s}`); }
+    // Sequence numbers start again after N99999 (five digits on most controllers).
+    if (job.post.lineNumbers && s && !s.startsWith('%') && !s.startsWith('O')) { n = n >= 99990 ? 10 : n + 10; lines.push(`N${n} ${s}`); }
     else lines.push(s);
   };
   if (d.percent) lines.push('%');
