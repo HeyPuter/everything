@@ -158,7 +158,12 @@ export function simulate(input: SimInput): SimResult {
     };
     const move = (kind: number, x: number, y: number, zz: number, dwell: number) => {
       cut = hit = false;
-      if (Number.isNaN(px)) { px = x; py = y; pz = zz; stampAt(x, y, zz); count(kind); return; }
+      if (Number.isNaN(px)) {
+        // Where the step's tool starts (playback moves it from there, not from the last tool's end).
+        px = x; py = y; pz = zz; stampAt(x, y, zz); count(kind);
+        timeline.push(x, y, zz, now, si, kind);
+        return;
+      }
       const lxy = Math.hypot(x - px, y - py);
       const l = Math.hypot(lxy, zz - pz);
       const dt = (l / Math.max(1e-6, kind === RAPID ? input.rapidFeed : kind === PLUNGE ? s.plunge : s.feed)) * 60 + dwell;
