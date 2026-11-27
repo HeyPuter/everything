@@ -223,5 +223,13 @@ export function camProfileOf(g: PartGeometry, refs: FaceRef[], name: string): Ca
   }
   if (!d) return 'Select the faces around the cam (its sides): their direction cannot be told from these';
   if (normals.some((n) => Math.abs(dot(n, d!)) > 1e-6)) return 'The faces of the cam\'s profile must all run along one direction (the cam\'s sides, not its ends)';
+  // The profile goes all the way round: the sides meet along straight edges in the direction
+  // of the axis, and a face beside a selected one there must be selected too (else the
+  // follower would ride across the gap as if the cam were flat there).
+  const picked = new Set(refs.map((r) => findFace(g.faces, r)));
+  for (const e of g.edges) {
+    if (e.type !== 'line' || !e.dir || Math.abs(dot(normalize(e.dir), d)) < 0.9999 || !e.faces.some((i) => picked.has(i))) continue;
+    if (e.faces.some((i) => !picked.has(i))) return 'Select all the faces around the cam (its sides): the profile must go all the way round';
+  }
   return camProfile(d, arcs, points);
 }

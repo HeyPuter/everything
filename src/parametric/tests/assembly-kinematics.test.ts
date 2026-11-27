@@ -609,6 +609,8 @@ describe('cam profiles from part faces', () => {
     edges: [
       arc('e0', 0, [0, 0, 0], 20, 90 + t, 90 - t + 360, 270), arc('e1', 1, nose, 5, 90 - t, 90 + t, 90),
       seg('e2', 2, deg(20, 90 - t), deg(5, 90 - t, nose)), seg('e3', 3, deg(20, 90 + t), deg(5, 90 + t, nose)),
+      // Where the sides meet, along the axis (base and right flank, right flank and nose, ...).
+      ...([[0, 2, deg(20, 90 - t)], [2, 1, deg(5, 90 - t, nose)], [1, 3, deg(5, 90 + t, nose)], [3, 0, deg(20, 90 + t)]] as [number, number, Vec3][]).map(([f, g, p], k) => ({ ...seg(`s${k}`, f, p, [p[0], p[1], 10]), faces: [f, g] })),
     ],
   } as unknown as PartGeometry;
   const ref = (name: string) => ({ name, sig: { type: 'x', c: [0, 0, 0] as Vec3, area: 1 } });
@@ -626,5 +628,10 @@ describe('cam profiles from part faces', () => {
     expect(typeof whole !== 'string' && whole.circle?.r).toBe(20);
     // An end face (across the axis) is not part of a profile.
     expect(camProfileOf({ ...lobed, faces: [...lobed.faces, flat('end', Z, [0, 0, 10])] } as unknown as PartGeometry, ['base', 'end'].map(ref), 'Cam<1>')).toMatch(/one direction/);
+  });
+
+  it('refuses a profile that does not go all the way round (the follower would ride across the gap)', () => {
+    for (const some of [['base', 'nose'], ['right', 'left'], ['base', 'nose', 'right']]) expect(camProfileOf(lobed, some.map(ref), 'Cam<1>')).toMatch(/all the way round/);
+    expect(typeof camProfileOf(lobed, ['left', 'nose', 'base', 'right'].map(ref), 'Cam<1>')).toBe('object');
   });
 });
