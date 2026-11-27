@@ -133,6 +133,31 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   }, null, { timeout: 90_000 });
   expect(await page.evaluate(() => (window as unknown as { generated: number }).generated)).toBe(0);
 
+  // A toolpath out of date after the setup turns the part over stays where it was cut.
+  const cutRange = () => page.evaluate(() => {
+    const lines = (window as unknown as W).__parametric.renderer as unknown as { lines: Map<string, { positions: Float32Array }> };
+    const p = lines.lines.get('camCut')!.positions;
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 1; i < p.length; i += 3) { lo = Math.min(lo, p[i]); hi = Math.max(hi, p[i]); }
+    return [lo.toFixed(2), hi.toFixed(2)];
+  });
+  const range = await cutRange();
+  await page.getByRole('treeitem', { name: 'Setup1' }).dblclick();
+  await page.getByLabel('Tool direction').selectOption('-Y');
+  await page.locator('.confirm-corner .ok').click();
+  await page.waitForFunction(() => {
+    const app = (window as unknown as W).__parametric;
+    const s = app.store.doc.cam!.setups[0];
+    return s.axis === '-Y' && app.cam!.state(s, s.ops[0]) === 'stale';
+  });
+  expect(await cutRange()).toEqual(range);
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.waitForFunction(() => {
+    const app = (window as unknown as W).__parametric;
+    const s = app.store.doc.cam!.setups[0];
+    return s.axis === '+Y' && app.cam!.state(s, s.ops[0]) === 'ok';
+  });
+
   // Download pressed right after changing the controller writes that controller's program.
   await page.locator('[data-cmd="cam:post"]').click();
   const post = page.getByRole('dialog', { name: 'Post Process' });

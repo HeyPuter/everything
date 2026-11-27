@@ -17,6 +17,8 @@ export type OpState = 'none' | 'busy' | 'ok' | 'stale' | 'error' | 'suppressed';
 interface OpResult {
   key: string;
   toolpath?: Toolpath;
+  /** Where the setup put the part when it was made: an out-of-date toolpath shows where it was cut. */
+  frame?: MachineFrame | null;
   stats?: PathStats;
   error?: string;
 }
@@ -281,6 +283,7 @@ export class CamWorkspace {
         if (this.results.get(o.id)?.key === key) continue;
         let job: GenerateJob;
         try { job = this.jobFor(now.setup, now.op); } catch (e) { this.results.set(o.id, { key, error: (e as Error).message }); failed++; this.changed(); continue; }
+        const frame = this.frameOf(now.setup);
         this.busy = { id: o.id, progress: 0 };
         this.changed();
         this.app.setStatus(`Generating ${now.op.name}...`);
@@ -289,7 +292,7 @@ export class CamWorkspace {
             if (this.busy?.id === o.id) { this.busy.progress = v; this.app.setStatus(`Generating ${now.op.name}... ${Math.round(v * 100)}%`); for (const fn of this.listeners) fn(); }
           });
           if (gen !== this.generation) return;
-          this.results.set(o.id, { key, toolpath: tp });
+          this.results.set(o.id, { key, toolpath: tp, frame });
         } catch (e) {
           if (e instanceof CamCancelled) { this.busy = null; this.changed(); return; }
           this.results.set(o.id, { key, error: (e as Error).message });
@@ -307,7 +310,8 @@ export class CamWorkspace {
 
   /** Keeps a toolpath made for an operation's preview as its result (the key it was made for). */
   adopt(id: Id, key: string, toolpath: Toolpath) {
-    this.results.set(id, { key, toolpath });
+    const f = this.cam && findOp(this.cam, id);
+    this.results.set(id, { key, toolpath, frame: f ? this.frameOf(f.setup) : null });
     this.changed();
   }
 
@@ -362,8 +366,8 @@ export class CamWorkspace {
     }
     const shown: PathLines[] = [];
     const focusSetup = this.focus ? cam.setups.find((s) => s.id === this.focus || s.ops.some((o) => o.id === this.focus)) : null;
-    const add = (setup: CamSetup, tp: Toolpath) => {
-      const f = this.frameOf(setup);
+    const add = (setup: CamSetup, tp: Toolpath, frame?: MachineFrame | null) => {
+      const f = frame ?? this.frameOf(setup);
       if (!f) return;
       let c = this.lineCache.get(tp);
       if (!c || c.frame !== f) { c = { frame: f, lines: pathLines(tp, f) }; this.lineCache.set(tp, c); }
@@ -379,7 +383,7 @@ export class CamWorkspace {
             if (o.suppressed) continue;
             if (this.focus && this.focus !== s.id && this.focus !== o.id) continue;
             const res = this.results.get(o.id);
-            if (res?.toolpath) add(s, res.toolpath);
+            if (res?.toolpath) add(s, res.toolpath, res.frame);
           }
         }
       }
