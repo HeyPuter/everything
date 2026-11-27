@@ -1,0 +1,24 @@
+{
+  "name": "cloud-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Cloud Studio: browser-local object storage, a constrained function runtime, and a management console — open-source cloud primitives you can run without a vendor account.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^26.1.0",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0"
+  }
+}
