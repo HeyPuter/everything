@@ -37,24 +37,29 @@ export async function toolLibraryDialog(app: App, ws: CamWorkspace, select?: str
     nextLocal++;
     return `__add${nextLocal}`;
   };
+  const listId = nextDomId('tools');
   const drawList = () => {
     list.textContent = '';
-    for (const t of [...tools].sort((a, b) => a.number - b.number)) {
-      const opt = h('div', { role: 'option', class: 'cam-tool', 'aria-selected': String(t === current), tabindex: '-1' },
+    list.removeAttribute('aria-activedescendant');
+    for (const [k, t] of [...tools].sort((a, b) => a.number - b.number).entries()) {
+      // The list keeps the focus; the tool chosen is its active option (read out, kept in view).
+      const opt = h('div', { id: `${listId}-${k}`, role: 'option', class: 'cam-tool', 'aria-selected': String(t === current) },
         h('span', { class: 'num' }, `T${t.number}`), h('span', { class: 'grow' }, t.name), h('span', { class: 'muted' }, `${TOOL_TYPE_LABELS[t.type]} · ${formatLen(t.diameter)}`));
       opt.addEventListener('click', () => { current = t; drawList(); drawForm(); });
       list.append(opt);
+      if (t === current) list.setAttribute('aria-activedescendant', opt.id);
     }
+    list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   };
   const formatLen = (mm: number) => `${Number((mm / u.scale).toPrecision(6))} ${u.length}`;
   list.addEventListener('keydown', (e) => {
     const sorted = [...tools].sort((a, b) => a.number - b.number);
     const i = current ? sorted.indexOf(current) : -1;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      current = sorted[Math.max(0, Math.min(sorted.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))] ?? null;
-      drawList(); drawForm();
-    }
+    const to = e.key === 'ArrowDown' ? i + 1 : e.key === 'ArrowUp' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? sorted.length - 1 : null;
+    if (to === null) return;
+    e.preventDefault();
+    current = sorted[Math.max(0, Math.min(sorted.length - 1, to))] ?? null;
+    drawList(); drawForm();
   });
   const drawForm = () => {
     form.textContent = '';

@@ -105,6 +105,14 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   const before = await length.innerText();
   await page.getByRole('button', { name: 'Tool Library...' }).click();
   const tools = page.getByRole('dialog', { name: 'Tool Library' });
+  // The keyboard moves through the tools, the one chosen being the list's active option.
+  const list = tools.getByRole('listbox', { name: 'Tools' });
+  await list.focus();
+  await page.keyboard.press('End');
+  const active = () => list.evaluate((l) => document.getElementById(l.getAttribute('aria-activedescendant') ?? '')?.textContent ?? '');
+  expect(await active()).toMatch(/^T8 *10 mm chamfer/);
+  await page.keyboard.press('Home');
+  expect(await active()).toMatch(/^T1 *12 mm flat/);
   const dia = tools.getByRole('textbox', { name: 'Diameter' });
   await dia.fill('3');
   await dia.press('Tab');
