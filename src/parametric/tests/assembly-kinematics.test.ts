@@ -129,6 +129,11 @@ describe('mechanical mates', () => {
     expect(open.stop?.time).toBeCloseTo(3.1, 6);
     expect(degreesAbout(turnPath(open, 'lid'), Z).at(-1)).toBeCloseTo(270, 4);
     expect(mateSeries(open, door)!.values.at(-1)).toBeCloseTo(270, 4);
+    // Kept at one angle, it cannot turn: the study stops at that limit.
+    const shut0 = { ...door, limit: { min: 0, max: 0 } };
+    const stuck = computeMotion({ bodies, mates: [shut0], motors: [{ id: 'mo', name: 'RotaryMotor1', kind: 'rotary', on: shut0, at: profileOf('rotary', { profile: 'constant', speed: 90 }, 4) }], duration: 4, fps: 10, scale: 100 });
+    expect(stuck.stop?.kind).toBe('limit');
+    expect(stuck.stop?.mate).toBe(door.id);
     // The other way it is at its end already.
     const shut = run(-90);
     expect(shut.stop?.kind).toBe('limit');

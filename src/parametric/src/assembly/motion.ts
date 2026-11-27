@@ -220,7 +220,9 @@ export class MotionRun {
       if (!(m.limit || m.type === 'slot')) continue;
       const all = solver.mateResidual(m, pl, this.setup.scale, prev, true) ?? [];
       const eq = solver.mateResidual(m, pl, this.setup.scale, prev, false) ?? [];
-      if (Math.abs(all[all.length - 1] ?? 0) > CONFLICT_TOL && all.length > eq.length) {
+      // (Kept at one value, the limit is an equation: the mate not holding is the limit reached.)
+      const fixed = m.limit && m.limit.min === m.limit.max && (residuals.get(m.id) ?? 0) > CONFLICT_TOL;
+      if (fixed || (Math.abs(all[all.length - 1] ?? 0) > CONFLICT_TOL && all.length > eq.length)) {
         return { time, kind: 'limit', mate: m.id, message: `${name(m.id)} reached its limit at ${time} s: the motion stops there.` };
       }
     }
