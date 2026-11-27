@@ -785,7 +785,9 @@ export function mechanicalProblem(m: Pick<SolverMate, 'type' | 'a' | 'b' | 'a2' 
     }
     case 'universal':
       if (!axis(a) || !axis(b) || !a.body || !b.body) return 'A universal joint needs a round face or edge (or an axis) on each of two shafts';
-      return m.rel ? null : 'The universal joint has no stored position';
+      if (!m.rel) return 'The universal joint has no stored position';
+      // Square to each other the yokes cannot both cross the shafts' plane: such a joint cannot turn.
+      return Math.abs(dot(normalize(dirOf(a.geo)!), normalize(qRotate(m.rel.q, dirOf(b.geo)!)))) < 1e-3 ? 'The shafts of a universal joint must not be at 90° to each other (it cannot turn there)' : null;
     case 'hinge':
       if (!round(a) || !round(b) || !plane(a2) || !plane(b2)) return 'A hinge needs two round faces or edges (the pin and its hole) and two planar faces that touch';
       if (a2!.body !== a.body || b2!.body !== b.body) return 'Each planar face of a hinge must be on the component of the round entity selected with it';

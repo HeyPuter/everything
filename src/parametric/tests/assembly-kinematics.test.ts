@@ -582,6 +582,17 @@ describe('slider, cam and universal joint mates', () => {
     const off = sub([0, 0, 10], pb.p);
     expect(len([off[1] * db[2] - off[2] * db[1], off[2] * db[0] - off[0] * db[2], off[0] * db[1] - off[1] * db[0]])).toBeLessThan(1e-6);
   });
+
+  it('a universal joint between shafts at 90° is refused (it cannot turn), one at 89° works', () => {
+    const square = uJoint(90);
+    const r = new MateSolver(square.bodies, square.mates).analyze();
+    expect(r.status).toBe('error');
+    expect(r.invalid.get(square.mates[2].id)).toMatch(/90°/);
+    const steep = uJoint(89);
+    const s = new MateSolver(steep.bodies, steep.mates).analyze();
+    expect(s.invalid.size).toBe(0);
+    expect(s.dof).toBe(1);
+  });
 });
 
 describe('cam profiles from part faces', () => {
