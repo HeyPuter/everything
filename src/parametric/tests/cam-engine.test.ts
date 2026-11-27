@@ -221,6 +221,36 @@ describe('operations', () => {
     }
   }, 60_000);
 
+  it('keeps clearing stepovers to what the tool can cut', () => {
+    const t = tool('flat', 6);
+    const s = setup();
+    const part = placePart(s, pocketPlate)!;
+    const leftOver = (tp: Toolpath, x0: number, y0: number, x1: number, y1: number) => {
+      const sim = simulate({ stock: part.frame.stock, part: part.index, steps: [{ toolpath: tp, tool: t, feed: 1000, plunge: 300 }], rapidFeed: 5000, cell: 0.25 });
+      expect(sim.gouges).toBe(0);
+      const g = sim.grid;
+      const last = sim.snapshots[sim.snapshots.length - 1].z;
+      let top = -Infinity;
+      for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
+        const x = g.x0 + i * g.c, y = g.y0 + j * g.c;
+        if (x > x0 && x < x1 && y > y0 && y < y1) top = Math.max(top, last[j * g.nx + i]);
+      }
+      return top;
+    };
+    // Wider than the tool: passes 15 mm apart would leave strips of stock standing.
+    const face = generateFor(part, { setup: s, op: op('face', t, { stepover: 15, stepdown: 2 }), tool: t });
+    expect(face.warnings.some((w) => /stepover is too wide/.test(w))).toBe(true);
+    expect(leftOver(face, 2, 2, 28, 58)).toBeCloseTo(20, 6);
+    // Offset passes leave posts in their corners well before the tool's diameter.
+    const pocket = generateFor(part, { setup: s, op: op('pocket', t, { stepover: 5.9, stepdown: 5 }), tool: t, floors: [floorTris] });
+    expect(leftOver(pocket, 31, 21, 69, 39)).toBeCloseTo(10, 6);
+    // None or less: finishes (zigzag passes never did).
+    for (const pattern of ['offset', 'zigzag'] as const) {
+      const rough = generateFor(placePart(s, mesh(box(0, 0, 0, 30, 20, 8)))!, { setup: s, op: op('rough', t, { stepover: 0, pattern }), tool: t });
+      expect(rough.moves.length).toBeGreaterThan(0);
+    }
+  }, 60_000);
+
   it('roughs round the part leaving the allowance, without gouging', () => {
     const t = tool('flat', 6);
     const s = setup();

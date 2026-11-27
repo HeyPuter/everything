@@ -151,6 +151,20 @@ class Gen {
   private get partTop() { return this.part.frame.part.max[2]; }
   private get partBottom() { return this.part.frame.part.min[2]; }
 
+  /**
+   * A clearing stepover the tool can take. Wider than the tool, straight
+   * passes leave strips uncut between them, and offset passes leave posts in
+   * their corners from about 0.85 of it. Zero or less would never finish.
+   */
+  private clearStep(v: number, pattern: 'offset' | 'zigzag'): number {
+    const max = Math.round(this.tool.diameter * (pattern === 'offset' ? 0.8 : 1) * 1000) / 1000;
+    if (v > max) {
+      this.b.warnings.push(`The stepover is too wide for the tool; ${max} mm is used.`);
+      return max;
+    }
+    return v >= 0.01 ? v : 0.01;
+  }
+
   private tick() {
     this.done++;
     if (this.input.cancelled?.()) throw new Cancelled('cancelled');
@@ -375,7 +389,7 @@ class Gen {
       }
       left.delete(next);
       const rs = comps.get(next)!;
-      const maxLevel = Math.max(...rs.map((r) => r.level));
+      const maxLevel = rs.reduce((m, r) => Math.max(m, r.level), 0);
       let first = true;
       for (let lv = maxLevel; lv >= 0; lv--) {
         const pending = rs.filter((r) => r.level === lv);
@@ -521,7 +535,7 @@ class Gen {
     const u0 = Math.min(...us) - R - 2, u1 = Math.max(...us) + R + 2;
     const v0 = Math.min(...vs), v1 = Math.max(...vs);
     const lo = v0 + 0.4 * R, hi = v1 - 0.4 * R;
-    const n = hi > lo ? Math.ceil((hi - lo) / Math.max(op.stepover, 0.01)) + 1 : 1;
+    const n = hi > lo ? Math.ceil((hi - lo) / this.clearStep(op.stepover, 'zigzag')) + 1 : 1;
     const vAt = (i: number) => (n === 1 ? (v0 + v1) / 2 : lo + ((hi - lo) * i) / (n - 1));
     const xy = (u: number, v: number): [number, number] => [u * ca - v * sa, u * sa + v * ca];
     this.steps = levels.length;
@@ -681,6 +695,7 @@ class Gen {
       groups.set(key, [...(groups.get(key) ?? []), t]);
     }
     const order = [...groups.keys()].sort((a, c) => c - a);
+    const stepover = this.clearStep(op.stepover, op.pattern);
     this.steps = order.reduce((s, z) => s + stepLevels(this.stockTop, z + op.floorLeave, op.stepdown).length + 1, 0);
     for (const zf of order) {
       const tris = groups.get(zf)!;
@@ -700,7 +715,7 @@ class Gen {
       r.limit = dist.map((d) => reach - d);
       r.limitAt = (x, y) => reach - sample(g, dist, x, y);
       const levels = stepLevels(this.stockTop, zf + op.floorLeave, op.stepdown);
-      this.clear(r, levels, { stepover: op.stepover, pattern: op.pattern, climb: op.direction !== 'conventional', entry: op.entry, rampAngle: op.rampAngle, tol: 0.005, materialTop: this.stockTop });
+      this.clear(r, levels, { stepover, pattern: op.pattern, climb: op.direction !== 'conventional', entry: op.entry, rampAngle: op.rampAngle, tol: 0.005, materialTop: this.stockTop });
     }
   }
 
@@ -721,7 +736,7 @@ class Gen {
     r.limit = new Float64Array(g.nx * g.ny);
     for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) r.limit[j * g.nx + i] = lim(g.x0 + i * g.c, g.y0 + j * g.c);
     r.limitAt = lim;
-    this.clear(r, levels, { stepover: op.stepover, pattern: op.pattern, climb: op.direction !== 'conventional', entry: op.entry, rampAngle: op.rampAngle, tol: 0.01, materialTop: this.stockTop });
+    this.clear(r, levels, { stepover: this.clearStep(op.stepover, op.pattern), pattern: op.pattern, climb: op.direction !== 'conventional', entry: op.entry, rampAngle: op.rampAngle, tol: 0.01, materialTop: this.stockTop });
   }
 
   /** Holes that open toward the tool, from the cylinders. */
