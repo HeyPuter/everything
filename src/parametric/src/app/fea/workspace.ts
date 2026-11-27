@@ -55,7 +55,7 @@ export class FeaWorkspace {
   focus: Id | null = null;
   private surface: SurfaceState | null = null;
   private surfaceLoading: Promise<SurfaceState> | null = null;
-  mesh: { key: string; info: FeaMeshInfo; size: number } | null = null;
+  mesh: { key: string; info: FeaMeshInfo; size: number; version: number } | null = null;
   result: FeaResult | null = null;
   busy: { stage: string; progress: number } | null = null;
   error: { key: string; message: string } | null = null;
@@ -105,10 +105,15 @@ export class FeaWorkspace {
   // ---------- state ----------
 
   /** What the results depend on: the part's shape, the mesh size, the study's fixtures and loads, the material. */
-  solveKey(size?: number): string {
+  solveKey(size?: number, version?: number, study?: string): string {
+    return JSON.stringify([version ?? this.app.geometryVersion, size ?? this.sizeOf(), study ?? this.studyKey()]);
+  }
+
+  /** The study's fixtures and loads and the material, as the results depend on them. */
+  private studyKey(): string {
     const s = this.study;
     const strip = (x: FeaFixture | FeaLoad) => { const { name: _n, ...rest } = x; void _n; return rest; };
-    return JSON.stringify([this.app.geometryVersion, size ?? this.sizeOf(), s ? [s.fixtures.map(strip), s.loads.map(strip)] : null, elasticOf(this.app.store.doc.material), this.app.store.doc.material?.density]);
+    return JSON.stringify([s ? [s.fixtures.map(strip), s.loads.map(strip)] : null, elasticOf(this.app.store.doc.material), this.app.store.doc.material?.density]);
   }
 
   private sizeOf(): number {
@@ -202,7 +207,7 @@ export class FeaWorkspace {
   }
 
   /** Meshes the part at the study's size if the mesh is not current. */
-  async ensureMesh(): Promise<{ info: FeaMeshInfo; size: number } | null> {
+  async ensureMesh(): Promise<{ info: FeaMeshInfo; size: number; version: number } | null> {
     const s = this.study;
     if (!s) return null;
     const gen = this.generation;
@@ -217,7 +222,7 @@ export class FeaWorkspace {
     const surface = { positions: sf.data.positions.slice(), indices: sf.data.indices.slice(), triFace: sf.data.triFace.slice() };
     const info = await this.client.mesh(surface, size, (stage, v) => this.setBusy(`Meshing: ${stage.toLowerCase()}`, v));
     if (gen !== this.generation) return null;
-    this.mesh = { key, info, size };
+    this.mesh = { key, info, size, version: sf.version };
     return this.mesh;
   }
 
@@ -321,6 +326,8 @@ export class FeaWorkspace {
     if (this.busy) return;
     const gen = ++this.generation;
     let resolved: ReturnType<FeaWorkspace['inputOf']>;
+    // What is solved is the study and material as they are now (they may change while it runs).
+    const studyKey = this.studyKey();
     try {
       resolved = this.inputOf(s);
     } catch (e) {
@@ -330,17 +337,18 @@ export class FeaWorkspace {
       return;
     }
     this.error = null;
+    const el = elasticOf(this.app.store.doc.material)!, matName = this.app.store.doc.material?.name ?? '';
     void this.openResults();
     try {
       const m = await this.ensureMesh();
       if (!m || gen !== this.generation) return;
-      const key = this.solveKey(m.size);
+      // The shape meshed and the study read at the start: a change during the run leaves the results out of date.
+      const key = this.solveKey(m.size, m.version, studyKey);
       const t0 = performance.now();
       const sol = await this.client.solve(resolved.input, (stage, v) => this.setBusy(stage, v));
       if (gen !== this.generation) return;
-      const el = elasticOf(this.app.store.doc.material)!;
       this.result = {
-        key, mesh: m.info, sol, input: resolved.input, yield: el.yield, uts: el.uts, material: this.app.store.doc.material?.name ?? '', size: m.size,
+        key, mesh: m.info, sol, input: resolved.input, yield: el.yield, uts: el.uts, material: matName, size: m.size,
         fixtureNames: resolved.fixtureNames, loadNames: resolved.loadNames, when: Date.now(),
       };
       this.busy = null;

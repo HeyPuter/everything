@@ -214,3 +214,20 @@ test('the results panel shows the progress of the first run, with Cancel', async
   await expect(page.locator('.fea-stats')).toBeVisible({ timeout: 120_000 });
   expect(errors).toEqual([]);
 });
+
+test('a study edited while it runs leaves its results out of date', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Finer', (d) => { d.study!.mesh.fineness = 0.7; }));
+  await page.locator('[data-cmd="fea:run"]').click();
+  // While the part is being meshed, the force goes from 500 to 900 N.
+  await expect(page.locator('.fea-stage')).toContainText('Meshing', { timeout: 60_000 });
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Edit', (d) => { d.study!.loads[0].value = 900; }));
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  // Solved with 500 N: shown as out of date.
+  await expect(page.locator('.fea-forces')).toContainText('0.000, 500.000, 0.000 N');
+  await expect(page.getByRole('note').filter({ hasText: 'Out of date' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Run Again' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
