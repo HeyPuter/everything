@@ -139,11 +139,11 @@ console.log(dim(`${kv.size} contacts seeded in the fake cloud.\n`))
 // Exactly what main.js does when another app launches us.
 const server = startApiServer({
   connection,
-  callerApp: 'calendar',
+  callerApp: 'ai',
   methods: createMethods({ store }),
   subscribe: (fn) => store.subscribe(fn),
 })
-console.log(dim(`Server up for "calendar". Tools offered: ${server.tools.join(', ')}`))
+console.log(dim(`Server up for "ai". Tools offered: ${server.tools.join(', ')}`))
 console.log(dim("(That first ← is the app-to-app protocol's greeting — an MCP client ignores it.)"))
 
 heading('Handshake')
