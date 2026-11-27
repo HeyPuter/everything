@@ -84,6 +84,7 @@ export function reportHtml(title: string, rows: Line[], image: string | null, ca
 body{font:13px/1.45 system-ui,sans-serif;margin:24px;color:#111}h1{font-size:20px}h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc}
 table{border-collapse:collapse;width:100%}th{text-align:left;font-weight:500;width:45%;padding:3px 8px 3px 0;color:#333}td{padding:3px 0}
 img{max-width:100%;border:1px solid #ddd;margin-top:8px}figure{margin:0}figcaption{color:#333;margin-top:4px}.note{color:#555;font-size:12px;margin-top:18px}
+h2{break-after:avoid}tr,figure,.note{break-inside:avoid}
 </style></head><body><h1>${esc(title)}</h1>${image ? `<figure><img src="${image}" alt="${esc(caption || 'Result plot')}">${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>` : ''}${body}
 <p class="note">Linear static analysis: small displacements, linear elastic isotropic material, no contact. Stresses at sharp inner corners and at the edges of fixed faces can grow without bound as the mesh is refined (stress singularities); judge them by the stresses a little away from such spots.</p></body></html>`;
 }

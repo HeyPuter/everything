@@ -6,7 +6,7 @@ import { type StaticStudy, elementSizeFor, feaUnits, newStudy, nextStudyName, pa
 import { MATERIALS, elasticOf, normalizeMaterial, validElastic } from '../src/model/materials';
 import { colorAt, interpolate } from '../src/fea/results';
 import { principal } from '../src/fea/elements';
-import { summaryCsv } from '../src/app/fea/report';
+import { reportHtml, summaryCsv } from '../src/app/fea/report';
 
 const face = (name: string) => ({ name, sig: { type: 'plane', c: [1, 2, 3] as [number, number, number], n: [0, 0, 1] as [number, number, number], area: 12 } });
 
@@ -132,6 +132,14 @@ describe('result helpers', () => {
     expect(csv.split('\n')[0]).toBe('Section,Quantity,Value,Unit');
     expect(csv).toContain('Results,Max von Mises stress,12.5,MPa');
     expect(csv).toContain('Study,Part,"Bracket, ""A""",');
+  });
+
+  it('prints the report without splitting a row, the plot or the closing note across pages, nor leaving a heading at a page foot', () => {
+    const html = reportHtml('Part - Study', [{ section: 'Results', name: 'Max von Mises stress', value: '12.5', unit: 'MPa' }], 'data:image/png;base64,AA==', 'von Mises stress <x>');
+    const css = /<style>([\s\S]*)<\/style>/.exec(html)![1];
+    expect(css).toContain('h2{break-after:avoid}');
+    expect(css).toContain('tr,figure,.note{break-inside:avoid}');
+    expect(html).toContain('<figcaption>von Mises stress &lt;x&gt;</figcaption>');
   });
 });
 
