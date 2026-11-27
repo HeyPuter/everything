@@ -12,6 +12,7 @@ import { SurfaceIndex } from '../src/fea/surface';
 import { meshSolid } from '../src/fea/mesher';
 import { type LoadInput, type StaticInput, StudyError, constraintsOf, loadVector, rigidMotions, solveStatic } from '../src/fea/static';
 import { addBodyForce, elementNodeStrains, elementStiffness } from '../src/fea/elements';
+import { fieldValues, meshView, solutionOf } from '../src/fea/results';
 import { type BlockMatrix, type Prolongator, galerkin, matvec } from '../src/fea/amg';
 import type { Feature } from '../src/model/types';
 import { circle, extrude, polygon, rect, req, sketch } from './helpers';
@@ -131,6 +132,37 @@ describe('static analysis accuracy', () => {
     const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'roller', faces: [side] }], loads: [{ kind: 'force', faces: [end], total: 100, dir: [1, 0, 0] }] });
     expect(r.reactions[0][0]).toBeCloseTo(-100, 2);
     expect(Math.abs(r.reactions[0][2])).toBeLessThan(1e-2);
+  }, 120000);
+
+  it('result fields of a bar in tension: von Mises, principal stresses, strain, safety factor, displacements', async () => {
+    const { mesh, faces } = await meshOf([sketch('s1', rect(0, 0, 100, 10)), extrude('f1', 's1', 10)], 2.5);
+    const F = 1000, sigma = F / 100;
+    const input: StaticInput = {
+      ...STEEL,
+      fixtures: [{ kind: 'roller', faces: [planar(faces, [-1, 0, 0])] }, { kind: 'roller', faces: [planar(faces, [0, -1, 0])] }, { kind: 'roller', faces: [planar(faces, [0, 0, -1])] }],
+      loads: [{ kind: 'force', faces: [planar(faces, [1, 0, 0])], total: F, dir: [1, 0, 0] }],
+    };
+    const r = solveStatic(mesh, input);
+    const view = meshView(mesh);
+    const sol = solutionOf(mesh, view.map, r, input);
+    const near = (field: Parameters<typeof fieldValues>[1], want: number, tol: number) => { for (const v of fieldValues(sol, field, 250)) expect(Math.abs(v - want)).toBeLessThan(tol); };
+    near('vonMises', sigma, 1e-4);
+    near('p1', sigma, 1e-4);
+    near('p2', 0, 1e-4);
+    near('p3', 0, 1e-4);
+    // Von Mises equivalent strain of uniaxial stress: 2 (1 + nu) sigma / (3 E).
+    near('strain', (2 * (1 + STEEL.nu) * sigma) / (3 * STEEL.E), 1e-9);
+    near('fos', 250 / sigma, 1e-3);
+    // Displacements: ux = sigma x / E, uy and uz the Poisson contraction from the rollers' planes.
+    const ux = fieldValues(sol, 'ux', 250), uy = fieldValues(sol, 'uy', 250), d = fieldValues(sol, 'disp', 250);
+    for (let i = 0; i < view.info.nodes.length / 3; i++) {
+      const x = view.info.nodes[i * 3], y = view.info.nodes[i * 3 + 1];
+      expect(ux[i]).toBeCloseTo((sigma * x) / STEEL.E, 7);
+      expect(uy[i]).toBeCloseTo((-STEEL.nu * sigma * y) / STEEL.E, 7);
+      expect(d[i]).toBeGreaterThanOrEqual(Math.abs(ux[i]) - 1e-12);
+    }
+    expect(sol.summary.maxDisplacement.value).toBeCloseTo(Math.hypot(sigma * 100, STEEL.nu * sigma * 10, STEEL.nu * sigma * 10) / STEEL.E, 7);
+    expect(sol.summary.maxVonMises.value).toBeCloseTo(sigma, 3);
   }, 120000);
 
   it('plate with a hole in tension: stress concentration about 3', async () => {
