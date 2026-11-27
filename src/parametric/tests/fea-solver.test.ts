@@ -121,6 +121,18 @@ describe('static analysis accuracy', () => {
     expect(err!.message).toMatch(/free to move along X/);
   }, 120000);
 
+  it('a roller around a shaft leaves it free to slide along and turn about its axis', async () => {
+    const { mesh, faces } = await meshOf([sketch('s1', circle(5, 3, 10)), extrude('f1', 's1', 50)], 3);
+    const side = faces.findIndex((f) => f.type === 'cylinder'), end = planar(faces, [0, 0, 1]);
+    expect(rigidMotions(mesh, constraintsOf(mesh, [{ kind: 'roller', faces: [side] }]))).toEqual(['free to move along Z', 'free to turn about Z']);
+    // Pushed along its axis it is unstable (the facets' normals no longer hold it).
+    expect(() => solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'roller', faces: [side] }], loads: [{ kind: 'force', faces: [end], total: 100, dir: [0, 0, 1] }] })).toThrow(/free to move along Z, free to turn about Z, and the loads would move it/);
+    // Pushed across it, the roller carries the load, and only across.
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'roller', faces: [side] }], loads: [{ kind: 'force', faces: [end], total: 100, dir: [1, 0, 0] }] });
+    expect(r.reactions[0][0]).toBeCloseTo(-100, 2);
+    expect(Math.abs(r.reactions[0][2])).toBeLessThan(1e-2);
+  }, 120000);
+
   it('plate with a hole in tension: stress concentration about 3', async () => {
     // 120 x 60 x 4 plate with a 10 mm hole (d / W = 1/6); Peterson: Kt (gross) about 3.1.
     const { mesh, faces } = await meshOf([sketch('s1', [...rect(-60, -30, 60, 30), ...circle(0, 0, 5)]), extrude('f1', 's1', 4)], 2.5);

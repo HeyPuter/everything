@@ -259,18 +259,29 @@ export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[], by?: Map<
         if (fn[0] * p.n[0] + fn[1] * p.n[1] + fn[2] * p.n[2] > l * (1 - 1e-9)) p.on += l;
       }
       for (const [face, p] of flat) if (!(p.on >= 0.95 * p.all)) flat.delete(face);
+      // A cylindrical face is held radially from its axis: the facets' normals lean along the axis and around
+      // it, and would hold a shaft on a roller against sliding along and turning about its axis.
+      const cyl = new Map<number, { c: Vec3; a: Vec3 }>();
+      for (const face of faces) if (!flat.has(face)) { const c = cylinderOf(mesh, face); if (c) cyl.set(face, c); }
+      const radial = (v: number, { c, a }: { c: Vec3; a: Vec3 }): Vec3 => {
+        const r: Vec3 = [X[v * 3] - c[0], X[v * 3 + 1] - c[1], X[v * 3 + 2] - c[2]];
+        const t = r[0] * a[0] + r[1] * a[1] + r[2] * a[2];
+        return [r[0] - t * a[0], r[1] - t * a[1], r[2] - t * a[2]];
+      };
       const nrm = new Map<number, Map<number, Vec3>>();
       for (let f = 0; f < mesh.triFace.length; f++) {
         const face = mesh.triFace[f];
         if (!faces.has(face)) continue;
-        const fn = flat.get(face)?.n ?? triNormal(f);
+        const cf = cyl.get(face);
+        const fn = flat.get(face)?.n ?? (cf ? null : triNormal(f));
         for (let q = 0; q < 6; q++) {
           const v = mesh.tris[f * 6 + q];
+          if (cf) { let byFace = nrm.get(v); if (!byFace) nrm.set(v, (byFace = new Map())); byFace.set(face, radial(v, cf)); continue; }
           let byFace = nrm.get(v);
           if (!byFace) nrm.set(v, (byFace = new Map()));
           let n = byFace.get(face);
           if (!n) byFace.set(face, (n = [0, 0, 0]));
-          n[0] += fn[0]; n[1] += fn[1]; n[2] += fn[2];
+          n[0] += fn![0]; n[1] += fn![1]; n[2] += fn![2];
         }
       }
       // A node on the edge between two of the faces is held normal to each (to their average where they meet
@@ -302,6 +313,79 @@ export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[], by?: Map<
     }
   });
   return out;
+}
+
+/**
+ * The axis of a face if it is cylindrical (as far as the mesh tells): its triangles' normals all square to
+ * one direction, and its corner nodes lie at one distance from a line along it. A point on the axis and its
+ * unit direction, or null.
+ */
+function cylinderOf(mesh: TetMesh, face: number): { c: Vec3; a: Vec3 } | null {
+  const X = mesh.nodes, T = mesh.tris;
+  const C = new Array(9).fill(0);
+  const nodes = new Set<number>();
+  for (let f = 0; f < mesh.triFace.length; f++) {
+    if (mesh.triFace[f] !== face) continue;
+    const a = T[f * 6] * 3, b = T[f * 6 + 1] * 3, c = T[f * 6 + 2] * 3;
+    const ux = X[b] - X[a], uy = X[b + 1] - X[a + 1], uz = X[b + 2] - X[a + 2], wx = X[c] - X[a], wy = X[c + 1] - X[a + 1], wz = X[c + 2] - X[a + 2];
+    const n = [uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx];
+    const l = Math.hypot(n[0], n[1], n[2]);
+    if (!(l > 0)) continue;
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i * 3 + j] += (n[i] * n[j]) / l;
+    for (let q = 0; q < 3; q++) nodes.add(T[f * 6 + q]);
+  }
+  const { values, vectors } = jacobiEigen(C, 3);
+  const order = [0, 1, 2].sort((i, j) => values[i] - values[j]);
+  const tr = values[0] + values[1] + values[2];
+  // The normals go round the axis (not a nearly flat strip, nor a sphere or cone).
+  if (!(tr > 0) || !(values[order[0]] < 0.05 * tr) || !(values[order[1]] > 0.1 * tr)) return null;
+  const a: Vec3 = [vectors[order[0] * 3], vectors[order[0] * 3 + 1], vectors[order[0] * 3 + 2]];
+  const e1: Vec3 = [vectors[order[1] * 3], vectors[order[1] * 3 + 1], vectors[order[1] * 3 + 2]];
+  const e2: Vec3 = [a[1] * e1[2] - a[2] * e1[1], a[2] * e1[0] - a[0] * e1[2], a[0] * e1[1] - a[1] * e1[0]];
+  // Circle through the nodes in the plane across the axis (least squares: u^2 + v^2 + D u + E v + F = 0).
+  const pts: [number, number][] = [];
+  for (const v of nodes) { const x = X[v * 3], y = X[v * 3 + 1], z = X[v * 3 + 2]; pts.push([x * e1[0] + y * e1[1] + z * e1[2], x * e2[0] + y * e2[1] + z * e2[2]]); }
+  if (pts.length < 6) return null;
+  const u0 = pts.reduce((s, p) => s + p[0], 0) / pts.length, v0 = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  const N = [0, 0, 0, 0, 0, 0, 0, 0, 0], rhs = [0, 0, 0];
+  for (const [pu, pv] of pts) {
+    const u = pu - u0, v = pv - v0, row = [u, v, 1], w = -(u * u + v * v);
+    for (let i = 0; i < 3; i++) { rhs[i] += row[i] * w; for (let j = 0; j < 3; j++) N[i * 3 + j] += row[i] * row[j]; }
+  }
+  const sol = solve3(N, rhs);
+  if (!sol) return null;
+  const cu = -sol[0] / 2, cv = -sol[1] / 2, r2 = cu * cu + cv * cv - sol[2];
+  if (!(r2 > 0)) return null;
+  const r = Math.sqrt(r2);
+  let near = 0;
+  for (const [pu, pv] of pts) if (Math.abs(Math.hypot(pu - u0 - cu, pv - v0 - cv) - r) < 0.02 * r) near++;
+  if (near < 0.9 * pts.length) return null;
+  const U = cu + u0, V = cv + v0;
+  const c: Vec3 = [U * e1[0] + V * e2[0], U * e1[1] + V * e2[1], U * e1[2] + V * e2[2]];
+  // The facets face (nearly) straight away from the axis found.
+  let on = 0, all = 0;
+  for (let f = 0; f < mesh.triFace.length; f++) {
+    if (mesh.triFace[f] !== face) continue;
+    const p = [0, 0, 0];
+    for (let q = 0; q < 3; q++) for (let d = 0; d < 3; d++) p[d] += X[T[f * 6 + q] * 3 + d] / 3 - c[d] / 3;
+    const t = p[0] * a[0] + p[1] * a[1] + p[2] * a[2];
+    const rad = [p[0] - t * a[0], p[1] - t * a[1], p[2] - t * a[2]];
+    const A = T[f * 6] * 3, B = T[f * 6 + 1] * 3, Cc = T[f * 6 + 2] * 3;
+    const ux = X[B] - X[A], uy = X[B + 1] - X[A + 1], uz = X[B + 2] - X[A + 2], wx = X[Cc] - X[A], wy = X[Cc + 1] - X[A + 1], wz = X[Cc + 2] - X[A + 2];
+    const n = [uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx];
+    const l = Math.hypot(n[0], n[1], n[2]), rl = Math.hypot(rad[0], rad[1], rad[2]);
+    all += l;
+    if (rl > 0 && Math.abs(n[0] * rad[0] + n[1] * rad[1] + n[2] * rad[2]) > 0.95 * l * rl) on += l;
+  }
+  return on >= 0.9 * all ? { c, a } : null;
+}
+
+/** Solution of a 3 x 3 system (Cramer's rule), or null if it is singular. */
+function solve3(M: number[], b: number[]): number[] | null {
+  const det = (m: number[]) => m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+  const d = det(M);
+  if (!(Math.abs(d) > 0)) return null;
+  return [0, 1, 2].map((k) => { const m = M.slice(); for (let i = 0; i < 3; i++) m[i * 3 + k] = b[i]; return det(m) / d; });
 }
 
 /** Orthonormal basis (columns of a 3 x 3 rotation, row-major) whose first k columns span the directions; returns k. */
