@@ -101,11 +101,11 @@ test('sets up a static study, runs it, reads the plot and saves it with the part
   expect(saved.study.fixtures).toHaveLength(1);
   expect(saved.study.loads[0]).toMatchObject({ type: 'force', value: 600 });
   expect(saved.material).toMatchObject({ name: 'Alloy Steel', E: 205000 });
-  await page.evaluate(async (text) => {
+  await page.evaluate(async ({ text, url }) => {
     const a = (window as unknown as W).__parametric;
-    const { parseDocument } = await import('/src/model/document.ts');
+    const { parseDocument } = await import(url) as typeof import('../../src/model/document');
     a.loadDocument(parseDocument(text), null);
-  }, JSON.stringify(saved));
+  }, { text: JSON.stringify(saved), url: '/src/model/document.ts' });
   await page.getByRole('tab', { name: 'Analysis' }).click();
   await expect(page.getByRole('treeitem', { name: /^Force-1/ })).toBeVisible();
   await page.locator('[data-cmd="fea:run"]').click();
