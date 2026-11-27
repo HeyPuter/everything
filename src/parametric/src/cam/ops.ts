@@ -114,8 +114,10 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 export function stepLevels(top: number, bottom: number, step: number, extra: number[] = []): number[] {
   const out: number[] = [];
   if (!(top > bottom + 1e-9)) return [bottom];
-  const n = Math.max(1, Math.ceil((top - bottom) / Math.max(step, 1e-3) - 1e-9));
-  for (let i = 1; i <= n; i++) out.push(i === n ? bottom : top - i * step);
+  // At least 0.01 mm (as the interface allows): less, or none, would never get down.
+  const st = step >= 0.01 ? step : 0.01;
+  const n = Math.max(1, Math.ceil((top - bottom) / st - 1e-9));
+  for (let i = 1; i <= n; i++) out.push(i === n ? bottom : top - i * st);
   for (const e of extra) if (e < top - 1e-6 && e > bottom + 1e-6 && out.every((z) => Math.abs(z - e) > 0.01)) out.push(e);
   return out.sort((a, c) => c - a);
 }

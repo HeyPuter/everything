@@ -142,6 +142,14 @@ describe('contours and levels', () => {
   it('steps down to the bottom with extra levels', () => {
     expect(stepLevels(10, 0, 3)).toEqual([7, 4, 1, 0]);
     expect(stepLevels(10, 0, 3, [5])).toEqual([7, 5, 4, 1, 0]);
+    // A stepdown of none, less or a damaged one still steps down (it stayed at the top
+    // for thousands of levels, or above it, and then went down all the way at once).
+    for (const step of [0, -1, NaN, 1e-6]) {
+      const l = stepLevels(10, 0, step);
+      expect(l).toHaveLength(1000);
+      expect(l[0]).toBeCloseTo(9.99, 9);
+      for (let i = 1; i < l.length; i++) expect(l[i - 1] - l[i]).toBeCloseTo(0.01, 6);
+    }
   });
 });
 
