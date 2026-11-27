@@ -42,6 +42,18 @@ describe('post processor', () => {
     expect(grbl.match(/^M0$/gm)).toHaveLength(1);
   });
 
+  it('applies the tool length offset after an operation without moves', () => {
+    const t = tool();
+    const empty = path([]);
+    const tp = path([RAPID, 10, 10, 20, RAPID, 10, 10, 2, FEED, 10, 10, -1, RAPID, 10, 10, 20]);
+    const code = postProcess(job([{ name: 'S', workOffset: 54, ops: [
+      { name: 'A', tool: t, rpm: 1000, feed: 500, plunge: 100, toolpath: empty },
+      { name: 'B', tool: t, rpm: 1000, feed: 500, plunge: 100, toolpath: tp },
+    ] }]));
+    expect(code).toMatch(/\(B\)\nT1 M6\nS1000 M3\nG54\nM8\nG0 X10\. Y10\.\nG43 Z20\. H1\n/);
+    expect(code).not.toContain('(A)');
+  });
+
   it('never writes an arc that ends where it starts (a full circle)', () => {
     // A tiny arc on a 0.1 mm radius, shorter than the output resolution.
     const m = [RAPID, 5.1, 5, 20, FEED, 5.1, 5, -1];

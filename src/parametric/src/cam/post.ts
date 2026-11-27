@@ -145,6 +145,9 @@ export function postProcess(job: PostJob): string {
     const refixture = newSetup && setup.workOffset === offset;
     offset = setup.workOffset;
     for (const op of setup.ops) {
+      // Nothing to cut (no holes found...): no tool change, and the next operation still gets the
+      // tool length offset.
+      if (op.toolpath.moves.length < 4) continue;
       out(comment(op.name));
       const t = op.tool;
       if (tool !== t.number || newSetup) {
@@ -181,8 +184,8 @@ export function postProcess(job: PostJob): string {
             out(`G43 Z${num(clear)} H${t.number}`);
             x = fx; y = fy; z = clear; motion = 'G0';
           } else rapid(fx, fy, clear);
+          lengthDone = true;
         }
-        lengthDone = true;
       }
       // Moves, with arcs fitted over runs of feeds.
       const feedOf = (kind: number) => (kind === PLUNGE ? op.plunge : op.feed);
