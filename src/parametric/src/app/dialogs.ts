@@ -232,6 +232,15 @@ export async function materialDialog(app: App) {
   const error = h('div', { id: nextDomId('density-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   customDensity.setAttribute('aria-describedby', error.id);
   const elasticFields = [customE, customNu, customYield, customUts];
+  for (const f of elasticFields) f.setAttribute('aria-describedby', error.id);
+  // The elastic fields that keep the set from being used (all empty is no set, not an error).
+  const badElastic = () => {
+    if (elasticFields.every((f) => !f.value.trim())) return [];
+    return elasticFields.filter((f) => {
+      const v = Number(f.value);
+      return !f.value.trim() || !Number.isFinite(v) || (f === customNu ? v < 0 || v >= 0.5 : v <= 0);
+    });
+  };
   const customElastic = (): ElasticProps | null | 'invalid' => {
     if (elasticFields.every((f) => !f.value.trim())) return null;
     const e = { E: Number(customE.value) * 1000, nu: Number(customNu.value), yield: Number(customYield.value), uts: Number(customUts.value) };
@@ -244,7 +253,8 @@ export async function materialDialog(app: App) {
     error.textContent = !densityOk ? 'Enter a finite, positive density.' : !elasticOk ? 'Enter all four elastic properties as positive numbers, with a Poisson\'s ratio from 0 to below 0.5 (or leave them all empty).' : '';
     if (densityOk) customDensity.removeAttribute('aria-invalid');
     else customDensity.setAttribute('aria-invalid', 'true');
-    for (const f of elasticFields) { if (elasticOk) f.removeAttribute('aria-invalid'); else f.setAttribute('aria-invalid', 'true'); }
+    const bad = elasticOk ? [] : badElastic();
+    for (const f of elasticFields) { if (bad.includes(f)) f.setAttribute('aria-invalid', 'true'); else f.removeAttribute('aria-invalid'); }
     return densityOk && elasticOk;
   };
   for (const f of [customDensity, ...elasticFields]) f.addEventListener('input', () => { if (error.textContent) validate(); });
@@ -263,7 +273,7 @@ export async function materialDialog(app: App) {
     body: [h('p', {}, 'The material sets the density used for mass properties, and the elastic properties used for stress analysis.'), select, props, custom, customHint, error],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Apply', value: 'ok', primary: true }],
     onAction: (action) => {
-      if (action === 'ok' && !validate()) { (customDensity.getAttribute('aria-invalid') ? customDensity : customE).focus(); return false; }
+      if (action === 'ok' && !validate()) { (customDensity.getAttribute('aria-invalid') ? customDensity : (badElastic()[0] ?? customE)).focus(); return false; }
     },
   });
   if (v !== 'ok' || signal.aborted) return;
