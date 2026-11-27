@@ -387,6 +387,14 @@ describe('motion studies', () => {
     expect(d1[2]).toBeCloseTo(0.4, 12);
     expect(d2[2]).toBeCloseTo(2, 9);
     expect(d2[0]).toBeCloseTo(2, 9);
+    // At the first and last samples too: the velocity of t² there, and of a harmonic motion's acceleration (zero at its middle position).
+    expect(d1[0]).toBeCloseTo(0, 12);
+    expect(d1[4]).toBeCloseTo(0.8, 12);
+    const ts = Array.from({ length: 31 }, (_, i) => i / 30), x = ts.map((s) => 10 * Math.sin(2 * Math.PI * s));
+    const h = derivatives(ts, x), peak = 10 * (2 * Math.PI) ** 2;
+    expect(Math.abs(h.d2[0])).toBeLessThan(0.02 * peak);
+    expect(Math.abs(h.d2[30])).toBeLessThan(0.02 * peak);
+    expect(h.d1[0] / (20 * Math.PI)).toBeCloseTo(1, 1);
     expect(resultsCsv([{ name: 'Time (s)', values: [0, 0.5] }, { name: 'X, mm', values: [1, 2.25] }])).toBe('Time (s),"X, mm"\n0,1\n0.5,2.25');
     expect(len(sub(pointPath({ times: [0], frames: [new Map([['a', { p: [1, 2, 3], q: [0, 0, 0, 1] }]])], stop: null, duration: 1 }, 'a', [1, 0, 0])[0], [2, 2, 3]))).toBe(0);
   });

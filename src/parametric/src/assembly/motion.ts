@@ -297,7 +297,12 @@ export function mateSeries(res: MotionResult, mate: SolverMate, L = 100): { valu
   return { values, kind: first.kind };
 }
 
-/** First and second derivatives of samples at times t (central differences; one-sided at the ends). */
+/**
+ * First and second derivatives of samples at times t: central differences,
+ * and at the first and last samples one-sided differences as accurate (the
+ * slope through three samples; the second derivative carried on in a line
+ * from the two beside it).
+ */
 export function derivatives(t: number[], v: number[]): { d1: number[]; d2: number[] } {
   const n = v.length;
   const d1 = new Array<number>(n).fill(0), d2 = new Array<number>(n).fill(0);
@@ -307,11 +312,19 @@ export function derivatives(t: number[], v: number[]): { d1: number[]; d2: numbe
     d1[i] = (v[b] - v[a]) / (t[b] - t[a] || 1);
   }
   if (n < 3) return { d1, d2 };
+  // The slope at an end of the parabola through it and the two samples beside it (steps h1 then h2 away).
+  const end = (f0: number, f1: number, f2: number, h1: number, h2: number) => (-(2 * h1 + h2) / (h1 * (h1 + h2))) * f0 + ((h1 + h2) / (h1 * h2)) * f1 - (h1 / (h2 * (h1 + h2))) * f2;
+  d1[0] = end(v[0], v[1], v[2], t[1] - t[0], t[2] - t[1]);
+  d1[n - 1] = -end(v[n - 1], v[n - 2], v[n - 3], t[n - 1] - t[n - 2], t[n - 2] - t[n - 3]);
   for (let i = 0; i < n; i++) {
     const j = Math.min(n - 2, Math.max(1, i));
     const h1 = t[j] - t[j - 1], h2 = t[j + 1] - t[j];
     // Second difference on uneven steps (the last frame of a study can be shorter).
     d2[i] = (2 * ((v[j + 1] - v[j]) / h2 - (v[j] - v[j - 1]) / h1)) / (h1 + h2);
+  }
+  if (n >= 4) {
+    d2[0] = d2[1] + ((d2[1] - d2[2]) * (t[1] - t[0])) / (t[2] - t[1]);
+    d2[n - 1] = d2[n - 2] + ((d2[n - 2] - d2[n - 3]) * (t[n - 1] - t[n - 2])) / (t[n - 2] - t[n - 3]);
   }
   return { d1, d2 };
 }
