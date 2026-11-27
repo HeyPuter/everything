@@ -647,31 +647,37 @@ function dist2(P: ArrayLike<number>, v: number, p: ArrayLike<number>): number {
 
 interface LinearMesh { P: Float64Array; tets: Int32Array; nn: number; nt: number }
 
-/** Boundary triangles (faces of one tetrahedron only), oriented outward. */
+/** Boundary triangles (faces of one tetrahedron only), oriented outward, in the order they are first met. */
 function boundaryOf(m: LinearMesh): { tris: Int32Array } {
   const { tets, nn } = m;
   const nt = tets.length / 4;
-  const faces = new Map<number, number[]>();
   // Faces opposite each corner, ordered so their normal points out of a positive tetrahedron.
   const F = [[1, 2, 3], [0, 3, 2], [0, 1, 3], [0, 2, 1]];
-  const out: number[] = [];
-  const seen = new Map<string, number>();
-  void faces;
+  // Faces by their two lowest corners: [third corner, face number] pairs.
+  const byPair = new Map<number, number[]>();
+  const out = new Int32Array(nt * 12);
+  const single = new Uint8Array(nt * 4);
+  let nf = 0;
   for (let t = 0; t < nt; t++) {
     for (const f of F) {
       const a = tets[t * 4 + f[0]], b = tets[t * 4 + f[1]], c = tets[t * 4 + f[2]];
-      const s = [a, b, c].sort((x, y) => x - y);
-      const key = `${s[0]},${s[1]},${s[2]}`;
-      const prev = seen.get(key);
-      if (prev === undefined) seen.set(key, out.length / 3);
-      else seen.set(key, -1);
-      out.push(a, b, c);
+      const lo = Math.min(a, b, c), hi = Math.max(a, b, c), mid = a + b + c - lo - hi;
+      const key = lo * nn + mid;
+      let l = byPair.get(key);
+      if (!l) byPair.set(key, (l = []));
+      let twin = -1;
+      for (let q = 0; q < l.length; q += 2) if (l[q] === hi) { twin = l[q + 1]; break; }
+      if (twin >= 0) { single[twin] = 0; continue; }
+      l.push(hi, nf);
+      out[nf * 3] = a; out[nf * 3 + 1] = b; out[nf * 3 + 2] = c;
+      single[nf++] = 1;
     }
   }
-  void nn;
-  const tris: number[] = [];
-  for (const idx of seen.values()) if (idx >= 0) tris.push(out[idx * 3], out[idx * 3 + 1], out[idx * 3 + 2]);
-  return { tris: Int32Array.from(tris) };
+  let n = 0;
+  for (let f = 0; f < nf; f++) if (single[f]) n++;
+  const tris = new Int32Array(n * 3);
+  for (let f = 0, k = 0; f < nf; f++) if (single[f]) { tris[k++] = out[f * 3]; tris[k++] = out[f * 3 + 1]; tris[k++] = out[f * 3 + 2]; }
+  return { tris };
 }
 
 function forBoundaryEdges(tris: Int32Array, fn: (a: number, b: number) => void) {
