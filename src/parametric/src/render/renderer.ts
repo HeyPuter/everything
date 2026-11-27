@@ -223,6 +223,52 @@ in vec4 vColor;
 out vec4 outColor;
 void main() { outColor = vColor; }`;
 
+// Opaque shaded meshes with a colour per vertex (the simulated stock, the tool).
+const SOLID_VS = `#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec4 aColor;
+uniform mat4 uViewProj;
+uniform mat4 uView;
+out vec3 vN;
+out vec3 vPosV;
+out vec4 vColor;
+out vec3 vWorld;
+void main() {
+  vec4 w = vec4(aPos, 1.0);
+  gl_Position = uViewProj * w;
+  vN = mat3(uView) * aNormal;
+  vPosV = (uView * w).xyz;
+  vColor = aColor;
+  vWorld = aPos;
+}`;
+
+const SOLID_FS = `#version 300 es
+precision highp float;
+in vec3 vN;
+in vec3 vPosV;
+in vec4 vColor;
+in vec3 vWorld;
+uniform int uOrtho;
+uniform vec4 uClip;
+uniform int uClipOn;
+out vec4 outColor;
+void main() {
+  if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  vec3 v = uOrtho == 1 ? vec3(0.0, 0.0, 1.0) : normalize(-vPosV);
+  vec3 l1 = normalize(vec3(0.35, 0.55, 1.0));
+  vec3 l2 = normalize(vec3(-0.6, -0.25, 0.55));
+  float d1 = max(dot(n, l1), 0.0);
+  float d2 = max(dot(n, l2), 0.0);
+  vec3 h = normalize(l1 + v);
+  float sp = pow(max(dot(n, h), 0.0), 40.0);
+  float hemi = 0.5 + 0.5 * n.y;
+  vec3 base = vColor.rgb;
+  outColor = vec4(base * (0.34 + 0.16 * hemi + 0.5 * d1 + 0.12 * d2) + vec3(0.16) * sp, 1.0);
+}`;
+
 // Picking: id in an R32UI target and eye distance in an R32F target.
 const PICK_MESH_FS = `#version 300 es
 precision highp float;
@@ -399,6 +445,15 @@ export interface PointBatch {
   order?: number;
 }
 
+/** An opaque, shaded mesh with a colour per vertex. */
+export interface SolidBatch {
+  positions: Float32Array;
+  normals: Float32Array;
+  /** RGBA per vertex (0..255). */
+  colors: Uint8Array;
+  indices: Uint32Array;
+}
+
 export interface TriBatch {
   positions: Float32Array;
   colors: Uint8Array;
@@ -465,6 +520,7 @@ export class Renderer {
   private lines = new Map<string, LineBatch & { gpu?: GpuSegs }>();
   private points = new Map<string, PointBatch & { gpu?: { vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; count: number } }>();
   private tris = new Map<string, TriBatch & { gpu?: { vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; count: number } }>();
+  private solids = new Map<string, SolidBatch & { gpu?: { vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; count: number } }>();
   private pickFbo: WebGLFramebuffer | null = null;
   private pickTex: WebGLTexture | null = null;
   private pickDepthTex: WebGLTexture | null = null;
@@ -507,6 +563,7 @@ export class Renderer {
     this.progs.seg = this.program(SEG_VS, SEG_FS);
     this.progs.pt = this.program(PT_VS, PT_FS);
     this.progs.tri = this.program(TRI_VS, TRI_FS);
+    this.progs.solid = this.program(SOLID_VS, SOLID_FS);
     this.progs.pickMesh = this.program(MESH_VS, PICK_MESH_FS);
     this.progs.pickSeg = this.program(SEG_VS, PICK_SEG_FS);
     this.progs.pickPt = this.program(PICK_PT_VS, PICK_PT_FS);
@@ -540,6 +597,7 @@ export class Renderer {
     for (const [k, b] of [...this.lines]) { b.gpu = undefined; this.setLines(k, b); }
     for (const [k, b] of [...this.points]) { b.gpu = undefined; this.setPoints(k, b); }
     for (const [k, b] of [...this.tris]) { b.gpu = undefined; this.setTris(k, b); }
+    for (const [k, b] of [...this.solids]) { b.gpu = undefined; this.setSolid(k, b); }
     this.requestRender();
   }
 
@@ -811,6 +869,36 @@ export class Renderer {
     this.requestRender();
   }
 
+  /** Shows (or with null removes) an opaque shaded mesh, drawn with the model. */
+  setSolid(key: string, batch: SolidBatch | null) {
+    const gl = this.gl;
+    const old = this.solids.get(key);
+    if (old?.gpu) { gl.deleteVertexArray(old.gpu.vao); old.gpu.bufs.forEach((b) => gl.deleteBuffer(b)); }
+    this.setBox(`solid:${key}`, batch?.positions ?? null);
+    if (!batch || !batch.indices.length) { this.solids.delete(key); this.requestRender(); return; }
+    const vao = gl.createVertexArray()!;
+    gl.bindVertexArray(vao);
+    const bufs: WebGLBuffer[] = [];
+    const attr = (data: ArrayBufferView, loc: number, size: number, type: number, norm: boolean) => {
+      const b = gl.createBuffer()!;
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, type, norm, 0, 0);
+      bufs.push(b);
+    };
+    attr(batch.positions, 0, 3, gl.FLOAT, false);
+    attr(batch.normals, 1, 3, gl.FLOAT, false);
+    attr(batch.colors, 2, 4, gl.UNSIGNED_BYTE, true);
+    const ib = gl.createBuffer()!;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, batch.indices, gl.STATIC_DRAW);
+    bufs.push(ib);
+    gl.bindVertexArray(null);
+    this.solids.set(key, { ...batch, gpu: { vao, bufs, count: batch.indices.length } });
+    this.requestRender();
+  }
+
   // ---- frame ----
 
   resize(cssW: number, cssH: number, dpr: number) {
@@ -954,6 +1042,25 @@ export class Renderer {
         this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
       }
       if (!showBody && this.model) this.drawModelStates(this.model, vp, view, viewport, clip, style === 'wireframe');
+    }
+
+    if (this.solids.size) {
+      const { p, u } = this.progs.solid;
+      gl.useProgram(p);
+      gl.uniformMatrix4fv(u.uViewProj, false, vp);
+      gl.uniformMatrix4fv(u.uView, false, view);
+      gl.uniform1i(u.uOrtho, cam.ortho ? 1 : 0);
+      gl.uniform1i(u.uClipOn, clip ? 1 : 0);
+      if (clip) gl.uniform4fv(u.uClip, clip);
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(1, 1);
+      for (const s of this.solids.values()) {
+        if (!s.gpu) continue;
+        gl.bindVertexArray(s.gpu.vao);
+        gl.drawElements(gl.TRIANGLES, s.gpu.count, gl.UNSIGNED_INT, 0);
+      }
+      gl.bindVertexArray(null);
+      gl.disable(gl.POLYGON_OFFSET_FILL);
     }
 
     for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, b.clip === false ? null : clip);

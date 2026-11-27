@@ -205,8 +205,9 @@ export function simulate(input: SimInput): SimResult {
     if (diff < -0.02) { gouges++; maxGouge = Math.max(maxGouge, -diff); }
     if (fine[k] > NO_CONTACT / 2 && z[k] - fine[k] > 0.1) { remainingCells++; maxRemaining = Math.max(maxRemaining, z[k] - fine[k]); }
   }
-  const partTop = new Float32Array(dg.nx * dg.ny);
-  for (let j = 0; j < dg.ny; j++) for (let i = 0; i < dg.nx; i++) partTop[j * dg.nx + i] = pin.drop(dg.x0 + i * dg.c, dg.y0 + j * dg.c);
+  // The part under a display cell, the lowest of its cells as its stock is (a cell on a wall's
+  // edge then reads as finished, not as cut into the wall).
+  const partTop = down(fine);
   return {
     grid: dg, bottom, top, snapshots, partTop, timeline: Float32Array.from(timeline), time: total,
     gouges, maxGouge, rapidCuts, shankHits, maxRemaining, remainingArea: remainingCells * g.c * g.c, removed: Math.max(0, startVolume - volume),

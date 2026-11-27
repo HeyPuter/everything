@@ -11,6 +11,7 @@ import { icon } from '../ui/icons';
 import type { App } from './app';
 import type { SelItem } from './selection';
 import { sheetMetalTreeRows } from './sheetmetal-panels';
+import { camTreeRows } from './cam';
 
 interface Row {
   key: string;
@@ -23,6 +24,12 @@ interface Row {
   expanded?: boolean;
   muted?: string;
   action?: () => void;
+  /** Rows that are not features (CAM): double click or Enter, the context menu, a badge, selection and suppression. */
+  open?: () => void;
+  menu?: (x: number, y: number) => void;
+  badge?: { kind: 'error' | 'warn'; text: string };
+  selected?: boolean;
+  suppressed?: boolean;
 }
 
 export class FeatureTree {
@@ -89,6 +96,8 @@ export class FeatureTree {
       // A filter also searches the sketches nested under collapsed features.
       if (expanded || this.filter) for (const k of kids) rows.push({ key: k.id, item: { kind: 'feature', id: k.id }, label: k.name, icon: featureIcon(k), depth: 2, feature: k });
     }
+    // CAM: setups and their operations, open unless closed (the set holds the closed ones).
+    rows.push(...camTreeRows(app, (k) => !this.expanded.has(k) || !!this.filter).map((r) => ({ ...r, item: null })));
     if (!this.filter) return rows;
     return rows.filter((r) => r.depth === 0 || r.label.toLowerCase().includes(this.filter));
   }
@@ -114,17 +123,17 @@ export class FeatureTree {
       const f = r.feature;
       const index = f ? doc.features.indexOf(f) : -1;
       // Rollback bar sits after the last built top-level feature.
-      if (f && r.depth === 1 && !rollbackPlaced && index >= built) {
+      if (!rollbackPlaced && ((f && r.depth === 1 && index >= built) || r.key === 'cam')) {
         this.list.append(this.rollbackBar());
         rollbackPlaced = true;
       }
       const status = f ? app.featureStatus(f.id) : null;
       const selected = r.item ? sel.has(r.item) : false;
       const el = h('div', {
-        class: `ti${f?.suppressed || status?.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
+        class: `ti${f?.suppressed || status?.suppressed || r.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
         role: 'treeitem',
         tabindex: r.key === tabKey ? '0' : '-1',
-        'aria-selected': r.item ? String(selected) : null,
+        'aria-selected': r.item ? String(selected) : r.selected !== undefined ? String(r.selected) : null,
         'aria-level': String(r.depth + 1),
         'aria-expanded': r.children ? String(!!r.expanded) : null,
         'data-key': r.key,
@@ -142,12 +151,15 @@ export class FeatureTree {
       }
       // What grey text and badges show is told to screen readers too.
       const states: string[] = [];
-      if (f?.suppressed || status?.suppressed) states.push('Suppressed');
+      if (f?.suppressed || status?.suppressed || r.suppressed) states.push('Suppressed');
       if (f && index >= built) states.push('Rolled back');
       if (status && !status.ok) {
         const b = h('span', { class: 'badge', title: status.error ?? 'Error' }, icon('error', 14));
         el.append(b);
         states.push(`Error: ${status.error ?? ''}`);
+      } else if (r.badge) {
+        el.append(h('span', { class: `badge${r.badge.kind === 'warn' ? ' warn' : ''}`, title: r.badge.text }, icon(r.badge.kind === 'warn' ? 'warning' : 'error', 14)));
+        states.push(`${r.badge.kind === 'warn' ? 'Warning' : 'Error'}: ${r.badge.text}`);
       } else if (f && app.featureWarning(f.id)) {
         el.append(h('span', { class: 'badge warn', title: app.featureWarning(f.id)! }, icon('warning', 14)));
         states.push(`Warning: ${app.featureWarning(f.id)}`);
@@ -158,7 +170,8 @@ export class FeatureTree {
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         if (r.item && !sel.has(r.item)) sel.set([r.item]);
-        if (f) app.openFeatureMenu(f.id, e.clientX, e.clientY);
+        if (r.menu) r.menu(e.clientX, e.clientY);
+        else if (f) app.openFeatureMenu(f.id, e.clientX, e.clientY);
         else if (r.item) app.openReferenceMenu(r.item, e.clientX, e.clientY);
         // The part and Material rows have menus too (Shift+F10 on them did nothing).
         else if (r.key === 'part') app.openCommandMenu(['properties', 'rename', 'equations', 'appearance'], e.clientX, e.clientY, 'Part menu');
@@ -323,7 +336,8 @@ export class FeatureTree {
   }
 
   private onDouble(r: Row) {
-    if (r.feature) this.app.editFeature(r.feature.id);
+    if (r.open) r.open();
+    else if (r.feature) this.app.editFeature(r.feature.id);
     else if (r.key === 'part') this.app.commands.run('properties');
   }
 
@@ -400,6 +414,7 @@ export class FeatureTree {
         e.preventDefault();
         e.stopPropagation();
         if (this.app.store.feature(key)) this.app.editFeature(key);
+        else if (this.shown.find((r) => r.key === key)?.open) this.shown.find((r) => r.key === key)!.open!();
         // As a click on Material or a double click on the part does.
         else if (key === 'material') this.app.commands.run('material');
         else if (key === 'cutlist') this.app.commands.run('cutList');

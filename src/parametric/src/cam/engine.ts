@@ -18,6 +18,20 @@ export interface ModelCylinder {
   tris: Float32Array;
 }
 
+/** Binary STL to triangles (9 numbers each). */
+export function stlTriangles(data: Uint8Array): Float32Array {
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data.byteLength < 84) return new Float32Array(0);
+  const n = dv.getUint32(80, true);
+  const count = Math.min(n, Math.floor((data.byteLength - 84) / 50));
+  const out = new Float32Array(count * 9);
+  for (let t = 0; t < count; t++) {
+    const o = 84 + t * 50 + 12;
+    for (let k = 0; k < 9; k++) out[t * 9 + k] = dv.getFloat32(o + k * 4, true);
+  }
+  return out;
+}
+
 export function placePart(setup: Pick<CamSetup, 'axis' | 'rotation' | 'origin' | 'stock'>, tris: Float32Array): CamPart | null {
   const frame = machineFrame(setup, tris);
   if (!frame) return null;

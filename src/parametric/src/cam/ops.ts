@@ -13,7 +13,7 @@ import type { Vec3 } from '../math/vec';
 import { type Cutter, cutterOf, DropCutter, NO_CONTACT, TriIndex, makeCutter } from './dropcutter';
 import type { MachineFrame } from './frame';
 import { type GridSpec, type Polyline, area, contours, edt, gridOver, pointInPolygon, polyLength, sample, signedDistance, simplify } from './grid';
-import { PathBuilder, type Toolpath } from './toolpath';
+import { CYCLE, PathBuilder, type Toolpath } from './toolpath';
 
 export interface CamPart {
   frame: MachineFrame;
@@ -68,7 +68,44 @@ export function generate(input: OpInput): Toolpath {
     case 'waterline': g.waterline(op); break;
   }
   if (b.length === 0 && !b.warnings.length) b.warnings.push('The operation has nothing to cut.');
-  return b.build();
+  const tp = b.build();
+  const v = verifyToolpath(part, input.tool, tp, input.cancelled);
+  if (v.count) tp.warnings.push(`The toolpath cuts into the part (${v.count} place${v.count === 1 ? '' : 's'}, up to ${v.depth.toFixed(3)} mm deep). Check it in the simulation.`);
+  return tp;
+}
+
+/**
+ * Checks every move against the part with the drop-cutter. The cutter is
+ * taken `tol` smaller and may dip `tol` below the part: passes along a
+ * vertical wall are chords within the path tolerance of it, and a tool a
+ * hair closer to a wall would otherwise read as cutting the whole wall's
+ * height into it. Returns how many moves cut deeper, and the deepest.
+ */
+export function verifyToolpath(part: CamPart, tool: CamTool, tp: Toolpath, cancelled?: () => boolean, tol = 0.02): { count: number; depth: number } {
+  const dc = new DropCutter(part.index, cutterOf(tool, -tol));
+  const m = tp.moves;
+  let count = 0, depth = 0;
+  let px = NaN, py = NaN, pz = NaN;
+  const top = part.index.zMax;
+  for (let i = 0; i < m.length; i += 4) {
+    const k = m[i];
+    if (k === CYCLE) { px = NaN; continue; }
+    const x = m[i + 1], y = m[i + 2], z = m[i + 3];
+    if (!Number.isNaN(px) && Math.min(pz, z) < top + tol) {
+      const n = Math.max(1, Math.ceil(Math.hypot(x - px, y - py) / 0.4));
+      let worst = 0;
+      for (let s = n === 1 ? 1 : 0; s <= n; s++) {
+        const t = s / n;
+        const zz = pz + (z - pz) * t;
+        const d = dc.drop(px + (x - px) * t, py + (y - py) * t) - zz;
+        if (d > worst) worst = d;
+      }
+      if (worst > tol) { count++; depth = Math.max(depth, worst); }
+    }
+    px = x; py = y; pz = z;
+    if ((i & 0xffff) === 0 && cancelled?.()) break;
+  }
+  return { count, depth };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -380,21 +417,31 @@ class Gen {
       this.loop(pts, z);
       return;
     }
-    if (o.entry === 'helix') {
-      // The deepest point of the region.
+    if (o.entry === 'helix' && area(pts) * (o.climb ? 1 : -1) > 0) {
+      // The deepest point of the region inside this pass (a region can have several
+      // innermost passes, one in each of its wider parts).
       let best = -1, bv = -Infinity;
-      for (let k = 0; k < s.length; k++) if (label[k] === comp && s[k] > bv) { bv = s[k]; best = k; }
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let k = 0; k < pts.length; k += 2) { x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); y0 = Math.min(y0, pts[k + 1]); y1 = Math.max(y1, pts[k + 1]); }
+      const i0 = Math.max(0, Math.ceil((x0 - g.x0) / g.c)), i1 = Math.min(g.nx - 1, Math.floor((x1 - g.x0) / g.c));
+      const j0 = Math.max(0, Math.ceil((y0 - g.y0) / g.c)), j1 = Math.min(g.ny - 1, Math.floor((y1 - g.y0) / g.c));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const k = j * g.nx + i;
+        if (label[k] === comp && s[k] > bv && pointInPolygon(pts, g.x0 + i * g.c, g.y0 + j * g.c)) { bv = s[k]; best = k; }
+      }
       const rh = Math.min(bv * 0.9, this.R * 0.9);
       if (best >= 0 && rh >= this.R * 0.15) {
         const cx = g.x0 + (best % g.nx) * g.c, cy = g.y0 + Math.floor(best / g.nx) * g.c;
-        const pitch = 2 * Math.PI * rh * Math.tan((clamp(o.rampAngle, 0.5, 45) * Math.PI) / 180);
-        b.rapidTo(cx + rh, cy, b.retract);
-        b.hop(b.retract, cx + rh, cy, Math.max(zFrom, z));
-        this.helix(cx, cy, rh, Math.max(zFrom, z), z, pitch, o.climb);
-        const start = this.startNear(pts, b.x, b.y);
-        b.feed(start[0], start[1], z);
-        this.loop(start, z);
-        return;
+        const start = this.startNear(pts, cx + rh, cy);
+        if (this.insideAlong(g, s, cx + rh, cy, start[0], start[1], g.c * 0.25)) {
+          const pitch = 2 * Math.PI * rh * Math.tan((clamp(o.rampAngle, 0.5, 45) * Math.PI) / 180);
+          b.rapidTo(cx + rh, cy, b.retract);
+          b.hop(b.retract, cx + rh, cy, Math.max(zFrom, z));
+          this.helix(cx, cy, rh, Math.max(zFrom, z), z, pitch, o.climb);
+          b.feed(start[0], start[1], z);
+          this.loop(start, z);
+          return;
+        }
       }
     }
     if (o.entry !== 'plunge' && polyLength(pts, 2, true) > this.R) {
@@ -555,8 +602,9 @@ class Gen {
       const cx = x0 + N[0] * lead, cy = y0 + N[1] * lead;
       const aStart = Math.atan2(-T[1], -T[0]);
       const sx = cx + lead * Math.cos(aStart), sy = cy + lead * Math.sin(aStart);
+      // The lead starts beside the slot the passes above cut, where the tool's edge may
+      // still be in stock: down from the retract height at the plunge feed.
       b.rapidTo(sx, sy, b.retract);
-      b.hop(b.retract, sx, sy, zStart);
       b.plunge(sx, sy, zStart);
       const aEnd = Math.atan2(-N[1], -N[0]);
       let sweep = aEnd - aStart;
@@ -565,7 +613,7 @@ class Gen {
       arc(cx, cy, aStart, sweep, zStart, 'feed');
     } else {
       b.rapidTo(x0, y0, b.retract);
-      b.hop(b.retract, x0, y0, zStart);
+      b.plunge(x0, y0, zStart);
     }
     // Ramp down along the loop, then once round at depth.
     if (!tabs) this.rampLoop(pts, zStart, z, rampAngle);
@@ -699,8 +747,10 @@ class Gen {
       // Reachable from above: a cutter nearly as wide goes down to the bottom.
       const wide = new DropCutter(this.part.index, makeCutter('flat', h.r * 0.95, 0, 0)).drop(h.x, h.y);
       if (wide > h.bottom + 1e-3) continue;
+      // Through when that cutter goes on past the bottom (a drill point's depth): not a
+      // counterbore, whose floor stops it though its centre is open (the smaller hole).
       const point = h.r / Math.tan((59 * Math.PI) / 180);
-      out.push({ ...h, through: centre < h.bottom - point - 1e-2 });
+      out.push({ ...h, through: wide < h.bottom - point - 1e-2 });
     }
     return nearestOrder(out);
   }
@@ -807,8 +857,8 @@ class Gen {
         }
         b.feed(x, y, z);
       } else {
+        // Finishing follows roughing that leaves stock: down from the retract height at the plunge feed.
         b.rapidTo(x, y, b.retract);
-        b.hop(b.retract, x, y, Math.min(b.retract, z + 1));
         b.plunge(x, y, z);
       }
       for (let i = 3; i < r.length; i += 3) b.feed(r[i], r[i + 1], r[i + 2]);
@@ -837,10 +887,9 @@ class Gen {
         const raw = pending.splice(bi, 1)[0];
         const pts = Number.isNaN(b.x) ? raw : this.startNear(raw, b.x, b.y);
         b.rapidTo(pts[0], pts[1], b.retract);
-        b.hop(b.retract, pts[0], pts[1], Math.min(b.retract, z + 1));
         b.plunge(pts[0], pts[1], z);
         this.loop(pts, z);
-        b.rapid(b.x, b.y, Math.min(b.retract, z + 1));
+        b.rapid(b.x, b.y, b.retract);
       }
     }
   }
