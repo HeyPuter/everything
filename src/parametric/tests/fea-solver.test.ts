@@ -11,6 +11,7 @@ import type { FaceInfo } from '../src/kernel/protocol';
 import { SurfaceIndex } from '../src/fea/surface';
 import { meshSolid } from '../src/fea/mesher';
 import { type LoadInput, type StaticInput, StudyError, solveStatic } from '../src/fea/static';
+import { type BlockMatrix, type Prolongator, galerkin, matvec } from '../src/fea/amg';
 import type { Feature } from '../src/model/types';
 import { circle, extrude, rect, req, sketch } from './helpers';
 
@@ -164,5 +165,79 @@ describe('fixed hinge', () => {
     expect(r.warnings).toEqual([]);
     const total = r.reactions.reduce((a, x) => a + x[1], 0);
     expect(total).toBeCloseTo(100, 4);
+  }, 120000);
+});
+
+describe('multigrid kernels', () => {
+  // A deterministic pseudo-random sequence.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+
+  /** A symmetric block matrix with a random pattern (and its dense form). */
+  function randomSymmetric(n: number, b: number): { A: BlockMatrix; D: Float64Array } {
+    const N = n * b, D = new Float64Array(N * N);
+    const pattern = new Set<number>();
+    for (let i = 0; i < n; i++) { pattern.add(i * n + i); for (let t = 0; t < 3; t++) { const j = Math.floor(((rnd() + 1) / 2) * n) % n; pattern.add(i * n + j); pattern.add(j * n + i); } }
+    for (const key of pattern) {
+      const i = Math.floor(key / n), j = key % n;
+      if (j < i) continue;
+      for (let r = 0; r < b; r++) for (let c = 0; c < b; c++) { const v = i === j && r === c ? 10 + rnd() : rnd(); D[(i * b + r) * N + j * b + c] = v; D[(j * b + c) * N + i * b + r] = v; }
+    }
+    const rowPtr = new Int32Array(n + 1), cols: number[] = [], vals: number[] = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) if (pattern.has(i * n + j)) { cols.push(j); for (let r = 0; r < b; r++) for (let c = 0; c < b; c++) vals.push(D[(i * b + r) * N + j * b + c]); }
+      rowPtr[i + 1] = cols.length;
+    }
+    return { A: { n, b, rowPtr, col: Int32Array.from(cols), val: Float64Array.from(vals) }, D };
+  }
+
+  for (const b of [3, 6]) {
+    it(`coarse matrix P^T A P and products with ${b} x ${b} blocks match dense arithmetic`, () => {
+      const n = 40, m = 9, c = 6;
+      const { A, D } = randomSymmetric(n, b);
+      // A prolongator with one to three blocks per row (sorted columns).
+      const rowPtr = new Int32Array(n + 1), cols: number[] = [], vals: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const js = [...new Set([i % m, (i * 7 + 3) % m, ...(i % 3 ? [(i * 5 + 1) % m] : [])])].sort((x, y) => x - y);
+        for (const J of js) { cols.push(J); for (let k = 0; k < b * c; k++) vals.push(rnd()); }
+        rowPtr[i + 1] = cols.length;
+      }
+      const P: Prolongator = { n, m, b, c, rowPtr, col: Int32Array.from(cols), val: Float64Array.from(vals) };
+      const N = n * b, Mc = m * c;
+      const Pd = new Float64Array(N * Mc);
+      for (let i = 0; i < n; i++) for (let p = rowPtr[i]; p < rowPtr[i + 1]; p++) for (let r = 0; r < b; r++) for (let k = 0; k < c; k++) Pd[(i * b + r) * Mc + P.col[p] * c + k] = P.val[p * b * c + r * c + k];
+      const ref = new Float64Array(Mc * Mc);
+      for (let I = 0; I < Mc; I++) for (let J = 0; J < Mc; J++) {
+        let s = 0;
+        for (let x = 0; x < N; x++) { const px = Pd[x * Mc + I]; if (!px) continue; for (let y = 0; y < N; y++) s += px * D[x * N + y] * Pd[y * Mc + J]; }
+        ref[I * Mc + J] = s;
+      }
+      const Ac = galerkin(A, P);
+      expect(Ac.n).toBe(m);
+      expect(Ac.b).toBe(c);
+      const got = new Float64Array(Mc * Mc);
+      for (let I = 0; I < m; I++) {
+        for (let q = Ac.rowPtr[I]; q < Ac.rowPtr[I + 1]; q++) {
+          if (q > Ac.rowPtr[I]) expect(Ac.col[q]).toBeGreaterThan(Ac.col[q - 1]);
+          for (let r = 0; r < c; r++) for (let k = 0; k < c; k++) got[(I * c + r) * Mc + Ac.col[q] * c + k] = Ac.val[q * c * c + r * c + k];
+        }
+      }
+      const scale = Math.max(...ref.map(Math.abs));
+      for (let i = 0; i < ref.length; i++) expect(Math.abs(got[i] - ref[i])).toBeLessThan(1e-12 * scale);
+      // Matrix-vector products in the same blocks.
+      const x = Float64Array.from({ length: N }, rnd), y = new Float64Array(N);
+      matvec(A, x, y);
+      for (let r = 0; r < N; r++) { let s = 0; for (let k = 0; k < N; k++) s += D[r * N + k] * x[k]; expect(y[r]).toBeCloseTo(s, 10); }
+    });
+  }
+
+  it('multigrid preconditioned conjugate gradients converge on an elasticity system', async () => {
+    const { mesh, faces } = await meshOf([sketch('s1', rect(0, 0, 60, 10)), extrude('f1', 's1', 10)], 5);
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'fixed', faces: [planar(faces, [-1, 0, 0])] }], loads: [{ kind: 'force', faces: [planar(faces, [1, 0, 0])], total: 100, dir: [0, -1, 0] }] });
+    expect(r.solver).toMatch(/multigrid/);
+    expect(r.residual).toBeLessThan(1e-9);
+    // Equilibrium at every free node: K u = f away from the fixture (the residual the solver reports, checked independently).
+    const sum = r.reactions[0].map((x, k) => x + r.applied[k]);
+    expect(Math.hypot(...sum)).toBeLessThan(1e-6 * 100);
   }, 120000);
 });

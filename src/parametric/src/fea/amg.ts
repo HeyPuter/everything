@@ -23,7 +23,7 @@ export interface BlockMatrix {
 }
 
 /** Prolongator: n fine block rows of size b, m coarse block columns of size c. */
-interface Prolongator {
+export interface Prolongator {
   n: number;
   m: number;
   b: number;
@@ -51,6 +51,21 @@ export function matvec(A: BlockMatrix, x: Float64Array, y: Float64Array) {
     return;
   }
   const bb = b * b;
+  if (b === 6) {
+    // Coarse levels: the same sums with the six x values in registers.
+    for (let i = 0; i < n; i++) {
+      for (let r = 0; r < 6; r++) y[i * 6 + r] = 0;
+      for (let q = rowPtr[i]; q < rowPtr[i + 1]; q++) {
+        const j = col[q] * 6, v = q * 36;
+        const x0 = x[j], x1 = x[j + 1], x2 = x[j + 2], x3 = x[j + 3], x4 = x[j + 4], x5 = x[j + 5];
+        for (let r = 0; r < 6; r++) {
+          const w = v + r * 6;
+          y[i * 6 + r] += val[w] * x0 + val[w + 1] * x1 + val[w + 2] * x2 + val[w + 3] * x3 + val[w + 4] * x4 + val[w + 5] * x5;
+        }
+      }
+    }
+    return;
+  }
   for (let i = 0; i < n; i++) {
     for (let r = 0; r < b; r++) y[i * b + r] = 0;
     for (let q = rowPtr[i]; q < rowPtr[i + 1]; q++) {
@@ -389,96 +404,164 @@ function smoothProlongator(A: BlockMatrix, Dinv: Float64Array, P0: Prolongator):
   const w = 4 / 3 / spectralRadius(A, Dinv);
   const { n, b, rowPtr, col, val } = A;
   const c = P0.c, bb = b * b, bc = b * c;
-  const rows: number[] = [];
   const outPtr = new Int32Array(n + 1);
-  const outCol: number[] = [];
-  const outVal: number[] = [];
-  const acc = new Map<number, Float64Array>();
-  const tmp = new Float64Array(bc);
+  let outCol = new Int32Array(Math.max(16, n * 8));
+  let outVal = new Float64Array(outCol.length * bc);
+  let nnz = 0;
+  // (A P0) row block i in a dense accumulator over the coarse columns, with the columns it touches.
+  const acc = new Float64Array(P0.m * bc);
+  const mark = new Int32Array(P0.m).fill(-1);
+  const rows: number[] = [];
   for (let i = 0; i < n; i++) {
-    acc.clear();
+    rows.length = 0;
     // (A P0) row block i: sum over j of A_ij P0_j (P0 has one block per row).
     for (let q = rowPtr[i]; q < rowPtr[i + 1]; q++) {
       const j = col[q];
-      const J = P0.col[j];
-      let blk = acc.get(J);
-      if (!blk) { blk = new Float64Array(bc); acc.set(J, blk); }
+      const J = P0.col[j], o = J * bc;
+      if (mark[J] !== i) { mark[J] = i; rows.push(J); acc.fill(0, o, o + bc); }
       for (let r = 0; r < b; r++) for (let k = 0; k < c; k++) {
         let s = 0;
         for (let m = 0; m < b; m++) s += val[q * bb + r * b + m] * P0.val[j * bc + m * c + k];
-        blk[r * c + k] += s;
+        acc[o + r * c + k] += s;
       }
     }
     const own = P0.col[i];
-    rows.length = 0;
-    for (const J of acc.keys()) rows.push(J);
-    if (!acc.has(own)) rows.push(own);
+    const hasOwn = mark[own] === i;
+    if (!hasOwn) rows.push(own);
     rows.sort((x, y) => x - y);
-    for (const J of rows) {
-      const blk = acc.get(J);
-      // -w D^-1 (A P0)
-      tmp.fill(0);
-      if (blk) for (let r = 0; r < b; r++) for (let k = 0; k < c; k++) { let s = 0; for (let m = 0; m < b; m++) s += Dinv[i * bb + r * b + m] * blk[m * c + k]; tmp[r * c + k] = -w * s; }
-      if (J === own) for (let r = 0; r < bc; r++) tmp[r] += P0.val[i * bc + r];
-      outCol.push(J);
-      for (let r = 0; r < bc; r++) outVal.push(tmp[r]);
+    if (nnz + rows.length > outCol.length) {
+      const size = Math.max(outCol.length * 2, nnz + rows.length);
+      const gc = new Int32Array(size); gc.set(outCol); outCol = gc;
+      const gv = new Float64Array(size * bc); gv.set(outVal); outVal = gv;
     }
-    outPtr[i + 1] = outCol.length;
+    for (const J of rows) {
+      // -w D^-1 (A P0)
+      const t = nnz * bc, o = J * bc;
+      if (J !== own || hasOwn) for (let r = 0; r < b; r++) for (let k = 0; k < c; k++) { let s = 0; for (let m = 0; m < b; m++) s += Dinv[i * bb + r * b + m] * acc[o + m * c + k]; outVal[t + r * c + k] = -w * s; }
+      if (J === own) for (let r = 0; r < bc; r++) outVal[t + r] += P0.val[i * bc + r];
+      outCol[nnz++] = J;
+    }
+    outPtr[i + 1] = nnz;
   }
-  return { n, m: P0.m, b, c, rowPtr: outPtr, col: Int32Array.from(outCol), val: Float64Array.from(outVal) };
+  return { n, m: P0.m, b, c, rowPtr: outPtr, col: outCol.slice(0, nnz), val: outVal.slice(0, nnz * bc) };
 }
 
-/** Coarse matrix P^T A P. */
-function galerkin(A: BlockMatrix, P: Prolongator): BlockMatrix {
+/**
+ * Coarse matrix P^T A P (A symmetric): the pattern first, then fine row by
+ * fine row, (A P)_i in a dense accumulator over the coarse columns and
+ * P_iI^T (A P)_iJ added into the upper blocks (J >= I) of the coarse row,
+ * which are mirrored into the lower ones at the end.
+ */
+export function galerkin(A: BlockMatrix, P: Prolongator): BlockMatrix {
   const { n, b, rowPtr, col, val } = A;
-  const c = P.c, bb = b * b, bc = b * c, cc = c * c;
-  const rowsC: Map<number, Float64Array>[] = Array.from({ length: P.m }, () => new Map());
-  const ap = new Map<number, Float64Array>();
+  const M = P.m, c = P.c, bb = b * b, bc = b * c, cc = c * c;
+  const mark = new Int32Array(M).fill(-1);
+  // Pattern of A P: coarse columns of each fine row.
+  const apPtr = new Int32Array(n + 1);
+  let apCol = new Int32Array(Math.max(16, n * 8));
+  let na = 0;
   for (let i = 0; i < n; i++) {
-    ap.clear();
     for (let q = rowPtr[i]; q < rowPtr[i + 1]; q++) {
       const j = col[q];
       for (let p = P.rowPtr[j]; p < P.rowPtr[j + 1]; p++) {
         const J = P.col[p];
-        let blk = ap.get(J);
-        if (!blk) { blk = new Float64Array(bc); ap.set(J, blk); }
+        if (mark[J] === i) continue;
+        mark[J] = i;
+        if (na === apCol.length) { const g = new Int32Array(na * 2); g.set(apCol); apCol = g; }
+        apCol[na++] = J;
+      }
+    }
+    apPtr[i + 1] = na;
+  }
+  // Pattern of the coarse matrix: row I gathers the columns of (A P)_i over the fine rows i that P maps to I.
+  const tPtr = new Int32Array(M + 1);
+  for (let p = 0; p < P.col.length; p++) tPtr[P.col[p] + 1]++;
+  for (let I = 0; I < M; I++) tPtr[I + 1] += tPtr[I];
+  const tRow = new Int32Array(P.col.length);
+  {
+    const fill = tPtr.slice();
+    for (let i = 0; i < n; i++) for (let p = P.rowPtr[i]; p < P.rowPtr[i + 1]; p++) tRow[fill[P.col[p]]++] = i;
+  }
+  mark.fill(-1);
+  const rp = new Int32Array(M + 1);
+  let cl = new Int32Array(Math.max(16, M * 16));
+  let nnz = 0;
+  for (let I = 0; I < M; I++) {
+    const s0 = nnz;
+    for (let t = tPtr[I]; t < tPtr[I + 1]; t++) {
+      const i = tRow[t];
+      for (let q = apPtr[i]; q < apPtr[i + 1]; q++) {
+        const J = apCol[q];
+        if (mark[J] === I) continue;
+        mark[J] = I;
+        if (nnz === cl.length) { const g = new Int32Array(nnz * 2); g.set(cl); cl = g; }
+        cl[nnz++] = J;
+      }
+    }
+    cl.subarray(s0, nnz).sort();
+    rp[I + 1] = nnz;
+  }
+  cl = cl.slice(0, nnz);
+  const vl = new Float64Array(nnz * cc);
+  const find = (I: number, J: number) => {
+    let lo = rp[I], hi = rp[I + 1] - 1;
+    while (lo <= hi) { const m = (lo + hi) >> 1, x = cl[m]; if (x === J) return m; if (x < J) lo = m + 1; else hi = m - 1; }
+    return -1;
+  };
+  // Values.
+  const acc = new Float64Array(M * bc);
+  const Pv = P.val;
+  for (let i = 0; i < n; i++) {
+    const a0 = apPtr[i], a1 = apPtr[i + 1];
+    for (let q = a0; q < a1; q++) acc.fill(0, apCol[q] * bc, apCol[q] * bc + bc);
+    for (let q = rowPtr[i]; q < rowPtr[i + 1]; q++) {
+      const j = col[q], av = q * bb;
+      for (let p = P.rowPtr[j]; p < P.rowPtr[j + 1]; p++) {
+        const o = P.col[p] * bc, pv = p * bc;
         for (let r = 0; r < b; r++) {
-          const a0 = q * bb + r * b;
-          for (let k = 0; k < c; k++) {
-            let s = 0;
-            for (let m = 0; m < b; m++) s += val[a0 + m] * P.val[p * bc + m * c + k];
-            blk[r * c + k] += s;
+          const ar = av + r * b, orow = o + r * c;
+          for (let m = 0; m < b; m++) {
+            const x = val[ar + m];
+            if (x === 0) continue;
+            const pm = pv + m * c;
+            for (let k = 0; k < c; k++) acc[orow + k] += x * Pv[pm + k];
           }
         }
       }
     }
     for (let p = P.rowPtr[i]; p < P.rowPtr[i + 1]; p++) {
-      const I = P.col[p];
-      const row = rowsC[I];
-      for (const [J, blk] of ap) {
-        let dst = row.get(J);
-        if (!dst) { dst = new Float64Array(cc); row.set(J, dst); }
-        // P_iI^T (b x c)^T * blk (b x c)
-        for (let r = 0; r < c; r++) for (let k = 0; k < c; k++) {
-          let s = 0;
-          for (let m = 0; m < b; m++) s += P.val[p * bc + m * c + r] * blk[m * c + k];
-          dst[r * c + k] += s;
+      const I = P.col[p], pv = p * bc;
+      for (let q = a0; q < a1; q++) {
+        const J = apCol[q];
+        if (J < I) continue;
+        const d = find(I, J) * cc, o = J * bc;
+        // P_iI^T (b x c)^T * (A P)_iJ (b x c)
+        for (let m = 0; m < b; m++) {
+          const pm = pv + m * c, om = o + m * c;
+          for (let r = 0; r < c; r++) {
+            const x = Pv[pm + r];
+            if (x === 0) continue;
+            const dr = d + r * c;
+            for (let k = 0; k < c; k++) vl[dr + k] += x * acc[om + k];
+          }
         }
       }
     }
   }
-  const rp = new Int32Array(P.m + 1);
-  let nnz = 0;
-  for (let I = 0; I < P.m; I++) { nnz += rowsC[I].size; rp[I + 1] = nnz; }
-  const cl = new Int32Array(nnz);
-  const vl = new Float64Array(nnz * cc);
-  for (let I = 0; I < P.m; I++) {
-    const keys = [...rowsC[I].keys()].sort((x, y) => x - y);
-    keys.forEach((J, k) => { cl[rp[I] + k] = J; vl.set(rowsC[I].get(J)!, (rp[I] + k) * cc); });
+  // Lower blocks from the upper ones.
+  for (let I = 0; I < M; I++) {
+    for (let q = rp[I]; q < rp[I + 1]; q++) {
+      const J = cl[q];
+      if (J <= I) continue;
+      const d = find(J, I) * cc, s = q * cc;
+      for (let r = 0; r < c; r++) for (let k = 0; k < c; k++) vl[d + k * c + r] = vl[s + r * c + k];
+    }
+  }
+  for (let I = 0; I < M; I++) {
     // A dummy coarse unknown (no stiffness) gets a unit diagonal so the level stays solvable.
-    const q = keys.indexOf(I);
-    if (q >= 0) {
-      const d = (rp[I] + q) * cc;
+    const f = find(I, I);
+    if (f >= 0) {
+      const d = f * cc;
       let scale = 0;
       for (let r = 0; r < c; r++) scale = Math.max(scale, vl[d + r * c + r]);
       for (let r = 0; r < c; r++) if (!(vl[d + r * c + r] > 1e-12 * scale)) {
@@ -495,6 +578,16 @@ function restrict(P: Prolongator, r: Float64Array, out: Float64Array) {
   out.fill(0);
   const { n, b, c, rowPtr, col, val } = P;
   const bc = b * c;
+  if (b === 3 && c === 6) {
+    for (let i = 0; i < n; i++) {
+      const r0 = r[i * 3], r1 = r[i * 3 + 1], r2 = r[i * 3 + 2];
+      for (let p = rowPtr[i]; p < rowPtr[i + 1]; p++) {
+        const J = col[p] * 6, v = p * 18;
+        for (let k = 0; k < 6; k++) out[J + k] += val[v + k] * r0 + val[v + 6 + k] * r1 + val[v + 12 + k] * r2;
+      }
+    }
+    return;
+  }
   for (let i = 0; i < n; i++) {
     for (let p = rowPtr[i]; p < rowPtr[i + 1]; p++) {
       const J = col[p] * c;
@@ -510,6 +603,20 @@ function restrict(P: Prolongator, r: Float64Array, out: Float64Array) {
 function prolongAdd(P: Prolongator, xc: Float64Array, x: Float64Array) {
   const { n, b, c, rowPtr, col, val } = P;
   const bc = b * c;
+  if (b === 3 && c === 6) {
+    for (let i = 0; i < n; i++) {
+      let x0 = 0, x1 = 0, x2 = 0;
+      for (let p = rowPtr[i]; p < rowPtr[i + 1]; p++) {
+        const J = col[p] * 6, v = p * 18;
+        const c0 = xc[J], c1 = xc[J + 1], c2 = xc[J + 2], c3 = xc[J + 3], c4 = xc[J + 4], c5 = xc[J + 5];
+        x0 += val[v] * c0 + val[v + 1] * c1 + val[v + 2] * c2 + val[v + 3] * c3 + val[v + 4] * c4 + val[v + 5] * c5;
+        x1 += val[v + 6] * c0 + val[v + 7] * c1 + val[v + 8] * c2 + val[v + 9] * c3 + val[v + 10] * c4 + val[v + 11] * c5;
+        x2 += val[v + 12] * c0 + val[v + 13] * c1 + val[v + 14] * c2 + val[v + 15] * c3 + val[v + 16] * c4 + val[v + 17] * c5;
+      }
+      x[i * 3] += x0; x[i * 3 + 1] += x1; x[i * 3 + 2] += x2;
+    }
+    return;
+  }
   for (let i = 0; i < n; i++) {
     for (let p = rowPtr[i]; p < rowPtr[i + 1]; p++) {
       const J = col[p] * c;
@@ -525,6 +632,26 @@ function prolongAdd(P: Prolongator, xc: Float64Array, x: Float64Array) {
 /** One block Gauss-Seidel sweep, forward or backward. */
 function gaussSeidel(A: BlockMatrix, Dinv: Float64Array, rhs: Float64Array, x: Float64Array, forward: boolean) {
   const { n, b, rowPtr, col, val } = A;
+  if (b === 3) {
+    // The fine level (most of the time): the same sums, unrolled.
+    for (let k = 0; k < n; k++) {
+      const i = forward ? k : n - 1 - k;
+      let s0 = rhs[i * 3], s1 = rhs[i * 3 + 1], s2 = rhs[i * 3 + 2];
+      for (let q = rowPtr[i]; q < rowPtr[i + 1]; q++) {
+        const j = col[q];
+        if (j === i) continue;
+        const v = q * 9, x0 = x[j * 3], x1 = x[j * 3 + 1], x2 = x[j * 3 + 2];
+        s0 -= val[v] * x0 + val[v + 1] * x1 + val[v + 2] * x2;
+        s1 -= val[v + 3] * x0 + val[v + 4] * x1 + val[v + 5] * x2;
+        s2 -= val[v + 6] * x0 + val[v + 7] * x1 + val[v + 8] * x2;
+      }
+      const d = i * 9;
+      x[i * 3] = Dinv[d] * s0 + Dinv[d + 1] * s1 + Dinv[d + 2] * s2;
+      x[i * 3 + 1] = Dinv[d + 3] * s0 + Dinv[d + 4] * s1 + Dinv[d + 5] * s2;
+      x[i * 3 + 2] = Dinv[d + 6] * s0 + Dinv[d + 7] * s1 + Dinv[d + 8] * s2;
+    }
+    return;
+  }
   const bb = b * b;
   const s = new Float64Array(b);
   for (let k = 0; k < n; k++) {
@@ -533,6 +660,14 @@ function gaussSeidel(A: BlockMatrix, Dinv: Float64Array, rhs: Float64Array, x: F
     for (let q = rowPtr[i]; q < rowPtr[i + 1]; q++) {
       const j = col[q];
       if (j === i) continue;
+      if (b === 6) {
+        const o = j * 6, x0 = x[o], x1 = x[o + 1], x2 = x[o + 2], x3 = x[o + 3], x4 = x[o + 4], x5 = x[o + 5];
+        for (let r = 0; r < 6; r++) {
+          const w = q * 36 + r * 6;
+          s[r] -= val[w] * x0 + val[w + 1] * x1 + val[w + 2] * x2 + val[w + 3] * x3 + val[w + 4] * x4 + val[w + 5] * x5;
+        }
+        continue;
+      }
       for (let r = 0; r < b; r++) {
         let t = 0;
         for (let m = 0; m < b; m++) t += val[q * bb + r * b + m] * x[j * b + m];
