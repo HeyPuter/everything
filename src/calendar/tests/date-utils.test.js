@@ -20,6 +20,8 @@ import {
   diffCalendarDays,
   getMonthGrid,
   getWeekDays,
+  isoWeekNumber,
+  displayedWeekNumber,
   orderedWeekdays,
   minutesSinceMidnight,
   formatTime,
@@ -191,6 +193,49 @@ describe('ranges', () => {
     expect(minutesSinceMidnight(new Date(2026, 6, 12, 0, 0))).toBe(0);
     expect(minutesSinceMidnight(new Date(2026, 6, 12, 9, 30))).toBe(570);
     expect(minutesSinceMidnight(new Date(2026, 6, 12, 23, 59))).toBe(1439);
+  });
+});
+
+describe('ISO week numbers', () => {
+  it('week 1 is the week containing the first Thursday', () => {
+    // 1 Jan 2026 is a Thursday, so it is week 1.
+    expect(isoWeekNumber(new Date(2026, 0, 1))).toBe(1);
+    // That week's Monday is still week 1, even though it sits in 2025.
+    expect(isoWeekNumber(new Date(2025, 11, 29))).toBe(1);
+  });
+
+  it('a late December day can belong to week 1 of the next year', () => {
+    expect(isoWeekNumber(new Date(2025, 11, 29))).toBe(1); // Mon, week 1 of 2026
+    expect(isoWeekNumber(new Date(2025, 11, 28))).toBe(52); // Sun, last week of 2025
+  });
+
+  it('a 53-week year keeps 1 Jan of the next year in week 53', () => {
+    // 2020 has 53 ISO weeks; 1 Jan 2021 is a Friday in week 53 of 2020.
+    expect(isoWeekNumber(new Date(2020, 11, 31))).toBe(53);
+    expect(isoWeekNumber(new Date(2021, 0, 1))).toBe(53);
+    expect(isoWeekNumber(new Date(2021, 0, 4))).toBe(1); // Monday, week 1 of 2021
+  });
+
+  it('mid-year Thursdays land on the expected week', () => {
+    // 16 Jul 2026 is a Thursday, 28 weeks after 1 Jan (also a Thursday) → week 29.
+    expect(isoWeekNumber(new Date(2026, 6, 16))).toBe(29);
+    expect(isoWeekNumber(new Date(2026, 6, 12, 23, 59))).toBe(28); // Sun of the previous ISO week
+  });
+
+  it('does not mutate its input', () => {
+    const d = new Date(2026, 6, 12, 10, 30);
+    isoWeekNumber(d);
+    expect(d.getDate()).toBe(12);
+    expect(d.getHours()).toBe(10);
+  });
+
+  it('displayedWeekNumber uses the Thursday of the shown 7-day row', () => {
+    // Sunday-start row 12–18 Jul 2026: Thursday is the 16th → week 29.
+    expect(displayedWeekNumber(new Date(2026, 6, 12))).toBe(29);
+    // Monday-start row 6–12 Jul 2026: Thursday is the 9th → week 28.
+    expect(displayedWeekNumber(new Date(2026, 6, 6))).toBe(28);
+    // Sunday-start row 28 Dec 2025 – 3 Jan 2026: Thursday is 1 Jan → week 1 of 2026.
+    expect(displayedWeekNumber(new Date(2025, 11, 28))).toBe(1);
   });
 });
 
