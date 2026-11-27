@@ -41,9 +41,13 @@ export function summaryRows(app: App, ws: FeaWorkspace, r: FeaResult): Line[] {
   add('Results', 'Max equivalent strain', s.maxStrain.value);
   for (const w of s.warnings ?? []) add('Results', 'Note', w);
   add('Results', 'Yielding', s.maxVonMises.value > r.yield ? 'yes: stress above yield, the linear analysis no longer holds there' : 'no');
+  // One quantity per row, its unit in the unit column.
   r.loadNames.forEach((n, i) => {
     const ld = r.input.loads[i];
-    add('Loads', n, ld.kind === 'gravity' ? 'gravity' : ld.kind === 'pressure' ? `${Number(S(ld.value).toPrecision(6))} ${u.stress} on ${formatNumber(s.loadAreas[i] / u.lengthScale ** 2, 2)} ${u.length}²` : `${Number(F(ld.total).toPrecision(6))} ${u.force} on ${formatNumber(s.loadAreas[i] / u.lengthScale ** 2, 2)} ${u.length}²`);
+    if (ld.kind === 'gravity') { add('Loads', `${n} acceleration`, Math.hypot(...ld.accel) / u.accelScale, u.accel); return; }
+    if (ld.kind === 'pressure') add('Loads', `${n} pressure`, S(ld.value), u.stress);
+    else add('Loads', `${n} force`, F(ld.total), u.force);
+    add('Loads', `${n} area`, s.loadAreas[i] / u.lengthScale ** 2, `${u.length}²`);
   });
   for (const [k, v] of [['X', 0], ['Y', 1], ['Z', 2]] as const) add('Forces', `Applied loads (sum) ${k}`, F(s.applied[v]), u.force);
   r.fixtureNames.forEach((n, i) => { for (const [k, v] of [['X', 0], ['Y', 1], ['Z', 2]] as const) add('Forces', `Reaction ${n} ${k}`, F(s.reactions[i][v]), u.force); });
@@ -57,7 +61,7 @@ export function summaryRows(app: App, ws: FeaWorkspace, r: FeaResult): Line[] {
   add('Mesh', 'Unknowns', s.dofs);
   add('Mesh', 'Worst element quality (mean ratio)', st.minQuality);
   add('Mesh', 'Mean element quality', st.meanQuality);
-  add('Mesh', 'Volume against the part', `${((st.volume / st.surfaceVolume - 1) * 100).toFixed(3)}%`);
+  add('Mesh', 'Volume against the part', `${((st.volume / st.surfaceVolume - 1) * 100).toFixed(3)}`, '%');
   add('Solver', 'Method', `Conjugate gradients, ${s.solver}`);
   add('Solver', 'Iterations', s.iterations);
   add('Solver', 'Relative residual', s.residual);

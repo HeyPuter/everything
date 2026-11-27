@@ -418,3 +418,24 @@ test('the legend ticks share their decimals', async ({ page }) => {
   }
   expect(errors).toEqual([]);
 });
+
+test('the CSV summary has one quantity per row, with its unit in the unit column', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Gravity', (d) => { d.study!.loads.push({ id: 'ld903', name: 'Gravity-1', type: 'gravity', value: 9806.65, dir: { kind: 'base', axis: 'y' }, flip: true }); }));
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  await page.getByRole('button', { name: 'Report...' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('dialog', { name: 'Results Report' }).getByRole('button', { name: 'Download CSV' }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('Mounting Bracket - Static Study.csv');
+  const csv = (await (await file.createReadStream()).toArray()).join('');
+  expect(csv).toContain('\nLoads,Force-1 force,500,N\n');
+  expect(csv).toContain('\nLoads,Force-1 area,240,mm²\n');
+  expect(csv).toContain('\nLoads,Gravity-1 acceleration,9.80665,m/s²\n');
+  // Every row: section, quantity, a value without its unit, the unit.
+  for (const line of csv.trim().split('\n').slice(1)) expect(line, line).not.toMatch(/,[-\d.e]+ (N|MPa|mm|%)/);
+  expect(errors).toEqual([]);
+});
