@@ -233,7 +233,8 @@ export class SimulationPanel extends CamPanel {
     // The tool: between the timeline points around t.
     const tl = res.timeline;
     const n = tl.length / 6;
-    if (!n) return;
+    // An empty program (no moves) still shows its time.
+    if (!n) { this.app.renderer.setSolid('camTool', null); if (this.clock) this.clock.textContent = `${formatTime(0)} / ${formatTime(res.time)}`; return; }
     let a = 0, b = n - 1;
     while (a < b) { const m = (a + b) >> 1; if (tl[m * 6 + 3] < t) a = m + 1; else b = m; }
     const i = a;
