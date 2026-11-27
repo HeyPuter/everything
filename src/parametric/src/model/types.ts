@@ -6,6 +6,7 @@
 import type { Vec2, Vec3, Frame } from '../math/vec';
 import type { BaseFlangeFeature, EdgeFlangeFeature, HemFeature, SketchedBendFeature } from './sheetmetal';
 import type { CamDoc } from './cam';
+import type { StaticStudy } from './fea';
 
 export type Id = string;
 
@@ -628,6 +629,8 @@ export interface PartDocument {
   drawing?: DrawingDoc | null;
   /** Machining: tools, setups and operations (see model/cam.ts), if any. */
   cam?: CamDoc | null;
+  /** Static stress analysis: fixtures, loads and mesh setting (see model/fea.ts), if any. */
+  study?: StaticStudy | null;
   nextId: number;
   created: number;
   modified: number;
