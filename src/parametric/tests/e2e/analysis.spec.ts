@@ -424,6 +424,12 @@ test('the legend ticks share their decimals', async ({ page }) => {
     expect(d.length, field).toBeGreaterThan(3);
     expect(new Set(d).size, field).toBe(1);
   }
+  // A huge load: powers of ten rather than 12-digit numbers.
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Huge', (d) => { d.study!.loads[0].value = 1e12; }));
+  await page.getByRole('button', { name: 'Run Again' }).click();
+  await expect(page.locator('.fea-summary')).toContainText('e+11 MPa', { timeout: 120_000 });
+  await page.getByLabel('Plot', { exact: true }).selectOption('vonMises');
+  for (const t of await page.locator('.fea-legend-ticks span').allInnerTexts()) expect(t.length, t).toBeLessThanOrEqual(10);
   expect(errors).toEqual([]);
 });
 

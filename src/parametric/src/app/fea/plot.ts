@@ -187,7 +187,9 @@ export class ResultPlot {
     // The ticks share their decimals (enough for the step between them), so they line up and read evenly.
     const scaleOf = kind === 'stress' ? u.stressScale : kind === 'length' ? u.lengthScale : 1;
     const step = (hi - lo) / scaleOf / (N - 1);
-    const digits = step > 0 ? 2 - Math.floor(Math.log10(step)) : NaN;
+    // Values of 100,000 and more read better as powers of ten, as elsewhere (formatValue).
+    const big = Math.max(Math.abs(lo), Math.abs(hi)) / scaleOf >= 1e5;
+    const digits = step > 0 && !big ? 2 - Math.floor(Math.log10(step)) : NaN;
     for (let i = 0; i < N; i++) {
       const v = hi - ((hi - lo) * i) / (N - 1);
       const fixed = digits <= 8 ? (v / scaleOf).toFixed(Math.max(0, digits)).replace(/^-(0\.?0*)$/, '$1') : null;
