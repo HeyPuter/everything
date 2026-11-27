@@ -167,7 +167,8 @@ export function feaTreeRows(app: App, expanded: (key: string) => boolean): CamRo
     key: 'fea:results', label: 'Results', icon: 'feaResults', depth: 2, selected: false,
     muted: state === 'none' ? ' (not run)' : state === 'busy' ? ' (running)' : '',
     badge: state === 'stale' ? { kind: 'warn', text: 'Out of date: the part or the study changed since it was run. Run it again.' } : state === 'error' ? { kind: 'error', text: ws?.errorText() ?? 'The study could not be solved' } : undefined,
-    action: run((w) => w.showResults()), open: run((w) => w.showResults()), menu: (x, y) => app.openCommandMenu(['fea:results', 'fea:run', 'fea:report'], x, y, 'Results menu'),
+    // Shows the results panel (with Run when there are none): a click in the tree does not start a solve.
+    action: run((w) => void w.openResults()), open: run((w) => void w.openResults()), menu: (x, y) => app.openCommandMenu(['fea:results', 'fea:run', 'fea:report'], x, y, 'Results menu'),
   });
   return rows;
 }

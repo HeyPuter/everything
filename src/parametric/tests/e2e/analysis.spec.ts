@@ -472,3 +472,16 @@ test('the analysis loads on a later try when its code failed to load', async ({ 
   // The failed fetch is the only error.
   expect(errors.filter((e) => !/workspace\.ts|ERR_FAILED/.test(e))).toEqual([]);
 });
+
+test('clicking Results in the design tree shows the results panel without starting a solve', async ({ page }) => {
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.getByRole('treeitem', { name: /^Results/ }).click();
+  await expect(page.getByText('Run the study to see its results.')).toBeVisible();
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
+  await expect(page.locator('.statusbar .msg')).not.toContainText(/Preparing|Meshing|Solv/);
+  // Its Run button solves it.
+  await page.locator('.pm-content').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  expect(errors).toEqual([]);
+});
