@@ -156,13 +156,17 @@ export async function postDialog(app: App, ws: CamWorkspace) {
   const preview = h('pre', { class: 'cam-gcode', tabindex: '0', 'aria-label': 'G-code preview' }, 'Generating toolpaths...');
   const status = h('p', { class: 'pm-msg', role: 'status', hidden: true });
   let code = '';
+  // Each change writes the program again; only the newest one is shown and written out.
+  let seq = 0;
   const make = async () => {
+    const mine = ++seq;
     status.hidden = true;
     try {
       await ws.generate(cam.setups.filter((s) => chosen.has(s.id)).map((s) => s.id));
     } catch (e) {
       if (e instanceof CamCancelled) return;
     }
+    if (mine !== seq) return;
     const now = ws.cam!;
     const setups = now.setups.filter((s) => chosen.has(s.id)).map((s) => {
       const ops: PostOperation[] = [];
@@ -182,7 +186,8 @@ export async function postDialog(app: App, ws: CamWorkspace) {
     count.textContent = code ? `${lines.length - 1} lines` : '';
   };
   const count = h('span', { class: 'field-label' });
-  const refresh = () => { preview.textContent = 'Writing...'; void make(); };
+  let pending = Promise.resolve();
+  const refresh = () => { preview.textContent = 'Writing...'; pending = make(); };
   const setupChecks = cam.setups.map((s) => checkbox(s.name, true, (v) => { if (v) chosen.add(s.id); else chosen.delete(s.id); refresh(); }));
   const progNum = h('input', { class: 'input', id: nextDomId('prog'), inputmode: 'numeric', value: String(post.program) }) as HTMLInputElement;
   progNum.addEventListener('change', () => { const n = Math.round(Number(progNum.value)); if (n >= 1 && n <= 99999) { post.program = n; refresh(); } });
@@ -197,13 +202,14 @@ export async function postDialog(app: App, ws: CamWorkspace) {
       h('div', { class: 'field-label' }, 'Setups'), ...setupChecks,
       status),
     h('div', { class: 'cam-post-main' }, preview, count));
-  void make();
+  pending = make();
   const v = await showDialog({
     title: 'Post Process', body, wide: true, signal: app.documentSignal,
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Copy', value: 'copy' }, { label: 'Download G-code', primary: true, value: 'ok' }],
     onAction: async (val) => {
       if (val === 'cancel') return;
-      if (!code) await make();
+      // Settings just changed: what is written is the program for them.
+      await pending;
       if (!code) { status.hidden = false; status.className = 'pm-msg error'; status.textContent = 'There is no G-code to write.'; return false; }
       if (val === 'copy') {
         try { await navigator.clipboard.writeText(code); toast({ kind: 'success', message: 'G-code copied' }); } catch { toast({ kind: 'error', message: 'Could not copy to the clipboard' }); }

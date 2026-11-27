@@ -110,6 +110,22 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
     return s.ops.length === 1 && app.cam!.state(s, s.ops[0]) === 'ok';
   }, null, { timeout: 90_000 });
 
+  // Download pressed right after changing the controller writes that controller's program.
+  await page.locator('[data-cmd="cam:post"]').click();
+  const post = page.getByRole('dialog', { name: 'Post Process' });
+  await expect(post.getByLabel('G-code preview')).toContainText('O1001', { timeout: 60_000 });
+  const download = page.waitForEvent('download');
+  await post.evaluate((dialog) => {
+    const controller = dialog.querySelector('select')!;
+    controller.value = 'grbl';
+    controller.dispatchEvent(new Event('change', { bubbles: true }));
+    [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Download G-code')!.click();
+  });
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/\.gcode$/);
+  const fs = await import('node:fs');
+  expect(new TextDecoder().decode(fs.readFileSync((await file.path())!))).not.toContain('O1001');
+
   // An operation deleted from the tree while its panel is open is not brought back by OK.
   await page.getByRole('treeitem', { name: /^Contour1/ }).dblclick();
   await expect(page.getByRole('heading', { name: 'Contour1' })).toBeVisible();
