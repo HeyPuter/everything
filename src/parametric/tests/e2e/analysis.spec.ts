@@ -370,3 +370,16 @@ test.describe('on a phone', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test('Tab from the study name keeps the keyboard focus in the study panel', async ({ page }) => {
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.locator('[data-cmd="fea:study"]').click();
+  await page.getByLabel('Study name').fill('Bracket Load Case');
+  await page.keyboard.press('Tab');
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.store.doc.study!.name)).toBe('Bracket Load Case');
+  // The panel was drawn again with the new name: the focus is on the next control, not lost to the page.
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(() => !!document.activeElement?.closest('.pm-content') && document.activeElement.getAttribute('aria-label') !== 'Study name')).toBe(true);
+  expect(errors).toEqual([]);
+});

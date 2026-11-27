@@ -101,7 +101,8 @@ export class StudyPanel extends FeaPanel {
     const s = ws.study;
     if (!s) return [section('Study', [h('p', { class: 'pm-msg' }, 'The study was deleted.')])];
     const nameInput = h('input', { class: 'input', value: this.name, 'aria-label': 'Study name' }) as HTMLInputElement;
-    nameInput.addEventListener('change', () => { this.name = nameInput.value; this.commit(); });
+    // Taken after the focus moved on (Tab): the panel is drawn again then, and the focus stays where it went.
+    nameInput.addEventListener('change', () => { this.name = nameInput.value; setTimeout(() => this.commit()); });
     const mat = app.store.doc.material;
     const el = elasticOf(mat);
     const matText = !mat ? 'No material chosen.' : el ? `${mat.name}: E ${formatNumber(el.E / 1000, 1)} GPa, ν ${el.nu}, yield ${el.yield} MPa` : `${mat.name}: no elastic properties (cannot be analyzed).`;
