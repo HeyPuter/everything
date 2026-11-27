@@ -381,6 +381,25 @@ describe('motion studies', () => {
     res.frames.forEach((f, i) => expect(f.get('s')!.p[0]).toBeCloseTo(10 * Math.sin(Math.PI * res.times[i]), 6));
   });
 
+  it('frames keep only the components that move (a long study of a large assembly fits in memory)', () => {
+    const cs = crankSlider(30);
+    // 500 components the mechanism does not touch, one of them turned and floating.
+    const idle = Array.from({ length: 500 }, (_, i) => body(`idle${i}`, i > 0, [i, 50, 0], i === 1 ? qAxisAngle(Z, 0.5) : [0, 0, 0, 1]));
+    const res = computeMotion({ bodies: [...cs.bodies, ...idle], mates: cs.mates, motors: [rotary('crank', axis([0, 0, 0]), 90)], duration: 4, fps: 25, scale: 200 });
+    expect(res.stop).toBeNull();
+    expect(res.frames).toHaveLength(101);
+    expect(res.frames[50].size).toBeLessThan(10);
+    // The others read where they are.
+    expect(res.frames[50].has('idle1')).toBe(true);
+    expect(res.frames[50].get('idle1')).toEqual(idle[1].placement);
+    expect(pointPath(res, 'idle1', [1, 0, 0])[100]).toEqual(pointPath(res, 'idle1', [1, 0, 0])[0]);
+    expect(degreesAbout(turnPath(res, 'idle1'), Z)[100]).toBe(0);
+    res.frames.forEach((f, i) => expect(f.get('slider')!.p[0]).toBeCloseTo(slide(30 + 90 * res.times[i]), 4));
+    const gap = mate('distance', ['idle1', plane([0, 0, 0], [1, 0, 0])], ['slider', plane([0, 0, 0], [1, 0, 0])], { value: 0 });
+    const series = mateSeries(res, gap)!.values;
+    expect(series[100] - series[0]).toBeCloseTo(slide(390) - slide(30), 4);
+  });
+
   it('differentiates samples and writes CSV', () => {
     const t = [0, 0.1, 0.2, 0.3, 0.4];
     const { d1, d2 } = derivatives(t, t.map((x) => x * x));

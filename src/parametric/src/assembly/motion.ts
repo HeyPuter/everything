@@ -92,7 +92,11 @@ export interface MotionStop {
 export interface MotionResult {
   /** Seconds, one per frame computed. */
   times: number[];
-  /** Placements of every component in each frame. */
+  /**
+   * Placements of every component in each frame. Frames after the first keep
+   * only the components that move (get and has give the others' placements
+   * from the first frame), so long studies of large assemblies fit in memory.
+   */
   frames: Map<Id, Placement>[];
   /** Why the study stopped before its end, or null. */
   stop: MotionStop | null;
@@ -110,6 +114,8 @@ export class MotionRun {
   readonly result: MotionResult;
   private k = 0;
   private solverMates: SolverMate[];
+  /** The components the solved mates and the motors reference: the others stay where they are. */
+  private bodies: SolverBody[];
 
   constructor(private setup: MotionSetup) {
     this.count = Math.max(1, Math.round(setup.duration * setup.fps));
@@ -123,6 +129,9 @@ export class MotionRun {
       for (const id of ids) for (const x of matesMoving(id, setup.bodies, setup.mates)) moving.add(x);
     }
     this.solverMates = setup.mates.filter((x) => moving.has(x));
+    const used = new Set(this.solverMates.flatMap(mateBodies));
+    for (const m of setup.motors) for (const id of m.on ? mateBodies(m.on) : m.body ? [m.body] : []) used.add(id);
+    this.bodies = setup.bodies.filter((b) => used.has(b.id));
     const first = new Map(setup.bodies.map((b) => [b.id, b.placement]));
     this.result = { times: [0], frames: [first], stop: null, duration: setup.duration };
   }
@@ -158,7 +167,7 @@ export class MotionRun {
         const r = this.span(from, ta, tb);
         if (!r.r.ok) { failed = r; break; }
         times.push(tb);
-        frames.push(r.r.placements);
+        frames.push(new LaterFrame(r.r.placements, this.result.frames[0]));
         from = r.r.placements;
       }
       if (!failed) {
@@ -196,7 +205,7 @@ export class MotionRun {
         drives.push({ kind: 'translate', body: m.body, local, dir, amount });
       }
     }
-    const bodies = s.bodies.map((b) => ({ ...b, placement: prev.get(b.id) ?? b.placement }));
+    const bodies = this.bodies.map((b) => ({ ...b, placement: prev.get(b.id) ?? b.placement }));
     const solver = new MateSolver(bodies, mates);
     return { r: solver.solve({ scale: s.scale, drives, maxIter: 80 }), solver, mates, from: prev };
   }
@@ -242,6 +251,21 @@ function mountedDrive(on: SolverMate, prev: Map<Id, Placement>, bodies: SolverBo
 }
 
 const IDENT: Placement = { p: [0, 0, 0], q: [0, 0, 0, 1] };
+
+/** A frame after the first: the components that move, and the others where the first frame has them. */
+class LaterFrame extends Map<Id, Placement> {
+  constructor(moved: Map<Id, Placement>, private first: Map<Id, Placement>) {
+    super(moved);
+  }
+
+  override get(id: Id): Placement | undefined {
+    return super.get(id) ?? this.first.get(id);
+  }
+
+  override has(id: Id): boolean {
+    return super.has(id) || this.first.has(id);
+  }
+}
 
 const directionOf = (g: Geo): Vec3 | null => (g.kind === 'plane' ? normalize(g.n) : g.kind === 'axis' || g.kind === 'line' ? normalize(g.d) : null);
 const pointOfGeo = (g: Geo): Vec3 | null => (g.kind === 'plane' ? g.o : g.kind === 'axis' || g.kind === 'line' || g.kind === 'point' ? g.p : g.kind === 'sphere' ? g.c : null);
