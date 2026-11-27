@@ -102,7 +102,12 @@ export class StudyPanel extends FeaPanel {
     if (!s) return [section('Study', [h('p', { class: 'pm-msg' }, 'The study was deleted.')])];
     const nameInput = h('input', { class: 'input', value: this.name, 'aria-label': 'Study name' }) as HTMLInputElement;
     // Taken after the focus moved on (Tab): the panel is drawn again then, and the focus stays where it went.
-    nameInput.addEventListener('change', () => { this.name = nameInput.value; setTimeout(() => this.commit()); });
+    nameInput.addEventListener('change', () => {
+      // A study keeps a name: an emptied field shows it again.
+      if (!nameInput.value.trim()) nameInput.value = s.name;
+      this.name = nameInput.value;
+      setTimeout(() => this.commit());
+    });
     const mat = app.store.doc.material;
     const el = elasticOf(mat);
     // In the part's stress unit, as the results are (psi in an inch part).

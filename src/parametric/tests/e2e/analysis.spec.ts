@@ -405,6 +405,11 @@ test('Tab from the study name keeps the keyboard focus in the study panel', asyn
   // The panel was drawn again with the new name: the focus is on the next control, not lost to the page.
   await page.waitForTimeout(100);
   expect(await page.evaluate(() => !!document.activeElement?.closest('.pm-content') && document.activeElement.getAttribute('aria-label') !== 'Study name')).toBe(true);
+  // An emptied name: the study keeps its name, and the field shows it.
+  await page.getByLabel('Study name').fill('  ');
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Study name')).toHaveValue('Bracket Load Case');
+  expect(await page.evaluate(() => (window as unknown as W).__parametric.store.doc.study!.name)).toBe('Bracket Load Case');
   expect(errors).toEqual([]);
 });
 
