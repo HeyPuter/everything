@@ -401,12 +401,15 @@ export class MotionStudyPanel extends PropertyPanel {
 
   private plot(res: MotionResult, s: { values: number[]; name: string; unit: string }): HTMLElement {
     const end = res.times[res.times.length - 1];
-    const min = Math.min(...s.values), max = Math.max(...s.values);
+    // (A loop, not Math.min(...values): a long study has more frames than a call takes arguments.)
+    let min = Infinity, max = -Infinity;
+    for (const v of s.values) { if (v < min) min = v; if (v > max) max = v; }
+    if (!(min <= max)) min = max = 0;
     // A constant is drawn across the middle.
     const flat = !(max - min > 1e-9 * Math.max(1, Math.abs(max)));
     const lo = flat ? min - 1 : min, hi = flat ? max + 1 : max;
     const y = (v: number) => PLOT.top + (1 - (v - lo) / (hi - lo)) * (PLOT.h - PLOT.top - PLOT.bottom);
-    const pts = s.values.map((v, i) => `${plotX(res.times[i], end).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const pts = plotPoints(res.times, s.values, end).map((i) => `${plotX(res.times[i], end).toFixed(1)},${y(s.values[i]).toFixed(1)}`).join(' ');
     const ns = 'http://www.w3.org/2000/svg';
     const el = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, text?: string): SVGElementTagNameMap[K] => {
       const e = document.createElementNS(ns, tag);
@@ -613,6 +616,31 @@ const INTERFERENCE_FRAMES = 40;
 
 const PLOT = { w: 280, h: 150, left: 44, right: 8, top: 8, bottom: 18 };
 const plotX = (t: number, end: number) => PLOT.left + (t / Math.max(end, 1e-9)) * (PLOT.w - PLOT.left - PLOT.right);
+
+/**
+ * The frames a plot line is drawn through: all of them, or for a long study
+ * the first, lowest, highest and last of each half unit across the plot (the
+ * line looks the same, with a few thousand points instead of every frame).
+ */
+function plotPoints(times: number[], values: number[], end: number): number[] {
+  const n = values.length;
+  const columns = 2 * (PLOT.w - PLOT.left - PLOT.right);
+  if (n <= 4 * columns) return values.map((_, i) => i);
+  const out: number[] = [];
+  let i = 0;
+  while (i < n) {
+    const c = Math.min(columns - 1, Math.floor((times[i] / Math.max(end, 1e-9)) * columns));
+    let lo = i, hi = i, j = i;
+    while (j + 1 < n && Math.min(columns - 1, Math.floor((times[j + 1] / Math.max(end, 1e-9)) * columns)) === c) {
+      j++;
+      if (values[j] < values[lo]) lo = j;
+      if (values[j] > values[hi]) hi = j;
+    }
+    for (const k of [...new Set([i, lo, hi, j])].sort((a, b) => a - b)) out.push(k);
+    i = j + 1;
+  }
+  return out;
+}
 
 /** The frame nearest time t. */
 function frameAt(res: MotionResult, t: number): number {

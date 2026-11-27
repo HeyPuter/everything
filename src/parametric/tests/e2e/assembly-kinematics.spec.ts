@@ -578,3 +578,34 @@ test('the Motion Study panel: a new study starts without results', async ({ page
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+test('the Motion Study panel plots a study of more frames than a function call takes arguments', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Pause' }).click();
+  // The frames of a 1000 s study at 200 frames a second (as long to compute as 25 s here), from the 151 calculated.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    type R = { times: number[]; frames: unknown[]; duration: number };
+    const r = (a.assembly as unknown as { motions: Map<string, { result: R }> }).motions.get('')!.result;
+    const n = 200_001, frames = r.frames.slice(0, 150), times = Array.from({ length: n }, (_, i) => i / 200);
+    r.frames = times.map((_, i) => frames[i % 150]);
+    r.times = times;
+    r.duration = 1000;
+    a.refreshPanel();
+  });
+  await expect(pm.locator('.kin-clock')).toContainText('/ 1000.00 s');
+  const plot = pm.getByRole('img', { name: /^Plot of Small<1> linear displacement/ });
+  await expect(plot).toBeVisible();
+  // The line is drawn through a few points a pixel, not all 200 001.
+  const points = await plot.locator('polyline').evaluate((e) => (e.getAttribute('points') ?? '').split(' ').length);
+  expect(points).toBeGreaterThan(400);
+  expect(points).toBeLessThan(2000);
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
