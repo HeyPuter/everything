@@ -105,7 +105,11 @@ export class StudyPanel extends FeaPanel {
     nameInput.addEventListener('change', () => { this.name = nameInput.value; setTimeout(() => this.commit()); });
     const mat = app.store.doc.material;
     const el = elasticOf(mat);
-    const matText = !mat ? 'No material chosen.' : el ? `${mat.name}: E ${formatNumber(el.E / 1000, 1)} GPa, ν ${el.nu}, yield ${el.yield} MPa` : `${mat.name}: no elastic properties (cannot be analyzed).`;
+    // In the part's stress unit, as the results are (psi in an inch part).
+    const su = feaUnits(app.store.doc.units);
+    const psi = (v: number) => `${Number((v / su.stressScale).toPrecision(3)).toLocaleString('en-US')} ${su.stress}`;
+    const elText = (e: NonNullable<typeof el>) => (su.stressScale === 1 ? `E ${formatNumber(e.E / 1000, 1)} GPa, ν ${e.nu}, yield ${e.yield} MPa` : `E ${psi(e.E)}, ν ${e.nu}, yield ${psi(e.yield)}`);
+    const matText = !mat ? 'No material chosen.' : el ? `${mat.name}: ${elText(el)}` : `${mat.name}: no elastic properties (cannot be analyzed).`;
     const matBtn = h('button', { class: 'btn small', type: 'button', onclick: () => app.commands.run('material') }, icon('material', 16), 'Material...');
     // Mesh: coarse to fine.
     const u = feaUnits(app.store.doc.units);

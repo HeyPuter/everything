@@ -282,6 +282,10 @@ test('loads of an inch part are in pounds-force and psi, with round defaults', a
   await page.locator('[data-cmd="fea:gravity"]').click();
   await expect(page.getByLabel('Acceleration (in/s²)')).toHaveValue('386.08858');
   await page.locator('.confirm-corner .cancel').click();
+  // The material's stiffness and strength in psi, as the results are.
+  await page.locator('[data-cmd="fea:study"]').click();
+  await expect(page.locator('.fea-material')).toHaveText('Alloy Steel: E 29,700,000 psi, ν 0.29, yield 60,200 psi');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   // Force1 (500 N) reads in lbf, and a value typed in lbf is kept in newtons.
   await page.getByRole('treeitem', { name: /^Force1/ }).dblclick();
   await expect(page.getByLabel('Total force (lbf)')).toHaveValue('112.40447');
