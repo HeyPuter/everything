@@ -1,0 +1,13 @@
+.git
+**/node_modules
+**/dist
+**/test-results
+**/.vite
+**/*.log
+**/.DS_Store
+**/coverage
+**/.turbo
+agent-transcripts
+.cursor
+**/.wrangler
+**/playwright-report
