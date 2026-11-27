@@ -439,6 +439,20 @@ export function angleOf(a: Geo, b: Geo, aligned: boolean): number | null {
 /** The overshoot of v past [min, max] (zero inside). */
 const outside = (v: number, min: number, max: number) => (v > max ? v - max : v < min ? v - min : 0);
 
+/**
+ * The overshoot of a turn t (radians, in (-π, π]) past [min, max], read on
+ * the circle: a hinge kept between 0° and 270° is inside at 190° (which
+ * reads as -170°), and past the nearer end outside the range.
+ */
+function outsideTurn(t: number, min: number, max: number): number {
+  const full = 2 * Math.PI;
+  if (max - min >= full) return 0;
+  const u = min + ((((t - min) % full) + full) % full);
+  if (u <= max) return 0;
+  const over = u - max, under = u - (min + full);
+  return over <= -under ? over : under;
+}
+
 /** A distance or angle mate kept between limits: its other conditions, and the overshoot (when `ineq`). */
 function limitEquations(type: 'distance' | 'angle', a: Geo, b: Geo, o: EqOpts, lim: { min: number; max: number }, ineq: boolean): number[] | null {
   if (type === 'angle') {
@@ -497,7 +511,7 @@ function mechanicalEquations(c: MechContext): number[] | null {
       if (!m.limit) return [...conc, ...plane];
       const t = hingeTurn(m, c.pa, c.pb);
       if (t === null) return null;
-      return [...conc, ...plane, ...(c.ineq ? [outside(t, (m.limit.min * Math.PI) / 180, (m.limit.max * Math.PI) / 180)] : [])];
+      return [...conc, ...plane, ...(c.ineq ? [outsideTurn(t, (m.limit.min * Math.PI) / 180, (m.limit.max * Math.PI) / 180)] : [])];
     }
     case 'gear': {
       if (!isAxisLike(ga) || !isAxisLike(gb) || !m.a.body || !m.b.body) return null;

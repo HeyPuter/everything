@@ -107,6 +107,27 @@ describe('mechanical mates', () => {
     expect(new MateSolver([body('base', true), body('lid', false)], [crossed]).analyze().invalid.get(crossed.id)).toMatch(/component of the round entity/);
   });
 
+  it('hinge limits past ±180° (a door that opens 270°) stop at their ends, not at 180°', () => {
+    const start: Placement = { p: [0, 0, 0], q: [0, 0, 0, 1] };
+    const door = hinge('base', [0, 0, 0], 'lid', [0, 0, 0], { rel: relativePlacement(start, start), limit: { min: 0, max: 270 } });
+    const bodies = [body('base', true), body('lid', false)];
+    const run = (speed: number) => computeMotion({ bodies, mates: [door], motors: [{ id: 'mo', name: 'RotaryMotor1', kind: 'rotary', on: door, at: profileOf('rotary', { profile: 'constant', speed }, 4) }], duration: 4, fps: 10, scale: 100 });
+    const open = run(90);
+    expect(open.stop?.kind).toBe('limit');
+    expect(open.stop?.time).toBeCloseTo(3.1, 6);
+    expect(degreesAbout(turnPath(open, 'lid'), Z).at(-1)).toBeCloseTo(270, 4);
+    expect(mateSeries(open, door)!.values.at(-1)).toBeCloseTo(270, 4);
+    // The other way it is at its end already.
+    const shut = run(-90);
+    expect(shut.stop?.kind).toBe('limit');
+    expect(shut.frames).toHaveLength(1);
+    // Dragged round past 180°, it stops at 270°.
+    const s = new MateSolver(bodies, [door]);
+    let pl = new Map([['base', start], ['lid', start]]);
+    for (let k = 1; k <= 32; k++) pl = s.solve({ drag: { kind: 'rotate', body: 'lid', q: qAxisAngle(Z, (k * 10 * Math.PI) / 180) } }, s.mates, pl).placements;
+    expect(mateMeasure(door, pl)!.value).toBeCloseTo(-90, 3);
+  });
+
   /** Two gears on hinges, 30 mm apart: A (pitch Ø20) at the origin, B (Ø40) beside it. */
   const gears = (extra: Partial<SolverMate> = {}) => {
     const bodies = [body('g', true), body('A', false), body('B', false, [30, 0, 0])];
