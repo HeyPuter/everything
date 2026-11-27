@@ -1,7 +1,7 @@
 // CAM dialogs: the tool library and post processing to G-code.
 
 import { CamCancelled } from '../../cam/client';
-import { postProcess, type PostOperation } from '../../cam/post';
+import type { PostJob, PostOperation } from '../../cam/post';
 import { type CamController, type CamTool, type CamToolType, CONTROLLER_LABELS, TOOL_TYPE_LABELS, newCamDoc, opFeeds } from '../../model/cam';
 import { allocateId } from '../../model/document';
 import { UNIT_SYSTEMS } from '../../model/units';
@@ -12,6 +12,7 @@ import { showDialog, toast } from '../../ui/overlay';
 import type { App } from '../app';
 import { checkbox, numberField, selectField } from '../pm';
 import { CamPanel, rateField } from './panels';
+import type { PostWorkerResponse } from './post-worker';
 import type { CamWorkspace } from './workspace';
 
 const TYPES = Object.entries(TOOL_TYPE_LABELS).map(([value, label]) => ({ value: value as CamToolType, label }));
@@ -143,6 +144,36 @@ export async function toolLibraryDialog(app: App, ws: CamWorkspace, select?: str
 
 const EXTENSIONS: Record<CamController, string> = { fanuc: 'nc', haas: 'nc', mach3: 'tap', linuxcnc: 'ngc', grbl: 'gcode' };
 
+/** G-code writing in a worker; a newer request stops the one still running. */
+class PostWriter {
+  private worker: Worker | null = null;
+
+  write(job: PostJob): Promise<{ code: string; lines: number; head: string }> {
+    this.stop();
+    const w = new Worker(new URL('./post-worker.ts', import.meta.url), { type: 'module', name: 'cam-post' });
+    this.worker = w;
+    return new Promise((resolve, reject) => {
+      const done = () => { w.terminate(); if (this.worker === w) this.worker = null; };
+      w.onmessage = (ev: MessageEvent<PostWorkerResponse>) => {
+        done();
+        if ('error' in ev.data) reject(new Error(ev.data.error));
+        else resolve(ev.data);
+      };
+      w.onerror = (ev) => {
+        ev.preventDefault();
+        done();
+        reject(new Error(ev.message || 'The G-code could not be written.'));
+      };
+      w.postMessage(job);
+    });
+  }
+
+  stop() {
+    this.worker?.terminate();
+    this.worker = null;
+  }
+}
+
 /** Writes the G-code of the setups for a controller and downloads it. */
 export async function postDialog(app: App, ws: CamWorkspace) {
   const cam = ws.cam;
@@ -180,11 +211,22 @@ export async function postDialog(app: App, ws: CamWorkspace) {
       return { name: s.name, workOffset: s.workOffset, ops };
     }).filter((s) => s.ops.length);
     const date = new Date().toISOString().slice(0, 10);
-    code = setups.length ? postProcess({ name: app.store.doc.name, post: { ...post, units: unitsSel }, units: unitsSel, setups, notes: [`Parametric CAM, ${date}`, `Post: ${CONTROLLER_LABELS[post.controller]}`] }) : '';
-    const lines = code.split('\n');
-    preview.textContent = code ? `${lines.slice(0, 400).join('\n')}${lines.length > 400 ? `\n... ${lines.length - 400} more lines` : ''}` : 'Nothing to post.';
-    count.textContent = code ? `${lines.length - 1} lines` : '';
+    let out = { code: '', lines: 0, head: '' };
+    if (setups.length) {
+      try {
+        out = await writer.write({ name: app.store.doc.name, post: { ...post, units: unitsSel }, units: unitsSel, setups, notes: [`Parametric CAM, ${date}`, `Post: ${CONTROLLER_LABELS[post.controller]}`] });
+      } catch (e) {
+        if (mine !== seq) return;
+        status.hidden = false; status.className = 'pm-msg error'; status.textContent = (e as Error).message;
+      }
+    }
+    // Settings changed while it was written: the newer request shows its program.
+    if (mine !== seq) return;
+    code = out.code;
+    preview.textContent = code ? out.head : 'Nothing to post.';
+    count.textContent = code ? `${out.lines} lines` : '';
   };
+  const writer = new PostWriter();
   const count = h('span', { class: 'field-label' });
   let pending = Promise.resolve();
   const refresh = () => { preview.textContent = 'Writing...'; pending = make(); };
@@ -218,6 +260,7 @@ export async function postDialog(app: App, ws: CamWorkspace) {
       return true;
     },
   });
+  writer.stop();
   if (v !== 'ok' || !code) return;
   // Keep the post settings with the part (units only when they differ from the part's).
   const next = { ...post };
