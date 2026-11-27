@@ -291,3 +291,21 @@ test('loads of an inch part are in pounds-force and psi, with round defaults', a
   expect(await page.evaluate(() => (window as unknown as W).__parametric.store.doc.study!.loads[0].value)).toBeCloseTo(222.411, 3);
   expect(errors).toEqual([]);
 });
+
+test('the printable report says what its plot shows', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  await page.getByLabel('Plot', { exact: true }).selectOption('disp');
+  await page.getByRole('button', { name: 'Report...' }).click();
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('dialog', { name: 'Results Report' }).getByRole('button', { name: 'Printable Report' }).click();
+  const report = await popup;
+  await report.evaluate(() => { window.print = () => {}; });
+  await expect(report.locator('figcaption')).toContainText(/^Displacement from 0 mm to 0\.\d+ mm \(blue lowest, red highest\); deformation scale \d+/);
+  await expect(report.locator('img')).toHaveAttribute('alt', /^Displacement from/);
+  await report.close();
+  expect(errors).toEqual([]);
+});

@@ -65,6 +65,8 @@ export class FeaWorkspace {
   private shape: { version: number; key: string } | null = null;
   /** Results panel open: it draws the plot (the study's symbols are hidden). */
   plotting = false;
+  /** What the open plot shows, in words (for the report). */
+  plotCaption: (() => string) | null = null;
 
   constructor(readonly app: App) {
     app.store.on((reason) => {

@@ -73,14 +73,14 @@ export function summaryCsv(rows: Line[]): string {
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
-export function reportHtml(title: string, rows: Line[], image: string | null): string {
+export function reportHtml(title: string, rows: Line[], image: string | null, caption = ''): string {
   const sections = [...new Set(rows.map((r) => r.section))];
   const body = sections.map((s) => `<h2>${esc(s)}</h2><table>${rows.filter((r) => r.section === s).map((r) => `<tr><th>${esc(r.name)}</th><td>${esc(r.value)}${r.unit ? ` ${esc(r.unit)}` : ''}</td></tr>`).join('')}</table>`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
 body{font:13px/1.45 system-ui,sans-serif;margin:24px;color:#111}h1{font-size:20px}h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc}
 table{border-collapse:collapse;width:100%}th{text-align:left;font-weight:500;width:45%;padding:3px 8px 3px 0;color:#333}td{padding:3px 0}
-img{max-width:100%;border:1px solid #ddd;margin-top:8px}.note{color:#555;font-size:12px;margin-top:18px}
-</style></head><body><h1>${esc(title)}</h1>${image ? `<img src="${image}" alt="Result plot">` : ''}${body}
+img{max-width:100%;border:1px solid #ddd;margin-top:8px}figure{margin:0}figcaption{color:#333;margin-top:4px}.note{color:#555;font-size:12px;margin-top:18px}
+</style></head><body><h1>${esc(title)}</h1>${image ? `<figure><img src="${image}" alt="${esc(caption || 'Result plot')}">${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>` : ''}${body}
 <p class="note">Linear static analysis: small displacements, linear elastic isotropic material, no contact. Stresses at sharp inner corners and at the edges of fixed faces can grow without bound as the mesh is refined (stress singularities); judge them by the stresses a little away from such spots.</p></body></html>`;
 }
 
@@ -95,7 +95,7 @@ export async function reportDialog(app: App, ws: FeaWorkspace, r: FeaResult) {
   if (v === 'csv') download(summaryCsv(rows), `${name}.csv`, 'text/csv');
   if (v === 'html') {
     const image = ws.plotting ? app.renderer.capture(1400) : null;
-    const html = reportHtml(name, rows, image);
+    const html = reportHtml(name, rows, image, image ? ws.plotCaption?.() ?? '' : '');
     const w = window.open('', '_blank');
     if (!w) { download(html, `${name}.html`, 'text/html'); toast({ kind: 'info', message: 'The report was downloaded (the browser blocked the new window): open it and print it.' }); return; }
     w.document.write(html);

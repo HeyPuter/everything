@@ -358,6 +358,8 @@ export class ResultsPanel extends FeaPanel {
       this.plot.onProbe = () => this.drawProbes();
       this.plotted = res;
       this.ws.plotting = true;
+      const plot = this.plot;
+      this.ws.plotCaption = () => plot.caption();
       this.ws.redraw();
       this.plot.field = this.field;
       this.plot.draw();
@@ -434,6 +436,7 @@ export class ResultsPanel extends FeaPanel {
     this.plot.dispose();
     this.plot = null;
     this.ws.plotting = false;
+    this.ws.plotCaption = null;
     this.ws.redraw();
   }
 

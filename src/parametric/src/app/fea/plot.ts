@@ -165,6 +165,17 @@ export class ResultPlot {
     }
   }
 
+  /** What the plot shows, in words (the printed report has no legend of its own). */
+  caption(): string {
+    const [lo, hi] = this.range();
+    const kind = fieldKind(this.field);
+    const top = this.field === 'fos' && hi >= FOS_CAP ? `${FOS_CAP} or more` : formatValue(this.app, hi, kind);
+    const colours = this.field === 'fos' ? 'red lowest, blue highest' : 'blue lowest, red highest';
+    const k = this.scale();
+    const shape = this.deform === 'none' ? 'undeformed shape' : `deformation scale ${k >= 100 ? Math.round(k).toLocaleString('en-US') : Number(k.toPrecision(3))}${this.deform === 'true' ? ' (true scale)' : ''}`;
+    return `${FIELD_LABELS[this.field]} from ${formatValue(this.app, lo, kind)} to ${top} (${colours}); ${shape}.`;
+  }
+
   private drawLegend(lo: number, hi: number) {
     const app = this.app;
     this.legend?.remove();
