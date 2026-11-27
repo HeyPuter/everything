@@ -21,9 +21,12 @@
 //
 // Gear, rack and pinion and screw mates relate motions, not positions: how
 // far a component turned or slid since the start of the solve (the
-// placements it started from). Every solve starts where the last one ended
-// (a drag step, a motion study frame, the document after a commit), so the
-// turns add up: a gear driven round and round keeps its ratio past ±180°.
+// placements it started from), read from the solver's own rotation
+// variables, so a single solve can turn them any amount (a rack pulled far
+// in one pointer move, or moved by a mate's new value). Every solve starts
+// where the last one ended (a drag step, a motion study frame, the document
+// after a commit), so the turns add up: a gear driven round and round keeps
+// its ratio past ±180°.
 
 import type { Quat, Vec2, Vec3 } from '../math/vec';
 import { add, cross, dot, len, normalize, perpendicular, qMul, qNormalize, qRotate, scale, sub } from '../math/vec';
@@ -181,7 +184,7 @@ export function rotVecQuat(w: Vec3): Quat {
 const qConj = (q: Quat): Quat => [-q[0], -q[1], -q[2], q[3]];
 
 /** The angle (radians, 0 to π) orientation q is turned from q0. */
-const turnAngle = (q: Quat, q0: Quat): number => {
+export const turnAngle = (q: Quat, q0: Quat): number => {
   const d = qMul(q, qConj(q0));
   return 2 * Math.atan2(Math.hypot(d[0], d[1], d[2]), Math.abs(d[3]));
 };
@@ -483,6 +486,8 @@ interface MechContext {
   /** Placement of an entity's component, now and at the start. */
   now: (e: SolverEntity) => Placement;
   start: (e: SolverEntity) => Placement;
+  /** How far an entity's component turned about a direction (in the assembly) since the start, in radians. */
+  turned: (e: SolverEntity, d: Vec3) => number;
   L: number;
   ineq: boolean;
 }
@@ -524,7 +529,7 @@ function mechanicalEquations(c: MechContext): number[] | null {
       const da = normalize(dirOf(ga)!), db0 = normalize(dirOf(gb)!);
       // Parallel axes turn about the same direction: external gears turn opposite ways.
       const db = dot(da, db0) < 0 ? scale(db0, -1) : db0;
-      const ta = turnAbout(c.pa.q, c.ra.q, da), tb = turnAbout(c.pb.q, c.rb.q, db);
+      const ta = c.turned(m.a, da), tb = c.turned(m.b, db);
       const va = m.value, vb = m.value2 ?? 0;
       if (!(va > 0) || !(vb > 0)) return null;
       return [(va * ta + (m.reverse ? -1 : 1) * vb * tb) / Math.max(va, vb)];
@@ -533,7 +538,7 @@ function mechanicalEquations(c: MechContext): number[] | null {
       // a: the pinion (an axis), b: the rack (a straight edge, along which it moves).
       if (!isAxisLike(ga) || gb.kind !== 'line' || m.b.geo.kind !== 'line' || !(m.value > 0)) return null;
       const dp = normalize(dirOf(ga)!), u = normalize(gb.d);
-      const turn = m.a.body ? turnAbout(c.pa.q, c.ra.q, dp) : 0;
+      const turn = m.a.body ? c.turned(m.a, dp) : 0;
       const local = m.b.geo.p;
       const moved = dot(sub(applyPlacement(c.pb, local), applyPlacement(c.rb, local)), u);
       const sense = rackSense(placeGeoDir(m.a.geo, c.ra), pointOf(placeGeo(m.a.geo, c.ra))!, normalize(qRotate(c.rb.q, m.b.geo.d)), applyPlacement(c.rb, local));
@@ -546,7 +551,8 @@ function mechanicalEquations(c: MechContext): number[] | null {
       // b's turn and travel along a's axis, in a's frame (a nut on a screw that itself moves).
       const dl = normalize(m.a.geo.d);
       const rel = relativePlacement(c.pa, c.pb), rel0 = relativePlacement(c.ra, c.rb);
-      const turn = turnAbout(rel.q, rel0.q, dl);
+      const dw = normalize(qRotate(c.pa.q, dl));
+      const turn = c.turned(m.b, dw) - c.turned(m.a, dw);
       const travel = dot(sub(applyPlacement(rel, m.b.geo.p), applyPlacement(rel0, m.b.geo.p)), dl);
       return [...conc, (travel - ((m.reverse ? -1 : 1) * m.value * turn) / (2 * Math.PI)) / L];
     }
@@ -873,11 +879,8 @@ function placementWith(base: Placement, center: Vec3, x: number[], o: number, L:
 export class MateSolver {
   constructor(readonly bodies: SolverBody[], readonly mates: SolverMate[]) {}
 
-  /**
-   * Placements with all mates (and the drag goal) satisfied as far as possible.
-   * `depth`: how many times a drag was halved (see the end).
-   */
-  solve(opts: SolveOptions = {}, mates = this.mates, start?: Map<Id, Placement>, depth = 0): SolveResult {
+  /** Placements with all mates (and the drag goal) satisfied as far as possible. */
+  solve(opts: SolveOptions = {}, mates = this.mates, start?: Map<Id, Placement>): SolveResult {
     const L = opts.scale && opts.scale > 0 ? opts.scale : 100;
     const bodies = new Map(this.bodies.map((b) => [b.id, { ...b, placement: start?.get(b.id) ?? b.placement }]));
     const involved = new Set<Id>();
@@ -893,11 +896,14 @@ export class MateSolver {
     const weights = vars.map((id) => Math.sqrt(Math.max(1e-6, opts.weight?.(id) ?? 1)));
     const n = vars.length * 6;
     const residuals = new Map<Id, number>();
+    // Gear, rack and pinion and screw mates read the components' turns from the variables (see mateResidual).
+    const coupled = mates.some((m) => m.type === 'gear' || m.type === 'rackPinion' || m.type === 'screw');
+    const turnsOf = coupled ? new WeakMap<Map<Id, Placement>, Map<Id, Vec3>>() : null;
     const evalMates = (pl: Map<Id, Placement>) => {
       residuals.clear();
       let worst = 0;
       for (const m of mates) {
-        const r = this.mateResidual(m, pl, L, ref);
+        const r = this.mateResidual(m, pl, L, ref, true, turnsOf?.get(pl));
         const v = r ? Math.max(0, ...r.map(Math.abs)) : Infinity;
         residuals.set(m.id, v);
         worst = Math.max(worst, v);
@@ -924,12 +930,14 @@ export class MateSolver {
     const at = (xv: number[]): Map<Id, Placement> => {
       const out = new Map(placements);
       vars.forEach((id, i) => out.set(id, placementWith(bodies.get(id)!.placement, sys.centers.get(id)!, xv, i * 6, L)));
+      turnsOf?.set(out, turnsAt(vars, xv));
       return out;
     };
     const dragWeight = 0.05;
     const rows = (pl: Map<Id, Placement>, withDrag: boolean): number[] => {
       const out: number[] = [];
-      for (const m of mates) out.push(...(this.mateResidual(m, pl, L, ref) ?? []));
+      const turns = turnsOf?.get(pl);
+      for (const m of mates) out.push(...(this.mateResidual(m, pl, L, ref, true, turns) ?? []));
       if (drives.length) out.push(...driveResidual(drives, pl, ref, L));
       if (withDrag && opts.drag) out.push(...dragResidual(opts.drag, pl, L).map((v) => v * dragWeight));
       return out;
@@ -946,7 +954,7 @@ export class MateSolver {
         iterations++;
         const mateCost = withDrag ? sumSq(rows(at(x), false)) : cost;
         if (!withDrag && Math.sqrt(mateCost) < TOL) break;
-        const J = this.jacobian(x, sys, placements, mates, withDrag ? opts.drag ?? null : null, dragWeight, r.length, n, vw, L, drives);
+        const J = this.jacobian(x, sys, placements, mates, withDrag ? opts.drag ?? null : null, dragWeight, r.length, n, vw, L, drives, coupled);
         const g = new Array<number>(n).fill(0);
         const A = Array.from({ length: n }, () => new Array<number>(n).fill(0));
         for (let i = 0; i < r.length; i++) {
@@ -1001,19 +1009,6 @@ export class MateSolver {
       run(false, maxIter);
     } else run(false, maxIter);
     const final = at(x);
-    // Gear, rack and pinion and screw mates measure turns within a solve, up to half a turn
-    // either way: a drag that turns a component further (a rack pulled far in one pointer
-    // move) could land on the turn the other way round, so it is made in two halves.
-    if (drag && depth < 4 && mates.some((m) => m.type === 'gear' || m.type === 'rackPinion' || m.type === 'screw') && vars.some((id) => turnAngle(final.get(id)!.q, placements.get(id)!.q) > Math.PI / 2)) {
-      const from = placements.get(drag.body);
-      if (from) {
-        const half: DragGoal = drag.kind === 'move'
-          ? { ...drag, target: scale(add(applyPlacement(from, drag.local), drag.target), 0.5) }
-          : { ...drag, q: qNormalize(qMul(rotVecQuat(scale(quatRotVec(qMul(drag.q, qConj(from.q))), 0.5)), from.q)) };
-        const first = this.solve({ ...opts, drag: half }, mates, placements, depth + 1);
-        return this.solve(opts, mates, first.placements, depth + 1);
-      }
-    }
     const worst = evalMates(final), dw = driveWorst(final);
     return { placements: final, ok: worst < CONFLICT_TOL && dw < CONFLICT_TOL, residuals, iterations, driveResidual: dw };
   }
@@ -1023,7 +1018,7 @@ export class MateSolver {
    * differences: each mate depends on the variables of its two components only.
    * Columns are divided by the variables' weights (`vw`, one per variable).
    */
-  private jacobian(x: number[], sys: System, base: Map<Id, Placement>, mates: SolverMate[], drag: DragGoal | null, dragWeight: number, m: number, n: number, vw: number[], L: number, drives: Drive[] = []): number[][] {
+  private jacobian(x: number[], sys: System, base: Map<Id, Placement>, mates: SolverMate[], drag: DragGoal | null, dragWeight: number, m: number, n: number, vw: number[], L: number, drives: Drive[] = [], coupled = false): number[][] {
     const J = Array.from({ length: m }, () => new Array<number>(n).fill(0));
     const h = 1e-6;
     const current = new Map(base);
@@ -1031,11 +1026,13 @@ export class MateSolver {
     // One component moved at a time, in one map put back after each (a copy
     // of every placement per evaluation made large assemblies drag slowly).
     const work = new Map(current);
+    const turns = coupled ? turnsAt(sys.vars, x) : undefined;
     const perturbed = (id: Id, j: number, d: number): Map<Id, Placement> => {
       const i = sys.index.get(id)!;
       const xv = x.slice(i * 6, i * 6 + 6);
       xv[j] += d;
       work.set(id, placementWith(sys.bodies.get(id)!.placement, sys.centers.get(id)!, xv, 0, L));
+      turns?.set(id, [xv[3], xv[4], xv[5]]);
       return work;
     };
     const block = (row: number, bodies: (Id | null)[], f: (pl: Map<Id, Placement>) => number[]) => {
@@ -1047,11 +1044,12 @@ export class MateSolver {
           for (let i = 0; i < rp.length; i++) J[row + i][k + j] = (rp[i] - rm[i]) / (2 * h) / vw[k + j];
         }
         work.set(id, current.get(id)!);
+        turns?.set(id, [x[k + 3], x[k + 4], x[k + 5]]);
       }
     };
     let row = 0;
     for (const mt of mates) {
-      const f = (pl: Map<Id, Placement>) => this.mateResidual(mt, pl, L, base) ?? [];
+      const f = (pl: Map<Id, Placement>) => this.mateResidual(mt, pl, L, base, true, turns) ?? [];
       const len0 = f(current).length;
       block(row, mateBodies(mt), f);
       row += len0;
@@ -1065,9 +1063,12 @@ export class MateSolver {
    * A mate's residuals with the components where `pl` puts them; null when
    * it cannot be formed. `ref`: where the components started (what coupling
    * mates measure motion from). `ineq`: with the rows of limits (left out of
-   * the rank analysis: a limit takes no freedom away).
+   * the rank analysis: a limit takes no freedom away). `turns`: how far each
+   * moving component turned from `ref` (a rotation vector, which unlike the
+   * orientation itself goes on past half a turn); without it the turns are
+   * read from the orientations.
    */
-  mateResidual(m: SolverMate, pl: Map<Id, Placement>, L: number, ref: Map<Id, Placement> = pl, ineq = true): number[] | null {
+  mateResidual(m: SolverMate, pl: Map<Id, Placement>, L: number, ref: Map<Id, Placement> = pl, ineq = true, turns?: Map<Id, Vec3>): number[] | null {
     const pa = m.a.body ? pl.get(m.a.body) ?? null : null;
     const pb = m.b.body ? pl.get(m.b.body) ?? null : null;
     if ((m.a.body && !pa) || (m.b.body && !pb)) return null;
@@ -1080,9 +1081,15 @@ export class MateSolver {
     const now = (e: SolverEntity) => (e.body ? pl.get(e.body) ?? IDENT : IDENT);
     const start = (e: SolverEntity) => (e.body ? ref.get(e.body) ?? now(e) : IDENT);
     for (const e of [m.a2, m.b2]) if (e?.body && !pl.get(e.body)) return null;
+    const turned = (e: SolverEntity, d: Vec3) => {
+      if (!e.body) return 0;
+      if (!turns) return turnAbout(now(e).q, start(e).q, d);
+      const w = turns.get(e.body);
+      return w ? dot(w, d) : 0;
+    };
     return mechanicalEquations({
       m, ga: placeGeo(m.a.geo, pa), gb: placeGeo(m.b.geo, pb), ga2: m.a2 ? placeGeo(m.a2.geo, m.a2.body ? now(m.a2) : null) : null, gb2: m.b2 ? placeGeo(m.b2.geo, m.b2.body ? now(m.b2) : null) : null,
-      pa: now(m.a), pb: now(m.b), ra: start(m.a), rb: start(m.b), now, start, L, ineq,
+      pa: now(m.a), pb: now(m.b), ra: start(m.a), rb: start(m.b), now, start, turned, L, ineq,
     });
   }
 
@@ -1246,6 +1253,9 @@ function dragResidual(goal: DragGoal, pl: Map<Id, Placement>, L: number): number
 }
 
 const sumSq = (r: number[]) => r.reduce((s, v) => s + v * v, 0);
+
+/** The rotation vectors of the variables (each component's turn from where the solve started). */
+const turnsAt = (vars: Id[], x: number[]): Map<Id, Vec3> => new Map(vars.map((id, i) => [id, [x[i * 6 + 3], x[i * 6 + 4], x[i * 6 + 5]] as Vec3]));
 
 /** Solves the symmetric positive definite system A x = b (null when it is not positive definite). */
 function choleskySolve(A: number[][], b: number[]): number[] | null {

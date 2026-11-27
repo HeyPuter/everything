@@ -231,6 +231,14 @@ describe('mechanical mates', () => {
       const t = dx / 10;
       expect(dot(qRotate(one.placements.get('P')!.q, [1, 0, 0]), [Math.cos(t), Math.sin(t), 0])).toBeCloseTo(1, 6);
     }
+    // A mate's new value moving the rack 50 or 100 mm at once: the pinion turns with it (not a conflict).
+    for (const v of [50, 100]) {
+      const to = mate('distance', ['g', plane([0, 0, 0], [1, 0, 0])], ['R', plane([0, 0, 0], [1, 0, 0])], { value: v });
+      const r = new MateSolver(s.bodies, [...s.mates, to]).analyze();
+      expect(r.status).toBe('full');
+      expect(r.placements.get('R')!.p[0]).toBeCloseTo(v, 6);
+      expect(dot(qRotate(r.placements.get('P')!.q, [1, 0, 0]), [Math.cos(v / 10), Math.sin(v / 10), 0])).toBeCloseTo(1, 6);
+    }
     // By travel per turn, and reversed.
     const per = rackAndPinion({ by: 'revolution', value: 50, reverse: true });
     const r2 = computeMotion({ bodies: per.bodies, mates: per.mates, motors: [rotary('P', axis([0, 0, 0]), 360)], duration: 1, fps: 30, scale: 100 });

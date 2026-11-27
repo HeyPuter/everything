@@ -17,7 +17,7 @@ import { add, dot, len, normalize, qMul, qRotate } from '../math/vec';
 import type { MotionMotor, Placement } from '../model/assembly';
 import type { Id } from '../model/types';
 import {
-  CONFLICT_TOL, type Drive, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving, mateMeasure, placeGeo, quatRotVec, sliderDirection,
+  CONFLICT_TOL, type Drive, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving, mateMeasure, placeGeo, quatRotVec, sliderDirection, turnAngle,
 } from './solver';
 
 /** A motor ready to run: what it moves and its motion over time. */
@@ -148,9 +148,10 @@ export class MotionRun {
   /**
    * Computes the next frame; false once the study is over (or stopped). A
    * frame the solver cannot reach in one step (a fast motor turns a part more
-   * than half a turn in it, which no solve can tell from the turn back) is
-   * computed again in smaller steps, each kept as a frame of its own (so the
-   * turns read from the frames add up).
+   * than half a turn in it, which no solve can tell from the turn back), or in
+   * which a part turns more than a quarter turn (a small gear driven by a
+   * large one), is computed again in smaller steps, each kept as a frame of
+   * its own (so the turns read from the frames add up).
    */
   step(): boolean {
     if (this.done) return false;
@@ -160,17 +161,18 @@ export class MotionRun {
     let failed: ReturnType<MotionRun['span']> | null = null;
     for (const parts of [1, 4, 16]) {
       const times: number[] = [], frames: Map<Id, Placement>[] = [];
-      let from = prev;
+      let from = prev, fast = false;
       failed = null;
       for (let j = 1; j <= parts; j++) {
         const ta = t0 + ((t1 - t0) * (j - 1)) / parts, tb = j === parts ? t1 : t0 + ((t1 - t0) * j) / parts;
         const r = this.span(from, ta, tb);
         if (!r.r.ok) { failed = r; break; }
+        if (parts < 16 && this.bodies.some((b) => !b.fixed && turnAngle(r.r.placements.get(b.id)?.q ?? b.placement.q, from.get(b.id)?.q ?? b.placement.q) > Math.PI / 2)) { fast = true; break; }
         times.push(tb);
         frames.push(new LaterFrame(r.r.placements, this.result.frames[0]));
         from = r.r.placements;
       }
-      if (!failed) {
+      if (!failed && !fast) {
         this.result.times.push(...times);
         this.result.frames.push(...frames);
         return !this.done;
