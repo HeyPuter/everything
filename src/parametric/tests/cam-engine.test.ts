@@ -313,6 +313,24 @@ describe('operations', () => {
     void part;
   });
 
+  it('drills a through hole no deeper than the part below it', () => {
+    const drill = tool('drill', 5, { tipAngle: 118 });
+    const s = setup();
+    const wall: number[] = [];
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2, b = ((i + 1) / 16) * Math.PI * 2;
+      const p = (t: number, z: number) => [20 + 2.5 * Math.cos(t), 20 + 2.5 * Math.sin(t), z];
+      wall.push(...p(a, 0), ...p(b, 0), ...p(b, 10), ...p(a, 0), ...p(b, 10), ...p(a, 10));
+    }
+    // A plate with the hole, and 2 mm under it a second plate (a channel's other wall).
+    const part = placePart(s, mesh(box(0, 0, 0, 40, 17.5, 10), box(0, 22.5, 0, 40, 40, 10), box(0, 17.5, 0, 17.5, 22.5, 10), box(22.5, 17.5, 0, 40, 22.5, 10), box(0, 0, -10, 40, 40, -2), box(0, 0, -2, 2, 40, 0)))!;
+    const cyl = [{ name: 'F1', p: [20, 20, 0] as Vec3, d: [0, 0, 1] as Vec3, radius: 2.5, tris: Float32Array.from(wall) }];
+    const tp = generateFor(part, { setup: s, op: op('drill', drill, { breakthrough: 1 }), tool: drill, cylinders: cyl });
+    // 1 mm and the drill's point (1.5 mm) through would reach 0.5 mm into the plate below.
+    expect(tp.cycles[0].z).toBeCloseTo(-2, 6);
+    expect(tp.warnings.some((w) => /short of its breakthrough/.test(w))).toBe(true);
+  });
+
   it('bores a blind hole wider than two tools without leaving a core in it', () => {
     const em = tool('flat', 3);
     const s = setup({ stock: { mode: 'offset', side: 5, top: 0, bottom: 0, size: [0, 0, 0] } });

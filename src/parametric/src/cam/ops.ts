@@ -777,12 +777,22 @@ class Gen {
       b.warnings.push(anyPicked ? 'None of the picked faces is a hole that opens toward the tool.' : `No hole of the tool's diameter (${this.tool.diameter} mm) opens toward the tool. Pick the holes to drill.`);
       return;
     }
-    const tip = this.tool.type === 'drill' || this.tool.type === 'chamfer' ? this.R / Math.tan(((this.tool.tipAngle ?? 118) / 2) * Math.PI / 180) : 0;
+    const cutter = cutterOf(this.tool);
+    const tip = cutter.kind === 'cone' ? cutter.r * cutter.k : 0;
     this.steps = holes.length;
     for (const h of holes) {
       this.tick();
       if (Math.abs(2 * h.r - this.tool.diameter) > Math.max(0.05, h.r * 0.02)) b.warnings.push(`A hole of ${(2 * h.r).toFixed(3)} mm is drilled with a ${this.tool.diameter} mm tool.`);
-      const z = h.through ? h.bottom - Math.max(0, op.breakthrough) - (op.tipThrough ? tip : 0) : h.bottom;
+      let z = h.through ? h.bottom - Math.max(0, op.breakthrough) - (op.tipThrough ? tip : 0) : h.bottom;
+      if (h.through) {
+        // Not on into the part below the hole (within the hole's width).
+        const tool = { ...this.tool, diameter: Math.min(this.tool.diameter, h.r * 1.9) };
+        const below = new DropCutter(this.part.index, cutterOf(tool)).drop(h.x, h.y);
+        if (z < below) {
+          z = below;
+          b.warnings.push(`A hole of ${(2 * h.r).toFixed(3)} mm is drilled short of its breakthrough: the part is below it.`);
+        }
+      }
       // From the retract height over the stock: the stock over the hole may not be cut yet.
       b.cycle(h.x, h.y, { cycle: op.cycle, r: b.retract, z, peck: op.cycle === 'drill' ? 0 : Math.max(0.05, op.peck), dwell: Math.max(0, op.dwell) });
     }
