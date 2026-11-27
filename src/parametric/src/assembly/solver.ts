@@ -524,7 +524,8 @@ function mechanicalEquations(c: MechContext): number[] | null {
       if (!m.limit) return [...conc, ...plane];
       const t = hingeTurn(m, c.pa, c.pb);
       if (t === null) return null;
-      return [...conc, ...plane, ...(c.ineq ? [outsideTurn(t, (m.limit.min * Math.PI) / 180, (m.limit.max * Math.PI) / 180)] : [])];
+      // (Kept at one angle, the limit is an equation: it takes the turn away.)
+      return [...conc, ...plane, ...(c.ineq || m.limit.min === m.limit.max ? [outsideTurn(t, (m.limit.min * Math.PI) / 180, (m.limit.max * Math.PI) / 180)] : [])];
     }
     case 'gear': {
       if (!isAxisLike(ga) || !isAxisLike(gb) || !m.a.body || !m.b.body) return null;
@@ -582,7 +583,7 @@ function mechanicalEquations(c: MechContext): number[] | null {
         rows = [...p1, ...p2];
       }
       if (!m.limit) return rows;
-      return [...rows, ...(c.ineq ? [outside(sliderTravel(m, rel, dir), m.limit.min, m.limit.max) / L] : [])];
+      return [...rows, ...(c.ineq || m.limit.min === m.limit.max ? [outside(sliderTravel(m, rel, dir), m.limit.min, m.limit.max) / L] : [])];
     }
     case 'cam': {
       const prof = m.a.geo;
@@ -1076,7 +1077,11 @@ export class MateSolver {
     if ((m.a.body && !pa) || (m.b.body && !pb)) return null;
     if (isMechanical(m.type)) return mechanicalResidual(m, pl, ref, pa, pb, L, ineq, turns);
     const o = { aligned: m.aligned, value: m.value, flip: m.flip, scale: L, rel: m.rel };
-    if (m.limit && (m.type === 'distance' || m.type === 'angle')) return limitEquations(m.type, placeGeo(m.a.geo, pa), placeGeo(m.b.geo, pb), o, m.limit, ineq);
+    if (m.limit && (m.type === 'distance' || m.type === 'angle')) {
+      // Kept at one value it is that value's mate (it takes the freedom away).
+      if (m.limit.min === m.limit.max) return equations(m.type, placeGeo(m.a.geo, pa), placeGeo(m.b.geo, pb), { ...o, value: m.limit.min }, pa, pb);
+      return limitEquations(m.type, placeGeo(m.a.geo, pa), placeGeo(m.b.geo, pb), o, m.limit, ineq);
+    }
     return equations(m.type, placeGeo(m.a.geo, pa), placeGeo(m.b.geo, pb), o, pa, pb);
   }
 

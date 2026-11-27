@@ -66,6 +66,18 @@ describe('limit mates', () => {
     expect([...bad.invalid.values()][0]).toMatch(/smallest/);
   });
 
+  it('a limit whose smallest and largest values are equal holds the component there (it takes the freedom away)', () => {
+    const r = blockOnSlide({ min: 12, max: 12 }).analyze();
+    expect(r.status).toBe('full');
+    expect(r.dof).toBe(0);
+    expect(r.defined.has('blk')).toBe(true);
+    expect(gap(r.placements)).toBeCloseTo(12, 6);
+    const start: Placement = { p: [0, 0, 0], q: [0, 0, 0, 1] };
+    const held = new MateSolver([body('base', true), body('lid', false)], [mate('hinge', ['base', axis([0, 0, 0])], ['lid', axis([0, 0, 0])], { a2: { body: 'base', geo: plane([0, 0, 0], Z) }, b2: { body: 'lid', geo: plane([0, 0, 0], [0, 0, -1]) }, aligned2: false, rel: start, limit: { min: 20, max: 20 } })]).analyze();
+    expect(held.dof).toBe(0);
+    expect(deg(angleZ(held.placements.get('lid')!.q))).toBeCloseTo(20, 4);
+  });
+
   it('an angle limit stops a lid turning on its hinge', () => {
     const lidTop = plane([20, 1, 0], [0, 1, 0]);
     const mates = [
