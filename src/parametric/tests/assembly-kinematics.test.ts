@@ -284,6 +284,14 @@ describe('mechanical mates', () => {
     const bad = new MateSolver(s.bodies, [...s.mates.slice(0, 3), along]).analyze();
     expect(bad.status).toBe('error');
     expect(bad.invalid.get(along.id)).toMatch(/across the pinion's axis/);
+    // Along the axis where it was put, across it where the other mates put it: told where they end up
+    // (so the assembly opened again, solved where it was saved, says the same).
+    const turnedR = body('R', false, [0, -10, 0], qAxisAngle([0, 1, 0], -Math.PI / 2));
+    const squared = [...s.mates.slice(0, 2), mate('parallel', ['g', plane([0, 0, 0], Z)], ['R', plane([0, 0, 0], Z)]), s.mates[3]];
+    const first = new MateSolver([s.bodies[0], s.bodies[1], turnedR], squared).analyze();
+    expect(first.invalid.size).toBe(0);
+    const reopened = new MateSolver([s.bodies[0], s.bodies[1], { ...turnedR, placement: first.placements.get('R')! }], squared).analyze();
+    expect([reopened.status, reopened.dof]).toEqual([first.status, first.dof]);
     // By travel per turn, and reversed.
     const per = rackAndPinion({ by: 'revolution', value: 50, reverse: true });
     const r2 = computeMotion({ bodies: per.bodies, mates: per.mates, motors: [rotary('P', axis([0, 0, 0]), 360)], duration: 1, fps: 30, scale: 100 });
