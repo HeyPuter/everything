@@ -162,6 +162,22 @@ describe('mechanical mates', () => {
     expect(w[30]).toBeCloseTo(-180, 3);
   });
 
+  it('a motor (or a gear it drives) turning more than half a turn a frame is followed in smaller steps', () => {
+    // 1000 rpm at 30 frames a second: 200° a frame.
+    const s = gears();
+    const fast = computeMotion({ bodies: s.bodies, mates: s.mates, motors: [rotary('A', axis([0, 0, 0]), 1000, { at: profileOf('rotary', { profile: 'constant', speed: 1000, rpm: true }, 1) })], duration: 0.5, fps: 30, scale: 100 });
+    expect(fast.stop).toBeNull();
+    expect(fast.times[fast.times.length - 1]).toBeCloseTo(0.5, 12);
+    for (let i = 1; i < fast.times.length; i++) expect(fast.times[i]).toBeGreaterThan(fast.times[i - 1]);
+    expect(degreesAbout(turnPath(fast, 'A'), Z).at(-1)).toBeCloseTo(3000, 3);
+    expect(degreesAbout(turnPath(fast, 'B'), Z).at(-1)).toBeCloseTo(-1500, 3);
+    // A slow motor on the large gear: the small one turns 240° a frame.
+    const big = new MateSolver(s.bodies, [s.mates[0], s.mates[1], { ...s.mates[2], value: 40, value2: 10 }]);
+    const res = computeMotion({ bodies: big.bodies, mates: big.mates, motors: [rotary('A', axis([0, 0, 0]), 1800)], duration: 0.5, fps: 30, scale: 100 });
+    expect(res.stop).toBeNull();
+    expect(degreesAbout(turnPath(res, 'B'), Z).at(-1)).toBeCloseTo(-3600, 3);
+  });
+
   /** A pinion (Ø20) on a hinge at the origin, its rack below it sliding along x. */
   const rackAndPinion = (extra: Partial<SolverMate> = {}) => {
     const bodies = [body('g', true), body('P', false), body('R', false, [0, -10, 0])];

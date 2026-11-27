@@ -136,12 +136,45 @@ export class MotionRun {
     return this.k / this.count;
   }
 
-  /** Computes the next frame; false once the study is over (or stopped). */
+  /**
+   * Computes the next frame; false once the study is over (or stopped). A
+   * frame the solver cannot reach in one step (a fast motor turns a part more
+   * than half a turn in it, which no solve can tell from the turn back) is
+   * computed again in smaller steps, each kept as a frame of its own (so the
+   * turns read from the frames add up).
+   */
   step(): boolean {
     if (this.done) return false;
-    const s = this.setup;
     const t0 = this.k * this.dt, t1 = (this.k + 1) * this.dt;
     const prev = this.result.frames[this.result.frames.length - 1];
+    this.k++;
+    let failed: ReturnType<MotionRun['span']> | null = null;
+    for (const parts of [1, 4, 16]) {
+      const times: number[] = [], frames: Map<Id, Placement>[] = [];
+      let from = prev;
+      failed = null;
+      for (let j = 1; j <= parts; j++) {
+        const ta = t0 + ((t1 - t0) * (j - 1)) / parts, tb = j === parts ? t1 : t0 + ((t1 - t0) * j) / parts;
+        const r = this.span(from, ta, tb);
+        if (!r.r.ok) { failed = r; break; }
+        times.push(tb);
+        frames.push(r.r.placements);
+        from = r.r.placements;
+      }
+      if (!failed) {
+        this.result.times.push(...times);
+        this.result.frames.push(...frames);
+        return !this.done;
+      }
+    }
+    const f = failed!;
+    this.result.stop = this.whyStopped(f.solver, f.r.placements, f.from, f.mates, f.r.residuals, t1);
+    return false;
+  }
+
+  /** Solves the motion from `prev` (at time t0) to time t1. */
+  private span(prev: Map<Id, Placement>, t0: number, t1: number) {
+    const s = this.setup;
     const drives: Drive[] = [];
     let mates = this.solverMates;
     for (const m of s.motors) {
@@ -165,15 +198,7 @@ export class MotionRun {
     }
     const bodies = s.bodies.map((b) => ({ ...b, placement: prev.get(b.id) ?? b.placement }));
     const solver = new MateSolver(bodies, mates);
-    const r = solver.solve({ scale: s.scale, drives, maxIter: 80 });
-    this.k++;
-    if (!r.ok) {
-      this.result.stop = this.whyStopped(solver, r.placements, prev, mates, r.residuals, t1);
-      return false;
-    }
-    this.result.times.push(t1);
-    this.result.frames.push(r.placements);
-    return !this.done;
+    return { r: solver.solve({ scale: s.scale, drives, maxIter: 80 }), solver, mates, from: prev };
   }
 
   private whyStopped(solver: MateSolver, pl: Map<Id, Placement>, prev: Map<Id, Placement>, mates: SolverMate[], residuals: Map<Id, number>, t: number): MotionStop {
