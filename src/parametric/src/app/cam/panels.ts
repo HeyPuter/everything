@@ -82,6 +82,8 @@ export class SetupPanel extends CamPanel {
   helpText = 'Where the part sits on the machine: the direction the tool comes from, the stock around the part and the work origin (G54).';
   private s: CamSetup;
   private dirty = false;
+  /** The flat face picked for the direction, shown in its box while the direction is its own. */
+  private topFace: SelBoxItem[] = [];
 
   constructor(private app: App, private ws: CamWorkspace, setup: CamSetup, private readonly isNew: boolean) {
     super();
@@ -112,9 +114,13 @@ export class SetupPanel extends CamPanel {
     const s = this.s;
     const ctx = this.app.unitContext();
     const face = new SelectionBox(this, 'Top face (sets the direction)', { face: true, planarOnly: true }, (it) => this.toFace(it), (items) => {
+      this.topFace = items;
       const f = items[0]?.data as { axis: CamAxis } | undefined;
       if (f) { s.axis = f.axis; this.changed(); this.app.refreshPanel(); }
     }, { single: true, placeholder: 'Optional: a flat face facing the tool', icon: 'camSetup' });
+    // Redrawn with the direction it set (a direction chosen since replaces it).
+    if ((this.topFace[0]?.data as { axis: CamAxis } | undefined)?.axis !== s.axis) this.topFace = [];
+    face.setItems(this.topFace);
     const stock = s.stock;
     const offsets = h('div', {},
       len('Sides', stock.side, ctx, (v) => { stock.side = v; this.changed(); }),
@@ -133,7 +139,7 @@ export class SetupPanel extends CamPanel {
     return [
       section('Setup', [
         nameField('Name', s.name, (v) => { s.name = v; this.dirty = true; }),
-        selectField<CamAxis>('Tool direction', s.axis, AXES, (v) => { s.axis = v; this.changed(); }, 'camSetup'),
+        selectField<CamAxis>('Tool direction', s.axis, AXES, (v) => { s.axis = v; this.topFace = []; face.setItems([]); this.changed(); }, 'camSetup'),
         face.el,
         h('div', { class: 'field-label' }, 'Turn about the tool'),
         segmented('Turn about the tool', String(s.rotation) as '0', [0, 90, 180, 270].map((a) => ({ value: String(a) as '0', label: `${a}°` })), (v) => { s.rotation = Number(v); this.changed(); }),

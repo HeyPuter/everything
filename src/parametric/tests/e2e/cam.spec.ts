@@ -118,6 +118,19 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   await page.waitForFunction(() => !!(window as unknown as W).__parametric.bbox);
   await page.getByRole('tab', { name: 'CAM' }).click();
   await page.locator('[data-cmd="cam:setup"]').click();
+  // A flat face picked for the direction stays in its box; choosing a direction clears it.
+  await expect(page.getByRole('heading', { name: 'New Setup' })).toBeVisible();
+  await page.evaluate(() => {
+    const app = (window as unknown as W).__parametric;
+    const i = app.faces.findIndex((f) => f.type === 'plane' && f.normal![1] < -0.99);
+    app.panel!.onPick({ kind: 'face', index: i, name: app.faces[i].name }, false);
+  });
+  await expect(page.getByLabel('Tool direction')).toHaveValue('-Y');
+  const placeholder = page.locator('.pm-content').getByText('Optional: a flat face facing the tool');
+  await expect(placeholder).toBeHidden();
+  await expect(page.locator('.pm-content').getByText(/^Face \(plane\)/)).toBeVisible();
+  await page.getByLabel('Tool direction').selectOption('+Y');
+  await expect(placeholder).toBeVisible();
   await page.locator('.confirm-corner .ok').click();
 
   // A smaller tool chosen in the tool library while the operation is open previews again.
