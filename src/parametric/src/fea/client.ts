@@ -66,9 +66,10 @@ export class FeaClient {
     });
   }
 
+  /** Meshes the surface in the worker; its arrays are moved there (they are empty here afterwards). */
   async mesh(surface: FeaSurfaceData, size: number, progress?: (stage: string, v: number) => void): Promise<FeaMeshInfo> {
     this.meshed = false;
-    const info = await this.send<FeaMeshInfo>({ type: 'mesh', surface, size }, progress);
+    const info = await this.send<FeaMeshInfo>({ type: 'mesh', surface, size }, progress, [surface.positions.buffer, surface.indices.buffer, surface.triFace.buffer] as ArrayBuffer[]);
     this.meshed = true;
     return info;
   }
