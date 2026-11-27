@@ -169,7 +169,8 @@ export function parseStudy(raw: unknown): StaticStudy {
   const loads = (r.loads as unknown[]).map((l): FeaLoad => {
     if (!isObj(l)) return bad('load');
     const base = ident(l, 'load');
-    if (!finite(l.value)) bad('load value');
+    // Loads are positive amounts (their direction says which way): the panels never write others.
+    if (!finite(l.value) || (l.value as number) <= 0) bad('load value');
     if (typeof l.flip !== 'boolean') bad('load direction');
     const value = l.value as number, flip = l.flip as boolean;
     if (l.type === 'force') {

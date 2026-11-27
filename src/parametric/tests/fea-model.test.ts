@@ -43,6 +43,8 @@ describe('static study in the part file', () => {
       ['face without signature', (s) => { (s.fixtures as { faces: unknown[] }[])[0].faces = [{ name: 'x' }]; }],
       ['duplicate ids', (s) => { (s.loads as Record<string, unknown>[])[0].id = 'fx4'; }],
       ['value not a number', (s) => { (s.loads as Record<string, unknown>[])[1].value = '2 MPa'; }],
+      ['zero force', (s) => { (s.loads as Record<string, unknown>[])[0].value = 0; }],
+      ['negative pressure', (s) => { (s.loads as Record<string, unknown>[])[1].value = -2; }],
       ['unknown load type', (s) => { (s.loads as Record<string, unknown>[])[1].type = 'torque'; }],
       ['gravity without a direction', (s) => { delete (s.loads as Record<string, unknown>[])[2].dir; }],
       ['bad direction', (s) => { (s.loads as Record<string, unknown>[])[0].dir = { kind: 'base', axis: 'w' }; }],

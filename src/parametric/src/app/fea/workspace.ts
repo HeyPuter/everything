@@ -335,6 +335,7 @@ export class FeaWorkspace {
     const loadNames: string[] = [];
     for (const l of s.loads) {
       if (l.suppressed) continue;
+      if (!(l.value > 0) || !Number.isFinite(l.value)) throw new Error(`${l.name}: its value must be greater than 0.`);
       const sign = l.flip ? -1 : 1;
       if (l.type === 'gravity') {
         const d = this.dirOf(l.dir);
