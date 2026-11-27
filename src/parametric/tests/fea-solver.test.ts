@@ -92,6 +92,15 @@ describe('static analysis accuracy', () => {
     expect(total[0]).toBeCloseTo(-F, 3);
   }, 120000);
 
+  it('one roller on three faces holds the nodes on their shared edges normal to each face', async () => {
+    // A block pressed on top, on rollers on the bottom, back and left faces (picked together): uniform 1 MPa.
+    const { mesh, faces } = await meshOf([sketch('s1', rect(0, 0, 100, 20)), extrude('f1', 's1', 10)], 3);
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'roller', faces: [planar(faces, [0, -1, 0]), planar(faces, [0, 0, -1]), planar(faces, [-1, 0, 0])] }], loads: [{ kind: 'pressure', faces: [planar(faces, [0, 1, 0])], value: 1 }] });
+    expect(r.warnings).toEqual([]);
+    for (let v = 0; v < r.vonMises.length; v++) expect(Math.abs(r.vonMises[v] - 1)).toBeLessThan(1e-6);
+    expect(r.reactions[0][1]).toBeCloseTo(100 * 10, 6);
+  }, 120000);
+
   it('plate with a hole in tension: stress concentration about 3', async () => {
     // 120 x 60 x 4 plate with a 10 mm hole (d / W = 1/6); Peterson: Kt (gross) about 3.1.
     const { mesh, faces } = await meshOf([sketch('s1', [...rect(-60, -30, 60, 30), ...circle(0, 0, 5)]), extrude('f1', 's1', 4)], 2.5);

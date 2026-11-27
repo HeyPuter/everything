@@ -224,21 +224,36 @@ export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[]): Map<numb
     if (!nodes.length) throw new StudyError(`Fixture ${i + 1}: its faces are not in the mesh.`);
     if (fx.kind === 'fixed') { for (const v of nodes) { add(v, [1, 0, 0]); add(v, [0, 1, 0]); add(v, [0, 0, 1]); } return; }
     if (fx.kind === 'roller') {
-      // The surface normal at each node: the (area weighted) normals of the triangles on the faces around it.
-      const nrm = new Map<number, Vec3>();
+      // The surface normal at each node on each face: the (area weighted) normals of the face's triangles around it.
+      const nrm = new Map<number, Map<number, Vec3>>();
       for (let f = 0; f < mesh.triFace.length; f++) {
-        if (!faces.has(mesh.triFace[f])) continue;
+        const face = mesh.triFace[f];
+        if (!faces.has(face)) continue;
         const a = mesh.tris[f * 6] * 3, b = mesh.tris[f * 6 + 1] * 3, c = mesh.tris[f * 6 + 2] * 3;
         const ux = X[b] - X[a], uy = X[b + 1] - X[a + 1], uz = X[b + 2] - X[a + 2], wx = X[c] - X[a], wy = X[c + 1] - X[a + 1], wz = X[c + 2] - X[a + 2];
         const fn: Vec3 = [uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx];
         for (let q = 0; q < 6; q++) {
           const v = mesh.tris[f * 6 + q];
-          let n = nrm.get(v);
-          if (!n) nrm.set(v, (n = [0, 0, 0]));
+          let byFace = nrm.get(v);
+          if (!byFace) nrm.set(v, (byFace = new Map()));
+          let n = byFace.get(face);
+          if (!n) byFace.set(face, (n = [0, 0, 0]));
           n[0] += fn[0]; n[1] += fn[1]; n[2] += fn[2];
         }
       }
-      for (const [v, n] of nrm) { const l = Math.hypot(n[0], n[1], n[2]); if (l > 0) add(v, [n[0] / l, n[1] / l, n[2] / l]); }
+      // A node on the edge between two of the faces is held normal to each (to their average where they meet
+      // nearly tangent, as a fillet meets a flat face).
+      for (const [v, byFace] of nrm) {
+        const dirs: Vec3[] = [];
+        for (const n of byFace.values()) {
+          const l = Math.hypot(n[0], n[1], n[2]);
+          if (!(l > 0)) continue;
+          const u: Vec3 = [n[0] / l, n[1] / l, n[2] / l];
+          const near = dirs.find((d) => (d[0] * u[0] + d[1] * u[1] + d[2] * u[2]) / Math.hypot(d[0], d[1], d[2]) > 0.85);
+          if (near) { near[0] += u[0]; near[1] += u[1]; near[2] += u[2]; } else dirs.push(u);
+        }
+        for (const d of dirs) { const l = Math.hypot(d[0], d[1], d[2]); add(v, [d[0] / l, d[1] / l, d[2] / l]); }
+      }
       return;
     }
     const { p, d } = fx.axis;
