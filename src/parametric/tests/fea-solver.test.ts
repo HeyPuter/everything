@@ -110,6 +110,11 @@ describe('static analysis accuracy', () => {
     expect(Math.abs(r.reactions[0][2])).toBeLessThan(1e-6);
     expect(r.reactions[1][0]).toBeCloseTo(-100, 6);
     expect(r.reactions[0][1] + r.reactions[1][1]).toBeCloseTo(0, 6);
+    // Two fixtures on the same face (and a third on one of the same faces) share what they hold equally.
+    const end = planar(faces, [-1, 0, 0]), tip = planar(faces, [1, 0, 0]);
+    const load: LoadInput = { kind: 'force', faces: [tip], total: 300, dir: [0, -1, 0] };
+    const two = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'fixed', faces: [end] }, { kind: 'fixed', faces: [end] }, { kind: 'fixed', faces: [end] }], loads: [load] });
+    for (const x of two.reactions) expect(x[1]).toBeCloseTo(100, 4);
   }, 120000);
 
   it('a roller on a flat face leaves exactly its three motions free, even beside a sharp corner', async () => {

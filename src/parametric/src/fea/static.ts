@@ -388,6 +388,14 @@ function solve3(M: number[], b: number[]): number[] | null {
   return [0, 1, 2].map((k) => { const m = M.slice(); for (let i = 0; i < 3; i++) m[i * 3 + k] = b[i]; return det(m) / d; });
 }
 
+/** The unit part of d across the (orthonormal) directions, or null if d is (nearly) in their span. */
+function orthogonalTo(dir: Vec3, basis: Vec3[]): Vec3 | null {
+  const d: Vec3 = [dir[0], dir[1], dir[2]];
+  for (const e of basis) { const s = d[0] * e[0] + d[1] * e[1] + d[2] * e[2]; d[0] -= s * e[0]; d[1] -= s * e[1]; d[2] -= s * e[2]; }
+  const l = Math.hypot(d[0], d[1], d[2]);
+  return l > 1e-3 ? [d[0] / l, d[1] / l, d[2] / l] : null;
+}
+
 /** Orthonormal basis (columns of a 3 x 3 rotation, row-major) whose first k columns span the directions; returns k. */
 function constraintBasis(dirs: Vec3[], R: Float64Array, off: number): number {
   const basis: Vec3[] = [];
@@ -599,19 +607,28 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
       const j = row.cols[q] * 3, o = q * 9;
       for (let a = 0; a < 3; a++) r[a] += row.vals[o + a * 3] * U[j] + row.vals[o + a * 3 + 1] * U[j + 1] + row.vals[o + a * 3 + 2] * U[j + 2];
     }
-    // A node held by several fixtures: each gets the part of the reaction along the directions it holds
-    // (as the constraint frame takes them), the first one what is left (the weak springs' share).
+    // A node held by several fixtures: the reaction along each direction held there (as the constraint frame
+    // takes them) is shared equally by the fixtures that hold that direction (two fixed fixtures on one face,
+    // a roller and a fixed face on their common edge), the first one gets what is left (the weak springs' share).
     const dirs = constrained.get(v)!, who = fixtureOf.get(v)!;
+    const own = new Map<number, Vec3[]>();
+    for (let q = 0; q < dirs.length; q++) {
+      let b = own.get(who[q]);
+      if (!b) own.set(who[q], (b = []));
+      const d = orthogonalTo(dirs[q], b);
+      if (d) b.push(d);
+    }
     const basis: Vec3[] = [];
     for (let q = 0; q < dirs.length && basis.length < 3; q++) {
-      const d: Vec3 = [dirs[q][0], dirs[q][1], dirs[q][2]];
-      for (const e of basis) { const s = d[0] * e[0] + d[1] * e[1] + d[2] * e[2]; d[0] -= s * e[0]; d[1] -= s * e[1]; d[2] -= s * e[2]; }
-      const l = Math.hypot(d[0], d[1], d[2]);
-      if (!(l > 1e-3)) continue;
-      const e: Vec3 = [d[0] / l, d[1] / l, d[2] / l];
+      const e = orthogonalTo(dirs[q], basis);
+      if (!e) continue;
       basis.push(e);
       const c = r[0] * e[0] + r[1] * e[1] + r[2] * e[2];
-      for (let a = 0; a < 3; a++) { reactions[who[q]][a] += c * e[a]; r[a] -= c * e[a]; }
+      const sharers: number[] = [];
+      for (const [f, b] of own) if (b.reduce((sum, x) => sum + (x[0] * e[0] + x[1] * e[1] + x[2] * e[2]) ** 2, 0) > 0.999) sharers.push(f);
+      if (!sharers.length) sharers.push(who[q]);
+      for (const f of sharers) for (let a = 0; a < 3; a++) reactions[f][a] += (c * e[a]) / sharers.length;
+      for (let a = 0; a < 3; a++) r[a] -= c * e[a];
     }
     for (let a = 0; a < 3; a++) reactions[who[0]][a] += r[a];
   }
