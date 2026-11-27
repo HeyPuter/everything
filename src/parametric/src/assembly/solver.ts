@@ -574,7 +574,7 @@ function mechanicalEquations(c: MechContext): number[] | null {
         if (!isAxisLike(ga) || !isAxisLike(gb) || !isAxisLike(m.a.geo)) return null;
         dir = normalize(dirOf(m.a.geo)!);
         const da = normalize(dirOf(ga)!), db = normalize(dirOf(gb)!);
-        rows = [...(m.aligned ? sub(da, db) : add(da, db)), ...scale(cross(sub(pointOf(gb)!, pointOf(ga)!), da), 1 / L), turnAbout(rel.q, m.rel.q, dir)];
+        rows = [...(m.aligned ? sub(da, db) : add(da, db)), ...scale(cross(sub(pointOf(gb)!, pointOf(ga)!), da), 1 / L), turnAbout(rel.q, sliderStart(m, dir), dir)];
       } else {
         // Two pairs of faces flush: they slide along the line where the faces meet.
         const p1 = equations('coincident', ga, gb, o, null, null), p2 = equations('coincident', ga2, gb2, { ...o, aligned: !!m.aligned2 }, null, null);
@@ -641,6 +641,20 @@ const placeGeoDir = (g: Geo, pl: Placement): Vec3 => normalize(qRotate(pl.q, dir
 function sliderTravel(m: SolverMate, rel: Placement, dir: Vec3): number {
   const p = pointOf(m.b.geo) ?? [0, 0, 0];
   return dot(sub(applyPlacement(rel, p), applyPlacement(m.rel!, p)), dir);
+}
+
+/**
+ * Where b was in a's frame (its orientation) when a slider on straight edges
+ * was added, turned over (half a turn across b's edge) when the slider's
+ * alignment is the other way from the edges' there: its turn about the
+ * slide is measured from that (from where it was added, half a turn away,
+ * it has no turn to measure: the slider showed a freedom it did not have).
+ */
+function sliderStart(m: SolverMate, dir: Vec3): Quat {
+  const q = m.rel!.q, db = normalize(dirOf(m.b.geo)!);
+  if ((dot(dir, qRotate(q, db)) >= 0) === m.aligned) return q;
+  const e = perpendicular(db);
+  return qMul(q, [e[0], e[1], e[2], 0]);
 }
 
 /** The direction a slider slides, in a's coordinates. */

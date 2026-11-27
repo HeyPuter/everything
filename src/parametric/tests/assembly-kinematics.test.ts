@@ -544,6 +544,19 @@ describe('slider, cam and universal joint mates', () => {
     expect(turned.placements.get('blk')!.q[3]).toBeCloseTo(1, 6);
   });
 
+  it('a slider on straight edges set to the other alignment turns the component over, and leaves one freedom', () => {
+    const blk = body('blk', false, [3, 4, 5]);
+    const m = slider(blk, { aligned: false });
+    const r = new MateSolver([body('g', true), blk], [m]).analyze();
+    expect(r.dof).toBe(1);
+    const q = r.placements.get('blk')!.q;
+    expect(qRotate(q, X)[0]).toBeCloseTo(-1, 6);
+    expect(qRotate(q, Z)[2]).toBeCloseTo(1, 6);
+    const again = new MateSolver([body('g', true), { ...blk, placement: r.placements.get('blk')! }], [m]).analyze();
+    expect(again.dof).toBe(1);
+    expect(again.placements.get('blk')!.q.map((v, i) => Math.abs(v - q[i]) < 1e-6 || Math.abs(v + q[i]) < 1e-6).every(Boolean)).toBe(true);
+  });
+
   it('a slider on two faces of each component slides along the line where they meet', () => {
     const m = mate('slider', ['g', plane([0, 0, 0], Y)], ['blk', plane([0, 0, 0], [0, -1, 0])], {
       a2: { body: 'g', geo: plane([0, 0, 0], Z) }, b2: { body: 'blk', geo: plane([0, 0, 0], [0, 0, -1]) }, aligned: false, aligned2: false, rel: at0,
