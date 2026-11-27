@@ -58,6 +58,10 @@ describe('simulation', () => {
   it('counts a rapid move through the stock once', () => {
     const sim = simulate({ stock, part: emptyPart, rapidFeed: 5000, steps: [{ tool: tool(), feed: 1000, plunge: 300, toolpath: path([RAPID, -10, 20, 5, RAPID, 50, 20, 5]) }] });
     expect(sim.rapidCuts[0]).toBe(1);
+    // A slot 8 mm deep with 3 mm flutes: one feed move, one warning.
+    const deep = simulate({ stock, part: emptyPart, rapidFeed: 5000, steps: [{ tool: tool({ fluteLength: 3 }), feed: 1000, plunge: 300, toolpath: path([RAPID, -10, 20, 20, RAPID, -10, 20, 2, FEED, 50, 20, 2]) }] });
+    expect(deep.shankHits[0]).toBe(1);
+    expect(deep.rapidCuts[0]).toBe(0);
   });
 
   it('does not count material removed below the bottom of the stock', () => {

@@ -126,10 +126,12 @@ export function simulate(input: SimInput): SimResult {
     const flute = Math.max(s.tool.fluteLength, 0.1);
     let rapid = 0, shank = 0;
     let px = NaN, py = NaN, pz = NaN;
-    const stampAt = (x: number, y: number, tz: number, kind: number): boolean => {
+    // Whether the move being stamped cut stock, and met stock above the flutes.
+    let cut = false, hit = false;
+    const stampAt = (x: number, y: number, tz: number) => {
       const i0 = Math.max(0, Math.ceil((x - R - g.x0) / g.c)), i1 = Math.min(g.nx - 1, Math.floor((x + R - g.x0) / g.c));
       const j0 = Math.max(0, Math.ceil((y - R - g.y0) / g.c)), j1 = Math.min(g.ny - 1, Math.floor((y + R - g.y0) / g.c));
-      let cut = false, hit = false;
+      let c = false, over = false;
       for (let j = j0; j <= j1; j++) {
         const cy = g.y0 + j * g.c - y;
         for (let i = i0; i <= i1; i++) {
@@ -139,18 +141,23 @@ export function simulate(input: SimInput): SimResult {
           const k = j * g.nx + i;
           const zc = tz + cutter.h(Math.sqrt(dd));
           if (zc < z[k] - 1e-4) {
-            if (z[k] > tz + flute + 0.01) hit = true;
+            if (z[k] > tz + flute + 0.01) over = true;
             z[k] = zc;
-            cut = true;
+            c = true;
           }
         }
       }
+      if (c) cut = true;
+      if (over) hit = true;
+    };
+    // Problems are counted per move, however many samples of it cut.
+    const count = (kind: number) => {
       if (cut && kind === RAPID) rapid++;
       if (hit && kind !== RAPID) shank++;
-      return cut;
     };
     const move = (kind: number, x: number, y: number, zz: number, dwell: number) => {
-      if (Number.isNaN(px)) { px = x; py = y; pz = zz; stampAt(x, y, zz, kind); return; }
+      cut = hit = false;
+      if (Number.isNaN(px)) { px = x; py = y; pz = zz; stampAt(x, y, zz); count(kind); return; }
       const lxy = Math.hypot(x - px, y - py);
       const l = Math.hypot(lxy, zz - pz);
       const dt = (l / Math.max(1e-6, kind === RAPID ? input.rapidFeed : kind === PLUNGE ? s.plunge : s.feed)) * 60 + dwell;
@@ -159,8 +166,9 @@ export function simulate(input: SimInput): SimResult {
         const n = Math.max(1, Math.ceil(lxy / (g.c * 0.5)));
         for (let k = 1; k <= n; k++) {
           const t = k / n;
-          stampAt(px + (x - px) * t, py + (y - py) * t, pz + (zz - pz) * t, kind);
+          stampAt(px + (x - px) * t, py + (y - py) * t, pz + (zz - pz) * t);
         }
+        count(kind);
       }
       now += dt;
       timeline.push(x, y, zz, now, si, kind);
