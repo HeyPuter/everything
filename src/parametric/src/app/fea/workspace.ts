@@ -84,7 +84,9 @@ export class FeaWorkspace {
       // again when the shape is back (an edit cancelled, undone and redone).
       if (this.seenVersion !== app.geometryVersion) {
         this.seenVersion = app.geometryVersion;
+        // The fixtures' and loads' symbols go on the new faces.
         if (this.surface) this.changed();
+        else this.redraw();
       }
     });
   }

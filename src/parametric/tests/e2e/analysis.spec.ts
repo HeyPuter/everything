@@ -309,3 +309,20 @@ test('the printable report says what its plot shows', async ({ page }) => {
   await report.close();
   expect(errors).toEqual([]);
 });
+
+test('the fixture and load symbols follow the part when it is edited', async ({ page }) => {
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  // Highest Z of the tinted faces of the fixtures and loads.
+  const top = () => page.evaluate(() => {
+    const r = (window as unknown as W).__parametric.renderer as unknown as { tris: Map<string, { positions: Float32Array }> };
+    const p = r.tris.get('feaFix')?.positions;
+    let z = -Infinity;
+    for (let i = 2; p && i < p.length; i += 3) z = Math.max(z, p[i]);
+    return z;
+  });
+  await expect.poll(top).toBeCloseTo(30, 3);
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Deeper', (d) => { (d.features.find((x) => x.name === 'Extrude1') as unknown as { depth: number }).depth = 80; }));
+  await expect.poll(top).toBeCloseTo(80, 3);
+  expect(errors).toEqual([]);
+});
