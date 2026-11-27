@@ -170,6 +170,9 @@ export function installCam(app: App, hooks: AppHooks): CamWorkspace {
     const ids = new Set(cam?.setups.flatMap((s) => s.ops.map((o) => o.id)) ?? []);
     ws.prune(ids);
     if (ws.focus && !ids.has(ws.focus) && !cam?.setups.some((s) => s.id === ws.focus)) ws.focus = null;
+    // A setup or operation deleted while its panel is open: OK would bring it back.
+    const p = app.panel;
+    if ((p instanceof SetupPanel || p instanceof OperationPanel) && !p.present) void app.closePanel(false);
   });
   ws.listeners.add(() => app.renderTrees());
   return ws;

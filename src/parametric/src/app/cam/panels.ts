@@ -93,6 +93,11 @@ export class SetupPanel extends CamPanel {
 
   get edited() { return this.dirty || this.isNew; }
 
+  /** Is the setup being edited still in the part (not deleted meanwhile)? */
+  get present(): boolean {
+    return this.isNew || !!this.ws.cam?.setups.some((x) => x.id === this.s.id);
+  }
+
   private update() {
     this.ws.preview = { setup: this.s, op: null, toolpath: null };
     this.ws.redraw();
@@ -241,6 +246,12 @@ export class OperationPanel extends CamPanel {
   }
 
   get edited() { return this.dirty || this.isNew; }
+
+  /** Are the operation (unless new) and its setup still in the part (not deleted meanwhile)? */
+  get present(): boolean {
+    const s = this.setup();
+    return !!s && (this.isNew || s.ops.some((x) => x.id === this.o.id));
+  }
 
   /** The tool's size or shape may have changed: the preview is made again. */
   toolsChanged() {

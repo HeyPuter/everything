@@ -109,5 +109,15 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
     const s = app.store.doc.cam!.setups[0];
     return s.ops.length === 1 && app.cam!.state(s, s.ops[0]) === 'ok';
   }, null, { timeout: 90_000 });
+
+  // An operation deleted from the tree while its panel is open is not brought back by OK.
+  await page.getByRole('treeitem', { name: /^Contour1/ }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Contour1' })).toBeVisible();
+  await page.locator('#left-tab-tree').click();
+  await page.getByRole('treeitem', { name: /^Contour1/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  await expect(page.locator('.confirm-corner .ok')).toBeHidden();
+  expect(await page.evaluate(() => (window as unknown as W).__parametric.panel)).toBeNull();
+  await expect(page.getByRole('treeitem', { name: /^Contour1/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
