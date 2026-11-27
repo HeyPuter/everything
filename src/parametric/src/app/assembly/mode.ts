@@ -19,7 +19,7 @@ import { type ComposedModel, type PartGeometry, camProfileOf, combinedName, comp
 import {
   type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving,
 } from '../../assembly/solver';
-import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, framesSpread, profileOf } from '../../assembly/motion';
+import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, framesSpread, profileOf, sameMotionGroups } from '../../assembly/motion';
 import { parseColor } from '../../platform/theme';
 import { confirmDialog, toast } from '../../ui/overlay';
 import type { App } from '../app';
@@ -783,14 +783,20 @@ export class AssemblyMode {
     // Spread over the time (a study's frames are closer where it took smaller steps).
     const picks = framesSpread(res.times, most);
     const out: { time: number; pairs: [Id, Id][] }[] = [];
+    // The first frame checked: pairs that have not moved relative to each other since overlap as they did there.
+    let first: { placements: Placement[]; hits: [number, number][] } | null = null;
     try {
       for (const [k, i] of picks.entries()) {
         const all = this.doc.components.filter((c) => !c.suppressed && this.geometryOf(c.part)).map((comp) => ({ comp, placement: res.frames[i].get(comp.id) ?? this.solved.get(comp.id) ?? comp.placement }));
         await this.app.kernel.assembly({ op: 'scene', items: this.sceneItems(all) });
-        const pairs = await this.app.kernel.assembly<InterferencePair[]>({ op: 'interference' });
+        const groups: number[] | undefined = first ? sameMotionGroups(first.placements, all.map((x) => x.placement)) : undefined;
+        const pairs = await this.app.kernel.assembly<InterferencePair[]>({ op: 'interference', mesh: false, ...(groups ? { groups } : {}) });
         if (cancelled() || this.app.assembly !== this) return null;
-        const hit = pairs.filter((p) => !p.failed && p.volume > 1e-6).map((p) => [all[p.a].comp.id, all[p.b].comp.id] as [Id, Id]);
-        if (hit.length) out.push({ time: res.times[i], pairs: hit });
+        const hits: [number, number][] = pairs.filter((p) => !p.failed && p.volume > 1e-6).map((p) => [p.a, p.b] as [number, number]);
+        if (!first) first = { placements: all.map((x) => x.placement), hits };
+        else hits.push(...first.hits.filter(([a, b]) => groups![a] === groups![b]));
+        hits.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+        if (hits.length) out.push({ time: res.times[i], pairs: hits.map(([a, b]) => [all[a].comp.id, all[b].comp.id] as [Id, Id]) });
         onProgress((k + 1) / picks.length);
       }
     } finally {

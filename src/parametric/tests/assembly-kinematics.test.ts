@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, camProfile, mateBodies, mateMeasure, matesMoving, placeGeo, profileSupport, relativePlacement, turnAbout } from '../src/assembly/solver';
 import { type PartGeometry, camProfileOf } from '../src/assembly/compose';
-import { type MotorInput, MotionRun, computeMotion, degreesAbout, derivatives, framesSpread, mateSeries, pointPath, profileOf, resultsCsv, turnPath, vectorDerivatives } from '../src/assembly/motion';
+import { type MotorInput, MotionRun, computeMotion, degreesAbout, derivatives, framesSpread, mateSeries, pointPath, profileOf, resultsCsv, sameMotionGroups, turnPath, vectorDerivatives } from '../src/assembly/motion';
 import { type Quat, type Vec3, dot, len, normalize, qAxisAngle, qRotate, sub } from '../src/math/vec';
 import type { MateType, Placement } from '../src/model/assembly';
 
@@ -416,7 +416,7 @@ describe('motion studies', () => {
     expect(series[100] - series[0]).toBeCloseTo(slide(390) - slide(30), 4);
   });
 
-  it('spreads interference checks over the time (frames closer where a study took smaller steps)', () => {
+  it('spreads interference checks over the time, and groups components that moved together', () => {
     // Frames 0.1 s apart, then (a fast stretch) 0.025 s apart.
     const times = [0, 0.1, 0.2, 0.225, 0.25, 0.275, 0.3, 0.325, 0.35, 0.375, 0.4];
     expect(framesSpread(times, 5)).toEqual([0, 1, 2, 6, 10]);
@@ -425,6 +425,15 @@ describe('motion studies', () => {
     const picks = framesSpread([0, 0.1, 0.2, 0.3, 0.325, 0.35, 0.375, 0.4], 7);
     expect(picks).toEqual([0, 1, 2, 3, 4, 5, 7]);
     expect(framesSpread([0], 40)).toEqual([0]);
+    const at = (p: Vec3, q: Quat = [0, 0, 0, 1]): Placement => ({ p, q });
+    const turn = qAxisAngle(Z, 0.7);
+    const from = [at([0, 0, 0]), at([10, 0, 0]), at([0, 5, 0]), at([3, 3, 3]), at([1, 2, 3])];
+    // 0 and 1 still; 2 and 3 turned together about z; 4 moved.
+    const rot = (p: Placement): Placement => ({ p: qRotate(turn, p.p), q: turn });
+    const g = sameMotionGroups(from, [from[0], from[1], rot(from[2]), rot(from[3]), at([1, 2, 4])]);
+    expect(g[0]).toBe(g[1]);
+    expect(g[2]).toBe(g[3]);
+    expect(new Set([g[0], g[2], g[4]]).size).toBe(3);
   });
 
   it('differentiates samples and writes CSV', () => {

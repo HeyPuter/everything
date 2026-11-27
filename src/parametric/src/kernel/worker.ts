@@ -130,7 +130,7 @@ async function handle(ev: MessageEvent<WorkerRequest>) {
           : r.op === 'scene' ? (assembly.setScene(r.items), true)
           : r.op === 'drop' ? (assembly.drop(r.keep), true)
           : r.op === 'project' ? assembly.projectItems(r.items, r.views)
-          : r.op === 'interference' ? assembly.interference()
+          : r.op === 'interference' ? assembly.interference({ groups: r.groups, mesh: r.mesh })
           : assembly.mass(r.densities);
         // The heap lets the main thread replace a worker that grew too big, as after part builds.
         reply({ id: msg.id, ok: true, result, heap: memory?.buffer.byteLength }, r.op === 'build' || r.op === 'interference' ? asmTransfers(result) : []);

@@ -95,6 +95,16 @@ describe('assembly geometry', () => {
     expect(a.interference()).toEqual([]);
   });
 
+  it('checks only pairs in different groups, and leaves out meshes when asked (a motion study frame by frame)', async () => {
+    const a = new AssemblyBuilder();
+    await built(a);
+    a.setScene([item('box', at([0, 0, 0]), 'box<1>'), item('box', at([15, 0, 0]), 'box<2>'), item('pin', at([5, 5, -10]), 'pin<1>')]);
+    const pairs = a.interference({ mesh: false, groups: [0, 0, 1] });
+    expect(pairs.map((p) => [p.a, p.b])).toEqual([[0, 2]]);
+    expect(pairs[0].volume).toBeCloseTo(Math.PI * 9 * 10, 1);
+    expect(pairs[0].mesh).toBeNull();
+  });
+
   it('reports a pair whose overlap cannot be computed as not checked, never as clear', async () => {
     const a = new AssemblyBuilder();
     await built(a);

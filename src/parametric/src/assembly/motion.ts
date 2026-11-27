@@ -298,6 +298,25 @@ export function framesSpread(times: number[], most: number): number[] {
   return out;
 }
 
+/**
+ * Groups of placements that moved the same rigid way from `from` to `to`
+ * (a group number for each): two components in one group did not move
+ * relative to each other, so they overlap now just as they did there.
+ */
+export function sameMotionGroups(from: Placement[], to: Placement[]): number[] {
+  const keys = new Map<string, number>();
+  return to.map((b, i) => {
+    const a = from[i];
+    // The motion: a turn dq, then a move dp (b = dq a + dp).
+    let dq = qMul(b.q, [-a.q[0], -a.q[1], -a.q[2], a.q[3]]);
+    if (dq[3] < 0) dq = [-dq[0], -dq[1], -dq[2], -dq[3]];
+    const r = qRotate(dq, a.p), dp = [b.p[0] - r[0], b.p[1] - r[1], b.p[2] - r[2]];
+    const key = [...dq.map((v) => Math.round(v * 1e9)), ...dp.map((v) => Math.round(v * 1e6))].join(',');
+    if (!keys.has(key)) keys.set(key, keys.size);
+    return keys.get(key)!;
+  });
+}
+
 /** Where a point of a component (its local coordinates) is in each frame. */
 export function pointPath(res: MotionResult, body: Id, local: Vec3): Vec3[] {
   return res.frames.map((f) => applyPlacement(f.get(body) ?? { p: [0, 0, 0], q: [0, 0, 0, 1] }, local));

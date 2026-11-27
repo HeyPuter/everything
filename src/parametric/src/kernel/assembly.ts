@@ -80,7 +80,12 @@ export type AsmRequest =
   | { op: 'build'; parts: AsmPartBuild[] }
   | { op: 'scene'; items: AsmSceneItem[] }
   | { op: 'drop'; keep: string[] }
-  | { op: 'interference' }
+  /**
+   * groups: a group per scene item; pairs in one group are not checked (they did not
+   * move relative to each other since a check the caller keeps). mesh: false leaves
+   * out the meshes of the shared solids.
+   */
+  | { op: 'interference'; groups?: number[]; mesh?: boolean }
   /** densities: kg/m³ for each scene item. */
   | { op: 'mass'; densities: number[] }
   /** Drawing projections of components placed as given (the scene is left as it is). */
@@ -314,7 +319,7 @@ export class AssemblyBuilder {
    * Pairs of components whose solids overlap, with the volume they share, and
    * pairs whose overlap could not be computed (`failed`: never reported as clear).
    */
-  interference(): InterferencePair[] {
+  interference(opts: { groups?: number[]; mesh?: boolean } = {}): InterferencePair[] {
     const list = this.bodies().map((b) => ({ ...b, box: bbox(b.shape) }));
     const all = this.combined();
     const ab = all ? bbox(all) : null;
@@ -324,6 +329,7 @@ export class AssemblyBuilder {
     for (let x = 0; x < list.length; x++) {
       for (let y = x + 1; y < list.length; y++) {
         const A = list[x], B = list[y];
+        if (opts.groups && opts.groups[A.i] === opts.groups[B.i]) continue;
         if (!A.box || !B.box || !boxesOverlap(A.box, B.box)) continue;
         let shared: Sh, v: number;
         try {
@@ -335,7 +341,7 @@ export class AssemblyBuilder {
         }
         if (!Number.isFinite(v)) { out.push({ a: A.i, b: B.i, volume: 0, mesh: null, failed: true }); continue; }
         if (!(v > minVolume)) continue;
-        out.push({ a: A.i, b: B.i, volume: v, mesh: meshOf(shared, diag) });
+        out.push({ a: A.i, b: B.i, volume: v, mesh: opts.mesh === false ? null : meshOf(shared, diag) });
       }
     }
     return out;
