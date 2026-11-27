@@ -529,3 +529,52 @@ test('slider, cam follower and universal joint through the Mate panel; motors on
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+/** The plate with the two discs on hinges in its holes, geared together; the Mates folder then has Hinge1, Hinge2 and Gear1. */
+async function hingedGears(page: Page) {
+  await newAssemblyWith(page, [['Plate', PLATE], ['Small', disc(10)], ['Large', disc(20)]], ['Plate', 'Small', 'Large']);
+  await built(page, ['Plate<1>', 'Small<1>', 'Large<1>']);
+  const pm = page.locator('.pm');
+  for (const [gear, hole] of [['Small<1>', 'E1:side:h1'], ['Large<1>', 'E1:side:h2']]) {
+    await select(page, [{ comp: gear, face: 'E1:side:k' }, { comp: 'Plate<1>', face: hole }]);
+    await openMate(page, 'hinge');
+    await pm.getByRole('group', { name: 'Coincident selections' }).click();
+    await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+    await pick(page, { comp: gear, face: 'E1:cap0' });
+    await expect(pm.getByRole('status').filter({ hasText: 'The mate holds' })).toBeVisible();
+    await pm.getByRole('button', { name: 'OK' }).click();
+  }
+  await select(page, [{ comp: 'Small<1>', face: 'E1:side:k' }, { comp: 'Large<1>', face: 'E1:side:k' }]);
+  await openMate(page, 'gear');
+  await expect(pm.getByRole('status').filter({ hasText: '1 degrees of freedom' })).toBeVisible();
+  await pm.getByRole('button', { name: 'OK' }).click();
+  return pm;
+}
+
+/** Adds a rotary motor on Hinge1 to the open Motion Study panel. */
+async function hingeMotor(page: Page, speed = '90') {
+  const pm = page.locator('.pm');
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  await pm.getByRole('combobox', { name: 'Motor on' }).selectOption({ label: 'Hinge1 (Hinge)' });
+  await pm.getByRole('textbox', { name: 'Speed' }).fill(speed);
+  await pm.getByRole('textbox', { name: 'Speed' }).press('Enter');
+  await pm.getByRole('button', { name: 'Add', exact: true }).click();
+}
+
+test('the Motion Study panel: a new study starts without results', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  // A study set up, calculated and cancelled: the next new study has no results, not out of date ones.
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await expect(pm.getByText('No motors yet')).toBeVisible();
+  await expect(pm.locator('.pm-msg.warn')).toHaveCount(0);
+  await expect(pm.getByText(/out of date/)).toHaveCount(0);
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});

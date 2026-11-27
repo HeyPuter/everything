@@ -697,7 +697,13 @@ export class AssemblyMode {
   /** A study added to the document keeps the results computed while it was set up. */
   keepMotion(from: Id, to: Id) {
     const r = this.motions.get(from);
+    this.motions.delete(from);
     if (r) this.motions.set(to, r);
+  }
+
+  /** Drops a study's results (those of a new study that was set up and cancelled, before the next one). */
+  forgetMotion(id: Id) {
+    this.motions.delete(id);
   }
 
   /** The solver input of a study, or why it cannot run. Components start where the mates put them now. */

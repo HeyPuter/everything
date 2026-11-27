@@ -65,6 +65,8 @@ export class MotionStudyPanel extends PropertyPanel {
     this.original = JSON.stringify(this.study);
     this.key = existing?.id ?? '';
     if (existing) { this.editingId = existing.id; this.title = `Motion Study: ${existing.name}`; }
+    // A new study starts without results (not with those of one set up before and cancelled).
+    else mode.forgetMotion('');
     this.helpText = 'Add motors that turn or move components (or drive a distance or angle mate), then Calculate. Play the motion back and plot how a component or mate moves. The study starts from where the components are now.';
     mode.app.selection.clear();
   }
