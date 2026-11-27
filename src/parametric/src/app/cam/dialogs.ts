@@ -128,6 +128,9 @@ export async function toolLibraryDialog(app: App, ws: CamWorkspace, select?: str
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', primary: true, value: 'ok' }],
     onAction: (val) => {
       if (val !== 'ok') return;
+      // As in the panels: text that could not be read is not silently replaced by the last valid value.
+      const bad = [...form.querySelectorAll<HTMLInputElement>('.input[aria-invalid="true"]')].find((x) => x.getClientRects().length > 0);
+      if (bad) { msg.hidden = false; msg.className = 'pm-msg error'; msg.textContent = `${bad.getAttribute('aria-label') ?? 'Value'}: ${bad.title || 'not a valid value'}`; bad.focus(); return false; }
       const numbers = tools.map((t) => t.number);
       if (new Set(numbers).size !== numbers.length) { msg.hidden = false; msg.className = 'pm-msg error'; msg.textContent = 'Two tools have the same number. Give each tool its own number.'; return false; }
       if (tools.some((t) => !t.name.trim())) { msg.hidden = false; msg.className = 'pm-msg error'; msg.textContent = 'Every tool needs a name.'; return false; }

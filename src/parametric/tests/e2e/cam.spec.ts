@@ -114,6 +114,12 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   await page.keyboard.press('Home');
   expect(await active()).toMatch(/^T1 *12 mm flat/);
   const dia = tools.getByRole('textbox', { name: 'Diameter' });
+  // Text that is not a size keeps the dialog open rather than dropping what was typed.
+  await dia.fill('-2');
+  await dia.press('Tab');
+  await tools.getByRole('button', { name: 'OK' }).click();
+  await expect(tools.getByText(/^Diameter: /)).toBeVisible();
+  await expect(dia).toBeFocused();
   await dia.fill('3');
   await dia.press('Tab');
   await tools.getByRole('button', { name: 'OK' }).click();
