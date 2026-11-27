@@ -229,7 +229,7 @@ export function smoothedAggregation(A: BlockMatrix, coords: Float64Array, opts: 
     levels.push(lvl);
     if (N <= coarsest) break;
     let t = performance.now();
-    const lap = (what: string) => { const n = performance.now(); opts.debug?.(`level ${depth} ${what}: ${(n - t).toFixed(0)} ms`); t = n; };
+    const lap = (what: string) => { if (!opts.debug) return; const n = performance.now(); opts.debug(`level ${depth} ${what}: ${(n - t).toFixed(0)} ms`); t = n; };
     const agg = aggregate(cur, depth === 0 ? THETA : THETA * 0.5 ** depth);
     lap(`aggregate (${agg.count} of ${cur.n})`);
     if (agg.count * 6 >= N * 0.8 || agg.count < 2) break;

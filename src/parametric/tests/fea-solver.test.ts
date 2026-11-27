@@ -52,16 +52,14 @@ describe('static analysis accuracy', () => {
     const fixed = planar(faces, [-1, 0, 0]), tip = planar(faces, [1, 0, 0]);
     const F = 500, L = 200, I = (10 * 20 ** 3) / 12;
     const input: StaticInput = { ...STEEL, fixtures: [{ kind: 'fixed', faces: [fixed] }], loads: [{ kind: 'force', faces: [tip], total: F, dir: [0, -1, 0] }] };
-    const r = solveStatic(mesh, input, undefined, console.log);
+    const r = solveStatic(mesh, input);
     const theory = (F * L ** 3) / (3 * STEEL.E * I);
     const tipDy = at(mesh.nodes, r.U, [200, 10, 5], 3, 1);
-    console.log(`cantilever: ${r.dofs} dof, ${r.iterations} iterations, ${r.solver}, ms ${JSON.stringify(r.ms)}; tip ${tipDy} vs ${-theory}`);
     expect(-tipDy / theory).toBeGreaterThan(0.99);
     expect(-tipDy / theory).toBeLessThan(1.03);
     // Bending stress at mid span on the top and bottom fibres: M c / I.
     const sigma = (F * (L / 2) * 10) / I;
     const top = at(mesh.nodes, r.stress, [100, 20, 5], 6, 0), bottom = at(mesh.nodes, r.stress, [100, 0, 5], 6, 0);
-    console.log(`bending stress ${top}, ${bottom} vs ${sigma}`);
     expect(top / sigma).toBeCloseTo(1, 1);
     expect(-bottom / sigma).toBeCloseTo(1, 1);
     // Equilibrium: the reaction balances the load.
@@ -86,7 +84,6 @@ describe('static analysis accuracy', () => {
     expect(ux / ((F * L) / (A * STEEL.E))).toBeCloseTo(1, 2);
     let lo = Infinity, hi = -Infinity;
     for (let v = 0; v < mesh.nodes.length / 3; v++) { lo = Math.min(lo, r.stress[v * 6]); hi = Math.max(hi, r.stress[v * 6]); }
-    console.log(`bar: stress ${lo}..${hi} vs ${F / A}; elongation ${ux}`);
     expect(Math.abs(lo / (F / A) - 1)).toBeLessThan(0.01);
     expect(Math.abs(hi / (F / A) - 1)).toBeLessThan(0.01);
     const total = r.reactions.reduce((s, x) => [s[0] + x[0], s[1] + x[1], s[2] + x[2]], [0, 0, 0]);
@@ -103,10 +100,9 @@ describe('static analysis accuracy', () => {
       loads: [{ kind: 'pressure', faces: [planar(faces, [1, 0, 0])], value: -sNom }],
     };
     // Symmetry would need a roller at y = 0; a roller on the bottom edge face holds y instead (it carries no load in x).
-    const r = solveStatic(mesh, input, undefined, console.log);
+    const r = solveStatic(mesh, input);
     let peak = 0;
     for (let v = 0; v < mesh.nodes.length / 3; v++) if (Math.hypot(mesh.nodes[v * 3], mesh.nodes[v * 3 + 1]) < 5.5) peak = Math.max(peak, r.stress[v * 6]);
-    console.log(`plate with hole: peak ${peak}, Kt ${peak / sNom}, ${r.dofs} dof, ${r.iterations} iterations, ms ${JSON.stringify(r.ms)}`);
     expect(peak / sNom).toBeGreaterThan(2.7);
     expect(peak / sNom).toBeLessThan(3.4);
   }, 120000);

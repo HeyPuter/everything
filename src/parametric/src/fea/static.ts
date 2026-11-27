@@ -6,7 +6,7 @@
 // Units: millimetres, newtons, megapascals (N/mm^2), tonnes per cubic
 // millimetre for density (so density times mm/s^2 is N/mm^3).
 
-import { type BlockMatrix, type Preconditioner, blockAt, blockJacobi, matvec, meshPattern, pcg, smoothedAggregation } from './amg';
+import { type Preconditioner, blockAt, blockJacobi, meshPattern, pcg, smoothedAggregation } from './amg';
 import { addBodyForce, elementNodeStrains, elementStiffness, integrateTriangle, lame, principal } from './elements';
 import type { TetMesh } from './mesher';
 
@@ -500,5 +500,3 @@ export function solveStatic(mesh: TetMesh, input: StaticInput, progress: (stage:
   };
 }
 
-export type { BlockMatrix };
-void matvec;

@@ -5,7 +5,7 @@
 // costs nothing more to open.
 
 import { FIXTURE_ICONS, FIXTURE_LABELS, LOAD_ICONS, type FixtureType, type FeaLoadType, type StaticStudy } from '../../model/fea';
-import type { FaceRef, Id } from '../../model/types';
+import type { FaceRef } from '../../model/types';
 import { addIcons } from '../../ui/icons';
 import { toast } from '../../ui/overlay';
 import type { App, AppHooks } from '../app';
@@ -161,4 +161,3 @@ export function feaTreeRows(app: App, expanded: (key: string) => boolean): CamRo
   return rows;
 }
 
-export type { Id };

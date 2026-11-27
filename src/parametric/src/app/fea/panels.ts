@@ -105,7 +105,6 @@ export class StudyPanel extends FeaPanel {
     const matText = !mat ? 'No material chosen.' : el ? `${mat.name}: E ${formatNumber(el.E / 1000, 1)} GPa, ν ${el.nu}, yield ${el.yield} MPa` : `${mat.name}: no elastic properties (cannot be analyzed).`;
     const matBtn = h('button', { class: 'btn small', type: 'button', onclick: () => app.commands.run('material') }, icon('material', 16), 'Material...');
     // Mesh: coarse to fine.
-    const sizes = ws.sizes(this.fineness);
     const u = feaUnits(app.store.doc.units);
     const slider = h('input', { type: 'range', min: '0', max: '1', step: '0.05', value: String(this.fineness), 'aria-label': 'Mesh density, coarse to fine', class: 'fea-slider' }) as HTMLInputElement;
     const sizeText = h('div', { class: 'field-label', 'aria-live': 'polite' });
@@ -136,12 +135,11 @@ export class StudyPanel extends FeaPanel {
       if (!m.key.startsWith(`${app.geometryVersion}|`)) stats.push(h('p', { class: 'pm-msg warn', role: 'note' }, 'The part changed since it was meshed.'));
     }
     if (ws.error?.message && !ws.busy) stats.push(h('p', { class: 'pm-msg error', role: 'alert' }, ws.error.message));
-    void sizes;
     return [
       section('Study', [h('label', { class: 'field-label' }, 'Name'), nameInput, h('p', { class: 'field-label' }, 'Linear static: small displacements, linear elastic isotropic material.')], { icon: 'feaStudy' }),
       section('Material', [h('p', { class: 'field-label fea-material' }, matText), matBtn], { icon: 'material' }),
       section('Mesh', [h('div', { class: 'row fea-slider-row' }, h('span', { class: 'field-label' }, 'Coarse'), slider, h('span', { class: 'field-label' }, 'Fine')), sizeText, h('div', { class: 'row' }, meshBtn, runBtn), ...stats], { icon: 'feaMesh' }),
-      section('Study', [h('button', { class: 'btn small danger', type: 'button', onclick: () => ws.deleteStudy() }, icon('trash', 16), 'Delete Study')], { collapsed: true }),
+      section('Delete', [h('button', { class: 'btn small danger', type: 'button', onclick: () => ws.deleteStudy() }, icon('trash', 16), 'Delete Study')], { collapsed: true }),
     ];
   }
 
