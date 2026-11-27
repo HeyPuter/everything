@@ -58,6 +58,9 @@ export class MotionStudyPanel extends PropertyPanel {
   private plotCursor: SVGLineElement | null = null;
   private playBtn: HTMLButtonElement | null = null;
   private bar: HTMLProgressElement | null = null;
+  /** The results the panel shows (to see when an edit of the assembly puts them out of date). */
+  private shown: MotionResult | null = null;
+  private readonly unwatch: () => void;
 
   constructor(private mode: AssemblyMode, private existing: MotionStudy | null = null) {
     super();
@@ -69,6 +72,14 @@ export class MotionStudyPanel extends PropertyPanel {
     else mode.forgetMotion('');
     this.helpText = 'Add motors that turn or move components (or drive a distance or angle mate), then Calculate. Play the motion back and plot how a component or mate moves. The study starts from where the components are now.';
     mode.app.selection.clear();
+    // The assembly can change while the panel is open (a component dragged into a new start position):
+    // playback stops, and the results show as out of date.
+    this.unwatch = mode.app.store.on(() => {
+      if (this.disposed || this.computing || this.result() === this.shown) return;
+      this.play(false);
+      this.mode.previewPlacements(null);
+      this.app.refreshPanel();
+    });
   }
 
   private get app(): App {
@@ -86,6 +97,7 @@ export class MotionStudyPanel extends PropertyPanel {
   render(): HTMLElement[] {
     if (this.motor) return this.renderMotor();
     const res = this.result();
+    this.shown = res;
     const out = [this.studySection(), this.motorsSection(), this.calcSection(res)];
     if (res && res.frames.length > 1) out.push(this.playSection(res), this.resultsSection(res), this.interferenceSection(res));
     return out;
@@ -625,6 +637,7 @@ export class MotionStudyPanel extends PropertyPanel {
 
   dispose() {
     this.disposed = true;
+    this.unwatch();
     this.playing = false;
     cancelAnimationFrame(this.raf);
     this.mode.previewPlacements(null);

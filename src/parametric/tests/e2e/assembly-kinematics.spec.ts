@@ -641,3 +641,47 @@ test('the Motion Study panel: Escape and Enter in a motor cancel or add the moto
   await expect(pm).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('the Motion Study panel: dragging a component while it plays stops the playback and puts the results out of date', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page, '30');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await expect(pm.getByRole('button', { name: 'Pause' })).toBeVisible();
+  // Drag the large gear round (it turns on its hinge) while the study plays.
+  const at = await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const id = a.assembly!.doc.components.find((c) => c.name === 'Large<1>')!.id;
+    const f = a.faces.find((x) => x.name === `${id}#E1:cap1`)!;
+    return a.viewport.project([f.center[0] + 12, f.center[1] + 12, f.center[2]]);
+  });
+  const box = (await page.locator('canvas.gl').boundingBox())!;
+  await page.mouse.move(box.x + at[0], box.y + at[1]);
+  await page.mouse.down();
+  await page.mouse.move(box.x + at[0] + 30, box.y + at[1] - 30, { steps: 5 });
+  await expect(pm.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+  // (Playback no longer moves the gears under the drag.)
+  const clock = await pm.locator('.kin-clock').innerText();
+  await page.waitForTimeout(300);
+  await expect(pm.locator('.kin-clock')).toHaveText(clock);
+  await page.mouse.move(box.x + at[0] + 40, box.y + at[1] - 70, { steps: 5 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.undoLabel)).toBe('Move component');
+  await expect(pm.getByRole('status').filter({ hasText: 'The results are out of date' })).toBeVisible();
+  await expect(pm.getByRole('button', { name: /^(Play|Pause)$/ })).toHaveCount(0);
+  // The components are shown where the drag left them, not at a frame of the old motion.
+  const shown = await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const id = m.doc.components.find((c) => c.name === 'Large<1>')!.id;
+    return [m.shownPlacement(id)!.q, m.solved.get(id)!.q];
+  });
+  for (let i = 0; i < 4; i++) expect(shown[0][i]).toBeCloseTo(shown[1][i], 9);
+  // Calculated again from there, it plays.
+  await pm.getByRole('button', { name: 'Calculate', exact: true }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
