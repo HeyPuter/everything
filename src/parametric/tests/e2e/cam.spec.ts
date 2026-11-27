@@ -135,5 +135,21 @@ test('CAM panels follow the tool library, deletions and the post settings', asyn
   await expect(page.locator('.confirm-corner .ok')).toBeHidden();
   expect(await page.evaluate(() => (window as unknown as W).__parametric.panel)).toBeNull();
   await expect(page.getByRole('treeitem', { name: /^Contour1/ })).toHaveCount(0);
+
+  // A pocket preview still being made when its last floor is removed is not shown.
+  await page.locator('[data-cmd="cam:pocket"]').click();
+  await expect(page.getByRole('heading', { name: 'New 2D Pocket' })).toBeVisible();
+  expect(await page.evaluate(async () => {
+    const app = (window as unknown as W).__parametric;
+    type Panel = { o: { faces: unknown[] }; run(): Promise<void>; error: string | null; toolpath: unknown };
+    const p = app.panel as unknown as Panel;
+    const f = app.faces.find((x) => x.type === 'plane' && Math.abs(x.normal![1]) > 0.99)!;
+    p.o.faces = [{ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }];
+    const first = p.run();
+    p.o.faces = [];
+    await p.run();
+    await first;
+    return { error: p.error, toolpath: !!p.toolpath, shown: !!app.cam!.preview?.toolpath };
+  })).toEqual({ error: 'Pick the floor faces of the pockets.', toolpath: false, shown: false });
   expect(errors).toEqual([]);
 });

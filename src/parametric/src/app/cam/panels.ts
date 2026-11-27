@@ -284,10 +284,12 @@ export class OperationPanel extends CamPanel {
   private async run() {
     const setup = this.setup();
     if (!setup || this.disposed) return;
+    // A preview still being made is for values that no longer hold.
+    const seq = ++this.seq;
+    this.busy = false;
     const why = this.ws.ready();
     if (why) { this.error = why; this.renderInfo(); return; }
     if (this.o.type === 'pocket' && !this.o.faces.length) { this.toolpath = null; this.error = 'Pick the floor faces of the pockets.'; this.showPreview(); return; }
-    const seq = ++this.seq;
     this.busy = true;
     this.renderInfo();
     try {
