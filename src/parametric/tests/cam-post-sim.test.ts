@@ -90,4 +90,27 @@ describe('CAM data from files', () => {
     expect(o.feed).toBeUndefined();
     expect(o.rpm).toBeUndefined();
   });
+
+  it('repairs settings of the wrong kind with the defaults', () => {
+    const doc = newCamDoc((p) => `${p}9`);
+    const t = doc.tools[0];
+    const raw = JSON.parse(JSON.stringify({ ...doc, tools: [{ ...t, number: 2.6, cornerRadius: 'big', tipAngle: 0 }], setups: [{ id: 's1', ops: [
+      { id: 'o1', name: 'C', type: 'contour', tool: t.id, tabs: null, direction: 'sideways', stepdown: 0 },
+      { id: 'o2', name: 'P', type: 'pocket', tool: t.id, faces: [], pattern: 'spiral', entry: 7, stepover: -1, suppressed: 1 },
+      { id: 'o3', name: 'D', type: 'drill', tool: t.id, holes: [], cycle: 'bore', tipThrough: 'yes' },
+    ] }] }));
+    const n = normalizeCam(raw)!;
+    expect(n.tools[0].number).toBe(3);
+    expect(n.tools[0]).not.toHaveProperty('cornerRadius');
+    expect(n.tools[0]).not.toHaveProperty('tipAngle');
+    const [c, p, d] = n.setups[0].ops as unknown as Record<string, unknown>[];
+    expect(c.tabs).toEqual({ count: 0, width: 6, height: 1.5 });
+    expect(c.direction).toBe('climb');
+    expect(c.stepdown).toBeGreaterThan(0);
+    expect([p.pattern, p.entry, p.suppressed]).toEqual(['offset', 'helix', true]);
+    expect(p.stepover).toBeGreaterThan(0);
+    expect([d.cycle, d.tipThrough]).toEqual(['peck', true]);
+    // Good data is kept as it is.
+    expect(normalizeCam(JSON.parse(JSON.stringify(n)))).toEqual(n);
+  });
 });

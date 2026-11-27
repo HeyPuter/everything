@@ -334,9 +334,15 @@ function validOp(o: unknown): o is CamOperation {
 export function normalizeCam(raw: unknown): CamDoc | null {
   if (!isObj(raw)) return null;
   const base = newCamDoc(() => '');
-  const tools = (Array.isArray(raw.tools) ? raw.tools : []).filter(validTool).map((t) => ({
-    ...t, fluteLength: finite(t.fluteLength, 0) ? t.fluteLength : t.diameter * 3, flutes: finite(t.flutes, 1, 20) ? Math.round(t.flutes) : 2, coolant: t.coolant !== false,
-  }));
+  const tools = (Array.isArray(raw.tools) ? raw.tools : []).filter(validTool).map((t) => {
+    const tool: CamTool = {
+      ...t, number: Math.round(t.number), fluteLength: finite(t.fluteLength, 0) ? t.fluteLength : t.diameter * 3, flutes: finite(t.flutes, 1, 20) ? Math.round(t.flutes) : 2, coolant: t.coolant !== false,
+    };
+    // Optional shape values that are not numbers are left to the defaults.
+    if ('cornerRadius' in tool && !finite(tool.cornerRadius, 0)) delete tool.cornerRadius;
+    if ('tipAngle' in tool && !finite(tool.tipAngle, 1, 179)) delete tool.tipAngle;
+    return tool;
+  });
   const ids = new Set<string>();
   const uniqueTools = tools.filter((t) => !ids.has(t.id) && ids.add(t.id));
   const setups: CamSetup[] = [];
@@ -390,10 +396,33 @@ export function opDefaults(type: CamOpType, d: number): Record<string, unknown> 
   }
 }
 
+/** The values an operation's text settings may take. */
+const OP_CHOICES: Record<string, readonly string[]> = {
+  direction: ['climb', 'conventional'],
+  pattern: ['offset', 'zigzag'],
+  entry: ['helix', 'ramp', 'plunge'],
+  cycle: ['drill', 'peck', 'chipBreak'],
+  boundary: ['stock', 'silhouette'],
+};
+/** Settings that must be above zero (a zero step never finishes). */
+const OP_POSITIVE = new Set(['stepover', 'stepdown', 'pitch', 'tolerance']);
+
 function withOpDefaults(o: CamOperation): CamOperation {
   const defs = opDefaults(o.type, 6);
   const out = { ...defs, ...o } as Record<string, unknown>;
-  for (const [k, v] of Object.entries(defs)) if (typeof v === 'number' && !finite(out[k])) out[k] = v;
+  for (const [k, v] of Object.entries(defs)) {
+    const cur = out[k];
+    if (typeof v === 'number') { if (!finite(cur, OP_POSITIVE.has(k) ? 1e-3 : -Infinity)) out[k] = v; }
+    else if (typeof v === 'string') { if (!oneOf(cur, OP_CHOICES[k] ?? [v])) out[k] = v; }
+    else if (typeof v === 'boolean') { if (typeof cur !== 'boolean') out[k] = v; }
+    else if (k === 'tabs') {
+      const t = isObj(cur) ? cur : {}, dt = v as ContourOp['tabs'];
+      out.tabs = { count: finite(t.count, 0, 64) ? Math.round(t.count) : 0, width: finite(t.width, 0) ? t.width : dt.width, height: finite(t.height, 0) ? t.height : dt.height };
+    }
+  }
+  // Feeds and speeds overriding the tool's: numbers above zero, else the tool's.
+  for (const k of ['rpm', 'feed', 'plunge']) if (k in out && !finite(out[k], 1e-3)) delete out[k];
+  if ('suppressed' in out && typeof out.suppressed !== 'boolean') out.suppressed = !!out.suppressed;
   return out as unknown as CamOperation;
 }
 
