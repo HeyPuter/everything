@@ -750,3 +750,25 @@ test('motion study plots label their values within the plot, without rounding no
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+test('the motion study time slider works from the keyboard and reads out the time', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Pause' }).click();
+  await pm.getByRole('button', { name: 'To the start' }).click();
+  const slider = pm.getByRole('slider', { name: 'Study time' });
+  await expect(slider).toHaveAttribute('aria-valuetext', '0.00 s of 5.00 s');
+  await slider.focus();
+  await page.keyboard.press('End');
+  await expect(pm.locator('.kin-clock')).toHaveText('5.00 s / 5.00 s');
+  await expect(slider).toHaveAttribute('aria-valuetext', '5.00 s of 5.00 s');
+  await page.keyboard.press('PageDown');
+  await expect(slider).toHaveAttribute('aria-valuetext', '4.50 s of 5.00 s');
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});

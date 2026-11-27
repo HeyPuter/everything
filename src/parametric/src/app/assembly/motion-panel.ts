@@ -301,6 +301,8 @@ export class MotionStudyPanel extends PropertyPanel {
     const end = res.times[res.times.length - 1];
     if (this.slider && document.activeElement !== this.slider) this.slider.value = String(Math.round((t / Math.max(end, 1e-9)) * 1000));
     if (this.clock) this.clock.textContent = `${t.toFixed(2)} s / ${end.toFixed(2)} s`;
+    // (Read out as the time, not as the slider's 0 to 1000.)
+    this.slider?.setAttribute('aria-valuetext', `${t.toFixed(2)} s of ${end.toFixed(2)} s`);
     if (this.plotCursor) {
       const x = plotX(res.times[i], end);
       this.plotCursor.setAttribute('x1', String(x));
