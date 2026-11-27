@@ -130,19 +130,30 @@ export function postProcess(job: PostJob): string {
     out(job.post.controller === 'fanuc' || job.post.controller === 'haas' ? `G4 X${sec.toFixed(2)}` : `G4 P${sec.toFixed(2)}`);
   };
 
+  let offset: number | null = null;
   for (const setup of job.setups) {
     out(comment(setup.name));
+    // A later setup: the tool is positioned again in its work offset, and the program stops for
+    // the part to be turned when the setup uses the same offset as the one before.
+    let newSetup = tool !== null;
+    const refixture = newSetup && setup.workOffset === offset;
+    offset = setup.workOffset;
     for (const op of setup.ops) {
       out(comment(op.name));
       const t = op.tool;
-      if (tool !== t.number) {
+      if (tool !== t.number || newSetup) {
+        let stopped = false;
         if (tool !== null) {
           out('M9');
           out('M5');
           if (d.home) { out('G28 G91 Z0.'); out('G90'); }
         }
-        if (d.toolChange === 'm6') out(`T${t.number} M6`);
-        else { out(comment(`Change to T${t.number} ${t.name}`)); if (tool !== null) out('M0'); }
+        if (newSetup && refixture) { out(comment(`Set up the part for ${setup.name}`)); out('M0'); stopped = true; }
+        if (tool !== t.number) {
+          if (d.toolChange === 'm6') out(`T${t.number} M6`);
+          else { out(comment(`Change to T${t.number} ${t.name}`)); if (tool !== null && !stopped) out('M0'); }
+        }
+        newSetup = false;
         tool = t.number;
         lengthDone = false;
         x = y = z = f = NaN;
