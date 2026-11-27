@@ -626,10 +626,14 @@ export function meshSolid(surf: SurfaceIndex, opts: MeshOptions): TetMesh {
   }
   let volume = 0;
   for (let t = 0; t < NT; t++) volume += quadraticVolume(N, T10, t);
+  // Walls much thinner than the elements come out ragged, with whole layers missing: results on such a mesh mean nothing.
+  const surfaceVolume = surf.volume();
+  const off = volume / Math.abs(surfaceVolume) - 1;
+  if (!(Math.abs(off) <= 0.1)) throw new MeshError(`The mesh ${off < 0 ? 'misses' : 'adds'} ${Math.round(Math.abs(off) * 100)}% of the part's volume: some of its walls are thinner than the elements. Choose a finer mesh.`);
   return {
     nodes: N, corners: nn, tets: T10, tris, triFace,
     stats: {
-      size: h, nodes: N.length / 3, elements: NT, volume, surfaceVolume: surf.volume(), minQuality: minQ, meanQuality: sumQ / NT,
+      size: h, nodes: N.length / 3, elements: NT, volume, surfaceVolume, minQuality: minQ, meanQuality: sumQ / NT,
       minDihedral: minD, maxDihedral: maxD, straightened, unassigned, pieces: countPieces(T4, nn),
     },
   };

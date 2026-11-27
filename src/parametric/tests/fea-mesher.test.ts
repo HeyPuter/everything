@@ -7,7 +7,7 @@ import { ModelBuilder } from '../src/kernel/build';
 import { setOc } from '../src/kernel/occ';
 import { EXAMPLES } from '../src/app/examples';
 import { SurfaceIndex } from '../src/fea/surface';
-import { type TetMesh, defaultElementSize, maxElementSize, meshSolid, quadJacobian, tetVolume } from '../src/fea/mesher';
+import { MeshError, type TetMesh, defaultElementSize, maxElementSize, meshSolid, quadJacobian, tetVolume } from '../src/fea/mesher';
 import { elementSizeFor } from '../src/model/fea';
 import { integrateTriangle } from '../src/fea/elements';
 import type { Feature } from '../src/model/types';
@@ -66,6 +66,17 @@ describe('volume mesher', () => {
     const hole = faces.findIndex((f) => f.type === 'cylinder');
     expect(areas.get(hole)! / faces[hole].area).toBeCloseTo(1, 2);
     faces.forEach((f, i) => expect(Math.abs(areas.get(i)! / f.area - 1)).toBeLessThan(0.01));
+  }, 60000);
+
+  it('refuses a plate thinner than the elements instead of meshing a fraction of it', async () => {
+    // 100 x 100 x 0.5: even the finest setting has elements larger than the thickness.
+    const { surf, fs } = await surfaceOf([sketch('s1', rect(0, 0, 100, 100)), extrude('f1', 's1', 0.5)]);
+    const area = surf.faceAreas().reduce((a, b) => a + b, 0);
+    const auto = defaultElementSize(fs.volume, area, surf.diag), max = maxElementSize(fs.volume, area, surf.diag);
+    const fine = elementSizeFor(auto, max, 1);
+    expect(fine).toBeGreaterThan(0.5);
+    expect(() => meshSolid(surf, { size: fine })).toThrow(MeshError);
+    expect(() => meshSolid(surf, { size: fine })).toThrow(/misses \d+% of the part's volume/);
   }, 60000);
 
   for (const ex of EXAMPLES) {
