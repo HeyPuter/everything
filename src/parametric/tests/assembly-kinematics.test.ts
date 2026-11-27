@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, camProfile, mateBodies, mateMeasure, matesMoving, placeGeo, profileSupport, relativePlacement, turnAbout } from '../src/assembly/solver';
 import { type PartGeometry, camProfileOf } from '../src/assembly/compose';
-import { type MotorInput, MotionRun, computeMotion, degreesAbout, derivatives, mateSeries, pointPath, profileOf, resultsCsv, turnPath, vectorDerivatives } from '../src/assembly/motion';
+import { type MotorInput, MotionRun, computeMotion, degreesAbout, derivatives, framesSpread, mateSeries, pointPath, profileOf, resultsCsv, turnPath, vectorDerivatives } from '../src/assembly/motion';
 import { type Quat, type Vec3, dot, len, normalize, qAxisAngle, qRotate, sub } from '../src/math/vec';
 import type { MateType, Placement } from '../src/model/assembly';
 
@@ -414,6 +414,17 @@ describe('motion studies', () => {
     const gap = mate('distance', ['idle1', plane([0, 0, 0], [1, 0, 0])], ['slider', plane([0, 0, 0], [1, 0, 0])], { value: 0 });
     const series = mateSeries(res, gap)!.values;
     expect(series[100] - series[0]).toBeCloseTo(slide(390) - slide(30), 4);
+  });
+
+  it('spreads interference checks over the time (frames closer where a study took smaller steps)', () => {
+    // Frames 0.1 s apart, then (a fast stretch) 0.025 s apart.
+    const times = [0, 0.1, 0.2, 0.225, 0.25, 0.275, 0.3, 0.325, 0.35, 0.375, 0.4];
+    expect(framesSpread(times, 5)).toEqual([0, 1, 2, 6, 10]);
+    expect(framesSpread(times, 50)).toHaveLength(11);
+    // As many as asked for, each a frame of its own (frames 0.1 s apart where 0.05 s would be wanted).
+    const picks = framesSpread([0, 0.1, 0.2, 0.3, 0.325, 0.35, 0.375, 0.4], 7);
+    expect(picks).toEqual([0, 1, 2, 3, 4, 5, 7]);
+    expect(framesSpread([0], 40)).toEqual([0]);
   });
 
   it('differentiates samples and writes CSV', () => {

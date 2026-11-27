@@ -19,7 +19,7 @@ import { type ComposedModel, type PartGeometry, camProfileOf, combinedName, comp
 import {
   type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving,
 } from '../../assembly/solver';
-import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, profileOf } from '../../assembly/motion';
+import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, framesSpread, profileOf } from '../../assembly/motion';
 import { parseColor } from '../../platform/theme';
 import { confirmDialog, toast } from '../../ui/overlay';
 import type { App } from '../app';
@@ -780,8 +780,8 @@ export class AssemblyMode {
    * shows are put back in the worker's scene afterwards. Null when cancelled.
    */
   async motionInterference(res: MotionResult, most: number, onProgress: (f: number) => void, cancelled: () => boolean): Promise<{ time: number; pairs: [Id, Id][] }[] | null> {
-    const n = res.frames.length;
-    const picks = [...new Set(Array.from({ length: Math.min(n, most) }, (_, k) => Math.round((k * (n - 1)) / Math.max(1, Math.min(n, most) - 1))))];
+    // Spread over the time (a study's frames are closer where it took smaller steps).
+    const picks = framesSpread(res.times, most);
     const out: { time: number; pairs: [Id, Id][] }[] = [];
     try {
       for (const [k, i] of picks.entries()) {

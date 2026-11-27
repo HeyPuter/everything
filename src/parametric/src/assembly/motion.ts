@@ -281,6 +281,23 @@ export function computeMotion(setup: MotionSetup): MotionResult {
 
 // ---------- results ----------
 
+/** `most` frames (or all of them) spread evenly over a study's time: their indices, the first and last included. */
+export function framesSpread(times: number[], most: number): number[] {
+  const n = times.length, m = Math.min(n, Math.max(1, most));
+  if (m < 2) return [0];
+  if (m === n) return times.map((_, i) => i);
+  const end = times[n - 1], out: number[] = [];
+  for (let k = 0; k < m; k++) {
+    const t = (end * k) / (m - 1);
+    let lo = 0, hi = n - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (times[mid] <= t) lo = mid; else hi = mid - 1; }
+    const near = lo + 1 < n && times[lo + 1] - t < t - times[lo] ? lo + 1 : lo;
+    // Each a frame of its own, with room left for the rest.
+    out.push(Math.min(Math.max(near, k ? out[k - 1] + 1 : 0), n - m + k));
+  }
+  return out;
+}
+
 /** Where a point of a component (its local coordinates) is in each frame. */
 export function pointPath(res: MotionResult, body: Id, local: Vec3): Vec3[] {
   return res.frames.map((f) => applyPlacement(f.get(body) ?? { p: [0, 0, 0], q: [0, 0, 0, 1] }, local));
