@@ -720,3 +720,33 @@ test('a motion study plots how far a slider travels', async ({ page }) => {
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+test('motion study plots label their values within the plot, without rounding noise', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Pause' }).click();
+  const labels = () => pm.locator('.kin-plot text').evaluateAll((ts) => ts.map((t) => ({ text: t.textContent, x: (t as SVGTextElement).getBBox().x })));
+  // The small gear turns about its own origin: that point does not move.
+  const plot = pm.getByRole('img', { name: /^Plot of Small<1> linear displacement/ });
+  await expect(plot).toHaveAttribute('aria-label', /from 0 to 0$/);
+  for (const l of await labels()) expect(l.x, l.text ?? '').toBeGreaterThanOrEqual(0);
+  // Every label of a small value fits too.
+  await pm.getByRole('combobox', { name: 'Result of' }).selectOption({ label: 'Component: Large<1>' });
+  await pm.getByRole('combobox', { name: 'Quantity' }).selectOption({ label: 'Angular acceleration' });
+  await expect(pm.getByRole('img', { name: /^Plot of Large<1> angular acceleration/ })).toHaveAttribute('aria-label', /from 0 to 0$/);
+  for (const l of await labels()) expect(l.x, l.text ?? '').toBeGreaterThanOrEqual(0);
+  // The longest label (8 characters) fits too.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const svg = a.panel!.el.querySelector('.kin-plot text')!;
+    svg.textContent = '-1.23e-3';
+  });
+  for (const l of await labels()) expect(l.x, l.text ?? '').toBeGreaterThanOrEqual(0);
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});

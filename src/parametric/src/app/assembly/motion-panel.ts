@@ -417,8 +417,10 @@ export class MotionStudyPanel extends PropertyPanel {
     let min = Infinity, max = -Infinity;
     for (const v of s.values) { if (v < min) min = v; if (v > max) max = v; }
     if (!(min <= max)) min = max = 0;
+    // Differences smaller than this are rounding (a velocity or acceleration of a constant motion reads 1e-11, not 0).
+    const eps = 1e-6 * Math.max(1, Math.abs(min), Math.abs(max));
     // A constant is drawn across the middle.
-    const flat = !(max - min > 1e-9 * Math.max(1, Math.abs(max)));
+    const flat = !(max - min > eps);
     const lo = flat ? min - 1 : min, hi = flat ? max + 1 : max;
     const y = (v: number) => PLOT.top + (1 - (v - lo) / (hi - lo)) * (PLOT.h - PLOT.top - PLOT.bottom);
     const pts = plotPoints(res.times, s.values, end).map((i) => `${plotX(res.times[i], end).toFixed(1)},${y(s.values[i]).toFixed(1)}`).join(' ');
@@ -430,14 +432,15 @@ export class MotionStudyPanel extends PropertyPanel {
       return e;
     };
     const fmtN = (v: number) => (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0) ? v.toExponential(2) : String(Math.round(v * 100) / 100));
-    const svg = el('svg', { viewBox: `0 0 ${PLOT.w} ${PLOT.h}`, class: 'kin-plot', role: 'img', 'aria-label': `Plot of ${s.name} (${s.unit}) against time, from ${fmtN(min)} to ${fmtN(max)}` });
+    const fmtV = (v: number) => (Math.abs(v) < eps ? '0' : fmtN(v));
+    const svg = el('svg', { viewBox: `0 0 ${PLOT.w} ${PLOT.h}`, class: 'kin-plot', role: 'img', 'aria-label': `Plot of ${s.name} (${s.unit}) against time, from ${fmtV(min)} to ${fmtV(max)}` });
     const x0 = PLOT.left, x1 = PLOT.w - PLOT.right, yb = PLOT.h - PLOT.bottom;
     svg.append(
       el('rect', { x: x0, y: PLOT.top, width: x1 - x0, height: yb - PLOT.top, class: 'kin-plot-frame' }),
       ...(lo < 0 && hi > 0 ? [el('line', { x1: x0, x2: x1, y1: y(0), y2: y(0), class: 'kin-plot-zero' })] : []),
       el('polyline', { points: pts, class: 'kin-plot-line' }),
-      el('text', { x: x0 - 4, y: flat ? y(max) + 3 : PLOT.top + 4, 'text-anchor': 'end', class: 'kin-plot-text' }, fmtN(flat ? max : hi)),
-      ...(flat ? [] : [el('text', { x: x0 - 4, y: yb, 'text-anchor': 'end', class: 'kin-plot-text' }, fmtN(lo))]),
+      el('text', { x: x0 - 4, y: flat ? y(max) + 3 : PLOT.top + 4, 'text-anchor': 'end', class: 'kin-plot-text' }, fmtV(flat ? max : hi)),
+      ...(flat ? [] : [el('text', { x: x0 - 4, y: yb, 'text-anchor': 'end', class: 'kin-plot-text' }, fmtV(lo))]),
       el('text', { x: x0, y: PLOT.h - 4, class: 'kin-plot-text' }, '0 s'),
       el('text', { x: x1, y: PLOT.h - 4, 'text-anchor': 'end', class: 'kin-plot-text' }, `${fmtN(end)} s`),
     );
@@ -650,7 +653,8 @@ const MOTOR_FIRST = '.kin-motor-form .sec-body :is(button, select, input):not([d
 /** The most frames checked for interference (each is a boolean check of every pair in the worker). */
 const INTERFERENCE_FRAMES = 40;
 
-const PLOT = { w: 280, h: 150, left: 44, right: 8, top: 8, bottom: 18 };
+/** (The left margin fits a value label of 8 characters, as -1.23e-3.) */
+const PLOT = { w: 280, h: 150, left: 50, right: 8, top: 8, bottom: 18 };
 const plotX = (t: number, end: number) => PLOT.left + (t / Math.max(end, 1e-9)) * (PLOT.w - PLOT.left - PLOT.right);
 
 /**
