@@ -10,7 +10,8 @@ import { setOc } from '../src/kernel/occ';
 import type { FaceInfo } from '../src/kernel/protocol';
 import { SurfaceIndex } from '../src/fea/surface';
 import { meshSolid } from '../src/fea/mesher';
-import { type LoadInput, type StaticInput, StudyError, solveStatic } from '../src/fea/static';
+import { type LoadInput, type StaticInput, StudyError, loadVector, solveStatic } from '../src/fea/static';
+import { addBodyForce, elementNodeStrains, elementStiffness } from '../src/fea/elements';
 import { type BlockMatrix, type Prolongator, galerkin, matvec } from '../src/fea/amg';
 import type { Feature } from '../src/model/types';
 import { circle, extrude, rect, req, sketch } from './helpers';
@@ -258,4 +259,63 @@ describe('solver limits', () => {
     expect(Math.min(...steps)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...steps)).toBeLessThanOrEqual(1);
   }, 120000);
+});
+
+describe('10-node tetrahedron', () => {
+  // A skewed element with two midside nodes off their edges (curved).
+  const X = new Float64Array(30);
+  X.set([0, 0, 0, 2, 0.1, 0, 0.3, 1.7, 0.2, 0.2, 0.4, 1.5]);
+  [[0, 1], [1, 2], [2, 0], [0, 3], [1, 3], [2, 3]].forEach(([a, b], k) => { for (let d = 0; d < 3; d++) X[(4 + k) * 3 + d] = (X[a * 3 + d] + X[b * 3 + d]) / 2; });
+  X[4 * 3 + 2] += 0.08;
+  X[9 * 3] += 0.05;
+  const T = Int32Array.from({ length: 10 }, (_, i) => i);
+
+  it('stiffness: symmetric, no forces for rigid motions, inverted elements refused', () => {
+    const K = new Float64Array(900);
+    expect(elementStiffness(X, T, 0, 115000, 77000, K)).toBe(true);
+    const kmax = Math.max(...K.map(Math.abs));
+    for (let i = 0; i < 30; i++) for (let j = 0; j < 30; j++) expect(Math.abs(K[i * 30 + j] - K[j * 30 + i])).toBeLessThan(1e-12 * kmax);
+    for (let m = 0; m < 6; m++) {
+      const u = new Float64Array(30);
+      for (let a = 0; a < 10; a++) {
+        const x = X[a * 3], y = X[a * 3 + 1], z = X[a * 3 + 2];
+        const w = [m === 3 ? 1 : 0, m === 4 ? 1 : 0, m === 5 ? 1 : 0];
+        u[a * 3] = (m === 0 ? 1 : 0) + w[1] * z - w[2] * y; u[a * 3 + 1] = (m === 1 ? 1 : 0) + w[2] * x - w[0] * z; u[a * 3 + 2] = (m === 2 ? 1 : 0) + w[0] * y - w[1] * x;
+      }
+      for (let i = 0; i < 30; i++) { let s = 0; for (let j = 0; j < 30; j++) s += K[i * 30 + j] * u[j]; expect(Math.abs(s)).toBeLessThan(1e-12 * kmax); }
+    }
+    // Two corners swapped (with their edges): turned inside out.
+    expect(elementStiffness(X, Int32Array.from([1, 0, 2, 3, 4, 6, 5, 8, 7, 9]), 0, 115000, 77000, K)).toBe(false);
+  });
+
+  it('patch test: a linear displacement gives its exact strain at every node of a curved element', () => {
+    const G = [[1e-3, 2e-3, -1e-3], [4e-4, -2e-3, 3e-4], [5e-4, 1e-4, 7e-4]];
+    const U = new Float64Array(30);
+    for (let a = 0; a < 10; a++) for (let r = 0; r < 3; r++) U[a * 3 + r] = 0.1 * r + G[r][0] * X[a * 3] + G[r][1] * X[a * 3 + 1] + G[r][2] * X[a * 3 + 2];
+    const st = new Float64Array(60);
+    elementNodeStrains(X, T, 0, U, st);
+    const exact = [G[0][0], G[1][1], G[2][2], (G[0][1] + G[1][0]) / 2, (G[1][2] + G[2][1]) / 2, (G[2][0] + G[0][2]) / 2];
+    for (let k = 0; k < 10; k++) for (let c = 0; c < 6; c++) expect(st[k * 6 + c]).toBeCloseTo(exact[c], 14);
+  });
+
+  it('a body force adds up to force per volume times the curved volume', () => {
+    const F = new Float64Array(30);
+    const vol = addBodyForce(X, T, 0, [1, -2, 3], F);
+    expect(vol).toBeGreaterThan(0);
+    const sum = [0, 1, 2].map((d) => F.reduce((s, v, i) => (i % 3 === d ? s + v : s), 0));
+    expect(sum[0] / vol).toBeCloseTo(1, 12);
+    expect(sum[1] / vol).toBeCloseTo(-2, 12);
+    expect(sum[2] / vol).toBeCloseTo(3, 12);
+  });
+
+  it('pressure in a hole: no net force, and the closed boundary sums to no force at all', async () => {
+    const { mesh, faces } = await meshOf([sketch('s1', [...rect(-20, -20, 20, 20), ...circle(0, 0, 8)]), extrude('f1', 's1', 30)], 2);
+    const holes = faces.flatMap((f, i) => (f.type === 'cylinder' ? [i] : []));
+    const { applied, areas } = loadVector(mesh, { ...STEEL, fixtures: [], loads: [{ kind: 'pressure', faces: holes, value: 1 }] });
+    expect(areas[0] / (2 * Math.PI * 8 * 30)).toBeCloseTo(1, 3);
+    expect(Math.hypot(...applied)).toBeLessThan(5e-4 * areas[0]);
+    const all = [...new Set(mesh.triFace)];
+    const total = loadVector(mesh, { ...STEEL, fixtures: [], loads: [{ kind: 'pressure', faces: all, value: 1 }] }).applied;
+    expect(Math.hypot(...total)).toBeLessThan(1e-9 * areas[0]);
+  }, 60000);
 });

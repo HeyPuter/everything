@@ -68,6 +68,14 @@ describe('volume mesher', () => {
     faces.forEach((f, i) => expect(Math.abs(areas.get(i)! / f.area - 1)).toBeLessThan(0.01));
   }, 60000);
 
+  it('meshes the same part the same way every time', async () => {
+    const { surf } = await surfaceOf([sketch('s1', [...rect(-20, -20, 20, 20), ...circle(0, 0, 8)]), extrude('f1', 's1', 30)]);
+    const a = meshSolid(surf, { size: 2.5 }), b = meshSolid(surf, { size: 2.5 });
+    expect(Array.from(b.nodes)).toEqual(Array.from(a.nodes));
+    expect(Array.from(b.tets)).toEqual(Array.from(a.tets));
+    expect(Array.from(b.triFace)).toEqual(Array.from(a.triFace));
+  }, 60000);
+
   it('refuses a plate thinner than the elements instead of meshing a fraction of it', async () => {
     // 100 x 100 x 0.5: even the finest setting has elements larger than the thickness.
     const { surf, fs } = await surfaceOf([sketch('s1', rect(0, 0, 100, 100)), extrude('f1', 's1', 0.5)]);
