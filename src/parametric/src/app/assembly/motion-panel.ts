@@ -162,19 +162,19 @@ export class MotionStudyPanel extends PropertyPanel {
   private motorsSection(): HTMLElement {
     const list = h('div', { class: 'file-list', role: 'list', 'aria-label': 'Motors' });
     this.study.motors.forEach((m, i) => {
-      const edit = h('button', { class: 'file-item', type: 'button' },
+      const edit = h('button', { class: 'file-item', type: 'button', 'data-motor': m.id },
         h('span', { 'aria-hidden': 'true' }, icon(m.kind === 'mate' ? 'smartDimension' : m.kind === 'rotary' ? 'rotateComponent' : 'moveComponent', 16)),
         h('span', { class: 'txt' }, h('span', { class: 'n' }, `${m.name}${m.suppressed ? ' (suppressed)' : ''}`), h('span', { class: 'meta' }, this.describeMotor(m))));
-      edit.addEventListener('click', () => { this.motor = structuredClone(m); this.motorIndex = i; this.app.refreshPanel(); });
+      edit.addEventListener('click', () => { this.motor = structuredClone(m); this.motorIndex = i; this.refreshTo(MOTOR_FIRST); });
       const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${m.name}` }, icon('trash', 14));
-      del.addEventListener('click', () => { this.study.motors.splice(i, 1); this.stale(); this.app.refreshPanel(); });
+      del.addEventListener('click', () => { this.study.motors.splice(i, 1); this.stale(); this.refreshTo('.kin-add-motor'); });
       list.append(h('div', { class: 'file-row kin-motor', role: 'listitem' }, edit, del));
     });
-    const add = h('button', { class: 'btn small', type: 'button' }, icon('add', 14), 'Add Motor');
+    const add = h('button', { class: 'btn small kin-add-motor', type: 'button' }, icon('add', 14), 'Add Motor');
     add.addEventListener('click', () => {
       this.motor = { id: '', name: '', kind: 'rotary', profile: 'constant', speed: 60 };
       this.motorIndex = -1;
-      this.app.refreshPanel();
+      this.refreshTo(MOTOR_FIRST);
     });
     return section('Motors', [...(this.study.motors.length ? [list] : [h('p', { class: 'field-label' }, 'No motors yet: add one to drive the mechanism.')]), add]);
   }
@@ -541,12 +541,23 @@ export class MotionStudyPanel extends PropertyPanel {
     const back = h('button', { class: 'btn small', type: 'button' }, 'Cancel');
     back.addEventListener('click', () => this.finishMotor(false));
     items.push(h('div', { class: 'row kin-motor-buttons' }, done, back));
-    return [section(this.motorIndex < 0 ? 'Add Motor' : `Motor: ${m.name}`, items, { icon: 'motionStudy' })];
+    const form = section(this.motorIndex < 0 ? 'Add Motor' : `Motor: ${m.name}`, items, { icon: 'motionStudy' });
+    form.classList.add('kin-motor-form');
+    // Escape and Enter are the motor's Cancel and Add (or Apply), not the whole study's.
+    form.addEventListener('keydown', (e) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.finishMotor(false); }
+      // (Enter on a button presses it; in a number field it enters the value.)
+      else if (e.key === 'Enter' && !(t instanceof HTMLButtonElement) && !(t instanceof HTMLInputElement && t.type !== 'checkbox')) { e.preventDefault(); e.stopPropagation(); this.finishMotor(true); }
+    });
+    return [form];
   }
 
   private finishMotor(save: boolean) {
     const m = this.motor;
     if (!m) return;
+    const had = this.el.contains(document.activeElement);
     if (save) {
       if (!this.checkFields()) return;
       if (m.kind !== 'mate' && !m.ref && !m.mate) { this.setMessage('error', m.kind === 'rotary' ? 'Select the motor\'s axis (a round face or edge of the component to turn), or a hinge to put it on.' : 'Select the motor\'s direction (a straight edge or face of the component to move), or a slider to put it on.'); return; }
@@ -571,6 +582,15 @@ export class MotionStudyPanel extends PropertyPanel {
     this.motor = null;
     this.setMessage(null);
     this.stale();
+    // Keyboard focus goes back to the motor in the list (or to Add Motor).
+    if (had) (this.el.querySelector<HTMLElement>(`[data-motor="${CSS.escape(m.id)}"]`) ?? this.el.querySelector<HTMLElement>('.kin-add-motor'))?.focus();
+  }
+
+  /** Shows the panel again, with keyboard focus (when it was in the panel) on the first of `to` rather than lost. */
+  private refreshTo(to: string) {
+    const had = this.el.contains(document.activeElement);
+    this.app.refreshPanel();
+    if (had) this.el.querySelector<HTMLElement>(to)?.focus();
   }
 
   ok(): boolean {
@@ -610,6 +630,9 @@ export class MotionStudyPanel extends PropertyPanel {
     this.mode.previewPlacements(null);
   }
 }
+
+/** The first control of the motor form (where keyboard focus goes when it opens). */
+const MOTOR_FIRST = '.kin-motor-form .sec-body :is(button, select, input):not([disabled])';
 
 /** The most frames checked for interference (each is a boolean check of every pair in the worker). */
 const INTERFERENCE_FRAMES = 40;

@@ -609,3 +609,35 @@ test('the Motion Study panel plots a study of more frames than a function call t
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
+
+test('the Motion Study panel: Escape and Enter in a motor cancel or add the motor, not the study, and keyboard focus follows', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  // Opened from the keyboard, the motor's first control takes focus.
+  await pm.getByRole('button', { name: 'Delete RotaryMotor1' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(pm.getByRole('button', { name: 'Add Motor' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(pm.getByRole('group', { name: 'Motor type' }).getByRole('button', { name: 'Rotary' })).toBeFocused();
+  // Escape leaves the motor: the study and its first motor stay, focus is on Add Motor again.
+  await pm.getByRole('checkbox', { name: 'Reverse direction' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(pm.getByRole('heading', { name: 'Motion Study' })).toBeVisible();
+  await expect(pm.getByRole('listitem')).toHaveCount(1);
+  await expect(pm.getByRole('button', { name: 'Add Motor' })).toBeFocused();
+  // Enter on a checkbox of the motor adds it.
+  await page.keyboard.press('Enter');
+  await pm.getByRole('combobox', { name: 'Motor on' }).selectOption({ label: 'Hinge2 (Hinge)' });
+  await pm.getByRole('checkbox', { name: 'Reverse direction' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(pm.getByRole('listitem')).toHaveCount(2);
+  await expect(pm.getByRole('listitem').nth(1)).toContainText('Hinge2');
+  await expect(pm.getByRole('listitem').nth(1).getByRole('button').first()).toBeFocused();
+  // Escape outside a motor still cancels the panel.
+  await page.keyboard.press('Escape');
+  await expect(pm).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
