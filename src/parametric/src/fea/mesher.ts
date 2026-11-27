@@ -111,8 +111,8 @@ export function defaultElementSize(volume: number, area: number, diag: number): 
   // 2V/A is the thickness of a plate (and a third of a cube's side).
   const wall = area > 0 ? (2 * volume) / area : diag / 10;
   const h = Math.min(diag / 25, wall / 1.5);
-  // About 48 degrees of freedom per h^3 of a quadratic BCC mesh; keep the default near 150k.
-  const floor = Math.cbrt(Math.max(volume, 1e-9) / 3000);
+  // About 66 degrees of freedom per h^3 of the quadratic mesh (measured); keep the default below about 150k.
+  const floor = Math.cbrt(Math.max(volume, 1e-9) / 2300);
   return Math.max(h, floor, diag / 400);
 }
 
@@ -124,7 +124,7 @@ export function maxElementSize(volume: number, area: number, diag: number): numb
 
 /** Estimated degrees of freedom of a mesh of the given element size. */
 export function estimateDofs(volume: number, size: number): number {
-  return Math.round((48 * volume) / size ** 3);
+  return Math.round((66 * volume) / size ** 3);
 }
 
 export function meshSolid(surf: SurfaceIndex, opts: MeshOptions): TetMesh {

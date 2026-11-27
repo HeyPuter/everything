@@ -115,7 +115,7 @@ export class StudyPanel extends FeaPanel {
     describe();
     slider.addEventListener('input', () => { this.fineness = Number(slider.value); describe(); });
     slider.addEventListener('change', () => this.commit());
-    const meshBtn = h('button', { class: 'btn small', type: 'button', disabled: !!ws.busy, onclick: () => void ws.meshNow() }, icon('feaMesh', 16), 'Mesh');
+    const meshBtn = h('button', { class: 'btn small', type: 'button', disabled: !!ws.busy, onclick: () => void ws.meshNow() }, icon('feaMesh', 16), 'Mesh Now');
     const runBtn = h('button', { class: 'btn small primary', type: 'button', disabled: !!ws.busy, onclick: () => void ws.run() }, icon('feaRun', 16), 'Run');
     const m = ws.mesh;
     const stats: HTMLElement[] = [];
