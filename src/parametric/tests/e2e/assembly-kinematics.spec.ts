@@ -307,6 +307,13 @@ test('limit, width, slot, screw and rack and pinion mates through the Mate panel
   await pm.getByRole('button', { name: 'Add', exact: true }).click();
   await pm.getByRole('button', { name: 'Calculate' }).click();
   await expect(pm.getByRole('alert').filter({ hasText: 'LimitDistance1 reached its limit' })).toBeVisible();
+  // The bar moves through the plate (where the width mate left it): interference over the motion lists the frames.
+  await pm.getByRole('button', { name: 'Check Interference' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: /Components overlap in \d+ of the frames checked/ })).toBeVisible({ timeout: 60_000 });
+  const clashes = pm.getByRole('list', { name: 'Interference over the motion' }).getByRole('listitem');
+  await expect(clashes.first()).toContainText(/Plate<1> and Bar<1>|Bar<1> and Plate<1>/);
+  await clashes.last().getByRole('button').click();
+  await expect(pm.locator('.kin-clock')).toContainText(/^0\.\d\d s \//);
   await pm.getByRole('button', { name: 'Cancel' }).click();
   await suppress(/^LimitDistance1/);
 

@@ -85,8 +85,58 @@ export class MotionStudyPanel extends PropertyPanel {
     if (this.motor) return this.renderMotor();
     const res = this.result();
     const out = [this.studySection(), this.motorsSection(), this.calcSection(res)];
-    if (res && res.frames.length > 1) out.push(this.playSection(res), this.resultsSection(res));
+    if (res && res.frames.length > 1) out.push(this.playSection(res), this.resultsSection(res), this.interferenceSection(res));
     return out;
+  }
+
+  // ---------- interference over the motion ----------
+
+  /** Frames checked for interference, for the results they were checked on. */
+  private clashes: { result: MotionResult; list: { time: number; pairs: [Id, Id][] }[] } | null = null;
+  private checking = false;
+
+  private interferenceSection(res: MotionResult): HTMLElement {
+    const items: HTMLElement[] = [];
+    if (this.checking) {
+      this.bar = h('progress', { max: '1', value: '0', 'aria-label': 'Interference check progress' }) as HTMLProgressElement;
+      items.push(h('p', { class: 'field-label', role: 'status' }, 'Checking frames for interference...'), this.bar);
+    } else {
+      const run = h('button', { class: 'btn small', type: 'button' }, icon('interference', 14), 'Check Interference');
+      run.addEventListener('click', () => void this.checkInterference(res));
+      items.push(h('p', { class: 'field-label' }, `Finds components that overlap in ${Math.min(INTERFERENCE_FRAMES, res.frames.length)} frames spread over the motion.`), run);
+      const c = this.clashes?.result === res ? this.clashes.list : null;
+      if (c && !c.length) items.push(h('p', { class: 'pm-msg info', role: 'status' }, 'No interference in the frames checked.'));
+      if (c?.length) {
+        const name = (id: Id) => this.mode.component(id)?.name ?? '?';
+        const list = h('div', { class: 'file-list', role: 'list', 'aria-label': 'Interference over the motion' });
+        for (const f of c) {
+          const b = h('button', { class: 'file-item', type: 'button' }, h('span', { 'aria-hidden': 'true', style: { color: 'var(--danger)' } }, icon('interference', 16)),
+            h('span', { class: 'txt' }, h('span', { class: 'n' }, `${f.time.toFixed(2)} s`), h('span', { class: 'meta' }, f.pairs.map(([a, b]) => `${name(a)} and ${name(b)}`).join('; '))));
+          b.addEventListener('click', () => { this.play(false); this.t = f.time; this.showAt(f.time); });
+          list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
+        }
+        items.push(h('p', { class: 'pm-msg warn', role: 'status' }, `Components overlap in ${c.length} of the frames checked.`), list);
+      }
+    }
+    return section('Interference', items, { collapsed: false });
+  }
+
+  private async checkInterference(res: MotionResult) {
+    const run = ++this.runs;
+    this.play(false);
+    this.checking = true;
+    this.app.refreshPanel();
+    let list: { time: number; pairs: [Id, Id][] }[] | null = null;
+    try {
+      list = await this.mode.motionInterference(res, INTERFERENCE_FRAMES, (f) => { if (this.bar) this.bar.value = f; }, () => run !== this.runs || this.disposed);
+    } catch (e) {
+      if (!this.disposed) this.error = (e as Error).message;
+    }
+    this.checking = false;
+    if (this.disposed || run !== this.runs) return;
+    if (list) this.clashes = { result: res, list };
+    this.app.refreshPanel();
+    this.showAt(this.t);
   }
 
   private studySection(): HTMLElement {
@@ -188,7 +238,7 @@ export class MotionStudyPanel extends PropertyPanel {
     slider.addEventListener('input', () => { this.play(false); this.t = (Number(slider.value) / 1000) * end; this.showAt(this.t); });
     this.slider = slider;
     this.clock = h('div', { class: 'field-label kin-clock', 'aria-live': 'off' });
-    const play = h('button', { class: 'btn small', type: 'button' }, icon(this.playing ? 'pause' : 'play', 16), this.playing ? 'Pause' : 'Play') as HTMLButtonElement;
+    const play = h('button', { class: 'btn small', type: 'button', disabled: this.checking }, icon(this.playing ? 'pause' : 'play', 16), this.playing ? 'Pause' : 'Play') as HTMLButtonElement;
     play.addEventListener('click', () => this.play(!this.playing));
     this.playBtn = play;
     const toStart = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'To the start', onclick: () => { this.play(false); this.t = 0; this.showAt(0); } }, icon('upToLine', 16));
@@ -200,7 +250,8 @@ export class MotionStudyPanel extends PropertyPanel {
 
   private play(on: boolean) {
     const res = this.result();
-    this.playing = on && !!res;
+    // Not while the worker's scene is moved frame by frame for the interference check.
+    this.playing = on && !!res && !this.checking;
     cancelAnimationFrame(this.raf);
     if (this.playBtn) this.playBtn.replaceChildren(icon(this.playing ? 'pause' : 'play', 16), this.playing ? 'Pause' : 'Play');
     if (!this.playing || !res) return;
@@ -226,7 +277,7 @@ export class MotionStudyPanel extends PropertyPanel {
   /** Shows the frame at time t (the nearest computed one). */
   private showAt(t: number) {
     const res = this.result();
-    if (!res || this.disposed) return;
+    if (!res || this.disposed || this.checking) return;
     const i = frameAt(res, t);
     this.mode.previewPlacements(res.frames[i]);
     const end = res.times[res.times.length - 1];
@@ -545,6 +596,9 @@ export class MotionStudyPanel extends PropertyPanel {
     this.mode.previewPlacements(null);
   }
 }
+
+/** The most frames checked for interference (each is a boolean check of every pair in the worker). */
+const INTERFERENCE_FRAMES = 40;
 
 const PLOT = { w: 280, h: 150, left: 44, right: 8, top: 8, bottom: 18 };
 const plotX = (t: number, end: number) => PLOT.left + (t / Math.max(end, 1e-9)) * (PLOT.w - PLOT.left - PLOT.right);

@@ -5,7 +5,7 @@
 // allow. The design tree, ribbon and panels of assemblies are set up here.
 
 import type { FaceInfo, FeatureStatus } from '../../kernel/protocol';
-import type { AsmPartBuild, AsmPartResult } from '../../kernel/assembly';
+import type { AsmPartBuild, AsmPartResult, InterferencePair } from '../../kernel/assembly';
 import { KernelRestartError } from '../../kernel/client';
 import { type Quat, type Vec3, add, cross, dot, normalize, qAxisAngle, qMul, scale, sub } from '../../math/vec';
 import { DocStore, parseDocument } from '../../model/document';
@@ -380,12 +380,7 @@ export class AssemblyMode {
     // The worker places the same components, in the same order, for measure, export and
     // interference, and the hidden ones too for mass properties (they are still in the assembly).
     this.sceneComps = all.map((it) => it.comp.id);
-    void app.kernel.assembly({
-      op: 'scene', items: all.map((it) => {
-        const part = doc.parts.find((p) => p.id === it.comp.part)!;
-        return { part: this.key(part), m: placementMatrix(it.placement), name: it.comp.name, color: part.color, ...(it.comp.hidden ? { hidden: true } : {}) };
-      }),
-    }).catch(() => undefined);
+    void app.kernel.assembly({ op: 'scene', items: this.sceneItems(all) }).catch(() => undefined);
     if (this.fitPending && model.bbox) {
       this.fitPending = false;
       app.viewport.zoomToFit(false, false);
@@ -393,6 +388,15 @@ export class AssemblyMode {
     app.panel?.onBuild({ mesh: null, faces: model.faces, edges: model.edges, status: [], frames: {}, bbox: model.bbox, ms: 0, preview: null });
     this.updateStatus();
     this.onShow();
+  }
+
+  /** The worker's scene of components placed as given. */
+  private sceneItems(all: { comp: AsmComponent; placement: Placement }[]) {
+    const doc = this.doc;
+    return all.map((it) => {
+      const part = doc.parts.find((p) => p.id === it.comp.part)!;
+      return { part: this.key(part), m: placementMatrix(it.placement), name: it.comp.name, color: part.color, ...(it.comp.hidden ? { hidden: true } : {}) };
+    });
   }
 
   updateStatus() {
@@ -703,6 +707,31 @@ export class AssemblyMode {
     }
     this.motions.set(id, { key, result: run.result });
     return run.result;
+  }
+
+  /**
+   * Interference over a study's motion: the worker's interference check on
+   * frames spread over it (at most `most`). The components the graphics area
+   * shows are put back in the worker's scene afterwards. Null when cancelled.
+   */
+  async motionInterference(res: MotionResult, most: number, onProgress: (f: number) => void, cancelled: () => boolean): Promise<{ time: number; pairs: [Id, Id][] }[] | null> {
+    const n = res.frames.length;
+    const picks = [...new Set(Array.from({ length: Math.min(n, most) }, (_, k) => Math.round((k * (n - 1)) / Math.max(1, Math.min(n, most) - 1))))];
+    const out: { time: number; pairs: [Id, Id][] }[] = [];
+    try {
+      for (const [k, i] of picks.entries()) {
+        const all = this.doc.components.filter((c) => !c.suppressed && this.geometryOf(c.part)).map((comp) => ({ comp, placement: res.frames[i].get(comp.id) ?? this.solved.get(comp.id) ?? comp.placement }));
+        await this.app.kernel.assembly({ op: 'scene', items: this.sceneItems(all) });
+        const pairs = await this.app.kernel.assembly<InterferencePair[]>({ op: 'interference' });
+        if (cancelled() || this.app.assembly !== this) return null;
+        const hit = pairs.filter((p) => !p.failed && p.volume > 1e-6).map((p) => [all[p.a].comp.id, all[p.b].comp.id] as [Id, Id]);
+        if (hit.length) out.push({ time: res.times[i], pairs: hit });
+        onProgress((k + 1) / picks.length);
+      }
+    } finally {
+      if (this.app.assembly === this) this.show();
+    }
+    return out;
   }
 
   dispose() {
