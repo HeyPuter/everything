@@ -173,3 +173,22 @@ test('a load direction to pick stays chosen until it is picked', async ({ page }
   }
   expect(errors).toEqual([]);
 });
+
+test('the panel of a fixture or load closes when it is deleted', async ({ page }) => {
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  // Editing Force-1 when it is deleted (here by Undo of its study): OK must not bring it back.
+  await page.getByRole('treeitem', { name: /^Force-1/ }).dblclick();
+  await expect(page.locator('.pm-head').getByText('Force-1', { exact: true })).toBeVisible();
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Delete Force-1', (d) => { d.study!.loads = []; }));
+  await expect(page.locator('.pm-head')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as W).__parametric.store.doc.study!.loads)).toEqual([]);
+  // A new fixture when the study goes (Undo): its panel closes too.
+  await page.locator('[data-cmd="fea:fixed"]').click();
+  await expect(page.locator('.pm-head').getByText('Fixed', { exact: true })).toBeVisible();
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.press('Meta+z');
+  await expect.poll(() => page.evaluate(() => (window as unknown as W).__parametric.store.doc.study ?? null)).toBeNull();
+  await expect(page.locator('.pm-head')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

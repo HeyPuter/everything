@@ -66,6 +66,11 @@ export class FeaWorkspace {
   constructor(readonly app: App) {
     app.store.on((reason) => {
       if (reason === 'load') this.reset();
+      const s = this.study;
+      if (this.focus && !s?.fixtures.some((f) => f.id === this.focus) && !s?.loads.some((l) => l.id === this.focus)) this.focus = null;
+      // A fixture or load deleted (or its study undone) while its panel is open: OK would bring it back.
+      const p = app.panel;
+      if ((p instanceof FixturePanel || p instanceof LoadPanel) && !p.present) void app.closePanel(false);
       this.changed();
     });
     app.ribbonTabListeners.push(() => this.redraw());

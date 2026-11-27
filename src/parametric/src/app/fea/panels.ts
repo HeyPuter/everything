@@ -164,7 +164,7 @@ export class FixturePanel extends FeaPanel {
   }
 
   get present(): boolean {
-    return this.creating || !!this.ws.study?.fixtures.some((x) => x.id === this.f.id);
+    return !!this.ws.study && (this.creating || this.ws.study.fixtures.some((x) => x.id === this.f.id));
   }
 
   get edited() { return true; }
@@ -213,7 +213,7 @@ export class LoadPanel extends FeaPanel {
   }
 
   get present(): boolean {
-    return this.creating || !!this.ws.study?.loads.some((x) => x.id === this.l.id);
+    return !!this.ws.study && (this.creating || this.ws.study.loads.some((x) => x.id === this.l.id));
   }
 
   get edited() { return true; }
