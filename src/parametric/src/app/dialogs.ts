@@ -236,24 +236,27 @@ export async function materialDialog(app: App) {
   // The elastic fields that keep the set from being used (all empty is no set, not an error).
   const badElastic = () => {
     if (elasticFields.every((f) => !f.value.trim())) return [];
-    return elasticFields.filter((f) => {
+    const bad = elasticFields.filter((f) => {
       const v = Number(f.value);
       return !f.value.trim() || !Number.isFinite(v) || (f === customNu ? v < 0 || v >= 0.5 : v <= 0);
     });
+    return bad.length ? bad : yieldAboveUts() ? [customYield, customUts] : [];
   };
+  // Yield above the tensile strength: the two are most likely swapped.
+  const yieldAboveUts = () => Number(customYield.value) > Number(customUts.value);
   const customElastic = (): ElasticProps | null | 'invalid' => {
     if (elasticFields.every((f) => !f.value.trim())) return null;
     const e = { E: Number(customE.value) * 1000, nu: Number(customNu.value), yield: Number(customYield.value), uts: Number(customUts.value) };
-    return elasticFields.some((f) => !f.value.trim()) || !validElastic(e) ? 'invalid' : e;
+    return elasticFields.some((f) => !f.value.trim()) || !validElastic(e) || yieldAboveUts() ? 'invalid' : e;
   };
   const validate = () => {
     const density = Number(customDensity.value);
     const densityOk = select.value !== '__custom' || (Number.isFinite(density) && density > 0);
     const elasticOk = select.value !== '__custom' || customElastic() !== 'invalid';
-    error.textContent = !densityOk ? 'Enter a finite, positive density.' : !elasticOk ? 'Enter all four elastic properties as positive numbers, with a Poisson\'s ratio from 0 to below 0.5 (or leave them all empty).' : '';
+    const bad = elasticOk ? [] : badElastic();
+    error.textContent = !densityOk ? 'Enter a finite, positive density.' : !elasticOk ? (bad[0] === customYield && bad.length === 2 && yieldAboveUts() ? 'The yield strength cannot be above the tensile strength.' : 'Enter all four elastic properties as positive numbers, with a Poisson\'s ratio from 0 to below 0.5 (or leave them all empty).') : '';
     if (densityOk) customDensity.removeAttribute('aria-invalid');
     else customDensity.setAttribute('aria-invalid', 'true');
-    const bad = elasticOk ? [] : badElastic();
     for (const f of elasticFields) { if (bad.includes(f)) f.setAttribute('aria-invalid', 'true'); else f.removeAttribute('aria-invalid'); }
     return densityOk && elasticOk;
   };
